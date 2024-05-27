@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/curio/tasks/seal"
 	"net/http"
 	"net/url"
 	"time"
@@ -21,7 +22,6 @@ import (
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/curio/curiosrc/seal"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 )

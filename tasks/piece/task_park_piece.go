@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/tasks/seal"
 	"strconv"
 	"time"
 
@@ -13,7 +14,6 @@ import (
 
 	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
 	"github.com/filecoin-project/curio/curiosrc/harmony/resources"
-	"github.com/filecoin-project/curio/curiosrc/seal"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/lib/promise"
 	"github.com/filecoin-project/lotus/storage/paths"

@@ -7,6 +7,11 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/tasks/gc"
+	message2 "github.com/filecoin-project/curio/tasks/message"
+	piece2 "github.com/filecoin-project/curio/tasks/piece"
+	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/winning"
 	"sort"
 	"strings"
 	"time"
@@ -19,12 +24,7 @@ import (
 	"github.com/filecoin-project/go-address"
 
 	curio "github.com/filecoin-project/curio/curiosrc"
-	"github.com/filecoin-project/curio/curiosrc/gc"
 	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
-	"github.com/filecoin-project/curio/curiosrc/message"
-	"github.com/filecoin-project/curio/curiosrc/piece"
-	"github.com/filecoin-project/curio/curiosrc/seal"
-	"github.com/filecoin-project/curio/curiosrc/winning"
 	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/lib/must"
 	"github.com/filecoin-project/lotus/node/modules"
@@ -45,7 +45,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	si := dependencies.Si
 	var activeTasks []harmonytask.TaskInterface
 
-	sender, sendTask := message.NewSender(full, full, db)
+	sender, sendTask := message2.NewSender(full, full, db)
 	activeTasks = append(activeTasks, sendTask)
 
 	chainSched := chainsched.New(full)
@@ -85,11 +85,11 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	{
 		// Piece handling
 		if cfg.Subsystems.EnableParkPiece {
-			parkPieceTask, err := piece.NewParkPieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.ParkPieceMaxTasks)
+			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.ParkPieceMaxTasks)
 			if err != nil {
 				return nil, err
 			}
-			cleanupPieceTask := piece.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
+			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
 			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask)
 		}
 	}
@@ -180,7 +180,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	go machineDetails(dependencies, activeTasks, ht.ResourcesAvailable().MachineID)
 
 	if hasAnySealingTask {
-		watcher, err := message.NewMessageWatcher(db, ht, chainSched, full)
+		watcher, err := message2.NewMessageWatcher(db, ht, chainSched, full)
 		if err != nil {
 			return nil, err
 		}

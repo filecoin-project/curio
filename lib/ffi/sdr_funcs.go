@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/filecoin-project/curio/lib/ffiselect"
+	"github.com/filecoin-project/curio/lib/proof"
 	"io"
 	"os"
 	"path/filepath"
@@ -23,7 +24,6 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	proof2 "github.com/filecoin-project/go-state-types/proof"
 
-	"github.com/filecoin-project/curio/curiosrc/proof"
 	"github.com/filecoin-project/lotus/storage/paths"
 	"github.com/filecoin-project/lotus/storage/sealer/proofpaths"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"

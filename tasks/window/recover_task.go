@@ -3,6 +3,7 @@ package window
 import (
 	"context"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/tasks/message"
 
 	"golang.org/x/xerrors"
 
@@ -14,7 +15,6 @@ import (
 
 	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
 	"github.com/filecoin-project/curio/curiosrc/harmony/resources"
-	"github.com/filecoin-project/curio/curiosrc/message"
 	"github.com/filecoin-project/curio/curiosrc/multictladdr"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors"
