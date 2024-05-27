@@ -3,6 +3,7 @@ package ffiselect
 import (
 	"bytes"
 	"encoding/gob"
+	"github.com/filecoin-project/curio/build"
 	"io"
 	"os"
 	"os/exec"
@@ -18,7 +19,6 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/proof"
 
-	"github.com/filecoin-project/curio/curiosrc/build"
 	"github.com/filecoin-project/curio/curiosrc/ffiselect/ffidirect"
 )
 
