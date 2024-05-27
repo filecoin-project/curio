@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/filecoin-project/curio/cmd/curio/rpc"
+	"github.com/filecoin-project/curio/cmd/curio/tasks"
 	"os"
 	"strings"
 
@@ -11,11 +13,9 @@ import (
 	"go.opencensus.io/stats"
 	"golang.org/x/xerrors"
 
-	lcli "github.com/filecoin-project/lotus/cli"
-	"github.com/filecoin-project/curio/curiosrc/cmd/curio/rpc"
-	"github.com/filecoin-project/curio/curiosrc/cmd/curio/tasks"
 	"github.com/filecoin-project/curio/curiosrc/deps"
 	"github.com/filecoin-project/curio/curiosrc/market/lmrpc"
+	lcli "github.com/filecoin-project/lotus/cli"
 	"github.com/filecoin-project/lotus/lib/ulimit"
 	"github.com/filecoin-project/lotus/metrics"
 	"github.com/filecoin-project/lotus/node"

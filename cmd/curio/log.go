@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
+	"github.com/filecoin-project/curio/cmd/curio/rpc"
 
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
 	lcli "github.com/filecoin-project/lotus/cli"
-	"github.com/filecoin-project/curio/curiosrc/cmd/curio/rpc"
 )
 
 var logCmd = &cli.Command{
