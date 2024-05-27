@@ -15,9 +15,9 @@ import (
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/lotus/curiosrc/ffi"
-	"github.com/filecoin-project/lotus/curiosrc/harmony/harmonytask"
-	"github.com/filecoin-project/lotus/curiosrc/harmony/resources"
+	"github.com/filecoin-project/curio/curiosrc/ffi"
+	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
+	"github.com/filecoin-project/curio/curiosrc/harmony/resources"
 	"github.com/filecoin-project/lotus/lib/filler"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/storage/pipeline/lib/nullreader"

@@ -14,8 +14,8 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	lcli "github.com/filecoin-project/lotus/cli"
-	"github.com/filecoin-project/lotus/curiosrc/deps"
-	"github.com/filecoin-project/lotus/curiosrc/market/lmrpc"
+	"github.com/filecoin-project/curio/curiosrc/deps"
+	"github.com/filecoin-project/curio/curiosrc/market/lmrpc"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 )
 

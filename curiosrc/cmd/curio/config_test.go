@@ -9,7 +9,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 
-	"github.com/filecoin-project/lotus/curiosrc/deps"
+	"github.com/filecoin-project/curio/curiosrc/deps"
 	"github.com/filecoin-project/lotus/node/config"
 )
 

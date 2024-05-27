@@ -6,7 +6,7 @@ import (
 	"github.com/filecoin-project/go-address"
 
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/curiosrc/multictladdr"
+	"github.com/filecoin-project/curio/curiosrc/multictladdr"
 	"github.com/filecoin-project/lotus/node/config"
 )
 

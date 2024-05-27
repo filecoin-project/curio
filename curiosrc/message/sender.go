@@ -16,8 +16,8 @@ import (
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/curiosrc/harmony/harmonytask"
-	"github.com/filecoin-project/lotus/curiosrc/harmony/resources"
+	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
+	"github.com/filecoin-project/curio/curiosrc/harmony/resources"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/lib/promise"
 )
