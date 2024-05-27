@@ -7,7 +7,7 @@ import (
 	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/curio/lib/passcall"
-	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
 func SingletonTaskAdder(minInterval time.Duration, task TaskInterface) func(AddTaskFunc) error {

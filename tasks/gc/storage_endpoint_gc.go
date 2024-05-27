@@ -12,7 +12,7 @@ import (
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/storage/paths"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
@@ -26,12 +26,12 @@ const StorageEndpointDeadTime = StorageEndpointGCInterval * 6 // ~2h
 const MaxParallelEndpointChecks = 32
 
 type StorageEndpointGC struct {
-	si     *paths.DBIndex
+	si     paths.SectorIndex
 	remote *paths.Remote
 	db     *harmonydb.DB
 }
 
-func NewStorageEndpointGC(si *paths.DBIndex, remote *paths.Remote, db *harmonydb.DB) *StorageEndpointGC {
+func NewStorageEndpointGC(si paths.SectorIndex, remote *paths.Remote, db *harmonydb.DB) *StorageEndpointGC {
 	return &StorageEndpointGC{
 		si:     si,
 		remote: remote,

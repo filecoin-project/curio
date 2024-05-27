@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/filecoin-project/curio/lib/custorage"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"io"
 	"net"
@@ -34,7 +35,7 @@ import (
 	"github.com/filecoin-project/lotus/journal"
 	"github.com/filecoin-project/lotus/journal/alerting"
 	"github.com/filecoin-project/lotus/journal/fsjournal"
-	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/node/modules"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
@@ -170,7 +171,7 @@ type Deps struct {
 	Maddrs     map[dtypes.MinerAddress]bool
 	ProofTypes map[abi.RegisteredSealProof]bool
 	Stor       *paths.Remote
-	Si         *paths.DBIndex
+	Si         paths.SectorIndex
 	LocalStore *paths.Local
 	LocalPaths *paths.BasicLocalStorage
 	ListenAddr string
@@ -248,7 +249,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		}()
 
 		al := alerting.NewAlertingSystem(j)
-		deps.Si = paths.NewDBIndex(al, deps.DB)
+		deps.Si = custorage.NewDBIndex(al, deps.DB)
 	}
 
 	if deps.Full == nil {
