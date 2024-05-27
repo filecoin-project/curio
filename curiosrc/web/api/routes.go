@@ -4,10 +4,10 @@ package api
 import (
 	"github.com/gorilla/mux"
 
-	"github.com/filecoin-project/lotus/curiosrc/deps"
-	"github.com/filecoin-project/lotus/curiosrc/web/api/config"
-	"github.com/filecoin-project/lotus/curiosrc/web/api/sector"
-	"github.com/filecoin-project/lotus/curiosrc/web/api/webrpc"
+	"github.com/filecoin-project/curio/curiosrc/deps"
+	"github.com/filecoin-project/curio/curiosrc/web/api/config"
+	"github.com/filecoin-project/curio/curiosrc/web/api/sector"
+	"github.com/filecoin-project/curio/curiosrc/web/api/webrpc"
 )
 
 func Routes(r *mux.Router, deps *deps.Deps) {

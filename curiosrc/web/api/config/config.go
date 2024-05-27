@@ -13,8 +13,8 @@ import (
 	"github.com/invopop/jsonschema"
 	logging "github.com/ipfs/go-log/v2"
 
-	"github.com/filecoin-project/lotus/curiosrc/deps"
-	"github.com/filecoin-project/lotus/curiosrc/web/api/apihelper"
+	"github.com/filecoin-project/curio/curiosrc/deps"
+	"github.com/filecoin-project/curio/curiosrc/web/api/apihelper"
 	"github.com/filecoin-project/lotus/node/config"
 )
 

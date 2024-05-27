@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/filecoin-project/lotus/curiosrc/harmony/resources"
+	"github.com/filecoin-project/curio/curiosrc/harmony/resources"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 )
 

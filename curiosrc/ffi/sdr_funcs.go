@@ -14,8 +14,8 @@ import (
 	"github.com/puzpuzpuz/xsync/v2"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/lotus/curiosrc/ffiselect"
-	"github.com/filecoin-project/lotus/curiosrc/harmony/harmonytask"
+	"github.com/filecoin-project/curio/curiosrc/ffiselect"
+	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
 
 	// TODO everywhere here that we call this we should call our proxy instead.
 	ffi "github.com/filecoin-project/filecoin-ffi"
@@ -23,7 +23,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	proof2 "github.com/filecoin-project/go-state-types/proof"
 
-	"github.com/filecoin-project/lotus/curiosrc/proof"
+	"github.com/filecoin-project/curio/curiosrc/proof"
 	"github.com/filecoin-project/lotus/storage/paths"
 	"github.com/filecoin-project/lotus/storage/sealer/proofpaths"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"

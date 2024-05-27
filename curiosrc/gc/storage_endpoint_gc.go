@@ -10,8 +10,8 @@ import (
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
-	harmonytask2 "github.com/filecoin-project/lotus/curiosrc/harmony/harmonytask"
-	"github.com/filecoin-project/lotus/curiosrc/harmony/resources"
+	harmonytask2 "github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
+	"github.com/filecoin-project/curio/curiosrc/harmony/resources"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/storage/paths"

@@ -16,7 +16,7 @@ import (
 	"github.com/filecoin-project/go-state-types/dline"
 
 	curio "github.com/filecoin-project/lotus/curiosrc"
-	"github.com/filecoin-project/lotus/curiosrc/deps"
+	"github.com/filecoin-project/curio/curiosrc/deps"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 )
 
