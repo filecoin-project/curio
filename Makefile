@@ -1,3 +1,4 @@
+GOCC?=go
 
 FFI_PATH:=extern/filecoin-ffi/
 FFI_DEPS:=.install-filcrypto
