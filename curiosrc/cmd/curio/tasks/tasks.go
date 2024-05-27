@@ -14,7 +14,7 @@ import (
 
 	"github.com/filecoin-project/go-address"
 
-	curio "github.com/filecoin-project/lotus/curiosrc"
+	curio "github.com/filecoin-project/curio/curiosrc"
 	"github.com/filecoin-project/curio/curiosrc/alertmanager"
 	"github.com/filecoin-project/curio/curiosrc/chainsched"
 	"github.com/filecoin-project/curio/curiosrc/deps"
