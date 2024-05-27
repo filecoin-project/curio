@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/curio/lib/ffiselect"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,7 +15,6 @@ import (
 	"github.com/puzpuzpuz/xsync/v2"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/curiosrc/ffiselect"
 	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
 
 	// TODO everywhere here that we call this we should call our proxy instead.

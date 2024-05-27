@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
+	"github.com/filecoin-project/curio/deps"
 	"net"
 	"os"
 	"time"
@@ -19,7 +20,6 @@ import (
 
 	"github.com/filecoin-project/go-jsonrpc/auth"
 
-	"github.com/filecoin-project/curio/curiosrc/deps"
 	"github.com/filecoin-project/lotus/api"
 	lcli "github.com/filecoin-project/lotus/cli"
 )

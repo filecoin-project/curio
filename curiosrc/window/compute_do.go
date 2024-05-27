@@ -3,6 +3,7 @@ package window
 import (
 	"bytes"
 	"context"
+	"github.com/filecoin-project/curio/lib/ffiselect"
 	"sort"
 	"sync"
 	"time"
@@ -25,7 +26,6 @@ import (
 	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/curio/curiosrc/ffiselect"
 	"github.com/filecoin-project/lotus/storage/sealer"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )

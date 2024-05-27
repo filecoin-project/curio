@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
+	"github.com/filecoin-project/curio/deps"
 	"os"
 	"os/signal"
 	"runtime/pprof"
@@ -18,7 +19,6 @@ import (
 
 	"github.com/filecoin-project/go-paramfetch"
 
-	"github.com/filecoin-project/curio/curiosrc/deps"
 	"github.com/filecoin-project/lotus/build"
 	lcli "github.com/filecoin-project/lotus/cli"
 	cliutil "github.com/filecoin-project/lotus/cli/util"

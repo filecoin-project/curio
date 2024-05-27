@@ -2,13 +2,13 @@ package curio
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/lib/chainsched"
 	"time"
 
-	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/curio/curiosrc/chainsched"
 	"github.com/filecoin-project/curio/curiosrc/message"
 	"github.com/filecoin-project/curio/curiosrc/multictladdr"
 	"github.com/filecoin-project/curio/curiosrc/window"
+	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/node/config"
 	dtypes "github.com/filecoin-project/lotus/node/modules/dtypes"

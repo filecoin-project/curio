@@ -3,6 +3,7 @@ package piece
 import (
 	"context"
 	"encoding/json"
+	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"strconv"
 	"time"
 
@@ -10,7 +11,6 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/curiosrc/ffi"
 	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
 	"github.com/filecoin-project/curio/curiosrc/harmony/resources"
 	"github.com/filecoin-project/curio/curiosrc/seal"
@@ -27,14 +27,14 @@ var PieceParkPollInterval = time.Second * 15
 // Pieces are always f00, piece ID is mapped to pieceCID in the DB
 type ParkPieceTask struct {
 	db *harmonydb.DB
-	sc *ffi.SealCalls
+	sc *ffi2.SealCalls
 
 	TF promise.Promise[harmonytask.AddTaskFunc]
 
 	max int
 }
 
-func NewParkPieceTask(db *harmonydb.DB, sc *ffi.SealCalls, max int) (*ParkPieceTask, error) {
+func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, max int) (*ParkPieceTask, error) {
 	pt := &ParkPieceTask{
 		db: db,
 		sc: sc,
@@ -209,23 +209,23 @@ func (p *ParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func (p *ParkPieceTask) taskToRef(id harmonytask.TaskID) (ffi.SectorRef, error) {
+func (p *ParkPieceTask) taskToRef(id harmonytask.TaskID) (ffi2.SectorRef, error) {
 	var pieceIDs []struct {
 		ID storiface.PieceNumber `db:"id"`
 	}
 
 	err := p.db.Select(context.Background(), &pieceIDs, `SELECT id FROM parked_pieces WHERE task_id = $1`, id)
 	if err != nil {
-		return ffi.SectorRef{}, xerrors.Errorf("getting piece id: %w", err)
+		return ffi2.SectorRef{}, xerrors.Errorf("getting piece id: %w", err)
 	}
 
 	if len(pieceIDs) != 1 {
-		return ffi.SectorRef{}, xerrors.Errorf("expected 1 piece id, got %d", len(pieceIDs))
+		return ffi2.SectorRef{}, xerrors.Errorf("expected 1 piece id, got %d", len(pieceIDs))
 	}
 
 	pref := pieceIDs[0].ID.Ref()
 
-	return ffi.SectorRef{
+	return ffi2.SectorRef{
 		SpID:         int64(pref.ID.Miner),
 		SectorNumber: int64(pref.ID.Number),
 		RegSealProof: pref.ProofType,

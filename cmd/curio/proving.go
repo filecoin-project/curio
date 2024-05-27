@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/filecoin-project/curio/deps"
 	"os"
 	"time"
 
@@ -16,7 +17,6 @@ import (
 	"github.com/filecoin-project/go-state-types/dline"
 
 	curio "github.com/filecoin-project/curio/curiosrc"
-	"github.com/filecoin-project/curio/curiosrc/deps"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 )
 

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/curio/deps"
 	"os"
 	"path"
 	"strings"
@@ -20,7 +21,6 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-statestore"
 
-	"github.com/filecoin-project/curio/curiosrc/deps"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/lib/must"
 	"github.com/filecoin-project/lotus/node/config"

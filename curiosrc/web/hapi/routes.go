@@ -2,6 +2,7 @@ package hapi
 
 import (
 	"embed"
+	"github.com/filecoin-project/curio/deps"
 	"text/template"
 
 	"github.com/gorilla/mux"
@@ -9,7 +10,6 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/curio/curiosrc/deps"
 )
 
 //go:embed web/*

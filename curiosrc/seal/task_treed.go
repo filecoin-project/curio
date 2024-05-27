@@ -2,6 +2,7 @@ package seal
 
 import (
 	"context"
+	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"io"
 	"net/http"
 	"net/url"
@@ -15,7 +16,6 @@ import (
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/curio/curiosrc/ffi"
 	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
 	"github.com/filecoin-project/curio/curiosrc/harmony/resources"
 	"github.com/filecoin-project/lotus/lib/filler"
@@ -28,7 +28,7 @@ import (
 type TreeDTask struct {
 	sp *SealPoller
 	db *harmonydb.DB
-	sc *ffi.SealCalls
+	sc *ffi2.SealCalls
 
 	max int
 }
@@ -63,16 +63,16 @@ func (t *TreeDTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func (t *TreeDTask) taskToSector(id harmonytask.TaskID) (ffi.SectorRef, error) {
-	var refs []ffi.SectorRef
+func (t *TreeDTask) taskToSector(id harmonytask.TaskID) (ffi2.SectorRef, error) {
+	var refs []ffi2.SectorRef
 
 	err := t.db.Select(context.Background(), &refs, `SELECT sp_id, sector_number, reg_seal_proof FROM sectors_sdr_pipeline WHERE task_id_tree_d = $1`, id)
 	if err != nil {
-		return ffi.SectorRef{}, xerrors.Errorf("getting sector ref: %w", err)
+		return ffi2.SectorRef{}, xerrors.Errorf("getting sector ref: %w", err)
 	}
 
 	if len(refs) != 1 {
-		return ffi.SectorRef{}, xerrors.Errorf("expected 1 sector ref, got %d", len(refs))
+		return ffi2.SectorRef{}, xerrors.Errorf("expected 1 sector ref, got %d", len(refs))
 	}
 
 	return refs[0], nil
@@ -82,7 +82,7 @@ func (t *TreeDTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	t.sp.pollers[pollerTreeD].Set(taskFunc)
 }
 
-func NewTreeDTask(sp *SealPoller, db *harmonydb.DB, sc *ffi.SealCalls, maxTrees int) *TreeDTask {
+func NewTreeDTask(sp *SealPoller, db *harmonydb.DB, sc *ffi2.SealCalls, maxTrees int) *TreeDTask {
 	return &TreeDTask{
 		sp: sp,
 		db: db,

@@ -3,6 +3,7 @@ package window
 import (
 	"bytes"
 	"context"
+	"github.com/filecoin-project/curio/lib/chainsched"
 
 	"golang.org/x/xerrors"
 
@@ -13,13 +14,12 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v9/miner"
 	"github.com/filecoin-project/go-state-types/crypto"
 
-	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/curio/curiosrc/chainsched"
 	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
 	"github.com/filecoin-project/curio/curiosrc/harmony/resources"
 	"github.com/filecoin-project/curio/curiosrc/message"
 	"github.com/filecoin-project/curio/curiosrc/multictladdr"
+	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/lib/promise"
 	"github.com/filecoin-project/lotus/storage/wdpost"

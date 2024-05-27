@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/lib/ffiselect/ffidirect"
 	"io"
 	"os"
 	"os/exec"
@@ -18,8 +19,6 @@ import (
 	ffi "github.com/filecoin-project/filecoin-ffi"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/proof"
-
-	"github.com/filecoin-project/curio/curiosrc/ffiselect/ffidirect"
 )
 
 var IsTest = false

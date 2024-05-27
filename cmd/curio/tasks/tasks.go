@@ -3,6 +3,10 @@ package tasks
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/alertmanager"
+	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ffi"
 	"sort"
 	"strings"
 	"time"
@@ -15,10 +19,6 @@ import (
 	"github.com/filecoin-project/go-address"
 
 	curio "github.com/filecoin-project/curio/curiosrc"
-	"github.com/filecoin-project/curio/curiosrc/alertmanager"
-	"github.com/filecoin-project/curio/curiosrc/chainsched"
-	"github.com/filecoin-project/curio/curiosrc/deps"
-	"github.com/filecoin-project/curio/curiosrc/ffi"
 	"github.com/filecoin-project/curio/curiosrc/gc"
 	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
 	"github.com/filecoin-project/curio/curiosrc/message"

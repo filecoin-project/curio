@@ -3,6 +3,7 @@ package message
 import (
 	"context"
 	"encoding/json"
+	"github.com/filecoin-project/curio/lib/chainsched"
 	"sync/atomic"
 
 	"github.com/ipfs/go-cid"
@@ -10,10 +11,9 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/curio/curiosrc/chainsched"
-	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 )
 

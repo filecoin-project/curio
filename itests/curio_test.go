@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/cmd/curio/tasks"
+	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/ffiselect"
 	"net"
 	"os"
 	"path"
@@ -27,8 +29,6 @@ import (
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/curio/curiosrc/deps"
-	"github.com/filecoin-project/curio/curiosrc/ffiselect"
 	"github.com/filecoin-project/curio/curiosrc/market/lmrpc"
 	"github.com/filecoin-project/curio/curiosrc/seal"
 	"github.com/filecoin-project/lotus/api"

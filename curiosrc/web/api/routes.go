@@ -2,9 +2,9 @@
 package api
 
 import (
+	"github.com/filecoin-project/curio/deps"
 	"github.com/gorilla/mux"
 
-	"github.com/filecoin-project/curio/curiosrc/deps"
 	"github.com/filecoin-project/curio/curiosrc/web/api/config"
 	"github.com/filecoin-project/curio/curiosrc/web/api/sector"
 	"github.com/filecoin-project/curio/curiosrc/web/api/webrpc"

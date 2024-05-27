@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/curio/deps"
 	"io"
 	"math/bits"
 	"net/http"
@@ -39,7 +40,6 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	_ "github.com/filecoin-project/curio/cmd/curio/internal/translations"
-	"github.com/filecoin-project/curio/curiosrc/deps"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/v1api"
 	"github.com/filecoin-project/lotus/build"

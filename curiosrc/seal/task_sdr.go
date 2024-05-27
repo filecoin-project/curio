@@ -3,6 +3,7 @@ package seal
 import (
 	"bytes"
 	"context"
+	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
@@ -13,12 +14,11 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/crypto"
 
+	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
+	"github.com/filecoin-project/curio/curiosrc/harmony/resources"
 	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/curio/curiosrc/ffi"
-	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
-	"github.com/filecoin-project/curio/curiosrc/harmony/resources"
 	"github.com/filecoin-project/lotus/lib/filler"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/storage/paths"
@@ -46,12 +46,12 @@ type SDRTask struct {
 	db  *harmonydb.DB
 	sp  *SealPoller
 
-	sc *ffi.SealCalls
+	sc *ffi2.SealCalls
 
 	max int
 }
 
-func NewSDRTask(api SDRAPI, db *harmonydb.DB, sp *SealPoller, sc *ffi.SealCalls, maxSDR int) *SDRTask {
+func NewSDRTask(api SDRAPI, db *harmonydb.DB, sp *SealPoller, sc *ffi2.SealCalls, maxSDR int) *SDRTask {
 	return &SDRTask{
 		api: api,
 		db:  db,
@@ -261,16 +261,16 @@ func (s *SDRTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	s.sp.pollers[pollerSDR].Set(taskFunc)
 }
 
-func (s *SDRTask) taskToSector(id harmonytask.TaskID) (ffi.SectorRef, error) {
-	var refs []ffi.SectorRef
+func (s *SDRTask) taskToSector(id harmonytask.TaskID) (ffi2.SectorRef, error) {
+	var refs []ffi2.SectorRef
 
 	err := s.db.Select(context.Background(), &refs, `SELECT sp_id, sector_number, reg_seal_proof FROM sectors_sdr_pipeline WHERE task_id_sdr = $1`, id)
 	if err != nil {
-		return ffi.SectorRef{}, xerrors.Errorf("getting sector ref: %w", err)
+		return ffi2.SectorRef{}, xerrors.Errorf("getting sector ref: %w", err)
 	}
 
 	if len(refs) != 1 {
-		return ffi.SectorRef{}, xerrors.Errorf("expected 1 sector ref, got %d", len(refs))
+		return ffi2.SectorRef{}, xerrors.Errorf("expected 1 sector ref, got %d", len(refs))
 	}
 
 	return refs[0], nil

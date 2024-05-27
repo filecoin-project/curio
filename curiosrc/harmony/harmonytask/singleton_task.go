@@ -6,7 +6,7 @@ import (
 
 	"github.com/yugabyte/pgx/v5"
 
-	"github.com/filecoin-project/curio/curiosrc/lib/passcall"
+	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 )
 

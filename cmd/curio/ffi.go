@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/gob"
 	"fmt"
+	"github.com/filecoin-project/curio/lib/ffiselect"
+	"github.com/filecoin-project/curio/lib/ffiselect/ffidirect"
 	"os"
 	"reflect"
 
@@ -11,8 +13,6 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/curiosrc/ffiselect"
-	"github.com/filecoin-project/curio/curiosrc/ffiselect/ffidirect"
 	"github.com/filecoin-project/lotus/lib/must"
 )
 
