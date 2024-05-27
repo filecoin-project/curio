@@ -5,13 +5,22 @@ import (
 	"context"
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/tasks/gc"
+	"github.com/filecoin-project/curio/tasks/message"
 	message2 "github.com/filecoin-project/curio/tasks/message"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/seal"
+	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
+	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
+	"github.com/filecoin-project/lotus/node/config"
+	"github.com/filecoin-project/lotus/storage/paths"
+	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 	"sort"
 	"strings"
 	"time"
@@ -23,8 +32,6 @@ import (
 
 	"github.com/filecoin-project/go-address"
 
-	curio "github.com/filecoin-project/curio/curiosrc"
-	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
 	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/lib/must"
 	"github.com/filecoin-project/lotus/node/modules"
@@ -32,6 +39,32 @@ import (
 )
 
 var log = logging.Logger("curio/deps")
+
+func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.CurioProvingConfig,
+	api api.FullNode, verif storiface.Verifier, sender *message.Sender, chainSched *chainsched.CurioChainSched,
+	as *multictladdr.MultiAddressSelector, addresses map[dtypes.MinerAddress]bool, db *harmonydb.DB,
+	stor paths.Store, idx paths.SectorIndex, max int) (*window2.WdPostTask, *window2.WdPostSubmitTask, *window2.WdPostRecoverDeclareTask, error) {
+
+	// todo config
+	ft := window2.NewSimpleFaultTracker(stor, idx, pc.ParallelCheckLimit, time.Duration(pc.SingleCheckTimeout), time.Duration(pc.PartitionCheckTimeout))
+
+	computeTask, err := window2.NewWdPostTask(db, api, ft, stor, verif, chainSched, addresses, max, pc.ParallelCheckLimit, time.Duration(pc.SingleCheckTimeout))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	submitTask, err := window2.NewWdPostSubmitTask(chainSched, sender, db, api, fc.MaxWindowPoStGasFee, as)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	recoverTask, err := window2.NewWdPostRecoverDeclareTask(sender, db, api, ft, as, chainSched, fc.MaxWindowPoStGasFee, addresses)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return computeTask, submitTask, recoverTask, nil
+}
 
 func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.TaskEngine, error) {
 	cfg := dependencies.Cfg
@@ -59,7 +92,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		// PoSt
 
 		if cfg.Subsystems.EnableWindowPost {
-			wdPostTask, wdPoStSubmitTask, derlareRecoverTask, err := curio.WindowPostScheduler(
+			wdPostTask, wdPoStSubmitTask, derlareRecoverTask, err := WindowPostScheduler(
 				ctx, cfg.Fees, cfg.Proving, full, verif, sender, chainSched,
 				as, maddrs, db, stor, si, cfg.Subsystems.WindowPostMaxTasks)
 

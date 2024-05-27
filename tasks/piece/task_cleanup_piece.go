@@ -2,13 +2,13 @@ package piece
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"time"
 
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
-	"github.com/filecoin-project/curio/curiosrc/harmony/resources"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/lib/promise"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"

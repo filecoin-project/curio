@@ -6,6 +6,7 @@ import (
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/cmd/curio/tasks"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/market/lmrpc"
 	"os"
 	"strings"
 
@@ -14,7 +15,6 @@ import (
 	"go.opencensus.io/stats"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/curiosrc/market/lmrpc"
 	lcli "github.com/filecoin-project/lotus/cli"
 	"github.com/filecoin-project/lotus/lib/ulimit"
 	"github.com/filecoin-project/lotus/metrics"

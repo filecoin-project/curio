@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/tasks/message"
 
 	"golang.org/x/xerrors"
@@ -18,9 +21,6 @@ import (
 	verifreg13 "github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 	verifregtypes9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 
-	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
-	"github.com/filecoin-project/curio/curiosrc/harmony/resources"
-	"github.com/filecoin-project/curio/curiosrc/multictladdr"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/market"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"

@@ -1,4 +1,4 @@
-package curio
+package multictladdr
 
 import (
 	"golang.org/x/xerrors"
@@ -6,13 +6,12 @@ import (
 	"github.com/filecoin-project/go-address"
 
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/curio/curiosrc/multictladdr"
 	"github.com/filecoin-project/lotus/node/config"
 )
 
-func AddressSelector(addrConf []config.CurioAddresses) func() (*multictladdr.MultiAddressSelector, error) {
-	return func() (*multictladdr.MultiAddressSelector, error) {
-		as := &multictladdr.MultiAddressSelector{
+func AddressSelector(addrConf []config.CurioAddresses) func() (*MultiAddressSelector, error) {
+	return func() (*MultiAddressSelector, error) {
+		as := &MultiAddressSelector{
 			MinerMap: make(map[address.Address]api.AddressConfig),
 		}
 		if addrConf == nil {

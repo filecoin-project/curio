@@ -3,11 +3,11 @@ package harmonytask
 import (
 	"context"
 	"fmt"
+	"github.com/filecoin-project/curio/harmony/resources"
 	"strconv"
 	"sync/atomic"
 	"time"
 
-	"github.com/filecoin-project/curio/curiosrc/harmony/resources"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 )
 

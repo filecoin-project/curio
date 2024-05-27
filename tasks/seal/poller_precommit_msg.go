@@ -2,6 +2,7 @@ package seal
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
 
 	"golang.org/x/xerrors"
 
@@ -9,7 +10,6 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/exitcode"
 
-	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"

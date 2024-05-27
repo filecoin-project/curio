@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/web/api/apihelper"
 	"net/http"
 	"reflect"
 	"time"
@@ -14,7 +15,6 @@ import (
 	"github.com/invopop/jsonschema"
 	logging "github.com/ipfs/go-log/v2"
 
-	"github.com/filecoin-project/curio/curiosrc/web/api/apihelper"
 	"github.com/filecoin-project/lotus/node/config"
 )
 

@@ -9,6 +9,7 @@ import (
 	"github.com/filecoin-project/curio/cmd/curio/tasks"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/ffiselect"
+	"github.com/filecoin-project/curio/market/lmrpc"
 	"github.com/filecoin-project/curio/tasks/seal"
 	"net"
 	"os"
@@ -30,7 +31,6 @@ import (
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/curio/curiosrc/market/lmrpc"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/v1api"
 	miner2 "github.com/filecoin-project/lotus/chain/actors/builtin/miner"

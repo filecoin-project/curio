@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/filecoin-project/curio/lib/multictladdr"
 	"io"
 	"net"
 	"net/http"
@@ -27,8 +28,6 @@ import (
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	curio "github.com/filecoin-project/curio/curiosrc"
-	"github.com/filecoin-project/curio/curiosrc/multictladdr"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/v1api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -228,7 +227,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	}
 
 	if deps.As == nil {
-		deps.As, err = curio.AddressSelector(deps.Cfg.Addresses)()
+		deps.As, err = multictladdr.AddressSelector(deps.Cfg.Addresses)()
 		if err != nil {
 			return err
 		}

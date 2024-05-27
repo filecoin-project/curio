@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/filecoin-project/curio/cmd/curio/tasks"
 	"github.com/filecoin-project/curio/deps"
 	"os"
 	"time"
@@ -16,7 +17,6 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/dline"
 
-	curio "github.com/filecoin-project/curio/curiosrc"
 	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 )
 
@@ -167,7 +167,7 @@ It will not send any messages to the chain. Since it can compute any deadline, o
 			return err
 		}
 
-		wdPostTask, wdPoStSubmitTask, derlareRecoverTask, err := curio.WindowPostScheduler(
+		wdPostTask, wdPoStSubmitTask, derlareRecoverTask, err := tasks.WindowPostScheduler(
 			ctx, deps.Cfg.Fees, deps.Cfg.Proving, deps.Full, deps.Verif, nil, nil,
 			deps.As, deps.Maddrs, deps.DB, deps.Stor, deps.Si, deps.Cfg.Subsystems.WindowPostMaxTasks)
 		if err != nil {

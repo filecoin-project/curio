@@ -2,13 +2,13 @@ package ffi
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"io"
 	"os"
 	"time"
 
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/curiosrc/harmony/harmonytask"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
