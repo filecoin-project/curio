@@ -308,3 +308,5 @@ require (
 	howett.net/plist v0.0.0-20181124034731-591f970eefbb // indirect
 	lukechampine.com/blake3 v1.2.1 // indirect
 )
+
+replace github.com/filecoin-project/filecoin-ffi => ./extern/filecoin-ffi

@@ -27,11 +27,11 @@ import (
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	curio "github.com/filecoin-project/curio/curiosrc"
+	"github.com/filecoin-project/curio/curiosrc/multictladdr"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/v1api"
 	"github.com/filecoin-project/lotus/chain/types"
-	curio "github.com/filecoin-project/lotus/curiosrc"
-	"github.com/filecoin-project/curio/curiosrc/multictladdr"
 	"github.com/filecoin-project/lotus/journal"
 	"github.com/filecoin-project/lotus/journal/alerting"
 	"github.com/filecoin-project/lotus/journal/fsjournal"
