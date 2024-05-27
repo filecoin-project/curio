@@ -17,7 +17,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/dline"
 
-	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
 var testCmd = &cli.Command{
