@@ -1,3 +1,5 @@
+SHELL=/usr/bin/env bash
+
 GOCC?=go
 
 FFI_PATH:=extern/filecoin-ffi/
