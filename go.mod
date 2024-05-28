@@ -310,3 +310,5 @@ require (
 )
 
 replace github.com/filecoin-project/filecoin-ffi => ./extern/filecoin-ffi
+
+replace github.com/KarpelesLab/reflink => github.com/magik6k/reflink v1.0.2-patch1

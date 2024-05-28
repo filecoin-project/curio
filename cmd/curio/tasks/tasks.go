@@ -3,6 +3,10 @@ package tasks
 
 import (
 	"context"
+	"sort"
+	"strings"
+	"time"
+
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -21,9 +25,6 @@ import (
 	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/storage/paths"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
-	"sort"
-	"strings"
-	"time"
 
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
@@ -210,7 +211,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	if err != nil {
 		return nil, err
 	}
-	go machineDetails(dependencies, activeTasks, ht.ResourcesAvailable().MachineID)
+	go machineDetails(dependencies, activeTasks, ht.ResourcesAvailable().MachineID, dependencies.Name)
 
 	if hasAnySealingTask {
 		watcher, err := message2.NewMessageWatcher(db, ht, chainSched, full)
@@ -227,7 +228,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	return ht, nil
 }
 
-func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, machineID int) {
+func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, machineID int, machineName string) {
 	taskNames := lo.Map(activeTasks, func(item harmonytask.TaskInterface, _ int) string {
 		return item.TypeDetails().Name
 	})
@@ -238,10 +239,10 @@ func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, ma
 	sort.Strings(miners)
 
 	_, err := deps.DB.Exec(context.Background(), `INSERT INTO harmony_machine_details 
-		(tasks, layers, startup_time, miners, machine_id) VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (machine_id) DO UPDATE SET tasks=$1, layers=$2, startup_time=$3, miners=$4`,
+		(tasks, layers, startup_time, miners, machine_id, machine_name) VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (machine_id) DO UPDATE SET tasks=$1, layers=$2, startup_time=$3, miners=$4, machine_id=$5, machine_name=$6`,
 		strings.Join(taskNames, ","), strings.Join(deps.Layers, ","),
-		time.Now(), strings.Join(miners, ","), machineID)
+		time.Now(), strings.Join(miners, ","), machineID, machineName)
 
 	if err != nil {
 		log.Errorf("failed to update machine details: %s", err)

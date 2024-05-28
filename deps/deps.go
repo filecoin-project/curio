@@ -8,8 +8,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/filecoin-project/curio/lib/custorage"
-	"github.com/filecoin-project/curio/lib/multictladdr"
 	"io"
 	"net"
 	"net/http"
@@ -17,6 +15,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/filecoin-project/curio/lib/custorage"
+	"github.com/filecoin-project/curio/lib/multictladdr"
 
 	"github.com/BurntSushi/toml"
 	"github.com/gbrlsnchs/jwt/v3"
@@ -29,13 +30,13 @@ import (
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/v1api"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/journal"
 	"github.com/filecoin-project/lotus/journal/alerting"
 	"github.com/filecoin-project/lotus/journal/fsjournal"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/node/modules"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
@@ -175,6 +176,7 @@ type Deps struct {
 	LocalStore *paths.Local
 	LocalPaths *paths.BasicLocalStorage
 	ListenAddr string
+	Name       string
 }
 
 const (
@@ -334,6 +336,10 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 			}
 			deps.ProofTypes[spt] = true
 		}
+	}
+
+	if deps.Name == "" {
+		deps.Name = cctx.String("name")
 	}
 
 	return nil
