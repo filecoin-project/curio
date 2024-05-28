@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
-	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"math/bits"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/filecoin-project/curio/cmd/curio/rpc"
 
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
@@ -29,7 +30,7 @@ var storageCmd = &cli.Command{
 	Name:  "storage",
 	Usage: "manage sector storage",
 	Description: `Sectors can be stored across many filesystem paths. These
-commands provide ways to manage the storage the miner will used to store sectors
+commands provide ways to manage the storage a Curio node will use to store sectors
 long term for proving (references as 'store') as well as how sectors will be
 stored while moving through the sealing pipeline (references as 'seal').`,
 	Subcommands: []*cli.Command{
@@ -48,8 +49,8 @@ var storageAttachCmd = &cli.Command{
 	Name:      "attach",
 	Usage:     "attach local storage path",
 	ArgsUsage: "[path]",
-	Description: `Storage can be attached to the miner using this command. The storage volume
-list is stored local to the miner in storage.json set in curio run. We do not
+	Description: `Storage can be attached to a Curio node using this command. The storage volume
+list is stored local to the Curio node in storage.json set in curio run. We do not
 recommend manually modifying this value without further understanding of the
 storage system.
 
@@ -423,7 +424,7 @@ var storageFindCmd = &cli.Command{
 		}
 
 		if !cctx.Args().Present() {
-			return xerrors.New("Usage: lotus-miner storage find [sector number]")
+			return xerrors.New("Usage: curio cli --machine <machine IP:Port> storage find [sector number]")
 		}
 
 		snum, err := strconv.ParseUint(cctx.Args().Get(1), 10, 64)
