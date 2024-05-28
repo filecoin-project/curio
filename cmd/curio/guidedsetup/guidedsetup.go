@@ -12,7 +12,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/filecoin-project/curio/deps"
 	"io"
 	"math/bits"
 	"net/http"
@@ -24,6 +23,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/filecoin-project/curio/deps"
 
 	"github.com/BurntSushi/toml"
 	"github.com/charmbracelet/lipgloss"
@@ -39,14 +40,17 @@ import (
 	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	curiobuild "github.com/filecoin-project/curio/build"
+
 	_ "github.com/filecoin-project/curio/cmd/curio/internal/translations"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/v1api"
 	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/cli/spcli"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/node/repo"
 )
@@ -346,7 +350,7 @@ func oneLastThing(d *MigrationData) {
 				d.say(notice, "Error getting miner power: %s", err.Error())
 				os.Exit(1)
 			}
-			msgMap["version"] = build.BuildVersion
+			msgMap["version"] = curiobuild.BuildVersion
 			msgMap["net"] = build.BuildType
 			msgMap["power"] = map[uploadType]uint64{
 				uploadTypeIndividual: power.MinerPower.QualityAdjPower.Uint64(),

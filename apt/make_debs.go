@@ -15,24 +15,28 @@ import (
 
 	"github.com/codeskyblue/go-sh"
 
+	"github.com/filecoin-project/curio/build"
+
 	"github.com/filecoin-project/lotus/lib/must"
 )
 
 var version string
 
 func main() {
-	if len(os.Args) < 3 || strings.EqualFold(os.Args[1], "help") {
-		fmt.Println("Usage: make_debs <version> path_to_Base64_enc_private_key.asc")
+	if len(os.Args) < 2 || strings.EqualFold(os.Args[1], "help") {
+		fmt.Println("Usage: make_debs path_to_Base64_enc_private_key.asc")
 		fmt.Println("Run this from the root of the curio repo as it runs 'make'.")
 		os.Exit(1)
 	}
 
-	version = os.Args[1]
+	version = build.BuildVersion
 
 	// Import the key (repeat imports are OK)
-	f := must.One(os.Open(os.Args[2]))
+	f := must.One(os.Open(os.Args[1]))
 	out := must.One(os.OpenFile("/tmp/private.key", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600))
 	_ = must.One(io.Copy(out, base64.NewDecoder(base64.StdEncoding, f)))
+	_ = out.Close()
+	_ = f.Close()
 	OrPanic(sh.Command("gpg", "--import", "/tmp/private.key").Run())
 	OrPanic(os.Remove("/tmp/private.key"))
 

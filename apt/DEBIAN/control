@@ -8,7 +8,7 @@ Homepage: github.com/filecoin-project/curio
 Rules-Requires-Root: no
 Package: $PACKAGE
 Version: $VERSION
-Architecture: amd64
+Architecture: $ARCH
 Depends: hwloc, mesa-opencl-icd
 Description: A Filecoin Storage Provider implementation.
  This Filecoin Storage Provider implementation is a fork of the Lotus project.

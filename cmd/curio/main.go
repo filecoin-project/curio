@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
-	"github.com/filecoin-project/curio/deps"
 	"os"
 	"os/signal"
 	"runtime/pprof"
 	"syscall"
+
+	curiobuild "github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
+	"github.com/filecoin-project/curio/deps"
 
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
@@ -93,7 +95,7 @@ func main() {
 	app := &cli.App{
 		Name:                 "curio",
 		Usage:                "Filecoin decentralized storage network provider",
-		Version:              build.UserVersion(),
+		Version:              curiobuild.UserVersion(),
 		EnableBashCompletion: true,
 		Before: func(c *cli.Context) error {
 			setupCloseHandler()
