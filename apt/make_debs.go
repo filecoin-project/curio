@@ -31,6 +31,7 @@ func main() {
 	base, err := os.MkdirTemp(os.TempDir(), "curio-apt")
 	OrPanic(err)
 
+	sh.NewSession().SetDir(base).Command("make", "deps").Run()
 	part2(base, "curio-cuda", "")
 	part2(base, "curio-opencl", "FFI_USE_OPENCL=1")
 	fmt.Println("Done. DEB files are in ", base)
@@ -70,6 +71,9 @@ func part2(base, product, extra string) {
 		OrPanic(os.MkdirAll(base, 0755))
 		OrPanic(copyFile("curio", path.Join(base, "curio")))
 		OrPanic(copyFile("sptool", path.Join(base, "sptool")))
+		base = path.Join(dir, "etc", "systemd", "system")
+		OrPanic(os.MkdirAll(base, 0755))
+		OrPanic(copyFile("apt/curio.service", path.Join(base, "curio.service")))
 	}
 	// fix the debian/control "package" and "version" fields
 	f, err := os.ReadFile(path.Join(dir, "DEBIAN", "control"))
