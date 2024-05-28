@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"runtime"
 	"strings"
 
 	"github.com/codeskyblue/go-sh"
@@ -88,12 +89,15 @@ func part2(base, product, extra string) {
 		OrPanic(copyFile("apt/curio.service", path.Join(base, "curio.service")))
 	}
 	// fix the debian/control "package" and "version" fields
-	f, err := os.ReadFile(path.Join(dir, "DEBIAN", "control"))
+	fb, err := os.ReadFile(path.Join(dir, "DEBIAN", "control"))
 	OrPanic(err)
-	f = []byte(strings.ReplaceAll(string(f), "$PACKAGE", product))
-	f = []byte(strings.ReplaceAll(string(f), "$VERSION", version))
-	OrPanic(os.WriteFile(path.Join(dir, "DEBIAN", "control"), f, 0644))
-	fullname := product + "-" + version + "_amd64.deb"
+	f := string(fb)
+	f = strings.ReplaceAll(f, "$PACKAGE", product)
+	f = strings.ReplaceAll(f, "$VERSION", version)
+	f = strings.ReplaceAll(f, "$ARCH", runtime.GOARCH)
+
+	OrPanic(os.WriteFile(path.Join(dir, "DEBIAN", "control"), []byte(f), 0644))
+	fullname := product + "-" + version + "_" + runtime.GOARCH + ".deb"
 
 	// Option 1: piece by piece. Maybe could work, but it is complex.
 	// Build a .changes file
