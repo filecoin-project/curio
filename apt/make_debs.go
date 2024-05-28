@@ -18,7 +18,7 @@ var version string
 
 func main() {
 	if len(os.Args) < 3 || strings.EqualFold(os.Args[1], "help") {
-		fmt.Println("Usage: make_debs <version> path_to_private_key.asc")
+		fmt.Println("Usage: make_debs <version> path_to_Base64_enc_private_key.asc")
 		fmt.Println("Run this from the root of the curio repo as it runs 'make'.")
 		os.Exit(1)
 	}
@@ -26,7 +26,9 @@ func main() {
 	version = os.Args[1]
 
 	// Import the key (repeat imports are OK)
-	OrPanic(sh.Command("gpg", "--import", os.Args[2]).Run())
+	OrPanic(sh.Command("base64", "-d", os.Args[2], ">/tmp/private.key").Run())
+	OrPanic(sh.Command("gpg", "--import", "/tmp/private.key").Run())
+	OrPanic(os.Remove("/tmp/private.key"))
 
 	base, err := os.MkdirTemp(os.TempDir(), "curio-apt")
 	OrPanic(err)
