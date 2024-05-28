@@ -6,12 +6,16 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"strings"
 
 	"github.com/codeskyblue/go-sh"
+
+	"github.com/filecoin-project/lotus/lib/must"
 )
 
 var version string
@@ -26,7 +30,9 @@ func main() {
 	version = os.Args[1]
 
 	// Import the key (repeat imports are OK)
-	OrPanic(sh.Command("base64", "-d", os.Args[2], ">/tmp/private.key").Run())
+	f := must.One(os.Open(os.Args[2]))
+	out := must.One(os.OpenFile("/tmp/private.key", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600))
+	_ = must.One(io.Copy(out, base64.NewDecoder(base64.StdEncoding, f)))
 	OrPanic(sh.Command("gpg", "--import", "/tmp/private.key").Run())
 	OrPanic(os.Remove("/tmp/private.key"))
 
