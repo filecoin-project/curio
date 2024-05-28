@@ -516,6 +516,7 @@ type machineRecentTask struct {
 type machineSummary struct {
 	Address      string
 	ID           int64
+	Name         string
 	SinceContact string
 
 	RecentTasks  []*machineRecentTask
@@ -584,7 +585,7 @@ func (a *app) clusterMachineSummary(ctx context.Context) ([]machineSummary, erro
 	}
 
 	// Then machine summary
-	rows, err := a.db.Query(ctx, "SELECT id, host_and_port, CURRENT_TIMESTAMP - last_contact AS last_contact, cpu, ram, gpu FROM harmony_machines order by host_and_port asc")
+	rows, err := a.db.Query(ctx, "SELECT id, host_and_port, machine_name, CURRENT_TIMESTAMP - last_contact AS last_contact, cpu, ram, gpu FROM harmony_machines order by machine_name asc")
 	if err != nil {
 		return nil, err // Handle error
 	}
@@ -596,7 +597,7 @@ func (a *app) clusterMachineSummary(ctx context.Context) ([]machineSummary, erro
 		var lastContact time.Duration
 		var ram int64
 
-		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu); err != nil {
+		if err := rows.Scan(&m.ID, &m.Address, &m.Name, &lastContact, &m.Cpu, &ram, &m.Gpu); err != nil {
 			return nil, err // Handle error
 		}
 		m.SinceContact = lastContact.Round(time.Second).String()
@@ -730,6 +731,7 @@ func (a *app) porepPipelineSummary(ctx context.Context) ([]porepPipelineSummary,
 
 type machineInfo struct {
 	Info struct {
+		Name        string
 		Host        string
 		ID          int64
 		LastContact string
@@ -796,7 +798,7 @@ type machineInfo struct {
 }
 
 func (a *app) clusterNodeInfo(ctx context.Context, id int64) (*machineInfo, error) {
-	rows, err := a.db.Query(ctx, "SELECT id, host_and_port, last_contact, cpu, ram, gpu FROM harmony_machines WHERE id=$1 ORDER BY host_and_port ASC", id)
+	rows, err := a.db.Query(ctx, "SELECT id, host_and_port, machine_name, last_contact, cpu, ram, gpu FROM harmony_machines WHERE id=$1 ORDER BY machine_name ASC", id)
 	if err != nil {
 		return nil, err // Handle error
 	}
@@ -807,7 +809,7 @@ func (a *app) clusterNodeInfo(ctx context.Context, id int64) (*machineInfo, erro
 		var m machineInfo
 		var lastContact time.Time
 
-		if err := rows.Scan(&m.Info.ID, &m.Info.Host, &lastContact, &m.Info.CPU, &m.Info.Memory, &m.Info.GPU); err != nil {
+		if err := rows.Scan(&m.Info.ID, &m.Info.Host, &m.Info.Name, &lastContact, &m.Info.CPU, &m.Info.Memory, &m.Info.GPU); err != nil {
 			return nil, err
 		}
 
