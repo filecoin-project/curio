@@ -428,10 +428,8 @@ func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		return nil, err
 	}
 	go func() {
-		select {
-		case <-ctx.Done():
-			fullCloser()
-		}
+		<-ctx.Done()
+		fullCloser()
 	}()
 
 	return &Deps{
