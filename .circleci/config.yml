@@ -100,7 +100,7 @@ commands:
 jobs:
   build:
     executor: golang
-    working_directory: ~/lotus
+    working_directory: ~/curio
     steps:
       - checkout
       - git_fetch_all_tags
@@ -108,14 +108,14 @@ jobs:
       - run: git submodule update --init
       - install-ubuntu-deps
       - check-go-version
-      - run: make deps lotus
+      - run: make deps build
       - persist_to_workspace:
           root: ~/
           paths:
-            - "lotus"
+            - "curio"
   mod-tidy-check:
     executor: golang
-    working_directory: ~/lotus
+    working_directory: ~/curio
     steps:
       - install-ubuntu-deps
       - attach_workspace:
@@ -130,7 +130,7 @@ jobs:
   test:
     description: |
       Run tests with gotestsum.
-    working_directory: ~/lotus
+    working_directory: ~/curio
     parameters: &test-params
       resource_class:
         type: string
@@ -156,7 +156,7 @@ jobs:
     docker:
       - image: cimg/go:1.21
         environment:
-          LOTUS_HARMONYDB_HOSTS: yugabyte
+          CURIO_HARMONYDB_HOSTS: yugabyte
       - image: yugabytedb/yugabyte:2.18.0.0-b65
         command: bin/yugabyted start --daemon=false
         name: yugabyte
@@ -174,7 +174,7 @@ jobs:
           environment:
             TEST_RUSTPROOFS_LOGS: << parameters.proofs-log-test >>
             SKIP_CONFORMANCE: "1"
-            LOTUS_SRC_DIR: /home/circleci/project
+            CURIO_SRC_DIR: /home/circleci/project
           command: |
             mkdir -p /tmp/test-reports/<< parameters.suite >>
             mkdir -p /tmp/test-artifacts
@@ -194,14 +194,14 @@ jobs:
 
   gofmt:
     executor: golang
-    working_directory: ~/lotus
+    working_directory: ~/curio
     steps:
       - run:
           command: "! go fmt ./... 2>&1 | read"
 
   gen-check:
     executor: golang
-    working_directory: ~/lotus
+    working_directory: ~/curio
     steps:
       - install-ubuntu-deps
       - attach_workspace:
@@ -215,7 +215,7 @@ jobs:
 
   docs-check:
     executor: golang
-    working_directory: ~/lotus
+    working_directory: ~/curio
     steps:
       - install-ubuntu-deps
       - attach_workspace:
@@ -227,7 +227,7 @@ jobs:
   lint-all:
     description: |
       Run golangci-lint.
-    working_directory: ~/lotus
+    working_directory: ~/curio
     parameters:
       args:
         type: string
