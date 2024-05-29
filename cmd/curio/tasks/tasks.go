@@ -3,12 +3,16 @@ package tasks
 
 import (
 	"context"
+	"github.com/filecoin-project/lotus/lib/result"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/ffi"
@@ -21,17 +25,14 @@ import (
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/storage/paths"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 
+	"github.com/filecoin-project/go-address"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
 	"golang.org/x/exp/maps"
-	"golang.org/x/xerrors"
-
-	"github.com/filecoin-project/go-address"
 
 	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/lib/must"
@@ -42,14 +43,14 @@ import (
 var log = logging.Logger("curio/deps")
 
 func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.CurioProvingConfig,
-	api api.FullNode, verif storiface.Verifier, sender *message.Sender, chainSched *chainsched.CurioChainSched,
+	api api.FullNode, verif storiface.Verifier, paramck func() (bool, error), sender *message.Sender, chainSched *chainsched.CurioChainSched,
 	as *multictladdr.MultiAddressSelector, addresses map[dtypes.MinerAddress]bool, db *harmonydb.DB,
 	stor paths.Store, idx paths.SectorIndex, max int) (*window2.WdPostTask, *window2.WdPostSubmitTask, *window2.WdPostRecoverDeclareTask, error) {
 
 	// todo config
 	ft := window2.NewSimpleFaultTracker(stor, idx, pc.ParallelCheckLimit, time.Duration(pc.SingleCheckTimeout), time.Duration(pc.PartitionCheckTimeout))
 
-	computeTask, err := window2.NewWdPostTask(db, api, ft, stor, verif, chainSched, addresses, max, pc.ParallelCheckLimit, time.Duration(pc.SingleCheckTimeout))
+	computeTask, err := window2.NewWdPostTask(db, api, ft, stor, verif, paramck, chainSched, addresses, max, pc.ParallelCheckLimit, time.Duration(pc.SingleCheckTimeout))
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -84,7 +85,34 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 
 	chainSched := chainsched.New(full)
 
-	var needProofParams bool
+	// paramfetch
+	var fetchOnce sync.Once
+	var fetchResult atomic.Pointer[result.Result[bool]]
+
+	var asyncParams = func() func() (bool, error) {
+		fetchOnce.Do(func() {
+			go func() {
+				for spt := range dependencies.ProofTypes {
+					err := modules.GetParams(true)(spt)
+					if err != nil {
+						log.Errorw("failed to fetch params", "error", err)
+						fetchResult.Store(&result.Result[bool]{Value: false, Error: err})
+						return
+					}
+				}
+
+				fetchResult.Store(&result.Result[bool]{Value: true})
+			}()
+		})
+
+		return func() (bool, error) {
+			res := fetchResult.Load()
+			if res == nil {
+				return false, nil
+			}
+			return res.Value, res.Error
+		}
+	}
 
 	///////////////////////////////////////////////////////////////////////
 	///// Task Selection
@@ -94,21 +122,19 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 
 		if cfg.Subsystems.EnableWindowPost {
 			wdPostTask, wdPoStSubmitTask, derlareRecoverTask, err := WindowPostScheduler(
-				ctx, cfg.Fees, cfg.Proving, full, verif, sender, chainSched,
+				ctx, cfg.Fees, cfg.Proving, full, verif, asyncParams(), sender, chainSched,
 				as, maddrs, db, stor, si, cfg.Subsystems.WindowPostMaxTasks)
 
 			if err != nil {
 				return nil, err
 			}
 			activeTasks = append(activeTasks, wdPostTask, wdPoStSubmitTask, derlareRecoverTask)
-			needProofParams = true
 		}
 
 		if cfg.Subsystems.EnableWinningPost {
 			pl := dependencies.LocalStore
-			winPoStTask := winning.NewWinPostTask(cfg.Subsystems.WinningPostMaxTasks, db, pl, verif, full, maddrs)
+			winPoStTask := winning.NewWinPostTask(cfg.Subsystems.WinningPostMaxTasks, db, pl, verif, asyncParams(), full, maddrs)
 			activeTasks = append(activeTasks, winPoStTask)
-			needProofParams = true
 		}
 	}
 
@@ -162,9 +188,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			activeTasks = append(activeTasks, precommitTask)
 		}
 		if cfg.Subsystems.EnablePoRepProof {
-			porepTask := seal.NewPoRepTask(db, full, sp, slr, cfg.Subsystems.PoRepProofMaxTasks)
+			porepTask := seal.NewPoRepTask(db, full, sp, slr, asyncParams(), cfg.Subsystems.PoRepProofMaxTasks)
 			activeTasks = append(activeTasks, porepTask)
-			needProofParams = true
 		}
 		if cfg.Subsystems.EnableMoveStorage {
 			moveStorageTask := seal.NewMoveStorageTask(sp, slr, db, cfg.Subsystems.MoveStorageMaxTasks)
@@ -184,14 +209,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 
 	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting)
 	activeTasks = append(activeTasks, amTask)
-
-	if needProofParams {
-		for spt := range dependencies.ProofTypes {
-			if err := modules.GetParams(true)(spt); err != nil {
-				return nil, xerrors.Errorf("getting params: %w", err)
-			}
-		}
-	}
 
 	minerAddresses := make([]string, 0, len(maddrs))
 	for k := range maddrs {
