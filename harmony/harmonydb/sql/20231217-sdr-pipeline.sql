@@ -136,3 +136,7 @@ create table sectors_allocated_numbers (
     sp_id bigint not null primary key,
     allocated jsonb not null
 );
+
+-- Added in 20240529-sdr-pipeline-task-extract.sql
+-- CREATE FUNCTION get_sdr_pipeline_tasks(sp_id_param bigint, sector_number_param bigint)
+-- CREATE FUNCTION unset_task_id(task_id_param bigint, sp_id_param bigint, sector_number_param bigint)

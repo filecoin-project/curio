@@ -1,12 +1,17 @@
 {{define "sector_info"}}
     <h2>Sector {{.SectorNumber}}</h2>
+    {{if .Resumable}}
+        <div>
+            <button class="btn btn-primary" onclick="window.location.href='/hapi/sector/f0{{.SpID}}/{{.SectorNumber}}/resume'">Resume</button>
+        </div>
+    {{end}}
     <div>
         <h3>PoRep Pipeline</h3>
         {{template "sector_porep_state" .PipelinePoRep}}
     </div>
     <div>
         <h3>Pieces</h3>
-        <table class="porep-state">
+        <table class="table table-dark">
             <tr>
                 <th>Piece Index</th>
                 <th>Piece CID</th>
@@ -54,7 +59,7 @@
     </div>
     <div>
         <h3>Storage</h3>
-        <table class="porep-state">
+        <table class="table table-dark">
             <tr>
                 <th>Path Type</th>
                 <th>File Type</th>
@@ -100,6 +105,33 @@
                 <td>{{if ne nil .OwnerID}}<a href="/hapi/node/{{.OwnerID}}">{{.Owner}}</a>{{end}}</td>
             </tr>
         {{end}}
+        </table>
+    </div>
+    <div>
+        <h3>Current task history</h3>
+        <table class="table table-dark">
+            <tr>
+                <th>Task ID</th>
+                <th>Task Type</th>
+                <th>Completed By</th>
+                <th>Result</th>
+                <th>Started</th>
+                <th>Took</th>
+                <th>Error</th>
+            </tr>
+            {{range .TaskHistory}}
+                {{if ne nil .Name}}
+                    <tr>
+                        <td>{{.PipelineTaskID}}</td>
+                        <td>{{.Name}}</td>
+                        <td>{{.CompletedBy}}</td>
+                        <td>{{if .Result}}Success{{else}}Failed{{end}}</td>
+                        <td>{{.WorkStart}}</td>
+                        <td>{{.Took}}</td>
+                        <td>{{.Err}}</td>
+                    </tr>
+                {{end}}
+            {{end}}
         </table>
     </div>
 {{end}}
