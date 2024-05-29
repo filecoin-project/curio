@@ -20,10 +20,10 @@ import (
 
 	"github.com/filecoin-project/go-address"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/api/v1api"
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/lib/must"
 	"github.com/filecoin-project/lotus/storage/paths"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
@@ -585,7 +585,21 @@ func (a *app) clusterMachineSummary(ctx context.Context) ([]machineSummary, erro
 	}
 
 	// Then machine summary
-	rows, err := a.db.Query(ctx, "SELECT id, host_and_port, machine_name, CURRENT_TIMESTAMP - last_contact AS last_contact, cpu, ram, gpu FROM harmony_machines order by machine_name asc")
+	rows, err := a.db.Query(ctx, `
+						SELECT 
+							hm.id,
+							hm.host_and_port,
+							CURRENT_TIMESTAMP - hm.last_contact AS last_contact,
+							hm.cpu,
+							hm.ram,
+							hm.gpu,
+							hmd.machine_name
+						FROM 
+							harmony_machines hm
+						LEFT JOIN 
+							harmony_machine_details hmd ON hm.id = hmd.machine_id
+						ORDER BY 
+							hmd.machine_name ASC;`)
 	if err != nil {
 		return nil, err // Handle error
 	}
@@ -597,7 +611,7 @@ func (a *app) clusterMachineSummary(ctx context.Context) ([]machineSummary, erro
 		var lastContact time.Duration
 		var ram int64
 
-		if err := rows.Scan(&m.ID, &m.Address, &m.Name, &lastContact, &m.Cpu, &ram, &m.Gpu); err != nil {
+		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu, &m.Name); err != nil {
 			return nil, err // Handle error
 		}
 		m.SinceContact = lastContact.Round(time.Second).String()
@@ -798,7 +812,24 @@ type machineInfo struct {
 }
 
 func (a *app) clusterNodeInfo(ctx context.Context, id int64) (*machineInfo, error) {
-	rows, err := a.db.Query(ctx, "SELECT id, host_and_port, machine_name, last_contact, cpu, ram, gpu FROM harmony_machines WHERE id=$1 ORDER BY machine_name ASC", id)
+	rows, err := a.db.Query(ctx, `
+						SELECT 
+							hm.id,
+							hm.host_and_port,
+							CURRENT_TIMESTAMP - hm.last_contact AS last_contact,
+							hm.cpu,
+							hm.ram,
+							hm.gpu,
+							hmd.machine_name
+						FROM 
+							harmony_machines hm
+						LEFT JOIN 
+							harmony_machine_details hmd ON hm.id = hmd.machine_id 
+						WHERE 
+						    hm.id=$1
+						ORDER BY 
+							hmd.machine_name ASC;
+						`, id)
 	if err != nil {
 		return nil, err // Handle error
 	}
@@ -809,7 +840,7 @@ func (a *app) clusterNodeInfo(ctx context.Context, id int64) (*machineInfo, erro
 		var m machineInfo
 		var lastContact time.Time
 
-		if err := rows.Scan(&m.Info.ID, &m.Info.Host, &m.Info.Name, &lastContact, &m.Info.CPU, &m.Info.Memory, &m.Info.GPU); err != nil {
+		if err := rows.Scan(&m.Info.ID, &m.Info.Host, &lastContact, &m.Info.CPU, &m.Info.Memory, &m.Info.GPU, &m.Info.Name); err != nil {
 			return nil, err
 		}
 
