@@ -51,7 +51,6 @@ func main() {
 	local := []*cli.Command{
 		cliCmd,
 		runCmd,
-		stopCmd,
 		configCmd,
 		testCmd,
 		webCmd,
