@@ -24,12 +24,12 @@ import (
 	"github.com/filecoin-project/go-state-types/proof"
 	prooftypes "github.com/filecoin-project/go-state-types/proof"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/gen"
 	lrand "github.com/filecoin-project/lotus/chain/rand"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/lib/promise"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	"github.com/filecoin-project/lotus/storage/paths"
@@ -42,8 +42,9 @@ type WinPostTask struct {
 	max int
 	db  *harmonydb.DB
 
-	paths    *paths.Local
-	verifier storiface.Verifier
+	paths       *paths.Local
+	verifier    storiface.Verifier
+	paramsReady func() (bool, error)
 
 	api    WinPostAPI
 	actors map[dtypes.MinerAddress]bool
@@ -70,14 +71,15 @@ type WinPostAPI interface {
 	WalletSign(context.Context, address.Address, []byte) (*crypto.Signature, error)
 }
 
-func NewWinPostTask(max int, db *harmonydb.DB, pl *paths.Local, verifier storiface.Verifier, api WinPostAPI, actors map[dtypes.MinerAddress]bool) *WinPostTask {
+func NewWinPostTask(max int, db *harmonydb.DB, pl *paths.Local, verifier storiface.Verifier, paramck func() (bool, error), api WinPostAPI, actors map[dtypes.MinerAddress]bool) *WinPostTask {
 	t := &WinPostTask{
-		max:      max,
-		db:       db,
-		paths:    pl,
-		verifier: verifier,
-		api:      api,
-		actors:   actors,
+		max:         max,
+		db:          db,
+		paths:       pl,
+		verifier:    verifier,
+		paramsReady: paramck,
+		api:         api,
+		actors:      actors,
 	}
 	// TODO: run warmup
 
@@ -471,6 +473,15 @@ func (t *WinPostTask) generateWinningPost(
 }
 
 func (t *WinPostTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+	rdy, err := t.paramsReady()
+	if err != nil {
+		return nil, xerrors.Errorf("failed to setup params: %w", err)
+	}
+	if !rdy {
+		log.Infow("WinPostTask.CanAccept() params not ready, not scheduling")
+		return nil, nil
+	}
+
 	if len(ids) == 0 {
 		// probably can't happen, but panicking is bad
 		return nil, nil
