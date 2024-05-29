@@ -816,7 +816,7 @@ func (a *app) clusterNodeInfo(ctx context.Context, id int64) (*machineInfo, erro
 						SELECT 
 							hm.id,
 							hm.host_and_port,
-							CURRENT_TIMESTAMP - hm.last_contact AS last_contact,
+							hm.last_contact,
 							hm.cpu,
 							hm.ram,
 							hm.gpu,
