@@ -42,7 +42,7 @@ class CurioUX extends LitElement {
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
         <nav class="navbar navbar-expand-lg navbar-expand-sm navbar-dark bg-dark">
         <div class="container-fluid">
-          <a class="navbar-brand" href="#">
+          <a class="navbar-brand" href="/">
             <img src="/favicon.svg" width="30" height="30" class="d-inline-block align-top" alt="">
             Curio Cluster <span class="alert alert-warning">Beta</span>
           </a>
