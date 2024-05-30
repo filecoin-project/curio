@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/web/api/apihelper"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/web/api/apihelper"
+	"github.com/filecoin-project/lotus/blockstore"
+	"github.com/filecoin-project/lotus/chain/actors/adt"
+	cbor "github.com/ipfs/go-ipld-cbor"
 
 	"github.com/docker/go-units"
 	"github.com/gorilla/mux"
@@ -32,6 +36,15 @@ type cfg struct {
 	*deps.Deps
 }
 
+type minerDetail struct {
+	Addr address.Address
+	ID   abi.ActorID
+}
+type sec struct {
+	Sector    abi.SectorNumber
+	Terminate bool
+}
+
 func Routes(r *mux.Router, deps *deps.Deps) {
 	c := &cfg{deps}
 	// At menu.html:
@@ -45,20 +58,33 @@ func (c *cfg) terminateSectors(w http.ResponseWriter, r *http.Request) {
 		Sector  int
 	}
 	apihelper.OrHTTPFail(w, json.NewDecoder(r.Body).Decode(&in))
-	toDel := map[int][]int{}
+	toDel := make(map[minerDetail][]sec)
 	for _, s := range in {
-		toDel[s.MinerID] = append(toDel[s.MinerID], s.Sector)
+		maddr, err := address.NewIDAddress(uint64(s.MinerID))
+		apihelper.OrHTTPFail(w, err)
+		m := minerDetail{
+			Addr: maddr,
+			ID:   abi.ActorID(uint64(s.MinerID)),
+		}
+		toDel[m] = append(toDel[m], sec{Sector: abi.SectorNumber(s.Sector), Terminate: false})
 	}
 
-	for minerInt, sectors := range toDel {
-		maddr, err := address.NewIDAddress(uint64(minerInt))
+	del, err := c.shouldTerminate(r.Context(), toDel)
+	apihelper.OrHTTPFail(w, err)
+
+	for m, sectorList := range del {
+		mi, err := c.Full.StateMinerInfo(r.Context(), m.Addr, types.EmptyTSK)
 		apihelper.OrHTTPFail(w, err)
-		mi, err := c.Full.StateMinerInfo(r.Context(), maddr, types.EmptyTSK)
+		var term []int
+		for _, s := range sectorList {
+			if s.Terminate {
+				term = append(term, int(s.Sector))
+			}
+		}
+		_, err = spcli.TerminateSectors(r.Context(), c.Full, m.Addr, term, mi.Worker)
 		apihelper.OrHTTPFail(w, err)
-		_, err = spcli.TerminateSectors(r.Context(), c.Full, maddr, sectors, mi.Worker)
-		apihelper.OrHTTPFail(w, err)
-		for _, sectorNumber := range sectors {
-			id := abi.SectorID{Miner: abi.ActorID(minerInt), Number: abi.SectorNumber(sectorNumber)}
+		for _, s := range sectorList {
+			id := abi.SectorID{Miner: m.ID, Number: s.Sector}
 			apihelper.OrHTTPFail(w, c.Stor.Remove(r.Context(), id, storiface.FTAll, true, nil))
 		}
 	}
@@ -372,4 +398,65 @@ func (c *cfg) getCachedSectorInfo(w http.ResponseWriter, r *http.Request, maddr 
 		return infos, nil
 	}
 	return v.sectors, nil
+}
+
+func (c *cfg) shouldTerminate(ctx context.Context, smap map[minerDetail][]sec) (map[minerDetail][]sec, error) {
+	ret := make(map[minerDetail][]sec)
+
+	head, err := c.Full.ChainHead(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for m, sectors := range smap {
+		mact, err := c.Full.StateGetActor(ctx, m.Addr, head.Key())
+		if err != nil {
+			return nil, err
+		}
+		tbs := blockstore.NewTieredBstore(blockstore.NewAPIBlockstore(c.Full), blockstore.NewMemory())
+		mas, err := miner.Load(adt.WrapStore(ctx, cbor.NewCborStore(tbs)), mact)
+		if err != nil {
+			return nil, err
+		}
+
+		list := bitfield.New()
+
+		if err := mas.ForEachDeadline(func(dlIdx uint64, dl miner.Deadline) error {
+			return dl.ForEachPartition(func(partIdx uint64, part miner.Partition) error {
+				live, err := part.LiveSectors()
+				if err != nil {
+					return err
+				}
+
+				list, err = bitfield.SubtractBitField(list, live)
+				if err != nil {
+					return err
+				}
+				return err
+			})
+		}); err != nil {
+			return nil, err
+		}
+
+		for i := range sectors {
+			ok, err := list.IsSet(uint64(sectors[i].Sector))
+			if err != nil {
+				return nil, err
+			}
+
+			if ok {
+				ret[m] = append(smap[m], sec{
+					Sector:    sectors[i].Sector,
+					Terminate: true,
+				})
+				continue
+			}
+			ret[m] = append(smap[m], sec{
+				Sector:    sectors[i].Sector,
+				Terminate: false,
+			})
+		}
+	}
+
+	return ret, nil
 }
