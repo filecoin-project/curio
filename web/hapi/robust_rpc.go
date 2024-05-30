@@ -23,9 +23,7 @@ func (a *app) watchRpc() {
 		if err != nil {
 			log.Errorw("updating rpc info", "error", err)
 		}
-		select {
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 

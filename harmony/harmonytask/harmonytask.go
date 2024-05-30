@@ -3,10 +3,11 @@ package harmonytask
 import (
 	"context"
 	"fmt"
-	"github.com/filecoin-project/curio/harmony/resources"
 	"strconv"
 	"sync/atomic"
 	"time"
+
+	"github.com/filecoin-project/curio/harmony/resources"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
@@ -251,8 +252,6 @@ func (e *TaskEngine) GracefullyTerminate() {
 		}
 		break
 	}
-
-	return
 }
 
 func (e *TaskEngine) poller() {
