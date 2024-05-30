@@ -133,8 +133,6 @@ func part2(base, product, extra string) {
 
 	// Sign the DEB we built.
 	OrPanic(sh.NewSession().SetDir(base).Command(
-		"dpkg-sig", "--sign", "builder", "-k", "B751F6AC4FA6D98F", fullname).Run())
-	OrPanic(sh.NewSession().SetDir(base).Command(
 		"debsigs", "--sign=origin", "-k", "B751F6AC4FA6D98F", fullname).Run())
 }
 
