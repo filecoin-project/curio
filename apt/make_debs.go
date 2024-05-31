@@ -82,6 +82,10 @@ func part2(base, product, extra string) {
 		v := strings.Split(env, "=")
 		sess.SetEnv(v[0], v[1])
 	}
+
+	// Presume the CPU is newer than '19 and enable SHA
+	sess.SetEnv("RUSTFLAGS", "-C target-cpu=native -g")
+	sess.SetEnv("FFI_BUILD_FROM_SOURCE", "1")
 	fmt.Println("making")
 
 	// This ENV is only for fixing this script. It will result in a bad build.
