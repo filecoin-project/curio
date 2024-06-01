@@ -35,6 +35,12 @@ func main() {
 	}
 
 	version = build.BuildVersion
+	if i := strings.Index(build.BuildVersion, "-"); i != -1 {
+		version = build.BuildVersion[:i]
+	}
+	if i := strings.Index(build.BuildVersion, "_"); i != -1 {
+		version = build.BuildVersion[:i]
+	}
 
 	AssertPackageInstalled("debsigs")
 
