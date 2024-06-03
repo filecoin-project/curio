@@ -191,16 +191,25 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 				return nil, xerrors.Errorf("post generation randomness was different from random beacon")
 			}
 
+			// computeSkipped is a list of sector numbers that were skipped during PoSt computation
 			for _, skippedNum := range computeSkipped {
-				// set postPartition.Skipped
+				// set postPartition.Skipped bitfield entries to also contain sectors skipped during PoSt computation
+				// (initially it contains a list of sectors skipped during pre-checks)
 				postPartition.Skipped.Set(uint64(skippedNum.Number))
 			}
 
+			// Compute SectorsInfo list for proof verification, matching the logic in the miner actor
 			sinfos := make([]proof7.SectorInfo, len(xsinfos))
+
+			// skipped sector infos need to be filled with the first non-skipped sector info so that the offsets
+			// of the non-skipped sectors are correct. This no longer matters for PoSt verification in proofs, but
+			// in any case we want this logic to match the miner actor's PoSt verification logic as closely as possible.
 			var firstStandIn proof7.SectorInfo // https://github.com/filecoin-project/builtin-actors/blob/ea7c45478751bd0fe12d0d374abc8fdc9341bfea/actors/miner/src/sectors.rs#L112
 
 			for i, xsi := range xsinfos {
 				if lo.Contains(computeSkipped, abi.SectorID{Miner: abi.ActorID(mid), Number: xsi.SectorNumber}) {
+					// a stand-in will be added in the next loop. We don't do that here because in the first few iterations
+					// we may not know which sector will be the first non-skipped one.
 					continue
 				}
 
@@ -214,12 +223,15 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 					firstStandIn = si
 				}
 			}
+
+			// fill in skipped sector infos with the first non-skipped sector info
 			for i := range sinfos {
 				if sinfos[i].SealedCID == cid.Undef {
 					sinfos[i] = firstStandIn
 				}
 			}
 
+			// Verify the PoSt proof!
 			if correct, err := t.verifier.VerifyWindowPoSt(ctx, proof.WindowPoStVerifyInfo{
 				Randomness:        abi.PoStRandomness(checkRand),
 				Proofs:            postOut,
