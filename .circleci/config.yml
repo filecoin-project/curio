@@ -70,7 +70,7 @@ commands:
           name: Restore parameters cache
           keys:
             - 'v26-2k-lotus-params'
-      - run: ./lotus fetch-params 2048
+      - run: ./curio fetch-params 2048
       - save_cache:
           name: Save parameters cache
           key: 'v26-2k-lotus-params'
