@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -57,8 +58,8 @@ func NewFromConfig(cfg config.HarmonyDB) (*DB, error) {
 	)
 }
 
-func NewFromConfigWithITestID(cfg config.HarmonyDB, id ITestID) (*DB, error) {
-	return New(
+func NewFromConfigWithITestID(t *testing.T, cfg config.HarmonyDB, id ITestID) (*DB, error) {
+	db, err := New(
 		cfg.Hosts,
 		cfg.Username,
 		cfg.Password,
@@ -66,6 +67,13 @@ func NewFromConfigWithITestID(cfg config.HarmonyDB, id ITestID) (*DB, error) {
 		cfg.Port,
 		id,
 	)
+	if err != nil {
+		return nil, err
+	}
+	t.Cleanup(func() {
+		db.ITestDeleteAll()
+	})
+	return db, nil
 }
 
 // New is to be called once per binary to establish the pool.
