@@ -273,3 +273,4 @@ workflows:
             - build
           suite: itest-curio
           target: "./itests/curio_test.go"
+          get-params: true
