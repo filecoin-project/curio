@@ -42,15 +42,13 @@ type paramFile struct {
 }
 
 type fetch struct {
-	wg      sync.WaitGroup
-	fetchLk sync.Mutex
+	wg sync.WaitGroup
 
 	errs []error
 
 	fsLockRelease func()
 	fsLockOnce    sync.Once
 	lockFail      bool // true if we failed to acquire the lock at least once, meaning that is was claimed by another process
-	lockErr       error
 }
 
 func getParamDir() string {
