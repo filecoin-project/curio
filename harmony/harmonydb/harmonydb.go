@@ -57,17 +57,15 @@ func NewFromConfig(cfg config.HarmonyDB) (*DB, error) {
 	)
 }
 
-func NewFromConfigWithITestID(cfg config.HarmonyDB) func(id ITestID) (*DB, error) {
-	return func(id ITestID) (*DB, error) {
-		return New(
-			cfg.Hosts,
-			cfg.Username,
-			cfg.Password,
-			cfg.Database,
-			cfg.Port,
-			id,
-		)
-	}
+func NewFromConfigWithITestID(cfg config.HarmonyDB, id ITestID) (*DB, error) {
+	return New(
+		cfg.Hosts,
+		cfg.Username,
+		cfg.Password,
+		cfg.Database,
+		cfg.Port,
+		id,
+	)
 }
 
 // New is to be called once per binary to establish the pool.
