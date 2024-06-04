@@ -70,7 +70,7 @@ commands:
           name: Restore parameters cache
           keys:
             - 'v26-2k-lotus-params'
-      - run: ./lotus fetch-params 2048
+      - run: ./curio fetch-params 2048
       - save_cache:
           name: Save parameters cache
           key: 'v26-2k-lotus-params'
@@ -157,7 +157,8 @@ jobs:
       - image: cimg/go:1.21
         environment:
           CURIO_HARMONYDB_HOSTS: yugabyte
-      - image: yugabytedb/yugabyte:2.18.0.0-b65
+          LOTUS_HARMONYDB_HOSTS: yugabyte
+      - image: yugabytedb/yugabyte:2.21.0.1-b1
         command: bin/yugabyted start --daemon=false
         name: yugabyte
     resource_class: << parameters.resource_class >>
@@ -272,3 +273,4 @@ workflows:
             - build
           suite: itest-curio
           target: "./itests/curio_test.go"
+          get-params: true
