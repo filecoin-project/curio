@@ -70,6 +70,8 @@ func TestCurioNewActor(t *testing.T) {
 	db, err := harmonydb.NewFromConfigWithITestID(dbConfig, sharedITestID)
 	require.NoError(t, err)
 
+	defer db.ITestDeleteAll()
+
 	var titles []string
 	err = db.Select(ctx, &titles, `SELECT title FROM harmony_config WHERE LENGTH(config) > 0`)
 	require.NoError(t, err)
@@ -137,6 +139,8 @@ func TestCurioHappyPath(t *testing.T) {
 	}
 	db, err := harmonydb.NewFromConfigWithITestID(dbConfig, sharedITestID)
 	require.NoError(t, err)
+
+	defer db.ITestDeleteAll()
 
 	var titles []string
 	err = db.Select(ctx, &titles, `SELECT title FROM harmony_config WHERE LENGTH(config) > 0`)
