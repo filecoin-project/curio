@@ -159,7 +159,7 @@ var marketSealCmd = &cli.Command{
 					ORDER BY
 						piece_index DESC;`, mid, sector)
 			if err != nil {
-				return false, xerrors.Errorf("getting open sectors from DB")
+				return false, xerrors.Errorf("getting open sectors from DB: %w", err)
 			}
 
 			if len(pieces) < 1 {
