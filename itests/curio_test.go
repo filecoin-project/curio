@@ -61,7 +61,7 @@ func TestCurioNewActor(t *testing.T) {
 
 	sharedITestID := harmonydb.ITestNewID()
 	dbConfig := config.HarmonyDB{
-		Hosts:    []string{"127.0.0.1"},
+		Hosts:    []string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")},
 		Database: "yugabyte",
 		Username: "yugabyte",
 		Password: "yugabyte",
@@ -129,7 +129,7 @@ func TestCurioHappyPath(t *testing.T) {
 
 	sharedITestID := harmonydb.ITestNewID()
 	dbConfig := config.HarmonyDB{
-		Hosts:    []string{"127.0.0.1"},
+		Hosts:    []string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")},
 		Database: "yugabyte",
 		Username: "yugabyte",
 		Password: "yugabyte",
@@ -411,4 +411,11 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	_ = logging.SetLogLevel("harmonytask", "DEBUG")
 
 	return capi, taskEngine.GracefullyTerminate, ccloser, finishCh
+}
+
+func envElse(env, els string) string {
+	if v := os.Getenv(env); v != "" {
+		return v
+	}
+	return els
 }
