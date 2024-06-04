@@ -17,9 +17,9 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/network"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/storage/paths"
 	sealing "github.com/filecoin-project/lotus/storage/pipeline"
@@ -182,12 +182,14 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 	}
 
 	// If no rows found i.e. sector doesn't exist in DB
-	//assign ssip[0] to a local variable for easier reading.
+
+	if len(ssip) == 0 {
+		ret.State = api.SectorState(sealing.UndefinedSectorState)
+		return ret, nil
+	}
 	currentSSIP := ssip[0]
 
 	switch {
-	case len(ssip) == 0:
-		ret.State = api.SectorState(sealing.UndefinedSectorState)
 	case currentSSIP.Failed:
 		ret.State = api.SectorState(sealing.FailedUnrecoverable)
 	case !currentSSIP.SDR:
