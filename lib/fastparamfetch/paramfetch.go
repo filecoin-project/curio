@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -45,6 +46,11 @@ type fetch struct {
 	fetchLk sync.Mutex
 
 	errs []error
+
+	fsLockRelease func()
+	fsLockOnce    sync.Once
+	lockFail      bool // true if we failed to acquire the lock at least once, meaning that is was claimed by another process
+	lockErr       error
 }
 
 func getParamDir() string {
@@ -67,6 +73,12 @@ func GetParams(ctx context.Context, paramBytes []byte, srsBytes []byte, storageS
 
 	ft := &fetch{}
 
+	defer func() {
+		if ft.fsLockRelease != nil {
+			ft.fsLockRelease()
+		}
+	}()
+
 	for name, info := range params {
 		if storageSize != info.SectorSize && strings.HasSuffix(name, ".params") {
 			continue
@@ -88,6 +100,37 @@ func GetParams(ctx context.Context, paramBytes []byte, srsBytes []byte, storageS
 	return ft.wait(ctx)
 }
 
+// getFsLock tries to acquire the filesystem lock. If it fails, it will retry until it succeeds. Returns whether
+// there was lock contention (true if we needed more than one try)
+func (ft *fetch) getFsLock() bool {
+	ft.fsLockOnce.Do(func() {
+		for {
+			unlocker, err := fslock.Lock(getParamDir(), lockFile)
+			if err == nil {
+				ft.fsLockRelease = func() {
+					err := unlocker.Close()
+					if err != nil {
+						log.Errorw("unlock fs lock", "error", err)
+					}
+				}
+				return
+			}
+
+			ft.lockFail = true
+
+			le := fslock.LockedError("")
+			if errors.As(err, &le) {
+				log.Warnf("acquiring filesystem fetch lock: %s; will retry in %s", err, lockRetry)
+				time.Sleep(lockRetry)
+				continue
+			}
+			return
+		}
+	})
+
+	return ft.lockFail
+}
+
 func (ft *fetch) maybeFetchAsync(ctx context.Context, name string, info paramFile) {
 	ft.wg.Add(1)
 
@@ -101,38 +144,11 @@ func (ft *fetch) maybeFetchAsync(ctx context.Context, name string, info paramFil
 			log.Warn(err)
 		}
 		if err == nil {
+			// all good, no need to fetch
 			return
 		}
 
-		ft.fetchLk.Lock()
-		defer ft.fetchLk.Unlock()
-
-		var lockfail bool
-		var unlocker io.Closer
-		for {
-			unlocker, err = fslock.Lock(getParamDir(), lockFile)
-			if err == nil {
-				break
-			}
-
-			lockfail = true
-
-			le := fslock.LockedError("")
-			if xerrors.As(err, &le) {
-				log.Warnf("acquiring filesystem fetch lock: %s; will retry in %s", err, lockRetry)
-				time.Sleep(lockRetry)
-				continue
-			}
-			ft.errs = append(ft.errs, xerrors.Errorf("acquiring filesystem fetch lock: %w", err))
-			return
-		}
-		defer func() {
-			err := unlocker.Close()
-			if err != nil {
-				log.Errorw("unlock fs lock", "error", err)
-			}
-		}()
-		if lockfail {
+		if ft.getFsLock() {
 			// we've managed to get the lock, but we need to re-check file contents - maybe it's fetched now
 			ft.maybeFetchAsync(ctx, name, info)
 			return
