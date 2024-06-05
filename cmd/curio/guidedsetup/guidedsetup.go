@@ -255,10 +255,10 @@ func complete(d *MigrationData) {
 	stepCompleted(d, d.T("Lotus-Miner to Curio Migration."))
 }
 
-var EnvFiles = []string{"/etc/curio/config.env", "./curio/curio.env", "~/config/curio.env"}
+var EnvFiles = []string{"/etc/curio.env", "./curio/curio.env", "~/config/curio.env"}
 
 func afterRan(d *MigrationData) {
-	// Write curio.env file. TODO!!!!!!!!!!
+	// Write curio.env file.
 	// Inform users they need to copy this to /etc/curio.env or ~/.config/curio.env to run Curio.
 	places := append([]string{"/tmp/curio.env",
 		must.One(os.Getwd()) + "/curio.env",
@@ -281,17 +281,6 @@ saveConfigFile:
 		d.HarmonyCfg.Port,
 		d.HarmonyCfg.Database)}
 
-	if e := os.Getenv("FULLNODE_API_INFO"); e == "" {
-		addr, header, err := cliutil.GetRawAPI(d.cctx, repo.FullNode, "v1")
-		if err != nil {
-			d.say(notice, "Add FULLNODE_API_INFO to curio.env: %s", err.Error())
-		} else {
-			args = append(args, fmt.Sprintf("FULLNODE_API_INFO=%s:%s", addr, header.Get("Authorization")[8:]))
-		}
-	} else {
-		args = append(args, fmt.Sprintf("FULLNODE_API_INFO=%s", e))
-	}
-
 	// Write the file
 	err = os.WriteFile(where, []byte(strings.Join(args, "\n")), 0644)
 	if err != nil {
@@ -300,7 +289,7 @@ saveConfigFile:
 	}
 
 	d.say(plain, "Try the web interface with %s ", code.Render("curio run --layers=gui"))
-	d.say(plain, "For more servers, copy curio.env to /etc/curio.env and add the CURIO_LAYERS env to assign purposes.")
+	d.say(plain, "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.")
 	d.say(plain, "You can now migrate your market node (%s), if applicable.", "Boost")
 }
 
