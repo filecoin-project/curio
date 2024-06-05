@@ -10,7 +10,7 @@ import (
 	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/curio/deps/types"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 

@@ -3,18 +3,20 @@ package message
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
+
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
-	"sync/atomic"
 
 	"github.com/ipfs/go-cid"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/curio/deps/types"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+
+	"github.com/filecoin-project/lotus/api"
 )
 
 const MinConfidence = 6

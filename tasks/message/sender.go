@@ -3,9 +3,10 @@ package message
 import (
 	"bytes"
 	"context"
+	"time"
+
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
@@ -16,9 +17,10 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/big"
 
-	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/curio/deps/types"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+
+	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/lib/promise"
 )
 

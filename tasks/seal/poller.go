@@ -2,8 +2,9 @@ package seal
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"time"
+
+	"github.com/filecoin-project/curio/harmony/harmonytask"
 
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
@@ -11,9 +12,10 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
-	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/curio/deps/types"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+
+	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/lib/promise"
 )
 

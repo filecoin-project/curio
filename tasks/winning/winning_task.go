@@ -6,10 +6,11 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
+	"time"
+
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffiselect"
-	"time"
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -24,12 +25,13 @@ import (
 	"github.com/filecoin-project/go-state-types/proof"
 	prooftypes "github.com/filecoin-project/go-state-types/proof"
 
+	"github.com/filecoin-project/curio/deps/types"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/gen"
 	lrand "github.com/filecoin-project/lotus/chain/rand"
-	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/lib/promise"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	"github.com/filecoin-project/lotus/storage/paths"
