@@ -69,4 +69,4 @@ With an understanding of Curio's internal mechanisms, you can now proceed to [in
 
 We have compiled [a list of best practices](getting-started.md#best-practices) for deploying and maintaining a Curio cluster. All users are encouraged to follow these recommendations to avoid potential issues.
 
-New users should also familiarize themselves with [both binaries shipped with Curio](curio-cli/).
+New users should also familiarize themselves with [both binaries shipped with Curio](curio-cli/) and the [GUI pages](curio-gui.md).
