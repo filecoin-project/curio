@@ -34,9 +34,9 @@ WantedBy=multi-user.target
 
 ### Environment Variables Configuration
 
-The service file requires an `/etc/curio.ENV` file to be present. This file contains all the necessary environment variables to connect to the database. The ENV file should be created automatically during the Debian package installation. If you are running Curio built from source, you can create the ENV file manually with the following content:
+The service file requires an `/etc/curio.env` file to be present. This file contains all the necessary environment variables to connect to the database. The `env` file should be created automatically during the Debian package installation. If you are running Curio built from source, you can create the `env` file manually with the following content:
 
-**/etc/curio.ENV File**
+**/etc/curio.env File**
 
 ```sh
 CURIO_LAYERS=gui,post

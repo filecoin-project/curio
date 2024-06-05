@@ -24,7 +24,7 @@ By default the `fil_logger` library used by `rust-fil-proof` doesn’t log anyth
 Using systemd service file:
 
 ```bash
-export RUST_LOG=info >> /etc/curio.ENV
+export RUST_LOG=info >> /etc/curio.env
 systemctl restart curio.service
 ```
 

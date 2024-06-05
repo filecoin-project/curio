@@ -30,7 +30,7 @@ Press `ctrl + D` to save and exit.
 You should run only one Curio market adapter node per minerID. Boost can only talk to one adapter at a time.
 {% endhint %}
 
-Edit the `/etc/curio.ENV` file and update the `CURIO_LAYERS` variable to include the new market layer as well.
+Edit the `/etc/curio.env` file and update the `CURIO_LAYERS` variable to include the new market layer as well.
 
 ```
 CURIO_LAYERS=seal,mt01000
