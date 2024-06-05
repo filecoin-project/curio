@@ -9,8 +9,10 @@ import (
 
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/config"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/tasks/gc"
@@ -20,9 +22,8 @@ import (
 	"github.com/filecoin-project/curio/tasks/seal"
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
+
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/storage/paths"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 
@@ -33,8 +34,9 @@ import (
 
 	"github.com/filecoin-project/go-address"
 
+	"github.com/snadrus/must"
+
 	"github.com/filecoin-project/lotus/lib/lazy"
-	"github.com/filecoin-project/lotus/lib/must"
 	"github.com/filecoin-project/lotus/node/modules"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 )

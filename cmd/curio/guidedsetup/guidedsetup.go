@@ -42,9 +42,11 @@ import (
 
 	"github.com/filecoin-project/lotus/build"
 
+	"github.com/filecoin-project/curio/lib/config"
+
+	"github.com/snadrus/must"
+
 	cliutil "github.com/filecoin-project/lotus/cli/util"
-	"github.com/filecoin-project/lotus/lib/must"
-	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/node/repo"
 
 	"github.com/filecoin-project/lotus/cli/spcli"

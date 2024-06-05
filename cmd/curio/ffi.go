@@ -3,17 +3,18 @@ package main
 import (
 	"encoding/gob"
 	"fmt"
-	"github.com/filecoin-project/curio/lib/ffiselect"
-	"github.com/filecoin-project/curio/lib/ffiselect/ffidirect"
 	"os"
 	"reflect"
+
+	"github.com/filecoin-project/curio/lib/ffiselect"
+	"github.com/filecoin-project/curio/lib/ffiselect/ffidirect"
 
 	"github.com/ipfs/go-cid"
 	"github.com/samber/lo"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/lotus/lib/must"
+	"github.com/snadrus/must"
 )
 
 var ffiCmd = &cli.Command{

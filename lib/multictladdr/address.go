@@ -5,8 +5,9 @@ import (
 
 	"github.com/filecoin-project/go-address"
 
+	"github.com/filecoin-project/curio/lib/config"
+
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/node/config"
 )
 
 func AddressSelector(addrConf []config.CurioAddresses) func() (*MultiAddressSelector, error) {
