@@ -6,8 +6,8 @@ import os
 
 
 def generate_lotus_cli(prog):
-    output_folder = 'documentation'
-    md_file = open('%s/cli-%s.md' % (output_folder, prog), 'w')  # set the name of md output
+    output_folder = 'documentation/en/curio-cli'
+    md_file = open('%s/%s.md' % (output_folder, prog), 'w')  # set the name of md output
 
     def get_cmd_recursively(cur_cmd):
         depth = cur_cmd.count(' ')
