@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/filecoin-project/curio/cmd/curio/tasks"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/yugabyte/pgx/v5"
 	"os"
 	"time"
 
@@ -110,7 +111,11 @@ var wdPostTaskCmd = &cli.Command{
 			return xerrors.Errorf("writing SQL transaction: %w", err)
 		}
 		fmt.Printf("Inserted task %v. Waiting for success ", taskId)
+
 		var result sql.NullString
+		var lastHistID *int64
+		prevFound := true
+
 		for {
 			time.Sleep(time.Second)
 			err = deps.DB.QueryRow(ctx, `SELECT result FROM harmony_test WHERE task_id=$1`, taskId).Scan(&result)
@@ -121,6 +126,40 @@ var wdPostTaskCmd = &cli.Command{
 				break
 			}
 			fmt.Print(".")
+
+			{
+				// look at history
+				var histID *int64
+				var errmsg sql.NullString
+				err = deps.DB.QueryRow(ctx, `SELECT id, result, err FROM harmony_task_history WHERE task_id=$1 ORDER BY work_end DESC LIMIT 1`, taskId).Scan(&histID, &result, &errmsg)
+				if err != nil && err != pgx.ErrNoRows {
+					return xerrors.Errorf("reading result from harmony_task_history: %w", err)
+				}
+
+				if err == nil && histID != nil && (lastHistID == nil || *histID != *lastHistID) {
+					fmt.Println()
+					var errstr string
+					if errmsg.Valid {
+						errstr = errmsg.String
+					}
+					fmt.Printf("History %d: %s\n", *histID, errstr)
+					lastHistID = histID
+				}
+			}
+
+			{
+				// look for fails
+				var found bool
+				err = deps.DB.QueryRow(ctx, `SELECT true FROM harmony_task WHERE id=$1`, taskId).Scan(&found)
+				if err != nil && err != pgx.ErrNoRows {
+					return xerrors.Errorf("reading result from harmony_task: %w", err)
+				}
+
+				if !found && !prevFound {
+					return xerrors.Errorf("task %d was not found in harmony_task, likely out of retries", taskId)
+				}
+				prevFound = found
+			}
 		}
 		fmt.Println()
 		log.Infof("Result: %s", result.String)
@@ -168,7 +207,7 @@ It will not send any messages to the chain. Since it can compute any deadline, o
 		}
 
 		wdPostTask, wdPoStSubmitTask, derlareRecoverTask, err := tasks.WindowPostScheduler(
-			ctx, deps.Cfg.Fees, deps.Cfg.Proving, deps.Full, deps.Verif, nil, nil,
+			ctx, deps.Cfg.Fees, deps.Cfg.Proving, deps.Full, deps.Verif, nil, nil, nil,
 			deps.As, deps.Maddrs, deps.DB, deps.Stor, deps.Si, deps.Cfg.Subsystems.WindowPostMaxTasks)
 		if err != nil {
 			return err

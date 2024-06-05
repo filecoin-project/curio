@@ -159,7 +159,8 @@ func (FFISelect) GenerateSinglePartitionWindowPoStWithVanilla(
 	if err != nil {
 		return nil, err
 	}
-	return val[0].(*ffi.PartitionProof), nil
+	pr := val[0].(ffi.PartitionProof)
+	return &pr, nil
 }
 func (FFISelect) SealPreCommitPhase2(
 	sid abi.SectorID,
@@ -228,6 +229,7 @@ func init() {
 		ffi.PartitionProof{},
 		proof.PoStProof{},
 		abi.RegisteredPoStProof(0),
+		[][]uint8{},
 	}
 	var registeredTypeNames = make(map[string]struct{})
 

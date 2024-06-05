@@ -24,10 +24,10 @@ import (
 	"github.com/filecoin-project/go-state-types/dline"
 	"github.com/filecoin-project/go-state-types/network"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/lib/promise"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	"github.com/filecoin-project/lotus/storage/paths"
@@ -69,6 +69,7 @@ type WdPostTask struct {
 	faultTracker sealer.FaultTracker
 	storage      paths.Store
 	verifier     storiface.Verifier
+	paramsReady  func() (bool, error)
 
 	windowPoStTF promise.Promise[harmonytask.AddTaskFunc]
 
@@ -90,6 +91,7 @@ func NewWdPostTask(db *harmonydb.DB,
 	faultTracker sealer.FaultTracker,
 	storage paths.Store,
 	verifier storiface.Verifier,
+	paramck func() (bool, error),
 	pcs *chainsched.CurioChainSched,
 	actors map[dtypes.MinerAddress]bool,
 	max int,
@@ -103,6 +105,7 @@ func NewWdPostTask(db *harmonydb.DB,
 		faultTracker: faultTracker,
 		storage:      storage,
 		verifier:     verifier,
+		paramsReady:  paramck,
 
 		actors:               actors,
 		max:                  max,
@@ -206,6 +209,7 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 			"partition":            partIdx,
 			"submit_at_epoch":      deadline.Open,
 			"submit_by_epoch":      deadline.Close,
+			"post_out":             postOut,
 			"proof_params":         msgbuf.Bytes(),
 		}, "", "  ")
 		if err != nil {
@@ -256,6 +260,15 @@ func entToStr[T any](t T, i int) string {
 }
 
 func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, te *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+	rdy, err := t.paramsReady()
+	if err != nil {
+		return nil, xerrors.Errorf("failed to setup params: %w", err)
+	}
+	if !rdy {
+		log.Infow("WdPostTask.CanAccept() params not ready, not scheduling")
+		return nil, nil
+	}
+
 	// GetEpoch
 	ts, err := t.api.ChainHead(context.Background())
 
@@ -356,7 +369,7 @@ func (t *WdPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name:        "WdPost",
 		Max:         t.max,
-		MaxFailures: 3,
+		MaxFailures: 5,
 		Follows:     nil,
 		Cost: resources.Resources{
 			Cpu: 1,

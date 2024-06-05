@@ -262,7 +262,7 @@ var storageListCmd = &cli.Command{
 				fmt.Printf("\t%s: %s:\n", color.RedString("Error"), err)
 				continue
 			}
-			ping := time.Now().Sub(pingStart)
+			ping := time.Since(pingStart)
 
 			safeRepeat := func(s string, count int) string {
 				if count < 0 {

@@ -202,6 +202,7 @@ var cliCmd = &cli.Command{
 		storageCmd,
 		logCmd,
 		waitApiCmd,
+		stopCmd,
 	},
 }
 

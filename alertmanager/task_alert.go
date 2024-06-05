@@ -163,9 +163,7 @@ func (a *AlertTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func (a *AlertTask) Adder(taskFunc harmonytask.AddTaskFunc) {
-	return
-}
+func (a *AlertTask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
 var _ harmonytask.TaskInterface = &AlertTask{}
 

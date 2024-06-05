@@ -451,15 +451,85 @@ func (a *app) sectorInfo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Task history
+	/*
+		WITH task_ids AS (
+		    SELECT unnest(get_sdr_pipeline_tasks(116147, 1)) AS task_id
+		)
+		SELECT ti.task_id pipeline_task_id, ht.id harmony_task_id, ht.name, ht.completed_by_host_and_port, ht.result, ht.err, ht.work_start, ht.work_end
+		FROM task_ids ti
+		         INNER JOIN harmony_task_history ht ON ti.task_id = ht.task_id
+	*/
+
+	type taskHistory struct {
+		PipelineTaskID int64      `db:"pipeline_task_id"`
+		Name           *string    `db:"name"`
+		CompletedBy    *string    `db:"completed_by_host_and_port"`
+		Result         *bool      `db:"result"`
+		Err            *string    `db:"err"`
+		WorkStart      *time.Time `db:"work_start"`
+		WorkEnd        *time.Time `db:"work_end"`
+
+		// display
+		Took string `db:"-"`
+	}
+
+	var th []taskHistory
+	err = a.db.Select(ctx, &th, `WITH task_ids AS (
+	    SELECT unnest(get_sdr_pipeline_tasks($1, $2)) AS task_id
+	)
+	SELECT ti.task_id pipeline_task_id, ht.name, ht.completed_by_host_and_port, ht.result, ht.err, ht.work_start, ht.work_end
+	FROM task_ids ti
+	         INNER JOIN harmony_task_history ht ON ti.task_id = ht.task_id`, spid, intid)
+	if err != nil {
+		http.Error(w, xerrors.Errorf("failed to fetch task history: %w", err).Error(), http.StatusInternalServerError)
+		return
+	}
+
+	for i := range th {
+		if th[i].WorkStart != nil && th[i].WorkEnd != nil {
+			th[i].Took = th[i].WorkEnd.Sub(*th[i].WorkStart).Round(time.Second).String()
+		}
+	}
+
+	var taskState []struct {
+		PipelineID    int64  `db:"pipeline_id"`
+		HarmonyTaskID *int64 `db:"harmony_task_id"`
+	}
+	err = a.db.Select(ctx, &taskState, `WITH task_ids AS (
+	    SELECT unnest(get_sdr_pipeline_tasks($1, $2)) AS task_id
+	)
+	SELECT ti.task_id pipeline_id, ht.id harmony_task_id
+	FROM task_ids ti
+	         LEFT JOIN harmony_task ht ON ti.task_id = ht.id`, spid, intid)
+	if err != nil {
+		http.Error(w, xerrors.Errorf("failed to fetch task history: %w", err).Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var hasAnyStuckTask bool
+	for _, ts := range taskState {
+		if ts.HarmonyTaskID == nil {
+			hasAnyStuckTask = true
+			break
+		}
+	}
+
 	mi := struct {
 		SectorNumber  int64
+		SpID          uint64
 		PipelinePoRep sectorListEntry
 
 		Pieces    []sectorPieceMeta
 		Locations []locationTable
 		Tasks     []taskSummary
+
+		TaskHistory []taskHistory
+
+		Resumable bool
 	}{
 		SectorNumber: intid,
+		SpID:         spid,
 		PipelinePoRep: sectorListEntry{
 			PipelineTask: tasks[0],
 			AfterSeed:    afterSeed,
@@ -471,12 +541,61 @@ func (a *app) sectorInfo(w http.ResponseWriter, r *http.Request) {
 			ChainFaulty:   must.One(mbf.faulty.IsSet(uint64(task.SectorNumber))),
 		},
 
-		Pieces:    pieces,
-		Locations: locs,
-		Tasks:     htasks,
+		Pieces:      pieces,
+		Locations:   locs,
+		Tasks:       htasks,
+		TaskHistory: th,
+
+		Resumable: hasAnyStuckTask,
 	}
 
 	a.executePageTemplate(w, "sector_info", "Sector Info", mi)
+}
+
+func (a *app) sectorResume(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+
+	id, ok := params["id"]
+	if !ok {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+
+	intid, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	sp, ok := params["sp"]
+	if !ok {
+		http.Error(w, "missing sp", http.StatusBadRequest)
+		return
+	}
+
+	maddr, err := address.NewFromString(sp)
+	if err != nil {
+		http.Error(w, "invalid sp", http.StatusBadRequest)
+		return
+	}
+
+	spid, err := address.IDFromAddress(maddr)
+	if err != nil {
+		http.Error(w, "invalid sp", http.StatusBadRequest)
+		return
+	}
+
+	// call CREATE OR REPLACE FUNCTION unset_task_id(sp_id_param bigint, sector_number_param bigint)
+
+	_, err = a.db.Exec(r.Context(), `SELECT unset_task_id($1, $2)`, spid, intid)
+	if err != nil {
+		http.Error(w, xerrors.Errorf("failed to resume sector: %w", err).Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// redir back to /hapi/sector/{sp}/{id}
+
+	http.Redirect(w, r, fmt.Sprintf("/hapi/sector/%s/%d", sp, intid), http.StatusSeeOther)
 }
 
 var templateDev = os.Getenv("CURIO_WEB_DEV") == "1"
@@ -586,7 +705,21 @@ func (a *app) clusterMachineSummary(ctx context.Context) ([]machineSummary, erro
 	}
 
 	// Then machine summary
-	rows, err := a.db.Query(ctx, "SELECT id, host_and_port, machine_name, CURRENT_TIMESTAMP - last_contact AS last_contact, cpu, ram, gpu FROM harmony_machines order by machine_name asc")
+	rows, err := a.db.Query(ctx, `
+						SELECT 
+							hm.id,
+							hm.host_and_port,
+							CURRENT_TIMESTAMP - hm.last_contact AS last_contact,
+							hm.cpu,
+							hm.ram,
+							hm.gpu,
+							hmd.machine_name
+						FROM 
+							harmony_machines hm
+						LEFT JOIN 
+							harmony_machine_details hmd ON hm.id = hmd.machine_id
+						ORDER BY 
+							hmd.machine_name ASC;`)
 	if err != nil {
 		return nil, err // Handle error
 	}
@@ -598,7 +731,7 @@ func (a *app) clusterMachineSummary(ctx context.Context) ([]machineSummary, erro
 		var lastContact time.Duration
 		var ram int64
 
-		if err := rows.Scan(&m.ID, &m.Address, &m.Name, &lastContact, &m.Cpu, &ram, &m.Gpu); err != nil {
+		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu, &m.Name); err != nil {
 			return nil, err // Handle error
 		}
 		m.SinceContact = lastContact.Round(time.Second).String()
@@ -799,7 +932,24 @@ type machineInfo struct {
 }
 
 func (a *app) clusterNodeInfo(ctx context.Context, id int64) (*machineInfo, error) {
-	rows, err := a.db.Query(ctx, "SELECT id, host_and_port, machine_name, last_contact, cpu, ram, gpu FROM harmony_machines WHERE id=$1 ORDER BY machine_name ASC", id)
+	rows, err := a.db.Query(ctx, `
+						SELECT 
+							hm.id,
+							hm.host_and_port,
+							hm.last_contact,
+							hm.cpu,
+							hm.ram,
+							hm.gpu,
+							hmd.machine_name
+						FROM 
+							harmony_machines hm
+						LEFT JOIN 
+							harmony_machine_details hmd ON hm.id = hmd.machine_id 
+						WHERE 
+						    hm.id=$1
+						ORDER BY 
+							hmd.machine_name ASC;
+						`, id)
 	if err != nil {
 		return nil, err // Handle error
 	}
@@ -810,7 +960,7 @@ func (a *app) clusterNodeInfo(ctx context.Context, id int64) (*machineInfo, erro
 		var m machineInfo
 		var lastContact time.Time
 
-		if err := rows.Scan(&m.Info.ID, &m.Info.Host, &m.Info.Name, &lastContact, &m.Info.CPU, &m.Info.Memory, &m.Info.GPU); err != nil {
+		if err := rows.Scan(&m.Info.ID, &m.Info.Host, &lastContact, &m.Info.CPU, &m.Info.Memory, &m.Info.GPU, &m.Info.Name); err != nil {
 			return nil, err
 		}
 
@@ -955,8 +1105,8 @@ func (a *app) clusterNodeInfo(ctx context.Context, id int64) (*machineInfo, erro
 		// Format the times and durations
 		ft.Posted = posted.Format("02 Jan 06 15:04 MST")
 		ft.Start = start.Format("02 Jan 06 15:04 MST")
-		ft.Queued = fmt.Sprintf("%s", start.Sub(posted).Round(time.Second).String())
-		ft.Took = fmt.Sprintf("%s", end.Sub(start).Round(time.Second))
+		ft.Queued = start.Sub(posted).Round(time.Second).String()
+		ft.Took = end.Sub(start).Round(time.Second).String()
 
 		summaries[0].FinishedTasks = append(summaries[0].FinishedTasks, ft)
 	}

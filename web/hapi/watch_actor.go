@@ -25,9 +25,7 @@ func (a *app) watchActor() {
 		if err != nil {
 			log.Errorw("updating rpc info", "error", err)
 		}
-		select {
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 
@@ -44,7 +42,7 @@ func (a *app) updateActor(ctx context.Context) error {
 	api := a.workingApi
 	a.rpcInfoLk.Unlock()
 
-	stor := store.ActorStore(ctx, blockstore.NewReadCachedBlockstore(blockstore.NewAPIBlockstore(a.workingApi), ChainBlockCache))
+	stor := store.ActorStore(ctx, blockstore.NewReadCachedBlockstore(blockstore.NewAPIBlockstore(api), ChainBlockCache))
 
 	if api == nil {
 		if time.Since(startedAt) > time.Second*10 {
