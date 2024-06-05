@@ -247,7 +247,6 @@ type MigrationData struct {
 	worker          address.Address
 	sender          address.Address
 	ssize           string
-	confidence      uint64
 	init            bool
 }
 
