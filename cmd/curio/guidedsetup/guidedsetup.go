@@ -271,12 +271,24 @@ saveConfigFile:
 		d.say(notice, "Aborting migration.", err.Error())
 		os.Exit(1)
 	}
+
 	args := []string{fmt.Sprintf("CURIO_DB=postgres://%s:%s@%s:%s/%s",
 		d.HarmonyCfg.Username,
 		d.HarmonyCfg.Password,
 		d.HarmonyCfg.Hosts[0],
 		d.HarmonyCfg.Port,
 		d.HarmonyCfg.Database)}
+
+	if e := os.Getenv("FULLNODE_API_INFO"); e == "" {
+		addr, header, err := cliutil.GetRawAPI(d.cctx, repo.FullNode, "v1")
+		if err != nil {
+			d.say(notice, "Add FULLNODE_API_INFO to curio.env: %s", err.Error())
+		} else {
+			args = append(args, fmt.Sprintf("FULLNODE_API_INFO=%s:%s", addr, header.Get("Authorization")[8:]))
+		}
+	} else {
+		args = append(args, fmt.Sprintf("FULLNODE_API_INFO=%s", e))
+	}
 
 	// Write the file
 	err = os.WriteFile(where, []byte(strings.Join(args, "\n")), 0644)
