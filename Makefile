@@ -103,6 +103,10 @@ dist-clean:
 	git submodule deinit --all -f
 .PHONY: dist-clean
 
+docsgen: curio sptool
+	python3 ./scripts/generate-cli.py
+.PHONY: docsgen
+
 # TODO API GEN
 # TODO DOCS GEN
 
