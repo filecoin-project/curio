@@ -4,20 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/filecoin-project/curio/deps"
 	"io"
 	"os"
 	"os/exec"
 	"path"
 	"strings"
 
+	"github.com/filecoin-project/curio/deps"
+
 	"github.com/BurntSushi/toml"
 	"github.com/fatih/color"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/lotus/node/config"
 )
 
 var configCmd = &cli.Command{

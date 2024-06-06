@@ -110,6 +110,9 @@ docsgen: curio sptool
 cu2k: GOFLAGS+=-tags=2k
 cu2k: curio
 
+cfgdoc-gen:
+	$(GOCC) run ./deps/config/cfgdocgen > ./deps/config/doc_gen.go
+
 # TODO API GEN
 # TODO DOCS GEN
 

@@ -3,17 +3,20 @@ package tasks
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/lib/fastparamfetch"
-	"github.com/filecoin-project/lotus/build"
-	"github.com/filecoin-project/lotus/lib/result"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/filecoin-project/curio/lib/fastparamfetch"
+
+	"github.com/filecoin-project/lotus/build"
+	"github.com/filecoin-project/lotus/lib/result"
+
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
@@ -26,8 +29,8 @@ import (
 	"github.com/filecoin-project/curio/tasks/seal"
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
+
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/storage/paths"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 

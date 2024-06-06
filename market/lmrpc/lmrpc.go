@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/filecoin-project/curio/lib/custorage"
-	cumarket "github.com/filecoin-project/curio/market"
-	"github.com/filecoin-project/curio/market/fakelm"
 	"io"
 	"net"
 	"net/http"
@@ -17,6 +14,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/filecoin-project/curio/lib/custorage"
+	cumarket "github.com/filecoin-project/curio/market"
+	"github.com/filecoin-project/curio/market/fakelm"
+
 	"github.com/google/uuid"
 	logging "github.com/ipfs/go-log/v2"
 	manet "github.com/multiformats/go-multiaddr/net"
@@ -26,14 +27,15 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/lib/nullreader"
 	"github.com/filecoin-project/lotus/metrics/proxy"
 	"github.com/filecoin-project/lotus/node"
-	"github.com/filecoin-project/lotus/node/config"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )

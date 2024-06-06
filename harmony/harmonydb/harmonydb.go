@@ -21,8 +21,9 @@ import (
 	"github.com/yugabyte/pgx/v5/pgxpool"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/deps/config"
+
 	lotusdb "github.com/filecoin-project/lotus/lib/harmony/harmonydb"
-	"github.com/filecoin-project/lotus/node/config"
 )
 
 type ITestID string
