@@ -3,9 +3,11 @@ package chainapi
 import (
 	"context"
 	"math/big"
+	"time"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-bitfield"
+	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/crypto"
 	"github.com/filecoin-project/go-state-types/dline"
@@ -14,17 +16,25 @@ import (
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-libipfs/blocks"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/libp2p/go-libp2p/core/metrics"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
+
+	"github.com/filecoin-project/lotus/journal/alerting"
 
 	"github.com/filecoin-project/curio/deps/types"
 	minertypes "github.com/filecoin-project/go-state-types/builtin/v9/miner"
 
 	minertypes13 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
 	verifregtypes9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
+	p2pnetwork "github.com/libp2p/go-libp2p/core/network"
 )
 
 // Daemon is a subset of the Filecoin API that is supported by Forest.
 type Daemon interface {
+	Common
+	Net
 	ChainHead(context.Context) (*types.TipSet, error)
 	ChainNotify(context.Context) (<-chan []*HeadChange, error)
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (MinerInfo, error)
@@ -75,9 +85,154 @@ type Daemon interface {
 	StateSectorPartition(ctx context.Context, maddr address.Address, sectorNumber abi.SectorNumber, tsk types.TipSetKey) (*SectorLocation, error)
 }
 
+type Common interface {
+	// MethodGroup: Auth
+
+	AuthVerify(ctx context.Context, token string) ([]auth.Permission, error) //perm:read
+	AuthNew(ctx context.Context, perms []auth.Permission) ([]byte, error)    //perm:admin
+
+	// MethodGroup: Log
+
+	LogList(context.Context) ([]string, error)         //perm:write
+	LogSetLevel(context.Context, string, string) error //perm:write
+
+	// LogAlerts returns list of all, active and inactive alerts tracked by the
+	// node
+	LogAlerts(ctx context.Context) ([]alerting.Alert, error) //perm:admin
+
+	// MethodGroup: Common
+
+	// Version provides information about API provider
+	Version(context.Context) (APIVersion, error) //perm:read
+
+	// Discover returns an OpenRPC document describing an RPC API.
+	Discover(ctx context.Context) (OpenRPCDocument, error) //perm:read
+
+	// trigger graceful shutdown
+	Shutdown(context.Context) error //perm:admin
+
+	// StartTime returns node start time
+	StartTime(context.Context) (time.Time, error) //perm:read
+
+	// Session returns a random UUID of api provider session
+	Session(context.Context) (uuid.UUID, error) //perm:read
+
+	Closing(context.Context) (<-chan struct{}, error) //perm:read
+}
+type OpenRPCDocument map[string]interface{}
+
+type Version uint32
+
+type APIVersion struct {
+	Version string
+
+	// APIVersion is a binary encoded semver version of the remote implementing
+	// this api
+	//
+	// See APIVersion in build/version.go
+	APIVersion Version
+
+	// TODO: git commit / os / genesis cid?
+
+	// Seconds
+	BlockDelay uint64
+}
+
+type Net interface {
+	// MethodGroup: Net
+
+	NetConnectedness(context.Context, peer.ID) (p2pnetwork.Connectedness, error) //perm:read
+	NetPeers(context.Context) ([]peer.AddrInfo, error)                           //perm:read
+	NetPing(context.Context, peer.ID) (time.Duration, error)                     //perm:read
+	NetConnect(context.Context, peer.AddrInfo) error                             //perm:write
+	NetAddrsListen(context.Context) (peer.AddrInfo, error)                       //perm:read
+	NetDisconnect(context.Context, peer.ID) error                                //perm:write
+	NetFindPeer(context.Context, peer.ID) (peer.AddrInfo, error)                 //perm:read
+	NetPubsubScores(context.Context) ([]PubsubScore, error)                      //perm:read
+	NetAutoNatStatus(context.Context) (NatInfo, error)                           //perm:read
+	NetAgentVersion(ctx context.Context, p peer.ID) (string, error)              //perm:read
+	NetPeerInfo(context.Context, peer.ID) (*ExtendedPeerInfo, error)             //perm:read
+
+	// NetBandwidthStats returns statistics about the nodes total bandwidth
+	// usage and current rate across all peers and protocols.
+	NetBandwidthStats(ctx context.Context) (metrics.Stats, error) //perm:read
+
+	// NetBandwidthStatsByPeer returns statistics about the nodes bandwidth
+	// usage and current rate per peer
+	NetBandwidthStatsByPeer(ctx context.Context) (map[string]metrics.Stats, error) //perm:read
+
+	// NetBandwidthStatsByProtocol returns statistics about the nodes bandwidth
+	// usage and current rate per protocol
+	NetBandwidthStatsByProtocol(ctx context.Context) (map[protocol.ID]metrics.Stats, error) //perm:read
+
+	// ConnectionGater API
+	NetBlockAdd(ctx context.Context, acl NetBlockList) error    //perm:admin
+	NetBlockRemove(ctx context.Context, acl NetBlockList) error //perm:admin
+	NetBlockList(ctx context.Context) (NetBlockList, error)     //perm:read
+
+	NetProtectAdd(ctx context.Context, acl []peer.ID) error    //perm:admin
+	NetProtectRemove(ctx context.Context, acl []peer.ID) error //perm:admin
+	NetProtectList(ctx context.Context) ([]peer.ID, error)     //perm:read
+
+	// ResourceManager API
+	NetStat(ctx context.Context, scope string) (NetStat, error)          //perm:read
+	NetLimit(ctx context.Context, scope string) (NetLimit, error)        //perm:read
+	NetSetLimit(ctx context.Context, scope string, limit NetLimit) error //perm:admin
+
+	// ID returns peerID of libp2p node backing this API
+	ID(context.Context) (peer.ID, error) //perm:read
+}
+
+type NetLimit struct {
+	Memory int64 `json:",omitempty"`
+
+	Streams, StreamsInbound, StreamsOutbound int
+	Conns, ConnsInbound, ConnsOutbound       int
+	FD                                       int
+}
+
+type NetStat struct {
+	System    *p2pnetwork.ScopeStat           `json:",omitempty"`
+	Transient *p2pnetwork.ScopeStat           `json:",omitempty"`
+	Services  map[string]p2pnetwork.ScopeStat `json:",omitempty"`
+	Protocols map[string]p2pnetwork.ScopeStat `json:",omitempty"`
+	Peers     map[string]p2pnetwork.ScopeStat `json:",omitempty"`
+}
+
+type NetBlockList struct {
+	Peers     []peer.ID
+	IPAddrs   []string
+	IPSubnets []string
+}
+
+type NatInfo struct {
+	Reachability p2pnetwork.Reachability
+	PublicAddrs  []string
+}
+
+type PubsubScore struct {
+	ID    peer.ID
+	Score *pubsub.PeerScoreSnapshot
+}
+
 type HeadChange struct {
 	Type string
 	Val  *types.TipSet
+}
+
+type ExtendedPeerInfo struct {
+	ID          peer.ID
+	Agent       string
+	Addrs       []string
+	Protocols   []string
+	ConnMgrMeta *ConnMgrInfo
+}
+
+type ConnMgrInfo struct {
+	FirstSeen time.Time
+	Value     int
+	Tags      map[string]int
+	Conns     map[string]time.Time
 }
 
 type MinerInfo struct {

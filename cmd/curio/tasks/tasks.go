@@ -3,12 +3,13 @@ package tasks
 
 import (
 	"context"
-	"github.com/filecoin-project/lotus/lib/result"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/filecoin-project/lotus/lib/result"
 
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/deps"
@@ -24,6 +25,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/seal"
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
+
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/storage/paths"
@@ -71,7 +73,7 @@ func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.Cur
 func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.TaskEngine, error) {
 	cfg := dependencies.Cfg
 	db := dependencies.DB
-	full := dependencies.Full
+	full := dependencies.ChainApi
 	verif := dependencies.Verif
 	as := dependencies.As
 	maddrs := dependencies.Maddrs

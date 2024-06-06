@@ -141,7 +141,7 @@ var runCmd = &cli.Command{
 		}
 		defer taskEngine.GracefullyTerminate()
 
-		if err := lmrpc.ServeCurioMarketRPCFromConfig(dependencies.DB, dependencies.Full, dependencies.Cfg); err != nil {
+		if err := lmrpc.ServeCurioMarketRPCFromConfig(dependencies.DB, dependencies.ChainApi, dependencies.Cfg); err != nil {
 			return xerrors.Errorf("starting market RPCs: %w", err)
 		}
 

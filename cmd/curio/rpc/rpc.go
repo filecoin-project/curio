@@ -5,15 +5,16 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/market"
-	"github.com/filecoin-project/curio/web"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/market"
+	"github.com/filecoin-project/curio/web"
 
 	"github.com/gbrlsnchs/jwt/v3"
 	"github.com/google/uuid"
@@ -156,7 +157,7 @@ func (p *CurioAPI) StorageStat(ctx context.Context, id storiface.ID) (fsutil.FsS
 }
 
 func (p *CurioAPI) AllocatePieceToSector(ctx context.Context, maddr address.Address, piece piece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (api.SectorOffset, error) {
-	di, err := market.NewPieceIngester(ctx, p.Deps.DB, p.Deps.Full, maddr, true, time.Minute)
+	di, err := market.NewPieceIngester(ctx, p.Deps.DB, p.Deps.ChainApi, maddr, true, time.Minute)
 	if err != nil {
 		return api.SectorOffset{}, xerrors.Errorf("failed to create a piece ingestor")
 	}

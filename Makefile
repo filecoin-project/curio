@@ -107,7 +107,15 @@ docsgen: curio sptool
 	python3 ./scripts/generate-cli.py
 .PHONY: docsgen
 
-# TODO API GEN
-# TODO DOCS GEN
+type-gen: api-gen
+	$(GOCC) run ./gen/main.go
+	$(GOCC) generate -x ./...
+	@echo ">>> Fiximports only ran from 'make gen' to avoid running it multiple times"
+
+gen: type-gen cfgdoc-gen docsgen api-gen
+	$(GOCC) run ./scripts/fiximports
+	@echo ">>> IF YOU'VE MODIFIED THE CLI OR CONFIG, REMEMBER TO ALSO RUN 'make docsgen-cli'"
+.PHONY: gen
+
 
 # TODO DEVNET IMAGES

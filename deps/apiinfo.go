@@ -7,17 +7,17 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/deps/chainapi"
 	"github.com/filecoin-project/go-jsonrpc"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/client"
-	"github.com/filecoin-project/lotus/api/v1api"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
 
-func getFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string, opts ...cliutil.GetFullNodeOption) (v1api.FullNode, jsonrpc.ClientCloser, error) {
+func getFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string, opts ...cliutil.GetFullNodeOption) (chainapi.Daemon, jsonrpc.ClientCloser, error) {
 	if tn, ok := ctx.App.Metadata["testnode-full"]; ok {
-		return tn.(v1api.FullNode), func() {}, nil
+		return tn.(chainapi.Daemon), func() {}, nil
 	}
 
 	var options cliutil.GetFullNodeOptions
@@ -75,7 +75,7 @@ func getFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string, opts ...cliutil.
 		}
 	}
 
-	var v1API api.FullNodeStruct
+	var v1API chainapi.Daemon
 	cliutil.FullNodeProxy(fullNodes, &v1API)
 
 	v, err := v1API.Version(ctx.Context)

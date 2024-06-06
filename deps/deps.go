@@ -30,10 +30,10 @@ import (
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/deps/chainapi"
 	"github.com/filecoin-project/curio/deps/types"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
-	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/v1api"
 	"github.com/filecoin-project/lotus/journal"
 	"github.com/filecoin-project/lotus/journal/alerting"
@@ -167,7 +167,7 @@ type Deps struct {
 	Layers     []string
 	Cfg        *config.CurioConfig // values
 	DB         *harmonydb.DB       // has itest capability
-	Full       api.FullNode
+	ChainApi   chainapi.Daemon
 	Verif      storiface.Verifier
 	As         *multictladdr.MultiAddressSelector
 	Maddrs     map[dtypes.MinerAddress]bool
@@ -255,13 +255,13 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		deps.Si = custorage.NewDBIndex(al, deps.DB)
 	}
 
-	if deps.Full == nil {
+	if deps.ChainApi == nil {
 		var fullCloser func()
 		cfgApiInfo := deps.Cfg.Apis.ChainApiInfo
 		if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
 			cfgApiInfo = []string{v}
 		}
-		deps.Full, fullCloser, err = getFullNodeAPIV1Curio(cctx, cfgApiInfo)
+		deps.ChainApi, fullCloser, err = getFullNodeAPIV1Curio(cctx, cfgApiInfo)
 		if err != nil {
 			return err
 		}
@@ -333,7 +333,7 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 	}
 	if len(deps.ProofTypes) == 0 {
 		for maddr := range deps.Maddrs {
-			spt, err := modules.SealProofType(maddr, deps.Full)
+			spt, err := modules.SealProofType(maddr, deps.ChainApi)
 			if err != nil {
 				return err
 			}
@@ -436,9 +436,9 @@ func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	}()
 
 	return &Deps{
-		Cfg:  cfg,
-		DB:   db,
-		Full: full,
+		Cfg:      cfg,
+		DB:       db,
+		ChainApi: full,
 	}, nil
 }
 

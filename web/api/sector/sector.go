@@ -55,9 +55,9 @@ func (c *cfg) terminateSectors(w http.ResponseWriter, r *http.Request) {
 	for minerInt, sectors := range toDel {
 		maddr, err := address.NewIDAddress(uint64(minerInt))
 		apihelper.OrHTTPFail(w, err)
-		mi, err := c.Full.StateMinerInfo(r.Context(), maddr, types.EmptyTSK)
+		mi, err := c.ChainApi.StateMinerInfo(r.Context(), maddr, types.EmptyTSK)
 		apihelper.OrHTTPFail(w, err)
-		_, err = spcli.TerminateSectors(r.Context(), c.Full, maddr, sectors, mi.Worker)
+		_, err = spcli.TerminateSectors(r.Context(), c.ChainApi, maddr, sectors, mi.Worker)
 		apihelper.OrHTTPFail(w, err)
 		for _, sectorNumber := range sectors {
 			id := abi.SectorID{Miner: abi.ActorID(minerInt), Number: abi.SectorNumber(sectorNumber)}
@@ -107,7 +107,7 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 		GROUP BY miner_id, sector_num 
 		ORDER BY miner_id, sector_num`))
 	minerToAddr := map[int64]address.Address{}
-	head, err := c.Full.ChainHead(r.Context())
+	head, err := c.ChainApi.ChainHead(r.Context())
 	apihelper.OrHTTPFail(w, err)
 
 	type sectorID struct {
@@ -331,7 +331,7 @@ func (c *cfg) getCachedSectorInfo(w http.ResponseWriter, r *http.Request, maddr 
 		mx.Unlock()
 
 		// Intentionally not using the context from the request, as this is a cache
-		onChainInfo, err := c.Full.StateMinerSectors(context.Background(), maddr, nil, headKey)
+		onChainInfo, err := c.ChainApi.StateMinerSectors(context.Background(), maddr, nil, headKey)
 		if err != nil {
 			mx.Lock()
 			delete(sectorInfoCache, maddr)
@@ -339,7 +339,7 @@ func (c *cfg) getCachedSectorInfo(w http.ResponseWriter, r *http.Request, maddr 
 			mx.Unlock()
 			return nil, err
 		}
-		active, err := c.Full.StateMinerActiveSectors(context.Background(), maddr, headKey)
+		active, err := c.ChainApi.StateMinerActiveSectors(context.Background(), maddr, headKey)
 		if err != nil {
 			mx.Lock()
 			delete(sectorInfoCache, maddr)
