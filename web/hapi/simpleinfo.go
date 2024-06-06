@@ -595,6 +595,50 @@ func (a *app) sectorResume(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/hapi/sector/%s/%d", sp, intid), http.StatusSeeOther)
 }
 
+func (a *app) sectorRemove(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+
+	id, ok := params["id"]
+	if !ok {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+
+	intid, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	sp, ok := params["sp"]
+	if !ok {
+		http.Error(w, "missing sp", http.StatusBadRequest)
+		return
+	}
+
+	maddr, err := address.NewFromString(sp)
+	if err != nil {
+		http.Error(w, "invalid sp", http.StatusBadRequest)
+		return
+	}
+
+	spid, err := address.IDFromAddress(maddr)
+	if err != nil {
+		http.Error(w, "invalid sp", http.StatusBadRequest)
+		return
+	}
+
+	_, err = a.db.Exec(r.Context(), `DELETE FROM sectors_sdr_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, intid)
+	if err != nil {
+		http.Error(w, xerrors.Errorf("failed to resume sector: %w", err).Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// redir back to /pipeline_porep.html
+
+	http.Redirect(w, r, fmt.Sprintf("/pipeline_porep.html"), http.StatusSeeOther)
+}
+
 var templateDev = os.Getenv("CURIO_WEB_DEV") == "1"
 
 func (a *app) executeTemplate(w http.ResponseWriter, name string, data interface{}) {
