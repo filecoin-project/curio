@@ -108,9 +108,15 @@ docsgen: curio sptool
 .PHONY: docsgen
 
 type-gen: api-gen
-	$(GOCC) run ./gen/main.go
+	$(GOCC) run ./deps/types/gen/main.go
 	$(GOCC) generate -x ./...
 	@echo ">>> Fiximports only ran from 'make gen' to avoid running it multiple times"
+.PHONY: type-gen
+
+api-gen:
+	$(GOCC) run ./deps/chainapi/proxygen
+	@echo ">>> Fiximports only ran from 'make gen' to avoid running it multiple times"
+.PHONY: api-gen
 
 gen: type-gen cfgdoc-gen docsgen api-gen
 	$(GOCC) run ./scripts/fiximports
