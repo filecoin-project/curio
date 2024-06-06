@@ -2,13 +2,13 @@ package ffiselect
 
 import (
 	"bytes"
-	"encoding/gob"
+	"context"
 	"github.com/filecoin-project/curio/build"
-	"github.com/filecoin-project/curio/lib/ffiselect/ffidirect"
+	"github.com/filecoin-project/go-jsonrpc"
+	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 	"io"
 	"os"
 	"os/exec"
-	"reflect"
 	"strconv"
 	"strings"
 
@@ -20,6 +20,14 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/proof"
 )
+
+type logCtxKt struct{}
+
+var logCtxKey = logCtxKt{}
+
+func WithLogCtx(ctx context.Context, kvs ...any) context.Context {
+	return context.WithValue(ctx, logCtxKey, kvs)
+}
 
 var IsTest = false
 var IsCuda = build.IsOpencl != "1"
@@ -53,9 +61,9 @@ func subStrInSet(set []string, sub string) bool {
 	return lo.Reduce(set, func(agg bool, item string, _ int) bool { return agg || strings.Contains(item, sub) }, false)
 }
 
-func call(logctx []any, fn string, args ...interface{}) ([]interface{}, error) {
+func call(ctx context.Context, body []byte) (io.ReadCloser, error) {
 	if IsTest {
-		return callTest(logctx, fn, args...)
+		return callTest(ctx, body)
 	}
 
 	// get dOrdinal
@@ -98,7 +106,7 @@ func call(logctx []any, fn string, args ...interface{}) ([]interface{}, error) {
 
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	lw := NewLogWriter(logctx, os.Stderr)
+	lw := NewLogWriter(ctx.Value(logCtxKey).([]any), os.Stderr)
 
 	cmd.Stderr = lw
 	cmd.Stdout = os.Stdout
@@ -107,16 +115,8 @@ func call(logctx []any, fn string, args ...interface{}) ([]interface{}, error) {
 		return nil, err
 	}
 	cmd.ExtraFiles = []*os.File{outFile}
-	var encArgs bytes.Buffer
-	err = gob.NewEncoder(&encArgs).Encode(FFICall{
-		Fn:   fn,
-		Args: args,
-	})
-	if err != nil {
-		return nil, xerrors.Errorf("subprocess caller cannot encode: %w", err)
-	}
 
-	cmd.Stdin = &encArgs
+	cmd.Stdin = bytes.NewReader(body)
 	err = cmd.Run()
 	if err != nil {
 		return nil, err
@@ -127,137 +127,52 @@ func call(logctx []any, fn string, args ...interface{}) ([]interface{}, error) {
 		return nil, xerrors.Errorf("failed to seek to beginning of output file: %w", err)
 	}
 
-	var ve ValErr
-	err = gob.NewDecoder(outFile).Decode(&ve)
-	if err != nil {
-		return nil, xerrors.Errorf("subprocess caller cannot decode: %w", err)
-	}
-	if ve.Err != "" {
-		return nil, xerrors.Errorf("subprocess failure: %s", ve.Err)
-	}
-	if ve.Val[len(ve.Val)-1].(ffidirect.ErrorString) != "" {
-		return nil, xerrors.Errorf("subprocess call error: %s", ve.Val[len(ve.Val)-1].(ffidirect.ErrorString))
-	}
-	return ve.Val, nil
+	return outFile, nil
 }
 
 ///////////Funcs reachable by the GPU selector.///////////
 // NOTE: Changes here MUST also change ffi-direct.go
 
-type FFISelect struct{}
+var FFISelect struct {
+	GenerateSinglePartitionWindowPoStWithVanilla func(
+		ctx context.Context,
+		proofType abi.RegisteredPoStProof,
+		minerID abi.ActorID,
+		randomness abi.PoStRandomness,
+		proofs [][]byte,
+		partitionIndex uint,
+	) (*ffi.PartitionProof, error)
 
-func (FFISelect) GenerateSinglePartitionWindowPoStWithVanilla(
-	proofType abi.RegisteredPoStProof,
-	minerID abi.ActorID,
-	randomness abi.PoStRandomness,
-	proofs [][]byte,
-	partitionIndex uint,
-) (*ffi.PartitionProof, error) {
-	logctx := []any{"spid", minerID, "proof_count", len(proofs), "partition_index", partitionIndex}
+	SealPreCommitPhase2 func(
+		ctx context.Context,
+		phase1Output []byte,
+		cacheDirPath string,
+		sealedSectorPath string,
+	) (out storiface.SectorCids, err error)
 
-	val, err := call(logctx, "GenerateSinglePartitionWindowPoStWithVanilla", proofType, minerID, randomness, proofs, partitionIndex)
-	if err != nil {
-		return nil, err
-	}
-	pr := val[0].(ffi.PartitionProof)
-	return &pr, nil
-}
-func (FFISelect) SealPreCommitPhase2(
-	sid abi.SectorID,
-	phase1Output []byte,
-	cacheDirPath string,
-	sealedSectorPath string,
-) (sealedCID cid.Cid, unsealedCID cid.Cid, err error) {
-	logctx := []any{"sector", sid}
+	SealCommitPhase2 func(
+		ctx context.Context,
+		phase1Output []byte,
+		sectorNum abi.SectorNumber,
+		minerID abi.ActorID,
+	) ([]byte, error)
 
-	val, err := call(logctx, "SealPreCommitPhase2", phase1Output, cacheDirPath, sealedSectorPath)
-	if err != nil {
-		return cid.Undef, cid.Undef, err
-	}
-	return val[0].(cid.Cid), val[1].(cid.Cid), nil
-}
+	GenerateWinningPoStWithVanilla func(
+		ctx context.Context,
+		proofType abi.RegisteredPoStProof,
+		minerID abi.ActorID,
+		randomness abi.PoStRandomness,
+		proofs [][]byte,
+	) ([]proof.PoStProof, error)
 
-func (FFISelect) SealCommitPhase2(
-	phase1Output []byte,
-	sectorNum abi.SectorNumber,
-	minerID abi.ActorID,
-) ([]byte, error) {
-	logctx := []any{"sector", abi.SectorID{Miner: minerID, Number: sectorNum}}
-
-	val, err := call(logctx, "SealCommitPhase2", phase1Output, sectorNum, minerID)
-	if err != nil {
-		return nil, err
-	}
-
-	return val[0].([]byte), nil
-}
-
-func (FFISelect) GenerateWinningPoStWithVanilla(
-	proofType abi.RegisteredPoStProof,
-	minerID abi.ActorID,
-	randomness abi.PoStRandomness,
-	proofs [][]byte,
-) ([]proof.PoStProof, error) {
-	logctx := []any{"proof_type", proofType, "miner_id", minerID}
-
-	val, err := call(logctx, "GenerateWinningPoStWithVanilla", proofType, minerID, randomness, proofs)
-	if err != nil {
-		return nil, err
-	}
-	return val[0].([]proof.PoStProof), nil
-}
-
-func (FFISelect) SelfTest(val1 int, val2 cid.Cid) (int, cid.Cid, error) {
-	val, err := call([]any{"selftest", "true"}, "SelfTest", val1, val2)
-	if err != nil {
-		return 0, cid.Undef, err
-	}
-	return val[0].(int), val[1].(cid.Cid), nil
+	SelfTest func(ctx context.Context, val1 int, val2 cid.Cid) (cid.Cid, error)
 }
 
 // //////////////////////////
 
 func init() {
-	registeredTypes := []any{
-		ValErr{},
-		FFICall{},
-		cid.Cid{},
-		abi.RegisteredPoStProof(0),
-		abi.ActorID(0),
-		abi.PoStRandomness{},
-		abi.SectorNumber(0),
-		ffi.PartitionProof{},
-		proof.PoStProof{},
-		abi.RegisteredPoStProof(0),
-		[][]uint8{},
-	}
-	var registeredTypeNames = make(map[string]struct{})
-
-	//Ensure all methods are implemented:
-	// This is designed to fail for happy-path runs
-	//  and should never actually impact curio users.
-	for _, t := range registeredTypes {
-		gob.Register(t)
-		registeredTypeNames[reflect.TypeOf(t).PkgPath()+"."+reflect.TypeOf(t).Name()] = struct{}{}
-	}
-
-	to := reflect.TypeOf(ffidirect.FFI{})
-	for m := 0; m < to.NumMethod(); m++ {
-		tm := to.Method(m)
-		tf := tm.Func
-		for i := 1; i < tf.Type().NumIn(); i++ { // skipping first arg (struct type)
-			in := tf.Type().In(i)
-			nm := in.PkgPath() + "." + in.Name()
-			if _, ok := registeredTypeNames[nm]; in.PkgPath() != "" && !ok { // built-ins ok
-				panic("ffiSelect: unregistered type: " + nm + " from " + tm.Name + " arg: " + strconv.Itoa(i))
-			}
-		}
-		for i := 0; i < tf.Type().NumOut(); i++ {
-			out := tf.Type().Out(i)
-			nm := out.PkgPath() + "." + out.Name()
-			if _, ok := registeredTypeNames[nm]; out.PkgPath() != "" && !ok { // built-ins ok
-				panic("ffiSelect: unregistered type: " + nm + " from " + tm.Name + " arg: " + strconv.Itoa(i))
-			}
-		}
+	_, err := jsonrpc.NewCustomClient("FFI", []interface{}{&FFISelect}, call)
+	if err != nil {
+		panic(err)
 	}
 }
