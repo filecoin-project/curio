@@ -73,11 +73,13 @@
             extend: 'selected',
             text: 'Terminate & Delete',
             action: function (e, dt, button, config) {
-              var res = dt.rows({ selected: true }).data().map(function (row) {
+              var res = dt.rows({ selected: true }).data().toArray().map(function (row) {
                 return {MinerID: row.MinerID, Sector: row.SectorNum};
               });
+              console.log(res);
+              var confirmMessage = res.map(obj => `MinerID: ${obj.MinerID}, Sector: ${obj.Sector}`).join(", ");
 
-              if (confirm("Terminate & Delete: "+res.join(", "))) {
+              if (confirm("Terminate & Delete: "+confirmMessage)) {
                 axios.post('/api/sector/terminate', res)
                   .then(function (response) {
                     console.log(response);
