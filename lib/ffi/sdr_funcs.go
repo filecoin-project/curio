@@ -258,12 +258,13 @@ func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, secto
 		}
 	}
 
-	sl, uns, err := ffiselect.FFISelect{}.SealPreCommitPhase2(sector.ID, p1o, fspaths.Cache, fspaths.Sealed)
+	ctx = ffiselect.WithLogCtx(ctx, "sector", sector.ID, "cache", fspaths.Cache, "sealed", fspaths.Sealed)
+	out, err := ffiselect.FFISelect.SealPreCommitPhase2(ctx, p1o, fspaths.Cache, fspaths.Sealed)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("computing seal proof: %w", err)
 	}
 
-	if uns != unsealed {
+	if out.Unsealed != unsealed {
 		return cid.Undef, cid.Undef, xerrors.Errorf("unsealed cid changed after sealing")
 	}
 
@@ -271,7 +272,7 @@ func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, secto
 		return cid.Undef, cid.Undef, xerrors.Errorf("ensure one copy: %w", err)
 	}
 
-	return sl, uns, nil
+	return out.Sealed, out.Unsealed, nil
 }
 
 func removeDRCTrees(cache string, isDTree bool) error {
@@ -309,7 +310,8 @@ func (sb *SealCalls) PoRepSnark(ctx context.Context, sn storiface.SectorRef, sea
 		return nil, xerrors.Errorf("failed to generate vanilla proof: %w", err)
 	}
 
-	proof, err := ffiselect.FFISelect{}.SealCommitPhase2(vproof, sn.ID.Number, sn.ID.Miner)
+	ctx = ffiselect.WithLogCtx(ctx, "sector", sn.ID, "sealed", sealed, "unsealed", unsealed, "ticket", ticket, "seed", seed)
+	proof, err := ffiselect.FFISelect.SealCommitPhase2(ctx, vproof, sn.ID.Number, sn.ID.Miner)
 	if err != nil {
 		return nil, xerrors.Errorf("computing seal proof failed: %w", err)
 	}

@@ -3,6 +3,9 @@ package tasks
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/lib/fastparamfetch"
+	"github.com/filecoin-project/lotus/build"
+	"github.com/filecoin-project/lotus/lib/result"
 	"sort"
 	"strings"
 	"sync"
@@ -96,7 +99,10 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		fetchOnce.Do(func() {
 			go func() {
 				for spt := range dependencies.ProofTypes {
-					err := modules.GetParams(true)(spt)
+
+					provingSize := uint64(must.One(spt.SectorSize()))
+					err := fastparamfetch.GetParams(context.TODO(), build.ParametersJSON(), build.SrsJSON(), provingSize)
+
 					if err != nil {
 						log.Errorw("failed to fetch params", "error", err)
 						fetchResult.Store(&result.Result[bool]{Value: false, Error: err})
