@@ -1,4 +1,6 @@
 #####################################
+ARG LOTUS_TEST_IMAGE=curio/lotus-all-in-one:latest
+FROM ${LOTUS_TEST_IMAGE} as lotus-test
 FROM golang:1.21.7-bullseye AS curio-builder
 MAINTAINER Curio Development Team
 
@@ -42,7 +44,7 @@ RUN make clean deps
 ARG RUSTFLAGS=""
 ARG GOFLAGS=""
 
-RUN make curio-devnet
+RUN make build
 
 #####################################
 FROM ubuntu:22.04 AS curio-all-in-one
@@ -72,10 +74,10 @@ ENV FILECOIN_PARAMETER_CACHE=/var/tmp/filecoin-proof-parameters \
     CURIO_REPO_PATH=/var/lib/curio
 
 # Copy binaries and scripts
-COPY --from=curio-builder /opt/curio/lotus /usr/local/bin/
-COPY --from=curio-builder /opt/curio/lotus-seed /usr/local/bin/
-COPY --from=curio-builder /opt/curio/lotus-shed /usr/local/bin/
-COPY --from=curio-builder /opt/curio/lotus-miner /usr/local/bin/
+COPY --from=lotus-test /usr/local/bin/lotus /usr/local/bin/
+COPY --from=lotus-test /usr/local/bin/lotus-seed /usr/local/bin/
+COPY --from=lotus-test /usr/local/bin/lotus-shed /usr/local/bin/
+COPY --from=lotus-test /usr/local/bin/lotus-miner /usr/local/bin/
 COPY --from=curio-builder /opt/curio/curio /usr/local/bin/
 COPY --from=curio-builder /opt/curio/sptool /usr/local/bin/
 
