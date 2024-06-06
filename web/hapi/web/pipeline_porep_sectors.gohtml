@@ -128,6 +128,10 @@
                 <div>On Chain</div>
                 <div>{{if .ChainSector}}yes{{else}}{{if .ChainAlloc}}allocated{{else}}no{{end}}{{end}}</div>
             </td>
+            <td rowspan="2" class="{{if .Failed}}pipeline-failed{{else}}{{if .ChainActive}}pipeline-success{{else}}pipeline-active{{end}}{{end}}">
+                <div>State</div>
+                <div>{{if .Failed}}Failed{{else}}{{if .ChainActive}}Sealed{{else}}Sealing{{end}}{{end}}</div>
+            </td>
         </tr>
         <tr>
             <td class="{{if ne .TaskTreeD nil}}pipeline-active{{end}} {{if .AfterTreeD}}pipeline-success{{end}}">
