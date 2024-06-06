@@ -286,6 +286,8 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 					return err
 				}
 				deps.ListenAddr = rip + ":" + addressSlice[1]
+			} else {
+				deps.ListenAddr = ip.String() + ":" + addressSlice[1]
 			}
 		}
 	}
@@ -428,10 +430,8 @@ func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		return nil, err
 	}
 	go func() {
-		select {
-		case <-ctx.Done():
-			fullCloser()
-		}
+		<-ctx.Done()
+		fullCloser()
 	}()
 
 	return &Deps{

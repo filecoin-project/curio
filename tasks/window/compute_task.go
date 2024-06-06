@@ -209,6 +209,7 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 			"partition":            partIdx,
 			"submit_at_epoch":      deadline.Open,
 			"submit_by_epoch":      deadline.Close,
+			"post_out":             postOut,
 			"proof_params":         msgbuf.Bytes(),
 		}, "", "  ")
 		if err != nil {
@@ -368,7 +369,7 @@ func (t *WdPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name:        "WdPost",
 		Max:         t.max,
-		MaxFailures: 3,
+		MaxFailures: 5,
 		Follows:     nil,
 		Cost: resources.Resources{
 			Cpu: 1,

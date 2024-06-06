@@ -1104,8 +1104,8 @@ func (a *app) clusterNodeInfo(ctx context.Context, id int64) (*machineInfo, erro
 		// Format the times and durations
 		ft.Posted = posted.Format("02 Jan 06 15:04 MST")
 		ft.Start = start.Format("02 Jan 06 15:04 MST")
-		ft.Queued = fmt.Sprintf("%s", start.Sub(posted).Round(time.Second).String())
-		ft.Took = fmt.Sprintf("%s", end.Sub(start).Round(time.Second))
+		ft.Queued = start.Sub(posted).Round(time.Second).String()
+		ft.Took = end.Sub(start).Round(time.Second).String()
 
 		summaries[0].FinishedTasks = append(summaries[0].FinishedTasks, ft)
 	}

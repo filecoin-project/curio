@@ -8,11 +8,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/filecoin-project/curio/harmony/harmonytask"
-	"github.com/filecoin-project/curio/harmony/resources"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/resources"
 
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
@@ -20,9 +21,9 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/dline"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/storage/ctladdr"
 )
@@ -161,9 +162,7 @@ func (a *AlertTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func (a *AlertTask) Adder(taskFunc harmonytask.AddTaskFunc) {
-	return
-}
+func (a *AlertTask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
 var _ harmonytask.TaskInterface = &AlertTask{}
 

@@ -2,11 +2,12 @@ package gc
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/harmony/harmonytask"
-	"github.com/filecoin-project/curio/harmony/resources"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/resources"
 
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
@@ -282,7 +283,6 @@ func (s *StorageEndpointGC) TypeDetails() harmonytask.TaskTypeDetails {
 
 func (s *StorageEndpointGC) Adder(taskFunc harmonytask.AddTaskFunc) {
 	// lazy endpoint, added when bored
-	return
 }
 
 var _ harmonytask.TaskInterface = &StorageEndpointGC{}

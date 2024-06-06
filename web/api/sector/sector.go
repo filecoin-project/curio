@@ -8,26 +8,23 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/go-units"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/web/api/apihelper"
-	"github.com/filecoin-project/lotus/blockstore"
-	"github.com/filecoin-project/lotus/chain/actors/adt"
-	cbor "github.com/ipfs/go-ipld-cbor"
-
-	"github.com/docker/go-units"
-	"github.com/gorilla/mux"
-	"github.com/samber/lo"
-
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
-
+	"github.com/filecoin-project/lotus/blockstore"
+	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/cli/spcli"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	"github.com/gorilla/mux"
+	cbor "github.com/ipfs/go-ipld-cbor"
+	"github.com/samber/lo"
 )
 
 const verifiedPowerGainMul = 9
@@ -230,10 +227,10 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 				}
 				sectors[i].DealWeight = "CC"
 				if dw > 0 {
-					sectors[i].DealWeight = fmt.Sprintf("%s", units.BytesSize(dw))
+					sectors[i].DealWeight = units.BytesSize(dw)
 				}
 				if vp > 0 {
-					sectors[i].DealWeight = fmt.Sprintf("%s", units.BytesSize(vp))
+					sectors[i].DealWeight = units.BytesSize(vp)
 				}
 				sectors[i].Deals = fmt.Sprintf("Market: %d, DDO: %d", f05, ddo)
 			} else {
@@ -299,9 +296,9 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 			}
 			sectors[i].IsFilPlus = vp > 0
 			if dw > 0 {
-				sectors[i].DealWeight = fmt.Sprintf("%s", units.BytesSize(dw))
+				sectors[i].DealWeight = units.BytesSize(dw)
 			} else if vp > 0 {
-				sectors[i].DealWeight = fmt.Sprintf("%s", units.BytesSize(vp))
+				sectors[i].DealWeight = units.BytesSize(vp)
 			} else {
 				sectors[i].DealWeight = "CC"
 			}
