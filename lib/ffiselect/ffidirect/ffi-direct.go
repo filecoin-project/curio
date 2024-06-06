@@ -3,6 +3,8 @@
 package ffidirect
 
 import (
+	"errors"
+	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 	"github.com/ipfs/go-cid"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
@@ -13,48 +15,38 @@ import (
 // This allow reflection access to the FFI functions.
 type FFI struct{}
 
-type ErrorString = string
-
-func untypeError1[R any](r R, err error) (R, string) {
-	if err == nil {
-		return r, ""
-	}
-
-	return r, err.Error()
-}
-
-func untypeError2[R1, R2 any](r1 R1, r2 R2, err error) (R1, R2, string) {
-	if err == nil {
-		return r1, r2, ""
-	}
-
-	return r1, r2, err.Error()
-}
-
 func (FFI) GenerateSinglePartitionWindowPoStWithVanilla(
 	proofType abi.RegisteredPoStProof,
 	minerID abi.ActorID,
 	randomness abi.PoStRandomness,
 	proofs [][]byte,
 	partitionIndex uint,
-) (*ffi.PartitionProof, ErrorString) {
-	return untypeError1(ffi.GenerateSinglePartitionWindowPoStWithVanilla(proofType, minerID, randomness, proofs, partitionIndex))
+) (*ffi.PartitionProof, error) {
+	return ffi.GenerateSinglePartitionWindowPoStWithVanilla(proofType, minerID, randomness, proofs, partitionIndex)
 }
 
 func (FFI) SealPreCommitPhase2(
 	phase1Output []byte,
 	cacheDirPath string,
 	sealedSectorPath string,
-) (sealedCID cid.Cid, unsealedCID cid.Cid, err ErrorString) {
-	return untypeError2(ffi.SealPreCommitPhase2(phase1Output, cacheDirPath, sealedSectorPath))
+) (out storiface.SectorCids, err error) {
+	sealed, unsealed, err := ffi.SealPreCommitPhase2(phase1Output, cacheDirPath, sealedSectorPath)
+	if err != nil {
+		return storiface.SectorCids{}, err
+	}
+
+	return storiface.SectorCids{
+		Unsealed: unsealed,
+		Sealed:   sealed,
+	}, nil
 }
 
 func (FFI) SealCommitPhase2(
 	phase1Output []byte,
 	sectorNum abi.SectorNumber,
 	minerID abi.ActorID,
-) ([]byte, ErrorString) {
-	return untypeError1(ffi.SealCommitPhase2(phase1Output, sectorNum, minerID))
+) ([]byte, error) {
+	return ffi.SealCommitPhase2(phase1Output, sectorNum, minerID)
 }
 
 func (FFI) GenerateWinningPoStWithVanilla(
@@ -62,10 +54,14 @@ func (FFI) GenerateWinningPoStWithVanilla(
 	minerID abi.ActorID,
 	randomness abi.PoStRandomness,
 	proofs [][]byte,
-) ([]proof.PoStProof, ErrorString) {
-	return untypeError1(ffi.GenerateWinningPoStWithVanilla(proofType, minerID, randomness, proofs))
+) ([]proof.PoStProof, error) {
+	return ffi.GenerateWinningPoStWithVanilla(proofType, minerID, randomness, proofs)
 }
 
-func (FFI) SelfTest(val1 int, val2 cid.Cid) (int, cid.Cid, ErrorString) {
-	return untypeError2(val1, val2, nil)
+func (FFI) SelfTest(val1 int, val2 cid.Cid) (cid.Cid, error) {
+	if val1 != 12345678 {
+		return cid.Undef, errors.New("val1 was not as expected")
+	}
+
+	return val2, nil
 }

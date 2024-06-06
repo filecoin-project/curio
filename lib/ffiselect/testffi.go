@@ -1,26 +1,19 @@
 package ffiselect
 
 import (
+	"bytes"
+	"context"
 	"github.com/filecoin-project/curio/lib/ffiselect/ffidirect"
-	"reflect"
-
-	"github.com/samber/lo"
-	"golang.org/x/xerrors"
+	"github.com/filecoin-project/go-jsonrpc"
+	"io"
 )
 
-func callTest(logctx []any, fn string, rawargs ...interface{}) ([]interface{}, error) {
-	args := lo.Map(rawargs, func(arg any, i int) reflect.Value {
-		return reflect.ValueOf(arg)
-	})
+func callTest(ctx context.Context, body []byte) (io.ReadCloser, error) {
+	var output bytes.Buffer
 
-	resAry := reflect.ValueOf(ffidirect.FFI{}).MethodByName(fn).Call(args)
-	res := lo.Map(resAry, func(res reflect.Value, i int) any {
-		return res.Interface()
-	})
+	srv := jsonrpc.NewServer()
+	srv.Register("FFI", &ffidirect.FFI{})
+	srv.HandleRequest(ctx, bytes.NewReader(body), &output)
 
-	if res[len(res)-1].(ffidirect.ErrorString) != "" {
-		return nil, xerrors.Errorf("callTest error: %s", res[len(res)-1].(ffidirect.ErrorString))
-	}
-
-	return res, nil
+	return io.NopCloser(&output), nil
 }
