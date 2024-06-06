@@ -11,7 +11,7 @@ import (
 
 	"github.com/filecoin-project/go-address"
 
-	"github.com/filecoin-project/lotus/build"
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/lotus/cli/spcli"
 )
 

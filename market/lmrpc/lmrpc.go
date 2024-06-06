@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/filecoin-project/curio/lib/custorage"
-	cumarket "github.com/filecoin-project/curio/market"
-	"github.com/filecoin-project/curio/market/fakelm"
 	"io"
 	"net"
 	"net/http"
@@ -16,6 +13,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/filecoin-project/curio/lib/custorage"
+	cumarket "github.com/filecoin-project/curio/market"
+	"github.com/filecoin-project/curio/market/fakelm"
 
 	"github.com/google/uuid"
 	logging "github.com/ipfs/go-log/v2"
@@ -28,7 +29,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/build"
+	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/lib/nullreader"
 	"github.com/filecoin-project/lotus/metrics/proxy"
@@ -190,7 +191,7 @@ func ServeCurioMarketRPC(db *harmonydb.DB, full api.FullNode, maddr address.Addr
 		return api.APIVersion{
 			Version:    "curio-proxy-v0",
 			APIVersion: api.MinerAPIVersion0,
-			BlockDelay: build.BlockDelaySecs,
+			BlockDelay: lbuild.BlockDelaySecs,
 		}, nil
 	}
 

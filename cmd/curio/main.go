@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
-	"github.com/filecoin-project/curio/deps"
 	"os"
 	"os/signal"
 	"runtime/pprof"
 	"syscall"
+
+	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
+	"github.com/filecoin-project/curio/deps"
 
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
@@ -19,7 +20,8 @@ import (
 
 	"github.com/filecoin-project/go-paramfetch"
 
-	"github.com/filecoin-project/lotus/build"
+	"github.com/filecoin-project/curio/build"
+	lbuild "github.com/filecoin-project/lotus/build"
 	lcli "github.com/filecoin-project/lotus/cli"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/lib/lotuslog"
@@ -154,7 +156,7 @@ func main() {
 				}
 
 				// Generate report in CURIO_PATH and re-raise panic
-				build.GeneratePanicReport(c.String("panic-reports"), p, c.App.Name)
+				lbuild.GeneratePanicReport(c.String("panic-reports"), p, c.App.Name)
 				panic(r)
 			}
 			return nil
@@ -179,7 +181,7 @@ var fetchParamCmd = &cli.Command{
 		}
 		sectorSize := uint64(sectorSizeInt)
 
-		err = paramfetch.GetParams(lcli.ReqContext(cctx), build.ParametersJSON(), build.SrsJSON(), sectorSize)
+		err = paramfetch.GetParams(lcli.ReqContext(cctx), lbuild.ParametersJSON(), lbuild.SrsJSON(), sectorSize)
 		if err != nil {
 			return xerrors.Errorf("fetching proof parameters: %w", err)
 		}

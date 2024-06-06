@@ -19,7 +19,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/filler"
-	"github.com/filecoin-project/lotus/build"
+	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/paths"
@@ -27,7 +27,7 @@ import (
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
-var isDevnet = build.BlockDelaySecs < 30
+var isDevnet = lbuild.BlockDelaySecs < 30
 
 func SetDevnet(value bool) {
 	isDevnet = value

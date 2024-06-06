@@ -41,7 +41,7 @@ curio: $(BUILD_DEPS)
 	rm -f curio
 	$(GOCC) build $(GOFLAGS) -o curio -ldflags " \
 	-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
-	-X github.com/filecoin-project/lotus/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
+	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
 	./cmd/curio
 .PHONY: curio
 BINS+=curio

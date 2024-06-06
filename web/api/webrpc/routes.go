@@ -2,6 +2,7 @@ package webrpc
 
 import (
 	"context"
+
 	"github.com/filecoin-project/curio/deps"
 
 	"github.com/gorilla/mux"
@@ -9,7 +10,8 @@ import (
 
 	"github.com/filecoin-project/go-jsonrpc"
 
-	"github.com/filecoin-project/lotus/build"
+	"github.com/filecoin-project/curio/build"
+	lbuild "github.com/filecoin-project/lotus/build"
 )
 
 var log = logging.Logger("webrpc")
@@ -23,7 +25,7 @@ func (a *WebRPC) Version(context.Context) (string, error) {
 }
 
 func (a *WebRPC) BlockDelaySecs(context.Context) (uint64, error) {
-	return build.BlockDelaySecs, nil
+	return lbuild.BlockDelaySecs, nil
 }
 
 func Routes(r *mux.Router, deps *deps.Deps) {

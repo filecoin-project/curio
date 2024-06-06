@@ -3,11 +3,12 @@ package window
 import (
 	"bytes"
 	"context"
-	"github.com/filecoin-project/curio/lib/ffiselect"
-	"github.com/samber/lo"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/filecoin-project/curio/lib/ffiselect"
+	"github.com/samber/lo"
 
 	"github.com/ipfs/go-cid"
 	"go.uber.org/multierr"
@@ -24,7 +25,7 @@ import (
 	"github.com/filecoin-project/go-state-types/proof"
 	proof7 "github.com/filecoin-project/specs-actors/v7/actors/runtime/proof"
 
-	"github.com/filecoin-project/lotus/build"
+	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/sealer"
@@ -143,7 +144,7 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 			"height", ts.Height(),
 			"skipped", skipCount)
 
-		tsStart := build.Clock.Now()
+		tsStart := lbuild.Clock.Now()
 
 		mid, err := address.IDFromAddress(maddr)
 		if err != nil {
