@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/fastparamfetch"
 	"os"
 	"os/signal"
 	"runtime/pprof"
@@ -16,8 +17,6 @@ import (
 	"github.com/mitchellh/go-homedir"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
-
-	"github.com/filecoin-project/go-paramfetch"
 
 	"github.com/filecoin-project/lotus/build"
 	lcli "github.com/filecoin-project/lotus/cli"
@@ -179,7 +178,7 @@ var fetchParamCmd = &cli.Command{
 		}
 		sectorSize := uint64(sectorSizeInt)
 
-		err = paramfetch.GetParams(lcli.ReqContext(cctx), build.ParametersJSON(), build.SrsJSON(), sectorSize)
+		err = fastparamfetch.GetParams(lcli.ReqContext(cctx), build.ParametersJSON(), build.SrsJSON(), sectorSize)
 		if err != nil {
 			return xerrors.Errorf("fetching proof parameters: %w", err)
 		}
