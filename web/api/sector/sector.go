@@ -23,8 +23,10 @@ import (
 	"github.com/filecoin-project/lotus/cli/spcli"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 	"github.com/gorilla/mux"
+	"github.com/hashicorp/go-multierror"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	"github.com/samber/lo"
+	"golang.org/x/xerrors"
 )
 
 const verifiedPowerGainMul = 9
@@ -51,17 +53,17 @@ func Routes(r *mux.Router, deps *deps.Deps) {
 
 func (c *cfg) terminateSectors(w http.ResponseWriter, r *http.Request) {
 	var in []struct {
-		MinerID int
-		Sector  int
+		MinerID uint64
+		Sector  uint64
 	}
 	apihelper.OrHTTPFail(w, json.NewDecoder(r.Body).Decode(&in))
 	toDel := make(map[minerDetail][]sec)
 	for _, s := range in {
-		maddr, err := address.NewIDAddress(uint64(s.MinerID))
+		maddr, err := address.NewIDAddress(s.MinerID)
 		apihelper.OrHTTPFail(w, err)
 		m := minerDetail{
 			Addr: maddr,
-			ID:   abi.ActorID(uint64(s.MinerID)),
+			ID:   abi.ActorID(s.MinerID),
 		}
 		toDel[m] = append(toDel[m], sec{Sector: abi.SectorNumber(s.Sector), Terminate: false})
 	}
@@ -82,7 +84,7 @@ func (c *cfg) terminateSectors(w http.ResponseWriter, r *http.Request) {
 		apihelper.OrHTTPFail(w, err)
 		for _, s := range sectorList {
 			id := abi.SectorID{Miner: m.ID, Number: s.Sector}
-			apihelper.OrHTTPFail(w, c.Stor.Remove(r.Context(), id, storiface.FTAll, true, nil))
+			apihelper.OrHTTPFail(w, c.removeSector(r.Context(), id))
 		}
 	}
 }
@@ -456,4 +458,26 @@ func (c *cfg) shouldTerminate(ctx context.Context, smap map[minerDetail][]sec) (
 	}
 
 	return ret, nil
+}
+
+func (c *cfg) removeSector(ctx context.Context, sector abi.SectorID) error {
+	var err error
+
+	if rerr := c.Stor.Remove(ctx, sector, storiface.FTSealed, true, nil); rerr != nil {
+		err = multierror.Append(err, xerrors.Errorf("removing sector (sealed): %w", rerr))
+	}
+	if rerr := c.Stor.Remove(ctx, sector, storiface.FTCache, true, nil); rerr != nil {
+		err = multierror.Append(err, xerrors.Errorf("removing sector (cache): %w", rerr))
+	}
+	if rerr := c.Stor.Remove(ctx, sector, storiface.FTUnsealed, true, nil); rerr != nil {
+		err = multierror.Append(err, xerrors.Errorf("removing sector (unsealed): %w", rerr))
+	}
+	if rerr := c.Stor.Remove(ctx, sector, storiface.FTUpdate, true, nil); rerr != nil {
+		err = multierror.Append(err, xerrors.Errorf("removing sector (unsealed): %w", rerr))
+	}
+	if rerr := c.Stor.Remove(ctx, sector, storiface.FTUpdateCache, true, nil); rerr != nil {
+		err = multierror.Append(err, xerrors.Errorf("removing sector (unsealed): %w", rerr))
+	}
+
+	return err
 }

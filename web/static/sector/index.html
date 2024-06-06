@@ -77,8 +77,9 @@
                 return {MinerID: row.MinerID, Sector: row.SectorNum};
               });
               console.log(res);
+              var confirmMessage = res.map(obj => `MinerID: ${obj.MinerID}, Sector: ${obj.Sector}`).join(", ");
 
-              if (confirm("Terminate & Delete: "+res.map(obj => JSON.stringify(obj)).join(", "))) {
+              if (confirm("Terminate & Delete: "+confirmMessage)) {
                 axios.post('/api/sector/terminate', res)
                   .then(function (response) {
                     console.log(response);
