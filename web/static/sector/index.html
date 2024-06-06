@@ -78,7 +78,7 @@
               });
               console.log(res);
 
-              if (confirm("Terminate & Delete: "+res.join(", "))) {
+              if (confirm("Terminate & Delete: "+res.map(obj => JSON.stringify(obj)).join(", "))) {
                 axios.post('/api/sector/terminate', res)
                   .then(function (response) {
                     console.log(response);
