@@ -3,6 +3,7 @@ package seal
 import (
 	"bytes"
 	"context"
+
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
@@ -17,10 +18,10 @@ import (
 	"github.com/filecoin-project/go-state-types/crypto"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/filler"
 	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/lib/filler"
 	"github.com/filecoin-project/lotus/storage/paths"
 	"github.com/filecoin-project/lotus/storage/sealer/ffiwrapper"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
