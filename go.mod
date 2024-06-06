@@ -18,7 +18,7 @@ require (
 	github.com/filecoin-project/go-commp-utils v0.1.3
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20220905160352-62059082a837
 	github.com/filecoin-project/go-fil-commcid v0.1.0
-	github.com/filecoin-project/go-jsonrpc v0.4.0
+	github.com/filecoin-project/go-jsonrpc v0.5.0
 	github.com/filecoin-project/go-padreader v0.0.1
 	github.com/filecoin-project/go-paramfetch v0.0.4
 	github.com/filecoin-project/go-state-types v0.14.0-dev
@@ -314,5 +314,3 @@ require (
 replace github.com/filecoin-project/filecoin-ffi => ./extern/filecoin-ffi
 
 replace github.com/KarpelesLab/reflink => github.com/magik6k/reflink v1.0.2-patch1
-
-replace github.com/filecoin-project/go-jsonrpc => ../go-jsonrpc
