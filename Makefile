@@ -103,6 +103,9 @@ dist-clean:
 	git submodule deinit --all -f
 .PHONY: dist-clean
 
+cu2k: GOFLAGS+=-tags=2k
+cu2k: curio
+
 # TODO API GEN
 # TODO DOCS GEN
 
