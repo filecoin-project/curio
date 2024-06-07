@@ -5,19 +5,22 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
-	"github.com/filecoin-project/curio/cmd/curio/rpc"
-	"github.com/filecoin-project/curio/cmd/curio/tasks"
-	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/lib/ffiselect"
-	"github.com/filecoin-project/curio/market/lmrpc"
-	"github.com/filecoin-project/curio/tasks/seal"
 	"net"
 	"os"
 	"path"
 	"testing"
 	"time"
 
+	"github.com/filecoin-project/curio/cmd/curio/rpc"
+	"github.com/filecoin-project/curio/cmd/curio/tasks"
+	"github.com/filecoin-project/curio/deps"
+
 	"github.com/docker/go-units"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/ffiselect"
+	"github.com/filecoin-project/curio/market/lmrpc"
+	"github.com/filecoin-project/curio/tasks/seal"
+
 	"github.com/gbrlsnchs/jwt/v3"
 	"github.com/google/uuid"
 	logging "github.com/ipfs/go-log/v2"
@@ -26,21 +29,21 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/api/v1api"
+	miner2 "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/api/v1api"
-	miner2 "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+	"github.com/filecoin-project/curio/lib/config"
+
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/cli/spcli"
 	"github.com/filecoin-project/lotus/itests/kit"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/node"
-	"github.com/filecoin-project/lotus/node/config"
-	"github.com/filecoin-project/lotus/node/impl"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
@@ -58,17 +61,26 @@ func TestCurioNewActor(t *testing.T) {
 	blockTime := 100 * time.Millisecond
 	esemble.BeginMiningMustPost(blockTime)
 
-	db := miner.BaseAPI.(*impl.StorageMinerAPI).HarmonyDB
-
-	var titles []string
-	err := db.Select(ctx, &titles, `SELECT title FROM harmony_config WHERE LENGTH(config) > 0`)
-	require.NoError(t, err)
-	require.NotEmpty(t, titles)
-	require.NotContains(t, titles, "base")
-
 	addr := miner.OwnerKey.Address
 	sectorSizeInt, err := units.RAMInBytes("8MiB")
 	require.NoError(t, err)
+
+	sharedITestID := harmonydb.ITestNewID()
+	dbConfig := config.HarmonyDB{
+		Hosts:    []string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")},
+		Database: "yugabyte",
+		Username: "yugabyte",
+		Password: "yugabyte",
+		Port:     "5433",
+	}
+	db, err := harmonydb.NewFromConfigWithITestID(t, dbConfig, sharedITestID)
+	require.NoError(t, err)
+
+	var titles []string
+	err = db.Select(ctx, &titles, `SELECT title FROM harmony_config WHERE LENGTH(config) > 0`)
+	require.NoError(t, err)
+	require.NotEmpty(t, titles)
+	require.NotContains(t, titles, "base")
 
 	maddr, err := spcli.CreateStorageMiner(ctx, full, addr, addr, addr, abi.SectorSize(sectorSizeInt), 0)
 	require.NoError(t, err)
@@ -116,12 +128,23 @@ func TestCurioHappyPath(t *testing.T) {
 	err = full.LogSetLevel(ctx, "*", "ERROR")
 	require.NoError(t, err)
 
-	db := miner.BaseAPI.(*impl.StorageMinerAPI).HarmonyDB
-
 	token, err := full.AuthNew(ctx, api.AllPermissions)
 	require.NoError(t, err)
 
 	fapi := fmt.Sprintf("%s:%s", string(token), full.ListenAddr)
+
+	sharedITestID := harmonydb.ITestNewID()
+	dbConfig := config.HarmonyDB{
+		Hosts:    []string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")},
+		Database: "yugabyte",
+		Username: "yugabyte",
+		Password: "yugabyte",
+		Port:     "5433",
+	}
+	db, err := harmonydb.NewFromConfigWithITestID(t, dbConfig, sharedITestID)
+	require.NoError(t, err)
+
+	defer db.ITestDeleteAll()
 
 	var titles []string
 	err = db.Select(ctx, &titles, `SELECT title FROM harmony_config WHERE LENGTH(config) > 0`)
@@ -396,4 +419,11 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	_ = logging.SetLogLevel("harmonytask", "DEBUG")
 
 	return capi, taskEngine.GracefullyTerminate, ccloser, finishCh
+}
+
+func envElse(env, els string) string {
+	if v := os.Getenv(env); v != "" {
+		return v
+	}
+	return els
 }

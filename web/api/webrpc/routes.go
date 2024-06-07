@@ -12,7 +12,7 @@ import (
 
 	curiobuild "github.com/filecoin-project/curio/build"
 
-	"github.com/filecoin-project/lotus/build"
+	lbuild "github.com/filecoin-project/lotus/build"
 )
 
 var log = logging.Logger("webrpc")
@@ -26,7 +26,7 @@ func (a *WebRPC) Version(context.Context) (string, error) {
 }
 
 func (a *WebRPC) BlockDelaySecs(context.Context) (uint64, error) {
-	return build.BlockDelaySecs, nil
+	return lbuild.BlockDelaySecs, nil
 }
 
 func Routes(r *mux.Router, deps *deps.Deps) {

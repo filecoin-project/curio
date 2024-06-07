@@ -6,10 +6,11 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
+	"time"
+
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffiselect"
-	"time"
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -24,15 +25,15 @@ import (
 	"github.com/filecoin-project/go-state-types/proof"
 	prooftypes "github.com/filecoin-project/go-state-types/proof"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/build"
+	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/gen"
 	lrand "github.com/filecoin-project/lotus/chain/rand"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/lib/promise"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
-	"github.com/filecoin-project/lotus/storage/paths"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
@@ -42,8 +43,9 @@ type WinPostTask struct {
 	max int
 	db  *harmonydb.DB
 
-	paths    *paths.Local
-	verifier storiface.Verifier
+	paths       *paths.Local
+	verifier    storiface.Verifier
+	paramsReady func() (bool, error)
 
 	api    WinPostAPI
 	actors map[dtypes.MinerAddress]bool
@@ -70,14 +72,15 @@ type WinPostAPI interface {
 	WalletSign(context.Context, address.Address, []byte) (*crypto.Signature, error)
 }
 
-func NewWinPostTask(max int, db *harmonydb.DB, pl *paths.Local, verifier storiface.Verifier, api WinPostAPI, actors map[dtypes.MinerAddress]bool) *WinPostTask {
+func NewWinPostTask(max int, db *harmonydb.DB, pl *paths.Local, verifier storiface.Verifier, paramck func() (bool, error), api WinPostAPI, actors map[dtypes.MinerAddress]bool) *WinPostTask {
 	t := &WinPostTask{
-		max:      max,
-		db:       db,
-		paths:    pl,
-		verifier: verifier,
-		api:      api,
-		actors:   actors,
+		max:         max,
+		db:          db,
+		paths:       pl,
+		verifier:    verifier,
+		paramsReady: paramck,
+		api:         api,
+		actors:      actors,
 	}
 	// TODO: run warmup
 
@@ -302,7 +305,7 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		// To safeguard against this, we make sure it's been EquivocationDelaySecs since our base was calculated,
 		// then re-calculate it.
 		// If the daemon detected equivocated blocks, those blocks will no longer be in the new base.
-		time.Sleep(time.Until(base.ComputeTime.Add(time.Duration(build.EquivocationDelaySecs) * time.Second)))
+		time.Sleep(time.Until(base.ComputeTime.Add(time.Duration(lbuild.EquivocationDelaySecs) * time.Second)))
 
 		bestTs, err := t.api.ChainHead(ctx)
 		if err != nil {
@@ -370,7 +373,7 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	// block construction
 	var blockMsg *types.BlockMsg
 	{
-		uts := base.TipSet.MinTimestamp() + build.BlockDelaySecs*(uint64(base.AddRounds)+1)
+		uts := base.TipSet.MinTimestamp() + lbuild.BlockDelaySecs*(uint64(base.AddRounds)+1)
 
 		blockMsg, err = t.api.MinerCreateBlock(context.TODO(), &api.BlockTemplate{
 			Miner:            maddr,
@@ -466,11 +469,21 @@ func (t *WinPostTask) generateWinningPost(
 		return nil, err
 	}
 
-	return ffiselect.FFISelect{}.GenerateWinningPoStWithVanilla(ppt, mid, randomness, vproofs)
+	ctx = ffiselect.WithLogCtx(ctx, "miner", mid, "randomness", randomness, "sectors", sectors)
+	return ffiselect.FFISelect.GenerateWinningPoStWithVanilla(ctx, ppt, mid, randomness, vproofs)
 
 }
 
 func (t *WinPostTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+	rdy, err := t.paramsReady()
+	if err != nil {
+		return nil, xerrors.Errorf("failed to setup params: %w", err)
+	}
+	if !rdy {
+		log.Infow("WinPostTask.CanAccept() params not ready, not scheduling")
+		return nil, nil
+	}
+
 	if len(ids) == 0 {
 		// probably can't happen, but panicking is bad
 		return nil, nil
@@ -532,13 +545,13 @@ func (mb MiningBase) epoch() abi.ChainEpoch {
 
 func (mb MiningBase) baseTime() time.Time {
 	tsTime := time.Unix(int64(mb.TipSet.MinTimestamp()), 0)
-	roundDelay := build.BlockDelaySecs * uint64(mb.AddRounds+1)
+	roundDelay := lbuild.BlockDelaySecs * uint64(mb.AddRounds+1)
 	tsTime = tsTime.Add(time.Duration(roundDelay) * time.Second)
 	return tsTime
 }
 
 func (mb MiningBase) afterPropDelay() time.Time {
-	return mb.baseTime().Add(time.Duration(build.PropagationDelaySecs) * time.Second).Add(randTimeOffset(time.Second))
+	return mb.baseTime().Add(time.Duration(lbuild.PropagationDelaySecs) * time.Second).Add(randTimeOffset(time.Second))
 }
 
 func (t *WinPostTask) mineBasic(ctx context.Context) {
@@ -576,7 +589,7 @@ func (t *WinPostTask) mineBasic(ctx context.Context) {
 		// limit the rate at which we mine blocks to at least EquivocationDelaySecs
 		// this is to prevent races on devnets in catch up mode. Acts as a minimum
 		// delay for the sleep below.
-		time.Sleep(time.Duration(build.EquivocationDelaySecs)*time.Second + time.Second)
+		time.Sleep(time.Duration(lbuild.EquivocationDelaySecs)*time.Second + time.Second)
 
 		// wait for *NEXT* propagation delay
 		time.Sleep(time.Until(workBase.afterPropDelay()))
@@ -683,11 +696,11 @@ func (t *WinPostTask) computeTicket(ctx context.Context, maddr address.Address, 
 		return nil, xerrors.Errorf("failed to marshal address to cbor: %w", err)
 	}
 
-	if round > build.UpgradeSmokeHeight {
+	if round > lbuild.UpgradeSmokeHeight {
 		buf.Write(chainRand.VRFProof)
 	}
 
-	input, err := lrand.DrawRandomnessFromBase(brand.Data, crypto.DomainSeparationTag_TicketProduction, round-build.TicketRandomnessLookback, buf.Bytes())
+	input, err := lrand.DrawRandomnessFromBase(brand.Data, crypto.DomainSeparationTag_TicketProduction, round-lbuild.TicketRandomnessLookback, buf.Bytes())
 	if err != nil {
 		return nil, err
 	}

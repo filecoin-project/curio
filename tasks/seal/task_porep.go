@@ -14,8 +14,8 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/crypto"
 
-	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
@@ -25,21 +25,23 @@ type PoRepAPI interface {
 }
 
 type PoRepTask struct {
-	db  *harmonydb.DB
-	api PoRepAPI
-	sp  *SealPoller
-	sc  *ffi.SealCalls
+	db          *harmonydb.DB
+	api         PoRepAPI
+	sp          *SealPoller
+	sc          *ffi.SealCalls
+	paramsReady func() (bool, error)
 
 	max int
 }
 
-func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCalls, maxPoRep int) *PoRepTask {
+func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCalls, paramck func() (bool, error), maxPoRep int) *PoRepTask {
 	return &PoRepTask{
-		db:  db,
-		api: api,
-		sp:  sp,
-		sc:  sc,
-		max: maxPoRep,
+		db:          db,
+		api:         api,
+		sp:          sp,
+		sc:          sc,
+		paramsReady: paramck,
+		max:         maxPoRep,
 	}
 }
 
@@ -139,6 +141,14 @@ func (p *PoRepTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 }
 
 func (p *PoRepTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+	rdy, err := p.paramsReady()
+	if err != nil {
+		return nil, xerrors.Errorf("failed to setup params: %w", err)
+	}
+	if !rdy {
+		log.Infow("PoRepTask.CanAccept() params not ready, not scheduling")
+		return nil, nil
+	}
 	// todo sort by priority
 
 	id := ids[0]

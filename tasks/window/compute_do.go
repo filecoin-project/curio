@@ -3,10 +3,12 @@ package window
 import (
 	"bytes"
 	"context"
-	"github.com/filecoin-project/curio/lib/ffiselect"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/filecoin-project/curio/lib/ffiselect"
+	"github.com/samber/lo"
 
 	"github.com/ipfs/go-cid"
 	"go.uber.org/multierr"
@@ -23,7 +25,7 @@ import (
 	"github.com/filecoin-project/go-state-types/proof"
 	proof7 "github.com/filecoin-project/specs-actors/v7/actors/runtime/proof"
 
-	"github.com/filecoin-project/lotus/build"
+	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/sealer"
@@ -72,7 +74,7 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 		Proofs:     nil,
 	}
 
-	var partitions []miner2.PoStPartition
+	var postPartition miner2.PoStPartition
 	var xsinfos []proof7.ExtendedSectorInfo
 
 	{
@@ -131,10 +133,10 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 		}
 
 		xsinfos = append(xsinfos, ssi...)
-		partitions = append(partitions, miner2.PoStPartition{
+		postPartition = miner2.PoStPartition{
 			Index:   partIdx,
 			Skipped: skipped,
-		})
+		}
 
 		log.Infow("running window post",
 			"chain-random", rand,
@@ -142,7 +144,7 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 			"height", ts.Height(),
 			"skipped", skipCount)
 
-		tsStart := build.Clock.Now()
+		tsStart := lbuild.Clock.Now()
 
 		mid, err := address.IDFromAddress(maddr)
 		if err != nil {
@@ -159,9 +161,9 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 			return nil, xerrors.Errorf("failed to get window post type: %w", err)
 		}
 
-		postOut, ps, err := t.generateWindowPoSt(ctx, ppt, abi.ActorID(mid), xsinfos, append(abi.PoStRandomness{}, rand...))
+		postOut, computeSkipped, err := t.generateWindowPoSt(ctx, ppt, abi.ActorID(mid), xsinfos, append(abi.PoStRandomness{}, rand...))
 		elapsed := time.Since(tsStart)
-		log.Infow("computing window post", "partition", partIdx, "elapsed", elapsed, "skip", len(ps), "err", err)
+		log.Infow("computing window post", "partition", partIdx, "elapsed", elapsed, "skip", len(computeSkipped), "err", err)
 		if err != nil {
 			log.Errorf("error generating window post: %s", err)
 		}
@@ -190,32 +192,61 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 				return nil, xerrors.Errorf("post generation randomness was different from random beacon")
 			}
 
+			// computeSkipped is a list of sector numbers that were skipped during PoSt computation
+			for _, skippedNum := range computeSkipped {
+				// set postPartition.Skipped bitfield entries to also contain sectors skipped during PoSt computation
+				// (initially it contains a list of sectors skipped during pre-checks)
+				postPartition.Skipped.Set(uint64(skippedNum.Number))
+			}
+
+			// Compute SectorsInfo list for proof verification, matching the logic in the miner actor
 			sinfos := make([]proof7.SectorInfo, len(xsinfos))
+
+			// skipped sector infos need to be filled with the first non-skipped sector info so that the offsets
+			// of the non-skipped sectors are correct. This no longer matters for PoSt verification in proofs, but
+			// in any case we want this logic to match the miner actor's PoSt verification logic as closely as possible.
+			var firstStandIn proof7.SectorInfo // https://github.com/filecoin-project/builtin-actors/blob/ea7c45478751bd0fe12d0d374abc8fdc9341bfea/actors/miner/src/sectors.rs#L112
+
 			for i, xsi := range xsinfos {
-				sinfos[i] = proof7.SectorInfo{
+				if lo.Contains(computeSkipped, abi.SectorID{Miner: abi.ActorID(mid), Number: xsi.SectorNumber}) {
+					// a stand-in will be added in the next loop. We don't do that here because in the first few iterations
+					// we may not know which sector will be the first non-skipped one.
+					continue
+				}
+
+				si := proof7.SectorInfo{
 					SealProof:    xsi.SealProof,
 					SectorNumber: xsi.SectorNumber,
 					SealedCID:    xsi.SealedCID,
 				}
+				sinfos[i] = si
+				if firstStandIn.SealedCID == cid.Undef {
+					firstStandIn = si
+				}
 			}
+
+			// fill in skipped sector infos with the first non-skipped sector info
+			for i := range sinfos {
+				if sinfos[i].SealedCID == cid.Undef {
+					sinfos[i] = firstStandIn
+				}
+			}
+
+			// Verify the PoSt proof!
 			if correct, err := t.verifier.VerifyWindowPoSt(ctx, proof.WindowPoStVerifyInfo{
 				Randomness:        abi.PoStRandomness(checkRand),
 				Proofs:            postOut,
 				ChallengedSectors: sinfos,
 				Prover:            abi.ActorID(mid),
 			}); err != nil { // revive:disable-line:empty-block
-				/*log.Errorw("window post verification failed", "post", postOut, "error", err)
-				time.Sleep(5 * time.Second)
-				continue todo retry loop */
+				return nil, xerrors.Errorf("failed to verify window post: %w", err)
 			} else if !correct {
-				_ = correct
-				/*log.Errorw("generated incorrect window post proof", "post", postOut, "error", err)
-				continue todo retry loop*/
+				return nil, xerrors.Errorf("window post verification failed: proof was invalid")
 			}
 
 			// Proof generation successful, stop retrying
 			//somethingToProve = true
-			params.Partitions = partitions
+			params.Partitions = []miner2.PoStPartition{postPartition}
 			params.Proofs = postOut
 			//break
 
@@ -463,6 +494,8 @@ func (t *WdPostTask) GenerateWindowPoStAdv(ctx context.Context, ppt abi.Register
 
 		go func(i int, s storiface.PostSectorChallenge) {
 			defer wg.Done()
+			ctx := ctx
+
 			if t.parallel != nil {
 				defer func() {
 					<-t.parallel
@@ -531,7 +564,8 @@ func (t *WdPostTask) GenerateWindowPoStAdv(ctx context.Context, ppt abi.Register
 }
 
 func (t *WdPostTask) GenerateWindowPoStWithVanilla(ctx context.Context, proofType abi.RegisteredPoStProof, minerID abi.ActorID, randomness abi.PoStRandomness, proofs [][]byte, partitionIdx int) (proof.PoStProof, error) {
-	pp, err := ffiselect.FFISelect{}.GenerateSinglePartitionWindowPoStWithVanilla(proofType, minerID, randomness, proofs, uint(partitionIdx))
+	ctx = ffiselect.WithLogCtx(ctx, "miner", minerID, "proofType", proofType, "randomness", randomness, "partitionIdx", partitionIdx)
+	pp, err := ffiselect.FFISelect.GenerateSinglePartitionWindowPoStWithVanilla(ctx, proofType, minerID, randomness, proofs, uint(partitionIdx))
 	if err != nil {
 		return proof.PoStProof{}, err
 	}

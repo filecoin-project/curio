@@ -3,6 +3,7 @@ package seal
 import (
 	"bytes"
 	"context"
+
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
@@ -16,17 +17,17 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/crypto"
 
-	"github.com/filecoin-project/lotus/build"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/filler"
+	"github.com/filecoin-project/curio/lib/paths"
+	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/lib/filler"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/lotus/storage/paths"
 	"github.com/filecoin-project/lotus/storage/sealer/ffiwrapper"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
-var isDevnet = build.BlockDelaySecs < 30
+var isDevnet = lbuild.BlockDelaySecs < 30
 
 func SetDevnet(value bool) {
 	isDevnet = value
@@ -242,7 +243,7 @@ func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{ // todo offset for prefetch?
 			Cpu:     4, // todo multicore sdr
 			Gpu:     0,
-			Ram:     54 << 30,
+			Ram:     (64 << 30) + (256 << 20),
 			Storage: s.sc.Storage(s.taskToSector, storiface.FTCache, storiface.FTNone, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 2,

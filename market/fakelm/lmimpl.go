@@ -3,28 +3,26 @@ package fakelm
 import (
 	"context"
 	"encoding/base64"
-	"github.com/filecoin-project/curio/market"
 	"net/http"
 	"net/url"
 
-	"github.com/gbrlsnchs/jwt/v3"
-	"github.com/google/uuid"
-	"golang.org/x/xerrors"
-
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/config"
+	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/market"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/network"
-
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/lotus/node/config"
-	"github.com/filecoin-project/lotus/storage/paths"
 	sealing "github.com/filecoin-project/lotus/storage/pipeline"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	"github.com/gbrlsnchs/jwt/v3"
+	"github.com/google/uuid"
+	"golang.org/x/xerrors"
 )
 
 type LMRPCProvider struct {
@@ -71,6 +69,7 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 		Failed   bool    `db:"failed"`
 		SDR      bool    `db:"after_sdr"`
 		PoRep    bool    `db:"after_porep"`
+		Tree     bool    `db:"after_tree_r"`
 	}
 
 	err := l.db.Select(ctx, &ssip, `
@@ -82,6 +81,7 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 							failed,
 							after_sdr,
 							after_porep,
+							after_tree_r,
 							after_commit_msg_success
 						FROM
 							sectors_sdr_pipeline
@@ -95,6 +95,7 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 								cc.after_commit_msg_success,
 								cc.failed,
 								cc.after_sdr,
+								cc.after_tree_r,
 								cc.after_porep
 							FROM
 								sectors_meta_pieces mp
@@ -110,6 +111,7 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 								cc.after_commit_msg_success,
 								cc.failed,
 								cc.after_sdr,
+								cc.after_tree_r,
 								cc.after_porep
 							FROM
 								sectors_sdr_initial_pieces ip
@@ -125,6 +127,7 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 								FALSE as after_commit_msg_success,
 								FALSE as failed,
 								FALSE as after_sdr,
+								FALSE as after_tree_r,
 								FALSE as after_porep
 							FROM
 								open_sector_pieces op
@@ -182,20 +185,24 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 	}
 
 	// If no rows found i.e. sector doesn't exist in DB
-	//assign ssip[0] to a local variable for easier reading.
+
+	if len(ssip) == 0 {
+		ret.State = api.SectorState(sealing.UndefinedSectorState)
+		return ret, nil
+	}
 	currentSSIP := ssip[0]
 
 	switch {
-	case len(ssip) == 0:
-		ret.State = api.SectorState(sealing.UndefinedSectorState)
 	case currentSSIP.Failed:
 		ret.State = api.SectorState(sealing.FailedUnrecoverable)
 	case !currentSSIP.SDR:
-		ret.State = api.SectorState(sealing.WaitDeals)
-	case currentSSIP.SDR && !currentSSIP.PoRep:
 		ret.State = api.SectorState(sealing.PreCommit1)
-	case currentSSIP.SDR && currentSSIP.PoRep && !currentSSIP.Complete:
+	case currentSSIP.SDR && !currentSSIP.Tree:
 		ret.State = api.SectorState(sealing.PreCommit2)
+	case currentSSIP.SDR && currentSSIP.Tree && !currentSSIP.PoRep:
+		ret.State = api.SectorState(sealing.Committing)
+	case currentSSIP.SDR && currentSSIP.Tree && currentSSIP.PoRep && !currentSSIP.Complete:
+		ret.State = api.SectorState(sealing.FinalizeSector)
 	case currentSSIP.Complete:
 		ret.State = api.SectorState(sealing.Proving)
 	default:

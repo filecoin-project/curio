@@ -6,10 +6,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/filecoin-project/curio/deps"
 	"os"
 	"path"
 	"strings"
+
+	"github.com/filecoin-project/curio/deps"
 
 	"github.com/BurntSushi/toml"
 	"github.com/ipfs/go-cid"
@@ -22,8 +23,10 @@ import (
 	"github.com/filecoin-project/go-statestore"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/lotus/lib/must"
-	"github.com/filecoin-project/lotus/node/config"
+	"github.com/filecoin-project/curio/lib/config"
+
+	"github.com/snadrus/must"
+
 	"github.com/filecoin-project/lotus/node/modules"
 	"github.com/filecoin-project/lotus/node/repo"
 	sealing "github.com/filecoin-project/lotus/storage/pipeline"
@@ -58,9 +61,9 @@ func SaveConfigToLayerMigrateSectors(minerRepoPath, chainApiInfo string, unmigSe
 		return minerAddress, fmt.Errorf("locking repo: %w", err)
 	}
 	defer func() {
-		err = lr.Close()
-		if err != nil {
-			fmt.Println("error closing repo: ", err)
+		ferr := lr.Close()
+		if ferr != nil {
+			fmt.Println("error closing repo: ", ferr)
 		}
 	}()
 

@@ -10,15 +10,13 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/dustin/go-humanize"
-	"golang.org/x/xerrors"
-
+	"github.com/filecoin-project/curio/lib/config"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
-
-	"github.com/filecoin-project/lotus/build"
+	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
-	"github.com/filecoin-project/lotus/node/config"
+	"golang.org/x/xerrors"
 )
 
 // balanceCheck retrieves the machine details from the database and performs balance checks on unique addresses.
@@ -70,7 +68,6 @@ func balanceCheck(al *alerts) {
 	if ret != "" {
 		al.alertMap[Name].alertString = ret
 	}
-	return
 }
 
 // taskFailureCheck retrieves the task failure counts from the database for a specific time period.
@@ -145,8 +142,6 @@ func taskFailureCheck(al *alerts) {
 			al.alertMap[Name].alertString += fmt.Sprintf("Machine: %s, Failures: %d. ", name, count)
 		}
 	}
-
-	return
 }
 
 // permanentStorageCheck retrieves the storage details from the database and checks if there is sufficient space for sealing sectors.
@@ -300,36 +295,28 @@ func (al *alerts) getAddresses() ([]string, []string, error) {
 			com := cfg.Addresses[i].CommitControl
 			term := cfg.Addresses[i].TerminateControl
 			miner := cfg.Addresses[i].MinerAddresses
-			if prec != nil {
-				for j := range prec {
-					if _, ok := addrMap[prec[j]]; !ok && prec[j] != "" {
-						addrMap[prec[j]] = true
-						uniqueAddrs = append(uniqueAddrs, prec[j])
-					}
+			for j := range prec {
+				if _, ok := addrMap[prec[j]]; !ok && prec[j] != "" {
+					addrMap[prec[j]] = true
+					uniqueAddrs = append(uniqueAddrs, prec[j])
 				}
 			}
-			if com != nil {
-				for j := range com {
-					if _, ok := addrMap[com[j]]; !ok && com[j] != "" {
-						addrMap[com[j]] = true
-						uniqueAddrs = append(uniqueAddrs, com[j])
-					}
+			for j := range com {
+				if _, ok := addrMap[com[j]]; !ok && com[j] != "" {
+					addrMap[com[j]] = true
+					uniqueAddrs = append(uniqueAddrs, com[j])
 				}
 			}
-			if term != nil {
-				for j := range term {
-					if _, ok := addrMap[term[j]]; !ok && term[j] != "" {
-						addrMap[term[j]] = true
-						uniqueAddrs = append(uniqueAddrs, term[j])
-					}
+			for j := range term {
+				if _, ok := addrMap[term[j]]; !ok && term[j] != "" {
+					addrMap[term[j]] = true
+					uniqueAddrs = append(uniqueAddrs, term[j])
 				}
 			}
-			if miner != nil {
-				for j := range miner {
-					if _, ok := addrMap[miner[j]]; !ok && miner[j] != "" {
-						addrMap[miner[j]] = true
-						miners = append(miners, miner[j])
-					}
+			for j := range miner {
+				if _, ok := addrMap[miner[j]]; !ok && miner[j] != "" {
+					addrMap[miner[j]] = true
+					miners = append(miners, miner[j])
 				}
 			}
 		}
@@ -346,7 +333,7 @@ func wdPostCheck(al *alerts) {
 		return
 	}
 
-	from := head.Height() - abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(build.BlockDelaySecs))) - 1
+	from := head.Height() - abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(lbuild.BlockDelaySecs))) - 1
 	if from < 0 {
 		from = 0
 	}
@@ -478,7 +465,7 @@ func wnPostCheck(al *alerts) {
 		return
 	}
 
-	from := head.Height() - abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(build.BlockDelaySecs))) - 1
+	from := head.Height() - abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(lbuild.BlockDelaySecs))) - 1
 	if from < 0 {
 		from = 0
 	}
@@ -514,7 +501,7 @@ func wnPostCheck(al *alerts) {
 		return
 	}
 
-	epochs := int64(math.Ceil(AlertMangerInterval.Seconds() / float64(build.BlockDelaySecs)))
+	epochs := int64(math.Ceil(AlertMangerInterval.Seconds() / float64(lbuild.BlockDelaySecs)))
 	if (head.Height() - abi.ChainEpoch(epochs)) < 0 {
 		epochs = int64(head.Height())
 	}

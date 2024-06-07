@@ -3,20 +3,21 @@ package piece
 import (
 	"context"
 	"encoding/json"
+	"strconv"
+	"time"
+
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/tasks/seal"
-	"strconv"
-	"time"
 
 	"github.com/hashicorp/go-multierror"
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/lotus/lib/promise"
-	"github.com/filecoin-project/lotus/storage/paths"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
@@ -174,7 +175,7 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			}
 
 			// Update the piece as complete after a successful write.
-			_, err = p.db.Exec(ctx, `UPDATE parked_pieces SET complete = TRUE task_id = NULL WHERE id = $1`, pieceData.PieceID)
+			_, err = p.db.Exec(ctx, `UPDATE parked_pieces SET complete = TRUE, task_id = NULL WHERE id = $1`, pieceData.PieceID)
 			if err != nil {
 				return false, xerrors.Errorf("marking piece as complete: %w", err)
 			}

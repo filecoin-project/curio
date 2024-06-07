@@ -3,9 +3,10 @@ package main
 import (
 	_ "net/http/pprof"
 
+	lcli "github.com/filecoin-project/lotus/cli"
 	"github.com/urfave/cli/v2"
 
-	lcli "github.com/filecoin-project/lotus/cli"
+	"github.com/filecoin-project/curio/cmd/curio/rpc"
 )
 
 var stopCmd = &cli.Command{
@@ -13,8 +14,7 @@ var stopCmd = &cli.Command{
 	Usage: "Stop a running Curio process",
 	Flags: []cli.Flag{},
 	Action: func(cctx *cli.Context) error {
-
-		api, closer, err := lcli.GetAPI(cctx)
+		api, closer, err := rpc.GetCurioAPI(cctx)
 		if err != nil {
 			return err
 		}

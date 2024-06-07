@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/filecoin-project/curio/tasks/seal"
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/filecoin-project/curio/tasks/seal"
 
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
@@ -19,10 +20,10 @@ import (
 	verifregtypes "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 	"github.com/filecoin-project/go-state-types/network"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
 
@@ -204,8 +205,16 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, maddr address
 		return api.SectorOffset{}, xerrors.Errorf("miner address doesn't match")
 	}
 
+	var psize abi.PaddedPieceSize
+
+	if piece.PieceActivationManifest != nil {
+		psize = piece.PieceActivationManifest.Size
+	} else {
+		psize = piece.DealProposal.PieceSize
+	}
+
 	// check raw size
-	if piece.Size() != padreader.PaddedSize(uint64(rawSize)).Padded() {
+	if psize != padreader.PaddedSize(uint64(rawSize)).Padded() {
 		return api.SectorOffset{}, xerrors.Errorf("raw size doesn't match padded piece size")
 	}
 
@@ -262,7 +271,7 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, maddr address
 
 	if !p.sealRightNow {
 		// Try to allocate the piece to an open sector
-		allocated, ret, err := p.allocateToExisting(ctx, piece, rawSize, source, dataHdrJson, propJson, vd)
+		allocated, ret, err := p.allocateToExisting(ctx, piece, psize, rawSize, source, dataHdrJson, propJson, vd)
 		if err != nil {
 			return api.SectorOffset{}, err
 		}
@@ -320,7 +329,7 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, maddr address
 	}, nil
 }
 
-func (p *PieceIngester) allocateToExisting(ctx context.Context, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, dataHdrJson, propJson []byte, vd verifiedDeal) (bool, api.SectorOffset, error) {
+func (p *PieceIngester) allocateToExisting(ctx context.Context, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte, vd verifiedDeal) (bool, api.SectorOffset, error) {
 
 	var ret api.SectorOffset
 	var allocated bool
@@ -332,10 +341,9 @@ func (p *PieceIngester) allocateToExisting(ctx context.Context, piece lpiece.Pie
 			return false, err
 		}
 
-		pieceSize := piece.Size()
 		for _, sec := range openSectors {
 			sec := sec
-			if sec.currentSize+pieceSize <= abi.PaddedPieceSize(p.sectorSize) {
+			if sec.currentSize+psize <= abi.PaddedPieceSize(p.sectorSize) {
 				if vd.isVerified {
 					sectorLifeTime := sec.latestEndEpoch - sec.earliestStartEpoch
 					// Allocation's TMin must fit in sector and TMax should be at least sector lifetime or more

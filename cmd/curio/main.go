@@ -14,19 +14,20 @@ import (
 
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
-	logging "github.com/ipfs/go-log/v2"
-	"github.com/mitchellh/go-homedir"
-	"github.com/urfave/cli/v2"
-	"golang.org/x/xerrors"
-
-	"github.com/filecoin-project/go-paramfetch"
-
-	"github.com/filecoin-project/lotus/build"
+	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
+	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/fastparamfetch"
+	lbuild "github.com/filecoin-project/lotus/build"
 	lcli "github.com/filecoin-project/lotus/cli"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/lib/lotuslog"
 	"github.com/filecoin-project/lotus/lib/tracing"
 	"github.com/filecoin-project/lotus/node/repo"
+	logging "github.com/ipfs/go-log/v2"
+	"github.com/mitchellh/go-homedir"
+	"github.com/urfave/cli/v2"
+	"golang.org/x/xerrors"
 )
 
 var log = logging.Logger("main")
@@ -53,7 +54,6 @@ func main() {
 	local := []*cli.Command{
 		cliCmd,
 		runCmd,
-		stopCmd,
 		configCmd,
 		testCmd,
 		webCmd,
@@ -157,7 +157,7 @@ func main() {
 				}
 
 				// Generate report in CURIO_PATH and re-raise panic
-				build.GeneratePanicReport(c.String("panic-reports"), p, c.App.Name)
+				lbuild.GeneratePanicReport(c.String("panic-reports"), p, c.App.Name)
 				panic(r)
 			}
 			return nil
@@ -181,8 +181,7 @@ var fetchParamCmd = &cli.Command{
 			return xerrors.Errorf("error parsing sector size (specify as \"32GiB\", for instance): %w", err)
 		}
 		sectorSize := uint64(sectorSizeInt)
-
-		err = paramfetch.GetParams(lcli.ReqContext(cctx), build.ParametersJSON(), build.SrsJSON(), sectorSize)
+		err = fastparamfetch.GetParams(lcli.ReqContext(cctx), lbuild.ParametersJSON(), lbuild.SrsJSON(), sectorSize)
 		if err != nil {
 			return xerrors.Errorf("fetching proof parameters: %w", err)
 		}

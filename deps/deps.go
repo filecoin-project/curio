@@ -16,35 +16,31 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/filecoin-project/curio/lib/custorage"
-	"github.com/filecoin-project/curio/lib/multictladdr"
-
 	"github.com/BurntSushi/toml"
-	"github.com/gbrlsnchs/jwt/v3"
-	logging "github.com/ipfs/go-log/v2"
-	"github.com/samber/lo"
-	"github.com/urfave/cli/v2"
-	"golang.org/x/xerrors"
-
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/config"
+	"github.com/filecoin-project/curio/lib/multictladdr"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
-
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/v1api"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/journal"
 	"github.com/filecoin-project/lotus/journal/alerting"
 	"github.com/filecoin-project/lotus/journal/fsjournal"
-	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/node/modules"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	"github.com/filecoin-project/lotus/node/repo"
-	"github.com/filecoin-project/lotus/storage/paths"
 	"github.com/filecoin-project/lotus/storage/sealer"
 	"github.com/filecoin-project/lotus/storage/sealer/ffiwrapper"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	"github.com/gbrlsnchs/jwt/v3"
+	logging "github.com/ipfs/go-log/v2"
+	"github.com/samber/lo"
+	"github.com/urfave/cli/v2"
+	"golang.org/x/xerrors"
 )
 
 var log = logging.Logger("curio/deps")
@@ -251,7 +247,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		}()
 
 		al := alerting.NewAlertingSystem(j)
-		deps.Si = custorage.NewDBIndex(al, deps.DB)
+		deps.Si = paths.NewDBIndex(al, deps.DB)
 	}
 
 	if deps.Full == nil {
@@ -286,6 +282,8 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 					return err
 				}
 				deps.ListenAddr = rip + ":" + addressSlice[1]
+			} else {
+				deps.ListenAddr = ip.String() + ":" + addressSlice[1]
 			}
 		}
 	}
@@ -428,10 +426,8 @@ func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		return nil, err
 	}
 	go func() {
-		select {
-		case <-ctx.Done():
-			fullCloser()
-		}
+		<-ctx.Done()
+		fullCloser()
 	}()
 
 	return &Deps{
