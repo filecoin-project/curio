@@ -58,7 +58,7 @@ func SaveConfigToLayerMigrateSectors(minerRepoPath, chainApiInfo string, unmigSe
 		return minerAddress, fmt.Errorf("locking repo: %w", err)
 	}
 	defer func() {
-		err = lr.Close()
+		err := lr.Close()
 		if err != nil {
 			fmt.Println("error closing repo: ", err)
 		}
