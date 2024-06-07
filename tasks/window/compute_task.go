@@ -35,7 +35,6 @@ import (
 	"github.com/filecoin-project/lotus/storage/sealer"
 	"github.com/filecoin-project/lotus/storage/sealer/sealtasks"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
-	"github.com/filecoin-project/lotus/storage/wdpost"
 )
 
 var log = logging.Logger("curio/window")
@@ -147,7 +146,7 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, err
 	}
 
-	deadline := wdpost.NewDeadlineInfo(abi.ChainEpoch(pps), dlIdx, head.Height())
+	deadline := NewDeadlineInfo(abi.ChainEpoch(pps), dlIdx, head.Height())
 
 	var testTask *int
 	isTestTask := func() bool {
@@ -172,7 +171,7 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 
 	if deadline.Challenge > head.Height() {
 		if isTestTask() {
-			deadline = wdpost.NewDeadlineInfo(abi.ChainEpoch(pps)-deadline.WPoStProvingPeriod, dlIdx, head.Height()-deadline.WPoStProvingPeriod)
+			deadline = NewDeadlineInfo(abi.ChainEpoch(pps)-deadline.WPoStProvingPeriod, dlIdx, head.Height()-deadline.WPoStProvingPeriod)
 			log.Warnw("Test task is in the future, adjusting to past", "taskID", taskID, "deadline", deadline)
 		}
 	}
@@ -304,7 +303,7 @@ func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, te *harmonytask.TaskEng
 
 	// Accept those past deadline, then delete them in Do().
 	for i := range tasks {
-		tasks[i].dlInfo = wdpost.NewDeadlineInfo(tasks[i].ProvingPeriodStart, tasks[i].DeadlineIndex, ts.Height())
+		tasks[i].dlInfo = NewDeadlineInfo(tasks[i].ProvingPeriodStart, tasks[i].DeadlineIndex, ts.Height())
 
 		if tasks[i].dlInfo.PeriodElapsed() {
 			// note: Those may be test tasks
@@ -465,3 +464,7 @@ func (t *WdPostTask) addTaskToDB(taskId harmonytask.TaskID, taskIdent wdTaskIden
 }
 
 var _ harmonytask.TaskInterface = &WdPostTask{}
+
+func NewDeadlineInfo(periodStart abi.ChainEpoch, deadlineIdx uint64, currEpoch abi.ChainEpoch) *dline.Info {
+	return dline.NewInfo(periodStart, deadlineIdx, currEpoch, miner.WPoStPeriodDeadlines, miner.WPoStProvingPeriod(), miner.WPoStChallengeWindow(), miner.WPoStChallengeLookback, miner.FaultDeclarationCutoff)
+}
