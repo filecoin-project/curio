@@ -16,8 +16,8 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/lotus/lib/promise"
-	"github.com/filecoin-project/lotus/storage/paths"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 

@@ -14,15 +14,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/filecoin-project/curio/lib/custorage"
+	"github.com/filecoin-project/curio/lib/paths"
 	cumarket "github.com/filecoin-project/curio/market"
 	"github.com/filecoin-project/curio/market/fakelm"
-
 	"github.com/google/uuid"
 	logging "github.com/ipfs/go-log/v2"
 	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
+
+	lbuild "github.com/filecoin-project/lotus/build"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -31,7 +32,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/lib/nullreader"
 	"github.com/filecoin-project/lotus/metrics/proxy"
@@ -159,7 +159,7 @@ func ServeCurioMarketRPC(db *harmonydb.DB, full api.FullNode, maddr address.Addr
 		return xerrors.Errorf("starting piece ingestor")
 	}
 
-	si := custorage.NewDBIndex(nil, db)
+	si := paths.NewDBIndex(nil, db)
 
 	mid, err := address.IDFromAddress(maddr)
 	if err != nil {
@@ -192,7 +192,7 @@ func ServeCurioMarketRPC(db *harmonydb.DB, full api.FullNode, maddr address.Addr
 		return api.APIVersion{
 			Version:    "curio-proxy-v0",
 			APIVersion: api.MinerAPIVersion0,
-			BlockDelay: build.BlockDelaySecs,
+			BlockDelay: lbuild.BlockDelaySecs,
 		}, nil
 	}
 

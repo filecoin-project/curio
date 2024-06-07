@@ -1,12 +1,10 @@
-package custorage
+package paths
 
 import (
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/filecoin-project/lotus/storage/paths"
-	logging "github.com/ipfs/go-log/v2"
 	"net/url"
 	gopath "path"
 	"strings"
@@ -25,8 +23,6 @@ import (
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
-
-var log = logging.Logger("curiostorage")
 
 const NoMinerFilter = abi.ActorID(0)
 
@@ -571,7 +567,7 @@ func (dbi *DBIndex) StorageFindSector(ctx context.Context, s abi.SectorID, ft st
 				  and available >= $1 
 				  and NOW()-($2 * INTERVAL '1 second') < last_heartbeat
 				  and heartbeat_err is null`,
-			spaceReq, paths.SkippedHeartbeatThresh.Seconds())
+			spaceReq, SkippedHeartbeatThresh.Seconds())
 		if err != nil {
 			return nil, xerrors.Errorf("Selecting allowfetch storage paths from DB fails err: %v", err)
 		}
@@ -587,7 +583,7 @@ func (dbi *DBIndex) StorageFindSector(ctx context.Context, s abi.SectorID, ft st
 			}
 			allowMiners := splitString(row.AllowMiners)
 			denyMiners := splitString(row.DenyMiners)
-			proceed, msg, err := paths.MinerFilter(allowMiners, denyMiners, s.Miner)
+			proceed, msg, err := MinerFilter(allowMiners, denyMiners, s.Miner)
 			if err != nil {
 				return nil, err
 			}
@@ -731,7 +727,7 @@ func (dbi *DBIndex) StorageBestAlloc(ctx context.Context, allocate storiface.Sec
 						 and (($3 and can_seal = TRUE) or ($4 and can_store = TRUE))
 						order by (available::numeric * weight) desc`,
 		spaceReq,
-		paths.SkippedHeartbeatThresh.Seconds(),
+		SkippedHeartbeatThresh.Seconds(),
 		pathType == storiface.PathSealing,
 		pathType == storiface.PathStorage,
 	)
@@ -747,7 +743,7 @@ func (dbi *DBIndex) StorageBestAlloc(ctx context.Context, allocate storiface.Sec
 		if miner != NoMinerFilter {
 			allowMiners := splitString(row.AllowMiners)
 			denyMiners := splitString(row.DenyMiners)
-			proceed, msg, err := paths.MinerFilter(allowMiners, denyMiners, miner)
+			proceed, msg, err := MinerFilter(allowMiners, denyMiners, miner)
 			if err != nil {
 				return nil, err
 			}
@@ -1049,4 +1045,4 @@ func (dbi *DBIndex) StorageGetLocks(ctx context.Context) (storiface.SectorLocks,
 	return result, nil
 }
 
-var _ paths.SectorIndex = &DBIndex{}
+var _ SectorIndex = &DBIndex{}

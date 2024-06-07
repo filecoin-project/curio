@@ -9,7 +9,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/build"
+	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/store"
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -61,7 +61,7 @@ func (s *CurioChainSched) Run(ctx context.Context) {
 			if err != nil {
 				log.Errorf("ChainNotify error: %+v", err)
 
-				build.Clock.Sleep(10 * time.Second)
+				lbuild.Clock.Sleep(10 * time.Second)
 				continue
 			}
 
