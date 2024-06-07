@@ -1,7 +1,7 @@
 CREATE TABLE storage_removal_marks (
     sp_id BIGINT NOT NULL,
     sector_num BIGINT NOT NULL,
-    sector_filetype TEXT NOT NULL,
+    sector_filetype BIGINT NOT NULL,
     storage_id TEXT NOT NULL,
 
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp,

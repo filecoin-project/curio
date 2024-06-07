@@ -207,25 +207,28 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		if len(toRemove) > 0 { // persist new removal candidates
 			for storageId, decls := range storageSectors {
 				for _, decl := range decls {
-					if decl.SectorFileType == storiface.FTPiece {
-						continue
-					}
+					for _, filetype := range decl.SectorFileType.AllSet() {
+						if filetype == storiface.FTPiece {
+							continue
+						}
 
-					if toRemove[decl.Miner] == nil {
-						continue
-					}
+						if toRemove[decl.Miner] == nil {
+							continue
+						}
 
-					set, err := toRemove[decl.Miner].IsSet(uint64(decl.Number))
-					if err != nil {
-						return false, xerrors.Errorf("checking if sector is set: %w", err)
-					}
-					if set {
-						_, err := tx.Exec(`INSERT INTO storage_removal_marks (sp_id, sector_num, sector_filetype, storage_id)
-							VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`, decl.Miner, decl.Number, decl.SectorFileType, storageId)
+						set, err := toRemove[decl.Miner].IsSet(uint64(decl.Number))
 						if err != nil {
-							return false, xerrors.Errorf("insert storage_removal_marks: %w", err)
+							return false, xerrors.Errorf("checking if sector is set: %w", err)
+						}
+						if set {
+							_, err := tx.Exec(`INSERT INTO storage_removal_marks (sp_id, sector_num, sector_filetype, storage_id)
+							VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`, decl.Miner, decl.Number, filetype, storageId)
+							if err != nil {
+								return false, xerrors.Errorf("insert storage_removal_marks: %w", err)
+							}
 						}
 					}
+
 				}
 			}
 		}
