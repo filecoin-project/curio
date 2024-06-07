@@ -10,16 +10,13 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/dustin/go-humanize"
-	"golang.org/x/xerrors"
-
+	"github.com/filecoin-project/curio/lib/config"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
-
-	"github.com/filecoin-project/curio/lib/config"
-
-	"github.com/filecoin-project/lotus/build"
+	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+	"golang.org/x/xerrors"
 )
 
 // balanceCheck retrieves the machine details from the database and performs balance checks on unique addresses.
@@ -336,7 +333,7 @@ func wdPostCheck(al *alerts) {
 		return
 	}
 
-	from := head.Height() - abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(build.BlockDelaySecs))) - 1
+	from := head.Height() - abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(lbuild.BlockDelaySecs))) - 1
 	if from < 0 {
 		from = 0
 	}
@@ -468,7 +465,7 @@ func wnPostCheck(al *alerts) {
 		return
 	}
 
-	from := head.Height() - abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(build.BlockDelaySecs))) - 1
+	from := head.Height() - abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(lbuild.BlockDelaySecs))) - 1
 	if from < 0 {
 		from = 0
 	}
@@ -504,7 +501,7 @@ func wnPostCheck(al *alerts) {
 		return
 	}
 
-	epochs := int64(math.Ceil(AlertMangerInterval.Seconds() / float64(build.BlockDelaySecs)))
+	epochs := int64(math.Ceil(AlertMangerInterval.Seconds() / float64(lbuild.BlockDelaySecs)))
 	if (head.Height() - abi.ChainEpoch(epochs)) < 0 {
 		epochs = int64(head.Height())
 	}

@@ -9,32 +9,29 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/filecoin-project/curio/lib/fastparamfetch"
-
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/config"
+	"github.com/filecoin-project/curio/lib/fastparamfetch"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/message"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/seal"
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
-
+	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/build"
+	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
-	"github.com/filecoin-project/lotus/storage/paths"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
-
-	"github.com/filecoin-project/go-address"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
@@ -96,7 +93,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 				for spt := range dependencies.ProofTypes {
 
 					provingSize := uint64(must.One(spt.SectorSize()))
-					err := fastparamfetch.GetParams(context.TODO(), build.ParametersJSON(), build.SrsJSON(), provingSize)
+					err := fastparamfetch.GetParams(context.TODO(), lbuild.ParametersJSON(), lbuild.SrsJSON(), provingSize)
 
 					if err != nil {
 						log.Errorw("failed to fetch params", "error", err)

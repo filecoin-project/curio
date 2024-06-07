@@ -6,27 +6,23 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/config"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/market"
-
-	"github.com/gbrlsnchs/jwt/v3"
-	"github.com/google/uuid"
-	"golang.org/x/xerrors"
-
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/network"
-
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/config"
-
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
-	"github.com/filecoin-project/lotus/storage/paths"
 	sealing "github.com/filecoin-project/lotus/storage/pipeline"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	"github.com/gbrlsnchs/jwt/v3"
+	"github.com/google/uuid"
+	"golang.org/x/xerrors"
 )
 
 type LMRPCProvider struct {

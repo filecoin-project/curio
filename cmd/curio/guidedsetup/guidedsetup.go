@@ -25,36 +25,27 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/manifoldco/promptui"
-	"github.com/mitchellh/go-homedir"
-	"github.com/samber/lo"
-	"github.com/urfave/cli/v2"
-	"golang.org/x/text/language"
-	"golang.org/x/text/message"
-
-	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-jsonrpc"
-	"github.com/filecoin-project/go-state-types/abi"
-
+	"github.com/filecoin-project/curio/build"
 	_ "github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-
-	"github.com/filecoin-project/lotus/build"
-
 	"github.com/filecoin-project/curio/lib/config"
-
-	"github.com/snadrus/must"
-
-	cliutil "github.com/filecoin-project/lotus/cli/util"
-	"github.com/filecoin-project/lotus/node/repo"
-
-	"github.com/filecoin-project/lotus/cli/spcli"
-
-	"github.com/filecoin-project/lotus/chain/types"
-
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-jsonrpc"
+	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/v1api"
+	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/cli/spcli"
+	cliutil "github.com/filecoin-project/lotus/cli/util"
+	"github.com/filecoin-project/lotus/node/repo"
+	"github.com/manifoldco/promptui"
+	"github.com/mitchellh/go-homedir"
+	"github.com/samber/lo"
+	"github.com/snadrus/must"
+	"github.com/urfave/cli/v2"
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 )
 
 // URL to upload user-selected fields to help direct developer's focus.

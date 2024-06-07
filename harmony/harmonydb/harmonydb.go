@@ -15,15 +15,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/filecoin-project/curio/lib/config"
+	lhdb "github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
 	"github.com/yugabyte/pgx/v5/pgconn"
 	"github.com/yugabyte/pgx/v5/pgxpool"
 	"golang.org/x/xerrors"
-
-	"github.com/filecoin-project/curio/lib/config"
-
-	lotusdb "github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 )
 
 type ITestID string
@@ -112,7 +110,7 @@ func New(hosts []string, username, password, database, port string, itestID ITes
 
 	cfg.ConnConfig.OnNotice = func(conn *pgconn.PgConn, n *pgconn.Notice) {
 		logger.Debug("database notice: " + n.Message + ": " + n.Detail)
-		lotusdb.DBMeasures.Errors.M(1)
+		lhdb.DBMeasures.Errors.M(1)
 	}
 
 	db := DB{cfg: cfg, schema: schema, hostnames: hosts} // pgx populated in AddStatsAndConnect
@@ -135,12 +133,12 @@ func (t tracer) TraceQueryStart(ctx context.Context, conn *pgx.Conn, data pgx.Tr
 	return context.WithValue(context.WithValue(ctx, SQL_START, time.Now()), SQL_STRING, data.SQL)
 }
 func (t tracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryEndData) {
-	lotusdb.DBMeasures.Hits.M(1)
+	lhdb.DBMeasures.Hits.M(1)
 	ms := time.Since(ctx.Value(SQL_START).(time.Time)).Milliseconds()
-	lotusdb.DBMeasures.TotalWait.M(ms)
-	lotusdb.DBMeasures.Waits.Observe(float64(ms))
+	lhdb.DBMeasures.TotalWait.M(ms)
+	lhdb.DBMeasures.Waits.Observe(float64(ms))
 	if data.Err != nil {
-		lotusdb.DBMeasures.Errors.M(1)
+		lhdb.DBMeasures.Errors.M(1)
 	}
 	logger.Debugw("SQL run",
 		"query", ctx.Value(SQL_STRING).(string),
@@ -174,8 +172,8 @@ func (db *DB) addStatsAndConnect() error {
 	}
 	db.cfg.AfterConnect = func(ctx context.Context, c *pgx.Conn) error {
 		s := db.pgx.Stat()
-		lotusdb.DBMeasures.OpenConnections.M(int64(s.TotalConns()))
-		lotusdb.DBMeasures.WhichHost.Observe(hostnameToIndex[c.Config().Host])
+		lhdb.DBMeasures.OpenConnections.M(int64(s.TotalConns()))
+		lhdb.DBMeasures.WhichHost.Observe(hostnameToIndex[c.Config().Host])
 
 		//FUTURE place for any connection seasoning
 		return nil

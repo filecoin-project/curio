@@ -3,6 +3,7 @@ package window
 import (
 	"bytes"
 	"context"
+
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/chainsched"
@@ -18,11 +19,10 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v9/miner"
 	"github.com/filecoin-project/go-state-types/crypto"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/lib/promise"
-	"github.com/filecoin-project/lotus/storage/wdpost"
 )
 
 type WdPoStSubmitTaskApi interface {
@@ -109,7 +109,7 @@ func (w *WdPostSubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("submit epoch not reached: %d < %d", head.Height(), submitAtEpoch)
 	}
 
-	dlInfo := wdpost.NewDeadlineInfo(pps, deadline, head.Height())
+	dlInfo := NewDeadlineInfo(pps, deadline, head.Height())
 
 	var params miner.SubmitWindowedPoStParams
 	if err := params.UnmarshalCBOR(bytes.NewReader(earlyParamBytes)); err != nil {
