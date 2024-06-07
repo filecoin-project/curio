@@ -9,8 +9,6 @@ import (
 	"syscall"
 
 	curiobuild "github.com/filecoin-project/curio/build"
-	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
-	"github.com/filecoin-project/curio/deps"
 
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
