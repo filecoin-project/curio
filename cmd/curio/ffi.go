@@ -2,14 +2,16 @@ package main
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/ffiselect/ffidirect"
 	"github.com/filecoin-project/go-jsonrpc"
-	"github.com/filecoin-project/lotus/lib/must"
+
 	"github.com/ipfs/go-cid"
+	"github.com/snadrus/must"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/net/context"
-	"os"
 )
 
 var ffiCmd = &cli.Command{

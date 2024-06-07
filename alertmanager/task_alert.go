@@ -22,9 +22,10 @@ import (
 	"github.com/filecoin-project/go-state-types/dline"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/config"
+
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/storage/ctladdr"
 )
 

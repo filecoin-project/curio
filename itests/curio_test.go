@@ -11,27 +11,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/go-units"
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/cmd/curio/tasks"
 	"github.com/filecoin-project/curio/deps"
+
+	"github.com/docker/go-units"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/market/lmrpc"
 	"github.com/filecoin-project/curio/tasks/seal"
-	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-jsonrpc"
-	"github.com/filecoin-project/go-jsonrpc/auth"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/api/v1api"
-	miner2 "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
-	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/cli/spcli"
-	"github.com/filecoin-project/lotus/itests/kit"
-	"github.com/filecoin-project/lotus/node"
-	"github.com/filecoin-project/lotus/node/config"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+
 	"github.com/gbrlsnchs/jwt/v3"
 	"github.com/google/uuid"
 	logging "github.com/ipfs/go-log/v2"
@@ -39,6 +28,23 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/api/v1api"
+	miner2 "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-jsonrpc"
+	"github.com/filecoin-project/go-jsonrpc/auth"
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/config"
+
+	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/cli/spcli"
+	"github.com/filecoin-project/lotus/itests/kit"
+	"github.com/filecoin-project/lotus/node"
+	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 func TestCurioNewActor(t *testing.T) {
