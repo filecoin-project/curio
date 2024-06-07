@@ -3,12 +3,13 @@ package tasks
 
 import (
 	"context"
-	"github.com/filecoin-project/lotus/lib/result"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/filecoin-project/lotus/lib/result"
 
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/deps"
@@ -17,6 +18,7 @@ import (
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/message"
 	message2 "github.com/filecoin-project/curio/tasks/message"
@@ -26,7 +28,6 @@ import (
 	"github.com/filecoin-project/curio/tasks/winning"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/node/config"
-	"github.com/filecoin-project/lotus/storage/paths"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 
 	"github.com/filecoin-project/go-address"

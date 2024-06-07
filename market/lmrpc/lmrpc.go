@@ -14,20 +14,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/filecoin-project/curio/lib/custorage"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/paths"
 	cumarket "github.com/filecoin-project/curio/market"
 	"github.com/filecoin-project/curio/market/fakelm"
-
-	"github.com/google/uuid"
-	logging "github.com/ipfs/go-log/v2"
-	manet "github.com/multiformats/go-multiaddr/net"
-	"github.com/yugabyte/pgx/v5"
-	"golang.org/x/xerrors"
-
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
-
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/api"
 	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -37,6 +29,11 @@ import (
 	"github.com/filecoin-project/lotus/node/config"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	"github.com/google/uuid"
+	logging "github.com/ipfs/go-log/v2"
+	manet "github.com/multiformats/go-multiaddr/net"
+	"github.com/yugabyte/pgx/v5"
+	"golang.org/x/xerrors"
 )
 
 var log = logging.Logger("lmrpc")
@@ -158,7 +155,7 @@ func ServeCurioMarketRPC(db *harmonydb.DB, full api.FullNode, maddr address.Addr
 		return xerrors.Errorf("starting piece ingestor")
 	}
 
-	si := custorage.NewDBIndex(nil, db)
+	si := paths.NewDBIndex(nil, db)
 
 	mid, err := address.IDFromAddress(maddr)
 	if err != nil {
