@@ -30,6 +30,8 @@ build/.update-modules:
 
 # end git modules
 
+all: build
+
 ## MAIN BINARIES
 
 CLEAN+=build/.update-modules

@@ -6,7 +6,9 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
+	"github.com/snadrus/must"
 	"os"
 	"path"
 	"strings"
@@ -25,8 +27,15 @@ func main() {
 
 	version = os.Args[1]
 
+	data := must.One(os.ReadFile(os.Args[2]))
+	dec, err := base64.StdEncoding.DecodeString(string(data))
+	OrPanic(err)
+
+	// Write the key to a file
+	OrPanic(os.WriteFile("apt-private.asc", dec, 0644))
+
 	// Import the key (repeat imports are OK)
-	OrPanic(sh.Command("gpg", "--import", os.Args[2]).Run())
+	OrPanic(sh.Command("gpg", "--import", "apt-private.asc").Run())
 
 	base, err := os.MkdirTemp(os.TempDir(), "curio-apt")
 	OrPanic(err)
@@ -70,6 +79,8 @@ func part2(base, product, extra string) {
 		OrPanic(os.MkdirAll(base, 0755))
 		OrPanic(copyFile("curio", path.Join(base, "curio")))
 		OrPanic(copyFile("sptool", path.Join(base, "sptool")))
+
+		OrPanic(os.MkdirAll(path.Join(dir, "usr", "lib", "systemd", "system"), 0755))
 		OrPanic(copyFile("apt/curio.service", path.Join(dir, "usr", "lib", "systemd", "system", "curio.service")))
 	}
 	// fix the debian/control "package" and "version" fields
