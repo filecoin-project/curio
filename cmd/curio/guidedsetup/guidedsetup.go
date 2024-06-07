@@ -33,9 +33,6 @@ import (
 	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	curiobuild "github.com/filecoin-project/curio/build"
-
-	_ "github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps/config"
 
 	"github.com/manifoldco/promptui"
