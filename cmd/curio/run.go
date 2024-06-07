@@ -6,15 +6,15 @@ import (
 	"os"
 	"strings"
 
-	"github.com/filecoin-project/curio/cmd/curio/rpc"
-	"github.com/filecoin-project/curio/cmd/curio/tasks"
-	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/market/lmrpc"
-
 	"github.com/pkg/errors"
 	"github.com/urfave/cli/v2"
 	"go.opencensus.io/stats"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/cmd/curio/rpc"
+	"github.com/filecoin-project/curio/cmd/curio/tasks"
+	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/market/lmrpc"
 
 	lcli "github.com/filecoin-project/lotus/cli"
 	"github.com/filecoin-project/lotus/lib/ulimit"

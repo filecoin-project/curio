@@ -8,15 +8,14 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/web/api/apihelper"
-
 	"github.com/BurntSushi/toml"
 	"github.com/gorilla/mux"
 	"github.com/invopop/jsonschema"
 	logging "github.com/ipfs/go-log/v2"
 
+	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/web/api/apihelper"
 )
 
 var log = logging.Logger("curio/web/config")

@@ -6,8 +6,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/filecoin-project/curio/cmd/curio/rpc"
-	"github.com/filecoin-project/curio/deps"
 	"net"
 	"os"
 	"time"
@@ -19,6 +17,9 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-jsonrpc/auth"
+
+	"github.com/filecoin-project/curio/cmd/curio/rpc"
+	"github.com/filecoin-project/curio/deps"
 
 	"github.com/filecoin-project/lotus/api"
 	lcli "github.com/filecoin-project/lotus/cli"

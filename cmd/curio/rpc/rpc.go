@@ -12,10 +12,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/market"
-	"github.com/filecoin-project/curio/web"
-
 	"github.com/gbrlsnchs/jwt/v3"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -30,7 +26,11 @@ import (
 	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-jsonrpc/auth"
 
+	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/market"
+	"github.com/filecoin-project/curio/web"
+
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/client"
 	cliutil "github.com/filecoin-project/lotus/cli/util"

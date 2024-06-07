@@ -2,12 +2,13 @@ package hapi
 
 import (
 	"embed"
-	"github.com/filecoin-project/curio/deps"
 	"text/template"
 
 	"github.com/gorilla/mux"
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/deps"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )

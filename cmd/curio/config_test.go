@@ -5,12 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/filecoin-project/curio/deps"
-
 	"github.com/invopop/jsonschema"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 
+	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 )
 

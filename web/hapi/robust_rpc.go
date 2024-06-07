@@ -6,7 +6,6 @@ import (
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	blocks "github.com/ipfs/go-block-format"
-
 	"github.com/snadrus/must"
 
 	"github.com/filecoin-project/lotus/api/client"

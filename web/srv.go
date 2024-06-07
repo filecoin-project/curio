@@ -4,9 +4,6 @@ package web
 import (
 	"context"
 	"embed"
-	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/web/api"
-	"github.com/filecoin-project/curio/web/hapi"
 	"io"
 	"io/fs"
 	"net"
@@ -18,6 +15,10 @@ import (
 
 	"github.com/gorilla/mux"
 	"go.opencensus.io/tag"
+
+	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/web/api"
+	"github.com/filecoin-project/curio/web/hapi"
 
 	"github.com/filecoin-project/lotus/metrics"
 )

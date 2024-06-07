@@ -3,10 +3,6 @@ package seal
 import (
 	"bytes"
 	"context"
-	"github.com/filecoin-project/curio/harmony/harmonytask"
-	"github.com/filecoin-project/curio/harmony/resources"
-	"github.com/filecoin-project/curio/lib/multictladdr"
-	"github.com/filecoin-project/curio/tasks/message"
 
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
@@ -19,11 +15,16 @@ import (
 	miner12 "github.com/filecoin-project/go-state-types/builtin/v12/miner"
 	"github.com/filecoin-project/go-state-types/network"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/multictladdr"
+	"github.com/filecoin-project/curio/tasks/message"
+
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/storage/ctladdr"
 )
 

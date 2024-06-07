@@ -4,10 +4,6 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/filecoin-project/curio/harmony/harmonytask"
-	"github.com/filecoin-project/curio/harmony/resources"
-	ffi2 "github.com/filecoin-project/curio/lib/ffi"
-
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
@@ -18,8 +14,12 @@ import (
 	"github.com/filecoin-project/go-state-types/crypto"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/resources"
+	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/filler"
 	"github.com/filecoin-project/curio/lib/paths"
+
 	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"

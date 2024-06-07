@@ -3,10 +3,11 @@ package main
 import (
 	_ "net/http/pprof"
 
-	lcli "github.com/filecoin-project/lotus/cli"
 	"github.com/urfave/cli/v2"
 
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
+
+	lcli "github.com/filecoin-project/lotus/cli"
 )
 
 var stopCmd = &cli.Command{

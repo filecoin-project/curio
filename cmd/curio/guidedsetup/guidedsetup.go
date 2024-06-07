@@ -25,16 +25,6 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/filecoin-project/curio/build"
-	_ "github.com/filecoin-project/curio/cmd/curio/internal/translations"
-	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-jsonrpc"
-	"github.com/filecoin-project/go-state-types/abi"
-
-	"github.com/filecoin-project/curio/deps/config"
-
 	"github.com/manifoldco/promptui"
 	"github.com/mitchellh/go-homedir"
 	"github.com/samber/lo"
@@ -42,6 +32,16 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
+
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-jsonrpc"
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/build"
+	_ "github.com/filecoin-project/curio/cmd/curio/internal/translations"
+	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/v1api"

@@ -7,10 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/filecoin-project/curio/lib/ffiselect"
-	"github.com/samber/lo"
-
 	"github.com/ipfs/go-cid"
+	"github.com/samber/lo"
 	"go.uber.org/multierr"
 	"golang.org/x/xerrors"
 
@@ -24,6 +22,8 @@ import (
 	"github.com/filecoin-project/go-state-types/dline"
 	"github.com/filecoin-project/go-state-types/proof"
 	proof7 "github.com/filecoin-project/specs-actors/v7/actors/runtime/proof"
+
+	"github.com/filecoin-project/curio/lib/ffiselect"
 
 	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"

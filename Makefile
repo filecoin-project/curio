@@ -110,10 +110,12 @@ cu2k: curio
 cfgdoc-gen:
 	$(GOCC) run ./deps/config/cfgdocgen > ./deps/config/doc_gen.go
 
+fiximports:
+	$(GOCC) run ./scripts/fiximports
+
 # TODO API GEN
 # TODO DOCS GEN
 
-# TODO DEVNET IMAGES
 ##################### Curio devnet images ##################
 build_lotus?=0
 curio_docker_user?=curio
