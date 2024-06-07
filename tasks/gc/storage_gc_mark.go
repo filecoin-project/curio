@@ -73,8 +73,8 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	}
 
 	// ToRemove += InStorage - Precommits - Live - Unproven - Pinned - InPorepPipeline
-	var toRemove map[abi.ActorID]*bitfield.BitField
-	var minerStates map[abi.ActorID]miner.State
+	toRemove := map[abi.ActorID]*bitfield.BitField{}
+	minerStates := map[abi.ActorID]miner.State{}
 
 	astor := adt.WrapStore(ctx, cbor.NewCborStore(s.bstore))
 
@@ -144,7 +144,7 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 				SectorNum int64 `db:"sector_number"`
 			}
 
-			err = tx.Select(&pipelineSectors, `SELECT sp_id, sector_number FROM sectors_sd_pipeline`)
+			err = tx.Select(&pipelineSectors, `SELECT sp_id, sector_number FROM sectors_sdr_pipeline`)
 			if err != nil {
 				return false, xerrors.Errorf("select sd pipeline: %w", err)
 			}
