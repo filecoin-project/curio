@@ -9,36 +9,33 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/filecoin-project/lotus/lib/result"
-
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/config"
+	"github.com/filecoin-project/curio/lib/fastparamfetch"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/message"
-	message2 "github.com/filecoin-project/curio/tasks/message"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/seal"
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
-	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/node/config"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
-
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/lotus/api"
+	lbuild "github.com/filecoin-project/lotus/build"
+	"github.com/filecoin-project/lotus/lib/lazy"
+	"github.com/filecoin-project/lotus/lib/result"
+	"github.com/filecoin-project/lotus/node/modules/dtypes"
+	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
+	"github.com/snadrus/must"
 	"golang.org/x/exp/maps"
-
-	"github.com/filecoin-project/lotus/lib/lazy"
-	"github.com/filecoin-project/lotus/lib/must"
-	"github.com/filecoin-project/lotus/node/modules"
-	"github.com/filecoin-project/lotus/node/modules/dtypes"
 )
 
 var log = logging.Logger("curio/deps")
@@ -81,7 +78,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	si := dependencies.Si
 	var activeTasks []harmonytask.TaskInterface
 
-	sender, sendTask := message2.NewSender(full, full, db)
+	sender, sendTask := message.NewSender(full, full, db)
 	activeTasks = append(activeTasks, sendTask)
 
 	chainSched := chainsched.New(full)
@@ -94,7 +91,10 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		fetchOnce.Do(func() {
 			go func() {
 				for spt := range dependencies.ProofTypes {
-					err := modules.GetParams(true)(spt)
+
+					provingSize := uint64(must.One(spt.SectorSize()))
+					err := fastparamfetch.GetParams(context.TODO(), lbuild.ParametersJSON(), lbuild.SrsJSON(), provingSize)
+
 					if err != nil {
 						log.Errorw("failed to fetch params", "error", err)
 						fetchResult.Store(&result.Result[bool]{Value: false, Error: err})
@@ -232,7 +232,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	go machineDetails(dependencies, activeTasks, ht.ResourcesAvailable().MachineID, dependencies.Name)
 
 	if hasAnySealingTask {
-		watcher, err := message2.NewMessageWatcher(db, ht, chainSched, full)
+		watcher, err := message.NewMessageWatcher(db, ht, chainSched, full)
 		if err != nil {
 			return nil, err
 		}

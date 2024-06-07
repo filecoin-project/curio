@@ -104,6 +104,9 @@ docsgen: curio sptool
 	python3 ./scripts/generate-cli.py
 .PHONY: docsgen
 
+cu2k: GOFLAGS+=-tags=2k
+cu2k: curio
+
 # TODO API GEN
 # TODO DOCS GEN
 

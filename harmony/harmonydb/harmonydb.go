@@ -15,13 +15,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/filecoin-project/curio/lib/config"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
 	"github.com/yugabyte/pgx/v5/pgconn"
 	"github.com/yugabyte/pgx/v5/pgxpool"
 	"golang.org/x/xerrors"
-
-	"github.com/filecoin-project/lotus/node/config"
 )
 
 type ITestID string

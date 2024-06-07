@@ -469,7 +469,8 @@ func (t *WinPostTask) generateWinningPost(
 		return nil, err
 	}
 
-	return ffiselect.FFISelect{}.GenerateWinningPoStWithVanilla(ppt, mid, randomness, vproofs)
+	ctx = ffiselect.WithLogCtx(ctx, "miner", mid, "randomness", randomness, "sectors", sectors)
+	return ffiselect.FFISelect.GenerateWinningPoStWithVanilla(ctx, ppt, mid, randomness, vproofs)
 
 }
 

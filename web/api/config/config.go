@@ -4,18 +4,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/web/api/apihelper"
 	"net/http"
 	"reflect"
 	"time"
+
+	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/web/api/apihelper"
 
 	"github.com/BurntSushi/toml"
 	"github.com/gorilla/mux"
 	"github.com/invopop/jsonschema"
 	logging "github.com/ipfs/go-log/v2"
 
-	"github.com/filecoin-project/lotus/node/config"
+	"github.com/filecoin-project/curio/lib/config"
 )
 
 var log = logging.Logger("curio/web/config")

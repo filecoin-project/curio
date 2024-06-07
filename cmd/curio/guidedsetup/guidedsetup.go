@@ -19,37 +19,33 @@ import (
 	"os/signal"
 	"path"
 	"reflect"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/filecoin-project/curio/deps"
-
 	"github.com/BurntSushi/toml"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/docker/go-units"
-	"github.com/manifoldco/promptui"
-	"github.com/mitchellh/go-homedir"
-	"github.com/samber/lo"
-	"github.com/urfave/cli/v2"
-	"golang.org/x/text/language"
-	"golang.org/x/text/message"
-
+	"github.com/filecoin-project/curio/build"
+	_ "github.com/filecoin-project/curio/cmd/curio/internal/translations"
+	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/config"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-state-types/abi"
-
-	"github.com/filecoin-project/curio/build"
-	_ "github.com/filecoin-project/curio/cmd/curio/internal/translations"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/v1api"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/cli/spcli"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
-	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/node/repo"
+	"github.com/manifoldco/promptui"
+	"github.com/mitchellh/go-homedir"
+	"github.com/samber/lo"
+	"github.com/snadrus/must"
+	"github.com/urfave/cli/v2"
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 )
 
 // URL to upload user-selected fields to help direct developer's focus.
@@ -210,6 +206,7 @@ var migrationSteps = []migrationStep{
 	doc,
 	oneLastThing,
 	complete,
+	afterRan,
 }
 
 type newMinerStep func(data *MigrationData)
@@ -221,6 +218,7 @@ var newMinerSteps = []newMinerStep{
 	doc,
 	oneLastThing,
 	completeInit,
+	afterRan,
 }
 
 type MigrationData struct {
@@ -230,6 +228,7 @@ type MigrationData struct {
 	MinerConfigPath string
 	MinerConfig     *config.StorageMiner
 	DB              *harmonydb.DB
+	HarmonyCfg      config.HarmonyDB
 	MinerID         address.Address
 	full            v1api.FullNode
 	cctx            *cli.Context
@@ -238,20 +237,54 @@ type MigrationData struct {
 	owner           address.Address
 	worker          address.Address
 	sender          address.Address
-	ssize           abi.SectorSize
-	confidence      uint64
+	ssize           string
 	init            bool
 }
 
 func complete(d *MigrationData) {
 	stepCompleted(d, d.T("Lotus-Miner to Curio Migration."))
-	d.say(plain, "Try the web interface with %s for further guided improvements.", code.Render("curio run --layers=gui"))
+}
+
+var EnvFiles = []string{"/etc/curio.env", "./curio/curio.env", "~/config/curio.env"}
+
+func afterRan(d *MigrationData) {
+	// Write curio.env file.
+	// Inform users they need to copy this to /etc/curio.env or ~/.config/curio.env to run Curio.
+	places := append([]string{"/tmp/curio.env",
+		must.One(os.Getwd()) + "/curio.env",
+		must.One(os.UserHomeDir()) + "/curio.env"}, EnvFiles...)
+saveConfigFile:
+	_, where, err := (&promptui.Select{
+		Label:     d.T("Where should we save your database config file?"),
+		Items:     places,
+		Templates: d.selectTemplates,
+	}).Run()
+	if err != nil {
+		d.say(notice, "Aborting migration.", err.Error())
+		os.Exit(1)
+	}
+
+	args := []string{fmt.Sprintf("CURIO_DB=postgres://%s:%s@%s:%s/%s",
+		d.HarmonyCfg.Username,
+		d.HarmonyCfg.Password,
+		d.HarmonyCfg.Hosts[0],
+		d.HarmonyCfg.Port,
+		d.HarmonyCfg.Database)}
+
+	// Write the file
+	err = os.WriteFile(where, []byte(strings.Join(args, "\n")), 0644)
+	if err != nil {
+		d.say(notice, "Error writing file: %s", err.Error())
+		goto saveConfigFile
+	}
+
+	d.say(plain, "Try the web interface with %s ", code.Render("curio run --layers=gui"))
+	d.say(plain, "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.")
 	d.say(plain, "You can now migrate your market node (%s), if applicable.", "Boost")
 }
 
 func completeInit(d *MigrationData) {
 	stepCompleted(d, d.T("New Miner initialization complete."))
-	d.say(plain, "Try the web interface with %s for further guided improvements.", code.Render("curio run --layers=gui"))
 }
 
 func configToDB(d *MigrationData) {
@@ -459,6 +492,8 @@ func yugabyteConnect(d *MigrationData) {
 	if err != nil {
 		hcfg := getDBDetails(d)
 		harmonyCfg = *hcfg
+	} else {
+		d.HarmonyCfg = harmonyCfg
 	}
 
 	d.say(plain, "Connected to Yugabyte. Schema is current.")
@@ -609,15 +644,15 @@ func stepCompleted(d *MigrationData, step string) {
 func stepCreateActor(d *MigrationData) {
 	d.say(plain, "Initializing a new miner actor.")
 
+	d.ssize = "32 GiB"
 	for {
 		i, _, err := (&promptui.Select{
 			Label: d.T("Enter the info to create a new miner"),
 			Items: []string{
-				d.T("Owner Address: %s", d.owner.String()),
-				d.T("Worker Address: %s", d.worker.String()),
-				d.T("Sender Address: %s", d.sender.String()),
+				d.T("Owner Wallet: %s", d.owner.String()),
+				d.T("Worker Wallet: %s", d.worker.String()),
+				d.T("Sender Wallet: %s", d.sender.String()),
 				d.T("Sector Size: %d", d.ssize),
-				d.T("Confidence epochs: %d", d.confidence),
 				d.T("Continue to verify the addresses and create a new miner actor.")},
 			Size:      6,
 			Templates: d.selectTemplates,
@@ -661,41 +696,33 @@ func stepCreateActor(d *MigrationData) {
 			}
 			continue
 		case 3:
-			val, err := (&promptui.Prompt{
-				Label: d.T("Enter the sector size"),
+			i, _, err := (&promptui.Select{
+				Label: d.T("Select the Sector Size"),
+				Items: []string{
+					d.T("64 GiB"),
+					d.T("32 GiB"),
+					d.T("8 MiB"),
+					d.T("2 KiB"),
+				},
+				Size:      4,
+				Templates: d.selectTemplates,
 			}).Run()
 			if err != nil {
-				d.say(notice, "No value provided")
-				continue
+				d.say(notice, "Sector selection failed: %s ", err.Error())
+				os.Exit(1)
 			}
-			sectorSize, err := units.RAMInBytes(val)
-			if err != nil {
-				d.say(notice, "Failed to parse sector size: %s", err.Error())
-				continue
-			}
-			d.ssize = abi.SectorSize(sectorSize)
+
+			d.ssize = []string{"64 GiB", "32 GiB", "8 MiB", "2 KiB"}[i]
 			continue
 		case 4:
-			confidenceStr, err := (&promptui.Prompt{
-				Label:   d.T("Confidence epochs"),
-				Default: strconv.Itoa(5),
-			}).Run()
-			if err != nil {
-				d.say(notice, err.Error())
-				continue
-			}
-			confidence, err := strconv.ParseUint(confidenceStr, 10, 64)
-			if err != nil {
-				d.say(notice, "Failed to parse confidence: %s", err.Error())
-				continue
-			}
-			d.confidence = confidence
 			goto minerInit // break out of the for loop once we have all the values
 		}
 	}
 
 minerInit:
-	miner, err := spcli.CreateStorageMiner(d.ctx, d.full, d.owner, d.worker, d.sender, d.ssize, d.confidence)
+	var ss abi.SectorSize
+
+	miner, err := spcli.CreateStorageMiner(d.ctx, d.full, d.owner, d.worker, d.sender, ss, CONFIDENCE)
 	if err != nil {
 		d.say(notice, "Failed to create the miner actor: %s", err.Error())
 		os.Exit(1)
@@ -704,6 +731,8 @@ minerInit:
 	d.MinerID = miner
 	stepCompleted(d, d.T("Miner %s created successfully", miner.String()))
 }
+
+const CONFIDENCE = 5
 
 func stepPresteps(d *MigrationData) {
 
@@ -891,6 +920,8 @@ func getDBDetails(d *MigrationData) *config.HarmonyDB {
 				continue
 			}
 			d.DB = db
+			d.HarmonyCfg = harmonyCfg
+
 			return &harmonyCfg
 		}
 	}

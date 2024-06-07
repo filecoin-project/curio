@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/config"
 	"github.com/filecoin-project/curio/lib/paths"
 	cumarket "github.com/filecoin-project/curio/market"
 	"github.com/filecoin-project/curio/market/fakelm"
@@ -26,7 +27,6 @@ import (
 	"github.com/filecoin-project/lotus/lib/nullreader"
 	"github.com/filecoin-project/lotus/metrics/proxy"
 	"github.com/filecoin-project/lotus/node"
-	"github.com/filecoin-project/lotus/node/config"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 	"github.com/google/uuid"
