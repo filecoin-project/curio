@@ -15,13 +15,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/filecoin-project/curio/lib/config"
-	lhdb "github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
 	"github.com/yugabyte/pgx/v5/pgconn"
 	"github.com/yugabyte/pgx/v5/pgxpool"
 	"golang.org/x/xerrors"
+
+	lhdb "github.com/filecoin-project/lotus/lib/harmony/harmonydb"
+
+	"github.com/filecoin-project/curio/deps/config"
 )
 
 type ITestID string

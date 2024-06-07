@@ -14,26 +14,30 @@ import (
 	"sync"
 	"time"
 
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/config"
 	"github.com/filecoin-project/curio/lib/paths"
 	cumarket "github.com/filecoin-project/curio/market"
 	"github.com/filecoin-project/curio/market/fakelm"
+	"github.com/google/uuid"
+	logging "github.com/ipfs/go-log/v2"
+	manet "github.com/multiformats/go-multiaddr/net"
+	"github.com/yugabyte/pgx/v5"
+	"golang.org/x/xerrors"
+
+	lbuild "github.com/filecoin-project/lotus/build"
+
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+
 	"github.com/filecoin-project/lotus/api"
-	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/lib/nullreader"
 	"github.com/filecoin-project/lotus/metrics/proxy"
 	"github.com/filecoin-project/lotus/node"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
-	"github.com/google/uuid"
-	logging "github.com/ipfs/go-log/v2"
-	manet "github.com/multiformats/go-multiaddr/net"
-	"github.com/yugabyte/pgx/v5"
-	"golang.org/x/xerrors"
 )
 
 var log = logging.Logger("lmrpc")

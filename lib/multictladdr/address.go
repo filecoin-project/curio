@@ -5,7 +5,7 @@ import (
 
 	"github.com/filecoin-project/go-address"
 
-	"github.com/filecoin-project/curio/lib/config"
+	"github.com/filecoin-project/curio/deps/config"
 
 	"github.com/filecoin-project/lotus/api"
 )

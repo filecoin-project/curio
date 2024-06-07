@@ -16,7 +16,7 @@ import (
 	"github.com/invopop/jsonschema"
 	logging "github.com/ipfs/go-log/v2"
 
-	"github.com/filecoin-project/curio/lib/config"
+	"github.com/filecoin-project/curio/deps/config"
 )
 
 var log = logging.Logger("curio/web/config")

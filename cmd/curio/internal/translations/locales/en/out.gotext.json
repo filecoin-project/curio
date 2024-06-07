@@ -147,9 +147,9 @@
             "fuzzy": true
         },
         {
-            "id": "For more servers, copy curio.env to /etc/curio.env and add the CURIO_LAYERS env to assign purposes.",
-            "message": "For more servers, copy curio.env to /etc/curio.env and add the CURIO_LAYERS env to assign purposes.",
-            "translation": "For more servers, copy curio.env to /etc/curio.env and add the CURIO_LAYERS env to assign purposes.",
+            "id": "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.",
+            "message": "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.",
+            "translation": "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },
@@ -168,6 +168,13 @@
                     "expr": "\"Boost\""
                 }
             ],
+            "fuzzy": true
+        },
+        {
+            "id": "Additional info is at http://docs.curiostorage.org",
+            "message": "Additional info is at http://docs.curiostorage.org",
+            "translation": "Additional info is at http://docs.curiostorage.org",
+            "translatorComment": "Copied from source.",
             "fuzzy": true
         },
         {
@@ -1191,6 +1198,40 @@
                     "underlyingType": "string",
                     "argNum": 1,
                     "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Failed to create the miner actor: {Error}",
+            "message": "Failed to create the miner actor: {Error}",
+            "translation": "Failed to create the miner actor: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Miner {String} created successfully",
+            "message": "Miner {String} created successfully",
+            "translation": "Miner {String} created successfully",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "String",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "miner.String()"
                 }
             ],
             "fuzzy": true

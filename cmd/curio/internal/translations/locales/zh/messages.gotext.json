@@ -1173,6 +1173,18 @@
       "translation": "扇区选择失败: {Error}",
       "message": "Sector selection failed: {Error}",
       "placeholder": null
+    },
+    {
+      "id": "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.",
+      "translation": "对于更多服务器，请使用 curio.env 数据库环境创建 /etc/curio.env 并添加 CURIO_LAYERS 环境变量以分配用途。",
+      "message": "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.",
+      "placeholder": null
+    },
+    {
+      "id": "Additional info is at http://docs.curiostorage.org",
+      "translation": "更多信息请访问 http://docs.curiostorage.org",
+      "message": "Additional info is at http://docs.curiostorage.org",
+      "placeholder": null
     }
   ]
 }

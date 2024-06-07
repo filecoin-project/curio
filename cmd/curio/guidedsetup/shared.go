@@ -22,8 +22,8 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-statestore"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/config"
 
 	"github.com/snadrus/must"
 
