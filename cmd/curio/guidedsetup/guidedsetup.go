@@ -384,7 +384,7 @@ func oneLastThing(d *MigrationData) {
 				d.say(notice, "Error getting miner power: %s", err.Error())
 				os.Exit(1)
 			}
-			msgMap["version"] = curiobuild.BuildVersion
+			msgMap["version"] = build.BuildVersion
 			msgMap["net"] = build.BuildType
 			msgMap["power"] = map[uploadType]uint64{
 				uploadTypeIndividual: power.MinerPower.QualityAdjPower.Uint64(),
