@@ -1,6 +1,9 @@
 package webrpc
 
-import "context"
+import (
+	"context"
+	"golang.org/x/xerrors"
+)
 
 type StorageGCStats struct {
 	Actor int64 `db:"sp_id"`
@@ -17,13 +20,20 @@ func (a *WebRPC) StorageGCStats(ctx context.Context) ([]StorageGCStats, error) {
 }
 
 type StorageUseStats struct {
-	UsedSeal, TotalSeal   int64
-	UsedStore, TotalStore int64
+	CanSeal   bool `db:"can_seal"`
+	CanStore  bool `db:"can_store"`
+	Available int  `db:"available"`
+	Capacity  int  `db:"capacity"`
 }
 
 func (a *WebRPC) StorageUseStats(ctx context.Context) (StorageUseStats, error) {
 	var stats []StorageUseStats
 
-	err := a.deps.DB.Select(ctx, &stats, `SELECT `)
-
+	err := a.deps.DB.Select(ctx, &stats, `SELECT can_seal, can_store, SUM(available), SUM(capacity) FROM storage_path GROUP BY can_seal, can_store`)
+	if err != nil {
+		return StorageUseStats{}, err
+	}
+	if len(stats) == 0 {
+		return StorageUseStats{}, xerrors.New("no storage stats")
+	}
 }
