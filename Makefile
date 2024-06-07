@@ -114,7 +114,6 @@ cu2k: curio
 ##################### Curio devnet images ##################
 build_lotus?=0
 curio_docker_user?=curio
-lotus_base_image=$(curio_docker_user)/lotus-all-in-one:latest-debug
 curio_base_image=$(curio_docker_user)/curio-all-in-one:latest-debug
 ffi_from_source?=0
 lotus_version?=v1.27.0
@@ -157,16 +156,31 @@ docker/curio-all-in-one:
 		-t $(curio_base_image) --build-arg GOFLAGS=-tags=debug .
 .PHONY: docker/curio-all-in-one
 
-docker/%:
-	cd curiosrc/docker/$* && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/$*-dev:dev \
+docker/lotus:
+	cd docker/lotus && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/lotus-dev:dev \
 		--build-arg BUILD_VERSION=dev .
+.PHONY: docker/lotus
 
-docker/curio-devnet: $(lotus_build_cmd) \
-	docker/curio-all-in-one docker/lotus docker/lotus-miner docker/curio docker/yugabyte
-.PHONY: docker/curio-devnet
+docker/lotus-miner:
+	cd docker/lotus-miner && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/lotus-miner-dev:dev \
+		--build-arg BUILD_VERSION=dev .
+.PHONY: docker/lotus-miner
 
-curio-devnet/up:
-	rm -rf ./curiosrc/docker/data && docker compose -f ./curiosrc/docker/docker-compose.yaml up -d
+docker/curio:
+	cd docker/curio && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/curio-dev:dev \
+		--build-arg BUILD_VERSION=dev .
+.PHONY: docker/curio
 
-curio-devnet/down:
-	docker compose -f ./curiosrc/docker/docker-compose.yaml down --rmi=local && sleep 2 && rm -rf ./curiosrc/docker/data
+docker/yugabyte:
+	cd docker/yugabyte && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/yugabyte-dev:dev \
+		--build-arg BUILD_VERSION=dev .
+.PHONY: docker/yugabyte
+
+docker/devnet: $(lotus_build_cmd) docker/curio-all-in-one docker/lotus docker/lotus-miner docker/curio docker/yugabyte
+.PHONY: docker/devnet
+
+devnet/up:
+	rm -rf ./docker/data && docker compose -f ./docker/docker-compose.yaml up -d
+
+devnet/down:
+	docker compose -f ./docker/docker-compose.yaml down --rmi=local && sleep 2 && rm -rf ./docker/data
