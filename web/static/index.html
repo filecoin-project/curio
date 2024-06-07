@@ -8,6 +8,7 @@
     <script type="module" src="chain-connectivity.mjs"></script>
     <script type="module" src="harmony-task-counts.mjs"></script>
     <script type="module" src="storage-gc.mjs"></script>
+    <script type="module" src="storage-use.mjs"></script>
     <script type="module" src="/ux/curio-ux.mjs"></script>
     <style>
         .deadline-box {
@@ -148,12 +149,24 @@
                     </div>
                 </div>
                 <div class="col-md-auto">
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-auto">
+                    <div class="info-block">
+                        <h2>Storage Use</h2>
+                        <storage-use></storage-use>
+                    </div>
+                </div>
+                <div class="col-md-auto">
                     <div class="info-block">
                         <h2>Storage GC</h2>
                         <div>
                             <a href="/gc/">Manage Storage GC</a>
                         </div>
                         <storage-gc-stats></storage-gc-stats>
+                    </div>
                 </div>
             </div>
 

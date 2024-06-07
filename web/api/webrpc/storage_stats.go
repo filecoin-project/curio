@@ -2,7 +2,7 @@ package webrpc
 
 import (
 	"context"
-	"golang.org/x/xerrors"
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 type StorageGCStats struct {
@@ -24,16 +24,36 @@ type StorageUseStats struct {
 	CanStore  bool `db:"can_store"`
 	Available int  `db:"available"`
 	Capacity  int  `db:"capacity"`
+
+	// Ignored
+	Type   string `db:"-"`
+	UseStr string `db:"-"`
+	CapStr string `db:"-"`
 }
 
-func (a *WebRPC) StorageUseStats(ctx context.Context) (StorageUseStats, error) {
+func (a *WebRPC) StorageUseStats(ctx context.Context) ([]StorageUseStats, error) {
 	var stats []StorageUseStats
 
-	err := a.deps.DB.Select(ctx, &stats, `SELECT can_seal, can_store, SUM(available), SUM(capacity) FROM storage_path GROUP BY can_seal, can_store`)
+	err := a.deps.DB.Select(ctx, &stats, `SELECT can_seal, can_store, SUM(available) as available, SUM(capacity) as capacity FROM storage_path GROUP BY can_seal, can_store`)
 	if err != nil {
-		return StorageUseStats{}, err
+		return nil, err
 	}
-	if len(stats) == 0 {
-		return StorageUseStats{}, xerrors.New("no storage stats")
+
+	for i, st := range stats {
+		switch {
+		case st.CanSeal && st.CanStore:
+			stats[i].Type = "Seal/Store"
+		case st.CanSeal:
+			stats[i].Type = "Seal"
+		case st.CanStore:
+			stats[i].Type = "Store"
+		default:
+			stats[i].Type = "None"
+		}
+
+		stats[i].UseStr = types.SizeStr(types.NewInt(uint64(stats[i].Capacity - stats[i].Available)))
+		stats[i].CapStr = types.SizeStr(types.NewInt(uint64(stats[i].Capacity)))
 	}
+
+	return stats, nil
 }
