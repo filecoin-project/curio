@@ -116,6 +116,38 @@ fiximports:
 # TODO API GEN
 # TODO DOCS GEN
 
+docsgen: docsgen-md docsgen-openrpc
+  @echo "FixImports only ran on 'make gen'"
+.PHONY: docsgen
+
+docsgen-md: #docsgen-md-storage docsgen-md-sptool
+	@echo "TODO: docsgen-md"
+	exit 1
+  @echo "FixImports only ran on 'make gen'"
+.PHONY: docsgen-md
+
+api-gen:
+	@echo "TODO: api-gen"
+	exit 1
+  @echo "FixImports only ran on 'make gen'"
+.PHONY: api-gen
+
+docsgen-openrpc:
+	@echo "TODO: docsgen-openrpc"
+	exit 1
+  @echo "FixImports only ran on 'make gen'"
+.PHONY: docsgen-openrpc
+
+docsgen-cli:
+  @echo "TODO: docsgen-cli"
+	exit 1
+.PHONY: docsgen-cli
+
+gen: cfgdoc-gen docsgen api-gen
+	$(GOCC) run ./scripts/fiximports
+	@echo ">>> IF YOU'VE MODIFIED THE CLI OR CONFIG, REMEMBER TO ALSO RUN 'make docsgen-cli'"
+.PHONY: gen
+
 ##################### Curio devnet images ##################
 build_lotus?=0
 curio_docker_user?=curio
