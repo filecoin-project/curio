@@ -21,22 +21,29 @@ import (
 
 const StorageGCInterval = 11 * time.Minute
 
-type StorageGC struct {
+type StorageGCMarkNodeAPI interface {
+	StateGetActor(ctx context.Context, actor address.Address, tsk types.TipSetKey) (*types.Actor, error)
+}
+
+type StorageGCMark struct {
 	si     paths.SectorIndex
 	remote *paths.Remote
 	db     *harmonydb.DB
 	bstore curiochain.CurioBlockstore
+	api    StorageGCMarkNodeAPI
 }
 
-func NewStorageGC(si paths.SectorIndex, remote *paths.Remote, db *harmonydb.DB) *StorageGC {
-	return &StorageGC{
+func NewStorageGCMark(si paths.SectorIndex, remote *paths.Remote, db *harmonydb.DB, bstore curiochain.CurioBlockstore, api StorageGCMarkNodeAPI) *StorageGCMark {
+	return &StorageGCMark{
 		si:     si,
 		remote: remote,
 		db:     db,
+		bstore: bstore,
+		api:    api,
 	}
 }
 
-func (s *StorageGC) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 
 	/*
@@ -232,26 +239,26 @@ func (s *StorageGC) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	return true, nil
 }
 
-func (s *StorageGC) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (s *StorageGCMark) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
 	id := ids[0]
 	return &id, nil
 }
 
-func (s *StorageGC) TypeDetails() harmonytask.TaskTypeDetails {
+func (s *StorageGCMark) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  1,
-		Name: "StorageGC",
+		Name: "StorageGCMark",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,
 			Gpu: 0,
 		},
-		IAmBored: harmonytask.SingletonTaskAdder(StorageEndpointGCInterval, s),
+		IAmBored: harmonytask.SingletonTaskAdder(StorageGCInterval, s),
 	}
 }
 
-func (s *StorageGC) Adder(taskFunc harmonytask.AddTaskFunc) {
+func (s *StorageGCMark) Adder(taskFunc harmonytask.AddTaskFunc) {
 	return
 }
 
-var _ harmonytask.TaskInterface = &StorageGC{}
+var _ harmonytask.TaskInterface = &StorageGCMark{}
