@@ -182,8 +182,8 @@ func (p *path) stat(ls LocalStorage, newReserve ...statExistingSectorForReservat
 		}
 	}
 
-	if time.Now().Sub(start) > 5*time.Second {
-		log.Warnw("slow storage stat", "took", time.Now().Sub(start), "reservations", len(p.reservations))
+	if time.Since(start) > 5*time.Second {
+		log.Warnw("slow storage stat", "took", time.Since(start), "reservations", len(p.reservations))
 	}
 
 	return stat, newReserveOnDisk, err
@@ -950,7 +950,7 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 	case r := <-resCh:
 		return r.Unwrap()
 	case <-ctx.Done():
-		log.Errorw("failed to generate valilla PoSt proof before context cancellation", "err", ctx.Err(), "duration", time.Now().Sub(start), "cache-id", cacheID, "sealed-id", sealedID, "cache", cache, "sealed", sealed)
+		log.Errorw("failed to generate valilla PoSt proof before context cancellation", "err", ctx.Err(), "duration", time.Since(start), "cache-id", cacheID, "sealed-id", sealedID, "cache", cache, "sealed", sealed)
 
 		// this will leave the GenerateSingleVanillaProof goroutine hanging, but that's still less bad than failing PoSt
 		return nil, xerrors.Errorf("failed to generate vanilla proof before context cancellation: %w", ctx.Err())
