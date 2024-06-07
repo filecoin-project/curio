@@ -25,7 +25,7 @@ import (
 	proof2 "github.com/filecoin-project/go-state-types/proof"
 
 	"github.com/filecoin-project/curio/lib/paths"
-	"github.com/filecoin-project/lotus/storage/sealer/proofpaths"
+	"github.com/filecoin-project/curio/lib/proofpaths"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
