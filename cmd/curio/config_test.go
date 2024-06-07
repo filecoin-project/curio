@@ -11,7 +11,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 
-	"github.com/filecoin-project/curio/lib/config"
+	"github.com/filecoin-project/curio/deps/config"
 )
 
 var baseText = `

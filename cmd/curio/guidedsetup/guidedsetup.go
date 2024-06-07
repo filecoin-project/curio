@@ -29,16 +29,12 @@ import (
 	_ "github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/config"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/api/v1api"
-	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/cli/spcli"
-	cliutil "github.com/filecoin-project/lotus/cli/util"
-	"github.com/filecoin-project/lotus/node/repo"
+
+	"github.com/filecoin-project/curio/deps/config"
+
 	"github.com/manifoldco/promptui"
 	"github.com/mitchellh/go-homedir"
 	"github.com/samber/lo"
@@ -46,6 +42,13 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
+
+	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/api/v1api"
+	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/cli/spcli"
+	cliutil "github.com/filecoin-project/lotus/cli/util"
+	"github.com/filecoin-project/lotus/node/repo"
 )
 
 // URL to upload user-selected fields to help direct developer's focus.
@@ -281,6 +284,7 @@ saveConfigFile:
 	d.say(plain, "Try the web interface with %s ", code.Render("curio run --layers=gui"))
 	d.say(plain, "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.")
 	d.say(plain, "You can now migrate your market node (%s), if applicable.", "Boost")
+	d.say(plain, "Additional info is at http://docs.curiostorage.org")
 }
 
 func completeInit(d *MigrationData) {

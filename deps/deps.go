@@ -17,13 +17,21 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/config"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+
+	"github.com/gbrlsnchs/jwt/v3"
+	logging "github.com/ipfs/go-log/v2"
+	"github.com/samber/lo"
+	"github.com/urfave/cli/v2"
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/v1api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -36,11 +44,6 @@ import (
 	"github.com/filecoin-project/lotus/storage/sealer"
 	"github.com/filecoin-project/lotus/storage/sealer/ffiwrapper"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
-	"github.com/gbrlsnchs/jwt/v3"
-	logging "github.com/ipfs/go-log/v2"
-	"github.com/samber/lo"
-	"github.com/urfave/cli/v2"
-	"golang.org/x/xerrors"
 )
 
 var log = logging.Logger("curio/deps")

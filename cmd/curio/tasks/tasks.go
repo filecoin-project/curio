@@ -11,10 +11,10 @@ import (
 
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
-	"github.com/filecoin-project/curio/lib/config"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
@@ -25,17 +25,19 @@ import (
 	"github.com/filecoin-project/curio/tasks/seal"
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
+
 	"github.com/filecoin-project/go-address"
+	logging "github.com/ipfs/go-log/v2"
+	"github.com/samber/lo"
+	"github.com/snadrus/must"
+	"golang.org/x/exp/maps"
+
 	"github.com/filecoin-project/lotus/api"
 	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
-	logging "github.com/ipfs/go-log/v2"
-	"github.com/samber/lo"
-	"github.com/snadrus/must"
-	"golang.org/x/exp/maps"
 )
 
 var log = logging.Logger("curio/deps")

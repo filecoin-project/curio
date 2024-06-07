@@ -10,13 +10,16 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/dustin/go-humanize"
-	"github.com/filecoin-project/curio/lib/config"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
+
+	"github.com/filecoin-project/curio/deps/config"
+
+	"golang.org/x/xerrors"
+
 	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
-	"golang.org/x/xerrors"
 )
 
 // balanceCheck retrieves the machine details from the database and performs balance checks on unique addresses.
