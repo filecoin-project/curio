@@ -26,7 +26,7 @@ require (
 	github.com/filecoin-project/specs-actors/v5 v5.0.6
 	github.com/filecoin-project/specs-actors/v7 v7.0.1
 	github.com/gbrlsnchs/jwt/v3 v3.0.1
-	github.com/georgysavva/scany/v2 v2.1.3
+	github.com/georgysavva/scany/v2 v2.0.0
 	github.com/golang/mock v1.6.0
 	github.com/google/go-cmp v0.6.0
 	github.com/google/uuid v1.6.0
@@ -49,7 +49,6 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/multiformats/go-multiaddr v0.12.4
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus/client_golang v1.19.1
 	github.com/puzpuzpuz/xsync/v2 v2.4.0
 	github.com/samber/lo v1.39.0
 	github.com/snadrus/must v0.0.0-20240605044437-98cedd57f8eb
@@ -271,6 +270,7 @@ require (
 	github.com/pion/webrtc/v3 v3.2.40 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/polydawn/refmt v0.89.0 // indirect
+	github.com/prometheus/client_golang v1.19.1 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.53.0 // indirect
 	github.com/prometheus/procfs v0.15.0 // indirect
