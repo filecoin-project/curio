@@ -23,8 +23,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/filecoin-project/curio/deps"
-
 	"github.com/BurntSushi/toml"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/filecoin-project/curio/build"
@@ -35,7 +33,6 @@ import (
 	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	_ "github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps/config"
 
 	"github.com/manifoldco/promptui"
