@@ -1203,6 +1203,18 @@
             "translation": "섹터 선택 실패: {Error}",
             "message": "Sector selection failed: {Error}",
             "placeholder": null
+          },
+          {
+            "id": "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.",
+            "translation": "더 많은 서버를 위해 /etc/curio.env 파일을 curio.env 데이터베이스 환경으로 만들고 목적을 할당하기 위해 CURIO_LAYERS 환경 변수를 추가하세요.",
+            "message": "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.",
+            "placeholder": null
+          },
+          {
+            "id": "Additional info is at http://docs.curiostorage.org",
+            "translation": "추가 정보는 http://docs.curiostorage.org 에 있습니다.",
+            "message": "Additional info is at http://docs.curiostorage.org",
+            "placeholder": null
           }
     ]
 }
