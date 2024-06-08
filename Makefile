@@ -100,47 +100,52 @@ dist-clean:
 	git submodule deinit --all -f
 .PHONY: dist-clean
 
-docsgen: curio sptool
-	python3 ./scripts/generate-cli.py
-.PHONY: docsgen
-
 cu2k: GOFLAGS+=-tags=2k
 cu2k: curio
 
 cfgdoc-gen:
 	$(GOCC) run ./deps/config/cfgdocgen > ./deps/config/doc_gen.go
 
-# TODO API GEN
-# TODO DOCS GEN
-
 docsgen: docsgen-md docsgen-openrpc
-  @echo "FixImports only ran on 'make gen'"
+	@echo "FixImports only ran on 'make gen'"
 .PHONY: docsgen
 
-docsgen-md: #docsgen-md-storage docsgen-md-sptool
-	@echo "TODO: docsgen-md"
-	exit 1
-  @echo "FixImports only ran on 'make gen'"
+docsgen-md: docsgen-md-curio
+	@echo "FixImports only ran on 'make gen'"
 .PHONY: docsgen-md
 
 api-gen:
-	@echo "TODO: api-gen"
-	exit 1
-  @echo "FixImports only ran on 'make gen'"
+	$(GOCC) run ./api/gen/api
+	@echo "FixImports only ran on 'make gen'"
 .PHONY: api-gen
 
-docsgen-openrpc:
-	@echo "TODO: docsgen-openrpc"
-	exit 1
-  @echo "FixImports only ran on 'make gen'"
+docsgen-md-curio: docsgen-md-bin
+	./docgen-md "api/api_curio.go" "Curio" "api" "./api" > documentation/en/api-v0-methods-curio.md
+	@echo "FixImports only ran on 'make gen'"
+.PHONY: api-gen
+
+docsgen-md-bin: api-gen
+	$(GOCC) build $(GOFLAGS) -o docgen-md ./scripts/docgen/cmd
+	@echo "FixImports only ran on 'make gen'"
+.PHONY: docsgen-md-bin
+
+docsgen-openrpc: docsgen-openrpc-curio
+	@echo "FixImports only ran on 'make gen'"
 .PHONY: docsgen-openrpc
 
-docsgen-cli:
-  @echo "TODO: docsgen-cli"
-	exit 1
+docsgen-openrpc-bin: api-gen 
+	$(GOCC) build $(GOFLAGS) -o docgen-openrpc ./api/docgen-openrpc/cmd
+
+docsgen-openrpc-curio: docsgen-openrpc-bin
+	./docgen-openrpc "api/api_curio.go" "Curio" "api" "./api" > build/openrpc/curio.json
+
+docsgen-cli: curio sptool
+	python3 ./scripts/generate-cli.py
+	./curio config default > documentation/en/default-curio-config.toml
+	./sptool config default > documentation/en/default-sptool-config.toml
 .PHONY: docsgen-cli
 
-gen: cfgdoc-gen docsgen api-gen
+gen: cfgdoc-gen api-gen docsgen
 	$(GOCC) run ./scripts/fiximports
 	@echo ">>> IF YOU'VE MODIFIED THE CLI OR CONFIG, REMEMBER TO ALSO RUN 'make docsgen-cli'"
 .PHONY: gen
