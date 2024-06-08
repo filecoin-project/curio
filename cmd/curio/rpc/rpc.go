@@ -26,13 +26,13 @@ import (
 	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-jsonrpc/auth"
 
+	"github.com/filecoin-project/curio/api/client"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/market"
 	"github.com/filecoin-project/curio/web"
 
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/api/client"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/lib/rpcenc"
 	"github.com/filecoin-project/lotus/metrics"
@@ -63,6 +63,8 @@ func CurioHandler(
 	}
 
 	rpcServer.Register("Filecoin", wapi)
+
+	//@magik6k should this be exposing build/curio.json instead?
 	rpcServer.AliasMethod("rpc.discover", "Filecoin.Discover")
 
 	mux.Handle("/rpc/v0", rpcServer)
