@@ -192,6 +192,29 @@ jobs:
           path: /tmp/test-reports
       - store_artifacts:
           path: /tmp/test-artifacts/<< parameters.suite >>.json
+  lint-all:
+    description: |
+      Run golangci-lint.
+    working_directory: ~/curio
+    parameters:
+      args:
+        type: string
+        default: ''
+        description: |
+          Arguments to pass to golangci-lint
+    docker:
+      - image: cimg/go:1.21
+    resource_class: medium+
+    steps:
+      - install-ubuntu-deps
+      - attach_workspace:
+          at: ~/
+      - run:
+          name: Lint
+          command: |
+            golangci-lint run -v --timeout 10m \
+              --concurrency 4 << parameters.args >>
+
 
   gofmt:
     executor: golang
@@ -225,28 +248,6 @@ docs-check:
     - run: make docsgen
     - run: git --no-pager diff && git --no-pager diff --quiet
 
-lint-all:
-  description: |
-    Run golangci-lint.
-  working_directory: ~/curio
-  parameters:
-    args:
-      type: string
-      default: ''
-      description: |
-        Arguments to pass to golangci-lint
-  docker:
-    - image: cimg/go:1.21
-  resource_class: medium+
-  steps:
-    - install-ubuntu-deps
-    - attach_workspace:
-        at: ~/
-    - run:
-        name: Lint
-        command: |
-          golangci-lint run -v --timeout 10m \
-            --concurrency 4 << parameters.args >>
 
 workflows:
   ci:
