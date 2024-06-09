@@ -1051,7 +1051,8 @@ func (a *app) clusterNodeInfo(ctx context.Context, id int64) (*machineInfo, erro
 		}
 
 		s.UsedPercent = float64(s.Capacity-s.FSAvailable) * 100 / float64(s.Capacity)
-		s.ReservedPercent = float64(s.Capacity-(s.FSAvailable+s.Reserved))*100/float64(s.Capacity) - s.UsedPercent
+		//s.ReservedPercent = float64(s.Capacity-(s.FSAvailable+s.Reserved))*100/float64(s.Capacity) - s.UsedPercent
+		s.ReservedPercent = float64(s.Reserved) * 100 / float64(s.Capacity)
 
 		summaries[0].Storage = append(summaries[0].Storage, s)
 	}

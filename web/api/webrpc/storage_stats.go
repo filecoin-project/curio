@@ -3,6 +3,8 @@ package webrpc
 import (
 	"context"
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	"time"
 )
 
 type StorageGCStats struct {
@@ -56,4 +58,32 @@ func (a *WebRPC) StorageUseStats(ctx context.Context) ([]StorageUseStats, error)
 	}
 
 	return stats, nil
+}
+
+type StorageGCMarks struct {
+	Actor     int64  `db:"sp_id"`
+	SectorNum int64  `db:"sector_num"`
+	FileType  int64  `db:"sector_filetype"`
+	StorageID string `db:"storage_id"`
+
+	CreatedAt  time.Time  `db:"created_at"`
+	Approved   bool       `db:"approved"`
+	ApprovedAt *time.Time `db:"approved_at"`
+
+	// db ignored
+	TypeName string `db:"-"`
+}
+
+func (a *WebRPC) StorageGCMarks(ctx context.Context) ([]StorageGCMarks, error) {
+	var marks []StorageGCMarks
+	err := a.deps.DB.Select(ctx, &marks, `SELECT sp_id, sector_num, sector_filetype, storage_id, created_at, approved, approved_at FROM storage_removal_marks ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+
+	for i, m := range marks {
+		marks[i].TypeName = storiface.SectorFileType(m.FileType).String()
+	}
+
+	return marks, nil
 }

@@ -5,6 +5,7 @@
     <title>Storage GC</title>
     <script type="module" src="/ux/curio-ux.mjs"></script>
     <script type="module" src="/storage-gc.mjs"></script>
+    <script type="module" src="gc-marks.mjs"></script>
 </head>
 
 <body style="visibility:hidden" data-bs-theme="dark">
@@ -25,6 +26,7 @@
         <div class="row">
             <div class="col-md-auto" style="max-width: 95%">
                 <h3>Marked for GC</h3>
+                <gc-marks></gc-marks>
             </div>
         </div>
     </section>
