@@ -56,7 +56,7 @@ func main() {
 	base, err := os.MkdirTemp(os.TempDir(), "curio-apt")
 	OrPanic(err)
 
-	sh.NewSession().SetDir(base).Command("make", "deps").Run()
+	OrPanic(sh.NewSession().SetDir(base).Command("make", "deps").Run())
 	part2(base, "curio-cuda", "")
 	part2(base, "curio-opencl", "FFI_USE_OPENCL=1")
 	fmt.Println("Done. DEB files are in ", base)
@@ -66,7 +66,7 @@ func AssertPackageInstalled(pkg string) {
 	ck := bytes.NewBuffer(nil)
 	sess := sh.NewSession()
 	sess.Stdout = ck
-	sess.Command("apt", "list", pkg).Run()
+	OrPanic(sess.Command("apt", "list", pkg).Run())
 	if !strings.Contains(ck.String(), "[installed]") {
 		fmt.Println(pkg + ` is not installed. Please install it.`)
 		os.Exit(1)
