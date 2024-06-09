@@ -7,7 +7,7 @@ USAGE:
    curio [global options] command [command options] [arguments...]
 
 VERSION:
-   1.27.1-dev
+   1.22.0+mainnet+git_76632ee_2024-06-08T20:25:26-05:00
 
 COMMANDS:
    cli           Execute cli commands

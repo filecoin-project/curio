@@ -110,30 +110,30 @@ fiximports:
 	$(GOCC) run ./scripts/fiximports
 
 docsgen: docsgen-md docsgen-openrpc
-	@echo "FixImports only ran on 'make gen'"
+	@echo "FixImports will run only from the 'make gen' target"
 .PHONY: docsgen
 
 docsgen-md: docsgen-md-curio
-	@echo "FixImports only ran on 'make gen'"
+	@echo "FixImports will run only from the 'make gen' target"
 .PHONY: docsgen-md
 
 api-gen:
 	$(GOCC) run ./api/gen/api
-	@echo "FixImports only ran on 'make gen'"
+	@echo "FixImports will run only from the 'make gen' target"
 .PHONY: api-gen
 
 docsgen-md-curio: docsgen-md-bin
 	./docgen-md "api/api_curio.go" "Curio" "api" "./api" > documentation/en/api-v0-methods-curio.md
-	@echo "FixImports only ran on 'make gen'"
+	@echo "FixImports will run only from the 'make gen' target"
 .PHONY: api-gen
 
 docsgen-md-bin: api-gen
 	$(GOCC) build $(GOFLAGS) -o docgen-md ./scripts/docgen/cmd
-	@echo "FixImports only ran on 'make gen'"
+	@echo "FixImports will run only from the 'make gen' target"
 .PHONY: docsgen-md-bin
 
 docsgen-openrpc: docsgen-openrpc-curio
-	@echo "FixImports only ran on 'make gen'"
+	@echo "FixImports will run only from the 'make gen' target"
 .PHONY: docsgen-openrpc
 
 docsgen-openrpc-bin: api-gen 
@@ -145,7 +145,6 @@ docsgen-openrpc-curio: docsgen-openrpc-bin
 docsgen-cli: curio sptool
 	python3 ./scripts/generate-cli.py
 	./curio config default > documentation/en/default-curio-config.toml
-	./sptool config default > documentation/en/default-sptool-config.toml
 .PHONY: docsgen-cli
 
 gen: cfgdoc-gen api-gen docsgen
