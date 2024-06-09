@@ -147,7 +147,15 @@ docsgen-cli: curio sptool
 	./curio config default > documentation/en/default-curio-config.toml
 .PHONY: docsgen-cli
 
-gen: cfgdoc-gen api-gen docsgen
+go-generate:
+	$(GOCC) generate ./...
+.PHONY: go-generate
+
+gen: 
+	make -j4 gensimple
+.PHONY: gen
+
+gensimple: go-generate cfgdoc-gen api-gen docsgen
 	$(GOCC) run ./scripts/fiximports
 	@echo ">>> IF YOU'VE MODIFIED THE CLI OR CONFIG, REMEMBER TO ALSO RUN 'make docsgen-cli'"
 .PHONY: gen
