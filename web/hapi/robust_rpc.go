@@ -5,8 +5,6 @@ import (
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"time"
 
-	"github.com/snadrus/must"
-
 	"github.com/filecoin-project/lotus/api/client"
 	"github.com/filecoin-project/lotus/blockstore"
 	"github.com/filecoin-project/lotus/chain/store"
