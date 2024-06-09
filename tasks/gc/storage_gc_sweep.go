@@ -87,6 +87,9 @@ func (s *StorageGCSweep) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		// We want to delete the mark first because even if we fail here, the mark will be re-added on the next run of gc-mark task
 
 		_, err = s.db.Exec(ctx, `DELETE FROM storage_removal_marks WHERE sp_id = $1 AND sector_num = $2 AND sector_filetype = $3 AND storage_id = $4`, mark.Actor, mark.SectorNum, mark.FileType, mark.StorageID)
+		if err != nil {
+			return false, xerrors.Errorf("gc removing mark for sector %d(t:%d) failed: %w", sid, typ, err)
+		}
 
 		// Remove the file!
 		err = s.storage.Remove(ctx, sid, typ, true, keepIn)
@@ -115,7 +118,6 @@ func (s *StorageGCSweep) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (s *StorageGCSweep) Adder(taskFunc harmonytask.AddTaskFunc) {
-	return
 }
 
 var _ harmonytask.TaskInterface = &StorageGCSweep{}

@@ -50,7 +50,6 @@ func (s *SDRPipelineGC) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (s *SDRPipelineGC) Adder(taskFunc harmonytask.AddTaskFunc) {
-	return
 }
 
 func (s *SDRPipelineGC) cleanupSealed() error {

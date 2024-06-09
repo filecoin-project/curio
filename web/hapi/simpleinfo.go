@@ -636,7 +636,7 @@ func (a *app) sectorRemove(w http.ResponseWriter, r *http.Request) {
 
 	// redir back to /pipeline_porep.html
 
-	http.Redirect(w, r, fmt.Sprintf("/pipeline_porep.html"), http.StatusSeeOther)
+	http.Redirect(w, r, "/pipeline_porep.html", http.StatusSeeOther)
 }
 
 var templateDev = os.Getenv("CURIO_WEB_DEV") == "1"

@@ -261,7 +261,6 @@ func (s *StorageGCMark) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (s *StorageGCMark) Adder(taskFunc harmonytask.AddTaskFunc) {
-	return
 }
 
 var _ harmonytask.TaskInterface = &StorageGCMark{}
