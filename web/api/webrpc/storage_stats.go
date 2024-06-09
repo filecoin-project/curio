@@ -87,3 +87,29 @@ func (a *WebRPC) StorageGCMarks(ctx context.Context) ([]StorageGCMarks, error) {
 
 	return marks, nil
 }
+
+func (a *WebRPC) StorageGCApprove(ctx context.Context, actor int64, sectorNum int64, fileType int64, storageID string) error {
+	now := time.Now()
+	_, err := a.deps.DB.Exec(ctx, `UPDATE storage_removal_marks SET approved = true, approved_at = $1 WHERE sp_id = $2 AND sector_num = $3 AND sector_filetype = $4 AND storage_id = $5`, now, actor, sectorNum, fileType, storageID)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *WebRPC) StorageGCApproveAll(ctx context.Context) error {
+	now := time.Now()
+	_, err := a.deps.DB.Exec(ctx, `UPDATE storage_removal_marks SET approved = true, approved_at = $1 WHERE approved = false`, now)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *WebRPC) StorageGCUnapproveAll(ctx context.Context) error {
+	_, err := a.deps.DB.Exec(ctx, `UPDATE storage_removal_marks SET approved = false, approved_at = NULL WHERE approved = true`)
+	if err != nil {
+		return err
+	}
+	return nil
+}
