@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-const StorageGCInterval = 11 * time.Minute
+const StorageGCInterval = 9 * time.Minute
 
 type StorageGCMarkNodeAPI interface {
 	StateGetActor(ctx context.Context, actor address.Address, tsk types.TipSetKey) (*types.Actor, error)

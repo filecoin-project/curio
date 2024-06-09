@@ -210,8 +210,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		storageEndpointGcTask := gc.NewStorageEndpointGC(si, stor, db)
 		sdrPipelineGcTask := gc.NewSDRPipelineGC(db)
 		storageGcMarkTask := gc.NewStorageGCMark(si, stor, db, bstore, full)
+		storageGcSweepTask := gc.NewStorageGCSweep(db, stor, si)
 
-		activeTasks = append(activeTasks, storageEndpointGcTask, sdrPipelineGcTask, storageGcMarkTask)
+		activeTasks = append(activeTasks, storageEndpointGcTask, sdrPipelineGcTask, storageGcMarkTask, storageGcSweepTask)
 	}
 
 	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting)

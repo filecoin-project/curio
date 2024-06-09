@@ -9,8 +9,6 @@ CREATE TABLE storage_removal_marks (
     approved BOOLEAN NOT NULL DEFAULT FALSE,
     approved_at TIMESTAMP WITH TIME ZONE,
 
-    sweep_task_id BIGINT,
-
     primary key (sp_id, sector_num, sector_filetype, storage_id)
 );
 
