@@ -275,8 +275,7 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			}
 		}
 
-		_, err = t.generateWinningPost(ctx, ppt, abi.ActorID(details.SpID), sectorChallenges, prand)
-		//wpostProof, err = t.prover.GenerateWinningPoSt(ctx, ppt, abi.ActorID(details.SpID), sectorChallenges, prand)
+		wpostProof, err = t.generateWinningPost(ctx, ppt, abi.ActorID(details.SpID), sectorChallenges, prand)
 		if err != nil {
 			err = xerrors.Errorf("failed to compute winning post proof: %w", err)
 			return false, err
