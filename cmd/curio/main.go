@@ -8,22 +8,24 @@ import (
 	"runtime/pprof"
 	"syscall"
 
+	curiobuild "github.com/filecoin-project/curio/build"
+
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
-	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
+	logging "github.com/ipfs/go-log/v2"
+	"github.com/mitchellh/go-homedir"
+	"github.com/urfave/cli/v2"
+	"golang.org/x/xerrors"
+
 	lbuild "github.com/filecoin-project/lotus/build"
 	lcli "github.com/filecoin-project/lotus/cli"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/lib/lotuslog"
 	"github.com/filecoin-project/lotus/lib/tracing"
 	"github.com/filecoin-project/lotus/node/repo"
-	logging "github.com/ipfs/go-log/v2"
-	"github.com/mitchellh/go-homedir"
-	"github.com/urfave/cli/v2"
-	"golang.org/x/xerrors"
 )
 
 var log = logging.Logger("main")
@@ -91,7 +93,7 @@ func main() {
 	app := &cli.App{
 		Name:                 "curio",
 		Usage:                "Filecoin decentralized storage network provider",
-		Version:              build.UserVersion(),
+		Version:              curiobuild.UserVersion(),
 		EnableBashCompletion: true,
 		Before: func(c *cli.Context) error {
 			setupCloseHandler()

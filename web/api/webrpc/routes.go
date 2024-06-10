@@ -10,7 +10,8 @@ import (
 
 	"github.com/filecoin-project/go-jsonrpc"
 
-	"github.com/filecoin-project/curio/build"
+	curiobuild "github.com/filecoin-project/curio/build"
+
 	lbuild "github.com/filecoin-project/lotus/build"
 )
 
@@ -21,7 +22,7 @@ type WebRPC struct {
 }
 
 func (a *WebRPC) Version(context.Context) (string, error) {
-	return build.UserVersion(), nil
+	return curiobuild.UserVersion(), nil
 }
 
 func (a *WebRPC) BlockDelaySecs(context.Context) (uint64, error) {
