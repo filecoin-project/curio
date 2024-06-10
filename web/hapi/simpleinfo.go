@@ -821,20 +821,26 @@ type porepPipelineSummary struct {
 }
 
 func (a *app) porepPipelineSummary(ctx context.Context) ([]porepPipelineSummary, error) {
+
+	head, err := a.workingApi.ChainHead(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	rows, err := a.db.Query(ctx, `
 	SELECT 
 		sp_id,
 		COUNT(*) FILTER (WHERE after_sdr = false) as CountSDR,
 		COUNT(*) FILTER (WHERE (after_tree_d = false OR after_tree_c = false OR after_tree_r = false) AND after_sdr = true) as CountTrees,
 		COUNT(*) FILTER (WHERE after_tree_r = true and after_precommit_msg = false) as CountPrecommitMsg,
-		COUNT(*) FILTER (WHERE after_precommit_msg_success = false AND after_precommit_msg = true) as CountWaitSeed,
+		COUNT(*) FILTER (WHERE after_precommit_msg_success = true AND seed_epoch < $1) as CountWaitSeed,
 		COUNT(*) FILTER (WHERE after_porep = false AND after_precommit_msg_success = true) as CountPoRep,
 		COUNT(*) FILTER (WHERE after_commit_msg_success = false AND after_porep = true) as CountCommitMsg,
 		COUNT(*) FILTER (WHERE after_commit_msg_success = true) as CountDone,
 		COUNT(*) FILTER (WHERE failed = true) as CountFailed
 	FROM 
 		sectors_sdr_pipeline
-	GROUP BY sp_id`)
+	GROUP BY sp_id`, head.Height())
 	if err != nil {
 		return nil, xerrors.Errorf("query: %w", err)
 	}
