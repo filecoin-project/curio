@@ -24,6 +24,8 @@ func Routes(r *mux.Router, deps *deps.Deps) error {
 	a := &app{
 		db: deps.DB,
 		t:  t,
+
+		sectorIndex: deps.Si,
 	}
 
 	go a.watchRpc()

@@ -31,9 +31,10 @@ type app struct {
 	db *harmonydb.DB
 	t  *template.Template
 
-	rpcInfoLk  sync.Mutex
-	workingApi v1api.FullNode
-	stor       adt.Store
+	rpcInfoLk   sync.Mutex
+	workingApi  v1api.FullNode
+	stor        adt.Store
+	sectorIndex paths.SectorIndex
 
 	actorInfoLk sync.Mutex
 	actorInfos  []actorInfo
@@ -631,6 +632,14 @@ func (a *app) sectorRemove(w http.ResponseWriter, r *http.Request) {
 	_, err = a.db.Exec(r.Context(), `DELETE FROM sectors_sdr_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, intid)
 	if err != nil {
 		http.Error(w, xerrors.Errorf("failed to resume sector: %w", err).Error(), http.StatusInternalServerError)
+		return
+	}
+
+	_, err = a.db.Exec(r.Context(), `INSERT INTO storage_removal_marks (sp_id, sector_num, sector_filetype, storage_id, created_at, approved, approved_at)
+		SELECT miner_id, sector_num, sector_filetype, storage_id, current_timestamp, FALSE, NULL FROM sector_location
+		WHERE miner_id = $1 AND sector_num = $2`, spid, intid)
+	if err != nil {
+		http.Error(w, xerrors.Errorf("failed to mark sector for removal: %w", err).Error(), http.StatusInternalServerError)
 		return
 	}
 
