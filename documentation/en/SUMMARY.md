@@ -15,6 +15,7 @@
 * [Enabling market](enabling-market.md)
 * [Scaling Curio cluster](scaling-curio-cluster.md)
 * [Curio GUI](curio-gui.md)
+* [Garbage Collection](garbage-collection.md)
 * [Best Practices](best-practices.md)
 * [Logging](logging.md)
 * [Curio CLI](curio-cli/README.md)

@@ -8,6 +8,8 @@ import (
 	"runtime/pprof"
 	"syscall"
 
+	curiobuild "github.com/filecoin-project/curio/build"
+
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
 	logging "github.com/ipfs/go-log/v2"
@@ -15,7 +17,6 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
@@ -93,7 +94,7 @@ func main() {
 	app := &cli.App{
 		Name:                 "curio",
 		Usage:                "Filecoin decentralized storage network provider",
-		Version:              build.UserVersion(),
+		Version:              curiobuild.UserVersion(),
 		EnableBashCompletion: true,
 		Before: func(c *cli.Context) error {
 			setupCloseHandler()

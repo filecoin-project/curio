@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Storage GC</title>
+    <script type="module" src="/ux/curio-ux.mjs"></script>
+    <script type="module" src="/storage-gc.mjs"></script>
+    <script type="module" src="gc-marks.mjs"></script>
+</head>
+
+<body style="visibility:hidden" data-bs-theme="dark">
+<curio-ux>
+    <section class="section">
+        <div class="row">
+            <h1>Storage GC Info</h1>
+        </div>
+    </section>
+    <section class="section">
+        <div class="row">
+            <div class="col-md-auto" style="max-width: 95%">
+                <storage-gc-stats></storage-gc-stats>
+            </div>
+        </div>
+    </section>
+    <section class="section">
+        <div class="row">
+            <div class="col-md-auto" style="max-width: 95%">
+                <h3>Marked for GC</h3>
+                <div>
+                    <approve-all-button></approve-all-button>
+                    <approve-all-button unapprove></approve-all-button>
+                </div>
+                <gc-marks></gc-marks>
+            </div>
+        </div>
+    </section>
+</curio-ux>
+</body>
+
+</html>

@@ -62,6 +62,9 @@ debug: build
 2k: GOFLAGS+=-tags=2k
 2k: build
 
+all: build 
+.PHONY: all
+
 build: curio sptool
 	@[[ $$(type -P "curio") ]] && echo "Caution: you have \
 an existing curio binary in your PATH. This may cause problems if you don't run 'sudo make install'" || true

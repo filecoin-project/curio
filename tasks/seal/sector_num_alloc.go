@@ -39,7 +39,7 @@ func AllocateSectorNumbers(ctx context.Context, a AllocAPI, db *harmonydb.DB, ma
 		var dbAllocated bitfield.BitField
 		var rawJson []byte
 
-		err = tx.QueryRow("SELECT COALESCE(allocated, '[0]') from sectors_allocated_numbers sa FULL OUTER JOIN (SELECT 1) AS d ON TRUE WHERE sp_id = $1 OR sp_id IS NULL", mid).Scan(&rawJson)
+		err = tx.QueryRow("SELECT COALESCE(allocated, '[0]') from sectors_allocated_numbers sa FULL OUTER JOIN (SELECT 1) AS d ON FALSE WHERE sp_id = $1 OR sp_id IS NULL ORDER BY sp_id LIMIT 1", mid).Scan(&rawJson)
 		if err != nil {
 			return false, xerrors.Errorf("querying allocated sector numbers: %w", err)
 		}

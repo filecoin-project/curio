@@ -79,6 +79,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	stor := dependencies.Stor
 	lstor := dependencies.LocalStore
 	si := dependencies.Si
+	bstore := dependencies.Bstore
 	var activeTasks []harmonytask.TaskInterface
 
 	sender, sendTask := message.NewSender(full, full, db)
@@ -208,7 +209,11 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	if hasAnySealingTask {
 		// Sealing nodes maintain storage index when bored
 		storageEndpointGcTask := gc.NewStorageEndpointGC(si, stor, db)
-		activeTasks = append(activeTasks, storageEndpointGcTask)
+		sdrPipelineGcTask := gc.NewSDRPipelineGC(db)
+		storageGcMarkTask := gc.NewStorageGCMark(si, stor, db, bstore, full)
+		storageGcSweepTask := gc.NewStorageGCSweep(db, stor, si)
+
+		activeTasks = append(activeTasks, storageEndpointGcTask, sdrPipelineGcTask, storageGcMarkTask, storageGcSweepTask)
 	}
 
 	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting)

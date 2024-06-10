@@ -46,9 +46,9 @@
             <td>{{toHumanBytes .Available}}</td>
             <td>{{toHumanBytes .Reserved}}</td>
             <td>
-                <div style="width: 200px; height: 10px; background-color: black; border-bottom: 1px solid darkgrey">
-                    <div style="width: {{.UsedPercent}}%; height: 10px; background-color: green"></div>
-                    <div style="width: {{.ReservedPercent}}%; height: 10px; background-color: red"></div>
+                <div style="width: 200px; height: 16px; border: #3f3f3f 3px solid;">
+                    <div style="float: left; width: {{.UsedPercent}}%; height: 10px; background-color: green"></div>
+                    <div style="float: left; width: {{.ReservedPercent}}%; height: 10px; background-color: darkred"></div>
                 </div>
             </td>
         </tr>

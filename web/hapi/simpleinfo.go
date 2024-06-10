@@ -34,9 +34,10 @@ type app struct {
 	db *harmonydb.DB
 	t  *template.Template
 
-	rpcInfoLk  sync.Mutex
-	workingApi v1api.FullNode
-	stor       adt.Store
+	rpcInfoLk   sync.Mutex
+	workingApi  v1api.FullNode
+	stor        adt.Store
+	sectorIndex paths.SectorIndex
 
 	actorInfoLk sync.Mutex
 	actorInfos  []actorInfo
@@ -598,6 +599,58 @@ func (a *app) sectorResume(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/hapi/sector/%s/%d", sp, intid), http.StatusSeeOther)
 }
 
+func (a *app) sectorRemove(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+
+	id, ok := params["id"]
+	if !ok {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+
+	intid, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+
+	sp, ok := params["sp"]
+	if !ok {
+		http.Error(w, "missing sp", http.StatusBadRequest)
+		return
+	}
+
+	maddr, err := address.NewFromString(sp)
+	if err != nil {
+		http.Error(w, "invalid sp", http.StatusBadRequest)
+		return
+	}
+
+	spid, err := address.IDFromAddress(maddr)
+	if err != nil {
+		http.Error(w, "invalid sp", http.StatusBadRequest)
+		return
+	}
+
+	_, err = a.db.Exec(r.Context(), `DELETE FROM sectors_sdr_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, intid)
+	if err != nil {
+		http.Error(w, xerrors.Errorf("failed to resume sector: %w", err).Error(), http.StatusInternalServerError)
+		return
+	}
+
+	_, err = a.db.Exec(r.Context(), `INSERT INTO storage_removal_marks (sp_id, sector_num, sector_filetype, storage_id, created_at, approved, approved_at)
+		SELECT miner_id, sector_num, sector_filetype, storage_id, current_timestamp, FALSE, NULL FROM sector_location
+		WHERE miner_id = $1 AND sector_num = $2`, spid, intid)
+	if err != nil {
+		http.Error(w, xerrors.Errorf("failed to mark sector for removal: %w", err).Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// redir back to /pipeline_porep.html
+
+	http.Redirect(w, r, "/pipeline_porep.html", http.StatusSeeOther)
+}
+
 var templateDev = os.Getenv("CURIO_WEB_DEV") == "1"
 
 func (a *app) executeTemplate(w http.ResponseWriter, name string, data interface{}) {
@@ -824,20 +877,26 @@ type porepPipelineSummary struct {
 }
 
 func (a *app) porepPipelineSummary(ctx context.Context) ([]porepPipelineSummary, error) {
+
+	head, err := a.workingApi.ChainHead(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	rows, err := a.db.Query(ctx, `
 	SELECT 
 		sp_id,
 		COUNT(*) FILTER (WHERE after_sdr = false) as CountSDR,
 		COUNT(*) FILTER (WHERE (after_tree_d = false OR after_tree_c = false OR after_tree_r = false) AND after_sdr = true) as CountTrees,
 		COUNT(*) FILTER (WHERE after_tree_r = true and after_precommit_msg = false) as CountPrecommitMsg,
-		COUNT(*) FILTER (WHERE after_precommit_msg_success = false AND after_precommit_msg = true) as CountWaitSeed,
+		COUNT(*) FILTER (WHERE after_precommit_msg_success = true AND seed_epoch < $1) as CountWaitSeed,
 		COUNT(*) FILTER (WHERE after_porep = false AND after_precommit_msg_success = true) as CountPoRep,
 		COUNT(*) FILTER (WHERE after_commit_msg_success = false AND after_porep = true) as CountCommitMsg,
 		COUNT(*) FILTER (WHERE after_commit_msg_success = true) as CountDone,
 		COUNT(*) FILTER (WHERE failed = true) as CountFailed
 	FROM 
 		sectors_sdr_pipeline
-	GROUP BY sp_id`)
+	GROUP BY sp_id`, head.Height())
 	if err != nil {
 		return nil, xerrors.Errorf("query: %w", err)
 	}
@@ -1010,7 +1069,8 @@ func (a *app) clusterNodeInfo(ctx context.Context, id int64) (*machineInfo, erro
 		}
 
 		s.UsedPercent = float64(s.Capacity-s.FSAvailable) * 100 / float64(s.Capacity)
-		s.ReservedPercent = float64(s.Capacity-(s.FSAvailable+s.Reserved))*100/float64(s.Capacity) - s.UsedPercent
+		//s.ReservedPercent = float64(s.Capacity-(s.FSAvailable+s.Reserved))*100/float64(s.Capacity) - s.UsedPercent
+		s.ReservedPercent = float64(s.Reserved) * 100 / float64(s.Capacity)
 
 		summaries[0].Storage = append(summaries[0].Storage, s)
 	}

@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/filecoin-project/curio/lib/curiochain"
 	"io"
 	"net"
 	"net/http"
@@ -166,6 +167,7 @@ type Deps struct {
 	Cfg        *config.CurioConfig // values
 	DB         *harmonydb.DB       // has itest capability
 	Full       api.FullNode
+	Bstore     curiochain.CurioBlockstore
 	Verif      storiface.Verifier
 	As         *multictladdr.MultiAddressSelector
 	Maddrs     map[dtypes.MinerAddress]bool
@@ -268,6 +270,10 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 			<-ctx.Done()
 			fullCloser()
 		}()
+	}
+
+	if deps.Bstore == nil {
+		deps.Bstore = curiochain.NewChainBlockstore(deps.Full)
 	}
 
 	deps.LocalPaths = &paths.BasicLocalStorage{

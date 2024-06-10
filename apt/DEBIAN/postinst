@@ -8,7 +8,8 @@ case "$1" in
 
         if [ -z "$2" ]; then
             # This is an initial installation
-            systemctl enable curio.service
+            sysctl -w net.core.rmem_max=2097152
+            sysctl -w net.core.rmem_default=2097152
             if [ ! -f "/etc/curio.env" ]; then
               echo "CURIO_LAYERS=gui,post\nCURIO_ALL_REMAINING_FIELDS_ARE_OPTIONAL=true\nCURIO_DB_HOST=yugabyte\nCURIO_DB_USER=yugabyte\nCURIO_DB_PASSWORD=yugabyte\nCURIO_DB_PORT=5433\nCURIO_DB_NAME=yugabyte\nCURIO_REPO_PATH=~/.curio\nCURIO_NODE_NAME=ChangeMe" >/etc/curio.env
               echo "setup /etc/curio.env then run: systemctl start curio.service"
