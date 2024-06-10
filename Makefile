@@ -123,7 +123,7 @@ api-gen:
 .PHONY: api-gen
 
 docsgen-md-curio: docsgen-md-bin
-	./docgen-md "api/api_curio.go" "Curio" "api" "./api" > documentation/en/api-v0-methods-curio.md
+	./docgen-md "api/api_curio.go" "Curio" "api" "./api" > documentation/api-v0-methods-curio.md
 	@echo "FixImports will run only from the 'make gen' target"
 .PHONY: api-gen
 
@@ -144,7 +144,7 @@ docsgen-openrpc-curio: docsgen-openrpc-bin
 
 docsgen-cli: curio sptool
 	python3 ./scripts/generate-cli.py
-	./curio config default > documentation/en/default-curio-config.toml
+	./curio config default > documentation/default-curio-config.toml
 .PHONY: docsgen-cli
 
 go-generate:

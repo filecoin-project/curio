@@ -19,7 +19,9 @@ require (
 	github.com/filecoin-project/go-cbor-util v0.0.1
 	github.com/filecoin-project/go-commp-utils v0.1.3
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20220905160352-62059082a837
+	github.com/filecoin-project/go-data-transfer/v2 v2.0.0-rc8
 	github.com/filecoin-project/go-fil-commcid v0.1.0
+	github.com/filecoin-project/go-fil-markets v1.28.3
 	github.com/filecoin-project/go-jsonrpc v0.5.0
 	github.com/filecoin-project/go-padreader v0.0.1
 	github.com/filecoin-project/go-state-types v0.14.0-dev
@@ -40,11 +42,15 @@ require (
 	github.com/ipfs/go-cid v0.4.1
 	github.com/ipfs/go-datastore v0.6.0
 	github.com/ipfs/go-fs-lock v0.0.7
+	github.com/ipfs/go-graphsync v0.17.0
 	github.com/ipfs/go-ipld-cbor v0.1.0
 	github.com/ipfs/go-log/v2 v2.5.1
+	github.com/ipld/go-ipld-selector-text-lite v0.0.1
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/libp2p/go-buffer-pool v0.1.0
+	github.com/libp2p/go-libp2p v0.34.1
+	github.com/libp2p/go-libp2p-pubsub v0.11.0
 	github.com/manifoldco/promptui v0.9.0
 	github.com/minio/blake2b-simd v0.0.0-20160723061019-3f5f724cb5b1
 	github.com/minio/sha256-simd v1.0.1
@@ -57,6 +63,7 @@ require (
 	github.com/snadrus/must v0.0.0-20240605044437-98cedd57f8eb
 	github.com/stretchr/testify v1.9.0
 	github.com/urfave/cli/v2 v2.25.5
+	github.com/whyrusleeping/cbor-gen v0.1.1
 	github.com/yugabyte/pgx/v5 v5.5.3-yb-2
 	go.opencensus.io v0.24.0
 	go.uber.org/multierr v1.11.0
@@ -66,6 +73,7 @@ require (
 	golang.org/x/sync v0.7.0
 	golang.org/x/sys v0.20.0
 	golang.org/x/text v0.15.0
+	golang.org/x/tools v0.21.0
 	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028
 )
 
@@ -120,10 +128,8 @@ require (
 	github.com/filecoin-project/go-amt-ipld/v3 v3.1.0 // indirect
 	github.com/filecoin-project/go-amt-ipld/v4 v4.3.0 // indirect
 	github.com/filecoin-project/go-crypto v0.0.1 // indirect
-	github.com/filecoin-project/go-data-transfer/v2 v2.0.0-rc8 // indirect
 	github.com/filecoin-project/go-ds-versioning v0.1.2 // indirect
 	github.com/filecoin-project/go-fil-commp-hashhash v0.1.0 // indirect
-	github.com/filecoin-project/go-fil-markets v1.28.3 // indirect
 	github.com/filecoin-project/go-hamt-ipld v0.1.5 // indirect
 	github.com/filecoin-project/go-hamt-ipld/v2 v2.0.0 // indirect
 	github.com/filecoin-project/go-hamt-ipld/v3 v3.1.0 // indirect
@@ -177,7 +183,6 @@ require (
 	github.com/ipfs/go-ds-badger2 v0.1.3 // indirect
 	github.com/ipfs/go-ds-leveldb v0.5.0 // indirect
 	github.com/ipfs/go-ds-measure v0.2.0 // indirect
-	github.com/ipfs/go-graphsync v0.17.0 // indirect
 	github.com/ipfs/go-ipfs-blockstore v1.3.1 // indirect
 	github.com/ipfs/go-ipfs-blocksutil v0.0.1 // indirect
 	github.com/ipfs/go-ipfs-delay v0.0.1 // indirect
@@ -198,7 +203,6 @@ require (
 	github.com/ipld/go-codec-dagpb v1.6.0 // indirect
 	github.com/ipld/go-ipld-adl-hamt v0.0.0-20220616142416-9004dbd839e0 // indirect
 	github.com/ipld/go-ipld-prime v0.21.0 // indirect
-	github.com/ipld/go-ipld-selector-text-lite v0.0.1 // indirect
 	github.com/ipni/go-libipni v0.0.8 // indirect
 	github.com/ipni/index-provider v0.12.0 // indirect
 	github.com/ipsn/go-secp256k1 v0.0.0-20180726113642-9d62b9f0bc52 // indirect
@@ -220,12 +224,10 @@ require (
 	github.com/koron/go-ssdp v0.0.4 // indirect
 	github.com/libp2p/go-cidranger v1.1.0 // indirect
 	github.com/libp2p/go-flow-metrics v0.1.0 // indirect
-	github.com/libp2p/go-libp2p v0.34.1 // indirect
 	github.com/libp2p/go-libp2p-asn-util v0.4.1 // indirect
 	github.com/libp2p/go-libp2p-gostream v0.6.0 // indirect
 	github.com/libp2p/go-libp2p-kad-dht v0.25.2 // indirect
 	github.com/libp2p/go-libp2p-kbucket v0.6.3 // indirect
-	github.com/libp2p/go-libp2p-pubsub v0.11.0 // indirect
 	github.com/libp2p/go-libp2p-record v0.2.0 // indirect
 	github.com/libp2p/go-libp2p-routing-helpers v0.7.3 // indirect
 	github.com/libp2p/go-maddr-filter v0.1.0 // indirect
@@ -304,7 +306,6 @@ require (
 	github.com/valyala/fasttemplate v1.0.1 // indirect
 	github.com/whyrusleeping/bencher v0.0.0-20190829221104-bb6607aa8bba // indirect
 	github.com/whyrusleeping/cbor v0.0.0-20171005072247-63513f603b11 // indirect
-	github.com/whyrusleeping/cbor-gen v0.1.1 // indirect
 	github.com/whyrusleeping/chunker v0.0.0-20181014151217-fe64bd25879f // indirect
 	github.com/whyrusleeping/go-keyspace v0.0.0-20160322163242-5b898ac5add1 // indirect
 	github.com/whyrusleeping/multiaddr-filter v0.0.0-20160516205228-e903e4adabd7 // indirect
@@ -330,7 +331,6 @@ require (
 	golang.org/x/mod v0.17.0 // indirect
 	golang.org/x/term v0.20.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
-	golang.org/x/tools v0.21.0 // indirect
 	gonum.org/v1/gonum v0.15.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240515191416-fc5f0ca64291 // indirect
 	google.golang.org/grpc v1.64.0 // indirect
