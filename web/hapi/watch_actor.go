@@ -2,6 +2,7 @@ package hapi
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/lib/curiochain"
 	"sort"
 	"time"
 
@@ -42,7 +43,7 @@ func (a *app) updateActor(ctx context.Context) error {
 	api := a.workingApi
 	a.rpcInfoLk.Unlock()
 
-	stor := store.ActorStore(ctx, blockstore.NewReadCachedBlockstore(blockstore.NewAPIBlockstore(api), ChainBlockCache))
+	stor := store.ActorStore(ctx, blockstore.NewReadCachedBlockstore(blockstore.NewAPIBlockstore(api), curiochain.ChainBlockCache))
 
 	if api == nil {
 		if time.Since(startedAt) > time.Second*10 {

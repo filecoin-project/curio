@@ -2,20 +2,14 @@ package hapi
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/lib/curiochain"
 	"time"
-
-	lru "github.com/hashicorp/golang-lru/v2"
-	blocks "github.com/ipfs/go-block-format"
-
-	"github.com/snadrus/must"
 
 	"github.com/filecoin-project/lotus/api/client"
 	"github.com/filecoin-project/lotus/blockstore"
 	"github.com/filecoin-project/lotus/chain/store"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
-
-var ChainBlockCache = must.One(lru.New[blockstore.MhString, blocks.Block](4096))
 
 func (a *app) watchRpc() {
 	ticker := time.NewTicker(watchInterval)
@@ -91,7 +85,7 @@ func (a *app) updateRpc(ctx context.Context) error {
 			}()
 
 			a.workingApi = v1api
-			a.stor = store.ActorStore(ctx, blockstore.NewReadCachedBlockstore(blockstore.NewAPIBlockstore(a.workingApi), ChainBlockCache))
+			a.stor = store.ActorStore(ctx, blockstore.NewReadCachedBlockstore(blockstore.NewAPIBlockstore(a.workingApi), curiochain.ChainBlockCache))
 		}
 	}
 

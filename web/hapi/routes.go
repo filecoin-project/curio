@@ -24,6 +24,8 @@ func Routes(r *mux.Router, deps *deps.Deps) error {
 	a := &app{
 		db: deps.DB,
 		t:  t,
+
+		sectorIndex: deps.Si,
 	}
 
 	go a.watchRpc()
@@ -45,6 +47,7 @@ func Routes(r *mux.Router, deps *deps.Deps) error {
 	// sector info page
 	r.HandleFunc("/sector/{sp}/{id}", a.sectorInfo)
 	r.HandleFunc("/sector/{sp}/{id}/resume", a.sectorResume)
+	r.HandleFunc("/sector/{sp}/{id}/remove", a.sectorRemove)
 	return nil
 }
 
