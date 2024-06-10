@@ -111,7 +111,7 @@ func part2(base, product, extra string) {
 		OrPanic(os.MkdirAll(base, 0755))
 		OrPanic(copyFile("curio", path.Join(base, "curio")))
 		OrPanic(copyFile("sptool", path.Join(base, "sptool")))
-		base = path.Join(dir, "etc", "systemd", "system")
+		base = path.Join(dir, "lib", "systemd", "system")
 		OrPanic(os.MkdirAll(base, 0755))
 		OrPanic(copyFile("apt/curio.service", path.Join(base, "curio.service")))
 	}
