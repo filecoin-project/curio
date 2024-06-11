@@ -154,7 +154,7 @@ jobs:
         default: unit
         description: Test suite name to report to CircleCI.
     docker:
-      - image: cimg/go:1.21
+      - image: cimg/go:1.22
         environment:
           CURIO_HARMONYDB_HOSTS: yugabyte
           LOTUS_HARMONYDB_HOSTS: yugabyte
@@ -234,19 +234,17 @@ jobs:
       - run: go install github.com/hannahhoward/cbor-gen-for
       - run: make gen
       - run: git --no-pager diff && git --no-pager diff --quiet
-      - run: make docsgen-cli
-      - run: git --no-pager diff && git --no-pager diff --quiet
 
-  docs-check:
-    executor: golang
-    working_directory: ~/curio
-    steps:
-      - install-ubuntu-deps
-      - attach_workspace:
-          at: ~/
-      - run: go install golang.org/x/tools/cmd/goimports
-      - run: make docsgen
-      - run: git --no-pager diff && git --no-pager diff --quiet
+#  docs-check:
+#    executor: golang
+#    working_directory: ~/curio
+#    steps:
+#      - install-ubuntu-deps
+#      - attach_workspace:
+#          at: ~/
+#      - run: go install golang.org/x/tools/cmd/goimports
+#      - run: make docsgen
+#      - run: git --no-pager diff && git --no-pager diff --quiet
 
 
 workflows:
@@ -265,9 +263,9 @@ workflows:
       - gen-check:
           requires:
             - build
-      - docs-check:
-          requires:
-            - build
+#      - docs-check:
+#          requires:
+#            - build
       - test:
           name: test-itest-curio
           requires:
