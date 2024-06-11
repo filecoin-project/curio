@@ -35,7 +35,7 @@ type TreeDTask struct {
 }
 
 func (t *TreeDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	if isDevnet {
+	if IsDevnet {
 		return &ids[0], nil
 	}
 	if engine.Resources().Gpu > 0 {
@@ -46,7 +46,7 @@ func (t *TreeDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 func (t *TreeDTask) TypeDetails() harmonytask.TaskTypeDetails {
 	ssize := abi.SectorSize(32 << 30) // todo task details needs taskID to get correct sector size
-	if isDevnet {
+	if IsDevnet {
 		ssize = abi.SectorSize(2 << 20)
 	}
 
