@@ -1069,7 +1069,7 @@
             "placeholders": [
                 {
                     "id": "Ssize",
-                    "string": "%[1]d",
+                    "string": "%[1]s",
                     "type": "string",
                     "underlyingType": "string",
                     "argNum": 1,
@@ -1189,6 +1189,23 @@
             "id": "Sector selection failed: {Error}",
             "message": "Sector selection failed: {Error}",
             "translation": "Sector selection failed: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Failed to parse sector size: {Error}",
+            "message": "Failed to parse sector size: {Error}",
+            "translation": "Failed to parse sector size: {Error}",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {

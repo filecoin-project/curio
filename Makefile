@@ -154,8 +154,7 @@ go-generate:
 	$(GOCC) generate ./...
 .PHONY: go-generate
 
-gen: 
-	make -j4 gensimple
+gen: gensimple
 .PHONY: gen
 
 gensimple: go-generate cfgdoc-gen api-gen docsgen docsgen-cli
