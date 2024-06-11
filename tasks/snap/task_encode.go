@@ -124,7 +124,7 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("computing CommD: %w", err)
 	}
 
-	sealed, unsealed, err := e.sc.EncodeUpdate(ctx, taskID, abi.RegisteredUpdateProof(sectorParams.UpdateProof), sref, pieceInfos)
+	sealed, unsealed, err := e.sc.EncodeUpdate(ctx, taskID, abi.RegisteredUpdateProof(sectorParams.UpdateProof), sref, data, pieceInfos)
 	if err != nil {
 		return false, xerrors.Errorf("ffi update encode: %w", err)
 	}

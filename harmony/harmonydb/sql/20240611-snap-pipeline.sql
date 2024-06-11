@@ -50,12 +50,6 @@ create table sectors_snap_initial_pieces (
     data_delete_on_finalize bool not null,
 
     -- deal info
-    f05_publish_cid text,
-    f05_deal_id bigint,
-    f05_deal_proposal jsonb,
-    f05_deal_start_epoch bigint,
-    f05_deal_end_epoch bigint,
-
     direct_start_epoch bigint,
     direct_end_epoch bigint,
     direct_piece_activation_manifest jsonb,
