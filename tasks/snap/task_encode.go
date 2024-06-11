@@ -124,7 +124,7 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("computing CommD: %w", err)
 	}
 
-	data, err := dealdata.DealDataSnap(ctx, e.db, sectorParams.SpID, sectorParams.SectorNumber, abi.RegisteredSealProof(sectorParams.RegSealProof))
+	data, err := dealdata.DealDataSnap(ctx, e.db, e.sc, sectorParams.SpID, sectorParams.SectorNumber, abi.RegisteredSealProof(sectorParams.RegSealProof))
 	if err != nil {
 		return false, xerrors.Errorf("getting deal data: %w", err)
 	}

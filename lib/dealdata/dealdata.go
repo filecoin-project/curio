@@ -3,6 +3,7 @@ package dealdata
 import (
 	"context"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/filler"
 	"github.com/filecoin-project/go-commp-utils/nonffi"
 	"github.com/filecoin-project/go-commp-utils/zerocomm"
@@ -38,7 +39,7 @@ type DealData struct {
 	Close      func()
 }
 
-func DealDataSDRPoRep(ctx context.Context, db *harmonydb.DB, spId, sectorNumber int64, spt abi.RegisteredSealProof) (*DealData, error) {
+func DealDataSDRPoRep(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, spId, sectorNumber int64, spt abi.RegisteredSealProof) (*DealData, error) {
 	var pieces []dealMetadata
 	err := db.Select(ctx, &pieces, `
 		SELECT piece_index, piece_cid, piece_size, data_url, data_headers, data_raw_size
@@ -48,10 +49,10 @@ func DealDataSDRPoRep(ctx context.Context, db *harmonydb.DB, spId, sectorNumber 
 		return nil, xerrors.Errorf("getting pieces: %w", err)
 	}
 
-	return getDealMetadata(ctx, db, spt, pieces)
+	return getDealMetadata(ctx, db, sc, spt, pieces)
 }
 
-func DealDataSnap(ctx context.Context, db *harmonydb.DB, spId, sectorNumber int64, spt abi.RegisteredSealProof) (*DealData, error) {
+func DealDataSnap(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, spId, sectorNumber int64, spt abi.RegisteredSealProof) (*DealData, error) {
 	var pieces []dealMetadata
 	err := db.Select(ctx, &pieces, `
 		SELECT piece_index, piece_cid, piece_size, data_url, data_headers, data_raw_size
@@ -61,10 +62,10 @@ func DealDataSnap(ctx context.Context, db *harmonydb.DB, spId, sectorNumber int6
 		return nil, xerrors.Errorf("getting pieces: %w", err)
 	}
 
-	return getDealMetadata(ctx, db, spt, pieces)
+	return getDealMetadata(ctx, db, sc, spt, pieces)
 }
 
-func getDealMetadata(ctx context.Context, db *harmonydb.DB, spt abi.RegisteredSealProof, pieces []dealMetadata) (*DealData, error) {
+func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, spt abi.RegisteredSealProof, pieces []dealMetadata) (*DealData, error) {
 	ssize, err := spt.SectorSize()
 	if err != nil {
 		return nil, xerrors.Errorf("getting sector size: %w", err)

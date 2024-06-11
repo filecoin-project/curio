@@ -2,6 +2,7 @@ package seal
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/lib/dealdata"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
@@ -129,7 +130,7 @@ func (t *TreeDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 	defer release()
 
-	dealData, err := dealdata.DealDataSDRPoRep(ctx, t.db, sectorParams.SpID, sectorParams.SectorNumber, sectorParams.RegSealProof)
+	dealData, err := dealdata.DealDataSDRPoRep(ctx, t.db, t.sc, sectorParams.SpID, sectorParams.SectorNumber, sectorParams.RegSealProof)
 	if err != nil {
 		return false, xerrors.Errorf("getting deal data: %w", err)
 	}
