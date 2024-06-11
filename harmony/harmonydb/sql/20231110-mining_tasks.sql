@@ -14,6 +14,8 @@ create table mining_tasks
 
     submitted_at timestamp,
 
+    -- included BOOLEAN DEFAULT NULL, -- 20240610-mining-inclusion-checks.sql
+
     constraint mining_tasks_sp_epoch
         unique (sp_id, epoch)
 );

@@ -25,6 +25,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/docker/go-units"
+
 	"github.com/manifoldco/promptui"
 	"github.com/mitchellh/go-homedir"
 	"github.com/samber/lo"
@@ -656,7 +658,7 @@ func stepCreateActor(d *MigrationData) {
 				d.T("Owner Wallet: %s", d.owner.String()),
 				d.T("Worker Wallet: %s", d.worker.String()),
 				d.T("Sender Wallet: %s", d.sender.String()),
-				d.T("Sector Size: %d", d.ssize),
+				d.T("Sector Size: %s", d.ssize),
 				d.T("Continue to verify the addresses and create a new miner actor.")},
 			Size:      6,
 			Templates: d.selectTemplates,
@@ -724,7 +726,12 @@ func stepCreateActor(d *MigrationData) {
 	}
 
 minerInit:
-	var ss abi.SectorSize
+	sectorSize, err := units.RAMInBytes(d.ssize)
+	if err != nil {
+		d.say(notice, "Failed to parse sector size: %s", err.Error())
+		os.Exit(1)
+	}
+	ss := abi.SectorSize(sectorSize)
 
 	miner, err := spcli.CreateStorageMiner(d.ctx, d.full, d.owner, d.worker, d.sender, ss, CONFIDENCE)
 	if err != nil {

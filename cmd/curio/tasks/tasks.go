@@ -137,9 +137,10 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		}
 
 		if cfg.Subsystems.EnableWinningPost {
-			pl := dependencies.LocalStore
-			winPoStTask := winning.NewWinPostTask(cfg.Subsystems.WinningPostMaxTasks, db, pl, verif, asyncParams(), full, maddrs)
-			activeTasks = append(activeTasks, winPoStTask)
+			store := dependencies.Stor
+			winPoStTask := winning.NewWinPostTask(cfg.Subsystems.WinningPostMaxTasks, db, store, verif, asyncParams(), full, maddrs)
+			inclCkTask := winning.NewInclusionCheckTask(db, full)
+			activeTasks = append(activeTasks, winPoStTask, inclCkTask)
 		}
 	}
 

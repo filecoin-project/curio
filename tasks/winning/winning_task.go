@@ -43,7 +43,7 @@ type WinPostTask struct {
 	max int
 	db  *harmonydb.DB
 
-	paths       *paths.Local
+	paths       *paths.Remote
 	verifier    storiface.Verifier
 	paramsReady func() (bool, error)
 
@@ -72,11 +72,11 @@ type WinPostAPI interface {
 	WalletSign(context.Context, address.Address, []byte) (*crypto.Signature, error)
 }
 
-func NewWinPostTask(max int, db *harmonydb.DB, pl *paths.Local, verifier storiface.Verifier, paramck func() (bool, error), api WinPostAPI, actors map[dtypes.MinerAddress]bool) *WinPostTask {
+func NewWinPostTask(max int, db *harmonydb.DB, remote *paths.Remote, verifier storiface.Verifier, paramck func() (bool, error), api WinPostAPI, actors map[dtypes.MinerAddress]bool) *WinPostTask {
 	t := &WinPostTask{
 		max:         max,
 		db:          db,
-		paths:       pl,
+		paths:       remote,
 		verifier:    verifier,
 		paramsReady: paramck,
 		api:         api,
@@ -275,8 +275,7 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			}
 		}
 
-		_, err = t.generateWinningPost(ctx, ppt, abi.ActorID(details.SpID), sectorChallenges, prand)
-		//wpostProof, err = t.prover.GenerateWinningPoSt(ctx, ppt, abi.ActorID(details.SpID), sectorChallenges, prand)
+		wpostProof, err = t.generateWinningPost(ctx, ppt, abi.ActorID(details.SpID), sectorChallenges, prand)
 		if err != nil {
 			err = xerrors.Errorf("failed to compute winning post proof: %w", err)
 			return false, err
@@ -456,10 +455,10 @@ func (t *WinPostTask) generateWinningPost(
 		eg.Go(func() error {
 			vanilla, err := t.paths.GenerateSingleVanillaProof(ctx, mid, s, ppt)
 			if err != nil {
-				return xerrors.Errorf("get winning sector:%d,vanila failed: %w", s.SectorNumber, err)
+				return xerrors.Errorf("get winning sector:%d, vanilla failed: %w", s.SectorNumber, err)
 			}
 			if vanilla == nil {
-				return xerrors.Errorf("get winning sector:%d,vanila is nil", s.SectorNumber)
+				return xerrors.Errorf("get winning sector:%d, vanilla is nil", s.SectorNumber)
 			}
 			vproofs[i] = vanilla
 			return nil
