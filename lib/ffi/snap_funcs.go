@@ -3,6 +3,8 @@ package ffi
 import (
 	"bytes"
 	"context"
+	"github.com/filecoin-project/lotus/storage/sealer/fr32"
+	pool "github.com/libp2p/go-buffer-pool"
 	"io"
 	"io/ioutil"
 	"os"
@@ -90,12 +92,18 @@ func (sb *SealCalls) EncodeUpdate(
 		keyFile = nil
 
 		// copy data into stagedFile and close both
-		_, err = stagedFile.ReadFrom(data)
+		upw := fr32.NewPadWriter(stagedFile)
+
+		copyBuf := pool.Get(32 << 20)
+		_, err = io.CopyBuffer(upw, data, copyBuf)
+		pool.Put(copyBuf)
 		if err != nil {
-			return cid.Undef, cid.Undef, xerrors.Errorf("copying staged data: %w", err)
+			return cid.Undef, cid.Undef, xerrors.Errorf("copying unsealed data: %w", err)
+		}
+		if err := upw.Close(); err != nil {
+			return cid.Cid{}, cid.Cid{}, xerrors.Errorf("closing padWriter: %w", err)
 		}
 
-		_ = stagedFile.Close()
 		if err := stagedFile.Close(); err != nil {
 			return cid.Undef, cid.Undef, xerrors.Errorf("closing staged data file: %w", err)
 		}

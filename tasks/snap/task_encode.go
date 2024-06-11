@@ -5,9 +5,9 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/tasks/seal"
-
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
@@ -124,7 +124,18 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("computing CommD: %w", err)
 	}
 
-	sealed, unsealed, err := e.sc.EncodeUpdate(ctx, taskID, abi.RegisteredUpdateProof(sectorParams.UpdateProof), sref, data, pieceInfos)
+	data, err := dealdata.DealDataSnap(ctx, e.db, sectorParams.SpID, sectorParams.SectorNumber, abi.RegisteredSealProof(sectorParams.RegSealProof))
+	if err != nil {
+		return false, xerrors.Errorf("getting deal data: %w", err)
+	}
+	defer data.Close()
+
+	if !data.IsUnpadded {
+		// we always expect deal data which is always unpadded
+		return false, xerrors.Errorf("expected unpadded data")
+	}
+
+	sealed, unsealed, err := e.sc.EncodeUpdate(ctx, taskID, abi.RegisteredUpdateProof(sectorParams.UpdateProof), sref, data.Data, pieceInfos)
 	if err != nil {
 		return false, xerrors.Errorf("ffi update encode: %w", err)
 	}

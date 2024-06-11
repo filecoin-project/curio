@@ -51,6 +51,19 @@ func DealDataSDRPoRep(ctx context.Context, db *harmonydb.DB, spId, sectorNumber 
 	return getDealMetadata(ctx, db, spt, pieces)
 }
 
+func DealDataSnap(ctx context.Context, db *harmonydb.DB, spId, sectorNumber int64, spt abi.RegisteredSealProof) (*DealData, error) {
+	var pieces []dealMetadata
+	err := db.Select(ctx, &pieces, `
+		SELECT piece_index, piece_cid, piece_size, data_url, data_headers, data_raw_size
+		FROM sectors_snap_initial_pieces
+		WHERE sp_id = $1 AND sector_number = $2 ORDER BY piece_index ASC`, spId, sectorNumber)
+	if err != nil {
+		return nil, xerrors.Errorf("getting pieces: %w", err)
+	}
+
+	return getDealMetadata(ctx, db, spt, pieces)
+}
+
 func getDealMetadata(ctx context.Context, db *harmonydb.DB, spt abi.RegisteredSealProof, pieces []dealMetadata) (*DealData, error) {
 	ssize, err := spt.SectorSize()
 	if err != nil {
