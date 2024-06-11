@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/curio/lib/tarutil"
 	"io"
 	"math/bits"
 	"net/http"
@@ -810,6 +811,73 @@ func (r *Remote) ReaderSeq(ctx context.Context, s storiface.SectorRef, ft storif
 	}
 
 	return nil, xerrors.Errorf("failed to read sector %v from remote(%d): %w", s, ft, storiface.ErrSectorNotFound)
+}
+
+// ReadMinCacheInto reads finalized-like (few MiB) cache files into the target dir
+func (r *Remote) ReadMinCacheInto(ctx context.Context, s storiface.SectorRef, ft storiface.SectorFileType, w io.Writer) error {
+	paths, _, err := r.local.AcquireSector(ctx, s, ft, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
+	if err != nil {
+		return xerrors.Errorf("acquire local: %w", err)
+	}
+
+	path := storiface.PathByType(paths, ft)
+	if path != "" {
+		return readMinCache(path, w)
+	}
+
+	si, err := r.index.StorageFindSector(ctx, s.ID, ft, 0, false)
+	if err != nil {
+		log.Debugf("Reader, did not find file on any of the workers %s (%s)", path, ft.String())
+		return err
+	}
+
+	if len(si) == 0 {
+		return xerrors.Errorf("failed to read sector %v from remote(%d): %w", s, ft, storiface.ErrSectorNotFound)
+	}
+
+	sort.Slice(si, func(i, j int) bool {
+		return si[i].Weight > si[j].Weight
+	})
+
+	for _, info := range si {
+		for _, u := range info.URLs {
+			purl, err := url.Parse(u)
+			if err != nil {
+				log.Warnw("parsing url", "url", u, "error", err)
+				continue
+			}
+
+			purl.RawQuery = "mincache=true"
+
+			u = purl.String()
+
+			rd, err := r.readRemote(ctx, u, 0, 0)
+			if err != nil {
+				log.Warnw("reading from remote", "url", u, "error", err)
+				continue
+			}
+
+			_, err = io.Copy(w, rd)
+
+			if cerr := rd.Close(); cerr != nil {
+				log.Errorf("failed to close reader: %v", err)
+				continue
+			}
+
+			if err != nil {
+				log.Warnw("copying from remote", "url", u, "error", err)
+				continue
+			}
+
+			return nil
+		}
+	}
+
+	return xerrors.Errorf("failed to read minimal sector cache %v from remote(%d): %w", s, ft, storiface.ErrSectorNotFound)
+}
+
+func readMinCache(dir string, writer io.Writer) error {
+	return tarutil.TarDirectory(tarutil.FinCacheFileConstraints, dir, writer, make([]byte, 1<<20))
 }
 
 func (r *Remote) Reserve(ctx context.Context, sid storiface.SectorRef, ft storiface.SectorFileType, storageIDs storiface.SectorPaths, overheadTab map[storiface.SectorFileType]int, minFreePercentage float64) (func(), error) {
