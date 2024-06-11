@@ -1,6 +1,7 @@
 package build
 
 import (
+	"os"
 	"strconv"
 	"strings"
 
@@ -47,5 +48,8 @@ var BuildVersion = strings.Join(lo.Map(BuildVersionArray[:],
 	func(i int, _ int) string { return strconv.Itoa(i) }), ".")
 
 func UserVersion() string {
+	if os.Getenv("CURIO_VERSION_IGNORE_COMMIT") == "1" {
+		return BuildVersion
+	}
 	return BuildVersion + BuildTypeString() + CurrentCommit
 }

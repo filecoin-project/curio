@@ -54,6 +54,6 @@ if __name__ == "__main__":
     # Set env var telling the binaries that we're generating docs
     os.putenv("LOTUS_DOCS_GENERATION", "1")
 
-    os.putenv("LOTUS_VERSION_IGNORE_COMMIT", "1")
+    os.putenv("CURIO_VERSION_IGNORE_COMMIT", "1")
     generate_lotus_cli('curio')
     generate_lotus_cli('sptool')
