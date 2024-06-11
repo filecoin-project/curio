@@ -2,7 +2,6 @@ package hapi
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/lib/curiochain"
 	"sort"
 	"time"
 
@@ -10,6 +9,8 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+
+	"github.com/filecoin-project/curio/lib/curiochain"
 
 	"github.com/filecoin-project/lotus/blockstore"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"

@@ -84,8 +84,8 @@ func OpenRPCSchemaTypeMapper(ty reflect.Type) *jsonschema.Type {
 	return nil
 }
 
-// NewLotusOpenRPCDocument defines application-specific documentation and configuration for its OpenRPC document.
-func NewLotusOpenRPCDocument(Comments, GroupDocs map[string]string) *go_openrpc_reflect.Document {
+// NewCurioOpenRPCDocument defines application-specific documentation and configuration for its OpenRPC document.
+func NewCurioOpenRPCDocument(Comments, GroupDocs map[string]string) *go_openrpc_reflect.Document {
 	d := &go_openrpc_reflect.Document{}
 
 	// Register "Meta" document fields.
@@ -104,7 +104,7 @@ func NewLotusOpenRPCDocument(Comments, GroupDocs map[string]string) *go_openrpc_
 		},
 		GetInfoFn: func() (info *meta_schema.InfoObject) {
 			info = &meta_schema.InfoObject{}
-			title := "Lotus RPC API"
+			title := "Curio RPC API"
 			info.Title = (*meta_schema.InfoObjectProperties)(&title)
 
 			version := build.BuildVersion

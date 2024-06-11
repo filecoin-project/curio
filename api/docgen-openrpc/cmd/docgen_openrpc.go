@@ -3,38 +3,33 @@ package main
 import (
 	"compress/gzip"
 	"encoding/json"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"log"
 	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
 
 	docgen_openrpc "github.com/filecoin-project/curio/api/docgen-openrpc"
 
-	"github.com/filecoin-project/lotus/api/docgen"
+	"github.com/filecoin-project/curio/api"
 )
 
 /*
 main defines a small program that writes an OpenRPC document describing
-a Lotus API to stdout.
-
-If the first argument is "miner", the document will describe the StorageMiner API.
-If not (no, or any other args), the document will describe the Full API.
-
-Use:
-
-		go run ./api/openrpc/cmd ["api/api_full.go"|"api/api_storage.go"|"api/api_worker.go"] ["FullNode"|"StorageMiner"|"Worker"]
-
-	With gzip compression: a '-gzip' flag is made available as an optional third argument. Note that position matters.
-
-		go run ./api/openrpc/cmd ["api/api_full.go"|"api/api_storage.go"|"api/api_worker.go"] ["FullNode"|"StorageMiner"|"Worker"] -gzip
-
+a Curio API to stdout.
 */
 
 func main() {
-	Comments, GroupDocs := docgen.ParseApiASTInfo(os.Args[1], os.Args[2], os.Args[3], os.Args[4])
+	Comments, GroupDocs := ParseApiASTInfo(os.Args[1], os.Args[2], os.Args[3], os.Args[4])
 
-	doc := docgen_openrpc.NewLotusOpenRPCDocument(Comments, GroupDocs)
+	doc := docgen_openrpc.NewCurioOpenRPCDocument(Comments, GroupDocs)
 
-	i, _, _ := docgen.GetAPIType(os.Args[2], os.Args[3])
+	i, _, _ := GetAPIType(os.Args[2], os.Args[3])
 	doc.RegisterReceiverName("Filecoin", i)
 
 	out, err := doc.Discover()
@@ -71,4 +66,106 @@ func main() {
 	if err != nil {
 		log.Fatalln(err)
 	}
+}
+
+type Visitor struct {
+	Root    string
+	Methods map[string]ast.Node
+}
+
+const NoComment = "There are not yet any comments for this method."
+
+func ParseApiASTInfo(apiFile, iface, pkg, dir string) (comments map[string]string, groupDocs map[string]string) { //nolint:golint
+	fset := token.NewFileSet()
+	apiDir, err := filepath.Abs(dir)
+	if err != nil {
+		fmt.Println("./api filepath absolute error: ", err)
+		return
+	}
+	apiFile, err = filepath.Abs(apiFile)
+	if err != nil {
+		fmt.Println("filepath absolute error: ", err, "file:", apiFile)
+		return
+	}
+	pkgs, err := parser.ParseDir(fset, apiDir, nil, parser.AllErrors|parser.ParseComments)
+	if err != nil {
+		fmt.Println("parse error: ", err)
+		return
+	}
+
+	ap := pkgs[pkg]
+
+	f := ap.Files[apiFile]
+
+	cmap := ast.NewCommentMap(fset, f, f.Comments)
+
+	v := &Visitor{iface, make(map[string]ast.Node)}
+	ast.Walk(v, ap)
+
+	comments = make(map[string]string)
+	groupDocs = make(map[string]string)
+	for mn, node := range v.Methods {
+		filteredComments := cmap.Filter(node).Comments()
+		if len(filteredComments) == 0 {
+			comments[mn] = NoComment
+		} else {
+			for _, c := range filteredComments {
+				if strings.HasPrefix(c.Text(), "MethodGroup:") {
+					parts := strings.Split(c.Text(), "\n")
+					groupName := strings.TrimSpace(parts[0][12:])
+					comment := strings.Join(parts[1:], "\n")
+					groupDocs[groupName] = comment
+
+					break
+				}
+			}
+
+			l := len(filteredComments) - 1
+			if len(filteredComments) > 1 {
+				l = len(filteredComments) - 2
+			}
+			last := filteredComments[l].Text()
+			if !strings.HasPrefix(last, "MethodGroup:") {
+				comments[mn] = last
+			} else {
+				comments[mn] = NoComment
+			}
+		}
+	}
+	return comments, groupDocs
+}
+
+func (v *Visitor) Visit(node ast.Node) ast.Visitor {
+	st, ok := node.(*ast.TypeSpec)
+	if !ok {
+		return v
+	}
+
+	if st.Name.Name != v.Root {
+		return nil
+	}
+
+	iface := st.Type.(*ast.InterfaceType)
+	for _, m := range iface.Methods.List {
+		if len(m.Names) > 0 {
+			v.Methods[m.Names[0].Name] = m
+		}
+	}
+
+	return v
+}
+
+func GetAPIType(name, pkg string) (i interface{}, t reflect.Type, permStruct []reflect.Type) {
+	switch pkg {
+	case "api": // latest
+		switch name {
+		case "Curio":
+			i = &api.CurioStruct{}
+			t = reflect.TypeOf(new(struct{ api.Curio })).Elem()
+			permStruct = append(permStruct, reflect.TypeOf(api.CurioStruct{}.Internal))
+		default:
+			panic("unknown type")
+		}
+	}
+	return
 }

@@ -121,7 +121,7 @@ docsgen-md: docsgen-md-curio
 .PHONY: docsgen-md
 
 api-gen:
-	$(GOCC) run ./api/gen/api
+	$(GOCC) run ./api/gen/api/proxygen.go
 	@echo "FixImports will run only from the 'make gen' target"
 .PHONY: api-gen
 
@@ -158,9 +158,8 @@ gen:
 	make -j4 gensimple
 .PHONY: gen
 
-gensimple: go-generate cfgdoc-gen api-gen docsgen
+gensimple: go-generate cfgdoc-gen api-gen docsgen docsgen-cli
 	$(GOCC) run ./scripts/fiximports
-	@echo ">>> IF YOU'VE MODIFIED THE CLI OR CONFIG, REMEMBER TO ALSO RUN 'make docsgen-cli'"
 .PHONY: gen
 
 ##################### Curio devnet images ##################

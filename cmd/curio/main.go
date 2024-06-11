@@ -8,8 +8,6 @@ import (
 	"runtime/pprof"
 	"syscall"
 
-	curiobuild "github.com/filecoin-project/curio/build"
-
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
 	logging "github.com/ipfs/go-log/v2"
@@ -17,6 +15,7 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
+	curiobuild "github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"

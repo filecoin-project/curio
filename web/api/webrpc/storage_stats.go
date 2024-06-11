@@ -2,9 +2,10 @@ package webrpc
 
 import (
 	"context"
+	"time"
+
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
-	"time"
 )
 
 type StorageGCStats struct {
