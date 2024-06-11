@@ -25,6 +25,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/docker/go-units"
 	"github.com/filecoin-project/curio/build"
 	_ "github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
@@ -724,9 +725,9 @@ func stepCreateActor(d *MigrationData) {
 	}
 
 minerInit:
-	var ss abi.SectorSize
+	sectorSize, _ := units.RAMInBytes(d.ssize) // we can ignore the error here because the promptui.Select ensures a valid selection
 
-	miner, err := spcli.CreateStorageMiner(d.ctx, d.full, d.owner, d.worker, d.sender, ss, CONFIDENCE)
+	miner, err := spcli.CreateStorageMiner(d.ctx, d.full, d.owner, d.worker, d.sender, abi.SectorSize(sectorSize), CONFIDENCE)
 	if err != nil {
 		d.say(notice, "Failed to create the miner actor: %s", err.Error())
 		os.Exit(1)
