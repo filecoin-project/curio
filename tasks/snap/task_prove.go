@@ -15,6 +15,15 @@ type ProveTask struct {
 	db *harmonydb.DB
 }
 
+func NewProveTask(sc *ffi.SealCalls, db *harmonydb.DB, max int) *ProveTask {
+	return &ProveTask{
+		max: max,
+
+		sc: sc,
+		db: db,
+	}
+}
+
 func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	//TODO implement me
 	panic("implement me")

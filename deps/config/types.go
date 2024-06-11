@@ -199,6 +199,13 @@ type CurioSubsystemsConfig struct {
 	// uses all available network (or disk) bandwidth on the machine without causing bottlenecks.
 	MoveStorageMaxTasks int
 
+	EnableUpdateEncode bool
+	EnableUpdateProve  bool
+	EnableUpdateSubmit bool
+
+	UpdateEncodeMaxTasks int
+	UpdateProveMaxTasks  int
+
 	// BoostAdapters is a list of tuples of miner address and port/ip to listen for market (e.g. boost) requests.
 	// This interface is compatible with the lotus-miner RPC, implementing a subset needed for storage market operations.
 	// Strings should be in the format "actor:ip:port". IP cannot be 0.0.0.0. We recommend using a private IP.

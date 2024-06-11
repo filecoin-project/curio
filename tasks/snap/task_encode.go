@@ -24,6 +24,14 @@ type EncodeTask struct {
 	db *harmonydb.DB
 }
 
+func NewEncodeTask(sc *ffi.SealCalls, db *harmonydb.DB, max int) *EncodeTask {
+	return &EncodeTask{
+		max: max,
+		sc:  sc,
+		db:  db,
+	}
+}
+
 /*
 CREATE TABLE sectors_snap_pipeline (
     sp_id BIGINT NOT NULL,

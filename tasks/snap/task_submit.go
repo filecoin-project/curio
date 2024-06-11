@@ -8,10 +8,15 @@ import (
 )
 
 type SubmitTask struct {
-	max int
-
 	sc *ffi.SealCalls
 	db *harmonydb.DB
+}
+
+func NewSubmitTask(sc *ffi.SealCalls, db *harmonydb.DB) *SubmitTask {
+	return &SubmitTask{
+		sc: sc,
+		db: db,
+	}
 }
 
 func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
@@ -26,7 +31,6 @@ func (s *SubmitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 
 func (s *SubmitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  s.max,
 		Name: "UpdateSubmit",
 		Cost: resources.Resources{
 			Cpu: 1,

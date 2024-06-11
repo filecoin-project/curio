@@ -23,6 +23,14 @@ type MoveStorageTask struct {
 	db *harmonydb.DB
 }
 
+func NewMoveStorageTask(sc *ffi.SealCalls, db *harmonydb.DB, max int) *MoveStorageTask {
+	return &MoveStorageTask{
+		max: max,
+		sc:  sc,
+		db:  db,
+	}
+}
+
 func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 

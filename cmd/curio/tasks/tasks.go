@@ -3,6 +3,7 @@ package tasks
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/tasks/snap"
 	"sort"
 	"strings"
 	"sync"
@@ -166,7 +167,10 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		cfg.Subsystems.EnableSendPrecommitMsg ||
 		cfg.Subsystems.EnablePoRepProof ||
 		cfg.Subsystems.EnableMoveStorage ||
-		cfg.Subsystems.EnableSendCommitMsg
+		cfg.Subsystems.EnableSendCommitMsg ||
+		cfg.Subsystems.EnableUpdateEncode ||
+		cfg.Subsystems.EnableUpdateProve ||
+		cfg.Subsystems.EnableUpdateSubmit
 	if hasAnySealingTask {
 		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore)
 		if err != nil {
@@ -218,7 +222,7 @@ func addSealingTasks(
 	asyncParams func() func() (bool, error), si paths.SectorIndex, stor *paths.Remote,
 	bstore curiochain.CurioBlockstore) ([]harmonytask.TaskInterface, error) {
 	var activeTasks []harmonytask.TaskInterface
-	// Sealing
+	// Sealing / Snap
 
 	var sp *seal.SealPoller
 	var slr *ffi.SealCalls
@@ -250,11 +254,25 @@ func addSealingTasks(
 	}
 	if cfg.Subsystems.EnableMoveStorage {
 		moveStorageTask := seal.NewMoveStorageTask(sp, slr, db, cfg.Subsystems.MoveStorageMaxTasks)
-		activeTasks = append(activeTasks, moveStorageTask)
+		moveStorageSnapTask := snap.NewMoveStorageTask(slr, db, cfg.Subsystems.MoveStorageMaxTasks)
+		activeTasks = append(activeTasks, moveStorageTask, moveStorageSnapTask)
 	}
 	if cfg.Subsystems.EnableSendCommitMsg {
 		commitTask := seal.NewSubmitCommitTask(sp, db, full, sender, as, cfg)
 		activeTasks = append(activeTasks, commitTask)
+	}
+
+	if cfg.Subsystems.EnableUpdateEncode {
+		encodeTask := snap.NewEncodeTask(slr, db, cfg.Subsystems.UpdateEncodeMaxTasks)
+		activeTasks = append(activeTasks, encodeTask)
+	}
+	if cfg.Subsystems.EnableUpdateProve {
+		proveTask := snap.NewProveTask(slr, db, cfg.Subsystems.UpdateProveMaxTasks)
+		activeTasks = append(activeTasks, proveTask)
+	}
+	if cfg.Subsystems.EnableUpdateSubmit {
+		submitTask := snap.NewSubmitTask(slr, db)
+		activeTasks = append(activeTasks, submitTask)
 	}
 	activeTasks = lo.Reverse(activeTasks)
 
