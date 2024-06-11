@@ -2,6 +2,7 @@ package build
 
 import (
 	"github.com/filecoin-project/go-address"
+
 	lbuild "github.com/filecoin-project/lotus/build"
 )
 

@@ -6,18 +6,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/filecoin-project/curio/cmd/curio/tasks"
-	"github.com/filecoin-project/curio/deps"
-	"github.com/yugabyte/pgx/v5"
 	"os"
 	"time"
 
 	"github.com/urfave/cli/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/dline"
 
+	"github.com/filecoin-project/curio/cmd/curio/tasks"
+	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 

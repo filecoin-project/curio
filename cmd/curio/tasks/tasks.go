@@ -9,6 +9,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	logging "github.com/ipfs/go-log/v2"
+	"github.com/samber/lo"
+	"github.com/snadrus/must"
+	"golang.org/x/exp/maps"
+
+	"github.com/filecoin-project/go-address"
+
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
@@ -25,12 +32,6 @@ import (
 	"github.com/filecoin-project/curio/tasks/seal"
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
-
-	"github.com/filecoin-project/go-address"
-	logging "github.com/ipfs/go-log/v2"
-	"github.com/samber/lo"
-	"github.com/snadrus/must"
-	"golang.org/x/exp/maps"
 
 	"github.com/filecoin-project/lotus/api"
 	lbuild "github.com/filecoin-project/lotus/build"

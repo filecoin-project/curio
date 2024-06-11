@@ -2,8 +2,9 @@ package hapi
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/lib/curiochain"
 	"time"
+
+	"github.com/filecoin-project/curio/lib/curiochain"
 
 	"github.com/filecoin-project/lotus/api/client"
 	"github.com/filecoin-project/lotus/blockstore"

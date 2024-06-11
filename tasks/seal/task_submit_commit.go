@@ -6,11 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/filecoin-project/curio/harmony/harmonytask"
-	"github.com/filecoin-project/curio/harmony/resources"
-	"github.com/filecoin-project/curio/lib/multictladdr"
-	"github.com/filecoin-project/curio/tasks/message"
-
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -24,6 +19,10 @@ import (
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/multictladdr"
+	"github.com/filecoin-project/curio/tasks/message"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/market"

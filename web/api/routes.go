@@ -2,11 +2,12 @@
 package api
 
 import (
+	"github.com/gorilla/mux"
+
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/web/api/config"
 	"github.com/filecoin-project/curio/web/api/sector"
 	"github.com/filecoin-project/curio/web/api/webrpc"
-	"github.com/gorilla/mux"
 )
 
 func Routes(r *mux.Router, deps *deps.Deps) {

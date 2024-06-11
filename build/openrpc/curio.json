@@ -1,0 +1,1156 @@
+{
+    "openrpc": "1.2.6",
+    "info": {
+        "title": "Curio RPC API",
+        "version": "1.22.0"
+    },
+    "methods": [
+        {
+            "name": "Filecoin.AllocatePieceToSector",
+            "description": "```go\nfunc (s *CurioStruct) AllocatePieceToSector(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (lapi.SectorOffset, error) {\n\tif s.Internal.AllocatePieceToSector == nil {\n\t\treturn *new(lapi.SectorOffset), ErrNotSupported\n\t}\n\treturn s.Internal.AllocatePieceToSector(p0, p1, p2, p3, p4, p5)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [
+                {
+                    "name": "p1",
+                    "description": "address.Address",
+                    "summary": "",
+                    "schema": {
+                        "examples": [
+                            "f01234"
+                        ],
+                        "additionalProperties": false,
+                        "type": [
+                            "object"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                },
+                {
+                    "name": "p2",
+                    "description": "lpiece.PieceDealInfo",
+                    "summary": "",
+                    "schema": {
+                        "examples": [
+                            {
+                                "PublishCid": {
+                                    "/": "bafy2bzacea3wsdh6y3a36tb3skempjoxqpuyompjbmfeyf34fi3uy6uue42v4"
+                                },
+                                "DealID": 5432,
+                                "DealProposal": {
+                                    "PieceCID": {
+                                        "/": "bafy2bzacea3wsdh6y3a36tb3skempjoxqpuyompjbmfeyf34fi3uy6uue42v4"
+                                    },
+                                    "PieceSize": 1032,
+                                    "VerifiedDeal": true,
+                                    "Client": "f01234",
+                                    "Provider": "f01234",
+                                    "Label": "",
+                                    "StartEpoch": 10101,
+                                    "EndEpoch": 10101,
+                                    "StoragePricePerEpoch": "0",
+                                    "ProviderCollateral": "0",
+                                    "ClientCollateral": "0"
+                                },
+                                "DealSchedule": {
+                                    "StartEpoch": 10101,
+                                    "EndEpoch": 10101
+                                },
+                                "PieceActivationManifest": {
+                                    "CID": {
+                                        "/": "bafy2bzacea3wsdh6y3a36tb3skempjoxqpuyompjbmfeyf34fi3uy6uue42v4"
+                                    },
+                                    "Size": 2032,
+                                    "VerifiedAllocationKey": null,
+                                    "Notify": null
+                                },
+                                "KeepUnsealed": true
+                            }
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                            "DealID": {
+                                "title": "number",
+                                "type": "number"
+                            },
+                            "DealProposal": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "Client": {
+                                        "additionalProperties": false,
+                                        "type": "object"
+                                    },
+                                    "ClientCollateral": {
+                                        "additionalProperties": false,
+                                        "type": "object"
+                                    },
+                                    "EndEpoch": {
+                                        "title": "number",
+                                        "type": "number"
+                                    },
+                                    "Label": {
+                                        "additionalProperties": false,
+                                        "type": "object"
+                                    },
+                                    "PieceCID": {
+                                        "title": "Content Identifier",
+                                        "type": "string"
+                                    },
+                                    "PieceSize": {
+                                        "title": "number",
+                                        "type": "number"
+                                    },
+                                    "Provider": {
+                                        "additionalProperties": false,
+                                        "type": "object"
+                                    },
+                                    "ProviderCollateral": {
+                                        "additionalProperties": false,
+                                        "type": "object"
+                                    },
+                                    "StartEpoch": {
+                                        "title": "number",
+                                        "type": "number"
+                                    },
+                                    "StoragePricePerEpoch": {
+                                        "additionalProperties": false,
+                                        "type": "object"
+                                    },
+                                    "VerifiedDeal": {
+                                        "type": "boolean"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "DealSchedule": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "EndEpoch": {
+                                        "title": "number",
+                                        "type": "number"
+                                    },
+                                    "StartEpoch": {
+                                        "title": "number",
+                                        "type": "number"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "KeepUnsealed": {
+                                "type": "boolean"
+                            },
+                            "PieceActivationManifest": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "CID": {
+                                        "title": "Content Identifier",
+                                        "type": "string"
+                                    },
+                                    "Notify": {
+                                        "items": {
+                                            "additionalProperties": false,
+                                            "properties": {
+                                                "Address": {
+                                                    "additionalProperties": false,
+                                                    "type": "object"
+                                                },
+                                                "Payload": {
+                                                    "media": {
+                                                        "binaryEncoding": "base64"
+                                                    },
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "Size": {
+                                        "title": "number",
+                                        "type": "number"
+                                    },
+                                    "VerifiedAllocationKey": {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "Client": {
+                                                "title": "number",
+                                                "type": "number"
+                                            },
+                                            "ID": {
+                                                "title": "number",
+                                                "type": "number"
+                                            }
+                                        },
+                                        "type": "object"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "PublishCid": {
+                                "title": "Content Identifier",
+                                "type": "string"
+                            }
+                        },
+                        "type": [
+                            "object"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                },
+                {
+                    "name": "p3",
+                    "description": "int64",
+                    "summary": "",
+                    "schema": {
+                        "title": "number",
+                        "description": "Number is a number",
+                        "examples": [
+                            9
+                        ],
+                        "type": [
+                            "number"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                },
+                {
+                    "name": "p4",
+                    "description": "url.URL",
+                    "summary": "",
+                    "schema": {
+                        "examples": [
+                            {
+                                "Scheme": "string value",
+                                "Opaque": "string value",
+                                "User": {},
+                                "Host": "string value",
+                                "Path": "string value",
+                                "RawPath": "string value",
+                                "OmitHost": true,
+                                "ForceQuery": true,
+                                "RawQuery": "string value",
+                                "Fragment": "string value",
+                                "RawFragment": "string value"
+                            }
+                        ],
+                        "type": [
+                            "string"
+                        ],
+                        "format": "uri"
+                    },
+                    "required": true,
+                    "deprecated": false
+                },
+                {
+                    "name": "p5",
+                    "description": "http.Header",
+                    "summary": "",
+                    "schema": {
+                        "examples": [
+                            {
+                                "Authorization": [
+                                    "Bearer ey.."
+                                ]
+                            }
+                        ],
+                        "patternProperties": {
+                            ".*": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            }
+                        },
+                        "type": [
+                            "object"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                }
+            ],
+            "result": {
+                "name": "lapi.SectorOffset",
+                "description": "lapi.SectorOffset",
+                "summary": "",
+                "schema": {
+                    "examples": [
+                        {
+                            "Sector": 9,
+                            "Offset": 1032
+                        }
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "Offset": {
+                            "title": "number",
+                            "type": "number"
+                        },
+                        "Sector": {
+                            "title": "number",
+                            "type": "number"
+                        }
+                    },
+                    "type": [
+                        "object"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L81"
+            }
+        },
+        {
+            "name": "Filecoin.LogList",
+            "description": "```go\nfunc (s *CurioStruct) LogList(p0 context.Context) ([]string, error) {\n\tif s.Internal.LogList == nil {\n\t\treturn *new([]string), ErrNotSupported\n\t}\n\treturn s.Internal.LogList(p0)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [],
+            "result": {
+                "name": "[]string",
+                "description": "[]string",
+                "summary": "",
+                "schema": {
+                    "examples": [
+                        [
+                            "string value"
+                        ]
+                    ],
+                    "items": [
+                        {
+                            "type": [
+                                "string"
+                            ]
+                        }
+                    ],
+                    "type": [
+                        "array"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L92"
+            }
+        },
+        {
+            "name": "Filecoin.LogSetLevel",
+            "description": "```go\nfunc (s *CurioStruct) LogSetLevel(p0 context.Context, p1 string, p2 string) error {\n\tif s.Internal.LogSetLevel == nil {\n\t\treturn ErrNotSupported\n\t}\n\treturn s.Internal.LogSetLevel(p0, p1, p2)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [
+                {
+                    "name": "p1",
+                    "description": "string",
+                    "summary": "",
+                    "schema": {
+                        "examples": [
+                            "string value"
+                        ],
+                        "type": [
+                            "string"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                },
+                {
+                    "name": "p2",
+                    "description": "string",
+                    "summary": "",
+                    "schema": {
+                        "examples": [
+                            "string value"
+                        ],
+                        "type": [
+                            "string"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                }
+            ],
+            "result": {
+                "name": "Null",
+                "description": "Null",
+                "schema": {
+                    "type": [
+                        "null"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L103"
+            }
+        },
+        {
+            "name": "Filecoin.Shutdown",
+            "description": "```go\nfunc (s *CurioStruct) Shutdown(p0 context.Context) error {\n\tif s.Internal.Shutdown == nil {\n\t\treturn ErrNotSupported\n\t}\n\treturn s.Internal.Shutdown(p0)\n}\n```",
+            "summary": "Trigger shutdown\n",
+            "paramStructure": "by-position",
+            "params": [],
+            "result": {
+                "name": "Null",
+                "description": "Null",
+                "schema": {
+                    "type": [
+                        "null"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L114"
+            }
+        },
+        {
+            "name": "Filecoin.StorageAddLocal",
+            "description": "```go\nfunc (s *CurioStruct) StorageAddLocal(p0 context.Context, p1 string) error {\n\tif s.Internal.StorageAddLocal == nil {\n\t\treturn ErrNotSupported\n\t}\n\treturn s.Internal.StorageAddLocal(p0, p1)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [
+                {
+                    "name": "p1",
+                    "description": "string",
+                    "summary": "",
+                    "schema": {
+                        "examples": [
+                            "string value"
+                        ],
+                        "type": [
+                            "string"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                }
+            ],
+            "result": {
+                "name": "Null",
+                "description": "Null",
+                "schema": {
+                    "type": [
+                        "null"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L125"
+            }
+        },
+        {
+            "name": "Filecoin.StorageDetachLocal",
+            "description": "```go\nfunc (s *CurioStruct) StorageDetachLocal(p0 context.Context, p1 string) error {\n\tif s.Internal.StorageDetachLocal == nil {\n\t\treturn ErrNotSupported\n\t}\n\treturn s.Internal.StorageDetachLocal(p0, p1)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [
+                {
+                    "name": "p1",
+                    "description": "string",
+                    "summary": "",
+                    "schema": {
+                        "examples": [
+                            "string value"
+                        ],
+                        "type": [
+                            "string"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                }
+            ],
+            "result": {
+                "name": "Null",
+                "description": "Null",
+                "schema": {
+                    "type": [
+                        "null"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L136"
+            }
+        },
+        {
+            "name": "Filecoin.StorageFindSector",
+            "description": "```go\nfunc (s *CurioStruct) StorageFindSector(p0 context.Context, p1 abi.SectorID, p2 storiface.SectorFileType, p3 abi.SectorSize, p4 bool) ([]storiface.SectorStorageInfo, error) {\n\tif s.Internal.StorageFindSector == nil {\n\t\treturn *new([]storiface.SectorStorageInfo), ErrNotSupported\n\t}\n\treturn s.Internal.StorageFindSector(p0, p1, p2, p3, p4)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [
+                {
+                    "name": "p1",
+                    "description": "abi.SectorID",
+                    "summary": "",
+                    "schema": {
+                        "examples": [
+                            {
+                                "Miner": 1000,
+                                "Number": 9
+                            }
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                            "Miner": {
+                                "title": "number",
+                                "type": "number"
+                            },
+                            "Number": {
+                                "title": "number",
+                                "type": "number"
+                            }
+                        },
+                        "type": [
+                            "object"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                },
+                {
+                    "name": "p2",
+                    "description": "storiface.SectorFileType",
+                    "summary": "",
+                    "schema": {
+                        "title": "number",
+                        "description": "Number is a number",
+                        "examples": [
+                            1
+                        ],
+                        "type": [
+                            "number"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                },
+                {
+                    "name": "p3",
+                    "description": "abi.SectorSize",
+                    "summary": "",
+                    "schema": {
+                        "title": "number",
+                        "description": "Number is a number",
+                        "examples": [
+                            34359738368
+                        ],
+                        "type": [
+                            "number"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                },
+                {
+                    "name": "p4",
+                    "description": "bool",
+                    "summary": "",
+                    "schema": {
+                        "examples": [
+                            true
+                        ],
+                        "type": [
+                            "boolean"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                }
+            ],
+            "result": {
+                "name": "[]storiface.SectorStorageInfo",
+                "description": "[]storiface.SectorStorageInfo",
+                "summary": "",
+                "schema": {
+                    "examples": [
+                        [
+                            {
+                                "ID": "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8",
+                                "URLs": [
+                                    "string value"
+                                ],
+                                "BaseURLs": [
+                                    "string value"
+                                ],
+                                "Weight": 42,
+                                "CanSeal": true,
+                                "CanStore": true,
+                                "Primary": true,
+                                "AllowTypes": [
+                                    "string value"
+                                ],
+                                "DenyTypes": [
+                                    "string value"
+                                ],
+                                "AllowMiners": [
+                                    "string value"
+                                ],
+                                "DenyMiners": [
+                                    "string value"
+                                ]
+                            }
+                        ]
+                    ],
+                    "items": [
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "AllowMiners": {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                "AllowTypes": {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                "BaseURLs": {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                "CanSeal": {
+                                    "type": "boolean"
+                                },
+                                "CanStore": {
+                                    "type": "boolean"
+                                },
+                                "DenyMiners": {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                "DenyTypes": {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                "ID": {
+                                    "type": "string"
+                                },
+                                "Primary": {
+                                    "type": "boolean"
+                                },
+                                "URLs": {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                "Weight": {
+                                    "title": "number",
+                                    "type": "number"
+                                }
+                            },
+                            "type": [
+                                "object"
+                            ]
+                        }
+                    ],
+                    "type": [
+                        "array"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L147"
+            }
+        },
+        {
+            "name": "Filecoin.StorageInfo",
+            "description": "```go\nfunc (s *CurioStruct) StorageInfo(p0 context.Context, p1 storiface.ID) (storiface.StorageInfo, error) {\n\tif s.Internal.StorageInfo == nil {\n\t\treturn *new(storiface.StorageInfo), ErrNotSupported\n\t}\n\treturn s.Internal.StorageInfo(p0, p1)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [
+                {
+                    "name": "p1",
+                    "description": "storiface.ID",
+                    "summary": "",
+                    "schema": {
+                        "examples": [
+                            "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8"
+                        ],
+                        "type": [
+                            "string"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                }
+            ],
+            "result": {
+                "name": "storiface.StorageInfo",
+                "description": "storiface.StorageInfo",
+                "summary": "",
+                "schema": {
+                    "examples": [
+                        {
+                            "ID": "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8",
+                            "URLs": [
+                                "string value"
+                            ],
+                            "Weight": 42,
+                            "MaxStorage": 42,
+                            "CanSeal": true,
+                            "CanStore": true,
+                            "Groups": [
+                                "string value"
+                            ],
+                            "AllowTo": [
+                                "string value"
+                            ],
+                            "AllowTypes": [
+                                "string value"
+                            ],
+                            "DenyTypes": [
+                                "string value"
+                            ],
+                            "AllowMiners": [
+                                "string value"
+                            ],
+                            "DenyMiners": [
+                                "string value"
+                            ]
+                        }
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "AllowMiners": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "AllowTo": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "AllowTypes": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "CanSeal": {
+                            "type": "boolean"
+                        },
+                        "CanStore": {
+                            "type": "boolean"
+                        },
+                        "DenyMiners": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "DenyTypes": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "Groups": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "ID": {
+                            "type": "string"
+                        },
+                        "MaxStorage": {
+                            "title": "number",
+                            "type": "number"
+                        },
+                        "URLs": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "Weight": {
+                            "title": "number",
+                            "type": "number"
+                        }
+                    },
+                    "type": [
+                        "object"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L158"
+            }
+        },
+        {
+            "name": "Filecoin.StorageInit",
+            "description": "```go\nfunc (s *CurioStruct) StorageInit(p0 context.Context, p1 string, p2 storiface.LocalStorageMeta) error {\n\tif s.Internal.StorageInit == nil {\n\t\treturn ErrNotSupported\n\t}\n\treturn s.Internal.StorageInit(p0, p1, p2)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [
+                {
+                    "name": "p1",
+                    "description": "string",
+                    "summary": "",
+                    "schema": {
+                        "examples": [
+                            "string value"
+                        ],
+                        "type": [
+                            "string"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                },
+                {
+                    "name": "p2",
+                    "description": "storiface.LocalStorageMeta",
+                    "summary": "",
+                    "schema": {
+                        "examples": [
+                            {
+                                "ID": "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8",
+                                "Weight": 42,
+                                "CanSeal": true,
+                                "CanStore": true,
+                                "MaxStorage": 42,
+                                "Groups": [
+                                    "string value"
+                                ],
+                                "AllowTo": [
+                                    "string value"
+                                ],
+                                "AllowTypes": [
+                                    "string value"
+                                ],
+                                "DenyTypes": [
+                                    "string value"
+                                ],
+                                "AllowMiners": [
+                                    "string value"
+                                ],
+                                "DenyMiners": [
+                                    "string value"
+                                ]
+                            }
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                            "AllowMiners": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "AllowTo": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "AllowTypes": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "CanSeal": {
+                                "type": "boolean"
+                            },
+                            "CanStore": {
+                                "type": "boolean"
+                            },
+                            "DenyMiners": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "DenyTypes": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "Groups": {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "ID": {
+                                "type": "string"
+                            },
+                            "MaxStorage": {
+                                "title": "number",
+                                "type": "number"
+                            },
+                            "Weight": {
+                                "title": "number",
+                                "type": "number"
+                            }
+                        },
+                        "type": [
+                            "object"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                }
+            ],
+            "result": {
+                "name": "Null",
+                "description": "Null",
+                "schema": {
+                    "type": [
+                        "null"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L169"
+            }
+        },
+        {
+            "name": "Filecoin.StorageList",
+            "description": "```go\nfunc (s *CurioStruct) StorageList(p0 context.Context) (map[storiface.ID][]storiface.Decl, error) {\n\tif s.Internal.StorageList == nil {\n\t\treturn *new(map[storiface.ID][]storiface.Decl), ErrNotSupported\n\t}\n\treturn s.Internal.StorageList(p0)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [],
+            "result": {
+                "name": "map[storiface.ID][]storiface.Decl",
+                "description": "map[storiface.ID][]storiface.Decl",
+                "summary": "",
+                "schema": {
+                    "examples": [
+                        {
+                            "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8": [
+                                {
+                                    "Miner": 1000,
+                                    "Number": 100,
+                                    "SectorFileType": 2
+                                }
+                            ]
+                        }
+                    ],
+                    "patternProperties": {
+                        ".*": {
+                            "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                    "Miner": {
+                                        "title": "number",
+                                        "type": "number"
+                                    },
+                                    "Number": {
+                                        "title": "number",
+                                        "type": "number"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "type": [
+                        "object"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L180"
+            }
+        },
+        {
+            "name": "Filecoin.StorageLocal",
+            "description": "```go\nfunc (s *CurioStruct) StorageLocal(p0 context.Context) (map[storiface.ID]string, error) {\n\tif s.Internal.StorageLocal == nil {\n\t\treturn *new(map[storiface.ID]string), ErrNotSupported\n\t}\n\treturn s.Internal.StorageLocal(p0)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [],
+            "result": {
+                "name": "map[storiface.ID]string",
+                "description": "map[storiface.ID]string",
+                "summary": "",
+                "schema": {
+                    "examples": [
+                        {
+                            "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8": "/data/path"
+                        }
+                    ],
+                    "patternProperties": {
+                        ".*": {
+                            "type": "string"
+                        }
+                    },
+                    "type": [
+                        "object"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L191"
+            }
+        },
+        {
+            "name": "Filecoin.StorageStat",
+            "description": "```go\nfunc (s *CurioStruct) StorageStat(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) {\n\tif s.Internal.StorageStat == nil {\n\t\treturn *new(fsutil.FsStat), ErrNotSupported\n\t}\n\treturn s.Internal.StorageStat(p0, p1)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [
+                {
+                    "name": "p1",
+                    "description": "storiface.ID",
+                    "summary": "",
+                    "schema": {
+                        "examples": [
+                            "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8"
+                        ],
+                        "type": [
+                            "string"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                }
+            ],
+            "result": {
+                "name": "fsutil.FsStat",
+                "description": "fsutil.FsStat",
+                "summary": "",
+                "schema": {
+                    "examples": [
+                        {
+                            "Capacity": 9,
+                            "Available": 9,
+                            "FSAvailable": 9,
+                            "Reserved": 9,
+                            "Max": 9,
+                            "Used": 9
+                        }
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "Available": {
+                            "title": "number",
+                            "type": "number"
+                        },
+                        "Capacity": {
+                            "title": "number",
+                            "type": "number"
+                        },
+                        "FSAvailable": {
+                            "title": "number",
+                            "type": "number"
+                        },
+                        "Max": {
+                            "title": "number",
+                            "type": "number"
+                        },
+                        "Reserved": {
+                            "title": "number",
+                            "type": "number"
+                        },
+                        "Used": {
+                            "title": "number",
+                            "type": "number"
+                        }
+                    },
+                    "type": [
+                        "object"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L202"
+            }
+        },
+        {
+            "name": "Filecoin.Version",
+            "description": "```go\nfunc (s *CurioStruct) Version(p0 context.Context) (lapi.Version, error) {\n\tif s.Internal.Version == nil {\n\t\treturn *new(lapi.Version), ErrNotSupported\n\t}\n\treturn s.Internal.Version(p0)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [],
+            "result": {
+                "name": "lapi.Version",
+                "description": "lapi.Version",
+                "summary": "",
+                "schema": {
+                    "title": "number",
+                    "description": "Number is a number",
+                    "examples": [
+                        131840
+                    ],
+                    "type": [
+                        "number"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L213"
+            }
+        }
+    ]
+}

@@ -2,11 +2,13 @@ package gc
 
 import (
 	"context"
+	"time"
+
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
-	"golang.org/x/xerrors"
-	"time"
 )
 
 const SDRPipelineGCInterval = 19 * time.Minute

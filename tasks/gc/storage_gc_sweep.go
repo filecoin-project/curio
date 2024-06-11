@@ -2,15 +2,19 @@ package gc
 
 import (
 	"context"
+	"time"
+
+	"github.com/samber/lo"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/paths"
-	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
-	"github.com/samber/lo"
-	"golang.org/x/xerrors"
-	"time"
 )
 
 type StorageGCSweep struct {

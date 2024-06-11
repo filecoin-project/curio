@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/filecoin-project/curio/lib/curiochain"
 	"io"
 	"net"
 	"net/http"
@@ -18,20 +17,21 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/filecoin-project/curio/lib/multictladdr"
-	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/gbrlsnchs/jwt/v3"
+	logging "github.com/ipfs/go-log/v2"
+	"github.com/samber/lo"
+	"github.com/urfave/cli/v2"
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-
-	"github.com/gbrlsnchs/jwt/v3"
-	logging "github.com/ipfs/go-log/v2"
-	"github.com/samber/lo"
-	"github.com/urfave/cli/v2"
-	"golang.org/x/xerrors"
+	"github.com/filecoin-project/curio/lib/curiochain"
+	"github.com/filecoin-project/curio/lib/multictladdr"
+	"github.com/filecoin-project/curio/lib/paths"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/v1api"

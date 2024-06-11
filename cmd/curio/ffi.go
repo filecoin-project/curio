@@ -4,14 +4,15 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/filecoin-project/curio/lib/ffiselect"
-	"github.com/filecoin-project/curio/lib/ffiselect/ffidirect"
-	"github.com/filecoin-project/go-jsonrpc"
-
 	"github.com/ipfs/go-cid"
 	"github.com/snadrus/must"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/net/context"
+
+	"github.com/filecoin-project/go-jsonrpc"
+
+	"github.com/filecoin-project/curio/lib/ffiselect"
+	"github.com/filecoin-project/curio/lib/ffiselect/ffidirect"
 )
 
 var ffiCmd = &cli.Command{

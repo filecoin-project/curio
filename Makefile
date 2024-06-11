@@ -103,20 +103,64 @@ dist-clean:
 	git submodule deinit --all -f
 .PHONY: dist-clean
 
-docsgen: curio sptool
-	python3 ./scripts/generate-cli.py
-.PHONY: docsgen
-
 cu2k: GOFLAGS+=-tags=2k
 cu2k: curio
 
 cfgdoc-gen:
 	$(GOCC) run ./deps/config/cfgdocgen > ./deps/config/doc_gen.go
 
-# TODO API GEN
-# TODO DOCS GEN
+fiximports:
+	$(GOCC) run ./scripts/fiximports
 
-# TODO DEVNET IMAGES
+docsgen: docsgen-md docsgen-openrpc
+	@echo "FixImports will run only from the 'make gen' target"
+.PHONY: docsgen
+
+docsgen-md: docsgen-md-curio
+	@echo "FixImports will run only from the 'make gen' target"
+.PHONY: docsgen-md
+
+api-gen:
+	$(GOCC) run ./api/gen/api/proxygen.go
+	@echo "FixImports will run only from the 'make gen' target"
+.PHONY: api-gen
+
+docsgen-md-curio: docsgen-md-bin
+	./docgen-md "api/api_curio.go" "Curio" "api" "./api" > documentation/api-v0-methods-curio.md
+	@echo "FixImports will run only from the 'make gen' target"
+.PHONY: api-gen
+
+docsgen-md-bin: api-gen
+	$(GOCC) build $(GOFLAGS) -o docgen-md ./scripts/docgen/cmd
+	@echo "FixImports will run only from the 'make gen' target"
+.PHONY: docsgen-md-bin
+
+docsgen-openrpc: docsgen-openrpc-curio
+	@echo "FixImports will run only from the 'make gen' target"
+.PHONY: docsgen-openrpc
+
+docsgen-openrpc-bin: api-gen 
+	$(GOCC) build $(GOFLAGS) -o docgen-openrpc ./api/docgen-openrpc/cmd
+
+docsgen-openrpc-curio: docsgen-openrpc-bin
+	./docgen-openrpc "api/api_curio.go" "Curio" "api" "./api" > build/openrpc/curio.json
+
+docsgen-cli: curio sptool
+	python3 ./scripts/generate-cli.py
+	./curio config default > documentation/default-curio-config.toml
+.PHONY: docsgen-cli
+
+go-generate:
+	$(GOCC) generate ./...
+.PHONY: go-generate
+
+gen: gensimple
+.PHONY: gen
+
+gensimple: go-generate cfgdoc-gen api-gen docsgen docsgen-cli
+	$(GOCC) run ./scripts/fiximports
+.PHONY: gen
+
 ##################### Curio devnet images ##################
 build_lotus?=0
 curio_docker_user?=curio

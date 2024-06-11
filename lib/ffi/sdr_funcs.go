@@ -8,15 +8,15 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/filecoin-project/curio/harmony/harmonytask"
-	"github.com/filecoin-project/curio/lib/ffiselect"
-	"github.com/filecoin-project/curio/lib/proof"
-
 	"github.com/KarpelesLab/reflink"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/puzpuzpuz/xsync/v2"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/lib/ffiselect"
+	"github.com/filecoin-project/curio/lib/proof"
 
 	// TODO everywhere here that we call this we should call our proxy instead.
 	ffi "github.com/filecoin-project/filecoin-ffi"
@@ -26,6 +26,7 @@ import (
 
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/proofpaths"
+
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 

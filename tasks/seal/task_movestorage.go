@@ -3,16 +3,16 @@ package seal
 import (
 	"context"
 
-	"github.com/filecoin-project/curio/harmony/harmonytask"
-	"github.com/filecoin-project/curio/harmony/resources"
-	ffi2 "github.com/filecoin-project/curio/lib/ffi"
-
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/resources"
+	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
+
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 

@@ -8,17 +8,17 @@ import (
 	"runtime/pprof"
 	"syscall"
 
-	curiobuild "github.com/filecoin-project/curio/build"
-
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
-	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
-	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/lib/fastparamfetch"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/mitchellh/go-homedir"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
+
+	curiobuild "github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
+	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/fastparamfetch"
 
 	lbuild "github.com/filecoin-project/lotus/build"
 	lcli "github.com/filecoin-project/lotus/cli"

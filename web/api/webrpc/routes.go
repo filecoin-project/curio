@@ -3,14 +3,13 @@ package webrpc
 import (
 	"context"
 
-	"github.com/filecoin-project/curio/deps"
-
 	"github.com/gorilla/mux"
 	logging "github.com/ipfs/go-log/v2"
 
 	"github.com/filecoin-project/go-jsonrpc"
 
-	curiobuild "github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/deps"
 
 	lbuild "github.com/filecoin-project/lotus/build"
 )
@@ -22,7 +21,7 @@ type WebRPC struct {
 }
 
 func (a *WebRPC) Version(context.Context) (string, error) {
-	return curiobuild.UserVersion(), nil
+	return build.UserVersion(), nil
 }
 
 func (a *WebRPC) BlockDelaySecs(context.Context) (uint64, error) {

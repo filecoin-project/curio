@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/filecoin-project/curio/cmd/curio/rpc"
 
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/cmd/curio/rpc"
 
 	lcli "github.com/filecoin-project/lotus/cli"
 )

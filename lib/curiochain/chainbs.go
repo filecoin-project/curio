@@ -1,10 +1,11 @@
 package curiochain
 
 import (
-	"github.com/filecoin-project/lotus/blockstore"
-	"github.com/filecoin-project/lotus/lib/must"
 	lru "github.com/hashicorp/golang-lru/v2"
 	blocks "github.com/ipfs/go-block-format"
+
+	"github.com/filecoin-project/lotus/blockstore"
+	"github.com/filecoin-project/lotus/lib/must"
 )
 
 var ChainBlockCache = must.One(lru.New[blockstore.MhString, blocks.Block](4096))

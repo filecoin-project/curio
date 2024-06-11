@@ -3,9 +3,11 @@ package ffiselect
 import (
 	"bytes"
 	"context"
-	"github.com/filecoin-project/curio/lib/ffiselect/ffidirect"
-	"github.com/filecoin-project/go-jsonrpc"
 	"io"
+
+	"github.com/filecoin-project/go-jsonrpc"
+
+	"github.com/filecoin-project/curio/lib/ffiselect/ffidirect"
 )
 
 func callTest(ctx context.Context, body []byte) (io.ReadCloser, error) {

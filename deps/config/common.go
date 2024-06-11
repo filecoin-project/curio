@@ -10,7 +10,7 @@ type Common struct {
 
 // API contains configs for API endpoint
 type API struct {
-	// Binding address for the Lotus API
+	// Binding address for the Binary's API
 	ListenAddress       string
 	RemoteListenAddress string
 	Timeout             Duration

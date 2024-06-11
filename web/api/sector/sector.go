@@ -9,24 +9,27 @@ import (
 	"time"
 
 	"github.com/docker/go-units"
-	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/web/api/apihelper"
+	"github.com/gorilla/mux"
+	"github.com/hashicorp/go-multierror"
+	cbor "github.com/ipfs/go-ipld-cbor"
+	"github.com/samber/lo"
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
+
+	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/web/api/apihelper"
+
 	"github.com/filecoin-project/lotus/blockstore"
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/cli/spcli"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
-	"github.com/gorilla/mux"
-	"github.com/hashicorp/go-multierror"
-	cbor "github.com/ipfs/go-ipld-cbor"
-	"github.com/samber/lo"
-	"golang.org/x/xerrors"
 )
 
 const verifiedPowerGainMul = 9

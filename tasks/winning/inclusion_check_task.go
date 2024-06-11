@@ -2,13 +2,17 @@ package winning
 
 import (
 	"context"
+	"time"
+
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
-	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/lotus/chain/types"
-	"golang.org/x/xerrors"
-	"time"
 )
 
 const InclusionCheckInterval = 5 * time.Minute
