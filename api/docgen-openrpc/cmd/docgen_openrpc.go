@@ -14,9 +14,8 @@ import (
 	"reflect"
 	"strings"
 
-	docgen_openrpc "github.com/filecoin-project/curio/api/docgen-openrpc"
-
 	"github.com/filecoin-project/curio/api"
+	docgen_openrpc "github.com/filecoin-project/curio/api/docgen-openrpc"
 )
 
 /*
