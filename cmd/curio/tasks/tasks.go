@@ -3,7 +3,6 @@ package tasks
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/tasks/snap"
 	"sort"
 	"strings"
 	"sync"
@@ -33,6 +32,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/message"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/snap"
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
 

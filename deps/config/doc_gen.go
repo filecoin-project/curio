@@ -544,6 +544,36 @@ also be bounded by resources available on the machine. It is recommended that th
 uses all available network (or disk) bandwidth on the machine without causing bottlenecks.`,
 		},
 		{
+			Name: "EnableUpdateEncode",
+			Type: "bool",
+
+			Comment: ``,
+		},
+		{
+			Name: "EnableUpdateProve",
+			Type: "bool",
+
+			Comment: ``,
+		},
+		{
+			Name: "EnableUpdateSubmit",
+			Type: "bool",
+
+			Comment: ``,
+		},
+		{
+			Name: "UpdateEncodeMaxTasks",
+			Type: "int",
+
+			Comment: ``,
+		},
+		{
+			Name: "UpdateProveMaxTasks",
+			Type: "int",
+
+			Comment: ``,
+		},
+		{
 			Name: "BoostAdapters",
 			Type: "[]string",
 

@@ -3,13 +3,12 @@ package ffi
 import (
 	"bytes"
 	"context"
-	"github.com/filecoin-project/lotus/storage/sealer/fr32"
-	pool "github.com/libp2p/go-buffer-pool"
 	"io"
 	"io/ioutil"
 	"os"
 
 	"github.com/ipfs/go-cid"
+	pool "github.com/libp2p/go-buffer-pool"
 	"golang.org/x/xerrors"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
@@ -17,6 +16,8 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/tarutil"
+
+	"github.com/filecoin-project/lotus/storage/sealer/fr32"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 

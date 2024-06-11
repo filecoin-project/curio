@@ -3,18 +3,18 @@ package piece
 import (
 	"context"
 	"encoding/json"
-	"github.com/filecoin-project/curio/lib/dealdata"
 	"strconv"
 	"time"
 
-	"github.com/filecoin-project/curio/harmony/harmonytask"
-	"github.com/filecoin-project/curio/harmony/resources"
-	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/hashicorp/go-multierror"
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/dealdata"
+	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
 
 	"github.com/filecoin-project/lotus/lib/promise"
