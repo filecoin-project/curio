@@ -165,7 +165,7 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 	var mpieces []piece
 	apihelper.OrHTTPFail(w, c.DB.Select(r.Context(), &mpieces, `SELECT 
 										sp_id,
-										sector_num,
+										sector_num as sector_number,
 										piece_size,
 										COALESCE(f05_deal_id, 0) AS f05_deal_id,
 										f05_deal_proposal,
