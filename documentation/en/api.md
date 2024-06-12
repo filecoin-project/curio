@@ -6,27 +6,28 @@ description: Curio API references
 
 ## Groups
 
-* [Common](api.md#common)
-  * [Shutdown](api.md#shutdown)
-  * [Version](api.md#version)
-* [Allocate](api.md#allocate)
-  * [AllocatePieceToSector](api.md#allocatepiecetosector)
-* [Log](api.md#log)
-  * [LogList](api.md#loglist)
-  * [LogSetLevel](api.md#logsetlevel)
-* [Storage](api.md#storage)
-  * [StorageAddLocal](api.md#storageaddlocal)
-  * [StorageDetachLocal](api.md#storagedetachlocal)
-  * [StorageFindSector](api.md#storagefindsector)
-  * [StorageInfo](api.md#storageinfo)
-  * [StorageInit](api.md#storageinit)
-  * [StorageList](api.md#storagelist)
-  * [StorageLocal](api.md#storagelocal)
-  * [StorageStat](api.md#storagestat)
+* [](#)
+  * [Shutdown](#Shutdown)
+  * [Version](#Version)
+* [Allocate](#Allocate)
+  * [AllocatePieceToSector](#AllocatePieceToSector)
+* [Log](#Log)
+  * [LogList](#LogList)
+  * [LogSetLevel](#LogSetLevel)
+* [Storage](#Storage)
+  * [StorageAddLocal](#StorageAddLocal)
+  * [StorageDetachLocal](#StorageDetachLocal)
+  * [StorageFindSector](#StorageFindSector)
+  * [StorageInfo](#StorageInfo)
+  * [StorageInit](#StorageInit)
+  * [StorageList](#StorageList)
+  * [StorageLocal](#StorageLocal)
+  * [StorageStat](#StorageStat)
+### 
 
-### Common
 
 #### Shutdown
+
 
 Perms: admin
 
@@ -35,7 +36,6 @@ Inputs: `null`
 Response: `{}`
 
 #### Version
-
 There are not yet any comments for this method.
 
 Perms: admin
@@ -46,14 +46,13 @@ Response: `131840`
 
 ### Allocate
 
-#### AllocatePieceToSector
 
+#### AllocatePieceToSector
 There are not yet any comments for this method.
 
 Perms: write
 
 Inputs:
-
 ```json
 [
   "f01234",
@@ -114,7 +113,6 @@ Inputs:
 ```
 
 Response:
-
 ```json
 {
   "Sector": 9,
@@ -123,11 +121,10 @@ Response:
 ```
 
 ### Log
-
 The log method group has logging methods
 
-#### LogList
 
+#### LogList
 There are not yet any comments for this method.
 
 Perms: read
@@ -135,7 +132,6 @@ Perms: read
 Inputs: `null`
 
 Response:
-
 ```json
 [
   "string value"
@@ -144,10 +140,10 @@ Response:
 
 #### LogSetLevel
 
+
 Perms: admin
 
 Inputs:
-
 ```json
 [
   "string value",
@@ -158,15 +154,15 @@ Inputs:
 Response: `{}`
 
 ### Storage
-
 The storage method group contains are storage administration method
 
+
 #### StorageAddLocal
+
 
 Perms: admin
 
 Inputs:
-
 ```json
 [
   "string value"
@@ -177,10 +173,10 @@ Response: `{}`
 
 #### StorageDetachLocal
 
+
 Perms: admin
 
 Inputs:
-
 ```json
 [
   "string value"
@@ -191,10 +187,10 @@ Response: `{}`
 
 #### StorageFindSector
 
+
 Perms: admin
 
 Inputs:
-
 ```json
 [
   {
@@ -208,7 +204,6 @@ Inputs:
 ```
 
 Response:
-
 ```json
 [
   {
@@ -241,10 +236,10 @@ Response:
 
 #### StorageInfo
 
+
 Perms: admin
 
 Inputs:
-
 ```json
 [
   "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8"
@@ -252,7 +247,6 @@ Inputs:
 ```
 
 Response:
-
 ```json
 {
   "ID": "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8",
@@ -285,13 +279,11 @@ Response:
 ```
 
 #### StorageInit
-
 There are not yet any comments for this method.
 
 Perms: admin
 
 Inputs:
-
 ```json
 [
   "string value",
@@ -327,12 +319,12 @@ Response: `{}`
 
 #### StorageList
 
+
 Perms: admin
 
 Inputs: `null`
 
 Response:
-
 ```json
 {
   "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8": [
@@ -347,12 +339,12 @@ Response:
 
 #### StorageLocal
 
+
 Perms: admin
 
 Inputs: `null`
 
 Response:
-
 ```json
 {
   "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8": "/data/path"
@@ -361,10 +353,10 @@ Response:
 
 #### StorageStat
 
+
 Perms: admin
 
 Inputs:
-
 ```json
 [
   "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8"
@@ -372,7 +364,6 @@ Inputs:
 ```
 
 Response:
-
 ```json
 {
   "Capacity": 9,
@@ -383,3 +374,4 @@ Response:
   "Used": 9
 }
 ```
+

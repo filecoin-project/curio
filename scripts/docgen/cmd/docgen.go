@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/filecoin-project/lotus/api/docgen"
+	"github.com/filecoin-project/curio/scripts/docgen"
 )
 
 func main() {
@@ -67,7 +67,7 @@ func main() {
 		return groupslice[i].GroupName < groupslice[j].GroupName
 	})
 
-	fmt.Printf("# Groups\n")
+	fmt.Printf("## Groups\n\n")
 
 	for _, g := range groupslice {
 		fmt.Printf("* [%s](#%s)\n", g.GroupName, g.GroupName)
@@ -78,7 +78,7 @@ func main() {
 
 	for _, g := range groupslice {
 		g := g
-		fmt.Printf("## %s\n", g.GroupName)
+		fmt.Printf("### %s\n", g.GroupName)
 		fmt.Printf("%s\n\n", g.Header)
 
 		sort.Slice(g.Methods, func(i, j int) bool {
@@ -86,7 +86,7 @@ func main() {
 		})
 
 		for _, m := range g.Methods {
-			fmt.Printf("### %s\n", m.Name)
+			fmt.Printf("#### %s\n", m.Name)
 			fmt.Printf("%s\n\n", m.Comment)
 
 			var meth reflect.StructField

@@ -38,7 +38,6 @@ import (
 
 	"github.com/filecoin-project/lotus/api"
 	apitypes "github.com/filecoin-project/lotus/api/types"
-	"github.com/filecoin-project/lotus/api/v0api"
 	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -436,41 +435,10 @@ func GetAPIType(name, pkg string) (i interface{}, t reflect.Type, permStruct []r
 	switch pkg {
 	case "api": // latest
 		switch name {
-		case "FullNode":
-			i = &api.FullNodeStruct{}
-			t = reflect.TypeOf(new(struct{ api.FullNode })).Elem()
-			permStruct = append(permStruct, reflect.TypeOf(api.FullNodeStruct{}.Internal))
-			permStruct = append(permStruct, reflect.TypeOf(api.CommonStruct{}.Internal))
-			permStruct = append(permStruct, reflect.TypeOf(api.NetStruct{}.Internal))
-		case "StorageMiner":
-			i = &api.StorageMinerStruct{}
-			t = reflect.TypeOf(new(struct{ api.StorageMiner })).Elem()
-			permStruct = append(permStruct, reflect.TypeOf(api.StorageMinerStruct{}.Internal))
-			permStruct = append(permStruct, reflect.TypeOf(api.CommonStruct{}.Internal))
-			permStruct = append(permStruct, reflect.TypeOf(api.NetStruct{}.Internal))
-		case "Worker":
-			i = &api.WorkerStruct{}
-			t = reflect.TypeOf(new(struct{ api.Worker })).Elem()
-			permStruct = append(permStruct, reflect.TypeOf(api.WorkerStruct{}.Internal))
-		case "Gateway":
-			i = &api.GatewayStruct{}
-			t = reflect.TypeOf(new(struct{ api.Gateway })).Elem()
-			permStruct = append(permStruct, reflect.TypeOf(api.GatewayStruct{}.Internal))
 		case "Curio":
 			i = &api.CurioStruct{}
 			t = reflect.TypeOf(new(struct{ api.Curio })).Elem()
 			permStruct = append(permStruct, reflect.TypeOf(api.CurioStruct{}.Internal))
-		default:
-			panic("unknown type")
-		}
-	case "v0api":
-		switch name {
-		case "FullNode":
-			i = v0api.FullNodeStruct{}
-			t = reflect.TypeOf(new(struct{ v0api.FullNode })).Elem()
-			permStruct = append(permStruct, reflect.TypeOf(v0api.FullNodeStruct{}.Internal))
-			permStruct = append(permStruct, reflect.TypeOf(v0api.CommonStruct{}.Internal))
-			permStruct = append(permStruct, reflect.TypeOf(v0api.NetStruct{}.Internal))
 		default:
 			panic("unknown type")
 		}

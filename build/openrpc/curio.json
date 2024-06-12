@@ -7,8 +7,8 @@
     "methods": [
         {
             "name": "Filecoin.AllocatePieceToSector",
-            "description": "```go\nfunc (s *CurioStruct) AllocatePieceToSector(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (lapi.SectorOffset, error) {\n\tif s.Internal.AllocatePieceToSector == nil {\n\t\treturn *new(lapi.SectorOffset), ErrNotSupported\n\t}\n\treturn s.Internal.AllocatePieceToSector(p0, p1, p2, p3, p4, p5)\n}\n```",
-            "summary": "",
+            "description": "```go\nfunc (s *CurioStruct) AllocatePieceToSector(p0 context.Context, p1 address.Address, p2 PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (SectorOffset, error) {\n\tif s.Internal.AllocatePieceToSector == nil {\n\t\treturn *new(SectorOffset), ErrNotSupported\n\t}\n\treturn s.Internal.AllocatePieceToSector(p0, p1, p2, p3, p4, p5)\n}\n```",
+            "summary": "There are not yet any comments for this method.",
             "paramStructure": "by-position",
             "params": [
                 {
@@ -29,7 +29,7 @@
                 },
                 {
                     "name": "p2",
-                    "description": "lpiece.PieceDealInfo",
+                    "description": "PieceDealInfo",
                     "summary": "",
                     "schema": {
                         "examples": [
@@ -273,8 +273,8 @@
                 }
             ],
             "result": {
-                "name": "lapi.SectorOffset",
-                "description": "lapi.SectorOffset",
+                "name": "SectorOffset",
+                "description": "SectorOffset",
                 "summary": "",
                 "schema": {
                     "examples": [
@@ -304,13 +304,13 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L81"
+                "url": "https://github.com/filecoin-project/lotus/blob/master/api/proxy_gen.go#L1501"
             }
         },
         {
             "name": "Filecoin.LogList",
             "description": "```go\nfunc (s *CurioStruct) LogList(p0 context.Context) ([]string, error) {\n\tif s.Internal.LogList == nil {\n\t\treturn *new([]string), ErrNotSupported\n\t}\n\treturn s.Internal.LogList(p0)\n}\n```",
-            "summary": "",
+            "summary": "There are not yet any comments for this method.",
             "paramStructure": "by-position",
             "params": [],
             "result": {
@@ -340,7 +340,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L92"
+                "url": "https://github.com/filecoin-project/lotus/blob/master/api/proxy_gen.go#L1512"
             }
         },
         {
@@ -394,13 +394,13 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L103"
+                "url": "https://github.com/filecoin-project/lotus/blob/master/api/proxy_gen.go#L1523"
             }
         },
         {
             "name": "Filecoin.Shutdown",
             "description": "```go\nfunc (s *CurioStruct) Shutdown(p0 context.Context) error {\n\tif s.Internal.Shutdown == nil {\n\t\treturn ErrNotSupported\n\t}\n\treturn s.Internal.Shutdown(p0)\n}\n```",
-            "summary": "Trigger shutdown\n",
+            "summary": "",
             "paramStructure": "by-position",
             "params": [],
             "result": {
@@ -417,7 +417,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L114"
+                "url": "https://github.com/filecoin-project/lotus/blob/master/api/proxy_gen.go#L1534"
             }
         },
         {
@@ -456,7 +456,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L125"
+                "url": "https://github.com/filecoin-project/lotus/blob/master/api/proxy_gen.go#L1545"
             }
         },
         {
@@ -495,7 +495,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L136"
+                "url": "https://github.com/filecoin-project/lotus/blob/master/api/proxy_gen.go#L1556"
             }
         },
         {
@@ -689,7 +689,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L147"
+                "url": "https://github.com/filecoin-project/lotus/blob/master/api/proxy_gen.go#L1567"
             }
         },
         {
@@ -821,13 +821,13 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L158"
+                "url": "https://github.com/filecoin-project/lotus/blob/master/api/proxy_gen.go#L1578"
             }
         },
         {
             "name": "Filecoin.StorageInit",
             "description": "```go\nfunc (s *CurioStruct) StorageInit(p0 context.Context, p1 string, p2 storiface.LocalStorageMeta) error {\n\tif s.Internal.StorageInit == nil {\n\t\treturn ErrNotSupported\n\t}\n\treturn s.Internal.StorageInit(p0, p1, p2)\n}\n```",
-            "summary": "",
+            "summary": "There are not yet any comments for this method.",
             "paramStructure": "by-position",
             "params": [
                 {
@@ -955,7 +955,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L169"
+                "url": "https://github.com/filecoin-project/lotus/blob/master/api/proxy_gen.go#L1589"
             }
         },
         {
@@ -1009,7 +1009,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L180"
+                "url": "https://github.com/filecoin-project/lotus/blob/master/api/proxy_gen.go#L1600"
             }
         },
         {
@@ -1043,7 +1043,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L191"
+                "url": "https://github.com/filecoin-project/lotus/blob/master/api/proxy_gen.go#L1611"
             }
         },
         {
@@ -1120,18 +1120,18 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L202"
+                "url": "https://github.com/filecoin-project/lotus/blob/master/api/proxy_gen.go#L1622"
             }
         },
         {
             "name": "Filecoin.Version",
-            "description": "```go\nfunc (s *CurioStruct) Version(p0 context.Context) (lapi.Version, error) {\n\tif s.Internal.Version == nil {\n\t\treturn *new(lapi.Version), ErrNotSupported\n\t}\n\treturn s.Internal.Version(p0)\n}\n```",
-            "summary": "",
+            "description": "```go\nfunc (s *CurioStruct) Version(p0 context.Context) (Version, error) {\n\tif s.Internal.Version == nil {\n\t\treturn *new(Version), ErrNotSupported\n\t}\n\treturn s.Internal.Version(p0)\n}\n```",
+            "summary": "There are not yet any comments for this method.",
             "paramStructure": "by-position",
             "params": [],
             "result": {
-                "name": "lapi.Version",
-                "description": "lapi.Version",
+                "name": "Version",
+                "description": "Version",
                 "summary": "",
                 "schema": {
                     "title": "number",
@@ -1149,7 +1149,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L213"
+                "url": "https://github.com/filecoin-project/lotus/blob/master/api/proxy_gen.go#L1633"
             }
         }
     ]
