@@ -39,6 +39,8 @@ CREATE TABLE sectors_meta_pieces (
     f05_deal_id BIGINT,
     ddo_pam jsonb,
 
+    -- f05_deal_proposal jsonb added in 20240612-deal-proposal.sql
+
     PRIMARY KEY (sp_id, sector_num, piece_num),
     FOREIGN KEY (sp_id, sector_num) REFERENCES sectors_meta(sp_id, sector_num) ON DELETE CASCADE
 );

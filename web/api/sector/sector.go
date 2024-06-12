@@ -162,6 +162,17 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 										direct_piece_activation_manifest  
 										FROM sectors_sdr_initial_pieces 
 										ORDER BY sp_id, sector_number`))
+	var mpieces []piece
+	apihelper.OrHTTPFail(w, c.DB.Select(r.Context(), &mpieces, `SELECT 
+										sp_id,
+										sector_num,
+										piece_size,
+										COALESCE(f05_deal_id, 0) AS f05_deal_id,
+										f05_deal_proposal,
+										ddo_pam  
+										FROM sectors_meta_pieces 
+										ORDER BY sp_id, sector_num`))
+	pieces = append(pieces, mpieces...)
 	pieceIndex := map[sectorID][]int{}
 	for i, piece := range pieces {
 		piece := piece
