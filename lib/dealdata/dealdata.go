@@ -94,7 +94,6 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 		var pieceInfos []abi.PieceInfo
 		var pieceReaders []io.Reader
 		var offset abi.UnpaddedPieceSize
-		var allocated abi.UnpaddedPieceSize
 
 		for _, p := range pieces {
 			// make pieceInfo
@@ -102,8 +101,6 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 			if err != nil {
 				return nil, xerrors.Errorf("parsing piece cid: %w", err)
 			}
-
-			allocated += abi.UnpaddedPieceSize(*p.DataRawSize)
 
 			pads, padLength := ffiwrapper.GetRequiredPadding(offset.Padded(), abi.PaddedPieceSize(p.PieceSize))
 			offset += padLength.Unpadded()
@@ -175,7 +172,7 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 			}
 		}
 
-		fillerSize, err := filler.FillersFromRem(abi.PaddedPieceSize(ssize).Unpadded() - allocated)
+		fillerSize, err := filler.FillersFromRem(abi.PaddedPieceSize(ssize).Unpadded() - offset)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to calculate the final padding: %w", err)
 		}
