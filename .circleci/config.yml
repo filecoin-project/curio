@@ -12,7 +12,7 @@ executors:
   golang-2xl:
     docker:
       # Must match GO_VERSION_MIN in project root
-      - image: cimg/go:1.23.3
+      - image: cimg/go:1.22.3
     resource_class: 2xlarge
   ubuntu:
     docker:
@@ -192,6 +192,7 @@ jobs:
           path: /tmp/test-reports
       - store_artifacts:
           path: /tmp/test-artifacts/<< parameters.suite >>.json
+
   lint-all:
     description: |
       Run golangci-lint.
@@ -224,7 +225,7 @@ jobs:
           command: "! go fmt ./... 2>&1 | read"
 
   gen-check:
-    executor: golang
+    executor: golang-2xl
     working_directory: ~/curio
     steps:
       - install-ubuntu-deps
@@ -273,3 +274,4 @@ workflows:
           suite: itest-curio
           target: "./itests/curio_test.go"
           get-params: true
+          resource_class: 2xlarge
