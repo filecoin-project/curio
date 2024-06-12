@@ -64,15 +64,8 @@ type PieceIngester struct {
 	sectorSize          abi.SectorSize
 	sealRightNow        bool // Should be true only for CurioAPI AllocatePieceToSector method
 	maxWaitTime         time.Duration
-}
 
-type pieceDetails struct {
-	Sector     abi.SectorNumber    `db:"sector_number"`
-	Size       abi.PaddedPieceSize `db:"piece_size"`
-	StartEpoch abi.ChainEpoch      `db:"deal_start_epoch"`
-	EndEpoch   abi.ChainEpoch      `db:"deal_end_epoch"`
-	Index      uint64              `db:"piece_index"`
-	CreatedAt  *time.Time          `db:"created_at"`
+	doSnap bool
 }
 
 type verifiedDeal struct {
@@ -103,6 +96,8 @@ func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterAp
 		windowPoStProofType: mi.WindowPoStProofType,
 		mid:                 mid,
 		synth:               false, // TODO: synthetic porep config
+
+		doSnap: true, // todo config
 	}
 
 	go pi.start()
@@ -159,7 +154,6 @@ func (p *PieceIngester) Seal() error {
 	}
 
 	comm, err := p.db.BeginTransaction(p.ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-
 		openSectors, err := p.getOpenSectors(tx)
 		if err != nil {
 			return false, err
@@ -330,7 +324,6 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, maddr address
 }
 
 func (p *PieceIngester) allocateToExisting(ctx context.Context, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte, vd verifiedDeal) (bool, api.SectorOffset, error) {
-
 	var ret api.SectorOffset
 	var allocated bool
 	var rerr error
@@ -407,8 +400,16 @@ func (p *PieceIngester) allocateToExisting(ctx context.Context, piece lpiece.Pie
 
 }
 
-func (p *PieceIngester) SectorStartSealing(ctx context.Context, sector abi.SectorNumber) error {
+type pieceDetails struct {
+	Sector     abi.SectorNumber    `db:"sector_number"`
+	Size       abi.PaddedPieceSize `db:"piece_size"`
+	StartEpoch abi.ChainEpoch      `db:"deal_start_epoch"`
+	EndEpoch   abi.ChainEpoch      `db:"deal_end_epoch"`
+	Index      uint64              `db:"piece_index"`
+	CreatedAt  *time.Time          `db:"created_at"`
+}
 
+func (p *PieceIngester) SectorStartSealing(ctx context.Context, sector abi.SectorNumber) error {
 	spt, err := p.getSealProofType()
 	if err != nil {
 		return xerrors.Errorf("getting seal proof type: %w", err)

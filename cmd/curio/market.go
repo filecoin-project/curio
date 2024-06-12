@@ -96,6 +96,7 @@ var marketSealCmd = &cli.Command{
 			Value: false, // todo implement synthetic
 		},
 	},
+	ArgsUsage: "<sector>",
 	Action: func(cctx *cli.Context) error {
 		act, err := address.NewFromString(cctx.String("actor"))
 		if err != nil {

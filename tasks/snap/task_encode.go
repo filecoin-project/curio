@@ -2,6 +2,8 @@ package snap
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/lib/passcall"
+	"time"
 
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
@@ -18,6 +20,8 @@ import (
 
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
+
+const MinSnapSchedInterval = 30 * time.Second
 
 type EncodeTask struct {
 	max int
@@ -75,7 +79,8 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 
 	err = e.db.Select(ctx, &tasks, `
 		SELECT snp.sp_id, snp.sector_number, snp.upgrade_proof, sm.reg_seal_proof
-		FROM sectors_snap_pipeline snp INNER JOIN sectors_meta sm ON snp.sp_id = sm.sp_id AND snp.sector_number = sm.sector_num
+		FROM sectors_snap_pipeline snp
+		INNER JOIN sectors_meta sm ON snp.sp_id = sm.sp_id AND snp.sector_number = sm.sector_num
 		WHERE snp.task_id_encode = $1`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting sector params: %w", err)
@@ -146,7 +151,7 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("unsealed cid mismatch")
 	}
 
-	_, err = e.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET update_unsealed_cid = $1, update_sealed_cid = $2, after_encode = TRUE
+	_, err = e.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET update_unsealed_cid = $1, update_sealed_cid = $2, after_encode = TRUE, task_id_encode = NULL
                              WHERE sp_id = $3 AND sector_number = $4`,
 		unsealed.String(), sealed.String(), sectorParams.SpID, sectorParams.SectorNumber)
 	if err != nil {
@@ -181,11 +186,38 @@ func (e *EncodeTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Storage: e.sc.Storage(e.taskToSector, storiface.FTUpdate|storiface.FTUpdateCache, storiface.FTNone, ssize, storiface.PathSealing, 1.0),
 		},
 		MaxFailures: 3,
+		IAmBored: passcall.Every(MinSnapSchedInterval, func(taskFunc harmonytask.AddTaskFunc) error {
+			return e.schedule(context.Background(), taskFunc)
+		}),
 	}
 }
 
 func (e *EncodeTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	return
+}
+
+func (e *EncodeTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
+	var tasks []struct {
+		TaskID int64 `db:"task_id"`
+	}
+
+	err := e.db.Select(ctx, &tasks, `SELECT task_id FROM sectors_snap_pipeline WHERE after_encode = FALSE AND task_id_encode IS NULL`)
+	if err != nil {
+		return xerrors.Errorf("getting tasks: %w", err)
+	}
+
+	for _, t := range tasks {
+		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
+			_, err := tx.Exec(`UPDATE sectors_snap_pipeline SET task_id_encode = $1 WHERE task_id = $2`, id, t.TaskID)
+			if err != nil {
+				return false, xerrors.Errorf("updating task id: %w", err)
+			}
+
+			return true, nil
+		})
+	}
+
+	return nil
 }
 
 func (e *EncodeTask) taskToSector(id harmonytask.TaskID) (ffi.SectorRef, error) {
