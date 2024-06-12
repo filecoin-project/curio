@@ -20,19 +20,21 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 
-	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/curio/api"
+
+	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/sealer/sealtasks"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var ExampleValues = map[reflect.Type]interface{}{
-	reflect.TypeOf(api.MinerSubsystem(0)): api.MinerSubsystem(1),
-	reflect.TypeOf(auth.Permission("")):   auth.Permission("write"),
-	reflect.TypeOf(""):                    "string value",
-	reflect.TypeOf(uint64(42)):            uint64(42),
-	reflect.TypeOf(byte(7)):               byte(7),
-	reflect.TypeOf([]byte{}):              []byte("byte array"),
+	//reflect.TypeOf(api.MinerSubsystem(0)): api.MinerSubsystem(1),
+	reflect.TypeOf(auth.Permission("")): auth.Permission("write"),
+	reflect.TypeOf(""):                  "string value",
+	reflect.TypeOf(uint64(42)):          uint64(42),
+	reflect.TypeOf(byte(7)):             byte(7),
+	reflect.TypeOf([]byte{}):            []byte("byte array"),
 }
 
 func addExample(v interface{}) {
@@ -103,7 +105,7 @@ func init() {
 	//addExample(network.Connected)
 	//addExample(dtypes.NetworkName("testnet"))
 	//addExample(api.SyncStateStage(1))
-	addExample(api.FullAPIVersion1)
+	addExample(lapi.FullAPIVersion1)
 	//addExample(api.PCHInbound)
 	//addExample(time.Minute)
 	//addExample(graphsync.NewRequestID())
