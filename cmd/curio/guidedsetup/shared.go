@@ -370,6 +370,7 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 			startEpoch := int64(0)
 			endEpoch := int64(0)
 			var pamJSON *string
+			var dealProposalJSONStr *string
 
 			if piece.HasDealInfo() {
 				dealInfo := piece.DealInfo()
@@ -387,6 +388,15 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 					ps := string(pam)
 					pamJSON = &ps
 				}
+				if piece.Impl().DealProposal != nil {
+					dealProposalJSON, err := json.Marshal(piece.Impl().DealProposal)
+					if err != nil {
+						return xerrors.Errorf("error marshalling deal proposal JSON for piece %d in sector %d: %w", j, sector.SectorNumber, err)
+					}
+					dp := string(dealProposalJSON)
+					dealProposalJSONStr = &dp
+				}
+
 			}
 
 			// Splitting the SQL statement for readability and adding new fields
@@ -405,7 +415,8 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 						start_epoch = excluded.start_epoch, 
 						orig_end_epoch = excluded.orig_end_epoch,
 						f05_deal_id = excluded.f05_deal_id, 
-						ddo_pam = excluded.ddo_pam`,
+						ddo_pam = excluded.ddo_pam,
+						f05_deal_proposal = excluded.f05_deal_proposal`,
 				mid,
 				sector.SectorNumber,
 				j,
@@ -417,6 +428,7 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 				endEpoch,
 				dealID,
 				pamJSON,
+				dealProposalJSONStr,
 			)
 			if err != nil {
 				b, _ := json.MarshalIndent(sector, "", "  ")

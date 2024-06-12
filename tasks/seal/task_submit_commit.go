@@ -331,7 +331,8 @@ func (s *SubmitCommitTask) transferFinalizedSectorData(ctx context.Context, spID
             start_epoch,
             orig_end_epoch,
             f05_deal_id,
-            ddo_pam
+            ddo_pam,
+            f05_deal_proposal                          
         )
         SELECT
             sp_id,
@@ -344,7 +345,8 @@ func (s *SubmitCommitTask) transferFinalizedSectorData(ctx context.Context, spID
             COALESCE(f05_deal_start_epoch, direct_start_epoch) as start_epoch,
             COALESCE(f05_deal_end_epoch, direct_end_epoch) as orig_end_epoch,
             f05_deal_id,
-            direct_piece_activation_manifest as ddo_pam
+            direct_piece_activation_manifest as ddo_pam,
+            f05_deal_proposal
         FROM
             sectors_sdr_initial_pieces
         WHERE
@@ -358,7 +360,8 @@ func (s *SubmitCommitTask) transferFinalizedSectorData(ctx context.Context, spID
             start_epoch = excluded.start_epoch,
             orig_end_epoch = excluded.orig_end_epoch,
             f05_deal_id = excluded.f05_deal_id,
-            ddo_pam = excluded.ddo_pam;
+            ddo_pam = excluded.ddo_pam,
+            f05_deal_proposal = excluded.f05_deal_proposal;
     `, spID, sectorNum); err != nil {
 		return fmt.Errorf("failed to insert/update sector_meta_pieces: %w", err)
 	}
