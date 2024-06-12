@@ -107,7 +107,6 @@ func (s *SDRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 	var commd cid.Cid
 
 	var offset abi.UnpaddedPieceSize
-	var allocated abi.UnpaddedPieceSize
 	var pieceInfos []abi.PieceInfo
 
 	if len(pieces) > 0 {
@@ -116,8 +115,6 @@ func (s *SDRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 			if err != nil {
 				return false, xerrors.Errorf("parsing piece cid: %w", err)
 			}
-
-			allocated += abi.UnpaddedPieceSize(*p.DataRawSize)
 
 			pads, padLength := ffiwrapper.GetRequiredPadding(offset.Padded(), abi.PaddedPieceSize(p.PieceSize))
 			offset += padLength.Unpadded()
@@ -136,7 +133,7 @@ func (s *SDRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 			offset += abi.UnpaddedPieceSize(*p.DataRawSize)
 		}
 
-		fillerSize, err := filler.FillersFromRem(abi.PaddedPieceSize(ssize).Unpadded() - allocated)
+		fillerSize, err := filler.FillersFromRem(abi.PaddedPieceSize(ssize).Unpadded() - offset)
 		if err != nil {
 			return false, xerrors.Errorf("failed to calculate the final padding: %w", err)
 		}
