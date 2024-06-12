@@ -12,6 +12,7 @@
 * [Configuration](configuration/README.md)
   * [Listen Address](configuration/listen-address.md)
   * [Alert Manager](configuration/alert-manager.md)
+  * [Default Curio Configuration](configuration/default-curio-configuration.md)
 * [Enabling market](enabling-market.md)
 * [Scaling Curio cluster](scaling-curio-cluster.md)
 * [Curio GUI](curio-gui.md)
@@ -21,3 +22,4 @@
 * [Curio CLI](curio-cli/README.md)
   * [Curio](curio-cli/curio.md)
   * [Sptool](curio-cli/sptool.md)
+* [API](api.md)
