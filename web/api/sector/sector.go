@@ -169,7 +169,7 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 										piece_size,
 										COALESCE(f05_deal_id, 0) AS f05_deal_id,
 										f05_deal_proposal,
-										ddo_pam  
+										ddo_pam as direct_piece_activation_manifest
 										FROM sectors_meta_pieces 
 										ORDER BY sp_id, sector_num`))
 	pieces = append(pieces, mpieces...)
