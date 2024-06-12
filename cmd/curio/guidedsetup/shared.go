@@ -299,7 +299,7 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 
 	migratableState := func(state sealing.SectorState) bool {
 		switch state {
-		case sealing.Proving, sealing.Available, sealing.Removed:
+		case sealing.Proving, sealing.Available, sealing.UpdateActivating, sealing.Removed:
 			return true
 		default:
 			return false
