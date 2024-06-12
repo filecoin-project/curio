@@ -6,11 +6,11 @@ description: Curio API references
 
 ## Groups
 
-* [](#)
-  * [Shutdown](#Shutdown)
-  * [Version](#Version)
 * [Allocate](#Allocate)
   * [AllocatePieceToSector](#AllocatePieceToSector)
+* [DefaultGroup](#DefaultGroup)
+  * [Shutdown](#Shutdown)
+  * [Version](#Version)
 * [Log](#Log)
   * [LogList](#LogList)
   * [LogSetLevel](#LogSetLevel)
@@ -23,27 +23,6 @@ description: Curio API references
   * [StorageList](#StorageList)
   * [StorageLocal](#StorageLocal)
   * [StorageStat](#StorageStat)
-### 
-
-
-#### Shutdown
-
-
-Perms: admin
-
-Inputs: `null`
-
-Response: `{}`
-
-#### Version
-There are not yet any comments for this method.
-
-Perms: admin
-
-Inputs: `null`
-
-Response: `131840`
-
 ### Allocate
 
 
@@ -119,6 +98,27 @@ Response:
   "Offset": 1032
 }
 ```
+
+### DefaultGroup
+
+
+#### Shutdown
+
+
+Perms: admin
+
+Inputs: `null`
+
+Response: `{}`
+
+#### Version
+There are not yet any comments for this method.
+
+Perms: admin
+
+Inputs: `null`
+
+Response: `131840`
 
 ### Log
 The log method group has logging methods

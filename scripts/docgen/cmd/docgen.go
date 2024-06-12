@@ -23,6 +23,11 @@ func main() {
 
 		groupName := docgen.MethodGroupFromName(m.Name)
 
+		// If groupName is still empty, assign a default value to avoid empty group
+		if groupName == "" {
+			groupName = "DefaultGroup"
+		}
+
 		g, ok := groups[groupName]
 		if !ok {
 			g = new(docgen.MethodGroup)
