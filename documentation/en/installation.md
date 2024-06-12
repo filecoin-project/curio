@@ -130,14 +130,14 @@ Once all the dependencies are installed, you can build and install Curio.
 1. Clone the repository:
 
 ```shell
-git clone https://github.com/filecoin-project/lotus.git
-cd lotus/
+git clone https://github.com/filecoin-project/curio.git
+cd curio/
 ```
 
 2. Switch to the latest stable release branch:
 
 ```shell
-git checkout master
+git checkout <release version>
 ```
 
 3. Depending on your CPU model, you will want to export additional environment variables:
@@ -271,13 +271,13 @@ The installation instructions are different depending on which CPU is in your Ma
 1.  Clone the repository:
 
     ```shell
-    git clone https://github.com/filecoin-project/lotus.git
-    cd lotus/
+    git clone https://github.com/filecoin-project/curio.git
+    cd curio/
     ```
 2.  Switch to the latest stable release branch:
 
     ```shell
-    git checkout master
+    git checkout <release version>
     ```
 3.  Create the necessary environment variables to allow Curio to run on Arm architecture:
 
@@ -312,13 +312,13 @@ The installation instructions are different depending on which CPU is in your Ma
 1.  Clone the repository:
 
     ```shell
-    git clone https://github.com/filecoin-project/lotus.git
-    cd lotus/
+    git clone https://github.com/filecoin-project/curio.git
+    cd curio/
     ```
 2.  Switch to the latest stable release branch:
 
     ```shell
-    git checkout master
+    git checkout <release version>
     ```
 3.  Build and install Curio:
 
