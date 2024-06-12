@@ -63,9 +63,17 @@ Inputs:
       "CID": {
         "/": "bafy2bzacea3wsdh6y3a36tb3skempjoxqpuyompjbmfeyf34fi3uy6uue42v4"
       },
-      "Size": 2032,
-      "VerifiedAllocationKey": null,
-      "Notify": null
+      "Size": 1032,
+      "VerifiedAllocationKey": {
+        "Client": 1000,
+        "ID": 0
+      },
+      "Notify": [
+        {
+          "Address": "f01234",
+          "Payload": "Ynl0ZSBhcnJheQ=="
+        }
+      ]
     },
     "KeepUnsealed": true
   },
