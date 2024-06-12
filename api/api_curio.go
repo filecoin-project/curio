@@ -15,9 +15,19 @@ import (
 )
 
 type Curio interface {
+	// MethodGroup: Curio
+	//The common method group contains administration methods
+
 	Version(context.Context) (lapi.Version, error) //perm:admin
+	Shutdown(context.Context) error                //perm:admin
+
+	// MethodGroup: Deal
+	//The deal method group contains method for adding deals to sector
 
 	AllocatePieceToSector(ctx context.Context, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (lapi.SectorOffset, error) //perm:write
+
+	// MethodGroup: Storage
+	//The storage method group contains are storage administration method
 
 	StorageInit(ctx context.Context, path string, opts storiface.LocalStorageMeta) error                                                                                   //perm:admin
 	StorageAddLocal(ctx context.Context, path string) error                                                                                                                //perm:admin
@@ -28,9 +38,9 @@ type Curio interface {
 	StorageInfo(context.Context, storiface.ID) (storiface.StorageInfo, error)                                                                                              //perm:admin
 	StorageFindSector(ctx context.Context, sector abi.SectorID, ft storiface.SectorFileType, ssize abi.SectorSize, allowFetch bool) ([]storiface.SectorStorageInfo, error) //perm:admin
 
+	// MethodGroup: Log
+	//The log method group has logging methods
+
 	LogList(ctx context.Context) ([]string, error)                  //perm:read
 	LogSetLevel(ctx context.Context, subsystem, level string) error //perm:admin
-
-	// Trigger shutdown
-	Shutdown(context.Context) error //perm:admin
 }

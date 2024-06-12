@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/filecoin-project/lotus/api/docgen"
+	"github.com/filecoin-project/curio/scripts/docgen"
 )
 
 func main() {
@@ -22,6 +22,11 @@ func main() {
 		m := t.Method(i)
 
 		groupName := docgen.MethodGroupFromName(m.Name)
+
+		// If groupName is still empty, assign a default value to avoid empty group
+		if groupName == "" {
+			groupName = "DefaultGroup"
+		}
 
 		g, ok := groups[groupName]
 		if !ok {
@@ -67,18 +72,18 @@ func main() {
 		return groupslice[i].GroupName < groupslice[j].GroupName
 	})
 
-	fmt.Printf("# Groups\n")
+	fmt.Printf("## Groups\n\n")
 
 	for _, g := range groupslice {
-		fmt.Printf("* [%s](#%s)\n", g.GroupName, g.GroupName)
+		fmt.Printf("* [%s](api.md#%s)\n", g.GroupName, g.GroupName)
 		for _, method := range g.Methods {
-			fmt.Printf("  * [%s](#%s)\n", method.Name, method.Name)
+			fmt.Printf("  * [%s](api.md#%s)\n", method.Name, method.Name)
 		}
 	}
 
 	for _, g := range groupslice {
 		g := g
-		fmt.Printf("## %s\n", g.GroupName)
+		fmt.Printf("### %s\n", g.GroupName)
 		fmt.Printf("%s\n\n", g.Header)
 
 		sort.Slice(g.Methods, func(i, j int) bool {
@@ -86,7 +91,7 @@ func main() {
 		})
 
 		for _, m := range g.Methods {
-			fmt.Printf("### %s\n", m.Name)
+			fmt.Printf("#### %s\n", m.Name)
 			fmt.Printf("%s\n\n", m.Comment)
 
 			var meth reflect.StructField

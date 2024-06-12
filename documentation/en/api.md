@@ -6,54 +6,32 @@ description: Curio API references
 
 ## Groups
 
-* [Common](api.md#common)
-  * [Shutdown](api.md#shutdown)
-  * [Version](api.md#version)
-* [Allocate](api.md#allocate)
-  * [AllocatePieceToSector](api.md#allocatepiecetosector)
-* [Log](api.md#log)
-  * [LogList](api.md#loglist)
-  * [LogSetLevel](api.md#logsetlevel)
-* [Storage](api.md#storage)
-  * [StorageAddLocal](api.md#storageaddlocal)
-  * [StorageDetachLocal](api.md#storagedetachlocal)
-  * [StorageFindSector](api.md#storagefindsector)
-  * [StorageInfo](api.md#storageinfo)
-  * [StorageInit](api.md#storageinit)
-  * [StorageList](api.md#storagelist)
-  * [StorageLocal](api.md#storagelocal)
-  * [StorageStat](api.md#storagestat)
-
-### Common
-
-#### Shutdown
-
-Perms: admin
-
-Inputs: `null`
-
-Response: `{}`
-
-#### Version
-
-There are not yet any comments for this method.
-
-Perms: admin
-
-Inputs: `null`
-
-Response: `131840`
-
+* [Allocate](api.md#Allocate)
+  * [AllocatePieceToSector](api.md#AllocatePieceToSector)
+* [DefaultGroup](api.md#DefaultGroup)
+  * [Shutdown](api.md#Shutdown)
+  * [Version](api.md#Version)
+* [Log](api.md#Log)
+  * [LogList](api.md#LogList)
+  * [LogSetLevel](api.md#LogSetLevel)
+* [Storage](api.md#Storage)
+  * [StorageAddLocal](api.md#StorageAddLocal)
+  * [StorageDetachLocal](api.md#StorageDetachLocal)
+  * [StorageFindSector](api.md#StorageFindSector)
+  * [StorageInfo](api.md#StorageInfo)
+  * [StorageInit](api.md#StorageInit)
+  * [StorageList](api.md#StorageList)
+  * [StorageLocal](api.md#StorageLocal)
+  * [StorageStat](api.md#StorageStat)
 ### Allocate
 
-#### AllocatePieceToSector
 
+#### AllocatePieceToSector
 There are not yet any comments for this method.
 
 Perms: write
 
 Inputs:
-
 ```json
 [
   "f01234",
@@ -85,9 +63,17 @@ Inputs:
       "CID": {
         "/": "bafy2bzacea3wsdh6y3a36tb3skempjoxqpuyompjbmfeyf34fi3uy6uue42v4"
       },
-      "Size": 2032,
-      "VerifiedAllocationKey": null,
-      "Notify": null
+      "Size": 1032,
+      "VerifiedAllocationKey": {
+        "Client": 1000,
+        "ID": 0
+      },
+      "Notify": [
+        {
+          "Address": "f01234",
+          "Payload": "Ynl0ZSBhcnJheQ=="
+        }
+      ]
     },
     "KeepUnsealed": true
   },
@@ -114,7 +100,6 @@ Inputs:
 ```
 
 Response:
-
 ```json
 {
   "Sector": 9,
@@ -122,12 +107,32 @@ Response:
 }
 ```
 
-### Log
+### DefaultGroup
 
+
+#### Shutdown
+
+
+Perms: admin
+
+Inputs: `null`
+
+Response: `{}`
+
+#### Version
+There are not yet any comments for this method.
+
+Perms: admin
+
+Inputs: `null`
+
+Response: `131840`
+
+### Log
 The log method group has logging methods
 
-#### LogList
 
+#### LogList
 There are not yet any comments for this method.
 
 Perms: read
@@ -135,7 +140,6 @@ Perms: read
 Inputs: `null`
 
 Response:
-
 ```json
 [
   "string value"
@@ -144,10 +148,10 @@ Response:
 
 #### LogSetLevel
 
+
 Perms: admin
 
 Inputs:
-
 ```json
 [
   "string value",
@@ -158,15 +162,15 @@ Inputs:
 Response: `{}`
 
 ### Storage
-
 The storage method group contains are storage administration method
 
+
 #### StorageAddLocal
+
 
 Perms: admin
 
 Inputs:
-
 ```json
 [
   "string value"
@@ -177,10 +181,10 @@ Response: `{}`
 
 #### StorageDetachLocal
 
+
 Perms: admin
 
 Inputs:
-
 ```json
 [
   "string value"
@@ -191,10 +195,10 @@ Response: `{}`
 
 #### StorageFindSector
 
+
 Perms: admin
 
 Inputs:
-
 ```json
 [
   {
@@ -208,7 +212,6 @@ Inputs:
 ```
 
 Response:
-
 ```json
 [
   {
@@ -241,10 +244,10 @@ Response:
 
 #### StorageInfo
 
+
 Perms: admin
 
 Inputs:
-
 ```json
 [
   "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8"
@@ -252,7 +255,6 @@ Inputs:
 ```
 
 Response:
-
 ```json
 {
   "ID": "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8",
@@ -285,13 +287,11 @@ Response:
 ```
 
 #### StorageInit
-
 There are not yet any comments for this method.
 
 Perms: admin
 
 Inputs:
-
 ```json
 [
   "string value",
@@ -327,12 +327,12 @@ Response: `{}`
 
 #### StorageList
 
+
 Perms: admin
 
 Inputs: `null`
 
 Response:
-
 ```json
 {
   "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8": [
@@ -347,12 +347,12 @@ Response:
 
 #### StorageLocal
 
+
 Perms: admin
 
 Inputs: `null`
 
 Response:
-
 ```json
 {
   "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8": "/data/path"
@@ -361,10 +361,10 @@ Response:
 
 #### StorageStat
 
+
 Perms: admin
 
 Inputs:
-
 ```json
 [
   "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8"
@@ -372,7 +372,6 @@ Inputs:
 ```
 
 Response:
-
 ```json
 {
   "Capacity": 9,
@@ -383,3 +382,4 @@ Response:
   "Used": 9
 }
 ```
+

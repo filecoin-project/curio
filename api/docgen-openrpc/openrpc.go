@@ -12,8 +12,7 @@ import (
 	meta_schema "github.com/open-rpc/meta-schema"
 
 	"github.com/filecoin-project/curio/build"
-
-	"github.com/filecoin-project/lotus/api/docgen"
+	"github.com/filecoin-project/curio/scripts/docgen"
 )
 
 // schemaDictEntry represents a type association passed to the jsonschema reflector.

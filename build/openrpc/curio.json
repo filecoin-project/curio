@@ -8,7 +8,7 @@
         {
             "name": "Filecoin.AllocatePieceToSector",
             "description": "```go\nfunc (s *CurioStruct) AllocatePieceToSector(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (lapi.SectorOffset, error) {\n\tif s.Internal.AllocatePieceToSector == nil {\n\t\treturn *new(lapi.SectorOffset), ErrNotSupported\n\t}\n\treturn s.Internal.AllocatePieceToSector(p0, p1, p2, p3, p4, p5)\n}\n```",
-            "summary": "",
+            "summary": "There are not yet any comments for this method.",
             "paramStructure": "by-position",
             "params": [
                 {
@@ -61,9 +61,17 @@
                                     "CID": {
                                         "/": "bafy2bzacea3wsdh6y3a36tb3skempjoxqpuyompjbmfeyf34fi3uy6uue42v4"
                                     },
-                                    "Size": 2032,
-                                    "VerifiedAllocationKey": null,
-                                    "Notify": null
+                                    "Size": 1032,
+                                    "VerifiedAllocationKey": {
+                                        "Client": 1000,
+                                        "ID": 0
+                                    },
+                                    "Notify": [
+                                        {
+                                            "Address": "f01234",
+                                            "Payload": "Ynl0ZSBhcnJheQ=="
+                                        }
+                                    ]
                                 },
                                 "KeepUnsealed": true
                             }
@@ -310,7 +318,7 @@
         {
             "name": "Filecoin.LogList",
             "description": "```go\nfunc (s *CurioStruct) LogList(p0 context.Context) ([]string, error) {\n\tif s.Internal.LogList == nil {\n\t\treturn *new([]string), ErrNotSupported\n\t}\n\treturn s.Internal.LogList(p0)\n}\n```",
-            "summary": "",
+            "summary": "There are not yet any comments for this method.",
             "paramStructure": "by-position",
             "params": [],
             "result": {
@@ -400,7 +408,7 @@
         {
             "name": "Filecoin.Shutdown",
             "description": "```go\nfunc (s *CurioStruct) Shutdown(p0 context.Context) error {\n\tif s.Internal.Shutdown == nil {\n\t\treturn ErrNotSupported\n\t}\n\treturn s.Internal.Shutdown(p0)\n}\n```",
-            "summary": "Trigger shutdown\n",
+            "summary": "",
             "paramStructure": "by-position",
             "params": [],
             "result": {
@@ -827,7 +835,7 @@
         {
             "name": "Filecoin.StorageInit",
             "description": "```go\nfunc (s *CurioStruct) StorageInit(p0 context.Context, p1 string, p2 storiface.LocalStorageMeta) error {\n\tif s.Internal.StorageInit == nil {\n\t\treturn ErrNotSupported\n\t}\n\treturn s.Internal.StorageInit(p0, p1, p2)\n}\n```",
-            "summary": "",
+            "summary": "There are not yet any comments for this method.",
             "paramStructure": "by-position",
             "params": [
                 {
@@ -1126,7 +1134,7 @@
         {
             "name": "Filecoin.Version",
             "description": "```go\nfunc (s *CurioStruct) Version(p0 context.Context) (lapi.Version, error) {\n\tif s.Internal.Version == nil {\n\t\treturn *new(lapi.Version), ErrNotSupported\n\t}\n\treturn s.Internal.Version(p0)\n}\n```",
-            "summary": "",
+            "summary": "There are not yet any comments for this method.",
             "paramStructure": "by-position",
             "params": [],
             "result": {

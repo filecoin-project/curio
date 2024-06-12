@@ -56,8 +56,8 @@ func main() {
 	base, err := os.MkdirTemp(os.TempDir(), "curio-apt")
 	OrPanic(err)
 
-	OrPanic(sh.NewSession().SetDir(base).Command("make", "deps").Run())
-	part2(base, "curio-cuda", "")
+	OrPanic(sh.NewSession().Command("make", "deps").Run())
+	part2(base, "curio-cuda", "FFI_USE_CUDA_SUPRASEAL=1")
 	part2(base, "curio-opencl", "FFI_USE_OPENCL=1")
 	fmt.Println("Done. DEB files are in ", base)
 }
