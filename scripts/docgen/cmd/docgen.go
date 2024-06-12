@@ -75,9 +75,9 @@ func main() {
 	fmt.Printf("## Groups\n\n")
 
 	for _, g := range groupslice {
-		fmt.Printf("* [%s](#%s)\n", g.GroupName, g.GroupName)
+		fmt.Printf("* [%s](api.md#%s)\n", g.GroupName, g.GroupName)
 		for _, method := range g.Methods {
-			fmt.Printf("  * [%s](#%s)\n", method.Name, method.Name)
+			fmt.Printf("  * [%s](api.md#%s)\n", method.Name, method.Name)
 		}
 	}
 
