@@ -4,77 +4,34 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-padreader"
+	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+	verifregtypes "github.com/filecoin-project/lotus/chain/actors/builtin/verifreg"
+	"github.com/filecoin-project/lotus/chain/types"
+	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
+	"golang.org/x/xerrors"
 	"net/http"
 	"net/url"
 	"time"
-
-	logging "github.com/ipfs/go-log/v2"
-	"golang.org/x/xerrors"
-
-	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-bitfield"
-	"github.com/filecoin-project/go-padreader"
-	"github.com/filecoin-project/go-state-types/abi"
-	verifregtypes "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
-	"github.com/filecoin-project/go-state-types/network"
-
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/tasks/seal"
-
-	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
-	"github.com/filecoin-project/lotus/chain/types"
-	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
 
-var log = logging.Logger("piece-ingestor")
-
-const loopFrequency = 10 * time.Second
-
-type Ingester interface {
-	AllocatePieceToSector(ctx context.Context, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (api.SectorOffset, error)
-}
-
-type PieceIngesterApi interface {
-	ChainHead(context.Context) (*types.TipSet, error)
-	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
-	StateMinerAllocated(ctx context.Context, a address.Address, key types.TipSetKey) (*bitfield.BitField, error)
-	StateNetworkVersion(ctx context.Context, key types.TipSetKey) (network.Version, error)
-	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifregtypes.AllocationId, tsk types.TipSetKey) (*verifregtypes.Allocation, error)
-	StateGetAllocationForPendingDeal(ctx context.Context, dealId abi.DealID, tsk types.TipSetKey) (*verifregtypes.Allocation, error)
-}
-
-type openSector struct {
-	number             abi.SectorNumber
-	currentSize        abi.PaddedPieceSize
-	earliestStartEpoch abi.ChainEpoch
-	index              uint64
-	openedAt           *time.Time
-	latestEndEpoch     abi.ChainEpoch
-}
-
-type PieceIngester struct {
+type PieceIngesterSnap struct {
 	ctx                 context.Context
 	db                  *harmonydb.DB
 	api                 PieceIngesterApi
 	miner               address.Address
 	mid                 uint64 // miner ID
 	windowPoStProofType abi.RegisteredPoStProof
-	synth               bool
 	sectorSize          abi.SectorSize
 	sealRightNow        bool // Should be true only for CurioAPI AllocatePieceToSector method
 	maxWaitTime         time.Duration
-
-	doSnap bool
 }
 
-type verifiedDeal struct {
-	isVerified bool
-	tmin       abi.ChainEpoch
-	tmax       abi.ChainEpoch
-}
-
-func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterApi, maddr address.Address, sealRightNow bool, maxWaitTime time.Duration) (*PieceIngester, error) {
+func NewPieceIngesterSnap(ctx context.Context, db *harmonydb.DB, api PieceIngesterApi, maddr address.Address, sealRightNow bool, maxWaitTime time.Duration) (*PieceIngesterSnap, error) {
 	mi, err := api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
 	if err != nil {
 		return nil, err
@@ -85,7 +42,7 @@ func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterAp
 		return nil, xerrors.Errorf("getting miner ID: %w", err)
 	}
 
-	pi := &PieceIngester{
+	pi := &PieceIngesterSnap{
 		ctx:                 ctx,
 		db:                  db,
 		api:                 api,
@@ -95,9 +52,6 @@ func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterAp
 		sectorSize:          mi.SectorSize,
 		windowPoStProofType: mi.WindowPoStProofType,
 		mid:                 mid,
-		synth:               false, // TODO: synthetic porep config
-
-		doSnap: true, // todo config
 	}
 
 	go pi.start()
@@ -105,7 +59,7 @@ func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterAp
 	return pi, nil
 }
 
-func (p *PieceIngester) start() {
+func (p *PieceIngesterSnap) start() {
 	ticker := time.NewTicker(loopFrequency)
 	defer ticker.Stop()
 
@@ -122,13 +76,13 @@ func (p *PieceIngester) start() {
 	}
 }
 
-func (p *PieceIngester) Seal() error {
+func (p *PieceIngesterSnap) Seal() error {
 	head, err := p.api.ChainHead(p.ctx)
 	if err != nil {
 		return xerrors.Errorf("getting chain head: %w", err)
 	}
 
-	spt, err := p.getSealProofType()
+	upt, err := p.getUpgradeProofType()
 	if err != nil {
 		return xerrors.Errorf("getting seal proof type: %w", err)
 	}
@@ -163,7 +117,7 @@ func (p *PieceIngester) Seal() error {
 			sector := sector
 			if shouldSeal(sector) {
 				// Start sealing the sector
-				cn, err := tx.Exec(`INSERT INTO sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof) VALUES ($1, $2, $3);`, p.mid, sector.number, spt)
+				cn, err := tx.Exec(`INSERT INTO sectors_snap_pipeline (sp_id, sector_number, upgrade_proof) VALUES ($1, $2, $3);`, p.mid, sector.number, upt)
 
 				if err != nil {
 					return false, xerrors.Errorf("adding sector to pipeline: %w", err)
@@ -173,7 +127,7 @@ func (p *PieceIngester) Seal() error {
 					return false, xerrors.Errorf("adding sector to pipeline: incorrect number of rows returned")
 				}
 
-				_, err = tx.Exec("SELECT transfer_and_delete_open_piece($1, $2)", p.mid, sector.number)
+				_, err = tx.Exec("SELECT transfer_and_delete_open_piece_snap($1, $2)", p.mid, sector.number)
 				if err != nil {
 					return false, xerrors.Errorf("adding sector to pipeline: %w", err)
 				}
@@ -194,7 +148,7 @@ func (p *PieceIngester) Seal() error {
 	return nil
 }
 
-func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (api.SectorOffset, error) {
+func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (api.SectorOffset, error) {
 	if maddr != p.miner {
 		return api.SectorOffset{}, xerrors.Errorf("miner address doesn't match")
 	}
@@ -224,7 +178,7 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, maddr address
 	}
 
 	if piece.DealProposal != nil {
-		vd.isVerified = piece.DealProposal.VerifiedDeal
+		/*vd.isVerified = piece.DealProposal.VerifiedDeal
 		if vd.isVerified {
 			alloc, err := p.api.StateGetAllocationForPendingDeal(ctx, piece.DealID, types.EmptyTSK)
 			if err != nil {
@@ -239,7 +193,8 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, maddr address
 		propJson, err = json.Marshal(piece.DealProposal)
 		if err != nil {
 			return api.SectorOffset{}, xerrors.Errorf("json.Marshal(piece.DealProposal): %w", err)
-		}
+		}*/
+		panic("convert f05 to ddo")
 	} else {
 		vd.isVerified = piece.PieceActivationManifest.VerifiedAllocationKey != nil
 		if vd.isVerified {
@@ -275,33 +230,23 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, maddr address
 	}
 
 	// Allocation to open sector failed, create a new sector and add the piece to it
-	num, err := seal.AllocateSectorNumbers(ctx, p.api, p.db, maddr, 1, func(tx *harmonydb.Tx, numbers []abi.SectorNumber) (bool, error) {
+	func(tx *harmonydb.Tx, numbers []abi.SectorNumber) (bool, error) {
 		if len(numbers) != 1 {
 			return false, xerrors.Errorf("expected one sector number")
 		}
 		n := numbers[0]
 
-		if piece.DealProposal != nil {
-			_, err = tx.Exec(`SELECT insert_sector_market_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-				p.mid, n, 0,
-				piece.DealProposal.PieceCID, piece.DealProposal.PieceSize,
-				source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
-				piece.PublishCid, piece.DealID, propJson, piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch)
-			if err != nil {
-				return false, xerrors.Errorf("adding deal to sector: %w", err)
-			}
-		} else {
-			_, err = tx.Exec(`SELECT insert_sector_ddo_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-				p.mid, n, 0,
-				piece.PieceActivationManifest.CID, piece.PieceActivationManifest.Size,
-				source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
-				piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch, propJson)
-			if err != nil {
-				return false, xerrors.Errorf("adding deal to sector: %w", err)
-			}
+		_, err = tx.Exec(`SELECT insert_snap_ddo_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+			p.mid, n, 0,
+			piece.PieceActivationManifest.CID, piece.PieceActivationManifest.Size,
+			source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
+			piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch, propJson)
+		if err != nil {
+			return false, xerrors.Errorf("adding deal to sector: %w", err)
 		}
+
 		return true, nil
-	})
+	}
 	if err != nil {
 		return api.SectorOffset{}, xerrors.Errorf("allocating sector numbers: %w", err)
 	}
@@ -323,7 +268,7 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, maddr address
 	}, nil
 }
 
-func (p *PieceIngester) allocateToExisting(ctx context.Context, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte, vd verifiedDeal) (bool, api.SectorOffset, error) {
+func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte, vd verifiedDeal) (bool, api.SectorOffset, error) {
 	var ret api.SectorOffset
 	var allocated bool
 	var rerr error
@@ -349,38 +294,21 @@ func (p *PieceIngester) allocateToExisting(ctx context.Context, piece lpiece.Pie
 				ret.Sector = sec.number
 				ret.Offset = sec.currentSize
 
-				// Insert market deal to DB for the sector
-				if piece.DealProposal != nil {
-					cn, err := tx.Exec(`SELECT insert_sector_market_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-						p.mid, sec.number, sec.index+1,
-						piece.DealProposal.PieceCID, piece.DealProposal.PieceSize,
-						source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
-						piece.PublishCid, piece.DealID, propJson, piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch)
+				// Insert DDO deal to DB for the sector
+				cn, err := tx.Exec(`SELECT insert_snap_ddo_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+					p.mid, sec.number, sec.index+1,
+					piece.PieceActivationManifest.CID, piece.PieceActivationManifest.Size,
+					source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
+					piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch, propJson)
 
-					if err != nil {
-						return false, fmt.Errorf("adding deal to sector: %v", err)
-					}
-
-					if cn != 1 {
-						return false, xerrors.Errorf("expected one piece")
-					}
-
-				} else { // Insert DDO deal to DB for the sector
-					cn, err := tx.Exec(`SELECT insert_sector_ddo_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-						p.mid, sec.number, sec.index+1,
-						piece.PieceActivationManifest.CID, piece.PieceActivationManifest.Size,
-						source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
-						piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch, propJson)
-
-					if err != nil {
-						return false, fmt.Errorf("adding deal to sector: %v", err)
-					}
-
-					if cn != 1 {
-						return false, xerrors.Errorf("expected one piece")
-					}
-
+				if err != nil {
+					return false, fmt.Errorf("adding deal to sector: %v", err)
 				}
+
+				if cn != 1 {
+					return false, xerrors.Errorf("expected one piece")
+				}
+
 				allocated = true
 				break
 			}
@@ -400,17 +328,8 @@ func (p *PieceIngester) allocateToExisting(ctx context.Context, piece lpiece.Pie
 
 }
 
-type pieceDetails struct {
-	Sector     abi.SectorNumber    `db:"sector_number"`
-	Size       abi.PaddedPieceSize `db:"piece_size"`
-	StartEpoch abi.ChainEpoch      `db:"deal_start_epoch"`
-	EndEpoch   abi.ChainEpoch      `db:"deal_end_epoch"`
-	Index      uint64              `db:"piece_index"`
-	CreatedAt  *time.Time          `db:"created_at"`
-}
-
-func (p *PieceIngester) SectorStartSealing(ctx context.Context, sector abi.SectorNumber) error {
-	spt, err := p.getSealProofType()
+func (p *PieceIngesterSnap) SectorStartSealing(ctx context.Context, sector abi.SectorNumber) error {
+	upt, err := p.getUpgradeProofType()
 	if err != nil {
 		return xerrors.Errorf("getting seal proof type: %w", err)
 	}
@@ -429,7 +348,7 @@ func (p *PieceIngester) SectorStartSealing(ctx context.Context, sector abi.Secto
 					FROM
 						open_sector_pieces
 					WHERE
-						sp_id = $1 AND sector_number = $2
+						sp_id = $1 AND sector_number = $2 AND is_snap = true
 					ORDER BY
 						piece_index DESC;`, p.mid, sector)
 		if err != nil {
@@ -440,7 +359,7 @@ func (p *PieceIngester) SectorStartSealing(ctx context.Context, sector abi.Secto
 			return false, xerrors.Errorf("sector %d is not waiting to be sealed", sector)
 		}
 
-		cn, err := tx.Exec(`INSERT INTO sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof) VALUES ($1, $2, $3);`, p.mid, sector, spt)
+		cn, err := tx.Exec(`INSERT INTO sectors_snap_pipeline (sp_id, sector_number, upgrade_proof) VALUES ($1, $2, $3);`, p.mid, sector, upt)
 
 		if err != nil {
 			return false, xerrors.Errorf("adding sector to pipeline: %w", err)
@@ -470,7 +389,7 @@ func (p *PieceIngester) SectorStartSealing(ctx context.Context, sector abi.Secto
 	return nil
 }
 
-func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx) ([]*openSector, error) {
+func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx) ([]*openSector, error) {
 	// Get current open sector pieces from DB
 	var pieces []pieceDetails
 	err := tx.Select(&pieces, `
@@ -484,7 +403,7 @@ func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx) ([]*openSector, error) 
 					FROM
 						open_sector_pieces
 					WHERE
-						sp_id = $1
+						sp_id = $1 AND is_snap = true
 					ORDER BY
 						piece_index DESC;`, p.mid)
 	if err != nil {
@@ -546,11 +465,21 @@ func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx) ([]*openSector, error) 
 	return os, nil
 }
 
-func (p *PieceIngester) getSealProofType() (abi.RegisteredSealProof, error) {
+func (p *PieceIngesterSnap) getUpgradeProofType() (abi.RegisteredUpdateProof, error) {
 	nv, err := p.api.StateNetworkVersion(p.ctx, types.EmptyTSK)
 	if err != nil {
 		return 0, xerrors.Errorf("getting network version: %w", err)
 	}
 
-	return miner.PreferredSealProofTypeFromWindowPoStType(nv, p.windowPoStProofType, p.synth)
+	spt, err := miner.PreferredSealProofTypeFromWindowPoStType(nv, p.windowPoStProofType, false)
+	if err != nil {
+		return 0, xerrors.Errorf("getting seal proof type: %w", err)
+	}
+
+	proofInfo, ok := abi.SealProofInfos[spt]
+	if !ok {
+		return 0, xerrors.Errorf("getting seal proof type: %w", err)
+	}
+
+	return proofInfo.UpdateProof, nil
 }
