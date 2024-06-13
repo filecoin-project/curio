@@ -241,6 +241,10 @@ type CurioSubsystemsConfig struct {
 
 	// The address that should listen for Web GUI requests.
 	GuiAddress string
+
+	// UseSyntheticPoRep enables the synthetic PoRep for all new sectors. When set to true, will reduce the amount of
+	// cache data held on disk after the completion of TreeRC task to 11GiB.
+	UseSyntheticPoRep bool
 }
 type CurioFees struct {
 	DefaultMaxFee      types.FIL

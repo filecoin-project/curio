@@ -211,6 +211,21 @@ func TestCurioHappyPath(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, num, 1)
+
+	spt, err = miner2.PreferredSealProofTypeFromWindowPoStType(nv, wpt, true)
+	require.NoError(t, err)
+
+	num, err = seal.AllocateSectorNumbers(ctx, full, db, maddr, 1, func(tx *harmonydb.Tx, numbers []abi.SectorNumber) (bool, error) {
+		for _, n := range numbers {
+			_, err := tx.Exec("insert into sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof) values ($1, $2, $3)", mid, n, spt)
+			if err != nil {
+				return false, xerrors.Errorf("inserting into sectors_sdr_pipeline: %w", err)
+			}
+		}
+		return true, nil
+	})
+	require.NoError(t, err)
+	require.Len(t, num, 1)
 	// TODO: add DDO deal, f05 deal 2 MiB each in the sector
 
 	var sectorParamsArr []struct {
@@ -228,11 +243,13 @@ func TestCurioHappyPath(t *testing.T) {
 		FROM sectors_sdr_pipeline
 		WHERE after_commit_msg_success = True`)
 		require.NoError(t, err)
-		return len(sectorParamsArr) == 1
+		return len(sectorParamsArr) == 2
 	}, 10*time.Minute, 1*time.Second, "sector did not finish sealing in 5 minutes")
 
 	require.Equal(t, sectorParamsArr[0].SectorNumber, int64(0))
 	require.Equal(t, sectorParamsArr[0].SpID, int64(mid))
+	require.Equal(t, sectorParamsArr[1].SectorNumber, int64(1))
+	require.Equal(t, sectorParamsArr[1].SpID, int64(mid))
 
 	_ = capi.Shutdown(ctx)
 

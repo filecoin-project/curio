@@ -3,6 +3,10 @@ package seal
 import (
 	"context"
 
+	"github.com/filecoin-project/curio/lib/filler"
+	"github.com/filecoin-project/go-commp-utils/nonffi"
+	"github.com/filecoin-project/go-commp-utils/zerocomm"
+	"github.com/filecoin-project/lotus/storage/sealer/ffiwrapper"
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
@@ -43,10 +47,11 @@ func (t *TreeRCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		SectorNumber int64                   `db:"sector_number"`
 		RegSealProof abi.RegisteredSealProof `db:"reg_seal_proof"`
 		CommD        string                  `db:"tree_d_cid"`
+		TicketValue  []byte                  `db:"ticket_value"`
 	}
 
 	err = t.db.Select(ctx, &sectorParamsArr, `
-		SELECT sp_id, sector_number, reg_seal_proof, tree_d_cid
+		SELECT sp_id, sector_number, reg_seal_proof, tree_d_cid, ticket_value
 		FROM sectors_sdr_pipeline
 		WHERE task_id_tree_c = $1 AND task_id_tree_r = $1`, taskID)
 	if err != nil {
@@ -71,8 +76,83 @@ func (t *TreeRCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		ProofType: sectorParams.RegSealProof,
 	}
 
+	var pieces []struct {
+		PieceIndex  int64  `db:"piece_index"`
+		PieceCID    string `db:"piece_cid"`
+		PieceSize   int64  `db:"piece_size"`
+		DataRawSize *int64 `db:"data_raw_size"`
+	}
+
+	err = t.db.Select(ctx, &pieces, `
+		SELECT piece_index, piece_cid, piece_size, data_raw_size
+		FROM sectors_sdr_initial_pieces
+		WHERE sp_id = $1 AND sector_number = $2 ORDER BY piece_index ASC`, sectorParams.SpID, sectorParams.SectorNumber)
+	if err != nil {
+		return false, xerrors.Errorf("getting pieces: %w", err)
+	}
+
+	ssize, err := sectorParams.RegSealProof.SectorSize()
+	if err != nil {
+		return false, xerrors.Errorf("getting sector size: %w", err)
+	}
+
+	var offset abi.UnpaddedPieceSize
+	var pieceInfos []abi.PieceInfo
+
+	if len(pieces) > 0 {
+		for _, p := range pieces {
+			c, err := cid.Parse(p.PieceCID)
+			if err != nil {
+				return false, xerrors.Errorf("parsing piece cid: %w", err)
+			}
+
+			pads, padLength := ffiwrapper.GetRequiredPadding(offset.Padded(), abi.PaddedPieceSize(p.PieceSize))
+			offset += padLength.Unpadded()
+
+			for _, pad := range pads {
+				pieceInfos = append(pieceInfos, abi.PieceInfo{
+					Size:     pad,
+					PieceCID: zerocomm.ZeroPieceCommitment(pad.Unpadded()),
+				})
+			}
+
+			pieceInfos = append(pieceInfos, abi.PieceInfo{
+				Size:     abi.PaddedPieceSize(p.PieceSize),
+				PieceCID: c,
+			})
+			offset += abi.UnpaddedPieceSize(*p.DataRawSize)
+		}
+
+		fillerSize, err := filler.FillersFromRem(abi.PaddedPieceSize(ssize).Unpadded() - offset)
+		if err != nil {
+			return false, xerrors.Errorf("failed to calculate the final padding: %w", err)
+		}
+		for _, fil := range fillerSize {
+			pieceInfos = append(pieceInfos, abi.PieceInfo{
+				Size:     fil.Padded(),
+				PieceCID: zerocomm.ZeroPieceCommitment(fil),
+			})
+		}
+
+		commd, err = nonffi.GenerateUnsealedCID(sectorParams.RegSealProof, pieceInfos)
+		if err != nil {
+			return false, xerrors.Errorf("computing CommD: %w", err)
+		}
+	} else {
+		fillerSize, err := filler.FillersFromRem(abi.PaddedPieceSize(ssize).Unpadded())
+		if err != nil {
+			return false, xerrors.Errorf("failed to calculate the filler size: %w", err)
+		}
+		for _, fil := range fillerSize {
+			pieceInfos = append(pieceInfos, abi.PieceInfo{
+				Size:     fil.Padded(),
+				PieceCID: zerocomm.ZeroPieceCommitment(fil),
+			})
+		}
+	}
+
 	// R / C
-	sealed, unsealed, err := t.sc.TreeRC(ctx, &taskID, sref, commd)
+	sealed, unsealed, err := t.sc.TreeRC(ctx, &taskID, sref, commd, sectorParams.TicketValue, pieceInfos)
 	if err != nil {
 		return false, xerrors.Errorf("computing tree r and c: %w", err)
 	}
@@ -80,10 +160,6 @@ func (t *TreeRCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	if unsealed != commd {
 		return false, xerrors.Errorf("commd %s does match unsealed %s", commd.String(), unsealed.String())
 	}
-
-	// todo synth porep
-
-	// todo porep challenge check
 
 	n, err := t.db.Exec(ctx, `UPDATE sectors_sdr_pipeline
 		SET after_tree_r = true, after_tree_c = true, tree_r_cid = $3, task_id_tree_r = NULL, task_id_tree_c = NULL

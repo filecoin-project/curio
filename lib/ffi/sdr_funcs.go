@@ -2,6 +2,7 @@ package ffi
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -204,7 +205,7 @@ func (sb *SealCalls) ensureOneCopy(ctx context.Context, sid abi.SectorID, pathID
 	return nil
 }
 
-func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, sector storiface.SectorRef, unsealed cid.Cid) (scid cid.Cid, ucid cid.Cid, err error) {
+func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, sector storiface.SectorRef, unsealed cid.Cid, randomness abi.SealRandomness, pieces []abi.PieceInfo) (scid cid.Cid, ucid cid.Cid, err error) {
 	p1o, err := sb.makePhase1Out(unsealed, sector.ProofType)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("make phase1 output: %w", err)
@@ -274,6 +275,33 @@ func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, secto
 
 	if out.Unsealed != unsealed {
 		return cid.Undef, cid.Undef, xerrors.Errorf("unsealed cid changed after sealing")
+	}
+
+	// Generate synthetic proofs
+	if abi.Synthetic[sector.ProofType] {
+		err = ffi.GenerateSynthProofs(sector.ProofType, out.Sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, pieces)
+		if err != nil {
+			return cid.Undef, cid.Undef, xerrors.Errorf("generating synthetic proof: %w", err)
+		}
+		if err = ffi.ClearCache(uint64(ssize), fspaths.Cache); err != nil {
+			// Note: non-fatal error.
+			log.Warn("failed to GenerateSynthProofs(): ", err)
+			log.Warnf("num:%d tkt:%v, sealedCID:%v, unsealedCID:%v", sector.ID.Number, randomness, out.Sealed, unsealed)
+		}
+
+		var sd [32]byte
+		_, _ = rand.Read(sd[:])
+
+		// Generate 3 random commits
+		for i := 0; i < 3; i++ {
+			_, err = ffi.SealCommitPhase1(sector.ProofType, out.Sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, sd[:], pieces)
+			if err != nil {
+				log.Warn("checking PreCommit failed: ", err)
+				log.Warnf("num:%d tkt:%v seed:%v sealedCID:%v, unsealedCID:%v", sector.ID.Number, randomness, sd[:], out.Sealed, unsealed)
+
+				return cid.Undef, cid.Undef, xerrors.Errorf("checking PreCommit for synthetic proofs failed: %w", err)
+			}
+		}
 	}
 
 	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTCache|storiface.FTSealed); err != nil {
@@ -406,7 +434,7 @@ func (sb *SealCalls) makePhase1Out(unsCid cid.Cid, spt abi.RegisteredSealProof) 
 			})
 		}
 
-	case abi.RegisteredSealProof_StackedDrg512MiBV1_1:
+	case abi.RegisteredSealProof_StackedDrg512MiBV1_1, abi.RegisteredSealProof_StackedDrg512MiBV1_1_Feat_SyntheticPoRep:
 		phase1Output.Config.RowsToDiscard = 0
 		phase1Output.Config.Size = 33554431
 		phase1Output.Labels["StackedDrg512MiBV1"] = &Labels{}
@@ -421,7 +449,7 @@ func (sb *SealCalls) makePhase1Out(unsCid cid.Cid, spt abi.RegisteredSealProof) 
 			})
 		}
 
-	case abi.RegisteredSealProof_StackedDrg32GiBV1_1:
+	case abi.RegisteredSealProof_StackedDrg32GiBV1_1, abi.RegisteredSealProof_StackedDrg32GiBV1_1_Feat_SyntheticPoRep:
 		phase1Output.Config.RowsToDiscard = 0
 		phase1Output.Config.Size = 2147483647
 		phase1Output.Labels["StackedDrg32GiBV1"] = &Labels{}
@@ -436,7 +464,7 @@ func (sb *SealCalls) makePhase1Out(unsCid cid.Cid, spt abi.RegisteredSealProof) 
 			})
 		}
 
-	case abi.RegisteredSealProof_StackedDrg64GiBV1_1:
+	case abi.RegisteredSealProof_StackedDrg64GiBV1_1, abi.RegisteredSealProof_StackedDrg64GiBV1_1_Feat_SyntheticPoRep:
 		phase1Output.Config.RowsToDiscard = 0
 		phase1Output.Config.Size = 4294967295
 		phase1Output.Labels["StackedDrg64GiBV1"] = &Labels{}
@@ -554,6 +582,12 @@ func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface.Sector
 	}
 
 afterUnsealedMove:
+	if abi.Synthetic[sector.ProofType] {
+		if err = ffi.ClearSyntheticProofs(uint64(ssize), sectorPaths.Cache); err != nil {
+			return xerrors.Errorf("Unable to delete Synth cache:", err)
+		}
+	}
+
 	if err := ffi.ClearCache(uint64(ssize), sectorPaths.Cache); err != nil {
 		return xerrors.Errorf("clearing cache: %w", err)
 	}
