@@ -618,6 +618,13 @@ only need to be run on a single machine in the cluster.`,
 
 			Comment: `The address that should listen for Web GUI requests.`,
 		},
+		{
+			Name: "UseSyntheticPoRep",
+			Type: "bool",
+
+			Comment: `UseSyntheticPoRep enables the synthetic PoRep for all new sectors. When set to true, will reduce the amount of
+cache data held on disk after the completion of TreeRC task to 11GiB.`,
+		},
 	},
 	"Duration time.Duration": {
 		{

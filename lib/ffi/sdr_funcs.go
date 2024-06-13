@@ -584,7 +584,7 @@ func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface.Sector
 afterUnsealedMove:
 	if abi.Synthetic[sector.ProofType] {
 		if err = ffi.ClearSyntheticProofs(uint64(ssize), sectorPaths.Cache); err != nil {
-			return xerrors.Errorf("Unable to delete Synth cache:", err)
+			return xerrors.Errorf("Unable to delete Synth cache: %w", err)
 		}
 	}
 
