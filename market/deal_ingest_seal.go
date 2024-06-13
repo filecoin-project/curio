@@ -42,6 +42,8 @@ type PieceIngesterApi interface {
 	StateNetworkVersion(ctx context.Context, key types.TipSetKey) (network.Version, error)
 	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifregtypes.AllocationId, tsk types.TipSetKey) (*verifregtypes.Allocation, error)
 	StateGetAllocationForPendingDeal(ctx context.Context, dealId abi.DealID, tsk types.TipSetKey) (*verifregtypes.Allocation, error)
+	StateGetAllocationIdForPendingDeal(ctx context.Context, dealId abi.DealID, tsk types.TipSetKey) (verifregtypes.AllocationId, error)
+	StateLookupID(context.Context, address.Address, types.TipSetKey) (address.Address, error)
 }
 
 type openSector struct {

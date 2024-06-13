@@ -6,9 +6,14 @@ import (
 	"fmt"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/go-address"
+	cborutil "github.com/filecoin-project/go-cbor-util"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
+	miner2 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
+	verifreg13 "github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
+	"github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/actors/builtin/market"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	verifregtypes "github.com/filecoin-project/lotus/chain/actors/builtin/verifreg"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -76,7 +81,7 @@ func (p *PieceIngesterSnap) start() {
 	}
 }
 
-func (p *PieceIngesterSnap) Seal() error {
+func (p *PieceIngesterSnap) Seal() error { //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// PROBS WORKS
 	head, err := p.api.ChainHead(p.ctx)
 	if err != nil {
 		return xerrors.Errorf("getting chain head: %w", err)
@@ -178,44 +183,71 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 	}
 
 	if piece.DealProposal != nil {
-		/*vd.isVerified = piece.DealProposal.VerifiedDeal
-		if vd.isVerified {
-			alloc, err := p.api.StateGetAllocationForPendingDeal(ctx, piece.DealID, types.EmptyTSK)
-			if err != nil {
-				return api.SectorOffset{}, xerrors.Errorf("getting pending allocation for deal %d: %w", piece.DealID, err)
-			}
-			if alloc == nil {
-				return api.SectorOffset{}, xerrors.Errorf("no allocation found for deal %d: %w", piece.DealID, err)
-			}
-			vd.tmin = alloc.TermMin
-			vd.tmax = alloc.TermMax
-		}
-		propJson, err = json.Marshal(piece.DealProposal)
+		// For snap we convert f05 deals to DDO
+
+		alloc, err := p.api.StateGetAllocationIdForPendingDeal(ctx, piece.DealID, types.EmptyTSK)
 		if err != nil {
-			return api.SectorOffset{}, xerrors.Errorf("json.Marshal(piece.DealProposal): %w", err)
-		}*/
-		panic("convert f05 to ddo")
-	} else {
-		vd.isVerified = piece.PieceActivationManifest.VerifiedAllocationKey != nil
-		if vd.isVerified {
-			client, err := address.NewIDAddress(uint64(piece.PieceActivationManifest.VerifiedAllocationKey.Client))
-			if err != nil {
-				return api.SectorOffset{}, xerrors.Errorf("getting client address from actor ID: %w", err)
-			}
-			alloc, err := p.api.StateGetAllocation(ctx, client, verifregtypes.AllocationId(piece.PieceActivationManifest.VerifiedAllocationKey.ID), types.EmptyTSK)
-			if err != nil {
-				return api.SectorOffset{}, xerrors.Errorf("getting allocation details for %d: %w", piece.PieceActivationManifest.VerifiedAllocationKey.ID, err)
-			}
-			if alloc == nil {
-				return api.SectorOffset{}, xerrors.Errorf("no allocation found for ID %d: %w", piece.PieceActivationManifest.VerifiedAllocationKey.ID, err)
-			}
-			vd.tmin = alloc.TermMin
-			vd.tmax = alloc.TermMax
+			return api.SectorOffset{}, xerrors.Errorf("getting allocation for deal %d: %w", piece.DealID, err)
 		}
-		propJson, err = json.Marshal(piece.PieceActivationManifest)
+		clid, err := p.api.StateLookupID(ctx, piece.DealProposal.Client, types.EmptyTSK)
 		if err != nil {
-			return api.SectorOffset{}, xerrors.Errorf("json.Marshal(piece.PieceActivationManifest): %w", err)
+			return api.SectorOffset{}, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
 		}
+
+		clientId, err := address.IDFromAddress(clid)
+		if err != nil {
+			return api.SectorOffset{}, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
+		}
+
+		var vac *miner2.VerifiedAllocationKey
+		if alloc != verifreg.NoAllocationID {
+			vac = &miner2.VerifiedAllocationKey{
+				Client: abi.ActorID(clientId),
+				ID:     verifreg13.AllocationId(alloc),
+			}
+		}
+
+		payload, err := cborutil.Dump(piece.DealID)
+		if err != nil {
+			return api.SectorOffset{}, xerrors.Errorf("serializing deal id: %w", err)
+		}
+
+		piece.PieceActivationManifest = &miner.PieceActivationManifest{
+			CID:                   piece.PieceCID(),
+			Size:                  piece.DealProposal.PieceSize,
+			VerifiedAllocationKey: vac,
+			Notify: []miner2.DataActivationNotification{
+				{
+					Address: market.Address,
+					Payload: payload,
+				},
+			},
+		}
+
+		piece.DealProposal = nil
+		piece.DealID = 0
+		piece.PublishCid = nil
+	}
+
+	vd.isVerified = piece.PieceActivationManifest.VerifiedAllocationKey != nil
+	if vd.isVerified {
+		client, err := address.NewIDAddress(uint64(piece.PieceActivationManifest.VerifiedAllocationKey.Client))
+		if err != nil {
+			return api.SectorOffset{}, xerrors.Errorf("getting client address from actor ID: %w", err)
+		}
+		alloc, err := p.api.StateGetAllocation(ctx, client, verifregtypes.AllocationId(piece.PieceActivationManifest.VerifiedAllocationKey.ID), types.EmptyTSK)
+		if err != nil {
+			return api.SectorOffset{}, xerrors.Errorf("getting allocation details for %d: %w", piece.PieceActivationManifest.VerifiedAllocationKey.ID, err)
+		}
+		if alloc == nil {
+			return api.SectorOffset{}, xerrors.Errorf("no allocation found for ID %d: %w", piece.PieceActivationManifest.VerifiedAllocationKey.ID, err)
+		}
+		vd.tmin = alloc.TermMin
+		vd.tmax = alloc.TermMax
+	}
+	propJson, err = json.Marshal(piece.PieceActivationManifest)
+	if err != nil {
+		return api.SectorOffset{}, xerrors.Errorf("json.Marshal(piece.PieceActivationManifest): %w", err)
 	}
 
 	if !p.sealRightNow {
@@ -229,6 +261,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 		}
 	}
 
+	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// ////////////////////////////////// TODO get new sector!!
 	// Allocation to open sector failed, create a new sector and add the piece to it
 	func(tx *harmonydb.Tx, numbers []abi.SectorNumber) (bool, error) {
 		if len(numbers) != 1 {
@@ -289,6 +322,8 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, piece lpiece
 					if sectorLifeTime <= vd.tmin && sectorLifeTime >= vd.tmax {
 						continue
 					}
+
+					//  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////  TODO ADD SNAP SECTOR EXP CHECKS
 				}
 
 				ret.Sector = sec.number
@@ -369,7 +404,7 @@ func (p *PieceIngesterSnap) SectorStartSealing(ctx context.Context, sector abi.S
 			return false, xerrors.Errorf("incorrect number of rows returned")
 		}
 
-		_, err = tx.Exec("SELECT transfer_and_delete_open_piece($1, $2)", p.mid, sector)
+		_, err = tx.Exec("SELECT transfer_and_delete_open_piece_snap($1, $2)", p.mid, sector)
 		if err != nil {
 			return false, xerrors.Errorf("adding sector to pipeline: %w", err)
 		}
