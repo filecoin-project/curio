@@ -7,11 +7,9 @@
 <h1 align="center">Curio Storage - 储存</h1>
 
 <p align="center">
-  <a href="https://github.com/filecoin-project/lotus/actions/workflows/build.yml"><img src="https://github.com/filecoin-project/lotus/actions/workflows/build.yml/badge.svg"></a>
-  <a href="https://github.com/filecoin-project/lotus/actions/workflows/check.yml"><img src="https://github.com/filecoin-project/lotus/actions/workflows/check.yml/badge.svg"></a>
-  <a href="https://github.com/filecoin-project/lotus/actions/workflows/test.yml"><img src="https://github.com/filecoin-project/lotus/actions/workflows/test.yml/badge.svg"></a>
-  <a href="https://goreportcard.com/report/github.com/filecoin-project/lotus"><img src="https://goreportcard.com/badge/github.com/filecoin-project/lotus" /></a>
-  <a href=""><img src="https://img.shields.io/badge/golang-%3E%3D1.21.7-blue.svg" /></a>
+  <a href="https://app.circleci.com/pipelines/github/filecoin-project/curio"><img src="https://circleci.com/gh/filecoin-project/curio.svg?style=svg" alt="CircleCI"></a>
+  <a href="https://goreportcard.com/report/github.com/filecoin-project/curio"><img src="https://goreportcard.com/badge/github.com/filecoin-project/curio" /></a>
+  <a href=""><img src="https://img.shields.io/badge/golang-%3E%3D1.22.3-blue.svg" /></a>
   <br>
 </p>
 
@@ -50,10 +48,9 @@ Curio Storage is continuously evolving, with future plans including:
 - **Non-Interactive Proof of Replication (NI-PoRep)**: Unlocking the potential for non-sealing storage providers.
 - **Two-Hour-Per-Month Admin Goal**: Streamlining operations to require minimal administrative effort.
 
-## **Beta Software**
+## **General Availability**
 
-**Curio Storage is currently in Beta.** We encourage you to test Curio on a local-dev-net, which can be easily set up by following [this guide](https://github.com/filecoin-project/lotus/discussions/11991). For a more realistic experience, you can deploy or migrate your miner on the calibrationnet as described [here](https://github.com/filecoin-project/lotus/discussions/11991). Your feedback is invaluable and will help us improve Curio. 
-⚠️Please do not use it on the mainnet yet.
+**Curio Storage is now GA.** We encourage you to migrate your lotus-miner to Curio. For testing, you can deploy or migrate your miner on the calibrationnet. Your feedback is invaluable and will help us improve Curio.
 
 ## Getting Started
 
@@ -67,12 +64,12 @@ To get started with Curio Storage, follow these steps:
 
 2. **Switch to the Curio Branch**:
     ```sh
-    git checkout releases/curio-beta
+    git checkout <latest release>
     ```
 
 3. **Build the Project**:
     ```sh
-    make clean deps all
+    make clean all
     ```
 
 4. **Run the Guided Setup**:
