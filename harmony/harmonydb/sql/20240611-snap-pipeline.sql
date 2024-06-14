@@ -65,6 +65,110 @@ create table sectors_snap_initial_pieces (
     primary key (sp_id, sector_number, piece_index)
 );
 
+CREATE TABLE sectors_cc_values (
+                                        reg_seal_proof INT,
+                                        cur_unsealed_cid TEXT,
+                                        PRIMARY KEY (reg_seal_proof, cur_unsealed_cid)
+);
+
+INSERT INTO sectors_cc_values (reg_seal_proof, cur_unsealed_cid) VALUES
+                                                                           (0, 'baga6ea4seaqpy7usqklokfx2vxuynmupslkeutzexe2uqurdg5vhtebhxqmpqmy'),
+                                                                           (1, 'baga6ea4seaqgl4u6lwmnerwdrm4iz7ag3mpwwaqtapc2fciabpooqmvjypweeha'),
+                                                                           (2, 'baga6ea4seaqdsvqopmj2soyhujb72jza76t4wpq5fzifvm3ctz47iyytkewnubq'),
+                                                                           (3, 'baga6ea4seaqao7s73y24kcutaosvacpdjgfe5pw76ooefnyqw4ynr3d2y6x2mpq'),
+                                                                           (4, 'baga6ea4seaqomqafu276g53zko4k23xzh4h4uecjwicbmvhsuqi7o4bhthhm4aq'),
+                                                                           (5, 'baga6ea4seaqpy7usqklokfx2vxuynmupslkeutzexe2uqurdg5vhtebhxqmpqmy'),
+                                                                           (6, 'baga6ea4seaqgl4u6lwmnerwdrm4iz7ag3mpwwaqtapc2fciabpooqmvjypweeha'),
+                                                                           (7, 'baga6ea4seaqdsvqopmj2soyhujb72jza76t4wpq5fzifvm3ctz47iyytkewnubq'),
+                                                                           (8, 'baga6ea4seaqao7s73y24kcutaosvacpdjgfe5pw76ooefnyqw4ynr3d2y6x2mpq'),
+                                                                           (9, 'baga6ea4seaqomqafu276g53zko4k23xzh4h4uecjwicbmvhsuqi7o4bhthhm4aq'),
+                                                                           (10, 'baga6ea4seaqpy7usqklokfx2vxuynmupslkeutzexe2uqurdg5vhtebhxqmpqmy'),
+                                                                           (11, 'baga6ea4seaqgl4u6lwmnerwdrm4iz7ag3mpwwaqtapc2fciabpooqmvjypweeha'),
+                                                                           (12, 'baga6ea4seaqdsvqopmj2soyhujb72jza76t4wpq5fzifvm3ctz47iyytkewnubq'),
+                                                                           (13, 'baga6ea4seaqao7s73y24kcutaosvacpdjgfe5pw76ooefnyqw4ynr3d2y6x2mpq'),
+                                                                           (14, 'baga6ea4seaqomqafu276g53zko4k23xzh4h4uecjwicbmvhsuqi7o4bhthhm4aq');
+
+ALTER TABLE sectors_meta ADD COLUMN expiration_epoch BIGINT;
+
+ALTER TABLE sectors_meta
+    ADD COLUMN is_cc BOOLEAN NOT NULL DEFAULT (
+        NOT EXISTS (
+            SELECT 1
+            FROM sectors_snap_pipeline
+            WHERE sp_id = sectors_meta.sp_id
+              AND sector_number = sectors_meta.sector_num
+        ) AND EXISTS (
+            SELECT 1
+            FROM sectors_cc_values
+            WHERE reg_seal_proof = sectors_meta.reg_seal_proof
+              AND cur_unsealed_cid = sectors_meta.cur_unsealed_cid
+        )
+        );
+
+-- Create the trigger function for updating is_cc on sectors_meta
+CREATE OR REPLACE FUNCTION update_is_cc()
+    RETURNS TRIGGER AS $$
+BEGIN
+    NEW.is_cc := NOT EXISTS (
+        SELECT 1
+        FROM sectors_snap_pipeline
+        WHERE sp_id = NEW.sp_id
+          AND sector_number = NEW.sector_num
+    ) AND EXISTS (
+        SELECT 1
+        FROM sectors_cc_values
+        WHERE reg_seal_proof = NEW.reg_seal_proof
+          AND cur_unsealed_cid = NEW.cur_unsealed_cid
+    );
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create the trigger for updating is_cc on sectors_meta
+CREATE TRIGGER update_is_cc_trigger
+    BEFORE UPDATE ON sectors_meta
+    FOR EACH ROW
+EXECUTE FUNCTION update_is_cc();
+
+-- Create the trigger function for updating sectors_meta based on sectors_snap_pipeline changes
+CREATE OR REPLACE FUNCTION update_sectors_meta_is_cc()
+    RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE sectors_meta
+    SET is_cc = NOT EXISTS (
+        SELECT 1
+        FROM sectors_snap_pipeline
+        WHERE sp_id = sectors_meta.sp_id
+          AND sector_number = sectors_meta.sector_num
+    ) AND EXISTS (
+        SELECT 1
+        FROM sectors_cc_values
+        WHERE reg_seal_proof = sectors_meta.reg_seal_proof
+          AND cur_unsealed_cid = sectors_meta.cur_unsealed_cid
+    )
+    WHERE sp_id = NEW.sp_id AND sector_num = NEW.sector_number;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create triggers for sectors_snap_pipeline changes
+CREATE TRIGGER update_sectors_meta_is_cc_on_insert
+    AFTER INSERT ON sectors_snap_pipeline
+    FOR EACH ROW
+EXECUTE FUNCTION update_sectors_meta_is_cc();
+
+CREATE TRIGGER update_sectors_meta_is_cc_on_update
+    AFTER UPDATE ON sectors_snap_pipeline
+    FOR EACH ROW
+EXECUTE FUNCTION update_sectors_meta_is_cc();
+
+CREATE TRIGGER update_sectors_meta_is_cc_on_delete
+    AFTER DELETE ON sectors_snap_pipeline
+    FOR EACH ROW
+EXECUTE FUNCTION update_sectors_meta_is_cc();
+
 CREATE OR REPLACE FUNCTION insert_snap_ddo_piece(
     v_sp_id bigint,
     v_sector_number bigint,

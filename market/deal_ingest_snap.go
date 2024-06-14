@@ -9,6 +9,7 @@ import (
 	cborutil "github.com/filecoin-project/go-cbor-util"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/builtin"
 	miner2 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
 	verifreg13 "github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 	"github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
@@ -23,6 +24,8 @@ import (
 	"net/url"
 	"time"
 )
+
+const IdealEndEpochBuffer = 2 * builtin.EpochsInDay
 
 type PieceIngesterSnap struct {
 	ctx                 context.Context
@@ -229,6 +232,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 		piece.PublishCid = nil
 	}
 
+	var maxExpiration *abi.ChainEpoch
 	vd.isVerified = piece.PieceActivationManifest.VerifiedAllocationKey != nil
 	if vd.isVerified {
 		client, err := address.NewIDAddress(uint64(piece.PieceActivationManifest.VerifiedAllocationKey.Client))
@@ -244,6 +248,9 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 		}
 		vd.tmin = alloc.TermMin
 		vd.tmax = alloc.TermMax
+
+		me := piece.DealSchedule.EndEpoch + alloc.TermMax
+		maxExpiration = &me
 	}
 	propJson, err = json.Marshal(piece.PieceActivationManifest)
 	if err != nil {
@@ -263,14 +270,51 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// ////////////////////////////////// TODO get new sector!!
 	// Allocation to open sector failed, create a new sector and add the piece to it
-	func(tx *harmonydb.Tx, numbers []abi.SectorNumber) (bool, error) {
-		if len(numbers) != 1 {
-			return false, xerrors.Errorf("expected one sector number")
+
+	// TX
+
+	// select sectors_meta where is_cc = true
+	// now we have a list of all sectors that are CC
+	// We're selecting the best sector for *this* piece, not any other / pending pieces (like lotus-miner, which made this logic needlessly complex)
+	// We want a sector with an expiration above the piece expiration but below termMax
+	// Ideally we want the sector expiration te be a day or two above the deal expiration, so that it can accomodate other deals with slightly longer expirations
+	// Nice to have: use preloaded sectors
+
+	// /TX
+
+	var num *abi.SectorNumber
+	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		var candidates []struct {
+			Sector     abi.SectorNumber `db:"sector_num"`
+			Expiration abi.ChainEpoch   `db:"expiration_epoch"`
 		}
-		n := numbers[0]
+
+		// maxExpiration = maybe(max sector expiration_epoch)
+		// minExpiration = piece.DealSchedule.EndEpoch
+		// ideal expiration = minExpiration + 2 days
+		err = tx.Select(&candidates, `
+			SELECT sector_num, expiration_epoch
+			FROM sectors_meta
+			WHERE is_cc = true AND sp_id = $4
+			  AND expiration_epoch IS NOT NULL
+			  AND expiration_epoch > $1
+			  AND ($2 IS NULL OR expiration_epoch < $2)
+			ORDER BY ABS(expiration_epoch - ($1 + $3))
+			LIMIT 10
+		`, piece.DealSchedule.EndEpoch, maxExpiration, IdealEndEpochBuffer, p.mid)
+		if err != nil {
+			return false, xerrors.Errorf("allocating sector numbers: %w", err)
+		}
+
+		// todo - nice to have:
+		//  * double check the sector expiration
+		//  * check sector liveness
+		//  * check deadline mutable
+
+		candidate := candidates[0] // this one works best
 
 		_, err = tx.Exec(`SELECT insert_snap_ddo_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-			p.mid, n, 0,
+			p.mid, candidate.Sector, 0,
 			piece.PieceActivationManifest.CID, piece.PieceActivationManifest.Size,
 			source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
 			piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch, propJson)
@@ -278,25 +322,27 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 			return false, xerrors.Errorf("adding deal to sector: %w", err)
 		}
 
+		num = &candidate.Sector
+
 		return true, nil
-	}
+	}, harmonydb.OptionRetry())
 	if err != nil {
 		return api.SectorOffset{}, xerrors.Errorf("allocating sector numbers: %w", err)
 	}
 
-	if len(num) != 1 {
+	if num == nil {
 		return api.SectorOffset{}, xerrors.Errorf("expected one sector number")
 	}
 
 	if p.sealRightNow {
-		err = p.SectorStartSealing(ctx, num[0])
+		err = p.SectorStartSealing(ctx, *num)
 		if err != nil {
 			return api.SectorOffset{}, xerrors.Errorf("SectorStartSealing: %w", err)
 		}
 	}
 
 	return api.SectorOffset{
-		Sector: num[0],
+		Sector: *num,
 		Offset: 0,
 	}, nil
 }
