@@ -7,13 +7,32 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"time"
 
+	"github.com/google/uuid"
+	blocks "github.com/ipfs/go-block-format"
+	"github.com/ipfs/go-cid"
+	"github.com/libp2p/go-libp2p/core/metrics"
+	p2pnetwork "github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-bitfield"
+	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/big"
+	verifregtypes "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
+	"github.com/filecoin-project/go-state-types/crypto"
+	"github.com/filecoin-project/go-state-types/dline"
+	"github.com/filecoin-project/go-state-types/network"
 
-	lapi "github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/api"
+	apitypes "github.com/filecoin-project/lotus/api/types"
+	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/journal/alerting"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
@@ -22,12 +41,151 @@ import (
 var _ = reflect.TypeOf([]byte(nil))
 var ErrNotSupported = xerrors.New("method not supported")
 
+type ChainSubsetForForestStruct struct {
+	CommonStruct
+
+	NetStruct
+
+	Internal ChainSubsetForForestMethods
+}
+
+type ChainSubsetForForestMethods struct {
+	ChainGetMessage func(p0 context.Context, p1 cid.Cid) (*types.Message, error) ``
+
+	ChainGetTipSet func(p0 context.Context, p1 types.TipSetKey) (*types.TipSet, error) ``
+
+	ChainGetTipSetAfterHeight func(p0 context.Context, p1 abi.ChainEpoch, p2 types.TipSetKey) (*types.TipSet, error) ``
+
+	ChainGetTipSetByHeight func(p0 context.Context, p1 abi.ChainEpoch, p2 types.TipSetKey) (*types.TipSet, error) ``
+
+	ChainHasObj func(p0 context.Context, p1 cid.Cid) (bool, error) ``
+
+	ChainHead func(p0 context.Context) (*types.TipSet, error) ``
+
+	ChainNotify func(p0 context.Context) (<-chan []*api.HeadChange, error) ``
+
+	ChainPutObj func(p0 context.Context, p1 blocks.Block) error ``
+
+	ChainReadObj func(p0 context.Context, p1 cid.Cid) ([]byte, error) ``
+
+	ChainTipSetWeight func(p0 context.Context, p1 types.TipSetKey) (types.BigInt, error) ``
+
+	GasEstimateFeeCap func(p0 context.Context, p1 *types.Message, p2 int64, p3 types.TipSetKey) (types.BigInt, error) ``
+
+	GasEstimateGasPremium func(p0 context.Context, p1 uint64, p2 address.Address, p3 int64, p4 types.TipSetKey) (types.BigInt, error) ``
+
+	GasEstimateMessageGas func(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec, p3 types.TipSetKey) (*types.Message, error) ``
+
+	MinerCreateBlock func(p0 context.Context, p1 *api.BlockTemplate) (*types.BlockMsg, error) ``
+
+	MinerGetBaseInfo func(p0 context.Context, p1 address.Address, p2 abi.ChainEpoch, p3 types.TipSetKey) (*api.MiningBaseInfo, error) ``
+
+	MpoolGetNonce func(p0 context.Context, p1 address.Address) (uint64, error) ``
+
+	MpoolPush func(p0 context.Context, p1 *types.SignedMessage) (cid.Cid, error) ``
+
+	MpoolPushMessage func(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec) (*types.SignedMessage, error) ``
+
+	MpoolSelect func(p0 context.Context, p1 types.TipSetKey, p2 float64) ([]*types.SignedMessage, error) ``
+
+	StateAccountKey func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) ``
+
+	StateGetActor func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*types.Actor, error) ``
+
+	StateGetAllocation func(p0 context.Context, p1 address.Address, p2 verifregtypes.AllocationId, p3 types.TipSetKey) (*verifregtypes.Allocation, error) ``
+
+	StateGetAllocationForPendingDeal func(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (*verifregtypes.Allocation, error) ``
+
+	StateGetAllocationIdForPendingDeal func(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (verifregtypes.AllocationId, error) ``
+
+	StateGetBeaconEntry func(p0 context.Context, p1 abi.ChainEpoch) (*types.BeaconEntry, error) ``
+
+	StateGetRandomnessFromBeacon func(p0 context.Context, p1 crypto.DomainSeparationTag, p2 abi.ChainEpoch, p3 []byte, p4 types.TipSetKey) (abi.Randomness, error) ``
+
+	StateGetRandomnessFromTickets func(p0 context.Context, p1 crypto.DomainSeparationTag, p2 abi.ChainEpoch, p3 []byte, p4 types.TipSetKey) (abi.Randomness, error) ``
+
+	StateLookupID func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) ``
+
+	StateMinerActiveSectors func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) ``
+
+	StateMinerAllocated func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*bitfield.BitField, error) ``
+
+	StateMinerInfo func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MinerInfo, error) ``
+
+	StateMinerInitialPledgeCollateral func(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) ``
+
+	StateMinerPartitions func(p0 context.Context, p1 address.Address, p2 uint64, p3 types.TipSetKey) ([]api.Partition, error) ``
+
+	StateMinerPreCommitDepositForPower func(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) ``
+
+	StateMinerProvingDeadline func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*dline.Info, error) ``
+
+	StateMinerSectors func(p0 context.Context, p1 address.Address, p2 *bitfield.BitField, p3 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) ``
+
+	StateNetworkVersion func(p0 context.Context, p1 types.TipSetKey) (network.Version, error) ``
+
+	StateSearchMsg func(p0 context.Context, p1 types.TipSetKey, p2 cid.Cid, p3 abi.ChainEpoch, p4 bool) (*api.MsgLookup, error) ``
+
+	StateSectorGetInfo func(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorOnChainInfo, error) ``
+
+	StateSectorPartition func(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorLocation, error) ``
+
+	StateSectorPreCommitInfo func(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorPreCommitOnChainInfo, error) ``
+
+	SyncSubmitBlock func(p0 context.Context, p1 *types.BlockMsg) error ``
+
+	WalletBalance func(p0 context.Context, p1 address.Address) (big.Int, error) ``
+
+	WalletHas func(p0 context.Context, p1 address.Address) (bool, error) ``
+
+	WalletSign func(p0 context.Context, p1 address.Address, p2 []byte) (*crypto.Signature, error) ``
+
+	WalletSignMessage func(p0 context.Context, p1 address.Address, p2 *types.Message) (*types.SignedMessage, error) ``
+}
+
+type ChainSubsetForForestStub struct {
+	CommonStub
+
+	NetStub
+}
+
+type CommonStruct struct {
+	Internal CommonMethods
+}
+
+type CommonMethods struct {
+	AuthNew func(p0 context.Context, p1 []auth.Permission) ([]byte, error) `perm:"admin"`
+
+	AuthVerify func(p0 context.Context, p1 string) ([]auth.Permission, error) `perm:"read"`
+
+	Closing func(p0 context.Context) (<-chan struct{}, error) `perm:"read"`
+
+	Discover func(p0 context.Context) (apitypes.OpenRPCDocument, error) `perm:"read"`
+
+	LogAlerts func(p0 context.Context) ([]alerting.Alert, error) `perm:"admin"`
+
+	LogList func(p0 context.Context) ([]string, error) `perm:"write"`
+
+	LogSetLevel func(p0 context.Context, p1 string, p2 string) error `perm:"write"`
+
+	Session func(p0 context.Context) (uuid.UUID, error) `perm:"read"`
+
+	Shutdown func(p0 context.Context) error `perm:"admin"`
+
+	StartTime func(p0 context.Context) (time.Time, error) `perm:"read"`
+
+	Version func(p0 context.Context) (api.APIVersion, error) `perm:"read"`
+}
+
+type CommonStub struct {
+}
+
 type CurioStruct struct {
 	Internal CurioMethods
 }
 
 type CurioMethods struct {
-	AllocatePieceToSector func(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (lapi.SectorOffset, error) `perm:"write"`
+	AllocatePieceToSector func(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (api.SectorOffset, error) `perm:"write"`
 
 	LogList func(p0 context.Context) ([]string, error) `perm:"read"`
 
@@ -51,21 +209,705 @@ type CurioMethods struct {
 
 	StorageStat func(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) `perm:"admin"`
 
-	Version func(p0 context.Context) (lapi.Version, error) `perm:"admin"`
+	Version func(p0 context.Context) (api.Version, error) `perm:"admin"`
 }
 
 type CurioStub struct {
 }
 
-func (s *CurioStruct) AllocatePieceToSector(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (lapi.SectorOffset, error) {
+type NetStruct struct {
+	Internal NetMethods
+}
+
+type NetMethods struct {
+	ID func(p0 context.Context) (peer.ID, error) `perm:"read"`
+
+	NetAddrsListen func(p0 context.Context) (peer.AddrInfo, error) `perm:"read"`
+
+	NetAgentVersion func(p0 context.Context, p1 peer.ID) (string, error) `perm:"read"`
+
+	NetAutoNatStatus func(p0 context.Context) (api.NatInfo, error) `perm:"read"`
+
+	NetBandwidthStats func(p0 context.Context) (metrics.Stats, error) `perm:"read"`
+
+	NetBandwidthStatsByPeer func(p0 context.Context) (map[string]metrics.Stats, error) `perm:"read"`
+
+	NetBandwidthStatsByProtocol func(p0 context.Context) (map[protocol.ID]metrics.Stats, error) `perm:"read"`
+
+	NetBlockAdd func(p0 context.Context, p1 api.NetBlockList) error `perm:"admin"`
+
+	NetBlockList func(p0 context.Context) (api.NetBlockList, error) `perm:"read"`
+
+	NetBlockRemove func(p0 context.Context, p1 api.NetBlockList) error `perm:"admin"`
+
+	NetConnect func(p0 context.Context, p1 peer.AddrInfo) error `perm:"write"`
+
+	NetConnectedness func(p0 context.Context, p1 peer.ID) (p2pnetwork.Connectedness, error) `perm:"read"`
+
+	NetDisconnect func(p0 context.Context, p1 peer.ID) error `perm:"write"`
+
+	NetFindPeer func(p0 context.Context, p1 peer.ID) (peer.AddrInfo, error) `perm:"read"`
+
+	NetLimit func(p0 context.Context, p1 string) (api.NetLimit, error) `perm:"read"`
+
+	NetPeerInfo func(p0 context.Context, p1 peer.ID) (*api.ExtendedPeerInfo, error) `perm:"read"`
+
+	NetPeers func(p0 context.Context) ([]peer.AddrInfo, error) `perm:"read"`
+
+	NetPing func(p0 context.Context, p1 peer.ID) (time.Duration, error) `perm:"read"`
+
+	NetProtectAdd func(p0 context.Context, p1 []peer.ID) error `perm:"admin"`
+
+	NetProtectList func(p0 context.Context) ([]peer.ID, error) `perm:"read"`
+
+	NetProtectRemove func(p0 context.Context, p1 []peer.ID) error `perm:"admin"`
+
+	NetPubsubScores func(p0 context.Context) ([]api.PubsubScore, error) `perm:"read"`
+
+	NetSetLimit func(p0 context.Context, p1 string, p2 api.NetLimit) error `perm:"admin"`
+
+	NetStat func(p0 context.Context, p1 string) (api.NetStat, error) `perm:"read"`
+}
+
+type NetStub struct {
+}
+
+func (s *ChainSubsetForForestStruct) ChainGetMessage(p0 context.Context, p1 cid.Cid) (*types.Message, error) {
+	if s.Internal.ChainGetMessage == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.ChainGetMessage(p0, p1)
+}
+
+func (s *ChainSubsetForForestStub) ChainGetMessage(p0 context.Context, p1 cid.Cid) (*types.Message, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) ChainGetTipSet(p0 context.Context, p1 types.TipSetKey) (*types.TipSet, error) {
+	if s.Internal.ChainGetTipSet == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.ChainGetTipSet(p0, p1)
+}
+
+func (s *ChainSubsetForForestStub) ChainGetTipSet(p0 context.Context, p1 types.TipSetKey) (*types.TipSet, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) ChainGetTipSetAfterHeight(p0 context.Context, p1 abi.ChainEpoch, p2 types.TipSetKey) (*types.TipSet, error) {
+	if s.Internal.ChainGetTipSetAfterHeight == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.ChainGetTipSetAfterHeight(p0, p1, p2)
+}
+
+func (s *ChainSubsetForForestStub) ChainGetTipSetAfterHeight(p0 context.Context, p1 abi.ChainEpoch, p2 types.TipSetKey) (*types.TipSet, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) ChainGetTipSetByHeight(p0 context.Context, p1 abi.ChainEpoch, p2 types.TipSetKey) (*types.TipSet, error) {
+	if s.Internal.ChainGetTipSetByHeight == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.ChainGetTipSetByHeight(p0, p1, p2)
+}
+
+func (s *ChainSubsetForForestStub) ChainGetTipSetByHeight(p0 context.Context, p1 abi.ChainEpoch, p2 types.TipSetKey) (*types.TipSet, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) ChainHasObj(p0 context.Context, p1 cid.Cid) (bool, error) {
+	if s.Internal.ChainHasObj == nil {
+		return false, ErrNotSupported
+	}
+	return s.Internal.ChainHasObj(p0, p1)
+}
+
+func (s *ChainSubsetForForestStub) ChainHasObj(p0 context.Context, p1 cid.Cid) (bool, error) {
+	return false, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) ChainHead(p0 context.Context) (*types.TipSet, error) {
+	if s.Internal.ChainHead == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.ChainHead(p0)
+}
+
+func (s *ChainSubsetForForestStub) ChainHead(p0 context.Context) (*types.TipSet, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) ChainNotify(p0 context.Context) (<-chan []*api.HeadChange, error) {
+	if s.Internal.ChainNotify == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.ChainNotify(p0)
+}
+
+func (s *ChainSubsetForForestStub) ChainNotify(p0 context.Context) (<-chan []*api.HeadChange, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) ChainPutObj(p0 context.Context, p1 blocks.Block) error {
+	if s.Internal.ChainPutObj == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.ChainPutObj(p0, p1)
+}
+
+func (s *ChainSubsetForForestStub) ChainPutObj(p0 context.Context, p1 blocks.Block) error {
+	return ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) ChainReadObj(p0 context.Context, p1 cid.Cid) ([]byte, error) {
+	if s.Internal.ChainReadObj == nil {
+		return *new([]byte), ErrNotSupported
+	}
+	return s.Internal.ChainReadObj(p0, p1)
+}
+
+func (s *ChainSubsetForForestStub) ChainReadObj(p0 context.Context, p1 cid.Cid) ([]byte, error) {
+	return *new([]byte), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) ChainTipSetWeight(p0 context.Context, p1 types.TipSetKey) (types.BigInt, error) {
+	if s.Internal.ChainTipSetWeight == nil {
+		return *new(types.BigInt), ErrNotSupported
+	}
+	return s.Internal.ChainTipSetWeight(p0, p1)
+}
+
+func (s *ChainSubsetForForestStub) ChainTipSetWeight(p0 context.Context, p1 types.TipSetKey) (types.BigInt, error) {
+	return *new(types.BigInt), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) GasEstimateFeeCap(p0 context.Context, p1 *types.Message, p2 int64, p3 types.TipSetKey) (types.BigInt, error) {
+	if s.Internal.GasEstimateFeeCap == nil {
+		return *new(types.BigInt), ErrNotSupported
+	}
+	return s.Internal.GasEstimateFeeCap(p0, p1, p2, p3)
+}
+
+func (s *ChainSubsetForForestStub) GasEstimateFeeCap(p0 context.Context, p1 *types.Message, p2 int64, p3 types.TipSetKey) (types.BigInt, error) {
+	return *new(types.BigInt), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) GasEstimateGasPremium(p0 context.Context, p1 uint64, p2 address.Address, p3 int64, p4 types.TipSetKey) (types.BigInt, error) {
+	if s.Internal.GasEstimateGasPremium == nil {
+		return *new(types.BigInt), ErrNotSupported
+	}
+	return s.Internal.GasEstimateGasPremium(p0, p1, p2, p3, p4)
+}
+
+func (s *ChainSubsetForForestStub) GasEstimateGasPremium(p0 context.Context, p1 uint64, p2 address.Address, p3 int64, p4 types.TipSetKey) (types.BigInt, error) {
+	return *new(types.BigInt), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) GasEstimateMessageGas(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec, p3 types.TipSetKey) (*types.Message, error) {
+	if s.Internal.GasEstimateMessageGas == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.GasEstimateMessageGas(p0, p1, p2, p3)
+}
+
+func (s *ChainSubsetForForestStub) GasEstimateMessageGas(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec, p3 types.TipSetKey) (*types.Message, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) MinerCreateBlock(p0 context.Context, p1 *api.BlockTemplate) (*types.BlockMsg, error) {
+	if s.Internal.MinerCreateBlock == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.MinerCreateBlock(p0, p1)
+}
+
+func (s *ChainSubsetForForestStub) MinerCreateBlock(p0 context.Context, p1 *api.BlockTemplate) (*types.BlockMsg, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) MinerGetBaseInfo(p0 context.Context, p1 address.Address, p2 abi.ChainEpoch, p3 types.TipSetKey) (*api.MiningBaseInfo, error) {
+	if s.Internal.MinerGetBaseInfo == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.MinerGetBaseInfo(p0, p1, p2, p3)
+}
+
+func (s *ChainSubsetForForestStub) MinerGetBaseInfo(p0 context.Context, p1 address.Address, p2 abi.ChainEpoch, p3 types.TipSetKey) (*api.MiningBaseInfo, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) MpoolGetNonce(p0 context.Context, p1 address.Address) (uint64, error) {
+	if s.Internal.MpoolGetNonce == nil {
+		return 0, ErrNotSupported
+	}
+	return s.Internal.MpoolGetNonce(p0, p1)
+}
+
+func (s *ChainSubsetForForestStub) MpoolGetNonce(p0 context.Context, p1 address.Address) (uint64, error) {
+	return 0, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) MpoolPush(p0 context.Context, p1 *types.SignedMessage) (cid.Cid, error) {
+	if s.Internal.MpoolPush == nil {
+		return *new(cid.Cid), ErrNotSupported
+	}
+	return s.Internal.MpoolPush(p0, p1)
+}
+
+func (s *ChainSubsetForForestStub) MpoolPush(p0 context.Context, p1 *types.SignedMessage) (cid.Cid, error) {
+	return *new(cid.Cid), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) MpoolPushMessage(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec) (*types.SignedMessage, error) {
+	if s.Internal.MpoolPushMessage == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.MpoolPushMessage(p0, p1, p2)
+}
+
+func (s *ChainSubsetForForestStub) MpoolPushMessage(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec) (*types.SignedMessage, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) MpoolSelect(p0 context.Context, p1 types.TipSetKey, p2 float64) ([]*types.SignedMessage, error) {
+	if s.Internal.MpoolSelect == nil {
+		return *new([]*types.SignedMessage), ErrNotSupported
+	}
+	return s.Internal.MpoolSelect(p0, p1, p2)
+}
+
+func (s *ChainSubsetForForestStub) MpoolSelect(p0 context.Context, p1 types.TipSetKey, p2 float64) ([]*types.SignedMessage, error) {
+	return *new([]*types.SignedMessage), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateAccountKey(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) {
+	if s.Internal.StateAccountKey == nil {
+		return *new(address.Address), ErrNotSupported
+	}
+	return s.Internal.StateAccountKey(p0, p1, p2)
+}
+
+func (s *ChainSubsetForForestStub) StateAccountKey(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) {
+	return *new(address.Address), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateGetActor(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*types.Actor, error) {
+	if s.Internal.StateGetActor == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateGetActor(p0, p1, p2)
+}
+
+func (s *ChainSubsetForForestStub) StateGetActor(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*types.Actor, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateGetAllocation(p0 context.Context, p1 address.Address, p2 verifregtypes.AllocationId, p3 types.TipSetKey) (*verifregtypes.Allocation, error) {
+	if s.Internal.StateGetAllocation == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateGetAllocation(p0, p1, p2, p3)
+}
+
+func (s *ChainSubsetForForestStub) StateGetAllocation(p0 context.Context, p1 address.Address, p2 verifregtypes.AllocationId, p3 types.TipSetKey) (*verifregtypes.Allocation, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateGetAllocationForPendingDeal(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (*verifregtypes.Allocation, error) {
+	if s.Internal.StateGetAllocationForPendingDeal == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateGetAllocationForPendingDeal(p0, p1, p2)
+}
+
+func (s *ChainSubsetForForestStub) StateGetAllocationForPendingDeal(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (*verifregtypes.Allocation, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateGetAllocationIdForPendingDeal(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (verifregtypes.AllocationId, error) {
+	if s.Internal.StateGetAllocationIdForPendingDeal == nil {
+		return *new(verifregtypes.AllocationId), ErrNotSupported
+	}
+	return s.Internal.StateGetAllocationIdForPendingDeal(p0, p1, p2)
+}
+
+func (s *ChainSubsetForForestStub) StateGetAllocationIdForPendingDeal(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (verifregtypes.AllocationId, error) {
+	return *new(verifregtypes.AllocationId), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateGetBeaconEntry(p0 context.Context, p1 abi.ChainEpoch) (*types.BeaconEntry, error) {
+	if s.Internal.StateGetBeaconEntry == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateGetBeaconEntry(p0, p1)
+}
+
+func (s *ChainSubsetForForestStub) StateGetBeaconEntry(p0 context.Context, p1 abi.ChainEpoch) (*types.BeaconEntry, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateGetRandomnessFromBeacon(p0 context.Context, p1 crypto.DomainSeparationTag, p2 abi.ChainEpoch, p3 []byte, p4 types.TipSetKey) (abi.Randomness, error) {
+	if s.Internal.StateGetRandomnessFromBeacon == nil {
+		return *new(abi.Randomness), ErrNotSupported
+	}
+	return s.Internal.StateGetRandomnessFromBeacon(p0, p1, p2, p3, p4)
+}
+
+func (s *ChainSubsetForForestStub) StateGetRandomnessFromBeacon(p0 context.Context, p1 crypto.DomainSeparationTag, p2 abi.ChainEpoch, p3 []byte, p4 types.TipSetKey) (abi.Randomness, error) {
+	return *new(abi.Randomness), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateGetRandomnessFromTickets(p0 context.Context, p1 crypto.DomainSeparationTag, p2 abi.ChainEpoch, p3 []byte, p4 types.TipSetKey) (abi.Randomness, error) {
+	if s.Internal.StateGetRandomnessFromTickets == nil {
+		return *new(abi.Randomness), ErrNotSupported
+	}
+	return s.Internal.StateGetRandomnessFromTickets(p0, p1, p2, p3, p4)
+}
+
+func (s *ChainSubsetForForestStub) StateGetRandomnessFromTickets(p0 context.Context, p1 crypto.DomainSeparationTag, p2 abi.ChainEpoch, p3 []byte, p4 types.TipSetKey) (abi.Randomness, error) {
+	return *new(abi.Randomness), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateLookupID(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) {
+	if s.Internal.StateLookupID == nil {
+		return *new(address.Address), ErrNotSupported
+	}
+	return s.Internal.StateLookupID(p0, p1, p2)
+}
+
+func (s *ChainSubsetForForestStub) StateLookupID(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) {
+	return *new(address.Address), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateMinerActiveSectors(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) {
+	if s.Internal.StateMinerActiveSectors == nil {
+		return *new([]*miner.SectorOnChainInfo), ErrNotSupported
+	}
+	return s.Internal.StateMinerActiveSectors(p0, p1, p2)
+}
+
+func (s *ChainSubsetForForestStub) StateMinerActiveSectors(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) {
+	return *new([]*miner.SectorOnChainInfo), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateMinerAllocated(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*bitfield.BitField, error) {
+	if s.Internal.StateMinerAllocated == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateMinerAllocated(p0, p1, p2)
+}
+
+func (s *ChainSubsetForForestStub) StateMinerAllocated(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*bitfield.BitField, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateMinerInfo(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MinerInfo, error) {
+	if s.Internal.StateMinerInfo == nil {
+		return *new(api.MinerInfo), ErrNotSupported
+	}
+	return s.Internal.StateMinerInfo(p0, p1, p2)
+}
+
+func (s *ChainSubsetForForestStub) StateMinerInfo(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MinerInfo, error) {
+	return *new(api.MinerInfo), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateMinerInitialPledgeCollateral(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) {
+	if s.Internal.StateMinerInitialPledgeCollateral == nil {
+		return *new(big.Int), ErrNotSupported
+	}
+	return s.Internal.StateMinerInitialPledgeCollateral(p0, p1, p2, p3)
+}
+
+func (s *ChainSubsetForForestStub) StateMinerInitialPledgeCollateral(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) {
+	return *new(big.Int), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateMinerPartitions(p0 context.Context, p1 address.Address, p2 uint64, p3 types.TipSetKey) ([]api.Partition, error) {
+	if s.Internal.StateMinerPartitions == nil {
+		return *new([]api.Partition), ErrNotSupported
+	}
+	return s.Internal.StateMinerPartitions(p0, p1, p2, p3)
+}
+
+func (s *ChainSubsetForForestStub) StateMinerPartitions(p0 context.Context, p1 address.Address, p2 uint64, p3 types.TipSetKey) ([]api.Partition, error) {
+	return *new([]api.Partition), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateMinerPreCommitDepositForPower(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) {
+	if s.Internal.StateMinerPreCommitDepositForPower == nil {
+		return *new(big.Int), ErrNotSupported
+	}
+	return s.Internal.StateMinerPreCommitDepositForPower(p0, p1, p2, p3)
+}
+
+func (s *ChainSubsetForForestStub) StateMinerPreCommitDepositForPower(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) {
+	return *new(big.Int), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateMinerProvingDeadline(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*dline.Info, error) {
+	if s.Internal.StateMinerProvingDeadline == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateMinerProvingDeadline(p0, p1, p2)
+}
+
+func (s *ChainSubsetForForestStub) StateMinerProvingDeadline(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*dline.Info, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateMinerSectors(p0 context.Context, p1 address.Address, p2 *bitfield.BitField, p3 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) {
+	if s.Internal.StateMinerSectors == nil {
+		return *new([]*miner.SectorOnChainInfo), ErrNotSupported
+	}
+	return s.Internal.StateMinerSectors(p0, p1, p2, p3)
+}
+
+func (s *ChainSubsetForForestStub) StateMinerSectors(p0 context.Context, p1 address.Address, p2 *bitfield.BitField, p3 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) {
+	return *new([]*miner.SectorOnChainInfo), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateNetworkVersion(p0 context.Context, p1 types.TipSetKey) (network.Version, error) {
+	if s.Internal.StateNetworkVersion == nil {
+		return *new(network.Version), ErrNotSupported
+	}
+	return s.Internal.StateNetworkVersion(p0, p1)
+}
+
+func (s *ChainSubsetForForestStub) StateNetworkVersion(p0 context.Context, p1 types.TipSetKey) (network.Version, error) {
+	return *new(network.Version), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateSearchMsg(p0 context.Context, p1 types.TipSetKey, p2 cid.Cid, p3 abi.ChainEpoch, p4 bool) (*api.MsgLookup, error) {
+	if s.Internal.StateSearchMsg == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateSearchMsg(p0, p1, p2, p3, p4)
+}
+
+func (s *ChainSubsetForForestStub) StateSearchMsg(p0 context.Context, p1 types.TipSetKey, p2 cid.Cid, p3 abi.ChainEpoch, p4 bool) (*api.MsgLookup, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateSectorGetInfo(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorOnChainInfo, error) {
+	if s.Internal.StateSectorGetInfo == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateSectorGetInfo(p0, p1, p2, p3)
+}
+
+func (s *ChainSubsetForForestStub) StateSectorGetInfo(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorOnChainInfo, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateSectorPartition(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorLocation, error) {
+	if s.Internal.StateSectorPartition == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateSectorPartition(p0, p1, p2, p3)
+}
+
+func (s *ChainSubsetForForestStub) StateSectorPartition(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorLocation, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateSectorPreCommitInfo(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorPreCommitOnChainInfo, error) {
+	if s.Internal.StateSectorPreCommitInfo == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateSectorPreCommitInfo(p0, p1, p2, p3)
+}
+
+func (s *ChainSubsetForForestStub) StateSectorPreCommitInfo(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorPreCommitOnChainInfo, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) SyncSubmitBlock(p0 context.Context, p1 *types.BlockMsg) error {
+	if s.Internal.SyncSubmitBlock == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.SyncSubmitBlock(p0, p1)
+}
+
+func (s *ChainSubsetForForestStub) SyncSubmitBlock(p0 context.Context, p1 *types.BlockMsg) error {
+	return ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) WalletBalance(p0 context.Context, p1 address.Address) (big.Int, error) {
+	if s.Internal.WalletBalance == nil {
+		return *new(big.Int), ErrNotSupported
+	}
+	return s.Internal.WalletBalance(p0, p1)
+}
+
+func (s *ChainSubsetForForestStub) WalletBalance(p0 context.Context, p1 address.Address) (big.Int, error) {
+	return *new(big.Int), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) WalletHas(p0 context.Context, p1 address.Address) (bool, error) {
+	if s.Internal.WalletHas == nil {
+		return false, ErrNotSupported
+	}
+	return s.Internal.WalletHas(p0, p1)
+}
+
+func (s *ChainSubsetForForestStub) WalletHas(p0 context.Context, p1 address.Address) (bool, error) {
+	return false, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) WalletSign(p0 context.Context, p1 address.Address, p2 []byte) (*crypto.Signature, error) {
+	if s.Internal.WalletSign == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.WalletSign(p0, p1, p2)
+}
+
+func (s *ChainSubsetForForestStub) WalletSign(p0 context.Context, p1 address.Address, p2 []byte) (*crypto.Signature, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) WalletSignMessage(p0 context.Context, p1 address.Address, p2 *types.Message) (*types.SignedMessage, error) {
+	if s.Internal.WalletSignMessage == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.WalletSignMessage(p0, p1, p2)
+}
+
+func (s *ChainSubsetForForestStub) WalletSignMessage(p0 context.Context, p1 address.Address, p2 *types.Message) (*types.SignedMessage, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CommonStruct) AuthNew(p0 context.Context, p1 []auth.Permission) ([]byte, error) {
+	if s.Internal.AuthNew == nil {
+		return *new([]byte), ErrNotSupported
+	}
+	return s.Internal.AuthNew(p0, p1)
+}
+
+func (s *CommonStub) AuthNew(p0 context.Context, p1 []auth.Permission) ([]byte, error) {
+	return *new([]byte), ErrNotSupported
+}
+
+func (s *CommonStruct) AuthVerify(p0 context.Context, p1 string) ([]auth.Permission, error) {
+	if s.Internal.AuthVerify == nil {
+		return *new([]auth.Permission), ErrNotSupported
+	}
+	return s.Internal.AuthVerify(p0, p1)
+}
+
+func (s *CommonStub) AuthVerify(p0 context.Context, p1 string) ([]auth.Permission, error) {
+	return *new([]auth.Permission), ErrNotSupported
+}
+
+func (s *CommonStruct) Closing(p0 context.Context) (<-chan struct{}, error) {
+	if s.Internal.Closing == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.Closing(p0)
+}
+
+func (s *CommonStub) Closing(p0 context.Context) (<-chan struct{}, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CommonStruct) Discover(p0 context.Context) (apitypes.OpenRPCDocument, error) {
+	if s.Internal.Discover == nil {
+		return *new(apitypes.OpenRPCDocument), ErrNotSupported
+	}
+	return s.Internal.Discover(p0)
+}
+
+func (s *CommonStub) Discover(p0 context.Context) (apitypes.OpenRPCDocument, error) {
+	return *new(apitypes.OpenRPCDocument), ErrNotSupported
+}
+
+func (s *CommonStruct) LogAlerts(p0 context.Context) ([]alerting.Alert, error) {
+	if s.Internal.LogAlerts == nil {
+		return *new([]alerting.Alert), ErrNotSupported
+	}
+	return s.Internal.LogAlerts(p0)
+}
+
+func (s *CommonStub) LogAlerts(p0 context.Context) ([]alerting.Alert, error) {
+	return *new([]alerting.Alert), ErrNotSupported
+}
+
+func (s *CommonStruct) LogList(p0 context.Context) ([]string, error) {
+	if s.Internal.LogList == nil {
+		return *new([]string), ErrNotSupported
+	}
+	return s.Internal.LogList(p0)
+}
+
+func (s *CommonStub) LogList(p0 context.Context) ([]string, error) {
+	return *new([]string), ErrNotSupported
+}
+
+func (s *CommonStruct) LogSetLevel(p0 context.Context, p1 string, p2 string) error {
+	if s.Internal.LogSetLevel == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.LogSetLevel(p0, p1, p2)
+}
+
+func (s *CommonStub) LogSetLevel(p0 context.Context, p1 string, p2 string) error {
+	return ErrNotSupported
+}
+
+func (s *CommonStruct) Session(p0 context.Context) (uuid.UUID, error) {
+	if s.Internal.Session == nil {
+		return *new(uuid.UUID), ErrNotSupported
+	}
+	return s.Internal.Session(p0)
+}
+
+func (s *CommonStub) Session(p0 context.Context) (uuid.UUID, error) {
+	return *new(uuid.UUID), ErrNotSupported
+}
+
+func (s *CommonStruct) Shutdown(p0 context.Context) error {
+	if s.Internal.Shutdown == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.Shutdown(p0)
+}
+
+func (s *CommonStub) Shutdown(p0 context.Context) error {
+	return ErrNotSupported
+}
+
+func (s *CommonStruct) StartTime(p0 context.Context) (time.Time, error) {
+	if s.Internal.StartTime == nil {
+		return *new(time.Time), ErrNotSupported
+	}
+	return s.Internal.StartTime(p0)
+}
+
+func (s *CommonStub) StartTime(p0 context.Context) (time.Time, error) {
+	return *new(time.Time), ErrNotSupported
+}
+
+func (s *CommonStruct) Version(p0 context.Context) (api.APIVersion, error) {
+	if s.Internal.Version == nil {
+		return *new(api.APIVersion), ErrNotSupported
+	}
+	return s.Internal.Version(p0)
+}
+
+func (s *CommonStub) Version(p0 context.Context) (api.APIVersion, error) {
+	return *new(api.APIVersion), ErrNotSupported
+}
+
+func (s *CurioStruct) AllocatePieceToSector(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (api.SectorOffset, error) {
 	if s.Internal.AllocatePieceToSector == nil {
-		return *new(lapi.SectorOffset), ErrNotSupported
+		return *new(api.SectorOffset), ErrNotSupported
 	}
 	return s.Internal.AllocatePieceToSector(p0, p1, p2, p3, p4, p5)
 }
 
-func (s *CurioStub) AllocatePieceToSector(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (lapi.SectorOffset, error) {
-	return *new(lapi.SectorOffset), ErrNotSupported
+func (s *CurioStub) AllocatePieceToSector(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (api.SectorOffset, error) {
+	return *new(api.SectorOffset), ErrNotSupported
 }
 
 func (s *CurioStruct) LogList(p0 context.Context) ([]string, error) {
@@ -189,15 +1031,282 @@ func (s *CurioStub) StorageStat(p0 context.Context, p1 storiface.ID) (fsutil.FsS
 	return *new(fsutil.FsStat), ErrNotSupported
 }
 
-func (s *CurioStruct) Version(p0 context.Context) (lapi.Version, error) {
+func (s *CurioStruct) Version(p0 context.Context) (api.Version, error) {
 	if s.Internal.Version == nil {
-		return *new(lapi.Version), ErrNotSupported
+		return *new(api.Version), ErrNotSupported
 	}
 	return s.Internal.Version(p0)
 }
 
-func (s *CurioStub) Version(p0 context.Context) (lapi.Version, error) {
-	return *new(lapi.Version), ErrNotSupported
+func (s *CurioStub) Version(p0 context.Context) (api.Version, error) {
+	return *new(api.Version), ErrNotSupported
 }
 
+func (s *NetStruct) ID(p0 context.Context) (peer.ID, error) {
+	if s.Internal.ID == nil {
+		return *new(peer.ID), ErrNotSupported
+	}
+	return s.Internal.ID(p0)
+}
+
+func (s *NetStub) ID(p0 context.Context) (peer.ID, error) {
+	return *new(peer.ID), ErrNotSupported
+}
+
+func (s *NetStruct) NetAddrsListen(p0 context.Context) (peer.AddrInfo, error) {
+	if s.Internal.NetAddrsListen == nil {
+		return *new(peer.AddrInfo), ErrNotSupported
+	}
+	return s.Internal.NetAddrsListen(p0)
+}
+
+func (s *NetStub) NetAddrsListen(p0 context.Context) (peer.AddrInfo, error) {
+	return *new(peer.AddrInfo), ErrNotSupported
+}
+
+func (s *NetStruct) NetAgentVersion(p0 context.Context, p1 peer.ID) (string, error) {
+	if s.Internal.NetAgentVersion == nil {
+		return "", ErrNotSupported
+	}
+	return s.Internal.NetAgentVersion(p0, p1)
+}
+
+func (s *NetStub) NetAgentVersion(p0 context.Context, p1 peer.ID) (string, error) {
+	return "", ErrNotSupported
+}
+
+func (s *NetStruct) NetAutoNatStatus(p0 context.Context) (api.NatInfo, error) {
+	if s.Internal.NetAutoNatStatus == nil {
+		return *new(api.NatInfo), ErrNotSupported
+	}
+	return s.Internal.NetAutoNatStatus(p0)
+}
+
+func (s *NetStub) NetAutoNatStatus(p0 context.Context) (api.NatInfo, error) {
+	return *new(api.NatInfo), ErrNotSupported
+}
+
+func (s *NetStruct) NetBandwidthStats(p0 context.Context) (metrics.Stats, error) {
+	if s.Internal.NetBandwidthStats == nil {
+		return *new(metrics.Stats), ErrNotSupported
+	}
+	return s.Internal.NetBandwidthStats(p0)
+}
+
+func (s *NetStub) NetBandwidthStats(p0 context.Context) (metrics.Stats, error) {
+	return *new(metrics.Stats), ErrNotSupported
+}
+
+func (s *NetStruct) NetBandwidthStatsByPeer(p0 context.Context) (map[string]metrics.Stats, error) {
+	if s.Internal.NetBandwidthStatsByPeer == nil {
+		return *new(map[string]metrics.Stats), ErrNotSupported
+	}
+	return s.Internal.NetBandwidthStatsByPeer(p0)
+}
+
+func (s *NetStub) NetBandwidthStatsByPeer(p0 context.Context) (map[string]metrics.Stats, error) {
+	return *new(map[string]metrics.Stats), ErrNotSupported
+}
+
+func (s *NetStruct) NetBandwidthStatsByProtocol(p0 context.Context) (map[protocol.ID]metrics.Stats, error) {
+	if s.Internal.NetBandwidthStatsByProtocol == nil {
+		return *new(map[protocol.ID]metrics.Stats), ErrNotSupported
+	}
+	return s.Internal.NetBandwidthStatsByProtocol(p0)
+}
+
+func (s *NetStub) NetBandwidthStatsByProtocol(p0 context.Context) (map[protocol.ID]metrics.Stats, error) {
+	return *new(map[protocol.ID]metrics.Stats), ErrNotSupported
+}
+
+func (s *NetStruct) NetBlockAdd(p0 context.Context, p1 api.NetBlockList) error {
+	if s.Internal.NetBlockAdd == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.NetBlockAdd(p0, p1)
+}
+
+func (s *NetStub) NetBlockAdd(p0 context.Context, p1 api.NetBlockList) error {
+	return ErrNotSupported
+}
+
+func (s *NetStruct) NetBlockList(p0 context.Context) (api.NetBlockList, error) {
+	if s.Internal.NetBlockList == nil {
+		return *new(api.NetBlockList), ErrNotSupported
+	}
+	return s.Internal.NetBlockList(p0)
+}
+
+func (s *NetStub) NetBlockList(p0 context.Context) (api.NetBlockList, error) {
+	return *new(api.NetBlockList), ErrNotSupported
+}
+
+func (s *NetStruct) NetBlockRemove(p0 context.Context, p1 api.NetBlockList) error {
+	if s.Internal.NetBlockRemove == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.NetBlockRemove(p0, p1)
+}
+
+func (s *NetStub) NetBlockRemove(p0 context.Context, p1 api.NetBlockList) error {
+	return ErrNotSupported
+}
+
+func (s *NetStruct) NetConnect(p0 context.Context, p1 peer.AddrInfo) error {
+	if s.Internal.NetConnect == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.NetConnect(p0, p1)
+}
+
+func (s *NetStub) NetConnect(p0 context.Context, p1 peer.AddrInfo) error {
+	return ErrNotSupported
+}
+
+func (s *NetStruct) NetConnectedness(p0 context.Context, p1 peer.ID) (p2pnetwork.Connectedness, error) {
+	if s.Internal.NetConnectedness == nil {
+		return *new(p2pnetwork.Connectedness), ErrNotSupported
+	}
+	return s.Internal.NetConnectedness(p0, p1)
+}
+
+func (s *NetStub) NetConnectedness(p0 context.Context, p1 peer.ID) (p2pnetwork.Connectedness, error) {
+	return *new(p2pnetwork.Connectedness), ErrNotSupported
+}
+
+func (s *NetStruct) NetDisconnect(p0 context.Context, p1 peer.ID) error {
+	if s.Internal.NetDisconnect == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.NetDisconnect(p0, p1)
+}
+
+func (s *NetStub) NetDisconnect(p0 context.Context, p1 peer.ID) error {
+	return ErrNotSupported
+}
+
+func (s *NetStruct) NetFindPeer(p0 context.Context, p1 peer.ID) (peer.AddrInfo, error) {
+	if s.Internal.NetFindPeer == nil {
+		return *new(peer.AddrInfo), ErrNotSupported
+	}
+	return s.Internal.NetFindPeer(p0, p1)
+}
+
+func (s *NetStub) NetFindPeer(p0 context.Context, p1 peer.ID) (peer.AddrInfo, error) {
+	return *new(peer.AddrInfo), ErrNotSupported
+}
+
+func (s *NetStruct) NetLimit(p0 context.Context, p1 string) (api.NetLimit, error) {
+	if s.Internal.NetLimit == nil {
+		return *new(api.NetLimit), ErrNotSupported
+	}
+	return s.Internal.NetLimit(p0, p1)
+}
+
+func (s *NetStub) NetLimit(p0 context.Context, p1 string) (api.NetLimit, error) {
+	return *new(api.NetLimit), ErrNotSupported
+}
+
+func (s *NetStruct) NetPeerInfo(p0 context.Context, p1 peer.ID) (*api.ExtendedPeerInfo, error) {
+	if s.Internal.NetPeerInfo == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.NetPeerInfo(p0, p1)
+}
+
+func (s *NetStub) NetPeerInfo(p0 context.Context, p1 peer.ID) (*api.ExtendedPeerInfo, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *NetStruct) NetPeers(p0 context.Context) ([]peer.AddrInfo, error) {
+	if s.Internal.NetPeers == nil {
+		return *new([]peer.AddrInfo), ErrNotSupported
+	}
+	return s.Internal.NetPeers(p0)
+}
+
+func (s *NetStub) NetPeers(p0 context.Context) ([]peer.AddrInfo, error) {
+	return *new([]peer.AddrInfo), ErrNotSupported
+}
+
+func (s *NetStruct) NetPing(p0 context.Context, p1 peer.ID) (time.Duration, error) {
+	if s.Internal.NetPing == nil {
+		return *new(time.Duration), ErrNotSupported
+	}
+	return s.Internal.NetPing(p0, p1)
+}
+
+func (s *NetStub) NetPing(p0 context.Context, p1 peer.ID) (time.Duration, error) {
+	return *new(time.Duration), ErrNotSupported
+}
+
+func (s *NetStruct) NetProtectAdd(p0 context.Context, p1 []peer.ID) error {
+	if s.Internal.NetProtectAdd == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.NetProtectAdd(p0, p1)
+}
+
+func (s *NetStub) NetProtectAdd(p0 context.Context, p1 []peer.ID) error {
+	return ErrNotSupported
+}
+
+func (s *NetStruct) NetProtectList(p0 context.Context) ([]peer.ID, error) {
+	if s.Internal.NetProtectList == nil {
+		return *new([]peer.ID), ErrNotSupported
+	}
+	return s.Internal.NetProtectList(p0)
+}
+
+func (s *NetStub) NetProtectList(p0 context.Context) ([]peer.ID, error) {
+	return *new([]peer.ID), ErrNotSupported
+}
+
+func (s *NetStruct) NetProtectRemove(p0 context.Context, p1 []peer.ID) error {
+	if s.Internal.NetProtectRemove == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.NetProtectRemove(p0, p1)
+}
+
+func (s *NetStub) NetProtectRemove(p0 context.Context, p1 []peer.ID) error {
+	return ErrNotSupported
+}
+
+func (s *NetStruct) NetPubsubScores(p0 context.Context) ([]api.PubsubScore, error) {
+	if s.Internal.NetPubsubScores == nil {
+		return *new([]api.PubsubScore), ErrNotSupported
+	}
+	return s.Internal.NetPubsubScores(p0)
+}
+
+func (s *NetStub) NetPubsubScores(p0 context.Context) ([]api.PubsubScore, error) {
+	return *new([]api.PubsubScore), ErrNotSupported
+}
+
+func (s *NetStruct) NetSetLimit(p0 context.Context, p1 string, p2 api.NetLimit) error {
+	if s.Internal.NetSetLimit == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.NetSetLimit(p0, p1, p2)
+}
+
+func (s *NetStub) NetSetLimit(p0 context.Context, p1 string, p2 api.NetLimit) error {
+	return ErrNotSupported
+}
+
+func (s *NetStruct) NetStat(p0 context.Context, p1 string) (api.NetStat, error) {
+	if s.Internal.NetStat == nil {
+		return *new(api.NetStat), ErrNotSupported
+	}
+	return s.Internal.NetStat(p0, p1)
+}
+
+func (s *NetStub) NetStat(p0 context.Context, p1 string) (api.NetStat, error) {
+	return *new(api.NetStat), ErrNotSupported
+}
+
+var _ ChainSubsetForForest = new(ChainSubsetForForestStruct)
+var _ Common = new(CommonStruct)
 var _ Curio = new(CurioStruct)
+var _ Net = new(NetStruct)
