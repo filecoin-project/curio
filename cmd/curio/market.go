@@ -147,12 +147,14 @@ var marketSealCmd = &cli.Command{
 				Sector abi.SectorNumber    `db:"sector_number"`
 				Size   abi.PaddedPieceSize `db:"piece_size"`
 				Index  uint64              `db:"piece_index"`
+				IsSnap bool                `db:"is_snap"`
 			}
 			err = tx.Select(&pieces, `
 					SELECT
 					    sector_number,
 						piece_size,
-						piece_index
+						piece_index,
+						is_snap
 					FROM
 						open_sector_pieces
 					WHERE
@@ -165,6 +167,30 @@ var marketSealCmd = &cli.Command{
 
 			if len(pieces) < 1 {
 				return false, xerrors.Errorf("sector %d is not waiting to be sealed", sector)
+			}
+
+			if pieces[0].IsSnap {
+				// Upgrade
+				upt, err := spt.RegisteredUpdateProof()
+				if err != nil {
+					return false, xerrors.Errorf("getting upgrade proof: %w", err)
+				}
+
+				cn, err := tx.Exec(`INSERT INTO sectors_snap_pipeline (sp_id, sector_number, upgrade_proof) VALUES ($1, $2, $3);`, mid, sector, upt)
+				if err != nil {
+					return false, xerrors.Errorf("adding sector to pipeline: %w", err)
+				}
+
+				if cn != 1 {
+					return false, xerrors.Errorf("incorrect number of rows returned")
+				}
+
+				_, err = tx.Exec("SELECT transfer_and_delete_open_piece_snap($1, $2)", mid, sector)
+				if err != nil {
+					return false, xerrors.Errorf("adding sector to pipeline: %w", err)
+				}
+
+				return true, nil
 			}
 
 			cn, err := tx.Exec(`INSERT INTO sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof) VALUES ($1, $2, $3);`, mid, sector, spt)

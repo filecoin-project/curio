@@ -66,6 +66,8 @@ func (l *LMRPCProvider) WorkerJobs(ctx context.Context) (map[uuid.UUID][]storifa
 }
 
 func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber, showOnChainInfo bool) (lapi.SectorInfo, error) {
+	// TODO: Add snap, Add open_sector_pieces
+
 	var ssip []struct {
 		PieceCID *string `db:"piece_cid"`
 		DealID   *int64  `db:"f05_deal_id"`
