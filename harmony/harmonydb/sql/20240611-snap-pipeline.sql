@@ -11,7 +11,7 @@ CREATE TABLE sectors_snap_pipeline (
 
     -- preload
     -- todo sector preload logic
-    data_assigned BOOLEAN NOT NULL DEFAULT FALSE,
+    data_assigned BOOLEAN NOT NULL DEFAULT TRUE,
 
     -- encode
     update_unsealed_cid TEXT,

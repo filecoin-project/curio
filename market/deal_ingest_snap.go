@@ -84,7 +84,7 @@ func (p *PieceIngesterSnap) start() {
 	}
 }
 
-func (p *PieceIngesterSnap) Seal() error { //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// PROBS WORKS
+func (p *PieceIngesterSnap) Seal() error {
 	head, err := p.api.ChainHead(p.ctx)
 	if err != nil {
 		return xerrors.Errorf("getting chain head: %w", err)
@@ -267,7 +267,6 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 		}
 	}
 
-	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////// ////////////////////////////////// TODO get new sector!!
 	// Allocation to open sector failed, create a new sector and add the piece to it
 
 	// TX
