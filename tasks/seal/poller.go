@@ -237,7 +237,7 @@ func (t pollTask) afterTreeRC() bool {
 	return t.AfterTreeC && t.AfterTreeR && t.afterTreeD()
 }
 
-func (s SealPoller) pollStartSynth(ctx context.Context, task pollTask) {
+func (s *SealPoller) pollStartSynth(ctx context.Context, task pollTask) {
 	if !task.AfterSynth && task.TaskSynth == nil && s.pollers[pollerSyntheticProofs].IsSet() && task.AfterTreeR && task.afterTreeRC() {
 		s.pollers[pollerSyntheticProofs].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_synth = $1 WHERE sp_id = $2 AND sector_number = $3 AND task_id_synth IS NULL`, id, task.SpID, task.SectorNumber)
