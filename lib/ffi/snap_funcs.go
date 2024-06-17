@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"io/ioutil"
 	"os"
 
 	"github.com/ipfs/go-cid"
@@ -45,7 +44,7 @@ func (sb *SealCalls) EncodeUpdate(
 		// hack until we do snap encode ourselves and just call into proofs for CommR
 
 		// todo use storage subsystem for temp files
-		keyFile, err := ioutil.TempFile("", "key-")
+		keyFile, err := os.CreateTemp("", "key-")
 		if err != nil {
 			return cid.Undef, cid.Undef, xerrors.Errorf("creating temp file: %w", err)
 		}
@@ -55,7 +54,7 @@ func (sb *SealCalls) EncodeUpdate(
 			return cid.Undef, cid.Undef, xerrors.Errorf("creating temp file: %w", err)
 		}
 
-		stagedFile, err := ioutil.TempFile("", "staged-")
+		stagedFile, err := os.CreateTemp("", "staged-")
 		if err != nil {
 			return cid.Undef, cid.Undef, xerrors.Errorf("creating temp file: %w", err)
 		}
@@ -69,7 +68,7 @@ func (sb *SealCalls) EncodeUpdate(
 			}
 			_ = stagedFile.Close()
 
-			_ = os.Remove(keyFile.Name())
+			_ = os.Remove(keyPath)
 			_ = os.Remove(keyCachePath)
 		}()
 

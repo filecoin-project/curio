@@ -31,6 +31,8 @@ class UpgradeSectors extends LitElement {
                     <th>Prove</th>
                     <th>Submit</th>
                     <th>Move Storage</th>
+                    
+                    <th>Actions</th>
                 </tr>
                 </thead>
                 <tbody>
@@ -43,6 +45,11 @@ class UpgradeSectors extends LitElement {
                         <td>${entry.AfterProve ? 'Done' : entry.TaskIDProve === null ? 'Not Started' : entry.TaskIDProve}</td>
                         <td>${entry.AfterSubmit ? 'Done' : entry.TaskIDSubmit === null ? 'Not Started' : entry.TaskIDSubmit}</td>
                         <td>${entry.AfterMoveStorage ? 'Done' : entry.TaskIDMoveStorage === null ? 'Not Started' : entry.TaskIDMoveStorage}</td>
+                        
+                        <td>
+                            ${ '' /*todo: this button is a massive footgun, it should get some more safety*/ }
+                            <button class="btn btn-primary" @click=${() => RPCCall('UpgradeResetTaskIDs', [entry.SpID, entry.SectorNum])}>unsafe:ResetTasks</button>
+                        </td>
                     </tr>
                     `)}
                 </tbody>

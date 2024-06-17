@@ -21,7 +21,7 @@ import (
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
-const MinSnapSchedInterval = 30 * time.Second
+const MinSnapSchedInterval = 10 * time.Second
 
 type EncodeTask struct {
 	max int
@@ -70,7 +70,7 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	var tasks []struct {
 		SpID         int64 `db:"sp_id"`
 		SectorNumber int64 `db:"sector_number"`
-		UpdateProof  int64 `db:"update_proof"`
+		UpdateProof  int64 `db:"upgrade_proof"`
 
 		RegSealProof int64 `db:"reg_seal_proof"`
 	}
@@ -198,17 +198,18 @@ func (e *EncodeTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 
 func (e *EncodeTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
 	var tasks []struct {
-		TaskID int64 `db:"task_id"`
+		SpID         int64 `db:"sp_id"`
+		SectorNumber int64 `db:"sector_number"`
 	}
 
-	err := e.db.Select(ctx, &tasks, `SELECT task_id FROM sectors_snap_pipeline WHERE data_assigned = true AND after_encode = FALSE AND task_id_encode IS NULL`)
+	err := e.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE data_assigned = true AND after_encode = FALSE AND task_id_encode IS NULL`)
 	if err != nil {
 		return xerrors.Errorf("getting tasks: %w", err)
 	}
 
 	for _, t := range tasks {
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			_, err := tx.Exec(`UPDATE sectors_snap_pipeline SET task_id_encode = $1 WHERE task_id = $2`, id, t.TaskID)
+			_, err := tx.Exec(`UPDATE sectors_snap_pipeline SET task_id_encode = $1 WHERE sp_id = $2 AND sector_number = $3`, id, t.SpID, t.SectorNumber)
 			if err != nil {
 				return false, xerrors.Errorf("updating task id: %w", err)
 			}

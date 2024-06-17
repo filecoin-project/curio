@@ -28,3 +28,8 @@ func (a *WebRPC) UpgradeSectors(ctx context.Context) ([]UpgradeSector, error) {
 	}
 	return sectors, nil
 }
+
+func (a *WebRPC) UpgradeResetTaskIDs(ctx context.Context, spid, sectorNum uint64) error {
+	_, err := a.deps.DB.Exec(ctx, `SELECT unset_task_id_snap($1, $2)`, spid, sectorNum)
+	return err
+}

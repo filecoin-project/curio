@@ -279,3 +279,70 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+INSERT INTO harmony_config (title, config) VALUES
+                                               ('upgrade', '
+  [Subsystems]
+  EnableUpdateEncode = true
+  EnableUpdateProve = true
+  EnableUpdateSubmit = true
+  '),
+
+                                               ('upgrade-encode', '
+  [Subsystems]
+  EnableUpdateEncode = true
+  '),
+
+                                               ('upgrade-snark', '
+  [Subsystems]
+  EnableUpdateProve = true
+  EnableUpdateSubmit = true
+  ')
+ON CONFLICT (title) DO NOTHING;
+
+CREATE OR REPLACE FUNCTION get_snap_pipeline_tasks(sp_id_param bigint, sector_number_param bigint)
+    RETURNS bigint[] AS $$
+DECLARE
+    task_ids bigint[];
+BEGIN
+    SELECT ARRAY_REMOVE(ARRAY[
+                            task_id_encode,
+                            task_id_prove,
+                            task_id_submit,
+                            task_id_move_storage
+                            ], NULL)
+    INTO task_ids
+    FROM sectors_snap_pipeline
+    WHERE sp_id = sp_id_param
+      AND sector_number = sector_number_param;
+
+    RETURN task_ids;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION unset_task_id_snap(sp_id_param bigint, sector_number_param bigint)
+    RETURNS void AS $$
+DECLARE
+    column_name text;
+    column_names text[] := ARRAY[
+        'task_id_encode',
+        'task_id_prove',
+        'task_id_submit',
+        'task_id_move_storage'
+        ];
+    update_query text;
+    task_ids bigint[];
+    task_id bigint;
+BEGIN
+    -- Get all non-null task IDs
+    task_ids := get_snap_pipeline_tasks(sp_id_param, sector_number_param);
+
+    -- Loop through each task ID and each column
+    FOREACH column_name IN ARRAY column_names LOOP
+            FOREACH task_id IN ARRAY task_ids LOOP
+                    update_query := format('UPDATE sectors_snap_pipeline SET %I = NULL WHERE %I = $1 AND sp_id = $2 AND sector_number = $3', column_name, column_name);
+                    EXECUTE update_query USING task_id, sp_id_param, sector_number_param;
+                END LOOP;
+        END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
