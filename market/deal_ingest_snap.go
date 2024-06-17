@@ -232,7 +232,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 		piece.PublishCid = nil
 	}
 
-	var maxExpiration *abi.ChainEpoch
+	var maxExpiration int64
 	vd.isVerified = piece.PieceActivationManifest.VerifiedAllocationKey != nil
 	if vd.isVerified {
 		client, err := address.NewIDAddress(uint64(piece.PieceActivationManifest.VerifiedAllocationKey.Client))
@@ -249,8 +249,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 		vd.tmin = alloc.TermMin
 		vd.tmax = alloc.TermMax
 
-		me := piece.DealSchedule.EndEpoch + alloc.TermMax
-		maxExpiration = &me
+		maxExpiration = int64(piece.DealSchedule.EndEpoch + alloc.TermMax)
 	}
 	propJson, err = json.Marshal(piece.PieceActivationManifest)
 	if err != nil {
@@ -282,11 +281,11 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 
 	// /TX
 
-	var num *abi.SectorNumber
+	var num *int64
 	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		var candidates []struct {
-			Sector     abi.SectorNumber `db:"sector_num"`
-			Expiration abi.ChainEpoch   `db:"expiration_epoch"`
+			Sector     int64 `db:"sector_num"`
+			Expiration int64 `db:"expiration_epoch"`
 		}
 
 		// maxExpiration = maybe(max sector expiration_epoch)
@@ -298,12 +297,16 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 			WHERE is_cc = true AND sp_id = $4
 			  AND expiration_epoch IS NOT NULL
 			  AND expiration_epoch > $1
-			  AND ($2 IS NULL OR expiration_epoch < $2)
+			  AND ($2 = 0 OR expiration_epoch < $2)
 			ORDER BY ABS(expiration_epoch - ($1 + $3))
 			LIMIT 10
-		`, piece.DealSchedule.EndEpoch, maxExpiration, IdealEndEpochBuffer, p.mid)
+		`, int64(piece.DealSchedule.EndEpoch), maxExpiration, IdealEndEpochBuffer, p.mid)
 		if err != nil {
 			return false, xerrors.Errorf("allocating sector numbers: %w", err)
+		}
+
+		if len(candidates) == 0 {
+			return false, xerrors.Errorf("no suitable sectors found")
 		}
 
 		// todo - nice to have:
@@ -335,14 +338,14 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 	}
 
 	if p.sealRightNow {
-		err = p.SectorStartSealing(ctx, *num)
+		err = p.SectorStartSealing(ctx, abi.SectorNumber(*num))
 		if err != nil {
 			return api.SectorOffset{}, xerrors.Errorf("SectorStartSealing: %w", err)
 		}
 	}
 
 	return api.SectorOffset{
-		Sector: *num,
+		Sector: abi.SectorNumber(*num),
 		Offset: 0,
 	}, nil
 }
