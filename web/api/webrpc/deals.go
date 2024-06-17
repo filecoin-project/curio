@@ -2,6 +2,9 @@ package webrpc
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/market"
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/lotus/chain/types"
 	"time"
 )
@@ -34,5 +37,10 @@ func (a *WebRPC) DealsPending(ctx context.Context) ([]OpenDealInfo, error) {
 }
 
 func (a *WebRPC) DealsSealNow(ctx context.Context, spId, sectorNumber uint64) error {
-	panic("todo")
+	maddr, err := address.NewIDAddress(spId)
+	if err != nil {
+		return err
+	}
+
+	return market.SealNow(ctx, a.deps.Full, a.deps.DB, maddr, abi.SectorNumber(sectorNumber), false)
 }

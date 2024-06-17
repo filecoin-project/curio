@@ -49,7 +49,7 @@ class PendingDeals extends LitElement {
                         <td>
                             ${entry.SnapDeals ? "Yes" : "No"}
                         </td>
-                        <button @click="${() => this.sealNow(entry)}" class="btn btn-primary btn-sm">Seal Now</button>
+                        <td><button @click="${() => this.sealNow(entry)}" class="btn btn-primary btn-sm">Seal Now</button></td>
                     </tr>
                     `)}
                 </tbody>
