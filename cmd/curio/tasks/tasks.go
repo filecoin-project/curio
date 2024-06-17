@@ -3,6 +3,7 @@ package tasks
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/tasks/metadata"
 	"sort"
 	"strings"
 	"sync"
@@ -283,7 +284,9 @@ func addSealingTasks(
 		storageGcMarkTask := gc.NewStorageGCMark(si, stor, db, bstore, full)
 		storageGcSweepTask := gc.NewStorageGCSweep(db, stor, si)
 
-		activeTasks = append(activeTasks, storageEndpointGcTask, sdrPipelineGcTask, storageGcMarkTask, storageGcSweepTask)
+		sectorMetadataTask := metadata.NewSectorMetadataTask(db, bstore, full)
+
+		activeTasks = append(activeTasks, storageEndpointGcTask, sdrPipelineGcTask, storageGcMarkTask, storageGcSweepTask, sectorMetadataTask)
 	}
 
 	return activeTasks, nil
