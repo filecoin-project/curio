@@ -158,10 +158,10 @@ func (ft *fetch) maybeFetchAsync(ctx context.Context, name string, info paramFil
 		}
 		err = ft.checkFile(path, info)
 		if err != nil {
-			log.Errorf("sanity checking fetched file failed, removing and retrying: %w", err)
+			log.Errorf("sanity checking fetched file failed, removing and retrying: %+v", err)
 			// remove and retry once more
 			err := os.Remove(path)
-			if err != nil {
+			if err != nil && !os.IsNotExist(err) {
 				ft.errs = append(ft.errs, xerrors.Errorf("remove file %s failed: %w", path, err))
 				return
 			}
@@ -173,9 +173,9 @@ func (ft *fetch) maybeFetchAsync(ctx context.Context, name string, info paramFil
 
 			err = ft.checkFile(path, info)
 			if err != nil {
-				ft.errs = append(ft.errs, xerrors.Errorf("checking file %s failed: %w", path, err))
+				ft.errs = append(ft.errs, xerrors.Errorf("re-checking file %s failed: %w", path, err))
 				err := os.Remove(path)
-				if err != nil {
+				if err != nil && !os.IsNotExist(err) {
 					ft.errs = append(ft.errs, xerrors.Errorf("remove file %s failed: %w", path, err))
 				}
 			}
@@ -307,7 +307,7 @@ func fetchWithAria2c(ctx context.Context, out, url string) error {
 		return xerrors.New("aria2c not found in PATH")
 	}
 
-	cmd := exec.CommandContext(ctx, aria2cPath, "--continue", "-x16", "-s16", "-o", out, url)
+	cmd := exec.CommandContext(ctx, aria2cPath, "--continue", "-x16", "-s16", "-dir", filepath.Dir(out), "-o", filepath.Base(out), url)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
