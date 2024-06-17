@@ -24,6 +24,7 @@ const (
 	pollerSDR = iota
 	pollerTreeD
 	pollerTreeRC
+	pollerSyntheticProofs
 	pollerPrecommitMsg
 	pollerPoRep
 	pollerCommitMsg
@@ -97,6 +98,9 @@ type pollTask struct {
 	TaskTreeR  *int64 `db:"task_id_tree_r"`
 	AfterTreeR bool   `db:"after_tree_r"`
 
+	TaskSynth  *int64 `db:"task_id_synth"`
+	AfterSynth bool   `db:"after_synth"`
+
 	TaskPrecommitMsg  *int64 `db:"task_id_precommit_msg"`
 	AfterPrecommitMsg bool   `db:"after_precommit_msg"`
 
@@ -131,6 +135,7 @@ func (s *SealPoller) poll(ctx context.Context) error {
        task_id_tree_d, after_tree_d,
        task_id_tree_c, after_tree_c,
        task_id_tree_r, after_tree_r,
+       task_id_synth, after_synth,
        task_id_precommit_msg, after_precommit_msg,
        after_precommit_msg_success, seed_epoch,
        task_id_porep, porep_proof, after_porep,
@@ -158,6 +163,7 @@ func (s *SealPoller) poll(ctx context.Context) error {
 		s.pollStartSDR(ctx, task)
 		s.pollStartSDRTreeD(ctx, task)
 		s.pollStartSDRTreeRC(ctx, task)
+		s.pollStartSynth(ctx, task)
 		s.pollStartPrecommitMsg(ctx, task)
 		s.mustPoll(s.pollPrecommitMsgLanded(ctx, task))
 		s.pollStartPoRep(ctx, task, ts)
@@ -231,8 +237,28 @@ func (t pollTask) afterTreeRC() bool {
 	return t.AfterTreeC && t.AfterTreeR && t.afterTreeD()
 }
 
+func (s SealPoller) pollStartSynth(ctx context.Context, task pollTask) {
+	if !task.AfterSynth && task.TaskSynth == nil && s.pollers[pollerSyntheticProofs].IsSet() && task.AfterTreeR && task.afterTreeRC() {
+		s.pollers[pollerSyntheticProofs].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
+			n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_synth = $1 WHERE sp_id = $2 AND sector_number = $3 AND task_id_synth IS NULL`, id, task.SpID, task.SectorNumber)
+			if err != nil {
+				return false, xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("expected to update 1 row, updated %d", n)
+			}
+
+			return true, nil
+		})
+	}
+}
+
+func (t pollTask) afterSynth() bool {
+	return t.AfterSynth && t.afterTreeRC()
+}
+
 func (t pollTask) afterPrecommitMsg() bool {
-	return t.AfterPrecommitMsg && t.afterTreeRC()
+	return t.AfterPrecommitMsg && t.afterSynth()
 }
 
 func (t pollTask) afterPrecommitMsgSuccess() bool {

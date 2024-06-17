@@ -172,6 +172,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		cfg.Subsystems.EnableUpdateEncode ||
 		cfg.Subsystems.EnableUpdateProve ||
 		cfg.Subsystems.EnableUpdateSubmit
+
 	if hasAnySealingTask {
 		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore)
 		if err != nil {

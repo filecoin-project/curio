@@ -205,7 +205,7 @@ func (sb *SealCalls) ensureOneCopy(ctx context.Context, sid abi.SectorID, pathID
 	return nil
 }
 
-func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, sector storiface.SectorRef, unsealed cid.Cid, randomness abi.SealRandomness, pieces []abi.PieceInfo) (scid cid.Cid, ucid cid.Cid, err error) {
+func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, sector storiface.SectorRef, unsealed cid.Cid, randomness abi.SealRandomness) (scid cid.Cid, ucid cid.Cid, err error) {
 	p1o, err := sb.makePhase1Out(unsealed, sector.ProofType)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("make phase1 output: %w", err)
@@ -275,33 +275,6 @@ func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, secto
 
 	if out.Unsealed != unsealed {
 		return cid.Undef, cid.Undef, xerrors.Errorf("unsealed cid changed after sealing")
-	}
-
-	// Generate synthetic proofs
-	if abi.Synthetic[sector.ProofType] {
-		err = ffi.GenerateSynthProofs(sector.ProofType, out.Sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, pieces)
-		if err != nil {
-			return cid.Undef, cid.Undef, xerrors.Errorf("generating synthetic proof: %w", err)
-		}
-		if err = ffi.ClearCache(uint64(ssize), fspaths.Cache); err != nil {
-			// Note: non-fatal error.
-			log.Warn("failed to GenerateSynthProofs(): ", err)
-			log.Warnf("num:%d tkt:%v, sealedCID:%v, unsealedCID:%v", sector.ID.Number, randomness, out.Sealed, unsealed)
-		}
-
-		var sd [32]byte
-		_, _ = rand.Read(sd[:])
-
-		// Generate 3 random commits
-		for i := 0; i < 3; i++ {
-			_, err = ffi.SealCommitPhase1(sector.ProofType, out.Sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, sd[:], pieces)
-			if err != nil {
-				log.Warn("checking PreCommit failed: ", err)
-				log.Warnf("num:%d tkt:%v seed:%v sealedCID:%v, unsealedCID:%v", sector.ID.Number, randomness, sd[:], out.Sealed, unsealed)
-
-				return cid.Undef, cid.Undef, xerrors.Errorf("checking PreCommit for synthetic proofs failed: %w", err)
-			}
-		}
 	}
 
 	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTCache|storiface.FTSealed); err != nil {
@@ -698,6 +671,50 @@ func (sb *SealCalls) TreeD(ctx context.Context, sector storiface.SectorRef, unse
 	}
 
 	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTCache); err != nil {
+		return xerrors.Errorf("ensure one copy: %w", err)
+	}
+
+	return nil
+}
+
+func (sb *SealCalls) SyntheticProofs(ctx context.Context, task *harmonytask.TaskID, sector storiface.SectorRef, sealed cid.Cid, unsealed cid.Cid, randomness abi.SealRandomness, pieces []abi.PieceInfo) error {
+	fspaths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, task, sector, storiface.FTCache|storiface.FTSealed, storiface.FTNone, storiface.PathSealing)
+	if err != nil {
+		return xerrors.Errorf("acquiring sector paths: %w", err)
+	}
+	defer releaseSector()
+
+	ssize, err := sector.ProofType.SectorSize()
+	if err != nil {
+		return err
+	}
+
+	err = ffi.GenerateSynthProofs(sector.ProofType, sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, pieces)
+	if err != nil {
+		return xerrors.Errorf("generating synthetic proof: %w", err)
+	}
+
+	if err = ffi.ClearCache(uint64(ssize), fspaths.Cache); err != nil {
+		// Note: non-fatal error.
+		log.Warn("failed to GenerateSynthProofs(): ", err)
+		log.Warnf("num:%d tkt:%v, sealedCID:%v, unsealedCID:%v", sector.ID.Number, randomness, sealed, unsealed)
+	}
+
+	var sd [32]byte
+	_, _ = rand.Read(sd[:])
+
+	// Generate 3 random commits
+	for i := 0; i < 3; i++ {
+		_, err = ffi.SealCommitPhase1(sector.ProofType, sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, sd[:], pieces)
+		if err != nil {
+			log.Warn("checking PreCommit failed: ", err)
+			log.Warnf("num:%d tkt:%v seed:%v sealedCID:%v, unsealedCID:%v", sector.ID.Number, randomness, sd[:], sealed, unsealed)
+
+			return xerrors.Errorf("checking PreCommit for synthetic proofs failed: %w", err)
+		}
+	}
+
+	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTCache|storiface.FTSealed); err != nil {
 		return xerrors.Errorf("ensure one copy: %w", err)
 	}
 

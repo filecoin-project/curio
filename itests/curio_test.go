@@ -432,6 +432,7 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	require.NoError(t, err)
 
 	_ = logging.SetLogLevel("harmonytask", "DEBUG")
+	_ = logging.SetLogLevel("cu/seal", "DEBUG")
 
 	return capi, taskEngine.GracefullyTerminate, ccloser, finishCh
 }
