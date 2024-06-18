@@ -22,6 +22,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
@@ -166,55 +167,12 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		cfg.Subsystems.EnablePoRepProof ||
 		cfg.Subsystems.EnableMoveStorage ||
 		cfg.Subsystems.EnableSendCommitMsg
-	{
-		// Sealing
-
-		var sp *seal.SealPoller
-		var slr *ffi.SealCalls
-		if hasAnySealingTask {
-			sp = seal.NewPoller(db, full)
-			go sp.RunPoller(ctx)
-
-			slr = must.One(slrLazy.Val())
-		}
-
-		// NOTE: Tasks with the LEAST priority are at the top
-		if cfg.Subsystems.EnableSealSDR {
-			sdrTask := seal.NewSDRTask(full, db, sp, slr, cfg.Subsystems.SealSDRMaxTasks)
-			activeTasks = append(activeTasks, sdrTask)
-		}
-		if cfg.Subsystems.EnableSealSDRTrees {
-			treeDTask := seal.NewTreeDTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
-			treeRCTask := seal.NewTreeRCTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
-			finalizeTask := seal.NewFinalizeTask(cfg.Subsystems.FinalizeMaxTasks, sp, slr, db)
-			activeTasks = append(activeTasks, treeDTask, treeRCTask, finalizeTask)
-		}
-		if cfg.Subsystems.EnableSendPrecommitMsg {
-			precommitTask := seal.NewSubmitPrecommitTask(sp, db, full, sender, as, cfg.Fees.MaxPreCommitGasFee)
-			activeTasks = append(activeTasks, precommitTask)
-		}
-		if cfg.Subsystems.EnablePoRepProof {
-			porepTask := seal.NewPoRepTask(db, full, sp, slr, asyncParams(), cfg.Subsystems.PoRepProofMaxTasks)
-			activeTasks = append(activeTasks, porepTask)
-		}
-		if cfg.Subsystems.EnableMoveStorage {
-			moveStorageTask := seal.NewMoveStorageTask(sp, slr, db, cfg.Subsystems.MoveStorageMaxTasks)
-			activeTasks = append(activeTasks, moveStorageTask)
-		}
-		if cfg.Subsystems.EnableSendCommitMsg {
-			commitTask := seal.NewSubmitCommitTask(sp, db, full, sender, as, cfg)
-			activeTasks = append(activeTasks, commitTask)
-		}
-	}
-
 	if hasAnySealingTask {
-		// Sealing nodes maintain storage index when bored
-		storageEndpointGcTask := gc.NewStorageEndpointGC(si, stor, db)
-		sdrPipelineGcTask := gc.NewSDRPipelineGC(db)
-		storageGcMarkTask := gc.NewStorageGCMark(si, stor, db, bstore, full)
-		storageGcSweepTask := gc.NewStorageGCSweep(db, stor, si)
-
-		activeTasks = append(activeTasks, storageEndpointGcTask, sdrPipelineGcTask, storageGcMarkTask, storageGcSweepTask)
+		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore)
+		if err != nil {
+			return nil, err
+		}
+		activeTasks = append(activeTasks, sealingTasks...)
 	}
 
 	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting)
@@ -232,7 +190,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	// harmony treats the first task as highest priority, so reverse the order
 	// (we could have just appended to this list in the reverse order, but defining
 	//  tasks in pipeline order is more intuitive)
-	activeTasks = lo.Reverse(activeTasks)
 
 	ht, err := harmonytask.New(db, activeTasks, dependencies.ListenAddr)
 	if err != nil {
@@ -253,6 +210,65 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	}
 
 	return ht, nil
+}
+
+func addSealingTasks(
+	ctx context.Context, hasAnySealingTask bool, db *harmonydb.DB, full api.FullNode, sender *message.Sender,
+	as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig, slrLazy *lazy.Lazy[*ffi.SealCalls],
+	asyncParams func() func() (bool, error), si paths.SectorIndex, stor *paths.Remote,
+	bstore curiochain.CurioBlockstore) ([]harmonytask.TaskInterface, error) {
+	var activeTasks []harmonytask.TaskInterface
+	// Sealing
+
+	var sp *seal.SealPoller
+	var slr *ffi.SealCalls
+	if hasAnySealingTask {
+		sp = seal.NewPoller(db, full)
+		go sp.RunPoller(ctx)
+
+		slr = must.One(slrLazy.Val())
+	}
+
+	// NOTE: Tasks with the LEAST priority are at the top
+	if cfg.Subsystems.EnableSealSDR {
+		sdrTask := seal.NewSDRTask(full, db, sp, slr, cfg.Subsystems.SealSDRMaxTasks)
+		activeTasks = append(activeTasks, sdrTask)
+	}
+	if cfg.Subsystems.EnableSealSDRTrees {
+		treeDTask := seal.NewTreeDTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
+		treeRCTask := seal.NewTreeRCTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
+		finalizeTask := seal.NewFinalizeTask(cfg.Subsystems.FinalizeMaxTasks, sp, slr, db)
+		activeTasks = append(activeTasks, treeDTask, treeRCTask, finalizeTask)
+	}
+	if cfg.Subsystems.EnableSendPrecommitMsg {
+		precommitTask := seal.NewSubmitPrecommitTask(sp, db, full, sender, as, cfg.Fees.MaxPreCommitGasFee)
+		activeTasks = append(activeTasks, precommitTask)
+	}
+	if cfg.Subsystems.EnablePoRepProof {
+		porepTask := seal.NewPoRepTask(db, full, sp, slr, asyncParams(), cfg.Subsystems.PoRepProofMaxTasks)
+		activeTasks = append(activeTasks, porepTask)
+	}
+	if cfg.Subsystems.EnableMoveStorage {
+		moveStorageTask := seal.NewMoveStorageTask(sp, slr, db, cfg.Subsystems.MoveStorageMaxTasks)
+		activeTasks = append(activeTasks, moveStorageTask)
+	}
+	if cfg.Subsystems.EnableSendCommitMsg {
+		commitTask := seal.NewSubmitCommitTask(sp, db, full, sender, as, cfg)
+		activeTasks = append(activeTasks, commitTask)
+	}
+	activeTasks = lo.Reverse(activeTasks)
+
+	if hasAnySealingTask {
+		// Sealing nodes maintain storage index when bored
+		storageEndpointGcTask := gc.NewStorageEndpointGC(si, stor, db)
+		sdrPipelineGcTask := gc.NewSDRPipelineGC(db)
+		storageGcMarkTask := gc.NewStorageGCMark(si, stor, db, bstore, full)
+		storageGcSweepTask := gc.NewStorageGCSweep(db, stor, si)
+
+		activeTasks = append(activeTasks, storageEndpointGcTask, sdrPipelineGcTask, storageGcMarkTask, storageGcSweepTask)
+	}
+
+	return activeTasks, nil
 }
 
 func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, machineID int, machineName string) {
