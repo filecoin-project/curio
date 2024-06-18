@@ -5,10 +5,8 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"time"
 
-	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/go-commp-utils/nonffi"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -72,37 +70,6 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		ProofType: abi.RegisteredSealProof(sectorParams.RegSealProof),
 	}
 
-	var pieces []struct {
-		PieceIndex int64  `db:"piece_index"`
-		PieceCID   string `db:"piece_cid"`
-		PieceSize  int64  `db:"piece_size"`
-	}
-	err = e.db.Select(ctx, &pieces, `
-		SELECT piece_index, piece_cid, piece_size
-		FROM sectors_snap_initial_pieces
-		WHERE sp_id = $1 AND sector_number = $2 ORDER BY piece_index ASC`, sectorParams.SpID, sectorParams.SectorNumber)
-	if err != nil {
-		return false, xerrors.Errorf("getting pieces: %w", err)
-	}
-
-	pieceInfos := make([]abi.PieceInfo, len(pieces))
-	for i, p := range pieces {
-		c, err := cid.Parse(p.PieceCID)
-		if err != nil {
-			return false, xerrors.Errorf("parsing piece cid: %w", err)
-		}
-
-		pieceInfos[i] = abi.PieceInfo{
-			Size:     abi.PaddedPieceSize(p.PieceSize),
-			PieceCID: c,
-		}
-	}
-
-	dealUnsealedCID, err := nonffi.GenerateUnsealedCID(abi.RegisteredSealProof(sectorParams.RegSealProof), pieceInfos)
-	if err != nil {
-		return false, xerrors.Errorf("computing CommD: %w", err)
-	}
-
 	data, err := dealdata.DealDataSnap(ctx, e.db, e.sc, sectorParams.SpID, sectorParams.SectorNumber, abi.RegisteredSealProof(sectorParams.RegSealProof))
 	if err != nil {
 		return false, xerrors.Errorf("getting deal data: %w", err)
@@ -114,12 +81,12 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("expected unpadded data")
 	}
 
-	sealed, unsealed, err := e.sc.EncodeUpdate(ctx, taskID, abi.RegisteredUpdateProof(sectorParams.UpdateProof), sref, data.Data, pieceInfos)
+	sealed, unsealed, err := e.sc.EncodeUpdate(ctx, taskID, abi.RegisteredUpdateProof(sectorParams.UpdateProof), sref, data.Data, data.PieceInfos)
 	if err != nil {
 		return false, xerrors.Errorf("ffi update encode: %w", err)
 	}
 
-	if dealUnsealedCID != unsealed {
+	if data.CommD != unsealed {
 		return false, xerrors.Errorf("unsealed cid mismatch")
 	}
 

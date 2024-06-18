@@ -172,6 +172,17 @@ var FFISelect struct {
 		proofs [][]byte,
 	) ([]proof.PoStProof, error)
 
+	EncodeInto func(
+		ctx context.Context,
+		proofType abi.RegisteredUpdateProof,
+		newReplicaPath string,
+		newReplicaCachePath string,
+		sectorKeyPath string,
+		sectorKeyCachePath string,
+		stagedDataPath string,
+		pieces []abi.PieceInfo,
+	) (out storiface.SectorCids, err error)
+
 	SelfTest func(ctx context.Context, val1 int, val2 cid.Cid) (cid.Cid, error)
 }
 

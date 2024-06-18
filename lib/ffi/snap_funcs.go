@@ -5,6 +5,7 @@ import (
 	"context"
 	"github.com/detailyang/go-fallocate"
 	"github.com/filecoin-project/curio/lib/asyncwrite"
+	"github.com/filecoin-project/curio/lib/ffiselect"
 	"io"
 	"os"
 
@@ -12,7 +13,6 @@ import (
 	pool "github.com/libp2p/go-buffer-pool"
 	"golang.org/x/xerrors"
 
-	ffi "github.com/filecoin-project/filecoin-ffi"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -170,8 +170,8 @@ func (sb *SealCalls) EncodeUpdate(
 		}
 	}
 
-	// TODO FFISELECT!!
-	sealed, unsealed, err := ffi.SectorUpdate.EncodeInto(proofType, paths.Update, paths.UpdateCache, keyPath, keyCachePath, stagedDataPath, pieces)
+	ctx = ffiselect.WithLogCtx(ctx, "sector", sector.ID, "task", taskID, "key", keyPath, "cache", keyCachePath, "staged", stagedDataPath, "update", paths.Update, "updateCache", paths.UpdateCache)
+	out, err := ffiselect.FFISelect.EncodeInto(ctx, proofType, paths.Update, paths.UpdateCache, keyPath, keyCachePath, stagedDataPath, pieces)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("ffi update encode: %w", err)
 	}
@@ -180,5 +180,5 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Undef, cid.Undef, xerrors.Errorf("ensure one copy: %w", err)
 	}
 
-	return sealed, unsealed, nil
+	return out.Sealed, out.Unsealed, nil
 }

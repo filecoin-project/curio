@@ -4,12 +4,10 @@ package ffidirect
 
 import (
 	"errors"
-
-	"github.com/ipfs/go-cid"
-
 	ffi "github.com/filecoin-project/filecoin-ffi"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/proof"
+	"github.com/ipfs/go-cid"
 
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
@@ -58,6 +56,26 @@ func (FFI) GenerateWinningPoStWithVanilla(
 	proofs [][]byte,
 ) ([]proof.PoStProof, error) {
 	return ffi.GenerateWinningPoStWithVanilla(proofType, minerID, randomness, proofs)
+}
+
+func (FFI) EncodeInto(
+	proofType abi.RegisteredUpdateProof,
+	newReplicaPath string,
+	newReplicaCachePath string,
+	sectorKeyPath string,
+	sectorKeyCachePath string,
+	stagedDataPath string,
+	pieces []abi.PieceInfo,
+) (out storiface.SectorCids, err error) {
+	sealed, unsealed, err := ffi.SectorUpdate.EncodeInto(proofType, newReplicaPath, newReplicaCachePath, sectorKeyPath, sectorKeyCachePath, stagedDataPath, pieces)
+	if err != nil {
+		return storiface.SectorCids{}, err
+	}
+
+	return storiface.SectorCids{
+		Unsealed: unsealed,
+		Sealed:   sealed,
+	}, nil
 }
 
 func (FFI) SelfTest(val1 int, val2 cid.Cid) (cid.Cid, error) {

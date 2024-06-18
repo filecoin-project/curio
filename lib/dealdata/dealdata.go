@@ -40,6 +40,7 @@ type DealData struct {
 	CommD      cid.Cid
 	Data       io.Reader
 	IsUnpadded bool
+	PieceInfos []abi.PieceInfo
 	Close      func()
 }
 
@@ -190,10 +191,15 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 		}
 
 		out.Data = &justReader{io.MultiReader(pieceReaders...)}
+		out.PieceInfos = pieceInfos
 		out.IsUnpadded = true
 	} else {
 		out.CommD = zerocomm.ZeroPieceCommitment(abi.PaddedPieceSize(ssize).Unpadded())
 		out.Data = nullreader.NewNullReader(abi.UnpaddedPieceSize(ssize))
+		out.PieceInfos = []abi.PieceInfo{{
+			Size:     abi.PaddedPieceSize(ssize),
+			PieceCID: out.CommD,
+		}}
 		out.IsUnpadded = false // nullreader includes fr32 zero bits
 	}
 
