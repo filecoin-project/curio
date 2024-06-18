@@ -110,11 +110,15 @@ type ChainSubsetForForestMethods struct {
 
 	StateMinerAllocated func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*bitfield.BitField, error) ``
 
+	StateMinerDeadlines func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]api.Deadline, error) `perm:"read"`
+
 	StateMinerInfo func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MinerInfo, error) ``
 
 	StateMinerInitialPledgeCollateral func(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) ``
 
 	StateMinerPartitions func(p0 context.Context, p1 address.Address, p2 uint64, p3 types.TipSetKey) ([]api.Partition, error) ``
+
+	StateMinerPower func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*api.MinerPower, error) `perm:"read"`
 
 	StateMinerPreCommitDepositForPower func(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) ``
 
@@ -602,6 +606,17 @@ func (s *ChainSubsetForForestStub) StateMinerAllocated(p0 context.Context, p1 ad
 	return nil, ErrNotSupported
 }
 
+func (s *ChainSubsetForForestStruct) StateMinerDeadlines(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]api.Deadline, error) {
+	if s.Internal.StateMinerDeadlines == nil {
+		return *new([]api.Deadline), ErrNotSupported
+	}
+	return s.Internal.StateMinerDeadlines(p0, p1, p2)
+}
+
+func (s *ChainSubsetForForestStub) StateMinerDeadlines(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]api.Deadline, error) {
+	return *new([]api.Deadline), ErrNotSupported
+}
+
 func (s *ChainSubsetForForestStruct) StateMinerInfo(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MinerInfo, error) {
 	if s.Internal.StateMinerInfo == nil {
 		return *new(api.MinerInfo), ErrNotSupported
@@ -633,6 +648,17 @@ func (s *ChainSubsetForForestStruct) StateMinerPartitions(p0 context.Context, p1
 
 func (s *ChainSubsetForForestStub) StateMinerPartitions(p0 context.Context, p1 address.Address, p2 uint64, p3 types.TipSetKey) ([]api.Partition, error) {
 	return *new([]api.Partition), ErrNotSupported
+}
+
+func (s *ChainSubsetForForestStruct) StateMinerPower(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*api.MinerPower, error) {
+	if s.Internal.StateMinerPower == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateMinerPower(p0, p1, p2)
+}
+
+func (s *ChainSubsetForForestStub) StateMinerPower(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*api.MinerPower, error) {
+	return nil, ErrNotSupported
 }
 
 func (s *ChainSubsetForForestStruct) StateMinerPreCommitDepositForPower(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) {
