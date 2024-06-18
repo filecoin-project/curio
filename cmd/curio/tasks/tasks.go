@@ -272,7 +272,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, proveTask)
 	}
 	if cfg.Subsystems.EnableUpdateSubmit {
-		submitTask := snap.NewSubmitTask(slr, db)
+		submitTask := snap.NewSubmitTask(db, full, bstore, sender, as, cfg)
 		activeTasks = append(activeTasks, submitTask)
 	}
 	activeTasks = lo.Reverse(activeTasks)

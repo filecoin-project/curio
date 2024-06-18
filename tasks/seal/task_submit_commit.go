@@ -217,7 +217,7 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 			if err != nil {
 				return false, xerrors.Errorf("marshalling json to PieceManifest: %w", err)
 			}
-			err = s.allocationCheck(ctx, pam, pci, abi.ActorID(sectorParams.SpID), ts)
+			err = AllocationCheck(ctx, s.api, pam, pci, abi.ActorID(sectorParams.SpID), ts)
 			if err != nil {
 				return false, err
 			}
@@ -424,7 +424,11 @@ func (s *SubmitCommitTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	s.sp.pollers[pollerCommitMsg].Set(taskFunc)
 }
 
-func (s *SubmitCommitTask) allocationCheck(ctx context.Context, piece *miner.PieceActivationManifest, precomitInfo *miner.SectorPreCommitOnChainInfo, miner abi.ActorID, ts *types.TipSet) error {
+type AllocNodeApi interface {
+	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifregtypes9.AllocationId, tsk types.TipSetKey) (*verifregtypes9.Allocation, error)
+}
+
+func AllocationCheck(ctx context.Context, api AllocNodeApi, piece *miner.PieceActivationManifest, precomitInfo *miner.SectorPreCommitOnChainInfo, miner abi.ActorID, ts *types.TipSet) error {
 	// skip pieces not claiming an allocation
 	if piece.VerifiedAllocationKey == nil {
 		return nil
@@ -434,7 +438,7 @@ func (s *SubmitCommitTask) allocationCheck(ctx context.Context, piece *miner.Pie
 		return err
 	}
 
-	alloc, err := s.api.StateGetAllocation(ctx, addr, verifregtypes9.AllocationId(piece.VerifiedAllocationKey.ID), ts.Key())
+	alloc, err := api.StateGetAllocation(ctx, addr, verifregtypes9.AllocationId(piece.VerifiedAllocationKey.ID), ts.Key())
 	if err != nil {
 		return err
 	}
@@ -446,6 +450,10 @@ func (s *SubmitCommitTask) allocationCheck(ctx context.Context, piece *miner.Pie
 	}
 	if alloc.Size != piece.Size {
 		return xerrors.Errorf("size mismatch for piece %s: expected %d and found %d", piece.CID.String(), piece.Size, alloc.Size)
+	}
+
+	if precomitInfo == nil {
+		return nil
 	}
 	if precomitInfo.Info.Expiration < ts.Height()+alloc.TermMin {
 		return xerrors.Errorf("sector expiration %d is before than allocation TermMin %d for piece %s", precomitInfo.Info.Expiration, ts.Height()+alloc.TermMin, piece.CID.String())

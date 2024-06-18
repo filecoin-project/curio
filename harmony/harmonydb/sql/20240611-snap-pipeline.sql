@@ -27,6 +27,8 @@ CREATE TABLE sectors_snap_pipeline (
     after_prove BOOLEAN NOT NULL DEFAULT FALSE,
 
     -- submit
+    prove_msg_cid TEXT,
+
     task_id_submit BIGINT,
     after_submit BOOLEAN NOT NULL DEFAULT FALSE,
 
