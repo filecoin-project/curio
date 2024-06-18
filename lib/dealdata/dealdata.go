@@ -189,7 +189,7 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 			return nil, xerrors.Errorf("computing CommD: %w", err)
 		}
 
-		out.Data = io.MultiReader(pieceReaders...)
+		out.Data = &justReader{io.MultiReader(pieceReaders...)}
 		out.IsUnpadded = true
 	} else {
 		out.CommD = zerocomm.ZeroPieceCommitment(abi.PaddedPieceSize(ssize).Unpadded())
@@ -206,4 +206,8 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 	}
 
 	return &out, nil
+}
+
+type justReader struct {
+	io.Reader // multiReader has a WriteTo which messes with buffer sizes in io.CopyBuffer
 }

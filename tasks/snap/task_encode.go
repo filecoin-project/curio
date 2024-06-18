@@ -38,34 +38,6 @@ func NewEncodeTask(sc *ffi.SealCalls, db *harmonydb.DB, max int) *EncodeTask {
 	}
 }
 
-/*
-CREATE TABLE sectors_snap_pipeline (
-    sp_id BIGINT NOT NULL,
-    sector_number BIGINT NOT NULL,
-    start_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    upgrade_proof INT NOT NULL,
-    -- preload
-    -- todo sector preload logic
-    data_assigned BOOLEAN NOT NULL DEFAULT FALSE,
-    -- encode
-    update_unsealed_cid TEXT,
-    update_sealed_cid TEXT,
-    task_id_encode BIGINT,
-    after_encode BOOLEAN NOT NULL DEFAULT FALSE,
-    -- prove
-    task_id_prove BIGINT,
-    after_prove BOOLEAN NOT NULL DEFAULT FALSE,
-    -- submit
-    task_id_submit BIGINT,
-    after_submit BOOLEAN NOT NULL DEFAULT FALSE,
-    -- move storage
-    task_id_move_storage BIGINT,
-    after_move_storage BOOLEAN NOT NULL DEFAULT FALSE,
-    FOREIGN KEY (sp_id, sector_number) REFERENCES sectors_meta (sp_id, sector_num),
-    PRIMARY KEY (sp_id, sector_number)
-)
-*/
-
 func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var tasks []struct {
 		SpID         int64 `db:"sp_id"`

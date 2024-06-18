@@ -193,5 +193,9 @@ func TarDirectory(constraints map[string]int64, dir string, w io.Writer, buf []b
 
 	}
 
+	if err := tw.Close(); err != nil {
+		return err
+	}
+
 	return nil
 }
