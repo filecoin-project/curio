@@ -180,15 +180,12 @@ func New(
 		for _, w := range taskRet {
 			// edge-case: if old assignments are not available tasks, unlock them.
 			h := e.taskMap[w.Name]
-			if h == nil {
+			if h == nil || !h.considerWork(WorkSourceRecover, []TaskID{TaskID(w.ID)}) {
 				_, err := db.Exec(e.ctx, `UPDATE harmony_task SET owner_id=NULL WHERE id=$1`, w.ID)
 				if err != nil {
 					log.Errorw("Cannot remove self from owner field", "error", err)
 					continue // not really fatal, but not great
 				}
-			}
-			if !h.considerWork(WorkSourceRecover, []TaskID{TaskID(w.ID)}) {
-				log.Errorw("Strange: Unable to accept previously owned task", "id", w.ID, "type", w.Name)
 			}
 		}
 	}
