@@ -183,6 +183,13 @@ var FFISelect struct {
 		pieces []abi.PieceInfo,
 	) (out storiface.SectorCids, err error)
 
+	GenerateUpdateProofWithVanilla func(
+		ctx context.Context,
+		proofType abi.RegisteredUpdateProof,
+		key, sealed, unsealed cid.Cid,
+		vproofs [][]byte,
+	) ([]byte, error)
+
 	SelfTest func(ctx context.Context, val1 int, val2 cid.Cid) (cid.Cid, error)
 }
 

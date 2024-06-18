@@ -3,15 +3,18 @@ package ffi
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"github.com/detailyang/go-fallocate"
 	"github.com/filecoin-project/curio/lib/asyncwrite"
 	"github.com/filecoin-project/curio/lib/ffiselect"
-	"io"
-	"os"
-
+	paths2 "github.com/filecoin-project/curio/lib/paths"
+	ffi "github.com/filecoin-project/filecoin-ffi"
 	"github.com/ipfs/go-cid"
 	pool "github.com/libp2p/go-buffer-pool"
 	"golang.org/x/xerrors"
+	"io"
+	"os"
+	"path/filepath"
 
 	"github.com/filecoin-project/go-state-types/abi"
 
@@ -24,6 +27,7 @@ import (
 
 func (sb *SealCalls) EncodeUpdate(
 	ctx context.Context,
+	sectorKeyCid cid.Cid,
 	taskID harmonytask.TaskID,
 	proofType abi.RegisteredUpdateProof,
 	sector storiface.SectorRef,
@@ -40,25 +44,38 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Undef, cid.Undef, xerrors.Errorf("update paths not set")
 	}
 
-	keyPath := ""        // can this be a named pipe - no, mmap in proofs
-	keyCachePath := ""   // some temp copy
-	stagedDataPath := "" // can this be a named pipe - no, mmap in proofs
+	// remove old Update/UpdateCache files if they exist
+	if err := os.Remove(paths.Update); err != nil && !os.IsNotExist(err) {
+		return cid.Cid{}, cid.Cid{}, xerrors.Errorf("removing old update file: %w", err)
+	}
+	if err := os.RemoveAll(paths.UpdateCache); err != nil {
+		return cid.Cid{}, cid.Cid{}, xerrors.Errorf("removing old update cache: %w", err)
+	}
 
+	// ensure update cache dir exists
+	if err := os.MkdirAll(paths.UpdateCache, 0755); err != nil {
+		return cid.Cid{}, cid.Cid{}, xerrors.Errorf("mkdir update cache: %w", err)
+	}
+
+	keyPath := filepath.Join(paths.UpdateCache, "cu-sector-key.dat")           // can this be a named pipe - no, mmap in proofs
+	keyCachePath := filepath.Join(paths.UpdateCache, "cu-sector-key-fincache") // some temp copy (finalized cache directory)
+	stagedDataPath := filepath.Join(paths.UpdateCache, "cu-staged.dat")        // can this be a named pipe - no, mmap in proofs
+
+	var cleanupStagedFiles func() error
 	{
 		// hack until we do snap encode ourselves and just call into proofs for CommR
 
-		// todo use storage subsystem for temp files
-		keyFile, err := os.CreateTemp("", "cutmp-key-")
+		keyFile, err := os.Create(keyPath)
 		if err != nil {
-			return cid.Undef, cid.Undef, xerrors.Errorf("creating temp file: %w", err)
+			return cid.Undef, cid.Undef, xerrors.Errorf("creating key file: %w", err)
 		}
 
-		keyCachePath, err = os.MkdirTemp("", "cutmp-keycache-")
+		err = os.Mkdir(keyCachePath, 0755)
 		if err != nil {
-			return cid.Undef, cid.Undef, xerrors.Errorf("creating temp file: %w", err)
+			return cid.Undef, cid.Undef, xerrors.Errorf("creating key cache dir: %w", err)
 		}
 
-		stagedFile, err := os.CreateTemp("", "cutmp-staged-")
+		stagedFile, err := os.Create(stagedDataPath)
 		if err != nil {
 			return cid.Undef, cid.Undef, xerrors.Errorf("creating temp file: %w", err)
 		}
@@ -66,18 +83,42 @@ func (sb *SealCalls) EncodeUpdate(
 		keyPath = keyFile.Name()
 		stagedDataPath = stagedFile.Name()
 
-		defer func() {
+		var cleanupDone bool
+		cleanupStagedFiles = func() error {
+			if cleanupDone {
+				return nil
+			}
+			cleanupDone = true
+
 			if keyFile != nil {
-				_ = keyFile.Close()
+				if err := keyFile.Close(); err != nil {
+					return xerrors.Errorf("closing key file: %w", err)
+				}
 			}
 			if stagedFile != nil {
-				_ = stagedFile.Close()
+				if err := stagedFile.Close(); err != nil {
+					return xerrors.Errorf("closing staged file: %w", err)
+				}
 			}
 
-			_ = os.Remove(keyPath)
-			_ = os.Remove(keyCachePath)
+			if err := os.Remove(keyPath); err != nil {
+				return xerrors.Errorf("removing key file: %w", err)
+			}
+			if err := os.RemoveAll(keyCachePath); err != nil {
+				return xerrors.Errorf("removing key cache: %w", err)
+			}
+			if err := os.Remove(stagedDataPath); err != nil {
+				return xerrors.Errorf("removing staged file: %w", err)
+			}
 
-			_ = os.Remove(stagedDataPath)
+			return nil
+		}
+
+		defer func() {
+			clerr := cleanupStagedFiles()
+			if clerr != nil {
+				log.Errorf("cleanup error: %+v", clerr)
+			}
 		}()
 
 		log.Debugw("get key data", "keyPath", keyPath, "keyCachePath", keyCachePath, "sectorID", sector.ID, "taskID", taskID)
@@ -137,19 +178,6 @@ func (sb *SealCalls) EncodeUpdate(
 		}
 	}
 
-	// remove old Update/UpdateCache files if they exist
-	if err := os.Remove(paths.Update); err != nil && !os.IsNotExist(err) {
-		return cid.Cid{}, cid.Cid{}, xerrors.Errorf("removing old update file: %w", err)
-	}
-	if err := os.RemoveAll(paths.UpdateCache); err != nil {
-		return cid.Cid{}, cid.Cid{}, xerrors.Errorf("removing old update cache: %w", err)
-	}
-
-	// ensure update cache dir exists
-	if err := os.MkdirAll(paths.UpdateCache, 0755); err != nil {
-		return cid.Cid{}, cid.Cid{}, xerrors.Errorf("mkdir update cache: %w", err)
-	}
-
 	// allocate update file
 	{
 		s, err := os.Stat(keyPath)
@@ -176,9 +204,62 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Undef, cid.Undef, xerrors.Errorf("ffi update encode: %w", err)
 	}
 
+	vps, err := ffi.SectorUpdate.GenerateUpdateVanillaProofs(proofType, sectorKeyCid, out.Sealed, out.Unsealed, paths.Update, paths.UpdateCache, keyPath, keyCachePath)
+	if err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("generate vanilla update proofs: %w", err)
+	}
+
+	ok, err := ffi.SectorUpdate.VerifyVanillaProofs(proofType, sectorKeyCid, out.Sealed, out.Unsealed, vps)
+	if err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("verify vanilla update proofs: %w", err)
+	}
+	if !ok {
+		return cid.Undef, cid.Undef, xerrors.Errorf("vanilla update proofs invalid")
+	}
+
+	// persist in UpdateCache/snap-vproof.json
+	jb, err := json.Marshal(vps)
+	if err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("marshal vanilla proofs: %w", err)
+	}
+
+	vpPath := filepath.Join(paths.UpdateCache, paths2.SnapVproofFile)
+	if err := os.WriteFile(vpPath, jb, 0644); err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("write vanilla proofs: %w", err)
+	}
+
+	ssize, err := sector.ProofType.SectorSize()
+	if err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("getting sector size: %w", err)
+	}
+
+	// cleanup
+	if err := cleanupStagedFiles(); err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("cleanup staged files: %w", err)
+	}
+
+	if err := ffi.ClearCache(uint64(ssize), paths.UpdateCache); err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("clear cache: %w", err)
+	}
+
 	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTUpdate|storiface.FTUpdateCache); err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("ensure one copy: %w", err)
 	}
 
 	return out.Sealed, out.Unsealed, nil
+}
+
+func (sb *SealCalls) ProveUpdate(ctx context.Context, proofType abi.RegisteredUpdateProof, sector storiface.SectorRef, key, sealed, unsealed cid.Cid) ([]byte, error) {
+	jsonb, err := sb.sectors.storage.ReadSnapVanillaProof(ctx, sector)
+	if err != nil {
+		return nil, xerrors.Errorf("read snap vanilla proof: %w", err)
+	}
+
+	var vproofs [][]byte
+	if err := json.Unmarshal(jsonb, &vproofs); err != nil {
+		return nil, xerrors.Errorf("unmarshal snap vanilla proof: %w", err)
+	}
+
+	ctx = ffiselect.WithLogCtx(ctx, "sector", sector.ID, "key", key, "sealed", sealed, "unsealed", unsealed)
+	return ffiselect.FFISelect.GenerateUpdateProofWithVanilla(ctx, proofType, key, sealed, unsealed, vproofs)
 }

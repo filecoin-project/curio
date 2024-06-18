@@ -78,6 +78,14 @@ func (FFI) EncodeInto(
 	}, nil
 }
 
+func (FFI) GenerateUpdateProofWithVanilla(
+	proofType abi.RegisteredUpdateProof,
+	key, sealed, unsealed cid.Cid,
+	vproofs [][]byte,
+) ([]byte, error) {
+	return ffi.SectorUpdate.GenerateUpdateProofWithVanilla(proofType, key, sealed, unsealed, vproofs)
+}
+
 func (FFI) SelfTest(val1 int, val2 cid.Cid) (cid.Cid, error) {
 	if val1 != 12345678 {
 		return cid.Undef, errors.New("val1 was not as expected")

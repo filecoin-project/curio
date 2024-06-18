@@ -3,6 +3,7 @@ package snap
 import (
 	"context"
 	"github.com/filecoin-project/curio/lib/passcall"
+	"github.com/ipfs/go-cid"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -43,12 +44,14 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		UpdateProof  int64 `db:"upgrade_proof"`
 
 		RegSealProof int64 `db:"reg_seal_proof"`
+
+		OrigSealedCID string `db:"orig_sealed_cid"`
 	}
 
 	ctx := context.Background()
 
 	err = e.db.Select(ctx, &tasks, `
-		SELECT snp.sp_id, snp.sector_number, snp.upgrade_proof, sm.reg_seal_proof
+		SELECT snp.sp_id, snp.sector_number, snp.upgrade_proof, sm.reg_seal_proof, sm.orig_sealed_cid
 		FROM sectors_snap_pipeline snp
 		INNER JOIN sectors_meta sm ON snp.sp_id = sm.sp_id AND snp.sector_number = sm.sector_num
 		WHERE snp.task_id_encode = $1`, taskID)
@@ -70,6 +73,11 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		ProofType: abi.RegisteredSealProof(sectorParams.RegSealProof),
 	}
 
+	keyCid, err := cid.Parse(sectorParams.OrigSealedCID)
+	if err != nil {
+		return false, xerrors.Errorf("parsing key cid: %w", err)
+	}
+
 	data, err := dealdata.DealDataSnap(ctx, e.db, e.sc, sectorParams.SpID, sectorParams.SectorNumber, abi.RegisteredSealProof(sectorParams.RegSealProof))
 	if err != nil {
 		return false, xerrors.Errorf("getting deal data: %w", err)
@@ -81,7 +89,7 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("expected unpadded data")
 	}
 
-	sealed, unsealed, err := e.sc.EncodeUpdate(ctx, taskID, abi.RegisteredUpdateProof(sectorParams.UpdateProof), sref, data.Data, data.PieceInfos)
+	sealed, unsealed, err := e.sc.EncodeUpdate(ctx, keyCid, taskID, abi.RegisteredUpdateProof(sectorParams.UpdateProof), sref, data.Data, data.PieceInfos)
 	if err != nil {
 		return false, xerrors.Errorf("ffi update encode: %w", err)
 	}
