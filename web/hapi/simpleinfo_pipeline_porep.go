@@ -99,7 +99,7 @@ func (a *app) pipelinePorepSectors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	head, err := a.workingApi.ChainHead(ctx)
+	head, err := a.deps.Chain.ChainHead(ctx)
 	if err != nil {
 		http.Error(w, xerrors.Errorf("failed to fetch chain head: %w", err).Error(), http.StatusInternalServerError)
 		return
@@ -150,7 +150,7 @@ func (a *app) pipelinePorepSectors(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) getMinerBitfields(ctx context.Context, addr address.Address, stor adt.Store) (minerBitfields, error) {
-	act, err := a.workingApi.StateGetActor(ctx, addr, types.EmptyTSK)
+	act, err := a.deps.Chain.StateGetActor(ctx, addr, types.EmptyTSK)
 	if err != nil {
 		return minerBitfields{}, xerrors.Errorf("failed to load actor: %w", err)
 	}
