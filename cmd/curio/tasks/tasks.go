@@ -213,7 +213,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 }
 
 func addSealingTasks(
-	ctx context.Context, hasAnySealingTask bool, db *harmonydb.DB, full api.FullNode, sender *message.Sender,
+	ctx context.Context, hasAnySealingTask bool, db *harmonydb.DB, full api.Chain, sender *message.Sender,
 	as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig, slrLazy *lazy.Lazy[*ffi.SealCalls],
 	asyncParams func() func() (bool, error), si paths.SectorIndex, stor *paths.Remote,
 	bstore curiochain.CurioBlockstore) ([]harmonytask.TaskInterface, error) {
