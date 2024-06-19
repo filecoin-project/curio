@@ -35,6 +35,7 @@ import (
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
 
+	"github.com/filecoin-project/lotus/api"
 	proofparams "github.com/filecoin-project/lotus/build/proof-params"
 	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/lib/result"
