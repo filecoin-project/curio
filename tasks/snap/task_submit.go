@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin"
 	miner13 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
 	verifregtypes9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
+	"github.com/filecoin-project/go-state-types/exitcode"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	builtin2 "github.com/filecoin-project/lotus/chain/actors/builtin"
@@ -29,8 +30,11 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
+	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 )
+
+var log = logging.Logger("update")
 
 var initialPledgeNum = types.NewInt(110)
 var initialPledgeDen = types.NewInt(100)
@@ -347,14 +351,22 @@ func (s *SubmitTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 	var tasks []struct {
 		SpID         int64 `db:"sp_id"`
 		SectorNumber int64 `db:"sector_number"`
+		AftSubmit    bool  `db:"after_submit"`
 	}
 
-	err := s.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_prove = TRUE AND after_submit = FALSE AND task_id_submit IS NULL`)
+	err := s.db.Select(ctx, &tasks, `SELECT sp_id, sector_number, after_submit FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_prove = TRUE AND after_prove_msg_success = FALSE AND task_id_submit IS NULL`)
 	if err != nil {
 		return xerrors.Errorf("getting tasks: %w", err)
 	}
 
 	for _, t := range tasks {
+		if t.AftSubmit {
+			if err := s.updateLanded(ctx, t.SpID, t.SectorNumber); err != nil {
+				return xerrors.Errorf("updating landed: %w", err)
+			}
+			continue
+		}
+
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			_, err := tx.Exec(`UPDATE sectors_snap_pipeline SET task_id_submit = $1 WHERE sp_id = $2 AND sector_number = $3`, id, t.SpID, t.SectorNumber)
 			if err != nil {
@@ -363,6 +375,65 @@ func (s *SubmitTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 
 			return true, nil
 		})
+	}
+
+	return nil
+}
+
+func (s *SubmitTask) updateLanded(ctx context.Context, spId, sectorNum int64) error {
+	var execResult []struct {
+		ProveMsgCID          string `db:"prove_msg_cid"`
+		UpdateSealedCID      string `db:"update_sealed_cid"`
+		ExecutedTskCID       string `db:"executed_tsk_cid"`
+		ExecutedTskEpoch     int64  `db:"executed_tsk_epoch"`
+		ExecutedMsgCID       string `db:"executed_msg_cid"`
+		ExecutedRcptExitCode int64  `db:"executed_rcpt_exitcode"`
+		ExecutedRcptGasUsed  int64  `db:"executed_rcpt_gas_used"`
+	}
+
+	err := s.db.Select(ctx, &execResult, `SELECT spipeline.prove_msg_cid, spipeline.update_sealed_cid, executed_tsk_cid, executed_tsk_epoch, executed_msg_cid, executed_rcpt_exitcode, executed_rcpt_gas_used
+					FROM sectors_snap_pipeline spipeline
+					JOIN message_waits ON spipeline.prove_msg_cid = message_waits.signed_message_cid
+					WHERE sp_id = $1 AND sector_number = $2 AND executed_tsk_epoch IS NOT NULL`, spId, sectorNum)
+	if err != nil {
+		return xerrors.Errorf("failed to query message_waits: %w", err)
+	}
+
+	if len(execResult) > 0 {
+		maddr, err := address.NewIDAddress(uint64(spId))
+		if err != nil {
+			return err
+		}
+
+		if exitcode.ExitCode(execResult[0].ExecutedRcptExitCode) != exitcode.Ok {
+			//return s.pollCommitMsgFail(ctx, task, execResult[0])
+			log.Errorw("todo handle failed snap prove", "sp", spId, "sector", sectorNum, "exec_epoch", execResult[0].ExecutedTskEpoch, "exec_tskcid", execResult[0].ExecutedTskCID, "msg_cid", execResult[0].ExecutedMsgCID)
+			return nil
+		}
+
+		si, err := s.api.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(sectorNum), types.EmptyTSK)
+		if err != nil {
+			return xerrors.Errorf("get sector info: %w", err)
+		}
+
+		if si == nil {
+			log.Errorw("todo handle missing sector info (not found after cron)", "sp", spId, "sector", sectorNum, "exec_epoch", execResult[0].ExecutedTskEpoch, "exec_tskcid", execResult[0].ExecutedTskCID, "msg_cid", execResult[0].ExecutedMsgCID)
+			// todo handdle missing sector info (not found after cron)
+		} else {
+			if si.SealedCID.String() != execResult[0].UpdateSealedCID {
+				log.Errorw("sector sealed CID mismatch after update?!", "sp", spId, "sector", sectorNum, "exec_epoch", execResult[0].ExecutedTskEpoch, "exec_tskcid", execResult[0].ExecutedTskCID, "msg_cid", execResult[0].ExecutedMsgCID)
+				return nil
+			}
+			// yay!
+
+			_, err := s.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET
+						after_prove_msg_success = TRUE, prove_msg_tsk = $1
+						WHERE sp_id = $2 AND sector_number = $3 AND after_prove_msg_success = FALSE`,
+				execResult[0].ExecutedTskCID, spId, sectorNum)
+			if err != nil {
+				return xerrors.Errorf("update sectors_snap_pipeline: %w", err)
+			}
+		}
 	}
 
 	return nil

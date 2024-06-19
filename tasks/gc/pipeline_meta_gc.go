@@ -127,8 +127,8 @@ func (s *PipelineGC) cleanupUpgrade() error {
 										smp.sp_id IS NULL AND sip.sp_id IS NOT NULL
 								)
 								DELETE FROM sectors_snap_pipeline
-								WHERE after_prove_msg_success = true
-								  AND after_move_storage = true
+								WHERE after_prove_msg_success = TRUE
+								  AND after_move_storage = TRUE
 								  AND EXISTS (
 									SELECT 1
 									FROM sectors_meta
