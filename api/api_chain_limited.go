@@ -3,5 +3,5 @@
 
 package api
 
-type Chain = ChainSubsetForForest
-type ChainStruct = ChainSubsetForForestStruct
+type Chain = CurioChainRPC
+type ChainStruct = CurioChainRPCStruct

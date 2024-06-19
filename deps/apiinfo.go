@@ -115,6 +115,8 @@ func newChainNodeRPCV1(ctx context.Context, addr string, requestHeader http.Head
 	return &res, closer, err
 }
 
+// FullNodeProxy creates a proxy for the Chain API
+// TODO: port improvements here from https://github.com/filecoin-project/lotus/pull/11470
 func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 	outs := api.GetInternalStructs(outstr)
 
