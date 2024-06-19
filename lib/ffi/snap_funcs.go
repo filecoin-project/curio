@@ -270,3 +270,53 @@ func (sb *SealCalls) ProveUpdate(ctx context.Context, proofType abi.RegisteredUp
 	ctx = ffiselect.WithLogCtx(ctx, "sector", sector.ID, "key", key, "sealed", sealed, "unsealed", unsealed)
 	return ffiselect.FFISelect.GenerateUpdateProofWithVanilla(ctx, proofType, key, sealed, unsealed, vproofs)
 }
+
+func (sb *SealCalls) MoveStorageSnap(ctx context.Context, sector storiface.SectorRef, taskID *harmonytask.TaskID) error {
+	// only move the unsealed file if it still exists and needs moving
+	moveUnsealed := storiface.FTUnsealed
+	{
+		found, unsealedPathType, err := sb.sectorStorageType(ctx, sector, storiface.FTUnsealed)
+		if err != nil {
+			return xerrors.Errorf("checking cache storage type: %w", err)
+		}
+
+		if !found || unsealedPathType == storiface.PathStorage {
+			moveUnsealed = storiface.FTNone
+		}
+	}
+
+	toMove := storiface.FTUpdateCache | storiface.FTUpdate | moveUnsealed
+
+	var opts []storiface.AcquireOption
+	if taskID != nil {
+		resv, ok := sb.sectors.storageReservations.Load(*taskID)
+		// if the reservation is missing MoveStorage will simply create one internally. This is fine as the reservation
+		// will only be missing when the node is restarting, which means that the missing reservations will get recreated
+		// anyways, and before we start claiming other tasks.
+		if ok {
+			defer resv.Release()
+
+			if resv.Alloc != storiface.FTNone {
+				return xerrors.Errorf("task %d has storage reservation with alloc", taskID)
+			}
+			if resv.Existing != toMove|storiface.FTUnsealed {
+				return xerrors.Errorf("task %d has storage reservation with different existing", taskID)
+			}
+
+			opts = append(opts, storiface.AcquireInto(storiface.PathsWithIDs{Paths: resv.Paths, IDs: resv.PathIDs}))
+		}
+	}
+
+	err := sb.sectors.storage.MoveStorage(ctx, sector, toMove, opts...)
+	if err != nil {
+		return xerrors.Errorf("moving storage: %w", err)
+	}
+
+	for _, fileType := range toMove.AllSet() {
+		if err := sb.sectors.storage.RemoveCopies(ctx, sector.ID, fileType); err != nil {
+			return xerrors.Errorf("rm copies (t:%s, s:%v): %w", fileType, sector, err)
+		}
+	}
+
+	return nil
+}
