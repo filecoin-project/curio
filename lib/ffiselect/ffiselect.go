@@ -42,9 +42,14 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	ch = make(chan string, len(devices))
-	for i := 0; i < len(devices); i++ {
-		ch <- strconv.Itoa(i)
+	if len(devices) == 0 {
+		ch = make(chan string, 1)
+		ch <- "0"
+	} else {
+		ch = make(chan string, len(devices))
+		for i := 0; i < len(devices); i++ {
+			ch <- strconv.Itoa(i)
+		}
 	}
 }
 
