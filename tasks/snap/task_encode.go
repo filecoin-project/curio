@@ -89,7 +89,7 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("expected unpadded data")
 	}
 
-	sealed, unsealed, err := e.sc.EncodeUpdate(ctx, keyCid, taskID, abi.RegisteredUpdateProof(sectorParams.UpdateProof), sref, data.Data, data.PieceInfos)
+	sealed, unsealed, err := e.sc.EncodeUpdate(ctx, keyCid, taskID, abi.RegisteredUpdateProof(sectorParams.UpdateProof), sref, data.Data, data.PieceInfos, data.KeepUnsealed)
 	if err != nil {
 		return false, xerrors.Errorf("ffi update encode: %w", err)
 	}
@@ -130,7 +130,7 @@ func (e *EncodeTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu:     1,
 			Ram:     1 << 30, // todo correct value
 			Gpu:     gpu,
-			Storage: e.sc.Storage(e.taskToSector, storiface.FTUpdate|storiface.FTUpdateCache, storiface.FTNone, ssize, storiface.PathSealing, 1.0),
+			Storage: e.sc.Storage(e.taskToSector, storiface.FTUpdate|storiface.FTUpdateCache|storiface.FTUnsealed, storiface.FTNone, ssize, storiface.PathSealing, 1.0),
 		},
 		MaxFailures: 3,
 		IAmBored: passcall.Every(MinSnapSchedInterval, func(taskFunc harmonytask.AddTaskFunc) error {

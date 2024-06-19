@@ -34,20 +34,23 @@ type dealMetadata struct {
 	DataUrl     *string `db:"data_url"`
 	DataHeaders *[]byte `db:"data_headers"`
 	DataRawSize *int64  `db:"data_raw_size"`
+
+	DataDelOnFinalize bool `db:"data_delete_on_finalize"`
 }
 
 type DealData struct {
-	CommD      cid.Cid
-	Data       io.Reader
-	IsUnpadded bool
-	PieceInfos []abi.PieceInfo
-	Close      func()
+	CommD        cid.Cid
+	Data         io.Reader
+	IsUnpadded   bool
+	PieceInfos   []abi.PieceInfo
+	KeepUnsealed bool
+	Close        func()
 }
 
 func DealDataSDRPoRep(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, spId, sectorNumber int64, spt abi.RegisteredSealProof) (*DealData, error) {
 	var pieces []dealMetadata
 	err := db.Select(ctx, &pieces, `
-		SELECT piece_index, piece_cid, piece_size, data_url, data_headers, data_raw_size
+		SELECT piece_index, piece_cid, piece_size, data_url, data_headers, data_raw_size, data_delete_on_finalize
 		FROM sectors_sdr_initial_pieces
 		WHERE sp_id = $1 AND sector_number = $2 ORDER BY piece_index ASC`, spId, sectorNumber)
 	if err != nil {
@@ -60,7 +63,7 @@ func DealDataSDRPoRep(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, 
 func DealDataSnap(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, spId, sectorNumber int64, spt abi.RegisteredSealProof) (*DealData, error) {
 	var pieces []dealMetadata
 	err := db.Select(ctx, &pieces, `
-		SELECT piece_index, piece_cid, piece_size, data_url, data_headers, data_raw_size
+		SELECT piece_index, piece_cid, piece_size, data_url, data_headers, data_raw_size, data_delete_on_finalize
 		FROM sectors_snap_initial_pieces
 		WHERE sp_id = $1 AND sector_number = $2 ORDER BY piece_index ASC`, spId, sectorNumber)
 	if err != nil {
@@ -170,6 +173,10 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 
 			} else { // padding piece (w/o fr32 padding, added in TreeD)
 				pieceReaders = append(pieceReaders, nullreader.NewNullReader(abi.PaddedPieceSize(p.PieceSize).Unpadded()))
+			}
+
+			if !p.DataDelOnFinalize {
+				out.KeepUnsealed = true
 			}
 		}
 

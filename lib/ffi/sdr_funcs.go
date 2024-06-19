@@ -64,7 +64,7 @@ type storageProvider struct {
 	storageReservations *xsync.MapOf[harmonytask.TaskID, *StorageReservation]
 }
 
-func (l *storageProvider) AcquireSector(ctx context.Context, taskID *harmonytask.TaskID, sector storiface.SectorRef, existing, allocate storiface.SectorFileType, sealing storiface.PathType) (fspaths, ids storiface.SectorPaths, release func(), err error) {
+func (l *storageProvider) AcquireSector(ctx context.Context, taskID *harmonytask.TaskID, sector storiface.SectorRef, existing, allocate storiface.SectorFileType, sealing storiface.PathType) (fspaths, ids storiface.SectorPaths, release func(dontDeclace ...storiface.SectorFileType), err error) {
 	var sectorPaths, storageIDs storiface.SectorPaths
 	var releaseStorage func()
 
@@ -118,12 +118,17 @@ func (l *storageProvider) AcquireSector(ctx context.Context, taskID *harmonytask
 
 	log.Debugf("acquired sector %d (e:%d; a:%d): %v", sector, existing, allocate, sectorPaths)
 
-	return sectorPaths, storageIDs, func() {
+	return sectorPaths, storageIDs, func(dontDeclace ...storiface.SectorFileType) {
 		releaseStorage()
 
 		for _, fileType := range storiface.PathTypes {
 			if fileType&allocate == 0 {
 				continue
+			}
+			for _, dont := range dontDeclace {
+				if fileType&dont != 0 {
+					return
+				}
 			}
 
 			sid := storiface.PathByType(storageIDs, fileType)
@@ -628,7 +633,7 @@ func (sb *SealCalls) sectorStorageType(ctx context.Context, sector storiface.Sec
 }
 
 // PreFetch fetches the sector file to local storage before SDR and TreeRC Tasks
-func (sb *SealCalls) PreFetch(ctx context.Context, sector storiface.SectorRef, task *harmonytask.TaskID) (fsPath, pathID storiface.SectorPaths, releaseSector func(), err error) {
+func (sb *SealCalls) PreFetch(ctx context.Context, sector storiface.SectorRef, task *harmonytask.TaskID) (fsPath, pathID storiface.SectorPaths, releaseSector func(...storiface.SectorFileType), err error) {
 	fsPath, pathID, releaseSector, err = sb.sectors.AcquireSector(ctx, task, sector, storiface.FTCache, storiface.FTNone, storiface.PathSealing)
 	if err != nil {
 		return storiface.SectorPaths{}, storiface.SectorPaths{}, nil, xerrors.Errorf("acquiring sector paths: %w", err)

@@ -32,13 +32,18 @@ func (sb *SealCalls) EncodeUpdate(
 	proofType abi.RegisteredUpdateProof,
 	sector storiface.SectorRef,
 	data io.Reader,
-	pieces []abi.PieceInfo) (sealedCID cid.Cid, unsealedCID cid.Cid, err error) {
+	pieces []abi.PieceInfo,
+	keepUnsealed bool) (sealedCID cid.Cid, unsealedCID cid.Cid, err error) {
+	noDecl := storiface.FTNone
+	if keepUnsealed {
+		noDecl = storiface.FTUnsealed
+	}
 
-	paths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, &taskID, sector, storiface.FTNone, storiface.FTUpdate|storiface.FTUpdateCache, storiface.PathSealing)
+	paths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, &taskID, sector, storiface.FTNone, storiface.FTUpdate|storiface.FTUpdateCache|storiface.FTUnsealed, storiface.PathSealing)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("acquiring sector paths: %w", err)
 	}
-	defer releaseSector()
+	defer releaseSector(noDecl)
 
 	if paths.Update == "" || paths.UpdateCache == "" {
 		return cid.Undef, cid.Undef, xerrors.Errorf("update paths not set")
@@ -59,7 +64,7 @@ func (sb *SealCalls) EncodeUpdate(
 
 	keyPath := filepath.Join(paths.UpdateCache, "cu-sector-key.dat")           // can this be a named pipe - no, mmap in proofs
 	keyCachePath := filepath.Join(paths.UpdateCache, "cu-sector-key-fincache") // some temp copy (finalized cache directory)
-	stagedDataPath := filepath.Join(paths.UpdateCache, "cu-staged.dat")        // can this be a named pipe - no, mmap in proofs
+	stagedDataPath := paths.Unsealed
 
 	var cleanupStagedFiles func() error
 	{
@@ -107,8 +112,10 @@ func (sb *SealCalls) EncodeUpdate(
 			if err := os.RemoveAll(keyCachePath); err != nil {
 				return xerrors.Errorf("removing key cache: %w", err)
 			}
-			if err := os.Remove(stagedDataPath); err != nil {
-				return xerrors.Errorf("removing staged file: %w", err)
+			if !keepUnsealed {
+				if err := os.Remove(stagedDataPath); err != nil {
+					return xerrors.Errorf("removing staged file: %w", err)
+				}
 			}
 
 			return nil
