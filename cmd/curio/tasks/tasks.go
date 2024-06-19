@@ -35,7 +35,7 @@ import (
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
 
-	lbuild "github.com/filecoin-project/lotus/build"
+	proofparams "github.com/filecoin-project/lotus/build/proof-params"
 	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
@@ -98,7 +98,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 				for spt := range dependencies.ProofTypes {
 
 					provingSize := uint64(must.One(spt.SectorSize()))
-					err := fastparamfetch.GetParams(context.TODO(), lbuild.ParametersJSON(), lbuild.SrsJSON(), provingSize)
+					err := fastparamfetch.GetParams(context.TODO(), proofparams.ParametersJSON(), proofparams.SrsJSON(), provingSize)
 
 					if err != nil {
 						log.Errorw("failed to fetch params", "error", err)
