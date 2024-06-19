@@ -38,14 +38,14 @@ import (
 	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
 	_ "github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
-	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/api/v1api"
+	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/cli/spcli/createminer"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
@@ -234,7 +234,7 @@ type MigrationData struct {
 	DB              *harmonydb.DB
 	HarmonyCfg      config.HarmonyDB
 	MinerID         address.Address
-	full            v1api.FullNode
+	full            api.Chain
 	cctx            *cli.Context
 	closers         []jsonrpc.ClientCloser
 	ctx             context.Context
@@ -310,7 +310,7 @@ func configToDB(d *MigrationData) {
 		d.say(notice, "could not get API info for FullNode: %w", err)
 		os.Exit(1)
 	}
-	token, err := d.full.AuthNew(context.Background(), api.AllPermissions)
+	token, err := d.full.AuthNew(context.Background(), lapi.AllPermissions)
 	if err != nil {
 		d.say(notice, "Error getting token: %s", err.Error())
 		os.Exit(1)
@@ -341,7 +341,7 @@ func configToDB(d *MigrationData) {
 }
 
 // bucket returns the power's 4 highest bits (rounded down).
-func bucket(power *api.MinerPower) uint64 {
+func bucket(power *lapi.MinerPower) uint64 {
 	rawQAP := power.TotalPower.QualityAdjPower.Uint64()
 	magnitude := lo.Max([]int{bits.Len64(rawQAP), 5})
 
@@ -795,7 +795,7 @@ func stepNewMinerConfig(d *MigrationData) {
 		os.Exit(1)
 	}
 
-	token, err := d.full.AuthNew(d.ctx, api.AllPermissions)
+	token, err := d.full.AuthNew(d.ctx, lapi.AllPermissions)
 	if err != nil {
 		d.say(notice, "Failed to verify the auth token from daemon node: %s", err.Error())
 		d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
