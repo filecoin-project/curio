@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 	"path"
 	"strings"
@@ -19,15 +20,17 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-statestore"
 
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/types/sector"
 
-	"github.com/filecoin-project/lotus/node/modules"
+	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/repo"
-	sealing "github.com/filecoin-project/lotus/storage/pipeline"
+	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 const (
@@ -35,6 +38,7 @@ const (
 )
 
 const FlagMinerRepoDeprecation = "storagerepo"
+const jWTSecretName = "auth-jwt-private"
 
 func SaveConfigToLayerMigrateSectors(minerRepoPath, chainApiInfo string, unmigSectorShouldFail func() bool) (minerAddress address.Address, err error) {
 	_, say := SetupLanguage()
@@ -136,7 +140,7 @@ func SaveConfigToLayerMigrateSectors(minerRepoPath, chainApiInfo string, unmigSe
 	if err != nil {
 		return minerAddress, xerrors.Errorf("keystore err: %w", err)
 	}
-	js, err := ks.Get(modules.JWTSecretName)
+	js, err := ks.Get(jWTSecretName)
 	if err != nil {
 		return minerAddress, xerrors.Errorf("error getting JWTSecretName: %w", err)
 	}
@@ -282,31 +286,97 @@ func coalescePtrs[A any](a, b *A) *A {
 	return b
 }
 
+const sectorStorePrefix = "/sectors"
+
 func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.Batching, db *harmonydb.DB, logMig func(int), unmigSectorShouldFail func() bool) error {
 	mid, err := address.IDFromAddress(maddr)
 	if err != nil {
 		return xerrors.Errorf("getting miner ID: %w", err)
 	}
 
-	sts := statestore.New(namespace.Wrap(mmeta, datastore.NewKey(sealing.SectorStorePrefix)))
+	sts := statestore.New(namespace.Wrap(mmeta, datastore.NewKey(sectorStorePrefix)))
 
-	var sectors []sealing.SectorInfo
+	// used for a cbor operation.
+	type SectorInfo struct {
+		State        sector.SectorState
+		SectorNumber abi.SectorNumber
+
+		SectorType abi.RegisteredSealProof
+
+		// Packing
+		CreationTime int64 // unix seconds
+		Pieces       []sector.SafeSectorPiece
+
+		// PreCommit1
+		TicketValue   abi.SealRandomness
+		TicketEpoch   abi.ChainEpoch
+		PreCommit1Out storiface.PreCommit1Out
+
+		PreCommit1Fails uint64
+
+		// PreCommit2
+		CommD *cid.Cid
+		CommR *cid.Cid // SectorKey
+		Proof []byte
+
+		PreCommitDeposit big.Int
+		PreCommitMessage *cid.Cid
+		PreCommitTipSet  types.TipSetKey
+
+		PreCommit2Fails uint64
+
+		// WaitSeed
+		SeedValue abi.InteractiveSealRandomness
+		SeedEpoch abi.ChainEpoch
+
+		// Committing
+		CommitMessage *cid.Cid
+		InvalidProofs uint64 // failed proof computations (doesn't validate with proof inputs; can't compute)
+
+		// CCUpdate
+		CCUpdate             bool
+		UpdateSealed         *cid.Cid
+		UpdateUnsealed       *cid.Cid
+		ReplicaUpdateProof   storiface.ReplicaUpdateProof
+		ReplicaUpdateMessage *cid.Cid
+
+		// Faults
+		FaultReportMsg *cid.Cid
+
+		// Termination
+		TerminateMessage *cid.Cid
+		TerminatedAt     abi.ChainEpoch
+
+		// Remote import
+		RemoteDataUnsealed        *storiface.SectorLocation
+		RemoteDataSealed          *storiface.SectorLocation
+		RemoteDataCache           *storiface.SectorLocation
+		RemoteCommit1Endpoint     string
+		RemoteCommit2Endpoint     string
+		RemoteSealingDoneEndpoint string
+		RemoteDataFinalized       bool
+
+		// Debug
+		LastErr string
+	}
+
+	var sectors []SectorInfo
 	if err := sts.List(&sectors); err != nil {
 		return xerrors.Errorf("getting sector list: %w", err)
 	}
 
 	logMig(len(sectors))
 
-	migratableState := func(state sealing.SectorState) bool {
+	migratableState := func(state sector.SectorState) bool {
 		switch state {
-		case sealing.Proving, sealing.Available, sealing.UpdateActivating, sealing.Removed:
+		case sector.Proving, sector.Available, sector.UpdateActivating, sector.Removed:
 			return true
 		default:
 			return false
 		}
 	}
 
-	unmigratable := map[sealing.SectorState]int{}
+	unmigratable := map[sector.SectorState]int{}
 
 	for _, sector := range sectors {
 		if !migratableState(sector.State) {
@@ -326,8 +396,8 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 		}
 	}
 
-	for _, sector := range sectors {
-		if !migratableState(sector.State) || sector.State == sealing.Removed {
+	for _, sectr := range sectors {
+		if !migratableState(sectr.State) || sectr.State == sector.Removed {
 			continue
 		}
 
@@ -343,29 +413,29 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
             cur_unsealed_cid = excluded.cur_unsealed_cid, msg_cid_precommit = excluded.msg_cid_precommit, msg_cid_commit = excluded.msg_cid_commit,
             msg_cid_update = excluded.msg_cid_update, seed_epoch = excluded.seed_epoch, seed_value = excluded.seed_value`,
 			mid,
-			sector.SectorNumber,
-			sector.SectorType,
-			sector.TicketEpoch,
-			sector.TicketValue,
-			cidPtrToStrptr(sector.CommR),
-			cidPtrToStrptr(sector.CommD),
-			cidPtrToStrptr(coalescePtrs(sector.UpdateSealed, sector.CommR)),
-			cidPtrToStrptr(coalescePtrs(sector.UpdateUnsealed, sector.CommD)),
-			cidPtrToStrptr(sector.PreCommitMessage),
-			cidPtrToStrptr(sector.CommitMessage),
-			cidPtrToStrptr(sector.ReplicaUpdateMessage),
-			sector.SeedEpoch,
-			sector.SeedValue,
+			sectr.SectorNumber,
+			sectr.SectorType,
+			sectr.TicketEpoch,
+			sectr.TicketValue,
+			cidPtrToStrptr(sectr.CommR),
+			cidPtrToStrptr(sectr.CommD),
+			cidPtrToStrptr(coalescePtrs(sectr.UpdateSealed, sectr.CommR)),
+			cidPtrToStrptr(coalescePtrs(sectr.UpdateUnsealed, sectr.CommD)),
+			cidPtrToStrptr(sectr.PreCommitMessage),
+			cidPtrToStrptr(sectr.CommitMessage),
+			cidPtrToStrptr(sectr.ReplicaUpdateMessage),
+			sectr.SeedEpoch,
+			sectr.SeedValue,
 		)
 		if err != nil {
-			b, _ := json.MarshalIndent(sector, "", "  ")
+			b, _ := json.MarshalIndent(sectr, "", "  ")
 			fmt.Println(string(b))
 
-			return xerrors.Errorf("inserting/updating sectors_meta for sector %d: %w", sector.SectorNumber, err)
+			return xerrors.Errorf("inserting/updating sectors_meta for sector %d: %w", sectr.SectorNumber, err)
 		}
 
 		// Process each piece within the sector
-		for j, piece := range sector.Pieces {
+		for j, piece := range sectr.Pieces {
 			dealID := int64(0)
 			startEpoch := int64(0)
 			endEpoch := int64(0)
@@ -383,7 +453,7 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 				if piece.Impl().PieceActivationManifest != nil {
 					pam, err := json.Marshal(piece.Impl().PieceActivationManifest)
 					if err != nil {
-						return xerrors.Errorf("error marshalling JSON for piece %d in sector %d: %w", j, sector.SectorNumber, err)
+						return xerrors.Errorf("error marshalling JSON for piece %d in sector %d: %w", j, sectr.SectorNumber, err)
 					}
 					ps := string(pam)
 					pamJSON = &ps
@@ -391,7 +461,7 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 				if piece.Impl().DealProposal != nil {
 					dealProposalJSON, err := json.Marshal(piece.Impl().DealProposal)
 					if err != nil {
-						return xerrors.Errorf("error marshalling deal proposal JSON for piece %d in sector %d: %w", j, sector.SectorNumber, err)
+						return xerrors.Errorf("error marshalling deal proposal JSON for piece %d in sector %d: %w", j, sectr.SectorNumber, err)
 					}
 					dp := string(dealProposalJSON)
 					dealProposalJSONStr = &dp
@@ -418,7 +488,7 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 						ddo_pam = excluded.ddo_pam,
 						f05_deal_proposal = excluded.f05_deal_proposal`,
 				mid,
-				sector.SectorNumber,
+				sectr.SectorNumber,
 				j,
 				piece.PieceCID(),
 				piece.Piece().Size,
@@ -431,10 +501,10 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 				dealProposalJSONStr,
 			)
 			if err != nil {
-				b, _ := json.MarshalIndent(sector, "", "  ")
+				b, _ := json.MarshalIndent(sectr, "", "  ")
 				fmt.Println(string(b))
 
-				return xerrors.Errorf("inserting/updating sector_meta_pieces for sector %d, piece %d: %w", sector.SectorNumber, j, err)
+				return xerrors.Errorf("inserting/updating sector_meta_pieces for sector %d, piece %d: %w", sectr.SectorNumber, j, err)
 			}
 		}
 	}

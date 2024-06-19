@@ -47,7 +47,7 @@ import (
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/v1api"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/cli/spcli"
+	"github.com/filecoin-project/lotus/cli/spcli/createminer"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/node/repo"
 )
@@ -732,7 +732,7 @@ minerInit:
 	}
 	ss := abi.SectorSize(sectorSize)
 
-	miner, err := spcli.CreateStorageMiner(d.ctx, d.full, d.owner, d.worker, d.sender, ss, CONFIDENCE)
+	miner, err := createminer.CreateStorageMiner(d.ctx, d.full, d.owner, d.worker, d.sender, ss, CONFIDENCE)
 	if err != nil {
 		d.say(notice, "Failed to create the miner actor: %s", err.Error())
 		os.Exit(1)

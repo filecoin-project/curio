@@ -10,6 +10,8 @@ import (
 
 	"github.com/filecoin-project/go-address"
 
+	"github.com/filecoin-project/curio/lib/reqcontext"
+
 	builtin2 "github.com/filecoin-project/lotus/chain/actors/builtin"
 	"github.com/filecoin-project/lotus/chain/types"
 	lcli "github.com/filecoin-project/lotus/cli"
@@ -52,7 +54,7 @@ func actorControlListCmd(getActor spcli.ActorAddressGetter) *cli.Command {
 			}
 			defer acloser()
 
-			ctx := lcli.ReqContext(cctx)
+			ctx := reqcontext.ReqContext(cctx)
 
 			maddr, err := getActor(cctx)
 			if err != nil {
