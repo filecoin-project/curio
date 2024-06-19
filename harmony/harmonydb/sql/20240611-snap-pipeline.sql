@@ -32,6 +32,8 @@ CREATE TABLE sectors_snap_pipeline (
     task_id_submit BIGINT,
     after_submit BOOLEAN NOT NULL DEFAULT FALSE,
 
+    after_prove_msg_success BOOLEAN NOT NULL DEFAULT FALSE,
+
     -- move storage
     task_id_move_storage BIGINT,
     after_move_storage BOOLEAN NOT NULL DEFAULT FALSE,

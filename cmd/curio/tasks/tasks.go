@@ -280,13 +280,13 @@ func addSealingTasks(
 	if hasAnySealingTask {
 		// Sealing nodes maintain storage index when bored
 		storageEndpointGcTask := gc.NewStorageEndpointGC(si, stor, db)
-		sdrPipelineGcTask := gc.NewSDRPipelineGC(db)
+		pipelineGcTask := gc.NewPipelineGC(db)
 		storageGcMarkTask := gc.NewStorageGCMark(si, stor, db, bstore, full)
 		storageGcSweepTask := gc.NewStorageGCSweep(db, stor, si)
 
 		sectorMetadataTask := metadata.NewSectorMetadataTask(db, bstore, full)
 
-		activeTasks = append(activeTasks, storageEndpointGcTask, sdrPipelineGcTask, storageGcMarkTask, storageGcSweepTask, sectorMetadataTask)
+		activeTasks = append(activeTasks, storageEndpointGcTask, pipelineGcTask, storageGcMarkTask, storageGcSweepTask, sectorMetadataTask)
 	}
 
 	return activeTasks, nil
