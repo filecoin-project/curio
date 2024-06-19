@@ -14,9 +14,9 @@ import (
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/cmd/curio/tasks"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/reqcontext"
 	"github.com/filecoin-project/curio/market/lmrpc"
 
-	lcli "github.com/filecoin-project/lotus/cli"
 	"github.com/filecoin-project/lotus/lib/ulimit"
 	"github.com/filecoin-project/lotus/metrics"
 	"github.com/filecoin-project/lotus/node"
@@ -99,7 +99,7 @@ var runCmd = &cli.Command{
 			log.Errorf("ensuring tempdir exists: %s", err)
 		}
 
-		ctx := lcli.DaemonContext(cctx)
+		ctx := reqcontext.ReqContext(cctx)
 		shutdownChan := make(chan struct{})
 		{
 			var ctxclose func()

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/mitchellh/go-homedir"
 	"github.com/urfave/cli/v2"
+	ufcli "github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
 	curiobuild "github.com/filecoin-project/curio/build"
@@ -20,10 +22,9 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
 	"github.com/filecoin-project/curio/lib/panicreport"
+	"github.com/filecoin-project/curio/lib/reqcontext"
 
 	proofparams "github.com/filecoin-project/lotus/build/proof-params"
-	lcli "github.com/filecoin-project/lotus/cli"
-	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/lib/lotuslog"
 	"github.com/filecoin-project/lotus/lib/tracing"
 	"github.com/filecoin-project/lotus/node/repo"
@@ -144,7 +145,10 @@ func main() {
 				EnvVars: []string{"CURIO_REPO_PATH"},
 				Value:   "~/.curio",
 			},
-			cliutil.FlagVeryVerbose,
+			&cli.BoolFlag{ // disconnected from cli/util for dependency reasons. Not used in curio that way.
+				Name:  "vv",
+				Usage: "enables very verbose mode, useful for debugging the CLI",
+			},
 		},
 		Commands: local,
 		After: func(c *cli.Context) error {
@@ -164,7 +168,7 @@ func main() {
 	}
 	app.Setup()
 	app.Metadata["repoType"] = repo.Curio
-	lcli.RunApp(app)
+	runApp(app)
 }
 
 var fetchParamCmd = &cli.Command{
@@ -180,11 +184,38 @@ var fetchParamCmd = &cli.Command{
 			return xerrors.Errorf("error parsing sector size (specify as \"32GiB\", for instance): %w", err)
 		}
 		sectorSize := uint64(sectorSizeInt)
-		err = fastparamfetch.GetParams(lcli.ReqContext(cctx), proofparams.ParametersJSON(), proofparams.SrsJSON(), sectorSize)
+		err = fastparamfetch.GetParams(reqcontext.ReqContext(cctx), proofparams.ParametersJSON(), proofparams.SrsJSON(), sectorSize)
 		if err != nil {
 			return xerrors.Errorf("fetching proof parameters: %w", err)
 		}
 
 		return nil
 	},
+}
+
+func runApp(app *ufcli.App) {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		<-c
+		os.Exit(1)
+	}()
+
+	if err := app.Run(os.Args); err != nil {
+		if os.Getenv("LOTUS_DEV") != "" {
+			log.Warnf("%+v", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "ERROR: %s\n\n", err) // nolint:errcheck
+		}
+
+		type PrintHelpErr struct {
+			Err error
+			Ctx *ufcli.Context
+		}
+		var phe *PrintHelpErr
+		if errors.As(err, &phe) {
+			_ = ufcli.ShowCommandHelp(phe.Ctx, phe.Ctx.Command.Name)
+		}
+		os.Exit(1)
+	}
 }

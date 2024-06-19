@@ -38,7 +38,7 @@ import (
 	"github.com/filecoin-project/lotus/api/v1api"
 	miner2 "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/cli/spcli"
+	"github.com/filecoin-project/lotus/cli/spcli/createminer"
 	"github.com/filecoin-project/lotus/itests/kit"
 	"github.com/filecoin-project/lotus/node"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
@@ -79,7 +79,7 @@ func TestCurioNewActor(t *testing.T) {
 	require.NotEmpty(t, titles)
 	require.NotContains(t, titles, "base")
 
-	maddr, err := spcli.CreateStorageMiner(ctx, full, addr, addr, addr, abi.SectorSize(sectorSizeInt), 0)
+	maddr, err := createminer.CreateStorageMiner(ctx, full, addr, addr, addr, abi.SectorSize(sectorSizeInt), 0)
 	require.NoError(t, err)
 
 	err = deps.CreateMinerConfig(ctx, full, db, []string{maddr.String()}, "FULL NODE API STRING")
@@ -153,7 +153,7 @@ func TestCurioHappyPath(t *testing.T) {
 	sectorSizeInt, err := units.RAMInBytes("2KiB")
 	require.NoError(t, err)
 
-	maddr, err := spcli.CreateStorageMiner(ctx, full, addr, addr, addr, abi.SectorSize(sectorSizeInt), 0)
+	maddr, err := createminer.CreateStorageMiner(ctx, full, addr, addr, addr, abi.SectorSize(sectorSizeInt), 0)
 	require.NoError(t, err)
 
 	err = deps.CreateMinerConfig(ctx, full, db, []string{maddr.String()}, fapi)
