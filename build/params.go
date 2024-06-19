@@ -2,12 +2,11 @@ package build
 
 import (
 	"github.com/filecoin-project/go-address"
-
-	lbuild "github.com/filecoin-project/lotus/build"
+	"github.com/filecoin-project/go-state-types/abi"
 )
 
 func SetAddressNetwork(n address.Network) {
 	address.CurrentNetwork = n
 }
 
-var BlockDelaySecs = lbuild.BlockDelaySecs
+const TicketRandomnessLookback = abi.ChainEpoch(1)

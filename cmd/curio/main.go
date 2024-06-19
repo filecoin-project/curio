@@ -19,8 +19,9 @@ import (
 	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
+	"github.com/filecoin-project/curio/lib/panicreport"
 
-	lbuild "github.com/filecoin-project/lotus/build"
+	proofparams "github.com/filecoin-project/lotus/build/proof-params"
 	lcli "github.com/filecoin-project/lotus/cli"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/lib/lotuslog"
@@ -155,7 +156,7 @@ func main() {
 				}
 
 				// Generate report in CURIO_PATH and re-raise panic
-				lbuild.GeneratePanicReport(c.String("panic-reports"), p, c.App.Name)
+				panicreport.GeneratePanicReport(c.String("panic-reports"), p, c.App.Name)
 				panic(r)
 			}
 			return nil
@@ -179,7 +180,7 @@ var fetchParamCmd = &cli.Command{
 			return xerrors.Errorf("error parsing sector size (specify as \"32GiB\", for instance): %w", err)
 		}
 		sectorSize := uint64(sectorSizeInt)
-		err = fastparamfetch.GetParams(lcli.ReqContext(cctx), lbuild.ParametersJSON(), lbuild.SrsJSON(), sectorSize)
+		err = fastparamfetch.GetParams(lcli.ReqContext(cctx), proofparams.ParametersJSON(), proofparams.SrsJSON(), sectorSize)
 		if err != nil {
 			return xerrors.Errorf("fetching proof parameters: %w", err)
 		}
