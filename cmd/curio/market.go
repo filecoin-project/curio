@@ -90,7 +90,7 @@ var marketSealCmd = &cli.Command{
 		&cli.BoolFlag{
 			Name:  "synthetic",
 			Usage: "Use synthetic PoRep",
-			Value: false, // todo implement synthetic
+			Value: false,
 		},
 	},
 	ArgsUsage: "<sector>",
@@ -116,7 +116,7 @@ var marketSealCmd = &cli.Command{
 		if err != nil {
 			return err
 		}
-
+		
 		return market.SealNow(ctx, dep.Chain, dep.DB, act, abi.SectorNumber(sector), cctx.Bool("synthetic"))
 	},
 }

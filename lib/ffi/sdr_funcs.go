@@ -31,6 +31,8 @@ import (
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
+const C1CheckNumber = 3
+
 var log = logging.Logger("cu/ffi")
 
 /*
@@ -695,22 +697,16 @@ func (sb *SealCalls) SyntheticProofs(ctx context.Context, task *harmonytask.Task
 	}
 
 	if err = ffi.ClearCache(uint64(ssize), fspaths.Cache); err != nil {
-		// Note: non-fatal error.
-		log.Warn("failed to GenerateSynthProofs(): ", err)
-		log.Warnf("num:%d tkt:%v, sealedCID:%v, unsealedCID:%v", sector.ID.Number, randomness, sealed, unsealed)
+		return xerrors.Errorf("failed to clear cache for synthetic proof of sector %d of miner %d", sector.ID.Miner, sector.ID.Number)
 	}
 
-	var sd [32]byte
-	_, _ = rand.Read(sd[:])
-
 	// Generate 3 random commits
-	for i := 0; i < 3; i++ {
+	for i := 0; i < C1CheckNumber; i++ {
+		var sd [32]byte
+		_, _ = rand.Read(sd[:])
 		_, err = ffi.SealCommitPhase1(sector.ProofType, sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, sd[:], pieces)
 		if err != nil {
-			log.Warn("checking PreCommit failed: ", err)
-			log.Warnf("num:%d tkt:%v seed:%v sealedCID:%v, unsealedCID:%v", sector.ID.Number, randomness, sd[:], sealed, unsealed)
-
-			return xerrors.Errorf("checking PreCommit for synthetic proofs failed: %w", err)
+			return xerrors.Errorf("checking PreCommit for synthetic proofs for num:%d tkt:%v seed:%v sealedCID:%v, unsealedCID:%v failed: %w", sector.ID.Number, randomness, sd[:], sealed, unsealed, err)
 		}
 	}
 
