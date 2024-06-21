@@ -18,6 +18,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/dline"
 
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -45,6 +46,7 @@ type AlertTask struct {
 	api AlertAPI
 	cfg config.CurioAlerting
 	db  *harmonydb.DB
+	al  *curioalerting.AlertingSystem
 }
 
 type alertOut struct {
@@ -80,11 +82,13 @@ var alertFuncs = []alertFunc{
 	wnPostCheck,
 }
 
-func NewAlertTask(api AlertAPI, db *harmonydb.DB, alertingCfg config.CurioAlerting) *AlertTask {
+func NewAlertTask(
+	api AlertAPI, db *harmonydb.DB, alertingCfg config.CurioAlerting, al *curioalerting.AlertingSystem) *AlertTask {
 	return &AlertTask{
 		api: api,
 		db:  db,
 		cfg: alertingCfg,
+		al:  al,
 	}
 }
 
@@ -121,6 +125,13 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			if v.alertString != "" {
 				details[k] = v.alertString
 			}
+		}
+	}
+	{
+		a.al.Lock()
+		defer a.al.Unlock()
+		for sys, meta := range a.al.Current {
+			details[sys.System+"_"+sys.Subsystem] = meta
 		}
 	}
 

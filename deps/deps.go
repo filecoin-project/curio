@@ -24,9 +24,11 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -37,9 +39,6 @@ import (
 	"github.com/filecoin-project/lotus/api/v1api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/journal"
-	"github.com/filecoin-project/lotus/journal/alerting"
-	"github.com/filecoin-project/lotus/journal/fsjournal"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	"github.com/filecoin-project/lotus/node/repo"
 	"github.com/filecoin-project/lotus/storage/sealer"
@@ -173,6 +172,7 @@ type Deps struct {
 	Maddrs     map[dtypes.MinerAddress]bool
 	ProofTypes map[abi.RegisteredSealProof]bool
 	Stor       *paths.Remote
+	Al         *curioalerting.AlertingSystem
 	Si         paths.SectorIndex
 	LocalStore *paths.Local
 	LocalPaths *paths.BasicLocalStorage
@@ -237,22 +237,12 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		}
 	}
 
-	if deps.Si == nil {
-		de, err := journal.ParseDisabledEvents(deps.Cfg.Journal.DisabledEvents)
-		if err != nil {
-			return err
-		}
-		j, err := fsjournal.OpenFSJournalPath(cctx.String("journal"), de)
-		if err != nil {
-			return err
-		}
-		go func() {
-			<-ctx.Done()
-			_ = j.Close()
-		}()
+	if deps.Al == nil {
+		deps.Al = curioalerting.NewAlertingSystem()
+	}
 
-		al := alerting.NewAlertingSystem(j)
-		deps.Si = paths.NewDBIndex(al, deps.DB)
+	if deps.Si == nil {
+		deps.Si = paths.NewDBIndex(deps.Al, deps.DB)
 	}
 
 	if deps.Chain == nil {
@@ -261,7 +251,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
 			cfgApiInfo = []string{v}
 		}
-		deps.Chain, fullCloser, err = getFullNodeAPIV1Curio(cctx, cfgApiInfo)
+		deps.Chain, fullCloser, err = GetFullNodeAPIV1Curio(cctx, cfgApiInfo)
 		if err != nil {
 			return err
 		}
@@ -431,20 +421,27 @@ func GetDefaultConfig(comment bool) (string, error) {
 	return string(cb), nil
 }
 
-func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
+func GetAPI(ctx context.Context, cctx *cli.Context) (*harmonydb.DB, *config.CurioConfig, api.Chain, jsonrpc.ClientCloser, error) {
 	db, err := MakeDB(cctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	layers := cctx.StringSlice("layers")
 
 	cfg, err := GetConfig(cctx.Context, layers, db)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, nil, err
 	}
 
-	full, fullCloser, err := getFullNodeAPIV1Curio(cctx, cfg.Apis.ChainApiInfo)
+	full, fullCloser, err := GetFullNodeAPIV1Curio(cctx, cfg.Apis.ChainApiInfo)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	return db, cfg, full, fullCloser, nil
+}
+func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
+	db, cfg, full, fullCloser, err := GetAPI(ctx, cctx)
 	if err != nil {
 		return nil, err
 	}

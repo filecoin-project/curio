@@ -16,24 +16,14 @@ import (
 
 	lapi "github.com/filecoin-project/lotus/api"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
+
 	"github.com/filecoin-project/lotus/lib/retry"
 )
 
-func getFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string, opts ...cliutil.GetFullNodeOption) (api.Chain, jsonrpc.ClientCloser, error) {
+func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, jsonrpc.ClientCloser, error) {
 	if tn, ok := ctx.App.Metadata["testnode-full"]; ok {
 		return tn.(api.Chain), func() {}, nil
 	}
-
-	var options cliutil.GetFullNodeOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
-
-	var rpcOpts []jsonrpc.Option
-	if options.EthSubHandler != nil {
-		rpcOpts = append(rpcOpts, jsonrpc.WithClientHandler("Filecoin", options.EthSubHandler), jsonrpc.WithClientHandlerAlias("eth_subscription", "Filecoin.EthSubscription"))
-	}
-
 	var httpHeads []httpHead
 	version := "v1"
 	{
@@ -58,7 +48,7 @@ func getFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string, opts ...cliutil.
 	var closers []jsonrpc.ClientCloser
 
 	for _, head := range httpHeads {
-		v1api, closer, err := newChainNodeRPCV1(ctx.Context, head.addr, head.header, rpcOpts...)
+		v1api, closer, err := newChainNodeRPCV1(ctx.Context, head.addr, head.header)
 		if err != nil {
 			log.Warnf("Not able to establish connection to node with addr: %s, Reason: %s", head.addr, err.Error())
 			continue

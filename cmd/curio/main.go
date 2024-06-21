@@ -25,6 +25,7 @@ import (
 	"github.com/filecoin-project/curio/lib/reqcontext"
 
 	proofparams "github.com/filecoin-project/lotus/build/proof-params"
+	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/lib/lotuslog"
 	"github.com/filecoin-project/lotus/lib/tracing"
 	"github.com/filecoin-project/lotus/node/repo"
@@ -99,6 +100,7 @@ func main() {
 		EnableBashCompletion: true,
 		Before: func(c *cli.Context) error {
 			setupCloseHandler()
+			cliutil.IsVeryVerbose = c.Bool("vv")
 			return nil
 		},
 		Flags: []cli.Flag{

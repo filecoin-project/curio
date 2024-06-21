@@ -175,7 +175,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		activeTasks = append(activeTasks, sealingTasks...)
 	}
 
-	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting)
+	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting, dependencies.Al)
 	activeTasks = append(activeTasks, amTask)
 
 	minerAddresses := make([]string, 0, len(maddrs))

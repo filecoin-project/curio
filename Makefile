@@ -37,9 +37,11 @@ CLEAN+=build/.update-modules
 deps: $(BUILD_DEPS)
 .PHONY: deps
 
+## ldflags -s -w strips binary
+
 curio: $(BUILD_DEPS)
 	rm -f curio
-	$(GOCC) build $(GOFLAGS) -o curio -ldflags " \
+	$(GOCC) build $(GOFLAGS) -o curio -ldflags " -s -w \
 	-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
 	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
 	./cmd/curio
