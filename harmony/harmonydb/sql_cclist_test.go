@@ -2,10 +2,11 @@ package harmonydb_test
 
 import (
 	"fmt"
-	"github.com/filecoin-project/go-commp-utils/zerocomm"
-	"github.com/filecoin-project/go-state-types/abi"
 	"strings"
 	"testing"
+
+	"github.com/filecoin-project/go-commp-utils/zerocomm"
+	"github.com/filecoin-project/go-state-types/abi"
 )
 
 func TestCCList(t *testing.T) {

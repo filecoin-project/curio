@@ -156,6 +156,21 @@ description: The default curio configuration
   # type: int
   #MoveStorageMaxTasks = 0
 
+  # type: bool
+  #EnableUpdateEncode = false
+
+  # type: bool
+  #EnableUpdateProve = false
+
+  # type: bool
+  #EnableUpdateSubmit = false
+
+  # type: int
+  #UpdateEncodeMaxTasks = 0
+
+  # type: int
+  #UpdateProveMaxTasks = 0
+
   # BoostAdapters is a list of tuples of miner address and port/ip to listen for market (e.g. boost) requests.
   # This interface is compatible with the lotus-miner RPC, implementing a subset needed for storage market operations.
   # Strings should be in the format "actor:ip:port". IP cannot be 0.0.0.0. We recommend using a private IP.

@@ -2,10 +2,9 @@ package snap
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/lib/passcall"
-	"github.com/ipfs/go-cid"
 	"time"
 
+	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
@@ -15,6 +14,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/tasks/seal"
 
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
@@ -140,7 +140,6 @@ func (e *EncodeTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (e *EncodeTask) Adder(taskFunc harmonytask.AddTaskFunc) {
-	return
 }
 
 func (e *EncodeTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {

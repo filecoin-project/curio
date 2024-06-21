@@ -2,16 +2,20 @@ package snap
 
 import (
 	"context"
+
+	"github.com/ipfs/go-cid"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/tasks/seal"
-	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
-	"github.com/ipfs/go-cid"
-	"golang.org/x/xerrors"
 )
 
 type ProveTask struct {
@@ -84,7 +88,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	proof, err := p.sc.ProveUpdate(ctx, abi.RegisteredUpdateProof(sectorParams.UpdateProof), sector, cidKey, cidSealed, cidUnsealed)
 	if err != nil {
-		return false, xerrors.Errorf("ffi update encode: %w", err)
+		return false, xerrors.Errorf("update encode: %w", err)
 	}
 
 	_, err = p.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET proof = $1, task_id_prove = NULL, after_prove = TRUE WHERE task_id_prove = $2`, proof, taskID)
@@ -146,7 +150,6 @@ func (p *ProveTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFu
 }
 
 func (p *ProveTask) Adder(taskFunc harmonytask.AddTaskFunc) {
-	return
 }
 
 var _ harmonytask.TaskInterface = &ProveTask{}

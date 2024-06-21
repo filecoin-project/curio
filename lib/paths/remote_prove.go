@@ -4,17 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/filecoin-project/curio/lib/tarutil"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
-	"github.com/hashicorp/go-multierror"
-	"github.com/ipfs/go-cid"
-	"golang.org/x/xerrors"
 	"io"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/hashicorp/go-multierror"
+	"github.com/ipfs/go-cid"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/tarutil"
+
+	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 // ReadMinCacheInto reads finalized-like (few MiB) cache files into the target dir

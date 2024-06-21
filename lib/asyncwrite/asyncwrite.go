@@ -2,8 +2,9 @@ package asyncwrite
 
 import (
 	"fmt"
-	pool "github.com/libp2p/go-buffer-pool"
 	"io"
+
+	pool "github.com/libp2p/go-buffer-pool"
 )
 
 type BackgroundWriter struct {

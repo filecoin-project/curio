@@ -2,17 +2,18 @@ package main
 
 import (
 	"fmt"
-	"github.com/filecoin-project/curio/market"
-	"github.com/filecoin-project/go-state-types/abi"
 	"sort"
 	"strconv"
 
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/market/lmrpc"
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/market"
+	"github.com/filecoin-project/curio/market/lmrpc"
 
 	lcli "github.com/filecoin-project/lotus/cli"
 )

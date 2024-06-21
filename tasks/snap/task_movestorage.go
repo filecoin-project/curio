@@ -2,7 +2,6 @@ package snap
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/lib/passcall"
 
 	"golang.org/x/xerrors"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/tasks/seal"
 
@@ -127,7 +127,6 @@ func (m *MoveStorageTask) schedule(ctx context.Context, taskFunc harmonytask.Add
 }
 
 func (m *MoveStorageTask) Adder(taskFunc harmonytask.AddTaskFunc) {
-	return
 }
 
 func (m *MoveStorageTask) taskToSector(id harmonytask.TaskID) (ffi.SectorRef, error) {
