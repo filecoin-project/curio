@@ -21,11 +21,12 @@ import (
 type ProveTask struct {
 	max int
 
-	sc *ffi.SealCalls
-	db *harmonydb.DB
+	sc          *ffi.SealCalls
+	db          *harmonydb.DB
+	paramsReady func() (bool, error)
 }
 
-func NewProveTask(sc *ffi.SealCalls, db *harmonydb.DB, max int) *ProveTask {
+func NewProveTask(sc *ffi.SealCalls, db *harmonydb.DB, paramck func() (bool, error), max int) *ProveTask {
 	return &ProveTask{
 		max: max,
 
@@ -88,7 +89,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	proof, err := p.sc.ProveUpdate(ctx, abi.RegisteredUpdateProof(sectorParams.UpdateProof), sector, cidKey, cidSealed, cidUnsealed)
 	if err != nil {
-		return false, xerrors.Errorf("update encode: %w", err)
+		return false, xerrors.Errorf("update prove: %w", err)
 	}
 
 	_, err = p.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET proof = $1, task_id_prove = NULL, after_prove = TRUE WHERE task_id_prove = $2`, proof, taskID)
@@ -100,6 +101,15 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 }
 
 func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+	rdy, err := p.paramsReady()
+	if err != nil {
+		return nil, xerrors.Errorf("failed to setup params: %w", err)
+	}
+	if !rdy {
+		log.Infow("PoRepTask.CanAccept() params not ready, not scheduling")
+		return nil, nil
+	}
+
 	id := ids[0]
 	return &id, nil
 }

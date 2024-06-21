@@ -268,7 +268,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, encodeTask)
 	}
 	if cfg.Subsystems.EnableUpdateProve {
-		proveTask := snap.NewProveTask(slr, db, cfg.Subsystems.UpdateProveMaxTasks)
+		proveTask := snap.NewProveTask(slr, db, asyncParams(), cfg.Subsystems.UpdateProveMaxTasks)
 		activeTasks = append(activeTasks, proveTask)
 	}
 	if cfg.Subsystems.EnableUpdateSubmit {

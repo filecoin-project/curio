@@ -121,13 +121,14 @@ func (l *storageProvider) AcquireSector(ctx context.Context, taskID *harmonytask
 	return sectorPaths, storageIDs, func(dontDeclace ...storiface.SectorFileType) {
 		releaseStorage()
 
+	nextType:
 		for _, fileType := range storiface.PathTypes {
 			if fileType&allocate == 0 {
 				continue
 			}
 			for _, dont := range dontDeclace {
 				if fileType&dont != 0 {
-					return
+					continue nextType
 				}
 			}
 
