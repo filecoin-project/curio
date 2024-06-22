@@ -202,7 +202,7 @@ func (w *WdPostRecoverDeclareTask) Do(taskID harmonytask.TaskID, stillOwned func
 	return true, nil
 }
 
-func (w *WdPostRecoverDeclareTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (w *WdPostRecoverDeclareTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	if len(ids) == 0 {
 		// probably can't happen, but panicking is bad
 		return nil, nil
@@ -321,4 +321,4 @@ func (w *WdPostRecoverDeclareTask) addTaskToDB(taskId harmonytask.TaskID, taskId
 	return true, nil
 }
 
-var _ harmonytask.TaskInterface = &WdPostRecoverDeclareTask{}
+var _ harmonytask.FastTask = &WdPostRecoverDeclareTask{}

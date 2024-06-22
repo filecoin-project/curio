@@ -33,7 +33,7 @@ func (s *SDRPipelineGC) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	return true, nil
 }
 
-func (s *SDRPipelineGC) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (s *SDRPipelineGC) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	id := ids[0]
 	return &id, nil
 }
@@ -103,4 +103,4 @@ func (s *SDRPipelineGC) cleanupSealed() error {
 	return nil
 }
 
-var _ harmonytask.TaskInterface = &SDRPipelineGC{}
+var _ harmonytask.FastTask = &SDRPipelineGC{}

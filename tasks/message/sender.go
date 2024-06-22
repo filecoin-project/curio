@@ -220,7 +220,7 @@ func (s *SendTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	return true, nil
 }
 
-func (s *SendTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (s *SendTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	if len(ids) == 0 {
 		// probably can't happen, but panicking is bad
 		return nil, nil
@@ -252,7 +252,7 @@ func (s *SendTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	s.sendTF.Set(taskFunc)
 }
 
-var _ harmonytask.TaskInterface = &SendTask{}
+var _ harmonytask.FastTask = &SendTask{}
 
 // NewSender creates a new Sender.
 func NewSender(api SenderAPI, signer SignerAPI, db *harmonydb.DB) (*Sender, *SendTask) {

@@ -99,7 +99,7 @@ func (t *TreeRCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	return true, nil
 }
 
-func (t *TreeRCTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (t *TreeRCTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	var tasks []struct {
 		TaskID       harmonytask.TaskID `db:"task_id_tree_c"`
 		SpID         int64              `db:"sp_id"`
@@ -198,4 +198,4 @@ func (t *TreeRCTask) taskToSector(id harmonytask.TaskID) (ffi2.SectorRef, error)
 	return refs[0], nil
 }
 
-var _ harmonytask.TaskInterface = &TreeRCTask{}
+var _ harmonytask.FastTask = &TreeRCTask{}

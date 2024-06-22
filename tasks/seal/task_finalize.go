@@ -83,7 +83,7 @@ func (f *FinalizeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	return true, nil
 }
 
-func (f *FinalizeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (f *FinalizeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	var tasks []struct {
 		TaskID       harmonytask.TaskID `db:"task_id_finalize"`
 		SpID         int64              `db:"sp_id"`
@@ -154,4 +154,4 @@ func (f *FinalizeTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	f.sp.pollers[pollerFinalize].Set(taskFunc)
 }
 
-var _ harmonytask.TaskInterface = &FinalizeTask{}
+var _ harmonytask.FastTask = &FinalizeTask{}

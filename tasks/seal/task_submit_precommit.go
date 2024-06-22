@@ -273,7 +273,7 @@ func (s *SubmitPrecommitTask) checkPrecommit(ctx context.Context, params miner.P
 	return true, nil
 }
 
-func (s *SubmitPrecommitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (s *SubmitPrecommitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	id := ids[0]
 	return &id, nil
 }
@@ -295,4 +295,4 @@ func (s *SubmitPrecommitTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	s.sp.pollers[pollerPrecommitMsg].Set(taskFunc)
 }
 
-var _ harmonytask.TaskInterface = &SubmitPrecommitTask{}
+var _ harmonytask.FastTask = &SubmitPrecommitTask{}

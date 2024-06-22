@@ -21,6 +21,7 @@ type taskTypeHandler struct {
 	TaskTypeDetails
 	TaskEngine *TaskEngine
 	Count      atomic.Int32
+	Bid        bool
 }
 
 func (h *taskTypeHandler) AddTask(extra func(TaskID, *harmonydb.Tx) (bool, error)) {
@@ -64,7 +65,6 @@ const (
 // but those should not considerWork. Work completing may lower the resource numbers
 // unexpectedly, but that will not invalidate work being already able to fit.
 func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted bool) {
-top:
 	if len(ids) == 0 {
 		return true // stop looking for takers
 	}
@@ -85,14 +85,23 @@ top:
 		return false
 	}
 
-	h.TaskEngine.WorkOrigin = from
+	return h.canAcceptPart(from, ids)
+}
+func (h *taskTypeHandler) canAcceptPart(from string, ids []TaskID) (workAccepted bool) {
+	sch := &SchedulingInfo{h.TaskEngine, from}
 
 	// 3. What does the impl say?
-canAcceptAgain:
-	tID, err := h.CanAccept(ids, h.TaskEngine)
-
-	h.TaskEngine.WorkOrigin = ""
-
+	if h.Bid {
+		// first, accept everything we outbid people on. Then add bids
+		tb, err := h.TaskInterface.(BidTask).CanAccept(ids, sch)
+		if err != nil {
+			log.Error(err)
+			return false
+		}
+		_ = tb
+		panic("NOT IMPLEMENTED. Call BidLogic")
+	}
+	tID, err := h.TaskInterface.(FastTask).CanAccept(ids, sch)
 	if err != nil {
 		log.Error(err)
 		return false
@@ -101,7 +110,10 @@ canAcceptAgain:
 		log.Infow("did not accept task", "task_id", ids[0], "reason", "CanAccept() refused", "name", h.Name)
 		return false
 	}
+	return h.startTask(from, tID, ids)
+}
 
+func (h *taskTypeHandler) startTask(from string, tID *TaskID, ids []TaskID) bool {
 	releaseStorage := func() {
 	}
 	if h.TaskTypeDetails.Cost.Storage != nil {
@@ -117,7 +129,7 @@ canAcceptAgain:
 					}
 				}
 				ids = tryAgain
-				goto canAcceptAgain
+				return h.canAcceptPart(from, ids)
 			}
 
 			return false
@@ -150,7 +162,7 @@ canAcceptAgain:
 				}
 			}
 			ids = tryAgain
-			goto top
+			return h.considerWork(from, ids)
 		}
 	}
 

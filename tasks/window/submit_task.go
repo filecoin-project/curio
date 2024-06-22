@@ -167,7 +167,7 @@ func (w *WdPostSubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	return true, nil
 }
 
-func (w *WdPostSubmitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (w *WdPostSubmitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	if len(ids) == 0 {
 		// probably can't happen, but panicking is bad
 		return nil, nil
@@ -304,4 +304,4 @@ func preparePoStMessage(w MsgPrepAPI, as *multictladdr.MultiAddressSelector, mad
 	return msg, mss, nil
 }
 
-var _ harmonytask.TaskInterface = &WdPostSubmitTask{}
+var _ harmonytask.FastTask = &WdPostSubmitTask{}

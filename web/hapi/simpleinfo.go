@@ -434,7 +434,7 @@ func (a *app) sectorInfo(w http.ResponseWriter, r *http.Request) {
 				Name        string    `db:"name"`
 				UpdateTime  time.Time `db:"update_time"`
 			}
-			err = a.db.Select(ctx, &dbtasks, `SELECT t.owner_id, hm.host_and_port, t.id, t.name, t.update_time FROM harmony_task t LEFT JOIN curio.harmony_machines hm ON hm.id = t.owner_id WHERE t.id = ANY($1)`, ids)
+			err = a.db.Select(ctx, &dbtasks, `SELECT t.owner_id, hm.host_and_port, t.id, t.name, t.update_time FROM harmony_task t LEFT JOIN harmony_machines hm ON hm.id = t.owner_id WHERE t.id = ANY($1)`, ids)
 			if err != nil {
 				http.Error(w, fmt.Sprintf("failed to fetch task names: %v", err), http.StatusInternalServerError)
 				return
@@ -806,7 +806,7 @@ func (a *app) clusterMachineSummary(ctx context.Context) ([]machineSummary, erro
 }
 
 func (a *app) clusterTaskSummary(ctx context.Context) ([]taskSummary, error) {
-	rows, err := a.db.Query(ctx, "SELECT t.id, t.name, t.update_time, t.owner_id, hm.host_and_port FROM harmony_task t LEFT JOIN curio.harmony_machines hm ON hm.id = t.owner_id ORDER BY t.update_time ASC, t.owner_id")
+	rows, err := a.db.Query(ctx, "SELECT t.id, t.name, t.update_time, t.owner_id, hm.host_and_port FROM harmony_task t LEFT JOIN harmony_machines hm ON hm.id = t.owner_id ORDER BY t.update_time ASC, t.owner_id")
 	if err != nil {
 		return nil, err // Handle error
 	}

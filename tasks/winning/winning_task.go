@@ -473,7 +473,7 @@ func (t *WinPostTask) generateWinningPost(
 
 }
 
-func (t *WinPostTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (t *WinPostTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	rdy, err := t.paramsReady()
 	if err != nil {
 		return nil, xerrors.Errorf("failed to setup params: %w", err)
@@ -734,4 +734,4 @@ func retry1[R any](f func() (R, error)) R {
 	}
 }
 
-var _ harmonytask.TaskInterface = &WinPostTask{}
+var _ harmonytask.FastTask = &WinPostTask{}
