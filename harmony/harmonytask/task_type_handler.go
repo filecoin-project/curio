@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"sort"
 	"strconv"
 	"sync/atomic"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
@@ -64,9 +66,9 @@ const (
 // The only caller should be the one work poller thread. This does spin off other threads,
 // but those should not considerWork. Work completing may lower the resource numbers
 // unexpectedly, but that will not invalidate work being already able to fit.
-func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted bool) {
+func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted, liveBids bool) {
 	if len(ids) == 0 {
-		return true // stop looking for takers
+		return true, false // stop looking for takers
 	}
 
 	// 1. Can we do any more of this task type?
@@ -74,7 +76,7 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 	// this setting unless they want to limit the number of tasks of this type.
 	if h.Max > 0 && int(h.Count.Load()) >= h.Max {
 		log.Debugw("did not accept task", "name", h.Name, "reason", "at max already")
-		return false
+		return false, false
 	}
 
 	// 2. Can we do any more work? From here onward, we presume the resource
@@ -82,37 +84,132 @@ func (h *taskTypeHandler) considerWork(from string, ids []TaskID) (workAccepted 
 	err := h.AssertMachineHasCapacity()
 	if err != nil {
 		log.Debugw("did not accept task", "name", h.Name, "reason", "at capacity already: "+err.Error())
-		return false
+		return false, false
 	}
 
 	return h.canAcceptPart(from, ids)
 }
-func (h *taskTypeHandler) canAcceptPart(from string, ids []TaskID) (workAccepted bool) {
+func (h *taskTypeHandler) canAcceptPart(from string, ids []TaskID) (workAccepted, liveBids bool) {
 	sch := &SchedulingInfo{h.TaskEngine, from}
 
-	// 3. What does the impl say?
+	// 3. Bid?
 	if h.Bid {
-		// first, accept everything we outbid people on. Then add bids
-		tb, err := h.TaskInterface.(BidTask).CanAccept(ids, sch)
-		if err != nil {
-			log.Error(err)
-			return false
-		}
-		_ = tb
-		panic("NOT IMPLEMENTED. Call BidLogic")
+		return h.BidLogic(from, ids, sch)
 	}
+
+	// 3b. Or run directly?
 	tID, err := h.TaskInterface.(FastTask).CanAccept(ids, sch)
 	if err != nil {
 		log.Error(err)
-		return false
+		return false, false
 	}
 	if tID == nil {
 		log.Infow("did not accept task", "task_id", ids[0], "reason", "CanAccept() refused", "name", h.Name)
-		return false
+		return false, false
 	}
-	return h.startTask(from, tID, ids)
+	return h.startTask(from, tID, ids), false
 }
 
+func (h *taskTypeHandler) GetUnownedTasks() (ids []TaskID, err error) {
+	var numBidders int
+	err = h.TaskEngine.db.QueryRow(h.TaskEngine.ctx, `SELECT COUNT(*) FROM harmony_machine_details WHERE tasks LIKE $1`, "%,"+h.TaskTypeDetails.Name+",%").Scan(&numBidders)
+	if err != nil {
+		log.Error("Unable to read harmony_machine_details ", err)
+		return nil, err
+	}
+	var unownedTasks []TaskID
+	err = h.TaskEngine.db.Select(h.TaskEngine.ctx, &unownedTasks, `SELECT id
+		FROM harmony_task
+		WHERE owner_id IS NULL AND name=$1
+		ORDER BY creation_time ASC
+		LIMIT $2`, h.TaskTypeDetails.Name, numBidders)
+	return unownedTasks, err
+}
+
+// BidLogic is called to attempt to start work on a task-id of this task type.
+// It presumes single-threaded calling, so there should not be a multi-threaded re-entry.
+// The only caller should be the one work poller thread.
+func (h *taskTypeHandler) BidLogic(from string, ids []TaskID, sch *SchedulingInfo) (workAccepted, liveBids bool) {
+	// Accept Phase: accept everything we outbid people on.
+
+	// Delete any "dead" bids
+	_, err := h.TaskEngine.db.Exec(context.Background(),
+		`DELETE FROM harmony_task_bid WHERE task_id in ($1) AND update_time < NOW() - (INTERVAL $2 seconds)`,
+		ids, POLL_DURATION.Seconds()*3)
+	if err != nil {
+		log.Error(xerrors.Errorf("could not delete dead bids: %w", err))
+		return false, false
+	}
+
+	// Collect our winnings
+	var res []int
+	err = h.TaskEngine.db.Select(context.Background(), &res,
+		`SELECT t.task_id as task_id FROM 
+		(SELECT task_id, MAX(bid) as max_bid FROM harmony_task_bid WHERE task_id in ($1) GROUP BY task_id) m
+		JOIN harmony_task_bid t ON m.task_id=t.task_id AND t.bid=m.max_bid
+	WHERE t.bidder = $2
+	ORDER BY max_bid DESC`, ids, h.TaskEngine.ownerID)
+	if err != nil {
+		log.Error(xerrors.Errorf("could not select bids: %w", err))
+		return false, false
+	}
+	var success bool
+	for i, r := range res {
+		err := h.AssertMachineHasCapacity()
+		if err != nil {
+			log.Debugw("did not accept task", "name", h.Name, "reason", "at capacity already: "+err.Error())
+			// we can't accept any more tasks, so we should stop trying to bid on them
+			_, err := h.TaskEngine.db.Exec(context.Background(), `UPDATE harmony_task_bid SET bid=0 WHERE task_id in ($1)`, res[i:])
+			if err != nil {
+				log.Error(xerrors.Errorf("could not update bid: %w", err))
+			}
+			return success, false
+		}
+		success = h.startTask(from, (*TaskID)(&r), ids)
+	}
+
+	// Bid Phase: Place our bids IF we need the work.
+	if success { // we removed one+ from the list, so lets get a full list.
+		ids, err = h.GetUnownedTasks()
+		if err != nil {
+			log.Error(xerrors.Errorf("could not get unowned tasks: %w", err))
+			return success, false
+		}
+	}
+	// Get our bids.
+	tb, err := h.TaskInterface.(BidTask).CanAccept(ids, sch)
+	if err != nil {
+		log.Error(xerrors.Errorf("could not bid: %w", err))
+		return success, false
+	}
+	sort.Slice(tb, func(i, j int) bool {
+		return tb[i].Bid > tb[j].Bid
+	})
+	// Bid up to our multiple of capacity.
+	multiple := h.GetMultipleOfCapacity()
+	if len(tb) < multiple {
+		// We can't bid on all of them, so lets just bid on the best few.
+		tb = tb[:multiple]
+	}
+	if len(tb) > 0 {
+		liveBids = true
+	}
+	// Keep our bids current (even if we bid last time too).
+	for _, t := range tb {
+		// Claim our bid, even if 2nd best
+		_, err := h.TaskEngine.db.Exec(context.Background(),
+			`INSERT INTO harmony_task_bid (task_id, bidder, bid, update_time) VALUES ($1, $2, $3, NOW())`,
+			t.TaskID, h.TaskEngine.ownerID, t.Bid)
+		if err != nil {
+			log.Error(xerrors.Errorf("could not update bid: %w", err))
+			return success, liveBids
+		}
+	}
+	return success, liveBids
+}
+
+// startTask is called to start 1 work task on a task-id of this task type.
+// returns true if the task was started, false if it was not.
 func (h *taskTypeHandler) startTask(from string, tID *TaskID, ids []TaskID) bool {
 	releaseStorage := func() {
 	}
@@ -129,7 +226,8 @@ func (h *taskTypeHandler) startTask(from string, tID *TaskID, ids []TaskID) bool
 					}
 				}
 				ids = tryAgain
-				return h.canAcceptPart(from, ids)
+				b, _ := h.canAcceptPart(from, ids)
+				return b
 			}
 
 			return false
@@ -162,7 +260,8 @@ func (h *taskTypeHandler) startTask(from string, tID *TaskID, ids []TaskID) bool
 				}
 			}
 			ids = tryAgain
-			return h.considerWork(from, ids)
+			b, _ := h.considerWork(from, ids)
+			return b
 		}
 	}
 
@@ -284,6 +383,16 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, tID, h.Name, postedTime.UTC(), workSta
 	if !cm {
 		log.Error("Committing the task records failed")
 	}
+}
+
+func (h *taskTypeHandler) GetMultipleOfCapacity() int {
+	r := h.TaskEngine.ResourcesAvailable()
+	cpuMultiple := r.Cpu / h.Cost.Cpu
+	ramMultiple := int(r.Ram / h.Cost.Ram)
+	gpuMultiple := int(r.Gpu / h.Cost.Gpu)
+	// Nah, storage is hard.
+	//storageMultiple := h.TaskTypeDetails.Cost.Storage.GetMultipleOfCapacity()
+	return min(cpuMultiple, ramMultiple, gpuMultiple)
 }
 
 func (h *taskTypeHandler) AssertMachineHasCapacity() error {

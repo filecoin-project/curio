@@ -342,34 +342,28 @@ func (e *TaskEngine) pollerTryAllWork() bool {
 		resources.CleanupMachines(e.ctx, e.db)
 	}
 
+	liveBids := false
 	for _, v := range e.handlers {
 		if err := v.AssertMachineHasCapacity(); err != nil {
 			log.Debugf("skipped scheduling %s type tasks on due to %s", v.Name, err.Error())
 			continue
 		}
-		var numBidders int
-		err := e.db.QueryRow(e.ctx, `SELECT COUNT(*) FROM harmony_machine_details WHERE tasks LIKE $1`, "%,"+v.Name+",%").Scan(&numBidders)
-		if err != nil {
-			log.Error("Unable to read harmony_machine_details ", err)
-			continue
-		}
-		var unownedTasks []TaskID
-		err = e.db.Select(e.ctx, &unownedTasks, `SELECT id
-			FROM harmony_task
-			WHERE owner_id IS NULL AND name=$1
-			ORDER BY creation_time ASC
-			LIMIT $2`, v.Name, numBidders)
+		unownedTasks, err := v.GetUnownedTasks()
 		if err != nil {
 			log.Error("Unable to read work ", err)
 			continue
 		}
 		if len(unownedTasks) > 0 {
-			accepted := v.considerWork(WorkSourcePoller, unownedTasks)
+			accepted, bidded := v.considerWork(WorkSourcePoller, unownedTasks)
 			if accepted {
 				return true // accept new work slowly and in priority order
 			}
+			liveBids |= bidded
 			log.Warn("Work not accepted for " + strconv.Itoa(len(unownedTasks)) + " " + v.Name + " task(s)")
 		}
+	}
+	if liveBids { // if we put out bids, we are NOT bored.
+		return false
 	}
 	// if no work was accepted, are we bored? Then find work in priority order.
 	for _, v := range e.handlers {
