@@ -160,6 +160,8 @@ type CurioChainRPCMethods struct {
 
 	SyncSubmitBlock func(p0 context.Context, p1 *types.BlockMsg) error ``
 
+	Version func(p0 context.Context) (api.APIVersion, error) ``
+
 	WalletBalance func(p0 context.Context, p1 address.Address) (big.Int, error) ``
 
 	WalletHas func(p0 context.Context, p1 address.Address) (bool, error) ``
@@ -797,6 +799,17 @@ func (s *CurioChainRPCStruct) SyncSubmitBlock(p0 context.Context, p1 *types.Bloc
 
 func (s *CurioChainRPCStub) SyncSubmitBlock(p0 context.Context, p1 *types.BlockMsg) error {
 	return ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) Version(p0 context.Context) (api.APIVersion, error) {
+	if s.Internal.Version == nil {
+		return *new(api.APIVersion), ErrNotSupported
+	}
+	return s.Internal.Version(p0)
+}
+
+func (s *CurioChainRPCStub) Version(p0 context.Context) (api.APIVersion, error) {
+	return *new(api.APIVersion), ErrNotSupported
 }
 
 func (s *CurioChainRPCStruct) WalletBalance(p0 context.Context, p1 address.Address) (big.Int, error) {

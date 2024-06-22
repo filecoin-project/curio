@@ -22,6 +22,7 @@ import (
 
 // CurioChainRPC is a subset of the Filecoin API that is supported by Forest.
 type CurioChainRPC interface {
+	Version(p0 context.Context) (api.APIVersion, error)
 	ChainHead(context.Context) (*types.TipSet, error)
 	ChainNotify(context.Context) (<-chan []*api.HeadChange, error)
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
