@@ -2,7 +2,7 @@ package supraffi
 
 /*
    #cgo CFLAGS: -I${SRCDIR}/../../extern/supra_seal/sealing
-   #cgo LDFLAGS: -L/path/to/lib -lsupraseal
+   #cgo LDFLAGS: -L${SRCDIR}/../../extern/supra_seal/obj -lsupraseal
    #include "supra_seal.h"
    #include <stdlib.h>
 */
