@@ -204,7 +204,13 @@ func New(
 		for _, w := range taskRet {
 			// edge-case: if old assignments are not available tasks, unlock them.
 			h := e.taskMap[w.Name]
-			if h == nil || !h.considerWork(WorkSourceRecover, []TaskID{TaskID(w.ID)}) {
+			shouldZero := h == nil
+			if h != nil {
+				if w, _ := h.considerWork(WorkSourceRecover, []TaskID{TaskID(w.ID)}); !w {
+					shouldZero = true
+				}
+			}
+			if shouldZero {
 				_, err := db.Exec(e.ctx, `UPDATE harmony_task SET owner_id=NULL WHERE id=$1`, w.ID)
 				if err != nil {
 					log.Errorw("Cannot remove self from owner field", "error", err)
@@ -358,7 +364,7 @@ func (e *TaskEngine) pollerTryAllWork() bool {
 			if accepted {
 				return true // accept new work slowly and in priority order
 			}
-			liveBids |= bidded
+			liveBids = liveBids || bidded
 			log.Warn("Work not accepted for " + strconv.Itoa(len(unownedTasks)) + " " + v.Name + " task(s)")
 		}
 	}
