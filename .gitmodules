@@ -1,3 +1,6 @@
 [submodule "extern/filecoin-ffi"]
 	path = extern/filecoin-ffi
 	url = https://github.com/filecoin-project/filecoin-ffi.git
+[submodule "extern/supra_seal"]
+	path = extern/supra_seal
+	url = https://github.com/supranational/supra_seal.git
