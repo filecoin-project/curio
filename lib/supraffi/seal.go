@@ -2,7 +2,9 @@ package supraffi
 
 /*
    #cgo CFLAGS: -I${SRCDIR}/../../extern/supra_seal/sealing
-   #cgo LDFLAGS: -L${SRCDIR}/../../extern/supra_seal/obj -lsupraseal
+   #cgo LDFLAGS: -Wl,-z,noexecstack -Wl,--no-as-needed -lstdc++ -L${SRCDIR}/../../extern/supra_seal/obj -L${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/build/lib -L${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/isa-l/.libs -lsupraseal -lspdk_bdev_malloc -lspdk_bdev_null -lspdk_bdev_nvme -lspdk_bdev_passthru -lspdk_bdev_lvol -lspdk_bdev_raid -lspdk_bdev_error -lspdk_bdev_gpt -lspdk_bdev_split -lspdk_bdev_delay -lspdk_bdev_zone_block -lspdk_blobfs_bdev -lspdk_blobfs -lspdk_blob_bdev -lspdk_lvol -lspdk_blob -lspdk_nvme -lspdk_bdev_ftl -lspdk_ftl -lspdk_bdev_aio -lspdk_bdev_virtio -lspdk_virtio -lspdk_vfio_user -lspdk_accel_ioat -lspdk_ioat -lspdk_scheduler_dynamic -lspdk_env_dpdk -lspdk_scheduler_dpdk_governor -lspdk_scheduler_gscheduler -lspdk_sock_posix -lspdk_event -lspdk_event_bdev -lspdk_bdev -lspdk_notify -lspdk_dma -lspdk_event_accel -lspdk_accel -lspdk_event_vmd -lspdk_vmd -lspdk_event_sock -lspdk_init -lspdk_thread -lspdk_trace -lspdk_sock -lspdk_rpc -lspdk_jsonrpc -lspdk_json -lspdk_util -lspdk_log ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/build/lib/libspdk_env_dpdk.a ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_bus_pci.a ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_cryptodev.a ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_dmadev.a ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_eal.a ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_ethdev.a ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_hash.a ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_kvargs.a ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_mbuf.a ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_mempool.a ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_mempool_ring.a ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_net.a ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_pci.a ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_power.a ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_rcu.a ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_ring.a ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_telemetry.a ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_vhost.a -lnuma -lisal -pthread -ldl -lrt -luuid -lssl -lcrypto -lm -laio -lcudart_static -L${SRCDIR}/../../extern/supra_seal/deps/blst -lblst -lconfig++ -lgmp
+   #include <stdint.h>
+   #include <stdbool.h>
    #include "supra_seal.h"
    #include <stdlib.h>
 */
@@ -11,8 +13,113 @@ import (
 	"unsafe"
 )
 
+/*
+root = {SRCDIR}/../../extern/supra_seal/
+
++ c++ -Ideps/spdk-v22.09/include -Ideps/spdk-v22.09/isa-l/.. -Ideps/spdk-v22.09/dpdk/build/include
+-g -O2 -march=native -fPIC -fno-omit-frame-pointer -fno-strict-aliasing -fstack-protector -fno-common
+-D_GNU_SOURCE -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2
+-DSPDK_GIT_COMMIT=4be6d3043
+-pthread -Wall -Wextra -Wno-unused-variable -Wno-unused-parameter -Wno-missing-field-initializers -Wformat -Wformat-security
+-Ideps/spdk-v22.09/include -Ideps/spdk-v22.09/isa-l/.. -Ideps/spdk-v22.09/dpdk/build/include
+-Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -c sealing/supra_seal.cpp -o obj/supra_seal.o -Wno-subobject-linkage
+
+---
+
+-#cgo LDFLAGS:
+-Wl,-z,noexecstack
+-Wl,--no-as-needed
+-lstdc++
+-L${SRCDIR}/../../extern/supra_seal/obj
+-L${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/build/lib
+-L${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/isa-l/.libs
+-lsupraseal
+-lspdk_bdev_malloc
+-lspdk_bdev_null
+-lspdk_bdev_nvme
+-lspdk_bdev_passthru
+-lspdk_bdev_lvol
+-lspdk_bdev_raid
+-lspdk_bdev_error
+-lspdk_bdev_gpt
+-lspdk_bdev_split
+-lspdk_bdev_delay
+-lspdk_bdev_zone_block
+-lspdk_blobfs_bdev
+-lspdk_blobfs
+-lspdk_blob_bdev
+-lspdk_lvol
+-lspdk_blob
+-lspdk_nvme
+-lspdk_bdev_ftl
+-lspdk_ftl
+-lspdk_bdev_aio
+-lspdk_bdev_virtio
+-lspdk_virtio
+-lspdk_vfio_user
+-lspdk_accel_ioat
+-lspdk_ioat
+-lspdk_scheduler_dynamic
+-lspdk_env_dpdk
+-lspdk_scheduler_dpdk_governor
+-lspdk_scheduler_gscheduler
+-lspdk_sock_posix
+-lspdk_event
+-lspdk_event_bdev
+-lspdk_bdev
+-lspdk_notify
+-lspdk_dma
+-lspdk_event_accel
+-lspdk_accel
+-lspdk_event_vmd
+-lspdk_vmd
+-lspdk_event_sock
+-lspdk_init
+-lspdk_thread
+-lspdk_trace
+-lspdk_sock
+-lspdk_rpc
+-lspdk_jsonrpc
+-lspdk_json
+-lspdk_util
+-lspdk_log
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/build/lib/libspdk_env_dpdk.a
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_bus_pci.a
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_cryptodev.a
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_dmadev.a
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_eal.a
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_ethdev.a
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_hash.a
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_kvargs.a
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_mbuf.a
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_mempool.a
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_mempool_ring.a
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_net.a
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_pci.a
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_power.a
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_rcu.a
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_ring.a
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_telemetry.a
+${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_vhost.a
+-lnuma
+-lisal
+-pthread
+-ldl
+-lrt
+-luuid
+-lssl
+-lcrypto
+-lm
+-laio
+-lcudart_static
+-L${SRCDIR}/../../extern/supra_seal/deps/blst -lblst
+-lconfig++
+-lgmp
+
+*/
+
 // SupraSealInit initializes the supra seal with a sector size and optional config file.
-func SupraSealInit(sectorSize int, configFile string) {
+func SupraSealInit(sectorSize int64, configFile string) {
 	cConfigFile := C.CString(configFile)
 	defer C.free(unsafe.Pointer(cConfigFile))
 	C.supra_seal_init(C.size_t(sectorSize), cConfigFile)

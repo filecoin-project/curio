@@ -12,7 +12,7 @@ func main() {
 		panic("Usage: ./gosupra [sector size] [config]")
 	}
 
-	sectorSize, err := strconv.Atoi(os.Args[1])
+	sectorSize, err := strconv.ParseInt(os.Args[1], 10, 64)
 	if err != nil {
 		panic(err)
 	}
