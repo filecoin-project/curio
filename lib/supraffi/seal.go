@@ -119,22 +119,28 @@ ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_vhost.a
 */
 
 // SupraSealInit initializes the supra seal with a sector size and optional config file.
-func SupraSealInit(sectorSize int64, configFile string) {
+func SupraSealInit(sectorSize uint64, configFile string) {
 	cConfigFile := C.CString(configFile)
 	defer C.free(unsafe.Pointer(cConfigFile))
 	C.supra_seal_init(C.size_t(sectorSize), cConfigFile)
 }
 
 // Pc1 performs the pc1 operation.
-func Pc1(blockOffset uint64, numSectors int, replicaIDs []byte, parentsFilename string, sectorSize int) int {
-	cReplicaIDs := (*C.uint8_t)(unsafe.Pointer(&replicaIDs[0]))
+func Pc1(blockOffset uint64, replicaIDs [][32]byte, parentsFilename string, sectorSize uint64) int {
+	flatReplicaIDs := make([]byte, len(replicaIDs)*32)
+	for i, id := range replicaIDs {
+		copy(flatReplicaIDs[i*32:], id[:])
+	}
+	numSectors := len(replicaIDs)
+
+	cReplicaIDs := (*C.uint8_t)(unsafe.Pointer(&flatReplicaIDs[0]))
 	cParentsFilename := C.CString(parentsFilename)
 	defer C.free(unsafe.Pointer(cParentsFilename))
 	return int(C.pc1(C.uint64_t(blockOffset), C.size_t(numSectors), cReplicaIDs, cParentsFilename, C.size_t(sectorSize)))
 }
 
 // Pc2 performs the pc2 operation.
-func Pc2(blockOffset, numSectors int, outputDir string, dataFilenames []string, sectorSize int) int {
+func Pc2(blockOffset uint64, numSectors int, outputDir string, dataFilenames []string, sectorSize uint64) int {
 	cOutputDir := C.CString(outputDir)
 	defer C.free(unsafe.Pointer(cOutputDir))
 	cDataFilenames := make([]*C.char, len(dataFilenames))
@@ -146,14 +152,14 @@ func Pc2(blockOffset, numSectors int, outputDir string, dataFilenames []string, 
 }
 
 // Pc2Cleanup deletes files associated with pc2.
-func Pc2Cleanup(numSectors int, outputDir string, sectorSize int) int {
+func Pc2Cleanup(numSectors int, outputDir string, sectorSize uint64) int {
 	cOutputDir := C.CString(outputDir)
 	defer C.free(unsafe.Pointer(cOutputDir))
 	return int(C.pc2_cleanup(C.size_t(numSectors), cOutputDir, C.size_t(sectorSize)))
 }
 
 // C1 performs the c1 operation.
-func C1(blockOffset, numSectors, sectorSlot int, replicaID, seed, ticket []byte, cachePath, parentsFilename, replicaPath string, sectorSize int) int {
+func C1(blockOffset uint64, numSectors, sectorSlot int, replicaID, seed, ticket []byte, cachePath, parentsFilename, replicaPath string, sectorSize uint64) int {
 	cReplicaID := (*C.uint8_t)(unsafe.Pointer(&replicaID[0]))
 	cSeed := (*C.uint8_t)(unsafe.Pointer(&seed[0]))
 	cTicket := (*C.uint8_t)(unsafe.Pointer(&ticket[0]))
@@ -167,17 +173,17 @@ func C1(blockOffset, numSectors, sectorSlot int, replicaID, seed, ticket []byte,
 }
 
 // GetMaxBlockOffset returns the highest available block offset.
-func GetMaxBlockOffset(sectorSize int) int {
-	return int(C.get_max_block_offset(C.size_t(sectorSize)))
+func GetMaxBlockOffset(sectorSize uint64) uint64 {
+	return uint64(C.get_max_block_offset(C.size_t(sectorSize)))
 }
 
 // GetSlotSize returns the size in blocks required for the given number of sectors.
-func GetSlotSize(numSectors, sectorSize int) int {
-	return int(C.get_slot_size(C.size_t(numSectors), C.size_t(sectorSize)))
+func GetSlotSize(numSectors int, sectorSize uint64) uint64 {
+	return uint64(C.get_slot_size(C.size_t(numSectors), C.size_t(sectorSize)))
 }
 
 // GetCommCFromTree returns comm_c after calculating from tree file(s).
-func GetCommCFromTree(commC []byte, cachePath string, sectorSize int) bool {
+func GetCommCFromTree(commC []byte, cachePath string, sectorSize uint64) bool {
 	cCommC := (*C.uint8_t)(unsafe.Pointer(&commC[0]))
 	cCachePath := C.CString(cachePath)
 	defer C.free(unsafe.Pointer(cCachePath))
@@ -201,7 +207,7 @@ func SetCommC(commC []byte, cachePath string) bool {
 }
 
 // GetCommRLastFromTree returns comm_r_last after calculating from tree file(s).
-func GetCommRLastFromTree(commRLast []byte, cachePath string, sectorSize int) bool {
+func GetCommRLastFromTree(commRLast []byte, cachePath string, sectorSize uint64) bool {
 	cCommRLast := (*C.uint8_t)(unsafe.Pointer(&commRLast[0]))
 	cCachePath := C.CString(cachePath)
 	defer C.free(unsafe.Pointer(cCachePath))

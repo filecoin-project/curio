@@ -277,6 +277,10 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, tID, h.Name, postedTime.UTC(), workSta
 func (h *taskTypeHandler) AssertMachineHasCapacity() error {
 	r := h.TaskEngine.ResourcesAvailable()
 
+	if h.Max > 0 && int(h.Count.Load()) >= h.Max {
+		return errors.New("Did not accept " + h.Name + " task: at max already")
+	}
+
 	if r.Cpu-h.Cost.Cpu < 0 {
 		return errors.New("Did not accept " + h.Name + " task: out of cpu")
 	}
