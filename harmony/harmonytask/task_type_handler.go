@@ -94,7 +94,7 @@ func (h *taskTypeHandler) canAcceptPart(from string, ids []TaskID) (workAccepted
 
 	// 3. Bid?
 	if h.Bid {
-		return h.BidLogic(from, ids, sch)
+		return h.bidLogic(from, ids, sch)
 	}
 
 	// 3b. Or run directly?
@@ -139,16 +139,17 @@ func (h *taskTypeHandler) GetUnownedTasks() (ids []TaskID, err error) {
 	err = h.TaskEngine.db.Select(h.TaskEngine.ctx, &unownedTasks, `SELECT id
 		FROM harmony_task
 		WHERE owner_id IS NULL AND name=$1
-		ORDER BY creation_time ASC
+		ORDER BY posted_time ASC
 		LIMIT $2`, h.TaskTypeDetails.Name, numBidders)
 	return unownedTasks, err
 }
 
-// BidLogic is called to attempt to start work on a task-id of this task type.
+// bidLogic is called to attempt to start work on a task-id of this task type.
 // It presumes single-threaded calling, so there should not be a multi-threaded re-entry.
 // The only caller should be the one work poller thread.
-func (h *taskTypeHandler) BidLogic(from string, ids []TaskID, sch *SchedulingInfo) (workAccepted, liveBids bool) {
-	// Accept Phase: accept everything we outbid people on.
+func (h *taskTypeHandler) bidLogic(from string, ids []TaskID, sch *SchedulingInfo) (workAccepted, liveBids bool) {
+	// __Accept_Phase__
+	// accept everything we outbid people on.
 
 	// Delete any "dead" bids
 	_, err := h.TaskEngine.db.Exec(context.Background(),
@@ -186,7 +187,8 @@ func (h *taskTypeHandler) BidLogic(from string, ids []TaskID, sch *SchedulingInf
 		success = h.startTask(from, (*TaskID)(&r), ids)
 	}
 
-	// Bid Phase: Place our bids IF we need the work.
+	// __Bid_Phase__
+	// Place our bids IF we need the work.
 	if success { // we removed one+ from the list, so lets get a full list.
 		ids, err = h.GetUnownedTasks()
 		if err != nil {
@@ -194,6 +196,7 @@ func (h *taskTypeHandler) BidLogic(from string, ids []TaskID, sch *SchedulingInf
 			return success, false
 		}
 	}
+
 	// Get our bids.
 	tb, err := h.TaskInterface.(BidTask).CanAccept(ids, sch)
 	if err != nil {

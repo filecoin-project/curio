@@ -31,8 +31,35 @@ Mental Model:
 *
 To use:
 1.Implement TaskInterface for a new task.
-2. Have New() receive this & all other ACTIVE implementations.
+ 2. Implement CanAccept() for either the FastTask interface or the BidTask interface.
+ 3. Have New() receive this & all other ACTIVE implementations.
+    The order of tasks given = the priority order.
+    Pipelines should therefore be in reverse order, so later work is pulled through.
+
 *
+FastTask vs BidTask:
+
+	  FastTask is for tasks that can be ran equally well by any machine that can accept it, this
+	     starts work quickly. It's also simpler to code & understand.
+		BidTask is for when some machines are the best suited for a task-instance even though
+		   others can do that task.
+			 The arbitrary scores relate only to each other (highest wins), and are best seen as
+			 equal to (1/cost), so the highest values represent the lowest cost execution.
+			 Scores do not relate between task-types.
+			 This is still a "best effort" system as downed or slow machines do not participate.
+
+			 Ex: when 2 files must become local to a machine, a CanAccept() that sees
+			 the other file incoming should outscore others.
+
+			 FUTURE tuning: today for a long task list, the oldest (1 * numTaskRunners) task-instances get bid.
+			   This "feels right" since bidding cycles are quick, but risks:
+				 - bottlenecking the poller with too many SQL queries leading to unbid work AND
+				 - Slow Uptake (on a huge-machines-only network)
+
+		Upgrading
+			FastTask and BidTask can replace each other on an upgrade without needing migration.
+			The FastTask implementation will "win" all new work during rollout.
+
 *
 As we are not expecting DBAs in this database, it's important to know
 what grows uncontrolled. The only growing harmony_* table is
