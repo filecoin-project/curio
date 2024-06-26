@@ -59,10 +59,9 @@ func init() {
 		ffiDirectType := ffiDirectValue.Type()
 
 		for i := 0; i < ffiDirectType.NumMethod(); i++ {
-			m := ffiDirectType.Method(i)
-			f := ffiSelect.FieldByName(m.Name)
+			f := ffiSelect.FieldByName(ffiDirectType.Method(i).Name)
 			f.Set(reflect.MakeFunc(f.Type(), func(args []reflect.Value) []reflect.Value {
-				return ffiDirectValue.MethodByName(m.Name).Call(args[1:])
+				return ffiDirectValue.Method(i).Call(args[1:]) // avoid sending ctx
 			}))
 		}
 	}
