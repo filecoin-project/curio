@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/filecoin-project/go-state-types/proof"
 
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/lib/ffiselect/ffidirect"
 
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
@@ -42,26 +44,28 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	if len(devices) == 0 {
-		ch = make(chan string, 1)
-		ch <- "0"
-	} else {
+	if len(devices) > 1 {
+		_, err := jsonrpc.NewCustomClient("FFI", []interface{}{&FFISelect}, call)
+		if err != nil {
+			panic(err)
+		}
 		ch = make(chan string, len(devices))
 		for i := 0; i < len(devices); i++ {
 			ch <- strconv.Itoa(i)
 		}
+	} else { // direct call for single device case.
+		ffiSelect := reflect.ValueOf(&FFISelect).Elem()
+		ffiDirectValue := reflect.ValueOf(ffidirect.FFI{})
+		ffiDirectType := ffiDirectValue.Type()
+
+		for i := 0; i < ffiDirectType.NumMethod(); i++ {
+			m := ffiDirectType.Method(i)
+			f := ffiSelect.FieldByName(m.Name)
+			f.Set(reflect.MakeFunc(f.Type(), func(args []reflect.Value) []reflect.Value {
+				return ffiDirectValue.MethodByName(m.Name).Call(args[1:])
+			}))
+		}
 	}
-}
-
-type ValErr struct {
-	Val []interface{}
-	Err string
-}
-
-// This is not the one you're looking for.
-type FFICall struct {
-	Fn   string
-	Args []interface{}
 }
 
 func subStrInSet(set []string, sub string) bool {
@@ -173,13 +177,4 @@ var FFISelect struct {
 	) ([]proof.PoStProof, error)
 
 	SelfTest func(ctx context.Context, val1 int, val2 cid.Cid) (cid.Cid, error)
-}
-
-// //////////////////////////
-
-func init() {
-	_, err := jsonrpc.NewCustomClient("FFI", []interface{}{&FFISelect}, call)
-	if err != nil {
-		panic(err)
-	}
 }
