@@ -110,6 +110,24 @@ func (h *taskTypeHandler) canAcceptPart(from string, ids []TaskID) (workAccepted
 	return h.startTask(from, tID, ids), false
 }
 
+// GetUnownedTasks returns a list of tasks that are not owned by any machine.
+// It must decide how many tasks to bid on.
+// What should happen when 10000 of something drops in to the queue?
+// Do we spend minutes in bidding just to rebid?
+//
+//	That could break the healthy uptake in jobs and the bidding timers.
+//
+// Do we cache our bids?
+//
+//	That limits the usefulness of bidding as it cannot include capacity.
+//
+// So the remaining option is to universally limit the max number of items we care to bid on.
+//   - A limit of 1 could be too low for big networks.
+//   - A limit of "everyone's capacity for this task" is closer to right, but requires (slow) per-cycle pre-negotiation.
+//   - A limit of "1 per bidder" will keep work flowing, but may take multiple bid rounds to fill bigger machines.
+//
+// A future adjustment could include more than 1x per machine if the "handful of behemoths" clusters suffer.
+// Another solution is that "starving" machines could bid deeper into the queue.
 func (h *taskTypeHandler) GetUnownedTasks() (ids []TaskID, err error) {
 	var numBidders int
 	err = h.TaskEngine.db.QueryRow(h.TaskEngine.ctx, `SELECT COUNT(*) FROM harmony_machine_details WHERE tasks LIKE $1`, "%,"+h.TaskTypeDetails.Name+",%").Scan(&numBidders)
