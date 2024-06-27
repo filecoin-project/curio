@@ -13,6 +13,10 @@ func DefaultCurioConfig() *CurioConfig {
 			BoostAdapters:              []string{},
 			RequireActivationSuccess:   true,
 			RequireNotificationSuccess: true,
+
+			BatchSealPipelines:  2,
+			BatchSealBatchSize:  32,
+			BatchSealSectorSize: "32GiB",
 		},
 		Fees: CurioFees{
 			DefaultMaxFee:      DefaultDefaultMaxFee(),
@@ -249,6 +253,19 @@ type CurioSubsystemsConfig struct {
 	// The maximum amount of SyntheticPoRep tasks that can run simultaneously. Note that the maximum number of tasks will
 	// also be bounded by resources available on the machine.
 	SyntheticPoRepMaxTasks int
+
+	// Batch Seal
+	EnableBatchSeal bool
+
+	// BatchSealSectorSize Allows setting the sector size supported by the batch seal task.
+	// Can be any value as long as it is "32GiB".
+	BatchSealSectorSize string
+
+	// Number of sectors in a seal batch. Depends on hardware and supraseal configuration.
+	BatchSealBatchSize int
+
+	// Number of parallel pipelines. Can be 1 or 2. Depends on available raw block storage
+	BatchSealPipelines int
 }
 type CurioFees struct {
 	DefaultMaxFee      types.FIL
