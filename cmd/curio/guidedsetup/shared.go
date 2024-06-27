@@ -404,8 +404,8 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 					INSERT INTO sectors_meta_pieces (
 						sp_id, sector_num, piece_num, piece_cid, piece_size, 
 						requested_keep_data, raw_data_size, start_epoch, orig_end_epoch,
-						f05_deal_id, ddo_pam
-					) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+						f05_deal_id, ddo_pam, f05_deal_proposal
+					) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 					ON CONFLICT (sp_id, sector_num, piece_num) DO UPDATE
 					SET 
 						piece_cid = excluded.piece_cid, 
