@@ -6,13 +6,25 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/supraffi"
+	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-commp-utils/zerocomm"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/crypto"
+	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
 	"os"
 	"sync"
+	"time"
 )
+
+var log = logging.Logger("batchseal")
 
 var parentCache string
 
@@ -24,8 +36,16 @@ func init() {
 	}
 }
 
+type SupraSealNodeAPI interface {
+	ChainHead(context.Context) (*types.TipSet, error)
+	StateGetRandomnessFromTickets(context.Context, crypto.DomainSeparationTag, abi.ChainEpoch, []byte, types.TipSetKey) (abi.Randomness, error)
+}
+
 type SupraSeal struct {
-	db *harmonydb.DB
+	db      *harmonydb.DB
+	api     SupraSealNodeAPI
+	storage *paths.Remote
+	sindex  paths.SectorIndex
 
 	pipelines int // 1 or 2
 	sectors   int // sectors in a batch
@@ -99,13 +119,68 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, err
 	}
 
+	unsealedCID := zerocomm.ZeroPieceCommitment(abi.PaddedPieceSize(ssize).Unpadded())
+	commd, err := commcid.CIDToDataCommitmentV1(unsealedCID)
+	if err != nil {
+		return false, xerrors.Errorf("getting commd: %w", err)
+	}
+
+	ticketEpochs := make([]abi.ChainEpoch, len(sectors))
+	tickets := make([]abi.SealRandomness, len(sectors))
 	replicaIDs := make([][32]byte, len(sectors))
+	outPaths := make([]supraffi.Path, len(sectors))
+	outPathIDs := make([]storiface.SectorPaths, len(sectors))
+	alloc := storiface.FTSealed | storiface.FTCache
+
 	for i, t := range sectors {
+		sid := abi.SectorID{
+			Miner:  abi.ActorID(t.SpID),
+			Number: abi.SectorNumber(t.SectorNumber),
+		}
+
+		// cleanup any potential previous failed attempts
+		if err := s.storage.Remove(ctx, sid, storiface.FTSealed, true, nil); err != nil {
+			return false, xerrors.Errorf("removing sector: %w", err)
+		}
+		if err := s.storage.Remove(ctx, sid, storiface.FTCache, true, nil); err != nil {
+			return false, xerrors.Errorf("removing sector: %w", err)
+		}
+
+		// get ticket
+		maddr, err := address.NewIDAddress(uint64(t.SpID))
+		if err != nil {
+			return false, xerrors.Errorf("getting miner address: %w", err)
+		}
+
+		ticket, ticketEpoch, err := seal.GetTicket(ctx, s.api, maddr)
+		if err != nil {
+			return false, xerrors.Errorf("getting ticket: %w", err)
+		}
+		ticketEpochs[i] = ticketEpoch
+		tickets[i] = ticket
+
 		spt := abi.RegisteredSealProof(t.RegSealProof)
 		replicaIDs[i], err = spt.ReplicaId(abi.ActorID(t.SpID), abi.SectorNumber(t.SectorNumber), ticket, commd)
 		if err != nil {
 			return false, xerrors.Errorf("getting replica id: %w", err)
 		}
+
+		// get output paths (before SDR so that allocating can fail early)
+		sref := storiface.SectorRef{
+			ID:        abi.SectorID{Miner: abi.ActorID(t.SpID), Number: abi.SectorNumber(t.SectorNumber)},
+			ProofType: abi.RegisteredSealProof(t.RegSealProof),
+		}
+
+		ps, pathIDs, err := s.storage.AcquireSector(ctx, sref, storiface.FTNone, alloc, storiface.PathStorage, storiface.AcquireMove)
+		if err != nil {
+			return false, xerrors.Errorf("acquiring sector storage: %w", err)
+		}
+
+		outPaths[i] = supraffi.Path{
+			Replica: ps.Sealed,
+			Cache:   ps.Unsealed,
+		}
+		outPathIDs[i] = pathIDs
 	}
 
 	s.inSDR.Lock()
@@ -119,15 +194,92 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		cleanup()
 	}()
 
-	supraffi.Pc1(slot, replicaIDs, parentCache, uint64(ssize))
+	start := time.Now()
+	res := supraffi.Pc1(slot, replicaIDs, parentCache, uint64(ssize))
+	log.Infow("batch sdr done", "duration", time.Since(start).Truncate(time.Second), "slot", slot, "res", res, "task", taskID, "sectors", sectors)
+
+	if res != 0 {
+		return false, xerrors.Errorf("pc1 failed: %d", res)
+	}
 
 	s.inSDR.Unlock()
+	s.outSDR.Lock()
 	cleanup = func() {
 		s.slots <- slot
+		s.outSDR.Unlock()
+
+		// Remove any files in outPaths
+		for _, p := range outPaths {
+			if err := os.Remove(p.Replica); err != nil {
+				log.Errorf("removing replica file: %s", err)
+			}
+			if err := os.RemoveAll(p.Cache); err != nil {
+				log.Errorf("removing cache file: %s", err)
+			}
+		}
 	}
+
+	start = time.Now()
+	res = supraffi.Pc2(slot, s.sectors, must.One(supraffi.GenerateMultiString(outPaths)), uint64(ssize))
+	log.Infow("batch tree done", "duration", time.Since(start).Truncate(time.Second), "slot", slot, "res", res, "task", taskID, "sectors", sectors)
+	if res != 0 {
+		return false, xerrors.Errorf("pc2 failed: %d", res)
+	}
+
+	// declare sectors
+	for i, ids := range outPathIDs {
+		sid := abi.SectorID{
+			Miner:  abi.ActorID(sectors[i].SpID),
+			Number: abi.SectorNumber(sectors[i].SectorNumber),
+		}
+		for _, ft := range alloc.AllSet() {
+			storageID := storiface.PathByType(ids, ft)
+			if err := s.sindex.StorageDeclareSector(ctx, storiface.ID(storageID), sid, ft, true); err != nil {
+				log.Errorf("declare sector error: %+v", err)
+			}
+		}
+	}
+
+	// persist success
+	_, err = s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		for i, sector := range sectors {
+			var commr [32]byte
+			if supraffi.GetCommR(commr[:], outPaths[i].Cache) {
+				return false, xerrors.Errorf("getting commr failed")
+			}
+
+			sealedCID, err := commcid.ReplicaCommitmentV1ToCID(commr[:])
+			if err != nil {
+				return false, xerrors.Errorf("getting sealed CID: %w", err)
+			}
+
+			_, err = tx.Exec(`UPDATE sectors_sdr_pipeline SET after_sdr = TRUE, after_tree_c = TRUE, after_tree_r = TRUE, after_tree_d = TRUE,
+                                ticket_epoch = $3, ticket_value = $4, tree_d_cid = $5, tree_r_cid = $6
+                            WHERE sp_id = $1 AND sector_number = $2`, sector.SpID, sector.SectorNumber, ticketEpochs[i], tickets[i], unsealedCID.String(), sealedCID)
+			if err != nil {
+				return false, xerrors.Errorf("updating sector: %w", err)
+			}
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return false, xerrors.Errorf("persisting success: %w", err)
+	}
+
+	cleanup = func() {
+		s.outSDR.Unlock()
+		// NOTE: We're not releasing the slot yet, we keep it until sector Finalize
+	}
+
+	return true, nil
 }
 
 func (s *SupraSeal) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+	if len(s.slots) == 0 {
+		return nil, nil
+	}
+
 	id := ids[0]
 	return &id, nil
 }

@@ -168,7 +168,7 @@ func (s *SDRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 
 	// FAIL: api may be down
 	// FAIL-RESP: rely on harmony retry
-	ticket, ticketEpoch, err := s.getTicket(ctx, maddr)
+	ticket, ticketEpoch, err := GetTicket(ctx, s.api, maddr)
 	if err != nil {
 		return false, xerrors.Errorf("getting ticket: %w", err)
 	}
@@ -203,8 +203,13 @@ func (s *SDRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 	return true, nil
 }
 
-func (s *SDRTask) getTicket(ctx context.Context, maddr address.Address) (abi.SealRandomness, abi.ChainEpoch, error) {
-	ts, err := s.api.ChainHead(ctx)
+type TicketNodeAPI interface {
+	ChainHead(context.Context) (*types.TipSet, error)
+	StateGetRandomnessFromTickets(context.Context, crypto.DomainSeparationTag, abi.ChainEpoch, []byte, types.TipSetKey) (abi.Randomness, error)
+}
+
+func GetTicket(ctx context.Context, api TicketNodeAPI, maddr address.Address) (abi.SealRandomness, abi.ChainEpoch, error) {
+	ts, err := api.ChainHead(ctx)
 	if err != nil {
 		return nil, 0, xerrors.Errorf("getting chain head: %w", err)
 	}
@@ -215,7 +220,7 @@ func (s *SDRTask) getTicket(ctx context.Context, maddr address.Address) (abi.Sea
 		return nil, 0, xerrors.Errorf("marshaling miner address: %w", err)
 	}
 
-	rand, err := s.api.StateGetRandomnessFromTickets(ctx, crypto.DomainSeparationTag_SealRandomness, ticketEpoch, buf.Bytes(), ts.Key())
+	rand, err := api.StateGetRandomnessFromTickets(ctx, crypto.DomainSeparationTag_SealRandomness, ticketEpoch, buf.Bytes(), ts.Key())
 	if err != nil {
 		return nil, 0, xerrors.Errorf("getting randomness from tickets: %w", err)
 	}

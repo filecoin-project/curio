@@ -10,6 +10,8 @@ package supraffi
 */
 import "C"
 import (
+	"bytes"
+	"encoding/binary"
 	"unsafe"
 )
 
@@ -139,16 +141,54 @@ func Pc1(blockOffset uint64, replicaIDs [][32]byte, parentsFilename string, sect
 	return int(C.pc1(C.uint64_t(blockOffset), C.size_t(numSectors), cReplicaIDs, cParentsFilename, C.size_t(sectorSize)))
 }
 
+type Path struct {
+	Replica string
+	Cache   string
+}
+
+// GenerateMultiString generates a //multi// string from an array of Path structs
+func GenerateMultiString(paths []Path) (string, error) {
+	var buffer bytes.Buffer
+	buffer.WriteString("//multi//")
+
+	for _, path := range paths {
+		replicaPath := []byte(path.Replica)
+		cachePath := []byte(path.Cache)
+
+		// Write the length and path for the replica
+		if err := binary.Write(&buffer, binary.LittleEndian, uint32(len(replicaPath))); err != nil {
+			return "", err
+		}
+		buffer.Write(replicaPath)
+
+		// Write the length and path for the cache
+		if err := binary.Write(&buffer, binary.LittleEndian, uint32(len(cachePath))); err != nil {
+			return "", err
+		}
+		buffer.Write(cachePath)
+	}
+
+	return buffer.String(), nil
+}
+
 // Pc2 performs the pc2 operation.
-func Pc2(blockOffset uint64, numSectors int, outputDir string, dataFilenames []string, sectorSize uint64) int {
+func Pc2(blockOffset uint64, numSectors int, outputDir string, sectorSize uint64) int {
+	/*
+		int pc2(size_t block_offset, size_t num_sectors, const char* output_dir,
+		        const char** data_filenames, size_t sector_size);
+	*/
 	cOutputDir := C.CString(outputDir)
 	defer C.free(unsafe.Pointer(cOutputDir))
-	cDataFilenames := make([]*C.char, len(dataFilenames))
-	for i, filename := range dataFilenames {
-		cDataFilenames[i] = C.CString(filename)
-		defer C.free(unsafe.Pointer(cDataFilenames[i]))
-	}
-	return int(C.pc2(C.size_t(blockOffset), C.size_t(numSectors), cOutputDir, &cDataFilenames[0], C.size_t(sectorSize)))
+
+	// data filenames is for unsealed data to be encoded
+	// https://github.com/supranational/supra_seal/blob/a64e4060fbffea68adc0ac4512062e5a03e76048/pc2/cuda/pc2.cu#L329
+	// not sure if that works correctly, but that's where we could encode data in the future
+	// for now pass a null as the pointer to the array of filenames
+
+	var cDataFilenames **C.char
+	cDataFilenames = nil
+
+	return int(C.pc2(C.size_t(blockOffset), C.size_t(numSectors), cOutputDir, cDataFilenames, C.size_t(sectorSize)))
 }
 
 // Pc2Cleanup deletes files associated with pc2.
