@@ -57,14 +57,19 @@ type SupraSeal struct {
 	slots chan uint64
 }
 
-func NewSupraSeal(spt abi.RegisteredSealProof) (*SupraSeal, error) {
+func NewSupraSeal(sectorSize string, batchSize, pipelines int) (*SupraSeal, error) {
+	var spt abi.RegisteredSealProof
+	switch sectorSize {
+	case "32GiB":
+		spt = abi.RegisteredSealProof_StackedDrg32GiBV1_1
+	default:
+		return nil, xerrors.Errorf("unsupported sector size: %s", sectorSize)
+	}
+
 	ssize, err := spt.SectorSize()
 	if err != nil {
 		return nil, err
 	}
-
-	sectors := 32 // TODO: get from config
-	pipelines := 2
 
 	supraffi.SupraSealInit(uint64(ssize), "/tmp/supraseal.cfg")
 
@@ -72,7 +77,7 @@ func NewSupraSeal(spt abi.RegisteredSealProof) (*SupraSeal, error) {
 	space := supraffi.GetMaxBlockOffset(uint64(ssize))
 
 	// Get slot size (number of pages per device used for 11 layers * sector count)
-	slotSize := supraffi.GetSlotSize(sectors, uint64(ssize))
+	slotSize := supraffi.GetSlotSize(batchSize, uint64(ssize))
 
 	maxPipelines := space / slotSize
 	if maxPipelines < slotSize*uint64(pipelines) {
@@ -89,7 +94,7 @@ func NewSupraSeal(spt abi.RegisteredSealProof) (*SupraSeal, error) {
 		spt: spt,
 
 		pipelines: pipelines,
-		sectors:   sectors,
+		sectors:   batchSize,
 
 		slots: slots,
 	}, nil
