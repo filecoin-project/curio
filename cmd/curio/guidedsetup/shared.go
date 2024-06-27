@@ -36,6 +36,32 @@ const (
 
 const FlagMinerRepoDeprecation = "storagerepo"
 
+var StorageMiner storageMiner
+
+type storageMiner struct{}
+
+func (storageMiner) SupportsStagingDeals() {}
+
+func (storageMiner) Type() string {
+	return "StorageMiner"
+}
+
+func (storageMiner) Config() interface{} {
+	return config.DefaultStorageMiner()
+}
+
+func (storageMiner) APIFlags() []string {
+	return []string{"miner-api-url"}
+}
+
+func (storageMiner) RepoFlags() []string {
+	return []string{"miner-repo"}
+}
+
+func (storageMiner) APIInfoEnvVars() (primary string, fallbacks []string, deprecated []string) {
+	return "MINER_API_INFO", nil, []string{"STORAGE_API_INFO"}
+}
+
 func SaveConfigToLayerMigrateSectors(minerRepoPath, chainApiInfo string, unmigSectorShouldFail func() bool) (minerAddress address.Address, err error) {
 	_, say := SetupLanguage()
 	ctx := context.Background()
@@ -54,7 +80,7 @@ func SaveConfigToLayerMigrateSectors(minerRepoPath, chainApiInfo string, unmigSe
 		return minerAddress, fmt.Errorf("repo not initialized at: %s", minerRepoPath)
 	}
 
-	lr, err := r.LockRO(repo.StorageMiner)
+	lr, err := r.LockRO(StorageMiner)
 	if err != nil {
 		return minerAddress, fmt.Errorf("locking repo: %w", err)
 	}
