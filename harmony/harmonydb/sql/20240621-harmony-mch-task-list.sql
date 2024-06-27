@@ -6,5 +6,5 @@ CREATE TABLE harmony_task_bid (
     bidder TIMESTAMP NOT NULL,
     update_time TIMESTAMP NOT NULL DEFAULT current_timestamp,
  
-    FOREIGN KEY (task_id) REFERENCES harmony_task (id) ON DELETE CASCADE;
+    FOREIGN KEY (task_id) REFERENCES harmony_task (id) ON DELETE CASCADE
 );
