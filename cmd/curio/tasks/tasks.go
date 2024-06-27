@@ -3,6 +3,7 @@ package tasks
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/tasks/sealsupra"
 	"sort"
 	"strings"
 	"sync"
@@ -230,6 +231,11 @@ func addSealingTasks(
 	}
 
 	// NOTE: Tasks with the LEAST priority are at the top
+	if cfg.Subsystems.EnableBatchSeal {
+		batchSealTask := sealsupra.NewSupraSeal(sp, db, full, sender, as, cfg.Fees.MaxPreCommitGasFee)
+		activeTasks = append(activeTasks, batchSealTask)
+	}
+
 	if cfg.Subsystems.EnableSealSDR {
 		sdrTask := seal.NewSDRTask(full, db, sp, slr, cfg.Subsystems.SealSDRMaxTasks)
 		activeTasks = append(activeTasks, sdrTask)
