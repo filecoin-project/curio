@@ -28,23 +28,6 @@ import (
 
 var log = logging.Logger("batchseal")
 
-const BatchMetaFile = "batch.json"
-
-type BatchMeta struct {
-	SupraSeal      bool
-	Slot, Pipeline int64
-}
-
-var parentCache string
-
-func init() {
-	if os.Getenv("FIL_PROOFS_PARENT_CACHE") != "" {
-		parentCache = os.Getenv("FIL_PROOFS_PARENT_CACHE")
-	} else {
-		parentCache = "/var/tmp/filecoin-parents"
-	}
-}
-
 type SupraSealNodeAPI interface {
 	ChainHead(context.Context) (*types.TipSet, error)
 	StateGetRandomnessFromTickets(context.Context, crypto.DomainSeparationTag, abi.ChainEpoch, []byte, types.TipSetKey) (abi.Randomness, error)
@@ -209,7 +192,7 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}()
 
 	start := time.Now()
-	res := supraffi.Pc1(slot, replicaIDs, parentCache, uint64(ssize))
+	res := supraffi.Pc1(slot, replicaIDs, paths.ParentCacheFile, uint64(ssize))
 	log.Infow("batch sdr done", "duration", time.Since(start).Truncate(time.Second), "slot", slot, "res", res, "task", taskID, "sectors", sectors)
 
 	if res != 0 {
@@ -242,10 +225,12 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	for i, p := range outPaths {
 		// in each path, write a file indicating that this is a supra-sealed sector, pipeline and slot number
-		bmeta := BatchMeta{
-			SupraSeal: true,
-			Slot:      int64(slot),
-			Pipeline:  int64(i),
+		bmeta := paths.BatchMeta{
+			SupraSeal:     true,
+			BlockOffset:   int64(slot),
+			NumInPipeline: int64(i),
+
+			BatchSectors: s.sectors,
 		}
 
 		meta, err := json.Marshal(bmeta)
@@ -253,7 +238,7 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			return false, xerrors.Errorf("marshaling meta: %w", err)
 		}
 
-		if err := os.WriteFile(filepath.Join(p.Cache, BatchMetaFile), meta, 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(p.Cache, paths.BatchMetaFile), meta, 0644); err != nil {
 			return false, xerrors.Errorf("writing meta: %w", err)
 		}
 	}

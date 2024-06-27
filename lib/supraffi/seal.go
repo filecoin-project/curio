@@ -199,6 +199,7 @@ func Pc2Cleanup(numSectors int, outputDir string, sectorSize uint64) int {
 }
 
 // C1 performs the c1 operation.
+// Outputs to cachePath/commit-phase1-output
 func C1(blockOffset uint64, numSectors, sectorSlot int, replicaID, seed, ticket []byte, cachePath, parentsFilename, replicaPath string, sectorSize uint64) int {
 	cReplicaID := (*C.uint8_t)(unsafe.Pointer(&replicaID[0]))
 	cSeed := (*C.uint8_t)(unsafe.Pointer(&seed[0]))
