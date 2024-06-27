@@ -342,6 +342,11 @@ type CurioProvingConfig struct {
 // for decoding and encoding from/to TOML
 type Duration time.Duration
 
+func (dur Duration) MarshalText() ([]byte, error) {
+	d := time.Duration(dur)
+	return []byte(d.String()), nil
+}
+
 // UnmarshalText implements interface for TOML decoding
 func (dur *Duration) UnmarshalText(text []byte) error {
 	d, err := time.ParseDuration(string(text))
