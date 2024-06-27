@@ -2,6 +2,7 @@ package sealsupra
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -20,11 +21,19 @@ import (
 	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
 
 var log = logging.Logger("batchseal")
+
+const BatchMetaFile = "batch.json"
+
+type BatchMeta struct {
+	SupraSeal      bool
+	Slot, Pipeline int64
+}
 
 var parentCache string
 
@@ -229,6 +238,24 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	log.Infow("batch tree done", "duration", time.Since(start).Truncate(time.Second), "slot", slot, "res", res, "task", taskID, "sectors", sectors)
 	if res != 0 {
 		return false, xerrors.Errorf("pc2 failed: %d", res)
+	}
+
+	for i, p := range outPaths {
+		// in each path, write a file indicating that this is a supra-sealed sector, pipeline and slot number
+		bmeta := BatchMeta{
+			SupraSeal: true,
+			Slot:      int64(slot),
+			Pipeline:  int64(i),
+		}
+
+		meta, err := json.Marshal(bmeta)
+		if err != nil {
+			return false, xerrors.Errorf("marshaling meta: %w", err)
+		}
+
+		if err := os.WriteFile(filepath.Join(p.Cache, BatchMetaFile), meta, 0644); err != nil {
+			return false, xerrors.Errorf("writing meta: %w", err)
+		}
 	}
 
 	// declare sectors
