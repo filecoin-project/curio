@@ -1,0 +1,55 @@
+void C1<C>::WriteProofs(const char* filename, bool do_tree, bool do_node) {
+  mmap_t<uint8_t> file_ptr;
+
+
+  uint64_t vp_outer_length = C::GetNumPartitions();
+  uint64_t vp_inner_length = challenges_count_;
+  std::memcpy(&file_ptr[0] + buf_index, &vp_outer_length, sizeof(uint64_t));
+
+
+  for (uint64_t i = 0; i < vp_outer_length; ++i) {
+    std::memcpy(&file_ptr[0] + buf_index, &vp_inner_length, sizeof(uint64_t));
+    buf_index += sizeof(uint64_t);
+
+        for (uint64_t j = 0; j < vp_inner_length; ++j) {
+
+          buf_index = challenge.WriteProof(&file_ptr[0], buf_index, &tree_r[0],
+                                           &tree_c[0], tree_d);
+
+            size_t C1Challenge<C>::WriteProof(uint8_t* file_ptr, size_t buf_index,
+                                              node_t** tree_r_bufs, node_t** tree_c_bufs,
+                                              node_t* tree_d_buf) {
+              buf_index = WriteTreeProof(file_ptr, buf_index, tree_r_bufs, tree_d_buf);
+
+                size_t C1Challenge<C>::WriteTreeProof(uint8_t* file_ptr, size_t buf_index,
+                                                      node_t** tree_r_bufs, node_t* tree_d_buf) {
+
+                TreeDCCProof tree_d(C::GetNumTreeDArity(),
+                                    C::GetNumTreeDLevels(), nullptr, 0, 0);
+                tree_d.GenInclusionPath(challenge_, (node_t*) CC_TREE_D_NODE_VALUES);
+                buf_index = tree_d.WriteProof(file_ptr, buf_index, SINGLE_PROOF_DATA);
+
+                    size_t TreeProof::WriteProof(uint8_t* file_ptr, size_t buf_index,
+                                                 uint32_t proof_type) {
+                      std::memcpy(file_ptr + buf_index, &proof_type, sizeof(uint32_t));
+                      buf_index += sizeof(uint32_t);
+                      if (proof_type == 0) {
+                          // Root
+                          std::memcpy(file_ptr + buf_index, root_, sizeof(node_t));
+                          buf_index += sizeof(node_t);
+
+                          // Leaf
+                          std::memcpy(file_ptr + buf_index, leaf_, sizeof(node_t));
+                          buf_index += sizeof(node_t);
+
+                          // Proof size
+                          std::memcpy(file_ptr + buf_index, &levels_, sizeof(uint64_t));
+                          buf_index += sizeof(uint64_t);
+
+                          // Proofs
+                          for (size_t i = 0; i < levels_; ++i) {
+                            buf_index = path_[i]->Write(file_ptr, buf_index);
+                          }
+
+
+

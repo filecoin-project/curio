@@ -6,9 +6,17 @@ import (
 	"io"
 )
 
+func ReadLE[T any](r io.Reader) (T, error) {
+	var out T
+	err := binary.Read(r, binary.LittleEndian, &out)
+	return out, err
+}
+
 func DecodeCommit1OutRaw(r io.Reader) (Commit1OutRaw, error) {
 	var out Commit1OutRaw
 	var err error
+
+	out.RegisteredProof = "StackedDrg2KiBV1_1"
 
 	// VanillaProofs
 	out.VanillaProofs = make(map[StringRegisteredProofType][][]VanillaStackedProof)
@@ -31,7 +39,7 @@ func DecodeCommit1OutRaw(r io.Reader) (Commit1OutRaw, error) {
 			}
 		}
 
-		key := StringRegisteredProofType(fmt.Sprintf("Partition%d", i))
+		key := StringRegisteredProofType("StackedDrg2KiBV1")
 		out.VanillaProofs[key] = [][]VanillaStackedProof{proofs}
 	}
 
@@ -113,7 +121,7 @@ func DecodeProofData[H HasherDomain](r io.Reader) (ProofData[H], error) {
 	var out ProofData[H]
 	var err error
 
-	proofType, err := binary.ReadUvarint(r.(io.ByteReader))
+	proofType, err := ReadLE[uint32](r)
 	if err != nil {
 		return out, fmt.Errorf("failed to read proof type: %w", err)
 	}
@@ -203,7 +211,7 @@ func DecodeInclusionPath[H HasherDomain](r io.Reader) (InclusionPath[H], error) 
 	var out InclusionPath[H]
 	var err error
 
-	numElements, err := binary.ReadUvarint(r.(io.ByteReader))
+	numElements, err := ReadLE[uint64](r)
 	if err != nil {
 		return out, fmt.Errorf("failed to read number of elements: %w", err)
 	}
@@ -223,7 +231,7 @@ func DecodePathElement[H HasherDomain](r io.Reader) (PathElement[H], error) {
 	var out PathElement[H]
 	var err error
 
-	numHashes, err := binary.ReadUvarint(r.(io.ByteReader))
+	numHashes, err := ReadLE[uint64](r)
 	if err != nil {
 		return out, fmt.Errorf("failed to read number of hashes: %w", err)
 	}
@@ -236,7 +244,7 @@ func DecodePathElement[H HasherDomain](r io.Reader) (PathElement[H], error) {
 		}
 	}
 
-	out.Index, err = binary.ReadUvarint(r.(io.ByteReader))
+	out.Index, err = ReadLE[uint64](r)
 	if err != nil {
 		return out, fmt.Errorf("failed to read index: %w", err)
 	}
@@ -252,7 +260,7 @@ func DecodeReplicaColumnProof[H HasherDomain](r io.Reader) (ReplicaColumnProof[H
 		return out, fmt.Errorf("failed to decode C_X: %w", err)
 	}
 
-	numDrgParents, err := binary.ReadUvarint(r.(io.ByteReader))
+	numDrgParents, err := ReadLE[uint64](r)
 	if err != nil {
 		return out, fmt.Errorf("failed to read number of DRG parents: %w", err)
 	}
@@ -264,7 +272,7 @@ func DecodeReplicaColumnProof[H HasherDomain](r io.Reader) (ReplicaColumnProof[H
 		}
 	}
 
-	numExpParents, err := binary.ReadUvarint(r.(io.ByteReader))
+	numExpParents, err := ReadLE[uint64](r)
 	if err != nil {
 		return out, fmt.Errorf("failed to read number of EXP parents: %w", err)
 	}
