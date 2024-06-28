@@ -241,7 +241,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, treeDTask, treeRCTask, finalizeTask)
 	}
 	if cfg.Subsystems.EnableSendPrecommitMsg {
-		precommitTask := seal.NewSubmitPrecommitTask(sp, db, full, sender, as, cfg.Fees.MaxPreCommitGasFee)
+		precommitTask := seal.NewSubmitPrecommitTask(sp, db, full, sender, as, cfg.Fees.MaxPreCommitGasFee, cfg.Fees.CollateralFromMinerBalance, cfg.Fees.DisableCollateralFallback)
 		activeTasks = append(activeTasks, precommitTask)
 	}
 	if cfg.Subsystems.EnablePoRepProof {

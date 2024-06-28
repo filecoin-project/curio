@@ -28,9 +28,11 @@ func DefaultCurioConfig() *CurioConfig {
 				PerSector: types.MustParseFIL("0.03"), // enough for 6 agg and 1nFIL base fee
 			},
 
-			MaxTerminateGasFee:  types.MustParseFIL("0.5"),
-			MaxWindowPoStGasFee: types.MustParseFIL("5"),
-			MaxPublishDealsFee:  types.MustParseFIL("0.05"),
+			MaxTerminateGasFee:         types.MustParseFIL("0.5"),
+			MaxWindowPoStGasFee:        types.MustParseFIL("5"),
+			MaxPublishDealsFee:         types.MustParseFIL("0.05"),
+			CollateralFromMinerBalance: false,
+			DisableCollateralFallback:  false,
 		},
 		Addresses: []CurioAddresses{{
 			PreCommitControl: []string{},
@@ -232,6 +234,10 @@ type CurioFees struct {
 	// WindowPoSt is a high-value operation, so the default fee should be high.
 	MaxWindowPoStGasFee types.FIL
 	MaxPublishDealsFee  types.FIL
+	// Whether to use available miner balance for sector collateral instead of sending it with each message
+	CollateralFromMinerBalance bool
+	// Don't send collateral with messages even if there is no available balance in the miner actor
+	DisableCollateralFallback bool
 }
 
 type CurioAddresses struct {
