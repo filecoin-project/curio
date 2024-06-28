@@ -81,7 +81,7 @@ type verifiedDeal struct {
 	tmax       abi.ChainEpoch
 }
 
-func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterApi, maddr address.Address, sealRightNow bool, maxWaitTime time.Duration) (*PieceIngester, error) {
+func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterApi, maddr address.Address, sealRightNow bool, maxWaitTime time.Duration, synth bool) (*PieceIngester, error) {
 	mi, err := api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
 	if err != nil {
 		return nil, err
@@ -102,7 +102,7 @@ func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterAp
 		sectorSize:          mi.SectorSize,
 		windowPoStProofType: mi.WindowPoStProofType,
 		mid:                 mid,
-		synth:               false, // TODO: synthetic porep config
+		synth:               synth,
 	}
 
 	go pi.start()

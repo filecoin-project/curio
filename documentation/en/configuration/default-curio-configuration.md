@@ -188,6 +188,12 @@ description: The default curio configuration
   # type: string
   #GuiAddress = "0.0.0.0:4701"
 
+  # UseSyntheticPoRep enables the synthetic PoRep for all new sectors. When set to true, will reduce the amount of
+  # cache data held on disk after the completion of TreeRC task to 11GiB.
+  #
+  # type: bool
+  #UseSyntheticPoRep = false
+
 
 [Fees]
   # type: types.FIL

@@ -93,7 +93,7 @@ var marketSealCmd = &cli.Command{
 		&cli.BoolFlag{
 			Name:  "synthetic",
 			Usage: "Use synthetic PoRep",
-			Value: false, // todo implement synthetic
+			Value: false,
 		},
 	},
 	Action: func(cctx *cli.Context) error {

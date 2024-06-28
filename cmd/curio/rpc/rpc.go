@@ -159,7 +159,7 @@ func (p *CurioAPI) StorageStat(ctx context.Context, id storiface.ID) (fsutil.FsS
 }
 
 func (p *CurioAPI) AllocatePieceToSector(ctx context.Context, maddr address.Address, piece piece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (api.SectorOffset, error) {
-	di, err := market.NewPieceIngester(ctx, p.Deps.DB, p.Deps.Full, maddr, true, time.Minute)
+	di, err := market.NewPieceIngester(ctx, p.Deps.DB, p.Deps.Full, maddr, true, time.Minute, false)
 	if err != nil {
 		return api.SectorOffset{}, xerrors.Errorf("failed to create a piece ingestor")
 	}

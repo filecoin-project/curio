@@ -32,6 +32,10 @@ create table sectors_sdr_pipeline (
     task_id_tree_r bigint,
     after_tree_r bool not null default false,
 
+    -- synthetic proofs (Added in 20240617-synthetic-proofs.sql)
+--     task_id_synth bigint,
+--     after_synth bool not null default false,
+
     -- precommit message sending
     precommit_msg_cid text,
 

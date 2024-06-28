@@ -55,7 +55,7 @@ var sealStartCmd = &cli.Command{
 		&cli.BoolFlag{
 			Name:  "synthetic",
 			Usage: "Use synthetic PoRep",
-			Value: false, // todo implement synthetic
+			Value: false,
 		},
 		&cli.StringSliceFlag{
 			Name:  "layers",
