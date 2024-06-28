@@ -33,20 +33,23 @@ type SubmitPrecommitTaskApi interface {
 	StateMinerPreCommitDepositForPower(context.Context, address.Address, miner.SectorPreCommitInfo, types.TipSetKey) (big.Int, error)
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
 	StateNetworkVersion(context.Context, types.TipSetKey) (network.Version, error)
+	StateMinerAvailableBalance(context.Context, address.Address, types.TipSetKey) (big.Int, error)
 	ctladdr.NodeApi
 }
 
 type SubmitPrecommitTask struct {
-	sp     *SealPoller
-	db     *harmonydb.DB
-	api    SubmitPrecommitTaskApi
-	sender *message.Sender
-	as     *multictladdr.MultiAddressSelector
+	sp                         *SealPoller
+	db                         *harmonydb.DB
+	api                        SubmitPrecommitTaskApi
+	sender                     *message.Sender
+	as                         *multictladdr.MultiAddressSelector
+	CollateralFromMinerBalance bool
+	DisableCollateralFallback  bool
 
 	maxFee types.FIL
 }
 
-func NewSubmitPrecommitTask(sp *SealPoller, db *harmonydb.DB, api SubmitPrecommitTaskApi, sender *message.Sender, as *multictladdr.MultiAddressSelector, maxFee types.FIL) *SubmitPrecommitTask {
+func NewSubmitPrecommitTask(sp *SealPoller, db *harmonydb.DB, api SubmitPrecommitTaskApi, sender *message.Sender, as *multictladdr.MultiAddressSelector, maxFee types.FIL, CollateralFromMinerBalance, DisableCollateralFallback bool) *SubmitPrecommitTask {
 	return &SubmitPrecommitTask{
 		sp:     sp,
 		db:     db,
@@ -54,7 +57,9 @@ func NewSubmitPrecommitTask(sp *SealPoller, db *harmonydb.DB, api SubmitPrecommi
 		sender: sender,
 		as:     as,
 
-		maxFee: maxFee,
+		maxFee:                     maxFee,
+		CollateralFromMinerBalance: CollateralFromMinerBalance,
+		DisableCollateralFallback:  DisableCollateralFallback,
 	}
 }
 
@@ -212,6 +217,22 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		return false, xerrors.Errorf("getting miner info: %w", err)
 	}
 
+	if s.CollateralFromMinerBalance {
+		if s.DisableCollateralFallback {
+			collateral = big.Zero()
+		}
+		balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)
+		if err != nil {
+			if err != nil {
+				return false, xerrors.Errorf("getting miner balance: %w", err)
+			}
+		}
+		collateral = big.Sub(collateral, balance)
+		if collateral.LessThan(big.Zero()) {
+			collateral = big.Zero()
+		}
+	}
+
 	a, _, err := s.as.AddressFor(ctx, s.api, maddr, mi, api.PreCommitAddr, collateral, big.Zero())
 	if err != nil {
 		return false, xerrors.Errorf("getting address for precommit: %w", err)
@@ -222,7 +243,7 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		From:   a,
 		Method: builtin.MethodsMiner.PreCommitSectorBatch2,
 		Params: pbuf.Bytes(),
-		Value:  collateral, // todo config for pulling from miner balance!!
+		Value:  collateral,
 	}
 
 	mss := &api.MessageSendSpec{

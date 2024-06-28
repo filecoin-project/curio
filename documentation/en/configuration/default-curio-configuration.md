@@ -210,6 +210,16 @@ description: The default curio configuration
   # type: types.FIL
   #MaxPublishDealsFee = "0.05 FIL"
 
+  # Whether to use available miner balance for sector collateral instead of sending it with each message
+  #
+  # type: bool
+  #CollateralFromMinerBalance = false
+
+  # Don't send collateral with messages even if there is no available balance in the miner actor
+  #
+  # type: bool
+  #DisableCollateralFallback = false
+
   [Fees.MaxPreCommitBatchGasFee]
     # type: types.FIL
     #Base = "0 FIL"
@@ -260,7 +270,7 @@ description: The default curio configuration
   # blocked (e.g. in case of disconnected NFS mount)
   #
   # type: Duration
-  #SingleCheckTimeout = 600000000000
+  #SingleCheckTimeout = "10m0s"
 
   # Maximum amount of time a proving pre-check can take for an entire partition. If the check times out, sectors in
   # the partition which didn't get checked on time will be skipped
@@ -271,7 +281,7 @@ description: The default curio configuration
   # blocked or slow
   #
   # type: Duration
-  #PartitionCheckTimeout = 1200000000000
+  #PartitionCheckTimeout = "20m0s"
 
   # Disable WindowPoSt provable sector readability checks.
   # 
@@ -377,7 +387,7 @@ description: The default curio configuration
   # Maximum time an open deal sector should wait for more deal before it starts sealing
   #
   # type: Duration
-  #MaxDealWaitTime = 3600000000000
+  #MaxDealWaitTime = "1h0m0s"
 
 
 [Journal]

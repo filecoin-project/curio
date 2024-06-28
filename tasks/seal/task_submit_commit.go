@@ -38,6 +38,7 @@ type SubmitCommitAPI interface {
 	StateSectorPreCommitInfo(context.Context, address.Address, abi.SectorNumber, types.TipSetKey) (*miner.SectorPreCommitOnChainInfo, error)
 	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifregtypes9.AllocationId, tsk types.TipSetKey) (*verifregtypes9.Allocation, error)
 	StateGetAllocationIdForPendingDeal(ctx context.Context, dealId abi.DealID, tsk types.TipSetKey) (verifregtypes9.AllocationId, error)
+	StateMinerAvailableBalance(context.Context, address.Address, types.TipSetKey) (big.Int, error)
 	ctladdr.NodeApi
 }
 
@@ -45,6 +46,8 @@ type commitConfig struct {
 	maxFee                     types.FIL
 	RequireActivationSuccess   bool
 	RequireNotificationSuccess bool
+	CollateralFromMinerBalance bool
+	DisableCollateralFallback  bool
 }
 
 type SubmitCommitTask struct {
@@ -63,6 +66,8 @@ func NewSubmitCommitTask(sp *SealPoller, db *harmonydb.DB, api SubmitCommitAPI, 
 		maxFee:                     cfg.Fees.MaxCommitGasFee,
 		RequireActivationSuccess:   cfg.Subsystems.RequireActivationSuccess,
 		RequireNotificationSuccess: cfg.Subsystems.RequireNotificationSuccess,
+		CollateralFromMinerBalance: cfg.Fees.CollateralFromMinerBalance,
+		DisableCollateralFallback:  cfg.Fees.DisableCollateralFallback,
 	}
 
 	return &SubmitCommitTask{
@@ -229,6 +234,22 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		collateral = big.Zero()
 	}
 
+	if s.cfg.CollateralFromMinerBalance {
+		if s.cfg.DisableCollateralFallback {
+			collateral = big.Zero()
+		}
+		balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)
+		if err != nil {
+			if err != nil {
+				return false, xerrors.Errorf("getting miner balance: %w", err)
+			}
+		}
+		collateral = big.Sub(collateral, balance)
+		if collateral.LessThan(big.Zero()) {
+			collateral = big.Zero()
+		}
+	}
+
 	a, _, err := s.as.AddressFor(ctx, s.api, maddr, mi, api.CommitAddr, collateral, big.Zero())
 	if err != nil {
 		return false, xerrors.Errorf("getting address for precommit: %w", err)
@@ -239,7 +260,7 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		From:   a,
 		Method: builtin.MethodsMiner.ProveCommitSectors3,
 		Params: enc.Bytes(),
-		Value:  collateral, // todo config for pulling from miner balance!!
+		Value:  collateral,
 	}
 
 	mss := &api.MessageSendSpec{
