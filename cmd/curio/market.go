@@ -13,11 +13,11 @@ import (
 
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/reqcontext"
 	"github.com/filecoin-project/curio/market/lmrpc"
 
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	lcli "github.com/filecoin-project/lotus/cli"
 )
 
 var marketCmd = &cli.Command{
@@ -113,7 +113,7 @@ var marketSealCmd = &cli.Command{
 			return xerrors.Errorf("failed to parse the sector number: %w", err)
 		}
 
-		ctx := lcli.ReqContext(cctx)
+		ctx := reqcontext.ReqContext(cctx)
 		dep, err := deps.GetDepsCLI(ctx, cctx)
 		if err != nil {
 			return err
@@ -124,12 +124,12 @@ var marketSealCmd = &cli.Command{
 			return xerrors.Errorf("getting miner id: %w", err)
 		}
 
-		mi, err := dep.Full.StateMinerInfo(ctx, act, types.EmptyTSK)
+		mi, err := dep.Chain.StateMinerInfo(ctx, act, types.EmptyTSK)
 		if err != nil {
 			return xerrors.Errorf("getting miner info: %w", err)
 		}
 
-		nv, err := dep.Full.StateNetworkVersion(ctx, types.EmptyTSK)
+		nv, err := dep.Chain.StateNetworkVersion(ctx, types.EmptyTSK)
 		if err != nil {
 			return xerrors.Errorf("getting network version: %w", err)
 		}

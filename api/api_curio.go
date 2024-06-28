@@ -8,7 +8,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	lapi "github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/api"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
@@ -18,13 +18,13 @@ type Curio interface {
 	// MethodGroup: Curio
 	//The common method group contains administration methods
 
-	Version(context.Context) (lapi.Version, error) //perm:admin
-	Shutdown(context.Context) error                //perm:admin
+	Version(context.Context) (api.Version, error) //perm:admin
+	Shutdown(context.Context) error               //perm:admin
 
 	// MethodGroup: Deal
 	//The deal method group contains method for adding deals to sector
 
-	AllocatePieceToSector(ctx context.Context, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (lapi.SectorOffset, error) //perm:write
+	AllocatePieceToSector(ctx context.Context, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (api.SectorOffset, error) //perm:write
 
 	// MethodGroup: Storage
 	//The storage method group contains are storage administration method

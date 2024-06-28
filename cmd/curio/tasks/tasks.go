@@ -17,6 +17,7 @@ import (
 	"github.com/filecoin-project/go-address"
 
 	"github.com/filecoin-project/curio/alertmanager"
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -34,8 +35,7 @@ import (
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
 
-	"github.com/filecoin-project/lotus/api"
-	lbuild "github.com/filecoin-project/lotus/build"
+	proofparams "github.com/filecoin-project/lotus/build/proof-params"
 	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
@@ -45,7 +45,7 @@ import (
 var log = logging.Logger("curio/deps")
 
 func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.CurioProvingConfig,
-	api api.FullNode, verif storiface.Verifier, paramck func() (bool, error), sender *message.Sender, chainSched *chainsched.CurioChainSched,
+	api api.Chain, verif storiface.Verifier, paramck func() (bool, error), sender *message.Sender, chainSched *chainsched.CurioChainSched,
 	as *multictladdr.MultiAddressSelector, addresses map[dtypes.MinerAddress]bool, db *harmonydb.DB,
 	stor paths.Store, idx paths.SectorIndex, max int) (*window2.WdPostTask, *window2.WdPostSubmitTask, *window2.WdPostRecoverDeclareTask, error) {
 
@@ -73,7 +73,7 @@ func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.Cur
 func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.TaskEngine, error) {
 	cfg := dependencies.Cfg
 	db := dependencies.DB
-	full := dependencies.Full
+	full := dependencies.Chain
 	verif := dependencies.Verif
 	as := dependencies.As
 	maddrs := dependencies.Maddrs
@@ -98,7 +98,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 				for spt := range dependencies.ProofTypes {
 
 					provingSize := uint64(must.One(spt.SectorSize()))
-					err := fastparamfetch.GetParams(context.TODO(), lbuild.ParametersJSON(), lbuild.SrsJSON(), provingSize)
+					err := fastparamfetch.GetParams(context.TODO(), proofparams.ParametersJSON(), proofparams.SrsJSON(), provingSize)
 
 					if err != nil {
 						log.Errorw("failed to fetch params", "error", err)
@@ -175,7 +175,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		activeTasks = append(activeTasks, sealingTasks...)
 	}
 
-	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting)
+	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting, dependencies.Al)
 	activeTasks = append(activeTasks, amTask)
 
 	minerAddresses := make([]string, 0, len(maddrs))
@@ -213,7 +213,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 }
 
 func addSealingTasks(
-	ctx context.Context, hasAnySealingTask bool, db *harmonydb.DB, full api.FullNode, sender *message.Sender,
+	ctx context.Context, hasAnySealingTask bool, db *harmonydb.DB, full api.Chain, sender *message.Sender,
 	as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig, slrLazy *lazy.Lazy[*ffi.SealCalls],
 	asyncParams func() func() (bool, error), si paths.SectorIndex, stor *paths.Remote,
 	bstore curiochain.CurioBlockstore) ([]harmonytask.TaskInterface, error) {

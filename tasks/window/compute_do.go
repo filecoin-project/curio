@@ -23,9 +23,9 @@ import (
 	"github.com/filecoin-project/go-state-types/proof"
 	proof7 "github.com/filecoin-project/specs-actors/v7/actors/runtime/proof"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 
-	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/sealer"
@@ -144,7 +144,7 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 			"height", ts.Height(),
 			"skipped", skipCount)
 
-		tsStart := lbuild.Clock.Now()
+		tsStart := build.Clock.Now()
 
 		mid, err := address.IDFromAddress(maddr)
 		if err != nil {

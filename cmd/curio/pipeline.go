@@ -13,11 +13,11 @@ import (
 	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/reqcontext"
 	"github.com/filecoin-project/curio/tasks/seal"
 
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	lcli "github.com/filecoin-project/lotus/cli"
 	"github.com/filecoin-project/lotus/node/repo"
 )
 
@@ -78,7 +78,7 @@ var sealStartCmd = &cli.Command{
 			return xerrors.Errorf("parsing --actor: %w", err)
 		}
 
-		ctx := lcli.ReqContext(cctx)
+		ctx := reqcontext.ReqContext(cctx)
 		dep, err := deps.GetDepsCLI(ctx, cctx)
 		if err != nil {
 			return err
@@ -102,12 +102,12 @@ var sealStartCmd = &cli.Command{
 			return xerrors.Errorf("getting miner id: %w", err)
 		}
 
-		mi, err := dep.Full.StateMinerInfo(ctx, act, types.EmptyTSK)
+		mi, err := dep.Chain.StateMinerInfo(ctx, act, types.EmptyTSK)
 		if err != nil {
 			return xerrors.Errorf("getting miner info: %w", err)
 		}
 
-		nv, err := dep.Full.StateNetworkVersion(ctx, types.EmptyTSK)
+		nv, err := dep.Chain.StateNetworkVersion(ctx, types.EmptyTSK)
 		if err != nil {
 			return xerrors.Errorf("getting network version: %w", err)
 		}
@@ -118,7 +118,7 @@ var sealStartCmd = &cli.Command{
 			return xerrors.Errorf("getting seal proof type: %w", err)
 		}
 
-		num, err := seal.AllocateSectorNumbers(ctx, dep.Full, dep.DB, act, cctx.Int("count"), func(tx *harmonydb.Tx, numbers []abi.SectorNumber) (bool, error) {
+		num, err := seal.AllocateSectorNumbers(ctx, dep.Chain, dep.DB, act, cctx.Int("count"), func(tx *harmonydb.Tx, numbers []abi.SectorNumber) (bool, error) {
 			for _, n := range numbers {
 				_, err := tx.Exec("insert into sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof) values ($1, $2, $3)", mid, n, spt)
 				if err != nil {
@@ -157,7 +157,7 @@ var sealMigrateLMSectorsCmd = &cli.Command{
 		},
 	},
 	Action: func(cctx *cli.Context) error {
-		ctx := lcli.ReqContext(cctx)
+		ctx := reqcontext.ReqContext(cctx)
 		db, err := deps.MakeDB(cctx)
 		if err != nil {
 			return err

@@ -7,8 +7,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
-
-	lcli "github.com/filecoin-project/lotus/cli"
+	"github.com/filecoin-project/curio/lib/reqcontext"
 )
 
 var logCmd = &cli.Command{
@@ -30,7 +29,7 @@ var LogList = &cli.Command{
 		}
 		defer closer()
 
-		ctx := lcli.ReqContext(cctx)
+		ctx := reqcontext.ReqContext(cctx)
 
 		systems, err := minerApi.LogList(ctx)
 		if err != nil {
@@ -80,7 +79,7 @@ var LogSetLevel = &cli.Command{
 			return err
 		}
 		defer closer()
-		ctx := lcli.ReqContext(cctx)
+		ctx := reqcontext.ReqContext(cctx)
 
 		if !cctx.Args().Present() {
 			return fmt.Errorf("level is required")

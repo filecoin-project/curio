@@ -6,8 +6,7 @@ import (
 	"github.com/urfave/cli/v2"
 
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
-
-	lcli "github.com/filecoin-project/lotus/cli"
+	"github.com/filecoin-project/curio/lib/reqcontext"
 )
 
 var stopCmd = &cli.Command{
@@ -21,7 +20,7 @@ var stopCmd = &cli.Command{
 		}
 		defer closer()
 
-		err = api.Shutdown(lcli.ReqContext(cctx))
+		err = api.Shutdown(reqcontext.ReqContext(cctx))
 		if err != nil {
 			return err
 		}
