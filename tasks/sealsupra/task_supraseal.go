@@ -227,8 +227,8 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		// in each path, write a file indicating that this is a supra-sealed sector, pipeline and slot number
 		bmeta := paths.BatchMeta{
 			SupraSeal:     true,
-			BlockOffset:   int64(slot),
-			NumInPipeline: int64(i),
+			BlockOffset:   slot,
+			NumInPipeline: i,
 
 			BatchSectors: s.sectors,
 		}
