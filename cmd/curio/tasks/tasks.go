@@ -4,6 +4,7 @@ package tasks
 import (
 	"context"
 	"github.com/filecoin-project/curio/tasks/sealsupra"
+	"golang.org/x/xerrors"
 	"sort"
 	"strings"
 	"sync"
@@ -232,7 +233,10 @@ func addSealingTasks(
 
 	// NOTE: Tasks with the LEAST priority are at the top
 	if cfg.Subsystems.EnableBatchSeal {
-		batchSealTask := sealsupra.NewSupraSeal(sp, db, full, sender, as, cfg.Fees.MaxPreCommitGasFee)
+		batchSealTask, err := sealsupra.NewSupraSeal(cfg.Subsystems.BatchSealSectorSize, cfg.Subsystems.BatchSealBatchSize, cfg.Subsystems.BatchSealPipelines)
+		if err != nil {
+			return nil, xerrors.Errorf("setting up batch sealer: %w", err)
+		}
 		activeTasks = append(activeTasks, batchSealTask)
 	}
 

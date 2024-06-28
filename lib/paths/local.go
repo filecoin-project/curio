@@ -998,7 +998,7 @@ func (st *Local) GeneratePoRepVanillaProof(ctx context.Context, sr storiface.Sec
 		// does BatchMetaFile exist in cache?
 		batchMetaPath := filepath.Join(src.Cache, BatchMetaFile)
 		if _, err := os.Stat(batchMetaPath); err == nil {
-			return st.supraPoRepVanillaProof(src)
+			return st.supraPoRepVanillaProof(src, sr, sealed, unsealed, ticket, seed)
 		}
 	}
 
@@ -1042,6 +1042,8 @@ func (st *Local) supraPoRepVanillaProof(src storiface.SectorPaths, sr storiface.
 	// Outputs to cachePath/commit-phase1-output
 	// NOTE: that file is raw, and rust C1 returns a json repr, so we need to translate first
 
+	_ = res
+	panic("not implemented")
 }
 
 var _ Store = &Local{}
