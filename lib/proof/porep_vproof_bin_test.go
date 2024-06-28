@@ -2,6 +2,8 @@ package proof
 
 import (
 	"bytes"
+	"encoding/json"
+	"github.com/filecoin-project/filecoin-ffi/cgo"
 	"os"
 	"testing"
 )
@@ -19,5 +21,16 @@ func TestDecode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Logf("Decoded: %+v", dec)
+	p1o, err := json.Marshal(dec)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var proverID = [32]byte{9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9}
+	pba := cgo.AsByteArray32(proverID[:])
+
+	_, err = cgo.SealCommitPhase2(cgo.AsSliceRefUint8(p1o), uint64(0), &pba)
+	if err != nil {
+		t.Fatal(err)
+	}
 }
