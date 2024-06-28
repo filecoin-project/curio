@@ -263,7 +263,7 @@ func (s *StorageEndpointGC) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	return true, nil
 }
 
-func (s *StorageEndpointGC) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (s *StorageEndpointGC) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	id := ids[0]
 	return &id, nil
 }
@@ -285,4 +285,4 @@ func (s *StorageEndpointGC) Adder(taskFunc harmonytask.AddTaskFunc) {
 	// lazy endpoint, added when bored
 }
 
-var _ harmonytask.TaskInterface = &StorageEndpointGC{}
+var _ harmonytask.FastTask = &StorageEndpointGC{}

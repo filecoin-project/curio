@@ -259,7 +259,7 @@ func entToStr[T any](t T, i int) string {
 	return fmt.Sprint(t)
 }
 
-func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, te *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, te *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	rdy, err := t.paramsReady()
 	if err != nil {
 		return nil, xerrors.Errorf("failed to setup params: %w", err)
@@ -463,7 +463,7 @@ func (t *WdPostTask) addTaskToDB(taskId harmonytask.TaskID, taskIdent wdTaskIden
 	return true, nil
 }
 
-var _ harmonytask.TaskInterface = &WdPostTask{}
+var _ harmonytask.FastTask = &WdPostTask{}
 
 func NewDeadlineInfo(periodStart abi.ChainEpoch, deadlineIdx uint64, currEpoch abi.ChainEpoch) *dline.Info {
 	return dline.NewInfo(periodStart, deadlineIdx, currEpoch, miner.WPoStPeriodDeadlines, miner.WPoStProvingPeriod(), miner.WPoStChallengeWindow(), miner.WPoStChallengeLookback, miner.FaultDeclarationCutoff)

@@ -108,7 +108,7 @@ func (c *CleanupPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	return true, nil
 }
 
-func (c *CleanupPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (c *CleanupPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	// the remove call runs on paths.Remote storage, so it doesn't really matter where it runs
 
 	id := ids[0]
@@ -133,4 +133,4 @@ func (c *CleanupPieceTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	c.TF.Set(taskFunc)
 }
 
-var _ harmonytask.TaskInterface = &CleanupPieceTask{}
+var _ harmonytask.FastTask = &CleanupPieceTask{}

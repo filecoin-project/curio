@@ -144,7 +144,7 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 }
 
-func (a *AlertTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (a *AlertTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	id := ids[0]
 	return &id, nil
 }
@@ -164,7 +164,7 @@ func (a *AlertTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 func (a *AlertTask) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
-var _ harmonytask.TaskInterface = &AlertTask{}
+var _ harmonytask.FastTask = &AlertTask{}
 
 // sendAlert sends an alert to PagerDuty with the provided payload data.
 // It creates a PDData struct with the provided routing key, event action and payload.

@@ -189,7 +189,7 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	return false, xerrors.Errorf("no data URL found for piece_id: %d", pieceData.PieceID)
 }
 
-func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	id := ids[0]
 	return &id, nil
 }
@@ -237,4 +237,4 @@ func (p *ParkPieceTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	p.TF.Set(taskFunc)
 }
 
-var _ harmonytask.TaskInterface = &ParkPieceTask{}
+var _ harmonytask.FastTask = &ParkPieceTask{}

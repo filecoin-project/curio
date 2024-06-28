@@ -103,7 +103,7 @@ func (s *StorageGCSweep) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	}
 }
 
-func (s *StorageGCSweep) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (s *StorageGCSweep) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	id := ids[0]
 	return &id, nil
 }
@@ -124,4 +124,4 @@ func (s *StorageGCSweep) TypeDetails() harmonytask.TaskTypeDetails {
 func (s *StorageGCSweep) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
-var _ harmonytask.TaskInterface = &StorageGCSweep{}
+var _ harmonytask.FastTask = &StorageGCSweep{}

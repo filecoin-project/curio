@@ -223,7 +223,7 @@ func (s *SDRTask) getTicket(ctx context.Context, maddr address.Address) (abi.Sea
 	return abi.SealRandomness(rand), ticketEpoch, nil
 }
 
-func (s *SDRTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (s *SDRTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	id := ids[0]
 	return &id, nil
 }
@@ -274,4 +274,4 @@ func (s *SDRTask) taskToSector(id harmonytask.TaskID) (ffi2.SectorRef, error) {
 	return refs[0], nil
 }
 
-var _ harmonytask.TaskInterface = &SDRTask{}
+var _ harmonytask.FastTask = &SDRTask{}

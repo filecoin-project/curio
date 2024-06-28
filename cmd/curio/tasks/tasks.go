@@ -275,6 +275,7 @@ func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, ma
 	taskNames := lo.Map(activeTasks, func(item harmonytask.TaskInterface, _ int) string {
 		return item.TypeDetails().Name
 	})
+	tasks := "," + strings.Join(taskNames, ",") + ","
 
 	miners := lo.Map(maps.Keys(deps.Maddrs), func(item dtypes.MinerAddress, _ int) string {
 		return address.Address(item).String()
@@ -284,7 +285,7 @@ func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, ma
 	_, err := deps.DB.Exec(context.Background(), `INSERT INTO harmony_machine_details 
 		(tasks, layers, startup_time, miners, machine_id, machine_name) VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (machine_id) DO UPDATE SET tasks=$1, layers=$2, startup_time=$3, miners=$4, machine_id=$5, machine_name=$6`,
-		strings.Join(taskNames, ","), strings.Join(deps.Layers, ","),
+		tasks, strings.Join(deps.Layers, ","),
 		time.Now(), strings.Join(miners, ","), machineID, machineName)
 
 	if err != nil {

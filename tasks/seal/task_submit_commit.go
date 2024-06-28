@@ -390,7 +390,7 @@ func (s *SubmitCommitTask) transferFinalizedSectorData(ctx context.Context, spID
 	return nil
 }
 
-func (s *SubmitCommitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (s *SubmitCommitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	id := ids[0]
 	return &id, nil
 }
@@ -445,4 +445,4 @@ func (s *SubmitCommitTask) allocationCheck(ctx context.Context, piece *miner.Pie
 	return nil
 }
 
-var _ harmonytask.TaskInterface = &SubmitCommitTask{}
+var _ harmonytask.FastTask = &SubmitCommitTask{}

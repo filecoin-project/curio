@@ -34,7 +34,7 @@ type TreeDTask struct {
 	max int
 }
 
-func (t *TreeDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (t *TreeDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	if isDevnet {
 		return &ids[0], nil
 	}
@@ -361,4 +361,4 @@ func (u *UrlPieceReader) Close() error {
 	return nil
 }
 
-var _ harmonytask.TaskInterface = &TreeDTask{}
+var _ harmonytask.FastTask = &TreeDTask{}

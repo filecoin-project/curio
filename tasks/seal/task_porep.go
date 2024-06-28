@@ -141,7 +141,7 @@ func (p *PoRepTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	return true, nil
 }
 
-func (p *PoRepTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (p *PoRepTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	rdy, err := p.paramsReady()
 	if err != nil {
 		return nil, xerrors.Errorf("failed to setup params: %w", err)
@@ -185,4 +185,4 @@ func (p *PoRepTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	p.sp.pollers[pollerPoRep].Set(taskFunc)
 }
 
-var _ harmonytask.TaskInterface = &PoRepTask{}
+var _ harmonytask.FastTask = &PoRepTask{}

@@ -246,7 +246,7 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	return true, nil
 }
 
-func (s *StorageGCMark) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (s *StorageGCMark) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	id := ids[0]
 	return &id, nil
 }
@@ -267,4 +267,4 @@ func (s *StorageGCMark) TypeDetails() harmonytask.TaskTypeDetails {
 func (s *StorageGCMark) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
-var _ harmonytask.TaskInterface = &StorageGCMark{}
+var _ harmonytask.FastTask = &StorageGCMark{}

@@ -47,6 +47,31 @@ type TaskTypeDetails struct {
 	IAmBored func(AddTaskFunc) error
 }
 
+type SchedulingInfo struct {
+	te         *TaskEngine
+	WorkOrigin string
+}
+
+type TaskAndBid struct {
+	TaskID TaskID
+	Bid    int
+}
+
+type BidTask interface {
+	// CanAccept should return bids for the tasks that can run on this machine.
+	// It should return only the tasks allowed on this machine.
+	// It is also responsible for determining & reserving disk space (including scratch).
+	CanAccept([]TaskID, *SchedulingInfo) ([]TaskAndBid, error)
+}
+
+type FastTask interface {
+	// CanAccept should return if the task can run on this machine. It should
+	// return null if the task type is not allowed on this machine.
+	// It should select the task it most wants to accomplish.
+	// It is also responsible for determining & reserving disk space (including scratch).
+	CanAccept([]TaskID, *SchedulingInfo) (*TaskID, error)
+}
+
 // TaskInterface must be implemented in order to have a task used by harmonytask.
 type TaskInterface interface {
 	// Do the task assigned. Call stillOwned before making single-writer-only
@@ -56,12 +81,6 @@ type TaskInterface interface {
 	// Indicate if the task no-longer needs scheduling with done=true including
 	// cases where it's past the deadline.
 	Do(taskID TaskID, stillOwned func() bool) (done bool, err error)
-
-	// CanAccept should return if the task can run on this machine. It should
-	// return null if the task type is not allowed on this machine.
-	// It should select the task it most wants to accomplish.
-	// It is also responsible for determining & reserving disk space (including scratch).
-	CanAccept([]TaskID, *TaskEngine) (*TaskID, error)
 
 	// TypeDetails() returns static details about how this task behaves and
 	// how this machine will run it. Read once at the beginning.
@@ -117,7 +136,6 @@ type TaskEngine struct {
 	// synchronous to the single-threaded poller
 	lastFollowTime time.Time
 	lastCleanup    atomic.Value
-	WorkOrigin     string
 }
 type followStruct struct {
 	f    func(TaskID, AddTaskFunc) (bool, error)
@@ -157,7 +175,13 @@ func New(
 			TaskTypeDetails: c.TypeDetails(),
 			TaskEngine:      e,
 		}
-
+		if _, ok := c.(BidTask); ok {
+			h.Bid = true
+		} else if _, ok := c.(FastTask); ok {
+			h.Bid = false
+		} else {
+			panic("Task must implement BidTask or FastTask")
+		}
 		if len(h.Name) > 16 {
 			return nil, fmt.Errorf("task name too long: %s, max 16 characters", h.Name)
 		}
@@ -180,7 +204,13 @@ func New(
 		for _, w := range taskRet {
 			// edge-case: if old assignments are not available tasks, unlock them.
 			h := e.taskMap[w.Name]
-			if h == nil || !h.considerWork(WorkSourceRecover, []TaskID{TaskID(w.ID)}) {
+			shouldZero := h == nil
+			if h != nil {
+				if w, _ := h.considerWork(WorkSourceRecover, []TaskID{TaskID(w.ID)}); !w {
+					shouldZero = true
+				}
+			}
+			if shouldZero {
 				_, err := db.Exec(e.ctx, `UPDATE harmony_task SET owner_id=NULL WHERE id=$1`, w.ID)
 				if err != nil {
 					log.Errorw("Cannot remove self from owner field", "error", err)
@@ -317,27 +347,29 @@ func (e *TaskEngine) pollerTryAllWork() bool {
 		e.lastCleanup.Store(time.Now())
 		resources.CleanupMachines(e.ctx, e.db)
 	}
+
+	liveBids := false
 	for _, v := range e.handlers {
 		if err := v.AssertMachineHasCapacity(); err != nil {
 			log.Debugf("skipped scheduling %s type tasks on due to %s", v.Name, err.Error())
 			continue
 		}
-		var unownedTasks []TaskID
-		err := e.db.Select(e.ctx, &unownedTasks, `SELECT id 
-			FROM harmony_task
-			WHERE owner_id IS NULL AND name=$1
-			ORDER BY update_time`, v.Name)
+		unownedTasks, err := v.GetUnownedTasks()
 		if err != nil {
 			log.Error("Unable to read work ", err)
 			continue
 		}
 		if len(unownedTasks) > 0 {
-			accepted := v.considerWork(WorkSourcePoller, unownedTasks)
+			accepted, bidded := v.considerWork(WorkSourcePoller, unownedTasks)
 			if accepted {
 				return true // accept new work slowly and in priority order
 			}
+			liveBids = liveBids || bidded
 			log.Warn("Work not accepted for " + strconv.Itoa(len(unownedTasks)) + " " + v.Name + " task(s)")
 		}
+	}
+	if liveBids { // if we put out bids, we are NOT bored.
+		return false
 	}
 	// if no work was accepted, are we bored? Then find work in priority order.
 	for _, v := range e.handlers {
@@ -384,4 +416,12 @@ func (e *TaskEngine) ResourcesAvailable() resources.Resources {
 // Resources returns the resources available in the TaskEngine's registry.
 func (e *TaskEngine) Resources() resources.Resources {
 	return e.reg.Resources
+}
+
+func (s *SchedulingInfo) Resources() resources.Resources {
+	return s.te.Resources()
+}
+
+func (s *SchedulingInfo) ResourcesAvailable() resources.Resources {
+	return s.te.ResourcesAvailable()
 }

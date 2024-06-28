@@ -73,7 +73,7 @@ func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	return true, nil
 }
 
-func (m *MoveStorageTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (m *MoveStorageTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 
 	ctx := context.Background()
 	/*
@@ -175,4 +175,4 @@ func (m *MoveStorageTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	m.sp.pollers[pollerMoveStorage].Set(taskFunc)
 }
 
-var _ harmonytask.TaskInterface = &MoveStorageTask{}
+var _ harmonytask.FastTask = &MoveStorageTask{}

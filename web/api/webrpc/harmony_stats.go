@@ -72,7 +72,7 @@ func (a *WebRPC) HarmonyTaskHistory(ctx context.Context, taskName string) ([]Har
 	hist.completed_by_host_and_port, mach.id as completed_by_machine, hmd.machine_name as completed_by_machine_name
     FROM harmony_task_history hist
     LEFT JOIN harmony_machines mach ON hist.completed_by_host_and_port = mach.host_and_port
-    LEFT JOIN curio.harmony_machine_details hmd on mach.id = hmd.machine_id
+    LEFT JOIN harmony_machine_details hmd on mach.id = hmd.machine_id
     WHERE name = $1 AND work_end > current_timestamp - interval '1 day' ORDER BY work_end DESC LIMIT 30`, taskName)
 	if err != nil {
 		return nil, err
