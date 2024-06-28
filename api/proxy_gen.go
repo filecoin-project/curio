@@ -8,12 +8,22 @@ import (
 	"net/url"
 	"reflect"
 
+	blocks "github.com/ipfs/go-block-format"
+	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/big"
+	verifregtypes "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
+	"github.com/filecoin-project/go-state-types/crypto"
+	"github.com/filecoin-project/go-state-types/dline"
+	"github.com/filecoin-project/go-state-types/network"
 
-	lapi "github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+	"github.com/filecoin-project/lotus/chain/types"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
@@ -27,7 +37,7 @@ type CurioStruct struct {
 }
 
 type CurioMethods struct {
-	AllocatePieceToSector func(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (lapi.SectorOffset, error) `perm:"write"`
+	AllocatePieceToSector func(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (api.SectorOffset, error) `perm:"write"`
 
 	LogList func(p0 context.Context) ([]string, error) `perm:"read"`
 
@@ -51,21 +61,128 @@ type CurioMethods struct {
 
 	StorageStat func(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) `perm:"admin"`
 
-	Version func(p0 context.Context) (lapi.Version, error) `perm:"admin"`
+	Version func(p0 context.Context) (api.Version, error) `perm:"admin"`
 }
 
 type CurioStub struct {
 }
 
-func (s *CurioStruct) AllocatePieceToSector(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (lapi.SectorOffset, error) {
+type CurioChainRPCStruct struct {
+	Internal CurioChainRPCMethods
+}
+
+type CurioChainRPCMethods struct {
+	ChainGetMessage func(p0 context.Context, p1 cid.Cid) (*types.Message, error) ``
+
+	ChainGetTipSet func(p0 context.Context, p1 types.TipSetKey) (*types.TipSet, error) ``
+
+	ChainGetTipSetAfterHeight func(p0 context.Context, p1 abi.ChainEpoch, p2 types.TipSetKey) (*types.TipSet, error) ``
+
+	ChainGetTipSetByHeight func(p0 context.Context, p1 abi.ChainEpoch, p2 types.TipSetKey) (*types.TipSet, error) ``
+
+	ChainHasObj func(p0 context.Context, p1 cid.Cid) (bool, error) ``
+
+	ChainHead func(p0 context.Context) (*types.TipSet, error) ``
+
+	ChainNotify func(p0 context.Context) (<-chan []*api.HeadChange, error) ``
+
+	ChainPutObj func(p0 context.Context, p1 blocks.Block) error ``
+
+	ChainReadObj func(p0 context.Context, p1 cid.Cid) ([]byte, error) ``
+
+	ChainTipSetWeight func(p0 context.Context, p1 types.TipSetKey) (types.BigInt, error) ``
+
+	GasEstimateFeeCap func(p0 context.Context, p1 *types.Message, p2 int64, p3 types.TipSetKey) (types.BigInt, error) ``
+
+	GasEstimateGasPremium func(p0 context.Context, p1 uint64, p2 address.Address, p3 int64, p4 types.TipSetKey) (types.BigInt, error) ``
+
+	GasEstimateMessageGas func(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec, p3 types.TipSetKey) (*types.Message, error) ``
+
+	MinerCreateBlock func(p0 context.Context, p1 *api.BlockTemplate) (*types.BlockMsg, error) ``
+
+	MinerGetBaseInfo func(p0 context.Context, p1 address.Address, p2 abi.ChainEpoch, p3 types.TipSetKey) (*api.MiningBaseInfo, error) ``
+
+	MpoolGetNonce func(p0 context.Context, p1 address.Address) (uint64, error) ``
+
+	MpoolPush func(p0 context.Context, p1 *types.SignedMessage) (cid.Cid, error) ``
+
+	MpoolPushMessage func(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec) (*types.SignedMessage, error) ``
+
+	MpoolSelect func(p0 context.Context, p1 types.TipSetKey, p2 float64) ([]*types.SignedMessage, error) ``
+
+	StateAccountKey func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) ``
+
+	StateGetActor func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*types.Actor, error) ``
+
+	StateGetAllocation func(p0 context.Context, p1 address.Address, p2 verifregtypes.AllocationId, p3 types.TipSetKey) (*verifregtypes.Allocation, error) ``
+
+	StateGetAllocationForPendingDeal func(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (*verifregtypes.Allocation, error) ``
+
+	StateGetAllocationIdForPendingDeal func(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (verifregtypes.AllocationId, error) ``
+
+	StateGetBeaconEntry func(p0 context.Context, p1 abi.ChainEpoch) (*types.BeaconEntry, error) ``
+
+	StateGetRandomnessFromBeacon func(p0 context.Context, p1 crypto.DomainSeparationTag, p2 abi.ChainEpoch, p3 []byte, p4 types.TipSetKey) (abi.Randomness, error) ``
+
+	StateGetRandomnessFromTickets func(p0 context.Context, p1 crypto.DomainSeparationTag, p2 abi.ChainEpoch, p3 []byte, p4 types.TipSetKey) (abi.Randomness, error) ``
+
+	StateLookupID func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) ``
+
+	StateMinerActiveSectors func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) ``
+
+	StateMinerAllocated func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*bitfield.BitField, error) ``
+
+	StateMinerDeadlines func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]api.Deadline, error) `perm:"read"`
+
+	StateMinerInfo func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MinerInfo, error) ``
+
+	StateMinerInitialPledgeCollateral func(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) ``
+
+	StateMinerPartitions func(p0 context.Context, p1 address.Address, p2 uint64, p3 types.TipSetKey) ([]api.Partition, error) ``
+
+	StateMinerPower func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*api.MinerPower, error) `perm:"read"`
+
+	StateMinerPreCommitDepositForPower func(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) ``
+
+	StateMinerProvingDeadline func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*dline.Info, error) ``
+
+	StateMinerSectors func(p0 context.Context, p1 address.Address, p2 *bitfield.BitField, p3 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) ``
+
+	StateNetworkVersion func(p0 context.Context, p1 types.TipSetKey) (network.Version, error) ``
+
+	StateSearchMsg func(p0 context.Context, p1 types.TipSetKey, p2 cid.Cid, p3 abi.ChainEpoch, p4 bool) (*api.MsgLookup, error) ``
+
+	StateSectorGetInfo func(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorOnChainInfo, error) ``
+
+	StateSectorPartition func(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorLocation, error) ``
+
+	StateSectorPreCommitInfo func(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorPreCommitOnChainInfo, error) ``
+
+	SyncSubmitBlock func(p0 context.Context, p1 *types.BlockMsg) error ``
+
+	Version func(p0 context.Context) (api.APIVersion, error) ``
+
+	WalletBalance func(p0 context.Context, p1 address.Address) (big.Int, error) ``
+
+	WalletHas func(p0 context.Context, p1 address.Address) (bool, error) ``
+
+	WalletSign func(p0 context.Context, p1 address.Address, p2 []byte) (*crypto.Signature, error) ``
+
+	WalletSignMessage func(p0 context.Context, p1 address.Address, p2 *types.Message) (*types.SignedMessage, error) ``
+}
+
+type CurioChainRPCStub struct {
+}
+
+func (s *CurioStruct) AllocatePieceToSector(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (api.SectorOffset, error) {
 	if s.Internal.AllocatePieceToSector == nil {
-		return *new(lapi.SectorOffset), ErrNotSupported
+		return *new(api.SectorOffset), ErrNotSupported
 	}
 	return s.Internal.AllocatePieceToSector(p0, p1, p2, p3, p4, p5)
 }
 
-func (s *CurioStub) AllocatePieceToSector(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (lapi.SectorOffset, error) {
-	return *new(lapi.SectorOffset), ErrNotSupported
+func (s *CurioStub) AllocatePieceToSector(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (api.SectorOffset, error) {
+	return *new(api.SectorOffset), ErrNotSupported
 }
 
 func (s *CurioStruct) LogList(p0 context.Context) ([]string, error) {
@@ -189,15 +306,555 @@ func (s *CurioStub) StorageStat(p0 context.Context, p1 storiface.ID) (fsutil.FsS
 	return *new(fsutil.FsStat), ErrNotSupported
 }
 
-func (s *CurioStruct) Version(p0 context.Context) (lapi.Version, error) {
+func (s *CurioStruct) Version(p0 context.Context) (api.Version, error) {
 	if s.Internal.Version == nil {
-		return *new(lapi.Version), ErrNotSupported
+		return *new(api.Version), ErrNotSupported
 	}
 	return s.Internal.Version(p0)
 }
 
-func (s *CurioStub) Version(p0 context.Context) (lapi.Version, error) {
-	return *new(lapi.Version), ErrNotSupported
+func (s *CurioStub) Version(p0 context.Context) (api.Version, error) {
+	return *new(api.Version), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) ChainGetMessage(p0 context.Context, p1 cid.Cid) (*types.Message, error) {
+	if s.Internal.ChainGetMessage == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.ChainGetMessage(p0, p1)
+}
+
+func (s *CurioChainRPCStub) ChainGetMessage(p0 context.Context, p1 cid.Cid) (*types.Message, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) ChainGetTipSet(p0 context.Context, p1 types.TipSetKey) (*types.TipSet, error) {
+	if s.Internal.ChainGetTipSet == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.ChainGetTipSet(p0, p1)
+}
+
+func (s *CurioChainRPCStub) ChainGetTipSet(p0 context.Context, p1 types.TipSetKey) (*types.TipSet, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) ChainGetTipSetAfterHeight(p0 context.Context, p1 abi.ChainEpoch, p2 types.TipSetKey) (*types.TipSet, error) {
+	if s.Internal.ChainGetTipSetAfterHeight == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.ChainGetTipSetAfterHeight(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) ChainGetTipSetAfterHeight(p0 context.Context, p1 abi.ChainEpoch, p2 types.TipSetKey) (*types.TipSet, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) ChainGetTipSetByHeight(p0 context.Context, p1 abi.ChainEpoch, p2 types.TipSetKey) (*types.TipSet, error) {
+	if s.Internal.ChainGetTipSetByHeight == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.ChainGetTipSetByHeight(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) ChainGetTipSetByHeight(p0 context.Context, p1 abi.ChainEpoch, p2 types.TipSetKey) (*types.TipSet, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) ChainHasObj(p0 context.Context, p1 cid.Cid) (bool, error) {
+	if s.Internal.ChainHasObj == nil {
+		return false, ErrNotSupported
+	}
+	return s.Internal.ChainHasObj(p0, p1)
+}
+
+func (s *CurioChainRPCStub) ChainHasObj(p0 context.Context, p1 cid.Cid) (bool, error) {
+	return false, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) ChainHead(p0 context.Context) (*types.TipSet, error) {
+	if s.Internal.ChainHead == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.ChainHead(p0)
+}
+
+func (s *CurioChainRPCStub) ChainHead(p0 context.Context) (*types.TipSet, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) ChainNotify(p0 context.Context) (<-chan []*api.HeadChange, error) {
+	if s.Internal.ChainNotify == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.ChainNotify(p0)
+}
+
+func (s *CurioChainRPCStub) ChainNotify(p0 context.Context) (<-chan []*api.HeadChange, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) ChainPutObj(p0 context.Context, p1 blocks.Block) error {
+	if s.Internal.ChainPutObj == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.ChainPutObj(p0, p1)
+}
+
+func (s *CurioChainRPCStub) ChainPutObj(p0 context.Context, p1 blocks.Block) error {
+	return ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) ChainReadObj(p0 context.Context, p1 cid.Cid) ([]byte, error) {
+	if s.Internal.ChainReadObj == nil {
+		return *new([]byte), ErrNotSupported
+	}
+	return s.Internal.ChainReadObj(p0, p1)
+}
+
+func (s *CurioChainRPCStub) ChainReadObj(p0 context.Context, p1 cid.Cid) ([]byte, error) {
+	return *new([]byte), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) ChainTipSetWeight(p0 context.Context, p1 types.TipSetKey) (types.BigInt, error) {
+	if s.Internal.ChainTipSetWeight == nil {
+		return *new(types.BigInt), ErrNotSupported
+	}
+	return s.Internal.ChainTipSetWeight(p0, p1)
+}
+
+func (s *CurioChainRPCStub) ChainTipSetWeight(p0 context.Context, p1 types.TipSetKey) (types.BigInt, error) {
+	return *new(types.BigInt), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) GasEstimateFeeCap(p0 context.Context, p1 *types.Message, p2 int64, p3 types.TipSetKey) (types.BigInt, error) {
+	if s.Internal.GasEstimateFeeCap == nil {
+		return *new(types.BigInt), ErrNotSupported
+	}
+	return s.Internal.GasEstimateFeeCap(p0, p1, p2, p3)
+}
+
+func (s *CurioChainRPCStub) GasEstimateFeeCap(p0 context.Context, p1 *types.Message, p2 int64, p3 types.TipSetKey) (types.BigInt, error) {
+	return *new(types.BigInt), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) GasEstimateGasPremium(p0 context.Context, p1 uint64, p2 address.Address, p3 int64, p4 types.TipSetKey) (types.BigInt, error) {
+	if s.Internal.GasEstimateGasPremium == nil {
+		return *new(types.BigInt), ErrNotSupported
+	}
+	return s.Internal.GasEstimateGasPremium(p0, p1, p2, p3, p4)
+}
+
+func (s *CurioChainRPCStub) GasEstimateGasPremium(p0 context.Context, p1 uint64, p2 address.Address, p3 int64, p4 types.TipSetKey) (types.BigInt, error) {
+	return *new(types.BigInt), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) GasEstimateMessageGas(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec, p3 types.TipSetKey) (*types.Message, error) {
+	if s.Internal.GasEstimateMessageGas == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.GasEstimateMessageGas(p0, p1, p2, p3)
+}
+
+func (s *CurioChainRPCStub) GasEstimateMessageGas(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec, p3 types.TipSetKey) (*types.Message, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) MinerCreateBlock(p0 context.Context, p1 *api.BlockTemplate) (*types.BlockMsg, error) {
+	if s.Internal.MinerCreateBlock == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.MinerCreateBlock(p0, p1)
+}
+
+func (s *CurioChainRPCStub) MinerCreateBlock(p0 context.Context, p1 *api.BlockTemplate) (*types.BlockMsg, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) MinerGetBaseInfo(p0 context.Context, p1 address.Address, p2 abi.ChainEpoch, p3 types.TipSetKey) (*api.MiningBaseInfo, error) {
+	if s.Internal.MinerGetBaseInfo == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.MinerGetBaseInfo(p0, p1, p2, p3)
+}
+
+func (s *CurioChainRPCStub) MinerGetBaseInfo(p0 context.Context, p1 address.Address, p2 abi.ChainEpoch, p3 types.TipSetKey) (*api.MiningBaseInfo, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) MpoolGetNonce(p0 context.Context, p1 address.Address) (uint64, error) {
+	if s.Internal.MpoolGetNonce == nil {
+		return 0, ErrNotSupported
+	}
+	return s.Internal.MpoolGetNonce(p0, p1)
+}
+
+func (s *CurioChainRPCStub) MpoolGetNonce(p0 context.Context, p1 address.Address) (uint64, error) {
+	return 0, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) MpoolPush(p0 context.Context, p1 *types.SignedMessage) (cid.Cid, error) {
+	if s.Internal.MpoolPush == nil {
+		return *new(cid.Cid), ErrNotSupported
+	}
+	return s.Internal.MpoolPush(p0, p1)
+}
+
+func (s *CurioChainRPCStub) MpoolPush(p0 context.Context, p1 *types.SignedMessage) (cid.Cid, error) {
+	return *new(cid.Cid), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) MpoolPushMessage(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec) (*types.SignedMessage, error) {
+	if s.Internal.MpoolPushMessage == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.MpoolPushMessage(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) MpoolPushMessage(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec) (*types.SignedMessage, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) MpoolSelect(p0 context.Context, p1 types.TipSetKey, p2 float64) ([]*types.SignedMessage, error) {
+	if s.Internal.MpoolSelect == nil {
+		return *new([]*types.SignedMessage), ErrNotSupported
+	}
+	return s.Internal.MpoolSelect(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) MpoolSelect(p0 context.Context, p1 types.TipSetKey, p2 float64) ([]*types.SignedMessage, error) {
+	return *new([]*types.SignedMessage), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateAccountKey(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) {
+	if s.Internal.StateAccountKey == nil {
+		return *new(address.Address), ErrNotSupported
+	}
+	return s.Internal.StateAccountKey(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateAccountKey(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) {
+	return *new(address.Address), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateGetActor(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*types.Actor, error) {
+	if s.Internal.StateGetActor == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateGetActor(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateGetActor(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*types.Actor, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateGetAllocation(p0 context.Context, p1 address.Address, p2 verifregtypes.AllocationId, p3 types.TipSetKey) (*verifregtypes.Allocation, error) {
+	if s.Internal.StateGetAllocation == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateGetAllocation(p0, p1, p2, p3)
+}
+
+func (s *CurioChainRPCStub) StateGetAllocation(p0 context.Context, p1 address.Address, p2 verifregtypes.AllocationId, p3 types.TipSetKey) (*verifregtypes.Allocation, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateGetAllocationForPendingDeal(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (*verifregtypes.Allocation, error) {
+	if s.Internal.StateGetAllocationForPendingDeal == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateGetAllocationForPendingDeal(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateGetAllocationForPendingDeal(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (*verifregtypes.Allocation, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateGetAllocationIdForPendingDeal(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (verifregtypes.AllocationId, error) {
+	if s.Internal.StateGetAllocationIdForPendingDeal == nil {
+		return *new(verifregtypes.AllocationId), ErrNotSupported
+	}
+	return s.Internal.StateGetAllocationIdForPendingDeal(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateGetAllocationIdForPendingDeal(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (verifregtypes.AllocationId, error) {
+	return *new(verifregtypes.AllocationId), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateGetBeaconEntry(p0 context.Context, p1 abi.ChainEpoch) (*types.BeaconEntry, error) {
+	if s.Internal.StateGetBeaconEntry == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateGetBeaconEntry(p0, p1)
+}
+
+func (s *CurioChainRPCStub) StateGetBeaconEntry(p0 context.Context, p1 abi.ChainEpoch) (*types.BeaconEntry, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateGetRandomnessFromBeacon(p0 context.Context, p1 crypto.DomainSeparationTag, p2 abi.ChainEpoch, p3 []byte, p4 types.TipSetKey) (abi.Randomness, error) {
+	if s.Internal.StateGetRandomnessFromBeacon == nil {
+		return *new(abi.Randomness), ErrNotSupported
+	}
+	return s.Internal.StateGetRandomnessFromBeacon(p0, p1, p2, p3, p4)
+}
+
+func (s *CurioChainRPCStub) StateGetRandomnessFromBeacon(p0 context.Context, p1 crypto.DomainSeparationTag, p2 abi.ChainEpoch, p3 []byte, p4 types.TipSetKey) (abi.Randomness, error) {
+	return *new(abi.Randomness), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateGetRandomnessFromTickets(p0 context.Context, p1 crypto.DomainSeparationTag, p2 abi.ChainEpoch, p3 []byte, p4 types.TipSetKey) (abi.Randomness, error) {
+	if s.Internal.StateGetRandomnessFromTickets == nil {
+		return *new(abi.Randomness), ErrNotSupported
+	}
+	return s.Internal.StateGetRandomnessFromTickets(p0, p1, p2, p3, p4)
+}
+
+func (s *CurioChainRPCStub) StateGetRandomnessFromTickets(p0 context.Context, p1 crypto.DomainSeparationTag, p2 abi.ChainEpoch, p3 []byte, p4 types.TipSetKey) (abi.Randomness, error) {
+	return *new(abi.Randomness), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateLookupID(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) {
+	if s.Internal.StateLookupID == nil {
+		return *new(address.Address), ErrNotSupported
+	}
+	return s.Internal.StateLookupID(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateLookupID(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) {
+	return *new(address.Address), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateMinerActiveSectors(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) {
+	if s.Internal.StateMinerActiveSectors == nil {
+		return *new([]*miner.SectorOnChainInfo), ErrNotSupported
+	}
+	return s.Internal.StateMinerActiveSectors(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateMinerActiveSectors(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) {
+	return *new([]*miner.SectorOnChainInfo), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateMinerAllocated(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*bitfield.BitField, error) {
+	if s.Internal.StateMinerAllocated == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateMinerAllocated(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateMinerAllocated(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*bitfield.BitField, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateMinerDeadlines(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]api.Deadline, error) {
+	if s.Internal.StateMinerDeadlines == nil {
+		return *new([]api.Deadline), ErrNotSupported
+	}
+	return s.Internal.StateMinerDeadlines(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateMinerDeadlines(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]api.Deadline, error) {
+	return *new([]api.Deadline), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateMinerInfo(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MinerInfo, error) {
+	if s.Internal.StateMinerInfo == nil {
+		return *new(api.MinerInfo), ErrNotSupported
+	}
+	return s.Internal.StateMinerInfo(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateMinerInfo(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MinerInfo, error) {
+	return *new(api.MinerInfo), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateMinerInitialPledgeCollateral(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) {
+	if s.Internal.StateMinerInitialPledgeCollateral == nil {
+		return *new(big.Int), ErrNotSupported
+	}
+	return s.Internal.StateMinerInitialPledgeCollateral(p0, p1, p2, p3)
+}
+
+func (s *CurioChainRPCStub) StateMinerInitialPledgeCollateral(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) {
+	return *new(big.Int), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateMinerPartitions(p0 context.Context, p1 address.Address, p2 uint64, p3 types.TipSetKey) ([]api.Partition, error) {
+	if s.Internal.StateMinerPartitions == nil {
+		return *new([]api.Partition), ErrNotSupported
+	}
+	return s.Internal.StateMinerPartitions(p0, p1, p2, p3)
+}
+
+func (s *CurioChainRPCStub) StateMinerPartitions(p0 context.Context, p1 address.Address, p2 uint64, p3 types.TipSetKey) ([]api.Partition, error) {
+	return *new([]api.Partition), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateMinerPower(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*api.MinerPower, error) {
+	if s.Internal.StateMinerPower == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateMinerPower(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateMinerPower(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*api.MinerPower, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateMinerPreCommitDepositForPower(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) {
+	if s.Internal.StateMinerPreCommitDepositForPower == nil {
+		return *new(big.Int), ErrNotSupported
+	}
+	return s.Internal.StateMinerPreCommitDepositForPower(p0, p1, p2, p3)
+}
+
+func (s *CurioChainRPCStub) StateMinerPreCommitDepositForPower(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) {
+	return *new(big.Int), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateMinerProvingDeadline(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*dline.Info, error) {
+	if s.Internal.StateMinerProvingDeadline == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateMinerProvingDeadline(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateMinerProvingDeadline(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*dline.Info, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateMinerSectors(p0 context.Context, p1 address.Address, p2 *bitfield.BitField, p3 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) {
+	if s.Internal.StateMinerSectors == nil {
+		return *new([]*miner.SectorOnChainInfo), ErrNotSupported
+	}
+	return s.Internal.StateMinerSectors(p0, p1, p2, p3)
+}
+
+func (s *CurioChainRPCStub) StateMinerSectors(p0 context.Context, p1 address.Address, p2 *bitfield.BitField, p3 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) {
+	return *new([]*miner.SectorOnChainInfo), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateNetworkVersion(p0 context.Context, p1 types.TipSetKey) (network.Version, error) {
+	if s.Internal.StateNetworkVersion == nil {
+		return *new(network.Version), ErrNotSupported
+	}
+	return s.Internal.StateNetworkVersion(p0, p1)
+}
+
+func (s *CurioChainRPCStub) StateNetworkVersion(p0 context.Context, p1 types.TipSetKey) (network.Version, error) {
+	return *new(network.Version), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateSearchMsg(p0 context.Context, p1 types.TipSetKey, p2 cid.Cid, p3 abi.ChainEpoch, p4 bool) (*api.MsgLookup, error) {
+	if s.Internal.StateSearchMsg == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateSearchMsg(p0, p1, p2, p3, p4)
+}
+
+func (s *CurioChainRPCStub) StateSearchMsg(p0 context.Context, p1 types.TipSetKey, p2 cid.Cid, p3 abi.ChainEpoch, p4 bool) (*api.MsgLookup, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateSectorGetInfo(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorOnChainInfo, error) {
+	if s.Internal.StateSectorGetInfo == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateSectorGetInfo(p0, p1, p2, p3)
+}
+
+func (s *CurioChainRPCStub) StateSectorGetInfo(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorOnChainInfo, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateSectorPartition(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorLocation, error) {
+	if s.Internal.StateSectorPartition == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateSectorPartition(p0, p1, p2, p3)
+}
+
+func (s *CurioChainRPCStub) StateSectorPartition(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorLocation, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateSectorPreCommitInfo(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorPreCommitOnChainInfo, error) {
+	if s.Internal.StateSectorPreCommitInfo == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateSectorPreCommitInfo(p0, p1, p2, p3)
+}
+
+func (s *CurioChainRPCStub) StateSectorPreCommitInfo(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorPreCommitOnChainInfo, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) SyncSubmitBlock(p0 context.Context, p1 *types.BlockMsg) error {
+	if s.Internal.SyncSubmitBlock == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.SyncSubmitBlock(p0, p1)
+}
+
+func (s *CurioChainRPCStub) SyncSubmitBlock(p0 context.Context, p1 *types.BlockMsg) error {
+	return ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) Version(p0 context.Context) (api.APIVersion, error) {
+	if s.Internal.Version == nil {
+		return *new(api.APIVersion), ErrNotSupported
+	}
+	return s.Internal.Version(p0)
+}
+
+func (s *CurioChainRPCStub) Version(p0 context.Context) (api.APIVersion, error) {
+	return *new(api.APIVersion), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) WalletBalance(p0 context.Context, p1 address.Address) (big.Int, error) {
+	if s.Internal.WalletBalance == nil {
+		return *new(big.Int), ErrNotSupported
+	}
+	return s.Internal.WalletBalance(p0, p1)
+}
+
+func (s *CurioChainRPCStub) WalletBalance(p0 context.Context, p1 address.Address) (big.Int, error) {
+	return *new(big.Int), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) WalletHas(p0 context.Context, p1 address.Address) (bool, error) {
+	if s.Internal.WalletHas == nil {
+		return false, ErrNotSupported
+	}
+	return s.Internal.WalletHas(p0, p1)
+}
+
+func (s *CurioChainRPCStub) WalletHas(p0 context.Context, p1 address.Address) (bool, error) {
+	return false, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) WalletSign(p0 context.Context, p1 address.Address, p2 []byte) (*crypto.Signature, error) {
+	if s.Internal.WalletSign == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.WalletSign(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) WalletSign(p0 context.Context, p1 address.Address, p2 []byte) (*crypto.Signature, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) WalletSignMessage(p0 context.Context, p1 address.Address, p2 *types.Message) (*types.SignedMessage, error) {
+	if s.Internal.WalletSignMessage == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.WalletSignMessage(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) WalletSignMessage(p0 context.Context, p1 address.Address, p2 *types.Message) (*types.SignedMessage, error) {
+	return nil, ErrNotSupported
 }
 
 var _ Curio = new(CurioStruct)
+var _ CurioChainRPC = new(CurioChainRPCStruct)

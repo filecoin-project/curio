@@ -75,7 +75,7 @@ func (c *cfg) terminateSectors(w http.ResponseWriter, r *http.Request) {
 	apihelper.OrHTTPFail(w, err)
 
 	for m, sectorList := range del {
-		mi, err := c.Full.StateMinerInfo(r.Context(), m.Addr, types.EmptyTSK)
+		mi, err := c.Chain.StateMinerInfo(r.Context(), m.Addr, types.EmptyTSK)
 		apihelper.OrHTTPFail(w, err)
 		var term []int
 		for _, s := range sectorList {
@@ -83,7 +83,7 @@ func (c *cfg) terminateSectors(w http.ResponseWriter, r *http.Request) {
 				term = append(term, int(s.Sector))
 			}
 		}
-		_, err = spcli.TerminateSectors(r.Context(), c.Full, m.Addr, term, mi.Worker)
+		_, err = spcli.TerminateSectors(r.Context(), c.Chain, m.Addr, term, mi.Worker)
 		apihelper.OrHTTPFail(w, err)
 		for _, s := range sectorList {
 			id := abi.SectorID{Miner: m.ID, Number: s.Sector}
@@ -133,7 +133,7 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 		GROUP BY miner_id, sector_num 
 		ORDER BY miner_id, sector_num`))
 	minerToAddr := map[int64]address.Address{}
-	head, err := c.Full.ChainHead(r.Context())
+	head, err := c.Chain.ChainHead(r.Context())
 	apihelper.OrHTTPFail(w, err)
 
 	type sectorID struct {
@@ -368,7 +368,7 @@ func (c *cfg) getCachedSectorInfo(w http.ResponseWriter, r *http.Request, maddr 
 		mx.Unlock()
 
 		// Intentionally not using the context from the request, as this is a cache
-		onChainInfo, err := c.Full.StateMinerSectors(context.Background(), maddr, nil, headKey)
+		onChainInfo, err := c.Chain.StateMinerSectors(context.Background(), maddr, nil, headKey)
 		if err != nil {
 			mx.Lock()
 			delete(sectorInfoCache, maddr)
@@ -376,7 +376,7 @@ func (c *cfg) getCachedSectorInfo(w http.ResponseWriter, r *http.Request, maddr 
 			mx.Unlock()
 			return nil, err
 		}
-		active, err := c.Full.StateMinerActiveSectors(context.Background(), maddr, headKey)
+		active, err := c.Chain.StateMinerActiveSectors(context.Background(), maddr, headKey)
 		if err != nil {
 			mx.Lock()
 			delete(sectorInfoCache, maddr)
@@ -416,17 +416,17 @@ func (c *cfg) getCachedSectorInfo(w http.ResponseWriter, r *http.Request, maddr 
 func (c *cfg) shouldTerminate(ctx context.Context, smap map[minerDetail][]sec) (map[minerDetail][]sec, error) {
 	ret := make(map[minerDetail][]sec)
 
-	head, err := c.Full.ChainHead(ctx)
+	head, err := c.Chain.ChainHead(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	for m, sectors := range smap {
-		mact, err := c.Full.StateGetActor(ctx, m.Addr, head.Key())
+		mact, err := c.Chain.StateGetActor(ctx, m.Addr, head.Key())
 		if err != nil {
 			return nil, err
 		}
-		tbs := blockstore.NewTieredBstore(blockstore.NewAPIBlockstore(c.Full), blockstore.NewMemory())
+		tbs := blockstore.NewTieredBstore(blockstore.NewAPIBlockstore(c.Chain), blockstore.NewMemory())
 		mas, err := miner.Load(adt.WrapStore(ctx, cbor.NewCborStore(tbs)), mact)
 		if err != nil {
 			return nil, err

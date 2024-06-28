@@ -1,6 +1,7 @@
 package hapi
 
 import (
+	"context"
 	"embed"
 	"text/template"
 
@@ -9,7 +10,10 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/curiochain"
 
+	"github.com/filecoin-project/lotus/blockstore"
+	"github.com/filecoin-project/lotus/chain/store"
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
@@ -23,13 +27,12 @@ func Routes(r *mux.Router, deps *deps.Deps) error {
 	}
 
 	a := &app{
-		db: deps.DB,
-		t:  t,
-
-		sectorIndex: deps.Si,
+		db:   deps.DB,
+		t:    t,
+		deps: deps,
+		stor: store.ActorStore(context.Background(), blockstore.NewReadCachedBlockstore(blockstore.NewAPIBlockstore(deps.Chain), curiochain.ChainBlockCache)),
 	}
 
-	go a.watchRpc()
 	go a.watchActor()
 
 	// index page (simple info)

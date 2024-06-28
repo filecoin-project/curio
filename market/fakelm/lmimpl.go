@@ -16,12 +16,13 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/network"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/market"
 
-	"github.com/filecoin-project/lotus/api"
+	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	sealing "github.com/filecoin-project/lotus/storage/pipeline"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
@@ -30,7 +31,7 @@ import (
 
 type LMRPCProvider struct {
 	si   paths.SectorIndex
-	full api.FullNode
+	full api.Chain
 
 	maddr   address.Address // lotus-miner RPC is single-actor
 	minerID abi.ActorID
@@ -42,7 +43,7 @@ type LMRPCProvider struct {
 	conf *config.CurioConfig
 }
 
-func NewLMRPCProvider(si paths.SectorIndex, full api.FullNode, maddr address.Address, minerID abi.ActorID, ssize abi.SectorSize, pi market.Ingester, db *harmonydb.DB, conf *config.CurioConfig) *LMRPCProvider {
+func NewLMRPCProvider(si paths.SectorIndex, full api.Chain, maddr address.Address, minerID abi.ActorID, ssize abi.SectorSize, pi market.Ingester, db *harmonydb.DB, conf *config.CurioConfig) *LMRPCProvider {
 	return &LMRPCProvider{
 		si:      si,
 		full:    full,
@@ -64,7 +65,7 @@ func (l *LMRPCProvider) WorkerJobs(ctx context.Context) (map[uuid.UUID][]storifa
 	return map[uuid.UUID][]storiface.WorkerJob{}, nil
 }
 
-func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber, showOnChainInfo bool) (api.SectorInfo, error) {
+func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber, showOnChainInfo bool) (lapi.SectorInfo, error) {
 	var ssip []struct {
 		PieceCID *string `db:"piece_cid"`
 		DealID   *int64  `db:"f05_deal_id"`
@@ -144,7 +145,7 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 						UNION ALL
 						SELECT * FROM FallbackPieces;`, l.minerID, sid)
 	if err != nil {
-		return api.SectorInfo{}, err
+		return lapi.SectorInfo{}, err
 	}
 
 	var deals []abi.DealID
@@ -158,18 +159,18 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 
 	spt, err := miner.SealProofTypeFromSectorSize(l.ssize, network.Version20, false) // good enough, just need this for ssize anyways
 	if err != nil {
-		return api.SectorInfo{}, err
+		return lapi.SectorInfo{}, err
 	}
 
-	ret := api.SectorInfo{
+	ret := lapi.SectorInfo{
 		SectorID:             sid,
 		CommD:                nil,
 		CommR:                nil,
 		Proof:                nil,
 		Deals:                deals,
 		Pieces:               nil,
-		Ticket:               api.SealTicket{},
-		Seed:                 api.SealSeed{},
+		Ticket:               lapi.SealTicket{},
+		Seed:                 lapi.SealSeed{},
 		PreCommitMsg:         nil,
 		CommitMsg:            nil,
 		Retries:              0,
@@ -190,26 +191,26 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 	// If no rows found i.e. sector doesn't exist in DB
 
 	if len(ssip) == 0 {
-		ret.State = api.SectorState(sealing.UndefinedSectorState)
+		ret.State = lapi.SectorState(sealing.UndefinedSectorState)
 		return ret, nil
 	}
 	currentSSIP := ssip[0]
 
 	switch {
 	case currentSSIP.Failed:
-		ret.State = api.SectorState(sealing.FailedUnrecoverable)
+		ret.State = lapi.SectorState(sealing.FailedUnrecoverable)
 	case !currentSSIP.SDR:
-		ret.State = api.SectorState(sealing.PreCommit1)
+		ret.State = lapi.SectorState(sealing.PreCommit1)
 	case currentSSIP.SDR && !currentSSIP.Tree:
-		ret.State = api.SectorState(sealing.PreCommit2)
+		ret.State = lapi.SectorState(sealing.PreCommit2)
 	case currentSSIP.SDR && currentSSIP.Tree && !currentSSIP.PoRep:
-		ret.State = api.SectorState(sealing.Committing)
+		ret.State = lapi.SectorState(sealing.Committing)
 	case currentSSIP.SDR && currentSSIP.Tree && currentSSIP.PoRep && !currentSSIP.Complete:
-		ret.State = api.SectorState(sealing.FinalizeSector)
+		ret.State = lapi.SectorState(sealing.FinalizeSector)
 	case currentSSIP.Complete:
-		ret.State = api.SectorState(sealing.Proving)
+		ret.State = lapi.SectorState(sealing.Proving)
 	default:
-		return api.SectorInfo{}, nil
+		return lapi.SectorInfo{}, nil
 	}
 	return ret, nil
 }
@@ -239,7 +240,7 @@ type sectorParts struct {
 	inStorage               bool
 }
 
-func (l *LMRPCProvider) SectorsSummary(ctx context.Context) (map[api.SectorState]int, error) {
+func (l *LMRPCProvider) SectorsSummary(ctx context.Context) (map[lapi.SectorState]int, error) {
 	decls, err := l.si.StorageList(ctx)
 	if err != nil {
 		return nil, err
@@ -266,21 +267,21 @@ func (l *LMRPCProvider) SectorsSummary(ctx context.Context) (map[api.SectorState
 		}
 	}
 
-	out := map[api.SectorState]int{}
+	out := map[lapi.SectorState]int{}
 	for _, state := range states {
 		switch {
 		case state.sealed && state.inStorage:
-			out[api.SectorState(sealing.Proving)]++
+			out[lapi.SectorState(sealing.Proving)]++
 		default:
 			// not even close to correct, but good enough for now
-			out[api.SectorState(sealing.PreCommit1)]++
+			out[lapi.SectorState(sealing.PreCommit1)]++
 		}
 	}
 
 	return out, nil
 }
 
-func (l *LMRPCProvider) SectorsListInStates(ctx context.Context, want []api.SectorState) ([]abi.SectorNumber, error) {
+func (l *LMRPCProvider) SectorsListInStates(ctx context.Context, want []lapi.SectorState) ([]abi.SectorNumber, error) {
 	decls, err := l.si.StorageList(ctx)
 	if err != nil {
 		return nil, err
@@ -289,9 +290,9 @@ func (l *LMRPCProvider) SectorsListInStates(ctx context.Context, want []api.Sect
 	wantProving, wantPrecommit1 := false, false
 	for _, s := range want {
 		switch s {
-		case api.SectorState(sealing.Proving):
+		case lapi.SectorState(sealing.Proving):
 			wantProving = true
-		case api.SectorState(sealing.PreCommit1):
+		case lapi.SectorState(sealing.PreCommit1):
 			wantPrecommit1 = true
 		}
 	}
@@ -359,15 +360,15 @@ func (l *LMRPCProvider) ComputeDataCid(ctx context.Context, pieceSize abi.Unpadd
 	return abi.PieceInfo{}, xerrors.Errorf("not supported")
 }
 
-func (l *LMRPCProvider) SectorAddPieceToAny(ctx context.Context, size abi.UnpaddedPieceSize, r storiface.Data, d api.PieceDealInfo) (api.SectorOffset, error) {
+func (l *LMRPCProvider) SectorAddPieceToAny(ctx context.Context, size abi.UnpaddedPieceSize, r storiface.Data, d lapi.PieceDealInfo) (lapi.SectorOffset, error) {
 	if d.DealProposal.PieceSize != abi.PaddedPieceSize(l.ssize) {
-		return api.SectorOffset{}, xerrors.Errorf("only full-sector pieces are supported")
+		return lapi.SectorOffset{}, xerrors.Errorf("only full-sector pieces are supported")
 	}
 
-	return api.SectorOffset{}, xerrors.Errorf("not supported, use AllocatePieceToSector")
+	return lapi.SectorOffset{}, xerrors.Errorf("not supported, use AllocatePieceToSector")
 }
 
-func (l *LMRPCProvider) AllocatePieceToSector(ctx context.Context, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (api.SectorOffset, error) {
+func (l *LMRPCProvider) AllocatePieceToSector(ctx context.Context, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (lapi.SectorOffset, error) {
 	return l.pi.AllocatePieceToSector(ctx, maddr, piece, rawSize, source, header)
 }
 

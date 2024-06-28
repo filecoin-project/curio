@@ -71,7 +71,7 @@ var wdPostTaskCmd = &cli.Command{
 			return xerrors.Errorf("get config: %w", err)
 		}
 
-		ts, err := deps.Full.ChainHead(ctx)
+		ts, err := deps.Chain.ChainHead(ctx)
 		if err != nil {
 			return xerrors.Errorf("cannot get chainhead %w", err)
 		}
@@ -207,7 +207,7 @@ It will not send any messages to the chain. Since it can compute any deadline, o
 		}
 
 		wdPostTask, wdPoStSubmitTask, derlareRecoverTask, err := tasks.WindowPostScheduler(
-			ctx, deps.Cfg.Fees, deps.Cfg.Proving, deps.Full, deps.Verif, nil, nil, nil,
+			ctx, deps.Cfg.Fees, deps.Cfg.Proving, deps.Chain, deps.Verif, nil, nil, nil,
 			deps.As, deps.Maddrs, deps.DB, deps.Stor, deps.Si, deps.Cfg.Subsystems.WindowPostMaxTasks)
 		if err != nil {
 			return err
@@ -217,7 +217,7 @@ It will not send any messages to the chain. Since it can compute any deadline, o
 		if len(deps.Maddrs) == 0 {
 			return errors.New("no miners to compute WindowPoSt for")
 		}
-		head, err := deps.Full.ChainHead(ctx)
+		head, err := deps.Chain.ChainHead(ctx)
 		if err != nil {
 			return xerrors.Errorf("failed to get chain head: %w", err)
 		}

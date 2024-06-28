@@ -10,7 +10,6 @@ import (
 	"github.com/BurntSushi/toml"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/lotus/api/client"
 	lbuild "github.com/filecoin-project/lotus/build"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
@@ -123,28 +122,13 @@ func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
 				defer infosLk.Unlock()
 				infos[ai.Addr] = myinfo
 			}()
-			da, err := ai.DialArgs("v1")
-			if err != nil {
-				log.Warnw("DialArgs", "error", err)
-				return
-			}
-
-			ah := ai.AuthHeader()
-
-			v1api, closer, err := client.NewFullNodeRPCV1(ctx, da, ah)
-			if err != nil {
-				log.Warnf("Not able to establish connection to node with addr: %s", ai.Addr)
-				return
-			}
-			defer closer()
-
-			ver, err := v1api.Version(ctx)
+			ver, err := a.deps.Chain.Version(ctx)
 			if err != nil {
 				log.Warnw("Version", "error", err)
 				return
 			}
 
-			head, err := v1api.ChainHead(ctx)
+			head, err := a.deps.Chain.ChainHead(ctx)
 			if err != nil {
 				log.Warnw("ChainHead", "error", err)
 				return

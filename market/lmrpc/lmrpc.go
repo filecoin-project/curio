@@ -23,13 +23,14 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/paths"
 	cumarket "github.com/filecoin-project/curio/market"
 	"github.com/filecoin-project/curio/market/fakelm"
 
-	"github.com/filecoin-project/lotus/api"
+	lapi "github.com/filecoin-project/lotus/api"
 	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/lib/nullreader"
@@ -43,7 +44,7 @@ var log = logging.Logger("lmrpc")
 
 const backpressureWaitTime = 30 * time.Second
 
-func ServeCurioMarketRPCFromConfig(db *harmonydb.DB, full api.FullNode, cfg *config.CurioConfig) error {
+func ServeCurioMarketRPCFromConfig(db *harmonydb.DB, full api.Chain, cfg *config.CurioConfig) error {
 	return forEachMarketRPC(cfg, func(maddr string, listen string) error {
 		addr, err := address.NewFromString(maddr)
 		if err != nil {
@@ -79,7 +80,7 @@ func MakeTokens(cfg *config.CurioConfig) (map[address.Address]string, error) {
 		// need minimal provider with just the config
 		lp := fakelm.NewLMRPCProvider(nil, nil, address.Undef, 0, 0, nil, nil, cfg)
 
-		tok, err := lp.AuthNew(ctx, api.AllPermissions)
+		tok, err := lp.AuthNew(ctx, lapi.AllPermissions)
 		if err != nil {
 			return err
 		}
@@ -150,7 +151,7 @@ func forEachMarketRPC(cfg *config.CurioConfig, cb func(string, string) error) er
 	return nil
 }
 
-func ServeCurioMarketRPC(db *harmonydb.DB, full api.FullNode, maddr address.Address, conf *config.CurioConfig, listen string) error {
+func ServeCurioMarketRPC(db *harmonydb.DB, full api.Chain, maddr address.Address, conf *config.CurioConfig, listen string) error {
 	ctx := context.Background()
 
 	pin, err := cumarket.NewPieceIngester(ctx, db, full, maddr, false, time.Duration(conf.Ingest.MaxDealWaitTime))
@@ -185,12 +186,12 @@ func ServeCurioMarketRPC(db *harmonydb.DB, full api.FullNode, maddr address.Addr
 		Host:   laddr.String(),
 	}
 
-	ast := api.StorageMinerStruct{}
+	ast := lapi.StorageMinerStruct{}
 
-	ast.CommonStruct.Internal.Version = func(ctx context.Context) (api.APIVersion, error) {
-		return api.APIVersion{
+	ast.CommonStruct.Internal.Version = func(ctx context.Context) (lapi.APIVersion, error) {
+		return lapi.APIVersion{
 			Version:    "curio-proxy-v0",
-			APIVersion: api.MinerAPIVersion0,
+			APIVersion: lapi.MinerAPIVersion0,
 			BlockDelay: lbuild.BlockDelaySecs,
 		}, nil
 	}
@@ -279,7 +280,7 @@ func ServeCurioMarketRPC(db *harmonydb.DB, full api.FullNode, maddr address.Addr
 		log.Infow("piece served", "piece_uuid", pu, "size", float64(n)/(1024*1024), "duration", took, "speed", mbps)
 	}
 
-	finalApi := proxy.LoggingAPI[api.StorageMiner, api.StorageMinerStruct](&ast)
+	finalApi := proxy.LoggingAPI[lapi.StorageMiner, lapi.StorageMinerStruct](&ast)
 
 	mh, err := node.MinerHandler(finalApi, false) // todo permissioned
 	if err != nil {
@@ -307,10 +308,10 @@ type pieceInfo struct {
 	done chan struct{}
 }
 
-func sectorAddPieceToAnyOperation(maddr address.Address, rootUrl url.URL, conf *config.CurioConfig, pieceInfoLk *sync.Mutex, pieceInfos map[uuid.UUID][]pieceInfo, pin *cumarket.PieceIngester, db *harmonydb.DB, ssize abi.SectorSize) func(ctx context.Context, pieceSize abi.UnpaddedPieceSize, pieceData storiface.Data, deal lpiece.PieceDealInfo) (api.SectorOffset, error) {
-	return func(ctx context.Context, pieceSize abi.UnpaddedPieceSize, pieceData storiface.Data, deal lpiece.PieceDealInfo) (api.SectorOffset, error) {
+func sectorAddPieceToAnyOperation(maddr address.Address, rootUrl url.URL, conf *config.CurioConfig, pieceInfoLk *sync.Mutex, pieceInfos map[uuid.UUID][]pieceInfo, pin *cumarket.PieceIngester, db *harmonydb.DB, ssize abi.SectorSize) func(ctx context.Context, pieceSize abi.UnpaddedPieceSize, pieceData storiface.Data, deal lpiece.PieceDealInfo) (lapi.SectorOffset, error) {
+	return func(ctx context.Context, pieceSize abi.UnpaddedPieceSize, pieceData storiface.Data, deal lpiece.PieceDealInfo) (lapi.SectorOffset, error) {
 		if (deal.PieceActivationManifest == nil && deal.DealProposal == nil) || (deal.PieceActivationManifest != nil && deal.DealProposal != nil) {
-			return api.SectorOffset{}, xerrors.Errorf("deal info must have either deal proposal or piece manifest")
+			return lapi.SectorOffset{}, xerrors.Errorf("deal info must have either deal proposal or piece manifest")
 		}
 
 		origPieceData := pieceData
@@ -350,7 +351,7 @@ func sectorAddPieceToAnyOperation(maddr address.Address, rootUrl url.URL, conf *
 		// add piece entry
 		refID, pieceWasCreated, err := addPieceEntry(ctx, db, conf, deal, pieceSize, dataUrl, ssize)
 		if err != nil {
-			return api.SectorOffset{}, err
+			return lapi.SectorOffset{}, err
 		}
 
 		// wait for piece to be parked
@@ -382,7 +383,7 @@ func sectorAddPieceToAnyOperation(maddr address.Address, rootUrl url.URL, conf *
 												JOIN parked_piece_refs ppr ON pp.id = ppr.piece_id
 												WHERE ppr.ref_id = $1;`, refID).Scan(&taskID, &complete)
 				if err != nil {
-					return api.SectorOffset{}, xerrors.Errorf("getting piece park status: %w", err)
+					return lapi.SectorOffset{}, xerrors.Errorf("getting piece park status: %w", err)
 				}
 
 				if complete {
@@ -404,7 +405,7 @@ func sectorAddPieceToAnyOperation(maddr address.Address, rootUrl url.URL, conf *
 					continue
 				}
 				if err != pgx.ErrNoRows {
-					return api.SectorOffset{}, xerrors.Errorf("checking park-piece task in harmony_tasks: %w", err)
+					return lapi.SectorOffset{}, xerrors.Errorf("checking park-piece task in harmony_tasks: %w", err)
 				}
 
 				// task is not in harmony_tasks, check harmony_task_history (latest work_end)
@@ -412,12 +413,12 @@ func sectorAddPieceToAnyOperation(maddr address.Address, rootUrl url.URL, conf *
 				var taskResult bool
 				err = db.QueryRow(ctx, `SELECT result, err FROM harmony_task_history WHERE task_id = $1 ORDER BY work_end DESC LIMIT 1`, *taskID).Scan(&taskResult, &taskError)
 				if err != nil {
-					return api.SectorOffset{}, xerrors.Errorf("checking park-piece task history: %w", err)
+					return lapi.SectorOffset{}, xerrors.Errorf("checking park-piece task history: %w", err)
 				}
 				if !taskResult {
-					return api.SectorOffset{}, xerrors.Errorf("park-piece task failed: %s", taskError)
+					return lapi.SectorOffset{}, xerrors.Errorf("park-piece task failed: %s", taskError)
 				}
-				return api.SectorOffset{}, xerrors.Errorf("park task succeeded but piece is not marked as complete")
+				return lapi.SectorOffset{}, xerrors.Errorf("park task succeeded but piece is not marked as complete")
 			}
 		}
 
@@ -429,7 +430,7 @@ func sectorAddPieceToAnyOperation(maddr address.Address, rootUrl url.URL, conf *
 		// make a sector
 		so, err := pin.AllocatePieceToSector(ctx, maddr, deal, int64(pieceSize), pieceIDUrl, nil)
 		if err != nil {
-			return api.SectorOffset{}, err
+			return lapi.SectorOffset{}, err
 		}
 
 		log.Infow("piece assigned to sector", "piece_cid", deal.PieceCID().String(), "sector", so.Sector, "offset", so.Offset)
