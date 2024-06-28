@@ -558,7 +558,7 @@ NAME:
    curio market seal - start sealing a deal sector early
 
 USAGE:
-   curio market seal [command options] [arguments...]
+   curio market seal [command options] <sector>
 
 OPTIONS:
    --actor value  Specify actor address to start sealing sectors for

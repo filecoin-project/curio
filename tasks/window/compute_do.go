@@ -34,7 +34,7 @@ import (
 
 const disablePreChecks = false // todo config
 
-func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr address.Address, di *dline.Info, partIdx uint64) (out *miner2.SubmitWindowedPoStParams, err error) {
+func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr address.Address, di *dline.Info, partIdx uint64, test bool) (out *miner2.SubmitWindowedPoStParams, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Errorf("recover: %s", r)
@@ -82,11 +82,11 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 		if err != nil {
 			return nil, xerrors.Errorf("removing faults from set of sectors to prove: %w", err)
 		}
-		/*if manual {
+		if test {
 			// this is a check run, we want to prove faulty sectors, even
 			// if they are not declared as recovering.
 			toProve = partition.LiveSectors
-		}*/
+		}
 		toProve, err = bitfield.MergeBitFields(toProve, partition.RecoveringSectors)
 		if err != nil {
 			return nil, xerrors.Errorf("adding recoveries to set of sectors to prove: %w", err)

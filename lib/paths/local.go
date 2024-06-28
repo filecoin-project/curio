@@ -35,6 +35,7 @@ type LocalStorage interface {
 }
 
 const MetaFile = "sectorstore.json"
+const SnapVproofFile = "snap-vproof.json"
 
 const MinFreeStoragePercentage = float64(0)
 
@@ -978,6 +979,24 @@ func (st *Local) GeneratePoRepVanillaProof(ctx context.Context, sr storiface.Sec
 	}}
 
 	return ffi.SealCommitPhase1(sr.ProofType, sealed, unsealed, src.Cache, src.Sealed, sr.ID.Number, sr.ID.Miner, ticket, seed, secPiece)
+}
+
+func (st *Local) ReadSnapVanillaProof(ctx context.Context, sr storiface.SectorRef) ([]byte, error) {
+	src, _, err := st.AcquireSector(ctx, sr, storiface.FTUpdateCache, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
+	if err != nil {
+		return nil, xerrors.Errorf("acquire sector: %w", err)
+	}
+
+	if src.UpdateCache == "" {
+		return nil, errPathNotFound
+	}
+
+	out, err := os.ReadFile(filepath.Join(src.UpdateCache, SnapVproofFile))
+	if err != nil {
+		return nil, xerrors.Errorf("read snap vanilla proof: %w", err)
+	}
+
+	return out, nil
 }
 
 var _ Store = &Local{}

@@ -60,6 +60,34 @@ func (FFI) GenerateWinningPoStWithVanilla(
 	return ffi.GenerateWinningPoStWithVanilla(proofType, minerID, randomness, proofs)
 }
 
+func (FFI) EncodeInto(
+	proofType abi.RegisteredUpdateProof,
+	newReplicaPath string,
+	newReplicaCachePath string,
+	sectorKeyPath string,
+	sectorKeyCachePath string,
+	stagedDataPath string,
+	pieces []abi.PieceInfo,
+) (out storiface.SectorCids, err error) {
+	sealed, unsealed, err := ffi.SectorUpdate.EncodeInto(proofType, newReplicaPath, newReplicaCachePath, sectorKeyPath, sectorKeyCachePath, stagedDataPath, pieces)
+	if err != nil {
+		return storiface.SectorCids{}, err
+	}
+
+	return storiface.SectorCids{
+		Unsealed: unsealed,
+		Sealed:   sealed,
+	}, nil
+}
+
+func (FFI) GenerateUpdateProofWithVanilla(
+	proofType abi.RegisteredUpdateProof,
+	key, sealed, unsealed cid.Cid,
+	vproofs [][]byte,
+) ([]byte, error) {
+	return ffi.SectorUpdate.GenerateUpdateProofWithVanilla(proofType, key, sealed, unsealed, vproofs)
+}
+
 func (FFI) SelfTest(val1 int, val2 cid.Cid) (cid.Cid, error) {
 	if val1 != 12345678 {
 		return cid.Undef, errors.New("val1 was not as expected")

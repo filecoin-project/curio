@@ -155,12 +155,12 @@ func (t *TreeRCTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 
 func (t *TreeRCTask) TypeDetails() harmonytask.TaskTypeDetails {
 	ssize := abi.SectorSize(32 << 30) // todo task details needs taskID to get correct sector size
-	if isDevnet {
+	if IsDevnet {
 		ssize = abi.SectorSize(2 << 20)
 	}
 	gpu := 1.0
 	ram := uint64(8 << 30)
-	if isDevnet {
+	if IsDevnet {
 		gpu = 0
 		ram = 512 << 20
 	}

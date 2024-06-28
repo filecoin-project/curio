@@ -23,16 +23,19 @@ create table open_sector_pieces (
     f05_deal_end_epoch bigint,
 
     -- ddo deal info
-    -- added in 20240402-sdr-pipeline-ddo-deal-info.sql
     direct_start_epoch bigint,
     direct_end_epoch bigint,
     direct_piece_activation_manifest jsonb,
 
-    -- created_at added in 20240508-open-deal-sectors.sql
     created_at timestamp NOT NULL DEFAULT current_timestamp,
 
     -- sectors_sdr_initial_pieces table is a copy of this
     -- all alters should happen on both tables except constraints
+
+    -- fields unique to open_sector_pieces
+    -- added in 20240611-snap-pipeline.sql
+    -- is_update bool not null default false,
+
 
     primary key (sp_id, sector_number, piece_index)
 );

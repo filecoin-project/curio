@@ -158,7 +158,7 @@ func (p *PoRepTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 	gpu := 1.0
-	if isDevnet {
+	if IsDevnet {
 		gpu = 0
 	}
 	res := harmonytask.TaskTypeDetails{
@@ -174,7 +174,7 @@ func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Follows:     nil,
 	}
 
-	if isDevnet {
+	if IsDevnet {
 		res.Cost.Ram = 1 << 30
 	}
 

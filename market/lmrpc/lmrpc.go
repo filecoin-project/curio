@@ -153,7 +153,7 @@ func forEachMarketRPC(cfg *config.CurioConfig, cb func(string, string) error) er
 func ServeCurioMarketRPC(db *harmonydb.DB, full api.FullNode, maddr address.Address, conf *config.CurioConfig, listen string) error {
 	ctx := context.Background()
 
-	pin, err := cumarket.NewPieceIngester(ctx, db, full, maddr, false, time.Duration(conf.Ingest.MaxDealWaitTime))
+	pin, err := cumarket.NewPieceIngesterSnap(ctx, db, full, maddr, false, time.Duration(conf.Ingest.MaxDealWaitTime))
 	if err != nil {
 		return xerrors.Errorf("starting piece ingestor")
 	}
@@ -307,7 +307,11 @@ type pieceInfo struct {
 	done chan struct{}
 }
 
-func sectorAddPieceToAnyOperation(maddr address.Address, rootUrl url.URL, conf *config.CurioConfig, pieceInfoLk *sync.Mutex, pieceInfos map[uuid.UUID][]pieceInfo, pin *cumarket.PieceIngester, db *harmonydb.DB, ssize abi.SectorSize) func(ctx context.Context, pieceSize abi.UnpaddedPieceSize, pieceData storiface.Data, deal lpiece.PieceDealInfo) (api.SectorOffset, error) {
+type PieceIngester interface {
+	AllocatePieceToSector(ctx context.Context, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (api.SectorOffset, error)
+}
+
+func sectorAddPieceToAnyOperation(maddr address.Address, rootUrl url.URL, conf *config.CurioConfig, pieceInfoLk *sync.Mutex, pieceInfos map[uuid.UUID][]pieceInfo, pin PieceIngester, db *harmonydb.DB, ssize abi.SectorSize) func(ctx context.Context, pieceSize abi.UnpaddedPieceSize, pieceData storiface.Data, deal lpiece.PieceDealInfo) (api.SectorOffset, error) {
 	return func(ctx context.Context, pieceSize abi.UnpaddedPieceSize, pieceData storiface.Data, deal lpiece.PieceDealInfo) (api.SectorOffset, error) {
 		if (deal.PieceActivationManifest == nil && deal.DealProposal == nil) || (deal.PieceActivationManifest != nil && deal.DealProposal != nil) {
 			return api.SectorOffset{}, xerrors.Errorf("deal info must have either deal proposal or piece manifest")
