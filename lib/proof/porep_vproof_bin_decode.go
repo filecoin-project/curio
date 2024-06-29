@@ -16,7 +16,7 @@ func DecodeCommit1OutRaw(r io.Reader) (Commit1OutRaw, error) {
 	var out Commit1OutRaw
 	var err error
 
-	out.RegisteredProof = "StackedDrg2KiBV1_1"
+	out.RegisteredProof = "StackedDrg32GiBV1_1"
 
 	// VanillaProofs
 	out.VanillaProofs = make(map[StringRegisteredProofType][][]VanillaStackedProof)
@@ -39,8 +39,8 @@ func DecodeCommit1OutRaw(r io.Reader) (Commit1OutRaw, error) {
 			}
 		}
 
-		key := StringRegisteredProofType("StackedDrg2KiBV1")
-		out.VanillaProofs[key] = [][]VanillaStackedProof{proofs}
+		key := StringRegisteredProofType("StackedDrg32GiBV1")
+		out.VanillaProofs[key] = append(out.VanillaProofs[key], proofs)
 	}
 
 	// CommR
@@ -66,6 +66,11 @@ func DecodeCommit1OutRaw(r io.Reader) (Commit1OutRaw, error) {
 	// Ticket
 	if out.Ticket, err = DecodeTicket(r); err != nil {
 		return out, fmt.Errorf("failed to decode Ticket: %w", err)
+	}
+
+	// Read last byte, require EOF
+	if _, err := r.Read(make([]byte, 1)); err != io.EOF {
+		return out, fmt.Errorf("expected EOF")
 	}
 
 	return out, nil
