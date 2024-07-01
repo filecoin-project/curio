@@ -1,8 +1,10 @@
 package paths
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	cuproof "github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/supraffi"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"math/bits"
@@ -40,6 +42,8 @@ const MetaFile = "sectorstore.json"
 const BatchMetaFile = "batch.json" // supraseal
 
 const MinFreeStoragePercentage = float64(0)
+
+const CommitPhase1OutputFileSupra = "commit-phase1-output"
 
 var ParentCacheFile string
 
@@ -1037,13 +1041,48 @@ func (st *Local) supraPoRepVanillaProof(src storiface.SectorPaths, sr storiface.
 		return nil, xerrors.Errorf("sector size: %w", err)
 	}
 
-	res := supraffi.C1(bm.BlockOffset, bm.BatchSectors, bm.NumInPipeline, replicaID[:], seed, ticket, src.Cache, ParentCacheFile, src.Sealed, uint64(ssize))
-	// C! writes the output to a file, so we need to read it back.
+	// C1 writes the output to a file, so we need to read it back.
 	// Outputs to cachePath/commit-phase1-output
 	// NOTE: that file is raw, and rust C1 returns a json repr, so we need to translate first
 
-	_ = res
-	panic("not implemented")
+	// first see if commit-phase1-output is there
+	commitPhase1OutputPath := filepath.Join(src.Cache, CommitPhase1OutputFileSupra)
+	if _, err := os.Stat(commitPhase1OutputPath); err != nil {
+		if !os.IsNotExist(err) {
+			return nil, xerrors.Errorf("stat commit phase1 output: %w", err)
+		}
+
+		// not found, compute it
+		res := supraffi.C1(bm.BlockOffset, bm.BatchSectors, bm.NumInPipeline, replicaID[:], seed, ticket, src.Cache, ParentCacheFile, src.Sealed, uint64(ssize))
+		if res != 0 {
+			return nil, xerrors.Errorf("c1 failed: %d", res)
+		}
+
+		// check again
+		if _, err := os.Stat(commitPhase1OutputPath); err != nil {
+			return nil, xerrors.Errorf("stat commit phase1 output after compute: %w", err)
+		}
+	}
+
+	// read the output
+	rawOut, err := os.ReadFile(commitPhase1OutputPath)
+	if err != nil {
+		return nil, xerrors.Errorf("read commit phase1 output: %w", err)
+	}
+
+	// decode
+	dec, err := cuproof.DecodeCommit1OutRaw(bytes.NewReader(rawOut))
+	if err != nil {
+		return nil, xerrors.Errorf("decode commit phase1 output: %w", err)
+	}
+
+	// out is json, so we need to marshal it back
+	out, err := json.Marshal(dec)
+	if err != nil {
+		return nil, xerrors.Errorf("marshal commit phase1 output: %w", err)
+	}
+
+	return out, nil
 }
 
 var _ Store = &Local{}
