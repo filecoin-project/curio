@@ -3,6 +3,7 @@ package tasks
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/lib/slotmgr"
 	"github.com/filecoin-project/curio/tasks/sealsupra"
 	"golang.org/x/xerrors"
 	"sort"
@@ -237,9 +238,13 @@ func addSealingTasks(
 		slr = must.One(slrLazy.Val())
 	}
 
+	var slotMgr *slotmgr.SlotMgr
+
 	// NOTE: Tasks with the LEAST priority are at the top
 	if cfg.Subsystems.EnableBatchSeal {
-		batchSealTask, err := sealsupra.NewSupraSeal(cfg.Subsystems.BatchSealSectorSize, cfg.Subsystems.BatchSealBatchSize, cfg.Subsystems.BatchSealPipelines)
+		slotMgr = slotmgr.NewSlotMgr()
+
+		batchSealTask, err := sealsupra.NewSupraSeal(cfg.Subsystems.BatchSealSectorSize, cfg.Subsystems.BatchSealBatchSize, cfg.Subsystems.BatchSealPipelines, slotMgr)
 		if err != nil {
 			return nil, xerrors.Errorf("setting up batch sealer: %w", err)
 		}
@@ -254,8 +259,9 @@ func addSealingTasks(
 		treeDTask := seal.NewTreeDTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
 		treeRCTask := seal.NewTreeRCTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
 		synthTask := seal.NewSyntheticProofTask(sp, db, slr, cfg.Subsystems.SyntheticPoRepMaxTasks)
-		finalizeTask := seal.NewFinalizeTask(cfg.Subsystems.FinalizeMaxTasks, sp, slr, db)
+		finalizeTask := seal.NewFinalizeTask(cfg.Subsystems.FinalizeMaxTasks, sp, slr, db, slotMgr)
 		activeTasks = append(activeTasks, treeDTask, treeRCTask, synthTask, finalizeTask)
+		activeTasks = append(activeTasks, treeDTask, treeRCTask, finalizeTask)
 	}
 	if cfg.Subsystems.EnableSendPrecommitMsg {
 		precommitTask := seal.NewSubmitPrecommitTask(sp, db, full, sender, as, cfg.Fees.MaxPreCommitGasFee, cfg.Fees.CollateralFromMinerBalance, cfg.Fees.DisableCollateralFallback)

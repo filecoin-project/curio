@@ -8,6 +8,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/slotmgr"
 	"github.com/filecoin-project/curio/lib/supraffi"
 	"github.com/filecoin-project/curio/tasks/seal"
 	"github.com/filecoin-project/go-address"
@@ -46,10 +47,10 @@ type SupraSeal struct {
 	inSDR  sync.Mutex
 	outSDR sync.Mutex
 
-	slots chan uint64
+	slots *slotmgr.SlotMgr
 }
 
-func NewSupraSeal(sectorSize string, batchSize, pipelines int) (*SupraSeal, error) {
+func NewSupraSeal(sectorSize string, batchSize, pipelines int, slots *slotmgr.SlotMgr) (*SupraSeal, error) {
 	var spt abi.RegisteredSealProof
 	switch sectorSize {
 	case "32GiB":
@@ -76,13 +77,14 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int) (*SupraSeal, erro
 		return nil, xerrors.Errorf("not enough space for %d pipelines, only %d pages available, want %d pages", pipelines, space, slotSize*uint64(pipelines))
 	}
 
-	slots := make(chan uint64, pipelines)
 	for i := 0; i < pipelines; i++ {
-		slots <- slotSize * uint64(i)
+		err := slots.Put(slotSize * uint64(i))
+		if err != nil {
+			return nil, xerrors.Errorf("putting slot: %w", err)
+		}
 	}
 
 	return &SupraSeal{
-		// TODO: get pipelines and sectors from config
 		spt: spt,
 
 		pipelines: pipelines,
@@ -181,10 +183,13 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	s.inSDR.Lock()
-	slot := <-s.slots
+	slot := s.slots.Get()
 
 	cleanup := func() {
-		s.slots <- slot
+		perr := s.slots.Put(slot)
+		if perr != nil {
+			log.Errorf("putting slot back: %s", err)
+		}
 		s.inSDR.Unlock()
 	}
 	defer func() {
@@ -202,7 +207,10 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	s.inSDR.Unlock()
 	s.outSDR.Lock()
 	cleanup = func() {
-		s.slots <- slot
+		perr := s.slots.Put(slot)
+		if perr != nil {
+			log.Errorf("putting slot back: %s", err)
+		}
 		s.outSDR.Unlock()
 
 		// Remove any files in outPaths
@@ -257,8 +265,26 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		}
 	}
 
+	if !stillOwned() {
+		return false, xerrors.Errorf("task is no longer owned!")
+	}
+
 	// persist success
 	_, err = s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		// get machine id
+		var ownedBy []struct {
+			HostAndPort string `db:"machine_host_and_port"`
+		}
+
+		err = tx.Select(&ownedBy, `SELECT hm.host_and_port FROM harmony_task INNER JOIN harmony_machines hm on harmony_task.owner_id = hm.id WHERE harmony_task.id = $1`, taskID)
+		if err != nil {
+			return false, xerrors.Errorf("getting machine id: %w", err)
+		}
+
+		if len(ownedBy) != 1 {
+			return false, xerrors.Errorf("no machine found for task %d", taskID)
+		}
+
 		for i, sector := range sectors {
 			var commr [32]byte
 			if supraffi.GetCommR(commr[:], outPaths[i].Cache) {
@@ -275,6 +301,13 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
                             WHERE sp_id = $1 AND sector_number = $2`, sector.SpID, sector.SectorNumber, ticketEpochs[i], tickets[i], unsealedCID.String(), sealedCID)
 			if err != nil {
 				return false, xerrors.Errorf("updating sector: %w", err)
+			}
+
+			// insert batch refs
+			_, err = tx.Exec(`INSERT INTO batch_sector_refs (sp_id, sector_number, machine_host_and_port, pipeline_slot)
+    						  VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`, sector.SpID, sector.SectorNumber, ownedBy[0].HostAndPort, slot)
+			if err != nil {
+				return false, xerrors.Errorf("inserting batch refs: %w", err)
 			}
 		}
 
@@ -293,7 +326,7 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 }
 
 func (s *SupraSeal) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	if len(s.slots) == 0 {
+	if s.slots.Available() == 0 {
 		return nil, nil
 	}
 
