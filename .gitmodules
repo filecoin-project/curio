@@ -3,4 +3,5 @@
 	url = https://github.com/filecoin-project/filecoin-ffi.git
 [submodule "extern/supra_seal"]
 	path = extern/supra_seal
-	url = https://github.com/supranational/supra_seal.git
+	url = https://github.com/magik6k/supra_seal.git
+	branch = feat/multi-out-paths
