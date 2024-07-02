@@ -3,9 +3,6 @@ package tasks
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/lib/slotmgr"
-	"github.com/filecoin-project/curio/tasks/sealsupra"
-	"golang.org/x/xerrors"
 	"sort"
 	"strings"
 	"sync"
@@ -16,6 +13,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
 	"golang.org/x/exp/maps"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 
@@ -31,11 +29,13 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/slotmgr"
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/metadata"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/sealsupra"
 	"github.com/filecoin-project/curio/tasks/snap"
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
@@ -172,6 +172,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		cfg.Subsystems.EnablePoRepProof ||
 		cfg.Subsystems.EnableMoveStorage ||
 		cfg.Subsystems.EnableSendCommitMsg ||
+		cfg.Subsystems.EnableBatchSeal ||
 		cfg.Subsystems.EnableUpdateEncode ||
 		cfg.Subsystems.EnableUpdateProve ||
 		cfg.Subsystems.EnableUpdateSubmit

@@ -3,9 +3,10 @@ package proof
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/filecoin-project/filecoin-ffi/cgo"
 	"os"
 	"testing"
+
+	"github.com/filecoin-project/filecoin-ffi/cgo"
 )
 
 func TestDecode(t *testing.T) {

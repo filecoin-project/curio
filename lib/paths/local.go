@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	cuproof "github.com/filecoin-project/curio/lib/proof"
-	"github.com/filecoin-project/curio/lib/supraffi"
-	commcid "github.com/filecoin-project/go-fil-commcid"
 	"math/bits"
 	"math/rand"
 	"os"
@@ -19,8 +16,12 @@ import (
 	"golang.org/x/xerrors"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/proof"
+
+	cuproof "github.com/filecoin-project/curio/lib/proof"
+	"github.com/filecoin-project/curio/lib/supraffi"
 
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
