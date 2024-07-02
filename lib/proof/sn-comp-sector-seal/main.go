@@ -3,16 +3,18 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"math/bits"
+	"os"
+	"path/filepath"
+
+	"github.com/minio/sha256-simd"
+	"golang.org/x/xerrors"
+
 	ffi "github.com/filecoin-project/filecoin-ffi"
 	"github.com/filecoin-project/filecoin-ffi/cgo"
 	"github.com/filecoin-project/go-commp-utils/zerocomm"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/minio/sha256-simd"
-	"golang.org/x/xerrors"
-	"math/bits"
-	"os"
-	"path/filepath"
 )
 
 func ReplicaId(sector abi.SectorNumber, ticket []byte, commd []byte) ([32]byte, error) {

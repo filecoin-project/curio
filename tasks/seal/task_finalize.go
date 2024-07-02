@@ -2,7 +2,6 @@ package seal
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/lib/slotmgr"
 
 	"golang.org/x/xerrors"
 
@@ -12,6 +11,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/slotmgr"
 
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )

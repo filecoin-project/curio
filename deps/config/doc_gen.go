@@ -569,29 +569,48 @@ only need to be run on a single machine in the cluster.`,
 
 			Comment: `The address that should listen for Web GUI requests.`,
 		},
+		{
+			Name: "EnableBatchSeal",
+			Type: "bool",
+
+			Comment: `Batch Seal`,
+		},
+		{
+			Name: "BatchSealSectorSize",
+			Type: "string",
+
+			Comment: `BatchSealSectorSize Allows setting the sector size supported by the batch seal task.
+Can be any value as long as it is "32GiB".`,
+		},
+		{
+			Name: "BatchSealBatchSize",
+			Type: "int",
+
+			Comment: `Number of sectors in a seal batch. Depends on hardware and supraseal configuration.`,
+		},
+		{
+			Name: "BatchSealPipelines",
+			Type: "int",
+
+			Comment: `Number of parallel pipelines. Can be 1 or 2. Depends on available raw block storage`,
+		},
 	},
 	"Duration time.Duration": {
 		{
 			Name: "func",
 			Type: "(dur",
 
-			Comment: `UnmarshalText implements interface for TOML decoding`,
-		},
-		{
-			Name: "d,",
-			Type: "err",
-
 			Comment: ``,
 		},
 		{
-			Name: "if",
-			Type: "err",
+			Name: "d",
+			Type: ":=",
 
 			Comment: ``,
 		},
 		{
 			Name: "return",
-			Type: "err",
+			Type: "[]byte(d.String()),",
 
 			Comment: ``,
 		},

@@ -5,14 +5,16 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	ffi "github.com/filecoin-project/filecoin-ffi"
-	commcid "github.com/filecoin-project/go-fil-commcid"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/google/go-cmp/cmp"
-	"github.com/stretchr/testify/require"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/require"
+
+	ffi "github.com/filecoin-project/filecoin-ffi"
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-state-types/abi"
 )
 
 func TestRoundtripPorepVproof(t *testing.T) {

@@ -2,8 +2,9 @@ package proof
 
 import (
 	"encoding/binary"
-	"github.com/minio/sha256-simd"
 	"math/big"
+
+	"github.com/minio/sha256-simd"
 )
 
 // https://github.com/filecoin-project/rust-fil-proofs/blob/8f5bd86be36a55e33b9b293ba22ea13ca1f28163/storage-proofs-porep/src/stacked/vanilla/challenges.rs#L21

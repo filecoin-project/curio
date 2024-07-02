@@ -1,9 +1,10 @@
 package main
 
 import (
-	"github.com/filecoin-project/curio/lib/supraffi"
 	"os"
 	"strconv"
+
+	"github.com/filecoin-project/curio/lib/supraffi"
 )
 
 func main() {
