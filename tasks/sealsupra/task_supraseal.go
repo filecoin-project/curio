@@ -344,11 +344,6 @@ func (s *SupraSeal) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 		return nil, nil
 	}
 
-	{
-		log.Infow("not accepting because no")
-		return nil, nil
-	}
-
 	id := ids[0]
 	return &id, nil
 }
