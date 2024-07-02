@@ -88,7 +88,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, slots *slotmgr.Sl
 
 	maxPipelines := space / slotSize
 	if maxPipelines < slotSize*uint64(pipelines) {
-		return nil, xerrors.Errorf("not enough space for %d pipelines, only %d pages available, want %d pages", pipelines, space, slotSize*uint64(pipelines))
+		return nil, xerrors.Errorf("not enough space for %d pipelines (can do %d), only %d pages available, want %d (slot size %d) pages", pipelines, maxPipelines, space, slotSize*uint64(pipelines), slotSize)
 	}
 
 	for i := 0; i < pipelines; i++ {
