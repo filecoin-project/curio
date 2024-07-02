@@ -189,6 +189,8 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			ProofType: abi.RegisteredSealProof(t.RegSealProof),
 		}
 
+		ctx := context.WithValue(ctx, paths.SpaceUseKey, paths.SpaceUseFunc(SupraSpaceUse))
+
 		ps, pathIDs, err := s.storage.AcquireSector(ctx, sref, storiface.FTNone, alloc, storiface.PathStorage, storiface.AcquireMove)
 		if err != nil {
 			return false, xerrors.Errorf("acquiring sector storage: %w", err)
@@ -196,7 +198,7 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 		outPaths[i] = supraffi.Path{
 			Replica: ps.Sealed,
-			Cache:   ps.Unsealed,
+			Cache:   ps.Cache,
 		}
 		outPathIDs[i] = pathIDs
 	}
@@ -267,6 +269,19 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 		if err := os.WriteFile(filepath.Join(p.Cache, paths.BatchMetaFile), meta, 0644); err != nil {
 			return false, xerrors.Errorf("writing meta: %w", err)
+		}
+
+		// the cache has a `sealed-file` created by Pc2, we need to mv it to the real sealed file
+		// first we rename in the same directory to a target base-name
+		srcPath := filepath.Join(p.Cache, "sealed-file")
+		tmpDstPath := filepath.Join(p.Cache, filepath.Base(p.Replica))
+
+		if err := os.Rename(srcPath, tmpDstPath); err != nil {
+			return false, xerrors.Errorf("renaming sealed file: %w", err)
+		}
+
+		if err := paths.Move(tmpDstPath, p.Replica); err != nil {
+			return false, xerrors.Errorf("moving sealed file: %w", err)
 		}
 	}
 
@@ -412,6 +427,27 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 	})
 
 	return nil
+}
+
+var FSOverheadSupra = map[storiface.SectorFileType]int{ // 10x overheads
+	storiface.FTUnsealed: storiface.FSOverheadDen,
+	storiface.FTSealed:   storiface.FSOverheadDen,
+	storiface.FTCache:    11, // C + R' (no 11 layers + D(2x ssize)); Has 'sealed-file' here briefly, but that is moved to the real sealed file quickly
+}
+
+func SupraSpaceUse(ft storiface.SectorFileType, ssize abi.SectorSize) (uint64, error) {
+	var need uint64
+	for _, pathType := range ft.AllSet() {
+
+		oh, ok := FSOverheadSupra[pathType]
+		if !ok {
+			return 0, xerrors.Errorf("no seal overhead info for %s", pathType)
+		}
+
+		need += uint64(oh) * uint64(ssize) / storiface.FSOverheadDen
+	}
+
+	return need, nil
 }
 
 var _ harmonytask.TaskInterface = &SupraSeal{}

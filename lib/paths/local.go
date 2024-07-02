@@ -706,6 +706,8 @@ func (st *Local) AcquireSector(ctx context.Context, sid storiface.SectorRef, exi
 		}
 
 		if best == "" {
+			log.Warnw("allocate failed", "id", sid, "type", fileType, "pathType", pathType, "op", op, "sis", sis)
+
 			return storiface.SectorPaths{}, storiface.SectorPaths{}, storiface.Err(storiface.ErrTempAllocateSpace, xerrors.Errorf("couldn't find a suitable path for a sector"))
 		}
 
