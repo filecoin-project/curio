@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/filecoin-project/filecoin-ffi/cgo"
+	"github.com/filecoin-project/curio/lib/hugepageutil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -71,15 +71,9 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int,
 		return nil, err
 	}
 
-	log.Infow("gpu devs 1")
-	log.Infow("gpus", "gpus", must.One(cgo.GetGpuDevices()))
-
 	log.Infow("start supraseal init")
 	supraffi.SupraSealInit(uint64(ssize), "/tmp/supraseal.cfg")
 	log.Infow("supraseal init done")
-
-	log.Infow("gpu devs 2")
-	log.Infow("gpus", "gpus", must.One(cgo.GetGpuDevices()))
 
 	// Get maximum block offset (essentially the number of pages in the smallest nvme device)
 	space := supraffi.GetMaxBlockOffset(uint64(ssize))
@@ -361,6 +355,13 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 func (s *SupraSeal) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
 	if s.slots.Available() == 0 {
+		return nil, nil
+	}
+
+	// check if we have enough huge pages available
+	// sysctl vm.nr_hugepages should be >= 36 for 32G sectors
+	if err := hugepageutil.CheckHugePages(36); err != nil {
+		log.Warnw("huge pages check failed, try 'sudo sysctl -w vm.nr_hugepages=36' and make sure your system uses 1G huge pages", "err", err)
 		return nil, nil
 	}
 
