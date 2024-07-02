@@ -389,6 +389,16 @@ func (t *WdPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
+func (t *WdPostTask) GetSpid(taskID int64) string {
+	var spid string
+	err := t.db.QueryRow(context.Background(), `SELECT sp_id FROM wdpost_partition_tasks WHERE task_id = $1`, taskID).Scan(&spid)
+	if err != nil {
+		log.Errorf("getting spid: %s", err)
+		return ""
+	}
+	return spid
+}
+
 func (t *WdPostTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	t.windowPoStTF.Set(taskFunc)
 }

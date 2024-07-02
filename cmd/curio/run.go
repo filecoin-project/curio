@@ -134,7 +134,7 @@ var runCmd = &cli.Command{
 
 		go ffiSelfTest() // Panics on failure
 
-		taskEngine, err := tasks.StartTasks(ctx, dependencies)
+		taskEngine, activeTasks, err := tasks.StartTasks(ctx, dependencies)
 
 		if err != nil {
 			return nil
@@ -145,7 +145,7 @@ var runCmd = &cli.Command{
 			return xerrors.Errorf("starting market RPCs: %w", err)
 		}
 
-		err = rpc.ListenAndServe(ctx, dependencies, shutdownChan) // Monitor for shutdown.
+		err = rpc.ListenAndServe(ctx, dependencies, activeTasks, shutdownChan) // Monitor for shutdown.
 		if err != nil {
 			return err
 		}

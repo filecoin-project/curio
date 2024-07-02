@@ -83,17 +83,6 @@ func (a *app) indexMachines(w http.ResponseWriter, r *http.Request) {
 	a.executeTemplate(w, "cluster_machines", s)
 }
 
-func (a *app) indexTasks(w http.ResponseWriter, r *http.Request) {
-	s, err := a.clusterTaskSummary(r.Context())
-	if err != nil {
-		log.Errorf("cluster task summary: %v", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	a.executeTemplate(w, "cluster_tasks", s)
-}
-
 func (a *app) indexTasksHistory(w http.ResponseWriter, r *http.Request) {
 	s, err := a.clusterTaskHistorySummary(r.Context())
 	if err != nil {
@@ -801,29 +790,6 @@ func (a *app) clusterMachineSummary(ctx context.Context) ([]machineSummary, erro
 		}
 
 		summaries = append(summaries, m)
-	}
-	return summaries, nil
-}
-
-func (a *app) clusterTaskSummary(ctx context.Context) ([]taskSummary, error) {
-	rows, err := a.db.Query(ctx, "SELECT t.id, t.name, t.update_time, t.owner_id, hm.host_and_port FROM harmony_task t LEFT JOIN curio.harmony_machines hm ON hm.id = t.owner_id ORDER BY t.update_time ASC, t.owner_id")
-	if err != nil {
-		return nil, err // Handle error
-	}
-	defer rows.Close()
-
-	var summaries []taskSummary
-	for rows.Next() {
-		var t taskSummary
-		var posted time.Time
-
-		if err := rows.Scan(&t.ID, &t.Name, &posted, &t.OwnerID, &t.Owner); err != nil {
-			return nil, err // Handle error
-		}
-
-		t.SincePosted = time.Since(posted).Round(time.Second).String()
-
-		summaries = append(summaries, t)
 	}
 	return summaries, nil
 }

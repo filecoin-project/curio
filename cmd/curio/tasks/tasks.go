@@ -70,7 +70,7 @@ func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.Cur
 	return computeTask, submitTask, recoverTask, nil
 }
 
-func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.TaskEngine, error) {
+func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.TaskEngine, []harmonytask.TaskInterface, error) {
 	cfg := dependencies.Cfg
 	db := dependencies.DB
 	full := dependencies.Full
@@ -132,7 +132,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 				as, maddrs, db, stor, si, cfg.Subsystems.WindowPostMaxTasks)
 
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			activeTasks = append(activeTasks, wdPostTask, wdPoStSubmitTask, derlareRecoverTask)
 		}
@@ -154,7 +154,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		if cfg.Subsystems.EnableParkPiece {
 			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.ParkPieceMaxTasks)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
 			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask)
@@ -170,7 +170,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	if hasAnySealingTask {
 		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		activeTasks = append(activeTasks, sealingTasks...)
 	}
@@ -193,14 +193,14 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 
 	ht, err := harmonytask.New(db, activeTasks, dependencies.ListenAddr)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	go machineDetails(dependencies, activeTasks, ht.ResourcesAvailable().MachineID, dependencies.Name)
 
 	if hasAnySealingTask {
 		watcher, err := message.NewMessageWatcher(db, ht, chainSched, full)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		_ = watcher
 	}
@@ -209,7 +209,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		go chainSched.Run(ctx)
 	}
 
-	return ht, nil
+	return ht, activeTasks, nil
 }
 
 func addSealingTasks(
