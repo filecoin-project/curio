@@ -14,6 +14,7 @@ import "C"
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"unsafe"
 )
 
@@ -128,6 +129,12 @@ ${SRCDIR}/../../extern/supra_seal/deps/spdk-v22.09/dpdk/build/lib/librte_vhost.a
 -lgmp
 
 */
+
+func init() {
+	fmt.Println("init supraffi")
+	C.init_cpp_runtime()
+	fmt.Println("init supraffi done")
+}
 
 // SupraSealInit initializes the supra seal with a sector size and optional config file.
 func SupraSealInit(sectorSize uint64, configFile string) {
