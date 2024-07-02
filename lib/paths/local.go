@@ -47,16 +47,6 @@ const MinFreeStoragePercentage = float64(0)
 
 const CommitPhase1OutputFileSupra = "commit-phase1-output"
 
-var ParentCacheFile string
-
-func init() {
-	if os.Getenv("FIL_PROOFS_PARENT_CACHE") != "" {
-		ParentCacheFile = os.Getenv("FIL_PROOFS_PARENT_CACHE")
-	} else {
-		ParentCacheFile = "/var/tmp/filecoin-parents"
-	}
-}
-
 type BatchMeta struct {
 	SupraSeal     bool
 	BlockOffset   uint64
@@ -1074,8 +1064,13 @@ func (st *Local) supraPoRepVanillaProof(src storiface.SectorPaths, sr storiface.
 			return nil, xerrors.Errorf("stat commit phase1 output: %w", err)
 		}
 
+		parentsPath, err := ParentsForProof(sr.ProofType)
+		if err != nil {
+			return nil, xerrors.Errorf("parents for proof: %w", err)
+		}
+
 		// not found, compute it
-		res := supraffi.C1(bm.BlockOffset, bm.BatchSectors, bm.NumInPipeline, replicaID[:], seed, ticket, src.Cache, ParentCacheFile, src.Sealed, uint64(ssize))
+		res := supraffi.C1(bm.BlockOffset, bm.BatchSectors, bm.NumInPipeline, replicaID[:], seed, ticket, src.Cache, parentsPath, src.Sealed, uint64(ssize))
 		if res != 0 {
 			return nil, xerrors.Errorf("c1 failed: %d", res)
 		}

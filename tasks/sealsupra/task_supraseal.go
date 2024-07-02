@@ -211,8 +211,13 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		cleanup()
 	}()
 
+	parentPath, err := paths.ParentsForProof(s.spt)
+	if err != nil {
+		return false, xerrors.Errorf("getting parent path: %w", err)
+	}
+
 	start := time.Now()
-	res := supraffi.Pc1(slot, replicaIDs, paths.ParentCacheFile, uint64(ssize))
+	res := supraffi.Pc1(slot, replicaIDs, parentPath, uint64(ssize))
 	log.Infow("batch sdr done", "duration", time.Since(start).Truncate(time.Second), "slot", slot, "res", res, "task", taskID, "sectors", sectors)
 
 	if res != 0 {
