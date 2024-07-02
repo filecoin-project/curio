@@ -2,6 +2,7 @@ package sealsupra
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/filecoin-project/curio/lib/hugepageutil"
@@ -243,6 +244,8 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			}
 		}
 	}
+
+	log.Infow("batch tree start", "slot", slot, "task", taskID, "sectors", sectors, "pstring", hex.EncodeToString([]byte(must.One(supraffi.GenerateMultiString(outPaths)))))
 
 	start = time.Now()
 	res = supraffi.Pc2(slot, s.sectors, must.One(supraffi.GenerateMultiString(outPaths)), uint64(ssize))
