@@ -374,8 +374,11 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 			return false, xerrors.Errorf("getting tasks: %w", err)
 		}
 
+		log.Infow("got sectors, maybe schedule", "sectors", len(sectors), "s.sectors", s.sectors)
+
 		if len(sectors) != s.sectors {
 			// not enough sectors to fill a batch
+			log.Infow("not enough sectors to fill a batch", "sectors", len(sectors))
 			return false, nil
 		}
 
