@@ -245,7 +245,7 @@ func addSealingTasks(
 	if cfg.Subsystems.EnableBatchSeal {
 		slotMgr = slotmgr.NewSlotMgr()
 
-		batchSealTask, err := sealsupra.NewSupraSeal(cfg.Subsystems.BatchSealSectorSize, cfg.Subsystems.BatchSealBatchSize, cfg.Subsystems.BatchSealPipelines, slotMgr)
+		batchSealTask, err := sealsupra.NewSupraSeal(cfg.Subsystems.BatchSealSectorSize, cfg.Subsystems.BatchSealBatchSize, cfg.Subsystems.BatchSealPipelines, slotMgr, db, full, stor, si)
 		if err != nil {
 			return nil, xerrors.Errorf("setting up batch sealer: %w", err)
 		}

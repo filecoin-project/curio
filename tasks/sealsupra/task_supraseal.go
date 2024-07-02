@@ -56,7 +56,8 @@ type SupraSeal struct {
 	slots *slotmgr.SlotMgr
 }
 
-func NewSupraSeal(sectorSize string, batchSize, pipelines int, slots *slotmgr.SlotMgr) (*SupraSeal, error) {
+func NewSupraSeal(sectorSize string, batchSize, pipelines int,
+	slots *slotmgr.SlotMgr, db *harmonydb.DB, api SupraSealNodeAPI, storage *paths.Remote, sindex paths.SectorIndex) (*SupraSeal, error) {
 	var spt abi.RegisteredSealProof
 	switch sectorSize {
 	case "32GiB":
@@ -99,8 +100,12 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, slots *slotmgr.Sl
 	}
 
 	return &SupraSeal{
-		spt: spt,
+		db:      db,
+		api:     api,
+		storage: storage,
+		sindex:  sindex,
 
+		spt:       spt,
 		pipelines: pipelines,
 		sectors:   batchSize,
 
