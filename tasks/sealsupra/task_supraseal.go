@@ -7,6 +7,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/slotmgr"
 	"github.com/filecoin-project/curio/lib/supraffi"
@@ -352,7 +353,7 @@ func (s *SupraSeal) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 1 << 20,
 		},
 		MaxFailures: 4,
-		IAmBored:    nil, // TODO
+		IAmBored:    passcall.Every(30*time.Second, s.schedule),
 	}
 }
 
@@ -360,7 +361,7 @@ func (s *SupraSeal) Adder(taskFunc harmonytask.AddTaskFunc) {
 	return
 }
 
-func (s *SupraSeal) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
+func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 	taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 		// claim [sectors] pipeline entries
 		var sectors []struct {
