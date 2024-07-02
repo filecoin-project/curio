@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/filecoin-ffi/cgo"
 	"os"
 	"path/filepath"
 	"sync"
@@ -69,7 +70,15 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, slots *slotmgr.Sl
 		return nil, err
 	}
 
+	log.Infow("gpu devs 1")
+	log.Infow("gpus", "gpus", must.One(cgo.GetGpuDevices()))
+
+	log.Infow("start supraseal init")
 	supraffi.SupraSealInit(uint64(ssize), "/tmp/supraseal.cfg")
+	log.Infow("supraseal init done")
+
+	log.Infow("gpu devs 2")
+	log.Infow("gpus", "gpus", must.One(cgo.GetGpuDevices()))
 
 	// Get maximum block offset (essentially the number of pages in the smallest nvme device)
 	space := supraffi.GetMaxBlockOffset(uint64(ssize))
@@ -332,6 +341,11 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 func (s *SupraSeal) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
 	if s.slots.Available() == 0 {
+		return nil, nil
+	}
+
+	{
+		log.Infow("not accepting because no")
 		return nil, nil
 	}
 
