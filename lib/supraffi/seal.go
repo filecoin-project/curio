@@ -232,7 +232,7 @@ func GetSlotSize(numSectors int, sectorSize uint64) uint64 {
 	return uint64(C.get_slot_size(C.size_t(numSectors), C.size_t(sectorSize)))
 }
 
-// GetCommCFromTree returns comm_c after calculating from tree file(s).
+// GetCommCFromTree returns comm_c after calculating from tree file(s). Returns true on success.
 func GetCommCFromTree(commC []byte, cachePath string, sectorSize uint64) bool {
 	cCommC := (*C.uint8_t)(unsafe.Pointer(&commC[0]))
 	cCachePath := C.CString(cachePath)
@@ -240,7 +240,7 @@ func GetCommCFromTree(commC []byte, cachePath string, sectorSize uint64) bool {
 	return bool(C.get_comm_c_from_tree(cCommC, cCachePath, C.size_t(sectorSize)))
 }
 
-// GetCommC returns comm_c from p_aux file.
+// GetCommC returns comm_c from p_aux file. Returns true on success.
 func GetCommC(commC []byte, cachePath string) bool {
 	cCommC := (*C.uint8_t)(unsafe.Pointer(&commC[0]))
 	cCachePath := C.CString(cachePath)
@@ -248,7 +248,7 @@ func GetCommC(commC []byte, cachePath string) bool {
 	return bool(C.get_comm_c(cCommC, cCachePath))
 }
 
-// SetCommC sets comm_c in the p_aux file.
+// SetCommC sets comm_c in the p_aux file. Returns true on success.
 func SetCommC(commC []byte, cachePath string) bool {
 	cCommC := (*C.uint8_t)(unsafe.Pointer(&commC[0]))
 	cCachePath := C.CString(cachePath)
@@ -256,7 +256,7 @@ func SetCommC(commC []byte, cachePath string) bool {
 	return bool(C.set_comm_c(cCommC, cCachePath))
 }
 
-// GetCommRLastFromTree returns comm_r_last after calculating from tree file(s).
+// GetCommRLastFromTree returns comm_r_last after calculating from tree file(s). Returns true on success.
 func GetCommRLastFromTree(commRLast []byte, cachePath string, sectorSize uint64) bool {
 	cCommRLast := (*C.uint8_t)(unsafe.Pointer(&commRLast[0]))
 	cCachePath := C.CString(cachePath)
@@ -264,7 +264,7 @@ func GetCommRLastFromTree(commRLast []byte, cachePath string, sectorSize uint64)
 	return bool(C.get_comm_r_last_from_tree(cCommRLast, cCachePath, C.size_t(sectorSize)))
 }
 
-// GetCommRLast returns comm_r_last from p_aux file.
+// GetCommRLast returns comm_r_last from p_aux file. Returns true on success.
 func GetCommRLast(commRLast []byte, cachePath string) bool {
 	cCommRLast := (*C.uint8_t)(unsafe.Pointer(&commRLast[0]))
 	cCachePath := C.CString(cachePath)
@@ -280,7 +280,7 @@ func SetCommRLast(commRLast []byte, cachePath string) bool {
 	return bool(C.set_comm_r_last(cCommRLast, cCachePath))
 }
 
-// GetCommR returns comm_r after calculating from p_aux file.
+// GetCommR returns comm_r after calculating from p_aux file. Returns true on success.
 func GetCommR(commR []byte, cachePath string) bool {
 	cCommR := (*C.uint8_t)(unsafe.Pointer(&commR[0]))
 	cCachePath := C.CString(cachePath)
@@ -288,7 +288,7 @@ func GetCommR(commR []byte, cachePath string) bool {
 	return bool(C.get_comm_r(cCommR, cCachePath))
 }
 
-// GetCommD returns comm_d from tree_d file.
+// GetCommD returns comm_d from tree_d file. Returns true on success.
 func GetCommD(commD []byte, cachePath string) bool {
 	cCommD := (*C.uint8_t)(unsafe.Pointer(&commD[0]))
 	cCachePath := C.CString(cachePath)
@@ -296,7 +296,7 @@ func GetCommD(commD []byte, cachePath string) bool {
 	return bool(C.get_comm_d(cCommD, cCachePath))
 }
 
-// GetCCCommD returns comm_d for a cc sector.
+// GetCCCommD returns comm_d for a cc sector. Returns true on success.
 func GetCCCommD(commD []byte, sectorSize int) bool {
 	cCommD := (*C.uint8_t)(unsafe.Pointer(&commD[0]))
 	return bool(C.get_cc_comm_d(cCommD, C.size_t(sectorSize)))

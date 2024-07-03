@@ -310,7 +310,7 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 		for i, sector := range sectors {
 			var commr [32]byte
-			if supraffi.GetCommR(commr[:], outPaths[i].Cache) {
+			if !supraffi.GetCommR(commr[:], outPaths[i].Cache) {
 				return false, xerrors.Errorf("getting commr failed")
 			}
 
