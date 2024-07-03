@@ -296,7 +296,7 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	_, err = s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		// get machine id
 		var ownedBy []struct {
-			HostAndPort string `db:"machine_host_and_port"`
+			HostAndPort string `db:"host_and_port"`
 		}
 
 		err = tx.Select(&ownedBy, `SELECT hm.host_and_port FROM harmony_task INNER JOIN harmony_machines hm on harmony_task.owner_id = hm.id WHERE harmony_task.id = $1`, taskID)
