@@ -84,7 +84,7 @@ func (f *FinalizeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	}
 
 	var ownedBy []struct {
-		HostAndPort string `db:"machine_host_and_port"`
+		HostAndPort string `db:"host_and_port"`
 	}
 	var refs []struct {
 		PipelineSlot int64 `db:"pipeline_slot"`
@@ -94,7 +94,7 @@ func (f *FinalizeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		// batch handling part 1:
 		// get machine id
 
-		err = f.db.Select(ctx, &ownedBy, `SELECT hm.host_and_port FROM harmony_task INNER JOIN harmony_machines hm on harmony_task.owner_id = hm.id WHERE harmony_task.id = $1`, taskID)
+		err = f.db.Select(ctx, &ownedBy, `SELECT hm.host_and_port as host_and_port FROM harmony_task INNER JOIN harmony_machines hm on harmony_task.owner_id = hm.id WHERE harmony_task.id = $1`, taskID)
 		if err != nil {
 			return false, xerrors.Errorf("getting machine id: %w", err)
 		}
