@@ -1093,6 +1093,8 @@ func (st *Local) supraPoRepVanillaProof(src storiface.SectorPaths, sr storiface.
 		return nil, xerrors.Errorf("decode commit phase1 output: %w", err)
 	}
 
+	log.Infow("supraPoRepVanillaProof", "sref", sr, "replicaID", replicaID, "seed", seed, "ticket", ticket, "decrepl", dec.ReplicaID, "decr", dec.CommR, "decd", dec.CommD)
+
 	// out is json, so we need to marshal it back
 	out, err := json.Marshal(dec)
 	if err != nil {
