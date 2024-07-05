@@ -57,7 +57,7 @@ type SupraSeal struct {
 	slots *slotmgr.SlotMgr
 }
 
-func NewSupraSeal(sectorSize string, batchSize, pipelines int,
+func NewSupraSeal(sectorSize string, batchSize, pipelines int, machineHostAndPort string,
 	slots *slotmgr.SlotMgr, db *harmonydb.DB, api SupraSealNodeAPI, storage *paths.Remote, sindex paths.SectorIndex) (*SupraSeal, error) {
 	var spt abi.RegisteredSealProof
 	switch sectorSize {
@@ -88,7 +88,23 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int,
 	}
 
 	for i := 0; i < pipelines; i++ {
-		err := slots.Put(slotSize * uint64(i))
+		slot := slotSize * uint64(i)
+
+		var slotRefs struct {
+			Count int `db:"count"`
+		}
+
+		err := db.Select(context.Background(), &slotRefs, `SELECT COUNT(*) FROM batch_sector_refs WHERE pipeline_slot = $1 AND machine_host_and_port = $2`, slot, machineHostAndPort)
+		if err != nil {
+			return nil, xerrors.Errorf("getting slot refs: %w", err)
+		}
+
+		if slotRefs.Count > 0 {
+			log.Infow("slot already in use", "slot", slot, "refs", slotRefs.Count)
+			continue
+		}
+
+		err = slots.Put(slot)
 		if err != nil {
 			return nil, xerrors.Errorf("putting slot: %w", err)
 		}
