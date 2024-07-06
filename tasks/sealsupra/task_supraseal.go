@@ -90,19 +90,23 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, machineHostAndPor
 	for i := 0; i < pipelines; i++ {
 		slot := slotSize * uint64(i)
 
-		var slotRefs struct {
+		var slotRefs []struct {
 			Count int `db:"count"`
 		}
 
-		err := db.Select(context.Background(), &slotRefs, `SELECT COUNT(*) FROM batch_sector_refs WHERE pipeline_slot = $1 AND machine_host_and_port = $2`, slot, machineHostAndPort)
+		err := db.Select(context.Background(), &slotRefs, `SELECT COUNT(*) as count FROM batch_sector_refs WHERE pipeline_slot = $1 AND machine_host_and_port = $2`, slot, machineHostAndPort)
 		if err != nil {
 			return nil, xerrors.Errorf("getting slot refs: %w", err)
 		}
 
-		if slotRefs.Count > 0 {
-			log.Infow("slot already in use", "slot", slot, "refs", slotRefs.Count)
-			continue
+		if len(slotRefs) > 0 {
+			if slotRefs[0].Count > 0 {
+				log.Infow("slot already in use", "slot", slot, "refs", slotRefs[0].Count)
+				continue
+			}
 		}
+
+		log.Infow("batch slot", "slot", slot, "machine", machineHostAndPort)
 
 		err = slots.Put(slot)
 		if err != nil {
