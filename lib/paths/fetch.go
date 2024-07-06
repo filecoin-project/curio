@@ -16,6 +16,7 @@ import (
 
 func init() {
 	tarutil.CacheFileConstraints["batch.json"] = 10_000
+	tarutil.CacheFileConstraints["commit-phase1-output"] = 20_000_000
 }
 
 func fetch(ctx context.Context, url, outname string, header http.Header) (rerr error) {
