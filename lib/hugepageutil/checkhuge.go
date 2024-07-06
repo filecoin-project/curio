@@ -2,10 +2,11 @@ package hugepageutil
 
 import (
 	"bufio"
-	"golang.org/x/xerrors"
 	"os"
 	"strconv"
 	"strings"
+
+	"golang.org/x/xerrors"
 )
 
 func CheckHugePages(minPages int) error {

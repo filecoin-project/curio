@@ -2,9 +2,10 @@ package paths
 
 import (
 	"errors"
-	"github.com/filecoin-project/go-state-types/abi"
 	"os"
 	"path/filepath"
+
+	"github.com/filecoin-project/go-state-types/abi"
 )
 
 var parentCacheDir string

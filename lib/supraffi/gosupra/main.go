@@ -18,5 +18,5 @@ func main() {
 		panic(err)
 	}
 
-	supraffi.SupraSealInit(sectorSize, os.Args[2])
+	supraffi.SupraSealInit(uint64(sectorSize), os.Args[2])
 }
