@@ -6,6 +6,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/samber/lo"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -73,65 +74,17 @@ func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	return true, nil
 }
 
-func (m *MoveStorageTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
-
+func (m *MoveStorageTask) CanAccept(ids []harmonytask.TaskID, schedInfo *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
 	ctx := context.Background()
-	/*
 
-			var tasks []struct {
-				TaskID       harmonytask.TaskID `db:"task_id_finalize"`
-				SpID         int64              `db:"sp_id"`
-				SectorNumber int64              `db:"sector_number"`
-				StorageID    string             `db:"storage_id"`
-			}
-
-			indIDs := make([]int64, len(ids))
-			for i, id := range ids {
-				indIDs[i] = int64(id)
-			}
-			err := m.db.Select(ctx, &tasks, `
-				select p.task_id_move_storage, p.sp_id, p.sector_number, l.storage_id from sectors_sdr_pipeline p
-				    inner join sector_location l on p.sp_id=l.miner_id and p.sector_number=l.sector_num
-				    where task_id_move_storage in ($1) and l.sector_filetype=4`, indIDs)
-			if err != nil {
-				return nil, xerrors.Errorf("getting tasks: %w", err)
-			}
-
-			ls, err := m.sc.LocalStorage(ctx)
-			if err != nil {
-				return nil, xerrors.Errorf("getting local storage: %w", err)
-			}
-
-			acceptables := map[harmonytask.TaskID]bool{}
-
-			for _, t := range ids {
-				acceptables[t] = true
-			}
-
-			for _, t := range tasks {
-
-			}
-
-			todo some smarts
-		     * yield a schedule cycle/s if we have moves already in progress
-	*/
-
-	////
 	ls, err := m.sc.LocalStorage(ctx)
 	if err != nil {
 		return nil, xerrors.Errorf("getting local storage: %w", err)
 	}
-	var haveStorage bool
-	for _, l := range ls {
-		if l.CanStore {
-			haveStorage = true
-			break
-		}
-	}
-
-	if !haveStorage {
+	if _, ok := lo.Find(ls, func(l storiface.StoragePath) bool { return l.CanStore }); !ok {
 		return nil, nil
 	}
+	// TODO apply filter logic to ensure this storage is valid for the thing we're moving
 
 	id := ids[0]
 	return &id, nil
@@ -156,6 +109,16 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
+func (m *MoveStorageTask) GetSpid(taskID int64) string {
+	var spid string
+	err := m.db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_move_storage = $1`, taskID).Scan(&spid)
+	if err != nil {
+		log.Errorf("getting spid: %s", err)
+		return ""
+	}
+	return spid
+}
+
 func (m *MoveStorageTask) taskToSector(id harmonytask.TaskID) (ffi2.SectorRef, error) {
 	var refs []ffi2.SectorRef
 
@@ -175,4 +138,4 @@ func (m *MoveStorageTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	m.sp.pollers[pollerMoveStorage].Set(taskFunc)
 }
 
-var _ harmonytask.FastTask = &MoveStorageTask{}
+var _ harmonytask.TaskInterface = &MoveStorageTask{}
