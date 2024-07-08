@@ -102,7 +102,7 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{
 			Cpu:     1,
 			Gpu:     0,
-			Ram:     128 << 20,
+			Ram:     resources.Ram(128 << 20),
 			Storage: m.sc.Storage(m.taskToSector, storiface.FTNone, storiface.FTCache|storiface.FTSealed|storiface.FTUnsealed, ssize, storiface.PathStorage, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 10,

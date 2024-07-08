@@ -203,7 +203,7 @@ func (p *ParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{
 			Cpu:     1,
 			Gpu:     0,
-			Ram:     64 << 20,
+			Ram:     resources.Ram(64 << 20),
 			Storage: p.sc.Storage(p.taskToRef, storiface.FTPiece, storiface.FTNone, maxSizePiece, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 10,

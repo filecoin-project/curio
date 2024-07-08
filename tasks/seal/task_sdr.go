@@ -240,7 +240,7 @@ func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{ // todo offset for prefetch?
 			Cpu:     4, // todo multicore sdr
 			Gpu:     0,
-			Ram:     (64 << 30) + (256 << 20),
+			Ram:     resources.Ram((64 << 30) + (256 << 20)),
 			Storage: s.sc.Storage(s.taskToSector, storiface.FTCache, storiface.FTNone, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 2,
@@ -248,7 +248,7 @@ func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	if isDevnet {
-		res.Cost.Ram = 1 << 30
+		res.Cost.Ram = resources.Ram(1 << 30)
 		res.Cost.Cpu = 1
 	}
 

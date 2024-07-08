@@ -114,7 +114,7 @@ func (s *StorageGCSweep) TypeDetails() harmonytask.TaskTypeDetails {
 		Name: "StorageGCSweep",
 		Cost: resources.Resources{
 			Cpu: 1,
-			Ram: 64 << 20,
+			Ram: resources.Ram(64 << 20),
 			Gpu: 0,
 		},
 		IAmBored: harmonytask.SingletonTaskAdder(StorageGCInterval, s),

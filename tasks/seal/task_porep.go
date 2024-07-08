@@ -167,7 +167,7 @@ func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{
 			Cpu:       1,
 			Gpu:       gpu,
-			Ram:       50 << 30, // todo correct value
+			Ram:       resources.Ram(50 << 30), // todo correct value
 			MachineID: 0,
 		},
 		MaxFailures: 5,
@@ -175,7 +175,7 @@ func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	if isDevnet {
-		res.Cost.Ram = 1 << 30
+		res.Cost.Ram = resources.Ram(1 << 30)
 	}
 
 	return res

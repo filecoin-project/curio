@@ -171,7 +171,7 @@ func (t *TreeRCTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{
 			Cpu:     1,
 			Gpu:     gpu,
-			Ram:     ram,
+			Ram:     resources.Ram(ram),
 			Storage: t.sc.Storage(t.taskToSector, storiface.FTSealed, storiface.FTCache, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 3,

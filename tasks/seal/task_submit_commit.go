@@ -381,7 +381,7 @@ func (s *SubmitCommitTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,
-			Ram: 1 << 20,
+			Ram: resources.Ram(1 << 20),
 		},
 		MaxFailures: 16,
 	}

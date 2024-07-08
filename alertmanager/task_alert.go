@@ -155,7 +155,7 @@ func (a *AlertTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name: "AlertManager",
 		Cost: resources.Resources{
 			Cpu: 1,
-			Ram: 64 << 20,
+			Ram: resources.Ram(64 << 20),
 			Gpu: 0,
 		},
 		IAmBored: harmonytask.SingletonTaskAdder(AlertMangerInterval, a),

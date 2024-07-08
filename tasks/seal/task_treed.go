@@ -55,7 +55,7 @@ func (t *TreeDTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name: "TreeD",
 		Cost: resources.Resources{
 			Cpu:     1,
-			Ram:     1 << 30,
+			Ram:     resources.Ram(1 << 30),
 			Gpu:     0,
 			Storage: t.sc.Storage(t.taskToSector, storiface.FTNone, storiface.FTCache, ssize, storiface.PathSealing, 1.0),
 		},

@@ -144,7 +144,7 @@ func (f *FinalizeTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,
-			Ram: 100 << 20,
+			Ram: resources.Ram(100 << 20),
 		},
 		MaxFailures: 10,
 	}

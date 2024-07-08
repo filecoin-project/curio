@@ -230,4 +230,4 @@ func (t *TaskStorage) markComplete(taskID int, sectorRef SectorRef) error {
 	return nil
 }
 
-var _ resources.Storage = &TaskStorage{}
+var _ resources.Dynamic = &TaskStorage{}

@@ -44,7 +44,7 @@ func (s *SDRPipelineGC) TypeDetails() harmonytask.TaskTypeDetails {
 		Name: "SDRPipelineGC",
 		Cost: resources.Resources{
 			Cpu: 1,
-			Ram: 64 << 20,
+			Ram: resources.Ram(64 << 20),
 			Gpu: 0,
 		},
 		IAmBored: harmonytask.SingletonTaskAdder(SDRPipelineGCInterval, s),

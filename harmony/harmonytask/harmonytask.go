@@ -408,7 +408,7 @@ func (e *TaskEngine) ResourcesAvailable() resources.Resources {
 		ct := t.Count.Load()
 		tmp.Cpu -= int(ct) * t.Cost.Cpu
 		tmp.Gpu -= float64(ct) * t.Cost.Gpu
-		tmp.Ram -= uint64(ct) * t.Cost.Ram
+		tmp.Ram = tmp.Ram.(resources.Ram) - (resources.Ram(ct) * t.Cost.Ram.(resources.Ram))
 	}
 	return tmp
 }

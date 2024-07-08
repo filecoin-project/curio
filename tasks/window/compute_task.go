@@ -23,12 +23,12 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
-	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/paths"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/lib/promise"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
@@ -259,7 +259,7 @@ func entToStr[T any](t T, i int) string {
 	return fmt.Sprint(t)
 }
 
-func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, te *harmonytask.SchedulingInfo) (*harmonytask.TaskID, error) {
+func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, si *harmonytask.SchedulingInfo) ([]harmonytask.TaskAndBid, error) {
 	rdy, err := t.paramsReady()
 	if err != nil {
 		return nil, xerrors.Errorf("failed to setup params: %w", err)
@@ -302,65 +302,41 @@ func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, te *harmonytask.Schedul
 	}
 
 	// Accept those past deadline, then delete them in Do().
-	for i := range tasks {
+	f := lo.Filter(tasks, func(_ wdTaskDef, i int) bool {
 		tasks[i].dlInfo = NewDeadlineInfo(tasks[i].ProvingPeriodStart, tasks[i].DeadlineIndex, ts.Height())
-
-		if tasks[i].dlInfo.PeriodElapsed() {
-			// note: Those may be test tasks
-			return &tasks[i].TaskID, nil
-		}
-	}
-
-	// todo fix the block below
-	//  workAdderMutex is held by taskTypeHandler.considerWork, which calls this CanAccept
-	//  te.ResourcesAvailable will try to get that lock again, which will deadlock
-
-	// Discard those too big for our free RAM
-	/*freeRAM := te.ResourcesAvailable().Ram
-	tasks = lo.Filter(tasks, func(d wdTaskDef, _ int) bool {
-		maddr, err := address.NewIDAddress(tasks[0].Sp_id)
-		if err != nil {
-			log.Errorf("WdPostTask.CanAccept() failed to NewIDAddress: %v", err)
-			return false
-		}
-
-		mi, err := t.api.StateMinerInfo(context.Background(), maddr, ts.Key())
-		if err != nil {
-			log.Errorf("WdPostTask.CanAccept() failed to StateMinerInfo: %v", err)
-			return false
-		}
-
-		spt, err := policy.GetSealProofFromPoStProof(mi.WindowPoStProofType)
-		if err != nil {
-			log.Errorf("WdPostTask.CanAccept() failed to GetSealProofFromPoStProof: %v", err)
-			return false
-		}
-
-		return res[spt].MaxMemory <= freeRAM
-	})*/
-	if len(tasks) == 0 {
-		log.Infof("RAM too small for any WDPost task")
-		return nil, nil
-	}
-
-	// Ignore those with too many failures unless they are the only ones left.
-	tasks, _ = taskhelp.SliceIfFound(tasks, func(d wdTaskDef) bool {
-		var r int
-		err := t.db.QueryRow(context.Background(), `SELECT COUNT(*) 
-		FROM harmony_task_history 
-		WHERE task_id = $1 AND result = false`, d.TaskID).Scan(&r)
-		if err != nil {
-			log.Errorf("WdPostTask.CanAccept() failed to queryRow: %v", err)
-		}
-		return r < 2
+		return tasks[i].dlInfo.PeriodElapsed()
 	})
+	if len(f) > 0 {
+		log.Infof("WdPostTask.CanAccept() found %d tasks past deadline", len(f))
+		return lo.Map(f, func(d wdTaskDef, _ int) harmonytask.TaskAndBid {
+			return harmonytask.TaskAndBid{TaskID: d.TaskID, Bid: 1000}
+		}), nil
+	}
+
+	//////////////////Bidding Logic Starts Here//////////////////
 
 	// Select the one closest to the deadline
 	sort.Slice(tasks, func(i, j int) bool {
 		return tasks[i].dlInfo.Open < tasks[j].dlInfo.Open
 	})
 
-	return &tasks[0].TaskID, nil
+	return lo.Map(tasks, func(d wdTaskDef, idx int) harmonytask.TaskAndBid {
+		bid := len(tasks) + 10 - idx
+		{
+			var r int
+			err := t.db.QueryRow(context.Background(), `SELECT COUNT(*) 
+		FROM harmony_task_history 
+		WHERE task_id = $1 AND result = false`, d.TaskID).Scan(&r)
+			if err != nil {
+				log.Errorf("WdPostTask.CanAccept() failed to queryRow: %v", err)
+			}
+			bid -= r
+		}
+		return harmonytask.TaskAndBid{
+			TaskID: d.TaskID,
+			Bid:    bid,
+		}
+	}), nil
 }
 
 var res = storiface.ResourceTable[sealtasks.TTGenerateWindowPoSt]
@@ -379,15 +355,63 @@ func (t *WdPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Gpu: 0,
 
 			// RAM of smallest proof's max is listed here
-			Ram: lo.Reduce(lo.Keys(res), func(i uint64, k abi.RegisteredSealProof, _ int) uint64 {
-				if res[k].MaxMemory < i {
-					return res[k].MaxMemory
-				}
-				return i
-			}, 1<<63),
+			Ram: wdPostRam{
+				t.db,
+				t.api,
+				resources.Ram(lo.Reduce(lo.Keys(res), func(i uint64, k abi.RegisteredSealProof, _ int) uint64 {
+					if res[k].MaxMemory < i {
+						return res[k].MaxMemory
+					}
+					return i
+				}, 1<<63))}, // Used for HasCapacity
 		},
 	}
 }
+
+type wdPostRam struct {
+	Db            *harmonydb.DB
+	Api           WDPoStAPI
+	resources.Ram // Used for HasCapacity
+}
+
+func (r wdPostRam) Claim(taskID int) (func() error, error) {
+	// how much ram does this task's proof need?
+	var spID uint64
+	err := r.Db.QueryRow(context.Background(),
+		`Select sp_id
+		from wdpost_partition_tasks 
+		where task_id = $1`, taskID).Scan(&spID)
+	if err != nil {
+		log.Errorf("WdPostTask.Do() failed to queryRow: %v", err)
+		return nil, err
+	}
+	maddr, err := address.NewIDAddress(spID)
+	if err != nil {
+		log.Errorf("WdPostTask.CanAccept() failed to NewIDAddress: %v", err)
+		return nil, err
+	}
+
+	ts, err := r.Api.ChainHead(context.Background()) // TODO is this too heavy for how frequently this is called?
+	if err != nil {
+		log.Errorf("WdPostTask.CanAccept() failed to get chain head: %v", err)
+		return nil, err
+	}
+	mi, err := r.Api.StateMinerInfo(context.Background(), maddr, ts.Key())
+	if err != nil {
+		log.Errorf("WdPostTask.CanAccept() failed to StateMinerInfo: %v", err)
+		return nil, err
+	}
+
+	spt, err := policy.GetSealProofFromPoStProof(mi.WindowPoStProofType)
+	if err != nil {
+		log.Errorf("WdPostTask.CanAccept() failed to GetSealProofFromPoStProof: %v", err)
+		return nil, err
+	}
+
+	return resources.Ram(res[spt].MaxMemory).Claim(taskID)
+}
+
+var _ resources.Dynamic = wdPostRam{}
 
 func (t *WdPostTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	t.windowPoStTF.Set(taskFunc)
@@ -463,7 +487,7 @@ func (t *WdPostTask) addTaskToDB(taskId harmonytask.TaskID, taskIdent wdTaskIden
 	return true, nil
 }
 
-var _ harmonytask.FastTask = &WdPostTask{}
+var _ harmonytask.BidTask = &WdPostTask{}
 
 func NewDeadlineInfo(periodStart abi.ChainEpoch, deadlineIdx uint64, currEpoch abi.ChainEpoch) *dline.Info {
 	return dline.NewInfo(periodStart, deadlineIdx, currEpoch, miner.WPoStPeriodDeadlines, miner.WPoStProvingPeriod(), miner.WPoStChallengeWindow(), miner.WPoStChallengeLookback, miner.FaultDeclarationCutoff)

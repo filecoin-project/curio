@@ -188,7 +188,7 @@ func (w *WdPostSubmitTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,
-			Ram: 10 << 20,
+			Ram: resources.Ram(10 << 20),
 		},
 		MaxFailures: 10,
 		Follows:     nil, // ??

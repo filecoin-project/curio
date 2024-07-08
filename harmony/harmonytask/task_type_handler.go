@@ -172,6 +172,7 @@ func (h *taskTypeHandler) bidLogic(from string, ids []TaskID, sch *SchedulingInf
 		log.Error(xerrors.Errorf("could not select bids: %w", err))
 		return false, false
 	}
+	// Accept everything we won: Requires accurate AssertMachineHasCapacity (resources).
 	var success bool
 	for i, r := range res {
 		err := h.AssertMachineHasCapacity()
@@ -206,12 +207,6 @@ func (h *taskTypeHandler) bidLogic(from string, ids []TaskID, sch *SchedulingInf
 	sort.Slice(tb, func(i, j int) bool {
 		return tb[i].Bid > tb[j].Bid
 	})
-	// Bid up to our multiple of capacity.
-	multiple := h.GetMultipleOfCapacity()
-	if len(tb) < multiple {
-		// We can't bid on all of them, so lets just bid on the best few.
-		tb = tb[:multiple]
-	}
 	if len(tb) > 0 {
 		liveBids = true
 	}
@@ -406,23 +401,13 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, tID, h.Name, postedTime.UTC(), workSta
 	}
 }
 
-func (h *taskTypeHandler) GetMultipleOfCapacity() int {
-	r := h.TaskEngine.ResourcesAvailable()
-	cpuMultiple := r.Cpu / h.Cost.Cpu
-	ramMultiple := int(r.Ram / h.Cost.Ram)
-	gpuMultiple := int(r.Gpu / h.Cost.Gpu)
-	// Nah, storage is hard.
-	//storageMultiple := h.TaskTypeDetails.Cost.Storage.GetMultipleOfCapacity()
-	return min(cpuMultiple, ramMultiple, gpuMultiple)
-}
-
 func (h *taskTypeHandler) AssertMachineHasCapacity() error {
 	r := h.TaskEngine.ResourcesAvailable()
 
 	if r.Cpu-h.Cost.Cpu < 0 {
 		return errors.New("Did not accept " + h.Name + " task: out of cpu")
 	}
-	if h.Cost.Ram > r.Ram {
+	if h.Cost.Ram.HasCapacity() {
 		return errors.New("Did not accept " + h.Name + " task: out of RAM")
 	}
 	if r.Gpu-h.Cost.Gpu < 0 {

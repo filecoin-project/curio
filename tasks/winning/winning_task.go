@@ -520,7 +520,7 @@ func (t *WinPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 			//  but it will use a GPU if available
 			Gpu: 0,
 
-			Ram: 1 << 30, // todo arbitrary number
+			Ram: resources.Ram(1 << 30), // todo arbitrary number
 		},
 	}
 }

@@ -22,13 +22,13 @@ var LOOKS_DEAD_TIMEOUT = 10 * time.Minute // Time w/o minute heartbeats
 type Resources struct {
 	Cpu       int
 	Gpu       float64
-	Ram       uint64
+	Ram       Dynamic
 	MachineID int
-	Storage
+	Storage   Dynamic
 }
 
 // Optional Storage management.
-type Storage interface {
+type Dynamic interface {
 	HasCapacity() bool
 
 	// This allows some other system to claim space for this task. Returns a cleanup function
@@ -143,7 +143,7 @@ func getResources() (res Resources, err error) {
 
 	res = Resources{
 		Cpu: runtime.NumCPU(),
-		Ram: mem.Available,
+		Ram: Ram(mem.Available),
 		Gpu: getGPUDevices(),
 	}
 

@@ -262,7 +262,7 @@ func (t pollTask) afterPoRep() bool {
 	return t.AfterPoRep && t.afterPrecommitMsgSuccess()
 }
 
-func (s *SealPoller) pollStartFinalize(ctx context.Context, task pollTask, ts *types.TipSet) {
+func (s *SealPoller) pollStartFinalize(ctx context.Context, task pollTask, _ *types.TipSet) {
 	if s.pollers[pollerFinalize].IsSet() && task.afterPoRep() && !task.AfterFinalize && task.TaskFinalize == nil {
 		s.pollers[pollerFinalize].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_finalize = $1 WHERE sp_id = $2 AND sector_number = $3 AND task_id_finalize IS NULL`, id, task.SpID, task.SectorNumber)

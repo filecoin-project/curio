@@ -122,7 +122,7 @@ func (c *CleanupPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{
 			Cpu:     1,
 			Gpu:     0,
-			Ram:     64 << 20,
+			Ram:     resources.Ram(64 << 20),
 			Storage: nil,
 		},
 		MaxFailures: 10,

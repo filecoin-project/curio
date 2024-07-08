@@ -223,7 +223,7 @@ func (w *WdPostRecoverDeclareTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,
-			Ram: 128 << 20,
+			Ram: resources.Ram(128 << 20),
 		},
 		MaxFailures: 10,
 		Follows:     nil,
