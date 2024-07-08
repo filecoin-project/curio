@@ -3,9 +3,13 @@ package harmonytask
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/samber/lo"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -151,7 +155,8 @@ type TaskID int
 func New(
 	db *harmonydb.DB,
 	impls []TaskInterface,
-	hostnameAndPort string) (*TaskEngine, error) {
+	hostnameAndPort string,
+	UserScheduleUrl []string) (*TaskEngine, error) {
 
 	reg, err := resources.Register(db, hostnameAndPort)
 	if err != nil {
@@ -169,6 +174,20 @@ func New(
 		hostAndPort: hostnameAndPort,
 	}
 	e.lastCleanup.Store(time.Now())
+
+	urlMap := lo.SliceToMap(UserScheduleUrl, func(s string) (string, *url.URL) {
+		spl := strings.SplitN(s, ",", 2)
+		if len(spl) != 2 {
+			log.Errorf("Invalid UserScheduleUrl: %s. Expected: taskName,url", s)
+			return "", &url.URL{}
+		}
+		u, err := url.Parse(spl[1])
+		if err != nil {
+			log.Errorf("Invalid UserScheduleUrl: %s. Expected: taskName,url", s)
+			return "", &url.URL{}
+		}
+		return spl[0], u
+	})
 	for _, c := range impls {
 		h := taskTypeHandler{
 			TaskInterface:   c,
@@ -181,6 +200,9 @@ func New(
 			h.Bid = false
 		} else {
 			panic("Task must implement BidTask or FastTask")
+		}
+		if u, ok := urlMap[h.Name]; ok {
+			h.userScheduleUrl = u
 		}
 		if len(h.Name) > 16 {
 			return nil, fmt.Errorf("task name too long: %s, max 16 characters", h.Name)

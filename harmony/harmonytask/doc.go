@@ -55,6 +55,14 @@ FastTask vs BidTask:
 			   This "feels right" since bidding cycles are quick, but risks:
 				 - bottlenecking the poller with too many SQL queries leading to unbid work AND
 				 - Slow Uptake (on a huge-machines-only network)
+		User Priorities
+		  first, acts like a fast task as it gets owned by 1 machine, but then queries
+			the URL for which machine (host:port) should work it. On return, it lets that machine
+			win a bid for the next X time. This is a way to "reserve" a task for a machine.
+			Interface:
+				Request: http POST with JSON of: "task_type", "task_id", "workers" with this type enabled.
+				Response: return JSON of {"worker": "host:port", "expires": 01234-unix-time-in-future}
+
 
 		Upgrading
 			FastTask and BidTask can replace each other on an upgrade without needing migration.

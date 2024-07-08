@@ -191,7 +191,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	// (we could have just appended to this list in the reverse order, but defining
 	//  tasks in pipeline order is more intuitive)
 
-	ht, err := harmonytask.New(db, activeTasks, dependencies.ListenAddr)
+	ht, err := harmonytask.New(db, activeTasks, dependencies.ListenAddr, dependencies.Cfg.Subsystems.UserScheduleURL)
 	if err != nil {
 		return nil, err
 	}

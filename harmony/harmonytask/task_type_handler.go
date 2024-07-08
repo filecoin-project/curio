@@ -1,12 +1,17 @@
 package harmonytask
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -21,9 +26,10 @@ var log = logging.Logger("harmonytask")
 type taskTypeHandler struct {
 	TaskInterface
 	TaskTypeDetails
-	TaskEngine *TaskEngine
-	Count      atomic.Int32
-	Bid        bool
+	TaskEngine      *TaskEngine
+	Count           atomic.Int32
+	userScheduleUrl *url.URL
+	Bid             bool
 }
 
 func (h *taskTypeHandler) AddTask(extra func(TaskID, *harmonydb.Tx) (bool, error)) {
@@ -93,7 +99,7 @@ func (h *taskTypeHandler) canAcceptPart(from string, ids []TaskID) (workAccepted
 	sch := &SchedulingInfo{h.TaskEngine, from}
 
 	// 3. Bid?
-	if h.Bid {
+	if h.Bid || h.userScheduleUrl != nil {
 		return h.bidLogic(from, ids, sch)
 	}
 
@@ -189,6 +195,7 @@ func (h *taskTypeHandler) bidLogic(from string, ids []TaskID, sch *SchedulingInf
 	}
 
 	// __Bid_Phase__
+
 	// Place our bids IF we need the work.
 	if success { // we removed one+ from the list, so lets get a full list.
 		ids, err = h.GetUnownedTasks()
@@ -196,6 +203,14 @@ func (h *taskTypeHandler) bidLogic(from string, ids []TaskID, sch *SchedulingInf
 			log.Error(xerrors.Errorf("could not get unowned tasks: %w", err))
 			return success, false
 		}
+	}
+
+	if h.userScheduleUrl != nil {
+		// User defined tasks are not bid on. They get claimed by the URL claimer.
+		for _, id := range ids {
+			go h.userUrlClaimer(id)
+		}
+		return success, false
 	}
 
 	// Get our bids.
@@ -222,6 +237,77 @@ func (h *taskTypeHandler) bidLogic(from string, ids []TaskID, sch *SchedulingInf
 		}
 	}
 	return success, liveBids
+}
+
+var client = &http.Client{
+	Timeout: time.Second * 10,
+}
+
+func (h *taskTypeHandler) userUrlClaimer(id TaskID) {
+	// First, claim the task of quit.
+	v, err := h.TaskEngine.db.Exec(context.Background(), `UPDATE harmony_task SET owner_id=$1 WHERE id=$2 AND owner_id IS NULL`, h.TaskEngine.ownerID, id)
+	if err != nil {
+		log.Error(xerrors.Errorf("could not claim task: %w", err))
+		return
+	}
+	if v == 0 { // someone else got to it
+		return
+	}
+
+	var workerList []string
+	err = h.TaskEngine.db.Select(context.Background(), &workerList, `SELECT host_and_port 
+	FROM harmony_machines m JOIN harmony_machine_details d ON d.machine_id=m.id 
+	WHERE tasks LIKE $1`, "%,"+h.Name+",%")
+	if err != nil {
+		log.Error(xerrors.Errorf("could not get worker list: %w", err))
+		goto releaseTask
+	}
+	// Now Call the URL with the possible workers and get back who should work it.
+	{
+		resp, err := client.Post(h.userScheduleUrl.String(), "application/json", bytes.NewReader([]byte(`
+	{
+		"task_type": "`+h.Name+`",
+		"task_id": `+strconv.Itoa(int(id))+`,
+		"workers": [`+strings.Join(workerList, ",")+`], 
+	}
+	`)))
+		if err != nil {
+			log.Error(xerrors.Errorf("could not call user defined URL: %w", err))
+			goto releaseTask
+		}
+		if resp.StatusCode != http.StatusOK {
+			log.Error("User defined URL returned non-200 status code: ", resp.StatusCode)
+			goto releaseTask
+		}
+		var respData struct {
+			Worker  string
+			Timeout int
+		}
+		defer resp.Body.Close()
+		err = json.NewDecoder(resp.Body).Decode(&respData)
+		if err != nil {
+			log.Error(xerrors.Errorf("could not decode user defined URL response: %w", err))
+			goto releaseTask
+		}
+		// If the worker is us, start the task.
+		if respData.Worker == h.TaskEngine.hostAndPort {
+			h.startTask(WorkSourcePoller, &id, []TaskID{id})
+			return // no need to relese task, it's us doing the work.
+		}
+		// Otherwise, we need to tell the worker to do the work.
+		_, err = h.TaskEngine.db.Exec(context.Background(), `INSERT INTO harmony_task_claim (task_id, worker, expires) VALUES ($1, $2, NOW() + INTERVAL $3 SECOND)`, id, respData.Worker, respData.Timeout)
+		if err != nil {
+			log.Error(xerrors.Errorf("could not insert into harmony_task_claim: %w", err))
+			goto releaseTask
+		}
+	}
+
+	// Then unclaim the task (no entry into history because it's not a failure).
+releaseTask:
+	_, err = h.TaskEngine.db.Exec(context.Background(), `UPDATE harmony_task SET owner_id=NULL WHERE id=$1`, id)
+	if err != nil {
+		log.Error(xerrors.Errorf("could not release task: %w", err))
+	}
 }
 
 // startTask is called to start 1 work task on a task-id of this task type.

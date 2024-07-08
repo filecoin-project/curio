@@ -212,6 +212,23 @@ type CurioSubsystemsConfig struct {
 	// a machine which handles ParkPiece tasks.
 	BoostAdapters []string
 
+	// UserScheduleURL are the URLs for the user schedule optimization service. Please preceed each with
+	// the name of the task that it should be used for, followed by a comma and the URL. For example:
+	// "SealSDR,http://localhost:8080/schedule"
+	// This http endpoint gets a POST request with the following JSON body:
+	// {
+	//   "task_id": "task_id",
+	//   "task_type": "task_type",
+	//   "workers": ["worker1", "worker2"]
+	// }
+	// And looks for a 200 response with the following JSON body:
+	// {
+	//   "worker": "worker1"
+	//   "timeout": 60
+	// }
+	// Timeout in seconds until it will be rescheduled.
+	UserScheduleURL []string
+
 	// EnableWebGui enables the web GUI on this curio instance. The UI has minimal local overhead, but it should
 	// only need to be run on a single machine in the cluster.
 	EnableWebGui bool
