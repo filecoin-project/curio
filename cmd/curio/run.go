@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -97,6 +98,13 @@ var runCmd = &cli.Command{
 
 		if err := os.MkdirAll(os.TempDir(), 0755); err != nil {
 			log.Errorf("ensuring tempdir exists: %s", err)
+		}
+
+		if os.Getenv("GOLOG_FILE") != "" {
+			err := os.MkdirAll(filepath.Dir(os.Getenv("GOLOG_FILE")), 0755)
+			if err != nil {
+				return xerrors.Errorf("ensuring log file parent exists: %w", err)
+			}
 		}
 
 		ctx := lcli.DaemonContext(cctx)
