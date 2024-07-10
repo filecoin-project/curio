@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/gbrlsnchs/jwt/v3"
@@ -178,6 +179,7 @@ type Deps struct {
 	LocalPaths *paths.BasicLocalStorage
 	ListenAddr string
 	Name       string
+	At         func(t time.Time, taskType, sqlTable string, sqlRowID int)
 }
 
 const (
