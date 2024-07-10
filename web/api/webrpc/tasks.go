@@ -3,8 +3,9 @@ package webrpc
 import (
 	"context"
 
-	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/samber/lo"
+
+	"github.com/filecoin-project/curio/harmony/harmonytask"
 )
 
 type TaskSummary struct {
