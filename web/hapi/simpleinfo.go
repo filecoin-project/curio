@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -669,22 +668,17 @@ func (a *app) executePageTemplate(w http.ResponseWriter, name, title string, dat
 	})
 }
 
-type machineRecentTask struct {
-	TaskName string
-	Success  int64
-	Fail     int64
-}
-
 type machineSummary struct {
 	Address      string
 	ID           int64
 	Name         string
 	SinceContact string
 
-	RecentTasks  []*machineRecentTask
+	Tasks        string
 	Cpu          int
 	RamHumanized string
 	Gpu          int
+	Layers       string
 }
 
 type taskSummary struct {
@@ -707,45 +701,6 @@ type taskHistorySummary struct {
 }
 
 func (a *app) clusterMachineSummary(ctx context.Context) ([]machineSummary, error) {
-	// First get task summary for tasks completed in the last 24 hours
-	// NOTE: This query uses harmony_task_history_work_index, task history may get big
-	tsrows, err := a.db.Query(ctx, `SELECT hist.completed_by_host_and_port, hist.name, hist.result, count(1) FROM harmony_task_history hist
-	    WHERE hist.work_end > now() - INTERVAL '1 day'
-	    GROUP BY hist.completed_by_host_and_port, hist.name, hist.result
-	    ORDER BY completed_by_host_and_port ASC`)
-	if err != nil {
-		return nil, err
-	}
-	defer tsrows.Close()
-
-	// Map of machine -> task -> recent task
-	taskSummaries := map[string]map[string]*machineRecentTask{}
-
-	for tsrows.Next() {
-		var taskName string
-		var result bool
-		var count int64
-		var machine string
-
-		if err := tsrows.Scan(&machine, &taskName, &result, &count); err != nil {
-			return nil, err
-		}
-
-		if _, ok := taskSummaries[machine]; !ok {
-			taskSummaries[machine] = map[string]*machineRecentTask{}
-		}
-
-		if _, ok := taskSummaries[machine][taskName]; !ok {
-			taskSummaries[machine][taskName] = &machineRecentTask{TaskName: taskName}
-		}
-
-		if result {
-			taskSummaries[machine][taskName].Success = count
-		} else {
-			taskSummaries[machine][taskName].Fail = count
-		}
-	}
-
 	// Then machine summary
 	rows, err := a.db.Query(ctx, `
 						SELECT 
@@ -755,7 +710,9 @@ func (a *app) clusterMachineSummary(ctx context.Context) ([]machineSummary, erro
 							hm.cpu,
 							hm.ram,
 							hm.gpu,
-							hmd.machine_name
+							hmd.machine_name,
+							hmd.tasks,
+							hmd.layers
 						FROM 
 							harmony_machines hm
 						LEFT JOIN 
@@ -773,21 +730,13 @@ func (a *app) clusterMachineSummary(ctx context.Context) ([]machineSummary, erro
 		var lastContact time.Duration
 		var ram int64
 
-		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu, &m.Name); err != nil {
+		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu, &m.Name, &m.Tasks, &m.Layers); err != nil {
 			return nil, err // Handle error
 		}
 		m.SinceContact = lastContact.Round(time.Second).String()
 		m.RamHumanized = humanize.Bytes(uint64(ram))
-
-		// Add recent tasks
-		if ts, ok := taskSummaries[m.Address]; ok {
-			for _, t := range ts {
-				m.RecentTasks = append(m.RecentTasks, t)
-			}
-			sort.Slice(m.RecentTasks, func(i, j int) bool {
-				return m.RecentTasks[i].TaskName < m.RecentTasks[j].TaskName
-			})
-		}
+		m.Tasks = strings.TrimSuffix(strings.TrimPrefix(m.Tasks, ","), ",")
+		m.Layers = strings.TrimSuffix(strings.TrimPrefix(m.Layers, ","), ",")
 
 		summaries = append(summaries, m)
 	}
