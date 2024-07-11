@@ -196,8 +196,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	}
 
 	cron := harmonycron.New(db, reg.MachineID)
-	activeTasks = append(activeTasks, cron)
 	dependencies.At = cron.At
+	activeTasks = append([]harmonytask.TaskInterface{cron}, activeTasks...)
 
 	// harmony treats the first task as highest priority, so reverse the order
 	// (we could have just appended to this list in the reverse order, but defining
