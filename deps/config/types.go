@@ -52,10 +52,13 @@ func DefaultCurioConfig() *CurioConfig {
 			MaxQueuePoRep:      0, // default don't use this limit
 			MaxDealWaitTime:    Duration(1 * time.Hour),
 		},
-		Alerting: CurioAlerting{
-			PagerDutyEventURL:      "https://events.pagerduty.com/v2/enqueue",
-			PageDutyIntegrationKey: "",
-			MinimumWalletBalance:   types.MustParseFIL("5"),
+		Alerting: CurioAlertingConfig{
+			MinimumWalletBalance: types.MustParseFIL("5"),
+			PagerDuty: PagerDutyConfig{
+				Enable:                 true,
+				PagerDutyEventURL:      "https://events.pagerduty.com/v2/enqueue",
+				PageDutyIntegrationKey: "",
+			},
 		},
 	}
 }
@@ -71,7 +74,7 @@ type CurioConfig struct {
 	Ingest    CurioIngestConfig
 	Journal   JournalConfig
 	Apis      ApisConfig
-	Alerting  CurioAlerting
+	Alerting  CurioAlertingConfig
 }
 
 func DefaultDefaultMaxFee() types.FIL {
@@ -398,7 +401,22 @@ type CurioIngestConfig struct {
 	MaxDealWaitTime Duration
 }
 
-type CurioAlerting struct {
+type CurioAlertingConfig struct {
+	// MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
+	// alerts will be triggered for the wallet
+	MinimumWalletBalance types.FIL
+
+	// PagerDuty is the configuration for the PagerDuty integration.
+	PagerDuty PagerDutyConfig
+
+	// LarkBot is the configuration for the Lark custom bot integration.
+	LarkBot LarkBotConfig
+}
+
+type PagerDutyConfig struct {
+	// Enable is a flag to enable or disable the PagerDuty integration.
+	Enable bool
+
 	// PagerDutyEventURL is URL for PagerDuty.com Events API v2 URL. Events sent to this API URL are ultimately
 	// routed to a PagerDuty.com service and processed.
 	// The default is sufficient for integration with the stock commercial PagerDuty.com company's service.
@@ -407,10 +425,29 @@ type CurioAlerting struct {
 	// PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
 	// identifier in the integration page for the service.
 	PageDutyIntegrationKey string
+}
 
-	// MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
-	// alerts will be triggered for the wallet
-	MinimumWalletBalance types.FIL
+type LarkBotConfig struct {
+	// Enable is a flag to enable or disable the Lark custom bot integration.
+	Enable bool
+
+	// WebhookURL is the URL for the Lark custom bot webhook.
+	WebhookURL string
+
+	// Secret is the secret for the Lark custom bot webhook.
+	// Optional, if set, the secret will be used to sign the request body.
+	Secret string
+
+	// AtUserIds is the list of users to @ in the Lark custom bot message.
+	// The user IDs are unique identifiers for users in the Lark system.
+	// The format is "ou_id1,ou_id2", 'all' can be used to @ all users.
+	// Optional, if set, the users will be @ in the message.
+	AtUserIds []string
+
+	// Footer is the footer for the Lark custom bot message.
+	// lark markdown is supported.
+	// Optional, if set, the footer will be added to the message.
+	Footer string
 }
 
 type JournalConfig struct {

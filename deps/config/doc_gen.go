@@ -81,28 +81,25 @@ over the worker address if this flag is set.`,
 			Comment: `MinerAddresses are the addresses of the miner actors to use for sending messages`,
 		},
 	},
-	"CurioAlerting": {
-		{
-			Name: "PagerDutyEventURL",
-			Type: "string",
-
-			Comment: `PagerDutyEventURL is URL for PagerDuty.com Events API v2 URL. Events sent to this API URL are ultimately
-routed to a PagerDuty.com service and processed.
-The default is sufficient for integration with the stock commercial PagerDuty.com company's service.`,
-		},
-		{
-			Name: "PageDutyIntegrationKey",
-			Type: "string",
-
-			Comment: `PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
-identifier in the integration page for the service.`,
-		},
+	"CurioAlertingConfig": {
 		{
 			Name: "MinimumWalletBalance",
 			Type: "types.FIL",
 
 			Comment: `MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
 alerts will be triggered for the wallet`,
+		},
+		{
+			Name: "PagerDuty",
+			Type: "PagerDutyConfig",
+
+			Comment: `PagerDuty is the configuration for the PagerDuty integration.`,
+		},
+		{
+			Name: "LarkBot",
+			Type: "LarkBotConfig",
+
+			Comment: `LarkBot is the configuration for the Lark custom bot integration.`,
 		},
 	},
 	"CurioConfig": {
@@ -150,7 +147,7 @@ alerts will be triggered for the wallet`,
 		},
 		{
 			Name: "Alerting",
-			Type: "CurioAlerting",
+			Type: "CurioAlertingConfig",
 
 			Comment: ``,
 		},
@@ -608,6 +605,67 @@ only need to be run on a single machine in the cluster.`,
 			Type: "string",
 
 			Comment: `Events of the form: "system1:event1,system1:event2[,...]"`,
+		},
+	},
+	"LarkBotConfig": {
+		{
+			Name: "Enable",
+			Type: "bool",
+
+			Comment: `Enable is a flag to enable or disable the Lark custom bot integration.`,
+		},
+		{
+			Name: "WebhookURL",
+			Type: "string",
+
+			Comment: `WebhookURL is the URL for the Lark custom bot webhook.`,
+		},
+		{
+			Name: "Secret",
+			Type: "string",
+
+			Comment: `Secret is the secret for the Lark custom bot webhook.
+Optional, if set, the secret will be used to sign the request body.`,
+		},
+		{
+			Name: "AtUserIds",
+			Type: "[]string",
+
+			Comment: `AtUserIds is the list of users to @ in the Lark custom bot message.
+The user IDs are unique identifiers for users in the Lark system.
+The format is "ou_id1,ou_id2", 'all' can be used to @ all users.
+Optional, if set, the users will be @ in the message.`,
+		},
+		{
+			Name: "Footer",
+			Type: "string",
+
+			Comment: `Footer is the footer for the Lark custom bot message.
+lark markdown is supported.
+Optional, if set, the footer will be added to the message.`,
+		},
+	},
+	"PagerDutyConfig": {
+		{
+			Name: "Enable",
+			Type: "bool",
+
+			Comment: `Enable is a flag to enable or disable the PagerDuty integration.`,
+		},
+		{
+			Name: "PagerDutyEventURL",
+			Type: "string",
+
+			Comment: `PagerDutyEventURL is URL for PagerDuty.com Events API v2 URL. Events sent to this API URL are ultimately
+routed to a PagerDuty.com service and processed.
+The default is sufficient for integration with the stock commercial PagerDuty.com company's service.`,
+		},
+		{
+			Name: "PageDutyIntegrationKey",
+			Type: "string",
+
+			Comment: `PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
+identifier in the integration page for the service.`,
 		},
 	},
 }
