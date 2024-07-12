@@ -11,9 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/filecoin-project/curio/build"
 	"github.com/icza/backscanner"
 	logging "github.com/ipfs/go-log/v2"
+
+	"github.com/filecoin-project/curio/build"
 )
 
 var (

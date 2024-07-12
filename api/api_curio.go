@@ -18,8 +18,8 @@ type Curio interface {
 	// MethodGroup: Curio
 	//The common method group contains administration methods
 
-	Version(context.Context) (api.Version, error) //perm:admin
-	Shutdown(context.Context) error               //perm:admin
+	Version(context.Context) ([]int, error) //perm:admin
+	Shutdown(context.Context) error         //perm:admin
 
 	// MethodGroup: Deal
 	//The deal method group contains method for adding deals to sector

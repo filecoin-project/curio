@@ -1133,22 +1133,31 @@
         },
         {
             "name": "Filecoin.Version",
-            "description": "```go\nfunc (s *CurioStruct) Version(p0 context.Context) (api.Version, error) {\n\tif s.Internal.Version == nil {\n\t\treturn *new(api.Version), ErrNotSupported\n\t}\n\treturn s.Internal.Version(p0)\n}\n```",
+            "description": "```go\nfunc (s *CurioStruct) Version(p0 context.Context) ([]int, error) {\n\tif s.Internal.Version == nil {\n\t\treturn *new([]int), ErrNotSupported\n\t}\n\treturn s.Internal.Version(p0)\n}\n```",
             "summary": "There are not yet any comments for this method.",
             "paramStructure": "by-position",
             "params": [],
             "result": {
-                "name": "api.Version",
-                "description": "api.Version",
+                "name": "[]int",
+                "description": "[]int",
                 "summary": "",
                 "schema": {
-                    "title": "number",
-                    "description": "Number is a number",
                     "examples": [
-                        131840
+                        [
+                            123
+                        ]
+                    ],
+                    "items": [
+                        {
+                            "title": "number",
+                            "description": "Number is a number",
+                            "type": [
+                                "number"
+                            ]
+                        }
                     ],
                     "type": [
-                        "number"
+                        "array"
                     ]
                 },
                 "required": true,

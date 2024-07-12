@@ -25,6 +25,7 @@ import (
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/cmd/curio/tasks"
 	"github.com/filecoin-project/curio/deps"
@@ -34,7 +35,7 @@ import (
 	"github.com/filecoin-project/curio/market/lmrpc"
 	"github.com/filecoin-project/curio/tasks/seal"
 
-	"github.com/filecoin-project/lotus/api"
+	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/v1api"
 	miner2 "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -125,7 +126,7 @@ func TestCurioHappyPath(t *testing.T) {
 	err = full.LogSetLevel(ctx, "*", "ERROR")
 	require.NoError(t, err)
 
-	token, err := full.AuthNew(ctx, api.AllPermissions)
+	token, err := full.AuthNew(ctx, lapi.AllPermissions)
 	require.NoError(t, err)
 
 	fapi := fmt.Sprintf("%s:%s", string(token), full.ListenAddr)
@@ -380,7 +381,7 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 		}
 
 		p := jwtPayload{
-			Allow: api.AllPermissions,
+			Allow: lapi.AllPermissions,
 		}
 
 		sk, err := base64.StdEncoding.DecodeString(cfg.Apis.StorageRPCSecret)

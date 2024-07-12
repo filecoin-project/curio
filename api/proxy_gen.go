@@ -61,7 +61,7 @@ type CurioMethods struct {
 
 	StorageStat func(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) `perm:"admin"`
 
-	Version func(p0 context.Context) (api.Version, error) `perm:"admin"`
+	Version func(p0 context.Context) ([]int, error) `perm:"admin"`
 }
 
 type CurioStub struct {
@@ -304,15 +304,15 @@ func (s *CurioStub) StorageStat(p0 context.Context, p1 storiface.ID) (fsutil.FsS
 	return *new(fsutil.FsStat), ErrNotSupported
 }
 
-func (s *CurioStruct) Version(p0 context.Context) (api.Version, error) {
+func (s *CurioStruct) Version(p0 context.Context) ([]int, error) {
 	if s.Internal.Version == nil {
-		return *new(api.Version), ErrNotSupported
+		return *new([]int), ErrNotSupported
 	}
 	return s.Internal.Version(p0)
 }
 
-func (s *CurioStub) Version(p0 context.Context) (api.Version, error) {
-	return *new(api.Version), ErrNotSupported
+func (s *CurioStub) Version(p0 context.Context) ([]int, error) {
+	return *new([]int), ErrNotSupported
 }
 
 func (s *CurioChainRPCStruct) ChainGetMessage(p0 context.Context, p1 cid.Cid) (*types.Message, error) {

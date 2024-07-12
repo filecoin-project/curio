@@ -126,7 +126,12 @@ Perms: admin
 
 Inputs: `null`
 
-Response: `131840`
+Response:
+```json
+[
+  123
+]
+```
 
 ### Log
 The log method group has logging methods

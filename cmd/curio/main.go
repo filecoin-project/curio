@@ -22,13 +22,13 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
 	"github.com/filecoin-project/curio/lib/panicreport"
+	"github.com/filecoin-project/curio/lib/repo"
 	"github.com/filecoin-project/curio/lib/reqcontext"
 
 	proofparams "github.com/filecoin-project/lotus/build/proof-params"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/lib/lotuslog"
 	"github.com/filecoin-project/lotus/lib/tracing"
-	"github.com/filecoin-project/lotus/node/repo"
 )
 
 var log = logging.Logger("main")

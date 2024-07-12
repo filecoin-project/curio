@@ -194,7 +194,7 @@ var cliCmd = &cli.Command{
 				return xerrors.Errorf("querying version: %w", err)
 			}
 
-			fmt.Println("remote node version:", v.String())
+			fmt.Println("remote node version:", v)
 		}
 
 		return nil
