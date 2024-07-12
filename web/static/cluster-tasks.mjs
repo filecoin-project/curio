@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 
-class WinStats extends LitElement {
+class ClusterTasks extends LitElement {
     static properties = {
         data: { type: Array }
     };
@@ -13,8 +13,9 @@ class WinStats extends LitElement {
     }
 
     async loadData() {
-        this.data = await RPCCall('WinStats');
-        setTimeout(() => this.loadData(), 2 * 60 * 1000); // 2 minutes
+        this.data = await RPCCall('ClusterTasks');
+        ///hapi/simpleinfo/tasks
+        setTimeout(() => this.loadData(), 1000);
         super.requestUpdate();
     }
 
@@ -25,25 +26,21 @@ class WinStats extends LitElement {
             <table class="table table-dark">
                 <thead>
                 <tr>
-                    <th>Address</th>
-                    <th>Epoch</th>
-                    <th>Block</th>
-                    <th>Task Success</th>
-                    <th>Submitted At</th>
-                    <th>Compute Time</th>
-                    <th>Included</th>
+                    <th>Miner ID</th>
+                    <th style="min-width: 128px">Task</th>
+                    <th>ID</th>
+                    <th>Posted</th>
+                    <th>Owner</th>
                 </tr>
                 </thead>
                 <tbody>
-                    ${this.data.map(entry => html`
+                ${this.data.map(entry => html`
                     <tr>
-                        <td>f0${entry.Actor}</td>
-                        <td>${entry.Epoch}</td>
-                        <td><abbr title="${entry.Block}">...${entry.Block.slice(-10)}</abbr></td>
-                        <td>${entry.TaskSuccess}</td>
-                        <td>${entry.SubmittedAtStr}</td>
-                        <td>${entry.ComputeTime}</td>
-                        <td>${entry.IncludedStr}</td>
+                        <td>${this.MinerID? this.MinerID: ''}</td>
+                        <td>${this.Name}</td>
+                        <td>${this.ID}</td>
+                        <td>${this.SincePosted}</td>
+                        <td>${!this.OwnerID ? html`<a href="/hapi/node/{{.OwnerID}}">{{.Owner}}</a>{{end}}</td>`:''}
                     </tr>
                     `)}
                 </tbody>
@@ -52,4 +49,4 @@ class WinStats extends LitElement {
     }
 }
 
-customElements.define('win-stats', WinStats);
+customElements.define('storage-gc-stats', StorageGCStats);

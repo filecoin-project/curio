@@ -64,6 +64,16 @@ func (t *TreeDTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
+func (t *TreeDTask) GetSpid(taskID int64) string {
+	var spid string
+	err := t.db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_tree_d = $1`, taskID).Scan(&spid)
+	if err != nil {
+		log.Errorf("getting spid: %v", err)
+		return ""
+	}
+	return spid
+}
+
 func (t *TreeDTask) taskToSector(id harmonytask.TaskID) (ffi2.SectorRef, error) {
 	var refs []ffi2.SectorRef
 
