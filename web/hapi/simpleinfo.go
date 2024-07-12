@@ -20,23 +20,20 @@ import (
 
 	"github.com/filecoin-project/go-address"
 
+	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/paths"
 
-	"github.com/filecoin-project/lotus/api/v1api"
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 type app struct {
-	db *harmonydb.DB
-	t  *template.Template
-
-	rpcInfoLk   sync.Mutex
-	workingApi  v1api.FullNode
-	stor        adt.Store
-	sectorIndex paths.SectorIndex
+	db   *harmonydb.DB
+	deps *deps.Deps
+	t    *template.Template
+	stor adt.Store
 
 	actorInfoLk sync.Mutex
 	actorInfos  []actorInfo
@@ -191,7 +188,7 @@ func (a *app) sectorInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	head, err := a.workingApi.ChainHead(ctx)
+	head, err := a.deps.Chain.ChainHead(ctx)
 	if err != nil {
 		http.Error(w, xerrors.Errorf("failed to fetch chain head: %w", err).Error(), http.StatusInternalServerError)
 		return
@@ -793,7 +790,7 @@ type porepPipelineSummary struct {
 
 func (a *app) porepPipelineSummary(ctx context.Context) ([]porepPipelineSummary, error) {
 
-	head, err := a.workingApi.ChainHead(ctx)
+	head, err := a.deps.Chain.ChainHead(ctx)
 	if err != nil {
 		return nil, err
 	}

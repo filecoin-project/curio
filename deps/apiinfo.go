@@ -1,23 +1,27 @@
 package deps
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"reflect"
+	"time"
 
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-jsonrpc"
 
-	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/api/client"
-	"github.com/filecoin-project/lotus/api/v1api"
+	"github.com/filecoin-project/curio/api"
+
+	lapi "github.com/filecoin-project/lotus/api"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
+	"github.com/filecoin-project/lotus/lib/retry"
 )
 
-func getFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string, opts ...cliutil.GetFullNodeOption) (v1api.FullNode, jsonrpc.ClientCloser, error) {
+func getFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string, opts ...cliutil.GetFullNodeOption) (api.Chain, jsonrpc.ClientCloser, error) {
 	if tn, ok := ctx.App.Metadata["testnode-full"]; ok {
-		return tn.(v1api.FullNode), func() {}, nil
+		return tn.(api.Chain), func() {}, nil
 	}
 
 	var options cliutil.GetFullNodeOptions
@@ -50,11 +54,11 @@ func getFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string, opts ...cliutil.
 		_, _ = fmt.Fprintln(ctx.App.Writer, "using full node API v1 endpoint:", httpHeads[0].addr)
 	}
 
-	var fullNodes []api.FullNode
+	var fullNodes []api.Chain
 	var closers []jsonrpc.ClientCloser
 
 	for _, head := range httpHeads {
-		v1api, closer, err := client.NewFullNodeRPCV1(ctx.Context, head.addr, head.header, rpcOpts...)
+		v1api, closer, err := newChainNodeRPCV1(ctx.Context, head.addr, head.header, rpcOpts...)
 		if err != nil {
 			log.Warnf("Not able to establish connection to node with addr: %s, Reason: %s", head.addr, err.Error())
 			continue
@@ -75,20 +79,98 @@ func getFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string, opts ...cliutil.
 		}
 	}
 
-	var v1API api.FullNodeStruct
-	cliutil.FullNodeProxy(fullNodes, &v1API)
+	var v1API api.ChainStruct
+	FullNodeProxy(fullNodes, &v1API)
 
 	v, err := v1API.Version(ctx.Context)
 	if err != nil {
 		return nil, nil, err
 	}
-	if !v.APIVersion.EqMajorMinor(api.FullAPIVersion1) {
-		return nil, nil, xerrors.Errorf("Remote API version didn't match (expected %s, remote %s)", api.FullAPIVersion1, v.APIVersion)
+	if !v.APIVersion.EqMajorMinor(lapi.FullAPIVersion1) {
+		return nil, nil, xerrors.Errorf("Remote API version didn't match (expected %s, remote %s)", lapi.FullAPIVersion1, v.APIVersion)
 	}
 	return &v1API, finalCloser, nil
+}
+
+type contextKey string
+
+// Not thread safe
+func OnSingleNode(ctx context.Context) context.Context {
+	return context.WithValue(ctx, contextKey("retry-node"), new(*int))
 }
 
 type httpHead struct {
 	addr   string
 	header http.Header
+}
+
+var RPCErrors = jsonrpc.NewErrors()
+
+// newChainNodeRPCV1 creates a new http jsonrpc client.
+func newChainNodeRPCV1(ctx context.Context, addr string, requestHeader http.Header, opts ...jsonrpc.Option) (api.Chain, jsonrpc.ClientCloser, error) {
+	var res api.ChainStruct
+	closer, err := jsonrpc.NewMergeClient(ctx, addr, "Filecoin",
+		api.GetInternalStructs(&res), requestHeader, append([]jsonrpc.Option{jsonrpc.WithErrors(RPCErrors)}, opts...)...)
+
+	return &res, closer, err
+}
+
+// FullNodeProxy creates a proxy for the Chain API
+// TODO: port improvements here from https://github.com/filecoin-project/lotus/pull/11470
+func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
+	outs := api.GetInternalStructs(outstr)
+
+	var rins []reflect.Value
+	for _, in := range ins {
+		rins = append(rins, reflect.ValueOf(in))
+	}
+
+	for _, out := range outs {
+		rProxyInternal := reflect.ValueOf(out).Elem()
+
+		for f := 0; f < rProxyInternal.NumField(); f++ {
+			field := rProxyInternal.Type().Field(f)
+
+			var fns []reflect.Value
+			for _, rin := range rins {
+				fns = append(fns, rin.MethodByName(field.Name))
+			}
+
+			rProxyInternal.Field(f).Set(reflect.MakeFunc(field.Type, func(args []reflect.Value) (results []reflect.Value) {
+				errorsToRetry := []error{&jsonrpc.RPCConnectionError{}, &jsonrpc.ErrClient{}}
+				initialBackoff, err := time.ParseDuration("1s")
+				if err != nil {
+					return nil
+				}
+
+				ctx := args[0].Interface().(context.Context)
+
+				curr := -1
+
+				// for calls that need to be performed on the same node
+				// primarily for miner when calling create block and submit block subsequently
+				key := contextKey("retry-node")
+				if ctx.Value(key) != nil {
+					if (*ctx.Value(key).(**int)) == nil {
+						*ctx.Value(key).(**int) = &curr
+					} else {
+						curr = **ctx.Value(key).(**int) - 1
+					}
+				}
+
+				total := len(rins)
+				result, _ := retry.Retry(ctx, 5, initialBackoff, errorsToRetry, func() ([]reflect.Value, error) {
+					curr = (curr + 1) % total
+
+					result := fns[curr].Call(args)
+					if result[len(result)-1].IsNil() {
+						return result, nil
+					}
+					e := result[len(result)-1].Interface().(error)
+					return result, e
+				})
+				return result
+			}))
+		}
+	}
 }

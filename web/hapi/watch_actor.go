@@ -40,9 +40,7 @@ type minimalActorInfo struct {
 var startedAt = time.Now()
 
 func (a *app) updateActor(ctx context.Context) error {
-	a.rpcInfoLk.Lock()
-	api := a.workingApi
-	a.rpcInfoLk.Unlock()
+	api := a.deps.Chain
 
 	stor := store.ActorStore(ctx, blockstore.NewReadCachedBlockstore(blockstore.NewAPIBlockstore(api), curiochain.ChainBlockCache))
 

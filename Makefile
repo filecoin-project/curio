@@ -109,7 +109,7 @@ cu2k: curio
 cfgdoc-gen:
 	$(GOCC) run ./deps/config/cfgdocgen > ./deps/config/doc_gen.go
 
-fiximports:
+fix-imports:
 	$(GOCC) run ./scripts/fiximports
 
 docsgen: docsgen-md docsgen-openrpc
@@ -174,6 +174,9 @@ gen: gensimple
 gensimple: go-generate cfgdoc-gen api-gen docsgen docsgen-cli
 	$(GOCC) run ./scripts/fiximports
 .PHONY: gen
+
+forest-test: GOFLAGS+=-tags=forest
+forest-test: buildall
 
 ##################### Curio devnet images ##################
 build_lotus?=0
