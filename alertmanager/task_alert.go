@@ -119,6 +119,7 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			Severity: "critical", // This can be critical, error, warning or info.
 			Source:   "Curio Cluster",
 			Details:  details,
+			Time:     time.Now(),
 		}
 
 		var errs []error
