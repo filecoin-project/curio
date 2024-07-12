@@ -35,7 +35,6 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/lib/nullreader"
 	"github.com/filecoin-project/lotus/metrics/proxy"
-	"github.com/filecoin-project/lotus/node"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
@@ -282,7 +281,7 @@ func ServeCurioMarketRPC(db *harmonydb.DB, full api.Chain, maddr address.Address
 
 	finalApi := proxy.LoggingAPI[lapi.StorageMiner, lapi.StorageMinerStruct](&ast)
 
-	mh, err := node.MinerHandler(finalApi, false) // todo permissioned
+	mh, err := MinerHandler(finalApi, false) // todo permissioned
 	if err != nil {
 		return err
 	}

@@ -15,11 +15,11 @@ import (
 	"github.com/filecoin-project/curio/cmd/curio/tasks"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/reqcontext"
+	"github.com/filecoin-project/curio/lib/shutdown"
 	"github.com/filecoin-project/curio/market/lmrpc"
 
 	"github.com/filecoin-project/lotus/lib/ulimit"
 	"github.com/filecoin-project/lotus/metrics"
-	"github.com/filecoin-project/lotus/node"
 )
 
 type stackTracer interface {
@@ -150,7 +150,7 @@ var runCmd = &cli.Command{
 			return err
 		}
 
-		finishCh := node.MonitorShutdown(shutdownChan) //node.ShutdownHandler{Component: "rpc server", StopFunc: rpcStopper},
+		finishCh := shutdown.MonitorShutdown(shutdownChan) //node.ShutdownHandler{Component: "rpc server", StopFunc: rpcStopper},
 		//node.ShutdownHandler{Component: "curio", StopFunc: stop},
 
 		<-finishCh
