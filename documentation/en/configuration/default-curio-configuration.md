@@ -407,23 +407,40 @@ description: The default curio configuration
 
 
 [Alerting]
-  # PagerDutyEventURL is URL for PagerDuty.com Events API v2 URL. Events sent to this API URL are ultimately
-  # routed to a PagerDuty.com service and processed.
-  # The default is sufficient for integration with the stock commercial PagerDuty.com company's service.
-  #
-  # type: string
-  #PagerDutyEventURL = "https://events.pagerduty.com/v2/enqueue"
-
-  # PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
-  # identifier in the integration page for the service.
-  #
-  # type: string
-  #PageDutyIntegrationKey = ""
-
   # MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
   # alerts will be triggered for the wallet
   #
   # type: types.FIL
   #MinimumWalletBalance = "5 FIL"
+
+  [Alerting.PagerDuty]
+    # Enable is a flag to enable or disable the PagerDuty integration.
+    #
+    # type: bool
+    #Enable = false
+
+    # PagerDutyEventURL is URL for PagerDuty.com Events API v2 URL. Events sent to this API URL are ultimately
+    # routed to a PagerDuty.com service and processed.
+    # The default is sufficient for integration with the stock commercial PagerDuty.com company's service.
+    #
+    # type: string
+    #PagerDutyEventURL = ""
+
+    # PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
+    # identifier in the integration page for the service.
+    #
+    # type: string
+    #PageDutyIntegrationKey = ""
+
+  [Alerting.PrometheusAlertManager]
+    # Enable is a flag to enable or disable the Prometheus AlertManager integration.
+    #
+    # type: bool
+    #Enable = false
+
+    # AlertManagerURL is the URL for the Prometheus AlertManager API v2 URL.
+    #
+    # type: string
+    #AlertManagerURL = ""
 
 ```
