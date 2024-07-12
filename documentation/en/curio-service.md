@@ -48,13 +48,20 @@ CURIO_DB_PORT=5433
 CURIO_DB_NAME=yugabyte
 CURIO_REPO_PATH=~/.curio
 CURIO_NODE_NAME=ChangeMe
+FIL_PROOFS_USE_MULTICORE_SDR=1
 ```
 
 Ensure all variables are correctly set according to your environment.
 
 ## Starting the Curio Service
 
-Once all the variables are correctly updated, you can start the systemd service with the following command:
+Once all the variables are correctly updated, create the log directory:
+
+```sh
+mkdir -p /var/log/curio
+```
+
+Now, you can start the systemd service with the following command:
 
 ```sh
 sudo systemctl start curio.service
