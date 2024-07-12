@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -99,6 +100,13 @@ var runCmd = &cli.Command{
 			log.Errorf("ensuring tempdir exists: %s", err)
 		}
 
+		if os.Getenv("GOLOG_FILE") != "" {
+			err := os.MkdirAll(filepath.Dir(os.Getenv("GOLOG_FILE")), 0755)
+			if err != nil {
+				return xerrors.Errorf("ensuring log file parent exists: %w", err)
+			}
+		}
+
 		ctx := lcli.DaemonContext(cctx)
 		shutdownChan := make(chan struct{})
 		{
@@ -134,7 +142,7 @@ var runCmd = &cli.Command{
 
 		go ffiSelfTest() // Panics on failure
 
-		taskEngine, err := tasks.StartTasks(ctx, dependencies)
+		taskEngine, activeTasks, err := tasks.StartTasks(ctx, dependencies)
 
 		if err != nil {
 			return nil
@@ -145,7 +153,7 @@ var runCmd = &cli.Command{
 			return xerrors.Errorf("starting market RPCs: %w", err)
 		}
 
-		err = rpc.ListenAndServe(ctx, dependencies, shutdownChan) // Monitor for shutdown.
+		err = rpc.ListenAndServe(ctx, dependencies, activeTasks, shutdownChan) // Monitor for shutdown.
 		if err != nil {
 			return err
 		}

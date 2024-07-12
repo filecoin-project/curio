@@ -13,6 +13,10 @@
   <br>
 </p>
 
+## Documentation
+
+For detailed documentation and usage instructions, please refer to the [official documentation](https://docs.curiostorage.org/).
+
 ## Overview
 
 Curio Storage is an advanced platform designed to simplify the setup and operation of storage providers within the Filecoin ecosystem. Building on the foundation of `lotus-miner`, **Curio Storage** offers enhanced redundancy, scalability, and fault tolerance, ensuring efficient and reliable data storage solutions.
@@ -62,30 +66,21 @@ To get started with Curio Storage, follow these steps:
     cd curio
     ```
 
-2. **Switch to the Curio Branch**:
-    ```sh
-    git checkout <latest release>
-    ```
-
-3. **Build the Project**:
+2. **Build the Project**:
     ```sh
     make clean all
     ```
 
-4. **Run the Guided Setup**:
+3. **Run the Guided Setup**:
     ```sh
     curio guided-setup
     ```
-
-## Documentation
-
-For detailed documentation and usage instructions, please refer to the [official documentation](https://lotus.filecoin.io/storage-providers/curio/overview/).
 
 ## Community and Support
 
 Join our community discussions and seek support via:
 
-- **Slack**: [#fil-curio-dev](https://filecoinproject.slack.com/archives/C06GD1SS56Y)
+- **Slack**: [#fil-curio-help](https://filecoinproject.slack.com/archives/C06LF5YP8S3)
 - **GitHub Issues**: [Submit an Issue](https://github.com/filecoin-project/curio/issues/new)
 
 ## License

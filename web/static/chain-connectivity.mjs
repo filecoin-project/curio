@@ -54,7 +54,7 @@ window.customElements.define('chain-connectivity', class MyElement extends LitEl
         <tr>
             <td>${item.Address}</td>
             <td>${item.Reachable ? html`<span class="alert alert-success">ok</span>` : html`<span class="alert altert-danger">FAIL</span>`}</td>
-            <td>${item.SyncState === "ok" ? html`<span class="alert alert-success">ok</span>` : html`<span class="alert alert-warning">${item.SyncState}</span>`}</td>
+            <td>${item.SyncState === "ok" ? html`<span class="alert alert-success">ok</span>` : html`<span class="alert alert-warning">No${item.SyncState? ', '+item.SyncState:''}</span>`}</td>
             <td>${item.Version}</td>
         </tr>
         `)}
