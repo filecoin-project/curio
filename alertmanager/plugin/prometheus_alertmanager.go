@@ -44,12 +44,13 @@ func (p *PrometheusAlertManager) SendAlert(data *AlertPayload) error {
 		alerts = append(alerts, &amPayload{
 			StartsAt: data.Time,
 			Labels: map[string]string{
-				"Summary":  data.Summary,
-				"Severity": data.Severity,
-				"Name":     k,
+				"alertName": k,
+				"severity":  data.Severity,
+				"instance":  data.Source,
 			},
 			Annotations: map[string]interface{}{
-				"Details": v,
+				"summary": data.Summary,
+				"details": v,
 			},
 		})
 	}
