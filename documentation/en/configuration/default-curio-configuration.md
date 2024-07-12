@@ -424,7 +424,7 @@ description: The default curio configuration
     # The default is sufficient for integration with the stock commercial PagerDuty.com company's service.
     #
     # type: string
-    #PagerDutyEventURL = ""
+    #PagerDutyEventURL = "https://events.pagerduty.com/v2/enqueue"
 
     # PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
     # identifier in the integration page for the service.
@@ -441,6 +441,6 @@ description: The default curio configuration
     # AlertManagerURL is the URL for the Prometheus AlertManager API v2 URL.
     #
     # type: string
-    #AlertManagerURL = ""
+    #AlertManagerURL = "http://localhost:9093/api/v2/alerts"
 
 ```

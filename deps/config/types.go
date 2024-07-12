@@ -54,6 +54,12 @@ func DefaultCurioConfig() *CurioConfig {
 		},
 		Alerting: CurioAlertingConfig{
 			MinimumWalletBalance: types.MustParseFIL("5"),
+			PagerDuty: PagerDutyConfig{
+				PagerDutyEventURL: "https://events.pagerduty.com/v2/enqueue",
+			},
+			PrometheusAlertManager: PrometheusAlertManagerConfig{
+				AlertManagerURL: "http://localhost:9093/api/v2/alerts",
+			},
 		},
 	}
 }
