@@ -5,7 +5,7 @@ import (
 
 	logging "github.com/ipfs/go-log/v2"
 
-	"github.com/filecoin-project/lotus/storage/paths/alertinginterface"
+	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
 )
 
 var log = logging.Logger("curio/alerting")

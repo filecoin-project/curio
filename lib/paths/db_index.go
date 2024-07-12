@@ -19,8 +19,9 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
+	"github.com/filecoin-project/curio/lib/paths/alertinginterface"
+
 	"github.com/filecoin-project/lotus/metrics"
-	"github.com/filecoin-project/lotus/storage/paths/alertinginterface"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
