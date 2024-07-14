@@ -5,10 +5,11 @@ import (
 	"regexp"
 	"time"
 
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
-	"golang.org/x/xerrors"
 )
 
 type Cron struct {

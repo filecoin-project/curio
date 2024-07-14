@@ -3,7 +3,7 @@ CREATE TABLE harmony_cron (
     task_id INTEGER NOT NULL REFERENCES harmony_task (id) ON DELETE CASCADE,
     task_name VARCHAR(16) NOT NULL,
     sql_table TEXT NOT NULL,
-    sql_row_id INTEGER NOT NULL,
+    sql_row_id INTEGER NOT NULL
 );
 
 CREATE OR REPLACE FUNCTION update_ext_taskid(table_name text, tid integer, id_value integer)
