@@ -37,7 +37,7 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/repo"
 
-	"github.com/filecoin-project/lotus/api/v1api"
+	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
@@ -458,7 +458,11 @@ func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	}, nil
 }
 
-func CreateMinerConfig(ctx context.Context, full v1api.FullNode, db *harmonydb.DB, miners []string, info string) error {
+type CreateMinerConfigChainAPI interface {
+	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (lapi.MinerInfo, error)
+}
+
+func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *harmonydb.DB, miners []string, info string) error {
 	var titles []string
 	err := db.Select(ctx, &titles, `SELECT title FROM harmony_config WHERE LENGTH(config) > 0`)
 	if err != nil {
