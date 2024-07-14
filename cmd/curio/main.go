@@ -14,7 +14,6 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/mitchellh/go-homedir"
 	"github.com/urfave/cli/v2"
-	ufcli "github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
 	curiobuild "github.com/filecoin-project/curio/build"
@@ -195,7 +194,7 @@ var fetchParamCmd = &cli.Command{
 	},
 }
 
-func runApp(app *ufcli.App) {
+func runApp(app *cli.App) {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
@@ -210,14 +209,19 @@ func runApp(app *ufcli.App) {
 			fmt.Fprintf(os.Stderr, "ERROR: %s\n\n", err) // nolint:errcheck
 		}
 
-		type PrintHelpErr struct {
-			Err error
-			Ctx *ufcli.Context
-		}
 		var phe *PrintHelpErr
 		if errors.As(err, &phe) {
-			_ = ufcli.ShowCommandHelp(phe.Ctx, phe.Ctx.Command.Name)
+			_ = cli.ShowCommandHelp(phe.Ctx, phe.Ctx.Command.Name)
 		}
 		os.Exit(1)
 	}
+}
+
+type PrintHelpErr struct {
+	Err error
+	Ctx *cli.Context
+}
+
+func (e *PrintHelpErr) Error() string {
+	return e.Err.Error()
 }
