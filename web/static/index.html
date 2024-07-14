@@ -11,6 +11,7 @@
     <script type="module" src="storage-use.mjs"></script>
     <script type="module" src="win-stats.mjs"></script>
     <script type="module" src="/ux/curio-ux.mjs"></script>
+    <script type="module" src="cluster-tasks.mjs"></script>
     <style>
         .deadline-box {
             display: grid;
@@ -88,7 +89,8 @@
                                 <th>RAM</th>
                                 <th>GPUs</th>
                                 <th>Last Contact</th>
-                                <th>Tasks (24h)</th>
+                                <th>Tasks Supported</th>
+                                <th>Layers Enabled</th>
                             </tr>
                             </thead>
                             <tbody hx-get="/hapi/simpleinfo/machines" hx-trigger="load,every 5s">
@@ -135,7 +137,7 @@
                             <thead>
                             <tr>
                                 <th>Address</th>
-                                <th>Config Layers Available</th>
+                                <th>Source Layer</th>
                                 <th>QaP</th>
                                 <th>Deadlines</th>
                                 <th>Balance</th>
@@ -208,18 +210,7 @@
                 <div class="col-md-auto" style="max-width: 1000px">
                     <div class="info-block">
                         <h2>Cluster Tasks</h2>
-                        <table class="table table-dark">
-                            <thead>
-                            <tr>
-                                <th style="min-width: 128px">Task</th>
-                                <th>ID</th>
-                                <th>Posted</th>
-                                <th>Owner</th>
-                            </tr>
-                            </thead>
-                            <tbody hx-get="/hapi/simpleinfo/tasks" hx-trigger="load,every 1s">
-                            </tbody>
-                        </table>
+                        <cluster-tasks></cluster-tasks>
                     </div>
                 </div>
                 <div class="col-md-auto">

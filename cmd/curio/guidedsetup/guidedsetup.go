@@ -631,7 +631,7 @@ func readMinerConfig(d *MigrationData) {
 			d.say(plain, "Could not create repo from directory: %s. Aborting migration", err.Error())
 			os.Exit(1)
 		}
-		lr, err := r.Lock(repo.StorageMiner)
+		lr, err := r.Lock(StorageMiner)
 		if err != nil {
 			d.say(plain, "Could not lock miner repo. Your miner must be stopped: %s\n Aborting migration", err.Error())
 			os.Exit(1)

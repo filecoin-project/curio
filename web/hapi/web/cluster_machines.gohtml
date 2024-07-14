@@ -8,11 +8,8 @@
         <td>{{.RamHumanized}}</td>
         <td>{{.Gpu}}</td>
         <td>{{.SinceContact}}</td>
-        <td>
-            {{range .RecentTasks}}
-                {{.TaskName}}:{{.Success}}{{if ne 0 .Fail}}(<i class="{{if eq 0 .Success}}error{{else}}warning{{end}}">{{.Fail}}</i>){{end}}
-            {{end}}
-        </td>
+        <td>{{.Tasks}}</td>
+        <td>{{.Layers}}</td>
     </tr>
 {{end}}
 {{end}}

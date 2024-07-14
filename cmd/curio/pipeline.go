@@ -177,7 +177,7 @@ var sealMigrateLMSectorsCmd = &cli.Command{
 			return fmt.Errorf("repo not initialized at: %s", cctx.String("miner-repo"))
 		}
 
-		lr, err := r.LockRO(repo.StorageMiner)
+		lr, err := r.LockRO(guidedsetup.StorageMiner)
 		if err != nil {
 			return fmt.Errorf("locking repo: %w", err)
 		}

@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/samber/lo"
 	"github.com/urfave/cli/v2"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
@@ -51,7 +52,8 @@ var wdPostCmd = &cli.Command{
 var wdPostTaskCmd = &cli.Command{
 	Name:    "task",
 	Aliases: []string{"scheduled", "schedule", "async", "asynchronous"},
-	Usage:   "Test the windowpost scheduler by running it on the next available curio. ",
+	Usage: `Test the windowpost scheduler by running it on the next available curio. 
+	If tasks fail all retries, you will need to ctrl+c to exit.`,
 	Flags: []cli.Flag{
 		&cli.Uint64Flag{
 			Name:  "deadline",
@@ -77,92 +79,97 @@ var wdPostTaskCmd = &cli.Command{
 		}
 		ht := ts.Height()
 
-		// It's not important to be super-accurate as it's only for basic testing.
-		addr, err := address.NewFromString(deps.Cfg.Addresses[0].MinerAddresses[0])
-		if err != nil {
-			return xerrors.Errorf("cannot get miner address %w", err)
-		}
-		maddr, err := address.IDFromAddress(addr)
-		if err != nil {
-			return xerrors.Errorf("cannot get miner id %w", err)
-		}
-		var taskId int64
-
-		_, err = deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			err = tx.QueryRow(`INSERT INTO harmony_task (name, posted_time, added_by) VALUES ('WdPost', CURRENT_TIMESTAMP, 123) RETURNING id`).Scan(&taskId)
+		var taskIDs []int64
+		for addr := range deps.Maddrs {
+			maddr, err := address.IDFromAddress(address.Address(addr))
 			if err != nil {
-				log.Error("inserting harmony_task: ", err)
-				return false, xerrors.Errorf("inserting harmony_task: %w", err)
+				return xerrors.Errorf("cannot get miner id %w", err)
 			}
-			_, err = tx.Exec(`INSERT INTO wdpost_partition_tasks 
+			var taskId int64
+
+			_, err = deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+				err = tx.QueryRow(`INSERT INTO harmony_task (name, posted_time, added_by) VALUES ('WdPost', CURRENT_TIMESTAMP, 123) RETURNING id`).Scan(&taskId)
+				if err != nil {
+					log.Error("inserting harmony_task: ", err)
+					return false, xerrors.Errorf("inserting harmony_task: %w", err)
+				}
+				_, err = tx.Exec(`INSERT INTO wdpost_partition_tasks 
 			(task_id, sp_id, proving_period_start, deadline_index, partition_index) VALUES ($1, $2, $3, $4, $5)`,
-				taskId, maddr, ht, cctx.Uint64("deadline"), 0)
+					taskId, maddr, ht, cctx.Uint64("deadline"), 0)
+				if err != nil {
+					log.Error("inserting wdpost_partition_tasks: ", err)
+					return false, xerrors.Errorf("inserting wdpost_partition_tasks: %w", err)
+				}
+				_, err = tx.Exec("INSERT INTO harmony_test (task_id) VALUES ($1)", taskId)
+				if err != nil {
+					return false, xerrors.Errorf("inserting into harmony_tests: %w", err)
+				}
+				return true, nil
+			}, harmonydb.OptionRetry())
 			if err != nil {
-				log.Error("inserting wdpost_partition_tasks: ", err)
-				return false, xerrors.Errorf("inserting wdpost_partition_tasks: %w", err)
+				return xerrors.Errorf("writing SQL transaction: %w", err)
 			}
-			_, err = tx.Exec("INSERT INTO harmony_test (task_id) VALUES ($1)", taskId)
-			if err != nil {
-				return false, xerrors.Errorf("inserting into harmony_tests: %w", err)
-			}
-			return true, nil
-		}, harmonydb.OptionRetry())
-		if err != nil {
-			return xerrors.Errorf("writing SQL transaction: %w", err)
+
+			fmt.Printf("Inserted task %v for miner ID %v. Waiting for success ", taskId, addr)
+			taskIDs = append(taskIDs, taskId)
 		}
-		fmt.Printf("Inserted task %v. Waiting for success ", taskId)
 
+		var taskID int64
 		var result sql.NullString
-		var lastHistID *int64
-		prevFound := true
+		var historyIDs []int64
 
-		for {
+		for len(taskIDs) > 0 {
 			time.Sleep(time.Second)
-			err = deps.DB.QueryRow(ctx, `SELECT result FROM harmony_test WHERE task_id=$1`, taskId).Scan(&result)
+			err = deps.DB.QueryRow(ctx, `SELECT task_id, result FROM harmony_test WHERE task_id IN $1`, taskIDs).Scan(&taskID, &result)
 			if err != nil {
 				return xerrors.Errorf("reading result from harmony_test: %w", err)
 			}
 			if result.Valid {
-				break
+				log.Infof("Result for task %v: %s", taskID, result.String)
+				// remove task from list
+				taskIDs = lo.Filter(taskIDs, func(v int64, i int) bool {
+					return v != taskID
+				})
+				continue
 			}
 			fmt.Print(".")
 
 			{
 				// look at history
-				var histID *int64
-				var errmsg sql.NullString
-				err = deps.DB.QueryRow(ctx, `SELECT id, result, err FROM harmony_task_history WHERE task_id=$1 ORDER BY work_end DESC LIMIT 1`, taskId).Scan(&histID, &result, &errmsg)
+				var hist []struct {
+					histID int64
+					taskID int64
+					result sql.NullString
+					errmsg sql.NullString
+				}
+				err = deps.DB.Select(ctx, &hist, `SELECT id, task_id, result, err FROM harmony_task_history WHERE task_id IN $1 ORDER BY work_end DESC`, taskIDs)
 				if err != nil && err != pgx.ErrNoRows {
 					return xerrors.Errorf("reading result from harmony_task_history: %w", err)
 				}
 
-				if err == nil && histID != nil && (lastHistID == nil || *histID != *lastHistID) {
-					fmt.Println()
-					var errstr string
-					if errmsg.Valid {
-						errstr = errmsg.String
+				for _, h := range hist {
+					if !lo.Contains(historyIDs, h.histID) {
+						historyIDs = append(historyIDs, h.histID)
+						var errstr string
+						if h.errmsg.Valid {
+							errstr = h.errmsg.String
+						}
+						fmt.Printf("History for task %v historyID %d: %s\n", taskID, h.histID, errstr)
 					}
-					fmt.Printf("History %d: %s\n", *histID, errstr)
-					lastHistID = histID
 				}
 			}
 
 			{
 				// look for fails
-				var found bool
-				err = deps.DB.QueryRow(ctx, `SELECT true FROM harmony_task WHERE id=$1`, taskId).Scan(&found)
+				var found []int64
+				err = deps.DB.Select(ctx, found, `SELECT task_id FROM harmony_task WHERE id IN $1`, taskIDs)
 				if err != nil && err != pgx.ErrNoRows {
 					return xerrors.Errorf("reading result from harmony_task: %w", err)
 				}
 
-				if !found && !prevFound {
-					return xerrors.Errorf("task %d was not found in harmony_task, likely out of retries", taskId)
-				}
-				prevFound = found
+				log.Infof("Tasks found in harmony_task: %v", found)
 			}
 		}
-		fmt.Println()
-		log.Infof("Result: %s", result.String)
 		return nil
 	},
 }

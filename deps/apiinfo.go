@@ -19,7 +19,7 @@ import (
 	"github.com/filecoin-project/lotus/lib/retry"
 )
 
-func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, jsonrpc.ClientCloser, error) {
+func getFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string, opts ...cliutil.GetFullNodeOption) (api.Chain, jsonrpc.ClientCloser, error) {
 	if tn, ok := ctx.App.Metadata["testnode-full"]; ok {
 		return tn.(api.Chain), func() {}, nil
 	}
@@ -47,7 +47,7 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 	var closers []jsonrpc.ClientCloser
 
 	for _, head := range httpHeads {
-		v1api, closer, err := newChainNodeRPCV1(ctx.Context, head.addr, head.header)
+		v1api, closer, err := newChainNodeRPCV1(ctx.Context, head.addr, head.header, rpcOpts...)
 		if err != nil {
 			log.Warnf("Not able to establish connection to node with addr: %s, Reason: %s", head.addr, err.Error())
 			continue

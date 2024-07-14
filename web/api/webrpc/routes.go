@@ -10,12 +10,14 @@ import (
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
 )
 
 var log = logging.Logger("webrpc")
 
 type WebRPC struct {
-	deps *deps.Deps
+	deps      *deps.Deps
+	taskSPIDs map[string]SpidGetter
 }
 
 func (a *WebRPC) Version(context.Context) (string, error) {
@@ -26,9 +28,10 @@ func (a *WebRPC) BlockDelaySecs(context.Context) (uint64, error) {
 	return build.BlockDelaySecs, nil
 }
 
-func Routes(r *mux.Router, deps *deps.Deps) {
+func Routes(r *mux.Router, deps *deps.Deps, activeTasks []harmonytask.TaskInterface) {
 	handler := &WebRPC{
-		deps: deps,
+		deps:      deps,
+		taskSPIDs: makeTaskSPIDs(activeTasks),
 	}
 
 	rpcSrv := jsonrpc.NewServer()

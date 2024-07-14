@@ -65,3 +65,26 @@ Use the market rpc-info string to replace the `SealerApiInfo` and `SectorIndexAp
 ### Initialising New Boost
 
 Follow the [Boost Setup Instructions](https://boost.filecoin.io/new-boost-setup) with additional change of replacing `MINER_API_INFO` with the market rpc-info string.
+
+### Updating PeerID and On-Chain Address
+
+Make sure that the correct _peer id_ and _multiaddr_ for your SP is set on chain, given that `boost init` generates a new identity. Use the following commands to update the values on chain:
+
+Find the PeerID
+
+```
+boostd net id
+```
+
+Find the address
+
+```
+boostd net listen
+```
+
+Set on chain
+
+```
+sptool --actor <miner id> actor set-addrs <MULTIADDR>
+sptool --actor <miner id> actor set-peer-id <PEER_ID>
+```

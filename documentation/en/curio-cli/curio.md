@@ -417,6 +417,7 @@ USAGE:
 COMMANDS:
    here, cli                                       Compute WindowPoSt for performance and configuration testing.
    task, scheduled, schedule, async, asynchronous  Test the windowpost scheduler by running it on the next available curio. 
+                                                     If tasks fail all retries, you will need to ctrl+c to exit.
    help, h                                         Shows a list of commands or help for one command
 
 OPTIONS:
@@ -447,6 +448,7 @@ OPTIONS:
 ```
 NAME:
    curio test window-post task - Test the windowpost scheduler by running it on the next available curio. 
+                                   If tasks fail all retries, you will need to ctrl+c to exit.
 
 USAGE:
    curio test window-post task [command options] [arguments...]

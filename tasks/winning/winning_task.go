@@ -525,6 +525,16 @@ func (t *WinPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
+func (t *WinPostTask) GetSpid(taskID int64) string {
+	var spid string
+	err := t.db.QueryRow(context.Background(), `SELECT sp_id FROM mining_tasks WHERE task_id = $1`, taskID).Scan(&spid)
+	if err != nil {
+		log.Errorf("getting spid: %s", err)
+		return ""
+	}
+	return spid
+}
+
 func (t *WinPostTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	t.mineTF.Set(taskFunc)
 }

@@ -204,6 +204,18 @@ alerts will be triggered for the wallet`,
 
 			Comment: ``,
 		},
+		{
+			Name: "CollateralFromMinerBalance",
+			Type: "bool",
+
+			Comment: `Whether to use available miner balance for sector collateral instead of sending it with each message`,
+		},
+		{
+			Name: "DisableCollateralFallback",
+			Type: "bool",
+
+			Comment: `Don't send collateral with messages even if there is no available balance in the miner actor`,
+		},
 	},
 	"CurioIngestConfig": {
 		{
@@ -575,23 +587,17 @@ only need to be run on a single machine in the cluster.`,
 			Name: "func",
 			Type: "(dur",
 
-			Comment: `UnmarshalText implements interface for TOML decoding`,
-		},
-		{
-			Name: "d,",
-			Type: "err",
-
 			Comment: ``,
 		},
 		{
-			Name: "if",
-			Type: "err",
+			Name: "d",
+			Type: ":=",
 
 			Comment: ``,
 		},
 		{
 			Name: "return",
-			Type: "err",
+			Type: "[]byte(d.String()),",
 
 			Comment: ``,
 		},

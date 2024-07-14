@@ -24,7 +24,6 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/api"
-	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -191,7 +190,7 @@ func ServeCurioMarketRPC(db *harmonydb.DB, full api.Chain, maddr address.Address
 		return lapi.APIVersion{
 			Version:    "curio-proxy-v0",
 			APIVersion: lapi.MinerAPIVersion0,
-			BlockDelay: build.BlockDelaySecs,
+			BlockDelay: builconstants.BlockDelaySecs,
 		}, nil
 	}
 
