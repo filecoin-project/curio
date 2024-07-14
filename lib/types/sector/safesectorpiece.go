@@ -73,33 +73,6 @@ func (sp *SafeSectorPiece) MarshalJSON() ([]byte, error) {
 	return json.Marshal(sp.real)
 }
 
-type handleDealInfoParams struct {
-	FillerHandler        func(UniversalPieceInfo) error
-	BuiltinMarketHandler func(UniversalPieceInfo) error
-	DDOHandler           func(UniversalPieceInfo) error
-}
-
-func (sp *SafeSectorPiece) handleDealInfo(params handleDealInfoParams) error {
-	if !sp.HasDealInfo() {
-		if params.FillerHandler == nil {
-			return xerrors.Errorf("FillerHandler is not provided")
-		}
-		return params.FillerHandler(sp)
-	}
-
-	if sp.real.DealInfo.PublishCid != nil {
-		if params.BuiltinMarketHandler == nil {
-			return xerrors.Errorf("BuiltinMarketHandler is not provided")
-		}
-		return params.BuiltinMarketHandler(sp)
-	}
-
-	if params.DDOHandler == nil {
-		return xerrors.Errorf("DDOHandler is not provided")
-	}
-	return params.DDOHandler(sp)
-}
-
 // SectorPiece Proxy
 
 func (sp *SafeSectorPiece) Impl() piece.PieceDealInfo {

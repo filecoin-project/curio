@@ -2,10 +2,8 @@ package lmrpc
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/gorilla/mux"
-	logging "github.com/ipfs/go-log/v2"
 
 	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-jsonrpc/auth"
@@ -16,8 +14,6 @@ import (
 	"github.com/filecoin-project/lotus/metrics/proxy"
 	"github.com/filecoin-project/lotus/node/impl"
 )
-
-var rpclog = logging.Logger("rpc")
 
 // MinerHandler returns a miner handler, to be mounted as-is on the server.
 func MinerHandler(a api.StorageMiner, permissioned bool) (http.Handler, error) {
@@ -70,31 +66,4 @@ func MinerHandler(a api.StorageMiner, permissioned bool) (http.Handler, error) {
 	}
 
 	return rootMux, nil
-}
-
-func handleFractionOpt(name string, setter func(int)) http.HandlerFunc {
-	return func(rw http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(rw, "only POST allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if err := r.ParseForm(); err != nil {
-			http.Error(rw, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		asfr := r.Form.Get("x")
-		if len(asfr) == 0 {
-			http.Error(rw, "parameter 'x' must be set", http.StatusBadRequest)
-			return
-		}
-
-		fr, err := strconv.Atoi(asfr)
-		if err != nil {
-			http.Error(rw, err.Error(), http.StatusBadRequest)
-			return
-		}
-		rpclog.Infof("setting %s to %d", name, fr)
-		setter(fr)
-	}
 }
