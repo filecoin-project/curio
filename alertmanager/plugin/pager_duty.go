@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/deps/config"
-	"github.com/samber/lo"
 )
 
 type PagerDuty struct {

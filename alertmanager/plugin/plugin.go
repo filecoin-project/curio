@@ -3,9 +3,9 @@ package plugin
 import (
 	"time"
 
-	"github.com/filecoin-project/curio/deps/config"
-
 	logging "github.com/ipfs/go-log/v2"
+
+	"github.com/filecoin-project/curio/deps/config"
 )
 
 var log = logging.Logger("curio/alertplugins")

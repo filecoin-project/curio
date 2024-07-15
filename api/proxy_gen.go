@@ -132,6 +132,8 @@ type CurioChainRPCMethods struct {
 
 	StateMinerAllocated func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*bitfield.BitField, error) ``
 
+	StateMinerAvailableBalance func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (big.Int, error) ``
+
 	StateMinerDeadlines func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]api.Deadline, error) `perm:"read"`
 
 	StateMinerInfo func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MinerInfo, error) ``
@@ -645,6 +647,17 @@ func (s *CurioChainRPCStruct) StateMinerAllocated(p0 context.Context, p1 address
 
 func (s *CurioChainRPCStub) StateMinerAllocated(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*bitfield.BitField, error) {
 	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateMinerAvailableBalance(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (big.Int, error) {
+	if s.Internal.StateMinerAvailableBalance == nil {
+		return *new(big.Int), ErrNotSupported
+	}
+	return s.Internal.StateMinerAvailableBalance(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateMinerAvailableBalance(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (big.Int, error) {
+	return *new(big.Int), ErrNotSupported
 }
 
 func (s *CurioChainRPCStruct) StateMinerDeadlines(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]api.Deadline, error) {

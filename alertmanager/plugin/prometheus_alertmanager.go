@@ -8,8 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/filecoin-project/curio/deps/config"
 	"github.com/samber/lo"
+
+	"github.com/filecoin-project/curio/deps/config"
 )
 
 type PrometheusAlertManager struct {
