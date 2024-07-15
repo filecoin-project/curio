@@ -79,18 +79,19 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 	err := l.db.Select(ctx, &ssip, `
 						WITH CheckCommit AS (
 						SELECT
-							sp_id,
-							sector_number,
-							after_commit_msg,
-							failed,
-							after_sdr,
-							after_porep,
-							after_tree_r,
-							after_commit_msg_success
+							COALESCE(sp.sp_id, sm.sp_id) AS sp_id,
+							COALESCE(sp.sector_number, sm.sector_num) AS sector_number,
+							COALESCE(sp.after_commit_msg, TRUE) AS after_commit_msg,
+							COALESCE(sp.failed, FALSE) AS failed,
+							COALESCE(sp.after_sdr, TRUE) AS after_sdr,
+							COALESCE(sp.after_porep, TRUE) AS after_porep,
+							COALESCE(sp.after_tree_r, TRUE) AS after_tree_r,
+							COALESCE(sp.after_commit_msg_success, TRUE) AS after_commit_msg_success
 						FROM
-							sectors_sdr_pipeline
+							sectors_sdr_pipeline sp
+								FULL OUTER JOIN sectors_meta sm ON sp.sp_id = sm.sp_id AND sp.sector_number = sm.sector_num
 						WHERE
-							sp_id = $1 AND sector_number = $2
+							(sp.sp_id = $1 AND sp.sector_number = $2) OR (sm.sp_id = $1 AND sm.sector_num = $2)
 						),
 						MetaPieces AS (
 							SELECT
