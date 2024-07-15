@@ -81,28 +81,25 @@ over the worker address if this flag is set.`,
 			Comment: `MinerAddresses are the addresses of the miner actors to use for sending messages`,
 		},
 	},
-	"CurioAlerting": {
-		{
-			Name: "PagerDutyEventURL",
-			Type: "string",
-
-			Comment: `PagerDutyEventURL is URL for PagerDuty.com Events API v2 URL. Events sent to this API URL are ultimately
-routed to a PagerDuty.com service and processed.
-The default is sufficient for integration with the stock commercial PagerDuty.com company's service.`,
-		},
-		{
-			Name: "PageDutyIntegrationKey",
-			Type: "string",
-
-			Comment: `PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
-identifier in the integration page for the service.`,
-		},
+	"CurioAlertingConfig": {
 		{
 			Name: "MinimumWalletBalance",
 			Type: "types.FIL",
 
 			Comment: `MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
 alerts will be triggered for the wallet`,
+		},
+		{
+			Name: "PagerDuty",
+			Type: "PagerDutyConfig",
+
+			Comment: `PagerDutyConfig is the configuration for the PagerDuty alerting integration.`,
+		},
+		{
+			Name: "PrometheusAlertManager",
+			Type: "PrometheusAlertManagerConfig",
+
+			Comment: `PrometheusAlertManagerConfig is the configuration for the Prometheus AlertManager alerting integration.`,
 		},
 	},
 	"CurioConfig": {
@@ -150,7 +147,7 @@ alerts will be triggered for the wallet`,
 		},
 		{
 			Name: "Alerting",
-			Type: "CurioAlerting",
+			Type: "CurioAlertingConfig",
 
 			Comment: ``,
 		},
@@ -608,6 +605,43 @@ only need to be run on a single machine in the cluster.`,
 			Type: "string",
 
 			Comment: `Events of the form: "system1:event1,system1:event2[,...]"`,
+		},
+	},
+	"PagerDutyConfig": {
+		{
+			Name: "Enable",
+			Type: "bool",
+
+			Comment: `Enable is a flag to enable or disable the PagerDuty integration.`,
+		},
+		{
+			Name: "PagerDutyEventURL",
+			Type: "string",
+
+			Comment: `PagerDutyEventURL is URL for PagerDuty.com Events API v2 URL. Events sent to this API URL are ultimately
+routed to a PagerDuty.com service and processed.
+The default is sufficient for integration with the stock commercial PagerDuty.com company's service.`,
+		},
+		{
+			Name: "PageDutyIntegrationKey",
+			Type: "string",
+
+			Comment: `PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
+identifier in the integration page for the service.`,
+		},
+	},
+	"PrometheusAlertManagerConfig": {
+		{
+			Name: "Enable",
+			Type: "bool",
+
+			Comment: `Enable is a flag to enable or disable the Prometheus AlertManager integration.`,
+		},
+		{
+			Name: "AlertManagerURL",
+			Type: "string",
+
+			Comment: `AlertManagerURL is the URL for the Prometheus AlertManager API v2 URL.`,
 		},
 	},
 }
