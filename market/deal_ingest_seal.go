@@ -33,6 +33,7 @@ const loopFrequency = 10 * time.Second
 
 type Ingester interface {
 	AllocatePieceToSector(ctx context.Context, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (api.SectorOffset, error)
+	SectorStartSealing(context.Context, abi.SectorNumber) error
 }
 
 type PieceIngesterApi interface {

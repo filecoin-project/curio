@@ -64,7 +64,7 @@ type storageProvider struct {
 	storageReservations *xsync.MapOf[harmonytask.TaskID, *StorageReservation]
 }
 
-func (l *storageProvider) AcquireSector(ctx context.Context, taskID *harmonytask.TaskID, sector storiface.SectorRef, existing, allocate storiface.SectorFileType, sealing storiface.PathType) (fspaths, ids storiface.SectorPaths, release func(dontDeclace ...storiface.SectorFileType), err error) {
+func (l *storageProvider) AcquireSector(ctx context.Context, taskID *harmonytask.TaskID, sector storiface.SectorRef, existing, allocate storiface.SectorFileType, sealing storiface.PathType) (fspaths, ids storiface.SectorPaths, release func(dontDeclare ...storiface.SectorFileType), err error) {
 	var sectorPaths, storageIDs storiface.SectorPaths
 	var releaseStorage func()
 
@@ -118,7 +118,7 @@ func (l *storageProvider) AcquireSector(ctx context.Context, taskID *harmonytask
 
 	log.Debugf("acquired sector %d (e:%d; a:%d): %v", sector, existing, allocate, sectorPaths)
 
-	return sectorPaths, storageIDs, func(dontDeclace ...storiface.SectorFileType) {
+	return sectorPaths, storageIDs, func(dontDeclare ...storiface.SectorFileType) {
 		releaseStorage()
 
 	nextType:
@@ -126,7 +126,7 @@ func (l *storageProvider) AcquireSector(ctx context.Context, taskID *harmonytask
 			if fileType&allocate == 0 {
 				continue
 			}
-			for _, dont := range dontDeclace {
+			for _, dont := range dontDeclare {
 				if fileType&dont != 0 {
 					continue nextType
 				}

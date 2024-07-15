@@ -70,6 +70,7 @@ func (sb *SealCalls) EncodeUpdate(
 	var cleanupStagedFiles func() error
 	{
 		// hack until we do snap encode ourselves and just call into proofs for CommR
+		// https://github.com/filecoin-project/curio/issues/92
 
 		keyFile, err := os.Create(keyPath)
 		if err != nil {

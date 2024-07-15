@@ -154,7 +154,13 @@ func forEachMarketRPC(cfg *config.CurioConfig, cb func(string, string) error) er
 func ServeCurioMarketRPC(db *harmonydb.DB, full api.Chain, maddr address.Address, conf *config.CurioConfig, listen string) error {
 	ctx := context.Background()
 
-	pin, err := cumarket.NewPieceIngesterSnap(ctx, db, full, maddr, false, time.Duration(conf.Ingest.MaxDealWaitTime))
+	var pin cumarket.Ingester
+	var err error
+	if conf.Ingest.DoSnap {
+		pin, err = cumarket.NewPieceIngesterSnap(ctx, db, full, maddr, false, time.Duration(conf.Ingest.MaxDealWaitTime))
+	} else {
+		pin, err = cumarket.NewPieceIngester(ctx, db, full, maddr, false, time.Duration(conf.Ingest.MaxDealWaitTime))
+	}
 	if err != nil {
 		return xerrors.Errorf("starting piece ingestor")
 	}

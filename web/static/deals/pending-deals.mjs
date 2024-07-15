@@ -2,10 +2,6 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import RPCCall from '/lib/jsonrpc.mjs';
 
 class PendingDeals extends LitElement {
-    static properties = {
-        data: { type: Array }
-    };
-
     constructor() {
         super();
         this.data = [];
@@ -14,7 +10,7 @@ class PendingDeals extends LitElement {
 
     async loadData() {
         this.data = await RPCCall('DealsPending');
-        super.requestUpdate();
+        this.requestUpdate();
     }
 
     async sealNow(entry) {

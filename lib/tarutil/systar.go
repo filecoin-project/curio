@@ -11,6 +11,11 @@ import (
 	"golang.org/x/xerrors"
 )
 
+/*
+This file contains utils for sending sector data directories (cache, update-cache) over the network. Compatible with
+lotus-miner counterpart, but extended to support more advanced processes in curio.
+*/
+
 var log = logging.Logger("tarutil") // nolint
 
 var CacheFileConstraints = map[string]int64{

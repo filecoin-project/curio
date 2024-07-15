@@ -21,6 +21,7 @@ type SealNowNodeApi interface {
 	StateNetworkVersion(ctx context.Context, tsk types.TipSetKey) (networkVersion network.Version, err error)
 }
 
+// SealNow is triggerred by the user to seal a sector immediately. Can be from the CLI or the web interface.
 func SealNow(ctx context.Context, node SealNowNodeApi, db *harmonydb.DB, act address.Address, sector abi.SectorNumber, synthetic bool) error {
 	mid, err := address.IDFromAddress(act)
 	if err != nil {

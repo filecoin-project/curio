@@ -156,18 +156,31 @@ description: The default curio configuration
   # type: int
   #MoveStorageMaxTasks = 0
 
+  # EnableUpdateEncode enables the encoding step of the SnapDeal process on this curio instance.
+  # This step involves encoding the data into the sector and computing updated TreeR (uses gpu).
+  #
   # type: bool
   #EnableUpdateEncode = false
 
+  # EnableUpdateProve enables the proving step of the SnapDeal process on this curio instance.
+  # This step generates the snark proof for the updated sector.
+  #
   # type: bool
   #EnableUpdateProve = false
 
+  # EnableUpdateSubmit enables the submission of SnapDeal proofs to the blockchain from this curio instance.
+  # This step submits the generated proofs to the chain.
+  #
   # type: bool
   #EnableUpdateSubmit = false
 
+  # UpdateEncodeMaxTasks sets the maximum number of concurrent SnapDeal encoding tasks that can run on this instance.
+  #
   # type: int
   #UpdateEncodeMaxTasks = 0
 
+  # UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance.
+  #
   # type: int
   #UpdateProveMaxTasks = 0
 
@@ -403,6 +416,12 @@ description: The default curio configuration
   #
   # type: Duration
   #MaxDealWaitTime = "1h0m0s"
+
+  # DoSnap enables the snap deal process for deals ingested by this instance. Unlike in lotus-miner there is no
+  # fallback to porep when no sectors are available to snap into. When enabled all deals will be snap deals.
+  #
+  # type: bool
+  #DoSnap = false
 
 
 [Journal]

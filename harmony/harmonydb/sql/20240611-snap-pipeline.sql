@@ -76,6 +76,7 @@ CREATE TABLE sectors_cc_values (
                                         PRIMARY KEY (reg_seal_proof, cur_unsealed_cid)
 );
 
+-- sectors_cc_values contains CC UnsealedCIDs for every seal proof type / sector size
 INSERT INTO sectors_cc_values (reg_seal_proof, cur_unsealed_cid) VALUES
                                                                            (0, 'baga6ea4seaqpy7usqklokfx2vxuynmupslkeutzexe2uqurdg5vhtebhxqmpqmy'),
                                                                            (1, 'baga6ea4seaqgl4u6lwmnerwdrm4iz7ag3mpwwaqtapc2fciabpooqmvjypweeha'),

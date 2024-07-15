@@ -122,7 +122,7 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 				PieceCID: c,
 			})
 
-			offset += abi.UnpaddedPieceSize(*p.DataRawSize)
+			offset += abi.PaddedPieceSize(p.PieceSize).Unpadded()
 
 			// make pieceReader
 			if p.DataUrl != nil {

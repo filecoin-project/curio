@@ -2,9 +2,6 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import RPCCall from '/lib/jsonrpc.mjs';
 
 class UpgradeSectors extends LitElement {
-    static properties = {
-        data: { type: Array }
-    };
 
     constructor() {
         super();
@@ -14,7 +11,7 @@ class UpgradeSectors extends LitElement {
 
     async loadData() {
         this.data = await RPCCall('UpgradeSectors');
-        super.requestUpdate();
+        this.requestUpdate();
     }
 
     render() {
