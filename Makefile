@@ -175,6 +175,7 @@ gen: gensimple
 
 gensimple: go-generate cfgdoc-gen api-gen docsgen docsgen-cli
 	$(GOCC) run ./scripts/fiximports
+	go mod tidy
 .PHONY: gen
 
 forest-test: GOFLAGS+=-tags=forest
