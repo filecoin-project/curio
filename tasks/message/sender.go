@@ -253,6 +253,7 @@ func (s *SendTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 var _ harmonytask.TaskInterface = &SendTask{}
+var _ = harmonytask.Reg(&SendTask{})
 
 // NewSender creates a new Sender.
 func NewSender(api SenderAPI, signer SignerAPI, db *harmonydb.DB) (*Sender, *SendTask) {

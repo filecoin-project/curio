@@ -230,15 +230,17 @@ func (w *WdPostRecoverDeclareTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func (w *WdPostRecoverDeclareTask) GetSpid(taskID int64) string {
+func (w *WdPostRecoverDeclareTask) GetSpid(db *harmonydb.DB, taskID int64) string {
 	var spid string
-	err := w.db.QueryRow(context.Background(), `SELECT sp_id FROM wdpost_recovery_tasks WHERE task_id = $1`, taskID).Scan(&spid)
+	err := db.QueryRow(context.Background(), `SELECT sp_id FROM wdpost_recovery_tasks WHERE task_id = $1`, taskID).Scan(&spid)
 	if err != nil {
 		log.Errorf("getting spid: %s", err)
 		return ""
 	}
 	return spid
 }
+
+var _ = harmonytask.Reg(&WdPostRecoverDeclareTask{})
 
 func (w *WdPostRecoverDeclareTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	w.startCheckTF.Set(taskFunc)

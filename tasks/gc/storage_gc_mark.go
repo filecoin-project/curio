@@ -268,3 +268,4 @@ func (s *StorageGCMark) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 var _ harmonytask.TaskInterface = &StorageGCMark{}
+var _ = harmonytask.Reg(&StorageGCMark{})

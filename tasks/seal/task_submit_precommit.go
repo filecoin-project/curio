@@ -63,15 +63,17 @@ func NewSubmitPrecommitTask(sp *SealPoller, db *harmonydb.DB, api SubmitPrecommi
 	}
 }
 
-func (s *SubmitPrecommitTask) GetSpid(taskID int64) string {
+func (s *SubmitPrecommitTask) GetSpid(db *harmonydb.DB, taskID int64) string {
 	var spid string
-	err := s.db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_precommit_msg = $1`, taskID).Scan(&spid)
+	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_precommit_msg = $1`, taskID).Scan(&spid)
 	if err != nil {
 		log.Errorf("getting spid: %v", err)
 		return ""
 	}
 	return spid
 }
+
+var _ = harmonytask.Reg(&SubmitPrecommitTask{})
 
 func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()

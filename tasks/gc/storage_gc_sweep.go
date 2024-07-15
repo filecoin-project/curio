@@ -125,3 +125,4 @@ func (s *StorageGCSweep) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 var _ harmonytask.TaskInterface = &StorageGCSweep{}
+var _ = harmonytask.Reg(&StorageGCSweep{})

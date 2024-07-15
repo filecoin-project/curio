@@ -6,6 +6,7 @@ import (
 
 	"github.com/samber/lo"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 )
 
@@ -37,7 +38,7 @@ func (a *WebRPC) ClusterTaskSummary(ctx context.Context) ([]TaskSummary, error) 
 	for _, g := range grouped {
 		if v, ok := a.taskSPIDs[g[0].Name]; ok {
 			for i, t := range g {
-				g[i].MinerID = v.GetSpid(t.ID)
+				g[i].MinerID = v.GetSpid(a.deps.DB, t.ID)
 			}
 		}
 	}
@@ -46,7 +47,7 @@ func (a *WebRPC) ClusterTaskSummary(ctx context.Context) ([]TaskSummary, error) 
 }
 
 type SpidGetter interface {
-	GetSpid(taskID int64) string
+	GetSpid(db *harmonydb.DB, taskID int64) string
 }
 
 func makeTaskSPIDs(tasks []harmonytask.TaskInterface) map[string]SpidGetter {

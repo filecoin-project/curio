@@ -179,15 +179,17 @@ func (t *TreeRCTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func (t *TreeRCTask) GetSpid(taskID int64) string {
+func (t *TreeRCTask) GetSpid(db *harmonydb.DB, taskID int64) string {
 	var spid string
-	err := t.db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_tree_r = $1`, taskID).Scan(&spid)
+	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_tree_r = $1`, taskID).Scan(&spid)
 	if err != nil {
 		log.Errorf("getting spid: %s", err)
 		return ""
 	}
 	return spid
 }
+
+var _ = harmonytask.Reg(&TreeRCTask{})
 
 func (t *TreeRCTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	t.sp.pollers[pollerTreeRC].Set(taskFunc)

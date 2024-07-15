@@ -181,15 +181,17 @@ func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return res
 }
 
-func (p *PoRepTask) GetSpid(taskID int64) string {
+func (p *PoRepTask) GetSpid(db *harmonydb.DB, taskID int64) string {
 	var spid string
-	err := p.db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_porep = $1`, taskID).Scan(&spid)
+	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_porep = $1`, taskID).Scan(&spid)
 	if err != nil {
 		log.Errorf("getting spid: %s", err)
 		return ""
 	}
 	return spid
 }
+
+var _ = harmonytask.Reg(&PoRepTask{})
 
 func (p *PoRepTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	p.sp.pollers[pollerPoRep].Set(taskFunc)
