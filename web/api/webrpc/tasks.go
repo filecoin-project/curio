@@ -2,6 +2,7 @@ package webrpc
 
 import (
 	"context"
+	"time"
 
 	"github.com/samber/lo"
 
@@ -9,17 +10,20 @@ import (
 )
 
 type TaskSummary struct {
-	MinerID        string
-	Name           string
-	SincePosted    string
-	Owner, OwnerID *string
 	ID             int64
+	Name           string
+	MinerID        string
+	SincePosted    time.Time `db:"since_posted"`
+	Owner, OwnerID *string
+
+	// db ignored
+	SincePostedStr string `db:"-"`
 }
 
 func (a *WebRPC) ClusterTaskSummary(ctx context.Context) ([]TaskSummary, error) {
 	var ts []TaskSummary
 	err := a.deps.DB.Select(ctx, &ts, `SELECT 
-		t.id as id, t.name as name, t.update_time as SincePosted, t.owner_id as owner_id, hm.host_and_port as owner
+		t.id as id, t.name as name, t.update_time as since_posted, t.owner_id as owner_id, hm.host_and_port as owner
 	FROM harmony_task t LEFT JOIN curio.harmony_machines hm ON hm.id = t.owner_id 
 	ORDER BY t.update_time ASC, t.owner_id`)
 	if err != nil {
@@ -37,6 +41,7 @@ func (a *WebRPC) ClusterTaskSummary(ctx context.Context) ([]TaskSummary, error) 
 			}
 		}
 	}
+
 	return ts, nil
 }
 

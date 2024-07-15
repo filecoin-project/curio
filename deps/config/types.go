@@ -52,10 +52,14 @@ func DefaultCurioConfig() *CurioConfig {
 			MaxQueuePoRep:      0, // default don't use this limit
 			MaxDealWaitTime:    Duration(1 * time.Hour),
 		},
-		Alerting: CurioAlerting{
-			PagerDutyEventURL:      "https://events.pagerduty.com/v2/enqueue",
-			PageDutyIntegrationKey: "",
-			MinimumWalletBalance:   types.MustParseFIL("5"),
+		Alerting: CurioAlertingConfig{
+			MinimumWalletBalance: types.MustParseFIL("5"),
+			PagerDuty: PagerDutyConfig{
+				PagerDutyEventURL: "https://events.pagerduty.com/v2/enqueue",
+			},
+			PrometheusAlertManager: PrometheusAlertManagerConfig{
+				AlertManagerURL: "http://localhost:9093/api/v2/alerts",
+			},
 		},
 	}
 }
@@ -71,7 +75,7 @@ type CurioConfig struct {
 	Ingest    CurioIngestConfig
 	Journal   JournalConfig
 	Apis      ApisConfig
-	Alerting  CurioAlerting
+	Alerting  CurioAlertingConfig
 }
 
 func DefaultDefaultMaxFee() types.FIL {
@@ -398,7 +402,22 @@ type CurioIngestConfig struct {
 	MaxDealWaitTime Duration
 }
 
-type CurioAlerting struct {
+type CurioAlertingConfig struct {
+	// MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
+	// alerts will be triggered for the wallet
+	MinimumWalletBalance types.FIL
+
+	// PagerDutyConfig is the configuration for the PagerDuty alerting integration.
+	PagerDuty PagerDutyConfig
+
+	// PrometheusAlertManagerConfig is the configuration for the Prometheus AlertManager alerting integration.
+	PrometheusAlertManager PrometheusAlertManagerConfig
+}
+
+type PagerDutyConfig struct {
+	// Enable is a flag to enable or disable the PagerDuty integration.
+	Enable bool
+
 	// PagerDutyEventURL is URL for PagerDuty.com Events API v2 URL. Events sent to this API URL are ultimately
 	// routed to a PagerDuty.com service and processed.
 	// The default is sufficient for integration with the stock commercial PagerDuty.com company's service.
@@ -407,10 +426,14 @@ type CurioAlerting struct {
 	// PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
 	// identifier in the integration page for the service.
 	PageDutyIntegrationKey string
+}
 
-	// MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
-	// alerts will be triggered for the wallet
-	MinimumWalletBalance types.FIL
+type PrometheusAlertManagerConfig struct {
+	// Enable is a flag to enable or disable the Prometheus AlertManager integration.
+	Enable bool
+
+	// AlertManagerURL is the URL for the Prometheus AlertManager API v2 URL.
+	AlertManagerURL string
 }
 
 type JournalConfig struct {
