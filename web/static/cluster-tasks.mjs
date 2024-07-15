@@ -13,8 +13,7 @@ class ClusterTasks extends LitElement {
     }
 
     async loadData() {
-        this.data = await RPCCall('ClusterTasks');
-        ///hapi/simpleinfo/tasks
+        this.data = await RPCCall('ClusterTaskSummary');
         setTimeout(() => this.loadData(), 1000);
         super.requestUpdate();
     }
@@ -36,11 +35,11 @@ class ClusterTasks extends LitElement {
                 <tbody>
                 ${this.data.map(entry => html`
                     <tr>
-                        <td>${this.MinerID? this.MinerID: ''}</td>
-                        <td>${this.Name}</td>
-                        <td>${this.ID}</td>
-                        <td>${this.SincePosted}</td>
-                        <td>${!this.OwnerID ? html`<a href="/hapi/node/{{.OwnerID}}">{{.Owner}}</a>{{end}}</td>`:''}
+                        <td>${entry.MinerID? entry.MinerID: ''}</td>
+                        <td>${entry.Name}</td>
+                        <td>${entry.ID}</td>
+                        <td>${entry.SincePosted}</td>
+                        <td>${entry.OwnerID ? html`<a href="/hapi/node/${entry.OwnerID}">${entry.Owner}</a>`:''}</td>
                     </tr>
                     `)}
                 </tbody>
@@ -49,4 +48,4 @@ class ClusterTasks extends LitElement {
     }
 }
 
-customElements.define('storage-gc-stats', StorageGCStats);
+customElements.define('cluster-tasks', ClusterTasks);
