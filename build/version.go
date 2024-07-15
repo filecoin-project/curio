@@ -41,7 +41,7 @@ func BuildTypeString() string {
 }
 
 // Intent: Major.Network.EvenReleases
-var BuildVersionArray = [3]int{1, 22, 0}
+var BuildVersionArray = [3]int{1, 22, 1}
 
 // Ex: "1.2.3"
 var BuildVersion = strings.Join(lo.Map(BuildVersionArray[:],
