@@ -45,5 +45,5 @@ func (a *WebRPC) DealsSealNow(ctx context.Context, spId, sectorNumber uint64) er
 		return err
 	}
 
-	return market.SealNow(ctx, a.deps.Full, a.deps.DB, maddr, abi.SectorNumber(sectorNumber), false)
+	return market.SealNow(ctx, a.deps.Chain, a.deps.DB, maddr, abi.SectorNumber(sectorNumber), false)
 }
