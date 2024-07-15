@@ -43,6 +43,7 @@ type AlertTask struct {
 	cfg     config.CurioAlertingConfig
 	db      *harmonydb.DB
 	plugins []plugin.Plugin
+	al      *curioalerting.AlertingSystem
 }
 
 type alertOut struct {
@@ -69,7 +70,7 @@ var alertFuncs = []alertFunc{
 }
 
 func NewAlertTask(
-	api AlertAPI, db *harmonydb.DB, alertingCfg config.CurioAlerting, al *curioalerting.AlertingSystem) *AlertTask {
+	api AlertAPI, db *harmonydb.DB, alertingCfg config.CurioAlertingConfig, al *curioalerting.AlertingSystem) *AlertTask {
 	return &AlertTask{
 		api: api,
 		db:  db,
