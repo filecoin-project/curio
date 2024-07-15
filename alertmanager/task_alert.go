@@ -8,12 +8,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/filecoin-project/curio/alertmanager/plugin"
+	logging "github.com/ipfs/go-log/v2"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/dline"
-	logging "github.com/ipfs/go-log/v2"
 
+	"github.com/filecoin-project/curio/alertmanager/plugin"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
