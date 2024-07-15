@@ -50,8 +50,8 @@ type SpidGetter interface {
 	GetSpid(db *harmonydb.DB, taskID int64) string
 }
 
-func makeTaskSPIDs(tasks []harmonytask.TaskInterface) map[string]SpidGetter {
-	spidGetters := lo.Filter(tasks, func(t harmonytask.TaskInterface, _ int) bool {
+func makeTaskSPIDs() map[string]SpidGetter {
+	spidGetters := lo.Filter(lo.Values(harmonytask.Registry), func(t harmonytask.TaskInterface, _ int) bool {
 		_, ok := t.(SpidGetter)
 		return ok
 	})
