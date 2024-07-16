@@ -158,7 +158,7 @@ func New(
 			TaskEngine:      e,
 		}
 		if Registry[h.TaskTypeDetails.Name] == nil {
-			return nil, fmt.Errorf("task %s not registered", h.TaskTypeDetails.Name)
+			return nil, fmt.Errorf("task %s not registered: var _ = harmonytask.Reg(t TaskInterface)", h.TaskTypeDetails.Name)
 		}
 
 		if len(h.Name) > 16 {
