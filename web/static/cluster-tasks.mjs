@@ -25,7 +25,7 @@ class ClusterTasks extends LitElement {
             <table class="table table-dark">
                 <thead>
                 <tr>
-                    <th>Miner ID</th>
+                    <th>SpID</th>
                     <th style="min-width: 128px">Task</th>
                     <th>ID</th>
                     <th>Posted</th>

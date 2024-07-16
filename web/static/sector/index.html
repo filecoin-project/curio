@@ -45,7 +45,7 @@
       ajax: '/api/sector/all',
       columns: [
         {title: "", data: null},
-        {title: "Miner", data:'MinerID'},
+        {title: "SpID", data:'MinerID'},
         {title: "Sector", data:'SectorNum'},
         {title: "Expiry", data:'ExpiresAt'},
         {title: "🔗", data:'IsOnChain'},
@@ -77,7 +77,7 @@
                 return {MinerID: row.MinerID, Sector: row.SectorNum};
               });
               console.log(res);
-              var confirmMessage = res.map(obj => `MinerID: ${obj.MinerID}, Sector: ${obj.Sector}`).join(", ");
+              var confirmMessage = res.map(obj => `SpID: ${obj.MinerID}, Sector: ${obj.Sector}`).join(", ");
 
               if (confirm("Terminate & Delete: "+confirmMessage)) {
                 axios.post('/api/sector/terminate', res)
