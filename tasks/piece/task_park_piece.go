@@ -238,3 +238,4 @@ func (p *ParkPieceTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 var _ harmonytask.TaskInterface = &ParkPieceTask{}
+var _ = harmonytask.Reg(&ParkPieceTask{})

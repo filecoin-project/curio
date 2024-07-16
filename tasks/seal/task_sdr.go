@@ -259,7 +259,7 @@ func (s *SDRTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	s.sp.pollers[pollerSDR].Set(taskFunc)
 }
 
-func (s *SDRTask) GetSpid(taskID int64) string {
+func (s *SDRTask) GetSpid(db *harmonydb.DB, taskID int64) string {
 	var spid string
 	err := s.db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_sdr = $1`, taskID).Scan(&spid)
 	if err != nil {
@@ -268,6 +268,8 @@ func (s *SDRTask) GetSpid(taskID int64) string {
 	}
 	return spid
 }
+
+var _ = harmonytask.Reg(&SDRTask{})
 
 func (s *SDRTask) taskToSector(id harmonytask.TaskID) (ffi2.SectorRef, error) {
 	var refs []ffi2.SectorRef

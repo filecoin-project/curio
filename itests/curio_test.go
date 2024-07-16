@@ -349,7 +349,7 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	err = dependencies.PopulateRemainingDeps(ctx, cctx, false)
 	require.NoError(t, err)
 
-	taskEngine, activeTasks, err := tasks.StartTasks(ctx, dependencies)
+	taskEngine, err := tasks.StartTasks(ctx, dependencies)
 	require.NoError(t, err)
 
 	dependencies.Cfg.Subsystems.BoostAdapters = []string{fmt.Sprintf("%s:127.0.0.1:32000", maddr)}
@@ -357,7 +357,7 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	require.NoError(t, err)
 
 	go func() {
-		err = rpc.ListenAndServe(ctx, dependencies, activeTasks, shutdownChan) // Monitor for shutdown.
+		err = rpc.ListenAndServe(ctx, dependencies, shutdownChan) // Monitor for shutdown.
 		require.NoError(t, err)
 	}()
 
