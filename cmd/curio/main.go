@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -19,13 +20,14 @@ import (
 	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
+	"github.com/filecoin-project/curio/lib/panicreport"
+	"github.com/filecoin-project/curio/lib/repo"
+	"github.com/filecoin-project/curio/lib/reqcontext"
 
-	lbuild "github.com/filecoin-project/lotus/build"
-	lcli "github.com/filecoin-project/lotus/cli"
+	proofparams "github.com/filecoin-project/lotus/build/proof-params"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/lib/lotuslog"
 	"github.com/filecoin-project/lotus/lib/tracing"
-	"github.com/filecoin-project/lotus/node/repo"
 )
 
 var log = logging.Logger("main")
@@ -97,6 +99,7 @@ func main() {
 		EnableBashCompletion: true,
 		Before: func(c *cli.Context) error {
 			setupCloseHandler()
+			cliutil.IsVeryVerbose = c.Bool("vv")
 			return nil
 		},
 		Flags: []cli.Flag{
@@ -143,7 +146,10 @@ func main() {
 				EnvVars: []string{"CURIO_REPO_PATH"},
 				Value:   "~/.curio",
 			},
-			cliutil.FlagVeryVerbose,
+			&cli.BoolFlag{ // disconnected from cli/util for dependency reasons. Not used in curio that way.
+				Name:  "vv",
+				Usage: "enables very verbose mode, useful for debugging the CLI",
+			},
 		},
 		Commands: local,
 		After: func(c *cli.Context) error {
@@ -155,7 +161,7 @@ func main() {
 				}
 
 				// Generate report in CURIO_PATH and re-raise panic
-				lbuild.GeneratePanicReport(c.String("panic-reports"), p, c.App.Name)
+				panicreport.GeneratePanicReport(c.String("panic-reports"), p, c.App.Name)
 				panic(r)
 			}
 			return nil
@@ -163,7 +169,7 @@ func main() {
 	}
 	app.Setup()
 	app.Metadata["repoType"] = repo.Curio
-	lcli.RunApp(app)
+	runApp(app)
 }
 
 var fetchParamCmd = &cli.Command{
@@ -179,11 +185,43 @@ var fetchParamCmd = &cli.Command{
 			return xerrors.Errorf("error parsing sector size (specify as \"32GiB\", for instance): %w", err)
 		}
 		sectorSize := uint64(sectorSizeInt)
-		err = fastparamfetch.GetParams(lcli.ReqContext(cctx), lbuild.ParametersJSON(), lbuild.SrsJSON(), sectorSize)
+		err = fastparamfetch.GetParams(reqcontext.ReqContext(cctx), proofparams.ParametersJSON(), proofparams.SrsJSON(), sectorSize)
 		if err != nil {
 			return xerrors.Errorf("fetching proof parameters: %w", err)
 		}
 
 		return nil
 	},
+}
+
+func runApp(app *cli.App) {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		<-c
+		os.Exit(1)
+	}()
+
+	if err := app.Run(os.Args); err != nil {
+		if os.Getenv("LOTUS_DEV") != "" {
+			log.Warnf("%+v", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "ERROR: %s\n\n", err) // nolint:errcheck
+		}
+
+		var phe *PrintHelpErr
+		if errors.As(err, &phe) {
+			_ = cli.ShowCommandHelp(phe.Ctx, phe.Ctx.Command.Name)
+		}
+		os.Exit(1)
+	}
+}
+
+type PrintHelpErr struct {
+	Err error
+	Ctx *cli.Context
+}
+
+func (e *PrintHelpErr) Error() string {
+	return e.Err.Error()
 }

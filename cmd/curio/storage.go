@@ -19,9 +19,9 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
+	"github.com/filecoin-project/curio/lib/reqcontext"
 
 	"github.com/filecoin-project/lotus/chain/types"
-	lcli "github.com/filecoin-project/lotus/cli"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
@@ -106,10 +106,10 @@ over time
 		}
 
 		defer closer()
-		ctx := lcli.ReqContext(cctx)
+		ctx := reqcontext.ReqContext(cctx)
 
 		if cctx.NArg() != 1 {
-			return lcli.IncorrectNumArgs(cctx)
+			return fmt.Errorf("incorrect number of arguments, got %d", cctx.NArg())
 		}
 
 		p, err := homedir.Expand(cctx.Args().First())
@@ -164,10 +164,10 @@ var storageDetachCmd = &cli.Command{
 			return err
 		}
 		defer closer()
-		ctx := lcli.ReqContext(cctx)
+		ctx := reqcontext.ReqContext(cctx)
 
 		if cctx.NArg() != 1 {
-			return lcli.IncorrectNumArgs(cctx)
+			return fmt.Errorf("incorrect number of arguments, got %d", cctx.NArg())
 		}
 
 		p, err := homedir.Expand(cctx.Args().First())
@@ -201,7 +201,7 @@ var storageListCmd = &cli.Command{
 			return err
 		}
 		defer closer()
-		ctx := lcli.ReqContext(cctx)
+		ctx := reqcontext.ReqContext(cctx)
 
 		st, err := minerApi.StorageList(ctx)
 		if err != nil {
@@ -406,10 +406,10 @@ var storageFindCmd = &cli.Command{
 			return err
 		}
 		defer closer()
-		ctx := lcli.ReqContext(cctx)
+		ctx := reqcontext.ReqContext(cctx)
 
 		if cctx.NArg() != 2 {
-			return lcli.IncorrectNumArgs(cctx)
+			return fmt.Errorf("incorrect number of arguments, got %d", cctx.NArg())
 		}
 
 		maddr := cctx.Args().First()
