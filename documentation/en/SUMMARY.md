@@ -5,6 +5,7 @@
   * [Sealing](design/sealing.md)
   * [Harmony Tasks](design/harmony-tasks.md)
 * [Getting Started](getting-started.md)
+* [Versions](versions.md)
 * [Installation](installation.md)
 * [Setup](setup.md)
 * [Curio Service](curio-service.md)
