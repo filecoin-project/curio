@@ -74,7 +74,6 @@ USAGE:
    sptool actor withdraw [command options] [amount (FIL)]
 
 OPTIONS:
-   --confidence value  number of block confirmations to wait for (default: 5)
    --beneficiary       send withdraw message from the beneficiary address (default: false)
    --help, -h          show help
 ```
@@ -245,7 +244,6 @@ OPTIONS:
    --owner value, -o value   owner key to use for new miner initialisation
    --from value, -f value    address to send actor(miner) creation message from
    --sector-size value       specify sector size to use for new miner initialisation
-   --confidence value        number of block confirmations to wait for (default: 5)
    --help, -h                show help
 ```
 

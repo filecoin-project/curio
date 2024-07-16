@@ -2,6 +2,7 @@ package lmrpc
 
 import (
 	"net/http"
+	_ "net/http/pprof"
 
 	"github.com/gorilla/mux"
 
