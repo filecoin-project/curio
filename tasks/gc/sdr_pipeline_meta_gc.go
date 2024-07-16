@@ -104,3 +104,4 @@ func (s *SDRPipelineGC) cleanupSealed() error {
 }
 
 var _ harmonytask.TaskInterface = &SDRPipelineGC{}
+var _ = harmonytask.Reg(&SDRPipelineGC{})

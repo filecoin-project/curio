@@ -286,3 +286,4 @@ func (s *StorageEndpointGC) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 var _ harmonytask.TaskInterface = &StorageEndpointGC{}
+var _ = harmonytask.Reg(&StorageEndpointGC{})

@@ -103,3 +103,4 @@ func (i *InclusionCheckTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 var _ harmonytask.TaskInterface = &InclusionCheckTask{}
+var _ = harmonytask.Reg(&InclusionCheckTask{})

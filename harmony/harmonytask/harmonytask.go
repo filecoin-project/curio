@@ -157,6 +157,9 @@ func New(
 			TaskTypeDetails: c.TypeDetails(),
 			TaskEngine:      e,
 		}
+		if Registry[h.TaskTypeDetails.Name] == nil {
+			return nil, fmt.Errorf("task %s not registered", h.TaskTypeDetails.Name)
+		}
 
 		if len(h.Name) > 16 {
 			return nil, fmt.Errorf("task name too long: %s, max 16 characters", h.Name)
@@ -384,4 +387,20 @@ func (e *TaskEngine) ResourcesAvailable() resources.Resources {
 // Resources returns the resources available in the TaskEngine's registry.
 func (e *TaskEngine) Resources() resources.Resources {
 	return e.reg.Resources
+}
+
+// About the Registry
+// This registry exists for the benefit of "static methods" of TaskInterface extensions.
+// For example, GetSPID(db, taskID) (int, err) is a static method that can be called
+//
+//	from any task that has a GetSPID method. This is useful for the web UI to
+//	be able to indicate the SpID for a task.
+//
+// Reg is a task registry full of nil implementations.
+// Even if NOT running, a nil task should be registered here.
+var Registry = map[string]TaskInterface{}
+
+func Reg(t TaskInterface) bool {
+	Registry[t.TypeDetails().Name] = t
+	return true
 }

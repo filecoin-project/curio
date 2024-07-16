@@ -31,16 +31,17 @@ func NewFinalizeTask(max int, sp *SealPoller, sc *ffi.SealCalls, db *harmonydb.D
 	}
 }
 
-func (f *FinalizeTask) GetSpid(taskID int64) string {
+func (f *FinalizeTask) GetSpid(db *harmonydb.DB, taskID int64) string {
 	var spid string
-	err := f.db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_finalize = $1`, taskID).Scan(&spid)
+	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_finalize = $1`, taskID).Scan(&spid)
 	if err != nil {
 		log.Errorf("getting spid: %v", err)
 		return ""
 	}
 	return spid
-
 }
+
+var _ = harmonytask.Reg(&FinalizeTask{})
 
 func (f *FinalizeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var tasks []struct {

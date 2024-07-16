@@ -134,3 +134,4 @@ func (c *CleanupPieceTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 var _ harmonytask.TaskInterface = &CleanupPieceTask{}
+var _ = harmonytask.Reg(&CleanupPieceTask{})

@@ -17,7 +17,6 @@ import (
 	"go.opencensus.io/tag"
 
 	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/web/api"
 	"github.com/filecoin-project/curio/web/hapi"
 
@@ -33,13 +32,13 @@ var basePath = "/static/"
 // You still need to recomplie the binary for changes to go code.
 var webDev = os.Getenv("CURIO_WEB_DEV") == "1"
 
-func GetSrv(ctx context.Context, deps *deps.Deps, activeTasks []harmonytask.TaskInterface) (*http.Server, error) {
+func GetSrv(ctx context.Context, deps *deps.Deps) (*http.Server, error) {
 	mx := mux.NewRouter()
 	err := hapi.Routes(mx.PathPrefix("/hapi").Subrouter(), deps)
 	if err != nil {
 		return nil, err
 	}
-	api.Routes(mx.PathPrefix("/api").Subrouter(), deps, activeTasks)
+	api.Routes(mx.PathPrefix("/api").Subrouter(), deps)
 
 	var static fs.FS = static
 	if webDev {

@@ -10,7 +10,6 @@ import (
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/harmony/harmonytask"
 
 	lbuild "github.com/filecoin-project/lotus/build"
 )
@@ -30,10 +29,10 @@ func (a *WebRPC) BlockDelaySecs(context.Context) (uint64, error) {
 	return lbuild.BlockDelaySecs, nil
 }
 
-func Routes(r *mux.Router, deps *deps.Deps, activeTasks []harmonytask.TaskInterface) {
+func Routes(r *mux.Router, deps *deps.Deps) {
 	handler := &WebRPC{
 		deps:      deps,
-		taskSPIDs: makeTaskSPIDs(activeTasks),
+		taskSPIDs: makeTaskSPIDs(),
 	}
 
 	rpcSrv := jsonrpc.NewServer()

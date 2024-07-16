@@ -156,15 +156,17 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func (m *MoveStorageTask) GetSpid(taskID int64) string {
+func (m *MoveStorageTask) GetSpid(db *harmonydb.DB, taskID int64) string {
 	var spid string
-	err := m.db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_move_storage = $1`, taskID).Scan(&spid)
+	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_move_storage = $1`, taskID).Scan(&spid)
 	if err != nil {
 		log.Errorf("getting spid: %s", err)
 		return ""
 	}
 	return spid
 }
+
+var _ = harmonytask.Reg(&MoveStorageTask{})
 
 func (m *MoveStorageTask) taskToSector(id harmonytask.TaskID) (ffi2.SectorRef, error) {
 	var refs []ffi2.SectorRef

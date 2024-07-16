@@ -28,7 +28,6 @@ import (
 
 	"github.com/filecoin-project/curio/api/client"
 	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/market"
 	"github.com/filecoin-project/curio/web"
@@ -245,7 +244,7 @@ func (p *CurioAPI) LogSetLevel(ctx context.Context, subsystem, level string) err
 	return logging.SetLogLevel(subsystem, level)
 }
 
-func ListenAndServe(ctx context.Context, dependencies *deps.Deps, activeTasks []harmonytask.TaskInterface, shutdownChan chan struct{}) error {
+func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) error {
 	fh := &paths.FetchHandler{Local: dependencies.LocalStore, PfHandler: &paths.DefaultPartialFileHandler{}}
 	remoteHandler := func(w http.ResponseWriter, r *http.Request) {
 		if !auth.HasPerm(r.Context(), nil, api.PermAdmin) {
@@ -292,7 +291,7 @@ func ListenAndServe(ctx context.Context, dependencies *deps.Deps, activeTasks []
 	eg.Go(srv.ListenAndServe)
 
 	if dependencies.Cfg.Subsystems.EnableWebGui {
-		web, err := web.GetSrv(ctx, dependencies, activeTasks)
+		web, err := web.GetSrv(ctx, dependencies)
 		if err != nil {
 			return err
 		}
