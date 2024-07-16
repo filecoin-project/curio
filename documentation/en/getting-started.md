@@ -11,6 +11,7 @@ This is the Curio and Lotus compatibility matrix.
 | Curio Version | Lotus Version | Go Version |
 | ------------- | ------------- | ---------- |
 | 1.22.0        | v1.27.0       | 1.21.7     |
+| 1.22.1        | v1.27.x       | 1.22.3     |
 
 ## Curio Database and Distributed Architecture
 
