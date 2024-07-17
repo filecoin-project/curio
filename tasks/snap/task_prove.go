@@ -2,6 +2,7 @@ package snap
 
 import (
 	"context"
+	"math/rand/v2"
 
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
@@ -135,23 +136,34 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (p *ProveTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
-	var tasks []struct {
-		SpID         int64 `db:"sp_id"`
-		SectorNumber int64 `db:"sector_number"`
-	}
-
-	err := p.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_prove = FALSE AND task_id_prove IS NULL`)
-	if err != nil {
-		return xerrors.Errorf("getting tasks: %w", err)
-	}
-
-	for _, t := range tasks {
+	var stop bool
+	for !stop {
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			_, err := tx.Exec(`UPDATE sectors_snap_pipeline SET task_id_prove = $1 WHERE sp_id = $2 AND sector_number = $3`, id, t.SpID, t.SectorNumber)
+			stop = true // assume we're done until we find a task to schedule
+
+			var tasks []struct {
+				SpID         int64 `db:"sp_id"`
+				SectorNumber int64 `db:"sector_number"`
+			}
+
+			err := p.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_prove = FALSE AND task_id_prove IS NULL`)
+			if err != nil {
+				return false, xerrors.Errorf("getting tasks: %w", err)
+			}
+
+			if len(tasks) == 0 {
+				return false, nil
+			}
+
+			// pick at random in case there are a bunch of schedules across the cluster
+			t := tasks[rand.N(len(tasks))]
+
+			_, err = tx.Exec(`UPDATE sectors_snap_pipeline SET task_id_prove = $1 WHERE sp_id = $2 AND sector_number = $3`, id, t.SpID, t.SectorNumber)
 			if err != nil {
 				return false, xerrors.Errorf("updating task id: %w", err)
 			}
 
+			stop = false // we found a task to schedule, keep going
 			return true, nil
 		})
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand/v2"
 
 	"github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
@@ -352,33 +353,54 @@ func (s *SubmitTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (s *SubmitTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
+	// schedule submits
+	var stop bool
+	for !stop {
+		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
+			stop = true // assume we're done until we find a task to schedule
+
+			var tasks []struct {
+				SpID         int64 `db:"sp_id"`
+				SectorNumber int64 `db:"sector_number"`
+			}
+
+			err := s.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_prove = TRUE AND after_submit = FALSE AND task_id_submit IS NULL`)
+			if err != nil {
+				return false, xerrors.Errorf("getting tasks: %w", err)
+			}
+
+			if len(tasks) == 0 {
+				return false, nil
+			}
+
+			// pick at random in case there are a bunch of schedules across the cluster
+			t := tasks[rand.N(len(tasks))]
+
+			_, err = tx.Exec(`UPDATE sectors_snap_pipeline SET task_id_submit = $1 WHERE sp_id = $2 AND sector_number = $3`, id, t.SpID, t.SectorNumber)
+			if err != nil {
+				return false, xerrors.Errorf("updating task id: %w", err)
+			}
+
+			stop = false // we found a task to schedule, keep going
+			return true, nil
+		})
+	}
+
+	// update landed
 	var tasks []struct {
 		SpID         int64 `db:"sp_id"`
 		SectorNumber int64 `db:"sector_number"`
-		AftSubmit    bool  `db:"after_submit"`
 	}
 
-	err := s.db.Select(ctx, &tasks, `SELECT sp_id, sector_number, after_submit FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_prove = TRUE AND after_prove_msg_success = FALSE AND task_id_submit IS NULL`)
+	err := s.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_prove = TRUE AND after_prove_msg_success = FALSE AND after_submit = TRUE`)
 	if err != nil {
 		return xerrors.Errorf("getting tasks: %w", err)
 	}
 
 	for _, t := range tasks {
-		if t.AftSubmit {
-			if err := s.updateLanded(ctx, t.SpID, t.SectorNumber); err != nil {
-				return xerrors.Errorf("updating landed: %w", err)
-			}
-			continue
+		if err := s.updateLanded(ctx, t.SpID, t.SectorNumber); err != nil {
+			return xerrors.Errorf("updating landed: %w", err)
 		}
-
-		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			_, err := tx.Exec(`UPDATE sectors_snap_pipeline SET task_id_submit = $1 WHERE sp_id = $2 AND sector_number = $3`, id, t.SpID, t.SectorNumber)
-			if err != nil {
-				return false, xerrors.Errorf("updating task id: %w", err)
-			}
-
-			return true, nil
-		})
 	}
 
 	return nil
