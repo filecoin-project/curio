@@ -184,4 +184,15 @@ func (e *EncodeTask) taskToSector(id harmonytask.TaskID) (ffi.SectorRef, error) 
 	return refs[0], nil
 }
 
+func (e *EncodeTask) GetSpid(db *harmonydb.DB, taskID int64) string {
+	var spid string
+	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_snap_pipeline WHERE task_id_encode = $1`, taskID).Scan(&spid)
+	if err != nil {
+		log.Errorf("getting spid: %s", err)
+		return ""
+	}
+	return spid
+}
+
+var _ = harmonytask.Reg(&EncodeTask{})
 var _ harmonytask.TaskInterface = &EncodeTask{}

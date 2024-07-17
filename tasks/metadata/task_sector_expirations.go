@@ -119,4 +119,5 @@ func (s *SectorMetadata) TypeDetails() harmonytask.TaskTypeDetails {
 func (s *SectorMetadata) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
+var _ = harmonytask.Reg(&SectorMetadata{})
 var _ harmonytask.TaskInterface = &SectorMetadata{}

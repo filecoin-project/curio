@@ -498,4 +498,15 @@ func (s *SubmitTask) pledgeForPower(ctx context.Context, addedPower abi.StorageP
 	return types.BigDiv(types.BigMul(initialPledge, initialPledgeNum), initialPledgeDen), nil
 }
 
+func (s *SubmitTask) GetSpid(db *harmonydb.DB, taskID int64) string {
+	var spid string
+	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_snap_pipeline WHERE task_id_submit = $1`, taskID).Scan(&spid)
+	if err != nil {
+		log.Errorf("getting spid: %s", err)
+		return ""
+	}
+	return spid
+}
+
+var _ = harmonytask.Reg(&SubmitTask{})
 var _ harmonytask.TaskInterface = &SubmitTask{}

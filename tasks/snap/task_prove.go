@@ -162,4 +162,15 @@ func (p *ProveTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFu
 func (p *ProveTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
+func (p *ProveTask) GetSpid(db *harmonydb.DB, taskID int64) string {
+	var spid string
+	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_snap_pipeline WHERE task_id_prove = $1`, taskID).Scan(&spid)
+	if err != nil {
+		log.Errorf("getting spid: %s", err)
+		return ""
+	}
+	return spid
+}
+
+var _ = harmonytask.Reg(&ProveTask{})
 var _ harmonytask.TaskInterface = &ProveTask{}

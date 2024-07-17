@@ -146,4 +146,15 @@ func (m *MoveStorageTask) taskToSector(id harmonytask.TaskID) (ffi.SectorRef, er
 	return refs[0], nil
 }
 
+func (m *MoveStorageTask) GetSpid(db *harmonydb.DB, taskID int64) string {
+	var spid string
+	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_snap_pipeline WHERE task_id_move_storage = $1`, taskID).Scan(&spid)
+	if err != nil {
+		log.Errorf("getting spid: %s", err)
+		return ""
+	}
+	return spid
+}
+
+var _ = harmonytask.Reg(&MoveStorageTask{})
 var _ harmonytask.TaskInterface = &MoveStorageTask{}
