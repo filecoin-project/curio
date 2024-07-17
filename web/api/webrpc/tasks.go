@@ -13,7 +13,7 @@ import (
 type TaskSummary struct {
 	ID             int64
 	Name           string
-	MinerID        string
+	SpID           string
 	SincePosted    time.Time `db:"since_posted"`
 	Owner, OwnerID *string
 
@@ -25,21 +25,18 @@ func (a *WebRPC) ClusterTaskSummary(ctx context.Context) ([]TaskSummary, error) 
 	var ts []TaskSummary
 	err := a.deps.DB.Select(ctx, &ts, `SELECT 
 		t.id as id, t.name as name, t.update_time as since_posted, t.owner_id as owner_id, hm.host_and_port as owner
-	FROM harmony_task t LEFT JOIN curio.harmony_machines hm ON hm.id = t.owner_id 
+	FROM harmony_task t LEFT JOIN harmony_machines hm ON hm.id = t.owner_id 
 	ORDER BY t.update_time ASC, t.owner_id`)
 	if err != nil {
 		return nil, err // Handle error
 	}
-	grouped := lo.GroupBy(ts, func(t TaskSummary) string {
-		return t.Name
-	})
 
 	// Populate MinerID
-	for _, g := range grouped {
-		if v, ok := a.taskSPIDs[g[0].Name]; ok {
-			for i, t := range g {
-				g[i].MinerID = v.GetSpid(a.deps.DB, t.ID)
-			}
+	for i := range ts {
+		ts[i].SincePostedStr = time.Since(ts[i].SincePosted).Truncate(time.Second).String()
+
+		if v, ok := a.taskSPIDs[ts[i].Name]; ok {
+			ts[i].SpID = v.GetSpid(a.deps.DB, ts[i].ID)
 		}
 	}
 

@@ -261,7 +261,7 @@ func (s *SDRTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 
 func (s *SDRTask) GetSpid(db *harmonydb.DB, taskID int64) string {
 	var spid string
-	err := s.db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_sdr = $1`, taskID).Scan(&spid)
+	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_sdr = $1`, taskID).Scan(&spid)
 	if err != nil {
 		log.Errorf("getting spid: %s", err)
 		return ""

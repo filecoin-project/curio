@@ -495,7 +495,8 @@ func (t *WinPostTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Ta
 		var epoch uint64
 		err := t.db.QueryRow(context.Background(), `SELECT epoch FROM mining_tasks WHERE task_id = $1`, id).Scan(&epoch)
 		if err != nil {
-			return nil, err
+			log.Errorw("failed to get epoch for task", "task", id, "error", err)
+			continue
 		}
 
 		if lowestEpoch == 0 || abi.ChainEpoch(epoch) < lowestEpoch {
