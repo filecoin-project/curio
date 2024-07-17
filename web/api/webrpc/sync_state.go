@@ -10,7 +10,8 @@ import (
 	"github.com/BurntSushi/toml"
 	"golang.org/x/xerrors"
 
-	lbuild "github.com/filecoin-project/lotus/build"
+	"github.com/filecoin-project/curio/build"
+
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
 
@@ -136,9 +137,9 @@ func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
 
 			var syncState string
 			switch {
-			case time.Now().Unix()-int64(head.MinTimestamp()) < int64(lbuild.BlockDelaySecs*3/2): // within 1.5 epochs
+			case time.Now().Unix()-int64(head.MinTimestamp()) < int64(build.BlockDelaySecs*3/2): // within 1.5 epochs
 				syncState = "ok"
-			case time.Now().Unix()-int64(head.MinTimestamp()) < int64(lbuild.BlockDelaySecs*5): // within 5 epochs
+			case time.Now().Unix()-int64(head.MinTimestamp()) < int64(build.BlockDelaySecs*5): // within 5 epochs
 				syncState = fmt.Sprintf("slow (%s behind)", time.Since(time.Unix(int64(head.MinTimestamp()), 0)).Truncate(time.Second))
 			default:
 				syncState = fmt.Sprintf("behind (%s behind)", time.Since(time.Unix(int64(head.MinTimestamp()), 0)).Truncate(time.Second))

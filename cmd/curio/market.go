@@ -12,10 +12,9 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/reqcontext"
 	"github.com/filecoin-project/curio/market"
 	"github.com/filecoin-project/curio/market/lmrpc"
-
-	lcli "github.com/filecoin-project/lotus/cli"
 )
 
 var marketCmd = &cli.Command{
@@ -112,7 +111,7 @@ var marketSealCmd = &cli.Command{
 			return xerrors.Errorf("failed to parse the sector number: %w", err)
 		}
 
-		ctx := lcli.ReqContext(cctx)
+		ctx := reqcontext.ReqContext(cctx)
 		dep, err := deps.GetDepsCLI(ctx, cctx)
 		if err != nil {
 			return err

@@ -35,10 +35,10 @@ class ClusterTasks extends LitElement {
                 <tbody>
                 ${this.data.map(entry => html`
                     <tr>
-                        <td>${entry.MinerID? entry.MinerID: ''}</td>
+                        <td>${entry.SpID? "f0" + entry.SpID: 'n/a'}</td>
                         <td>${entry.Name}</td>
                         <td>${entry.ID}</td>
-                        <td>${entry.SincePosted}</td>
+                        <td>${entry.SincePostedStr}</td>
                         <td>${entry.OwnerID ? html`<a href="/hapi/node/${entry.OwnerID}">${entry.Owner}</a>`:''}</td>
                     </tr>
                     `)}

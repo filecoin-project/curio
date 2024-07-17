@@ -15,6 +15,8 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 
+	"github.com/filecoin-project/curio/lib/reqcontext"
+
 	"github.com/filecoin-project/lotus/blockstore"
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -56,7 +58,7 @@ var sectorsExpiredCmd = &cli.Command{
 			return xerrors.Errorf("getting fullnode api: %w", err)
 		}
 		defer nCloser()
-		ctx := lcli.ReqContext(cctx)
+		ctx := reqcontext.ReqContext(cctx)
 
 		head, err := fullApi.ChainHead(ctx)
 		if err != nil {
@@ -227,7 +229,7 @@ var sectorsListCmd = &cli.Command{
 		}
 		defer closer2()
 
-		ctx := lcli.ReqContext(cctx)
+		ctx := reqcontext.ReqContext(cctx)
 
 		maddr, err := SPTActorGetter(cctx)
 		if err != nil {

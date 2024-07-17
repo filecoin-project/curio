@@ -3,11 +3,13 @@ package api
 import (
 	"context"
 
+	"github.com/google/uuid"
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-bitfield"
+	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 	verifregtypes "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
@@ -18,14 +20,25 @@ import (
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/node/modules/dtypes"
 )
 
 // CurioChainRPC is a subset of the Filecoin API that is supported by Forest.
+// Complete list is available at github.com/orgs/ChainSafe/projects/29/views/1
 type CurioChainRPC interface {
-	Version(p0 context.Context) (api.APIVersion, error)
+	// ...
+	AuthVerify(ctx context.Context, token string) ([]auth.Permission, error) //perm:read
+	AuthNew(ctx context.Context, perms []auth.Permission) ([]byte, error)    //perm:admin
+	Version(context.Context) (api.APIVersion, error)                         //perm:read
+	Shutdown(context.Context) error                                          //perm:admin
+	Session(context.Context) (uuid.UUID, error)                              //perm:read
+
+	// Chain
 	ChainHead(context.Context) (*types.TipSet, error)
 	ChainNotify(context.Context) (<-chan []*api.HeadChange, error)
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
+	StateWaitMsg(ctx context.Context, cid cid.Cid, confidence uint64, limit abi.ChainEpoch, allowReplaced bool) (*api.MsgLookup, error) //perm:read
+	StateMinerAvailableBalance(context.Context, address.Address, types.TipSetKey) (types.BigInt, error)                                 //perm:read
 	StateNetworkVersion(context.Context, types.TipSetKey) (network.Version, error)
 	StateAccountKey(ctx context.Context, addr address.Address, tsk types.TipSetKey) (address.Address, error)
 	GasEstimateMessageGas(ctx context.Context, msg *types.Message, spec *api.MessageSendSpec, tsk types.TipSetKey) (*types.Message, error)
@@ -68,12 +81,23 @@ type CurioChainRPC interface {
 	ChainReadObj(context.Context, cid.Cid) ([]byte, error)
 	ChainHasObj(context.Context, cid.Cid) (bool, error)
 	ChainPutObj(context.Context, blocks.Block) error
-
-	// Added afterward
 	MpoolPushMessage(ctx context.Context, msg *types.Message, spec *api.MessageSendSpec) (*types.SignedMessage, error)
 	StateMinerActiveSectors(ctx context.Context, maddr address.Address, tsk types.TipSetKey) ([]*miner.SectorOnChainInfo, error)
 	StateSectorPartition(ctx context.Context, maddr address.Address, sectorNumber abi.SectorNumber, tsk types.TipSetKey) (*miner.SectorLocation, error)
-	StateMinerAvailableBalance(context.Context, address.Address, types.TipSetKey) (big.Int, error)
+
+	StateDealProviderCollateralBounds(context.Context, abi.PaddedPieceSize, bool, types.TipSetKey) (api.DealCollateralBounds, error)
+	StateListMessages(context.Context, *api.MessageMatch, types.TipSetKey, abi.ChainEpoch) ([]cid.Cid, error)
+	StateListMiners(context.Context, types.TipSetKey) ([]address.Address, error)
+	StateMarketBalance(context.Context, address.Address, types.TipSetKey) (api.MarketBalance, error)
+	StateMarketStorageDeal(context.Context, abi.DealID, types.TipSetKey) (*api.MarketDeal, error)
+	StateMinerFaults(context.Context, address.Address, types.TipSetKey) (bitfield.BitField, error)
+	StateMinerRecoveries(context.Context, address.Address, types.TipSetKey) (bitfield.BitField, error)
+	StateNetworkName(context.Context) (dtypes.NetworkName, error)
+	StateReadState(context.Context, address.Address, types.TipSetKey) (*api.ActorState, error)
+	StateVMCirculatingSupplyInternal(context.Context, types.TipSetKey) (api.CirculatingSupply, error)
+	StateVerifiedClientStatus(context.Context, address.Address, types.TipSetKey) (*abi.StoragePower, error)
+	StateMinerSectorCount(context.Context, address.Address, types.TipSetKey) (api.MinerSectors, error)
+	StateCirculatingSupply(context.Context, types.TipSetKey) (big.Int, error)
 }
 
 var _ CurioChainRPC = api.FullNode(nil)

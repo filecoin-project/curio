@@ -26,17 +26,19 @@ import (
 	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-jsonrpc/auth"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/api/client"
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/repo"
 	"github.com/filecoin-project/curio/web"
 
-	"github.com/filecoin-project/lotus/api"
+	lapi "github.com/filecoin-project/lotus/api"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/lib/rpcenc"
 	"github.com/filecoin-project/lotus/metrics"
 	"github.com/filecoin-project/lotus/metrics/proxy"
-	"github.com/filecoin-project/lotus/node/repo"
 	"github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
@@ -54,11 +56,11 @@ func CurioHandler(
 	permissioned bool) http.Handler {
 	mux := mux.NewRouter()
 	readerHandler, readerServerOpt := rpcenc.ReaderParamDecoder()
-	rpcServer := jsonrpc.NewServer(jsonrpc.WithServerErrors(api.RPCErrors), readerServerOpt)
+	rpcServer := jsonrpc.NewServer(jsonrpc.WithServerErrors(lapi.RPCErrors), readerServerOpt)
 
 	wapi := proxy.MetricedAPI[api.Curio, api.CurioStruct](a)
 	if permissioned {
-		wapi = api.PermissionedAPI[api.Curio, api.CurioStruct](wapi)
+		wapi = lapi.PermissionedAPI[api.Curio, api.CurioStruct](wapi)
 	}
 
 	rpcServer.Register("Filecoin", wapi)
@@ -88,9 +90,10 @@ type CurioAPI struct {
 	ShutdownChan chan struct{}
 }
 
-func (p *CurioAPI) Version(context.Context) (api.Version, error) {
-	return api.CurioAPIVersion0, nil
+func (p *CurioAPI) Version(context.Context) ([]int, error) {
+	return build.BuildVersionArray[:], nil
 }
+
 func (p *CurioAPI) StorageDetachLocal(ctx context.Context, path string) error {
 	path, err := homedir.Expand(path)
 	if err != nil {
@@ -158,23 +161,23 @@ func (p *CurioAPI) StorageStat(ctx context.Context, id storiface.ID) (fsutil.FsS
 }
 
 // this method is currently unused, might be back when we get markets into curio
-func (p *CurioAPI) AllocatePieceToSector(ctx context.Context, maddr address.Address, piece piece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (api.SectorOffset, error) {
+func (p *CurioAPI) AllocatePieceToSector(ctx context.Context, maddr address.Address, piece piece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (lapi.SectorOffset, error) {
 	/*di, err := market.NewPieceIngester(ctx, p.Deps.DB, p.Deps.Chain, maddr, true, time.Minute)
 	if err != nil {
-		return api.SectorOffset{}, xerrors.Errorf("failed to create a piece ingestor")
+		return lapi.SectorOffset{}, xerrors.Errorf("failed to create a piece ingestor")
 	}
 
 	sector, err := di.AllocatePieceToSector(ctx, maddr, piece, rawSize, source, header)
 	if err != nil {
-		return api.SectorOffset{}, xerrors.Errorf("failed to add piece to a sector")
+		return lapi.SectorOffset{}, xerrors.Errorf("failed to add piece to a sector")
 	}
 
 	err = di.Seal()
 	if err != nil {
-		return api.SectorOffset{}, xerrors.Errorf("failed to start sealing the sector %d for actor %s", sector.Sector, maddr)
+		return lapi.SectorOffset{}, xerrors.Errorf("failed to start sealing the sector %d for actor %s", sector.Sector, maddr)
 	}
 	*/
-	return api.SectorOffset{}, xerrors.Errorf("not implemented")
+	return lapi.SectorOffset{}, xerrors.Errorf("not implemented")
 }
 
 // Trigger shutdown
@@ -247,7 +250,7 @@ func (p *CurioAPI) LogSetLevel(ctx context.Context, subsystem, level string) err
 func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) error {
 	fh := &paths.FetchHandler{Local: dependencies.LocalStore, PfHandler: &paths.DefaultPartialFileHandler{}}
 	remoteHandler := func(w http.ResponseWriter, r *http.Request) {
-		if !auth.HasPerm(r.Context(), nil, api.PermAdmin) {
+		if !auth.HasPerm(r.Context(), nil, lapi.PermAdmin) {
 			w.WriteHeader(401)
 			_ = json.NewEncoder(w).Encode(struct{ Error string }{"unauthorized: missing admin permission"})
 			return

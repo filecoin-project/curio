@@ -31,11 +31,10 @@ import (
 	"github.com/filecoin-project/curio/market/fakelm"
 
 	lapi "github.com/filecoin-project/lotus/api"
-	lbuild "github.com/filecoin-project/lotus/build"
+	"github.com/filecoin-project/lotus/build/buildconstants"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/lib/nullreader"
 	"github.com/filecoin-project/lotus/metrics/proxy"
-	"github.com/filecoin-project/lotus/node"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
@@ -198,7 +197,7 @@ func ServeCurioMarketRPC(db *harmonydb.DB, full api.Chain, maddr address.Address
 		return lapi.APIVersion{
 			Version:    "curio-proxy-v0",
 			APIVersion: lapi.MinerAPIVersion0,
-			BlockDelay: lbuild.BlockDelaySecs,
+			BlockDelay: buildconstants.BlockDelaySecs,
 		}, nil
 	}
 
@@ -288,7 +287,7 @@ func ServeCurioMarketRPC(db *harmonydb.DB, full api.Chain, maddr address.Address
 
 	finalApi := proxy.LoggingAPI[lapi.StorageMiner, lapi.StorageMinerStruct](&ast)
 
-	mh, err := node.MinerHandler(finalApi, false) // todo permissioned
+	mh, err := MinerHandler(finalApi, false) // todo permissioned
 	if err != nil {
 		return err
 	}
