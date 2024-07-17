@@ -20,9 +20,9 @@ import (
 
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/reqcontext"
 
 	"github.com/filecoin-project/lotus/api"
-	lcli "github.com/filecoin-project/lotus/cli"
 )
 
 const providerEnvVar = "CURIO_API_INFO"
@@ -50,7 +50,7 @@ var cliCmd = &cli.Command{
 			return err
 		}
 
-		ctx := lcli.ReqContext(cctx)
+		ctx := reqcontext.ReqContext(cctx)
 
 		machine := cctx.String("machine")
 		if machine == "" {
@@ -194,7 +194,7 @@ var cliCmd = &cli.Command{
 				return xerrors.Errorf("querying version: %w", err)
 			}
 
-			fmt.Println("remote node version:", v.String())
+			fmt.Println("remote node version:", v)
 		}
 
 		return nil
@@ -218,7 +218,7 @@ var waitApiCmd = &cli.Command{
 		},
 	},
 	Action: func(cctx *cli.Context) error {
-		ctx := lcli.ReqContext(cctx)
+		ctx := reqcontext.ReqContext(cctx)
 		ctx, cancel := context.WithTimeout(ctx, cctx.Duration("timeout"))
 		defer cancel()
 		for {

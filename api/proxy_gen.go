@@ -8,12 +8,14 @@ import (
 	"net/url"
 	"reflect"
 
+	"github.com/google/uuid"
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-bitfield"
+	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 	verifregtypes "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
@@ -24,6 +26,7 @@ import (
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
@@ -61,7 +64,7 @@ type CurioMethods struct {
 
 	StorageStat func(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) `perm:"admin"`
 
-	Version func(p0 context.Context) (api.Version, error) `perm:"admin"`
+	Version func(p0 context.Context) ([]int, error) `perm:"admin"`
 }
 
 type CurioStub struct {
@@ -72,6 +75,10 @@ type CurioChainRPCStruct struct {
 }
 
 type CurioChainRPCMethods struct {
+	AuthNew func(p0 context.Context, p1 []auth.Permission) ([]byte, error) `perm:"admin"`
+
+	AuthVerify func(p0 context.Context, p1 string) ([]auth.Permission, error) `perm:"read"`
+
 	ChainGetMessage func(p0 context.Context, p1 cid.Cid) (*types.Message, error) ``
 
 	ChainGetTipSet func(p0 context.Context, p1 types.TipSetKey) (*types.TipSet, error) ``
@@ -110,7 +117,15 @@ type CurioChainRPCMethods struct {
 
 	MpoolSelect func(p0 context.Context, p1 types.TipSetKey, p2 float64) ([]*types.SignedMessage, error) ``
 
+	Session func(p0 context.Context) (uuid.UUID, error) `perm:"read"`
+
+	Shutdown func(p0 context.Context) error `perm:"admin"`
+
 	StateAccountKey func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) ``
+
+	StateCirculatingSupply func(p0 context.Context, p1 types.TipSetKey) (big.Int, error) ``
+
+	StateDealProviderCollateralBounds func(p0 context.Context, p1 abi.PaddedPieceSize, p2 bool, p3 types.TipSetKey) (api.DealCollateralBounds, error) ``
 
 	StateGetActor func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*types.Actor, error) ``
 
@@ -126,15 +141,25 @@ type CurioChainRPCMethods struct {
 
 	StateGetRandomnessFromTickets func(p0 context.Context, p1 crypto.DomainSeparationTag, p2 abi.ChainEpoch, p3 []byte, p4 types.TipSetKey) (abi.Randomness, error) ``
 
+	StateListMessages func(p0 context.Context, p1 *api.MessageMatch, p2 types.TipSetKey, p3 abi.ChainEpoch) ([]cid.Cid, error) ``
+
+	StateListMiners func(p0 context.Context, p1 types.TipSetKey) ([]address.Address, error) ``
+
 	StateLookupID func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) ``
+
+	StateMarketBalance func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MarketBalance, error) ``
+
+	StateMarketStorageDeal func(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (*api.MarketDeal, error) ``
 
 	StateMinerActiveSectors func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) ``
 
 	StateMinerAllocated func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*bitfield.BitField, error) ``
 
-	StateMinerAvailableBalance func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (big.Int, error) ``
+	StateMinerAvailableBalance func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (types.BigInt, error) `perm:"read"`
 
 	StateMinerDeadlines func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]api.Deadline, error) `perm:"read"`
+
+	StateMinerFaults func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (bitfield.BitField, error) ``
 
 	StateMinerInfo func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MinerInfo, error) ``
 
@@ -148,9 +173,17 @@ type CurioChainRPCMethods struct {
 
 	StateMinerProvingDeadline func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*dline.Info, error) ``
 
+	StateMinerRecoveries func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (bitfield.BitField, error) ``
+
+	StateMinerSectorCount func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MinerSectors, error) ``
+
 	StateMinerSectors func(p0 context.Context, p1 address.Address, p2 *bitfield.BitField, p3 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) ``
 
+	StateNetworkName func(p0 context.Context) (dtypes.NetworkName, error) ``
+
 	StateNetworkVersion func(p0 context.Context, p1 types.TipSetKey) (network.Version, error) ``
+
+	StateReadState func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*api.ActorState, error) ``
 
 	StateSearchMsg func(p0 context.Context, p1 types.TipSetKey, p2 cid.Cid, p3 abi.ChainEpoch, p4 bool) (*api.MsgLookup, error) ``
 
@@ -160,9 +193,15 @@ type CurioChainRPCMethods struct {
 
 	StateSectorPreCommitInfo func(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorPreCommitOnChainInfo, error) ``
 
+	StateVMCirculatingSupplyInternal func(p0 context.Context, p1 types.TipSetKey) (api.CirculatingSupply, error) ``
+
+	StateVerifiedClientStatus func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*abi.StoragePower, error) ``
+
+	StateWaitMsg func(p0 context.Context, p1 cid.Cid, p2 uint64, p3 abi.ChainEpoch, p4 bool) (*api.MsgLookup, error) `perm:"read"`
+
 	SyncSubmitBlock func(p0 context.Context, p1 *types.BlockMsg) error ``
 
-	Version func(p0 context.Context) (api.APIVersion, error) ``
+	Version func(p0 context.Context) (api.APIVersion, error) `perm:"read"`
 
 	WalletBalance func(p0 context.Context, p1 address.Address) (big.Int, error) ``
 
@@ -308,15 +347,37 @@ func (s *CurioStub) StorageStat(p0 context.Context, p1 storiface.ID) (fsutil.FsS
 	return *new(fsutil.FsStat), ErrNotSupported
 }
 
-func (s *CurioStruct) Version(p0 context.Context) (api.Version, error) {
+func (s *CurioStruct) Version(p0 context.Context) ([]int, error) {
 	if s.Internal.Version == nil {
-		return *new(api.Version), ErrNotSupported
+		return *new([]int), ErrNotSupported
 	}
 	return s.Internal.Version(p0)
 }
 
-func (s *CurioStub) Version(p0 context.Context) (api.Version, error) {
-	return *new(api.Version), ErrNotSupported
+func (s *CurioStub) Version(p0 context.Context) ([]int, error) {
+	return *new([]int), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) AuthNew(p0 context.Context, p1 []auth.Permission) ([]byte, error) {
+	if s.Internal.AuthNew == nil {
+		return *new([]byte), ErrNotSupported
+	}
+	return s.Internal.AuthNew(p0, p1)
+}
+
+func (s *CurioChainRPCStub) AuthNew(p0 context.Context, p1 []auth.Permission) ([]byte, error) {
+	return *new([]byte), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) AuthVerify(p0 context.Context, p1 string) ([]auth.Permission, error) {
+	if s.Internal.AuthVerify == nil {
+		return *new([]auth.Permission), ErrNotSupported
+	}
+	return s.Internal.AuthVerify(p0, p1)
+}
+
+func (s *CurioChainRPCStub) AuthVerify(p0 context.Context, p1 string) ([]auth.Permission, error) {
+	return *new([]auth.Permission), ErrNotSupported
 }
 
 func (s *CurioChainRPCStruct) ChainGetMessage(p0 context.Context, p1 cid.Cid) (*types.Message, error) {
@@ -528,6 +589,28 @@ func (s *CurioChainRPCStub) MpoolSelect(p0 context.Context, p1 types.TipSetKey, 
 	return *new([]*types.SignedMessage), ErrNotSupported
 }
 
+func (s *CurioChainRPCStruct) Session(p0 context.Context) (uuid.UUID, error) {
+	if s.Internal.Session == nil {
+		return *new(uuid.UUID), ErrNotSupported
+	}
+	return s.Internal.Session(p0)
+}
+
+func (s *CurioChainRPCStub) Session(p0 context.Context) (uuid.UUID, error) {
+	return *new(uuid.UUID), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) Shutdown(p0 context.Context) error {
+	if s.Internal.Shutdown == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.Shutdown(p0)
+}
+
+func (s *CurioChainRPCStub) Shutdown(p0 context.Context) error {
+	return ErrNotSupported
+}
+
 func (s *CurioChainRPCStruct) StateAccountKey(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) {
 	if s.Internal.StateAccountKey == nil {
 		return *new(address.Address), ErrNotSupported
@@ -537,6 +620,28 @@ func (s *CurioChainRPCStruct) StateAccountKey(p0 context.Context, p1 address.Add
 
 func (s *CurioChainRPCStub) StateAccountKey(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) {
 	return *new(address.Address), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateCirculatingSupply(p0 context.Context, p1 types.TipSetKey) (big.Int, error) {
+	if s.Internal.StateCirculatingSupply == nil {
+		return *new(big.Int), ErrNotSupported
+	}
+	return s.Internal.StateCirculatingSupply(p0, p1)
+}
+
+func (s *CurioChainRPCStub) StateCirculatingSupply(p0 context.Context, p1 types.TipSetKey) (big.Int, error) {
+	return *new(big.Int), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateDealProviderCollateralBounds(p0 context.Context, p1 abi.PaddedPieceSize, p2 bool, p3 types.TipSetKey) (api.DealCollateralBounds, error) {
+	if s.Internal.StateDealProviderCollateralBounds == nil {
+		return *new(api.DealCollateralBounds), ErrNotSupported
+	}
+	return s.Internal.StateDealProviderCollateralBounds(p0, p1, p2, p3)
+}
+
+func (s *CurioChainRPCStub) StateDealProviderCollateralBounds(p0 context.Context, p1 abi.PaddedPieceSize, p2 bool, p3 types.TipSetKey) (api.DealCollateralBounds, error) {
+	return *new(api.DealCollateralBounds), ErrNotSupported
 }
 
 func (s *CurioChainRPCStruct) StateGetActor(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*types.Actor, error) {
@@ -616,6 +721,28 @@ func (s *CurioChainRPCStub) StateGetRandomnessFromTickets(p0 context.Context, p1
 	return *new(abi.Randomness), ErrNotSupported
 }
 
+func (s *CurioChainRPCStruct) StateListMessages(p0 context.Context, p1 *api.MessageMatch, p2 types.TipSetKey, p3 abi.ChainEpoch) ([]cid.Cid, error) {
+	if s.Internal.StateListMessages == nil {
+		return *new([]cid.Cid), ErrNotSupported
+	}
+	return s.Internal.StateListMessages(p0, p1, p2, p3)
+}
+
+func (s *CurioChainRPCStub) StateListMessages(p0 context.Context, p1 *api.MessageMatch, p2 types.TipSetKey, p3 abi.ChainEpoch) ([]cid.Cid, error) {
+	return *new([]cid.Cid), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateListMiners(p0 context.Context, p1 types.TipSetKey) ([]address.Address, error) {
+	if s.Internal.StateListMiners == nil {
+		return *new([]address.Address), ErrNotSupported
+	}
+	return s.Internal.StateListMiners(p0, p1)
+}
+
+func (s *CurioChainRPCStub) StateListMiners(p0 context.Context, p1 types.TipSetKey) ([]address.Address, error) {
+	return *new([]address.Address), ErrNotSupported
+}
+
 func (s *CurioChainRPCStruct) StateLookupID(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) {
 	if s.Internal.StateLookupID == nil {
 		return *new(address.Address), ErrNotSupported
@@ -625,6 +752,28 @@ func (s *CurioChainRPCStruct) StateLookupID(p0 context.Context, p1 address.Addre
 
 func (s *CurioChainRPCStub) StateLookupID(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) {
 	return *new(address.Address), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateMarketBalance(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MarketBalance, error) {
+	if s.Internal.StateMarketBalance == nil {
+		return *new(api.MarketBalance), ErrNotSupported
+	}
+	return s.Internal.StateMarketBalance(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateMarketBalance(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MarketBalance, error) {
+	return *new(api.MarketBalance), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateMarketStorageDeal(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (*api.MarketDeal, error) {
+	if s.Internal.StateMarketStorageDeal == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateMarketStorageDeal(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateMarketStorageDeal(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (*api.MarketDeal, error) {
+	return nil, ErrNotSupported
 }
 
 func (s *CurioChainRPCStruct) StateMinerActiveSectors(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) {
@@ -649,15 +798,15 @@ func (s *CurioChainRPCStub) StateMinerAllocated(p0 context.Context, p1 address.A
 	return nil, ErrNotSupported
 }
 
-func (s *CurioChainRPCStruct) StateMinerAvailableBalance(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (big.Int, error) {
+func (s *CurioChainRPCStruct) StateMinerAvailableBalance(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (types.BigInt, error) {
 	if s.Internal.StateMinerAvailableBalance == nil {
-		return *new(big.Int), ErrNotSupported
+		return *new(types.BigInt), ErrNotSupported
 	}
 	return s.Internal.StateMinerAvailableBalance(p0, p1, p2)
 }
 
-func (s *CurioChainRPCStub) StateMinerAvailableBalance(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (big.Int, error) {
-	return *new(big.Int), ErrNotSupported
+func (s *CurioChainRPCStub) StateMinerAvailableBalance(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (types.BigInt, error) {
+	return *new(types.BigInt), ErrNotSupported
 }
 
 func (s *CurioChainRPCStruct) StateMinerDeadlines(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]api.Deadline, error) {
@@ -669,6 +818,17 @@ func (s *CurioChainRPCStruct) StateMinerDeadlines(p0 context.Context, p1 address
 
 func (s *CurioChainRPCStub) StateMinerDeadlines(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]api.Deadline, error) {
 	return *new([]api.Deadline), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateMinerFaults(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (bitfield.BitField, error) {
+	if s.Internal.StateMinerFaults == nil {
+		return *new(bitfield.BitField), ErrNotSupported
+	}
+	return s.Internal.StateMinerFaults(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateMinerFaults(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (bitfield.BitField, error) {
+	return *new(bitfield.BitField), ErrNotSupported
 }
 
 func (s *CurioChainRPCStruct) StateMinerInfo(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MinerInfo, error) {
@@ -737,6 +897,28 @@ func (s *CurioChainRPCStub) StateMinerProvingDeadline(p0 context.Context, p1 add
 	return nil, ErrNotSupported
 }
 
+func (s *CurioChainRPCStruct) StateMinerRecoveries(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (bitfield.BitField, error) {
+	if s.Internal.StateMinerRecoveries == nil {
+		return *new(bitfield.BitField), ErrNotSupported
+	}
+	return s.Internal.StateMinerRecoveries(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateMinerRecoveries(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (bitfield.BitField, error) {
+	return *new(bitfield.BitField), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateMinerSectorCount(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MinerSectors, error) {
+	if s.Internal.StateMinerSectorCount == nil {
+		return *new(api.MinerSectors), ErrNotSupported
+	}
+	return s.Internal.StateMinerSectorCount(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateMinerSectorCount(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MinerSectors, error) {
+	return *new(api.MinerSectors), ErrNotSupported
+}
+
 func (s *CurioChainRPCStruct) StateMinerSectors(p0 context.Context, p1 address.Address, p2 *bitfield.BitField, p3 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) {
 	if s.Internal.StateMinerSectors == nil {
 		return *new([]*miner.SectorOnChainInfo), ErrNotSupported
@@ -748,6 +930,17 @@ func (s *CurioChainRPCStub) StateMinerSectors(p0 context.Context, p1 address.Add
 	return *new([]*miner.SectorOnChainInfo), ErrNotSupported
 }
 
+func (s *CurioChainRPCStruct) StateNetworkName(p0 context.Context) (dtypes.NetworkName, error) {
+	if s.Internal.StateNetworkName == nil {
+		return *new(dtypes.NetworkName), ErrNotSupported
+	}
+	return s.Internal.StateNetworkName(p0)
+}
+
+func (s *CurioChainRPCStub) StateNetworkName(p0 context.Context) (dtypes.NetworkName, error) {
+	return *new(dtypes.NetworkName), ErrNotSupported
+}
+
 func (s *CurioChainRPCStruct) StateNetworkVersion(p0 context.Context, p1 types.TipSetKey) (network.Version, error) {
 	if s.Internal.StateNetworkVersion == nil {
 		return *new(network.Version), ErrNotSupported
@@ -757,6 +950,17 @@ func (s *CurioChainRPCStruct) StateNetworkVersion(p0 context.Context, p1 types.T
 
 func (s *CurioChainRPCStub) StateNetworkVersion(p0 context.Context, p1 types.TipSetKey) (network.Version, error) {
 	return *new(network.Version), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateReadState(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*api.ActorState, error) {
+	if s.Internal.StateReadState == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateReadState(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateReadState(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*api.ActorState, error) {
+	return nil, ErrNotSupported
 }
 
 func (s *CurioChainRPCStruct) StateSearchMsg(p0 context.Context, p1 types.TipSetKey, p2 cid.Cid, p3 abi.ChainEpoch, p4 bool) (*api.MsgLookup, error) {
@@ -800,6 +1004,39 @@ func (s *CurioChainRPCStruct) StateSectorPreCommitInfo(p0 context.Context, p1 ad
 }
 
 func (s *CurioChainRPCStub) StateSectorPreCommitInfo(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorPreCommitOnChainInfo, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateVMCirculatingSupplyInternal(p0 context.Context, p1 types.TipSetKey) (api.CirculatingSupply, error) {
+	if s.Internal.StateVMCirculatingSupplyInternal == nil {
+		return *new(api.CirculatingSupply), ErrNotSupported
+	}
+	return s.Internal.StateVMCirculatingSupplyInternal(p0, p1)
+}
+
+func (s *CurioChainRPCStub) StateVMCirculatingSupplyInternal(p0 context.Context, p1 types.TipSetKey) (api.CirculatingSupply, error) {
+	return *new(api.CirculatingSupply), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateVerifiedClientStatus(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*abi.StoragePower, error) {
+	if s.Internal.StateVerifiedClientStatus == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateVerifiedClientStatus(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateVerifiedClientStatus(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*abi.StoragePower, error) {
+	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateWaitMsg(p0 context.Context, p1 cid.Cid, p2 uint64, p3 abi.ChainEpoch, p4 bool) (*api.MsgLookup, error) {
+	if s.Internal.StateWaitMsg == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateWaitMsg(p0, p1, p2, p3, p4)
+}
+
+func (s *CurioChainRPCStub) StateWaitMsg(p0 context.Context, p1 cid.Cid, p2 uint64, p3 abi.ChainEpoch, p4 bool) (*api.MsgLookup, error) {
 	return nil, ErrNotSupported
 }
 

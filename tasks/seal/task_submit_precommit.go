@@ -158,6 +158,7 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		}
 
 		if len(pieces) > 0 {
+			var endEpoch abi.ChainEpoch
 			params.Sectors[0].UnsealedCid = &unsealedCID
 			for _, p := range pieces {
 				if p.DealStartEpoch > 0 && abi.ChainEpoch(p.DealStartEpoch) < head.Height() {
@@ -170,9 +171,12 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 					}
 					return true, xerrors.Errorf("deal start epoch is in the past")
 				}
-				if p.DealEndEpoch > 0 && abi.ChainEpoch(p.DealEndEpoch) > params.Sectors[0].Expiration {
-					params.Sectors[0].Expiration = abi.ChainEpoch(p.DealEndEpoch)
+				if p.DealEndEpoch > 0 && abi.ChainEpoch(p.DealEndEpoch) > endEpoch {
+					endEpoch = abi.ChainEpoch(p.DealEndEpoch)
 				}
+			}
+			if endEpoch != params.Sectors[0].Expiration {
+				params.Sectors[0].Expiration = endEpoch
 			}
 		}
 	}

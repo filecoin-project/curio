@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/crypto"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -20,14 +21,13 @@ import (
 	"github.com/filecoin-project/curio/lib/filler"
 	"github.com/filecoin-project/curio/lib/paths"
 
-	lbuild "github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/sealer/ffiwrapper"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
-var isDevnet = lbuild.BlockDelaySecs < 30
+var isDevnet = build.BlockDelaySecs < 30
 
 func SetDevnet(value bool) {
 	isDevnet = value
@@ -261,7 +261,7 @@ func (s *SDRTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 
 func (s *SDRTask) GetSpid(db *harmonydb.DB, taskID int64) string {
 	var spid string
-	err := s.db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_sdr = $1`, taskID).Scan(&spid)
+	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_sdr = $1`, taskID).Scan(&spid)
 	if err != nil {
 		log.Errorf("getting spid: %s", err)
 		return ""
