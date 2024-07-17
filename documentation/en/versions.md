@@ -3,10 +3,11 @@
 
 This is the compatibility matrix for the latest free Curio releases.
 
-| Curio Version       | Lotus Version | Boost       | Yugabyte           | Forest           |
-| ------------------- | ------------- | ----------- | ------------------ | ---------------- |
-| 1.22.1 / Automatic  | v1.27.X       | v2.3.0-rc2 | 2.20.X / Automatic | 0.19 / Automatic |
-| 1.23.0              | v1.28.0-rcX   | Coming soon | 2.20.X / Automatic | 0.19 / Automatic |
+| Curio Version       | Lotus Version | Net          | Boost       | Yugabyte           | Forest           |
+| ------------------- | ------------- | ------------ | ----------- | ------------------ | ---------------- |
+| 1.22.1 / Automatic  | v1.27.X       | MainNet         | v2.3.0-rc2  | 2.20.X / Automatic | 0.19 / Automatic |
+| 1.23.0              | v1.28.0-rcX   | Calibration  | Coming soon | 2.20.X / Automatic | 0.19 / Automatic |
+
 
 No preference is denoted by "X".
 
@@ -21,7 +22,7 @@ Configurations and the number of machines needed:
 - Today, only Lotus & Boost lacks automatic updates and must be built and deployed.
 - Curio's DEBs include curio-cuda (for Nvidia) and curio-opencl (others like ATI).
   - These can be mixed in a Curio cluster as they only relate to the hardware on the box.
-  
+
 ## Notes
 
 - Forest (0.19+ & Docker Watchtower) is a light alternative to Lotus Client. It meets Curio's needs, but Boost compatability is in development.
