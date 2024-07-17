@@ -16,6 +16,13 @@ type UrlPieceReader struct {
 	active    io.ReadCloser // auto-closed on EOF
 }
 
+func NewUrlReader(p string, rs int64) *UrlPieceReader {
+	return &UrlPieceReader{
+		Url:     p,
+		RawSize: rs,
+	}
+}
+
 func (u *UrlPieceReader) Read(p []byte) (n int, err error) {
 	// Check if we have already read the required amount of data
 	if u.readSoFar >= u.RawSize {

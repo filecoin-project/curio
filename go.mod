@@ -23,7 +23,7 @@ require (
 	github.com/filecoin-project/go-fil-commcid v0.1.0
 	github.com/filecoin-project/go-jsonrpc v0.5.0
 	github.com/filecoin-project/go-padreader v0.0.1
-	github.com/filecoin-project/go-state-types v0.14.0-dev
+	github.com/filecoin-project/go-state-types v0.14.0-rc1
 	github.com/filecoin-project/go-statestore v0.2.0
 	github.com/filecoin-project/lotus v1.27.0
 	github.com/filecoin-project/specs-actors/v5 v5.0.6
