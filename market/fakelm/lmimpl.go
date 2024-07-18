@@ -1,13 +1,17 @@
 package fakelm
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/url"
 
 	"github.com/gbrlsnchs/jwt/v3"
 	"github.com/google/uuid"
+	logging "github.com/ipfs/go-log/v2"
+	typegen "github.com/whyrusleeping/cbor-gen"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -23,11 +27,14 @@ import (
 	"github.com/filecoin-project/curio/market"
 
 	lapi "github.com/filecoin-project/lotus/api"
+	market2 "github.com/filecoin-project/lotus/chain/actors/builtin/market"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	sealing "github.com/filecoin-project/lotus/storage/pipeline"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
+
+var log = logging.Logger("lmrpc")
 
 type LMRPCProvider struct {
 	si   paths.SectorIndex
@@ -71,6 +78,7 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 	var ssip []struct {
 		PieceCID *string `db:"piece_cid"`
 		DealID   *int64  `db:"f05_deal_id"`
+		DDOPAM   *string `db:"ddo_pam"`
 		Complete bool    `db:"after_commit_msg_success"`
 		Failed   bool    `db:"failed"`
 		SDR      bool    `db:"after_sdr"`
@@ -101,6 +109,7 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 							 SELECT
 								 mp.piece_cid,
 								 mp.f05_deal_id,
+								 mp.ddo_pam as ddo_pam,
 								 cc.after_commit_msg_success,
 								 cc.failed,
 								 cc.after_sdr,
@@ -118,6 +127,7 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 							 SELECT
 								 ip.piece_cid,
 								 ip.f05_deal_id,
+								 ip.direct_piece_activation_manifest as ddo_pam,
 								 cc.after_commit_msg_success,
 								 cc.failed,
 								 cc.after_sdr,
@@ -135,6 +145,7 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 							 SELECT
 								 ip.piece_cid,
 								 NULL::bigint as f05_deal_id,
+								 ip.direct_piece_activation_manifest as ddo_pam,
 								 FALSE as after_commit_msg_success,
 								 FALSE as failed,
 								 FALSE AS after_sdr,
@@ -146,12 +157,13 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 									 INNER JOIN
 								 CheckCommit cc ON ip.sp_id = cc.sp_id AND ip.sector_number = cc.sector_number
 							 WHERE
-								 cc.after_commit_msg IS FALSE
+								 cc.after_commit_msg IS TRUE
 						 ),
 						 FallbackPieces AS (
 							 SELECT
 								 op.piece_cid,
 								 op.f05_deal_id,
+								 op.direct_piece_activation_manifest as ddo_pam,
 								 FALSE as after_commit_msg_success,
 								 FALSE as failed,
 								 FALSE as after_sdr,
@@ -176,10 +188,40 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 	}
 
 	var deals []abi.DealID
+	var seenDealIDs = make(map[abi.DealID]struct{})
+
 	if len(ssip) > 0 {
 		for _, d := range ssip {
+			var dealID abi.DealID
+
 			if d.DealID != nil {
-				deals = append(deals, abi.DealID(*d.DealID))
+				dealID = abi.DealID(*d.DealID)
+			} else if d.DDOPAM != nil {
+				var pam miner.PieceActivationManifest
+				err := json.Unmarshal([]byte(*d.DDOPAM), &pam)
+				if err != nil {
+					return lapi.SectorInfo{}, err
+				}
+				if len(pam.Notify) != 1 {
+					continue
+				}
+				if pam.Notify[0].Address != market2.Address {
+					continue
+				}
+				maj, val, err := typegen.CborReadHeaderBuf(bytes.NewReader(pam.Notify[0].Payload), make([]byte, 9))
+				if err != nil {
+					return lapi.SectorInfo{}, err
+				}
+				if maj != typegen.MajUnsignedInt {
+					log.Errorw("deal id not an unsigned int", "maj", maj)
+					continue
+				}
+				dealID = abi.DealID(val)
+			}
+
+			if _, ok := seenDealIDs[dealID]; !ok {
+				deals = append(deals, dealID)
+				seenDealIDs[dealID] = struct{}{}
 			}
 		}
 	}
