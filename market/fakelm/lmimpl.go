@@ -5,14 +5,13 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	market2 "github.com/filecoin-project/lotus/chain/actors/builtin/market"
-	logging "github.com/ipfs/go-log/v2"
-	typegen "github.com/whyrusleeping/cbor-gen"
 	"net/http"
 	"net/url"
 
 	"github.com/gbrlsnchs/jwt/v3"
 	"github.com/google/uuid"
+	logging "github.com/ipfs/go-log/v2"
+	typegen "github.com/whyrusleeping/cbor-gen"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -28,6 +27,7 @@ import (
 	"github.com/filecoin-project/curio/market"
 
 	lapi "github.com/filecoin-project/lotus/api"
+	market2 "github.com/filecoin-project/lotus/chain/actors/builtin/market"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	sealing "github.com/filecoin-project/lotus/storage/pipeline"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
