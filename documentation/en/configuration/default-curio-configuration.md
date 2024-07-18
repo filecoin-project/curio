@@ -477,4 +477,16 @@ description: The default curio configuration
     # type: string
     #AlertManagerURL = "http://localhost:9093/api/v2/alerts"
 
+  [Alerting.SlackWebhook]
+    # Enable is a flag to enable or disable the Prometheus AlertManager integration.
+    #
+    # type: bool
+    #Enable = false
+
+    # WebHookURL is the URL for the URL for slack Webhook.
+    # Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
+    #
+    # type: string
+    #WebHookURL = ""
+
 ```

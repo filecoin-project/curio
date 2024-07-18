@@ -101,6 +101,12 @@ alerts will be triggered for the wallet`,
 
 			Comment: `PrometheusAlertManagerConfig is the configuration for the Prometheus AlertManager alerting integration.`,
 		},
+		{
+			Name: "SlackWebhook",
+			Type: "SlackWebhookConfig",
+
+			Comment: `SlackWebhookConfig is a configuration type for Slack webhook integration.`,
+		},
 	},
 	"CurioConfig": {
 		{
@@ -682,6 +688,21 @@ identifier in the integration page for the service.`,
 			Type: "string",
 
 			Comment: `AlertManagerURL is the URL for the Prometheus AlertManager API v2 URL.`,
+		},
+	},
+	"SlackWebhookConfig": {
+		{
+			Name: "Enable",
+			Type: "bool",
+
+			Comment: `Enable is a flag to enable or disable the Prometheus AlertManager integration.`,
+		},
+		{
+			Name: "WebHookURL",
+			Type: "string",
+
+			Comment: `WebHookURL is the URL for the URL for slack Webhook.
+Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX`,
 		},
 	},
 }

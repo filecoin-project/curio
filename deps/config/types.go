@@ -434,6 +434,9 @@ type CurioAlertingConfig struct {
 
 	// PrometheusAlertManagerConfig is the configuration for the Prometheus AlertManager alerting integration.
 	PrometheusAlertManager PrometheusAlertManagerConfig
+
+	// SlackWebhookConfig is a configuration type for Slack webhook integration.
+	SlackWebhook SlackWebhookConfig
 }
 
 type PagerDutyConfig struct {
@@ -456,6 +459,15 @@ type PrometheusAlertManagerConfig struct {
 
 	// AlertManagerURL is the URL for the Prometheus AlertManager API v2 URL.
 	AlertManagerURL string
+}
+
+type SlackWebhookConfig struct {
+	// Enable is a flag to enable or disable the Prometheus AlertManager integration.
+	Enable bool
+
+	// WebHookURL is the URL for the URL for slack Webhook.
+	// Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
+	WebHookURL string
 }
 
 type JournalConfig struct {
