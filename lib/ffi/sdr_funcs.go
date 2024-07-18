@@ -267,12 +267,27 @@ func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, secto
 	}
 
 	ctx = ffiselect.WithLogCtx(ctx, "sector", sector.ID, "cache", fspaths.Cache, "sealed", fspaths.Sealed)
-	out, err := ffiselect.FFISelect.SealPreCommitPhase2(ctx, p1o, fspaths.Cache, fspaths.Sealed)
+	//out, err := ffiselect.FFISelect.SealPreCommitPhase2(ctx, p1o, fspaths.Cache, fspaths.Sealed)
+	//if err != nil {
+	//	return cid.Undef, cid.Undef, xerrors.Errorf("computing seal proof: %w", err)
+	//}
+	//
+	//if out.Unsealed != unsealed {
+	//	return cid.Undef, cid.Undef, xerrors.Errorf("unsealed cid changed after sealing")
+	//}
+	//
+	//if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTCache|storiface.FTSealed); err != nil {
+	//	return cid.Undef, cid.Undef, xerrors.Errorf("ensure one copy: %w", err)
+	//}
+	//
+	//return out.Sealed, out.Unsealed, nil
+
+	sealed, unsealedC, err := ffi.SealPreCommitPhase2(p1o, fspaths.Cache, fspaths.Sealed)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("computing seal proof: %w", err)
 	}
 
-	if out.Unsealed != unsealed {
+	if unsealedC != unsealed {
 		return cid.Undef, cid.Undef, xerrors.Errorf("unsealed cid changed after sealing")
 	}
 
@@ -280,7 +295,7 @@ func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, secto
 		return cid.Undef, cid.Undef, xerrors.Errorf("ensure one copy: %w", err)
 	}
 
-	return out.Sealed, out.Unsealed, nil
+	return sealed, unsealed, nil
 }
 
 func removeDRCTrees(cache string, isDTree bool) error {
@@ -376,7 +391,7 @@ func (sb *SealCalls) makePhase1Out(unsCid cid.Cid, spt abi.RegisteredSealProof) 
 	phase1Output.Labels = map[string]*Labels{}
 
 	switch spt {
-	case abi.RegisteredSealProof_StackedDrg2KiBV1_1, abi.RegisteredSealProof_StackedDrg2KiBV1_1_Feat_SyntheticPoRep:
+	case abi.RegisteredSealProof_StackedDrg2KiBV1_1, abi.RegisteredSealProof_StackedDrg2KiBV1_1_Feat_SyntheticPoRep, abi.RegisteredSealProof_StackedDrg2KiBV1:
 		phase1Output.Config.RowsToDiscard = 0
 		phase1Output.Config.Size = 127
 		phase1Output.Labels["StackedDrg2KiBV1"] = &Labels{}
