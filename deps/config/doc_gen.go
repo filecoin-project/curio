@@ -263,6 +263,13 @@ applied to sectors entering the pipeline.`,
 
 			Comment: `Maximum time an open deal sector should wait for more deal before it starts sealing`,
 		},
+		{
+			Name: "DoSnap",
+			Type: "bool",
+
+			Comment: `DoSnap enables the snap deal process for deals ingested by this instance. Unlike in lotus-miner there is no
+fallback to porep when no sectors are available to snap into. When enabled all deals will be snap deals.`,
+		},
 	},
 	"CurioProvingConfig": {
 		{
@@ -542,6 +549,39 @@ SDRTrees machine into long-term storage. This task runs after the Finalize task.
 			Comment: `The maximum amount of MoveStorage tasks that can run simultaneously. Note that the maximum number of tasks will
 also be bounded by resources available on the machine. It is recommended that this value is set to a number which
 uses all available network (or disk) bandwidth on the machine without causing bottlenecks.`,
+		},
+		{
+			Name: "EnableUpdateEncode",
+			Type: "bool",
+
+			Comment: `EnableUpdateEncode enables the encoding step of the SnapDeal process on this curio instance.
+This step involves encoding the data into the sector and computing updated TreeR (uses gpu).`,
+		},
+		{
+			Name: "EnableUpdateProve",
+			Type: "bool",
+
+			Comment: `EnableUpdateProve enables the proving step of the SnapDeal process on this curio instance.
+This step generates the snark proof for the updated sector.`,
+		},
+		{
+			Name: "EnableUpdateSubmit",
+			Type: "bool",
+
+			Comment: `EnableUpdateSubmit enables the submission of SnapDeal proofs to the blockchain from this curio instance.
+This step submits the generated proofs to the chain.`,
+		},
+		{
+			Name: "UpdateEncodeMaxTasks",
+			Type: "int",
+
+			Comment: `UpdateEncodeMaxTasks sets the maximum number of concurrent SnapDeal encoding tasks that can run on this instance.`,
+		},
+		{
+			Name: "UpdateProveMaxTasks",
+			Type: "int",
+
+			Comment: `UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance.`,
 		},
 		{
 			Name: "BoostAdapters",

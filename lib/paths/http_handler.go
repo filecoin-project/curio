@@ -15,9 +15,10 @@ import (
 
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/lib/tarutil"
+
 	"github.com/filecoin-project/lotus/storage/sealer/partialfile"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
-	"github.com/filecoin-project/lotus/storage/sealer/tarutil"
 )
 
 var log = logging.Logger("stores")
@@ -56,6 +57,7 @@ func (handler *FetchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	mux.HandleFunc("/remote/stat/{id}", handler.remoteStatFs).Methods("GET")
 	mux.HandleFunc("/remote/vanilla/single", handler.generateSingleVanillaProof).Methods("POST")
 	mux.HandleFunc("/remote/vanilla/porep", handler.generatePoRepVanillaProof).Methods("POST")
+	mux.HandleFunc("/remote/vanilla/snap", handler.readSnapVanillaProof).Methods("POST")
 	mux.HandleFunc("/remote/{type}/{id}/{spt}/allocated/{offset}/{size}", handler.remoteGetAllocated).Methods("GET")
 	mux.HandleFunc("/remote/{type}/{id}", handler.remoteGetSector).Methods("GET")
 	mux.HandleFunc("/remote/{type}/{id}", handler.remoteDeleteSector).Methods("DELETE")
@@ -144,7 +146,12 @@ func (handler *FetchHandler) remoteGetSector(w http.ResponseWriter, r *http.Requ
 		w.Header().Set("Content-Type", "application/x-tar")
 		w.WriteHeader(200)
 
-		err := tarutil.TarDirectory(path, w, make([]byte, CopyBuf))
+		constraints := tarutil.CacheFileConstraints
+		if _, ok := r.URL.Query()["mincache"]; ok {
+			constraints = tarutil.FinCacheFileConstraints
+		}
+
+		err := tarutil.TarDirectory(constraints, path, w, make([]byte, CopyBuf))
 		if err != nil {
 			log.Errorf("send tar: %+v", err)
 			return
@@ -329,6 +336,27 @@ func (handler *FetchHandler) generatePoRepVanillaProof(w http.ResponseWriter, r 
 	}
 
 	vanilla, err := handler.Local.GeneratePoRepVanillaProof(r.Context(), params.Sector, params.Sealed, params.Unsealed, params.Ticket, params.Seed)
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(vanilla))
+}
+
+type SnapVanillaParams struct {
+	Sector storiface.SectorRef
+}
+
+func (handler *FetchHandler) readSnapVanillaProof(w http.ResponseWriter, r *http.Request) {
+	var params SnapVanillaParams
+	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	vanilla, err := handler.Local.ReadSnapVanillaProof(r.Context(), params.Sector)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return

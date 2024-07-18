@@ -13,10 +13,10 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/dealdata"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
-	"github.com/filecoin-project/curio/tasks/seal"
 
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
@@ -159,10 +159,7 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 	for i := range refData {
 		if refData[i].DataURL != "" {
-			upr := &seal.UrlPieceReader{
-				Url:     refData[0].DataURL,
-				RawSize: pieceRawSize,
-			}
+			upr := dealdata.NewUrlReader(refData[0].DataURL, pieceRawSize)
 			defer func() {
 				_ = upr.Close()
 			}()
