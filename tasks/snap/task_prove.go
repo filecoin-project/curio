@@ -33,6 +33,8 @@ func NewProveTask(sc *ffi.SealCalls, db *harmonydb.DB, paramck func() (bool, err
 
 		sc: sc,
 		db: db,
+
+		paramsReady: paramck,
 	}
 }
 
