@@ -41,7 +41,7 @@ deps: $(BUILD_DEPS)
 
 curio: $(BUILD_DEPS)
 	rm -f curio
-	GOAMD64=v4 $(GOCC) build $(GOFLAGS) -o curio -ldflags " -s -w \
+	GOAMD64=v3 $(GOCC) build $(GOFLAGS) -o curio -ldflags " -s -w \
 	-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
 	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
 	./cmd/curio
