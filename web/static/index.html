@@ -12,6 +12,8 @@
     <script type="module" src="win-stats.mjs"></script>
     <script type="module" src="/ux/curio-ux.mjs"></script>
     <script type="module" src="cluster-tasks.mjs"></script>
+    <script type="module" src="cluster-machines.mjs"></script>
+    <script type="module" src="cluster-task-history.mjs"></script>
     <style>
         .deadline-box {
             display: grid;
@@ -75,32 +77,7 @@
                 </div>
             </div>
 
-            <div class="row">
-                <div class="col-md-auto" style="max-width: 1000px">
-                    <div class="info-block">
-                        <h2>Cluster Machines</h2>
-                        <table class="table table-dark">
-                            <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Host</th>
-                                <th>ID</th>
-                                <th>CPUs</th>
-                                <th>RAM</th>
-                                <th>GPUs</th>
-                                <th>Last Contact</th>
-                                <th>Tasks Supported</th>
-                                <th>Layers Enabled</th>
-                            </tr>
-                            </thead>
-                            <tbody hx-get="/hapi/simpleinfo/machines" hx-trigger="load,every 5s">
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <div class="col-md-auto">
-                </div>
-            </div>
+            <cluster-machines></cluster-machines>
 
             <div class="row">
                 <div class="col-md-auto" style="max-width: 1000px">
@@ -176,32 +153,12 @@
             </div>
 
             <div class="row">
-                <div class="col-md-auto" style="max-width: 1000px">
-                    <div class="info-block">
-                        <h2>Recently Finished Tasks</h2>
-                        <table class="table table-dark">
-                            <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>ID</th>
-                                <th>Executor</th>
-                                <th>Posted</th>
-                                <th>Start</th>
-                                <th>Queued</th>
-                                <th>Took</th>
-                                <th>Outcome</th>
-                                <th>Message</th>
-                            </tr>
-                            </thead>
-                            <tbody hx-get="/hapi/simpleinfo/taskhistory" hx-trigger="load, every 2s">
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                <cluster-task-history></cluster-task-history>
                 <div class="col-md-auto">
                     <div class="info-block">
                         <h2>24h task counts</h2>
-                        <harmony-task-counts></harmony-task-counts>
+                            <harmony-task-counts></harmony-task-counts>
+                        </div>
                     </div>
                 </div>
             </div>

@@ -39,7 +39,7 @@ class ClusterTasks extends LitElement {
                         <td>${entry.Name}</td>
                         <td>${entry.ID}</td>
                         <td>${entry.SincePostedStr}</td>
-                        <td>${entry.OwnerID ? html`<a href="/hapi/node/${entry.OwnerID}">${entry.Owner}</a>`:''}</td>
+                        <td>${entry.OwnerID ? html`<a href="/pages/node_info/?id=${entry.OwnerID}">${entry.Owner}</a>`:''}</td>
                     </tr>
                     `)}
                 </tbody>

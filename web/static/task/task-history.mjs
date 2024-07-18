@@ -51,7 +51,7 @@ class HarmonyTaskHistoryTable extends LitElement {
                             <td>${new Date(task.WorkStart).toLocaleString()}</td>
                             <td>${new Date(task.WorkEnd).toLocaleString()}</td>
                             <td>${new Date(task.Posted).toLocaleString()}</td>
-                            <td>${task.CompletedById ? html`<a href="/hapi/node/${task.CompletedById}">${task.CompletedByName} (${task.CompletedBy})</a>` : task.CompletedBy}</td>
+                            <td>${task.CompletedById ? html`<a href="/pages/node_info/?id=${task.CompletedById}">${task.CompletedByName} (${task.CompletedBy})</a>` : task.CompletedBy}</td>
                             <td class="${task.Result ? '' : 'error'}">${task.Result ? 'Success' : 'Failed'}</td>
                             <td>${task.Err}</td>
                         </tr>
