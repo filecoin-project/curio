@@ -98,10 +98,12 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 							COALESCE(sp.after_porep, TRUE) AS after_porep,
 							COALESCE(sp.after_tree_r, TRUE) AS after_tree_r,
 							COALESCE(sp.after_commit_msg_success, TRUE) AS after_commit_msg_success,
+							COALESCE(snap.after_prove_msg_success, snap.after_prove_msg_success is null) AS after_snap_msg_success,
 							COALESCE(sm.orig_sealed_cid != sm.cur_sealed_cid, FALSE) AS is_snap
 						FROM
 							sectors_sdr_pipeline sp
 								FULL OUTER JOIN sectors_meta sm ON sp.sp_id = sm.sp_id AND sp.sector_number = sm.sector_num
+								LEFT JOIN sectors_snap_pipeline snap ON sm.sp_id = snap.sp_id AND sm.sector_num = snap.sector_number
 						WHERE
 							(sp.sp_id = $1 AND sp.sector_number = $2) OR (sm.sp_id = $1 AND sm.sector_num = $2)
 					),
@@ -110,7 +112,7 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 								 mp.piece_cid,
 								 mp.f05_deal_id,
 								 mp.ddo_pam as ddo_pam,
-								 cc.after_commit_msg_success,
+								 cc.after_commit_msg_success AND after_snap_msg_success as after_commit_msg_success,
 								 cc.failed,
 								 cc.after_sdr,
 								 cc.after_tree_r,
