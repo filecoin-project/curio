@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin"
+	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
@@ -18,13 +19,21 @@ type SectorExpirationBucket struct {
 	Days int64 `db:"-"`
 }
 
-func (a *WebRPC) ActorSectorExpirations(ctx context.Context, maddr address.Address) ([]SectorExpirationBucket, error) {
+type SectorExpirations struct {
+	All []SectorExpirationBucket
+	CC  []SectorExpirationBucket
+}
+
+func (a *WebRPC) ActorSectorExpirations(ctx context.Context, maddr address.Address) (*SectorExpirations, error) {
 	spID, err := address.IDFromAddress(maddr)
 	if err != nil {
 		return nil, xerrors.Errorf("id from %s: %w", maddr, err)
 	}
 
-	out := []SectorExpirationBucket{}
+	out := SectorExpirations{
+		All: []SectorExpirationBucket{},
+		CC:  []SectorExpirationBucket{},
+	}
 
 	now, err := a.deps.Chain.ChainHead(ctx)
 	if err != nil {
@@ -33,7 +42,7 @@ func (a *WebRPC) ActorSectorExpirations(ctx context.Context, maddr address.Addre
 
 	nowBucketNum := int64(now.Height()) / 10000
 
-	err = a.deps.DB.Select(ctx, &out, `SELECT
+	err = a.deps.DB.Select(ctx, &out.All, `SELECT
 			(expiration_epoch / 10000) * 10000 AS expiration_bucket, 
 			COUNT(*) as count
 		FROM 
@@ -49,7 +58,42 @@ func (a *WebRPC) ActorSectorExpirations(ctx context.Context, maddr address.Addre
 	if err != nil {
 		return nil, err
 	}
+	err = a.deps.DB.Select(ctx, &out.CC, `SELECT
+			(expiration_epoch / 10000) * 10000 AS expiration_bucket, 
+			COUNT(*) as count
+		FROM 
+			sectors_meta 
+		WHERE 
+			sp_id = $1
+		  	AND is_cc = true
+			AND expiration_epoch IS NOT NULL
+			AND expiration_epoch >= $2
+		GROUP BY
+			(expiration_epoch / 10000) * 10000 
+		ORDER BY 
+		expiration_bucket`, int64(spID), nowBucketNum)
+	if err != nil {
+		return nil, err
+	}
 
+	out.All, err = a.prepExpirationBucket(out.All, now)
+	if err != nil {
+		return nil, err
+	}
+	out.CC, err = a.prepExpirationBucket(out.CC, now)
+	if err != nil {
+		return nil, err
+	}
+
+	// If first point in CC is larger than first point in All, shift the first CC point to the first All point
+	if len(out.CC) > 0 && len(out.All) > 0 && out.CC[0].Expiration > out.All[0].Expiration {
+		out.CC[0].Expiration = out.All[0].Expiration
+	}
+
+	return &out, nil
+}
+
+func (a *WebRPC) prepExpirationBucket(out []SectorExpirationBucket, now *types.TipSet) ([]SectorExpirationBucket, error) {
 	totalCount := lo.Reduce(out, func(acc int64, b SectorExpirationBucket, _ int) int64 {
 		return acc + b.Count
 	}, int64(0))

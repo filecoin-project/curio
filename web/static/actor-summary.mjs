@@ -16,7 +16,7 @@ class Expirations extends LitElement {
 
     constructor() {
         super();
-        this.data = [];
+        this.data = { All: [], CC: [] };
     }
 
     updated(changedProperties) {
@@ -53,82 +53,94 @@ class Expirations extends LitElement {
     }
 
     renderChart() {
-        if (!this.data || this.data.length === 0) {
+        if (!this.data || (!this.data.All.length && !this.data.CC.length)) {
             console.warn('No data to render');
             return;
         }
 
-        const nowEpoch = this.data[0].Expiration;
+        const nowEpoch = this.data.All[0]?.Expiration || this.data.CC[0]?.Expiration;
 
-        if (!this.chart) {
-            const ctx = this.shadowRoot.querySelector('canvas').getContext('2d');
-            this.chart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    datasets: [{
-                        label: 'Live Sectors',
+        const config = {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: 'All Sectors',
                         borderColor: 'rgb(75, 192, 192)',
-                        borderWidth: 1,
                         backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        borderWidth: 1,
                         stepped: true,
                         fill: true,
                         pointRadius: 2,
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        x: {
-                            type: 'linear',
-                            position: 'bottom',
-                            title: {
-                                display: true,
-                                text: 'Days in Future'
-                            },
-                            ticks: {
-                                callback: function(value, index, values) {
-                                    const days = Math.round((value - nowEpoch) * 30 / 86400);
-                                    return days + 'd';
-                                }
-                            },
-                            min: nowEpoch,  // Set the minimum value to the current epoch
-                            max: this.data[this.data.length - 1].Expiration,  // Set the maximum value to the last data point
-                            afterDataLimits: (scale) => {
-                                scale.max += (scale.max - scale.min) * 0.05;  // Add a small padding to the right
+                        data: this.data.All.map(d => ({ x: d.Expiration, y: d.Count }))
+                    },
+                    {
+                        label: 'CC Sectors',
+                        borderColor: 'rgb(99,255,161)',
+                        backgroundColor: 'rgba(99,255,148,0.2)',
+                        borderWidth: 1,
+                        stepped: true,
+                        fill: true,
+                        pointRadius: 2,
+                        data: this.data.CC.map(d => ({ x: d.Expiration, y: d.Count }))
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'linear',
+                        position: 'bottom',
+                        title: {
+                            display: true,
+                            text: 'Days in Future'
+                        },
+                        ticks: {
+                            callback: function(value, index, values) {
+                                const days = Math.round((value - nowEpoch) * 30 / 86400);
+                                return days + 'd';
                             }
                         },
-                        y: {
-                            title: {
-                                display: true,
-                                text: 'Count'
-                            },
-                            beginAtZero: true
+                        min: nowEpoch,
+                        max: Math.max(
+                            this.data.All[this.data.All.length - 1]?.Expiration || 0,
+                            this.data.CC[this.data.CC.length - 1]?.Expiration || 0
+                        ),
+                        afterDataLimits: (scale) => {
+                            scale.max += (scale.max - scale.min) * 0.05;
                         }
                     },
-                    plugins: {
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    const days = Math.round((context.parsed.x - nowEpoch) * 30 / 86400);
-                                    return `Count: ${context.parsed.y}, Days: ${days} (months: ${(days / 30).toFixed(1)})`;
-                                }
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Count'
+                        },
+                        beginAtZero: true
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const days = Math.round((context.parsed.x - nowEpoch) * 30 / 86400);
+                                return `${context.dataset.label}: ${context.parsed.y}, Days: ${days} (months: ${(days / 30).toFixed(1)})`;
                             }
                         }
                     }
                 }
-            });
-        }
-
-        this.chart.data.datasets[0].data = this.data.map(d => ({
-            x: d.Expiration,
-            y: d.Count
-        }));
-        this.chart.options.scales.x.ticks.callback = function(value, index, values) {
-            const days = Math.round((value - nowEpoch) * 30 / 86400);
-            return days + 'd';
+            }
         };
-        this.chart.update();
+
+        if (!this.chart) {
+            const ctx = this.shadowRoot.querySelector('canvas').getContext('2d');
+            this.chart = new Chart(ctx, config);
+        } else {
+            this.chart.data = config.data;
+            this.chart.options = config.options;
+            this.chart.update();
+        }
     }
 
     render() {
