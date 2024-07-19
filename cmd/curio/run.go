@@ -55,16 +55,6 @@ var runCmd = &cli.Command{
 			Usage: "manage open file limit",
 			Value: true,
 		},
-		&cli.StringFlag{
-			Name:  "storage-json",
-			Usage: "path to json file containing storage config",
-			Value: "~/.curio/storage.json",
-		},
-		&cli.StringFlag{
-			Name:  "journal",
-			Usage: "path to journal files",
-			Value: "~/.curio/",
-		},
 		&cli.StringSliceFlag{
 			Name:    "layers",
 			Usage:   "list of layers to be interpreted (atop defaults). Default: base",
