@@ -21,7 +21,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/BurntSushi/toml"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/docker/go-units"
 	"github.com/manifoldco/promptui"
@@ -227,7 +226,6 @@ type MigrationData struct {
 	say             func(style lipgloss.Style, key message.Reference, a ...interface{})
 	selectTemplates *promptui.SelectTemplates
 	MinerConfigPath string
-	MinerConfig     *config.StorageMiner
 	DB              *harmonydb.DB
 	HarmonyCfg      config.HarmonyDB
 	MinerID         address.Address
@@ -445,15 +443,11 @@ func doc(d *MigrationData) {
 }
 
 func yugabyteConnect(d *MigrationData) {
-	harmonyCfg := config.DefaultStorageMiner().HarmonyDB //copy the config to a local variable
-	if d.MinerConfig != nil {
-		harmonyCfg = d.MinerConfig.HarmonyDB //copy the config to a local variable
-	}
+	harmonyCfg := config.DefaultStorageMiner().HarmonyDB
 	var err error
 	d.DB, err = harmonydb.NewFromConfig(harmonyCfg)
 	if err != nil {
-		hcfg := getDBDetails(d)
-		harmonyCfg = *hcfg
+		_ = getDBDetails(d)
 	} else {
 		d.HarmonyCfg = harmonyCfg
 	}
@@ -465,26 +459,25 @@ func yugabyteConnect(d *MigrationData) {
 func readMinerConfig(d *MigrationData) {
 	d.say(plain, "To start, ensure your sealing pipeline is drained and shut-down lotus-miner.")
 
-	verifyPath := func(dir string) (*config.StorageMiner, error) {
-		cfg := config.DefaultStorageMiner()
+	verifyPath := func(dir string) error {
 		dir, err := homedir.Expand(dir)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		_, err = toml.DecodeFile(path.Join(dir, "config.toml"), &cfg)
-		return cfg, err
+		_, err = os.Stat(path.Join(dir, "config.toml"))
+		return err
 	}
 
-	dirs := map[string]*config.StorageMiner{"~/.lotusminer": nil, "~/.lotus-miner-local-net": nil}
+	dirs := map[string]struct{}{"~/.lotusminer": struct{}{}, "~/.lotus-miner-local-net": struct{}{}}
 	if v := os.Getenv("LOTUS_MINER_PATH"); v != "" {
-		dirs[v] = nil
+		dirs[v] = struct{}{}
 	}
 	for dir := range dirs {
-		cfg, err := verifyPath(dir)
+		err := verifyPath(dir)
 		if err != nil {
 			delete(dirs, dir)
 		}
-		dirs[dir] = cfg
+		dirs[dir] = struct{}{}
 	}
 
 	var otherPath bool
@@ -504,7 +497,6 @@ func readMinerConfig(d *MigrationData) {
 				otherPath = true
 			} else {
 				d.MinerConfigPath = str
-				d.MinerConfig = dirs[str]
 			}
 		}
 	}
@@ -517,13 +509,12 @@ func readMinerConfig(d *MigrationData) {
 			d.say(notice, "No path provided, abandoning migration ")
 			os.Exit(1)
 		}
-		cfg, err := verifyPath(str)
+		err = verifyPath(str)
 		if err != nil {
 			d.say(notice, "Cannot read the config.toml file in the provided directory, Error: %s", err.Error())
 			goto minerPathEntry
 		}
 		d.MinerConfigPath = str
-		d.MinerConfig = cfg
 	}
 
 	// Try to lock Miner repo to verify that lotus-miner is not running

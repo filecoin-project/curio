@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"os"
 	"path"
 	"strings"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-statestore"
 
 	"github.com/filecoin-project/curio/deps"
@@ -322,70 +322,6 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 
 	sts := statestore.New(namespace.Wrap(mmeta, datastore.NewKey(sectorStorePrefix)))
 
-	// used for a cbor operation.
-	type SectorInfo struct {
-		State        sector.SectorState
-		SectorNumber abi.SectorNumber
-
-		SectorType abi.RegisteredSealProof
-
-		// Packing
-		CreationTime int64 // unix seconds
-		Pieces       []sector.SafeSectorPiece
-
-		// PreCommit1
-		TicketValue   abi.SealRandomness
-		TicketEpoch   abi.ChainEpoch
-		PreCommit1Out storiface.PreCommit1Out
-
-		PreCommit1Fails uint64
-
-		// PreCommit2
-		CommD *cid.Cid
-		CommR *cid.Cid // SectorKey
-		Proof []byte
-
-		PreCommitDeposit big.Int
-		PreCommitMessage *cid.Cid
-		PreCommitTipSet  types.TipSetKey
-
-		PreCommit2Fails uint64
-
-		// WaitSeed
-		SeedValue abi.InteractiveSealRandomness
-		SeedEpoch abi.ChainEpoch
-
-		// Committing
-		CommitMessage *cid.Cid
-		InvalidProofs uint64 // failed proof computations (doesn't validate with proof inputs; can't compute)
-
-		// CCUpdate
-		CCUpdate             bool
-		UpdateSealed         *cid.Cid
-		UpdateUnsealed       *cid.Cid
-		ReplicaUpdateProof   storiface.ReplicaUpdateProof
-		ReplicaUpdateMessage *cid.Cid
-
-		// Faults
-		FaultReportMsg *cid.Cid
-
-		// Termination
-		TerminateMessage *cid.Cid
-		TerminatedAt     abi.ChainEpoch
-
-		// Remote import
-		RemoteDataUnsealed        *storiface.SectorLocation
-		RemoteDataSealed          *storiface.SectorLocation
-		RemoteDataCache           *storiface.SectorLocation
-		RemoteCommit1Endpoint     string
-		RemoteCommit2Endpoint     string
-		RemoteSealingDoneEndpoint string
-		RemoteDataFinalized       bool
-
-		// Debug
-		LastErr string
-	}
-
 	var sectors []SectorInfo
 	if err := sts.List(&sectors); err != nil {
 		return xerrors.Errorf("getting sector list: %w", err)
@@ -536,4 +472,67 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 	}
 
 	return nil
+}
+
+type SectorInfo struct {
+	State        sector.SectorState
+	SectorNumber abi.SectorNumber
+
+	SectorType abi.RegisteredSealProof
+
+	// Packing
+	CreationTime int64 // unix seconds
+	Pieces       []sector.SafeSectorPiece
+
+	// PreCommit1
+	TicketValue   abi.SealRandomness
+	TicketEpoch   abi.ChainEpoch
+	PreCommit1Out storiface.PreCommit1Out
+
+	PreCommit1Fails uint64
+
+	// PreCommit2
+	CommD *cid.Cid
+	CommR *cid.Cid // SectorKey
+	Proof []byte
+
+	PreCommitDeposit big.Int
+	PreCommitMessage *cid.Cid
+	PreCommitTipSet  types.TipSetKey
+
+	PreCommit2Fails uint64
+
+	// WaitSeed
+	SeedValue abi.InteractiveSealRandomness
+	SeedEpoch abi.ChainEpoch
+
+	// Committing
+	CommitMessage *cid.Cid
+	InvalidProofs uint64 // failed proof computations (doesn't validate with proof inputs; can't compute)
+
+	// CCUpdate
+	CCUpdate             bool
+	UpdateSealed         *cid.Cid
+	UpdateUnsealed       *cid.Cid
+	ReplicaUpdateProof   storiface.ReplicaUpdateProof
+	ReplicaUpdateMessage *cid.Cid
+
+	// Faults
+	FaultReportMsg *cid.Cid
+
+	// Termination
+	TerminateMessage *cid.Cid
+	TerminatedAt     abi.ChainEpoch
+
+	// Remote import
+	RemoteDataUnsealed        *storiface.SectorLocation
+	RemoteDataSealed          *storiface.SectorLocation
+	RemoteDataCache           *storiface.SectorLocation
+	RemoteCommit1Endpoint     string
+	RemoteCommit2Endpoint     string
+	RemoteSealingDoneEndpoint string
+	RemoteDataFinalized       bool
+
+	// Debug
+	LastErr string
 }
