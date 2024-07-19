@@ -11,11 +11,16 @@ class PendingDeals extends LitElement {
     async loadData() {
         this.data = await RPCCall('DealsPending');
         this.requestUpdate();
+
+        // Poll for updates
+        setInterval(async () => {
+            this.data = await RPCCall('DealsPending');
+            this.requestUpdate();
+        }, 3000);
     }
 
     async sealNow(entry) {
         await RPCCall('DealsSealNow', [entry.Actor, entry.SectorNumber]);
-        this.loadData();
     }
 
     render() {

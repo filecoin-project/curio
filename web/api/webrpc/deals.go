@@ -25,7 +25,7 @@ type OpenDealInfo struct {
 }
 
 func (a *WebRPC) DealsPending(ctx context.Context) ([]OpenDealInfo, error) {
-	var deals []OpenDealInfo
+	deals := []OpenDealInfo{}
 	err := a.deps.DB.Select(ctx, &deals, `SELECT sp_id, sector_number, piece_cid, piece_size, created_at, is_snap FROM open_sector_pieces ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
