@@ -2,7 +2,6 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import RPCCall from '/lib/jsonrpc.mjs';
 
 class UpgradeSectors extends LitElement {
-
     constructor() {
         super();
         this.data = [];
@@ -12,6 +11,12 @@ class UpgradeSectors extends LitElement {
     async loadData() {
         this.data = await RPCCall('UpgradeSectors');
         this.requestUpdate();
+
+        // Poll for updates
+        setInterval(async () => {
+            this.data = await RPCCall('UpgradeSectors');
+            this.requestUpdate();
+        }, 3000);
     }
 
     render() {
@@ -28,6 +33,7 @@ class UpgradeSectors extends LitElement {
                     <th>Prove</th>
                     <th>Submit</th>
                     <th>Move Storage</th>
+                    <th>Prove Message Landed</th>
                     
                     <th>Actions</th>
                 </tr>
@@ -42,6 +48,7 @@ class UpgradeSectors extends LitElement {
                         <td>${entry.AfterProve ? 'Done' : entry.TaskIDProve === null ? 'Not Started' : entry.TaskIDProve}</td>
                         <td>${entry.AfterSubmit ? 'Done' : entry.TaskIDSubmit === null ? 'Not Started' : entry.TaskIDSubmit}</td>
                         <td>${entry.AfterMoveStorage ? 'Done' : entry.TaskIDMoveStorage === null ? 'Not Started' : entry.TaskIDMoveStorage}</td>
+                        <td>${entry.AfterProveSuccess ? 'Done' : entry.AfterSubmit ? 'Waiting' : 'Not Sent'}</td>
                         
                         <td>
                             ${ '' /*todo: this button is a massive footgun, it should get some more safety*/ }
