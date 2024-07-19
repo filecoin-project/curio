@@ -5,6 +5,7 @@
     <script src="https://unpkg.com/htmx.org@1.9.5"
         integrity="sha384-xcuj3WpfgjlKF+FXhSQFQ0ZNr39ln+hwjN3npfM9VBnUskLolQAcN80McRIVOPuO"
         crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module" src="chain-connectivity.mjs"></script>
     <script type="module" src="harmony-task-counts.mjs"></script>
     <script type="module" src="storage-gc.mjs"></script>
@@ -106,11 +107,17 @@
                         <actor-summary></actor-summary>
                     </div>
                 </div>
+            </div>
+
+            <div class="row">
                 <div class="col-md-auto">
-                    <h2>Recent Wins</h2>
-                    <win-stats></win-stats>
+                    <div class="info-block">
+                        <h2>Recent Wins</h2>
+                        <win-stats></win-stats>
+                    </div>
                 </div>
             </div>
+
 
             <div class="row">
                 <div class="col-md-auto">
