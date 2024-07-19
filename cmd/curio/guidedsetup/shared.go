@@ -209,6 +209,9 @@ func SaveConfigToLayerMigrateSectors(minerRepoPath, chainApiInfo string, unmigSe
 			}
 			if baseCfg.Apis.StorageRPCSecret == "" {
 				baseCfg.Apis.StorageRPCSecret = curioCfg.Apis.StorageRPCSecret
+			} else {
+				// Drop the storage secret if base layer already has one
+				curioCfg.Apis.StorageRPCSecret = ""
 			}
 
 			cb, err := config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
