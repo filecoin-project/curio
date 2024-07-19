@@ -424,13 +424,6 @@ description: The default curio configuration
   #DoSnap = false
 
 
-[Journal]
-  # Events of the form: "system1:event1,system1:event2[,...]"
-  #
-  # type: string
-  #DisabledEvents = ""
-
-
 [Apis]
   # RPC Secret for the storage subsystem.
   # If integrating with lotus-miner this must match the value from

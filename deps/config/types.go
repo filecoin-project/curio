@@ -73,7 +73,6 @@ type CurioConfig struct {
 	Addresses []CurioAddresses
 	Proving   CurioProvingConfig
 	Ingest    CurioIngestConfig
-	Journal   JournalConfig
 	Apis      ApisConfig
 	Alerting  CurioAlertingConfig
 }
@@ -468,11 +467,6 @@ type SlackWebhookConfig struct {
 	// WebHookURL is the URL for the URL for slack Webhook.
 	// Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
 	WebHookURL string
-}
-
-type JournalConfig struct {
-	//Events of the form: "system1:event1,system1:event2[,...]"
-	DisabledEvents string
 }
 
 type ApisConfig struct {

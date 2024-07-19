@@ -52,8 +52,7 @@ var wdPostCmd = &cli.Command{
 var wdPostTaskCmd = &cli.Command{
 	Name:    "task",
 	Aliases: []string{"scheduled", "schedule", "async", "asynchronous"},
-	Usage: `Test the windowpost scheduler by running it on the next available curio. 
-	If tasks fail all retries, you will need to ctrl+c to exit.`,
+	Usage:   "Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.",
 	Flags: []cli.Flag{
 		&cli.Uint64Flag{
 			Name:  "deadline",

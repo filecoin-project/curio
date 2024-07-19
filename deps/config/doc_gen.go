@@ -140,12 +140,6 @@ alerts will be triggered for the wallet`,
 			Comment: ``,
 		},
 		{
-			Name: "Journal",
-			Type: "JournalConfig",
-
-			Comment: ``,
-		},
-		{
 			Name: "Apis",
 			Type: "ApisConfig",
 
@@ -643,14 +637,6 @@ only need to be run on a single machine in the cluster.`,
 			Type: "[]byte(d.String()),",
 
 			Comment: ``,
-		},
-	},
-	"JournalConfig": {
-		{
-			Name: "DisabledEvents",
-			Type: "string",
-
-			Comment: `Events of the form: "system1:event1,system1:event2[,...]"`,
 		},
 	},
 	"PagerDutyConfig": {

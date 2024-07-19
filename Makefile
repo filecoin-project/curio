@@ -241,11 +241,6 @@ docker/curio:
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/curio
 
-docker/yugabyte:
-	cd docker/yugabyte && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/yugabyte-dev:dev \
-		--build-arg BUILD_VERSION=dev .
-.PHONY: docker/yugabyte
-
 docker/devnet: $(lotus_build_cmd) docker/curio-all-in-one docker/lotus docker/lotus-miner docker/curio docker/yugabyte
 .PHONY: docker/devnet
 

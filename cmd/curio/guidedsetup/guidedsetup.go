@@ -18,12 +18,9 @@ import (
 	"os"
 	"os/signal"
 	"path"
-	"reflect"
 	"strings"
 	"syscall"
-	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/docker/go-units"
 	"github.com/manifoldco/promptui"
@@ -206,7 +203,6 @@ var migrationSteps = []migrationStep{
 	readMinerConfig, // Tells them to be on the miner machine
 	yugabyteConnect, // Miner is updated
 	configToDB,      // work on base configuration migration.
-	verifySectors,   // Verify the sectors are in the database
 	doc,
 	oneLastThing,
 	complete,
@@ -230,7 +226,6 @@ type MigrationData struct {
 	say             func(style lipgloss.Style, key message.Reference, a ...interface{})
 	selectTemplates *promptui.SelectTemplates
 	MinerConfigPath string
-	MinerConfig     *config.StorageMiner
 	DB              *harmonydb.DB
 	HarmonyCfg      config.HarmonyDB
 	MinerID         address.Address
@@ -447,142 +442,42 @@ func doc(d *MigrationData) {
 	d.say(plain, "One database can serve multiple miner IDs: Run a migration for each lotus-miner.")
 }
 
-func verifySectors(d *MigrationData) {
-	var i []int
-	var lastError string
-	fmt.Println()
-	d.say(section, "Please start (or restart) %s now that database credentials are in %s.", "lotus-miner", "config.toml")
-	d.say(notice, "Waiting for %s to write sectors into Yugabyte.", "lotus-miner")
-
-	mid, err := address.IDFromAddress(d.MinerID)
-	if err != nil {
-		d.say(notice, "Error interpreting miner ID: %s: ID: %s", err.Error(), d.MinerID.String())
-		os.Exit(1)
-	}
-
-	for {
-		err := d.DB.Select(context.Background(), &i, `
-			SELECT count(*) FROM sector_location WHERE miner_id=$1`, mid)
-		if err != nil {
-			if err.Error() != lastError {
-				d.say(notice, "Error verifying sectors: %s", err.Error())
-				lastError = err.Error()
-			}
-			continue
-		}
-		if i[0] > 0 {
-			break
-		}
-		fmt.Print(".")
-		time.Sleep(5 * time.Second)
-	}
-	d.say(plain, "The sectors are in the database. The database is ready for %s.", "Curio")
-	d.say(notice, "Now shut down lotus-miner and lotus-worker and use run %s instead.", code.Render("curio run"))
-
-	_, err = (&promptui.Prompt{Label: d.T("Press return to continue")}).Run()
-	if err != nil {
-		d.say(notice, "Aborting migration.")
-		os.Exit(1)
-	}
-	stepCompleted(d, d.T("Sectors verified. %d sector locations found.", i))
-}
-
 func yugabyteConnect(d *MigrationData) {
-	harmonyCfg := config.DefaultStorageMiner().HarmonyDB //copy the config to a local variable
-	if d.MinerConfig != nil {
-		harmonyCfg = d.MinerConfig.HarmonyDB //copy the config to a local variable
-	}
+	harmonyCfg := config.DefaultStorageMiner().HarmonyDB
 	var err error
 	d.DB, err = harmonydb.NewFromConfig(harmonyCfg)
 	if err != nil {
-		hcfg := getDBDetails(d)
-		harmonyCfg = *hcfg
+		_ = getDBDetails(d)
 	} else {
 		d.HarmonyCfg = harmonyCfg
 	}
 
 	d.say(plain, "Connected to Yugabyte. Schema is current.")
-	if !reflect.DeepEqual(harmonyCfg, d.MinerConfig.HarmonyDB) || !d.MinerConfig.Subsystems.EnableSectorIndexDB {
-		d.MinerConfig.HarmonyDB = harmonyCfg
-		d.MinerConfig.Subsystems.EnableSectorIndexDB = true
-
-		d.say(plain, "Enabling Sector Indexing in the database.")
-		buf, err := config.ConfigUpdate(d.MinerConfig, config.DefaultStorageMiner())
-		if err != nil {
-			d.say(notice, "Error encoding config.toml: %s", err.Error())
-			os.Exit(1)
-		}
-		_, err = (&promptui.Prompt{
-			Label: d.T("Press return to update %s with Yugabyte info. A Backup file will be written to that folder before changes are made.", "config.toml")}).Run()
-		if err != nil {
-			os.Exit(1)
-		}
-		p, err := homedir.Expand(d.MinerConfigPath)
-		if err != nil {
-			d.say(notice, "Error expanding path: %s", err.Error())
-			os.Exit(1)
-		}
-		tomlPath := path.Join(p, "config.toml")
-		stat, err := os.Stat(tomlPath)
-		if err != nil {
-			d.say(notice, "Error reading filemode of config.toml: %s", err.Error())
-			os.Exit(1)
-		}
-		fBackup, err := os.CreateTemp(p, "config-backup-*.toml")
-		if err != nil {
-			d.say(notice, "Error creating backup file: %s", err.Error())
-			os.Exit(1)
-		}
-		fBackupContents, err := os.ReadFile(tomlPath)
-		if err != nil {
-			d.say(notice, "Error reading config.toml: %s", err.Error())
-			os.Exit(1)
-		}
-		_, err = fBackup.Write(fBackupContents)
-		if err != nil {
-			d.say(notice, "Error writing backup file: %s", err.Error())
-			os.Exit(1)
-		}
-		err = fBackup.Close()
-		if err != nil {
-			d.say(notice, "Error closing backup file: %s", err.Error())
-			os.Exit(1)
-		}
-
-		filemode := stat.Mode()
-		err = os.WriteFile(path.Join(p, "config.toml"), buf, filemode)
-		if err != nil {
-			d.say(notice, "Error writing config.toml: %s", err.Error())
-			os.Exit(1)
-		}
-		d.say(section, "Restart Lotus Miner. ")
-	}
 	stepCompleted(d, d.T("Connected to Yugabyte"))
 }
 
 func readMinerConfig(d *MigrationData) {
 	d.say(plain, "To start, ensure your sealing pipeline is drained and shut-down lotus-miner.")
 
-	verifyPath := func(dir string) (*config.StorageMiner, error) {
-		cfg := config.DefaultStorageMiner()
+	verifyPath := func(dir string) error {
 		dir, err := homedir.Expand(dir)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		_, err = toml.DecodeFile(path.Join(dir, "config.toml"), &cfg)
-		return cfg, err
+		_, err = os.Stat(path.Join(dir, "config.toml"))
+		return err
 	}
 
-	dirs := map[string]*config.StorageMiner{"~/.lotusminer": nil, "~/.lotus-miner-local-net": nil}
+	dirs := map[string]struct{}{"~/.lotusminer": struct{}{}, "~/.lotus-miner-local-net": struct{}{}}
 	if v := os.Getenv("LOTUS_MINER_PATH"); v != "" {
-		dirs[v] = nil
+		dirs[v] = struct{}{}
 	}
 	for dir := range dirs {
-		cfg, err := verifyPath(dir)
+		err := verifyPath(dir)
 		if err != nil {
 			delete(dirs, dir)
 		}
-		dirs[dir] = cfg
+		dirs[dir] = struct{}{}
 	}
 
 	var otherPath bool
@@ -602,7 +497,6 @@ func readMinerConfig(d *MigrationData) {
 				otherPath = true
 			} else {
 				d.MinerConfigPath = str
-				d.MinerConfig = dirs[str]
 			}
 		}
 	}
@@ -615,13 +509,12 @@ func readMinerConfig(d *MigrationData) {
 			d.say(notice, "No path provided, abandoning migration ")
 			os.Exit(1)
 		}
-		cfg, err := verifyPath(str)
+		err = verifyPath(str)
 		if err != nil {
 			d.say(notice, "Cannot read the config.toml file in the provided directory, Error: %s", err.Error())
 			goto minerPathEntry
 		}
 		d.MinerConfigPath = str
-		d.MinerConfig = cfg
 	}
 
 	// Try to lock Miner repo to verify that lotus-miner is not running
