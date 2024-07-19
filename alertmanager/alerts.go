@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 // balanceCheck retrieves the machine details from the database and performs balance checks on unique addresses.
@@ -42,13 +43,7 @@ func balanceCheck(al *alerts) {
 		return
 	}
 
-	for _, addrStr := range uniqueAddrs {
-		addr, err := address.NewFromString(addrStr)
-		if err != nil {
-			al.alertMap[Name].err = xerrors.Errorf("failed to parse address: %w", err)
-			return
-		}
-
+	for _, addr := range uniqueAddrs {
 		has, err := al.api.WalletHas(al.ctx, addr)
 		if err != nil {
 			al.alertMap[Name].err = err
@@ -56,7 +51,7 @@ func balanceCheck(al *alerts) {
 		}
 
 		if !has {
-			ret += fmt.Sprintf("Wallet %s was not found in chain node. ", addrStr)
+			ret += fmt.Sprintf("Wallet %s was not found in chain node. ", addr)
 		}
 
 		balance, err := al.api.WalletBalance(al.ctx, addr)
@@ -65,7 +60,7 @@ func balanceCheck(al *alerts) {
 		}
 
 		if abi.TokenAmount(al.cfg.MinimumWalletBalance).GreaterThanEqual(balance) {
-			ret += fmt.Sprintf("Balance for wallet %s is below 5 Fil. ", addrStr)
+			ret += fmt.Sprintf("Balance for wallet %s is below 5 Fil. ", addr)
 		}
 	}
 	if ret != "" {
@@ -235,7 +230,7 @@ func permanentStorageCheck(al *alerts) {
 // It employs addrMap to handle unique addresses, and generated slices for configuration fields and MinerAddresses.
 // The function iterates over layers, storing decoded configuration and verifying address existence in addrMap.
 // It ends by returning unique addresses and miner slices.
-func (al *alerts) getAddresses() ([]string, []string, error) {
+func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 	// MachineDetails represents the structure of data received from the SQL query.
 	type machineDetail struct {
 		ID          int
@@ -272,9 +267,8 @@ func (al *alerts) getAddresses() ([]string, []string, error) {
 		}
 	}
 
-	addrMap := make(map[string]bool)
-	var uniqueAddrs []string
-	var miners []string
+	addrMap := make(map[string]struct{})
+	minerMap := make(map[string]struct{})
 
 	// Get all unique addresses
 	for _, layer := range uniqueLayers {
@@ -297,34 +291,60 @@ func (al *alerts) getAddresses() ([]string, []string, error) {
 			prec := cfg.Addresses[i].PreCommitControl
 			com := cfg.Addresses[i].CommitControl
 			term := cfg.Addresses[i].TerminateControl
-			miner := cfg.Addresses[i].MinerAddresses
+			miners := cfg.Addresses[i].MinerAddresses
 			for j := range prec {
-				if _, ok := addrMap[prec[j]]; !ok && prec[j] != "" {
-					addrMap[prec[j]] = true
-					uniqueAddrs = append(uniqueAddrs, prec[j])
+				if prec[j] != "" {
+					addrMap[prec[j]] = struct{}{}
 				}
 			}
 			for j := range com {
-				if _, ok := addrMap[com[j]]; !ok && com[j] != "" {
-					addrMap[com[j]] = true
-					uniqueAddrs = append(uniqueAddrs, com[j])
+				if com[j] != "" {
+					addrMap[com[j]] = struct{}{}
 				}
 			}
 			for j := range term {
-				if _, ok := addrMap[term[j]]; !ok && term[j] != "" {
-					addrMap[term[j]] = true
-					uniqueAddrs = append(uniqueAddrs, term[j])
+				if term[j] != "" {
+					addrMap[term[j]] = struct{}{}
 				}
 			}
-			for j := range miner {
-				if _, ok := addrMap[miner[j]]; !ok && miner[j] != "" {
-					addrMap[miner[j]] = true
-					miners = append(miners, miner[j])
+			for j := range miners {
+				if miners[j] != "" {
+					minerMap[miners[j]] = struct{}{}
 				}
 			}
 		}
 	}
-	return uniqueAddrs, miners, nil
+
+	var wallets, minerAddrs []address.Address
+
+	// Get control and wallet addresses from chain
+	for m := range minerMap {
+		maddr, err := address.NewFromString(m)
+		if err != nil {
+			return nil, nil, err
+		}
+		info, err := al.api.StateMinerInfo(al.ctx, maddr, types.EmptyTSK)
+		if err != nil {
+			return nil, nil, err
+		}
+		minerAddrs = append(minerAddrs, maddr)
+		addrMap[info.Worker.String()] = struct{}{}
+		for _, w := range info.ControlAddresses {
+			if _, ok := addrMap[w.String()]; !ok {
+				addrMap[w.String()] = struct{}{}
+			}
+		}
+	}
+
+	for w := range addrMap {
+		waddr, err := address.NewFromString(w)
+		if err != nil {
+			return nil, nil, err
+		}
+		wallets = append(wallets, waddr)
+	}
+
+	return wallets, minerAddrs, nil
 }
 
 func wdPostCheck(al *alerts) {
@@ -359,12 +379,7 @@ func wdPostCheck(al *alerts) {
 	msgCheck := make(map[address.Address]map[uint64]*partSent)
 
 	for h.Height() >= from {
-		for _, minerStr := range miners {
-			maddr, err := address.NewFromString(minerStr)
-			if err != nil {
-				al.alertMap[Name].err = err
-				return
-			}
+		for _, maddr := range miners {
 			deadlineInfo, err := al.api.StateMinerProvingDeadline(al.ctx, maddr, h.Key())
 			if err != nil {
 				al.alertMap[Name].err = xerrors.Errorf("getting miner deadline: %w", err)
