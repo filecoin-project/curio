@@ -36,11 +36,9 @@ func Routes(r *mux.Router, deps *deps.Deps) error {
 	go a.watchActor()
 
 	// index page (simple info)
-	r.HandleFunc("/simpleinfo/actorsummary", a.actorSummary)         // #3 + Watch
-	r.HandleFunc("/simpleinfo/pipeline-porep", a.indexPipelinePorep) // #1 into pipeline.go
+	r.HandleFunc("/simpleinfo/actorsummary", a.actorSummary) // #3 + Watch
 
 	// sector info page
-	r.HandleFunc("/sector/{sp}/{id}", a.sectorInfo) // #2s
 	r.HandleFunc("/sector/{sp}/{id}/resume", a.sectorResume)
 	r.HandleFunc("/sector/{sp}/{id}/remove", a.sectorRemove)
 	return nil

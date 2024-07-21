@@ -1,4 +1,4 @@
-import { html, css, LitElement } from 'lit';
+import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 
 class ClusterTaskHistory extends LitElement {
     constructor() {
