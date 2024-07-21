@@ -26,7 +26,6 @@ import (
 
 	proofparams "github.com/filecoin-project/lotus/build/proof-params"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
-	"github.com/filecoin-project/lotus/lib/lotuslog"
 	"github.com/filecoin-project/lotus/lib/tracing"
 )
 
@@ -47,9 +46,17 @@ func setupCloseHandler() {
 	}()
 }
 
+func SetupLogLevels() {
+	if _, set := os.LookupEnv("GOLOG_LOG_LEVEL"); !set {
+		_ = logging.SetLogLevel("*", "INFO")
+		_ = logging.SetLogLevel("stores", "DEBUG")
+		_ = logging.SetLogLevel("harmonytask", "DEBUG")
+	}
+}
+
 func main() {
 
-	lotuslog.SetupLogLevels()
+	SetupLogLevels()
 
 	local := []*cli.Command{
 		cliCmd,

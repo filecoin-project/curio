@@ -256,8 +256,6 @@ OPTIONS:
    --listen value                                                                       host address and port the worker api will listen on (default: "0.0.0.0:12300") [$CURIO_LISTEN]
    --nosync                                                                             don't check full-node sync status (default: false)
    --manage-fdlimit                                                                     manage open file limit (default: true)
-   --storage-json value                                                                 path to json file containing storage config (default: "~/.curio/storage.json")
-   --journal value                                                                      path to journal files (default: "~/.curio/")
    --layers value, -l value, --layer value [ --layers value, -l value, --layer value ]  list of layers to be interpreted (atop defaults). Default: base [$CURIO_LAYERS]
    --name value                                                                         custom node name [$CURIO_NODE_NAME]
    --help, -h                                                                           show help
@@ -416,8 +414,7 @@ USAGE:
 
 COMMANDS:
    here, cli                                       Compute WindowPoSt for performance and configuration testing.
-   task, scheduled, schedule, async, asynchronous  Test the windowpost scheduler by running it on the next available curio. 
-                                                     If tasks fail all retries, you will need to ctrl+c to exit.
+   task, scheduled, schedule, async, asynchronous  Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.
    help, h                                         Shows a list of commands or help for one command
 
 OPTIONS:
@@ -447,8 +444,7 @@ OPTIONS:
 #### curio test window-post task
 ```
 NAME:
-   curio test window-post task - Test the windowpost scheduler by running it on the next available curio. 
-                                   If tasks fail all retries, you will need to ctrl+c to exit.
+   curio test window-post task - Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.
 
 USAGE:
    curio test window-post task [command options] [arguments...]
@@ -560,7 +556,7 @@ NAME:
    curio market seal - start sealing a deal sector early
 
 USAGE:
-   curio market seal [command options] [arguments...]
+   curio market seal [command options] <sector>
 
 OPTIONS:
    --actor value  Specify actor address to start sealing sectors for

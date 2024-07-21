@@ -52,8 +52,7 @@ var wdPostCmd = &cli.Command{
 var wdPostTaskCmd = &cli.Command{
 	Name:    "task",
 	Aliases: []string{"scheduled", "schedule", "async", "asynchronous"},
-	Usage: `Test the windowpost scheduler by running it on the next available curio. 
-	If tasks fail all retries, you will need to ctrl+c to exit.`,
+	Usage:   "Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.",
 	Flags: []cli.Flag{
 		&cli.Uint64Flag{
 			Name:  "deadline",
@@ -232,7 +231,7 @@ It will not send any messages to the chain. Since it can compute any deadline, o
 		di := dline.NewInfo(head.Height(), cctx.Uint64("deadline"), 0, 0, 0, 10 /*challenge window*/, 0, 0)
 
 		for maddr := range deps.Maddrs {
-			out, err := wdPostTask.DoPartition(ctx, head, address.Address(maddr), di, cctx.Uint64("partition"))
+			out, err := wdPostTask.DoPartition(ctx, head, address.Address(maddr), di, cctx.Uint64("partition"), true)
 			if err != nil {
 				fmt.Println("Error computing WindowPoSt for miner", maddr, err)
 				continue

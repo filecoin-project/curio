@@ -19,6 +19,10 @@ CREATE TABLE sectors_meta (
     seed_epoch BIGINT NOT NULL,
     seed_value BYTEA NOT NULL,
 
+    -- Added in 20240611-snap-pipeline.sql
+    -- is_cc BOOLEAN NOT NULL DEFAULT (complex condition),
+    -- expiration_epoch BIGINT, (null = not crawled)
+
     PRIMARY KEY (sp_id, sector_num)
 );
 

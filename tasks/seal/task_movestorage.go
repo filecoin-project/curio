@@ -139,7 +139,7 @@ func (m *MoveStorageTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytas
 
 func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 	ssize := abi.SectorSize(32 << 30) // todo task details needs taskID to get correct sector size
-	if isDevnet {
+	if IsDevnet {
 		ssize = abi.SectorSize(2 << 20)
 	}
 

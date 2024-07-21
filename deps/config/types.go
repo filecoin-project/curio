@@ -73,7 +73,6 @@ type CurioConfig struct {
 	Addresses []CurioAddresses
 	Proving   CurioProvingConfig
 	Ingest    CurioIngestConfig
-	Journal   JournalConfig
 	Apis      ApisConfig
 	Alerting  CurioAlertingConfig
 }
@@ -198,6 +197,24 @@ type CurioSubsystemsConfig struct {
 	// also be bounded by resources available on the machine. It is recommended that this value is set to a number which
 	// uses all available network (or disk) bandwidth on the machine without causing bottlenecks.
 	MoveStorageMaxTasks int
+
+	// EnableUpdateEncode enables the encoding step of the SnapDeal process on this curio instance.
+	// This step involves encoding the data into the sector and computing updated TreeR (uses gpu).
+	EnableUpdateEncode bool
+
+	// EnableUpdateProve enables the proving step of the SnapDeal process on this curio instance.
+	// This step generates the snark proof for the updated sector.
+	EnableUpdateProve bool
+
+	// EnableUpdateSubmit enables the submission of SnapDeal proofs to the blockchain from this curio instance.
+	// This step submits the generated proofs to the chain.
+	EnableUpdateSubmit bool
+
+	// UpdateEncodeMaxTasks sets the maximum number of concurrent SnapDeal encoding tasks that can run on this instance.
+	UpdateEncodeMaxTasks int
+
+	// UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance.
+	UpdateProveMaxTasks int
 
 	// BoostAdapters is a list of tuples of miner address and port/ip to listen for market (e.g. boost) requests.
 	// This interface is compatible with the lotus-miner RPC, implementing a subset needed for storage market operations.
@@ -400,6 +417,10 @@ type CurioIngestConfig struct {
 
 	// Maximum time an open deal sector should wait for more deal before it starts sealing
 	MaxDealWaitTime Duration
+
+	// DoSnap enables the snap deal process for deals ingested by this instance. Unlike in lotus-miner there is no
+	// fallback to porep when no sectors are available to snap into. When enabled all deals will be snap deals.
+	DoSnap bool
 }
 
 type CurioAlertingConfig struct {
@@ -412,6 +433,9 @@ type CurioAlertingConfig struct {
 
 	// PrometheusAlertManagerConfig is the configuration for the Prometheus AlertManager alerting integration.
 	PrometheusAlertManager PrometheusAlertManagerConfig
+
+	// SlackWebhookConfig is a configuration type for Slack webhook integration.
+	SlackWebhook SlackWebhookConfig
 }
 
 type PagerDutyConfig struct {
@@ -436,9 +460,13 @@ type PrometheusAlertManagerConfig struct {
 	AlertManagerURL string
 }
 
-type JournalConfig struct {
-	//Events of the form: "system1:event1,system1:event2[,...]"
-	DisabledEvents string
+type SlackWebhookConfig struct {
+	// Enable is a flag to enable or disable the Prometheus AlertManager integration.
+	Enable bool
+
+	// WebHookURL is the URL for the URL for slack Webhook.
+	// Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
+	WebHookURL string
 }
 
 type ApisConfig struct {

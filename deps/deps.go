@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -268,7 +269,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	}
 
 	deps.LocalPaths = &paths.BasicLocalStorage{
-		PathToJSON: cctx.String("storage-json"),
+		PathToJSON: path.Join(cctx.String(FlagRepoPath), "storage.json"),
 	}
 
 	if deps.ListenAddr == "" {

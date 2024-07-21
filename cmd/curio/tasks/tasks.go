@@ -30,8 +30,10 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/curio/tasks/metadata"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/snap"
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
 
@@ -166,7 +168,10 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		cfg.Subsystems.EnableSendPrecommitMsg ||
 		cfg.Subsystems.EnablePoRepProof ||
 		cfg.Subsystems.EnableMoveStorage ||
-		cfg.Subsystems.EnableSendCommitMsg
+		cfg.Subsystems.EnableSendCommitMsg ||
+		cfg.Subsystems.EnableUpdateEncode ||
+		cfg.Subsystems.EnableUpdateProve ||
+		cfg.Subsystems.EnableUpdateSubmit
 	if hasAnySealingTask {
 		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore)
 		if err != nil {
@@ -218,7 +223,7 @@ func addSealingTasks(
 	asyncParams func() func() (bool, error), si paths.SectorIndex, stor *paths.Remote,
 	bstore curiochain.CurioBlockstore) ([]harmonytask.TaskInterface, error) {
 	var activeTasks []harmonytask.TaskInterface
-	// Sealing
+	// Sealing / Snap
 
 	var sp *seal.SealPoller
 	var slr *ffi.SealCalls
@@ -250,22 +255,38 @@ func addSealingTasks(
 	}
 	if cfg.Subsystems.EnableMoveStorage {
 		moveStorageTask := seal.NewMoveStorageTask(sp, slr, db, cfg.Subsystems.MoveStorageMaxTasks)
-		activeTasks = append(activeTasks, moveStorageTask)
+		moveStorageSnapTask := snap.NewMoveStorageTask(slr, db, cfg.Subsystems.MoveStorageMaxTasks)
+		activeTasks = append(activeTasks, moveStorageTask, moveStorageSnapTask)
 	}
 	if cfg.Subsystems.EnableSendCommitMsg {
 		commitTask := seal.NewSubmitCommitTask(sp, db, full, sender, as, cfg)
 		activeTasks = append(activeTasks, commitTask)
+	}
+
+	if cfg.Subsystems.EnableUpdateEncode {
+		encodeTask := snap.NewEncodeTask(slr, db, cfg.Subsystems.UpdateEncodeMaxTasks)
+		activeTasks = append(activeTasks, encodeTask)
+	}
+	if cfg.Subsystems.EnableUpdateProve {
+		proveTask := snap.NewProveTask(slr, db, asyncParams(), cfg.Subsystems.UpdateProveMaxTasks)
+		activeTasks = append(activeTasks, proveTask)
+	}
+	if cfg.Subsystems.EnableUpdateSubmit {
+		submitTask := snap.NewSubmitTask(db, full, bstore, sender, as, cfg)
+		activeTasks = append(activeTasks, submitTask)
 	}
 	activeTasks = lo.Reverse(activeTasks)
 
 	if hasAnySealingTask {
 		// Sealing nodes maintain storage index when bored
 		storageEndpointGcTask := gc.NewStorageEndpointGC(si, stor, db)
-		sdrPipelineGcTask := gc.NewSDRPipelineGC(db)
+		pipelineGcTask := gc.NewPipelineGC(db)
 		storageGcMarkTask := gc.NewStorageGCMark(si, stor, db, bstore, full)
 		storageGcSweepTask := gc.NewStorageGCSweep(db, stor, si)
 
-		activeTasks = append(activeTasks, storageEndpointGcTask, sdrPipelineGcTask, storageGcMarkTask, storageGcSweepTask)
+		sectorMetadataTask := metadata.NewSectorMetadataTask(db, bstore, full)
+
+		activeTasks = append(activeTasks, storageEndpointGcTask, pipelineGcTask, storageGcMarkTask, storageGcSweepTask, sectorMetadataTask)
 	}
 
 	return activeTasks, nil

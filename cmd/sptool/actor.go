@@ -7,15 +7,16 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 
-	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/reqcontext"
 
 	builtin2 "github.com/filecoin-project/lotus/chain/actors/builtin"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/cli/spcli"
+	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/lib/tablewriter"
 )
 
@@ -48,11 +49,11 @@ func actorControlListCmd(getActor spcli.ActorAddressGetter) *cli.Command {
 			},
 		},
 		Action: func(cctx *cli.Context) error {
-			_, _, api, acloser, err := deps.GetAPI(cctx.Context, cctx)
+			full, closer, err := cliutil.GetFullNodeAPIV1(cctx)
 			if err != nil {
-				return err
+				return xerrors.Errorf("connecting to full node: %w", err)
 			}
-			defer acloser()
+			defer closer()
 
 			ctx := reqcontext.ReqContext(cctx)
 
@@ -61,7 +62,7 @@ func actorControlListCmd(getActor spcli.ActorAddressGetter) *cli.Command {
 				return err
 			}
 
-			mi, err := api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
+			mi, err := full.StateMinerInfo(ctx, maddr, types.EmptyTSK)
 			if err != nil {
 				return err
 			}
@@ -82,7 +83,7 @@ func actorControlListCmd(getActor spcli.ActorAddressGetter) *cli.Command {
 
 			printKey := func(name string, a address.Address) {
 				var actor *types.Actor
-				if actor, err = api.StateGetActor(ctx, a, types.EmptyTSK); err != nil {
+				if actor, err = full.StateGetActor(ctx, a, types.EmptyTSK); err != nil {
 					fmt.Printf("%s\t%s: error getting actor: %s\n", name, a, err)
 					return
 				}
@@ -91,7 +92,7 @@ func actorControlListCmd(getActor spcli.ActorAddressGetter) *cli.Command {
 				var k = a
 				// 'a' maybe a 'robust', in that case, 'StateAccountKey' returns an error.
 				if builtin2.IsAccountActor(actor.Code) {
-					if k, err = api.StateAccountKey(ctx, a, types.EmptyTSK); err != nil {
+					if k, err = full.StateAccountKey(ctx, a, types.EmptyTSK); err != nil {
 						fmt.Printf("%s\t%s: error getting account key: %s\n", name, a, err)
 						return
 					}

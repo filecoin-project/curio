@@ -32,7 +32,6 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/repo"
-	"github.com/filecoin-project/curio/market"
 	"github.com/filecoin-project/curio/web"
 
 	lapi "github.com/filecoin-project/lotus/api"
@@ -161,8 +160,9 @@ func (p *CurioAPI) StorageStat(ctx context.Context, id storiface.ID) (fsutil.FsS
 	return p.Stor.FsStat(ctx, id)
 }
 
+// this method is currently unused, might be back when we get markets into curio
 func (p *CurioAPI) AllocatePieceToSector(ctx context.Context, maddr address.Address, piece piece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (lapi.SectorOffset, error) {
-	di, err := market.NewPieceIngester(ctx, p.Deps.DB, p.Deps.Chain, maddr, true, time.Minute)
+	/*di, err := market.NewPieceIngester(ctx, p.Deps.DB, p.Deps.Chain, maddr, true, time.Minute)
 	if err != nil {
 		return lapi.SectorOffset{}, xerrors.Errorf("failed to create a piece ingestor")
 	}
@@ -176,8 +176,8 @@ func (p *CurioAPI) AllocatePieceToSector(ctx context.Context, maddr address.Addr
 	if err != nil {
 		return lapi.SectorOffset{}, xerrors.Errorf("failed to start sealing the sector %d for actor %s", sector.Sector, maddr)
 	}
-
-	return sector, nil
+	*/
+	return lapi.SectorOffset{}, xerrors.Errorf("not implemented")
 }
 
 // Trigger shutdown

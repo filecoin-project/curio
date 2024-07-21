@@ -85,17 +85,19 @@ services:
 
   yugabyte:
     container_name: yugabyte
-    image: curio/yugabyte-dev:dev
+    image: yugabytedb/yugabyte:2024.1.0.0-b129
     init: true
+    environment:
+      - TINI_SUBREAPER=true
     ports:
       - "5433:5433"
-      - "9000:9000"
       - "9042:9042"
+      - "15433:15433"
     restart: unless-stopped
     logging: *default-logging
     volumes:
-      - ./data/yugabyte-data:/root/var/data
-      - ./data/yugabyte-logs:/root/var/logs
+      - ./data/yugabyte:/home/yugabyte/yb_data
+    command: ["bin/yugabyted", "start", "--base_dir=/home/yugabyte/yb_data", "--background=false"]
     networks:
       curio-net:
         ipv4_address: 172.20.0.5

@@ -30,5 +30,8 @@ func LoadAlertPlugins(cfg config.CurioAlertingConfig) []Plugin {
 	if cfg.PrometheusAlertManager.Enable {
 		plugins = append(plugins, NewPrometheusAlertManager(cfg.PrometheusAlertManager))
 	}
+	if cfg.SlackWebhook.Enable {
+		plugins = append(plugins, NewSlackWebhook(cfg.SlackWebhook))
+	}
 	return plugins
 }

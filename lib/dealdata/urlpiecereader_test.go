@@ -1,4 +1,4 @@
-package seal
+package dealdata
 
 import (
 	"io"

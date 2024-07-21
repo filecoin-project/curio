@@ -353,7 +353,7 @@ func (e *TaskEngine) pollerTryAllWork() bool {
 			err := v.TaskTypeDetails.IAmBored(func(extraInfo func(TaskID, *harmonydb.Tx) (shouldCommit bool, seriousError error)) {
 				v.AddTask(func(tID TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 					b, err := extraInfo(tID, tx)
-					if err == nil {
+					if err == nil && shouldCommit {
 						added = append(added, tID)
 					}
 					return b, err

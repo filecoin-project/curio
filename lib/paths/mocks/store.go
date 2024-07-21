@@ -125,6 +125,21 @@ func (mr *MockStoreMockRecorder) MoveStorage(arg0, arg1, arg2 interface{}, arg3 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MoveStorage", reflect.TypeOf((*MockStore)(nil).MoveStorage), varargs...)
 }
 
+// ReadSnapVanillaProof mocks base method.
+func (m *MockStore) ReadSnapVanillaProof(arg0 context.Context, arg1 storiface.SectorRef) ([]byte, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReadSnapVanillaProof", arg0, arg1)
+	ret0, _ := ret[0].([]byte)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReadSnapVanillaProof indicates an expected call of ReadSnapVanillaProof.
+func (mr *MockStoreMockRecorder) ReadSnapVanillaProof(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReadSnapVanillaProof", reflect.TypeOf((*MockStore)(nil).ReadSnapVanillaProof), arg0, arg1)
+}
+
 // Remove mocks base method.
 func (m *MockStore) Remove(arg0 context.Context, arg1 abi.SectorID, arg2 storiface.SectorFileType, arg3 bool, arg4 []storiface.ID) error {
 	m.ctrl.T.Helper()

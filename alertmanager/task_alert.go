@@ -71,11 +71,15 @@ var alertFuncs = []alertFunc{
 
 func NewAlertTask(
 	api AlertAPI, db *harmonydb.DB, alertingCfg config.CurioAlertingConfig, al *curioalerting.AlertingSystem) *AlertTask {
+
+	plugins := plugin.LoadAlertPlugins(alertingCfg)
+
 	return &AlertTask{
-		api: api,
-		db:  db,
-		cfg: alertingCfg,
-		al:  al,
+		api:     api,
+		db:      db,
+		cfg:     alertingCfg,
+		al:      al,
+		plugins: plugins,
 	}
 }
 

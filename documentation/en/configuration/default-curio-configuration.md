@@ -156,6 +156,34 @@ description: The default curio configuration
   # type: int
   #MoveStorageMaxTasks = 0
 
+  # EnableUpdateEncode enables the encoding step of the SnapDeal process on this curio instance.
+  # This step involves encoding the data into the sector and computing updated TreeR (uses gpu).
+  #
+  # type: bool
+  #EnableUpdateEncode = false
+
+  # EnableUpdateProve enables the proving step of the SnapDeal process on this curio instance.
+  # This step generates the snark proof for the updated sector.
+  #
+  # type: bool
+  #EnableUpdateProve = false
+
+  # EnableUpdateSubmit enables the submission of SnapDeal proofs to the blockchain from this curio instance.
+  # This step submits the generated proofs to the chain.
+  #
+  # type: bool
+  #EnableUpdateSubmit = false
+
+  # UpdateEncodeMaxTasks sets the maximum number of concurrent SnapDeal encoding tasks that can run on this instance.
+  #
+  # type: int
+  #UpdateEncodeMaxTasks = 0
+
+  # UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance.
+  #
+  # type: int
+  #UpdateProveMaxTasks = 0
+
   # BoostAdapters is a list of tuples of miner address and port/ip to listen for market (e.g. boost) requests.
   # This interface is compatible with the lotus-miner RPC, implementing a subset needed for storage market operations.
   # Strings should be in the format "actor:ip:port". IP cannot be 0.0.0.0. We recommend using a private IP.
@@ -389,12 +417,11 @@ description: The default curio configuration
   # type: Duration
   #MaxDealWaitTime = "1h0m0s"
 
-
-[Journal]
-  # Events of the form: "system1:event1,system1:event2[,...]"
+  # DoSnap enables the snap deal process for deals ingested by this instance. Unlike in lotus-miner there is no
+  # fallback to porep when no sectors are available to snap into. When enabled all deals will be snap deals.
   #
-  # type: string
-  #DisabledEvents = ""
+  # type: bool
+  #DoSnap = false
 
 
 [Apis]
@@ -442,5 +469,17 @@ description: The default curio configuration
     #
     # type: string
     #AlertManagerURL = "http://localhost:9093/api/v2/alerts"
+
+  [Alerting.SlackWebhook]
+    # Enable is a flag to enable or disable the Prometheus AlertManager integration.
+    #
+    # type: bool
+    #Enable = false
+
+    # WebHookURL is the URL for the URL for slack Webhook.
+    # Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
+    #
+    # type: string
+    #WebHookURL = ""
 
 ```

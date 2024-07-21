@@ -101,6 +101,12 @@ alerts will be triggered for the wallet`,
 
 			Comment: `PrometheusAlertManagerConfig is the configuration for the Prometheus AlertManager alerting integration.`,
 		},
+		{
+			Name: "SlackWebhook",
+			Type: "SlackWebhookConfig",
+
+			Comment: `SlackWebhookConfig is a configuration type for Slack webhook integration.`,
+		},
 	},
 	"CurioConfig": {
 		{
@@ -130,12 +136,6 @@ alerts will be triggered for the wallet`,
 		{
 			Name: "Ingest",
 			Type: "CurioIngestConfig",
-
-			Comment: ``,
-		},
-		{
-			Name: "Journal",
-			Type: "JournalConfig",
 
 			Comment: ``,
 		},
@@ -262,6 +262,13 @@ applied to sectors entering the pipeline.`,
 			Type: "Duration",
 
 			Comment: `Maximum time an open deal sector should wait for more deal before it starts sealing`,
+		},
+		{
+			Name: "DoSnap",
+			Type: "bool",
+
+			Comment: `DoSnap enables the snap deal process for deals ingested by this instance. Unlike in lotus-miner there is no
+fallback to porep when no sectors are available to snap into. When enabled all deals will be snap deals.`,
 		},
 	},
 	"CurioProvingConfig": {
@@ -544,6 +551,39 @@ also be bounded by resources available on the machine. It is recommended that th
 uses all available network (or disk) bandwidth on the machine without causing bottlenecks.`,
 		},
 		{
+			Name: "EnableUpdateEncode",
+			Type: "bool",
+
+			Comment: `EnableUpdateEncode enables the encoding step of the SnapDeal process on this curio instance.
+This step involves encoding the data into the sector and computing updated TreeR (uses gpu).`,
+		},
+		{
+			Name: "EnableUpdateProve",
+			Type: "bool",
+
+			Comment: `EnableUpdateProve enables the proving step of the SnapDeal process on this curio instance.
+This step generates the snark proof for the updated sector.`,
+		},
+		{
+			Name: "EnableUpdateSubmit",
+			Type: "bool",
+
+			Comment: `EnableUpdateSubmit enables the submission of SnapDeal proofs to the blockchain from this curio instance.
+This step submits the generated proofs to the chain.`,
+		},
+		{
+			Name: "UpdateEncodeMaxTasks",
+			Type: "int",
+
+			Comment: `UpdateEncodeMaxTasks sets the maximum number of concurrent SnapDeal encoding tasks that can run on this instance.`,
+		},
+		{
+			Name: "UpdateProveMaxTasks",
+			Type: "int",
+
+			Comment: `UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance.`,
+		},
+		{
 			Name: "BoostAdapters",
 			Type: "[]string",
 
@@ -599,14 +639,6 @@ only need to be run on a single machine in the cluster.`,
 			Comment: ``,
 		},
 	},
-	"JournalConfig": {
-		{
-			Name: "DisabledEvents",
-			Type: "string",
-
-			Comment: `Events of the form: "system1:event1,system1:event2[,...]"`,
-		},
-	},
 	"PagerDutyConfig": {
 		{
 			Name: "Enable",
@@ -642,6 +674,21 @@ identifier in the integration page for the service.`,
 			Type: "string",
 
 			Comment: `AlertManagerURL is the URL for the Prometheus AlertManager API v2 URL.`,
+		},
+	},
+	"SlackWebhookConfig": {
+		{
+			Name: "Enable",
+			Type: "bool",
+
+			Comment: `Enable is a flag to enable or disable the Prometheus AlertManager integration.`,
+		},
+		{
+			Name: "WebHookURL",
+			Type: "string",
+
+			Comment: `WebHookURL is the URL for the URL for slack Webhook.
+Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX`,
 		},
 	},
 }

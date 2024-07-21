@@ -41,7 +41,7 @@ deps: $(BUILD_DEPS)
 
 curio: $(BUILD_DEPS)
 	rm -f curio
-	GOAMD64=v4 $(GOCC) build $(GOFLAGS) -o curio -ldflags " -s -w \
+	GOAMD64=v3 $(GOCC) build $(GOFLAGS) -o curio -ldflags " -s -w \
 	-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
 	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
 	./cmd/curio
@@ -240,11 +240,6 @@ docker/curio:
 	cd docker/curio && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/curio-dev:dev \
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/curio
-
-docker/yugabyte:
-	cd docker/yugabyte && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/yugabyte-dev:dev \
-		--build-arg BUILD_VERSION=dev .
-.PHONY: docker/yugabyte
 
 docker/devnet: $(lotus_build_cmd) docker/curio-all-in-one docker/lotus docker/lotus-miner docker/curio docker/yugabyte
 .PHONY: docker/devnet
