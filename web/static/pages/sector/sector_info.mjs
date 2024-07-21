@@ -18,6 +18,15 @@ class SectorInfo extends HTMLElement {
         this.render();
     }
 
+    async removeSector() {
+        await RPCCall('SectorRemove', [this.data.SpID, this.data.SectorNumber]);
+        window.location.href = '/pages/pipeline_porep/pipeline_porep_sectors';
+    }
+    async resumeSector() {
+        await RPCCall('SectorResume', [this.data.SpID, this.data.SectorNumber]);
+        window.location.reload();
+    }
+
     render() {
         return html`
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
@@ -27,9 +36,9 @@ class SectorInfo extends HTMLElement {
             <div>
                 <details>
                     <summary class="btn btn-warning">Remove ${!this.data.PipelinePoRep.Failed ? '(THIS SECTOR IS NOT FAILED!)' : ''}</summary>
-                    <button class="btn btn-danger" onclick="window.location.href='/hapi/sector/f0${this.data.SpID}/${this.data.SectorNumber}/remove'">Confirm Remove</button>
+                    <button class="btn btn-danger" onclick="${this.removeSector}">Confirm Remove</button>
                 </details>
-                ${this.data.Resumable ? html`<button class="btn btn-primary" onclick="window.location.href='/hapi/sector/f0${this.data.SpID}/${this.data.SectorNumber}/resume'">Resume</button>` : ''}
+                ${this.data.Resumable ? html`<button class="btn btn-primary" onclick="${this.resumeSector}">Resume</button>` : ''}
             </div>
             <div>
                 <h3>PoRep Pipeline</h3>
