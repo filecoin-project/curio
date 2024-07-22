@@ -116,7 +116,7 @@ var marketSealCmd = &cli.Command{
 		if err != nil {
 			return err
 		}
-		
+
 		return market.SealNow(ctx, dep.Chain, dep.DB, act, abi.SectorNumber(sector), cctx.Bool("synthetic"))
 	},
 }
