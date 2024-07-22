@@ -11,6 +11,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/dealdata"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
 
@@ -72,10 +73,18 @@ func (t *TreeRCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		ProofType: sectorParams.RegSealProof,
 	}
 
-	// R / C
-	sealed, unsealed, err := t.sc.TreeRC(ctx, &taskID, sref, commd, sectorParams.TicketValue)
+	dd, err := dealdata.DealDataSDRPoRep(ctx, t.db, t.sc, sectorParams.SpID, sectorParams.SectorNumber, sectorParams.RegSealProof, true)
 	if err != nil {
-		return false, xerrors.Errorf("computing tree r and c: %w", err)
+		return false, xerrors.Errorf("getting deal data: %w", err)
+	}
+
+	// R / C
+	sealed, unsealed, err := t.sc.TreeRC(ctx, &taskID, sref, commd, sectorParams.TicketValue, dd.PieceInfos)
+	if err != nil {
+		serr := resetSectorSealingState(ctx, sectorParams.SpID, sectorParams.SectorNumber, err, t.db)
+		if serr != nil {
+			return false, xerrors.Errorf("computing tree r and c: %w", err)
+		}
 	}
 
 	if unsealed != commd {

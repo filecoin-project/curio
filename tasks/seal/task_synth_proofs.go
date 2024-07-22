@@ -2,6 +2,7 @@ package seal
 
 import (
 	"context"
+	"strings"
 
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
@@ -22,8 +23,6 @@ type SyntheticProofTask struct {
 	sp *SealPoller
 	db *harmonydb.DB
 	sc *ffi.SealCalls
-
-	//max int
 }
 
 func NewSyntheticProofTask(sp *SealPoller, db *harmonydb.DB, sc *ffi.SealCalls) *SyntheticProofTask {
@@ -31,8 +30,6 @@ func NewSyntheticProofTask(sp *SealPoller, db *harmonydb.DB, sc *ffi.SealCalls) 
 		sp: sp,
 		db: db,
 		sc: sc,
-
-		//max: maxTrees,
 	}
 }
 
@@ -90,15 +87,17 @@ func (s *SyntheticProofTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 		ProofType: sectorParams.RegSealProof,
 	}
 
-	dealData, err := dealdata.DealDataSDRPoRep(ctx, s.db, s.sc, sectorParams.SpID, sectorParams.SectorNumber, sectorParams.RegSealProof)
+	dealData, err := dealdata.DealDataSDRPoRep(ctx, s.db, s.sc, sectorParams.SpID, sectorParams.SectorNumber, sectorParams.RegSealProof, true)
 	if err != nil {
 		return false, xerrors.Errorf("getting deal data: %w", err)
 	}
-	defer dealData.Close()
 
 	err = s.sc.SyntheticProofs(ctx, &taskID, sref, sealed, unsealed, sectorParams.TicketValue, dealData.PieceInfos)
 	if err != nil {
-		return false, xerrors.Errorf("generating synthetic proofs: %w", err)
+		serr := resetSectorSealingState(ctx, sectorParams.SpID, sectorParams.SectorNumber, err, s.db)
+		if serr != nil {
+			return false, xerrors.Errorf("generating synthetic proofs: %w", err)
+		}
 	}
 
 	err = s.markFinished(ctx, sectorParams.SpID, sectorParams.SectorNumber)
@@ -107,6 +106,25 @@ func (s *SyntheticProofTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 	}
 
 	return true, nil
+}
+
+func resetSectorSealingState(ctx context.Context, spid, secNum int64, err error, db *harmonydb.DB) error {
+	if err != nil {
+		if strings.Contains(err.Error(), "checking PreCommit") {
+			n, serr := db.Exec(ctx, `UPDATE sectors_sdr_pipeline 
+						SET after_tree_d = false, tree_d_cid = NULL, after_tree_r = false, after_tree_c = false, task_id_tree_r = NULL, task_id_tree_c = NULL,
+						    after_synth = false, task_id_synth = null
+						WHERE sp_id = $1 AND sector_number = $2`, spid, secNum)
+			if serr != nil {
+				return xerrors.Errorf("store sdr-trees failure: updating pipeline: Original error %w: DB error %w", err, serr)
+			}
+			if n != 1 {
+				return xerrors.Errorf("store sdr-trees failure: Original error %w: updated %d rows", err, n)
+			}
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *SyntheticProofTask) markFinished(ctx context.Context, spid, sector int64) error {
@@ -171,3 +189,15 @@ func (s *SyntheticProofTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 var _ harmonytask.TaskInterface = &SyntheticProofTask{}
+
+func (s *SyntheticProofTask) GetSpid(db *harmonydb.DB, taskID int64) string {
+	var spid string
+	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_synth = $1`, taskID).Scan(&spid)
+	if err != nil {
+		log.Errorf("getting spid: %s", err)
+		return ""
+	}
+	return spid
+}
+
+var _ = harmonytask.Reg(&SyntheticProofTask{})

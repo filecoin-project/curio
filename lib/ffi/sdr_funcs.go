@@ -207,7 +207,7 @@ func (sb *SealCalls) ensureOneCopy(ctx context.Context, sid abi.SectorID, pathID
 	return nil
 }
 
-func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, sector storiface.SectorRef, unsealed cid.Cid, randomness abi.SealRandomness) (scid cid.Cid, ucid cid.Cid, err error) {
+func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, sector storiface.SectorRef, unsealed cid.Cid, randomness abi.SealRandomness, pieces []abi.PieceInfo) (scid cid.Cid, ucid cid.Cid, err error) {
 	p1o, err := sb.makePhase1Out(unsealed, sector.ProofType)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("make phase1 output: %w", err)
@@ -281,6 +281,18 @@ func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, secto
 
 	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTCache|storiface.FTSealed); err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("ensure one copy: %w", err)
+	}
+
+	if found, ok := abi.Synthetic[sector.ProofType]; !ok && !found {
+		// Generate 3 random commits
+		for i := 0; i < C1CheckNumber; i++ {
+			var sd [32]byte
+			_, _ = rand.Read(sd[:])
+			_, err = ffi.SealCommitPhase1(sector.ProofType, out.Sealed, unsealed, fspaths.Cache, fspaths.Sealed, sector.ID.Number, sector.ID.Miner, randomness, sd[:], pieces)
+			if err != nil {
+				return cid.Undef, cid.Undef, xerrors.Errorf("checking PreCommit for sector num:%d tkt:%v seed:%v sealedCID:%v, unsealedCID:%v failed: %w", sector.ID.Number, randomness, sd[:], out.Sealed, unsealed, err)
+			}
+		}
 	}
 
 	return out.Sealed, out.Unsealed, nil
@@ -696,10 +708,6 @@ func (sb *SealCalls) SyntheticProofs(ctx context.Context, task *harmonytask.Task
 		return xerrors.Errorf("generating synthetic proof: %w", err)
 	}
 
-	if err = ffi.ClearCache(uint64(ssize), fspaths.Cache); err != nil {
-		return xerrors.Errorf("failed to clear cache for synthetic proof of sector %d of miner %d", sector.ID.Miner, sector.ID.Number)
-	}
-
 	// Generate 3 random commits
 	for i := 0; i < C1CheckNumber; i++ {
 		var sd [32]byte
@@ -708,6 +716,10 @@ func (sb *SealCalls) SyntheticProofs(ctx context.Context, task *harmonytask.Task
 		if err != nil {
 			return xerrors.Errorf("checking PreCommit for synthetic proofs for num:%d tkt:%v seed:%v sealedCID:%v, unsealedCID:%v failed: %w", sector.ID.Number, randomness, sd[:], sealed, unsealed, err)
 		}
+	}
+
+	if err = ffi.ClearCache(uint64(ssize), fspaths.Cache); err != nil {
+		return xerrors.Errorf("failed to clear cache for synthetic proof of sector %d of miner %d", sector.ID.Miner, sector.ID.Number)
 	}
 
 	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTCache|storiface.FTSealed); err != nil {

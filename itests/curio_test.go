@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path"
 	"testing"
 	"time"
 
@@ -284,15 +283,15 @@ func createCliContext(dir string) (*cli.Context, error) {
 			Usage: "path to json file containing storage config",
 			Value: "~/.curio/storage.json",
 		},
-		&cli.StringFlag{
-			Name:  "journal",
-			Usage: "path to journal files",
-			Value: "~/.curio/",
-		},
 		&cli.StringSliceFlag{
 			Name:    "layers",
 			Aliases: []string{"l", "layer"},
 			Usage:   "list of layers to be interpreted (atop defaults)",
+		},
+		&cli.StringFlag{
+			Name:    deps.FlagRepoPath,
+			EnvVars: []string{"CURIO_REPO_PATH"},
+			Value:   "~/.curio",
 		},
 	}
 
@@ -308,6 +307,7 @@ func createCliContext(dir string) (*cli.Context, error) {
 			fmt.Println("Storage config path:", c.String("storage-json"))
 			fmt.Println("Journal path:", c.String("journal"))
 			fmt.Println("Layers:", c.StringSlice("layers"))
+			fmt.Println("Repo Path:", c.String(deps.FlagRepoPath))
 			return nil
 		},
 	}
@@ -320,14 +320,10 @@ func createCliContext(dir string) (*cli.Context, error) {
 		}
 	}
 
-	curioDir := path.Join(dir, "curio")
-	cflag := fmt.Sprintf("--storage-json=%s", curioDir)
-
-	storage := path.Join(dir, "storage.json")
-	sflag := fmt.Sprintf("--journal=%s", storage)
+	rflag := fmt.Sprintf("--%s=%s", deps.FlagRepoPath, dir)
 
 	// Parse the flags with test values
-	err := set.Parse([]string{"--listen=0.0.0.0:12345", "--nosync", "--manage-fdlimit", sflag, cflag, "--layers=seal"})
+	err := set.Parse([]string{rflag, "--listen=0.0.0.0:12345", "--nosync", "--manage-fdlimit", "--layers=seal"})
 	if err != nil {
 		return nil, xerrors.Errorf("Error setting flag: %s\n", err)
 	}
