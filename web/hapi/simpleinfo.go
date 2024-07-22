@@ -35,28 +35,6 @@ type app struct {
 	stor adt.Store
 }
 
-type actorInfo struct {
-	Address string
-	CLayers []string
-
-	QualityAdjustedPower string
-	RawBytePower         string
-
-	ActorBalance, ActorAvailable, WorkerBalance string
-
-	Win1, Win7, Win30 int64
-
-	Deadlines []actorDeadline
-}
-
-type actorDeadline struct {
-	Empty      bool
-	Current    bool
-	Proven     bool
-	PartFaulty bool
-	Faulty     bool
-}
-
 func (a *app) indexMachines(w http.ResponseWriter, r *http.Request) {
 	s, err := a.clusterMachineSummary(r.Context())
 	if err != nil {
