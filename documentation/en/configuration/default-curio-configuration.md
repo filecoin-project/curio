@@ -222,6 +222,12 @@ description: The default curio configuration
   # type: bool
   #UseSyntheticPoRep = false
 
+  # The maximum amount of SyntheticPoRep tasks that can run simultaneously. Note that the maximum number of tasks will
+  # also be bounded by resources available on the machine.
+  #
+  # type: int
+  #SyntheticPoRepMaxTasks = 0
+
 
 [Fees]
   # type: types.FIL

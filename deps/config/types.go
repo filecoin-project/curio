@@ -245,6 +245,10 @@ type CurioSubsystemsConfig struct {
 	// UseSyntheticPoRep enables the synthetic PoRep for all new sectors. When set to true, will reduce the amount of
 	// cache data held on disk after the completion of TreeRC task to 11GiB.
 	UseSyntheticPoRep bool
+
+	// The maximum amount of SyntheticPoRep tasks that can run simultaneously. Note that the maximum number of tasks will
+	// also be bounded by resources available on the machine.
+	SyntheticPoRepMaxTasks int
 }
 type CurioFees struct {
 	DefaultMaxFee      types.FIL

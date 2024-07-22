@@ -625,6 +625,13 @@ only need to be run on a single machine in the cluster.`,
 			Comment: `UseSyntheticPoRep enables the synthetic PoRep for all new sectors. When set to true, will reduce the amount of
 cache data held on disk after the completion of TreeRC task to 11GiB.`,
 		},
+		{
+			Name: "SyntheticPoRepMaxTasks",
+			Type: "int",
+
+			Comment: `The maximum amount of SyntheticPoRep tasks that can run simultaneously. Note that the maximum number of tasks will
+also be bounded by resources available on the machine.`,
+		},
 	},
 	"Duration time.Duration": {
 		{

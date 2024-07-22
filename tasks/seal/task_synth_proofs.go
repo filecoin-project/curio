@@ -20,16 +20,18 @@ import (
 )
 
 type SyntheticProofTask struct {
-	sp *SealPoller
-	db *harmonydb.DB
-	sc *ffi.SealCalls
+	sp  *SealPoller
+	db  *harmonydb.DB
+	sc  *ffi.SealCalls
+	max int
 }
 
-func NewSyntheticProofTask(sp *SealPoller, db *harmonydb.DB, sc *ffi.SealCalls) *SyntheticProofTask {
+func NewSyntheticProofTask(sp *SealPoller, db *harmonydb.DB, sc *ffi.SealCalls, maxSynths int) *SyntheticProofTask {
 	return &SyntheticProofTask{
-		sp: sp,
-		db: db,
-		sc: sc,
+		sp:  sp,
+		db:  db,
+		sc:  sc,
+		max: maxSynths,
 	}
 }
 
@@ -154,7 +156,7 @@ func (s *SyntheticProofTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	res := harmonytask.TaskTypeDetails{
-		Max:  50,
+		Max:  s.max,
 		Name: "SyntheticProofs",
 		Cost: resources.Resources{
 			Cpu:     1,
