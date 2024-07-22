@@ -8,7 +8,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"text/template"
 	"time"
 
@@ -34,38 +33,6 @@ type app struct {
 	deps *deps.Deps
 	t    *template.Template
 	stor adt.Store
-
-	actorInfoLk sync.Mutex
-	actorInfos  []actorInfo
-}
-
-type actorInfo struct {
-	Address string
-	CLayers []string
-
-	QualityAdjustedPower string
-	RawBytePower         string
-
-	ActorBalance, ActorAvailable, WorkerBalance string
-
-	Win1, Win7, Win30 int64
-
-	Deadlines []actorDeadline
-}
-
-type actorDeadline struct {
-	Empty      bool
-	Current    bool
-	Proven     bool
-	PartFaulty bool
-	Faulty     bool
-}
-
-func (a *app) actorSummary(w http.ResponseWriter, r *http.Request) {
-	a.actorInfoLk.Lock()
-	defer a.actorInfoLk.Unlock()
-
-	a.executeTemplate(w, "actor_summary", a.actorInfos)
 }
 
 func (a *app) indexMachines(w http.ResponseWriter, r *http.Request) {

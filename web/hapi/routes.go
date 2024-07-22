@@ -33,10 +33,7 @@ func Routes(r *mux.Router, deps *deps.Deps) error {
 		stor: store.ActorStore(context.Background(), blockstore.NewReadCachedBlockstore(blockstore.NewAPIBlockstore(deps.Chain), curiochain.ChainBlockCache)),
 	}
 
-	go a.watchActor()
-
 	// index page (simple info)
-	r.HandleFunc("/simpleinfo/actorsummary", a.actorSummary)
 	r.HandleFunc("/simpleinfo/machines", a.indexMachines)
 	r.HandleFunc("/simpleinfo/taskhistory", a.indexTasksHistory)
 	r.HandleFunc("/simpleinfo/pipeline-porep", a.indexPipelinePorep)

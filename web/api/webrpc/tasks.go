@@ -22,7 +22,7 @@ type TaskSummary struct {
 }
 
 func (a *WebRPC) ClusterTaskSummary(ctx context.Context) ([]TaskSummary, error) {
-	var ts []TaskSummary
+	var ts = []TaskSummary{}
 	err := a.deps.DB.Select(ctx, &ts, `SELECT 
 		t.id as id, t.name as name, t.update_time as since_posted, t.owner_id as owner_id, hm.host_and_port as owner
 	FROM harmony_task t LEFT JOIN harmony_machines hm ON hm.id = t.owner_id 
