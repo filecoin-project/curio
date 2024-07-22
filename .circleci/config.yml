@@ -108,7 +108,10 @@ jobs:
       - run: git submodule update --init
       - install-ubuntu-deps
       - check-go-version
-      - run: make deps build
+      - run: make deps debug
+      - run: make 2k
+      - run: make calibnet
+      - run: make build
       - persist_to_workspace:
           root: ~/
           paths:

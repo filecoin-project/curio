@@ -49,7 +49,7 @@ RUN make build
 #####################################
 FROM ubuntu:22.04 AS curio-all-in-one
 
-RUN apt-get update && apt-get install -y dnsutils vim curl
+RUN apt-get update && apt-get install -y dnsutils vim curl aria2
 
 # Copy libraries and binaries from curio-builder
 COPY --from=curio-builder /etc/ssl/certs /etc/ssl/certs
