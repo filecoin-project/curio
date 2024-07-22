@@ -119,7 +119,7 @@ var wdPostTaskCmd = &cli.Command{
 
 		for len(taskIDs) > 0 {
 			time.Sleep(time.Second)
-			err = deps.DB.QueryRow(ctx, `SELECT task_id, result FROM harmony_test WHERE task_id IN $1`, taskIDs).Scan(&taskID, &result)
+			err = deps.DB.QueryRow(ctx, `SELECT task_id, result FROM harmony_test WHERE task_id IN ($1)`, taskIDs).Scan(&taskID, &result)
 			if err != nil {
 				return xerrors.Errorf("reading result from harmony_test: %w", err)
 			}
@@ -141,7 +141,7 @@ var wdPostTaskCmd = &cli.Command{
 					result sql.NullString
 					errmsg sql.NullString
 				}
-				err = deps.DB.Select(ctx, &hist, `SELECT id, task_id, result, err FROM harmony_task_history WHERE task_id IN $1 ORDER BY work_end DESC`, taskIDs)
+				err = deps.DB.Select(ctx, &hist, `SELECT id, task_id, result, err FROM harmony_task_history WHERE task_id IN ($1) ORDER BY work_end DESC`, taskIDs)
 				if err != nil && err != pgx.ErrNoRows {
 					return xerrors.Errorf("reading result from harmony_task_history: %w", err)
 				}
@@ -161,7 +161,7 @@ var wdPostTaskCmd = &cli.Command{
 			{
 				// look for fails
 				var found []int64
-				err = deps.DB.Select(ctx, found, `SELECT task_id FROM harmony_task WHERE id IN $1`, taskIDs)
+				err = deps.DB.Select(ctx, found, `SELECT task_id FROM harmony_task WHERE id IN ($1)`, taskIDs)
 				if err != nil && err != pgx.ErrNoRows {
 					return xerrors.Errorf("reading result from harmony_task: %w", err)
 				}
