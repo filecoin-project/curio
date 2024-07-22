@@ -169,6 +169,7 @@ var wdPostTaskCmd = &cli.Command{
 				log.Infof("Tasks found in harmony_task: %v", found)
 			}
 		}
+		fmt.Println("All tasks completed successfully")
 		return nil
 	},
 }
@@ -244,6 +245,7 @@ It will not send any messages to the chain. Since it can compute any deadline, o
 			}
 		}
 
+		fmt.Println("All tasks completed successfully")
 		return nil
 	},
 }

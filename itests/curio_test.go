@@ -45,6 +45,14 @@ import (
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
+var dbConfig = config.HarmonyDB{
+	Hosts:    []string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")},
+	Database: "yugabyte",
+	Username: "yugabyte",
+	Password: "yugabyte",
+	Port:     "5433",
+}
+
 func TestCurioNewActor(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -64,13 +72,7 @@ func TestCurioNewActor(t *testing.T) {
 	require.NoError(t, err)
 
 	sharedITestID := harmonydb.ITestNewID()
-	dbConfig := config.HarmonyDB{
-		Hosts:    []string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")},
-		Database: "yugabyte",
-		Username: "yugabyte",
-		Password: "yugabyte",
-		Port:     "5433",
-	}
+
 	db, err := harmonydb.NewFromConfigWithITestID(t, dbConfig, sharedITestID)
 	require.NoError(t, err)
 

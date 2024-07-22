@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -55,7 +56,7 @@ func NewFromConfig(cfg config.HarmonyDB) (*DB, error) {
 		cfg.Password,
 		cfg.Database,
 		cfg.Port,
-		"",
+		ITestID(os.Getenv("CURIO_ITEST_DO_NOT_USE")), // ONLY for testing
 	)
 }
 
