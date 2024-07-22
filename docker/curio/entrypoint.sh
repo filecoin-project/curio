@@ -3,8 +3,6 @@ set -e
 echo CURIO_REPO_PATH=$CURIO_REPO_PATH
 echo Wait for lotus is ready ...
 lotus wait-api
-echo Wait for lotus-miner is ready ...
-lotus-miner wait-api
 head=0
 # Loop until the head is greater than 9
 while [[ $head -le 9 ]]; do
@@ -21,6 +19,8 @@ echo All ready. Lets go
 myip=`nslookup curio | grep -v "#" | grep Address | awk '{print $2}'`
 
 if [ ! -f $CURIO_REPO_PATH/.init.curio ]; then
+  echo Wait for lotus-miner is ready ...
+  lotus-miner wait-api
 
   if [ ! -f $CURIO_REPO_PATH/.init.setup ]; then
   export DEFAULT_WALLET=`lotus wallet default`
@@ -56,5 +56,5 @@ if [ ! -f $CURIO_REPO_PATH/.init.curio ]; then
 fi
 
 echo Starting curio node ...
-exec curio run --nosync --layers seal,post,gui
+exec curio run --nosync --name devnet --layers seal,post,gui
 
