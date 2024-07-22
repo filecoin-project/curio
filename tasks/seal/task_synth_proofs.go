@@ -94,7 +94,7 @@ func (s *SyntheticProofTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 
 	err = s.sc.SyntheticProofs(ctx, &taskID, sref, sealed, unsealed, sectorParams.TicketValue, dealData.PieceInfos)
 	if err != nil {
-		serr := resetSectorSealingState(ctx, sectorParams.SpID, sectorParams.SectorNumber, err, s.db)
+		serr := resetSectorSealingState(ctx, sectorParams.SpID, sectorParams.SectorNumber, err, s.db, s.TypeDetails().Name)
 		if serr != nil {
 			return false, xerrors.Errorf("generating synthetic proofs: %w", err)
 		}
@@ -108,7 +108,7 @@ func (s *SyntheticProofTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 	return true, nil
 }
 
-func resetSectorSealingState(ctx context.Context, spid, secNum int64, err error, db *harmonydb.DB) error {
+func resetSectorSealingState(ctx context.Context, spid, secNum int64, err error, db *harmonydb.DB, name string) error {
 	if err != nil {
 		if strings.Contains(err.Error(), "checking PreCommit") {
 			n, serr := db.Exec(ctx, `UPDATE sectors_sdr_pipeline 
@@ -116,10 +116,10 @@ func resetSectorSealingState(ctx context.Context, spid, secNum int64, err error,
 						    after_synth = false, task_id_synth = null
 						WHERE sp_id = $1 AND sector_number = $2`, spid, secNum)
 			if serr != nil {
-				return xerrors.Errorf("store sdr-trees failure: updating pipeline: Original error %w: DB error %w", err, serr)
+				return xerrors.Errorf("store %s failure: updating pipeline: Original error %w: DB error %w", name, err, serr)
 			}
 			if n != 1 {
-				return xerrors.Errorf("store sdr-trees failure: Original error %w: updated %d rows", err, n)
+				return xerrors.Errorf("store %s failure: Original error %w: updated %d rows", name, err, n)
 			}
 		}
 		return err

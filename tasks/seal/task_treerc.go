@@ -81,7 +81,7 @@ func (t *TreeRCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	// R / C
 	sealed, unsealed, err := t.sc.TreeRC(ctx, &taskID, sref, commd, sectorParams.TicketValue, dd.PieceInfos)
 	if err != nil {
-		serr := resetSectorSealingState(ctx, sectorParams.SpID, sectorParams.SectorNumber, err, t.db)
+		serr := resetSectorSealingState(ctx, sectorParams.SpID, sectorParams.SectorNumber, err, t.db, t.TypeDetails().Name)
 		if serr != nil {
 			return false, xerrors.Errorf("computing tree r and c: %w", err)
 		}
