@@ -239,7 +239,7 @@ class ActorSummary extends LitElement {
                 <tbody>
                 ${this.data.map(entry => html`
                     <tr>
-                        <td>${entry.Address}</td>
+                        <td><a href="/actor/?id=${entry.Address}">${entry.Address}</a></td>
                         <td>
                             ${entry.CLayers.map(layer => html`<span>${layer} </span>`)}
                         </td>
