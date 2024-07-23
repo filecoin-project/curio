@@ -11,7 +11,7 @@ window.customElements.define('chain-connectivity', class MyElement extends LitEl
     async loadData() {
         const blockDelay = await RPCCall('BlockDelaySecs')
         await this.updateData();
-        setInterval(()=>this.loadData(), blockDelay * 1000);
+        setTimeout(()=>this.loadData(), blockDelay * 1000);
     };
 
     async updateData() {

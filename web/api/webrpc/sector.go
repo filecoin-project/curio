@@ -7,11 +7,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/filecoin-project/curio/lib/paths"
-	"github.com/filecoin-project/go-address"
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-address"
+
+	"github.com/filecoin-project/curio/lib/paths"
 
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
