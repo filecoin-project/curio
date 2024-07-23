@@ -15,7 +15,6 @@ import (
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/cmd/curio/tasks"
 	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/lib/shutdown"
 	"github.com/filecoin-project/curio/market/lmrpc"
 
 	"github.com/filecoin-project/lotus/lib/ulimit"
@@ -147,10 +146,7 @@ var runCmd = &cli.Command{
 			return err
 		}
 
-		finishCh := shutdown.MonitorShutdown(shutdownChan) //node.ShutdownHandler{Component: "rpc server", StopFunc: rpcStopper},
-		//node.ShutdownHandler{Component: "curio", StopFunc: stop},
-
-		<-finishCh
+		<-shutdownChan
 		return nil
 	},
 }
