@@ -2,7 +2,6 @@ package webrpc
 
 import (
 	"context"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -107,7 +106,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 	spid, err := address.IDFromAddress(maddr)
 	if err != nil {
-		return nil, xerrors.Errorf("invalid sp", http.StatusBadRequest)
+		return nil, xerrors.Errorf("invalid sp")
 	}
 
 	var tasks []PipelineTask
