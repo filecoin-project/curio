@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import '/lib/clipboard-copy.mjs';
 
 class Expirations extends LitElement {
     static properties = {
@@ -184,6 +185,11 @@ class ActorSummary extends LitElement {
         .deadline-faulty {
             background-color: red;
         }
+        
+        .address-container {
+          display: flex;
+          align-items: center;
+        }
     `;
 
     constructor() {
@@ -239,7 +245,12 @@ class ActorSummary extends LitElement {
                 <tbody>
                 ${this.data.map(entry => html`
                     <tr>
-                        <td><a href="/actor/?id=${entry.Address}">${entry.Address}</a></td>
+                        <td>
+                            <div  class="address-container">
+                                <a href="/actor/?id=${entry.Address}">${entry.Address}</a>
+                                <clipboard-copy .text=${entry.Address}></clipboard-copy>
+                            </div>
+                        </td>
                         <td>
                             ${entry.CLayers.map(layer => html`<span>${layer} </span>`)}
                         </td>
