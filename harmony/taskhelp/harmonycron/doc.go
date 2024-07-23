@@ -1,6 +1,6 @@
 /*
-HarmonyCron is a regular harmonytask.TaskInterface task
-It supports: At(when time.Time, taskType string, sqlTable, sqlRowID, sqlTaskIDColumnName)
+HarmonyCron starts tasks at a specified time & associates them with a row in a SQL table.
+It supports: At(when time.Time, taskType, sqlTable string, sqlRowID int)
 
 	which will add a task to the task engine at the specified time and associate it with the specified row.
 
@@ -11,5 +11,6 @@ Operation:
 	the task in the task engine.
 
 Requirement: The sqlTable must have columns "id" and "task_id" to be able to update the task_id.
+HarmonyCron is a regular harmonytask.TaskInterface task ran by all nodes.
 */
 package harmonycron
