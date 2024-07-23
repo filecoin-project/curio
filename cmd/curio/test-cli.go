@@ -109,7 +109,7 @@ var wdPostTaskCmd = &cli.Command{
 				return xerrors.Errorf("writing SQL transaction: %w", err)
 			}
 
-			fmt.Printf("Inserted task %v for miner ID %v. Waiting for success ", taskId, addr)
+			fmt.Printf("Inserted task %d for miner ID %s. Waiting for success ", taskId, address.Address(addr).String())
 			taskIDs = append(taskIDs, taskId)
 		}
 
@@ -119,12 +119,12 @@ var wdPostTaskCmd = &cli.Command{
 
 		for len(taskIDs) > 0 {
 			time.Sleep(time.Second)
-			err = deps.DB.QueryRow(ctx, `SELECT task_id, result FROM harmony_test WHERE task_id IN $1`, taskIDs).Scan(&taskID, &result)
+			err = deps.DB.QueryRow(ctx, `SELECT task_id, result FROM harmony_test WHERE task_id = ANY($1)`, taskIDs).Scan(&taskID, &result)
 			if err != nil {
 				return xerrors.Errorf("reading result from harmony_test: %w", err)
 			}
 			if result.Valid {
-				log.Infof("Result for task %v: %s", taskID, result.String)
+				log.Infof("Result for task %d: %s", taskID, result.String)
 				// remove task from list
 				taskIDs = lo.Filter(taskIDs, func(v int64, i int) bool {
 					return v != taskID
@@ -136,24 +136,24 @@ var wdPostTaskCmd = &cli.Command{
 			{
 				// look at history
 				var hist []struct {
-					histID int64
-					taskID int64
-					result sql.NullString
-					errmsg sql.NullString
+					HistID int64  `db:"id"`
+					TaskID string `db:"task_id"`
+					Result bool   `db:"result"`
+					Err    string `db:"err"`
 				}
-				err = deps.DB.Select(ctx, &hist, `SELECT id, task_id, result, err FROM harmony_task_history WHERE task_id IN $1 ORDER BY work_end DESC`, taskIDs)
-				if err != nil && err != pgx.ErrNoRows {
+				err = deps.DB.Select(ctx, &hist, `SELECT id, task_id, result, err FROM harmony_task_history WHERE task_id = ANY($1) ORDER BY work_end DESC`, taskIDs)
+				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 					return xerrors.Errorf("reading result from harmony_task_history: %w", err)
 				}
 
 				for _, h := range hist {
-					if !lo.Contains(historyIDs, h.histID) {
-						historyIDs = append(historyIDs, h.histID)
+					if !lo.Contains(historyIDs, h.HistID) {
+						historyIDs = append(historyIDs, h.HistID)
 						var errstr string
-						if h.errmsg.Valid {
-							errstr = h.errmsg.String
+						if len(h.Err) > 0 {
+							errstr = h.Err
 						}
-						fmt.Printf("History for task %v historyID %d: %s\n", taskID, h.histID, errstr)
+						fmt.Printf("History for task %d historyID %d: %s\n", taskID, h.HistID, errstr)
 					}
 				}
 			}
@@ -161,8 +161,8 @@ var wdPostTaskCmd = &cli.Command{
 			{
 				// look for fails
 				var found []int64
-				err = deps.DB.Select(ctx, found, `SELECT task_id FROM harmony_task WHERE id IN $1`, taskIDs)
-				if err != nil && err != pgx.ErrNoRows {
+				err = deps.DB.Select(ctx, &found, `SELECT id FROM harmony_task WHERE id = ANY($1)`, taskIDs)
+				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 					return xerrors.Errorf("reading result from harmony_task: %w", err)
 				}
 

@@ -5,48 +5,19 @@
     <script src="https://unpkg.com/htmx.org@1.9.5"
         integrity="sha384-xcuj3WpfgjlKF+FXhSQFQ0ZNr39ln+hwjN3npfM9VBnUskLolQAcN80McRIVOPuO"
         crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script type="module" src="chain-connectivity.mjs"></script>
     <script type="module" src="harmony-task-counts.mjs"></script>
     <script type="module" src="storage-gc.mjs"></script>
     <script type="module" src="storage-use.mjs"></script>
     <script type="module" src="win-stats.mjs"></script>
-    <script type="module" src="/ux/curio-ux.mjs"></script>
     <script type="module" src="cluster-tasks.mjs"></script>
     <script type="module" src="cluster-machines.mjs"></script>
     <script type="module" src="cluster-task-history.mjs"></script>
     <script type="module" src="pipeline-porep.mjs"></script>
+    <script type="module" src="actor-summary.mjs"></script>
+    <script type="module" src="/ux/curio-ux.mjs"></script>
     <style>
-        .deadline-box {
-            display: grid;
-            grid-template-columns: repeat(16, auto);
-            grid-template-rows: repeat(3, auto);
-            grid-gap: 1px;
-        }
-
-        .deadline-entry {
-            width: 10px;
-            height: 10px;
-            background-color: grey;
-            margin: 1px;
-        }
-
-        .deadline-entry-cur {
-            border-bottom: 3px solid deepskyblue;
-            height: 7px;
-        }
-
-        .deadline-proven {
-            background-color: green;
-        }
-
-        .deadline-partially-faulty {
-            background-color: yellow;
-        }
-
-        .deadline-faulty {
-            background-color: red;
-        }
-
         .logo {
             display: inline-block;
         }
@@ -86,29 +57,20 @@
                 <div class="col-md-auto" style="max-width: 1000px">
                     <div class="info-block">
                         <h2>Actor Summary</h2>
-                        <table class="table table-dark">
-                            <thead>
-                            <tr>
-                                <th>Address</th>
-                                <th>Source Layer</th>
-                                <th>QaP</th>
-                                <th>Deadlines</th>
-                                <th>Balance</th>
-                                <th>Available</th>
-                                <th>Worker</th>
-                                <th style="min-width: 100px">Wins</th>
-                            </tr>
-                            </thead>
-                            <tbody hx-get="/hapi/simpleinfo/actorsummary" hx-trigger="load,every 5s">
-                            </tbody>
-                        </table>
+                        <actor-summary></actor-summary>
                     </div>
                 </div>
+            </div>
+
+            <div class="row">
                 <div class="col-md-auto">
-                    <h2>Recent Wins</h2>
-                    <win-stats></win-stats>
+                    <div class="info-block">
+                        <h2>Recent Wins</h2>
+                        <win-stats></win-stats>
+                    </div>
                 </div>
             </div>
+
 
             <div class="row">
                 <div class="col-md-auto">
