@@ -20,7 +20,7 @@ import (
 type SectorInfo struct {
 	SectorNumber  int64
 	SpID          uint64
-	PipelinePoRep sectorListEntry
+	PipelinePoRep *sectorListEntry
 
 	Pieces    []SectorPieceMeta
 	Locations []LocationTable
@@ -130,9 +130,9 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		return nil, xerrors.Errorf("failed to fetch pipeline task info: %w", err)
 	}
 
-	if len(tasks) == 0 {
-		return nil, xerrors.Errorf("sector not found")
-	}
+	// if len(tasks) == 0 {  They could be onboarded from elsewhere.
+	// 	return nil, xerrors.Errorf("sector not found")
+	// }
 
 	head, err := a.deps.Chain.ChainHead(ctx)
 	if err != nil {
@@ -145,10 +145,20 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		return nil, xerrors.Errorf("failed to load miner bitfields: %w", err)
 	}
 
-	task := tasks[0]
+	var sle *sectorListEntry
+	if len(tasks) > 0 {
+		task := tasks[0]
+		sle = &sectorListEntry{
+			PipelineTask: tasks[0],
+			AfterSeed:    task.SeedEpoch != nil && *task.SeedEpoch <= int64(epoch),
 
-	afterSeed := task.SeedEpoch != nil && *task.SeedEpoch <= int64(epoch)
-
+			ChainAlloc:    must.One(mbf.alloc.IsSet(uint64(task.SectorNumber))),
+			ChainSector:   must.One(mbf.sectorSet.IsSet(uint64(task.SectorNumber))),
+			ChainActive:   must.One(mbf.active.IsSet(uint64(task.SectorNumber))),
+			ChainUnproven: must.One(mbf.unproven.IsSet(uint64(task.SectorNumber))),
+			ChainFaulty:   must.One(mbf.faulty.IsSet(uint64(task.SectorNumber))),
+		}
+	}
 	var sectorLocations []struct {
 		CanSeal, CanStore bool
 		FileType          storiface.SectorFileType `db:"sector_filetype"`
@@ -288,9 +298,10 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	}
 
 	// TaskIDs
-	taskIDs := map[int64]struct{}{}
 	var htasks []SectorInfoTaskSummary
-	{
+	if len(tasks) > 0 {
+		taskIDs := map[int64]struct{}{}
+		task := tasks[0]
 		// get non-nil task IDs
 		appendNonNil := func(id *int64) {
 			if id != nil {
@@ -345,12 +356,13 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	*/
 
 	var th []TaskHistory
-	err = a.deps.DB.Select(ctx, &th, `WITH task_ids AS (
-	    SELECT unnest(get_sdr_pipeline_tasks($1, $2)) AS task_id
-	)
-	SELECT ti.task_id pipeline_task_id, ht.name, ht.completed_by_host_and_port, ht.result, ht.err, ht.work_start, ht.work_end
-	FROM task_ids ti
-	         INNER JOIN harmony_task_history ht ON ti.task_id = ht.task_id`, spid, intid)
+	err = a.deps.DB.Select(ctx, &th, `
+		WITH task_ids AS (
+				SELECT unnest(get_sdr_pipeline_tasks($1, $2)) AS task_id
+		)
+		SELECT ti.task_id pipeline_task_id, ht.name, ht.completed_by_host_and_port, ht.result, ht.err, ht.work_start, ht.work_end
+		FROM task_ids ti
+						INNER JOIN harmony_task_history ht ON ti.task_id = ht.task_id`, spid, intid)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch task history: %w", err)
 	}
@@ -384,18 +396,9 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	}
 
 	return &SectorInfo{
-		SectorNumber: intid,
-		SpID:         spid,
-		PipelinePoRep: sectorListEntry{
-			PipelineTask: tasks[0],
-			AfterSeed:    afterSeed,
-
-			ChainAlloc:    must.One(mbf.alloc.IsSet(uint64(task.SectorNumber))),
-			ChainSector:   must.One(mbf.sectorSet.IsSet(uint64(task.SectorNumber))),
-			ChainActive:   must.One(mbf.active.IsSet(uint64(task.SectorNumber))),
-			ChainUnproven: must.One(mbf.unproven.IsSet(uint64(task.SectorNumber))),
-			ChainFaulty:   must.One(mbf.faulty.IsSet(uint64(task.SectorNumber))),
-		},
+		SectorNumber:  intid,
+		SpID:          spid,
+		PipelinePoRep: sle,
 
 		Pieces:      pieces,
 		Locations:   locs,

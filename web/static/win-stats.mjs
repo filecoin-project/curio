@@ -11,7 +11,7 @@ class WinStats extends LitElement {
     async loadData() {
         this.data = await RPCCall('WinStats') || [];
         setTimeout(() => this.loadData(), 2 * 60 * 1000); // 2 minutes
-        super.requestUpdate();
+        this.requestUpdate();
     }
 
     render() {

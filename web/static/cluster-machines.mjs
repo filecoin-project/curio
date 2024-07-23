@@ -1,23 +1,18 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 
-class ClusterMachines extends HTMLElement {
+customElements.define('cluster-machines', class ClusterMachines extends LitElement {
     constructor() {
         super();
         this.data = [];
+        this.loadData();
     }
 
     async loadData() {
         this.data = await RPCCall('ClusterMachines');
         setTimeout(() => this.loadData(), 5000);
-        super.requestUpdate();
+        this.requestUpdate();
     }
-
-    connectedCallback() {
-        this.loadData();
-        this.render();
-    }
-
     render() {
         return html`
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
@@ -51,8 +46,8 @@ class ClusterMachines extends HTMLElement {
                                     <td>${item.RamHumanized}</td>
                                     <td>${item.Gpu}</td>
                                     <td>${item.SinceContact}</td>
-                                    <td>${item.Tasks}</td>
-                                    <td>${item.Layers}</td>
+                                    <td>${item.Tasks.split(',').join(' ')}</td>
+                                    <td>${item.Layers.split(',').join(' ')}</td>
                                 </tr>
                             `)}
                             </tbody>
@@ -64,6 +59,4 @@ class ClusterMachines extends HTMLElement {
             </div>
         `;
     }
-}
-
-customElements.define('cluster-machines', ClusterMachines);
+});

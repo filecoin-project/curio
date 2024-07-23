@@ -1,18 +1,14 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
-
-class PipelinePorepSectors extends LitElement {
+import RPCCall from '/lib/jsonrpc.mjs';
+customElements.define('pipeline-porep-sectors',class PipelinePorepSectors extends LitElement {
     constructor() {
         super();
         this.data = [];
-    }
-
-    connectedCallback() {
         this.loadData();
     }
-
     async loadData() {
         this.data = await RPCCall('PipelinePorepSectors');
-        super.requestUpdate();
+        this.requestUpdate();
     };
 
     static styles = css`
@@ -51,13 +47,13 @@ class PipelinePorepSectors extends LitElement {
     }
 
     renderSectors() {
-        return this.sectors.map((sector) => html`
+        return this.data.map((sector) => html`
             <tr>
                 <td>${sector.Address}</td>
                 <td rowspan="2">${sector.CreateTime}</td>
                 <td rowspan="2">${this.renderSector(sector)}</td>
                 <td rowspan="2">
-                    <a href="/pages/sector/?sp=${sector.Address}&sector=${sector.SectorNumber}">DETAILS</a>
+                    <a href="/pages/sector/?sp=${sector.Address}&id=${sector.SectorNumber}">DETAILS</a>
                 </td>
             </tr>
             <tr>
@@ -65,16 +61,8 @@ class PipelinePorepSectors extends LitElement {
             </tr>
         `);
     }
-
-    static properties = {
-        sectors: { type: Array },
-    };
-}
-
-customElements.define('pipeline-porep-sectors', PipelinePorepSectors);
-
-// split renderSector to <sector-porep-state>
-class SectorPorepState extends LitElement {
+} );
+customElements.define('sector-porep-state', class SectorPorepState extends LitElement {
     static styles = css`
         .porep-state {
             border-collapse: collapse;
@@ -168,5 +156,4 @@ class SectorPorepState extends LitElement {
             </td>
         `;
     }
-}
-customElements.define('sector-porep-state', SectorPorepState);
+});

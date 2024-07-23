@@ -1,23 +1,17 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
-import '/pages/pipeline_porep/pipeline_porep_sectors.mjs';
-class SectorInfo extends HTMLElement {
+import RPCCall from '/lib/jsonrpc.mjs';
+import '/pages/pipeline_porep/pipeline-porep-sectors.mjs';
+customElements.define('sector-info',class SectorInfo extends LitElement {
     constructor() {
         super();
-        this.data = [];
+        this.loadData();
     }
-
     async loadData() {
         const params = new URLSearchParams(window.location.search);
-        this.data = await RPCCall('SectorInfo', [params.get('sp'), params.get('sector')]);
+        this.data = await RPCCall('SectorInfo', ['f0'+params.get('sp'), params.get('id')|0]);
         setTimeout(() => this.loadData(), 5000);
-        super.requestUpdate();
+        this.requestUpdate();
     }
-
-    connectedCallback() {
-        this.loadData();
-        this.render();
-    }
-
     async removeSector() {
         await RPCCall('SectorRemove', [this.data.SpID, this.data.SectorNumber]);
         window.location.href = '/pages/pipeline_porep/pipeline_porep_sectors';
@@ -28,6 +22,10 @@ class SectorInfo extends HTMLElement {
     }
 
     render() {
+        if (!this.data) {
+            return html`<div>Loading...</div>`;
+        }
+
         return html`
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
@@ -35,14 +33,16 @@ class SectorInfo extends HTMLElement {
             <h2>Sector ${this.data.SectorNumber}</h2>
             <div>
                 <details>
-                    <summary class="btn btn-warning">Remove ${!this.data.PipelinePoRep.Failed ? '(THIS SECTOR IS NOT FAILED!)' : ''}</summary>
+                    <summary class="btn btn-warning">Remove ${!this.data.PipelinePoRep?.Failed ? '(THIS SECTOR IS NOT FAILED!)' : ''}</summary>
                     <button class="btn btn-danger" onclick="${this.removeSector}">Confirm Remove</button>
                 </details>
                 ${this.data.Resumable ? html`<button class="btn btn-primary" onclick="${this.resumeSector}">Resume</button>` : ''}
             </div>
             <div>
                 <h3>PoRep Pipeline</h3>
+            ${this.data.PipelinePoRep ? html`
                 <sector-porep-state .data=${this.data.PipelinePoRep}></sector-porep-state>
+            ` : ''}
             </div>
             <div>
                 <h3>Pieces</h3>
@@ -63,7 +63,7 @@ class SectorInfo extends HTMLElement {
                         <th>PP Complete</th>
                         <th>PP Cleanup Task</th>
                     </tr>
-                    ${this.data.Pieces.map(piece => html`
+                    ${(this.data.Pieces||[]).map(piece => html`
                         <tr>
                             <td>${piece.PieceIndex}</td>
                             <td>${piece.PieceCid}</td>
@@ -123,7 +123,7 @@ class SectorInfo extends HTMLElement {
                         <th>Posted</th>
                         <th>Worker</th>
                     </tr>
-                    ${this.data.Tasks.map(task => html`
+                    ${(this.data.Tasks||[]).map(task => html`
                         <tr>
                             <td>${task.Name}</td>
                             <td>${task.ID}</td>
@@ -145,7 +145,7 @@ class SectorInfo extends HTMLElement {
                         <th>Took</th>
                         <th>Error</th>
                     </tr>
-                    ${this.data.TaskHistory.map(history => html`
+                    ${(this.data.TaskHistory||[]).map(history => html`
                         ${history.Name ? html`
                             <tr>
                                 <td>${history.PipelineTaskID}</td>
@@ -162,6 +162,4 @@ class SectorInfo extends HTMLElement {
             </div>
         `;
     }
-}
-
-customElements.define('sector-info', SectorInfo);
+} );

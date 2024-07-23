@@ -46,7 +46,12 @@
       columns: [
         {title: "", data: null},
         {title: "SpID", data:'MinerID'},
-        {title: "Sector", data:'SectorNum'},
+        {title: "Sector", data: 'SectorNum', render: function(data, type, row) {
+          if (type === 'display') {
+            return `<a href="/pages/sector/?sp=${row.MinerID}&id=${data}">${data}</a>`;
+          }
+          return data;
+        }},
         {title: "Expiry", data:'ExpiresAt'},
         {title: "🔗", data:'IsOnChain'},
         {title: "Proving", data:'Proving'},

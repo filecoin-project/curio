@@ -1,23 +1,20 @@
-import { html, render } from 'https://unpkg.com/lit-html?module';
-
-class NodeInfoElement extends HTMLElement {
+import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
+import RPCCall from '/lib/jsonrpc.mjs';
+customElements.define('node-info',class NodeInfoElement extends LitElement {
     constructor() {
         super();
-        this.data = [];
+        this.loadData();
     }
-
     async loadData() {
         const id = new URLSearchParams(window.location.search).get('id');
-        this.data = await RPCCall('ClusterNodeInfo', [ id ]);
-        super.requestUpdate();
-    }
-
-    connectedCallback() {
-        this.loadData();
-        this.render();
+        this.data = await RPCCall('ClusterNodeInfo', [ id|0 ]);
+        this.requestUpdate();
     }
     render() {
-        const template = html`
+        if (!this.data) {
+            return html`<div>Loading...</div>`;
+        }
+        return html`
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
 
@@ -39,7 +36,7 @@ class NodeInfoElement extends HTMLElement {
                     <td>${this.data.Info.ID}</td>
                     <td>${this.data.Info.LastContact}</td>
                     <td>${this.data.Info.CPU}</td>
-                    <td>${this.toHumanBytes(this.info.Memory)}</td>
+                    <td>${this.toHumanBytes(this.data.Info.Memory)}</td>
                     <td>${this.data.Info.GPU}</td>
                     <td><a href="http://${this.data.Info.Host}/debug/pprof">[pprof]</a></td>
                 </tr>
@@ -55,7 +52,7 @@ class NodeInfoElement extends HTMLElement {
                     <td>Reserved</td>
                     <td></td>
                 </tr>
-                ${this.data.Storage.map((item) => html`
+                ${(this.data.Storage||[]).map((item) => html`
                     <tr>
                         <td>${item.ID}</td>
                         <td>
@@ -86,7 +83,7 @@ class NodeInfoElement extends HTMLElement {
                     <td>Posted</td>
                     <td>Sector</td>
                 </tr>
-                ${this.data.RunningTasks.map((task) => html`
+                ${(this.data.RunningTasks||[]).map((task) => html`
                     <tr>
                         <td>${task.ID}</td>
                         <td>${task.Task}</td>
@@ -121,8 +118,6 @@ class NodeInfoElement extends HTMLElement {
                 `)}
             </table>
         `;
-
-        render(template, this.shadowRoot);
     }
 
     toHumanBytes(bytes) {
@@ -171,6 +166,4 @@ class NodeInfoElement extends HTMLElement {
     get finishedTasks() {
         return this._finishedTasks;
     }
-}
-
-customElements.define('node-info', NodeInfoElement);
+} );
