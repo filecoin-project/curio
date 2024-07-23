@@ -2,10 +2,6 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import RPCCall from '/lib/jsonrpc.mjs';
 
 class StorageGCStats extends LitElement {
-    static properties = {
-        data: { type: Array }
-    };
-
     constructor() {
         super();
         this.data = [];
@@ -13,7 +9,7 @@ class StorageGCStats extends LitElement {
     }
 
     async loadData() {
-        this.data = await RPCCall('StorageGCStats');
+        this.data = await RPCCall('StorageGCStats') || [];
         super.requestUpdate();
     }
 

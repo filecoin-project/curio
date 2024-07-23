@@ -46,18 +46,7 @@ func setupCloseHandler() {
 	}()
 }
 
-func SetupLogLevels() {
-	if _, set := os.LookupEnv("GOLOG_LOG_LEVEL"); !set {
-		_ = logging.SetLogLevel("*", "INFO")
-		_ = logging.SetLogLevel("stores", "DEBUG")
-		_ = logging.SetLogLevel("harmonytask", "DEBUG")
-	}
-}
-
 func main() {
-
-	SetupLogLevels()
-
 	local := []*cli.Command{
 		cliCmd,
 		runCmd,

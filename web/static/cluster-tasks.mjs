@@ -13,7 +13,7 @@ class ClusterTasks extends LitElement {
     }
 
     async loadData() {
-        this.data = await RPCCall('ClusterTaskSummary');
+        this.data = await RPCCall('ClusterTaskSummary') || [];
         setTimeout(() => this.loadData(), 1000);
         super.requestUpdate();
     }
