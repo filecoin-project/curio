@@ -101,8 +101,16 @@ func (t *UrlTask) CanAccept(tids []harmonytask.TaskID, te *harmonytask.TaskEngin
 var client = &http.Client{Timeout: time.Second * 10}
 
 func (t *UrlTask) Do(id harmonytask.TaskID, stillMe func() bool) (bool, error) {
+	var owner string
+	err := t.db.QueryRow(context.Background(), `SELECT COALESCE(owner,'') FROM harmony_task_user WHERE task_id=$1`, id).Scan(&owner)
+	if err != nil {
+		return false, xerrors.Errorf("could not get owner: %w", err)
+	}
+	if owner == t.hostAndPort {
+		return t.TaskInterface.Do(id, stillMe)
+	}
 	var workerList []string
-	err := t.db.Select(context.Background(), &workerList, `SELECT host_and_port 
+	err = t.db.Select(context.Background(), &workerList, `SELECT host_and_port 
 	FROM harmony_machines m JOIN harmony_machine_details d ON d.machine_id=m.id 
 	WHERE tasks LIKE $1`, "%,"+t.name+",%")
 	if err != nil {
