@@ -15,6 +15,8 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
+//go:generate go run github.com/golang/mock/mockgen -destination=mocks/alloc.go -package=mockSeal . AllocAPI
+
 type AllocAPI interface {
 	StateMinerAllocated(context.Context, address.Address, types.TipSetKey) (*bitfield.BitField, error)
 }

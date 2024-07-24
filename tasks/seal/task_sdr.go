@@ -27,6 +27,8 @@ import (
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
+//go:generate go run github.com/golang/mock/mockgen -destination=mocks/sdr.go -package=mockSeal . SDRAPI
+
 var IsDevnet = build.BlockDelaySecs < 30
 
 func SetDevnet(value bool) {

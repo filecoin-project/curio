@@ -179,6 +179,7 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 				params.Sectors[0].Expiration = endEpoch
 			}
 		}
+
 	}
 
 	nv, err := s.api.StateNetworkVersion(ctx, types.EmptyTSK)
