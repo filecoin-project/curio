@@ -194,27 +194,23 @@ canAcceptAgain:
 			}
 			return owner == h.TaskEngine.ownerID
 		})
-		if doErr != nil {
+		if doErr != nil && doErr != ErrReturnToPoolPlease {
 			log.Errorw("Do() returned error", "type", h.Name, "id", strconv.Itoa(int(*tID)), "error", doErr)
 		}
 	}()
 	return true
 }
 
+var ErrReturnToPoolPlease = errors.New("return to pool")
+
 func (h *taskTypeHandler) recordCompletion(tID TaskID, workStart time.Time, done bool, doErr error) {
 	workEnd := time.Now()
 	retryWait := time.Millisecond * 100
 retryRecordCompletion:
 	cm, err := h.TaskEngine.db.BeginTransaction(h.TaskEngine.ctx, func(tx *harmonydb.Tx) (bool, error) {
-		var postedTime time.Time
-		err := tx.QueryRow(`SELECT posted_time FROM harmony_task WHERE id=$1`, tID).Scan(&postedTime)
-
-		if err != nil {
-			return false, fmt.Errorf("could not log completion: %w ", err)
-		}
 		result := "unspecified error"
 		if done {
-			_, err = tx.Exec("DELETE FROM harmony_task WHERE id=$1", tID)
+			_, err := tx.Exec("DELETE FROM harmony_task WHERE id=$1", tID)
 			if err != nil {
 
 				return false, fmt.Errorf("could not log completion: %w", err)
@@ -228,9 +224,9 @@ retryRecordCompletion:
 				result = "error: " + doErr.Error()
 			}
 			var deleteTask bool
-			if h.MaxFailures > 0 {
+			if doErr != ErrReturnToPoolPlease && h.MaxFailures > 0 {
 				ct := uint(0)
-				err = tx.QueryRow(`SELECT count(*) FROM harmony_task_history 
+				err := tx.QueryRow(`SELECT count(*) FROM harmony_task_history 
 				WHERE task_id=$1 AND result=FALSE`, tID).Scan(&ct)
 				if err != nil {
 					return false, fmt.Errorf("could not read task history: %w", err)
@@ -240,7 +236,7 @@ retryRecordCompletion:
 				}
 			}
 			if deleteTask {
-				_, err = tx.Exec("DELETE FROM harmony_task WHERE id=$1", tID)
+				_, err := tx.Exec("DELETE FROM harmony_task WHERE id=$1", tID)
 				if err != nil {
 					return false, fmt.Errorf("could not delete failed job: %w", err)
 				}
@@ -251,6 +247,15 @@ retryRecordCompletion:
 					return false, fmt.Errorf("could not disown failed task: %v %v", tID, err)
 				}
 			}
+		}
+		if doErr == ErrReturnToPoolPlease {
+			return true, nil
+		}
+		var postedTime time.Time
+		err := tx.QueryRow(`SELECT posted_time FROM harmony_task WHERE id=$1`, tID).Scan(&postedTime)
+
+		if err != nil {
+			return false, fmt.Errorf("could not log completion: %w ", err)
 		}
 		_, err = tx.Exec(`INSERT INTO harmony_task_history 
 									 (task_id,   name, posted,    work_start, work_end, result, completed_by_host_and_port,      err)
