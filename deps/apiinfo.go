@@ -14,7 +14,6 @@ import (
 
 	"github.com/filecoin-project/curio/api"
 
-	lapi "github.com/filecoin-project/lotus/api"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/lib/retry"
 )
