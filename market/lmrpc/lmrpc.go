@@ -158,8 +158,9 @@ func ServeCurioMarketRPC(db *harmonydb.DB, full api.Chain, maddr address.Address
 	if conf.Ingest.DoSnap {
 		pin, err = cumarket.NewPieceIngesterSnap(ctx, db, full, maddr, false, time.Duration(conf.Ingest.MaxDealWaitTime))
 	} else {
-		pin, err = cumarket.NewPieceIngester(ctx, db, full, maddr, false, time.Duration(conf.Ingest.MaxDealWaitTime))
+		pin, err = cumarket.NewPieceIngester(ctx, db, full, maddr, false, time.Duration(conf.Ingest.MaxDealWaitTime), conf.Subsystems.UseSyntheticPoRep)
 	}
+
 	if err != nil {
 		return xerrors.Errorf("starting piece ingestor")
 	}

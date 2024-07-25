@@ -90,7 +90,7 @@ var marketSealCmd = &cli.Command{
 		&cli.BoolFlag{
 			Name:  "synthetic",
 			Usage: "Use synthetic PoRep",
-			Value: false, // todo implement synthetic
+			Value: false,
 		},
 	},
 	ArgsUsage: "<sector>",

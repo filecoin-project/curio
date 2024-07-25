@@ -47,7 +47,7 @@ type DealData struct {
 	Close        func()
 }
 
-func DealDataSDRPoRep(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, spId, sectorNumber int64, spt abi.RegisteredSealProof) (*DealData, error) {
+func DealDataSDRPoRep(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, spId, sectorNumber int64, spt abi.RegisteredSealProof, commDOnly bool) (*DealData, error) {
 	var pieces []dealMetadata
 	err := db.Select(ctx, &pieces, `
 		SELECT piece_index, piece_cid, piece_size, data_url, data_headers, data_raw_size, data_delete_on_finalize
@@ -57,7 +57,7 @@ func DealDataSDRPoRep(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, 
 		return nil, xerrors.Errorf("getting pieces: %w", err)
 	}
 
-	return getDealMetadata(ctx, db, sc, spt, pieces)
+	return getDealMetadata(ctx, db, sc, spt, pieces, commDOnly)
 }
 
 func DealDataSnap(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, spId, sectorNumber int64, spt abi.RegisteredSealProof) (*DealData, error) {
@@ -70,10 +70,10 @@ func DealDataSnap(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, spId
 		return nil, xerrors.Errorf("getting pieces: %w", err)
 	}
 
-	return getDealMetadata(ctx, db, sc, spt, pieces)
+	return getDealMetadata(ctx, db, sc, spt, pieces, false)
 }
 
-func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, spt abi.RegisteredSealProof, pieces []dealMetadata) (*DealData, error) {
+func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, spt abi.RegisteredSealProof, pieces []dealMetadata, commDOnly bool) (*DealData, error) {
 	ssize, err := spt.SectorSize()
 	if err != nil {
 		return nil, xerrors.Errorf("getting sector size: %w", err)
@@ -125,51 +125,53 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 			offset += abi.PaddedPieceSize(p.PieceSize).Unpadded()
 
 			// make pieceReader
-			if p.DataUrl != nil {
-				dataUrl := *p.DataUrl
+			if !commDOnly {
+				if p.DataUrl != nil {
+					dataUrl := *p.DataUrl
 
-				goUrl, err := url.Parse(dataUrl)
-				if err != nil {
-					return nil, xerrors.Errorf("parsing data URL: %w", err)
+					goUrl, err := url.Parse(dataUrl)
+					if err != nil {
+						return nil, xerrors.Errorf("parsing data URL: %w", err)
+					}
+
+					if goUrl.Scheme == "pieceref" {
+						// url is to a piece reference
+
+						refNum, err := strconv.ParseInt(goUrl.Opaque, 10, 64)
+						if err != nil {
+							return nil, xerrors.Errorf("parsing piece reference number: %w", err)
+						}
+
+						// get pieceID
+						var pieceID []struct {
+							PieceID storiface.PieceNumber `db:"piece_id"`
+						}
+						err = db.Select(ctx, &pieceID, `SELECT piece_id FROM parked_piece_refs WHERE ref_id = $1`, refNum)
+						if err != nil {
+							return nil, xerrors.Errorf("getting pieceID: %w", err)
+						}
+
+						if len(pieceID) != 1 {
+							return nil, xerrors.Errorf("expected 1 pieceID, got %d", len(pieceID))
+						}
+
+						pr, err := sc.PieceReader(ctx, pieceID[0].PieceID)
+						if err != nil {
+							return nil, xerrors.Errorf("getting piece reader: %w", err)
+						}
+
+						closers = append(closers, pr)
+
+						reader, _ := padreader.New(pr, uint64(*p.DataRawSize))
+						pieceReaders = append(pieceReaders, reader)
+					} else {
+						reader, _ := padreader.New(NewUrlReader(dataUrl, *p.DataRawSize), uint64(*p.DataRawSize))
+						pieceReaders = append(pieceReaders, reader)
+					}
+
+				} else { // padding piece (w/o fr32 padding, added in TreeD)
+					pieceReaders = append(pieceReaders, nullreader.NewNullReader(abi.PaddedPieceSize(p.PieceSize).Unpadded()))
 				}
-
-				if goUrl.Scheme == "pieceref" {
-					// url is to a piece reference
-
-					refNum, err := strconv.ParseInt(goUrl.Opaque, 10, 64)
-					if err != nil {
-						return nil, xerrors.Errorf("parsing piece reference number: %w", err)
-					}
-
-					// get pieceID
-					var pieceID []struct {
-						PieceID storiface.PieceNumber `db:"piece_id"`
-					}
-					err = db.Select(ctx, &pieceID, `SELECT piece_id FROM parked_piece_refs WHERE ref_id = $1`, refNum)
-					if err != nil {
-						return nil, xerrors.Errorf("getting pieceID: %w", err)
-					}
-
-					if len(pieceID) != 1 {
-						return nil, xerrors.Errorf("expected 1 pieceID, got %d", len(pieceID))
-					}
-
-					pr, err := sc.PieceReader(ctx, pieceID[0].PieceID)
-					if err != nil {
-						return nil, xerrors.Errorf("getting piece reader: %w", err)
-					}
-
-					closers = append(closers, pr)
-
-					reader, _ := padreader.New(pr, uint64(*p.DataRawSize))
-					pieceReaders = append(pieceReaders, reader)
-				} else {
-					reader, _ := padreader.New(NewUrlReader(dataUrl, *p.DataRawSize), uint64(*p.DataRawSize))
-					pieceReaders = append(pieceReaders, reader)
-				}
-
-			} else { // padding piece (w/o fr32 padding, added in TreeD)
-				pieceReaders = append(pieceReaders, nullreader.NewNullReader(abi.PaddedPieceSize(p.PieceSize).Unpadded()))
 			}
 
 			if !p.DataDelOnFinalize {
@@ -199,7 +201,9 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 		out.IsUnpadded = true
 	} else {
 		out.CommD = zerocomm.ZeroPieceCommitment(abi.PaddedPieceSize(ssize).Unpadded())
-		out.Data = nullreader.NewNullReader(abi.UnpaddedPieceSize(ssize))
+		if !commDOnly {
+			out.Data = nullreader.NewNullReader(abi.UnpaddedPieceSize(ssize))
+		}
 		out.PieceInfos = []abi.PieceInfo{{
 			Size:     abi.PaddedPieceSize(ssize),
 			PieceCID: out.CommD,
@@ -207,10 +211,12 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 		out.IsUnpadded = false // nullreader includes fr32 zero bits
 	}
 
-	out.Close = func() {
-		for _, c := range closers {
-			if err := c.Close(); err != nil {
-				log.Errorw("error closing piece reader", "error", err)
+	if !commDOnly {
+		out.Close = func() {
+			for _, c := range closers {
+				if err := c.Close(); err != nil {
+					log.Errorw("error closing piece reader", "error", err)
+				}
 			}
 		}
 	}

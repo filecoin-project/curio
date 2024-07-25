@@ -107,6 +107,7 @@ customElements.define('pipeline-porep-sectors',class PipelinePorepSectors extend
                     <tr>
                         ${this.renderSectorState('SDR', 1, sector.TaskSDR, sector.AfterSDR)}
                         ${this.renderSectorState('TreeC', 1, sector.TaskTreeC, sector.AfterTreeC)}
+                        ${this.renderSectorState('Synthetic', 2, sector.TaskSynthetic, sector.AfterSynthetic)}
                         ${this.renderSectorState('PComm Msg', 2, sector.TaskPrecommitMsg, sector.AfterPrecommitMsg)}
                         ${this.renderSectorStateNoTask('PComm Wait', 2, sector.AfterPrecommitMsg, sector.AfterPrecommitMsgSuccess)}
                         <td rowspan=2 class="${sector.AfterPrecommitMsgSuccess?'pipeline-active':''} ${sector.AfterSeed?'pipeline-success':''}">

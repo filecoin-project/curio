@@ -172,6 +172,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		cfg.Subsystems.EnableUpdateEncode ||
 		cfg.Subsystems.EnableUpdateProve ||
 		cfg.Subsystems.EnableUpdateSubmit
+
 	if hasAnySealingTask {
 		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore)
 		if err != nil {
@@ -242,8 +243,9 @@ func addSealingTasks(
 	if cfg.Subsystems.EnableSealSDRTrees {
 		treeDTask := seal.NewTreeDTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
 		treeRCTask := seal.NewTreeRCTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
+		synthTask := seal.NewSyntheticProofTask(sp, db, slr, cfg.Subsystems.SyntheticPoRepMaxTasks)
 		finalizeTask := seal.NewFinalizeTask(cfg.Subsystems.FinalizeMaxTasks, sp, slr, db)
-		activeTasks = append(activeTasks, treeDTask, treeRCTask, finalizeTask)
+		activeTasks = append(activeTasks, treeDTask, treeRCTask, synthTask, finalizeTask)
 	}
 	if cfg.Subsystems.EnableSendPrecommitMsg {
 		precommitTask := seal.NewSubmitPrecommitTask(sp, db, full, sender, as, cfg.Fees.MaxPreCommitGasFee, cfg.Fees.CollateralFromMinerBalance, cfg.Fees.DisableCollateralFallback)
