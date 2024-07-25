@@ -1,10 +1,18 @@
 <!DOCTYPE html>
-<html>
+<html xmlns="http://www.w3.org/1999/html">
 
 <head>
   <title>Sector List</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
   <script type="module" src="/ux/curio-ux.mjs"></script>
+  <script type="module">
+    import('../lib/jsonrpc.mjs').then(module => {
+      window.RPCCall = module.default;
+
+      const event = new CustomEvent('RPCCallReady');
+      window.dispatchEvent(event);
+    });
+  </script>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
 
@@ -40,6 +48,47 @@
     </section>
   </curio-ux>
   <script>
+    //import RPCCall from '../lib/jsonrpc.mjs';
+    // Function to get a cookie value
+    function getCookie(cname) {
+      let name = cname + "=";
+      let ca = document.cookie.split(';');
+      for(let i = 0; i < ca.length; i++) {
+        let c = ca[i];
+        while (c.charAt(0) == ' ') {
+          c = c.substring(1);
+        }
+        if (c.indexOf(name) == 0) {
+          return c.substring(name.length, c.length);
+        }
+      }
+      return "";
+    }
+
+    // Function to set a cookie value
+    function setCookie(cname, cvalue, exdays) {
+      let d = new Date();
+      d.setTime(d.getTime() + (exdays * 24 * 60 * 60 * 1000));
+      let expires = "expires="+d.toUTCString();
+      document.cookie = cname + "=" + cvalue + ";" + expires + ";path=/";
+    }
+
+    // Function to add a parameter to a URL
+    function addParamToUrl(url, param, paramVal){
+      let _url = new URL(url);
+      _url.searchParams.append(param, paramVal);
+      return _url;
+    }
+
+    // Retrieve the current cookie value
+    let cookieValue = getCookie("curioStorageCookie");
+
+    // If the cookie value exists, append it as a query parameter to the AJAX URL
+    let ajaxUrl = '/api/sector/all';
+    if (cookieValue){
+      ajaxUrl = addParamToUrl(ajaxUrl, "miner", cookieValue);
+    }
+
 
     let dt = new DataTable('#sectorTable', {
       ajax: '/api/sector/all',
@@ -103,7 +152,62 @@
               document.cookie = "sector_refresh=true; path=/";
               location.reload();
             }
-        }
+        },
+        {
+          text: 'Select Miners',
+          action: function (e, dt, button, config) {
+            var selectedOptions = $("#selectOptions").val();
+            if(selectedOptions.length > 0){
+              setCookie("curioStorageCookie", selectedOptions.join(','), 7);
+              location.reload();
+            }
+          },
+          init: async function (dt, node, config) {
+            var selectOptions = $('<select id="selectOptions" multiple>').css({marginRight: '5px'});
+
+            let RPCCallInterval = setInterval(function() {
+              if (window.RPCCall) {
+                clearInterval(RPCCallInterval);
+                window.RPCCall('ActorList').then(actors => {
+                  if(Array.isArray(actors)) {
+                    actors.forEach(function (actor) {
+                      selectOptions.append($("<option>").attr('miner', actor.value).text(actor.text));
+                    });
+                  } else {
+                    console.error('Expected an array but got:', actors);
+                  }
+                });
+              }
+            }, 200);
+
+            // if (window.RPCCall) {
+            //   clearInterval(RPCCallInterval);
+            //   window.RPCCall('ActorList').then(actors => {
+            //     console.log(actors)
+            //     if(Array.isArray(actors)) {
+            //       actors.forEach(function (actor) {
+            //         selectOptions.append($("<option>").attr('value', actor.value).text(actor.text));
+            //       });
+            //     } else {
+            //       console.error('Expected an array but got:', actors);
+            //     }
+            //   }).catch(error => console.error('Error:', error));
+            // }
+
+
+            // RPCCall to get actors
+            // let actors = RPCCall('ActorList');
+            // if(Array.isArray(actors)) {
+            //   actors.forEach(function (actor) {
+            //     selectOptions.append($("<option>").attr('value', actor.value).text(actor.text));
+            //   });
+            // } else {
+            //   console.error('Expected an array but got:', actors);
+            // }
+
+            $(node).prepend(selectOptions);
+          }
+        },
       ],
       responsive: true,
       columnDefs: [

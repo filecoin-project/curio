@@ -8,7 +8,7 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
     }
     async loadData() {
         const params = new URLSearchParams(window.location.search);
-        this.data = await RPCCall('SectorInfo', ['f0'+params.get('sp'), params.get('id')|0]);
+        this.data = await RPCCall('SectorInfo', [params.get('sp'), params.get('id')|0]);
         setTimeout(() => this.loadData(), 5000);
         this.requestUpdate();
     }

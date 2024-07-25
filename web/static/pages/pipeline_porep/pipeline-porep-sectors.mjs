@@ -11,6 +11,36 @@ customElements.define('pipeline-porep-sectors',class PipelinePorepSectors extend
         this.requestUpdate();
     };
 
+    render() {
+        return html`
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
+            <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
+            <style>${PipelinePorepSectors.styles}</style>
+            <table class="table table-dark porep-state porep-pipeline-table">
+                <tbody>
+                    ${this.renderSectors()}
+                </tbody>
+            </table>
+        `;
+    }
+
+    renderSectors() {
+        return this.data.map((sector) => html`
+            <tr>
+                <td>${sector.Address}</td>
+                <td rowspan="2">${sector.CreateTime}</td>
+                <td rowspan="2"><sector-porep-state .sector=${sector}></sector-porep-state></td>
+                <td rowspan="2">
+                    <a href="/pages/sector/?sp=${sector.Address}&id=${sector.SectorNumber}">DETAILS</a>
+                </td>
+            </tr>
+            <tr>
+                <td>${sector.SectorNumber}</td>
+            </tr>
+        `);
+    }
+} );
+customElements.define('sector-porep-state', class SectorPorepState extends LitElement {
     static styles = css`
         .porep-pipeline-table,
         .porep-state {
@@ -32,38 +62,6 @@ customElements.define('pipeline-porep-sectors',class PipelinePorepSectors extend
         .porep-pipeline-table tr:first-child {
             border-top: none;
         }
-    `;
-
-    render() {
-        return html`
-            <link rel="stylesheet" href="/ux/main.css">
-            <style>${PipelinePorepSectors.styles}</style>
-            <table class="table table-dark porep-state porep-pipeline-table">
-                <tbody>
-                    ${this.renderSectors()}
-                </tbody>
-            </table>
-        `;
-    }
-
-    renderSectors() {
-        return this.data.map((sector) => html`
-            <tr>
-                <td>${sector.Address}</td>
-                <td rowspan="2">${sector.CreateTime}</td>
-                <td rowspan="2">${this.renderSector(sector)}</td>
-                <td rowspan="2">
-                    <a href="/pages/sector/?sp=${sector.Address}&id=${sector.SectorNumber}">DETAILS</a>
-                </td>
-            </tr>
-            <tr>
-                <td>${sector.SectorNumber}</td>
-            </tr>
-        `);
-    }
-} );
-customElements.define('sector-porep-state', class SectorPorepState extends LitElement {
-    static styles = css`
         .porep-state {
             border-collapse: collapse;
         }
@@ -112,7 +110,10 @@ customElements.define('sector-porep-state', class SectorPorepState extends LitEl
                         ${this.renderSectorState('TreeC', 1, sector.TaskTreeC, sector.AfterTreeC)}
                         ${this.renderSectorState('PComm Msg', 2, sector.TaskPrecommitMsg, sector.AfterPrecommitMsg)}
                         ${this.renderSectorStateNoTask('PComm Wait', 2, sector.AfterPrecommitMsg, sector.AfterPrecommitMsgSuccess)}
-                        ${this.renderSectorStateNoTask('Wait Seed', 2, sector.AfterPrecommitMsgSuccess, sector.AfterWaitSeed)}
+                        <td rowspan=2 class="${sector.AfterPrecommitMsgSuccess?'pipeline-active':''} ${sector.AfterSeed?'pipeline-success':''}">
+                            <div>Wait Seed</div>
+                            <div>${sector.AfterSeed?'done':sector.SeedEpoch}</div>
+                        </td>
                         ${this.renderSectorState('PoRep', 2, sector.TaskPoRep, sector.AfterPoRep)}
                         ${this.renderSectorState('Clear Cache', 1, sector.TaskFinalize, sector.AfterFinalize)}
                         ${this.renderSectorState('Move Storage', 1, sector.TaskMoveStorage, sector.AfterMoveStorage)}
