@@ -35,6 +35,14 @@ const (
 	FlagMinerRepo = "miner-repo"
 )
 
+func SetupLogLevels() {
+	if _, set := os.LookupEnv("GOLOG_LOG_LEVEL"); !set {
+		_ = logging.SetLogLevel("*", "INFO")
+		_ = logging.SetLogLevel("harmonytask", "DEBUG")
+		_ = logging.SetLogLevel("rpc", "ERROR")
+	}
+}
+
 func setupCloseHandler() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
@@ -46,18 +54,8 @@ func setupCloseHandler() {
 	}()
 }
 
-func SetupLogLevels() {
-	if _, set := os.LookupEnv("GOLOG_LOG_LEVEL"); !set {
-		_ = logging.SetLogLevel("*", "INFO")
-		_ = logging.SetLogLevel("stores", "DEBUG")
-		_ = logging.SetLogLevel("harmonytask", "DEBUG")
-	}
-}
-
 func main() {
-
 	SetupLogLevels()
-
 	local := []*cli.Command{
 		cliCmd,
 		runCmd,

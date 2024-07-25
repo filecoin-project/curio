@@ -2,10 +2,6 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import RPCCall from '/lib/jsonrpc.mjs';
 
 class WinStats extends LitElement {
-    static properties = {
-        data: { type: Array }
-    };
-
     constructor() {
         super();
         this.data = [];
@@ -13,9 +9,9 @@ class WinStats extends LitElement {
     }
 
     async loadData() {
-        this.data = await RPCCall('WinStats');
+        this.data = await RPCCall('WinStats') || [];
         setTimeout(() => this.loadData(), 2 * 60 * 1000); // 2 minutes
-        super.requestUpdate();
+        this.requestUpdate();
     }
 
     render() {
