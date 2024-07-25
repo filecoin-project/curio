@@ -18,7 +18,6 @@ import (
 
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/web/api"
-	"github.com/filecoin-project/curio/web/hapi"
 
 	"github.com/filecoin-project/lotus/metrics"
 )
@@ -34,16 +33,12 @@ var webDev = os.Getenv("CURIO_WEB_DEV") == "1"
 
 func GetSrv(ctx context.Context, deps *deps.Deps) (*http.Server, error) {
 	mx := mux.NewRouter()
-	err := hapi.Routes(mx.PathPrefix("/hapi").Subrouter(), deps)
-	if err != nil {
-		return nil, err
-	}
 	api.Routes(mx.PathPrefix("/api").Subrouter(), deps)
 
 	var static fs.FS = static
 	if webDev {
 		basePath = ""
-		static = os.DirFS("curiosrc/web/static")
+		static = os.DirFS("web/static")
 	}
 
 	mx.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

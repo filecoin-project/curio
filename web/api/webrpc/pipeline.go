@@ -1,8 +1,7 @@
-package hapi
+package webrpc
 
 import (
 	"context"
-	"net/http"
 	"time"
 
 	"github.com/snadrus/must"
@@ -73,12 +72,10 @@ type minerBitfields struct {
 	alloc, sectorSet, active, unproven, faulty bitfield.BitField
 }
 
-func (a *app) pipelinePorepSectors(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
+func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, error) {
 	var tasks []PipelineTask
 
-	err := a.db.Select(ctx, &tasks, `SELECT 
+	err := a.deps.DB.Select(ctx, &tasks, `SELECT 
        sp_id, sector_number,
        create_time,
        task_id_sdr, after_sdr,
@@ -95,14 +92,12 @@ func (a *app) pipelinePorepSectors(w http.ResponseWriter, r *http.Request) {
        failed, failed_reason
     FROM sectors_sdr_pipeline order by sp_id, sector_number`) // todo where constrain list
 	if err != nil {
-		http.Error(w, xerrors.Errorf("failed to fetch pipeline tasks: %w", err).Error(), http.StatusInternalServerError)
-		return
+		return nil, xerrors.Errorf("failed to fetch pipeline tasks: %w", err)
 	}
 
 	head, err := a.deps.Chain.ChainHead(ctx)
 	if err != nil {
-		http.Error(w, xerrors.Errorf("failed to fetch chain head: %w", err).Error(), http.StatusInternalServerError)
-		return
+		return nil, xerrors.Errorf("failed to fetch chain head: %w", err)
 	}
 	epoch := head.Height()
 
@@ -116,16 +111,14 @@ func (a *app) pipelinePorepSectors(w http.ResponseWriter, r *http.Request) {
 
 		addr, err := address.NewIDAddress(uint64(task.SpID))
 		if err != nil {
-			http.Error(w, xerrors.Errorf("failed to create actor address: %w", err).Error(), http.StatusInternalServerError)
-			return
+			return nil, xerrors.Errorf("failed to create actor address: %w", err)
 		}
 
 		mbf, ok := minerBitfieldCache[addr]
 		if !ok {
 			mbf, err = a.getMinerBitfields(ctx, addr, a.stor)
 			if err != nil {
-				http.Error(w, xerrors.Errorf("failed to load miner bitfields: %w", err).Error(), http.StatusInternalServerError)
-				return
+				return nil, xerrors.Errorf("failed to load miner bitfields: %w", err)
 			}
 			minerBitfieldCache[addr] = mbf
 		}
@@ -146,10 +139,10 @@ func (a *app) pipelinePorepSectors(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	a.executeTemplate(w, "pipeline_porep_sectors", sectorList)
+	return sectorList, nil
 }
 
-func (a *app) getMinerBitfields(ctx context.Context, addr address.Address, stor adt.Store) (minerBitfields, error) {
+func (a *WebRPC) getMinerBitfields(ctx context.Context, addr address.Address, stor adt.Store) (minerBitfields, error) {
 	act, err := a.deps.Chain.StateGetActor(ctx, addr, types.EmptyTSK)
 	if err != nil {
 		return minerBitfields{}, xerrors.Errorf("failed to load actor: %w", err)
@@ -192,4 +185,63 @@ func (a *app) getMinerBitfields(ctx context.Context, addr address.Address, stor 
 		unproven:  unproved,
 		faulty:    faulty,
 	}, nil
+}
+
+type PorepPipelineSummary struct {
+	Actor string
+
+	CountSDR          int
+	CountTrees        int
+	CountPrecommitMsg int
+	CountWaitSeed     int
+	CountPoRep        int
+	CountCommitMsg    int
+	CountDone         int
+	CountFailed       int
+}
+
+func (a *WebRPC) PorepPipelineSummary(ctx context.Context) ([]PorepPipelineSummary, error) {
+
+	head, err := a.deps.Chain.ChainHead(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := a.deps.DB.Query(ctx, `
+	SELECT 
+		sp_id,
+		COUNT(*) FILTER (WHERE after_sdr = false) as CountSDR,
+		COUNT(*) FILTER (WHERE (after_tree_d = false OR after_tree_c = false OR after_tree_r = false) AND after_sdr = true) as CountTrees,
+		COUNT(*) FILTER (WHERE after_tree_r = true and after_precommit_msg = false) as CountPrecommitMsg,
+		COUNT(*) FILTER (WHERE after_precommit_msg_success = true AND seed_epoch > $1) as CountWaitSeed,
+		COUNT(*) FILTER (WHERE after_porep = false AND after_precommit_msg_success = true) as CountPoRep,
+		COUNT(*) FILTER (WHERE after_commit_msg_success = false AND after_porep = true) as CountCommitMsg,
+		COUNT(*) FILTER (WHERE after_commit_msg_success = true) as CountDone,
+		COUNT(*) FILTER (WHERE failed = true) as CountFailed
+	FROM 
+		sectors_sdr_pipeline
+	GROUP BY sp_id`, head.Height())
+	if err != nil {
+		return nil, xerrors.Errorf("query: %w", err)
+	}
+	defer rows.Close()
+
+	var summaries []PorepPipelineSummary
+	for rows.Next() {
+		var summary PorepPipelineSummary
+		var actor int64
+		if err := rows.Scan(&actor, &summary.CountSDR, &summary.CountTrees, &summary.CountPrecommitMsg, &summary.CountWaitSeed, &summary.CountPoRep, &summary.CountCommitMsg, &summary.CountDone, &summary.CountFailed); err != nil {
+			return nil, xerrors.Errorf("scan: %w", err)
+		}
+
+		sactor, err := address.NewIDAddress(uint64(actor))
+		if err != nil {
+			return nil, xerrors.Errorf("failed to create actor address: %w", err)
+		}
+
+		summary.Actor = sactor.String()
+
+		summaries = append(summaries, summary)
+	}
+	return summaries, nil
 }

@@ -109,7 +109,7 @@ var wdPostTaskCmd = &cli.Command{
 				return xerrors.Errorf("writing SQL transaction: %w", err)
 			}
 
-			fmt.Printf("Inserted task %v for miner ID %v. Waiting for success ", taskId, addr)
+			fmt.Printf("Inserted task %d for miner ID %s. Waiting for success ", taskId, address.Address(addr).String())
 			taskIDs = append(taskIDs, taskId)
 		}
 
@@ -124,7 +124,7 @@ var wdPostTaskCmd = &cli.Command{
 				return xerrors.Errorf("reading result from harmony_test: %w", err)
 			}
 			if result.Valid {
-				log.Infof("Result for task %v: %s", taskID, result.String)
+				log.Infof("Result for task %d: %s", taskID, result.String)
 				// remove task from list
 				taskIDs = lo.Filter(taskIDs, func(v int64, i int) bool {
 					return v != taskID
@@ -153,7 +153,7 @@ var wdPostTaskCmd = &cli.Command{
 						if len(h.Err) > 0 {
 							errstr = h.Err
 						}
-						fmt.Printf("History for task %v historyID %d: %s\n", taskID, h.HistID, errstr)
+						fmt.Printf("History for task %d historyID %d: %s\n", taskID, h.HistID, errstr)
 					}
 				}
 			}

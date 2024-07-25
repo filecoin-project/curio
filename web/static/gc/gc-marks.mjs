@@ -14,7 +14,7 @@ class StorageGCStats extends LitElement {
 
     async loadData() {
         this.data = await RPCCall('StorageGCMarks');
-        super.requestUpdate();
+        this.requestUpdate();
     }
 
     async approveEntry(entry) {

@@ -232,3 +232,31 @@ func (a *WebRPC) spWins(ctx context.Context) (map[address.Address]wins, error) {
 
 	return wm, nil
 }
+
+func (a *WebRPC) ActorList(ctx context.Context) ([]string, error) {
+	confNameToAddr := map[address.Address][]string{}
+
+	err := forEachConfig(a, func(name string, info minimalActorInfo) error {
+		for _, aset := range info.Addresses {
+			for _, addr := range aset.MinerAddresses {
+				a, err := address.NewFromString(addr)
+				if err != nil {
+					return xerrors.Errorf("parsing address: %w", err)
+				}
+				confNameToAddr[a] = append(confNameToAddr[a], name)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var ret []string
+
+	for m := range confNameToAddr {
+		ret = append(ret, m.String())
+	}
+
+	return ret, nil
+}
