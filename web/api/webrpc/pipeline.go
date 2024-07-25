@@ -33,6 +33,9 @@ type PipelineTask struct {
 	TaskTreeR  *int64 `db:"task_id_tree_r"`
 	AfterTreeR bool   `db:"after_tree_r"`
 
+	TaskSynthetic  *int64 `db:"task_id_synth"`
+	AfterSynthetic bool   `db:"after_synth"`
+
 	TaskPrecommitMsg  *int64 `db:"task_id_precommit_msg"`
 	AfterPrecommitMsg bool   `db:"after_precommit_msg"`
 
@@ -82,6 +85,7 @@ func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, e
        task_id_tree_d, after_tree_d,
        task_id_tree_c, after_tree_c,
        task_id_tree_r, after_tree_r,
+       task_id_synth, after_synth,
        task_id_precommit_msg, after_precommit_msg,
        after_precommit_msg_success, seed_epoch,
        task_id_porep, porep_proof, after_porep,
