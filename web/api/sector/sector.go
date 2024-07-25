@@ -128,22 +128,11 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 	var sectors []sector
 	var pieces []piece
 
-	// Get minerID if present
-	keyMap := r.URL.Query()
-	minerlist, ok := keyMap["miner"]
-	if !ok {
-		apihelper.OrHTTPFail(w, c.DB.Select(r.Context(), &sectors, `SELECT 
+	apihelper.OrHTTPFail(w, c.DB.Select(r.Context(), &sectors, `SELECT 
 		miner_id, sector_num, SUM(sector_filetype) as sector_filetype  
 		FROM sector_location WHERE sector_filetype != 32
 		GROUP BY miner_id, sector_num 
 		ORDER BY miner_id, sector_num`))
-	} else {
-		apihelper.OrHTTPFail(w, c.DB.Select(r.Context(), &sectors, `SELECT 
-		miner_id, sector_num, SUM(sector_filetype) as sector_filetype  
-		FROM sector_location WHERE sector_filetype != 32 AND miner_id = ANY($1)
-		GROUP BY miner_id, sector_num 
-		ORDER BY miner_id, sector_num`, minerlist))
-	}
 
 	minerToAddr := map[int64]address.Address{}
 	head, err := c.Chain.ChainHead(r.Context())

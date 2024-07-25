@@ -9,6 +9,12 @@ customElements.define('pipeline-porep-sectors',class PipelinePorepSectors extend
     async loadData() {
         this.data = await RPCCall('PipelinePorepSectors');
         this.requestUpdate();
+
+        // Poll for updates
+        setInterval(async () => {
+            this.data = await RPCCall('ActorSummary');
+            this.requestUpdate();
+        }, 30000);
     };
 
     render() {
