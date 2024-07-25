@@ -466,4 +466,5 @@ func SupraSpaceUse(ft storiface.SectorFileType, ssize abi.SectorSize) (uint64, e
 	return need, nil
 }
 
+var _ = harmonytask.Reg(&SupraSeal{})
 var _ harmonytask.TaskInterface = &SupraSeal{}
