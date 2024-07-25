@@ -148,7 +148,7 @@ func TestRoundtripPorepVproof(t *testing.T) {
 	})*/
 }
 
-func extractDProofs(vp [][]VanillaStackedProof) [][]MerkleProof[Sha256Domain] {
+/*func extractDProofs(vp [][]VanillaStackedProof) [][]MerkleProof[Sha256Domain] {
 	var out [][]MerkleProof[Sha256Domain]
 	for _, v := range vp {
 		var proofs []MerkleProof[Sha256Domain]
@@ -168,3 +168,4 @@ func requireNoDiff(t *testing.T, rustObj, goObj interface{}) {
 
 	require.True(t, cmp.Equal(rustObj, goObj))
 }
+*/

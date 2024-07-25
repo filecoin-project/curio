@@ -407,7 +407,6 @@ func (s *SupraSeal) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (s *SupraSeal) Adder(taskFunc harmonytask.AddTaskFunc) {
-	return
 }
 
 func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
