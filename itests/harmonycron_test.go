@@ -5,13 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/snadrus/must"
+	"github.com/stretchr/testify/require"
+
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp/harmonycron"
-	"github.com/snadrus/must"
-	"github.com/stretchr/testify/require"
 )
 
 // TestHarmonyCron is Documentesting
@@ -45,8 +46,8 @@ func TestHarmonyCron(t *testing.T) {
 		taskValue := "abcde" // our future task needs this, so save it to that task's table
 		var rowID int64
 		// Pretend harmony_test is FutureTask's table
-		db.QueryRow(ctx, "INSERT INTO harmony_test (options, result) VALUES ('FutureTaskTbl', $1) RETURNING id", taskValue).Scan(&rowID)
-
+		err := db.QueryRow(ctx, "INSERT INTO harmony_test (options, result) VALUES ('FutureTaskTbl', $1) RETURNING id", taskValue).Scan(&rowID)
+		require.NoError(t, err)
 		// PreviousTask then schedules it sometime in the future. It will run AFTER this time.
 		cron.At(time.Now().Add(3*time.Second), "FutureTask", "harmony_test", int(rowID))
 		// Now, PreviousTask's machine could go down, & someone's FutureTask runner will pick it up.
