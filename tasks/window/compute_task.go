@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"sort"
 	"time"
 
@@ -252,10 +251,6 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	}
 
 	return true, nil
-}
-
-func entToStr[T any](t T, i int) string {
-	return fmt.Sprint(t)
 }
 
 func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, te *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
