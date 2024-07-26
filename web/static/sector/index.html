@@ -31,6 +31,64 @@
       <div class="row justify-content-center content">
         <div class="col-md-auto" style="max-width: 95%">
           <table id="sectorTable" class="hover">
+            <thead>
+              <tr>
+                <th></th>
+                <th>SpID</th>
+                <th>Sector</th>
+                <th>Expiry</th>
+                <th>🔗</th>
+                <th>Proving</th>
+                <th>HasSealed</th>
+                <th>HasUnsealed</th>
+                <th>DealWeight</th>
+                <th>Deals</th>
+                <th>Fil+</th>
+                <th>HasSnap</th>
+                <th>Size</th>
+                <th>Flag</th>
+              </tr>
+              <tr>
+                <th></th>
+                <th>
+                  <select id="SpID-select">
+                    <option value="">All</option>
+                  </select>
+                </th>
+                <th><input type="text" placeholder="Search Sector" /></th>
+                <th></th>
+                <th></th>
+                <th>
+                  <select id="Proving-select">
+                    <option value="">All</option>
+                  </select>
+                </th>
+                <th>
+                  <select id="HasSealed-select">
+                    <option value="">All</option>
+                  </select>
+                </th>
+                <th>
+                  <select id="HasUnsealed-select">
+                    <option value="">All</option>
+                  </select>
+                </th>
+                <th></th>
+                <th></th>
+                <th>
+                  <select id="Fil+-select">
+                    <option value="">All</option>
+                  </select>
+                </th>
+                <th>
+                  <select id="HasSnap-select">
+                    <option value="">All</option>
+                  </select>
+                </th>
+                <th></th>
+                <th></th>
+              </tr>
+            </thead>
             <tr>
               <td>Loading...</td>
             </tr>
@@ -129,6 +187,30 @@
       scrollY:        window.innerHeight - 250,
       deferRender:    true,
       scroller:       true,
+      initComplete: function() {
+          // Apply the search
+          this.api().columns().every(function() {
+            var that = this;
+            var select = $('select', column.header());
+            if (select.length === 0) {
+              column.data().unique().sort().each(function(d, j) {
+                select.append('<option value="' + d + '">' + d + '</option>');
+              });
+
+              // Apply the search on dropdown change
+              select.on('change', function() {
+                var val = $.fn.dataTable.util.escapeRegex($(this).val());
+                column.search(val ? '^' + val + '$' : '', true, false).draw();
+              });
+            }
+
+            $('input', this.header()).on('keyup change clear', function() {
+              if (that.search() !== this.value) {
+                that.search(this.value).draw();
+              }
+            });
+          });
+        }
     });
   </script>
 </body>

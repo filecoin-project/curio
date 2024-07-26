@@ -6,6 +6,7 @@ import (
 	"embed"
 	"io"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -39,6 +40,20 @@ func GetSrv(ctx context.Context, deps *deps.Deps) (*http.Server, error) {
 	if webDev {
 		basePath = ""
 		static = os.DirFS("web/static")
+		mx.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Log the request
+				log.Printf("Rcv request: %s %s", r.Method, r.URL.Path)
+
+				x := &interceptResponseWriter{ResponseWriter: w}
+
+				// Call the next handler
+				next.ServeHTTP(x, r)
+
+				// Log the response
+				log.Printf("HTTP %s %s returned %d bytes with status code %d", r.Method, r.URL.Path, x.Length(), x.StatusCode())
+			})
+		})
 	}
 
 	mx.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -75,4 +90,33 @@ func GetSrv(ctx context.Context, deps *deps.Deps) (*http.Server, error) {
 		ReadTimeout:       time.Minute * 3,
 		ReadHeaderTimeout: time.Minute * 3, // lint
 	}, nil
+}
+
+type interceptResponseWriter struct {
+	http.ResponseWriter
+	length  int
+	status  int
+	written bool
+}
+
+func (w *interceptResponseWriter) WriteHeader(statusCode int) {
+	w.status = statusCode
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (w *interceptResponseWriter) Write(b []byte) (int, error) {
+	if !w.written {
+		w.WriteHeader(http.StatusOK)
+	}
+	n, err := w.ResponseWriter.Write(b)
+	w.length += n
+	return n, err
+}
+
+func (w *interceptResponseWriter) Length() int {
+	return w.length
+}
+
+func (w *interceptResponseWriter) StatusCode() int {
+	return w.status
 }
