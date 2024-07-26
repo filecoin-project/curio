@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path"
 	"testing"
 	"time"
 
@@ -211,6 +210,21 @@ func TestCurioHappyPath(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, num, 1)
+
+	spt, err = miner2.PreferredSealProofTypeFromWindowPoStType(nv, wpt, true)
+	require.NoError(t, err)
+
+	num, err = seal.AllocateSectorNumbers(ctx, full, db, maddr, 1, func(tx *harmonydb.Tx, numbers []abi.SectorNumber) (bool, error) {
+		for _, n := range numbers {
+			_, err := tx.Exec("insert into sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof) values ($1, $2, $3)", mid, n, spt)
+			if err != nil {
+				return false, xerrors.Errorf("inserting into sectors_sdr_pipeline: %w", err)
+			}
+		}
+		return true, nil
+	})
+	require.NoError(t, err)
+	require.Len(t, num, 1)
 	// TODO: add DDO deal, f05 deal 2 MiB each in the sector
 
 	var sectorParamsArr []struct {
@@ -228,11 +242,13 @@ func TestCurioHappyPath(t *testing.T) {
 		FROM sectors_sdr_pipeline
 		WHERE after_commit_msg_success = True`)
 		require.NoError(t, err)
-		return len(sectorParamsArr) == 1
+		return len(sectorParamsArr) == 2
 	}, 10*time.Minute, 1*time.Second, "sector did not finish sealing in 5 minutes")
 
 	require.Equal(t, sectorParamsArr[0].SectorNumber, int64(0))
 	require.Equal(t, sectorParamsArr[0].SpID, int64(mid))
+	require.Equal(t, sectorParamsArr[1].SectorNumber, int64(1))
+	require.Equal(t, sectorParamsArr[1].SpID, int64(mid))
 
 	_ = capi.Shutdown(ctx)
 
@@ -267,15 +283,15 @@ func createCliContext(dir string) (*cli.Context, error) {
 			Usage: "path to json file containing storage config",
 			Value: "~/.curio/storage.json",
 		},
-		&cli.StringFlag{
-			Name:  "journal",
-			Usage: "path to journal files",
-			Value: "~/.curio/",
-		},
 		&cli.StringSliceFlag{
 			Name:    "layers",
 			Aliases: []string{"l", "layer"},
 			Usage:   "list of layers to be interpreted (atop defaults)",
+		},
+		&cli.StringFlag{
+			Name:    deps.FlagRepoPath,
+			EnvVars: []string{"CURIO_REPO_PATH"},
+			Value:   "~/.curio",
 		},
 	}
 
@@ -291,6 +307,7 @@ func createCliContext(dir string) (*cli.Context, error) {
 			fmt.Println("Storage config path:", c.String("storage-json"))
 			fmt.Println("Journal path:", c.String("journal"))
 			fmt.Println("Layers:", c.StringSlice("layers"))
+			fmt.Println("Repo Path:", c.String(deps.FlagRepoPath))
 			return nil
 		},
 	}
@@ -303,14 +320,10 @@ func createCliContext(dir string) (*cli.Context, error) {
 		}
 	}
 
-	curioDir := path.Join(dir, "curio")
-	cflag := fmt.Sprintf("--storage-json=%s", curioDir)
-
-	storage := path.Join(dir, "storage.json")
-	sflag := fmt.Sprintf("--journal=%s", storage)
+	rflag := fmt.Sprintf("--%s=%s", deps.FlagRepoPath, dir)
 
 	// Parse the flags with test values
-	err := set.Parse([]string{"--listen=0.0.0.0:12345", "--nosync", "--manage-fdlimit", sflag, cflag, "--layers=seal"})
+	err := set.Parse([]string{rflag, "--listen=0.0.0.0:12345", "--nosync", "--manage-fdlimit", "--layers=seal"})
 	if err != nil {
 		return nil, xerrors.Errorf("Error setting flag: %s\n", err)
 	}
@@ -415,6 +428,7 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	require.NoError(t, err)
 
 	_ = logging.SetLogLevel("harmonytask", "DEBUG")
+	_ = logging.SetLogLevel("cu/seal", "DEBUG")
 
 	return capi, taskEngine.GracefullyTerminate, ccloser, finishCh
 }

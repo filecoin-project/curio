@@ -41,8 +41,6 @@ Curio requires access to at least one Filecoin chain node like [Lotus](https://l
 
 Following port must be opened on each Curio node for API and GUI access
 
-
-
 | Port  | Details                                                                                       |
 | ----- | --------------------------------------------------------------------------------------------- |
 | 12300 | Default API port                                                                              |
@@ -59,6 +57,6 @@ With an understanding of Curio's internal mechanisms, you can now proceed to [in
 
 ## Best Practices
 
-We have compiled [a list of best practices](getting-started.md#best-practices) for deploying and maintaining a Curio cluster. All users are encouraged to follow these recommendations to avoid potential issues.
+We have compiled [a list of best practices](best-practices.md) for deploying and maintaining a Curio cluster. All users are encouraged to follow these recommendations to avoid potential issues.
 
 New users should also familiarize themselves with [both binaries shipped with Curio](curio-cli/) and the [GUI pages](curio-gui.md).

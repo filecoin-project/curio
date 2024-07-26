@@ -242,6 +242,14 @@ type CurioSubsystemsConfig struct {
 	// The address that should listen for Web GUI requests.
 	GuiAddress string
 
+	// UseSyntheticPoRep enables the synthetic PoRep for all new sectors. When set to true, will reduce the amount of
+	// cache data held on disk after the completion of TreeRC task to 11GiB.
+	UseSyntheticPoRep bool
+
+	// The maximum amount of SyntheticPoRep tasks that can run simultaneously. Note that the maximum number of tasks will
+	// also be bounded by resources available on the machine.
+	SyntheticPoRepMaxTasks int
+
 	// UserScheduler allows for the user to schedule tasks on specific machines of their choice.
 	// This http endpoint gets a POST request with the following JSON body:
 	// {

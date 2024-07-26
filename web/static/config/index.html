@@ -12,9 +12,6 @@
   <script type="module">
     import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
     window.customElements.define('config-list', class MyElement extends LitElement {
-      connectedCallback() {
-        super.connectedCallback();
-      }
       constructor() {
         super();
         this.layers = [];
@@ -66,7 +63,7 @@
             this.layers = responses[0].data;
             this.layers.unshift('default');
             this.topo = responses[1].data;
-            super.requestUpdate();
+            this.requestUpdate();
           })
           .catch(error => {
             console.error('Error fetching data:', error);

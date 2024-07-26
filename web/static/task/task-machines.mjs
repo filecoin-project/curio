@@ -39,8 +39,8 @@ class HarmonyMachineTable extends LitElement {
         <tbody>
           ${this.machines.map(machine => html`
             <tr>
-              <td><a href="/hapi/node/${machine.MachineID}">${machine.Name}</a></td>
-              <td><a href="/hapi/node/${machine.MachineID}">${machine.MachineAddr}</a></td>
+              <td><a href="/pages/node_info/?id=${machine.MachineID}">${machine.Name}</a></td>
+              <td><a href="/pages/node_info/?id=${machine.MachineID}">${machine.MachineAddr}</a></td>
               <td>${machine.Actors}</td>
             </tr>
           `)}
