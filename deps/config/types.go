@@ -242,9 +242,7 @@ type CurioSubsystemsConfig struct {
 	// The address that should listen for Web GUI requests.
 	GuiAddress string
 
-	// UserScheduleURL are the URLs for the user schedule optimization service. Please preceed each with
-	// the name of the task that it should be used for, followed by a comma and the URL. For example:
-	// "SealSDR,http://localhost:8080/schedule"
+	// UserScheduler allows for the user to schedule tasks on specific machines of their choice.
 	// This http endpoint gets a POST request with the following JSON body:
 	// {
 	//   "task_id": "task_id",
@@ -257,7 +255,36 @@ type CurioSubsystemsConfig struct {
 	//   "timeout": 60
 	// }
 	// Timeout in seconds until it will be rescheduled.
-	UserScheduleURL []string
+	UserScheduler []UserSchedule
+}
+
+// UserSchedule allows for the user to schedule a task on specific machines of their choice.
+// This http endpoint gets a POST request with the following JSON body:
+//
+//	{
+//	  "task_id": "task_id",
+//	  "task_type": "task_type",
+//	  "workers": ["worker1", "worker2"]
+//	}
+//
+// And looks for a 200 response with the following JSON body:
+//
+//	{
+//	  "worker": "worker1"
+//	  "timeout": 60
+//	}
+//
+// Timeout in seconds until it will be rescheduled.
+type UserSchedule struct {
+	// TaskName as listed in the GUI. Ex: SDR
+	TaskName string
+
+	// URL to http(s) user scheduler
+	URL string
+
+	// HaltOnSchedulerDown - If true, the tasks will not run when the URL response is not usable.
+	// The False value is recommended to keep scheduling working even if the UserScheduler service is down.
+	HaltOnSchedulerDown bool
 }
 type CurioFees struct {
 	DefaultMaxFee      types.FIL

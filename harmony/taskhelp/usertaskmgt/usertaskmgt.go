@@ -30,6 +30,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	logging "github.com/ipfs/go-log/v2"
@@ -39,28 +40,24 @@ import (
 
 var log = logging.Logger("userTaskMgt")
 
-func WrapTasks(tasks []harmonytask.TaskInterface, UserScheduleUrl []string, db *harmonydb.DB, hostAndPort string) {
-	urlMap := lo.SliceToMap(UserScheduleUrl, func(s string) (string, *url.URL) {
-		spl := strings.SplitN(s, ",", 2)
-		if len(spl) != 2 {
-			log.Errorf("Invalid UserScheduleUrl: %s. Expected: taskName,url", s)
-			return "", &url.URL{}
-		}
-		u, err := url.Parse(spl[1])
+func WrapTasks(tasks []harmonytask.TaskInterface, UserScheduler []config.UserSchedule, db *harmonydb.DB, hostAndPort string) {
+	m := lo.SliceToMap(UserScheduler, func(s config.UserSchedule) (string, *config.UserSchedule) {
+		_, err := url.Parse(s.URL)
 		if err != nil {
 			log.Errorf("Invalid UserScheduleUrl: %s. Expected: taskName,url", s)
-			return "", &url.URL{}
+			return "", nil
 		}
-		return spl[0], u
+		return s.TaskName, &s
 	})
 	for i, task := range tasks {
-		if url, ok := urlMap[task.TypeDetails().Name]; ok {
+		if s, ok := m[task.TypeDetails().Name]; ok {
 			tasks[i] = &UrlTask{
-				TaskInterface:   task,
-				UserScheduleUrl: url,
-				name:            task.TypeDetails().Name,
-				db:              db,
-				hostAndPort:     hostAndPort,
+				TaskInterface:       task,
+				UserScheduleUrl:     s.URL,
+				name:                task.TypeDetails().Name,
+				db:                  db,
+				hostAndPort:         hostAndPort,
+				haltOnSchedulerDown: s.HaltOnSchedulerDown,
 			}
 		}
 	}
@@ -68,10 +65,11 @@ func WrapTasks(tasks []harmonytask.TaskInterface, UserScheduleUrl []string, db *
 
 type UrlTask struct {
 	harmonytask.TaskInterface
-	db              *harmonydb.DB
-	UserScheduleUrl *url.URL
-	name            string
-	hostAndPort     string
+	db                  *harmonydb.DB
+	UserScheduleUrl     string
+	name                string
+	hostAndPort         string
+	haltOnSchedulerDown bool
 }
 
 // CanAccept should accept all IF no harmony_task_user row exists, ELSE
@@ -80,12 +78,17 @@ func (t *UrlTask) CanAccept(tids []harmonytask.TaskID, te *harmonytask.TaskEngin
 	id := tids[0]
 	var owner string
 	var expiration int64
-	err := t.db.QueryRow(context.Background(), `SELECT COALESCE(owner,''), COALESCE(expiration, 0) from harmony_task_user WHERE task_id=$1`, id).Scan(&owner, &expiration)
+	var ignoreUserScheduler bool
+	err := t.db.QueryRow(context.Background(), `SELECT 
+	COALESCE(owner,''), 
+	COALESCE(expiration, 0), 
+	COALESCE(ignore_userscheduler,false) 
+	from harmony_task_user WHERE task_id=$1`, id).Scan(&owner, &expiration, &ignoreUserScheduler)
 	if err != nil {
 		return nil, xerrors.Errorf("could not get owner: %w", err)
 	}
 	if owner != "" {
-		if owner == t.hostAndPort {
+		if owner == t.hostAndPort || ignoreUserScheduler {
 			return t.TaskInterface.CanAccept(tids, te)
 		}
 		if expiration < time.Now().Unix() {
@@ -100,9 +103,19 @@ func (t *UrlTask) CanAccept(tids []harmonytask.TaskID, te *harmonytask.TaskEngin
 
 var client = &http.Client{Timeout: time.Second * 10}
 
-func (t *UrlTask) Do(id harmonytask.TaskID, stillMe func() bool) (bool, error) {
+func (t *UrlTask) Do(id harmonytask.TaskID, stillMe func() bool) (b bool, err error) {
+	defer func() {
+		if err != harmonytask.ErrReturnToPoolPlease && !t.haltOnSchedulerDown {
+			log.Error("Proceeding without user scheduler service running (as configured)")
+			log.Error(err)
+			t.db.Exec(context.Background(),
+				`INSERT INTO harmony_task_user (task_id, owner, expiration, ignore_userscheduler) 
+			VALUES ($1, '-', 0, true)`, id)
+			err = harmonytask.ErrReturnToPoolPlease
+		}
+	}()
 	var owner string
-	err := t.db.QueryRow(context.Background(), `SELECT COALESCE(owner,'') FROM harmony_task_user WHERE task_id=$1`, id).Scan(&owner)
+	err = t.db.QueryRow(context.Background(), `SELECT COALESCE(owner,'') FROM harmony_task_user WHERE task_id=$1`, id).Scan(&owner)
 	if err != nil {
 		return false, xerrors.Errorf("could not get owner: %w", err)
 	}
@@ -117,7 +130,7 @@ func (t *UrlTask) Do(id harmonytask.TaskID, stillMe func() bool) (bool, error) {
 		return false, xerrors.Errorf("could not get worker list: %w", err)
 	}
 
-	resp, err := client.Post(t.UserScheduleUrl.String(), "application/json", bytes.NewReader([]byte(`
+	resp, err := client.Post(t.UserScheduleUrl, "application/json", bytes.NewReader([]byte(`
 	{
 		"task_type": "`+t.name+`",
 		"task_id": `+strconv.Itoa(int(id))+`,

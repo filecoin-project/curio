@@ -54,6 +54,11 @@ sptool: $(BUILD_DEPS)
 .PHONY: sptool
 BINS+=sptool
 
+userschedule:
+	rm -f userschedule
+	$(GOCC) build $(GOFLAGS) -o userschedule ./cmd/userschedule
+.PHONY: userschedule
+
 
 calibnet: GOFLAGS+=-tags=calibnet
 calibnet: build
