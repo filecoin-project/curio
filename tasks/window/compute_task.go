@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -289,14 +288,14 @@ func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, te *harmonytask.TaskEng
 	var tasks []wdTaskDef
 
 	err = t.db.Select(context.Background(), &tasks,
-		`Select 
+		`SELECT 
 			task_id,
 			sp_id,
 			proving_period_start,
 			deadline_index,
 			partition_index
-	from wdpost_partition_tasks 
-	where task_id IN (SELECT unnest(string_to_array($1, ','))::bigint)`, strings.Join(lo.Map(ids, entToStr[harmonytask.TaskID]), ","))
+	FROM wdpost_partition_tasks 
+	WHERE task_id IN ($1)`, lo.Map(ids, func(t harmonytask.TaskID, _ int) int { return int(t) }))
 	if err != nil {
 		return nil, err
 	}
