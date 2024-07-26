@@ -3,6 +3,7 @@ package tasks
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -22,6 +23,8 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp/harmonycron"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
@@ -193,11 +196,20 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		"miner_addresses", minerAddresses,
 		"tasks", lo.Map(activeTasks, func(t harmonytask.TaskInterface, _ int) string { return t.TypeDetails().Name }))
 
+	reg, err := resources.Register(db, dependencies.ListenAddr)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get resources: %w", err)
+	}
+
+	cron := harmonycron.New(db, reg.MachineID)
+	dependencies.At = cron.At
+	activeTasks = append([]harmonytask.TaskInterface{cron}, activeTasks...)
+
 	// harmony treats the first task as highest priority, so reverse the order
 	// (we could have just appended to this list in the reverse order, but defining
 	//  tasks in pipeline order is more intuitive)
 
-	ht, err := harmonytask.New(db, activeTasks, dependencies.ListenAddr)
+	ht, err := harmonytask.New(db, activeTasks, dependencies.ListenAddr, reg)
 	if err != nil {
 		return nil, err
 	}
