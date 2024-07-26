@@ -263,7 +263,7 @@ func addSealingTasks(
 		treeDTask := seal.NewTreeDTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
 		treeRCTask := seal.NewTreeRCTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
 		synthTask := seal.NewSyntheticProofTask(sp, db, slr, cfg.Subsystems.SyntheticPoRepMaxTasks)
-		activeTasks = append(activeTasks, treeDTask,synthTask, treeRCTask)
+		activeTasks = append(activeTasks, treeDTask, synthTask, treeRCTask)
 		addFinalize = true
 	}
 	if addFinalize {

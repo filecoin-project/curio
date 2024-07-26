@@ -632,6 +632,31 @@ cache data held on disk after the completion of TreeRC task to 11GiB.`,
 			Comment: `The maximum amount of SyntheticPoRep tasks that can run simultaneously. Note that the maximum number of tasks will
 also be bounded by resources available on the machine.`,
 		},
+		{
+			Name: "EnableBatchSeal",
+			Type: "bool",
+
+			Comment: `Batch Seal`,
+		},
+		{
+			Name: "BatchSealSectorSize",
+			Type: "string",
+
+			Comment: `BatchSealSectorSize Allows setting the sector size supported by the batch seal task.
+Can be any value as long as it is "32GiB".`,
+		},
+		{
+			Name: "BatchSealBatchSize",
+			Type: "int",
+
+			Comment: `Number of sectors in a seal batch. Depends on hardware and supraseal configuration.`,
+		},
+		{
+			Name: "BatchSealPipelines",
+			Type: "int",
+
+			Comment: `Number of parallel pipelines. Can be 1 or 2. Depends on available raw block storage`,
+		},
 	},
 	"Duration time.Duration": {
 		{
