@@ -6,12 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp/usertaskmgt"
-	"github.com/stretchr/testify/require"
 )
 
 func TestUserTaskMgt(t *testing.T) {
@@ -32,7 +33,8 @@ func TestUserTaskMgt(t *testing.T) {
 		usertaskmgt.WrapTasks(tasks, []config.UserSchedule{
 			{TaskName: "foo", URL: "http://localhost:7654"},
 		}, db, host)
-		harmonytask.New(db, tasks, host)
+		_, err := harmonytask.New(db, tasks, host)
+		require.NoError(t, err)
 	}
 
 	for a := 0; a < 5; a++ { // schedule 5 tasks

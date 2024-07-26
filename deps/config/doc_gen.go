@@ -632,6 +632,24 @@ cache data held on disk after the completion of TreeRC task to 11GiB.`,
 			Comment: `The maximum amount of SyntheticPoRep tasks that can run simultaneously. Note that the maximum number of tasks will
 also be bounded by resources available on the machine.`,
 		},
+		{
+			Name: "UserScheduler",
+			Type: "[]UserSchedule",
+
+			Comment: `UserScheduler allows for the user to schedule tasks on specific machines of their choice.
+This http endpoint gets a POST request with the following JSON body:
+{
+"task_id": "task_id",
+"task_type": "task_type",
+"workers": ["worker1", "worker2"]
+}
+And looks for a 200 response with the following JSON body:
+{
+"worker": "worker1"
+"timeout": 60
+}
+Timeout in seconds until it will be rescheduled.`,
+		},
 	},
 	"Duration time.Duration": {
 		{
@@ -703,6 +721,27 @@ identifier in the integration page for the service.`,
 
 			Comment: `WebHookURL is the URL for the URL for slack Webhook.
 Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX`,
+		},
+	},
+	"UserSchedule": {
+		{
+			Name: "TaskName",
+			Type: "string",
+
+			Comment: `TaskName as listed in the GUI. Ex: SDR`,
+		},
+		{
+			Name: "URL",
+			Type: "string",
+
+			Comment: `URL to http(s) user scheduler`,
+		},
+		{
+			Name: "HaltOnSchedulerDown",
+			Type: "bool",
+
+			Comment: `HaltOnSchedulerDown - If true, the tasks will not run when the URL response is not usable.
+The False value is recommended to keep scheduling working even if the UserScheduler service is down.`,
 		},
 	},
 }

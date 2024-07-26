@@ -30,12 +30,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/filecoin-project/curio/deps/config"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/harmony/harmonytask"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
 )
 
 var log = logging.Logger("userTaskMgt")
