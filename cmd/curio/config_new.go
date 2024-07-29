@@ -31,22 +31,28 @@ var configNewCmd = &cli.Command{
 		}
 
 		ctx := cctx.Context
-		depnds, err := deps.GetDepsCLI(ctx, cctx)
+
+		db, err := deps.MakeDB(cctx)
+		if err != nil {
+			return err
+		}
+
+		full, closer, err := cliutil.GetFullNodeAPIV1(cctx)
 		if err != nil {
 			return xerrors.Errorf("connecting to full node: %w", err)
 		}
-		db, chain := depnds.DB, depnds.Chain
+		defer closer()
 
 		ainfo, err := cliutil.GetAPIInfo(cctx, repo.FullNode)
 		if err != nil {
 			return xerrors.Errorf("could not get API info for FullNode: %w", err)
 		}
 
-		token, err := chain.AuthNew(ctx, api.AllPermissions)
+		token, err := full.AuthNew(ctx, api.AllPermissions)
 		if err != nil {
 			return err
 		}
 
-		return deps.CreateMinerConfig(ctx, chain, db, cctx.Args().Slice(), fmt.Sprintf("%s:%s", string(token), ainfo.Addr))
+		return deps.CreateMinerConfig(ctx, full, db, cctx.Args().Slice(), fmt.Sprintf("%s:%s", string(token), ainfo.Addr))
 	},
 }

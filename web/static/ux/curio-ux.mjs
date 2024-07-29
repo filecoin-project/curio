@@ -61,14 +61,14 @@ class CurioUX extends LitElement {
                 <a class="nav-link" href="/sector/">Sectors</a>
               </li>
               <li class="nav-item">
-                <a class="nav-link" href="/deals/">Deals</a>
-              </li>
-              <li class="nav-item">
-                <a class="nav-link" href="/pipeline_porep.html">PoRep</a>
+                <a class="nav-link" href="/pages/pipeline_porep/">PoRep</a>
               </li>
               <li class="nav-item">
                 <a class="nav-link" href="/snap/">Snap</a>
               </li> 
+              <li class="nav-items">
+                <a class="nav-link" href="/deals/">Deals</a>
+              </li>
               <li>
                 <hr class="dropdown-divider">
               </li>

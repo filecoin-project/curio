@@ -403,7 +403,7 @@ func (dbi *DBIndex) StorageDeclareSector(ctx context.Context, storageID storifac
 					return false, xerrors.Errorf("DB update fails: %v", err)
 				}
 			} else {
-				log.Warnf("sector %v redeclared in %s", s, storageID)
+				log.Debugf("sector %v redeclared in %s", s, storageID)
 			}
 		} else {
 			_, err = tx.Exec(

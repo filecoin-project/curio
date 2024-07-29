@@ -162,7 +162,7 @@ func (p *CurioAPI) StorageStat(ctx context.Context, id storiface.ID) (fsutil.FsS
 
 // this method is currently unused, might be back when we get markets into curio
 func (p *CurioAPI) AllocatePieceToSector(ctx context.Context, maddr address.Address, piece piece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (lapi.SectorOffset, error) {
-	/*di, err := market.NewPieceIngester(ctx, p.Deps.DB, p.Deps.Chain, maddr, true, time.Minute)
+	/*di, err := market.NewPieceIngester(ctx, p.Deps.DB, p.Deps.Full, maddr, true, time.Minute, false)
 	if err != nil {
 		return lapi.SectorOffset{}, xerrors.Errorf("failed to create a piece ingestor")
 	}

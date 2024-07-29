@@ -15,6 +15,7 @@
   * [Alert Manager](configuration/alert-manager.md)
   * [Default Curio Configuration](configuration/default-curio-configuration.md)
 * [Enabling market](enabling-market.md)
+* [Snap Deals](snap-deals.md)
 * [Scaling Curio cluster](scaling-curio-cluster.md)
 * [Curio GUI](curio-gui.md)
 * [Garbage Collection](garbage-collection.md)

@@ -11,6 +11,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/dealdata"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
 
@@ -43,10 +44,11 @@ func (t *TreeRCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		SectorNumber int64                   `db:"sector_number"`
 		RegSealProof abi.RegisteredSealProof `db:"reg_seal_proof"`
 		CommD        string                  `db:"tree_d_cid"`
+		TicketValue  []byte                  `db:"ticket_value"`
 	}
 
 	err = t.db.Select(ctx, &sectorParamsArr, `
-		SELECT sp_id, sector_number, reg_seal_proof, tree_d_cid
+		SELECT sp_id, sector_number, reg_seal_proof, tree_d_cid, ticket_value
 		FROM sectors_sdr_pipeline
 		WHERE task_id_tree_c = $1 AND task_id_tree_r = $1`, taskID)
 	if err != nil {
@@ -71,19 +73,23 @@ func (t *TreeRCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		ProofType: sectorParams.RegSealProof,
 	}
 
-	// R / C
-	sealed, unsealed, err := t.sc.TreeRC(ctx, &taskID, sref, commd)
+	dd, err := dealdata.DealDataSDRPoRep(ctx, t.db, t.sc, sectorParams.SpID, sectorParams.SectorNumber, sectorParams.RegSealProof, true)
 	if err != nil {
-		return false, xerrors.Errorf("computing tree r and c: %w", err)
+		return false, xerrors.Errorf("getting deal data: %w", err)
+	}
+
+	// R / C
+	sealed, unsealed, err := t.sc.TreeRC(ctx, &taskID, sref, commd, sectorParams.TicketValue, dd.PieceInfos)
+	if err != nil {
+		serr := resetSectorSealingState(ctx, sectorParams.SpID, sectorParams.SectorNumber, err, t.db, t.TypeDetails().Name)
+		if serr != nil {
+			return false, xerrors.Errorf("computing tree r and c: %w", err)
+		}
 	}
 
 	if unsealed != commd {
 		return false, xerrors.Errorf("commd %s does match unsealed %s", commd.String(), unsealed.String())
 	}
-
-	// todo synth porep
-
-	// todo porep challenge check
 
 	n, err := t.db.Exec(ctx, `UPDATE sectors_sdr_pipeline
 		SET after_tree_r = true, after_tree_c = true, tree_r_cid = $3, task_id_tree_r = NULL, task_id_tree_c = NULL
