@@ -61,6 +61,7 @@ require (
 	github.com/samber/lo v1.39.0
 	github.com/snadrus/must v0.0.0-20240605044437-98cedd57f8eb
 	github.com/stretchr/testify v1.9.0
+	github.com/test-go/testify v1.1.4
 	github.com/urfave/cli/v2 v2.25.5
 	github.com/whyrusleeping/cbor-gen v0.1.1
 	github.com/yugabyte/pgx/v5 v5.5.3-yb-2
@@ -282,7 +283,6 @@ require (
 	github.com/sirupsen/logrus v1.9.2 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
-	github.com/test-go/testify v1.1.4 // indirect
 	github.com/triplewz/poseidon v0.0.0-20230828015038-79d8165c88ed // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.0.1 // indirect
