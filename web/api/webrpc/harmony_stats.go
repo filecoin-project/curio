@@ -38,10 +38,13 @@ type HarmonyMachineDesc struct {
 
 func (a *WebRPC) HarmonyTaskMachines(ctx context.Context, taskName string) ([]HarmonyMachineDesc, error) {
 	var stats []HarmonyMachineDesc
-	err := a.deps.DB.Select(ctx, &stats, `SELECT md.machine_id, md.machine_name, hm.host_and_port, md.miners FROM harmony_machine_details md
-	    INNER JOIN harmony_machines hm ON md.machine_id = hm.id
-	    WHERE $1 = ANY(string_to_array(md.tasks, ','))
-	    ORDER BY md.miners DESC`, taskName)
+	// note: LIKE is inefficient, but beats 2 queries given small enough list size.
+	err := a.deps.DB.Select(ctx, &stats, `
+	SELECT md.machine_id, md.machine_name, hm.host_and_port, md.miners 
+	FROM harmony_machine_details md
+	INNER JOIN harmony_machines hm ON md.machine_id = hm.id
+	WHERE md.tasks LIKE $1
+	ORDER BY md.miners DESC`, "%,"+taskName+",%")
 	if err != nil {
 		return nil, err
 	}
