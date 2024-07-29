@@ -34,7 +34,7 @@ var webDev = os.Getenv("CURIO_WEB_DEV") == "1"
 
 func GetSrv(ctx context.Context, deps *deps.Deps) (*http.Server, error) {
 	mx := mux.NewRouter()
-	api.Routes(mx.PathPrefix("/api").Subrouter(), deps)
+	api.Routes(mx.PathPrefix("/api").Subrouter(), deps, webDev)
 
 	var static fs.FS = static
 	if webDev {
