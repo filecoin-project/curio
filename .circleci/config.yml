@@ -176,6 +176,8 @@ jobs:
             TEST_RUSTPROOFS_LOGS: << parameters.proofs-log-test >>
             SKIP_CONFORMANCE: "1"
             CURIO_SRC_DIR: /home/circleci/project
+            CURIO_HARMONYDB_HOSTS: yugabyte
+            LOTUS_HARMONYDB_HOSTS: yugabyte
           command: |
             mkdir -p /tmp/test-reports/<< parameters.suite >>
             mkdir -p /tmp/test-artifacts
@@ -244,6 +246,8 @@ jobs:
             TEST_RUSTPROOFS_LOGS: << parameters.proofs-log-test >>
             SKIP_CONFORMANCE: "1"
             CURIO_SRC_DIR: /home/circleci/project
+            CURIO_HARMONYDB_HOSTS: yugabyte
+            LOTUS_HARMONYDB_HOSTS: yugabyte
           command: |
             mkdir -p /tmp/test-reports/<< parameters.suite >>
             mkdir -p /tmp/test-artifacts
