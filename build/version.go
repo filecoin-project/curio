@@ -40,7 +40,7 @@ func BuildTypeString() string {
 	}
 }
 
-// Intent: Major.Network.EvenReleases
+// Intent: Major.Network.Patch
 var BuildVersionArray = [3]int{1, 23, 0}
 
 // Ex: "1.2.3"
