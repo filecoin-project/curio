@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/test-go/testify/require"
 	"golang.org/x/exp/rand"
 )
 
@@ -30,17 +31,9 @@ func CliEnv() func(name string, args ...string) *CliThing {
 }
 func TestCliPost(t *testing.T) {
 	thistest := CliEnv()
-	os.WriteFile("/tmp/base.toml", []byte(""), 0644)
-	err := thistest("../curio", "config", "set", "/tmp/base.toml").Run()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile("/tmp/base.toml", []byte(""), 0644))
+	require.NoError(t, thistest("../curio", "config", "set", "/tmp/base.toml").Run())
 	cmd := thistest("../curio", "test", "window-post", "here")
-	err = cmd.Run()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(cmd.Bytes(), []byte("All tasks complete")) {
-		t.Fatal("unexpected output")
-	}
+	require.NoError(t, cmd.Run())
+	require.Equal(t, "All tasks complete\n", cmd.Buffer.String())
 }
