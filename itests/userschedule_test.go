@@ -18,7 +18,7 @@ import (
 func TestUserTaskMgt(t *testing.T) {
 	gopath, err := exec.LookPath("go")
 	require.NoError(t, err)
-	exec.Command(gopath, "run", "cmd/userschedule").Run() // round-robin scheduler
+	require.NoError(t, exec.Command(gopath, "run", "cmd/userschedule").Run()) // round-robin scheduler
 
 	db := dbSetup(t)
 	harmonytask.POLL_DURATION = 200 * time.Millisecond

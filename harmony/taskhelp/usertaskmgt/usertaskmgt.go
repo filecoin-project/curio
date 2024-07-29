@@ -109,9 +109,13 @@ func (t *UrlTask) Do(id harmonytask.TaskID, stillMe func() bool) (b bool, err er
 		if err != harmonytask.ErrReturnToPoolPlease && !t.haltOnSchedulerDown {
 			log.Error("Proceeding without user scheduler service running (as configured)")
 			log.Error(err)
-			t.db.Exec(context.Background(),
+			_, err = t.db.Exec(context.Background(),
 				`INSERT INTO harmony_task_user (task_id, owner, expiration, ignore_userscheduler) 
 			VALUES ($1, '-', 0, true)`, id)
+			if err != nil {
+				log.Error("Could not insert into harmony_task_user: ", err)
+				return
+			}
 			err = harmonytask.ErrReturnToPoolPlease
 		}
 	}()

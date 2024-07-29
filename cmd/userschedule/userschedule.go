@@ -72,10 +72,10 @@ func main() {
 	setupCloseHandler()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/userschedule", func(w http.ResponseWriter, r *http.Request) {
-		defer recover()
+		defer func() { _ = recover() }()
 		sched(w, r)
 	})
-	http.ListenAndServe(":7654", mux)
+	fmt.Println(http.ListenAndServe(":7654", mux))
 }
 
 // Intentionally inlined dependencies to make it easy to copy-paste into your own codebase.
