@@ -290,7 +290,7 @@ func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, te *harmonytask.TaskEng
 			deadline_index,
 			partition_index
 	FROM wdpost_partition_tasks 
-	WHERE task_id IN ANY($1)`, lo.Map(ids, func(t harmonytask.TaskID, _ int) int { return int(t) }))
+	WHERE task_id = ANY($1)`, lo.Map(ids, func(t harmonytask.TaskID, _ int) int { return int(t) }))
 	if err != nil {
 		return nil, err
 	}
