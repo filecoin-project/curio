@@ -231,9 +231,6 @@ jobs:
       - image: yugabytedb/yugabyte:2.21.0.1-b1
         command: bin/yugabyted start --daemon=false
         name: yugabyte
-      - image: ghcr.io/chainsafe/forest:latest
-        command: forest /bin/bash
-        name: forest
     resource_class: << parameters.resource_class >>
     steps:
       - install-ubuntu-deps
