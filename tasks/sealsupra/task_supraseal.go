@@ -413,11 +413,14 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 	taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 		// claim [sectors] pipeline entries
 		var sectors []struct {
-			SpID         int64 `db:"sp_id"`
-			SectorNumber int64 `db:"sector_number"`
+			SpID         int64  `db:"sp_id"`
+			SectorNumber int64  `db:"sector_number"`
+			TaskIDSDR    *int64 `db:"task_id_sdr"`
 		}
 
-		err := tx.Select(&sectors, `SELECT sp_id, sector_number FROM sectors_sdr_pipeline WHERE after_sdr = FALSE AND task_id_sdr IS NULL LIMIT $1`, s.sectors)
+		err := tx.Select(&sectors, `SELECT sp_id, sector_number, task_id_sdr FROM sectors_sdr_pipeline
+                                         LEFT JOIN harmony_task ht on sectors_sdr_pipeline.task_id_sdr = ht.id
+                                         WHERE after_sdr = FALSE AND (task_id_sdr IS NULL OR ht.owner_id IS NULL) LIMIT $1`, s.sectors)
 		if err != nil {
 			return false, xerrors.Errorf("getting tasks: %w", err)
 		}
@@ -436,6 +439,14 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 			if err != nil {
 				return false, xerrors.Errorf("updating task id: %w", err)
 			}
+
+			if t.TaskIDSDR != nil {
+				// sdr task exists, remove it from the task engine
+				_, err := tx.Exec(`DELETE FROM harmony_task WHERE id = $1`, *t.TaskIDSDR)
+				if err != nil {
+					return false, xerrors.Errorf("deleting old task: %w", err)
+				}
+			}
 		}
 
 		return true, nil
@@ -447,7 +458,7 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 var FSOverheadSupra = map[storiface.SectorFileType]int{ // 10x overheads
 	storiface.FTUnsealed: storiface.FSOverheadDen,
 	storiface.FTSealed:   storiface.FSOverheadDen,
-	storiface.FTCache:    11, // C + R' (no 11 layers + D(2x ssize)); Has 'sealed-file' here briefly, but that is moved to the real sealed file quickly
+	storiface.FTCache:    11, // C + R' (no 11 layers + D(2x ssize));
 }
 
 func SupraSpaceUse(ft storiface.SectorFileType, ssize abi.SectorSize) (uint64, error) {
