@@ -21,7 +21,7 @@ require (
 	github.com/filecoin-project/go-commp-utils v0.1.3
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20220905160352-62059082a837
 	github.com/filecoin-project/go-fil-commcid v0.1.0
-	github.com/filecoin-project/go-jsonrpc v0.5.0
+	github.com/filecoin-project/go-jsonrpc v0.5.1-0.20240730181539-2bb4fbb48fdd
 	github.com/filecoin-project/go-padreader v0.0.1
 	github.com/filecoin-project/go-state-types v0.14.0-rc6
 	github.com/filecoin-project/go-statestore v0.2.0
