@@ -465,5 +465,23 @@ func SupraSpaceUse(ft storiface.SectorFileType, ssize abi.SectorSize) (uint64, e
 	return need, nil
 }
 
-var _ = harmonytask.Reg(&SupraSeal{})
+func init() {
+	spts := []abi.RegisteredSealProof{
+		abi.RegisteredSealProof_StackedDrg32GiBV1_1,
+		abi.RegisteredSealProof_StackedDrg64GiBV1_1,
+	}
+
+	batchSizes := []int{1, 2, 4, 8, 16, 32, 64, 128}
+
+	for _, spt := range spts {
+		for _, batchSize := range batchSizes {
+			_ = harmonytask.Reg(&SupraSeal{
+				spt:     spt,
+				sectors: batchSize,
+			})
+		}
+	}
+
+}
+
 var _ harmonytask.TaskInterface = &SupraSeal{}
