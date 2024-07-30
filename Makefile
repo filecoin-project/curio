@@ -2,6 +2,8 @@ SHELL=/usr/bin/env bash
 
 GOCC?=go
 
+## FILECOIN-FFI
+
 FFI_PATH:=extern/filecoin-ffi/
 FFI_DEPS:=.install-filcrypto
 FFI_DEPS:=$(addprefix $(FFI_PATH),$(FFI_DEPS))
@@ -21,6 +23,23 @@ ffi-version-check:
 BUILD_DEPS+=ffi-version-check
 
 .PHONY: ffi-version-check
+
+## SUPRA-FFI
+
+ifeq ($(shell uname),Linux)
+SUPRA_FFI_PATH:=extern/supra_seal/
+SUPRA_FFI_DEPS:=.install-supraseal
+SUPRA_FFI_DEPS:=$(addprefix $(SUPRA_FFI_PATH),$(SUPRA_FFI_DEPS))
+
+$(SUPRA_FFI_DEPS): build/.supraseal-install ;
+
+build/.supraseal-install: $(SUPRA_FFI_PATH)
+	cd $(SUPRA_FFI_PATH) && ./build.sh
+	@touch $@
+
+MODULES+=$(SUPRA_FFI_PATH)
+CLEAN+=build/.supraseal-install
+endif
 
 $(MODULES): build/.update-modules ;
 # dummy file that marks the last time modules were updated
@@ -57,13 +76,31 @@ sptool: $(BUILD_DEPS)
 .PHONY: sptool
 BINS+=sptool
 
+ifeq ($(shell uname),Linux)
+
+batchdep: build/.supraseal-install
+batchdep: $(BUILD_DEPS)
+,PHONY: batchdep
+
 batch: GOFLAGS+=-tags=supraseal
 batch: CGO_LDFLAGS_ALLOW='.*'
-batch: build
+batch: batchdep build
+.PHONY: batch
 
 batch-calibnet: GOFLAGS+=-tags=calibnet,supraseal
 batch-calibnet: CGO_LDFLAGS_ALLOW='.*'
-batch-calibnet: build
+batch-calibnet: batchdep build
+.PHONY: batch-calibnet
+
+else
+batch:
+	@echo "Batch target is only available on Linux systems"
+	@exit 1
+
+batch-calibnet:
+	@echo "Batch-calibnet target is only available on Linux systems"
+	@exit 1
+endif
 
 calibnet: GOFLAGS+=-tags=calibnet
 calibnet: build
