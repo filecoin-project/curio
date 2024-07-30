@@ -35,7 +35,7 @@ Edit the `/etc/curio.env` file and update the `CURIO_LAYERS` variable to include
 ```
 CURIO_LAYERS=seal,mt01000
 CURIO_ALL_REMAINING_FIELDS_ARE_OPTIONAL=true
-CURIO_DB_HOST=yugabyte
+CURIO_DB_HOST=yugabyte1,yugabyte2,yugabyte3
 CURIO_DB_USER=yugabyte
 CURIO_DB_PASSWORD=yugabyte
 ```

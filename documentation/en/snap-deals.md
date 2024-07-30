@@ -38,7 +38,7 @@ Data can be ingested using either the Snap Deals pipeline or the PoRep pipeline 
     ```
     CURIO_LAYERS=gui,seal,post,upgrade <----- Add the "upgrade" layer
     CURIO_ALL_REMAINING_FIELDS_ARE_OPTIONAL=true
-    CURIO_DB_HOST=yugabyte
+    CURIO_DB_HOST=yugabyte1,yugabyte2,yugabyte3
     CURIO_DB_USER=yugabyte
     CURIO_DB_PASSWORD=yugabyte
     CURIO_DB_PORT=5433
