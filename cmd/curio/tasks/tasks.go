@@ -144,6 +144,12 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			winPoStTask := winning.NewWinPostTask(cfg.Subsystems.WinningPostMaxTasks, db, store, verif, asyncParams(), full, maddrs)
 			inclCkTask := winning.NewInclusionCheckTask(db, full)
 			activeTasks = append(activeTasks, winPoStTask, inclCkTask)
+
+			// Warn if also running a sealing task
+			if cfg.Subsystems.EnableSealSDR || cfg.Subsystems.EnableSealSDRTrees || cfg.Subsystems.EnableSendPrecommitMsg || cfg.Subsystems.EnablePoRepProof || cfg.Subsystems.EnableMoveStorage || cfg.Subsystems.EnableSendCommitMsg || cfg.Subsystems.EnableUpdateEncode || cfg.Subsystems.EnableUpdateProve || cfg.Subsystems.EnableUpdateSubmit {
+				log.Error("It's unsafe to run PoSt and sealing tasks concurrently.")
+				dependencies.Alert.AddAlert("It's unsafe to run PoSt and sealing tasks concurrently.")
+			}
 		}
 	}
 
