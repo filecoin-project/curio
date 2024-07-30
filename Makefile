@@ -30,6 +30,9 @@ build/.update-modules:
 
 # end git modules
 
+## CUDA Library Path
+CUDA_LIB_PATHS := "/opt/cuda/targets/x86_64-linux/lib:/usr/local/cuda/lib64"
+
 ## MAIN BINARIES
 
 CLEAN+=build/.update-modules
@@ -41,7 +44,7 @@ deps: $(BUILD_DEPS)
 
 curio: $(BUILD_DEPS)
 	rm -f curio
-	GOAMD64=v3 CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -o curio -ldflags " -s -w \
+	LIBRARY_PATH=$(CUDA_LIB_PATHS) GOAMD64=v3 CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -o curio -ldflags " -s -w \
 	-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
 	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
 	./cmd/curio
@@ -50,13 +53,17 @@ BINS+=curio
 
 sptool: $(BUILD_DEPS)
 	rm -f sptool
-	$(GOCC) build $(GOFLAGS) -o sptool ./cmd/sptool
+	LIBRARY_PATH=$(CUDA_LIB_PATHS) $(GOCC) build $(GOFLAGS) -o sptool ./cmd/sptool
 .PHONY: sptool
 BINS+=sptool
 
 batch: GOFLAGS+=-tags=supraseal
 batch: CGO_LDFLAGS_ALLOW='.*'
 batch: build
+
+batch-calibnet: GOFLAGS+=-tags=calibnet,supraseal
+batch-calibnet: CGO_LDFLAGS_ALLOW='.*'
+batch-calibnet: build
 
 calibnet: GOFLAGS+=-tags=calibnet
 calibnet: build
