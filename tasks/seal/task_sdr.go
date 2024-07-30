@@ -45,16 +45,17 @@ type SDRTask struct {
 
 	sc *ffi2.SealCalls
 
-	max int
+	max, min int
 }
 
-func NewSDRTask(api SDRAPI, db *harmonydb.DB, sp *SealPoller, sc *ffi2.SealCalls, maxSDR int) *SDRTask {
+func NewSDRTask(api SDRAPI, db *harmonydb.DB, sp *SealPoller, sc *ffi2.SealCalls, maxSDR, minSDR int) *SDRTask {
 	return &SDRTask{
 		api: api,
 		db:  db,
 		sp:  sp,
 		sc:  sc,
 		max: maxSDR,
+		min: minSDR,
 	}
 }
 
@@ -162,6 +163,11 @@ func GetTicket(ctx context.Context, api TicketNodeAPI, maddr address.Address) (a
 }
 
 func (s *SDRTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+	if s.min > len(ids) {
+		log.Debugw("did not accept task", "name", "SDR", "reason", "below min", "min", s.min, "count", len(ids))
+		return nil, nil
+	}
+
 	id := ids[0]
 	return &id, nil
 }

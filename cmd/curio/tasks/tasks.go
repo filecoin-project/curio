@@ -256,7 +256,7 @@ func addSealingTasks(
 	}
 
 	if cfg.Subsystems.EnableSealSDR {
-		sdrTask := seal.NewSDRTask(full, db, sp, slr, cfg.Subsystems.SealSDRMaxTasks)
+		sdrTask := seal.NewSDRTask(full, db, sp, slr, cfg.Subsystems.SealSDRMaxTasks, cfg.Subsystems.SealSDRMinTasks)
 		activeTasks = append(activeTasks, sdrTask)
 	}
 	if cfg.Subsystems.EnableSealSDRTrees {

@@ -62,6 +62,16 @@ description: The default curio configuration
   # type: int
   #SealSDRMaxTasks = 0
 
+  # The maximum amount of SDR tasks that need to be queued before the system will start accepting new tasks.
+  # The main purpose of this setting is to allow for enough tasks to accumulate for batch sealing. When batch sealing
+  # nodes are present in the cluster, this value should be set to batch_size+1 to allow for the batch sealing node to
+  # fill up the batch.
+  # This setting can also be used to give priority to other nodes in the cluster by setting this value to a higher
+  # value on the nodes which should have less priority.
+  #
+  # type: int
+  #SealSDRMinTasks = 0
+
   # EnableSealSDRTrees enables the SDR pipeline tree-building task to run.
   # This task handles encoding of unsealed data into last sdr layer and building
   # of TreeR, TreeC and TreeD.
