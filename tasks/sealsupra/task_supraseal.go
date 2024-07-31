@@ -398,8 +398,8 @@ func (s *SupraSeal) TypeDetails() harmonytask.TaskTypeDetails {
 		Name: fmt.Sprintf("Batch%d-%s", s.sectors, ssizeToName[must.One(s.spt.SectorSize())]),
 		Cost: resources.Resources{
 			Cpu: 1,
-			Gpu: 1,
-			Ram: 1 << 20,
+			Gpu: 0,
+			Ram: 16 << 30,
 		},
 		MaxFailures: 4,
 		IAmBored:    passcall.Every(30*time.Second, s.schedule),
