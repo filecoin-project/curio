@@ -10,6 +10,8 @@ import (
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
@@ -49,6 +51,13 @@ retryAddTask:
 		}
 		log.Errorw("Could not add task. AddTasFunc failed", "error", err, "type", h.Name)
 		return
+	}
+
+	err = stats.RecordWithTags(context.Background(), []tag.Mutator{
+		tag.Upsert(taskNameTag, h.Name),
+	}, TaskMeasures.AddedTasks.M(1))
+	if err != nil {
+		log.Errorw("Could not record added task", "error", err)
 	}
 }
 
@@ -154,7 +163,16 @@ canAcceptAgain:
 		}
 	}
 
+	_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
+		tag.Upsert(taskNameTag, h.Name),
+		tag.Upsert(sourceTag, from),
+	}, TaskMeasures.TasksStarted.M(1))
+
 	h.Count.Add(1)
+	_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
+		tag.Upsert(taskNameTag, h.Name),
+	}, TaskMeasures.ActiveTasks.M(int64(h.Count.Load())))
+
 	go func() {
 		log.Infow("Beginning work on Task", "id", *tID, "from", from, "name", h.Name)
 
@@ -204,6 +222,28 @@ canAcceptAgain:
 func (h *taskTypeHandler) recordCompletion(tID TaskID, workStart time.Time, done bool, doErr error) {
 	workEnd := time.Now()
 	retryWait := time.Millisecond * 100
+
+	{
+		// metrics
+
+		_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
+			tag.Upsert(taskNameTag, h.Name),
+		}, TaskMeasures.ActiveTasks.M(int64(h.Count.Load())))
+
+		duration := workEnd.Sub(workStart).Seconds()
+		TaskMeasures.TaskDuration.Observe(duration)
+
+		if done {
+			_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
+				tag.Upsert(taskNameTag, h.Name),
+			}, TaskMeasures.TasksCompleted.M(1))
+		} else {
+			_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
+				tag.Upsert(taskNameTag, h.Name),
+			}, TaskMeasures.TasksFailed.M(1))
+		}
+	}
+
 retryRecordCompletion:
 	cm, err := h.TaskEngine.db.BeginTransaction(h.TaskEngine.ctx, func(tx *harmonydb.Tx) (bool, error) {
 		var postedTime time.Time
