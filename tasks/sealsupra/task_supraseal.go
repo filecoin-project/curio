@@ -422,7 +422,7 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 
 		err := tx.Select(&sectors, `SELECT sp_id, sector_number, task_id_sdr FROM sectors_sdr_pipeline
                                          LEFT JOIN harmony_task ht on sectors_sdr_pipeline.task_id_sdr = ht.id
-                                         WHERE after_sdr = FALSE AND (task_id_sdr IS NULL OR ht.owner_id IS NULL) LIMIT $1`, s.sectors)
+                                         WHERE after_sdr = FALSE AND (task_id_sdr IS NULL OR (ht.owner_id IS NULL AND ht.name = 'SDR')) LIMIT $1`, s.sectors)
 		if err != nil {
 			return false, xerrors.Errorf("getting tasks: %w", err)
 		}
