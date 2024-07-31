@@ -3,12 +3,13 @@ package itests
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/alertmanager/plugin"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/stretchr/testify/require"
 )
 
 func TestAlertNow(t *testing.T) {
