@@ -49,10 +49,10 @@ build/.update-modules:
 
 # end git modules
 
-## CUDA Library Path
+## CUDA Library Path ()
 CUDA_PATH := $(shell dirname $$(dirname $$(which nvcc)))
 CUDA_LIB_PATH := $(CUDA_PATH)/lib64
-export LIBRARY_PATH := $(CUDA_LIB_PATH):$(LD_LIBRARY_PATH)
+export LIBRARY_PATH := $(CUDA_LIB_PATH):$(LIBRARY_PATH)
 
 ## MAIN BINARIES
 
