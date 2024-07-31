@@ -408,60 +408,25 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 		Resumable: hasAnyStuckTask,
 	}, nil
-
-	//a.executePageTemplate(w, "sector_info", "Sector Info", mi)
 }
 
-func (a *WebRPC) SectorResume(ctx context.Context, sp, id string) error {
-	intid, err := strconv.ParseInt(id, 10, 64)
-	if err != nil {
-		return xerrors.Errorf("invalid id")
-	}
-
-	maddr, err := address.NewFromString(sp)
-	if err != nil {
-		return xerrors.Errorf("invalid sp")
-	}
-
-	spid, err := address.IDFromAddress(maddr)
-	if err != nil {
-		return xerrors.Errorf("invalid sp")
-	}
-
-	// call CREATE OR REPLACE FUNCTION unset_task_id(sp_id_param bigint, sector_number_param bigint)
-
-	_, err = a.deps.DB.Exec(ctx, `SELECT unset_task_id($1, $2)`, spid, intid)
+func (a *WebRPC) SectorResume(ctx context.Context, spid, id int) error {
+	_, err := a.deps.DB.Exec(ctx, `SELECT unset_task_id($1, $2)`, spid, id)
 	if err != nil {
 		return xerrors.Errorf("failed to resume sector: %w", err)
 	}
 	return nil
 }
 
-func (a *WebRPC) SectorRemove(ctx context.Context, sp, id string) error {
-
-	intid, err := strconv.ParseInt(id, 10, 64)
-	if err != nil {
-		return xerrors.Errorf("invalid id")
-	}
-
-	maddr, err := address.NewFromString(sp)
-	if err != nil {
-		return xerrors.Errorf("invalid sp")
-	}
-
-	spid, err := address.IDFromAddress(maddr)
-	if err != nil {
-		return xerrors.Errorf("invalid sp")
-	}
-
-	_, err = a.deps.DB.Exec(ctx, `DELETE FROM sectors_sdr_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, intid)
+func (a *WebRPC) SectorRemove(ctx context.Context, spid, id int) error {
+	_, err := a.deps.DB.Exec(ctx, `DELETE FROM sectors_sdr_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, id)
 	if err != nil {
 		return xerrors.Errorf("failed to resume sector: %w", err)
 	}
 
 	_, err = a.deps.DB.Exec(ctx, `INSERT INTO storage_removal_marks (sp_id, sector_num, sector_filetype, storage_id, created_at, approved, approved_at)
 		SELECT miner_id, sector_num, sector_filetype, storage_id, current_timestamp, FALSE, NULL FROM sector_location
-		WHERE miner_id = $1 AND sector_num = $2`, spid, intid)
+		WHERE miner_id = $1 AND sector_num = $2`, spid, id)
 	if err != nil {
 		return xerrors.Errorf("failed to mark sector for removal: %w", err)
 	}

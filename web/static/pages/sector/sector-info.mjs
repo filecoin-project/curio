@@ -34,9 +34,9 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
             <div>
                 <details>
                     <summary class="btn btn-warning">Remove ${!this.data.PipelinePoRep?.Failed ? '(THIS SECTOR IS NOT FAILED!)' : ''}</summary>
-                    <button class="btn btn-danger" onclick="${this.removeSector}">Confirm Remove</button>
+                    <button class="btn btn-danger" @click="${() => this.removeSector()}">Confirm Remove</button>
                 </details>
-                ${this.data.Resumable ? html`<button class="btn btn-primary" onclick="${this.resumeSector}">Resume</button>` : ''}
+                ${this.data.Resumable ? html`<button class="btn btn-primary" @click="${() => this.resumeSector()}">Resume</button>` : ''}
             </div>
             <div>
                 <h3>PoRep Pipeline</h3>
