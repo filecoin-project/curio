@@ -50,7 +50,9 @@ build/.update-modules:
 # end git modules
 
 ## CUDA Library Path
-CUDA_LIB_PATHS := "/opt/cuda/targets/x86_64-linux/lib:/usr/local/cuda/lib64"
+CUDA_PATH := $(shell dirname $$(dirname $$(which nvcc)))
+CUDA_LIB_PATH := $(CUDA_PATH)/lib64
+export LIBRARY_PATH := $(CUDA_LIB_PATH):$(LD_LIBRARY_PATH)
 
 ## MAIN BINARIES
 
@@ -63,7 +65,7 @@ deps: $(BUILD_DEPS)
 
 curio: $(BUILD_DEPS)
 	rm -f curio
-	LIBRARY_PATH=$(CUDA_LIB_PATHS) GOAMD64=v3 CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -o curio -ldflags " -s -w \
+	GOAMD64=v3 CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -o curio -ldflags " -s -w \
 	-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
 	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
 	./cmd/curio
