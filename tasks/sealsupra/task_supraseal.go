@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -51,8 +50,8 @@ type SupraSeal struct {
 	sectors   int // sectors in a batch
 	spt       abi.RegisteredSealProof
 
-	inSDR  sync.Mutex
-	outSDR sync.Mutex
+	inSDR  *pipelinePhase // Phase 1
+	outSDR *pipelinePhase // Phase 2
 
 	slots *slotmgr.SlotMgr
 }
@@ -123,6 +122,9 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, machineHostAndPor
 		spt:       spt,
 		pipelines: pipelines,
 		sectors:   batchSize,
+
+		inSDR:  &pipelinePhase{phaseNum: 1},
+		outSDR: &pipelinePhase{phaseNum: 2},
 
 		slots: slots,
 	}, nil
