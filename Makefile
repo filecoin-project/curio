@@ -52,7 +52,7 @@ build/.update-modules:
 ## CUDA Library Path ()
 CUDA_PATH := $(shell dirname $$(dirname $$(which nvcc)))
 CUDA_LIB_PATH := $(CUDA_PATH)/lib64
-export LIBRARY_PATH := $(CUDA_LIB_PATH):$(LIBRARY_PATH)
+export LIBRARY_PATH := $(LIBRARY_PATH):$(CUDA_LIB_PATH)
 
 ## MAIN BINARIES
 
