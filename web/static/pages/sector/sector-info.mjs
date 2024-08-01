@@ -34,9 +34,9 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
             <div>
                 <details>
                     <summary class="btn btn-warning">Remove ${!this.data.PipelinePoRep?.Failed ? '(THIS SECTOR IS NOT FAILED!)' : ''}</summary>
-                    <button class="btn btn-danger" onclick="${this.removeSector}">Confirm Remove</button>
+                    <button class="btn btn-danger" @click="${() => this.removeSector()}">Confirm Remove</button>
                 </details>
-                ${this.data.Resumable ? html`<button class="btn btn-primary" onclick="${this.resumeSector}">Resume</button>` : ''}
+                ${this.data.Resumable ? html`<button class="btn btn-primary" @click="${() => this.resumeSector()}">Resume</button>` : ''}
             </div>
             <div>
                 <h3>PoRep Pipeline</h3>
@@ -101,10 +101,12 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                         <th>Host</th>
                     </tr>
                     ${this.data.Locations.map(location => html`
-                        ${location.PathType ? html`<td rowspan="${location.PathTypeRowSpan}">${location.PathType}</td>` : ''}
-                        ${location.FileType ? html`<td rowspan="${location.FileTypeRowSpan}">${location.FileType}</td>` : ''}
-                        <td>${location.Locations[0].StorageID}</td>
-                        <td>${location.Locations[0].Urls.map(url => html`<p>${url}</p>`)}</td>
+                        <tr>
+                            ${location.PathType ? html`<td rowspan="${location.PathTypeRowSpan}">${location.PathType}</td>` : ''}
+                            ${location.FileType ? html`<td rowspan="${location.FileTypeRowSpan}">${location.FileType}</td>` : ''}
+                            <td>${location.Locations[0].StorageID}</td>
+                            <td>${location.Locations[0].Urls.map(url => html`<p>${url}</p>`)}</td>
+                        </tr>
                         ${location.Locations.slice(1).map(loc => html`
                             <tr>
                                 <td>${loc.StorageID}</td>
@@ -116,7 +118,7 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
             </div>
             <div>
                 <h3>Tasks</h3>
-                <table class="porep-state">
+                <table class="table table-dark">
                     <tr>
                         <th>Task Type</th>
                         <th>Task ID</th>

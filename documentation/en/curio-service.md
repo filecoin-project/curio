@@ -41,7 +41,7 @@ The service file requires an `/etc/curio.env` file to be present. This file cont
 ```sh
 CURIO_LAYERS=gui,post
 CURIO_ALL_REMAINING_FIELDS_ARE_OPTIONAL=true
-CURIO_DB_HOST=yugabyte
+CURIO_DB_HOST=yugabyte1,yugabyte2,yugabyte3
 CURIO_DB_USER=yugabyte
 CURIO_DB_PASSWORD=yugabyte
 CURIO_DB_PORT=5433
