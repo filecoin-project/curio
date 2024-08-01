@@ -75,7 +75,7 @@ BINS+=curio
 
 sptool: $(BUILD_DEPS)
 	rm -f sptool
-	LIBRARY_PATH=$(CUDA_LIB_PATHS) $(GOCC) build $(GOFLAGS) -o sptool ./cmd/sptool
+	$(GOCC) build $(GOFLAGS) -o sptool ./cmd/sptool
 .PHONY: sptool
 BINS+=sptool
 
