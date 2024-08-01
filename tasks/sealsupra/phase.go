@@ -11,7 +11,7 @@ import (
 	"go.opencensus.io/tag"
 )
 
-const alpha = 0.1 // EMA smoothing factor
+const alpha = 0.4 // EMA smoothing factor
 
 // pipelinePhase ensures that there is only one pipeline in each phase
 // could be a simple lock, but this gives us some stats
