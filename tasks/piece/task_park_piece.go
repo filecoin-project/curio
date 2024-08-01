@@ -159,7 +159,7 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 	for i := range refData {
 		if refData[i].DataURL != "" {
-			upr := dealdata.NewUrlReader(refData[0].DataURL, pieceRawSize)
+			upr := dealdata.NewUrlReader(refData[i].DataURL, pieceRawSize)
 			defer func() {
 				_ = upr.Close()
 			}()
@@ -179,11 +179,10 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 			return true, nil
 		}
-		return false, merr
 	}
 
 	// If no URL is found, this indicates an issue since at least one URL is expected.
-	return false, xerrors.Errorf("no data URL found for piece_id: %d", pieceData.PieceID)
+	return false, xerrors.Errorf("no suitable data URL found for piece_id %d: %w", pieceData.PieceID, merr)
 }
 
 func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
