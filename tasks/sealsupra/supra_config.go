@@ -224,8 +224,15 @@ func FormatSupraSealConfig(config SupraSealConfig) string {
 	sb.WriteString("spdk: {\n")
 	sb.WriteString("  # PCIe identifiers of NVMe drives to use to store layers\n")
 	sb.WriteString("  nvme = [ \n")
-	for _, device := range config.NVMeDevices {
-		sb.WriteString(fmt.Sprintf("           \"%s\",\n", device))
+	for i, device := range config.NVMeDevices {
+		sb.WriteString(fmt.Sprintf("           \"%s\"", device))
+
+		// comma if not last
+		if i < len(config.NVMeDevices)-1 {
+			sb.WriteString(",\n")
+		} else {
+			sb.WriteString("\n")
+		}
 	}
 	sb.WriteString("         ];\n")
 	sb.WriteString("}\n\n")
