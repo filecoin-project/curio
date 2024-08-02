@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+
 	"github.com/fatih/color"
-	"github.com/filecoin-project/curio/tasks/sealsupra"
 	"github.com/urfave/cli/v2"
+
+	"github.com/filecoin-project/curio/tasks/sealsupra"
 )
 
 var calcCmd = &cli.Command{

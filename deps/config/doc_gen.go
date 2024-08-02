@@ -140,6 +140,12 @@ alerts will be triggered for the wallet`,
 			Comment: ``,
 		},
 		{
+			Name: "Seal",
+			Type: "CurioSealConfig",
+
+			Comment: ``,
+		},
+		{
 			Name: "Apis",
 			Type: "ApisConfig",
 
@@ -372,6 +378,27 @@ with recovering sectors in the post message
 
 Note that setting this value lower may result in less efficient gas use - more messages will be sent,
 to prove each deadline, resulting in more total gas use (but each message will have lower gas limit)`,
+		},
+	},
+	"CurioSealConfig": {
+		{
+			Name: "BatchSealSectorSize",
+			Type: "string",
+
+			Comment: `BatchSealSectorSize Allows setting the sector size supported by the batch seal task.
+Can be any value as long as it is "32GiB".`,
+		},
+		{
+			Name: "BatchSealBatchSize",
+			Type: "int",
+
+			Comment: `Number of sectors in a seal batch. Depends on hardware and supraseal configuration.`,
+		},
+		{
+			Name: "BatchSealPipelines",
+			Type: "int",
+
+			Comment: `Number of parallel pipelines. Can be 1 or 2. Depends on available raw block storage`,
 		},
 	},
 	"CurioSubsystemsConfig": {
@@ -648,25 +675,6 @@ also be bounded by resources available on the machine.`,
 			Type: "bool",
 
 			Comment: `Batch Seal`,
-		},
-		{
-			Name: "BatchSealSectorSize",
-			Type: "string",
-
-			Comment: `BatchSealSectorSize Allows setting the sector size supported by the batch seal task.
-Can be any value as long as it is "32GiB".`,
-		},
-		{
-			Name: "BatchSealBatchSize",
-			Type: "int",
-
-			Comment: `Number of sectors in a seal batch. Depends on hardware and supraseal configuration.`,
-		},
-		{
-			Name: "BatchSealPipelines",
-			Type: "int",
-
-			Comment: `Number of parallel pipelines. Can be 1 or 2. Depends on available raw block storage`,
 		},
 	},
 	"Duration time.Duration": {

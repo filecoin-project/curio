@@ -19,6 +19,7 @@ COMMANDS:
    seal          Manage the sealing pipeline
    market        
    fetch-params  Fetch proving parameters
+   calc          Math Utils
    help, h       Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
@@ -574,4 +575,49 @@ USAGE:
 
 OPTIONS:
    --help, -h  show help
+```
+
+## curio calc
+```
+NAME:
+   curio calc - Math Utils
+
+USAGE:
+   curio calc command [command options] [arguments...]
+
+COMMANDS:
+   batch-cpu         See layout of batch sealer threads
+   supraseal-config  Generate a supra_seal configuration
+   help, h           Shows a list of commands or help for one command
+
+OPTIONS:
+   --actor value  
+   --help, -h     show help
+```
+
+### curio calc batch-cpu
+```
+NAME:
+   curio calc batch-cpu - See layout of batch sealer threads
+
+USAGE:
+   curio calc batch-cpu [command options] [arguments...]
+
+OPTIONS:
+   --dual-hashers  (default: true)
+   --help, -h      show help
+```
+
+### curio calc supraseal-config
+```
+NAME:
+   curio calc supraseal-config - Generate a supra_seal configuration
+
+USAGE:
+   curio calc supraseal-config [command options] [arguments...]
+
+OPTIONS:
+   --dual-hashers                Zen3 and later supports two sectors per thread, set to false for older CPUs (default: true)
+   --batch-size value, -b value  (default: 0)
+   --help, -h                    show help
 ```
