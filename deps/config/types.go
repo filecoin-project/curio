@@ -13,10 +13,6 @@ func DefaultCurioConfig() *CurioConfig {
 			BoostAdapters:              []string{},
 			RequireActivationSuccess:   true,
 			RequireNotificationSuccess: true,
-
-			BatchSealPipelines:  2,
-			BatchSealBatchSize:  32,
-			BatchSealSectorSize: "32GiB",
 		},
 		Fees: CurioFees{
 			DefaultMaxFee:      DefaultDefaultMaxFee(),
@@ -49,6 +45,11 @@ func DefaultCurioConfig() *CurioConfig {
 			PartitionCheckTimeout: Duration(20 * time.Minute),
 			SingleCheckTimeout:    Duration(10 * time.Minute),
 		},
+		Seal: CurioSealConfig{
+			BatchSealPipelines:  2,
+			BatchSealBatchSize:  32,
+			BatchSealSectorSize: "32GiB",
+		},
 		Ingest: CurioIngestConfig{
 			MaxQueueDealSector: 8, // default to 8 sectors open(or in process of opening) for deals
 			MaxQueueSDR:        8, // default to 8 (will cause backpressure even if deal sectors are 0)
@@ -77,6 +78,7 @@ type CurioConfig struct {
 	Addresses []CurioAddresses
 	Proving   CurioProvingConfig
 	Ingest    CurioIngestConfig
+	Seal      CurioSealConfig
 	Apis      ApisConfig
 	Alerting  CurioAlertingConfig
 }
@@ -264,16 +266,6 @@ type CurioSubsystemsConfig struct {
 
 	// Batch Seal
 	EnableBatchSeal bool
-
-	// BatchSealSectorSize Allows setting the sector size supported by the batch seal task.
-	// Can be any value as long as it is "32GiB".
-	BatchSealSectorSize string
-
-	// Number of sectors in a seal batch. Depends on hardware and supraseal configuration.
-	BatchSealBatchSize int
-
-	// Number of parallel pipelines. Can be 1 or 2. Depends on available raw block storage
-	BatchSealPipelines int
 }
 type CurioFees struct {
 	DefaultMaxFee      types.FIL
@@ -469,6 +461,18 @@ type CurioAlertingConfig struct {
 
 	// SlackWebhookConfig is a configuration type for Slack webhook integration.
 	SlackWebhook SlackWebhookConfig
+}
+
+type CurioSealConfig struct {
+	// BatchSealSectorSize Allows setting the sector size supported by the batch seal task.
+	// Can be any value as long as it is "32GiB".
+	BatchSealSectorSize string
+
+	// Number of sectors in a seal batch. Depends on hardware and supraseal configuration.
+	BatchSealBatchSize int
+
+	// Number of parallel pipelines. Can be 1 or 2. Depends on available raw block storage
+	BatchSealPipelines int
 }
 
 type PagerDutyConfig struct {
