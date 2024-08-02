@@ -1,14 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"github.com/fatih/color"
+	"github.com/filecoin-project/curio/tasks/sealsupra"
 	"github.com/urfave/cli/v2"
-	"os/exec"
-	"regexp"
-	"strconv"
-	"strings"
 )
 
 var calcCmd = &cli.Command{
@@ -21,75 +17,8 @@ var calcCmd = &cli.Command{
 	},
 	Subcommands: []*cli.Command{
 		calcBatchCpuCmd,
+		calcSuprasealConfigCmd,
 	},
-}
-
-type SystemInfo struct {
-	ProcessorCount int
-	ThreadCount    int
-	CoreCount      int
-	ThreadsPerCore int
-	CoresPerL3     int
-	L3CacheCount   int
-}
-
-func getSystemInfo() (*SystemInfo, error) {
-	cmd := exec.Command("hwloc-ls")
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("error running hwloc-ls: %v", err)
-	}
-
-	info := &SystemInfo{}
-	scanner := bufio.NewScanner(strings.NewReader(string(output)))
-
-	l3Regex := regexp.MustCompile(`L3 L#(\d+)`)
-	puRegex := regexp.MustCompile(`PU L#(\d+)`)
-	coreRegex := regexp.MustCompile(`Core L#(\d+)`)
-	packageRegex := regexp.MustCompile(`Package L#(\d+)`)
-
-	var currentL3Cores int
-	var lastL3Index int = -1
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		if l3Match := l3Regex.FindStringSubmatch(line); l3Match != nil {
-			info.L3CacheCount++
-			l3Index, _ := strconv.Atoi(l3Match[1])
-			if lastL3Index != -1 && l3Index != lastL3Index {
-				if info.CoresPerL3 == 0 || currentL3Cores < info.CoresPerL3 {
-					info.CoresPerL3 = currentL3Cores
-				}
-				currentL3Cores = 0
-			}
-			lastL3Index = l3Index
-		}
-
-		if coreRegex.MatchString(line) {
-			info.CoreCount++
-			currentL3Cores++
-		}
-
-		if puRegex.MatchString(line) {
-			info.ThreadCount++
-		}
-
-		if packageRegex.MatchString(line) {
-			info.ProcessorCount++
-		}
-	}
-
-	// Handle the last L3 cache
-	if info.CoresPerL3 == 0 || currentL3Cores < info.CoresPerL3 {
-		info.CoresPerL3 = currentL3Cores
-	}
-
-	if info.CoreCount > 0 {
-		info.ThreadsPerCore = info.ThreadCount / info.CoreCount
-	}
-
-	return info, nil
 }
 
 var calcBatchCpuCmd = &cli.Command{
@@ -99,7 +28,7 @@ var calcBatchCpuCmd = &cli.Command{
 		&cli.BoolFlag{Name: "dual-hashers", Value: true},
 	},
 	Action: func(cctx *cli.Context) error {
-		info, err := getSystemInfo()
+		info, err := sealsupra.GetSystemInfo()
 		if err != nil {
 			return err
 		}
@@ -108,10 +37,10 @@ var calcBatchCpuCmd = &cli.Command{
 		fmt.Println("")
 		fmt.Printf("Processor count: %d\n", info.ProcessorCount)
 		fmt.Printf("Core count: %d\n", info.CoreCount)
-		fmt.Printf("Thread count: %d\n", info.ThreadCount)
+		fmt.Printf("Thread count: %d\n", info.CoreCount*info.ThreadsPerCore)
 		fmt.Printf("Threads per core: %d\n", info.ThreadsPerCore)
 		fmt.Printf("Cores per L3 cache (CCX): %d\n", info.CoresPerL3)
-		fmt.Printf("L3 cache count (CCX count): %d\n", info.L3CacheCount)
+		fmt.Printf("L3 cache count (CCX count): %d\n", info.CoreCount/info.CoresPerL3)
 
 		ccxFreeCores := info.CoresPerL3 - 1 // one core per ccx goes to the coordinator
 		ccxFreeThreads := ccxFreeCores * info.ThreadsPerCore
@@ -297,6 +226,36 @@ var calcBatchCpuCmd = &cli.Command{
 		printForBatchSize(64)
 		printForBatchSize(128)
 
+		return nil
+	},
+}
+
+var calcSuprasealConfigCmd = &cli.Command{
+	Name:  "supraseal-config",
+	Usage: "Generate a supra_seal configuration",
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:  "dual-hashers",
+			Value: true,
+			Usage: "Zen3 and later supports two sectors per thread, set to false for older CPUs",
+		},
+		&cli.IntFlag{
+			Name:     "batch-size",
+			Aliases:  []string{"b"},
+			Required: true,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		sysInfo, err := sealsupra.GetSystemInfo()
+		if err != nil {
+			return err
+		}
+
+		config, err := sealsupra.GenerateSupraSealConfig(*sysInfo, cctx.Bool("dual-hashers"), cctx.Int("batch-size"), nil)
+		if err != nil {
+			return err
+		}
+		fmt.Println(sealsupra.FormatSupraSealConfig(config))
 		return nil
 	},
 }
