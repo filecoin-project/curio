@@ -180,28 +180,28 @@ var calcBatchCpuCmd = &cli.Command{
 			nextFreeCore := minOverheadCores
 
 			// first move pc2 to individual cores
-			if coresLeftover >= nextFreeCore {
+			if coresLeftover > nextFreeCore {
 				pc2writer = nextFreeCore
 				nextFreeCore++
 			} else {
 				color.Yellow("! P2 writer will share a core with P2 reader, performance may be impacted")
 			}
 
-			if coresLeftover >= nextFreeCore {
+			if coresLeftover > nextFreeCore {
 				pc2hasher = nextFreeCore
 				nextFreeCore++
 			} else {
 				color.Yellow("! P2 hasher will share a core with P2 writer, performance may be impacted")
 			}
 
-			if coresLeftover >= nextFreeCore {
+			if coresLeftover > nextFreeCore {
 				pc2hasher_cpu = nextFreeCore
 				nextFreeCore++
 			} else {
 				color.Yellow("! P2 hasher_cpu will share a core with P2 reader, performance may be impacted")
 			}
 
-			if coresLeftover >= nextFreeCore {
+			if coresLeftover > nextFreeCore {
 				// might be fine to sit on core0, but let's not do that
 				pc2reader = nextFreeCore
 				c1reader = nextFreeCore
@@ -209,12 +209,12 @@ var calcBatchCpuCmd = &cli.Command{
 			}
 
 			// add p2 writer cores, up to 8 total
-			if coresLeftover >= nextFreeCore {
+			if coresLeftover > nextFreeCore {
 				// swap pc2reader with pc2writer
 				pc2writer, pc2reader = pc2reader, pc2writer
 
 				for i := 0; i < 7; i++ {
-					if coresLeftover >= nextFreeCore {
+					if coresLeftover > nextFreeCore {
 						pc2writer_cores++
 						nextFreeCore++
 					}
@@ -235,7 +235,7 @@ var calcBatchCpuCmd = &cli.Command{
 			fmt.Printf("c1 reader: %d\n", c1reader)
 			fmt.Println()
 
-			unoccupiedCores := coresLeftover - nextFreeCore + 1
+			unoccupiedCores := coresLeftover - nextFreeCore
 			fmt.Printf("Unoccupied Cores: %d\n\n", unoccupiedCores)
 
 			var ccxCores []CoreNum // first core in each CCX
