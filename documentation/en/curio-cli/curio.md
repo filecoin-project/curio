@@ -518,6 +518,7 @@ OPTIONS:
    --count value                      Number of sectors to start (default: 1)
    --synthetic                        Use synthetic PoRep (default: false)
    --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
+   --duration-days value, -d value    How long to commit sectors for (default: 1278 (3.5 years))
    --help, -h                         show help
 ```
 
