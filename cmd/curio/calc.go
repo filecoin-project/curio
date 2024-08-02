@@ -120,7 +120,7 @@ var calcBatchCpuCmd = &cli.Command{
 				pc2hasher = nextFreeCore
 				nextFreeCore++
 			} else {
-				color.Yellow("! P2 hasher will share a core with P2 writer, performance may be impacted")
+				color.Yellow("! P2 hasher will share a core with P1 writer, performance may be impacted")
 			}
 
 			if coresLeftover > nextFreeCore {
