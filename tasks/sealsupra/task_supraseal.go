@@ -33,6 +33,8 @@ import (
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
+const suprasealConfigEnv = "SUPRASEAL_CONFIG"
+
 var log = logging.Logger("batchseal")
 
 type SupraSealNodeAPI interface {
@@ -56,7 +58,7 @@ type SupraSeal struct {
 	slots *slotmgr.SlotMgr
 }
 
-func NewSupraSeal(sectorSize string, batchSize, pipelines int, machineHostAndPort string,
+func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool, nvmeDevices []string, machineHostAndPort string,
 	slots *slotmgr.SlotMgr, db *harmonydb.DB, api SupraSealNodeAPI, storage *paths.Remote, sindex paths.SectorIndex) (*SupraSeal, error) {
 	var spt abi.RegisteredSealProof
 	switch sectorSize {
@@ -72,7 +74,40 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, machineHostAndPor
 	}
 
 	log.Infow("start supraseal init")
-	supraffi.SupraSealInit(uint64(ssize), "/tmp/supraseal.cfg")
+	var configFile string
+	if configFile = os.Getenv(suprasealConfigEnv); configFile == "" {
+		// not set from env (should be the case in most cases), auto-generate a config
+
+		sysInfo, err := GetSystemInfo()
+		if err != nil {
+			return nil, xerrors.Errorf("getting system info: %w", err)
+		}
+
+		config, err := GenerateSupraSealConfig(*sysInfo, dualHashers, batchSize, nvmeDevices)
+		if err != nil {
+			return nil, xerrors.Errorf("generating config: %w", err)
+		}
+
+		cstr := FormatSupraSealConfig(config)
+
+		cfgFile, err := os.CreateTemp("", "supraseal-config-*.json")
+		if err != nil {
+			return nil, xerrors.Errorf("creating temp file: %w", err)
+		}
+
+		if _, err := cfgFile.WriteString(cstr); err != nil {
+			return nil, xerrors.Errorf("writing temp file: %w", err)
+		}
+
+		configFile = cfgFile.Name()
+		if err := cfgFile.Close(); err != nil {
+			return nil, xerrors.Errorf("closing temp file: %w", err)
+		}
+
+		log.Infow("generated supraseal config", "config", config, "file", configFile)
+	}
+
+	supraffi.SupraSealInit(uint64(ssize), configFile)
 	log.Infow("supraseal init done")
 
 	// Get maximum block offset (essentially the number of pages in the smallest nvme device)

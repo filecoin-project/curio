@@ -473,6 +473,18 @@ type CurioSealConfig struct {
 
 	// Number of parallel pipelines. Can be 1 or 2. Depends on available raw block storage
 	BatchSealPipelines int
+
+	// SingleHasherPerThread is a compatibility flag for older CPUs. Zen3 and later supports two sectors per thread.
+	// Set to false for older CPUs (Zen 2 and before).
+	SingleHasherPerThread bool
+
+	// LayerNVMEDevices is a list of pcie device addresses that should be used for layer storage.
+	// The required storage is 11 * BatchSealBatchSize * BatchSealSectorSize * BatchSealPipelines
+	// Total Read IOPS for optimal performance should be 10M+.
+	// The devices MUST be NVMe devices, not used for anything else. Any data on the devices will be lost!
+	//
+	// Example: ["0000:01:00.0", "0000:01:00.1"]
+	LayerNVMEDevices []string
 }
 
 type PagerDutyConfig struct {

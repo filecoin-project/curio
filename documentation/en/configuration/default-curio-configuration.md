@@ -468,6 +468,12 @@ description: The default curio configuration
   # type: int
   #BatchSealPipelines = 2
 
+  # SingleHasherPerThread is a compatibility flag for older CPUs. Zen3 and later supports two sectors per thread.
+  # Set to false for older CPUs (Zen 2 and before).
+  #
+  # type: bool
+  #SingleHasherPerThread = false
+
 
 [Apis]
   # RPC Secret for the storage subsystem.
