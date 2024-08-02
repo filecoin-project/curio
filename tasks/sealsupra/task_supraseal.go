@@ -90,7 +90,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 
 		cstr := FormatSupraSealConfig(config)
 
-		cfgFile, err := os.CreateTemp("", "supraseal-config-*.json")
+		cfgFile, err := os.CreateTemp("", "supraseal-config-*.cfg")
 		if err != nil {
 			return nil, xerrors.Errorf("creating temp file: %w", err)
 		}

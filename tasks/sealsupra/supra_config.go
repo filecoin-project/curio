@@ -244,7 +244,7 @@ func FormatSupraSealConfig(config SupraSealConfig) string {
 	sb.WriteString("    hashers_per_core = 2;\n\n")
 
 	sb.WriteString("    sector_configs: (\n")
-	for _, sectorConfig := range config.Topology.SectorConfigs {
+	for i, sectorConfig := range config.Topology.SectorConfigs {
 		sb.WriteString("      {\n")
 		sb.WriteString(fmt.Sprintf("        sectors = %d;\n", sectorConfig.Sectors))
 		sb.WriteString("        coordinators = (\n")
@@ -257,7 +257,13 @@ func FormatSupraSealConfig(config SupraSealConfig) string {
 			sb.WriteString("\n")
 		}
 		sb.WriteString("        )\n")
-		sb.WriteString("      },\n")
+		sb.WriteString("      }")
+
+		// if not last, add a comma
+		if i < len(config.Topology.SectorConfigs)-1 {
+			sb.WriteString(",")
+		}
+		sb.WriteString("\n")
 	}
 	sb.WriteString("    )\n")
 	sb.WriteString("  },\n")
