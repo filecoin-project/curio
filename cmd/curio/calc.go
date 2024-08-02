@@ -258,7 +258,7 @@ var calcBatchCpuCmd = &cli.Command{
 
 				coreConfigs = append(coreConfigs, sectorCoreConfig{
 					core:    coreNum,
-					hashers: toAssign - 1,
+					hashers: (toAssign - 1) * info.ThreadsPerCore,
 				})
 
 				i -= toAssign
