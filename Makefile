@@ -73,7 +73,7 @@ an existing curio binary in your PATH. This may cause problems if you don't run 
 
 .PHONY: build
 
-install: install-curio install-sptool
+install: install-curio install-sptool install-completions
 .PHONY: install
 
 install-curio:
@@ -104,6 +104,13 @@ dist-clean:
 	git clean -xdff
 	git submodule deinit --all -f
 .PHONY: dist-clean
+
+install-completions:
+	mkdir -p /usr/share/bash-completion/completions /usr/local/share/zsh/site-functions/
+	install -C ./scripts/completion/bash_autocomplete /usr/share/bash-completion/completions/curio
+	install -C ./scripts/completion/bash_autocomplete /usr/share/bash-completion/completions/sptool
+	install -C ./scripts/completion/zsh_autocomplete /usr/local/share/zsh/site-functions/_curio
+	install -C ./scripts/completion/zsh_autocomplete /usr/local/share/zsh/site-functions/_sptool
 
 cu2k: GOFLAGS+=-tags=2k
 cu2k: curio
