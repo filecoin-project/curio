@@ -1,7 +1,5 @@
 #! /bin/bash
 
-: ${PROG:=$(basename ${BASH_SOURCE})}
-
 # Macs have bash3 for which the bash-completion package doesn't include
 # _init_completion. This is a minimal version of that function.
 _cli_init_completion() {
@@ -31,5 +29,4 @@ _cli_bash_autocomplete() {
   fi
 }
 
-complete -o bashdefault -o default -o nospace -F _cli_bash_autocomplete $PROG
-unset PROG
+complete -o bashdefault -o default -o nospace -F _cli_bash_autocomplete curio sptool
