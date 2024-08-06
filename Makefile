@@ -73,7 +73,7 @@ an existing curio binary in your PATH. This may cause problems if you don't run 
 
 .PHONY: build
 
-install: install-curio install-sptool install-completions
+install: install-curio install-sptool
 .PHONY: install
 
 install-curio:
