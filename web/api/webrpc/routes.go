@@ -2,6 +2,7 @@ package webrpc
 
 import (
 	"context"
+	"reflect"
 
 	"github.com/gorilla/mux"
 	logging "github.com/ipfs/go-log/v2"
@@ -33,14 +34,22 @@ func (a *WebRPC) BlockDelaySecs(context.Context) (uint64, error) {
 	return build.BlockDelaySecs, nil
 }
 
-func Routes(r *mux.Router, deps *deps.Deps) {
+func Routes(r *mux.Router, deps *deps.Deps, debug bool) {
 	handler := &WebRPC{
 		deps:      deps,
 		stor:      store.ActorStore(context.Background(), blockstore.NewReadCachedBlockstore(blockstore.NewAPIBlockstore(deps.Chain), curiochain.ChainBlockCache)),
 		taskSPIDs: makeTaskSPIDs(),
 	}
 
-	rpcSrv := jsonrpc.NewServer()
+	opt := []jsonrpc.ServerOption{}
+	if debug {
+		opt = append(opt, jsonrpc.WithTracer(func(method string, params []reflect.Value, results []reflect.Value, err error) {
+			resNil := len(results) == 0 || (len(results) == 1 && results[0].IsNil())
+			log.Infow("WebRPC call", "method", method, "params", params, "resultsNil?", resNil, "error", err)
+		}))
+
+	}
+	rpcSrv := jsonrpc.NewServer(opt...)
 	rpcSrv.Register("CurioWeb", handler)
 	r.Handle("/v0", rpcSrv)
 }

@@ -23,6 +23,11 @@
 
   <link rel="stylesheet" href="https://cdn.datatables.net/select/2.0.0/css/select.dataTables.min.css" />
   <script src="https://cdn.datatables.net/select/2.0.0/js/dataTables.select.min.js"></script>
+  <style>
+    th {
+      vertical-align: top;
+    }
+  </style>
 </head>
 
 <body style="visibility:hidden" data-bs-theme="dark">
@@ -31,9 +36,29 @@
       <div class="row justify-content-center content">
         <div class="col-md-auto" style="max-width: 95%">
           <table id="sectorTable" class="hover">
-            <tr>
-              <td>Loading...</td>
-            </tr>
+            <thead>
+              <tr>
+                <th></th>
+                <th class="dd">SpID</th>
+                <th>Sector</th>
+                <th>Expiry</th>
+                <th class="dd">🔗</th>
+                <th class="dd">Proving</th>
+                <th class="dd">HasSealed</th>
+                <th class="dd">HasUnsealed</th>
+                <th>DealWeight</th>
+                <th>Deals</th>
+                <th class="dd">Fil+</th>
+                <th class="dd">HasSnap</th>
+                <th class="dd">Size</th>
+                <th class="dd">Flag</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Loading...</td>
+              </tr>              
+            </tbody>
           </table>
         </div>
       </div>
@@ -44,25 +69,27 @@
     let dt = new DataTable('#sectorTable', {
       ajax: '/api/sector/all',
       columns: [
-        {title: "", data: null},
-        {title: "SpID", data:'MinerID'},
-        {title: "Sector", data: 'SectorNum', render: function(data, type, row) {
-          if (type === 'display') {
-            return `<a href="/pages/sector/?sp=${row.MinerID}&id=${data}">${data}</a>`;
+        { title: "", data: null },
+        { title: "SpID", data: 'MinerID',  },
+        {
+          title: "Sector", data: 'SectorNum', render: function (data, type, row) {
+            if (type === 'display') {
+              return `<a href="/pages/sector/?sp=${row.MinerID}&id=${data}">${data}</a>`;
+            }
+            return data;
           }
-          return data;
-        }},
-        {title: "Expiry", data:'ExpiresAt'},
-        {title: "🔗", data:'IsOnChain'},
-        {title: "Proving", data:'Proving'},
-        {title: "Has Sealed", data:'HasSealed'},
-        {title: "Has Unsealed", data:'HasUnsealed'},
-        {title: "DealWeight", data:"DealWeight"},
-        {title: "Deals", data:"Deals"},
-        {title: "Fil+", data:'IsFilPlus'},
-        {title: "Has Snap", data:'HasSnap'},
-        {title: "Size", data:"SealInfo"},
-        {title: "Flag", data:"Flag"}
+        },
+        { title: "Expiry", data: 'ExpiresAt' },
+        { title: "🔗", data: 'IsOnChain' },
+        { title: "Proving", data: 'Proving' },
+        { title: "Has Sealed", data: 'HasSealed' },
+        { title: "Has Unsealed", data: 'HasUnsealed' },
+        { title: "DealWeight", data: "DealWeight" },
+        { title: "Deals", data: "Deals" },
+        { title: "Fil+", data: 'IsFilPlus' },
+        { title: "Has Snap", data: 'HasSnap' },
+        { title: "Size", data: "SealInfo" },
+        { title: "Flag", data: "Flag" }
       ],
       layout: {
         topStart: 'buttons',
@@ -70,53 +97,53 @@
       },
       buttons: [
         {
-            extend: 'copy',
-            text: '📋'
+          extend: 'copy',
+          text: '📋'
         },
         'csv',
         {
-            extend: 'selected',
-            text: 'Terminate & Delete',
-            action: function (e, dt, button, config) {
-              var res = dt.rows({ selected: true }).data().toArray().map(function (row) {
-                return {MinerID: row.MinerID, Sector: row.SectorNum};
-              });
-              console.log(res);
-              var confirmMessage = res.map(obj => `SpID: ${obj.MinerID}, Sector: ${obj.Sector}`).join(", ");
+          extend: 'selected',
+          text: 'Terminate & Delete',
+          action: function (e, dt, button, config) {
+            var res = dt.rows({ selected: true }).data().toArray().map(function (row) {
+              return { MinerID: row.MinerID, Sector: row.SectorNum };
+            });
+            console.log(res);
+            var confirmMessage = res.map(obj => `SpID: ${obj.MinerID}, Sector: ${obj.Sector}`).join(", ");
 
-              if (confirm("Terminate & Delete: "+confirmMessage)) {
-                axios.post('/api/sector/terminate', res)
-                  .then(function (response) {
-                    console.log(response);
-                    document.cookie = "sector_refresh=true; path=/";
-                    location.reload();
-                  })
-                  .catch(function (error) {
-                    console.log(error);
-                  });
-              }
+            if (confirm("Terminate & Delete: " + confirmMessage)) {
+              axios.post('/api/sector/terminate', res)
+                .then(function (response) {
+                  console.log(response);
+                  document.cookie = "sector_refresh=true; path=/";
+                  location.reload();
+                })
+                .catch(function (error) {
+                  console.log(error);
+                });
             }
+          }
         },
         {
-            text: 'Refresh',
-            action: function (e, dt, button, config) {
-              document.cookie = "sector_refresh=true; path=/";
-              location.reload();
-            }
+          text: 'Refresh',
+          action: function (e, dt, button, config) {
+            document.cookie = "sector_refresh=true; path=/";
+            location.reload();
+          }
         },
       ],
       responsive: true,
       columnDefs: [
-          {
-              orderable: false,
-              render: DataTable.render.select(),
-              targets: 0
-          },
-          {
-              targets: 13,
-              visible: false, // Make the "Flag" column hidden
-              searchable: false,
-          }
+        {
+          orderable: false,
+          render: DataTable.render.select(),
+          targets: 0
+        },
+        {
+          targets: 13,
+          visible: false, // Make the "Flag" column hidden
+          searchable: false,
+        }
       ],
       order: [[13, 'desc'], [1, 'asc'], [2, 'asc']],
       select: {
@@ -126,9 +153,56 @@
         rows: '%d rows selected',
         headerCheckbox: true,
       },
-      scrollY:        window.innerHeight - 250,
-      deferRender:    true,
-      scroller:       true,
+      scrollY: window.innerHeight - 250,
+      deferRender: true,
+      scroller: true,
+      initComplete: function () {
+        // all cols with class 'dd' will have a dropdown filter
+        // Add dropdown filters to columns with class 'dd'
+        $('.dd').each(function () {
+          var column = dt.column($(this).index());
+            var select = $('<br><select><option value="">All</option></select>')
+            .appendTo($(this))
+            .on('change', function () {
+              var val = $.fn.dataTable.util.escapeRegex($(this).val());
+              column
+                .search(val ? '^' + val + '$' : '', true, false)
+                .draw();
+            });
+
+          column
+            .data()
+            .sort()
+            .unique()
+            .each(function (d, j) {
+              select.append('<option value="' + d + '">' + d + '</option>');
+            });
+        });
+
+        // Apply the search
+        /*
+        this.api().columns().every(function () {
+          var that = this;
+          var column = this;
+          var select = $('select', column.header());
+          if (select.length === 0) {
+            column.data().unique().sort().each(function (d, j) {
+              select.append('<option value="' + d + '">' + d + '</option>');
+            });
+          }
+          // Apply the search on dropdown change
+          select.on('change', function () {
+            var val = $.fn.dataTable.util.escapeRegex($(this).val());
+            column.search(val ? '^' + val + '$' : '', true, false).draw();
+          });
+
+          $('input', this.header()).on('keyup change clear', function () {
+            if (that.search() !== this.value) {
+              that.search(this.value).draw();
+            }
+          });
+        });*/
+      }
     });
   </script>
 </body>

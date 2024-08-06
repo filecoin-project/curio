@@ -259,7 +259,7 @@ class ActorSummary extends LitElement {
                         <td>${entry.ActorAvailable}</td>
                         <td>${entry.WorkerBalance}</td>
                         <td>${this.renderWins(entry.Win1, entry.Win7, entry.Win30)}</td>
-                        <th><sector-expirations address="${entry.Address}"></sector-expirations></th>
+                        <td><sector-expirations address="${entry.Address}"></sector-expirations></td>
                     </tr>
                 `)}
                 </tbody>

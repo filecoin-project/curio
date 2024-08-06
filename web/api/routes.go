@@ -10,8 +10,8 @@ import (
 	"github.com/filecoin-project/curio/web/api/webrpc"
 )
 
-func Routes(r *mux.Router, deps *deps.Deps) {
-	webrpc.Routes(r.PathPrefix("/webrpc").Subrouter(), deps)
+func Routes(r *mux.Router, deps *deps.Deps, debug bool) {
+	webrpc.Routes(r.PathPrefix("/webrpc").Subrouter(), deps, debug)
 	config.Routes(r.PathPrefix("/config").Subrouter(), deps)
 	sector.Routes(r.PathPrefix("/sector").Subrouter(), deps)
 }
