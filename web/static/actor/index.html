@@ -19,7 +19,7 @@
     }
 
     async loadData() {
-        this.data = await RPCCall('ActorSummary');
+        this.data = await RPCCall('ActorSummary', true);
         this.requestUpdate();
     }
     render() {
