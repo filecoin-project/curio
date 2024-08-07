@@ -13,9 +13,9 @@ SupraSeal is an optimized batch sealing implementation for Filecoin that allows 
 ## Key Features
 
 - Seals multiple sectors (up to 128) in a single batch
+  - Up to 16x better core utilisation efficiency
 - Optimized to utilize CPU and GPU resources efficiently
-- Uses raw NVMe devices for fast layer storage
-- Supports 32 GiB sector sizes
+- Uses raw NVMe devices for layer storage instead of RAM
 
 ## Requirements
 
@@ -146,7 +146,8 @@ curio seal start --now --cc --count 32 --actor f01234 --layers cluster --duratio
 ```bash
 cd extern/supra_seal/deps/spdk-v22.09/
 
-// repeat -b with all devices you plan to use with supra_seal
+# repeat -b with all devices you plan to use with supra_seal
+# NOTE: You want to test with ALL devices so that you can see if there are any bottlenecks in the system
 ./build/examples/perf -b 0000:85:00.0 -b 0000:86:00.0...  -q 64 -o 4096 -w randread -t 10
 ```
 You want to see output like
@@ -182,3 +183,16 @@ You need 2 sets of NVMe drives:
   * With a filesystem
   * Fast with sufficient capacity (~70G x batchSize x pipelines)
   * Can be remote storage if fast enough (~500MiB/s/GPU)
+
+## Hardware Recommendations
+
+Currently, the community is trying to determine the best hardware configurations for batch sealing.
+
+Some general observations are:
+* Single socket systems will be easier to use at full capacity
+* You want a lot of NVMe slots, on PCIe Gen4 platforms with large batch sizes you may use 20-24 3.84TB NVMe drives
+* In general you'll want to make sure all memory channels are populated
+* You need 4~8 physical cores (not threads) for batch-wide compute, then on each CCX you'll lose 1 core for a "coordinator"
+  * Each thread computes 2 sectors
+  * On zen2 and earlier hashers compute only one sector per thread
+  * Large (many-core) CCX-es are typically better
