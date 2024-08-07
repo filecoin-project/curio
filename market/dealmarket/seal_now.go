@@ -1,4 +1,4 @@
-package market
+package dealmarket
 
 import (
 	"context"

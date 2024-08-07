@@ -33,6 +33,8 @@ import (
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
+//go:generate cbor-gen-for --map-encoding SectorInfo
+
 const (
 	FlagMinerRepo = "miner-repo"
 )
