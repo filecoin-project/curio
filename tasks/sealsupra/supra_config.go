@@ -78,6 +78,11 @@ func GetSystemInfo() (*SystemInfo, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 
+		if info.ProcessorCount > 1 {
+			// in multi-socket systems, we only care about the first socket, rest are the same
+			continue
+		}
+
 		if l3Match := l3Regex.FindStringSubmatch(line); l3Match != nil {
 			l3Index, _ := strconv.Atoi(l3Match[1])
 			if lastL3Index != -1 && l3Index != lastL3Index {
