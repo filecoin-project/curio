@@ -14,7 +14,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
 
 type MoveStorageTask struct {

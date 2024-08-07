@@ -712,7 +712,6 @@ also be bounded by resources available on the machine.`,
 		{
 			Name: "EnableDealMarket",
 			Type: "bool",
-
 			Comment: `EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured.`,
 		},
 		{

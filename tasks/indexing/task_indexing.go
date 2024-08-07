@@ -102,8 +102,8 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return false, xerrors.Errorf("checking if piece is already indexed: %w", err)
 	}
 
-	// Return early if already indexed or should not be indexed
-	if indexed || !task.ShouldIndex {
+	// Return early if already indexed
+	if indexed {
 		err = i.recordCompletion(ctx, task, taskID, false)
 		if err != nil {
 			return false, err
@@ -277,7 +277,6 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 }
 
 func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
-
 	return harmonytask.TaskTypeDetails{
 		Name: "Indexing",
 		Cost: resources.Resources{
