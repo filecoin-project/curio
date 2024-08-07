@@ -78,6 +78,10 @@ func GetSystemInfo() (*SystemInfo, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 
+		if packageRegex.MatchString(line) {
+			info.ProcessorCount++
+		}
+
 		if info.ProcessorCount > 1 {
 			// in multi-socket systems, we only care about the first socket, rest are the same
 			continue
@@ -101,10 +105,6 @@ func GetSystemInfo() (*SystemInfo, error) {
 
 		if puRegex.MatchString(line) {
 			threadCount++
-		}
-
-		if packageRegex.MatchString(line) {
-			info.ProcessorCount++
 		}
 	}
 
