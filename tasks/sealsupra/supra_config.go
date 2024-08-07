@@ -3,11 +3,12 @@ package sealsupra
 import (
 	"bufio"
 	"fmt"
-	"github.com/samber/lo"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/samber/lo"
 )
 
 type SystemInfo struct {

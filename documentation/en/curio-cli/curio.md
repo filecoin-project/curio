@@ -587,7 +587,7 @@ USAGE:
    curio calc command [command options] [arguments...]
 
 COMMANDS:
-   batch-cpu         See layout of batch sealer threads
+   batch-cpu         Analyze and display the layout of batch sealer threads
    supraseal-config  Generate a supra_seal configuration
    help, h           Shows a list of commands or help for one command
 
@@ -599,10 +599,16 @@ OPTIONS:
 ### curio calc batch-cpu
 ```
 NAME:
-   curio calc batch-cpu - See layout of batch sealer threads
+   curio calc batch-cpu - Analyze and display the layout of batch sealer threads
 
 USAGE:
    curio calc batch-cpu [command options] [arguments...]
+
+DESCRIPTION:
+   Analyze and display the layout of batch sealer threads on your CPU.
+
+   It provides detailed information about CPU utilization for batch sealing operations, including core allocation, thread
+   distribution for different batch sizes.
 
 OPTIONS:
    --dual-hashers  (default: true)
@@ -616,6 +622,12 @@ NAME:
 
 USAGE:
    curio calc supraseal-config [command options] [arguments...]
+
+DESCRIPTION:
+   Generate a supra_seal configuration for a given batch size.
+
+   This command outputs a configuration expected by SupraSeal. Main purpose of this command is for debugging and testing.
+   The config can be used directly with SupraSeal binaries to test it without involving Curio.
 
 OPTIONS:
    --dual-hashers                Zen3 and later supports two sectors per thread, set to false for older CPUs (default: true)
