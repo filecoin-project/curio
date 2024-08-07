@@ -238,10 +238,17 @@ description: The default curio configuration
   # type: int
   #SyntheticPoRepMaxTasks = 0
 
+<<<<<<< HEAD
   # Batch Seal
   #
   # type: bool
   #EnableBatchSeal = false
+=======
+  # EnableDealMarket
+  #
+  # type: bool
+  #EnableDealMarket = false
+>>>>>>> 6d3d660 (basic mk12 scafolding)
 
 
 [Fees]
@@ -398,6 +405,36 @@ description: The default curio configuration
   #
   # type: bool
   #SingleRecoveringPartitionPerPostMessage = false
+
+
+[Market]
+  [Market.DealMarketConfig]
+    [Market.DealMarketConfig.MK12]
+      # When a deal is ready to publish, the amount of time to wait for more
+      # deals to be ready to publish before publishing them all as a batch
+      #
+      # type: Duration
+      #PublishMsgPeriod = "0s"
+
+      # The maximum number of deals to include in a single PublishStorageDeals
+      # message
+      #
+      # type: uint64
+      #MaxDealsPerPublishMsg = 0
+
+      # The maximum collateral that the provider will put up against a deal,
+      # as a multiplier of the minimum collateral bound
+      # The maximum fee to pay when sending the PublishStorageDeals message
+      #
+      # type: types.FIL
+      #MaxPublishDealsFee = "0 FIL"
+
+      # ExpectedSealDuration is the expected time it would take to seal the deal sector
+      # This will be used to fail the deals which cannot be sealed on time.
+      # Please make sure to update this to shorter duration for snap deals
+      #
+      # type: Duration
+      #ExpectedSealDuration = "0s"
 
 
 [Ingest]

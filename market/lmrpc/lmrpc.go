@@ -30,7 +30,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
-	cumarket "github.com/filecoin-project/curio/market"
+	"github.com/filecoin-project/curio/market/dealmarket"
 	"github.com/filecoin-project/curio/market/fakelm"
 
 	lapi "github.com/filecoin-project/lotus/api"
@@ -155,12 +155,12 @@ func forEachMarketRPC(cfg *config.CurioConfig, cb func(string, string) error) er
 func ServeCurioMarketRPC(db *harmonydb.DB, full api.Chain, maddr address.Address, conf *config.CurioConfig, listen string) error {
 	ctx := context.Background()
 
-	var pin cumarket.Ingester
+	var pin dealmarket.Ingester
 	var err error
 	if conf.Ingest.DoSnap {
-		pin, err = cumarket.NewPieceIngesterSnap(ctx, db, full, maddr, false, time.Duration(conf.Ingest.MaxDealWaitTime))
+		pin, err = dealmarket.NewPieceIngesterSnap(ctx, db, full, []address.Address{maddr}, false, time.Duration(conf.Ingest.MaxDealWaitTime))
 	} else {
-		pin, err = cumarket.NewPieceIngester(ctx, db, full, maddr, false, time.Duration(conf.Ingest.MaxDealWaitTime), conf.Subsystems.UseSyntheticPoRep)
+		pin, err = dealmarket.NewPieceIngester(ctx, db, full, []address.Address{maddr}, false, time.Duration(conf.Ingest.MaxDealWaitTime), conf.Subsystems.UseSyntheticPoRep)
 	}
 
 	if err != nil {
@@ -228,7 +228,7 @@ func ServeCurioMarketRPC(db *harmonydb.DB, full api.Chain, maddr address.Address
 	adaptFunc(&ast.Internal.StorageLock, si.StorageLock)
 	adaptFunc(&ast.Internal.StorageTryLock, si.StorageTryLock)
 	adaptFunc(&ast.Internal.StorageGetLocks, si.StorageGetLocks)
-	ast.Internal.SectorStartSealing = pin.SectorStartSealing
+	//ast.Internal.SectorStartSealing = pin.SectorStartSealing
 
 	var pieceHandler http.HandlerFunc = func(w http.ResponseWriter, r *http.Request) {
 		// /piece?piece_id=xxxx

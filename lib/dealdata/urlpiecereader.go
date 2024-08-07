@@ -9,6 +9,7 @@ import (
 
 type UrlPieceReader struct {
 	Url     string
+	Headers http.Header
 	RawSize int64 // the exact number of bytes read, if we read more or less that's an error
 
 	readSoFar int64
@@ -16,10 +17,11 @@ type UrlPieceReader struct {
 	active    io.ReadCloser // auto-closed on EOF
 }
 
-func NewUrlReader(p string, rs int64) *UrlPieceReader {
+func NewUrlReader(p string, h http.Header, rs int64) *UrlPieceReader {
 	return &UrlPieceReader{
 		Url:     p,
 		RawSize: rs,
+		Headers: h,
 	}
 }
 
@@ -31,9 +33,20 @@ func (u *UrlPieceReader) Read(p []byte) (n int, err error) {
 
 	// If 'active' is nil, initiate the HTTP request
 	if u.active == nil {
-		resp, err := http.Get(u.Url)
+		req, err := http.NewRequest(http.MethodGet, u.Url, nil)
 		if err != nil {
-			return 0, err
+			return 0, xerrors.Errorf("error creating request: %w", err)
+		}
+		// Add custom headers for security and authentication
+		req.Header = u.Headers
+		// Create a client and make the request
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return 0, xerrors.Errorf("error making GET request: %w", err)
+		}
+		if resp.StatusCode != 200 {
+			return 0, xerrors.Errorf("a non 200 response code: %s", resp.Status)
 		}
 
 		// Set 'active' to the response body

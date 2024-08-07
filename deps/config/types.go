@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/filecoin-project/lotus/chain/types"
@@ -81,6 +82,7 @@ type CurioConfig struct {
 	// Addresses of wallets per MinerAddress (one of the fields).
 	Addresses []CurioAddresses
 	Proving   CurioProvingConfig
+	Market    MarketConfig
 	Ingest    CurioIngestConfig
 	Seal      CurioSealConfig
 	Apis      ApisConfig
@@ -270,6 +272,9 @@ type CurioSubsystemsConfig struct {
 
 	// Batch Seal
 	EnableBatchSeal bool
+
+	// EnableDealMarket
+	EnableDealMarket bool
 }
 type CurioFees struct {
 	DefaultMaxFee      types.FIL
@@ -547,4 +552,42 @@ type ApisConfig struct {
 	// If integrating with lotus-miner this must match the value from
 	// cat ~/.lotusminer/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU | jq -r .PrivateKey
 	StorageRPCSecret string
+}
+
+type MarketConfig struct {
+	// DealMarketConfig houses all the deal related market configuration
+	DealMarketConfig DealConfig
+}
+
+type DealConfig struct {
+	PieceLocator []PieceLocatorConfig
+	MK12         MK12Config
+}
+
+type MK12Config struct {
+	// Miners is a list of miner to enable MK12 deals for
+	Miners []string
+
+	// When a deal is ready to publish, the amount of time to wait for more
+	// deals to be ready to publish before publishing them all as a batch
+	PublishMsgPeriod Duration
+
+	// The maximum number of deals to include in a single PublishStorageDeals
+	// message
+	MaxDealsPerPublishMsg uint64
+
+	// The maximum collateral that the provider will put up against a deal,
+	// as a multiplier of the minimum collateral bound
+	// The maximum fee to pay when sending the PublishStorageDeals message
+	MaxPublishDealsFee types.FIL
+
+	// ExpectedSealDuration is the expected time it would take to seal the deal sector
+	// This will be used to fail the deals which cannot be sealed on time.
+	// Please make sure to update this to shorter duration for snap deals
+	ExpectedSealDuration Duration
+}
+
+type PieceLocatorConfig struct {
+	URL     string
+	Headers http.Header
 }

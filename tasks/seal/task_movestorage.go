@@ -69,6 +69,66 @@ func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		return false, xerrors.Errorf("updating task: %w", err)
 	}
 
+	// Create a indexing task
+	var pms []struct {
+		Id      string `db:"uuid"`
+		SpID    int64  `db:"sp_id"`
+		Sector  int64  `db:"sector_number"`
+		Proof   int64  `db:"reg_seal_proof"`
+		Pcid    string `db:"piece_cid"`
+		Psize   int64  `db:"piece_size"`
+		Poffset int64  `db:"piece_offset"`
+	}
+
+	err = m.db.Select(ctx, &pms, `SELECT
+    							dp.uuid,
+								ssp.sp_id, 
+								ssp.sector_number, 
+								ssp.reg_seal_proof, 
+								smp.piece_cid, 
+								dp.sector_offset as piece_offset, 
+								smp.piece_size
+							FROM 
+								sectors_sdr_pipeline ssp
+							JOIN 
+								sectors_meta_pieces smp ON ssp.sp_id = smp.sp_id AND ssp.sector_number = smp.sector_num
+							JOIN 
+								market_mk12_deal_pipeline dp ON smp.piece_cid = dp.piece_cid AND smp.sp_id = dp.sp_id AND smp.sector_num = dp.sector
+							WHERE 
+								ssp.task_id_move_storage = $1;
+							`, taskID)
+
+	if err != nil {
+		return false, xerrors.Errorf("getting piece details to create indexing task: %w", err)
+	}
+
+	// A sector can have 0 pieces, more than 1 piece or even same piece twice from different deals
+	if len(pms) > 0 {
+		comm, err := m.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			for _, pm := range pms {
+				n, err := tx.Exec(`INSERT INTO market_indexing_tasks (id, sp_id, sector_number, reg_seal_proof, piece_cid, piece_offset, piece_size) 
+									values ($1, $2, $3, $4, $5, $6, $7)`, pm.Id, pm.SpID, pm.Sector, pm.Proof, pm.Pcid, pm.Poffset, pm.Psize)
+				if err != nil {
+					return false, xerrors.Errorf("inserting an indexing task for miner %d sector %d deal %s", pm.SpID, pm.Sector, pm.Id)
+				}
+				if n != 1 {
+					return false, xerrors.Errorf("expected 1 row but got %d", n)
+				}
+				_, err = tx.Exec(`UPDATE market_mk12_deal_pipeline SET sealed = TRUE WHERE uuid = $1`, pm.Id)
+				if err != nil {
+					return false, xerrors.Errorf("failed to mark deal %s as complete", pm.Id)
+				}
+			}
+			return true, nil
+		}, harmonydb.OptionRetry())
+		if err != nil {
+			return false, err
+		}
+		if !comm {
+			return false, xerrors.Errorf("failed to commit the transaction")
+		}
+	}
+
 	return true, nil
 }
 

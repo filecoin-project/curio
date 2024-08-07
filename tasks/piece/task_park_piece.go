@@ -3,6 +3,7 @@ package piece
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -158,7 +159,13 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 	for i := range refData {
 		if refData[i].DataURL != "" {
-			upr := dealdata.NewUrlReader(refData[i].DataURL, pieceRawSize)
+			var hdrs http.Header
+			err = json.Unmarshal(refData[i].DataHeaders, &hdrs)
+			if err != nil {
+				return false, xerrors.Errorf("unmarshaling reference data headers: %w", err)
+			}
+			upr := dealdata.NewUrlReader(refData[i].DataURL, hdrs, pieceRawSize)
+
 			defer func() {
 				_ = upr.Close()
 			}()

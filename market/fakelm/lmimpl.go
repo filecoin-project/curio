@@ -24,8 +24,8 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/paths"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/market"
+	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/market/dealmarket"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	market2 "github.com/filecoin-project/lotus/chain/actors/builtin/market"
@@ -45,12 +45,12 @@ type LMRPCProvider struct {
 
 	ssize abi.SectorSize
 
-	pi   market.Ingester
+	pi   dealmarket.Ingester
 	db   *harmonydb.DB
 	conf *config.CurioConfig
 }
 
-func NewLMRPCProvider(si paths.SectorIndex, full api.Chain, maddr address.Address, minerID abi.ActorID, ssize abi.SectorSize, pi market.Ingester, db *harmonydb.DB, conf *config.CurioConfig) *LMRPCProvider {
+func NewLMRPCProvider(si paths.SectorIndex, full api.Chain, maddr address.Address, minerID abi.ActorID, ssize abi.SectorSize, pi dealmarket.Ingester, db *harmonydb.DB, conf *config.CurioConfig) *LMRPCProvider {
 	return &LMRPCProvider{
 		si:      si,
 		full:    full,

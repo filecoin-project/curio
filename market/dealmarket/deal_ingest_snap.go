@@ -1,4 +1,4 @@
-package market
+package dealmarket
 
 import (
 	"context"
@@ -37,38 +37,70 @@ const IdealEndEpochBuffer = 2 * builtin.EpochsInDay
 var SnapImmutableDeadlineEpochsBuffer = abi.ChainEpoch(40)
 
 type PieceIngesterSnap struct {
-	ctx                 context.Context
-	db                  *harmonydb.DB
-	api                 PieceIngesterApi
-	miner               address.Address
-	mid                 uint64 // miner ID
-	windowPoStProofType abi.RegisteredPoStProof
-	sectorSize          abi.SectorSize
-	sealRightNow        bool // Should be true only for CurioAPI AllocatePieceToSector method
-	maxWaitTime         time.Duration
+	ctx          context.Context
+	db           *harmonydb.DB
+	api          PieceIngesterApi
+	addToID      map[address.Address]int64
+	idToAddr     map[abi.ActorID]address.Address
+	minerDetails map[int64]*mdetails
+	sectorSize   abi.SectorSize
+	sealRightNow bool // Should be true only for CurioAPI AllocatePieceToSector method
+	maxWaitTime  time.Duration
 }
 
-func NewPieceIngesterSnap(ctx context.Context, db *harmonydb.DB, api PieceIngesterApi, maddr address.Address, sealRightNow bool, maxWaitTime time.Duration) (*PieceIngesterSnap, error) {
-	mi, err := api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
-	if err != nil {
-		return nil, err
+func NewPieceIngesterSnap(ctx context.Context, db *harmonydb.DB, api PieceIngesterApi, miners []address.Address, sealRightNow bool, maxWaitTime time.Duration) (*PieceIngesterSnap, error) {
+	if len(miners) == 0 {
+		return nil, xerrors.Errorf("no miners provided")
 	}
 
-	mid, err := address.IDFromAddress(maddr)
-	if err != nil {
-		return nil, xerrors.Errorf("getting miner ID: %w", err)
+	addToID := make(map[address.Address]int64)
+	minerDetails := make(map[int64]*mdetails)
+	idToAddr := make(map[abi.ActorID]address.Address)
+
+	for _, maddr := range miners {
+		mi, err := api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
+		if err != nil {
+			return nil, err
+		}
+
+		mid, err := address.IDFromAddress(maddr)
+		if err != nil {
+			return nil, xerrors.Errorf("getting miner ID: %w", err)
+		}
+
+		nv, err := api.StateNetworkVersion(ctx, types.EmptyTSK)
+		if err != nil {
+			return nil, xerrors.Errorf("getting network version: %w", err)
+		}
+
+		proof, err := miner.PreferredSealProofTypeFromWindowPoStType(nv, mi.WindowPoStProofType, false)
+		if err != nil {
+			return nil, xerrors.Errorf("getting preferred seal proof type: %w", err)
+		}
+
+		proofInfo, ok := abi.SealProofInfos[proof]
+		if !ok {
+			return nil, xerrors.Errorf("getting seal proof type: %w", err)
+		}
+
+		addToID[maddr] = int64(mid)
+		minerDetails[int64(mid)] = &mdetails{
+			sealProof:   proof,
+			sectorSize:  mi.SectorSize,
+			updateProof: proofInfo.UpdateProof,
+		}
+		idToAddr[abi.ActorID(mid)] = maddr
 	}
 
 	pi := &PieceIngesterSnap{
-		ctx:                 ctx,
-		db:                  db,
-		api:                 api,
-		sealRightNow:        sealRightNow,
-		miner:               maddr,
-		maxWaitTime:         maxWaitTime,
-		sectorSize:          mi.SectorSize,
-		windowPoStProofType: mi.WindowPoStProofType,
-		mid:                 mid,
+		ctx:          ctx,
+		db:           db,
+		api:          api,
+		sealRightNow: sealRightNow,
+		maxWaitTime:  maxWaitTime,
+		addToID:      addToID,
+		minerDetails: minerDetails,
+		idToAddr:     idToAddr,
 	}
 
 	go pi.start()
@@ -99,57 +131,54 @@ func (p *PieceIngesterSnap) Seal() error {
 		return xerrors.Errorf("getting chain head: %w", err)
 	}
 
-	upt, err := p.getUpgradeProofType()
-	if err != nil {
-		return xerrors.Errorf("getting seal proof type: %w", err)
-	}
-
 	shouldSeal := func(sector *openSector) bool {
 		// Start sealing a sector if
 		// 1. If sector is full
 		// 2. We have been waiting for MaxWaitDuration
 		// 3. StartEpoch is less than 8 hours // todo: make this config?
 		if sector.currentSize == abi.PaddedPieceSize(p.sectorSize) {
-			log.Debugf("start sealing sector %d of miner %d: %s", sector.number, p.miner.String(), "sector full")
+			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "sector full")
 			return true
 		}
 		if time.Since(*sector.openedAt) > p.maxWaitTime {
-			log.Debugf("start sealing sector %d of miner %d: %s", sector.number, p.miner.String(), "MaxWaitTime reached")
+			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "MaxWaitTime reached")
 			return true
 		}
 		if sector.earliestStartEpoch < head.Height()+abi.ChainEpoch(960) {
-			log.Debugf("start sealing sector %d of miner %d: %s", sector.number, p.miner.String(), "earliest start epoch")
+			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "earliest start epoch")
 			return true
 		}
 		return false
 	}
 
 	comm, err := p.db.BeginTransaction(p.ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		openSectors, err := p.getOpenSectors(tx)
-		if err != nil {
-			return false, err
-		}
-
-		for _, sector := range openSectors {
-			sector := sector
-			if shouldSeal(sector) {
-				// Start sealing the sector
-				cn, err := tx.Exec(`INSERT INTO sectors_snap_pipeline (sp_id, sector_number, upgrade_proof) VALUES ($1, $2, $3);`, p.mid, sector.number, upt)
-
-				if err != nil {
-					return false, xerrors.Errorf("adding sector to pipeline: %w", err)
-				}
-
-				if cn != 1 {
-					return false, xerrors.Errorf("adding sector to pipeline: incorrect number of rows returned")
-				}
-
-				_, err = tx.Exec("SELECT transfer_and_delete_open_piece_snap($1, $2)", p.mid, sector.number)
-				if err != nil {
-					return false, xerrors.Errorf("adding sector to pipeline: %w", err)
-				}
+		for _, mid := range p.addToID {
+			openSectors, err := p.getOpenSectors(tx, mid)
+			if err != nil {
+				return false, err
 			}
 
+			for _, sector := range openSectors {
+				sector := sector
+				if shouldSeal(sector) {
+					// Start sealing the sector
+					cn, err := tx.Exec(`INSERT INTO sectors_snap_pipeline (sp_id, sector_number, upgrade_proof) VALUES ($1, $2, $3);`, mid, sector.number, p.minerDetails[mid].updateProof)
+
+					if err != nil {
+						return false, xerrors.Errorf("adding sector to pipeline: %w", err)
+					}
+
+					if cn != 1 {
+						return false, xerrors.Errorf("adding sector to pipeline: incorrect number of rows returned")
+					}
+
+					_, err = tx.Exec("SELECT transfer_and_delete_open_piece_snap($1, $2)", mid, sector.number)
+					if err != nil {
+						return false, xerrors.Errorf("adding sector to pipeline: %w", err)
+					}
+				}
+
+			}
 		}
 		return true, nil
 	}, harmonydb.OptionRetry())
@@ -166,10 +195,6 @@ func (p *PieceIngesterSnap) Seal() error {
 }
 
 func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (api.SectorOffset, error) {
-	if maddr != p.miner {
-		return api.SectorOffset{}, xerrors.Errorf("miner address doesn't match")
-	}
-
 	var psize abi.PaddedPieceSize
 
 	if piece.PieceActivationManifest != nil {
@@ -272,7 +297,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 
 	if !p.sealRightNow {
 		// Try to allocate the piece to an open sector
-		allocated, ret, err := p.allocateToExisting(ctx, piece, psize, rawSize, source, dataHdrJson, propJson, vd)
+		allocated, ret, err := p.allocateToExisting(ctx, maddr, piece, psize, rawSize, source, dataHdrJson, propJson, vd)
 		if err != nil {
 			return api.SectorOffset{}, err
 		}
@@ -283,7 +308,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 
 	// non-mutable deadline is the current deadline and the next one. Doesn't matter if the current one was proven or not.
 
-	curDeadline, err := p.api.StateMinerProvingDeadline(ctx, p.miner, types.EmptyTSK)
+	curDeadline, err := p.api.StateMinerProvingDeadline(ctx, maddr, types.EmptyTSK)
 	if err != nil {
 		return api.SectorOffset{}, xerrors.Errorf("getting proving deadline: %w", err)
 	}
@@ -335,7 +360,8 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 			  AND ($2 = 0 OR sm.expiration_epoch < $2)
 			  AND deadline IS NOT NULL AND deadline NOT IN ($5, $6, $7)
 			ORDER BY ABS(sm.expiration_epoch - ($1 + $3))
-		`, int64(piece.DealSchedule.EndEpoch), maxExpiration, IdealEndEpochBuffer, p.mid, dlIdxImmutableCur, dlIdxImmutableNext, dlIdxImmutableNextNext)
+			LIMIT 10
+		`, int64(piece.DealSchedule.EndEpoch), maxExpiration, IdealEndEpochBuffer, p.addToID[maddr])
 		if err != nil {
 			return false, xerrors.Errorf("allocating sector numbers: %w", err)
 		}
@@ -353,13 +379,13 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 			}
 			tried++
 
-			sloc, err := p.api.StateSectorPartition(ctx, p.miner, abi.SectorNumber(candidate.Sector), types.EmptyTSK)
+			sloc, err := p.api.StateSectorPartition(ctx, maddr, abi.SectorNumber(candidate.Sector), types.EmptyTSK)
 			if err != nil {
 				return false, xerrors.Errorf("getting sector locations: %w", err)
 			}
 
 			if _, ok := deadlineCache[sloc.Deadline]; !ok {
-				dls, err := p.api.StateMinerPartitions(ctx, p.miner, sloc.Deadline, types.EmptyTSK)
+				dls, err := p.api.StateMinerPartitions(ctx, maddr, sloc.Deadline, types.EmptyTSK)
 				if err != nil {
 					return false, xerrors.Errorf("getting partitions: %w", err)
 				}
@@ -411,7 +437,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 
 		candidate := *bestCandidate
 
-		si, err := p.api.StateSectorGetInfo(ctx, p.miner, abi.SectorNumber(candidate.Sector), types.EmptyTSK)
+		si, err := p.api.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(candidate.Sector), types.EmptyTSK)
 		if err != nil {
 			return false, xerrors.Errorf("getting sector info: %w", err)
 		}
@@ -439,7 +465,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 		)
 
 		_, err = tx.Exec(`SELECT insert_snap_ddo_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-			p.mid, candidate.Sector, 0,
+			p.addToID[maddr], candidate.Sector, 0,
 			piece.PieceActivationManifest.CID, piece.PieceActivationManifest.Size,
 			source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
 			piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch, propJson)
@@ -460,7 +486,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 	}
 
 	if p.sealRightNow {
-		err = p.SectorStartSealing(ctx, abi.SectorNumber(*num))
+		err = p.SectorStartSealing(ctx, maddr, abi.SectorNumber(*num))
 		if err != nil {
 			return api.SectorOffset{}, xerrors.Errorf("SectorStartSealing: %w", err)
 		}
@@ -472,7 +498,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 	}, nil
 }
 
-func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte, vd verifiedDeal) (bool, api.SectorOffset, error) {
+func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, maddr address.Address, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte, vd verifiedDeal) (bool, api.SectorOffset, error) {
 	var ret api.SectorOffset
 	var allocated bool
 	var rerr error
@@ -483,7 +509,7 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, piece lpiece
 	}
 
 	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		openSectors, err := p.getOpenSectors(tx)
+		openSectors, err := p.getOpenSectors(tx, p.addToID[maddr])
 		if err != nil {
 			return false, err
 		}
@@ -492,15 +518,15 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, piece lpiece
 			sec := sec
 			if sec.currentSize+psize <= abi.PaddedPieceSize(p.sectorSize) {
 				if vd.isVerified {
-					si, err := p.api.StateSectorGetInfo(ctx, p.miner, sec.number, types.EmptyTSK)
+					si, err := p.api.StateSectorGetInfo(ctx, maddr, sec.number, types.EmptyTSK)
 					if err != nil {
-						log.Errorw("getting sector info", "error", err, "sector", sec.number, "miner", p.miner)
+						log.Errorw("getting sector info", "error", err, "sector", sec.number, "miner", maddr)
 						continue
 					}
 
 					sectorLifeTime := si.Expiration - head.Height()
 					if sectorLifeTime < 0 {
-						log.Errorw("sector lifetime is negative", "sector", sec.number, "miner", p.miner, "lifetime", sectorLifeTime)
+						log.Errorw("sector lifetime is negative", "sector", sec.number, "miner", maddr, "lifetime", sectorLifeTime)
 						continue
 					}
 
@@ -516,7 +542,7 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, piece lpiece
 
 				// Insert DDO deal to DB for the sector
 				cn, err := tx.Exec(`SELECT insert_snap_ddo_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-					p.mid, sec.number, sec.index+1,
+					p.addToID[maddr], sec.number, sec.index+1,
 					piece.PieceActivationManifest.CID, piece.PieceActivationManifest.Size,
 					source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
 					piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch, propJson)
@@ -548,17 +574,13 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, piece lpiece
 
 }
 
-func (p *PieceIngesterSnap) SectorStartSealing(ctx context.Context, sector abi.SectorNumber) error {
-	upt, err := p.getUpgradeProofType()
-	if err != nil {
-		return xerrors.Errorf("getting seal proof type: %w", err)
-	}
-
+func (p *PieceIngesterSnap) SectorStartSealing(ctx context.Context, maddr address.Address, sector abi.SectorNumber) error {
 	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		// Get current open sector pieces from DB
 		var pieces []pieceDetails
 		err = tx.Select(&pieces, `
 					SELECT
+					    sp_id,
 					    sector_number,
 						piece_size,
 						piece_index,
@@ -570,7 +592,7 @@ func (p *PieceIngesterSnap) SectorStartSealing(ctx context.Context, sector abi.S
 					WHERE
 						sp_id = $1 AND sector_number = $2 AND is_snap = true
 					ORDER BY
-						piece_index DESC;`, p.mid, sector)
+						piece_index DESC;`, p.addToID[maddr], sector)
 		if err != nil {
 			return false, xerrors.Errorf("getting open sectors from DB")
 		}
@@ -579,7 +601,7 @@ func (p *PieceIngesterSnap) SectorStartSealing(ctx context.Context, sector abi.S
 			return false, xerrors.Errorf("sector %d is not waiting to be sealed", sector)
 		}
 
-		cn, err := tx.Exec(`INSERT INTO sectors_snap_pipeline (sp_id, sector_number, upgrade_proof) VALUES ($1, $2, $3);`, p.mid, sector, upt)
+		cn, err := tx.Exec(`INSERT INTO sectors_snap_pipeline (sp_id, sector_number, upgrade_proof) VALUES ($1, $2, $3);`, p.addToID[maddr], sector, p.minerDetails[p.addToID[maddr]].updateProof)
 
 		if err != nil {
 			return false, xerrors.Errorf("adding sector to pipeline: %w", err)
@@ -589,7 +611,7 @@ func (p *PieceIngesterSnap) SectorStartSealing(ctx context.Context, sector abi.S
 			return false, xerrors.Errorf("incorrect number of rows returned")
 		}
 
-		_, err = tx.Exec("SELECT transfer_and_delete_open_piece_snap($1, $2)", p.mid, sector)
+		_, err = tx.Exec("SELECT transfer_and_delete_open_piece_snap($1, $2)", p.addToID[maddr], sector)
 		if err != nil {
 			return false, xerrors.Errorf("adding sector to pipeline: %w", err)
 		}
@@ -609,11 +631,12 @@ func (p *PieceIngesterSnap) SectorStartSealing(ctx context.Context, sector abi.S
 	return nil
 }
 
-func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx) ([]*openSector, error) {
+func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*openSector, error) {
 	// Get current open sector pieces from DB
 	var pieces []pieceDetails
 	err := tx.Select(&pieces, `
 					SELECT
+					    sp_id,
 					    sector_number,
 						piece_size,
 						piece_index,
@@ -625,7 +648,7 @@ func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx) ([]*openSector, err
 					WHERE
 						sp_id = $1 AND is_snap = true
 					ORDER BY
-						piece_index DESC;`, p.mid)
+						piece_index DESC;`, mid)
 	if err != nil {
 		return nil, xerrors.Errorf("getting open sectors from DB")
 	}
@@ -657,6 +680,7 @@ func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx) ([]*openSector, err
 		sector, ok := sectorMap[pi.Sector]
 		if !ok {
 			sectorMap[pi.Sector] = &openSector{
+				miner:              pi.Miner,
 				number:             pi.Sector,
 				currentSize:        pi.Size,
 				earliestStartEpoch: getStartEpoch(pi.StartEpoch, 0),
@@ -683,23 +707,4 @@ func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx) ([]*openSector, err
 	}
 
 	return os, nil
-}
-
-func (p *PieceIngesterSnap) getUpgradeProofType() (abi.RegisteredUpdateProof, error) {
-	nv, err := p.api.StateNetworkVersion(p.ctx, types.EmptyTSK)
-	if err != nil {
-		return 0, xerrors.Errorf("getting network version: %w", err)
-	}
-
-	spt, err := miner.PreferredSealProofTypeFromWindowPoStType(nv, p.windowPoStProofType, false)
-	if err != nil {
-		return 0, xerrors.Errorf("getting seal proof type: %w", err)
-	}
-
-	proofInfo, ok := abi.SealProofInfos[spt]
-	if !ok {
-		return 0, xerrors.Errorf("getting seal proof type: %w", err)
-	}
-
-	return proofInfo.UpdateProof, nil
 }
