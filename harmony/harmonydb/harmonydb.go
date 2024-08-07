@@ -289,16 +289,18 @@ func (db *DB) upgrade() error {
 
 		logger.Infow("Upgrading", "file", name, "size", len(file))
 
+		megaSql := ""
 		for _, s := range parseSQLStatements(string(file)) { // Implement the changes.
 			if len(strings.TrimSpace(s)) == 0 {
 				continue
 			}
-			_, err = db.pgx.Exec(context.Background(), s)
-			if err != nil {
-				msg := fmt.Sprintf("Could not upgrade! File %s, Query: %s, Returned: %s", name, s, err.Error())
-				logger.Error(msg)
-				return xerrors.New(msg) // makes devs lives easier by placing message at the end.
-			}
+			megaSql += s + ";"
+		}
+		_, err = db.pgx.Exec(context.Background(), megaSql)
+		if err != nil {
+			msg := fmt.Sprintf("Could not upgrade! %s", err.Error())
+			logger.Error(msg)
+			return xerrors.New(msg) // makes devs lives easier by placing message at the end.
 		}
 
 		// Mark Completed.

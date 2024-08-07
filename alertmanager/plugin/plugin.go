@@ -22,6 +22,8 @@ type AlertPayload struct {
 	Time     time.Time
 }
 
+var TestPlugins []Plugin
+
 func LoadAlertPlugins(cfg config.CurioAlertingConfig) []Plugin {
 	var plugins []Plugin
 	if cfg.PagerDuty.Enable {
@@ -32,6 +34,9 @@ func LoadAlertPlugins(cfg config.CurioAlertingConfig) []Plugin {
 	}
 	if cfg.SlackWebhook.Enable {
 		plugins = append(plugins, NewSlackWebhook(cfg.SlackWebhook))
+	}
+	if len(TestPlugins) > 0 {
+		plugins = append(plugins, TestPlugins...)
 	}
 	return plugins
 }

@@ -2,6 +2,7 @@ package alertmanager
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"fmt"
 	"math"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/dustin/go-humanize"
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -18,10 +20,66 @@ import (
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 )
+
+type AlertNow struct {
+	db   *harmonydb.DB
+	name string
+}
+
+func NewAlertNow(db *harmonydb.DB, name string) *AlertNow {
+	return &AlertNow{
+		db:   db,
+		name: name,
+	}
+}
+
+func (n *AlertNow) AddAlert(msg string) {
+	_, err := n.db.Exec(context.Background(), "INSERT INTO alerts (machine_name, message) VALUES ($1, $2)", n.name, msg)
+	if err != nil {
+		log.Errorf("Failed to add alert: %s", err)
+	}
+}
+
+func NowCheck(al *alerts) {
+	Name := "NowCheck"
+	al.alertMap[Name] = &alertOut{}
+
+	type NowType struct {
+		ID      int    `db:"id"`
+		Name    string `db:"machine_name"`
+		Message string `db:"message"`
+	}
+	var nowAlerts []NowType
+	err := al.db.Select(al.ctx, &nowAlerts, `
+				SELECT id, machine_name, message
+				FROM alerts`)
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("getting now alerts: %w", err)
+		return
+	}
+	defer func() {
+		if err == nil {
+			ids := lo.Map(nowAlerts, func(n NowType, _ int) int {
+				return n.ID
+			})
+			_, err = al.db.Exec(al.ctx, "DELETE FROM alerts where id = ANY($1)", ids)
+			if err != nil {
+				log.Errorf("Failed to delete alerts: %s", err)
+			}
+		}
+	}()
+	if len(nowAlerts) > 0 {
+		fmt.Println("ALERTMANAGER: NOW ALERTS")
+		al.alertMap[Name].alertString = strings.Join(lo.Map(nowAlerts, func(n NowType, _ int) string {
+			return fmt.Sprintf("Machine %s: %s", n.Name, n.Message)
+		}), " ")
+	}
+}
 
 // balanceCheck retrieves the machine details from the database and performs balance checks on unique addresses.
 // It populates the alert map with any errors encountered during the process and with any alerts related to low wallet balance and missing wallets.
