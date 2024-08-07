@@ -17,47 +17,14 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 )
 
-func ReplicaId(sector abi.SectorNumber, ticket []byte, commd []byte) ([32]byte, error) {
-	// https://github.com/filecoin-project/rust-fil-proofs/blob/5b46d4ac88e19003416bb110e2b2871523cc2892/storage-proofs-porep/src/stacked/vanilla/params.rs#L758-L775
-
-	pi := [32]byte{9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9}
-	porepID, err := abi.RegisteredSealProof_StackedDrg32GiBV1_1.PoRepID()
-	if err != nil {
-		return [32]byte{}, err
-	}
-
-	if len(ticket) != 32 {
-		return [32]byte{}, xerrors.Errorf("invalid ticket length %d", len(ticket))
-	}
-	if len(commd) != 32 {
-		return [32]byte{}, xerrors.Errorf("invalid commd length %d", len(commd))
-	}
-
-	var sectorID [8]byte
-	binary.BigEndian.PutUint64(sectorID[:], uint64(sector))
-
-	s := sha256.New()
-
-	// sha256 writes never error
-	_, _ = s.Write(pi[:])
-	_, _ = s.Write(sectorID[:])
-	_, _ = s.Write(ticket)
-	_, _ = s.Write(commd)
-	_, _ = s.Write(porepID[:])
-
-	return bytesIntoFr32Safe(s.Sum(nil)), nil
-}
-
-func bytesIntoFr32Safe(in []byte) [32]byte {
-	var out [32]byte
-	copy(out[:], in)
-
-	out[31] &= 0b0011_1111
-
-	return out
-}
-
 func main() {
+	if len(os.Args) != 2 {
+		fmt.Println("This tool creates a 32GiB sector compatible with SupraSeal demo sector output")
+		fmt.Println("Useful only for development purposes.")
+		fmt.Printf("Usage: %s <outPath>\n", os.Args[0])
+		return
+	}
+
 	outPath := os.Args[1]
 
 	/*const ssize = 32 << 30
@@ -207,5 +174,44 @@ func main() {
 	}
 
 	fmt.Println("done!")
+}
 
+func ReplicaId(sector abi.SectorNumber, ticket []byte, commd []byte) ([32]byte, error) {
+	// https://github.com/filecoin-project/rust-fil-proofs/blob/5b46d4ac88e19003416bb110e2b2871523cc2892/storage-proofs-porep/src/stacked/vanilla/params.rs#L758-L775
+
+	pi := [32]byte{9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9}
+	porepID, err := abi.RegisteredSealProof_StackedDrg32GiBV1_1.PoRepID()
+	if err != nil {
+		return [32]byte{}, err
+	}
+
+	if len(ticket) != 32 {
+		return [32]byte{}, xerrors.Errorf("invalid ticket length %d", len(ticket))
+	}
+	if len(commd) != 32 {
+		return [32]byte{}, xerrors.Errorf("invalid commd length %d", len(commd))
+	}
+
+	var sectorID [8]byte
+	binary.BigEndian.PutUint64(sectorID[:], uint64(sector))
+
+	s := sha256.New()
+
+	// sha256 writes never error
+	_, _ = s.Write(pi[:])
+	_, _ = s.Write(sectorID[:])
+	_, _ = s.Write(ticket)
+	_, _ = s.Write(commd)
+	_, _ = s.Write(porepID[:])
+
+	return bytesIntoFr32Safe(s.Sum(nil)), nil
+}
+
+func bytesIntoFr32Safe(in []byte) [32]byte {
+	var out [32]byte
+	copy(out[:], in)
+
+	out[31] &= 0b0011_1111
+
+	return out
 }

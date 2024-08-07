@@ -478,10 +478,12 @@ type CurioSealConfig struct {
 	// Set to false for older CPUs (Zen 2 and before).
 	SingleHasherPerThread bool
 
-	// LayerNVMEDevices is a list of pcie device addresses that should be used for layer storage.
+	// LayerNVMEDevices is a list of pcie device addresses that should be used for SDR layer storage.
 	// The required storage is 11 * BatchSealBatchSize * BatchSealSectorSize * BatchSealPipelines
 	// Total Read IOPS for optimal performance should be 10M+.
 	// The devices MUST be NVMe devices, not used for anything else. Any data on the devices will be lost!
+	//
+	// It's recommend to define these settings in a per-machine layer, as the devices are machine-specific.
 	//
 	// Example: ["0000:01:00.0", "0000:01:00.1"]
 	LayerNVMEDevices []string

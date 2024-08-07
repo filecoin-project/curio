@@ -2,7 +2,9 @@ package proof
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
+	"io"
 	"os"
 	"testing"
 
@@ -10,11 +12,29 @@ import (
 )
 
 func TestDecode(t *testing.T) {
-	//binFile := "../../extern/supra_seal/demos/c2-test/resources/test/commit-phase1-output"
-	binFile := "../../commit-phase1-output"
+	if os.Getenv("EXPENSIVE_TESTS") == "" {
+		t.Skip()
+	}
 
-	rawData, err := os.ReadFile(binFile)
+	//binFile := "../../extern/supra_seal/demos/c2-test/resources/test/commit-phase1-output"
+	binFile := "../../commit-phase1-output.gz"
+
+	gzData, err := os.ReadFile(binFile)
 	if err != nil {
+		t.Fatal(err)
+	}
+
+	gzReader, err := gzip.NewReader(bytes.NewReader(gzData))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rawData, err := io.ReadAll(gzReader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := gzReader.Close(); err != nil {
 		t.Fatal(err)
 	}
 

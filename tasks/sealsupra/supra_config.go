@@ -3,6 +3,7 @@ package sealsupra
 import (
 	"bufio"
 	"fmt"
+	"github.com/samber/lo"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -42,6 +43,16 @@ type TopologyConfig struct {
 type SupraSealConfig struct {
 	NVMeDevices []string
 	Topology    TopologyConfig
+
+	// Diagnostic fields (not part of the config)
+	RequiredThreads int
+	RequiredCCX     int
+	RequiredCores   int
+	UnoccupiedCores int
+
+	P2WrRdOverlap   bool
+	P2HsP1WrOverlap bool
+	P2HcP2RdOverlap bool
 }
 
 func GetSystemInfo() (*SystemInfo, error) {
@@ -107,16 +118,23 @@ func GenerateSupraSealConfig(info SystemInfo, dualHashers bool, batchSize int, n
 	config := SupraSealConfig{
 		NVMeDevices: nvmeDevices,
 		Topology: TopologyConfig{
+			// Start with a somewhat optimal layout for top-level P1 processes
 			PC1Writer:       1,
-			PC1Reader:       2,
-			PC1Orchestrator: 3,
-			PC2Reader:       0,
-			PC2Hasher:       1,
-			PC2HasherCPU:    0,
-			PC2Writer:       0,
-			PC2WriterCores:  1,
-			C1Reader:        0,
+			PC1Reader:       2, // High load
+			PC1Orchestrator: 3, // High load
+
+			// Now cram P2 processes into the remaining ~2 cores
+			PC2Reader:      0,
+			PC2Hasher:      1, // High load
+			PC2HasherCPU:   0,
+			PC2Writer:      0, // High load
+			PC2WriterCores: 1, // ^
+			C1Reader:       0,
 		},
+
+		P2WrRdOverlap:   true,
+		P2HsP1WrOverlap: true,
+		P2HcP2RdOverlap: true,
 	}
 
 	sectorsPerThread := 1
@@ -128,15 +146,15 @@ func GenerateSupraSealConfig(info SystemInfo, dualHashers bool, batchSize int, n
 	ccxFreeThreads := ccxFreeCores * info.ThreadsPerCore
 	sectorsPerCCX := ccxFreeThreads * sectorsPerThread
 
-	requiredThreads := batchSize / sectorsPerThread
-	requiredCCX := (batchSize + sectorsPerCCX - 1) / sectorsPerCCX
-	requiredCores := requiredCCX + requiredThreads/info.ThreadsPerCore
+	config.RequiredThreads = batchSize / sectorsPerThread
+	config.RequiredCCX = (batchSize + sectorsPerCCX - 1) / sectorsPerCCX
+	config.RequiredCores = config.RequiredCCX + config.RequiredThreads/info.ThreadsPerCore
 
-	if requiredCores > info.CoreCount {
+	if config.RequiredCores > info.CoreCount {
 		return config, fmt.Errorf("not enough cores available for hashers")
 	}
 
-	coresLeftover := info.CoreCount - requiredCores
+	coresLeftover := info.CoreCount - config.RequiredCores
 
 	const minOverheadCores = 4
 	if coresLeftover < minOverheadCores {
@@ -148,16 +166,19 @@ func GenerateSupraSealConfig(info SystemInfo, dualHashers bool, batchSize int, n
 	// Assign cores for PC2 processes
 	if coresLeftover > nextFreeCore {
 		config.Topology.PC2Writer = nextFreeCore
+		config.P2WrRdOverlap = false
 		nextFreeCore++
 	}
 
 	if coresLeftover > nextFreeCore {
 		config.Topology.PC2Hasher = nextFreeCore
+		config.P2HsP1WrOverlap = false
 		nextFreeCore++
 	}
 
 	if coresLeftover > nextFreeCore {
 		config.Topology.PC2HasherCPU = nextFreeCore
+		config.P2HcP2RdOverlap = false
 		nextFreeCore++
 	}
 
@@ -177,6 +198,8 @@ func GenerateSupraSealConfig(info SystemInfo, dualHashers bool, batchSize int, n
 		}
 	}
 
+	config.UnoccupiedCores = coresLeftover - nextFreeCore
+
 	sectorConfig := SectorConfig{
 		Sectors:      batchSize,
 		Coordinators: []CoordinatorConfig{},
@@ -187,7 +210,7 @@ func GenerateSupraSealConfig(info SystemInfo, dualHashers bool, batchSize int, n
 		ccxCores = append(ccxCores, i)
 	}
 
-	for i := requiredCores; i > 0; {
+	for i := config.RequiredCores; i > 0; {
 		firstCCXCoreNum := ccxCores[len(ccxCores)-1]
 		toAssign := min(i, info.CoresPerL3)
 
@@ -220,78 +243,72 @@ func GenerateSupraSealConfig(info SystemInfo, dualHashers bool, batchSize int, n
 func FormatSupraSealConfig(config SupraSealConfig) string {
 	var sb strings.Builder
 
-	sb.WriteString("# Configuration for supra_seal\n")
-	sb.WriteString("spdk: {\n")
-	sb.WriteString("  # PCIe identifiers of NVMe drives to use to store layers\n")
-	sb.WriteString("  nvme = [ \n")
-	for i, device := range config.NVMeDevices {
-		sb.WriteString(fmt.Sprintf("           \"%s\"", device))
+	w := func(s string) { sb.WriteString(s); sb.WriteByte('\n') }
 
-		// comma if not last
-		if i < len(config.NVMeDevices)-1 {
-			sb.WriteString(",\n")
-		} else {
-			sb.WriteString("\n")
-		}
-	}
-	sb.WriteString("         ];\n")
-	sb.WriteString("}\n\n")
+	w("# Configuration for supra_seal")
+	w("spdk: {")
+	w("  # PCIe identifiers of NVMe drives to use to store layers")
+	w("  nvme = [ ")
 
-	sb.WriteString("# CPU topology for various parallel sector counts\n")
-	sb.WriteString("topology:\n")
-	sb.WriteString("{\n")
-	sb.WriteString("  pc1: {\n")
-	sb.WriteString(fmt.Sprintf("    writer       = %d;\n", config.Topology.PC1Writer))
-	sb.WriteString(fmt.Sprintf("    reader       = %d;\n", config.Topology.PC1Reader))
-	sb.WriteString(fmt.Sprintf("    orchestrator = %d;\n", config.Topology.PC1Orchestrator))
-	sb.WriteString("    qpair_reader = 0;\n")
-	sb.WriteString("    qpair_writer = 1;\n")
-	sb.WriteString("    reader_sleep_time = 250;\n")
-	sb.WriteString("    writer_sleep_time = 500;\n")
-	sb.WriteString("    hashers_per_core = 2;\n\n")
+	quotedNvme := lo.Map(config.NVMeDevices, func(d string, i int) string { return `           "` + d + `"` })
+	w(strings.Join(quotedNvme, ",\n"))
 
-	sb.WriteString("    sector_configs: (\n")
+	w("         ];")
+	w("}")
+	w("")
+	w("# CPU topology for various parallel sector counts")
+	w("topology:")
+	w("{")
+	w("  pc1: {")
+	w(fmt.Sprintf("    writer       = %d;", config.Topology.PC1Writer))
+	w(fmt.Sprintf("    reader       = %d;", config.Topology.PC1Reader))
+	w(fmt.Sprintf("    orchestrator = %d;", config.Topology.PC1Orchestrator))
+	w("    qpair_reader = 0;")
+	w("    qpair_writer = 1;")
+	w("    reader_sleep_time = 250;")
+	w("    writer_sleep_time = 500;")
+	w("    hashers_per_core = 2;")
+	w("")
+	w("    sector_configs: (")
 	for i, sectorConfig := range config.Topology.SectorConfigs {
-		sb.WriteString("      {\n")
-		sb.WriteString(fmt.Sprintf("        sectors = %d;\n", sectorConfig.Sectors))
-		sb.WriteString("        coordinators = (\n")
+		w("      {")
+		w(fmt.Sprintf("        sectors = %d;", sectorConfig.Sectors))
+		w("        coordinators = (")
 		for i, coord := range sectorConfig.Coordinators {
 			sb.WriteString(fmt.Sprintf("          { core = %d;\n", coord.Core))
 			sb.WriteString(fmt.Sprintf("            hashers = %d; }", coord.Hashers))
 			if i < len(sectorConfig.Coordinators)-1 {
 				sb.WriteString(",")
 			}
-			sb.WriteString("\n")
+			sb.WriteByte('\n')
 		}
-		sb.WriteString("        )\n")
+		w("        )")
 		sb.WriteString("      }")
 
-		// if not last, add a comma
 		if i < len(config.Topology.SectorConfigs)-1 {
 			sb.WriteString(",")
 		}
-		sb.WriteString("\n")
+		sb.WriteByte('\n')
 	}
-	sb.WriteString("    )\n")
-	sb.WriteString("  },\n")
-
-	sb.WriteString("  pc2: {\n")
-	sb.WriteString(fmt.Sprintf("    reader = %d;\n", config.Topology.PC2Reader))
-	sb.WriteString(fmt.Sprintf("    hasher = %d;\n", config.Topology.PC2Hasher))
-	sb.WriteString(fmt.Sprintf("    hasher_cpu = %d;\n", config.Topology.PC2HasherCPU))
-	sb.WriteString(fmt.Sprintf("    writer = %d;\n", config.Topology.PC2Writer))
-	sb.WriteString(fmt.Sprintf("    writer_cores = %d;\n", config.Topology.PC2WriterCores))
-	sb.WriteString("    sleep_time = 200;\n")
-	sb.WriteString("    qpair = 2;\n")
-	sb.WriteString("  },\n")
-
-	sb.WriteString("  c1: {\n")
-	sb.WriteString(fmt.Sprintf("    reader = %d;\n", config.Topology.C1Reader))
-	sb.WriteString("    sleep_time = 200;\n")
-	sb.WriteString("    qpair = 3;\n")
-	sb.WriteString("  }\n")
-
-	sb.WriteString("}\n")
+	w("    )")
+	w("  },")
+	w("")
+	w("  pc2: {")
+	w(fmt.Sprintf("    reader = %d;", config.Topology.PC2Reader))
+	w(fmt.Sprintf("    hasher = %d;", config.Topology.PC2Hasher))
+	w(fmt.Sprintf("    hasher_cpu = %d;", config.Topology.PC2HasherCPU))
+	w(fmt.Sprintf("    writer = %d;", config.Topology.PC2Writer))
+	w(fmt.Sprintf("    writer_cores = %d;", config.Topology.PC2WriterCores))
+	w("    sleep_time = 200;")
+	w("    qpair = 2;")
+	w("  },")
+	w("")
+	w("  c1: {")
+	w(fmt.Sprintf("    reader = %d;", config.Topology.C1Reader))
+	w("    sleep_time = 200;")
+	w("    qpair = 3;")
+	w("  }")
+	w("}")
 
 	return sb.String()
 }

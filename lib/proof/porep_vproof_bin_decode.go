@@ -6,6 +6,10 @@ import (
 	"io"
 )
 
+// This file contains a bincode decoder for Commit1OutRaw.
+// This is the format output by the C++ supraseal C1 implementation.
+// bincode - https://github.com/bincode-org/bincode
+
 func ReadLE[T any](r io.Reader) (T, error) {
 	var out T
 	err := binary.Read(r, binary.LittleEndian, &out)

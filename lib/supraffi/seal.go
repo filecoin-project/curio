@@ -29,6 +29,7 @@ root = {SRCDIR}/../../extern/supra_seal/
 -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src -c sealing/supra_seal.cpp -o obj/supra_seal.o -Wno-subobject-linkage
 
 ---
+NOTE: The below lines match the top of the file, just in a moderately more readable form.
 
 -#cgo LDFLAGS:
 -fno-omit-frame-pointer

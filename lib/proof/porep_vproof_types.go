@@ -1,9 +1,10 @@
 package proof
 
-// This file contains some type definitions from
+// This file contains PoRep vanilla proof type definitions from
 // - https://github.com/filecoin-project/rust-fil-proofs/tree/master/storage-proofs-core/src/merkle
 // - https://github.com/filecoin-project/rust-fil-proofs/tree/master/storage-proofs-porep/src/stacked/vanilla
 // - https://github.com/filecoin-project/rust-filecoin-proofs-api/tree/master/src
+// The json representation of those matches the representation expected by rust-fil-proofs.
 
 // core
 
