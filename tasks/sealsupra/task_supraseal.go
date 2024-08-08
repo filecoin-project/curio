@@ -269,7 +269,8 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	start := time.Now()
 	res := supraffi.Pc1(slot, replicaIDs, parentPath, uint64(ssize))
-	log.Infow("batch sdr done", "duration", time.Since(start).Truncate(time.Second), "slot", slot, "res", res, "task", taskID, "sectors", sectors, "spt", sectors[0].RegSealProof, "replicaIDs", replicaIDs)
+	duration := time.Since(start).Truncate(time.Second)
+	log.Infow("batch sdr done", "duration", duration, "slot", slot, "res", res, "task", taskID, "sectors", sectors, "spt", sectors[0].RegSealProof, "replicaIDs", replicaIDs)
 
 	if res != 0 {
 		return false, xerrors.Errorf("pc1 failed: %d", res)
@@ -297,9 +298,9 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	log.Infow("batch tree start", "slot", slot, "task", taskID, "sectors", sectors, "pstring", hex.EncodeToString([]byte(must.One(supraffi.GenerateMultiString(outPaths)))))
 
-	start = time.Now()
+	start2 := time.Now()
 	res = supraffi.Pc2(slot, s.sectors, must.One(supraffi.GenerateMultiString(outPaths)), uint64(ssize))
-	log.Infow("batch tree done", "duration", time.Since(start).Truncate(time.Second), "slot", slot, "res", res, "task", taskID, "sectors", sectors)
+	log.Infow("batch tree done", "duration", time.Since(start2).Truncate(time.Second), "slot", slot, "res", res, "task", taskID, "sectors", sectors)
 	if res != 0 {
 		return false, xerrors.Errorf("pc2 failed: %d", res)
 	}
