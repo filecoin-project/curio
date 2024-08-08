@@ -493,7 +493,7 @@ func (r *Remote) readRemote(ctx context.Context, url string, offset, size abi.Pa
 	if size == 0 {
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
 	}
-	
+
 	req = req.WithContext(ctx)
 
 	resp, err := http.DefaultClient.Do(req)
