@@ -59,7 +59,7 @@ func (r *Remote) ReadMinCacheInto(ctx context.Context, s storiface.SectorRef, ft
 
 			u = purl.String()
 
-			rd, err := r.readRemote(ctx, u, 0, -0)
+			rd, err := r.readRemote(ctx, u, 0, 0)
 			if err != nil {
 				log.Warnw("reading from remote", "url", u, "error", err)
 				continue
