@@ -18,7 +18,7 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 2 {
+	if len(os.Args) != 2 || os.Args[1] == "-h" || os.Args[1] == "--help" {
 		fmt.Println("This tool creates a 32GiB sector compatible with SupraSeal demo sector output")
 		fmt.Println("Useful only for development purposes.")
 		fmt.Printf("Usage: %s <outPath>\n", os.Args[0])

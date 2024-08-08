@@ -56,6 +56,16 @@ type SupraSealConfig struct {
 	P2HcP2RdOverlap bool
 }
 
+type AdditionalSystemInfo struct {
+	CPUName           string
+	MemorySize        string
+	MemoryChannels    int
+	InstalledModules  int
+	MaxMemoryCapacity string
+	MemoryType        string
+	MemorySpeed       string
+}
+
 func GetSystemInfo() (*SystemInfo, error) {
 	cmd := exec.Command("hwloc-ls")
 	output, err := cmd.Output()
@@ -246,17 +256,40 @@ func GenerateSupraSealConfig(info SystemInfo, dualHashers bool, batchSize int, n
 	return config, nil
 }
 
-func FormatSupraSealConfig(config SupraSealConfig) string {
+func FormatSupraSealConfig(config SupraSealConfig, system SystemInfo, additionalInfo AdditionalSystemInfo) string {
 	var sb strings.Builder
 
 	w := func(s string) { sb.WriteString(s); sb.WriteByte('\n') }
 
 	w("# Configuration for supra_seal")
+	w("")
+	w("# Machine Specifications:")
+	w(fmt.Sprintf("# CPU: %s", additionalInfo.CPUName))
+	w(fmt.Sprintf("# Memory: %s", additionalInfo.MemorySize))
+	w(fmt.Sprintf("# Memory Type: %s", additionalInfo.MemoryType))
+	w(fmt.Sprintf("# Memory Speed: %s", additionalInfo.MemorySpeed))
+	w(fmt.Sprintf("# Installed Memory Modules: %d", additionalInfo.InstalledModules))
+	w(fmt.Sprintf("# Maximum Memory Capacity: %s", additionalInfo.MaxMemoryCapacity))
+	w(fmt.Sprintf("# Memory Channels: %d", additionalInfo.MemoryChannels))
+	w(fmt.Sprintf("# Processor Count: %d", system.ProcessorCount))
+	w(fmt.Sprintf("# Core Count: %d", system.CoreCount))
+	w(fmt.Sprintf("# Threads per Core: %d", system.ThreadsPerCore))
+	w(fmt.Sprintf("# Cores per L3 Cache: %d", system.CoresPerL3))
+	w("")
+	w("# Diagnostic Information:")
+	w(fmt.Sprintf("# Required Threads: %d", config.RequiredThreads))
+	w(fmt.Sprintf("# Required CCX: %d", config.RequiredCCX))
+	w(fmt.Sprintf("# Required Cores: %d", config.RequiredCores))
+	w(fmt.Sprintf("# Unoccupied Cores: %d", config.UnoccupiedCores))
+	w(fmt.Sprintf("# P2 Writer/Reader Overlap: %v", config.P2WrRdOverlap))
+	w(fmt.Sprintf("# P2 Hasher/P1 Writer Overlap: %v", config.P2HsP1WrOverlap))
+	w(fmt.Sprintf("# P2 Hasher CPU/P2 Reader Overlap: %v", config.P2HcP2RdOverlap))
+	w("")
 	w("spdk: {")
 	w("  # PCIe identifiers of NVMe drives to use to store layers")
 	w("  nvme = [ ")
 
-	quotedNvme := lo.Map(config.NVMeDevices, func(d string, i int) string { return `           "` + d + `"` })
+	quotedNvme := lo.Map(config.NVMeDevices, func(d string, _ int) string { return `           "` + d + `"` })
 	w(strings.Join(quotedNvme, ",\n"))
 
 	w("         ];")
@@ -276,26 +309,19 @@ func FormatSupraSealConfig(config SupraSealConfig) string {
 	w("    hashers_per_core = 2;")
 	w("")
 	w("    sector_configs: (")
-	for i, sectorConfig := range config.Topology.SectorConfigs {
-		w("      {")
-		w(fmt.Sprintf("        sectors = %d;", sectorConfig.Sectors))
-		w("        coordinators = (")
-		for i, coord := range sectorConfig.Coordinators {
-			sb.WriteString(fmt.Sprintf("          { core = %d;\n", coord.Core))
-			sb.WriteString(fmt.Sprintf("            hashers = %d; }", coord.Hashers))
-			if i < len(sectorConfig.Coordinators)-1 {
-				sb.WriteString(",")
-			}
-			sb.WriteByte('\n')
-		}
-		w("        )")
-		sb.WriteString("      }")
 
-		if i < len(config.Topology.SectorConfigs)-1 {
-			sb.WriteString(",")
-		}
-		sb.WriteByte('\n')
-	}
+	sectorConfigsStr := lo.Map(config.Topology.SectorConfigs, func(sectorConfig SectorConfig, i int) string {
+		coordsStr := lo.Map(sectorConfig.Coordinators, func(coord CoordinatorConfig, j int) string {
+			return fmt.Sprintf("          { core = %d;\n            hashers = %d; }%s\n",
+				coord.Core, coord.Hashers, lo.Ternary(j < len(sectorConfig.Coordinators)-1, ",", ""))
+		})
+
+		return fmt.Sprintf("      {\n        sectors = %d;\n        coordinators = (\n%s        )\n      }%s\n",
+			sectorConfig.Sectors, strings.Join(coordsStr, ""), lo.Ternary(i < len(config.Topology.SectorConfigs)-1, ",", ""))
+	})
+
+	w(strings.Join(sectorConfigsStr, ""))
+
 	w("    )")
 	w("  },")
 	w("")
@@ -317,4 +343,84 @@ func FormatSupraSealConfig(config SupraSealConfig) string {
 	w("}")
 
 	return sb.String()
+}
+
+func ExtractAdditionalSystemInfo() (AdditionalSystemInfo, error) {
+	info := AdditionalSystemInfo{}
+
+	// Extract CPU Name (unchanged)
+	cpuInfoCmd := exec.Command("lscpu")
+	cpuInfoOutput, err := cpuInfoCmd.Output()
+	if err != nil {
+		return info, fmt.Errorf("failed to execute lscpu: %v", err)
+	}
+
+	cpuInfoLines := strings.Split(string(cpuInfoOutput), "\n")
+	for _, line := range cpuInfoLines {
+		if strings.HasPrefix(line, "Model name:") {
+			info.CPUName = strings.TrimSpace(strings.TrimPrefix(line, "Model name:"))
+			break
+		}
+	}
+
+	// Extract Memory Information
+	memInfoCmd := exec.Command("dmidecode", "-t", "memory")
+	memInfoOutput, err := memInfoCmd.Output()
+	if err != nil {
+		log.Warnf("failed to execute dmidecode: %v", err)
+		return info, nil
+	}
+
+	memInfoLines := strings.Split(string(memInfoOutput), "\n")
+	var totalMemory int64
+	for _, line := range memInfoLines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Maximum Capacity:") {
+			info.MaxMemoryCapacity = strings.TrimSpace(strings.TrimPrefix(line, "Maximum Capacity:"))
+		} else if strings.HasPrefix(line, "Number Of Devices:") {
+			info.MemoryChannels, _ = strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "Number Of Devices:")))
+		} else if strings.HasPrefix(line, "Size:") {
+			if strings.Contains(line, "GB") {
+				sizeStr := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, "Size:"), "GB"))
+				size, _ := strconv.ParseInt(sizeStr, 10, 64)
+				if size > 0 {
+					totalMemory += size
+					info.InstalledModules++
+				}
+			}
+		} else if strings.HasPrefix(line, "Type:") && info.MemoryType == "" {
+			info.MemoryType = strings.TrimSpace(strings.TrimPrefix(line, "Type:"))
+		} else if strings.HasPrefix(line, "Speed:") && info.MemorySpeed == "" {
+			info.MemorySpeed = strings.TrimSpace(strings.TrimPrefix(line, "Speed:"))
+		}
+	}
+
+	info.MemorySize = fmt.Sprintf("%d GB", totalMemory)
+
+	return info, nil
+}
+
+func GenerateSupraSealConfigString(dualHashers bool, batchSize int, nvmeDevices []string) (string, error) {
+	// Get system information
+	sysInfo, err := GetSystemInfo()
+	if err != nil {
+		return "", fmt.Errorf("failed to get system info: %v", err)
+	}
+
+	// Generate SupraSealConfig
+	config, err := GenerateSupraSealConfig(*sysInfo, dualHashers, batchSize, nvmeDevices)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate SupraSeal config: %v", err)
+	}
+
+	// Get additional system information
+	additionalInfo, err := ExtractAdditionalSystemInfo()
+	if err != nil {
+		return "", fmt.Errorf("failed to extract additional system info: %v", err)
+	}
+
+	// Format the config
+	configString := FormatSupraSealConfig(config, *sysInfo, additionalInfo)
+
+	return configString, nil
 }

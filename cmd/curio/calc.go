@@ -158,16 +158,12 @@ The config can be used directly with SupraSeal binaries to test it without invol
 		},
 	},
 	Action: func(cctx *cli.Context) error {
-		sysInfo, err := sealsupra.GetSystemInfo()
+		cstr, err := sealsupra.GenerateSupraSealConfigString(cctx.Bool("dual-hashers"), cctx.Int("batch-size"), nil)
 		if err != nil {
 			return err
 		}
 
-		config, err := sealsupra.GenerateSupraSealConfig(*sysInfo, cctx.Bool("dual-hashers"), cctx.Int("batch-size"), nil)
-		if err != nil {
-			return err
-		}
-		fmt.Println(sealsupra.FormatSupraSealConfig(config))
+		fmt.Println(cstr)
 		return nil
 	},
 }

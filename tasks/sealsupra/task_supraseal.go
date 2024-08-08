@@ -78,17 +78,10 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 	if configFile = os.Getenv(suprasealConfigEnv); configFile == "" {
 		// not set from env (should be the case in most cases), auto-generate a config
 
-		sysInfo, err := GetSystemInfo()
+		cstr, err := GenerateSupraSealConfigString(dualHashers, batchSize, nvmeDevices)
 		if err != nil {
-			return nil, xerrors.Errorf("getting system info: %w", err)
+			return nil, xerrors.Errorf("generating supraseal config: %w", err)
 		}
-
-		config, err := GenerateSupraSealConfig(*sysInfo, dualHashers, batchSize, nvmeDevices)
-		if err != nil {
-			return nil, xerrors.Errorf("generating config: %w", err)
-		}
-
-		cstr := FormatSupraSealConfig(config)
 
 		cfgFile, err := os.CreateTemp("", "supraseal-config-*.cfg")
 		if err != nil {
@@ -104,7 +97,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 			return nil, xerrors.Errorf("closing temp file: %w", err)
 		}
 
-		log.Infow("generated supraseal config", "config", config, "file", configFile)
+		log.Infow("generated supraseal config", "config", cstr, "file", configFile)
 	}
 
 	supraffi.SupraSealInit(uint64(ssize), configFile)
