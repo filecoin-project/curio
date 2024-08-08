@@ -302,7 +302,7 @@ func (d *CurioDealMarket) processMK12Deals(ctx context.Context) error {
 				return xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
 			}
 
-			var headers http.Header
+			headers := make(http.Header)
 			err = json.Unmarshal(deal.Headers, &headers)
 			if err != nil {
 				return xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
