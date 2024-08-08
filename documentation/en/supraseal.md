@@ -23,13 +23,18 @@ SupraSeal is an optimized batch sealing implementation for Filecoin that allows 
 - NVMe drives with high IOPS (10-20M total IOPS recommended)
 - GPU for PC2 phase (NVIDIA RTX 3090 or better recommended)
 - 1GB hugepages configured (minimum 36 pages)
-- Ubuntu 22.04 or compatible Linux distribution
+- Ubuntu 22.04 or compatible Linux distribution (gcc-11 required, doesn't need to be system-wide)
+- At least 256GB RAM, ALL MEMORY CHANNELS POPULATED
+  - Without **all** memory channels populated sealing **performance will suffer drastically**
+- NUMA-Per-Socket (NPS) set to 1
 
 ## Setup
 
 ### Dependencies
 
-Cuda 12.x is required
+CUDA 12.x is required, 11.x won't work.
+
+```bash
 
 The build process depends on GCC 11.x system-wide or gcc-11/g++-11 installed locally.
 * On Arch install https://aur.archlinux.org/packages/gcc11
@@ -67,6 +72,13 @@ LayerNVMEDevices = [
   "0000:86:00.0", 
   # Add PCIe addresses for all NVMe devices to use
 ]
+
+# Set to your desiced batch size (what the batch-cpu command says your CPU supports AND what you have nvme space for)
+BatchSealBatchSize = 32
+
+# pipelines can be either 1 or 2; 2 pipelines double storage requirements but in correctly balanced systems makes
+# layer hashing run 100% of the time, nearly doubling throughput
+BatchSealPipelines = 2
 
 # Set to true for Zen2 or older CPUs for compatibility
 SingleHasherPerThread = false
@@ -139,10 +151,64 @@ curio seal start --now --cc --count 32 --actor f01234 --layers cluster --duratio
 * Monitor hasher core utilisation
 
 ## Troubleshooting
+
+### Node doesn't start / isn't visible in the UI
 * Ensure hugepages are configured correctly
 * Check NVMe device IOPS and capacity
   * If spdk setup fails, try to `wipefs -a` the NVMe devices (this will wipe partitions from the devices, be careful!)
-  * Benchmark iops with:
+
+### Performance issues
+
+You can monitor performance by looking at "hasher" core utilisation in e.g. `htop`.
+
+To identify hasher cores, call `curio calc supraseal-config --batch-size 128` (with the correct batch size), and look for `coordinators`
+
+```go
+topology:
+...
+{
+  pc1: {
+    writer       = 1;
+...
+    hashers_per_core = 2;
+
+    sector_configs: (
+      {
+        sectors = 128;
+        coordinators = (
+          { core = 59;
+            hashers = 8; },
+          { core = 64;
+            hashers = 14; },
+          { core = 72;
+            hashers = 14; },
+          { core = 80;
+            hashers = 14; },
+          { core = 88;
+            hashers = 14; }
+        )
+      }
+
+    )
+  },
+
+  pc2: {
+...
+}
+
+```
+
+In this example, cores 59, 64, 72, 80, and 88 are "coordinators", with two hashers per core, meaning that
+* In first group core 59 is a coordinator, cores 60-63 are hashers (4 hasher cores / 8 hasher threads)
+* In second group core 64 is a coordinator, cores 65-71 are hashers (7 hasher cores / 14 hasher threads)
+* And so on
+
+Coordinator cores will usually sit at 100% utilisation, hasher threads **SHOULD** sit at 100% utilisation, anything less
+indicates a bottleneck in the system, like not enough NVMe IOPS, not enough Memory bandwidth, or incorrect NUMA setup.
+
+To troubleshoot:
+* Read the requirements at the top of this page very carefully
+* Benchmark iops with:
 ```bash
 cd extern/supra_seal/deps/spdk-v22.09/
 
