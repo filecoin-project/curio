@@ -159,7 +159,7 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 	for i := range refData {
 		if refData[i].DataURL != "" {
-			var hdrs http.Header
+			hdrs := make(http.Header)
 			err = json.Unmarshal(refData[i].DataHeaders, &hdrs)
 			if err != nil {
 				return false, xerrors.Errorf("unmarshaling reference data headers: %w", err)

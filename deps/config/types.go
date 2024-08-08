@@ -71,6 +71,14 @@ func DefaultCurioConfig() *CurioConfig {
 				AlertManagerURL: "http://localhost:9093/api/v2/alerts",
 			},
 		},
+		Market: MarketConfig{
+			DealMarketConfig: DealConfig{
+				PieceLocator: []PieceLocatorConfig{},
+				MK12: MK12Config{
+					Miners: []string{},
+				},
+			},
+		},
 	}
 }
 
@@ -560,12 +568,19 @@ type MarketConfig struct {
 }
 
 type DealConfig struct {
+	// PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
+	// User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
+	// The server must have 2 endpoints
+	// 	1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Filecoin-Piece-RawSize" with file size as value
+	//  2. /data?id=pieceCID must provide a reader for the requested piece
 	PieceLocator []PieceLocatorConfig
-	MK12         MK12Config
+
+	// MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)
+	MK12 MK12Config
 }
 
 type MK12Config struct {
-	// Miners is a list of miner to enable MK12 deals for
+	// Miners is a list of miner to enable MK12 deals(Boost) for
 	Miners []string
 
 	// When a deal is ready to publish, the amount of time to wait for more

@@ -173,7 +173,7 @@ func (f *FindURLTask) findURL(ctx context.Context, taskID harmonytask.TaskID, pc
 	// Check if We can find the URL for this piece on remote servers i.e. len(goUrls) == 0
 	for rUrl, headers := range f.urls {
 		// Create a new HTTP request
-		urlString := fmt.Sprintf("%s?piece=%s", rUrl, pcid)
+		urlString := fmt.Sprintf("%s/pieces?id=%s", rUrl, pcid)
 		req, err := http.NewRequest(http.MethodGet, urlString, nil)
 		if err != nil {
 			return xerrors.Errorf("error creating request: %w", err)
