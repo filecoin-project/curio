@@ -487,6 +487,13 @@ func (r *Remote) readRemote(ctx context.Context, url string, offset, size abi.Pa
 	if r.auth != nil {
 		req.Header = r.auth.Clone()
 	}
+
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", offset, offset+size-1))
+
+	if size == -1 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+	}
+
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", offset, offset+size-1))
 	req = req.WithContext(ctx)
 
@@ -797,7 +804,7 @@ func (r *Remote) ReaderSeq(ctx context.Context, s storiface.SectorRef, ft storif
 
 	for _, info := range si {
 		for _, url := range info.URLs {
-			rd, err := r.readRemote(ctx, url, 0, 0)
+			rd, err := r.readRemote(ctx, url, 0, -1)
 			if err != nil {
 				log.Warnw("reading from remote", "url", url, "error", err)
 				continue
