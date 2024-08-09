@@ -8,7 +8,10 @@ import (
 
 	"github.com/filecoin-project/go-address"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/lib/curiochain"
+
+	"github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/lotus/blockstore"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -28,6 +31,13 @@ type ActorSummary struct {
 	Win1, Win7, Win30 int64
 
 	Deadlines []ActorDeadline
+
+	Wallets map[string][]WalletInfo
+}
+type WalletInfo struct {
+	Type    string
+	Address string
+	Balance string
 }
 
 type ActorDeadline struct {
@@ -39,18 +49,17 @@ type ActorDeadline struct {
 }
 
 type minimalActorInfo struct {
-	Addresses []struct {
-		MinerAddresses []string
-	}
+	Addresses []config.CurioAddresses
 }
 
-func (a *WebRPC) ActorSummary(ctx context.Context) ([]ActorSummary, error) {
+func (a *WebRPC) ActorSummary(ctx context.Context, expanded bool) ([]ActorSummary, error) {
 	stor := store.ActorStore(ctx, blockstore.NewReadCachedBlockstore(blockstore.NewAPIBlockstore(a.deps.Chain), curiochain.ChainBlockCache))
 
 	var actorInfos []ActorSummary
 
 	confNameToAddr := map[address.Address][]string{}
 
+	minerWallets := map[address.Address]map[string][]address.Address{}
 	err := forEachConfig(a, func(name string, info minimalActorInfo) error {
 		for _, aset := range info.Addresses {
 			for _, addr := range aset.MinerAddresses {
@@ -59,6 +68,22 @@ func (a *WebRPC) ActorSummary(ctx context.Context) ([]ActorSummary, error) {
 					return xerrors.Errorf("parsing address: %w", err)
 				}
 				confNameToAddr[a] = append(confNameToAddr[a], name)
+				if expanded {
+					minerWallets[a] = map[string][]address.Address{}
+					for name, aset := range map[string][]string{
+						"Commit":    aset.PreCommitControl,
+						"Control":   aset.CommitControl,
+						"Terminate": aset.TerminateControl,
+					} {
+						for _, addr := range aset {
+							a, err := address.NewFromString(addr)
+							if err != nil {
+								return xerrors.Errorf("parsing address: %w", err)
+							}
+							minerWallets[a][name] = append(minerWallets[a][name], a)
+						}
+					}
+				}
 			}
 		}
 		return nil
@@ -71,6 +96,7 @@ func (a *WebRPC) ActorSummary(ctx context.Context) ([]ActorSummary, error) {
 	if err != nil {
 		return nil, xerrors.Errorf("getting sp wins: %w", err)
 	}
+	balanceCache := map[address.Address]big.Int{}
 
 	for addr, cnames := range confNameToAddr {
 		p, err := a.deps.Chain.StateMinerPower(ctx, addr, types.EmptyTSK)
@@ -103,14 +129,17 @@ func (a *WebRPC) ActorSummary(ctx context.Context) ([]ActorSummary, error) {
 			return nil, xerrors.Errorf("getting miner info: %w", err)
 		}
 
-		wbal, err := a.deps.Chain.WalletBalance(ctx, mi.Worker)
-		if err != nil {
-			return nil, xerrors.Errorf("getting worker balance: %w", err)
+		wbal, ok := balanceCache[mi.Worker]
+		if !ok {
+			wbal, err = a.deps.Chain.WalletBalance(ctx, mi.Worker)
+			if err != nil {
+				return nil, xerrors.Errorf("getting worker balance: %w", err)
+			}
+			balanceCache[mi.Worker] = wbal
 		}
 
 		sort.Strings(cnames)
-
-		actorInfos = append(actorInfos, ActorSummary{
+		as := ActorSummary{
 			Address:              addr.String(),
 			CLayers:              cnames,
 			QualityAdjustedPower: types.DeciStr(p.MinerPower.QualityAdjPower),
@@ -122,7 +151,29 @@ func (a *WebRPC) ActorSummary(ctx context.Context) ([]ActorSummary, error) {
 			Win1:                 wins[addr].Win1,
 			Win7:                 wins[addr].Win7,
 			Win30:                wins[addr].Win30,
-		})
+		}
+		if expanded {
+
+			as.Wallets = map[string][]WalletInfo{}
+			for name, addrs := range minerWallets[addr] {
+				for _, addr := range addrs {
+					wb, ok := balanceCache[addr]
+					if !ok {
+						wb, err = a.deps.Chain.WalletBalance(ctx, addr)
+						if err != nil {
+							return nil, xerrors.Errorf("getting wallet balance: %w", err)
+						}
+						balanceCache[addr] = wb
+					}
+					as.Wallets[name] = append(as.Wallets[name], WalletInfo{
+						Type:    name,
+						Address: addr.String(),
+						Balance: types.FIL(wb).String(),
+					})
+				}
+			}
+		}
+		actorInfos = append(actorInfos, as)
 	}
 
 	sort.Slice(actorInfos, func(i, j int) bool {
