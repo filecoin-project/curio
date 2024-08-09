@@ -25,6 +25,10 @@ _cli_bash_autocomplete() {
     fi
     opts=$(eval "${requestComp}" 2>/dev/null)
     COMPREPLY=($(compgen -W "${opts}" -- ${cur}))
+    # If a single completion is found, append a space automatically
+    if [[ ${#COMPREPLY[@]} -eq 1 ]]; then
+      COMPREPLY[0]+=" "
+    fi
     return 0
   fi
 }
