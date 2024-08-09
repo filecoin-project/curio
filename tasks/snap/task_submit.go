@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go.uber.org/multierr"
 	"math/rand/v2"
 
 	"github.com/ipfs/go-cid"
@@ -129,9 +130,10 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	var pieces []struct {
 		Manifest json.RawMessage `db:"direct_piece_activation_manifest"`
 		Size     int64           `db:"piece_size"`
+		Start    int64           `db:"direct_start_epoch"`
 	}
 	err = s.db.Select(ctx, &pieces, `
-		SELECT direct_piece_activation_manifest, piece_size
+		SELECT direct_piece_activation_manifest, piece_size, direct_start_epoch
 		FROM sectors_snap_initial_pieces
 		WHERE sp_id = $1 AND sector_number = $2 ORDER BY piece_index ASC`, update.SpID, update.SectorNumber)
 	if err != nil {
@@ -145,6 +147,8 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 
 	var pams []miner.PieceActivationManifest
 	var weight, weightVerif = big.Zero(), big.Zero()
+	var minStart abi.ChainEpoch
+
 	for _, piece := range pieces {
 		var pam *miner.PieceActivationManifest
 		err = json.Unmarshal(piece.Manifest, &pam)
@@ -160,6 +164,10 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 			weightVerif = big.Add(weightVerif, abi.NewStoragePower(piece.Size))
 		} else {
 			weight = big.Add(weight, abi.NewStoragePower(piece.Size))
+		}
+
+		if minStart == 0 || abi.ChainEpoch(piece.Start) < minStart {
+			minStart = abi.ChainEpoch(piece.Start)
 		}
 
 		pams = append(pams, *pam)
@@ -255,6 +263,17 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 
 	mcid, err := s.sender.Send(ctx, msg, mss, "update")
 	if err != nil {
+		if minStart != 0 && ts.Height() > minStart {
+			_, err2 := s.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET 
+                                 failed = TRUE, failed_at = NOW(), failed_reason = 'start-expired', failed_reason_msg = $1,
+                                 task_id_submit = NULL, after_submit = FALSE
+                             WHERE sp_id = $2 AND sector_number = $3`, err.Error(), update.SpID, update.SectorNumber)
+
+			log.Errorw("failed to push message to mpool (beyond deal start epoch)", "sp", update.SpID, "sector", update.SectorNumber, "err", err)
+
+			return true, xerrors.Errorf("pushing message to mpool (beyond deal start epoch): %w", multierr.Combine(err, err2))
+		}
+
 		return false, xerrors.Errorf("pushing message to mpool: %w", err)
 	}
 
@@ -364,7 +383,7 @@ func (s *SubmitTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 				SectorNumber int64 `db:"sector_number"`
 			}
 
-			err := s.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_prove = TRUE AND after_submit = FALSE AND task_id_submit IS NULL`)
+			err := s.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE failed = FALSE AND after_encode = TRUE AND after_prove = TRUE AND after_submit = FALSE AND task_id_submit IS NULL`)
 			if err != nil {
 				return false, xerrors.Errorf("getting tasks: %w", err)
 			}
