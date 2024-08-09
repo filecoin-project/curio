@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/filecoin-project/lotus/chain/types"
@@ -61,6 +62,14 @@ func DefaultCurioConfig() *CurioConfig {
 				AlertManagerURL: "http://localhost:9093/api/v2/alerts",
 			},
 		},
+		Market: MarketConfig{
+			DealMarketConfig: DealConfig{
+				PieceLocator: []PieceLocatorConfig{},
+				MK12: MK12Config{
+					Miners: []string{},
+				},
+			},
+		},
 	}
 }
 
@@ -72,6 +81,7 @@ type CurioConfig struct {
 	// Addresses of wallets per MinerAddress (one of the fields).
 	Addresses []CurioAddresses
 	Proving   CurioProvingConfig
+	Market    MarketConfig
 	Ingest    CurioIngestConfig
 	Apis      ApisConfig
 	Alerting  CurioAlertingConfig
@@ -249,6 +259,9 @@ type CurioSubsystemsConfig struct {
 	// The maximum amount of SyntheticPoRep tasks that can run simultaneously. Note that the maximum number of tasks will
 	// also be bounded by resources available on the machine.
 	SyntheticPoRepMaxTasks int
+
+	// EnableDealMarket
+	EnableDealMarket bool
 }
 type CurioFees struct {
 	DefaultMaxFee      types.FIL
@@ -485,4 +498,49 @@ type ApisConfig struct {
 	// If integrating with lotus-miner this must match the value from
 	// cat ~/.lotusminer/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU | jq -r .PrivateKey
 	StorageRPCSecret string
+}
+
+type MarketConfig struct {
+	// DealMarketConfig houses all the deal related market configuration
+	DealMarketConfig DealConfig
+}
+
+type DealConfig struct {
+	// PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
+	// User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
+	// The server must have 2 endpoints
+	// 	1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Filecoin-Piece-RawSize" with file size as value
+	//  2. /data?id=pieceCID must provide a reader for the requested piece
+	PieceLocator []PieceLocatorConfig
+
+	// MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)
+	MK12 MK12Config
+}
+
+type MK12Config struct {
+	// Miners is a list of miner to enable MK12 deals(Boost) for
+	Miners []string
+
+	// When a deal is ready to publish, the amount of time to wait for more
+	// deals to be ready to publish before publishing them all as a batch
+	PublishMsgPeriod Duration
+
+	// The maximum number of deals to include in a single PublishStorageDeals
+	// message
+	MaxDealsPerPublishMsg uint64
+
+	// The maximum collateral that the provider will put up against a deal,
+	// as a multiplier of the minimum collateral bound
+	// The maximum fee to pay when sending the PublishStorageDeals message
+	MaxPublishDealsFee types.FIL
+
+	// ExpectedSealDuration is the expected time it would take to seal the deal sector
+	// This will be used to fail the deals which cannot be sealed on time.
+	// Please make sure to update this to shorter duration for snap deals
+	ExpectedSealDuration Duration
+}
+
+type PieceLocatorConfig struct {
+	URL     string
+	Headers http.Header
 }

@@ -13,7 +13,7 @@ import (
 
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/reqcontext"
-	"github.com/filecoin-project/curio/market"
+	"github.com/filecoin-project/curio/market/dealmarket"
 	"github.com/filecoin-project/curio/market/lmrpc"
 )
 
@@ -117,6 +117,6 @@ var marketSealCmd = &cli.Command{
 			return err
 		}
 
-		return market.SealNow(ctx, dep.Chain, dep.DB, act, abi.SectorNumber(sector), cctx.Bool("synthetic"))
+		return dealmarket.SealNow(ctx, dep.Chain, dep.DB, act, abi.SectorNumber(sector), cctx.Bool("synthetic"))
 	},
 }

@@ -134,6 +134,12 @@ alerts will be triggered for the wallet`,
 			Comment: ``,
 		},
 		{
+			Name: "Market",
+			Type: "MarketConfig",
+
+			Comment: ``,
+		},
+		{
 			Name: "Ingest",
 			Type: "CurioIngestConfig",
 
@@ -632,6 +638,30 @@ cache data held on disk after the completion of TreeRC task to 11GiB.`,
 			Comment: `The maximum amount of SyntheticPoRep tasks that can run simultaneously. Note that the maximum number of tasks will
 also be bounded by resources available on the machine.`,
 		},
+		{
+			Name: "EnableDealMarket",
+			Type: "bool",
+
+			Comment: `EnableDealMarket`,
+		},
+	},
+	"DealConfig": {
+		{
+			Name: "PieceLocator",
+			Type: "[]PieceLocatorConfig",
+
+			Comment: `PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
+User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
+The server must have 2 endpoints
+1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Filecoin-Piece-RawSize" with file size as value
+2. /data?id=pieceCID must provide a reader for the requested piece`,
+		},
+		{
+			Name: "MK12",
+			Type: "MK12Config",
+
+			Comment: `MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)`,
+		},
 	},
 	"Duration time.Duration": {
 		{
@@ -651,6 +681,52 @@ also be bounded by resources available on the machine.`,
 			Type: "[]byte(d.String()),",
 
 			Comment: ``,
+		},
+	},
+	"MK12Config": {
+		{
+			Name: "Miners",
+			Type: "[]string",
+
+			Comment: `Miners is a list of miner to enable MK12 deals(Boost) for`,
+		},
+		{
+			Name: "PublishMsgPeriod",
+			Type: "Duration",
+
+			Comment: `When a deal is ready to publish, the amount of time to wait for more
+deals to be ready to publish before publishing them all as a batch`,
+		},
+		{
+			Name: "MaxDealsPerPublishMsg",
+			Type: "uint64",
+
+			Comment: `The maximum number of deals to include in a single PublishStorageDeals
+message`,
+		},
+		{
+			Name: "MaxPublishDealsFee",
+			Type: "types.FIL",
+
+			Comment: `The maximum collateral that the provider will put up against a deal,
+as a multiplier of the minimum collateral bound
+The maximum fee to pay when sending the PublishStorageDeals message`,
+		},
+		{
+			Name: "ExpectedSealDuration",
+			Type: "Duration",
+
+			Comment: `ExpectedSealDuration is the expected time it would take to seal the deal sector
+This will be used to fail the deals which cannot be sealed on time.
+Please make sure to update this to shorter duration for snap deals`,
+		},
+	},
+	"MarketConfig": {
+		{
+			Name: "DealMarketConfig",
+			Type: "DealConfig",
+
+			Comment: `DealMarketConfig houses all the deal related market configuration`,
 		},
 	},
 	"PagerDutyConfig": {
@@ -674,6 +750,20 @@ The default is sufficient for integration with the stock commercial PagerDuty.co
 
 			Comment: `PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
 identifier in the integration page for the service.`,
+		},
+	},
+	"PieceLocatorConfig": {
+		{
+			Name: "URL",
+			Type: "string",
+
+			Comment: ``,
+		},
+		{
+			Name: "Headers",
+			Type: "http.Header",
+
+			Comment: ``,
 		},
 	},
 	"PrometheusAlertManagerConfig": {

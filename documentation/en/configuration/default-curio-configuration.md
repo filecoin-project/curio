@@ -228,6 +228,11 @@ description: The default curio configuration
   # type: int
   #SyntheticPoRepMaxTasks = 0
 
+  # EnableDealMarket
+  #
+  # type: bool
+  #EnableDealMarket = false
+
 
 [Fees]
   # type: types.FIL
@@ -383,6 +388,50 @@ description: The default curio configuration
   #
   # type: bool
   #SingleRecoveringPartitionPerPostMessage = false
+
+
+[Market]
+  [Market.DealMarketConfig]
+    # PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
+    # User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
+    # The server must have 2 endpoints
+    # 1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Filecoin-Piece-RawSize" with file size as value
+    # 2. /data?id=pieceCID must provide a reader for the requested piece
+    #
+    # type: []PieceLocatorConfig
+    #PieceLocator = []
+
+    [Market.DealMarketConfig.MK12]
+      # Miners is a list of miner to enable MK12 deals(Boost) for
+      #
+      # type: []string
+      #Miners = []
+
+      # When a deal is ready to publish, the amount of time to wait for more
+      # deals to be ready to publish before publishing them all as a batch
+      #
+      # type: Duration
+      #PublishMsgPeriod = "0s"
+
+      # The maximum number of deals to include in a single PublishStorageDeals
+      # message
+      #
+      # type: uint64
+      #MaxDealsPerPublishMsg = 0
+
+      # The maximum collateral that the provider will put up against a deal,
+      # as a multiplier of the minimum collateral bound
+      # The maximum fee to pay when sending the PublishStorageDeals message
+      #
+      # type: types.FIL
+      #MaxPublishDealsFee = "0 FIL"
+
+      # ExpectedSealDuration is the expected time it would take to seal the deal sector
+      # This will be used to fail the deals which cannot be sealed on time.
+      # Please make sure to update this to shorter duration for snap deals
+      #
+      # type: Duration
+      #ExpectedSealDuration = "0s"
 
 
 [Ingest]
