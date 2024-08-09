@@ -28,10 +28,11 @@ func main() {
 	}
 
 	app := &cli.App{
-		Name:     "sptool",
-		Usage:    "Manage Filecoin Miner Actor",
-		Version:  build.UserVersion(),
-		Commands: local,
+		Name:                 "sptool",
+		Usage:                "Manage Filecoin Miner Actor",
+		Version:              build.UserVersion(),
+		EnableBashCompletion: true,
+		Commands:             local,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "repo",
