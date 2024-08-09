@@ -28,6 +28,33 @@ SupraSeal is an optimized batch sealing implementation for Filecoin that allows 
   - Without **all** memory channels populated sealing **performance will suffer drastically**
 - NUMA-Per-Socket (NPS) set to 1
 
+## Storage Recommendations
+You need 2 sets of NVMe drives:
+
+1. Drives for layers:
+* Total 10-20M IOPS
+* Capacity for 11 x 32G x batchSize x pipelines
+* Raw unformatted block devices (SPDK will take them over)
+* Each drive should be able to sustain ~2GiB/s of writes
+  * This requirement isn't understood well yet, it's possible that lower write rates are fine. More testing is needed.
+2. Drives for P2 output:
+* With a filesystem
+* Fast with sufficient capacity (~70G x batchSize x pipelines)
+* Can be remote storage if fast enough (~500MiB/s/GPU)
+
+## Hardware Recommendations
+
+Currently, the community is trying to determine the best hardware configurations for batch sealing.
+
+Some general observations are:
+* Single socket systems will be easier to use at full capacity
+* You want a lot of NVMe slots, on PCIe Gen4 platforms with large batch sizes you may use 20-24 3.84TB NVMe drives
+* In general you'll want to make sure all memory channels are populated
+* You need 4~8 physical cores (not threads) for batch-wide compute, then on each CCX you'll lose 1 core for a "coordinator"
+  * Each thread computes 2 sectors
+  * On zen2 and earlier hashers compute only one sector per thread
+  * Large (many-core) CCX-es are typically better
+
 ## Setup
 
 ### Dependencies
@@ -60,6 +87,112 @@ AVX512 support.
 ## Configuration
 
 * Run `curio calc batch-cpu` on the target machine to determine supported batch sizes for your CPU
+
+<details>
+<summary>Example batch-cpu output</summary>
+
+```
+# EPYC 7313 16-Core Processor
+
+root@udon:~# ./curio calc batch-cpu
+Basic CPU Information
+
+Processor count: 1
+Core count: 16
+Thread count: 32
+Threads per core: 2
+Cores per L3 cache (CCX): 4
+L3 cache count (CCX count): 4
+Hasher Threads per CCX: 6
+Sectors per CCX: 12
+---------
+Batch Size: 16 sectors
+
+Required Threads: 8
+Required CCX: 2
+Required Cores: 6 hasher (+4 minimum for non-hashers)
+Enough cores available for hashers ✔
+Non-hasher cores: 10
+Enough cores for coordination ✔
+
+pc1 writer: 1
+pc1 reader: 2
+pc1 orchestrator: 3
+
+pc2 reader: 4
+pc2 hasher: 5
+pc2 hasher_cpu: 6
+pc2 writer: 7
+pc2 writer_cores: 3
+
+c1 reader: 7
+
+Unoccupied Cores: 0
+
+{
+  sectors = 16;
+  coordinators = (
+    { core = 10;
+      hashers = 2; },
+    { core = 12;
+      hashers = 6; }
+  )
+}
+---------
+Batch Size: 32 sectors
+
+Required Threads: 16
+Required CCX: 3
+Required Cores: 11 hasher (+4 minimum for non-hashers)
+Enough cores available for hashers ✔
+Non-hasher cores: 5
+Enough cores for coordination ✔
+! P2 hasher will share a core with P1 writer, performance may be impacted
+! P2 hasher_cpu will share a core with P2 reader, performance may be impacted
+
+pc1 writer: 1
+pc1 reader: 2
+pc1 orchestrator: 3
+
+pc2 reader: 0
+pc2 hasher: 1
+pc2 hasher_cpu: 0
+pc2 writer: 4
+pc2 writer_cores: 1
+
+c1 reader: 0
+
+Unoccupied Cores: 0
+
+{
+  sectors = 32;
+  coordinators = (
+    { core = 5;
+      hashers = 4; },
+    { core = 8;
+      hashers = 6; },
+    { core = 12;
+      hashers = 6; }
+  )
+}
+---------
+Batch Size: 64 sectors
+
+Required Threads: 32
+Required CCX: 6
+Required Cores: 22 hasher (+4 minimum for non-hashers)
+Not enough cores available for hashers ✘
+Batch Size: 128 sectors
+
+Required Threads: 64
+Required CCX: 11
+Required Cores: 43 hasher (+4 minimum for non-hashers)
+Not enough cores available for hashers ✘
+
+```
+
+</details>
+
 * Create a new layer configuration for the batch sealer, e.g. batch-machine1:
 
 ```toml
@@ -73,7 +206,7 @@ LayerNVMEDevices = [
   # Add PCIe addresses for all NVMe devices to use
 ]
 
-# Set to your desiced batch size (what the batch-cpu command says your CPU supports AND what you have nvme space for)
+# Set to your desired batch size (what the batch-cpu command says your CPU supports AND what you have nvme space for)
 BatchSealBatchSize = 32
 
 # pipelines can be either 1 or 2; 2 pipelines double storage requirements but in correctly balanced systems makes
@@ -134,12 +267,17 @@ and 36GiB for the cache directory with TreeC/TreeR and aux files)
 
 ## Usage
 1. Start the Curio node with the batch sealer layer
-2. Add a batch of CC sectors:
+
 ```bash
-curio seal start --now --cc --count 32 --actor f01234 --layers cluster --duration-days 365
+curio run --layers batch-machine1
 ```
 
-3. Monitor progress - you should see a "Batch..." task running
+2. Add a batch of CC sectors:
+```bash
+curio seal start --now --cc --count 32 --actor f01234 --duration-days 365
+```
+
+3. Monitor progress - you should see a "Batch..." task running in the [Curio GUI](curio-gui.md)
 4. PC1 will take 3.5-5 hours, followed by PC2 on GPU
 5. After batch completion, the storage will be released for the next batch
 
@@ -237,28 +375,3 @@ With ideally >10M IOPS total for all devices.
 
 * Validate GPU setup if PC2 is slow
 * Review logs for any errors during batch processing
-
-## Storage Recommendations
-You need 2 sets of NVMe drives:
-
-1. Drives for layers:
-  * Total 10-20M IOPS
-  * Capacity for 11 x 32G x batchSize x pipelines
-  * Raw unformatted block devices (SPDK will take them over)
-2. Drives for P2 output:
-  * With a filesystem
-  * Fast with sufficient capacity (~70G x batchSize x pipelines)
-  * Can be remote storage if fast enough (~500MiB/s/GPU)
-
-## Hardware Recommendations
-
-Currently, the community is trying to determine the best hardware configurations for batch sealing.
-
-Some general observations are:
-* Single socket systems will be easier to use at full capacity
-* You want a lot of NVMe slots, on PCIe Gen4 platforms with large batch sizes you may use 20-24 3.84TB NVMe drives
-* In general you'll want to make sure all memory channels are populated
-* You need 4~8 physical cores (not threads) for batch-wide compute, then on each CCX you'll lose 1 core for a "coordinator"
-  * Each thread computes 2 sectors
-  * On zen2 and earlier hashers compute only one sector per thread
-  * Large (many-core) CCX-es are typically better
