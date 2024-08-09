@@ -62,6 +62,16 @@ description: The default curio configuration
   # type: int
   #SealSDRMaxTasks = 0
 
+  # The maximum amount of SDR tasks that need to be queued before the system will start accepting new tasks.
+  # The main purpose of this setting is to allow for enough tasks to accumulate for batch sealing. When batch sealing
+  # nodes are present in the cluster, this value should be set to batch_size+1 to allow for the batch sealing node to
+  # fill up the batch.
+  # This setting can also be used to give priority to other nodes in the cluster by setting this value to a higher
+  # value on the nodes which should have less priority.
+  #
+  # type: int
+  #SealSDRMinTasks = 0
+
   # EnableSealSDRTrees enables the SDR pipeline tree-building task to run.
   # This task handles encoding of unsealed data into last sdr layer and building
   # of TreeR, TreeC and TreeD.
@@ -227,6 +237,11 @@ description: The default curio configuration
   #
   # type: int
   #SyntheticPoRepMaxTasks = 0
+
+  # Batch Seal
+  #
+  # type: bool
+  #EnableBatchSeal = false
 
 
 [Fees]
@@ -434,6 +449,30 @@ description: The default curio configuration
   #
   # type: bool
   #DoSnap = false
+
+
+[Seal]
+  # BatchSealSectorSize Allows setting the sector size supported by the batch seal task.
+  # Can be any value as long as it is "32GiB".
+  #
+  # type: string
+  #BatchSealSectorSize = "32GiB"
+
+  # Number of sectors in a seal batch. Depends on hardware and supraseal configuration.
+  #
+  # type: int
+  #BatchSealBatchSize = 32
+
+  # Number of parallel pipelines. Can be 1 or 2. Depends on available raw block storage
+  #
+  # type: int
+  #BatchSealPipelines = 2
+
+  # SingleHasherPerThread is a compatibility flag for older CPUs. Zen3 and later supports two sectors per thread.
+  # Set to false for older CPUs (Zen 2 and before).
+  #
+  # type: bool
+  #SingleHasherPerThread = false
 
 
 [Apis]

@@ -2,6 +2,8 @@ SHELL=/usr/bin/env bash
 
 GOCC?=go
 
+## FILECOIN-FFI
+
 FFI_PATH:=extern/filecoin-ffi/
 FFI_DEPS:=.install-filcrypto
 FFI_DEPS:=$(addprefix $(FFI_PATH),$(FFI_DEPS))
@@ -22,6 +24,23 @@ BUILD_DEPS+=ffi-version-check
 
 .PHONY: ffi-version-check
 
+## SUPRA-FFI
+
+ifeq ($(shell uname),Linux)
+SUPRA_FFI_PATH:=extern/supra_seal/
+SUPRA_FFI_DEPS:=.install-supraseal
+SUPRA_FFI_DEPS:=$(addprefix $(SUPRA_FFI_PATH),$(SUPRA_FFI_DEPS))
+
+$(SUPRA_FFI_DEPS): build/.supraseal-install ;
+
+build/.supraseal-install: $(SUPRA_FFI_PATH)
+	cd $(SUPRA_FFI_PATH) && ./build.sh
+	@touch $@
+
+MODULES+=$(SUPRA_FFI_PATH)
+CLEAN+=build/.supraseal-install
+endif
+
 $(MODULES): build/.update-modules ;
 # dummy file that marks the last time modules were updated
 build/.update-modules:
@@ -29,6 +48,12 @@ build/.update-modules:
 	touch $@
 
 # end git modules
+
+## CUDA Library Path
+CUDA_PATH := $(shell dirname $$(dirname $$(which nvcc)))
+CUDA_LIB_PATH := $(CUDA_PATH)/lib64
+LIBRARY_PATH ?= $(CUDA_LIB_PATH)
+export LIBRARY_PATH
 
 ## MAIN BINARIES
 
@@ -41,7 +66,7 @@ deps: $(BUILD_DEPS)
 
 curio: $(BUILD_DEPS)
 	rm -f curio
-	GOAMD64=v3 $(GOCC) build $(GOFLAGS) -o curio -ldflags " -s -w \
+	GOAMD64=v3 CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -o curio -ldflags " -s -w \
 	-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
 	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
 	./cmd/curio
@@ -54,6 +79,31 @@ sptool: $(BUILD_DEPS)
 .PHONY: sptool
 BINS+=sptool
 
+ifeq ($(shell uname),Linux)
+
+batchdep: build/.supraseal-install
+batchdep: $(BUILD_DEPS)
+,PHONY: batchdep
+
+batch: GOFLAGS+=-tags=supraseal
+batch: CGO_LDFLAGS_ALLOW='.*'
+batch: batchdep build
+.PHONY: batch
+
+batch-calibnet: GOFLAGS+=-tags=calibnet,supraseal
+batch-calibnet: CGO_LDFLAGS_ALLOW='.*'
+batch-calibnet: batchdep build
+.PHONY: batch-calibnet
+
+else
+batch:
+	@echo "Batch target is only available on Linux systems"
+	@exit 1
+
+batch-calibnet:
+	@echo "Batch-calibnet target is only available on Linux systems"
+	@exit 1
+endif
 
 calibnet: GOFLAGS+=-tags=calibnet
 calibnet: build

@@ -30,6 +30,7 @@ import (
 	"github.com/filecoin-project/curio/api/client"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/metrics"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/repo"
 	"github.com/filecoin-project/curio/web"
@@ -37,7 +38,7 @@ import (
 	lapi "github.com/filecoin-project/lotus/api"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/lib/rpcenc"
-	"github.com/filecoin-project/lotus/metrics"
+	lotusmetrics "github.com/filecoin-project/lotus/metrics"
 	"github.com/filecoin-project/lotus/metrics/proxy"
 	"github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
@@ -71,6 +72,7 @@ func CurioHandler(
 	mux.Handle("/rpc/v0", rpcServer)
 	mux.Handle("/rpc/streams/v0/push/{uuid}", readerHandler)
 	mux.PathPrefix("/remote").HandlerFunc(remote)
+	mux.Handle("/debug/metrics", metrics.Exporter())
 	mux.PathPrefix("/").Handler(http.DefaultServeMux) // pprof
 
 	if !permissioned {
@@ -283,7 +285,7 @@ func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan c
 			permissioned),
 		ReadHeaderTimeout: time.Minute * 3,
 		BaseContext: func(listener net.Listener) context.Context {
-			ctx, _ := tag.New(context.Background(), tag.Upsert(metrics.APIInterface, "lotus-worker"))
+			ctx, _ := tag.New(context.Background(), tag.Upsert(lotusmetrics.APIInterface, "curio"))
 			return ctx
 		},
 		Addr: dependencies.ListenAddr,

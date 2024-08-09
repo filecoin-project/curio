@@ -14,6 +14,11 @@ import (
 	"github.com/filecoin-project/curio/lib/tarutil"
 )
 
+func init() {
+	tarutil.CacheFileConstraints["batch.json"] = 10_000
+	tarutil.CacheFileConstraints["commit-phase1-output"] = 20_000_000
+}
+
 func fetch(ctx context.Context, url, outname string, header http.Header) (rerr error) {
 	log.Infof("Fetch %s -> %s", url, outname)
 

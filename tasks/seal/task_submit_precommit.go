@@ -81,16 +81,17 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 	// 1. Load sector info
 
 	var sectorParamsArr []struct {
-		SpID         int64                   `db:"sp_id"`
-		SectorNumber int64                   `db:"sector_number"`
-		RegSealProof abi.RegisteredSealProof `db:"reg_seal_proof"`
-		TicketEpoch  abi.ChainEpoch          `db:"ticket_epoch"`
-		SealedCID    string                  `db:"tree_r_cid"`
-		UnsealedCID  string                  `db:"tree_d_cid"`
+		SpID                     int64                   `db:"sp_id"`
+		SectorNumber             int64                   `db:"sector_number"`
+		RegSealProof             abi.RegisteredSealProof `db:"reg_seal_proof"`
+		UserSectorDurationEpochs *int64                  `db:"user_sector_duration_epochs"`
+		TicketEpoch              abi.ChainEpoch          `db:"ticket_epoch"`
+		SealedCID                string                  `db:"tree_r_cid"`
+		UnsealedCID              string                  `db:"tree_d_cid"`
 	}
 
 	err = s.db.Select(ctx, &sectorParamsArr, `
-		SELECT sp_id, sector_number, reg_seal_proof, ticket_epoch, tree_r_cid, tree_d_cid
+		SELECT sp_id, sector_number, reg_seal_proof, user_sector_duration_epochs, ticket_epoch, tree_r_cid, tree_d_cid
 		FROM sectors_sdr_pipeline
 		WHERE task_id_precommit_msg = $1`, taskID)
 	if err != nil {
