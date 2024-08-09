@@ -184,10 +184,12 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 			return false, err
 		}
 
+		pieceWeight := big.Mul(abi.NewStoragePower(piece.Size), big.NewInt(int64(onChainInfo.Expiration-ts.Height())))
+
 		if pam.VerifiedAllocationKey != nil {
-			weightVerif = big.Add(weightVerif, abi.NewStoragePower(piece.Size))
+			weightVerif = big.Add(weightVerif, pieceWeight)
 		} else {
-			weight = big.Add(weight, abi.NewStoragePower(piece.Size))
+			weight = big.Add(weight, pieceWeight)
 		}
 
 		if minStart == 0 || abi.ChainEpoch(piece.Start) < minStart {
