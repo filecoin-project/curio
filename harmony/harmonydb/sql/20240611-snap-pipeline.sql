@@ -39,6 +39,14 @@ CREATE TABLE sectors_snap_pipeline (
     task_id_move_storage BIGINT,
     after_move_storage BOOLEAN NOT NULL DEFAULT FALSE,
 
+    -- fail
+    -- added in 20240809-snap-failures.sql
+    -- Failure handling
+    -- failed bool not null default false,
+    -- failed_at timestamp with timezone,
+    -- failed_reason varchar(20) not null default '',
+    -- failed_reason_msg text not null default '',
+
     FOREIGN KEY (sp_id, sector_number) REFERENCES sectors_meta (sp_id, sector_num),
     PRIMARY KEY (sp_id, sector_number)
 );

@@ -10,6 +10,7 @@ import (
 	"github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	logging "github.com/ipfs/go-log/v2"
+	"go.uber.org/multierr"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -129,9 +130,10 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	var pieces []struct {
 		Manifest json.RawMessage `db:"direct_piece_activation_manifest"`
 		Size     int64           `db:"piece_size"`
+		Start    int64           `db:"direct_start_epoch"`
 	}
 	err = s.db.Select(ctx, &pieces, `
-		SELECT direct_piece_activation_manifest, piece_size
+		SELECT direct_piece_activation_manifest, piece_size, direct_start_epoch
 		FROM sectors_snap_initial_pieces
 		WHERE sp_id = $1 AND sector_number = $2 ORDER BY piece_index ASC`, update.SpID, update.SectorNumber)
 	if err != nil {
@@ -143,23 +145,55 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("getting chain head: %w", err)
 	}
 
+	maddr, err := address.NewIDAddress(uint64(update.SpID))
+	if err != nil {
+		return false, xerrors.Errorf("parsing miner address: %w", err)
+	}
+
+	snum := abi.SectorNumber(update.SectorNumber)
+
+	onChainInfo, err := s.api.StateSectorGetInfo(ctx, maddr, snum, ts.Key())
+	if err != nil {
+		return false, xerrors.Errorf("getting sector info: %w", err)
+	}
+	if onChainInfo == nil {
+		return false, xerrors.Errorf("sector not found on chain")
+	}
+
 	var pams []miner.PieceActivationManifest
 	var weight, weightVerif = big.Zero(), big.Zero()
+	var minStart abi.ChainEpoch
 	for _, piece := range pieces {
 		var pam *miner.PieceActivationManifest
 		err = json.Unmarshal(piece.Manifest, &pam)
 		if err != nil {
 			return false, xerrors.Errorf("marshalling json to PieceManifest: %w", err)
 		}
-		err = seal.AllocationCheck(ctx, s.api, pam, nil, abi.ActorID(update.SpID), ts)
+		unrecoverable, err := seal.AllocationCheck(ctx, s.api, pam, onChainInfo.Expiration, abi.ActorID(update.SpID), ts)
 		if err != nil {
+			if unrecoverable {
+				_, err2 := s.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET 
+                                 failed = TRUE, failed_at = NOW(), failed_reason = 'alloc-check', failed_reason_msg = $1,
+                                 task_id_submit = NULL, after_submit = FALSE
+                             WHERE sp_id = $2 AND sector_number = $3`, err.Error(), update.SpID, update.SectorNumber)
+
+				log.Errorw("allocation check failed with an unrecoverable issue", "sp", update.SpID, "sector", update.SectorNumber, "err", err)
+				return true, xerrors.Errorf("allocation check failed with an unrecoverable issue: %w", multierr.Combine(err, err2))
+			}
+
 			return false, err
 		}
 
+		pieceWeight := big.Mul(abi.NewStoragePower(piece.Size), big.NewInt(int64(onChainInfo.Expiration-ts.Height())))
+
 		if pam.VerifiedAllocationKey != nil {
-			weightVerif = big.Add(weightVerif, abi.NewStoragePower(piece.Size))
+			weightVerif = big.Add(weightVerif, pieceWeight)
 		} else {
-			weight = big.Add(weight, abi.NewStoragePower(piece.Size))
+			weight = big.Add(weight, pieceWeight)
+		}
+
+		if minStart == 0 || abi.ChainEpoch(piece.Start) < minStart {
+			minStart = abi.ChainEpoch(piece.Start)
 		}
 
 		pams = append(pams, *pam)
@@ -169,13 +203,6 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	if err != nil {
 		return false, xerrors.Errorf("parsing new sealed cid: %w", err)
 	}
-
-	maddr, err := address.NewIDAddress(uint64(update.SpID))
-	if err != nil {
-		return false, xerrors.Errorf("parsing miner address: %w", err)
-	}
-
-	snum := abi.SectorNumber(update.SectorNumber)
 
 	sl, err := s.api.StateSectorPartition(ctx, maddr, snum, types.EmptyTSK)
 	if err != nil {
@@ -208,14 +235,6 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	mi, err := s.api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
 	if err != nil {
 		return false, xerrors.Errorf("getting miner info: %w", err)
-	}
-
-	onChainInfo, err := s.api.StateSectorGetInfo(ctx, maddr, snum, ts.Key())
-	if err != nil {
-		return false, xerrors.Errorf("getting sector info: %w", err)
-	}
-	if onChainInfo == nil {
-		return false, xerrors.Errorf("sector not found on chain")
 	}
 
 	ssize, err := onChainInfo.SealProof.SectorSize()
@@ -255,7 +274,18 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 
 	mcid, err := s.sender.Send(ctx, msg, mss, "update")
 	if err != nil {
-		return false, xerrors.Errorf("pushing message to mpool: %w", err)
+		if minStart != 0 && ts.Height() > minStart {
+			_, err2 := s.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET 
+                                 failed = TRUE, failed_at = NOW(), failed_reason = 'start-expired', failed_reason_msg = $1,
+                                 task_id_submit = NULL, after_submit = FALSE
+                             WHERE sp_id = $2 AND sector_number = $3`, err.Error(), update.SpID, update.SectorNumber)
+
+			log.Errorw("failed to push message to mpool (beyond deal start epoch)", "sp", update.SpID, "sector", update.SectorNumber, "err", err)
+
+			return true, xerrors.Errorf("pushing message to mpool (beyond deal start epoch): %w", multierr.Combine(err, err2))
+		}
+
+		return false, xerrors.Errorf("pushing message to mpool (minStart %d, timeTo %d): %w", minStart, minStart-ts.Height(), err)
 	}
 
 	_, err = s.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET prove_msg_cid = $1, task_id_submit = NULL, after_submit = TRUE WHERE task_id_submit = $2`, mcid.String(), taskID)
@@ -364,7 +394,7 @@ func (s *SubmitTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 				SectorNumber int64 `db:"sector_number"`
 			}
 
-			err := s.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_prove = TRUE AND after_submit = FALSE AND task_id_submit IS NULL`)
+			err := s.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE failed = FALSE AND after_encode = TRUE AND after_prove = TRUE AND after_submit = FALSE AND task_id_submit IS NULL`)
 			if err != nil {
 				return false, xerrors.Errorf("getting tasks: %w", err)
 			}

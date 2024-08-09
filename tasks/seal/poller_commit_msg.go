@@ -50,7 +50,9 @@ func (s *SealPoller) pollCommitMsgLanded(ctx context.Context, task pollTask) err
 			}
 
 			if exitcode.ExitCode(execResult[0].ExecutedRcptExitCode) != exitcode.Ok {
-				return s.pollCommitMsgFail(ctx, task, execResult[0])
+				if err := s.pollCommitMsgFail(ctx, maddr, task, execResult[0]); err != nil {
+					return err
+				}
 			}
 
 			si, err := s.api.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(task.SectorNumber), types.EmptyTSK)
@@ -78,13 +80,25 @@ func (s *SealPoller) pollCommitMsgLanded(ctx context.Context, task pollTask) err
 	return nil
 }
 
-func (s *SealPoller) pollCommitMsgFail(ctx context.Context, task pollTask, execResult dbExecResult) error {
+func (s *SealPoller) pollCommitMsgFail(ctx context.Context, maddr address.Address, task pollTask, execResult dbExecResult) error {
 	switch exitcode.ExitCode(execResult.ExecutedRcptExitCode) {
 	case exitcode.SysErrInsufficientFunds:
 		fallthrough
 	case exitcode.SysErrOutOfGas:
 		// just retry
 		return s.pollRetryCommitMsgSend(ctx, task, execResult)
+	case exitcode.ErrNotFound:
+		// message not found, but maybe it's fine?
+
+		si, err := s.api.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(task.SectorNumber), types.EmptyTSK)
+		if err != nil {
+			return xerrors.Errorf("get sector info: %w", err)
+		}
+		if si != nil {
+			return nil
+		}
+
+		return xerrors.Errorf("sector not found after, commit message can't be found either")
 	default:
 		return xerrors.Errorf("commit message failed with exit code %s", exitcode.ExitCode(execResult.ExecutedRcptExitCode))
 	}

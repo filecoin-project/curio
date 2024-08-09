@@ -217,7 +217,7 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 			if err != nil {
 				return false, xerrors.Errorf("marshalling json to PieceManifest: %w", err)
 			}
-			err = AllocationCheck(ctx, s.api, pam, pci, abi.ActorID(sectorParams.SpID), ts)
+			_, err = AllocationCheck(ctx, s.api, pam, pci.Info.Expiration, abi.ActorID(sectorParams.SpID), ts)
 			if err != nil {
 				return false, err
 			}
@@ -428,41 +428,44 @@ type AllocNodeApi interface {
 	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifregtypes9.AllocationId, tsk types.TipSetKey) (*verifregtypes9.Allocation, error)
 }
 
-func AllocationCheck(ctx context.Context, api AllocNodeApi, piece *miner.PieceActivationManifest, precomitInfo *miner.SectorPreCommitOnChainInfo, miner abi.ActorID, ts *types.TipSet) error {
+func AllocationCheck(ctx context.Context, api AllocNodeApi, piece *miner.PieceActivationManifest, expiration abi.ChainEpoch, miner abi.ActorID, ts *types.TipSet) (permanent bool, err error) {
 	// skip pieces not claiming an allocation
 	if piece.VerifiedAllocationKey == nil {
-		return nil
+		return false, nil
 	}
 	addr, err := address.NewIDAddress(uint64(piece.VerifiedAllocationKey.Client))
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	alloc, err := api.StateGetAllocation(ctx, addr, verifregtypes9.AllocationId(piece.VerifiedAllocationKey.ID), ts.Key())
 	if err != nil {
-		return err
+		return false, err
 	}
 	if alloc == nil {
-		return xerrors.Errorf("no allocation found for piece %s with allocation ID %d", piece.CID.String(), piece.VerifiedAllocationKey.ID)
+		return true, xerrors.Errorf("no allocation found for piece %s with allocation ID %d", piece.CID.String(), piece.VerifiedAllocationKey.ID)
 	}
 	if alloc.Provider != miner {
-		return xerrors.Errorf("provider id mismatch for piece %s: expected %d and found %d", piece.CID.String(), miner, alloc.Provider)
+		return true, xerrors.Errorf("provider id mismatch for piece %s: expected %d and found %d", piece.CID.String(), miner, alloc.Provider)
 	}
 	if alloc.Size != piece.Size {
-		return xerrors.Errorf("size mismatch for piece %s: expected %d and found %d", piece.CID.String(), piece.Size, alloc.Size)
+		return true, xerrors.Errorf("size mismatch for piece %s: expected %d and found %d", piece.CID.String(), piece.Size, alloc.Size)
 	}
 
-	if precomitInfo == nil {
-		return nil
+	if expiration < ts.Height()+alloc.TermMin {
+		tooLittleBy := ts.Height() + alloc.TermMin - expiration
+
+		return true, xerrors.Errorf("sector expiration %d is before than allocation TermMin %d for piece %s (should be at least %d epochs more)", expiration, ts.Height()+alloc.TermMin, piece.CID.String(), tooLittleBy)
 	}
-	if precomitInfo.Info.Expiration < ts.Height()+alloc.TermMin {
-		return xerrors.Errorf("sector expiration %d is before than allocation TermMin %d for piece %s", precomitInfo.Info.Expiration, ts.Height()+alloc.TermMin, piece.CID.String())
-	}
-	if precomitInfo.Info.Expiration > ts.Height()+alloc.TermMax {
-		return xerrors.Errorf("sector expiration %d is later than allocation TermMax %d for piece %s", precomitInfo.Info.Expiration, ts.Height()+alloc.TermMax, piece.CID.String())
+	if expiration > ts.Height()+alloc.TermMax {
+		tooMuchBy := expiration - (ts.Height() + alloc.TermMax)
+
+		return true, xerrors.Errorf("sector expiration %d is later than allocation TermMax %d for piece %s (should be at least %d epochs less)", expiration, ts.Height()+alloc.TermMax, piece.CID.String(), tooMuchBy)
 	}
 
-	return nil
+	log.Infow("allocation check details", "piece", piece.CID.String(), "client", alloc.Client, "provider", alloc.Provider, "size", alloc.Size, "term_min", alloc.TermMin, "term_max", alloc.TermMax, "sector_expiration", expiration)
+
+	return false, nil
 }
 
 var _ harmonytask.TaskInterface = &SubmitCommitTask{}
