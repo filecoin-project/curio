@@ -236,6 +236,11 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 		piece.PublishCid = nil
 	}
 
+	head, err := p.api.ChainHead(ctx)
+	if err != nil {
+		return api.SectorOffset{}, xerrors.Errorf("getting chain head: %w", err)
+	}
+
 	var maxExpiration int64
 	vd.isVerified = piece.PieceActivationManifest.VerifiedAllocationKey != nil
 	if vd.isVerified {
@@ -253,7 +258,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 		vd.tmin = alloc.TermMin
 		vd.tmax = alloc.TermMax
 
-		maxExpiration = int64(piece.DealSchedule.EndEpoch + alloc.TermMax)
+		maxExpiration = int64(head.Height() + alloc.TermMax)
 	}
 	propJson, err = json.Marshal(piece.PieceActivationManifest)
 	if err != nil {
@@ -309,15 +314,46 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 		}
 
 		if len(candidates) == 0 {
-			return false, xerrors.Errorf("no suitable sectors found")
+			minEpoch := piece.DealSchedule.EndEpoch
+			maxEpoch := abi.ChainEpoch(maxExpiration)
+
+			minEpochDays := (minEpoch - head.Height()) / builtin.EpochsInDay
+			maxEpochDays := (maxEpoch - head.Height()) / builtin.EpochsInDay
+
+			return false, xerrors.Errorf("no suitable sectors found, minEpoch: %d, maxEpoch: %d, minExpirationDays: %d, maxExpirationDays: %d", minEpoch, maxEpoch, minEpochDays, maxEpochDays)
 		}
 
 		// todo - nice to have:
-		//  * double check the sector expiration
 		//  * check sector liveness
 		//  * check deadline mutable
 
 		candidate := candidates[0] // this one works best
+
+		si, err := p.api.StateSectorGetInfo(ctx, p.miner, abi.SectorNumber(candidate.Sector), types.EmptyTSK)
+		if err != nil {
+			return false, xerrors.Errorf("getting sector info: %w", err)
+		}
+
+		sectorLifeTime := si.Expiration - head.Height()
+		if sectorLifeTime < 0 {
+			return false, xerrors.Errorf("sector lifetime is negative!?")
+		}
+		if piece.DealSchedule.EndEpoch > si.Expiration {
+			return false, xerrors.Errorf("sector expiration is too soon: %d < %d", si.Expiration, piece.DealSchedule.EndEpoch)
+		}
+		if maxExpiration != 0 && si.Expiration > abi.ChainEpoch(maxExpiration) {
+			return false, xerrors.Errorf("sector expiration is too late: %d > %d", si.Expiration, maxExpiration)
+		}
+
+		// info log detailing EVERYTHING including all the epoch bounds
+		log.Infow("allocating piece to sector",
+			"sector", candidate.Sector,
+			"expiration", si.Expiration,
+			"sectorLifeTime", sectorLifeTime,
+			"dealStartEpoch", piece.DealSchedule.StartEpoch,
+			"dealEndEpoch", piece.DealSchedule.EndEpoch,
+			"maxExpiration", maxExpiration,
+		)
 
 		_, err = tx.Exec(`SELECT insert_snap_ddo_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 			p.mid, candidate.Sector, 0,
@@ -358,6 +394,11 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, piece lpiece
 	var allocated bool
 	var rerr error
 
+	head, err := p.api.ChainHead(ctx)
+	if err != nil {
+		return false, api.SectorOffset{}, xerrors.Errorf("getting chain head: %w", err)
+	}
+
 	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		openSectors, err := p.getOpenSectors(tx)
 		if err != nil {
@@ -368,14 +409,23 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, piece lpiece
 			sec := sec
 			if sec.currentSize+psize <= abi.PaddedPieceSize(p.sectorSize) {
 				if vd.isVerified {
-					sectorLifeTime := sec.latestEndEpoch - sec.earliestStartEpoch
+					si, err := p.api.StateSectorGetInfo(ctx, p.miner, sec.number, types.EmptyTSK)
+					if err != nil {
+						log.Errorw("getting sector info", "error", err, "sector", sec.number, "miner", p.miner)
+						continue
+					}
+
+					sectorLifeTime := si.Expiration - head.Height()
+					if sectorLifeTime < 0 {
+						log.Errorw("sector lifetime is negative", "sector", sec.number, "miner", p.miner, "lifetime", sectorLifeTime)
+						continue
+					}
+
 					// Allocation's TMin must fit in sector and TMax should be at least sector lifetime or more
 					// Based on https://github.com/filecoin-project/builtin-actors/blob/a0e34d22665ac8c84f02fea8a099216f29ffaeeb/actors/verifreg/src/lib.rs#L1071-L1086
 					if sectorLifeTime <= vd.tmin && sectorLifeTime >= vd.tmax {
 						continue
 					}
-
-					//  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////  TODO ADD SNAP SECTOR EXP CHECKS
 				}
 
 				ret.Sector = sec.number

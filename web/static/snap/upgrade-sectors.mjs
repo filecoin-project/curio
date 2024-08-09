@@ -34,6 +34,7 @@ class UpgradeSectors extends LitElement {
                     <th>Submit</th>
                     <th>Move Storage</th>
                     <th>Prove Message Landed</th>
+                    <th>State</th>
                     
                     <th>Actions</th>
                 </tr>
@@ -49,6 +50,7 @@ class UpgradeSectors extends LitElement {
                         <td>${entry.AfterSubmit ? 'Done' : entry.TaskIDSubmit === null ? 'Not Started' : entry.TaskIDSubmit}</td>
                         <td>${entry.AfterMoveStorage ? 'Done' : entry.TaskIDMoveStorage === null ? 'Not Started' : entry.TaskIDMoveStorage}</td>
                         <td>${entry.AfterProveSuccess ? 'Done' : entry.AfterSubmit ? 'Waiting' : 'Not Sent'}</td>
+                        <td>${entry.Failed ? html`<abbr title=${entry.FailedMsg}><p>FAILED</p><p>${entry.FailedReason}</p></abbr>` : 'Healthy'}</td>
                         
                         <td>
                             ${ '' /*todo: this button is a massive footgun, it should get some more safety*/ }

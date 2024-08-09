@@ -19,11 +19,15 @@ type UpgradeSector struct {
 
 	TaskIDMoveStorage *uint64 `db:"task_id_move_storage"`
 	AfterMoveStorage  bool    `db:"after_move_storage"`
+
+	Failed       bool   `db:"failed"`
+	FailedReason string `db:"failed_reason"`
+	FailedMsg    string `db:"failed_reason_msg"`
 }
 
 func (a *WebRPC) UpgradeSectors(ctx context.Context) ([]UpgradeSector, error) {
 	sectors := []UpgradeSector{}
-	err := a.deps.DB.Select(ctx, &sectors, `SELECT sp_id, sector_number, task_id_encode, after_encode, task_id_prove, after_prove, task_id_submit, after_submit, after_prove_msg_success, task_id_move_storage, after_move_storage FROM sectors_snap_pipeline`)
+	err := a.deps.DB.Select(ctx, &sectors, `SELECT sp_id, sector_number, task_id_encode, after_encode, task_id_prove, after_prove, task_id_submit, after_submit, after_prove_msg_success, task_id_move_storage, after_move_storage, failed, failed_reason, failed_reason_msg FROM sectors_snap_pipeline`)
 	if err != nil {
 		return nil, err
 	}

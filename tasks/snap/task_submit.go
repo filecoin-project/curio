@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"go.uber.org/multierr"
 	"math/rand/v2"
 
 	"github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	logging "github.com/ipfs/go-log/v2"
+	"go.uber.org/multierr"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -145,18 +145,42 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("getting chain head: %w", err)
 	}
 
+	maddr, err := address.NewIDAddress(uint64(update.SpID))
+	if err != nil {
+		return false, xerrors.Errorf("parsing miner address: %w", err)
+	}
+
+	snum := abi.SectorNumber(update.SectorNumber)
+
+	onChainInfo, err := s.api.StateSectorGetInfo(ctx, maddr, snum, ts.Key())
+	if err != nil {
+		return false, xerrors.Errorf("getting sector info: %w", err)
+	}
+	if onChainInfo == nil {
+		return false, xerrors.Errorf("sector not found on chain")
+	}
+
 	var pams []miner.PieceActivationManifest
 	var weight, weightVerif = big.Zero(), big.Zero()
 	var minStart abi.ChainEpoch
-
 	for _, piece := range pieces {
 		var pam *miner.PieceActivationManifest
 		err = json.Unmarshal(piece.Manifest, &pam)
 		if err != nil {
 			return false, xerrors.Errorf("marshalling json to PieceManifest: %w", err)
 		}
-		err = seal.AllocationCheck(ctx, s.api, pam, nil, abi.ActorID(update.SpID), ts)
+		unrecoverable, err := seal.AllocationCheck(ctx, s.api, pam, onChainInfo.Expiration, abi.ActorID(update.SpID), ts)
 		if err != nil {
+			if unrecoverable {
+				_, err2 := s.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET 
+                                 failed = TRUE, failed_at = NOW(), failed_reason = 'alloc-check', failed_reason_msg = $1,
+                                 task_id_submit = NULL, after_submit = FALSE
+                             WHERE sp_id = $2 AND sector_number = $3`, err.Error(), update.SpID, update.SectorNumber)
+
+				log.Errorw("allocation check failed with an unrecoverable issue", "sp", update.SpID, "sector", update.SectorNumber, "err", err)
+				return true, xerrors.Errorf("allocation check failed with an unrecoverable issue: %w", multierr.Combine(err, err2))
+			}
+
 			return false, err
 		}
 
@@ -177,13 +201,6 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	if err != nil {
 		return false, xerrors.Errorf("parsing new sealed cid: %w", err)
 	}
-
-	maddr, err := address.NewIDAddress(uint64(update.SpID))
-	if err != nil {
-		return false, xerrors.Errorf("parsing miner address: %w", err)
-	}
-
-	snum := abi.SectorNumber(update.SectorNumber)
 
 	sl, err := s.api.StateSectorPartition(ctx, maddr, snum, types.EmptyTSK)
 	if err != nil {
@@ -216,14 +233,6 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	mi, err := s.api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
 	if err != nil {
 		return false, xerrors.Errorf("getting miner info: %w", err)
-	}
-
-	onChainInfo, err := s.api.StateSectorGetInfo(ctx, maddr, snum, ts.Key())
-	if err != nil {
-		return false, xerrors.Errorf("getting sector info: %w", err)
-	}
-	if onChainInfo == nil {
-		return false, xerrors.Errorf("sector not found on chain")
 	}
 
 	ssize, err := onChainInfo.SealProof.SectorSize()
@@ -274,7 +283,7 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 			return true, xerrors.Errorf("pushing message to mpool (beyond deal start epoch): %w", multierr.Combine(err, err2))
 		}
 
-		return false, xerrors.Errorf("pushing message to mpool: %w", err)
+		return false, xerrors.Errorf("pushing message to mpool (minStart %d, timeTo %d): %w", minStart, minStart-ts.Height(), err)
 	}
 
 	_, err = s.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET prove_msg_cid = $1, task_id_submit = NULL, after_submit = TRUE WHERE task_id_submit = $2`, mcid.String(), taskID)
