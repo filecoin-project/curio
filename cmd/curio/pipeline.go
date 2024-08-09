@@ -9,6 +9,8 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/builtin"
+	miner12 "github.com/filecoin-project/go-state-types/builtin/v12/miner"
 
 	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
 	"github.com/filecoin-project/curio/deps"
@@ -60,6 +62,12 @@ var sealStartCmd = &cli.Command{
 		&cli.StringSliceFlag{
 			Name:  "layers",
 			Usage: "list of layers to be interpreted (atop defaults). Default: base",
+		},
+		&cli.IntFlag{
+			Name:        "duration-days",
+			Aliases:     []string{"d"},
+			Usage:       "How long to commit sectors for",
+			DefaultText: "1278 (3.5 years)",
 		},
 	},
 	Action: func(cctx *cli.Context) error {
@@ -118,9 +126,23 @@ var sealStartCmd = &cli.Command{
 			return xerrors.Errorf("getting seal proof type: %w", err)
 		}
 
+		var userDuration *int64
+		if cctx.IsSet("duration-days") {
+			days := cctx.Int("duration-days")
+			userDuration = new(int64)
+			*userDuration = int64(days) * builtin.EpochsInDay
+
+			if miner12.MaxSectorExpirationExtension < *userDuration {
+				return xerrors.Errorf("duration exceeds max allowed: %d > %d", *userDuration, miner12.MaxSectorExpirationExtension)
+			}
+			if miner12.MinSectorExpiration > *userDuration {
+				return xerrors.Errorf("duration is too short: %d < %d", *userDuration, miner12.MinSectorExpiration)
+			}
+		}
+
 		num, err := seal.AllocateSectorNumbers(ctx, dep.Chain, dep.DB, act, cctx.Int("count"), func(tx *harmonydb.Tx, numbers []abi.SectorNumber) (bool, error) {
 			for _, n := range numbers {
-				_, err := tx.Exec("insert into sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof) values ($1, $2, $3)", mid, n, spt)
+				_, err := tx.Exec("insert into sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof, user_sector_duration_epochs) values ($1, $2, $3, $4)", mid, n, spt, userDuration)
 				if err != nil {
 					return false, xerrors.Errorf("inserting into sectors_sdr_pipeline: %w", err)
 				}

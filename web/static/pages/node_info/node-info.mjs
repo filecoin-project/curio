@@ -38,7 +38,10 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                     <td>${this.data.Info.CPU}</td>
                     <td>${this.toHumanBytes(this.data.Info.Memory)}</td>
                     <td>${this.data.Info.GPU}</td>
-                    <td><a href="http://${this.data.Info.Host}/debug/pprof">[pprof]</a></td>
+                    <td>
+                        <a href="http://${this.data.Info.Host}/debug/pprof">[pprof]</a>
+                        <a href="http://${this.data.Info.Host}/debug/metrics">[metrics]</a>
+                    </td>
                 </tr>
             </table>
             <hr>

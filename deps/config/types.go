@@ -45,6 +45,11 @@ func DefaultCurioConfig() *CurioConfig {
 			PartitionCheckTimeout: Duration(20 * time.Minute),
 			SingleCheckTimeout:    Duration(10 * time.Minute),
 		},
+		Seal: CurioSealConfig{
+			BatchSealPipelines:  2,
+			BatchSealBatchSize:  32,
+			BatchSealSectorSize: "32GiB",
+		},
 		Ingest: CurioIngestConfig{
 			MaxQueueDealSector: 8, // default to 8 sectors open(or in process of opening) for deals
 			MaxQueueSDR:        8, // default to 8 (will cause backpressure even if deal sectors are 0)
@@ -73,6 +78,7 @@ type CurioConfig struct {
 	Addresses []CurioAddresses
 	Proving   CurioProvingConfig
 	Ingest    CurioIngestConfig
+	Seal      CurioSealConfig
 	Apis      ApisConfig
 	Alerting  CurioAlertingConfig
 }
@@ -126,6 +132,14 @@ type CurioSubsystemsConfig struct {
 	// The maximum amount of SDR tasks that can run simultaneously. Note that the maximum number of tasks will
 	// also be bounded by resources available on the machine.
 	SealSDRMaxTasks int
+
+	// The maximum amount of SDR tasks that need to be queued before the system will start accepting new tasks.
+	// The main purpose of this setting is to allow for enough tasks to accumulate for batch sealing. When batch sealing
+	// nodes are present in the cluster, this value should be set to batch_size+1 to allow for the batch sealing node to
+	// fill up the batch.
+	// This setting can also be used to give priority to other nodes in the cluster by setting this value to a higher
+	// value on the nodes which should have less priority.
+	SealSDRMinTasks int
 
 	// EnableSealSDRTrees enables the SDR pipeline tree-building task to run.
 	// This task handles encoding of unsealed data into last sdr layer and building
@@ -249,6 +263,9 @@ type CurioSubsystemsConfig struct {
 	// The maximum amount of SyntheticPoRep tasks that can run simultaneously. Note that the maximum number of tasks will
 	// also be bounded by resources available on the machine.
 	SyntheticPoRepMaxTasks int
+
+	// Batch Seal
+	EnableBatchSeal bool
 }
 type CurioFees struct {
 	DefaultMaxFee      types.FIL
@@ -444,6 +461,32 @@ type CurioAlertingConfig struct {
 
 	// SlackWebhookConfig is a configuration type for Slack webhook integration.
 	SlackWebhook SlackWebhookConfig
+}
+
+type CurioSealConfig struct {
+	// BatchSealSectorSize Allows setting the sector size supported by the batch seal task.
+	// Can be any value as long as it is "32GiB".
+	BatchSealSectorSize string
+
+	// Number of sectors in a seal batch. Depends on hardware and supraseal configuration.
+	BatchSealBatchSize int
+
+	// Number of parallel pipelines. Can be 1 or 2. Depends on available raw block storage
+	BatchSealPipelines int
+
+	// SingleHasherPerThread is a compatibility flag for older CPUs. Zen3 and later supports two sectors per thread.
+	// Set to false for older CPUs (Zen 2 and before).
+	SingleHasherPerThread bool
+
+	// LayerNVMEDevices is a list of pcie device addresses that should be used for SDR layer storage.
+	// The required storage is 11 * BatchSealBatchSize * BatchSealSectorSize * BatchSealPipelines
+	// Total Read IOPS for optimal performance should be 10M+.
+	// The devices MUST be NVMe devices, not used for anything else. Any data on the devices will be lost!
+	//
+	// It's recommend to define these settings in a per-machine layer, as the devices are machine-specific.
+	//
+	// Example: ["0000:01:00.0", "0000:01:00.1"]
+	LayerNVMEDevices []string
 }
 
 type PagerDutyConfig struct {

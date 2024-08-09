@@ -9,6 +9,9 @@ create table sectors_sdr_pipeline (
     create_time timestamp not null default current_timestamp,
     reg_seal_proof int not null,
 
+    -- Added in 20240802-sdr-pipeline-user-expiration.sql
+    -- user_sector_duration_epochs bigint default null,
+
     -- sdr
     ticket_epoch bigint,
     ticket_value bytea,

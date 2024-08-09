@@ -19,6 +19,7 @@ COMMANDS:
    seal          Manage the sealing pipeline
    market        
    fetch-params  Fetch proving parameters
+   calc          Math Utils
    help, h       Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
@@ -517,6 +518,7 @@ OPTIONS:
    --count value                      Number of sectors to start (default: 1)
    --synthetic                        Use synthetic PoRep (default: false)
    --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
+   --duration-days value, -d value    How long to commit sectors for (default: 1278 (3.5 years))
    --help, -h                         show help
 ```
 
@@ -574,4 +576,61 @@ USAGE:
 
 OPTIONS:
    --help, -h  show help
+```
+
+## curio calc
+```
+NAME:
+   curio calc - Math Utils
+
+USAGE:
+   curio calc command [command options] [arguments...]
+
+COMMANDS:
+   batch-cpu         Analyze and display the layout of batch sealer threads
+   supraseal-config  Generate a supra_seal configuration
+   help, h           Shows a list of commands or help for one command
+
+OPTIONS:
+   --actor value  
+   --help, -h     show help
+```
+
+### curio calc batch-cpu
+```
+NAME:
+   curio calc batch-cpu - Analyze and display the layout of batch sealer threads
+
+USAGE:
+   curio calc batch-cpu [command options] [arguments...]
+
+DESCRIPTION:
+   Analyze and display the layout of batch sealer threads on your CPU.
+
+   It provides detailed information about CPU utilization for batch sealing operations, including core allocation, thread
+   distribution for different batch sizes.
+
+OPTIONS:
+   --dual-hashers  (default: true)
+   --help, -h      show help
+```
+
+### curio calc supraseal-config
+```
+NAME:
+   curio calc supraseal-config - Generate a supra_seal configuration
+
+USAGE:
+   curio calc supraseal-config [command options] [arguments...]
+
+DESCRIPTION:
+   Generate a supra_seal configuration for a given batch size.
+
+   This command outputs a configuration expected by SupraSeal. Main purpose of this command is for debugging and testing.
+   The config can be used directly with SupraSeal binaries to test it without involving Curio.
+
+OPTIONS:
+   --dual-hashers                Zen3 and later supports two sectors per thread, set to false for older CPUs (default: true)
+   --batch-size value, -b value  (default: 0)
+   --help, -h                    show help
 ```

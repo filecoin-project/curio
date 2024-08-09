@@ -11,7 +11,6 @@ import (
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/lib/rpcenc"
-	"github.com/filecoin-project/lotus/metrics"
 	"github.com/filecoin-project/lotus/metrics/proxy"
 	"github.com/filecoin-project/lotus/node/impl"
 )
@@ -51,9 +50,6 @@ func MinerHandler(a api.StorageMiner, permissioned bool) (http.Handler, error) {
 		m := mux.NewRouter()
 		m.Handle("/rpc/v0", rpcServer)
 		m.Handle("/rpc/streams/v0/push/{uuid}", readerHandler)
-		// debugging
-		m.Handle("/debug/metrics", metrics.Exporter())
-		m.PathPrefix("/").Handler(http.DefaultServeMux) // pprof
 
 		var hnd http.Handler = m
 		if permissioned {

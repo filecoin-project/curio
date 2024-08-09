@@ -1,6 +1,7 @@
 package paths
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"math/bits"
@@ -15,8 +16,12 @@ import (
 	"golang.org/x/xerrors"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/proof"
+
+	cuproof "github.com/filecoin-project/curio/lib/proof"
+	"github.com/filecoin-project/curio/lib/supraffi"
 
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
@@ -36,8 +41,19 @@ type LocalStorage interface {
 
 const MetaFile = "sectorstore.json"
 const SnapVproofFile = "snap-vproof.json"
+const BatchMetaFile = "batch.json" // supraseal
 
 const MinFreeStoragePercentage = float64(0)
+
+const CommitPhase1OutputFileSupra = "commit-phase1-output"
+
+type BatchMeta struct {
+	SupraSeal     bool
+	BlockOffset   uint64
+	NumInPipeline int
+
+	BatchSectors int
+}
 
 type Local struct {
 	localStorage LocalStorage
@@ -680,6 +696,8 @@ func (st *Local) AcquireSector(ctx context.Context, sid storiface.SectorRef, exi
 		}
 
 		if best == "" {
+			log.Warnw("allocate failed", "id", sid, "type", fileType, "pathType", pathType, "op", op, "sis", sis)
+
 			return storiface.SectorPaths{}, storiface.SectorPaths{}, storiface.Err(storiface.ErrTempAllocateSpace, xerrors.Errorf("couldn't find a suitable path for a sector"))
 		}
 
@@ -973,6 +991,15 @@ func (st *Local) GeneratePoRepVanillaProof(ctx context.Context, sr storiface.Sec
 		return nil, xerrors.Errorf("getting sector size: %w", err)
 	}
 
+	{
+		// check if the sector is part of a supraseal batch with data in raw block storage
+		// does BatchMetaFile exist in cache?
+		batchMetaPath := filepath.Join(src.Cache, BatchMetaFile)
+		if _, err := os.Stat(batchMetaPath); err == nil {
+			return st.supraPoRepVanillaProof(src, sr, sealed, unsealed, ticket, seed)
+		}
+	}
+
 	secPiece := []abi.PieceInfo{{
 		Size:     abi.PaddedPieceSize(ssize),
 		PieceCID: unsealed,
@@ -994,6 +1021,84 @@ func (st *Local) ReadSnapVanillaProof(ctx context.Context, sr storiface.SectorRe
 	out, err := os.ReadFile(filepath.Join(src.UpdateCache, SnapVproofFile))
 	if err != nil {
 		return nil, xerrors.Errorf("read snap vanilla proof: %w", err)
+	}
+
+	return out, nil
+}
+
+func (st *Local) supraPoRepVanillaProof(src storiface.SectorPaths, sr storiface.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error) {
+	batchMetaPath := filepath.Join(src.Cache, BatchMetaFile)
+	bmdata, err := os.ReadFile(batchMetaPath)
+	if err != nil {
+		return nil, xerrors.Errorf("read batch meta file: %w", err)
+	}
+
+	var bm BatchMeta
+	if err := json.Unmarshal(bmdata, &bm); err != nil {
+		return nil, xerrors.Errorf("unmarshal batch meta file: %w", err)
+	}
+
+	commd, err := commcid.CIDToDataCommitmentV1(unsealed)
+	if err != nil {
+		return nil, xerrors.Errorf("unsealed cid to data commitment: %w", err)
+	}
+
+	replicaID, err := sr.ProofType.ReplicaId(sr.ID.Miner, sr.ID.Number, ticket, commd)
+	if err != nil {
+		return nil, xerrors.Errorf("replica id: %w", err)
+	}
+
+	ssize, err := sr.ProofType.SectorSize()
+	if err != nil {
+		return nil, xerrors.Errorf("sector size: %w", err)
+	}
+
+	// C1 writes the output to a file, so we need to read it back.
+	// Outputs to cachePath/commit-phase1-output
+	// NOTE: that file is raw, and rust C1 returns a json repr, so we need to translate first
+
+	// first see if commit-phase1-output is there
+	commitPhase1OutputPath := filepath.Join(src.Cache, CommitPhase1OutputFileSupra)
+	if _, err := os.Stat(commitPhase1OutputPath); err != nil {
+		if !os.IsNotExist(err) {
+			return nil, xerrors.Errorf("stat commit phase1 output: %w", err)
+		}
+
+		parentsPath, err := ParentsForProof(sr.ProofType)
+		if err != nil {
+			return nil, xerrors.Errorf("parents for proof: %w", err)
+		}
+
+		// not found, compute it
+		res := supraffi.C1(bm.BlockOffset, bm.BatchSectors, bm.NumInPipeline, replicaID[:], seed, ticket, src.Cache, parentsPath, src.Sealed, uint64(ssize))
+		if res != 0 {
+			return nil, xerrors.Errorf("c1 failed: %d", res)
+		}
+
+		// check again
+		if _, err := os.Stat(commitPhase1OutputPath); err != nil {
+			return nil, xerrors.Errorf("stat commit phase1 output after compute: %w", err)
+		}
+	}
+
+	// read the output
+	rawOut, err := os.ReadFile(commitPhase1OutputPath)
+	if err != nil {
+		return nil, xerrors.Errorf("read commit phase1 output: %w", err)
+	}
+
+	// decode
+	dec, err := cuproof.DecodeCommit1OutRaw(bytes.NewReader(rawOut))
+	if err != nil {
+		return nil, xerrors.Errorf("decode commit phase1 output: %w", err)
+	}
+
+	log.Infow("supraPoRepVanillaProof", "sref", sr, "replicaID", replicaID, "seed", seed, "ticket", ticket, "decrepl", dec.ReplicaID, "decr", dec.CommR, "decd", dec.CommD)
+
+	// out is json, so we need to marshal it back
+	out, err := json.Marshal(dec)
+	if err != nil {
+		return nil, xerrors.Errorf("marshal commit phase1 output: %w", err)
 	}
 
 	return out, nil

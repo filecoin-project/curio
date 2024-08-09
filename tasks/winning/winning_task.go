@@ -30,6 +30,7 @@ import (
 	"github.com/filecoin-project/curio/lib/promise"
 
 	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/gen"
 	lrand "github.com/filecoin-project/lotus/chain/rand"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -185,6 +186,20 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 
 	mbi, err := t.api.MinerGetBaseInfo(ctx, maddr, round, base.TipSet.Key())
 	if err != nil {
+		// possible that the tipset was really obsolete
+		log.Errorw("WinPoSt failed to get mining base info", "error", err, "tipset", types.LogCids(base.TipSet.Cids()))
+
+		curHead, err := t.api.ChainHead(ctx)
+		if err != nil {
+			return false, xerrors.Errorf("failed to get chain head with miner base info check error: %w", err)
+		}
+
+		maxAge := policy.ChainFinality
+		if curHead.Height() > base.TipSet.Height()+maxAge {
+			log.Warnw("Mining base too old, dropping", "tipset", types.LogCids(base.TipSet.Cids()), "miner", maddr, "curHead", curHead.Height(), "baseHead", base.TipSet.Height(), "diffEpochs", curHead.Height()-base.TipSet.Height())
+			return persistNoWin()
+		}
+
 		return false, xerrors.Errorf("failed to get mining base info: %w", err)
 	}
 	if mbi == nil {
@@ -488,24 +503,15 @@ func (t *WinPostTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Ta
 		return nil, nil
 	}
 
-	// select lowest epoch
-	var lowestEpoch abi.ChainEpoch
-	var lowestEpochID = ids[0]
+	// select task id, hoping to get the highest epoch
+	var highestTaskID harmonytask.TaskID
 	for _, id := range ids {
-		var epoch uint64
-		err := t.db.QueryRow(context.Background(), `SELECT epoch FROM mining_tasks WHERE task_id = $1`, id).Scan(&epoch)
-		if err != nil {
-			log.Errorw("failed to get epoch for task", "task", id, "error", err)
-			continue
-		}
-
-		if lowestEpoch == 0 || abi.ChainEpoch(epoch) < lowestEpoch {
-			lowestEpoch = abi.ChainEpoch(epoch)
-			lowestEpochID = id
+		if id > highestTaskID {
+			highestTaskID = id
 		}
 	}
 
-	return &lowestEpochID, nil
+	return &highestTaskID, nil
 }
 
 func (t *WinPostTask) TypeDetails() harmonytask.TaskTypeDetails {

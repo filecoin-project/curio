@@ -14,7 +14,7 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
     }
     async removeSector() {
         await RPCCall('SectorRemove', [this.data.SpID, this.data.SectorNumber]);
-        window.location.href = '/pages/pipeline_porep/pipeline_porep_sectors';
+        window.location.href = '/pages/pipeline_porep/';
     }
     async resumeSector() {
         await RPCCall('SectorResume', [this.data.SpID, this.data.SectorNumber]);

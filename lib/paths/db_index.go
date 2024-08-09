@@ -681,13 +681,18 @@ func (dbi *DBIndex) StorageInfo(ctx context.Context, id storiface.ID) (storiface
 func (dbi *DBIndex) StorageBestAlloc(ctx context.Context, allocate storiface.SectorFileType, ssize abi.SectorSize, pathType storiface.PathType, miner abi.ActorID) ([]storiface.StorageInfo, error) {
 	var err error
 	var spaceReq uint64
-	switch pathType {
-	case storiface.PathSealing:
-		spaceReq, err = allocate.SealSpaceUse(ssize)
-	case storiface.PathStorage:
-		spaceReq, err = allocate.StoreSpaceUse(ssize)
-	default:
-		return nil, xerrors.Errorf("unexpected path type")
+
+	if ctx.Value(SpaceUseKey) != nil {
+		spaceReq, err = (ctx.Value(SpaceUseKey).(SpaceUseFunc))(allocate, ssize)
+	} else {
+		switch pathType {
+		case storiface.PathSealing:
+			spaceReq, err = allocate.SealSpaceUse(ssize)
+		case storiface.PathStorage:
+			spaceReq, err = allocate.StoreSpaceUse(ssize)
+		default:
+			return nil, xerrors.Errorf("unexpected path type")
+		}
 	}
 	if err != nil {
 		return nil, xerrors.Errorf("estimating required space: %w", err)

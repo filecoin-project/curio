@@ -13,6 +13,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
 	"golang.org/x/exp/maps"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 
@@ -28,11 +29,13 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/slotmgr"
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/metadata"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/seal"
+	"github.com/filecoin-project/curio/tasks/sealsupra"
 	"github.com/filecoin-project/curio/tasks/snap"
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
@@ -83,6 +86,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	lstor := dependencies.LocalStore
 	si := dependencies.Si
 	bstore := dependencies.Bstore
+	machine := dependencies.ListenAddr
 	var activeTasks []harmonytask.TaskInterface
 
 	sender, sendTask := message.NewSender(full, full, db)
@@ -175,12 +179,13 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		cfg.Subsystems.EnablePoRepProof ||
 		cfg.Subsystems.EnableMoveStorage ||
 		cfg.Subsystems.EnableSendCommitMsg ||
+		cfg.Subsystems.EnableBatchSeal ||
 		cfg.Subsystems.EnableUpdateEncode ||
 		cfg.Subsystems.EnableUpdateProve ||
 		cfg.Subsystems.EnableUpdateSubmit
 
 	if hasAnySealingTask {
-		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore)
+		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine)
 		if err != nil {
 			return nil, err
 		}
@@ -228,7 +233,7 @@ func addSealingTasks(
 	ctx context.Context, hasAnySealingTask bool, db *harmonydb.DB, full api.Chain, sender *message.Sender,
 	as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig, slrLazy *lazy.Lazy[*ffi.SealCalls],
 	asyncParams func() func() (bool, error), si paths.SectorIndex, stor *paths.Remote,
-	bstore curiochain.CurioBlockstore) ([]harmonytask.TaskInterface, error) {
+	bstore curiochain.CurioBlockstore, machineHostPort string) ([]harmonytask.TaskInterface, error) {
 	var activeTasks []harmonytask.TaskInterface
 	// Sealing / Snap
 
@@ -241,18 +246,43 @@ func addSealingTasks(
 		slr = must.One(slrLazy.Val())
 	}
 
+	var slotMgr *slotmgr.SlotMgr
+	var addFinalize bool
+
 	// NOTE: Tasks with the LEAST priority are at the top
+	if cfg.Subsystems.EnableBatchSeal {
+		slotMgr = slotmgr.NewSlotMgr()
+
+		batchSealTask, err := sealsupra.NewSupraSeal(
+			cfg.Seal.BatchSealSectorSize,
+			cfg.Seal.BatchSealBatchSize,
+			cfg.Seal.BatchSealPipelines,
+			!cfg.Seal.SingleHasherPerThread,
+			cfg.Seal.LayerNVMEDevices,
+			machineHostPort, slotMgr, db, full, stor, si)
+		if err != nil {
+			return nil, xerrors.Errorf("setting up batch sealer: %w", err)
+		}
+		activeTasks = append(activeTasks, batchSealTask)
+		addFinalize = true
+	}
+
 	if cfg.Subsystems.EnableSealSDR {
-		sdrTask := seal.NewSDRTask(full, db, sp, slr, cfg.Subsystems.SealSDRMaxTasks)
+		sdrTask := seal.NewSDRTask(full, db, sp, slr, cfg.Subsystems.SealSDRMaxTasks, cfg.Subsystems.SealSDRMinTasks)
 		activeTasks = append(activeTasks, sdrTask)
 	}
 	if cfg.Subsystems.EnableSealSDRTrees {
 		treeDTask := seal.NewTreeDTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
 		treeRCTask := seal.NewTreeRCTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
 		synthTask := seal.NewSyntheticProofTask(sp, db, slr, cfg.Subsystems.SyntheticPoRepMaxTasks)
-		finalizeTask := seal.NewFinalizeTask(cfg.Subsystems.FinalizeMaxTasks, sp, slr, db)
-		activeTasks = append(activeTasks, treeDTask, treeRCTask, synthTask, finalizeTask)
+		activeTasks = append(activeTasks, treeDTask, synthTask, treeRCTask)
+		addFinalize = true
 	}
+	if addFinalize {
+		finalizeTask := seal.NewFinalizeTask(cfg.Subsystems.FinalizeMaxTasks, sp, slr, db, slotMgr)
+		activeTasks = append(activeTasks, finalizeTask)
+	}
+
 	if cfg.Subsystems.EnableSendPrecommitMsg {
 		precommitTask := seal.NewSubmitPrecommitTask(sp, db, full, sender, as, cfg.Fees.MaxPreCommitGasFee, cfg.Fees.CollateralFromMinerBalance, cfg.Fees.DisableCollateralFallback)
 		activeTasks = append(activeTasks, precommitTask)
