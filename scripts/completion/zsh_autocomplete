@@ -1,4 +1,5 @@
 #compdef curio sptool
+export LOTUS_DOCS_GENERATION=1
 
 _cli_zsh_autocomplete() {
 

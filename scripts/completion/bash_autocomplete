@@ -1,5 +1,7 @@
 #! /bin/bash
 
+export LOTUS_DOCS_GENERATION=1
+
 # Macs have bash3 for which the bash-completion package doesn't include
 # _init_completion. This is a minimal version of that function.
 _cli_init_completion() {
@@ -28,5 +30,4 @@ _cli_bash_autocomplete() {
     return 0
   fi
 }
-
 complete -o bashdefault -o default -o nospace -F _cli_bash_autocomplete curio sptool
