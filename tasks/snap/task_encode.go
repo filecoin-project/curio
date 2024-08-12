@@ -106,6 +106,10 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("updating sector pipeline: %w", err)
 	}
 
+	if err := DropSectorPieceRefsSnap(ctx, e.db, sref.ID); err != nil {
+		return true, xerrors.Errorf("dropping piece refs: %w", err)
+	}
+
 	return true, nil
 }
 
