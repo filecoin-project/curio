@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/lib/asyncwrite"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	paths2 "github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/tarutil"
 
 	"github.com/filecoin-project/lotus/storage/sealer/fr32"
@@ -184,6 +185,10 @@ func (sb *SealCalls) EncodeUpdate(
 		_, err = tarutil.ExtractTar(tarutil.FinCacheFileConstraints, &buf, keyCachePath, make([]byte, 1<<20))
 		if err != nil {
 			return cid.Undef, cid.Undef, xerrors.Errorf("extracting cache: %w", err)
+		}
+
+		if err := proof.EnsureTauxForType(sector.ProofType, keyCachePath); err != nil {
+			return cid.Cid{}, cid.Cid{}, xerrors.Errorf("ensuring t_aux exists: %w", err)
 		}
 	}
 

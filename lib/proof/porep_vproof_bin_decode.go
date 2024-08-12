@@ -10,12 +10,6 @@ import (
 // This is the format output by the C++ supraseal C1 implementation.
 // bincode - https://github.com/bincode-org/bincode
 
-func ReadLE[T any](r io.Reader) (T, error) {
-	var out T
-	err := binary.Read(r, binary.LittleEndian, &out)
-	return out, err
-}
-
 func DecodeCommit1OutRaw(r io.Reader) (Commit1OutRaw, error) {
 	var out Commit1OutRaw
 	var err error
