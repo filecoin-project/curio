@@ -1,94 +1,97 @@
 ---
-description: >-
-  This page explains how to setup supraseal batch sealer in Curio
+description: This page explains how to setup supraseal batch sealer in Curio
 ---
 
+# Batch Sealing with SupraSeal
 
-# SupraSeal Batch Sealing
-
-> **Disclaimer:** SupraSeal batch sealing is currently in **BETA**. Use with caution and expect potential issues or changes in future versions. Currently some additional manual system configuration is required.
+{% hint style="danger" %}
+**Disclaimer:** SupraSeal batch sealing is currently in **BETA**. Use with caution and expect potential issues or changes in future versions. Currently some additional manual system configuration is required.
+{% endhint %}
 
 SupraSeal is an optimized batch sealing implementation for Filecoin that allows sealing multiple sectors in parallel. It can significantly improve sealing throughput compared to sealing sectors individually.
 
 ## Key Features
 
-- Seals multiple sectors (up to 128) in a single batch
-  - Up to 16x better core utilisation efficiency
-- Optimized to utilize CPU and GPU resources efficiently
-- Uses raw NVMe devices for layer storage instead of RAM
+* Seals multiple sectors (up to 128) in a single batch
+  * Up to 16x better core utilisation efficiency
+* Optimized to utilize CPU and GPU resources efficiently
+* Uses raw NVMe devices for layer storage instead of RAM
 
 ## Requirements
 
-- CPU with at least 4 cores per CCX (AMD) or equivalent
-- NVMe drives with high IOPS (10-20M total IOPS recommended)
-- GPU for PC2 phase (NVIDIA RTX 3090 or better recommended)
-- 1GB hugepages configured (minimum 36 pages)
-- Ubuntu 22.04 or compatible Linux distribution (gcc-11 required, doesn't need to be system-wide)
-- At least 256GB RAM, ALL MEMORY CHANNELS POPULATED
-  - Without **all** memory channels populated sealing **performance will suffer drastically**
-- NUMA-Per-Socket (NPS) set to 1
+* CPU with at least 4 cores per CCX (AMD) or equivalent
+* NVMe drives with high IOPS (10-20M total IOPS recommended)
+* GPU for PC2 phase (NVIDIA RTX 3090 or better recommended)
+* 1GB hugepages configured (minimum 36 pages)
+* Ubuntu 22.04 or compatible Linux distribution (gcc-11 required, doesn't need to be system-wide)
+* At least 256GB RAM, ALL MEMORY CHANNELS POPULATED
+  * Without **all** memory channels populated sealing **performance will suffer drastically**
+* NUMA-Per-Socket (NPS) set to 1
 
 ## Storage Recommendations
+
 You need 2 sets of NVMe drives:
 
 1. Drives for layers:
-* Total 10-20M IOPS
-* Capacity for 11 x 32G x batchSize x pipelines
-* Raw unformatted block devices (SPDK will take them over)
-* Each drive should be able to sustain ~2GiB/s of writes
-  * This requirement isn't understood well yet, it's possible that lower write rates are fine. More testing is needed.
+   * Total 10-20M IOPS
+   * Capacity for 11 x 32G x batchSize x pipelines
+   * Raw unformatted block devices (SPDK will take them over)
+   * Each drive should be able to sustain \~2GiB/s of writes
+     * This requirement isn't understood well yet, it's possible that lower write rates are fine. More testing is needed.
 2. Drives for P2 output:
-* With a filesystem
-* Fast with sufficient capacity (~70G x batchSize x pipelines)
-* Can be remote storage if fast enough (~500MiB/s/GPU)
+   * With a filesystem
+   * Fast with sufficient capacity (\~70G x batchSize x pipelines)
+   * Can be remote storage if fast enough (\~500MiB/s/GPU)
 
 ## Hardware Recommendations
 
-Currently, the community is trying to determine the best hardware configurations for batch sealing.
+Currently, the community is trying to determine the best hardware configurations for batch sealing. Some general observations are:
 
-Some general observations are:
 * Single socket systems will be easier to use at full capacity
 * You want a lot of NVMe slots, on PCIe Gen4 platforms with large batch sizes you may use 20-24 3.84TB NVMe drives
 * In general you'll want to make sure all memory channels are populated
-* You need 4~8 physical cores (not threads) for batch-wide compute, then on each CCX you'll lose 1 core for a "coordinator"
+* You need 4\~8 physical cores (not threads) for batch-wide compute, then on each CCX you'll lose 1 core for a "coordinator"
   * Each thread computes 2 sectors
   * On zen2 and earlier hashers compute only one sector per thread
   * Large (many-core) CCX-es are typically better
+
+{% hint style="info" %}
+Please consider contributing to the [SupraSeal hardware examples](https://github.com/filecoin-project/curio/discussions/140).
+{% endhint %}
 
 ## Setup
 
 ### Dependencies
 
-CUDA 12.x is required, 11.x won't work.
+CUDA 12.x is required, 11.x won't work. The build process depends on GCC 11.x system-wide or gcc-11/g++-11 installed locally.
 
-```bash
-
-The build process depends on GCC 11.x system-wide or gcc-11/g++-11 installed locally.
 * On Arch install https://aur.archlinux.org/packages/gcc11
 * Ubuntu 22.04 has GCC 11.x by default
 * On newer Ubuntu install `gcc-11` and `g++-11` packages
 
-
+```bash
 ### Building
 
 Build the batch-capable Curio binary:
-```bash
 make batch
 ```
 
 For calibnet
+
 ```bash
 make batch-calibnet
 ```
 
-NOTE: the build should be run on the target machine. Binaries won't be postable between CPU generations due to different
-AVX512 support.
+{% hint style="warning" %}
+The build should be run on the target machine. Binaries won't be portable between CPU generations due to different AVX512 support.
+{% endhint %}
 
 ## Configuration
 
 * Run `curio calc batch-cpu` on the target machine to determine supported batch sizes for your CPU
 
 <details>
+
 <summary>Example batch-cpu output</summary>
 
 ```
@@ -228,16 +231,19 @@ GRUB_CMDLINE_LINUX_DEFAULT="hugepages=36 default_hugepagesz=1G hugepagesz=1G"
 Then run `sudo update-grub` and reboot the machine.
 
 Or at runtime:
+
 ```bash
 sudo sysctl -w vm.nr_hugepages=36
 ```
 
 Then check /proc/meminfo to verify the hugepages are available:
+
 ```bash
 cat /proc/meminfo | grep Huge
 ```
 
 Expect output like:
+
 ```
 AnonHugePages:         0 kB
 ShmemHugePages:        0 kB
@@ -253,7 +259,9 @@ Check that `HugePages_Free` is equal to 36, the kernel can sometimes use some of
 
 ### Setup NVMe devices for SPDK:
 
-NOTE: This is only needed while batch sealing is in beta, future versions of Curio will handle this automatically.
+{% hint style="info" %}
+This is only needed while batch sealing is in beta, future versions of Curio will handle this automatically.
+{% endhint %}
 
 ```bash
 cd extern/supra_seal/deps/spdk-v22.09/
@@ -262,10 +270,10 @@ env NRHUGE=36 ./scripts/setup.sh
 
 ### PC2 output storage
 
-Attach scratch space storage for PC2 output (batch sealer needs ~70GB per sector in batch - 32GiB for the sealed sector,
-and 36GiB for the cache directory with TreeC/TreeR and aux files)
+Attach scratch space storage for PC2 output (batch sealer needs \~70GB per sector in batch - 32GiB for the sealed sector, and 36GiB for the cache directory with TreeC/TreeR and aux files)
 
 ## Usage
+
 1. Start the Curio node with the batch sealer layer
 
 ```bash
@@ -273,6 +281,7 @@ curio run --layers batch-machine1
 ```
 
 2. Add a batch of CC sectors:
+
 ```bash
 curio seal start --now --cc --count 32 --actor f01234 --duration-days 365
 ```
@@ -281,7 +290,7 @@ curio seal start --now --cc --count 32 --actor f01234 --duration-days 365
 4. PC1 will take 3.5-5 hours, followed by PC2 on GPU
 5. After batch completion, the storage will be released for the next batch
 
-## Optimizing
+## Optimization
 
 * Balance batch size, CPU cores, and NVMe drives to keep PC1 running constantly
 * Ensure sufficient GPU capacity to complete PC2 before next PC1 batch finishes
@@ -291,6 +300,7 @@ curio seal start --now --cc --count 32 --actor f01234 --duration-days 365
 ## Troubleshooting
 
 ### Node doesn't start / isn't visible in the UI
+
 * Ensure hugepages are configured correctly
 * Check NVMe device IOPS and capacity
   * If spdk setup fails, try to `wipefs -a` the NVMe devices (this will wipe partitions from the devices, be careful!)
@@ -337,16 +347,18 @@ topology:
 ```
 
 In this example, cores 59, 64, 72, 80, and 88 are "coordinators", with two hashers per core, meaning that
+
 * In first group core 59 is a coordinator, cores 60-63 are hashers (4 hasher cores / 8 hasher threads)
 * In second group core 64 is a coordinator, cores 65-71 are hashers (7 hasher cores / 14 hasher threads)
 * And so on
 
-Coordinator cores will usually sit at 100% utilisation, hasher threads **SHOULD** sit at 100% utilisation, anything less
-indicates a bottleneck in the system, like not enough NVMe IOPS, not enough Memory bandwidth, or incorrect NUMA setup.
+Coordinator cores will usually sit at 100% utilisation, hasher threads **SHOULD** sit at 100% utilisation, anything less indicates a bottleneck in the system, like not enough NVMe IOPS, not enough Memory bandwidth, or incorrect NUMA setup.
 
 To troubleshoot:
+
 * Read the requirements at the top of this page very carefully
-* Benchmark iops with:
+* Benchmark IOPS with:
+
 ```bash
 cd extern/supra_seal/deps/spdk-v22.09/
 
@@ -354,7 +366,9 @@ cd extern/supra_seal/deps/spdk-v22.09/
 # NOTE: You want to test with ALL devices so that you can see if there are any bottlenecks in the system
 ./build/examples/perf -b 0000:85:00.0 -b 0000:86:00.0...  -q 64 -o 4096 -w randread -t 10
 ```
-You want to see output like
+
+The output should look like below
+
 ```
 ========================================================
                                                                            Latency(us)
@@ -371,6 +385,7 @@ PCIE (0000:c3:00.0) NSID 1 from core  0:  890082.78    3476.89      71.88      1
 ========================================================
 Total                                  : 8006785.90   31276.51      71.91      10.05    1063.32
 ```
+
 With ideally >10M IOPS total for all devices.
 
 * Validate GPU setup if PC2 is slow
