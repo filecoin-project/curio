@@ -303,7 +303,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 			SELECT sm.sector_num, sm.expiration_epoch
 			FROM sectors_meta sm
 			LEFT JOIN sectors_snap_pipeline ssp on sm.sp_id = ssp.sp_id and sm.sector_num = ssp.sector_number
-			LEFT JOIN open_sector_pieces osp on sm.sp_id = osp.sp_id and sm.sector_num = osp.sector_number
+			LEFT JOIN open_sector_pieces osp on sm.sp_id = osp.sp_id and sm.sector_num = osp.sector_number and osp.piece_index = 0
 			WHERE sm.is_cc = true AND ssp.start_time IS NULL AND osp.created_at IS NULL
 			  AND sm.sp_id = $4
 			  AND sm.expiration_epoch IS NOT NULL
