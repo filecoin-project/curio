@@ -155,6 +155,11 @@ dist-clean:
 	git submodule deinit --all -f
 .PHONY: dist-clean
 
+install-completions:
+	mkdir -p /usr/share/bash-completion/completions /usr/local/share/zsh/site-functions/
+	install -C ./scripts/completion/bash_autocomplete /usr/share/bash-completion/completions/curio
+	install -C ./scripts/completion/zsh_autocomplete /usr/local/share/zsh/site-functions/_curio
+
 cu2k: GOFLAGS+=-tags=2k
 cu2k: curio
 
