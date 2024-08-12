@@ -300,13 +300,16 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 		// minExpiration = piece.DealSchedule.EndEpoch
 		// ideal expiration = minExpiration + 2 days
 		err = tx.Select(&candidates, `
-			SELECT sector_num, expiration_epoch
-			FROM sectors_meta
-			WHERE is_cc = true AND sp_id = $4
-			  AND expiration_epoch IS NOT NULL
-			  AND expiration_epoch > $1
-			  AND ($2 = 0 OR expiration_epoch < $2)
-			ORDER BY ABS(expiration_epoch - ($1 + $3))
+			SELECT sm.sector_num, sm.expiration_epoch
+			FROM sectors_meta sm
+			LEFT JOIN sectors_snap_pipeline ssp on sm.sp_id = ssp.sp_id and sm.sector_num = ssp.sector_number
+			LEFT JOIN open_sector_pieces osp on sm.sp_id = osp.sp_id and sm.sector_num = osp.sector_number and osp.piece_index = 0
+			WHERE sm.is_cc = true AND ssp.start_time IS NULL AND osp.created_at IS NULL
+			  AND sm.sp_id = $4
+			  AND sm.expiration_epoch IS NOT NULL
+			  AND sm.expiration_epoch > $1
+			  AND ($2 = 0 OR sm.expiration_epoch < $2)
+			ORDER BY ABS(sm.expiration_epoch - ($1 + $3))
 			LIMIT 10
 		`, int64(piece.DealSchedule.EndEpoch), maxExpiration, IdealEndEpochBuffer, p.mid)
 		if err != nil {

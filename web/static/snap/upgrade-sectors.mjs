@@ -2,6 +2,16 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import RPCCall from '/lib/jsonrpc.mjs';
 
 class UpgradeSectors extends LitElement {
+    static styles = css`
+        .btn-delete {
+            background-color: red;
+            color: white;
+            font-size: 0.8em;
+            padding: 2px 5px;
+            margin-left: 5px;
+        }
+    `;
+
     constructor() {
         super();
         this.data = [];
@@ -55,6 +65,9 @@ class UpgradeSectors extends LitElement {
                         <td>
                             ${ '' /*todo: this button is a massive footgun, it should get some more safety*/ }
                             <button class="btn btn-primary" @click=${() => RPCCall('UpgradeResetTaskIDs', [entry.SpID, entry.SectorNum])}>unsafe:ResetTasks</button>
+                            ${entry.Failed ? html`
+                                <button class="btn btn-danger" @click=${() => RPCCall('UpgradeDelete', [entry.SpID, entry.SectorNum])}>Delete</button>
+                            ` : ''}
                         </td>
                     </tr>
                     `)}

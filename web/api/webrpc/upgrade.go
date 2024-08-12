@@ -1,6 +1,12 @@
 package webrpc
 
-import "context"
+import (
+	"context"
+
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/tasks/snap"
+)
 
 type UpgradeSector struct {
 	SpID      uint64 `db:"sp_id"`
@@ -36,5 +42,15 @@ func (a *WebRPC) UpgradeSectors(ctx context.Context) ([]UpgradeSector, error) {
 
 func (a *WebRPC) UpgradeResetTaskIDs(ctx context.Context, spid, sectorNum uint64) error {
 	_, err := a.deps.DB.Exec(ctx, `SELECT unset_task_id_snap($1, $2)`, spid, sectorNum)
+	return err
+}
+
+func (a *WebRPC) UpgradeDelete(ctx context.Context, spid, sectorNum uint64) error {
+	if err := snap.DropSectorPieceRefsSnap(ctx, a.deps.DB, abi.SectorID{Miner: abi.ActorID(spid), Number: abi.SectorNumber(sectorNum)}); err != nil {
+		// bad, but still do best we can and continue
+		log.Errorw("failed to drop sector piece refs", "error", err)
+	}
+
+	_, err := a.deps.DB.Exec(ctx, `DELETE FROM sectors_snap_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, sectorNum)
 	return err
 }
