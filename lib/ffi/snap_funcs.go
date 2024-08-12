@@ -36,7 +36,7 @@ func (sb *SealCalls) EncodeUpdate(
 	pieces []abi.PieceInfo,
 	keepUnsealed bool) (sealedCID cid.Cid, unsealedCID cid.Cid, err error) {
 	noDecl := storiface.FTNone
-	if keepUnsealed {
+	if !keepUnsealed {
 		noDecl = storiface.FTUnsealed
 	}
 
@@ -251,7 +251,12 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Undef, cid.Undef, xerrors.Errorf("clear cache: %w", err)
 	}
 
-	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTUpdate|storiface.FTUpdateCache); err != nil {
+	ensureTypes := storiface.FTUpdate | storiface.FTUpdateCache
+	if keepUnsealed {
+		ensureTypes |= storiface.FTUnsealed
+	}
+
+	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, ensureTypes); err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("ensure one copy: %w", err)
 	}
 
