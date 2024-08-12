@@ -128,6 +128,9 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 	params := miner.PreCommitSectorBatchParams2{}
 
 	expiration := sectorParams.TicketEpoch + miner12.MaxSectorExpirationExtension
+	if sectorParams.UserSectorDurationEpochs != nil {
+		expiration = sectorParams.TicketEpoch + abi.ChainEpoch(*sectorParams.UserSectorDurationEpochs)
+	}
 
 	params.Sectors = append(params.Sectors, miner.SectorPreCommitInfo{
 		SealProof:     sectorParams.RegSealProof,
