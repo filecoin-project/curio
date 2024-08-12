@@ -59,6 +59,39 @@ Currently, the community is trying to determine the best hardware configurations
 Please consider contributing to the [SupraSeal hardware examples](https://github.com/filecoin-project/curio/discussions/140).
 {% endhint %}
 
+### Benchmark NVME IOPS
+
+Please make sure to benchmark the raw NVME IOPS before proceeding with further configuration to verify that IOPS requirements are fulfilled.&#x20;
+
+```bash
+cd extern/supra_seal/deps/spdk-v22.09/
+
+# repeat -b with all devices you plan to use with supra_seal
+# NOTE: You want to test with ALL devices so that you can see if there are any bottlenecks in the system
+./build/examples/perf -b 0000:85:00.0 -b 0000:86:00.0...  -q 64 -o 4096 -w randread -t 10
+```
+
+The output should look like below
+
+```
+========================================================
+                                                                           Latency(us)
+Device Information                     :       IOPS      MiB/s    Average        min        max
+PCIE (0000:04:00.0) NSID 1 from core  0:  889422.78    3474.31      71.93      10.05    1040.94
+PCIE (0000:41:00.0) NSID 1 from core  0:  890028.08    3476.67      71.88      10.69    1063.32
+PCIE (0000:42:00.0) NSID 1 from core  0:  890035.08    3476.70      71.88      10.66    1001.86
+PCIE (0000:86:00.0) NSID 1 from core  0:  889259.28    3473.67      71.95      10.62    1003.83
+PCIE (0000:87:00.0) NSID 1 from core  0:  889179.58    3473.36      71.95      10.55     993.32
+PCIE (0000:88:00.0) NSID 1 from core  0:  889272.18    3473.72      71.94      10.38     974.63
+PCIE (0000:c1:00.0) NSID 1 from core  0:  889815.08    3475.84      71.90      10.97    1044.70
+PCIE (0000:c2:00.0) NSID 1 from core  0:  889691.08    3475.36      71.91      11.04    1036.57
+PCIE (0000:c3:00.0) NSID 1 from core  0:  890082.78    3476.89      71.88      10.44    1023.32
+========================================================
+Total                                  : 8006785.90   31276.51      71.91      10.05    1063.32
+```
+
+With ideally >10M IOPS total for all devices.
+
 ## Setup
 
 ### Dependencies
@@ -357,36 +390,6 @@ Coordinator cores will usually sit at 100% utilisation, hasher threads **SHOULD*
 To troubleshoot:
 
 * Read the requirements at the top of this page very carefully
-* Benchmark IOPS with:
-
-```bash
-cd extern/supra_seal/deps/spdk-v22.09/
-
-# repeat -b with all devices you plan to use with supra_seal
-# NOTE: You want to test with ALL devices so that you can see if there are any bottlenecks in the system
-./build/examples/perf -b 0000:85:00.0 -b 0000:86:00.0...  -q 64 -o 4096 -w randread -t 10
-```
-
-The output should look like below
-
-```
-========================================================
-                                                                           Latency(us)
-Device Information                     :       IOPS      MiB/s    Average        min        max
-PCIE (0000:04:00.0) NSID 1 from core  0:  889422.78    3474.31      71.93      10.05    1040.94
-PCIE (0000:41:00.0) NSID 1 from core  0:  890028.08    3476.67      71.88      10.69    1063.32
-PCIE (0000:42:00.0) NSID 1 from core  0:  890035.08    3476.70      71.88      10.66    1001.86
-PCIE (0000:86:00.0) NSID 1 from core  0:  889259.28    3473.67      71.95      10.62    1003.83
-PCIE (0000:87:00.0) NSID 1 from core  0:  889179.58    3473.36      71.95      10.55     993.32
-PCIE (0000:88:00.0) NSID 1 from core  0:  889272.18    3473.72      71.94      10.38     974.63
-PCIE (0000:c1:00.0) NSID 1 from core  0:  889815.08    3475.84      71.90      10.97    1044.70
-PCIE (0000:c2:00.0) NSID 1 from core  0:  889691.08    3475.36      71.91      11.04    1036.57
-PCIE (0000:c3:00.0) NSID 1 from core  0:  890082.78    3476.89      71.88      10.44    1023.32
-========================================================
-Total                                  : 8006785.90   31276.51      71.91      10.05    1063.32
-```
-
-With ideally >10M IOPS total for all devices.
-
+* [Benchmark NVME IOPS](supraseal.md#benchmark-nvme-iops)
 * Validate GPU setup if PC2 is slow
 * Review logs for any errors during batch processing
