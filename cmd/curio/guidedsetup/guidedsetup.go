@@ -443,14 +443,8 @@ func doc(d *MigrationData) {
 }
 
 func yugabyteConnect(d *MigrationData) {
-	harmonyCfg := config.DefaultStorageMiner().HarmonyDB
-	var err error
-	d.DB, err = harmonydb.NewFromConfig(harmonyCfg)
-	if err != nil {
-		_ = getDBDetails(d)
-	} else {
-		d.HarmonyCfg = harmonyCfg
-	}
+
+	getDBDetails(d)
 
 	d.say(plain, "Connected to Yugabyte. Schema is current.")
 	stepCompleted(d, d.T("Connected to Yugabyte"))
@@ -640,7 +634,7 @@ const CONFIDENCE = 5
 func stepPresteps(d *MigrationData) {
 
 	// Setup and connect to YugabyteDB
-	_ = getDBDetails(d)
+	getDBDetails(d)
 
 	// Verify HarmonyDB connection
 	var titles []string
@@ -765,7 +759,7 @@ func stepNewMinerConfig(d *MigrationData) {
 	stepCompleted(d, d.T("Configuration 'base' was updated to include this miner's address"))
 }
 
-func getDBDetails(d *MigrationData) *config.HarmonyDB {
+func getDBDetails(d *MigrationData) {
 	harmonyCfg := config.DefaultStorageMiner().HarmonyDB
 	for {
 		i, _, err := (&promptui.Select{
@@ -824,8 +818,7 @@ func getDBDetails(d *MigrationData) *config.HarmonyDB {
 			}
 			d.DB = db
 			d.HarmonyCfg = harmonyCfg
-
-			return &harmonyCfg
+			return
 		}
 	}
 }
