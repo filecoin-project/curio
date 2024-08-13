@@ -34,7 +34,11 @@ create table parked_piece_refs (
     data_headers jsonb not null default '{}',
 
     -- host Added in 202240730-market-migrations.sql
+<<<<<<< HEAD
     -- host text,
+=======
+    host text,
+>>>>>>> 48e953d (poller redesign)
 
     foreign key (piece_id) references parked_pieces(id) on delete cascade
 );

@@ -493,6 +493,13 @@ description: The default curio configuration
         # type: []string
         #NoAnnounceAddresses = []
 
+      # SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
+      # Warning: If this check is skipped and there is a commP mismatch, all deals in the
+      # sector will need to be sent again
+      #
+      # type: bool
+      #SkipCommP = false
+
 
 [Ingest]
   # Maximum number of sectors that can be queued waiting for deals to start processing.

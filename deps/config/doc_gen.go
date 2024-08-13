@@ -849,6 +849,14 @@ This will be used to fail the deals which cannot be sealed on time.`,
 Warning: If this check is skipped and there is a commP mismatch, all deals in the
 sector will need to be sent again`,
 		},
+		{
+			Name: "SkipCommP",
+			Type: "bool",
+
+			Comment: `SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
+Warning: If this check is skipped and there is a commP mismatch, all deals in the
+sector will need to be sent again`,
+		},
 	},
 	"MarketConfig": {
 		{

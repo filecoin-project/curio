@@ -639,9 +639,15 @@ USAGE:
    curio market command [command options] [arguments...]
 
 COMMANDS:
+<<<<<<< HEAD
    seal     start sealing a deal sector early
    add-url  Add URL to fetch data for offline deals
    help, h  Shows a list of commands or help for one command
+=======
+   seal         start sealing a deal sector early
+   import-data  Import data for offline deal
+   help, h      Shows a list of commands or help for one command
+>>>>>>> 48e953d (poller redesign)
 
 OPTIONS:
    --help, -h  show help
@@ -661,6 +667,7 @@ OPTIONS:
    --help, -h     show help
 ```
 
+<<<<<<< HEAD
 ### curio market add-url
 ```
 NAME:
@@ -674,6 +681,19 @@ OPTIONS:
    --header HEADER, -H HEADER [ --header HEADER, -H HEADER ]  Custom HEADER to include in the HTTP request
    --url URL, -u URL                                          URL to send the request to
    --help, -h                                                 show help
+=======
+### curio market import-data
+```
+NAME:
+   curio market import-data - Import data for offline deal
+
+USAGE:
+   curio market import-data [command options] <deal UUID> <file> <host:port>
+
+OPTIONS:
+   --actor value  Specify actor address to start sealing sectors for
+   --help, -h     show help
+>>>>>>> 48e953d (poller redesign)
 ```
 
 ## curio fetch-params
