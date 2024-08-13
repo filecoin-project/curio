@@ -7,11 +7,10 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/lib/curiochain"
-
-	"github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/lotus/blockstore"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
