@@ -11,7 +11,6 @@ func DefaultCurioConfig() *CurioConfig {
 	return &CurioConfig{
 		Subsystems: CurioSubsystemsConfig{
 			GuiAddress:                 "0.0.0.0:4701",
-			BoostAdapters:              []string{},
 			RequireActivationSuccess:   true,
 			RequireNotificationSuccess: true,
 		},
@@ -72,8 +71,12 @@ func DefaultCurioConfig() *CurioConfig {
 			},
 		},
 		Market: MarketConfig{
-			DealMarketConfig: DealConfig{
+			StorageMarketConfig: StorageMarketConfig{
 				PieceLocator: []PieceLocatorConfig{},
+				Indexing: IndexingConfig{
+					InsertConcurrency: 8,
+					InsertBatchSize:   15000,
+				},
 				MK12: MK12Config{
 					Miners: []string{},
 				},
@@ -244,25 +247,6 @@ type CurioSubsystemsConfig struct {
 	// UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance.
 	UpdateProveMaxTasks int
 
-	// BoostAdapters is a list of tuples of miner address and port/ip to listen for market (e.g. boost) requests.
-	// This interface is compatible with the lotus-miner RPC, implementing a subset needed for storage market operations.
-	// Strings should be in the format "actor:ip:port". IP cannot be 0.0.0.0. We recommend using a private IP.
-	// Example: "f0123:127.0.0.1:32100". Multiple addresses can be specified.
-	//
-	// When a market node like boost gives Curio's market RPC a deal to placing into a sector, Curio will first store the
-	// deal data in a temporary location "Piece Park" before assigning it to a sector. This requires that at least one
-	// node in the cluster has the EnableParkPiece option enabled and has sufficient scratch space to store the deal data.
-	// This is different from lotus-miner which stored the deal data into an "unsealed" sector as soon as the deal was
-	// received. Deal data in PiecePark is accessed when the sector TreeD and TreeR are computed, but isn't needed for
-	// the initial SDR layers computation. Pieces in PiecePark are removed after all sectors referencing the piece are
-	// sealed.
-	//
-	// To get API info for boost configuration run 'curio market rpc-info'
-	//
-	// NOTE: All deal data will flow through this service, so it should be placed on a machine running boost or on
-	// a machine which handles ParkPiece tasks.
-	BoostAdapters []string
-
 	// EnableWebGui enables the web GUI on this curio instance. The UI has minimal local overhead, but it should
 	// only need to be run on a single machine in the cluster.
 	EnableWebGui bool
@@ -283,6 +267,9 @@ type CurioSubsystemsConfig struct {
 
 	// EnableDealMarket
 	EnableDealMarket bool
+
+	// EnableCommP enabled the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
+	EnableCommP bool
 }
 type CurioFees struct {
 	DefaultMaxFee      types.FIL
@@ -563,17 +550,20 @@ type ApisConfig struct {
 }
 
 type MarketConfig struct {
-	// DealMarketConfig houses all the deal related market configuration
-	DealMarketConfig DealConfig
+	// StorageMarketConfig houses all the deal related market configuration
+	StorageMarketConfig StorageMarketConfig
 }
 
-type DealConfig struct {
+type StorageMarketConfig struct {
 	// PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
 	// User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
 	// The server must have 2 endpoints
-	// 	1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Filecoin-Piece-RawSize" with file size as value
+	// 	1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
 	//  2. /data?id=pieceCID must provide a reader for the requested piece
 	PieceLocator []PieceLocatorConfig
+
+	// Indexing configuration for deal indexing
+	Indexing IndexingConfig
 
 	// MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)
 	MK12 MK12Config
@@ -600,9 +590,22 @@ type MK12Config struct {
 	// This will be used to fail the deals which cannot be sealed on time.
 	// Please make sure to update this to shorter duration for snap deals
 	ExpectedSealDuration Duration
+
+	// SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
+	// Warning: If this check is skipped and there is a commP mismatch, all deals in the
+	// sector will need to be sent again
+	SkipCommP bool
 }
 
 type PieceLocatorConfig struct {
 	URL     string
 	Headers http.Header
+}
+
+type IndexingConfig struct {
+	// Number of records per insert batch
+	InsertBatchSize int
+
+	// Number of concurrent inserts to split AddIndex calls to
+	InsertConcurrency int
 }

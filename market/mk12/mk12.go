@@ -26,6 +26,7 @@ import (
 	"github.com/filecoin-project/go-state-types/crypto"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/market/mk12/legacytypes"
 
 	"github.com/filecoin-project/lotus/api"
@@ -48,6 +49,7 @@ type MK12 struct {
 	miners []address.Address
 	db     *harmonydb.DB
 	api    MK12API
+	sc     *ffi.SealCalls
 
 	// TODO: storageManager *storagemanager.StorageManager
 	// TODO: dealPublisher  types.DealPublisher
@@ -59,7 +61,7 @@ type validationError struct {
 	reason string
 }
 
-func NewMK12Handler(miners []string, db *harmonydb.DB, mapi MK12API) (*MK12, error) {
+func NewMK12Handler(miners []string, db *harmonydb.DB, sc *ffi.SealCalls, mapi MK12API) (*MK12, error) {
 	var maddrs []address.Address
 	for _, m := range miners {
 		maddr, err := address.NewFromString(m)
@@ -72,6 +74,7 @@ func NewMK12Handler(miners []string, db *harmonydb.DB, mapi MK12API) (*MK12, err
 		miners: maddrs,
 		db:     db,
 		api:    mapi,
+		sc:     sc,
 	}, nil
 }
 
@@ -423,7 +426,7 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 			// Add parked_piece_ref
 			var refID int64
 			err = tx.QueryRow(`INSERT INTO parked_piece_refs (piece_id, data_url, data_headers)
-        			VALUES ($1, $2) RETURNING ref_id`, pieceID, tInfo.URL, headers).Scan(&refID)
+        			VALUES ($1, $2, $3) RETURNING ref_id`, pieceID, tInfo.URL, headers).Scan(&refID)
 			if err != nil {
 				return false, xerrors.Errorf("inserting parked piece ref: %w", err)
 			}
@@ -433,18 +436,18 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 				Opaque: fmt.Sprintf("%d", refID),
 			}
 
-			_, err = tx.Exec(`INSERT INTO market_mk12_deal_pipeline (uuid, sp_id, started, piece_cid, piece_size, offline, url, file_size)
-								VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (uuid) DO NOTHING`,
-				deal.DealUuid.String(), mid, !deal.IsOffline, prop.PieceCID.String(), deal.IsOffline, pieceIDUrl, deal.Transfer.Size)
+			_, err = tx.Exec(`INSERT INTO market_mk12_deal_pipeline (uuid, sp_id, piece_cid, piece_size, offline, url, file_size)
+								VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (uuid) DO NOTHING`,
+				deal.DealUuid.String(), mid, prop.PieceCID.String(), prop.PieceSize, deal.IsOffline, pieceIDUrl, deal.Transfer.Size)
 			if err != nil {
 				return false, xerrors.Errorf("inserting deal into deal pipeline: %w", err)
 			}
 
 		} else {
 			// Insert the offline deal into the deal pipeline
-			_, err = tx.Exec(`INSERT INTO market_mk12_deal_pipeline (uuid, sp_id, started, piece_cid, piece_size, offline)
-								VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (uuid) DO NOTHING`,
-				deal.DealUuid.String(), mid, !deal.IsOffline, prop.PieceCID.String(), prop.PieceSize, deal.IsOffline)
+			_, err = tx.Exec(`INSERT INTO market_mk12_deal_pipeline (uuid, sp_id, piece_cid, piece_size, offline)
+								VALUES ($1, $2, $3, $4, $5) ON CONFLICT (uuid) DO NOTHING`,
+				deal.DealUuid.String(), mid, prop.PieceCID.String(), prop.PieceSize, deal.IsOffline)
 			if err != nil {
 				return false, xerrors.Errorf("inserting deal into deal pipeline: %w", err)
 			}
@@ -468,3 +471,133 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 		Accepted: true,
 	}, nil
 }
+
+//func (m *MK12) ImportData(ctx context.Context, deal, file string) error {
+//	fileStr := file
+//	fPath, err := homedir.Expand(fileStr)
+//	if err != nil {
+//		return err
+//	}
+//
+//	f, err := os.Open(fPath)
+//	if err != nil {
+//		return err
+//	}
+//
+//	st, err := f.Stat()
+//	if err != nil {
+//		return err
+//	}
+//
+//	rawSize := st.Size()
+//
+//	var pieceCIDs []struct {
+//		CID  string              `db:"piece_cid"`
+//		Size abi.PaddedPieceSize `db:"piece_size"`
+//	}
+//
+//	err = m.db.Select(ctx, &pieceCIDs, `SELECT piece_cid, piece_size FROM market_mk12_deals WHERE uuid = $1`, deal)
+//	if err != nil {
+//		return xerrors.Errorf("enable to get piece CID from DB: %w", err)
+//	}
+//
+//	if len(pieceCIDs) != 1 {
+//		return xerrors.Errorf("expected only 1 piece CID and got %d", len(pieceCIDs))
+//	}
+//
+//	pieceCID, err := cid.Parse(pieceCIDs[0])
+//	if err != nil {
+//		return xerrors.Errorf("parsing piece cid: %w", err)
+//	}
+//
+//	if abi.UnpaddedPieceSize(rawSize).Padded() != pieceCIDs[0].Size {
+//		return xerrors.Errorf("piece size mismatch between deal %d and caluclated from file %d", abi.UnpaddedPieceSize(rawSize).Padded(), pieceCIDs[0].Size)
+//	}
+//
+//	var pieceWasCreated bool
+//	var pieceID int64
+//	var refID int64
+//
+//	// Check if any other deal is already downloading/downloaded this piece
+//	err = m.db.QueryRow(ctx, `SELECT id FROM parked_pieces WHERE piece_cid = $1`, pieceCID.String()).Scan(&pieceID)
+//	if err != nil {
+//		// Since piece is not present in piece park, let try to add it now
+//		if errors.Is(err, pgx.ErrNoRows) {
+//
+//		}
+//	}
+//
+//	comm, err := m.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+//		// Attempt to select the piece ID first
+//		err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1`, pieceCID.String()).Scan(&pieceID)
+//
+//		if err != nil {
+//			if errors.Is(err, pgx.ErrNoRows) {
+//				// Piece does not exist, attempt to insert
+//				err = tx.QueryRow(`
+//							INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, manual)
+//							VALUES ($1, $2, $3, true)
+//							ON CONFLICT (piece_cid) DO NOTHING
+//							RETURNING id`, pieceCID.String(), int64(abi.UnpaddedPieceSize(rawSize).Padded()), rawSize).Scan(&pieceID)
+//				if err != nil {
+//					return false, xerrors.Errorf("inserting new parked piece and getting id: %w", err)
+//				}
+//				pieceWasCreated = true // New piece was created
+//			} else {
+//				// Some other error occurred during select
+//				return false, xerrors.Errorf("checking existing parked piece: %w", err)
+//			}
+//		} else {
+//			pieceWasCreated = false // Piece already exists, no new piece was created
+//		}
+//
+//		// Add parked_piece_ref
+//		err = tx.QueryRow(`INSERT INTO parked_piece_refs (piece_id, data_url)
+//       			VALUES ($1, $2) RETURNING ref_id`, pieceID, "").Scan(&refID)
+//		if err != nil {
+//			return false, xerrors.Errorf("inserting parked piece ref: %w", err)
+//		}
+//
+//		// If everything went well, commit the transaction
+//		return true, nil // This will commit the transaction
+//	}, harmonydb.OptionRetry())
+//	if err != nil {
+//		return xerrors.Errorf("inserting parked piece: %w", err)
+//	}
+//
+//	if !comm {
+//		return xerrors.Errorf("failed to commit the transaction")
+//	}
+//
+//	// If piece was not created then let the user know about it
+//	if !pieceWasCreated {
+//		var complete bool
+//		err := m.db.QueryRow(ctx, `SELECT complete FROM parked_pieces WHERE id = $1;`, pieceID).Scan(&complete)
+//		if err != nil {
+//			return xerrors.Errorf("getting piece park status: %w", err)
+//		}
+//
+//		if complete {
+//			return nil
+//		}
+//
+//		return xerrors.Errorf("Another piece park entry found. Please wait for it to finish.")
+//
+//	}
+//
+//	// If a new piece was created, copy the data manually
+//	if pieceWasCreated {
+//		pnum := storiface.PieceNumber(pieceID)
+//		err = m.sc.WritePiece(ctx, nil, pnum, rawSize, f)
+//		if err != nil {
+//			return xerrors.Errorf("failed to write piece: %w", err)
+//		}
+//
+//		// Update the piece as complete after a successful write.
+//		_, err = m.db.Exec(ctx, `UPDATE parked_pieces SET complete = TRUE WHERE id = $1`, pieceID)
+//		if err != nil {
+//			return xerrors.Errorf("marking piece as complete: %w", err)
+//		}
+//	}
+//
+//}

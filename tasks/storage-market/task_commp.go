@@ -1,4 +1,4 @@
-package market
+package storage_market
 
 import (
 	"context"
@@ -26,70 +26,26 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi"
-	"github.com/filecoin-project/curio/lib/promise"
 
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
-const CommpTaskPollInterval = 5 * time.Second
-
 type CommpTask struct {
+	sm  *CurioStorageDealMarket
 	db  *harmonydb.DB
 	sc  *ffi.SealCalls
 	api headAPI
 	cfg *config.MK12Config
-
-	TF promise.Promise[harmonytask.AddTaskFunc]
 }
 
-func NewCommpTask(db *harmonydb.DB, sc *ffi.SealCalls, api headAPI, cfg *config.MK12Config) *CommpTask {
-	ct := &CommpTask{
+func NewCommpTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sc *ffi.SealCalls, api headAPI, cfg *config.MK12Config) *CommpTask {
+	return &CommpTask{
+		sm:  sm,
 		db:  db,
 		sc:  sc,
 		api: api,
 		cfg: cfg,
-	}
-
-	ctx := context.Background()
-
-	go ct.pollCommPTasks(ctx)
-	return ct
-}
-
-func (c *CommpTask) pollCommPTasks(ctx context.Context) {
-	for {
-		// Get all deals which do not have a URL and are not after_find
-		var deals []string
-		err := c.db.Select(ctx, &deals, `SELECT uuid FROM market_mk12_deal_pipeline 
-             WHERE after_find = TRUE AND after_commp = FALSE AND commp_task_id = NULL`)
-
-		if err != nil {
-			log.Errorf("getting deal pending commp: %w", err)
-			time.Sleep(CommpTaskPollInterval)
-			continue
-		}
-
-		if len(deals) == 0 {
-			time.Sleep(CommpTaskPollInterval)
-			continue
-		}
-
-		for _, deal := range deals {
-			deal := deal
-
-			// create a task for each deal
-			c.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
-				// update
-				n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET commp_task_id = $1 WHERE uuid = $2 AND commp_task_id IS NULL`, id, deal)
-				if err != nil {
-					return false, xerrors.Errorf("updating deal pipeline: %w", err)
-				}
-
-				// commit only if we updated the piece
-				return n > 0, nil
-			})
-		}
 	}
 }
 
@@ -163,8 +119,7 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			}
 
 			closer = pr
-
-			reader, _ = padreader.New(pr, uint64(*piece.Size))
+			reader = pr
 
 		} else {
 			// Create a new HTTP request
@@ -200,12 +155,14 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			reader = resp.Body
 		}
 
+		pReader, _ := padreader.New(reader, uint64(*piece.Size))
+
 		defer func() {
 			_ = closer.Close()
 		}()
 
 		w := &writer.Writer{}
-		written, err := io.CopyBuffer(w, reader, make([]byte, writer.CommPBuf))
+		written, err := io.CopyBuffer(w, pReader, make([]byte, writer.CommPBuf))
 		if err != nil {
 			return false, xerrors.Errorf("copy into commp writer: %w", err)
 		}
@@ -263,7 +220,57 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 }
 
 func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	return &ids[0], nil
+	var tasks []struct {
+		TaskID       harmonytask.TaskID `db:"task_id_tree_c"`
+		SpID         int64              `db:"sp_id"`
+		SectorNumber int64              `db:"sector_number"`
+		StorageID    string             `db:"storage_id"`
+	}
+
+	if storiface.FTCache != 4 {
+		panic("storiface.FTCache != 4")
+	}
+
+	ctx := context.Background()
+
+	indIDs := make([]int64, len(ids))
+	for i, id := range ids {
+		indIDs[i] = int64(id)
+	}
+
+	err := c.db.Select(ctx, &tasks, `
+		SELECT p.task_id_tree_c, p.sp_id, p.sector_number, l.storage_id FROM market_mk12_deal_pipeline p
+			INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num
+			WHERE task_id_tree_r = ANY ($1) AND l.sector_filetype = 4
+`, indIDs)
+	if err != nil {
+		return nil, xerrors.Errorf("getting tasks: %w", err)
+	}
+
+	ls, err := c.sc.LocalStorage(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("getting local storage: %w", err)
+	}
+
+	acceptables := map[harmonytask.TaskID]bool{}
+
+	for _, t := range ids {
+		acceptables[t] = true
+	}
+
+	for _, t := range tasks {
+		if _, ok := acceptables[t.TaskID]; !ok {
+			continue
+		}
+
+		for _, l := range ls {
+			if string(l.ID) == t.StorageID {
+				return &t.TaskID, nil
+			}
+		}
+	}
+
+	return nil, nil
 }
 
 func (c *CommpTask) TypeDetails() harmonytask.TaskTypeDetails {
@@ -279,7 +286,7 @@ func (c *CommpTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (c *CommpTask) Adder(taskFunc harmonytask.AddTaskFunc) {
-	c.TF.Set(taskFunc)
+	c.sm.pollers[pollerCommP].Set(taskFunc)
 }
 
 var _ = harmonytask.Reg(&CommpTask{})

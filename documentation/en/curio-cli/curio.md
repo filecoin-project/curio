@@ -547,25 +547,12 @@ USAGE:
    curio market command [command options] [arguments...]
 
 COMMANDS:
-   rpc-info  
-   seal      start sealing a deal sector early
-   help, h   Shows a list of commands or help for one command
+   seal         start sealing a deal sector early
+   import-data  Import data for offline deal
+   help, h      Shows a list of commands or help for one command
 
 OPTIONS:
    --help, -h  show help
-```
-
-### curio market rpc-info
-```
-NAME:
-   curio market rpc-info
-
-USAGE:
-   curio market rpc-info [command options] [arguments...]
-
-OPTIONS:
-   --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
-   --help, -h                         show help
 ```
 
 ### curio market seal
@@ -579,6 +566,19 @@ USAGE:
 OPTIONS:
    --actor value  Specify actor address to start sealing sectors for
    --synthetic    Use synthetic PoRep (default: false)
+   --help, -h     show help
+```
+
+### curio market import-data
+```
+NAME:
+   curio market import-data - Import data for offline deal
+
+USAGE:
+   curio market import-data [command options] <deal UUID> <file> <host:port>
+
+OPTIONS:
+   --actor value  Specify actor address to start sealing sectors for
    --help, -h     show help
 ```
 

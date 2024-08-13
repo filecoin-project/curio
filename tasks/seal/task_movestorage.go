@@ -106,7 +106,7 @@ func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	if len(pms) > 0 {
 		comm, err := m.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 			for _, pm := range pms {
-				n, err := tx.Exec(`INSERT INTO market_indexing_tasks (id, sp_id, sector_number, reg_seal_proof, piece_cid, piece_offset, piece_size) 
+				n, err := tx.Exec(`INSERT INTO market_indexing_tasks (uuid, sp_id, sector_number, reg_seal_proof, piece_cid, piece_offset, piece_size) 
 									values ($1, $2, $3, $4, $5, $6, $7)`, pm.Id, pm.SpID, pm.Sector, pm.Proof, pm.Pcid, pm.Poffset, pm.Psize)
 				if err != nil {
 					return false, xerrors.Errorf("inserting an indexing task for miner %d sector %d deal %s", pm.SpID, pm.Sector, pm.Id)

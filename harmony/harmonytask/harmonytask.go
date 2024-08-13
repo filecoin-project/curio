@@ -410,6 +410,10 @@ func (e *TaskEngine) Resources() resources.Resources {
 	return e.reg.Resources
 }
 
+func (e *TaskEngine) Host() string {
+	return e.hostAndPort
+}
+
 // About the Registry
 // This registry exists for the benefit of "static methods" of TaskInterface extensions.
 // For example, GetSPID(db, taskID) (int, err) is a static method that can be called

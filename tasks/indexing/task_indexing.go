@@ -10,13 +10,16 @@ import (
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	carv2 "github.com/ipld/go-car/v2"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/indexing/indexstore"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
@@ -27,23 +30,26 @@ import (
 var log = logging.Logger("indexing")
 
 type IndexingTask struct {
-	db                   *harmonydb.DB
-	indexStore           *indexstore.IndexStore
-	pieceProvider        *pieceprovider.PieceProvider
-	maxCurrentForCluster int //TODO: Make this config
+	db            *harmonydb.DB
+	indexStore    *indexstore.IndexStore
+	pieceProvider *pieceprovider.PieceProvider
+	sc            *ffi.SealCalls
+	cfg           *config.CurioConfig
 }
 
-func NewIndexingTask(db *harmonydb.DB, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.PieceProvider) *IndexingTask {
+func NewIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.PieceProvider, cfg *config.CurioConfig) *IndexingTask {
 
 	return &IndexingTask{
 		db:            db,
 		indexStore:    indexStore,
 		pieceProvider: pieceProvider,
+		sc:            sc,
+		cfg:           cfg,
 	}
 }
 
 type itask struct {
-	UUID      string                  `db:"id"`
+	UUID      string                  `db:"uuid"`
 	SpID      int64                   `db:"sp_id"`
 	Sector    abi.SectorNumber        `db:"sector_number"`
 	Proof     abi.RegisteredSealProof `db:"reg_seal_proof"`
@@ -62,7 +68,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	ctx := context.Background()
 
 	err = i.db.Select(ctx, &tasks, `SELECT 
-											mit.id as id, 
+											mit.uuid as uuid, 
 											mit.sp_id as sp_id, 
 											mit.sector_number as sector_number, 
 											mit.piece_cid as piece_cid, 
@@ -140,30 +146,48 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
 
-	recs := make([]indexstore.Record, 0)
+	dealCfg := i.cfg.Market.StorageMarketConfig
+	chanSize := dealCfg.Indexing.InsertConcurrency * dealCfg.Indexing.InsertBatchSize
+
+	recs := make(chan indexstore.Record, chanSize)
+
+	//recs := make([]indexstore.Record, 0, chanSize)
 	opts := []carv2.Option{carv2.ZeroLengthSectionAsEOF(true)}
 	blockReader, err := carv2.NewBlockReader(reader, opts...)
 	if err != nil {
 		return false, fmt.Errorf("getting block reader over piece: %w", err)
 	}
 
+	var eg errgroup.Group
+
+	eg.Go(func() error {
+		serr := i.indexStore.AddIndex(ctx, pieceCid, recs)
+		if serr != nil {
+			return xerrors.Errorf("adding index to DB: %w", err)
+		}
+		return nil
+	})
+
 	blockMetadata, err := blockReader.SkipNext()
 	for err == nil {
-		recs = append(recs, indexstore.Record{
+		recs <- indexstore.Record{
 			Cid: blockMetadata.Cid,
 			OffsetSize: indexstore.OffsetSize{
 				Offset: blockMetadata.SourceOffset,
 				Size:   blockMetadata.Size,
 			},
-		})
-
+		}
 		blockMetadata, err = blockReader.SkipNext()
 	}
 	if !errors.Is(err, io.EOF) {
 		return false, fmt.Errorf("generating index for piece: %w", err)
 	}
 
-	err = i.indexStore.AddIndex(ctx, pieceCid, recs)
+	// Close the channel
+	close(recs)
+
+	// Wait till AddIndex is finished
+	err = eg.Wait()
 	if err != nil {
 		return false, xerrors.Errorf("adding index to DB: %w", err)
 	}
@@ -201,15 +225,68 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 }
 
 func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+	var tasks []struct {
+		TaskID       harmonytask.TaskID `db:"task_id"`
+		SpID         int64              `db:"sp_id"`
+		SectorNumber int64              `db:"sector_number"`
+		StorageID    string             `db:"storage_id"`
+	}
+
+	if storiface.FTUnsealed != 1 {
+		panic("storiface.FTUnsealed != 1")
+	}
+
+	ctx := context.Background()
+
+	indIDs := make([]int64, len(ids))
+	for i, id := range ids {
+		indIDs[i] = int64(id)
+	}
+
+	err := i.db.Select(ctx, &tasks, `
+		SELECT mit.task_id, mit.sp_id, mit.sector_number, l.storage_id FROM market_indexing_tasks mit
+			INNER JOIN sector_location l ON mit.sp_id = l.miner_id AND mit.sector_number = l.sector_num
+			WHERE mit.market_indexing_tasks = ANY ($1) AND l.sector_filetype = 1
+`, indIDs)
+	if err != nil {
+		return nil, xerrors.Errorf("getting tasks: %w", err)
+	}
+
+	ls, err := i.sc.LocalStorage(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("getting local storage: %w", err)
+	}
+
+	acceptables := map[harmonytask.TaskID]bool{}
+
+	for _, t := range ids {
+		acceptables[t] = true
+	}
+
+	for _, t := range tasks {
+		if _, ok := acceptables[t.TaskID]; !ok {
+			continue
+		}
+
+		for _, l := range ls {
+			if string(l.ID) == t.StorageID {
+				return &t.TaskID, nil
+			}
+		}
+	}
+
+	return nil, nil
 }
 
 func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
+	//dealCfg := i.cfg.Market.StorageMarketConfig
+	//chanSize := dealCfg.Indexing.InsertConcurrency * dealCfg.Indexing.InsertBatchSize * 56 // (56 = size of each index.Record)
+
 	return harmonytask.TaskTypeDetails{
 		Name: "Indexing",
 		Cost: resources.Resources{
 			Cpu: 1,
+			//Ram: uint64(chanSize * 2), // TODO: Find a way to make this variable
 			Ram: 1 << 30,
 		},
 		MaxFailures: 3,
@@ -226,18 +303,6 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
 
-			var running []int
-
-			err := i.db.Select(ctx, &running, `SELECT COUNT(*) FROM market_indexing_tasks WHERE task_id IS NOT NULL AND complete IS FALSE;`)
-			if err != nil {
-				return false, xerrors.Errorf("getting running tasks: %w", err)
-			}
-
-			if len(running) > i.maxCurrentForCluster {
-				log.Debugf("Not scheduling %s as maximum parallel per cluster limit %d reached", i.TypeDetails().Name, i.maxCurrentForCluster)
-				return false, nil
-			}
-
 			var pendings []struct {
 				SpID      int64                   `db:"sp_id"`
 				Sector    int64                   `db:"sector_number"`
@@ -248,7 +313,7 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 				Proof     abi.RegisteredPoStProof `db:"reg_seal_proof"`
 			}
 
-			err = i.db.Select(ctx, &running, `SELECT sp_id, sector_number, piece_cid, piece_size, created_at, piece_offset, reg_seal_proof  
+			err := i.db.Select(ctx, &pendings, `SELECT sp_id, sector_number, piece_cid, piece_size, created_at, piece_offset, reg_seal_proof  
 												   FROM market_indexing_tasks WHERE task_id IS NULL 
 													ORDER BY created_at ASC;`)
 			if err != nil {

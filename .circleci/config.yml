@@ -283,3 +283,11 @@ workflows:
           target: "`go list ./... | grep -v curio/itests`"
           get-params: true
           resource_class: 2xlarge
+      - test:
+          name: test-idxStore
+          requires:
+            - build
+          suite: idxStore
+          target: "./lib/indexing/indexstore/indexstore_test.go"
+          get-params: true
+

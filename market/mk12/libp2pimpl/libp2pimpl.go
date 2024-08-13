@@ -269,7 +269,7 @@ func (p *DealProvider) getDealStatus(req mk12.DealStatusRequest, reqLog *zap.Sug
 				ret.DealStatus.Status = "Sealed and Indexed"
 			}
 		}
-		// ANything before PSD is processing
+		// Anything before PSD is processing
 		st, err := p.getSealedDealStatus(p.ctx, req.DealUUID.String(), false)
 		if err != nil {
 			reqLog.Errorw("failed to get sealed deal status", "err", err)

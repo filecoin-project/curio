@@ -32,17 +32,16 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/slotmgr"
 	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/market/dealmarket"
 	"github.com/filecoin-project/curio/market/mk12/libp2pimpl"
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/indexing"
-	"github.com/filecoin-project/curio/tasks/market"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/metadata"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/seal"
 	"github.com/filecoin-project/curio/tasks/sealsupra"
 	"github.com/filecoin-project/curio/tasks/snap"
+	storage_market "github.com/filecoin-project/curio/tasks/storage-market"
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
 
@@ -201,37 +200,42 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	}
 
 	{
-		// TODO: Config triggers for market related tasks
-		if cfg.Subsystems.EnableDealMarket {
-			dm := dealmarket.NewCurioDealMarket(db, cfg, full)
-			err := dm.StartMarket(ctx)
-			if err != nil {
-				return nil, err
-			}
-
-			findUrl := market.NewFindURLTask(db, must.One(slrLazy.Val()), cfg.Market.DealMarketConfig, full)
-			activeTasks = append(activeTasks, findUrl)
-
-			commpTask := market.NewCommpTask(db, must.One(slrLazy.Val()), full, &cfg.Market.DealMarketConfig.MK12)
-			activeTasks = append(activeTasks, commpTask)
-
-			psdTask := market.NewPSDTask(db, sender, as, &cfg.Market.DealMarketConfig.MK12, full)
-			dealFindTask := market.NewFindDealTask(db, full, &cfg.Market.DealMarketConfig.MK12)
-			activeTasks = append(activeTasks, psdTask, dealFindTask)
-
-			p2pMap, err := libp2p.NewLibp2pHost(ctx, db, cfg.Market.DealMarketConfig.MK12.Miners)
-			if err != nil {
-				return nil, err
-			}
-
-			for _, h := range p2pMap {
-				dp := libp2pimpl.NewDealProvider(h, db, dm.MK12Handler, full)
-				go dp.Start(ctx)
-			}
-
-			indexingTask := indexing.NewIndexingTask(db, iStore, pp)
-			activeTasks = append(activeTasks, indexingTask)
+		// Market tasks
+		sc, err := slrLazy.Val()
+		if err != nil {
+			return nil, err
 		}
+
+		// Main market poller should run on all nodes
+		dm := storage_market.NewCurioStorageDealMarket(db, cfg, sc, full)
+		err = dm.StartMarket(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		if cfg.Subsystems.EnableCommP {
+			commpTask := storage_market.NewCommpTask(dm, db, must.One(slrLazy.Val()), full, &cfg.Market.StorageMarketConfig.MK12)
+			activeTasks = append(activeTasks, commpTask)
+		}
+
+		// PSD and Deal find task do not require many resources. They can run on all machines
+		psdTask := storage_market.NewPSDTask(dm, db, sender, as, &cfg.Market.StorageMarketConfig.MK12, full)
+		dealFindTask := storage_market.NewFindDealTask(dm, db, full, &cfg.Market.StorageMarketConfig.MK12)
+		activeTasks = append(activeTasks, psdTask, dealFindTask)
+
+		p2pMap, err := libp2p.NewLibp2pHost(ctx, db, cfg)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, h := range p2pMap {
+			dp := libp2pimpl.NewDealProvider(h, db, dm.MK12Handler, full)
+			go dp.Start(ctx)
+		}
+
+		indexingTask := indexing.NewIndexingTask(db, sc, iStore, pp, cfg)
+		activeTasks = append(activeTasks, indexingTask)
+
 	}
 
 	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting, dependencies.Al)

@@ -20,20 +20,21 @@ import (
 	"github.com/filecoin-project/go-address"
 
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
 var log = logging.Logger("curio-libp2p")
 
-func NewLibp2pHost(ctx context.Context, db *harmonydb.DB, miners []string) ([]host.Host, error) {
-	cfg, err := getCfg(ctx, db, miners)
+func NewLibp2pHost(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig) ([]host.Host, error) {
+	lcfg, err := getCfg(ctx, db, cfg.Market.StorageMarketConfig.MK12.Miners)
 	if err != nil {
 		return nil, err
 	}
 
 	var ret []host.Host
 
-	for miner, c := range cfg {
+	for miner, c := range lcfg {
 		pstore, err := pstoremem.NewPeerstore()
 		if err != nil {
 			return nil, fmt.Errorf("creating peer store: %w", err)

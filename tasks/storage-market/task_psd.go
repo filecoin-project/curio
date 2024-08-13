@@ -1,4 +1,4 @@
-package market
+package storage_market
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"math"
 	"time"
 
+	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -32,7 +33,7 @@ import (
 	"github.com/filecoin-project/lotus/storage/ctladdr"
 )
 
-const PSDTaskPollInterval = 3 * time.Second
+var psdlog = logging.Logger("PSD")
 
 type psdApi interface {
 	ChainHead(context.Context) (*types.TipSet, error)
@@ -42,6 +43,7 @@ type psdApi interface {
 }
 
 type PSDTask struct {
+	sm     *CurioStorageDealMarket
 	db     *harmonydb.DB
 	sender *message.Sender
 	as     *multictladdr.MultiAddressSelector
@@ -51,81 +53,14 @@ type PSDTask struct {
 	TF promise.Promise[harmonytask.AddTaskFunc]
 }
 
-func NewPSDTask(db *harmonydb.DB, sender *message.Sender, as *multictladdr.MultiAddressSelector, cfg *config.MK12Config, api psdApi) *PSDTask {
-	pt := &PSDTask{
+func NewPSDTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sender *message.Sender, as *multictladdr.MultiAddressSelector, cfg *config.MK12Config, api psdApi) *PSDTask {
+	return &PSDTask{
+		sm:     sm,
 		db:     db,
 		sender: sender,
 		as:     as,
 		cfg:    cfg,
 		api:    api,
-	}
-
-	ctx := context.Background()
-	go pt.pollPSDTasks(ctx)
-	return pt
-}
-
-func (p *PSDTask) pollPSDTasks(ctx context.Context) {
-	for {
-		// Get all deals which do not have a URL and are not after_find
-		var deals []struct {
-			UUID string    `db:"uuid"`
-			SpID int64     `db:"sp_id"`
-			Time time.Time `db:"psd_wait_time"`
-		}
-		err := p.db.Select(ctx, &deals, `SELECT uuid, sp_id, psd_wait_time FROM market_mk12_deal_pipeline 
-             WHERE after_commp = TRUE AND after_psd = FALSE AND psd_task_id = NULL`)
-
-		if err != nil {
-			log.Errorf("getting deal without URL: %w", err)
-			time.Sleep(PSDTaskPollInterval)
-			continue
-		}
-
-		if len(deals) == 0 {
-			time.Sleep(PSDTaskPollInterval)
-			continue
-		}
-
-		type queue struct {
-			deals []string
-			t     time.Time
-		}
-		dm := make(map[int64]queue)
-		for _, deal := range deals {
-			// Check if the spID is already in the map
-			if q, exists := dm[deal.SpID]; exists {
-				// Append the UUID to the deals list
-				q.deals = append(q.deals, deal.UUID)
-
-				// Update the time if the current deal's time is older
-				if deal.Time.Before(q.t) {
-					q.t = deal.Time
-				}
-
-				// Update the map with the new queue
-				dm[deal.SpID] = q
-			} else {
-				// Add a new entry to the map if spID is not present
-				dm[deal.SpID] = queue{
-					deals: []string{deal.UUID},
-					t:     deal.Time,
-				}
-			}
-		}
-
-		for _, q := range dm {
-			if q.t.Add(time.Duration(p.cfg.PublishMsgPeriod)).After(time.Now()) || uint64(len(q.deals)) > p.cfg.MaxDealsPerPublishMsg {
-				p.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
-					// update
-					n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET psd_task_id = $1 WHERE uuid = ANY($2) AND psd_task_id IS NULL`, id, q.deals)
-					if err != nil {
-						return false, xerrors.Errorf("updating deal pipeline: %w", err)
-					}
-					return n > 0, nil
-				})
-			}
-		}
 	}
 }
 
@@ -202,7 +137,7 @@ func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 		}
 		buff := int64(math.Floor(time.Duration(p.cfg.ExpectedSealDuration).Seconds() / float64(build.BlockDelaySecs)))
 		if head.Height()+abi.ChainEpoch(buff) > d.sprop.Proposal.StartEpoch {
-			log.Errorf(
+			psdlog.Errorf(
 				"cannot publish deal with piece CID %s: current epoch %d has passed deal proposal start epoch %d",
 				d.sprop.Proposal.PieceCID, head.Height(), d.sprop.Proposal.StartEpoch)
 			// Store error in main MK12 deal Table and Eject the deal from pipeline
@@ -238,14 +173,14 @@ func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 		}
 		if res.MsgRct.ExitCode != exitcode.Ok {
 			// If PSD simulation fails then skip the deal
-			log.Errorf("simulating deal publish message: non-zero exitcode %s; message: %s", res.MsgRct.ExitCode, res.Error)
+			psdlog.Errorf("simulating deal publish message: non-zero exitcode %s; message: %s", res.MsgRct.ExitCode, res.Error)
 			err = failDeal(ctx, p.db, d.uuid, true, fmt.Sprintf("simulating deal publish message: non-zero exitcode %s; message: %s", res.MsgRct.ExitCode, res.Error))
 			if err != nil {
 				return false, err
 			}
 			continue
 		}
-		log.Debugf("validated deal proposal %s successfully", pcid)
+		psdlog.Debugf("validated deal proposal %s successfully", pcid)
 		validDeals = append(validDeals, d)
 	}
 
@@ -285,7 +220,7 @@ func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 		return false, xerrors.Errorf("pushing deal publish message: %w", err)
 	}
 
-	log.Infof("published %d deals with message CID %s", len(vdeals), mcid)
+	psdlog.Infof("published %d deals with message CID %s", len(vdeals), mcid)
 
 	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		var uuids []string
@@ -355,7 +290,7 @@ func (p *PSDTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (p *PSDTask) Adder(taskFunc harmonytask.AddTaskFunc) {
-	p.TF.Set(taskFunc)
+	p.sm.pollers[pollerPSD].Set(taskFunc)
 }
 
 var _ = harmonytask.Reg(&PSDTask{})

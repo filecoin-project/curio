@@ -194,27 +194,6 @@ description: The default curio configuration
   # type: int
   #UpdateProveMaxTasks = 0
 
-  # BoostAdapters is a list of tuples of miner address and port/ip to listen for market (e.g. boost) requests.
-  # This interface is compatible with the lotus-miner RPC, implementing a subset needed for storage market operations.
-  # Strings should be in the format "actor:ip:port". IP cannot be 0.0.0.0. We recommend using a private IP.
-  # Example: "f0123:127.0.0.1:32100". Multiple addresses can be specified.
-  # 
-  # When a market node like boost gives Curio's market RPC a deal to placing into a sector, Curio will first store the
-  # deal data in a temporary location "Piece Park" before assigning it to a sector. This requires that at least one
-  # node in the cluster has the EnableParkPiece option enabled and has sufficient scratch space to store the deal data.
-  # This is different from lotus-miner which stored the deal data into an "unsealed" sector as soon as the deal was
-  # received. Deal data in PiecePark is accessed when the sector TreeD and TreeR are computed, but isn't needed for
-  # the initial SDR layers computation. Pieces in PiecePark are removed after all sectors referencing the piece are
-  # sealed.
-  # 
-  # To get API info for boost configuration run 'curio market rpc-info'
-  # 
-  # NOTE: All deal data will flow through this service, so it should be placed on a machine running boost or on
-  # a machine which handles ParkPiece tasks.
-  #
-  # type: []string
-  #BoostAdapters = []
-
   # EnableWebGui enables the web GUI on this curio instance. The UI has minimal local overhead, but it should
   # only need to be run on a single machine in the cluster.
   #
@@ -239,6 +218,7 @@ description: The default curio configuration
   #SyntheticPoRepMaxTasks = 0
 
 <<<<<<< HEAD
+<<<<<<< HEAD
   # Batch Seal
   #
   # type: bool
@@ -249,6 +229,12 @@ description: The default curio configuration
   # type: bool
   #EnableDealMarket = false
 >>>>>>> 6d3d660 (basic mk12 scafolding)
+=======
+  # EnableCommP enabled the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
+  #
+  # type: bool
+  #EnableCommP = false
+>>>>>>> bd6e6c0 (poller redesign)
 
 
 [Fees]
@@ -408,17 +394,28 @@ description: The default curio configuration
 
 
 [Market]
-  [Market.DealMarketConfig]
+  [Market.StorageMarketConfig]
     # PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
     # User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
     # The server must have 2 endpoints
-    # 1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Filecoin-Piece-RawSize" with file size as value
+    # 1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
     # 2. /data?id=pieceCID must provide a reader for the requested piece
     #
     # type: []PieceLocatorConfig
     #PieceLocator = []
 
-    [Market.DealMarketConfig.MK12]
+    [Market.StorageMarketConfig.Indexing]
+      # Number of records per insert batch
+      #
+      # type: int
+      #InsertBatchSize = 15000
+
+      # Number of concurrent inserts to split AddIndex calls to
+      #
+      # type: int
+      #InsertConcurrency = 8
+
+    [Market.StorageMarketConfig.MK12]
       # Miners is a list of miner to enable MK12 deals(Boost) for
       #
       # type: []string
@@ -449,6 +446,13 @@ description: The default curio configuration
       #
       # type: Duration
       #ExpectedSealDuration = "0s"
+
+      # SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
+      # Warning: If this check is skipped and there is a commP mismatch, all deals in the
+      # sector will need to be sent again
+      #
+      # type: bool
+      #SkipCommP = false
 
 
 [Ingest]

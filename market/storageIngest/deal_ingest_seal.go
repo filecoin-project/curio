@@ -1,4 +1,4 @@
-package dealmarket
+package storageIngest
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"time"
 
+	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -29,8 +30,10 @@ import (
 
 const loopFrequency = 10 * time.Second
 
+var log = logging.Logger("storage-ingest")
+
 type Ingester interface {
-	AllocatePieceToSector(ctx context.Context, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (api.SectorOffset, error)
+	AllocatePieceToSector(ctx context.Context, tx *harmonydb.Tx, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (api.SectorOffset, error)
 	SectorStartSealing(ctx context.Context, maddr address.Address, sector abi.SectorNumber) error
 }
 
@@ -230,7 +233,7 @@ func (p *PieceIngester) Seal() error {
 	return nil
 }
 
-func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (api.SectorOffset, error) {
+func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, tx *harmonydb.Tx, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (api.SectorOffset, error) {
 	var psize abi.PaddedPieceSize
 
 	if piece.PieceActivationManifest != nil {
@@ -297,7 +300,7 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, maddr address
 
 	if !p.sealRightNow {
 		// Try to allocate the piece to an open sector
-		allocated, ret, err := p.allocateToExisting(ctx, maddr, piece, psize, rawSize, source, dataHdrJson, propJson, vd)
+		allocated, ret, err := p.allocateToExisting(tx, maddr, piece, psize, rawSize, source, dataHdrJson, propJson, vd)
 		if err != nil {
 			return api.SectorOffset{}, err
 		}
@@ -307,39 +310,35 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, maddr address
 	}
 
 	// Allocation to open sector failed, create a new sector and add the piece to it
-	num, err := seal.AllocateSectorNumbers(ctx, p.api, p.db, maddr, 1, func(tx *harmonydb.Tx, numbers []abi.SectorNumber) (bool, error) {
-		if len(numbers) != 1 {
-			return false, xerrors.Errorf("expected one sector number")
-		}
-		n := numbers[0]
-
-		if piece.DealProposal != nil {
-			_, err = tx.Exec(`SELECT insert_sector_market_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-				p.addToID[maddr], n, 0,
-				piece.DealProposal.PieceCID, piece.DealProposal.PieceSize,
-				source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
-				piece.PublishCid, piece.DealID, propJson, piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch)
-			if err != nil {
-				return false, xerrors.Errorf("adding deal to sector: %w", err)
-			}
-		} else {
-			_, err = tx.Exec(`SELECT insert_sector_ddo_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-				p.addToID[maddr], n, 0,
-				piece.PieceActivationManifest.CID, piece.PieceActivationManifest.Size,
-				source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
-				piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch, propJson)
-			if err != nil {
-				return false, xerrors.Errorf("adding deal to sector: %w", err)
-			}
-		}
-		return true, nil
-	})
+	num, err := seal.AllocateSectorNumbers(ctx, p.api, tx, maddr, 1)
 	if err != nil {
-		return api.SectorOffset{}, xerrors.Errorf("allocating sector numbers: %w", err)
+		return api.SectorOffset{}, xerrors.Errorf("allocating new sector: %w", err)
 	}
 
 	if len(num) != 1 {
 		return api.SectorOffset{}, xerrors.Errorf("expected one sector number")
+	}
+	n := num[0]
+
+	// Assign piece to new sector
+	if piece.DealProposal != nil {
+		_, err = tx.Exec(`SELECT insert_sector_market_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+			p.addToID[maddr], n, 0,
+			piece.DealProposal.PieceCID, piece.DealProposal.PieceSize,
+			source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
+			piece.PublishCid, piece.DealID, propJson, piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch)
+		if err != nil {
+			return api.SectorOffset{}, xerrors.Errorf("adding deal to sector: %w", err)
+		}
+	} else {
+		_, err = tx.Exec(`SELECT insert_sector_ddo_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+			p.addToID[maddr], n, 0,
+			piece.PieceActivationManifest.CID, piece.PieceActivationManifest.Size,
+			source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
+			piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch, propJson)
+		if err != nil {
+			return api.SectorOffset{}, xerrors.Errorf("adding deal to sector: %w", err)
+		}
 	}
 
 	if p.sealRightNow {
@@ -350,82 +349,71 @@ func (p *PieceIngester) AllocatePieceToSector(ctx context.Context, maddr address
 	}
 
 	return api.SectorOffset{
-		Sector: num[0],
+		Sector: n,
 		Offset: 0,
 	}, nil
 }
 
-func (p *PieceIngester) allocateToExisting(ctx context.Context, maddr address.Address, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte, vd verifiedDeal) (bool, api.SectorOffset, error) {
+func (p *PieceIngester) allocateToExisting(tx *harmonydb.Tx, maddr address.Address, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte, vd verifiedDeal) (bool, api.SectorOffset, error) {
 	var ret api.SectorOffset
 	var allocated bool
 	var rerr error
 
-	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		openSectors, err := p.getOpenSectors(tx, p.addToID[maddr])
-		if err != nil {
-			return false, err
-		}
-
-		for _, sec := range openSectors {
-			sec := sec
-			if sec.currentSize+psize <= abi.PaddedPieceSize(p.minerDetails[p.addToID[maddr]].sectorSize) {
-				if vd.isVerified {
-					sectorLifeTime := sec.latestEndEpoch - sec.earliestStartEpoch
-					// Allocation's TMin must fit in sector and TMax should be at least sector lifetime or more
-					// Based on https://github.com/filecoin-project/builtin-actors/blob/a0e34d22665ac8c84f02fea8a099216f29ffaeeb/actors/verifreg/src/lib.rs#L1071-L1086
-					if sectorLifeTime <= vd.tmin && sectorLifeTime >= vd.tmax {
-						continue
-					}
-				}
-
-				ret.Sector = sec.number
-				ret.Offset = sec.currentSize
-
-				// Insert market deal to DB for the sector
-				if piece.DealProposal != nil {
-					cn, err := tx.Exec(`SELECT insert_sector_market_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-						p.addToID[maddr], sec.number, sec.index+1,
-						piece.DealProposal.PieceCID, piece.DealProposal.PieceSize,
-						source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
-						piece.PublishCid, piece.DealID, propJson, piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch)
-
-					if err != nil {
-						return false, fmt.Errorf("adding deal to sector: %v", err)
-					}
-
-					if cn != 1 {
-						return false, xerrors.Errorf("expected one piece")
-					}
-
-				} else { // Insert DDO deal to DB for the sector
-					cn, err := tx.Exec(`SELECT insert_sector_ddo_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-						p.addToID[maddr], sec.number, sec.index+1,
-						piece.PieceActivationManifest.CID, piece.PieceActivationManifest.Size,
-						source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
-						piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch, propJson)
-
-					if err != nil {
-						return false, fmt.Errorf("adding deal to sector: %v", err)
-					}
-
-					if cn != 1 {
-						return false, xerrors.Errorf("expected one piece")
-					}
-
-				}
-				allocated = true
-				break
-			}
-		}
-		return true, nil
-	}, harmonydb.OptionRetry())
-
-	if !comm {
-		rerr = xerrors.Errorf("allocating piece to a sector: commit failed")
+	openSectors, err := p.getOpenSectors(tx, p.addToID[maddr])
+	if err != nil {
+		return false, api.SectorOffset{}, err
 	}
 
-	if err != nil {
-		rerr = xerrors.Errorf("allocating piece to a sector: %w", err)
+	for _, sec := range openSectors {
+		sec := sec
+		if sec.currentSize+psize <= abi.PaddedPieceSize(p.minerDetails[p.addToID[maddr]].sectorSize) {
+			if vd.isVerified {
+				sectorLifeTime := sec.latestEndEpoch - sec.earliestStartEpoch
+				// Allocation's TMin must fit in sector and TMax should be at least sector lifetime or more
+				// Based on https://github.com/filecoin-project/builtin-actors/blob/a0e34d22665ac8c84f02fea8a099216f29ffaeeb/actors/verifreg/src/lib.rs#L1071-L1086
+				if sectorLifeTime <= vd.tmin && sectorLifeTime >= vd.tmax {
+					continue
+				}
+			}
+
+			ret.Sector = sec.number
+			ret.Offset = sec.currentSize
+
+			// Insert market deal to DB for the sector
+			if piece.DealProposal != nil {
+				cn, err := tx.Exec(`SELECT insert_sector_market_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+					p.addToID[maddr], sec.number, sec.index+1,
+					piece.DealProposal.PieceCID, piece.DealProposal.PieceSize,
+					source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
+					piece.PublishCid, piece.DealID, propJson, piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch)
+
+				if err != nil {
+					return false, api.SectorOffset{}, fmt.Errorf("adding deal to sector: %v", err)
+				}
+
+				if cn != 1 {
+					return false, api.SectorOffset{}, xerrors.Errorf("expected one piece")
+				}
+
+			} else { // Insert DDO deal to DB for the sector
+				cn, err := tx.Exec(`SELECT insert_sector_ddo_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+					p.addToID[maddr], sec.number, sec.index+1,
+					piece.PieceActivationManifest.CID, piece.PieceActivationManifest.Size,
+					source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
+					piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch, propJson)
+
+				if err != nil {
+					return false, api.SectorOffset{}, fmt.Errorf("adding deal to sector: %v", err)
+				}
+
+				if cn != 1 {
+					return false, api.SectorOffset{}, xerrors.Errorf("expected one piece")
+				}
+
+			}
+			allocated = true
+			break
+		}
 	}
 
 	return allocated, ret, rerr

@@ -1,13 +1,13 @@
-package market
+package storage_market
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/ipfs/go-cid"
+	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -27,7 +27,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
-const FindDealTaskPollInterval = time.Second * 5
+var fdLog = logging.Logger("Post-PSD")
 
 type fdealApi interface {
 	headAPI
@@ -38,56 +38,24 @@ type fdealApi interface {
 	StateSearchMsg(ctx context.Context, from types.TipSetKey, msg cid.Cid, limit abi.ChainEpoch, allowReplaced bool) (*api.MsgLookup, error)
 }
 
+// FindDealTask represents a task for finding and identifying on chain deals once deal have been published.
+// Once PublishStorageDeal message has been successfully executed, each proposal is assigned a deal.
+// These deal ID must be matched to the original sent proposals so a local deal can be identified with an
+// on chain deal ID.
 type FindDealTask struct {
+	sm  *CurioStorageDealMarket
 	db  *harmonydb.DB
 	api fdealApi
 	TF  promise.Promise[harmonytask.AddTaskFunc]
 	cfg *config.MK12Config
 }
 
-func NewFindDealTask(db *harmonydb.DB, api fdealApi, cfg *config.MK12Config) *FindDealTask {
-	ft := &FindDealTask{
+func NewFindDealTask(sm *CurioStorageDealMarket, db *harmonydb.DB, api fdealApi, cfg *config.MK12Config) *FindDealTask {
+	return &FindDealTask{
+		sm:  sm,
 		db:  db,
 		api: api,
 		cfg: cfg,
-	}
-
-	ctx := context.Background()
-	go ft.pollFindDealTasks(ctx)
-	return ft
-}
-
-func (f *FindDealTask) pollFindDealTasks(ctx context.Context) {
-	for {
-		// Get all deals which do not have a URL and are not after_find
-		var deals []struct {
-			UUID string `db:"uuid"`
-		}
-		err := f.db.Select(ctx, &deals, `SELECT uuid FROM market_mk12_deal_pipeline 
-             WHERE after_psd = TRUE AND after_find_deal = FALSE AND find_deal_task_id = NULL`)
-
-		if err != nil {
-			log.Errorf("getting deal waiting for on chain deal ID: %w", err)
-			time.Sleep(FindDealTaskPollInterval)
-			continue
-		}
-
-		if len(deals) == 0 {
-			time.Sleep(FindDealTaskPollInterval)
-			continue
-		}
-
-		for _, d := range deals {
-			f.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
-				// update
-				n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET find_deal_task_id = $1 WHERE uuid = $2 AND find_deal_task_id IS NULL`, id, d)
-				if err != nil {
-					return false, xerrors.Errorf("updating deal pipeline: %w", err)
-				}
-				return n > 0, nil
-			})
-
-		}
 	}
 }
 
@@ -153,7 +121,7 @@ func (f *FindDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 						FROM message_waits
 						WHERE signed_message_cid AND executed_tsk_epoch IS NOT NULL`, bd.PublishCid)
 	if err != nil {
-		log.Errorw("failed to query message_waits", "error", err)
+		fdLog.Errorw("failed to query message_waits", "error", err)
 	}
 	if len(execResult) != 1 {
 		return false, xerrors.Errorf("expected 1 result, got %d", len(execResult))
@@ -304,7 +272,7 @@ func (f *FindDealTask) checkDealEquality(ctx context.Context, p1, p2 market.Deal
 		p1.Provider == p2.Provider &&
 		p1ClientID == p2ClientID
 
-	log.Debugw("check deal quality", "result", res, "p1clientid", p1ClientID, "p2clientid", p2ClientID, "label_equality", p1.Label.Equals(p2.Label), "provider_equality", p1.Provider == p2.Provider)
+	fdLog.Debugw("check deal quality", "result", res, "p1clientid", p1ClientID, "p2clientid", p2ClientID, "label_equality", p1.Label.Equals(p2.Label), "provider_equality", p1.Provider == p2.Provider)
 
 	return res, nil
 }
@@ -345,7 +313,7 @@ func (f *FindDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (f *FindDealTask) Adder(taskFunc harmonytask.AddTaskFunc) {
-	f.TF.Set(taskFunc)
+	f.sm.pollers[pollerFindDeal].Set(taskFunc)
 }
 
 var _ = harmonytask.Reg(&FindDealTask{})

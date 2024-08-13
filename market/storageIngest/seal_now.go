@@ -1,4 +1,4 @@
-package dealmarket
+package storageIngest
 
 import (
 	"context"

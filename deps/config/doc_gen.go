@@ -669,28 +669,6 @@ This step submits the generated proofs to the chain.`,
 			Comment: `UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance.`,
 		},
 		{
-			Name: "BoostAdapters",
-			Type: "[]string",
-
-			Comment: `BoostAdapters is a list of tuples of miner address and port/ip to listen for market (e.g. boost) requests.
-This interface is compatible with the lotus-miner RPC, implementing a subset needed for storage market operations.
-Strings should be in the format "actor:ip:port". IP cannot be 0.0.0.0. We recommend using a private IP.
-Example: "f0123:127.0.0.1:32100". Multiple addresses can be specified.
-
-When a market node like boost gives Curio's market RPC a deal to placing into a sector, Curio will first store the
-deal data in a temporary location "Piece Park" before assigning it to a sector. This requires that at least one
-node in the cluster has the EnableParkPiece option enabled and has sufficient scratch space to store the deal data.
-This is different from lotus-miner which stored the deal data into an "unsealed" sector as soon as the deal was
-received. Deal data in PiecePark is accessed when the sector TreeD and TreeR are computed, but isn't needed for
-the initial SDR layers computation. Pieces in PiecePark are removed after all sectors referencing the piece are
-sealed.
-
-To get API info for boost configuration run 'curio market rpc-info'
-
-NOTE: All deal data will flow through this service, so it should be placed on a machine running boost or on
-a machine which handles ParkPiece tasks.`,
-		},
-		{
 			Name: "EnableWebGui",
 			Type: "bool",
 
@@ -729,23 +707,11 @@ also be bounded by resources available on the machine.`,
 
 			Comment: `EnableDealMarket`,
 		},
-	},
-	"DealConfig": {
 		{
-			Name: "PieceLocator",
-			Type: "[]PieceLocatorConfig",
+			Name: "EnableCommP",
+			Type: "bool",
 
-			Comment: `PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
-User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
-The server must have 2 endpoints
-1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Filecoin-Piece-RawSize" with file size as value
-2. /data?id=pieceCID must provide a reader for the requested piece`,
-		},
-		{
-			Name: "MK12",
-			Type: "MK12Config",
-
-			Comment: `MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)`,
+			Comment: `EnableCommP enabled the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal`,
 		},
 	},
 	"Duration time.Duration": {
@@ -766,6 +732,20 @@ The server must have 2 endpoints
 			Type: "[]byte(d.String()),",
 
 			Comment: ``,
+		},
+	},
+	"IndexingConfig": {
+		{
+			Name: "InsertBatchSize",
+			Type: "int",
+
+			Comment: `Number of records per insert batch`,
+		},
+		{
+			Name: "InsertConcurrency",
+			Type: "int",
+
+			Comment: `Number of concurrent inserts to split AddIndex calls to`,
 		},
 	},
 	"MK12Config": {
@@ -805,13 +785,21 @@ The maximum fee to pay when sending the PublishStorageDeals message`,
 This will be used to fail the deals which cannot be sealed on time.
 Please make sure to update this to shorter duration for snap deals`,
 		},
+		{
+			Name: "SkipCommP",
+			Type: "bool",
+
+			Comment: `SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
+Warning: If this check is skipped and there is a commP mismatch, all deals in the
+sector will need to be sent again`,
+		},
 	},
 	"MarketConfig": {
 		{
-			Name: "DealMarketConfig",
-			Type: "DealConfig",
+			Name: "StorageMarketConfig",
+			Type: "StorageMarketConfig",
 
-			Comment: `DealMarketConfig houses all the deal related market configuration`,
+			Comment: `StorageMarketConfig houses all the deal related market configuration`,
 		},
 	},
 	"PagerDutyConfig": {
@@ -878,6 +866,30 @@ identifier in the integration page for the service.`,
 
 			Comment: `WebHookURL is the URL for the URL for slack Webhook.
 Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX`,
+		},
+	},
+	"StorageMarketConfig": {
+		{
+			Name: "PieceLocator",
+			Type: "[]PieceLocatorConfig",
+
+			Comment: `PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
+User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
+The server must have 2 endpoints
+1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
+2. /data?id=pieceCID must provide a reader for the requested piece`,
+		},
+		{
+			Name: "Indexing",
+			Type: "IndexingConfig",
+
+			Comment: `Indexing configuration for deal indexing`,
+		},
+		{
+			Name: "MK12",
+			Type: "MK12Config",
+
+			Comment: `MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)`,
 		},
 	},
 }
