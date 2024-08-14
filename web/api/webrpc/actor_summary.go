@@ -62,7 +62,7 @@ func (a *WebRPC) ActorDetail(ctx context.Context, ActorIDstr string) (*ActorDeta
 	}
 	confNameToAddr := map[address.Address][]string{}
 	minerWallets := map[string][]address.Address{}
-	a.getAddresses(func(layer string, aset config.CurioAddresses, a address.Address) {
+	err = a.visitAddresses(func(layer string, aset config.CurioAddresses, a address.Address) {
 		if !bytes.Equal(in.Bytes(), a.Bytes()) {
 			return
 		}
@@ -82,6 +82,9 @@ func (a *WebRPC) ActorDetail(ctx context.Context, ActorIDstr string) (*ActorDeta
 		}
 		confNameToAddr[a] = append(confNameToAddr[a], layer)
 	})
+	if err != nil {
+		return nil, xerrors.Errorf("visiting addresses: %w", err)
+	}
 
 	asAry, balanceCache, err := a.getActorSummary(ctx, confNameToAddr)
 	if err != nil || len(asAry) == 0 {
@@ -115,7 +118,7 @@ func (a *WebRPC) ActorDetail(ctx context.Context, ActorIDstr string) (*ActorDeta
 
 func (a *WebRPC) ActorSummary(ctx context.Context) ([]ActorSummary, error) {
 	confNameToAddr := map[address.Address][]string{}
-	err := a.getAddresses(func(name string, _ config.CurioAddresses, a address.Address) {
+	err := a.visitAddresses(func(name string, _ config.CurioAddresses, a address.Address) {
 		confNameToAddr[a] = append(confNameToAddr[a], name)
 	})
 	if err != nil {
@@ -125,7 +128,7 @@ func (a *WebRPC) ActorSummary(ctx context.Context) ([]ActorSummary, error) {
 	return as, err
 }
 
-func (a *WebRPC) getAddresses(cb func(string, config.CurioAddresses, address.Address)) error {
+func (a *WebRPC) visitAddresses(cb func(string, config.CurioAddresses, address.Address)) error {
 	err := forEachConfig(a, func(name string, info minimalActorInfo) error {
 		for _, aset := range info.Addresses {
 			for _, addr := range aset.MinerAddresses {

@@ -155,7 +155,7 @@ git checkout <release version>
        ```
    3.  By default, a ‘multicore-sdr’ option is used in the proofs library. This feature is also used in FFI unless explicitly disabled. To disable building with the ‘multicore-sdr’ dependency, set `FFI_USE_MULTICORE_SDR` to `0`:\\
 
-       ```shell
+    ```shell
        export FFI_USE_MULTICORE_SDR=0
        ```
 4. Build and install Curio:\
