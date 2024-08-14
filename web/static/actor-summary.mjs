@@ -199,12 +199,12 @@ class ActorSummary extends LitElement {
     }
 
     async loadData() {
-        this.data = await RPCCall('ActorSummary', false);
+        this.data = await RPCCall('ActorSummary');
         this.requestUpdate();
 
         // Poll for updates
         setInterval(async () => {
-            this.data = await RPCCall('ActorSummary', false);
+            this.data = await RPCCall('ActorSummary');
             this.requestUpdate();
         }, 30000);
     }
