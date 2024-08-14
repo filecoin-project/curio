@@ -64,9 +64,9 @@ deps: $(BUILD_DEPS)
 
 ## ldflags -s -w strips binary
 
+curio: GOENVS ?= GOAMD64=v3
 curio: $(BUILD_DEPS)
-	rm -f curio
-	GOAMD64=v3 CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -o curio -ldflags " -s -w \
+	$(GOENVS) CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -o curio -ldflags " -s -w \
 	-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
 	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
 	./cmd/curio
