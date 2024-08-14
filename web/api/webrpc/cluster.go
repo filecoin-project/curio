@@ -122,6 +122,7 @@ type MachineInfo struct {
 		CPU         int64
 		Memory      int64
 		GPU         int64
+		Layers      string
 	}
 
 	// Storage
@@ -190,7 +191,8 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 							hm.cpu,
 							hm.ram,
 							hm.gpu,
-							hmd.machine_name
+							hmd.machine_name,
+							hmd.layers
 						FROM 
 							harmony_machines hm
 						LEFT JOIN 
@@ -210,7 +212,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 		var m MachineInfo
 		var lastContact time.Time
 
-		if err := rows.Scan(&m.Info.ID, &m.Info.Host, &lastContact, &m.Info.CPU, &m.Info.Memory, &m.Info.GPU, &m.Info.Name); err != nil {
+		if err := rows.Scan(&m.Info.ID, &m.Info.Host, &lastContact, &m.Info.CPU, &m.Info.Memory, &m.Info.GPU, &m.Info.Name, &m.Info.Layers); err != nil {
 			return nil, err
 		}
 
