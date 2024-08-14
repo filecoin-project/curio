@@ -9,6 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/vmihailenco/msgpack/v5"
+
+	"github.com/yugabyte/pgx/v5"
+
 	logging "github.com/ipfs/go-log/v2"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
@@ -219,6 +223,16 @@ canAcceptAgain:
 	return true
 }
 
+type SectorTaskEvent struct {
+	Name        string    `msgpack:"n"`
+	Posted      time.Time `msgpack:"p"`
+	WorkStart   time.Time `msgpack:"ws"`
+	WorkEnd     time.Time `msgpack:"we"`
+	CompletedBy string    `msgpack:"cb"`
+	Result      bool      `msgpack:"r"`
+	Err         string    `msgpack:"e"`
+}
+
 func (h *taskTypeHandler) recordCompletion(tID TaskID, workStart time.Time, done bool, doErr error) {
 	workEnd := time.Now()
 	retryWait := time.Millisecond * 100
@@ -292,11 +306,40 @@ retryRecordCompletion:
 				}
 			}
 		}
+		// Retrieve the sector number associated with the task
+		// and write it to the history table, if it exists.
+		var spID *int
+		var sectorNumber *int
+		if err := tx.QueryRow(`SELECT sp_id, sector_number FROM get_sector_number_by_task_id($1)`, tID).Scan(&spID, &sectorNumber); err != nil {
+			// If the task is not associated with a sector, we can ignore the error.
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return false, fmt.Errorf("could not retrieve sector number: %w", err)
+			}
+		}
+
 		_, err = tx.Exec(`INSERT INTO harmony_task_history 
-									 (task_id,   name, posted,    work_start, work_end, result, completed_by_host_and_port,      err)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, tID, h.Name, postedTime.UTC(), workStart.UTC(), workEnd.UTC(), done, h.TaskEngine.hostAndPort, result)
+									 (task_id, name, posted, work_start, work_end, result, completed_by_host_and_port, err, sp_id, sector_number)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, tID, h.Name, postedTime.UTC(), workStart.UTC(), workEnd.UTC(), done, h.TaskEngine.hostAndPort, result, spID, sectorNumber)
 		if err != nil {
 			return false, fmt.Errorf("could not write history: %w", err)
+		}
+		if spID != nil {
+			b, err := msgpack.Marshal(&SectorTaskEvent{
+				Name:        h.Name,
+				Posted:      postedTime.UTC(),
+				WorkStart:   workStart.UTC(),
+				WorkEnd:     workEnd.UTC(),
+				CompletedBy: h.TaskEngine.hostAndPort,
+				Result:      done,
+				Err:         result,
+			})
+			if err != nil {
+				return false, fmt.Errorf("could not marshal sector task event: %w", err)
+			}
+			_, err = tx.Exec(`SELECT append_sector_event($1, $2, $3)`, spID, sectorNumber, b)
+			if err != nil {
+				return false, fmt.Errorf("could not append sector event: %w", err)
+			}
 		}
 		return true, nil
 	})
