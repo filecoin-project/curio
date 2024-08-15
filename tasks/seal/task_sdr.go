@@ -213,6 +213,18 @@ func (s *SDRTask) GetSpid(db *harmonydb.DB, taskID int64) string {
 	return spid
 }
 
+func (s *SDRTask) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error) {
+	var spId, sectorNumber uint64
+	err := db.QueryRow(context.Background(), `SELECT sp_id,sector_number FROM sectors_sdr_pipeline WHERE task_id_sdr = $1`, taskID).Scan(&spId, &sectorNumber)
+	if err != nil {
+		return nil, err
+	}
+	return &abi.SectorID{
+		Miner:  abi.ActorID(spId),
+		Number: abi.SectorNumber(sectorNumber),
+	}, nil
+}
+
 var _ = harmonytask.Reg(&SDRTask{})
 
 func (s *SDRTask) taskToSector(id harmonytask.TaskID) (ffi2.SectorRef, error) {

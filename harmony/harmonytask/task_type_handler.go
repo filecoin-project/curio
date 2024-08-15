@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/yugabyte/pgx/v5"
+	"github.com/filecoin-project/go-state-types/abi"
 
 	logging "github.com/ipfs/go-log/v2"
 	"go.opencensus.io/stats"
@@ -19,6 +19,10 @@ import (
 )
 
 var log = logging.Logger("harmonytask")
+
+type PipelineTask interface {
+	GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error)
+}
 
 type taskTypeHandler struct {
 	TaskInterface
@@ -182,6 +186,14 @@ canAcceptAgain:
 		var doErr error
 		workStart := time.Now()
 
+		var sectorID *abi.SectorID
+		if ht, ok := h.TaskInterface.(PipelineTask); ok {
+			sectorID, err = ht.GetSectorID(h.TaskEngine.db, int64(*tID))
+			if err != nil {
+				log.Errorw("Could not get sector ID", "task", h.Name, "id", *tID, "error", err)
+			}
+		}
+
 		defer func() {
 			if r := recover(); r != nil {
 				stackSlice := make([]byte, 4092)
@@ -193,7 +205,7 @@ canAcceptAgain:
 			h.Count.Add(-1)
 
 			releaseStorage()
-			h.recordCompletion(*tID, workStart, done, doErr)
+			h.recordCompletion(*tID, sectorID, workStart, done, doErr)
 			if done {
 				for _, fs := range h.TaskEngine.follows[h.Name] { // Do we know of any follows for this task type?
 					if _, err := fs.f(*tID, fs.h.AddTask); err != nil {
@@ -221,7 +233,7 @@ canAcceptAgain:
 	return true
 }
 
-func (h *taskTypeHandler) recordCompletion(tID TaskID, workStart time.Time, done bool, doErr error) {
+func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, workStart time.Time, done bool, doErr error) {
 	workEnd := time.Now()
 	retryWait := time.Millisecond * 100
 
@@ -294,15 +306,11 @@ retryRecordCompletion:
 				}
 			}
 		}
-		// Retrieve the sector number associated with the task
-		// and write it to the history table, if it exists.
-		var spID *int
-		var sectorNumber *int
-		if err := tx.QueryRow(`SELECT sp_id, sector_number FROM get_sector_number_by_task_id($1)`, tID).Scan(&spID, &sectorNumber); err != nil {
-			// If the task is not associated with a sector, we can ignore the error.
-			if !errors.Is(err, pgx.ErrNoRows) {
-				return false, fmt.Errorf("could not retrieve sector number: %w", err)
-			}
+		var spID *uint64
+		var sectorNumber *uint64
+		if sectorID != nil { // if we have a sectorID, we should record it
+			spID = (*uint64)(&sectorID.Miner)
+			sectorNumber = (*uint64)(&sectorID.Number)
 		}
 
 		_, err = tx.Exec(`INSERT INTO harmony_task_history 
