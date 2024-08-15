@@ -56,17 +56,19 @@ func Routes(r *mux.Router, deps *deps.Deps) {
 
 func (c *cfg) terminateSectors(w http.ResponseWriter, r *http.Request) {
 	var in []struct {
-		MinerID uint64
-		Sector  uint64
+		MinerAddress string
+		Sector       uint64
 	}
 	apihelper.OrHTTPFail(w, json.NewDecoder(r.Body).Decode(&in))
 	toDel := make(map[minerDetail][]sec)
 	for _, s := range in {
-		maddr, err := address.NewIDAddress(s.MinerID)
+		maddr, err := address.NewFromString(s.MinerAddress)
+		apihelper.OrHTTPFail(w, err)
+		mid, err := address.IDFromAddress(maddr)
 		apihelper.OrHTTPFail(w, err)
 		m := minerDetail{
 			Addr: maddr,
-			ID:   abi.ActorID(s.MinerID),
+			ID:   abi.ActorID(mid),
 		}
 		toDel[m] = append(toDel[m], sec{Sector: abi.SectorNumber(s.Sector), Terminate: false})
 	}
@@ -96,7 +98,7 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 	// TODO get sector info from chain and from database, then fold them together
 	// and return the result.
 	type sector struct {
-		MinerID        int64 `db:"miner_id"`
+		MinerID        int64 `db:"miner_id" json:"-"`
 		SectorNum      int64 `db:"sector_num"`
 		SectorFiletype int   `db:"sector_filetype" json:"-"` // Useless?
 		MinerAddress   address.Address
@@ -257,13 +259,14 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 			} else {
 				// sector is on chain but not in db
 				s := sector{
-					MinerID:   minerID,
-					SectorNum: int64(chainy.onChain.SectorNumber),
-					IsOnChain: true,
-					ExpiresAt: chainy.onChain.Expiration,
-					IsFilPlus: chainy.onChain.VerifiedDealWeight.GreaterThan(big.NewInt(0)),
-					Proving:   chainy.active,
-					Flag:      true, // All such sectors should be flagged to be terminated
+					MinerID:      minerID,
+					MinerAddress: maddr,
+					SectorNum:    int64(chainy.onChain.SectorNumber),
+					IsOnChain:    true,
+					ExpiresAt:    chainy.onChain.Expiration,
+					IsFilPlus:    chainy.onChain.VerifiedDealWeight.GreaterThan(big.NewInt(0)),
+					Proving:      chainy.active,
+					Flag:         true, // All such sectors should be flagged to be terminated
 				}
 				if ss, err := chainy.onChain.SealProof.SectorSize(); err == nil {
 					s.SealInfo = ss.ShortString()
