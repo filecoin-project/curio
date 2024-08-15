@@ -98,7 +98,7 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 	// TODO get sector info from chain and from database, then fold them together
 	// and return the result.
 	type sector struct {
-		MinerID        int64 `db:"miner_id" json:"-"`
+		MinerID        int64 `db:"miner_id"`
 		SectorNum      int64 `db:"sector_num"`
 		SectorFiletype int   `db:"sector_filetype" json:"-"` // Useless?
 		MinerAddress   address.Address
