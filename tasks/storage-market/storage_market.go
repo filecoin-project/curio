@@ -71,7 +71,7 @@ type MK12Pipeline struct {
 	PieceCid       string          `db:"piece_cid"`
 	Offline        bool            `db:"offline"`
 	Downloaded     bool            `db:"downloaded"`
-	RawSize        int64           `db:"file_size"`
+	RawSize        int64           `db:"raw_size"`
 	URL            string          `db:"url"`
 	Headers        json.RawMessage `db:"headers"`
 	CommTaskID     *int64          `db:"commp_task_id"`
@@ -126,9 +126,9 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 			}
 
 			if d.cfg.Ingest.DoSnap {
-				d.pin, err = storageIngest.NewPieceIngesterSnap(ctx, d.db, d.api, maddrs, false, time.Duration(d.cfg.Ingest.MaxDealWaitTime))
+				d.pin, err = storageIngest.NewPieceIngesterSnap(ctx, d.db, d.api, maddrs, false, d.cfg)
 			} else {
-				d.pin, err = storageIngest.NewPieceIngester(ctx, d.db, d.api, maddrs, false, time.Duration(d.cfg.Ingest.MaxDealWaitTime), d.cfg.Subsystems.UseSyntheticPoRep)
+				d.pin, err = storageIngest.NewPieceIngester(ctx, d.db, d.api, maddrs, false, d.cfg)
 			}
 		}
 	}
@@ -190,7 +190,7 @@ func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
 									p.started as started,
 									p.piece_cid as piece_cid,
 									p.offline as offline,
-									p.file_size as file_size,
+									p.raw_size as raw_size,
 									p.url as url,
 									p.url_headers as url_headers,
 									p.commp_task_id as commp_task_id,
@@ -379,7 +379,7 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 	}
 
 	if len(goUrls) == 1 {
-		_, err := d.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET url = $1, headers = $2, file_size = $3
+		_, err := d.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET url = $1, headers = $2, raw_size = $3
                            WHERE uuid = $4`, goUrls[0].Url, goUrls[0].Headerb, goUrls[0].RawSize, deal)
 		if err != nil {
 			return false, xerrors.Errorf("store url for piece %s: updating pipeline: %w", pcid, err)
@@ -428,7 +428,7 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 			return false, xerrors.Errorf("failed to parse the raw size: %w", err)
 		}
 
-		_, err = d.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET url = $1, headers = $2, file_size = $3   
+		_, err = d.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET url = $1, headers = $2, raw_size = $3   
                            WHERE WHERE uuid = $4`, urlString, hdrs, rawSize, deal)
 		if err != nil {
 			return false, xerrors.Errorf("store url for piece %s: updating pipeline: %w", pcid, err)

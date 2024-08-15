@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"time"
 
+	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/deps/config"
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
@@ -70,14 +73,15 @@ type mdetails struct {
 }
 
 type PieceIngester struct {
-	ctx          context.Context
-	db           *harmonydb.DB
-	api          PieceIngesterApi
-	addToID      map[address.Address]int64
-	idToAddr     map[abi.ActorID]address.Address
-	minerDetails map[int64]*mdetails
-	sealRightNow bool // Should be true only for CurioAPI AllocatePieceToSector method
-	maxWaitTime  time.Duration
+	ctx                  context.Context
+	db                   *harmonydb.DB
+	api                  PieceIngesterApi
+	addToID              map[address.Address]int64
+	idToAddr             map[abi.ActorID]address.Address
+	minerDetails         map[int64]*mdetails
+	sealRightNow         bool // Should be true only for CurioAPI AllocatePieceToSector method
+	maxWaitTime          time.Duration
+	expectedSealDuration abi.ChainEpoch
 }
 
 type verifiedDeal struct {
@@ -86,7 +90,7 @@ type verifiedDeal struct {
 	tmax       abi.ChainEpoch
 }
 
-func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterApi, miners []address.Address, sealRightNow bool, maxWaitTime time.Duration, synth bool) (*PieceIngester, error) {
+func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterApi, miners []address.Address, sealRightNow bool, cfg *config.CurioConfig) (*PieceIngester, error) {
 	if len(miners) == 0 {
 		return nil, xerrors.Errorf("no miners provided")
 	}
@@ -111,7 +115,7 @@ func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterAp
 			return nil, xerrors.Errorf("getting network version: %w", err)
 		}
 
-		proof, err := miner.PreferredSealProofTypeFromWindowPoStType(nv, mi.WindowPoStProofType, synth)
+		proof, err := miner.PreferredSealProofTypeFromWindowPoStType(nv, mi.WindowPoStProofType, cfg.Subsystems.UseSyntheticPoRep)
 		if err != nil {
 			return nil, xerrors.Errorf("getting preferred seal proof type: %w", err)
 		}
@@ -130,15 +134,19 @@ func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterAp
 		idToAddr[abi.ActorID(mid)] = maddr
 	}
 
+	epochs := time.Duration(cfg.Market.StorageMarketConfig.MK12.ExpectedPoRepSealDuration).Seconds() / float64(build.BlockDelaySecs)
+	expectedEpochs := math.Ceil(epochs)
+
 	pi := &PieceIngester{
-		ctx:          ctx,
-		db:           db,
-		api:          api,
-		sealRightNow: sealRightNow,
-		maxWaitTime:  maxWaitTime,
-		addToID:      addToID,
-		minerDetails: minerDetails,
-		idToAddr:     idToAddr,
+		ctx:                  ctx,
+		db:                   db,
+		api:                  api,
+		sealRightNow:         sealRightNow,
+		maxWaitTime:          time.Duration(cfg.Ingest.MaxDealWaitTime),
+		addToID:              addToID,
+		minerDetails:         minerDetails,
+		idToAddr:             idToAddr,
+		expectedSealDuration: abi.ChainEpoch(int64(expectedEpochs)),
 	}
 
 	go pi.start()
@@ -173,7 +181,7 @@ func (p *PieceIngester) Seal() error {
 		// Start sealing a sector if
 		// 1. If sector is full
 		// 2. We have been waiting for MaxWaitDuration
-		// 3. StartEpoch is less than 8 hours // todo: make this config?
+		// 3. StartEpoch is currentEpoch + expectedSealDuration
 		if sector.currentSize == abi.PaddedPieceSize(p.minerDetails[int64(sector.miner)].sectorSize) {
 			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "sector full")
 			return true
@@ -182,7 +190,7 @@ func (p *PieceIngester) Seal() error {
 			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "MaxWaitTime reached")
 			return true
 		}
-		if sector.earliestStartEpoch < head.Height()+abi.ChainEpoch(960) {
+		if sector.earliestStartEpoch < head.Height()+p.expectedSealDuration {
 			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "earliest start epoch")
 			return true
 		}

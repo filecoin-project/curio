@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"time"
 
+	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/deps/config"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -37,18 +40,19 @@ const IdealEndEpochBuffer = 2 * builtin.EpochsInDay
 var SnapImmutableDeadlineEpochsBuffer = abi.ChainEpoch(40)
 
 type PieceIngesterSnap struct {
-	ctx          context.Context
-	db           *harmonydb.DB
-	api          PieceIngesterApi
-	addToID      map[address.Address]int64
-	idToAddr     map[abi.ActorID]address.Address
-	minerDetails map[int64]*mdetails
-	sectorSize   abi.SectorSize
-	sealRightNow bool // Should be true only for CurioAPI AllocatePieceToSector method
-	maxWaitTime  time.Duration
+	ctx                  context.Context
+	db                   *harmonydb.DB
+	api                  PieceIngesterApi
+	addToID              map[address.Address]int64
+	idToAddr             map[abi.ActorID]address.Address
+	minerDetails         map[int64]*mdetails
+	sectorSize           abi.SectorSize
+	sealRightNow         bool // Should be true only for CurioAPI AllocatePieceToSector method
+	maxWaitTime          time.Duration
+	expectedSnapDuration abi.ChainEpoch
 }
 
-func NewPieceIngesterSnap(ctx context.Context, db *harmonydb.DB, api PieceIngesterApi, miners []address.Address, sealRightNow bool, maxWaitTime time.Duration) (*PieceIngesterSnap, error) {
+func NewPieceIngesterSnap(ctx context.Context, db *harmonydb.DB, api PieceIngesterApi, miners []address.Address, sealRightNow bool, cfg *config.CurioConfig) (*PieceIngesterSnap, error) {
 	if len(miners) == 0 {
 		return nil, xerrors.Errorf("no miners provided")
 	}
@@ -92,15 +96,19 @@ func NewPieceIngesterSnap(ctx context.Context, db *harmonydb.DB, api PieceIngest
 		idToAddr[abi.ActorID(mid)] = maddr
 	}
 
+	epochs := time.Duration(cfg.Market.StorageMarketConfig.MK12.ExpectedSnapSealDuration).Seconds() / float64(build.BlockDelaySecs)
+	expectedEpochs := math.Ceil(epochs)
+
 	pi := &PieceIngesterSnap{
-		ctx:          ctx,
-		db:           db,
-		api:          api,
-		sealRightNow: sealRightNow,
-		maxWaitTime:  maxWaitTime,
-		addToID:      addToID,
-		minerDetails: minerDetails,
-		idToAddr:     idToAddr,
+		ctx:                  ctx,
+		db:                   db,
+		api:                  api,
+		sealRightNow:         sealRightNow,
+		maxWaitTime:          time.Duration(cfg.Ingest.MaxDealWaitTime),
+		addToID:              addToID,
+		minerDetails:         minerDetails,
+		idToAddr:             idToAddr,
+		expectedSnapDuration: abi.ChainEpoch(int64(expectedEpochs)),
 	}
 
 	go pi.start()
@@ -135,7 +143,7 @@ func (p *PieceIngesterSnap) Seal() error {
 		// Start sealing a sector if
 		// 1. If sector is full
 		// 2. We have been waiting for MaxWaitDuration
-		// 3. StartEpoch is less than 8 hours // todo: make this config?
+		// 3. StartEpoch is currentEpoch + expectedSealDuration
 		if sector.currentSize == abi.PaddedPieceSize(p.sectorSize) {
 			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "sector full")
 			return true
@@ -144,7 +152,7 @@ func (p *PieceIngesterSnap) Seal() error {
 			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "MaxWaitTime reached")
 			return true
 		}
-		if sector.earliestStartEpoch < head.Height()+abi.ChainEpoch(960) {
+		if sector.earliestStartEpoch < head.Height()+p.expectedSnapDuration {
 			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "earliest start epoch")
 			return true
 		}

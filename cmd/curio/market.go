@@ -186,7 +186,7 @@ var marketImportdataCmd = &cli.Command{
 			}
 
 			// Insert the offline deal into the deal pipeline
-			_, err = tx.Exec(`INSERT INTO market_mk12_deal_pipeline (url, file_size)
+			_, err = tx.Exec(`INSERT INTO market_mk12_deal_pipeline (url, raw_size)
 								VALUES ($1, $2) WHERE uuid = $3 ON CONFLICT (uuid) DO NOTHING`,
 				pieceIDUrl, rawSize)
 			if err != nil {

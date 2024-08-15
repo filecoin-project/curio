@@ -58,10 +58,10 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		UUID    string          `db:"uuid"`
 		URL     *string         `db:"url"`
 		Headers json.RawMessage `db:"headers"`
-		Size    *int64          `db:"file_size"`
+		Size    *int64          `db:"raw_size"`
 	}
 
-	err = c.db.Select(ctx, &pieces, `SELECT uuid, url, headers, file_size, piece_cid  
+	err = c.db.Select(ctx, &pieces, `SELECT uuid, url, headers, raw_size, piece_cid  
 								FROM market_mk12_deal_pipeline WHERE commp_task_id = $1`, taskID)
 
 	if err != nil {

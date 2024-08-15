@@ -436,18 +436,19 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 				Opaque: fmt.Sprintf("%d", refID),
 			}
 
-			_, err = tx.Exec(`INSERT INTO market_mk12_deal_pipeline (uuid, sp_id, piece_cid, piece_size, offline, url, file_size)
-								VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (uuid) DO NOTHING`,
-				deal.DealUuid.String(), mid, prop.PieceCID.String(), prop.PieceSize, deal.IsOffline, pieceIDUrl, deal.Transfer.Size)
+			_, err = tx.Exec(`INSERT INTO market_mk12_deal_pipeline (uuid, sp_id, piece_cid, piece_size, offline, url, raw_size, should_index)
+								VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (uuid) DO NOTHING`,
+				deal.DealUuid.String(), mid, prop.PieceCID.String(), prop.PieceSize, deal.IsOffline, pieceIDUrl, deal.Transfer.Size,
+				deal.FastRetrieval)
 			if err != nil {
 				return false, xerrors.Errorf("inserting deal into deal pipeline: %w", err)
 			}
 
 		} else {
 			// Insert the offline deal into the deal pipeline
-			_, err = tx.Exec(`INSERT INTO market_mk12_deal_pipeline (uuid, sp_id, piece_cid, piece_size, offline)
-								VALUES ($1, $2, $3, $4, $5) ON CONFLICT (uuid) DO NOTHING`,
-				deal.DealUuid.String(), mid, prop.PieceCID.String(), prop.PieceSize, deal.IsOffline)
+			_, err = tx.Exec(`INSERT INTO market_mk12_deal_pipeline (uuid, sp_id, piece_cid, piece_size, offline, should_index)
+								VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (uuid) DO NOTHING`,
+				deal.DealUuid.String(), mid, prop.PieceCID.String(), prop.PieceSize, deal.IsOffline, deal.FastRetrieval)
 			if err != nil {
 				return false, xerrors.Errorf("inserting deal into deal pipeline: %w", err)
 			}

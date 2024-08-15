@@ -78,7 +78,12 @@ func DefaultCurioConfig() *CurioConfig {
 					InsertBatchSize:   15000,
 				},
 				MK12: MK12Config{
-					Miners: []string{},
+					Miners:                    []string{},
+					PublishMsgPeriod:          Duration(30 * time.Minute),
+					MaxDealsPerPublishMsg:     8,
+					MaxPublishDealsFee:        types.MustParseFIL("5 FIL"),
+					ExpectedPoRepSealDuration: Duration(8 * time.Hour),
+					ExpectedSnapSealDuration:  Duration(2 * time.Hour),
 				},
 			},
 		},
@@ -570,7 +575,7 @@ type StorageMarketConfig struct {
 }
 
 type MK12Config struct {
-	// Miners is a list of miner to enable MK12 deals(Boost) for
+	// Miners is a list of miner addresses to enable MK12 deals(Boost) for
 	Miners []string
 
 	// When a deal is ready to publish, the amount of time to wait for more
@@ -586,10 +591,13 @@ type MK12Config struct {
 	// The maximum fee to pay when sending the PublishStorageDeals message
 	MaxPublishDealsFee types.FIL
 
-	// ExpectedSealDuration is the expected time it would take to seal the deal sector
+	// ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
 	// This will be used to fail the deals which cannot be sealed on time.
-	// Please make sure to update this to shorter duration for snap deals
-	ExpectedSealDuration Duration
+	ExpectedPoRepSealDuration Duration
+
+	// ExpectedSnapSealDuration is the expected time it would take to snap the deal sector
+	// This will be used to fail the deals which cannot be sealed on time.
+	ExpectedSnapSealDuration Duration
 
 	// SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
 	// Warning: If this check is skipped and there is a commP mismatch, all deals in the
