@@ -102,8 +102,8 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return false, xerrors.Errorf("checking if piece is already indexed: %w", err)
 	}
 
-	// Return early if already indexed
-	if indexed {
+	// Return early if already indexed or should not be indexed
+	if indexed || !task.ShouldIndex {
 		err = i.recordCompletion(ctx, task, taskID, false)
 		if err != nil {
 			return false, err

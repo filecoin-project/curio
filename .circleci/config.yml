@@ -144,7 +144,7 @@ jobs:
         description: Flags passed to go test.
       target:
         type: string
-        default: "./..."
+        default: "./... | grep -v itests"
         description: Import paths of packages to be tested.
       proofs-log-test:
         type: string
@@ -287,6 +287,5 @@ workflows:
           name: test-idxStore
           requires:
             - build
-          suite: idxStore
-          target: "./lib/indexing/indexstore/indexstore_test.go"
+          suite: test-all
           get-params: true
