@@ -68,9 +68,9 @@ Curio Storage is continuously evolving, with future plans including:
 
 ## Getting Started
 
-We recommend reading [docs.CurioStorage.org](https://docs.curiostorage.org/). You can also get started builing directly:
+We recommend reading [docs.CurioStorage.org](https://docs.curiostorage.org/) where you may have a pre-built binary for your system.
 
-To get started with Curio Storage, follow these steps:
+One way to get started with Curio Storage, follow these steps:
 
 1. **Clone the Repository**:
     ```sh
