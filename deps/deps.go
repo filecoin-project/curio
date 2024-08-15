@@ -29,6 +29,7 @@ import (
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps/config"
@@ -180,6 +181,7 @@ type Deps struct {
 	LocalPaths *paths.BasicLocalStorage
 	ListenAddr string
 	Name       string
+	Alert      *alertmanager.AlertNow
 }
 
 const (
@@ -288,6 +290,11 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 			}
 		}
 	}
+
+	if deps.Alert == nil {
+		deps.Alert = alertmanager.NewAlertNow(deps.DB, deps.ListenAddr)
+	}
+
 	if cctx.IsSet("gui-listen") {
 		deps.Cfg.Subsystems.GuiAddress = cctx.String("gui-listen")
 	}

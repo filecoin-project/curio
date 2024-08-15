@@ -62,7 +62,7 @@ To get started with Curio Storage, follow these steps:
 
 1. **Clone the Repository**:
     ```sh
-    https://github.com/filecoin-project/curio
+    git clone https://github.com/filecoin-project/curio.git
     cd curio
     ```
 

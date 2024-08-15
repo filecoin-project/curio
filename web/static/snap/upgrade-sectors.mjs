@@ -2,6 +2,16 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import RPCCall from '/lib/jsonrpc.mjs';
 
 class UpgradeSectors extends LitElement {
+    static styles = css`
+        .btn-delete {
+            background-color: red;
+            color: white;
+            font-size: 0.8em;
+            padding: 2px 5px;
+            margin-left: 5px;
+        }
+    `;
+
     constructor() {
         super();
         this.data = [];
@@ -34,6 +44,7 @@ class UpgradeSectors extends LitElement {
                     <th>Submit</th>
                     <th>Move Storage</th>
                     <th>Prove Message Landed</th>
+                    <th>State</th>
                     
                     <th>Actions</th>
                 </tr>
@@ -49,10 +60,14 @@ class UpgradeSectors extends LitElement {
                         <td>${entry.AfterSubmit ? 'Done' : entry.TaskIDSubmit === null ? 'Not Started' : entry.TaskIDSubmit}</td>
                         <td>${entry.AfterMoveStorage ? 'Done' : entry.TaskIDMoveStorage === null ? 'Not Started' : entry.TaskIDMoveStorage}</td>
                         <td>${entry.AfterProveSuccess ? 'Done' : entry.AfterSubmit ? 'Waiting' : 'Not Sent'}</td>
+                        <td>${entry.Failed ? html`<abbr title=${entry.FailedMsg}><p>FAILED</p><p>${entry.FailedReason}</p></abbr>` : 'Healthy'}</td>
                         
                         <td>
                             ${ '' /*todo: this button is a massive footgun, it should get some more safety*/ }
                             <button class="btn btn-primary" @click=${() => RPCCall('UpgradeResetTaskIDs', [entry.SpID, entry.SectorNum])}>unsafe:ResetTasks</button>
+                            ${entry.Failed ? html`
+                                <button class="btn btn-danger" @click=${() => RPCCall('UpgradeDelete', [entry.SpID, entry.SectorNum])}>Delete</button>
+                            ` : ''}
                         </td>
                     </tr>
                     `)}

@@ -59,14 +59,15 @@ type alerts struct {
 	alertMap map[string]*alertOut
 }
 
-type alertFunc func(al *alerts)
+type AlertFunc func(al *alerts)
 
-var alertFuncs = []alertFunc{
+var AlertFuncs = []AlertFunc{
 	balanceCheck,
 	taskFailureCheck,
 	permanentStorageCheck,
 	wdPostCheck,
 	wnPostCheck,
+	NowCheck,
 }
 
 func NewAlertTask(
@@ -101,7 +102,7 @@ func (a *AlertTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		alertMap: alMap,
 	}
 
-	for _, al := range alertFuncs {
+	for _, al := range AlertFuncs {
 		al(altrs)
 	}
 

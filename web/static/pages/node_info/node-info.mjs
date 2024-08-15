@@ -9,6 +9,8 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
         const id = new URLSearchParams(window.location.search).get('id');
         this.data = await RPCCall('ClusterNodeInfo', [ id|0 ]);
         this.requestUpdate();
+
+        setTimeout(() => this.loadData(), 2500);
     }
     render() {
         if (!this.data) {
@@ -38,8 +40,29 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                     <td>${this.data.Info.CPU}</td>
                     <td>${this.toHumanBytes(this.data.Info.Memory)}</td>
                     <td>${this.data.Info.GPU}</td>
-                    <td><a href="http://${this.data.Info.Host}/debug/pprof">[pprof]</a></td>
+                    <td>
+                        <a href="http://${this.data.Info.Host}/debug/pprof">[pprof]</a>
+                        <a href="http://${this.data.Info.Host}/debug/metrics">[metrics]</a>
+                    </td>
                 </tr>
+            </table>
+            <hr>
+            <h2>Configuration</h2>
+            <table class="table table-dark">
+                <thead>
+                <tr>
+                    <td>Order</td><td>Layer</td><td>View</td>
+                </tr>
+                </thead>
+                <tbody>
+                ${this.data.Info.Layers.split(',').map((item, i) => html`
+                    <tr>
+                        <td>${i}</td>
+                        <td>${item}</td>
+                        <td><a href="/config/edit.html?layer=${item}">[view]</a></td>
+                    </tr>
+                `)}
+                </tbody>
             </table>
             <hr>
             <h2>Storage</h2>

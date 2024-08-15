@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/lib/asyncwrite"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	paths2 "github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/tarutil"
 
 	"github.com/filecoin-project/lotus/storage/sealer/fr32"
@@ -36,7 +37,7 @@ func (sb *SealCalls) EncodeUpdate(
 	pieces []abi.PieceInfo,
 	keepUnsealed bool) (sealedCID cid.Cid, unsealedCID cid.Cid, err error) {
 	noDecl := storiface.FTNone
-	if keepUnsealed {
+	if !keepUnsealed {
 		noDecl = storiface.FTUnsealed
 	}
 
@@ -185,6 +186,10 @@ func (sb *SealCalls) EncodeUpdate(
 		if err != nil {
 			return cid.Undef, cid.Undef, xerrors.Errorf("extracting cache: %w", err)
 		}
+
+		if err := proof.EnsureTauxForType(sector.ProofType, keyCachePath); err != nil {
+			return cid.Cid{}, cid.Cid{}, xerrors.Errorf("ensuring t_aux exists: %w", err)
+		}
 	}
 
 	// allocate update file
@@ -251,7 +256,12 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Undef, cid.Undef, xerrors.Errorf("clear cache: %w", err)
 	}
 
-	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTUpdate|storiface.FTUpdateCache); err != nil {
+	ensureTypes := storiface.FTUpdate | storiface.FTUpdateCache
+	if keepUnsealed {
+		ensureTypes |= storiface.FTUnsealed
+	}
+
+	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, ensureTypes); err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("ensure one copy: %w", err)
 	}
 

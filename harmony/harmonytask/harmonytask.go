@@ -7,6 +7,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/resources"
 )
@@ -256,6 +259,8 @@ func (e *TaskEngine) GracefullyTerminate() {
 func (e *TaskEngine) poller() {
 	nextWait := POLL_NEXT_DURATION
 	for {
+		stats.Record(context.Background(), TaskMeasures.PollerIterations.M(1))
+
 		select {
 		case <-time.After(nextWait): // Find work periodically
 		case <-e.ctx.Done(): ///////////////////// Graceful exit
@@ -270,6 +275,22 @@ func (e *TaskEngine) poller() {
 		if time.Since(e.lastFollowTime) > FOLLOW_FREQUENCY {
 			e.followWorkInDB()
 		}
+
+		// update resource usage
+		availableResources := e.ResourcesAvailable()
+		totalResources := e.Resources()
+
+		cpuUsage := 1 - float64(availableResources.Cpu)/float64(totalResources.Cpu)
+		stats.Record(context.Background(), TaskMeasures.CpuUsage.M(cpuUsage*100))
+
+		if totalResources.Gpu > 0 {
+			gpuUsage := 1 - availableResources.Gpu/totalResources.Gpu
+			stats.Record(context.Background(), TaskMeasures.GpuUsage.M(gpuUsage*100))
+		}
+
+		ramUsage := 1 - float64(availableResources.Ram)/float64(totalResources.Ram)
+		stats.Record(context.Background(), TaskMeasures.RamUsage.M(ramUsage*100))
+
 	}
 }
 
@@ -401,6 +422,13 @@ func (e *TaskEngine) Resources() resources.Resources {
 var Registry = map[string]TaskInterface{}
 
 func Reg(t TaskInterface) bool {
-	Registry[t.TypeDetails().Name] = t
+	name := t.TypeDetails().Name
+	Registry[name] = t
+
+	// reset metrics
+	_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
+		tag.Upsert(taskNameTag, name),
+	}, TaskMeasures.ActiveTasks.M(0))
+
 	return true
 }

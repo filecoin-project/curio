@@ -14,7 +14,6 @@ import (
 
 	"github.com/filecoin-project/curio/api"
 
-	lapi "github.com/filecoin-project/lotus/api"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/lib/retry"
 )
@@ -71,13 +70,6 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 	var v1API api.ChainStruct
 	FullNodeProxy(fullNodes, &v1API)
 
-	v, err := v1API.Version(ctx.Context)
-	if err != nil {
-		return nil, nil, err
-	}
-	if !v.APIVersion.EqMajorMinor(lapi.FullAPIVersion1) {
-		return nil, nil, xerrors.Errorf("Remote API version didn't match (expected %s, remote %s)", lapi.FullAPIVersion1, v.APIVersion)
-	}
 	return &v1API, finalCloser, nil
 }
 

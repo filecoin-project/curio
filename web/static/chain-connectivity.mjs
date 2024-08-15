@@ -24,15 +24,6 @@ window.customElements.define('chain-connectivity', class MyElement extends LitEl
         :host {
             box-sizing: border-box; /* Don't forgert this to include padding/border inside width calculation */
         }
-        .success {
-            color: green;
-        }
-        .warning {
-            color: yellow;
-        }
-        .error {
-            color: red;
-        }
     `];
     }
     render() {
@@ -53,8 +44,8 @@ window.customElements.define('chain-connectivity', class MyElement extends LitEl
         ${this.data.map(item => html`
         <tr>
             <td>${item.Address}</td>
-            <td>${item.Reachable ? html`<span class="alert alert-success">ok</span>` : html`<span class="alert altert-danger">FAIL</span>`}</td>
-            <td>${item.SyncState === "ok" ? html`<span class="alert alert-success">ok</span>` : html`<span class="alert alert-warning">No${item.SyncState? ', '+item.SyncState:''}</span>`}</td>
+            <td>${item.Reachable ? html`<span class="success">ok</span>` : html`<span class="error">FAIL</span>`}</td>
+            <td>${item.SyncState === "ok" ? html`<span class="success">ok</span>` : html`<span class="warning">No${item.SyncState? ', '+item.SyncState:''}</span>`}</td>
             <td>${item.Version}</td>
         </tr>
         `)}

@@ -140,6 +140,12 @@ alerts will be triggered for the wallet`,
 			Comment: ``,
 		},
 		{
+			Name: "Seal",
+			Type: "CurioSealConfig",
+
+			Comment: ``,
+		},
+		{
 			Name: "Apis",
 			Type: "ApisConfig",
 
@@ -374,6 +380,47 @@ Note that setting this value lower may result in less efficient gas use - more m
 to prove each deadline, resulting in more total gas use (but each message will have lower gas limit)`,
 		},
 	},
+	"CurioSealConfig": {
+		{
+			Name: "BatchSealSectorSize",
+			Type: "string",
+
+			Comment: `BatchSealSectorSize Allows setting the sector size supported by the batch seal task.
+Can be any value as long as it is "32GiB".`,
+		},
+		{
+			Name: "BatchSealBatchSize",
+			Type: "int",
+
+			Comment: `Number of sectors in a seal batch. Depends on hardware and supraseal configuration.`,
+		},
+		{
+			Name: "BatchSealPipelines",
+			Type: "int",
+
+			Comment: `Number of parallel pipelines. Can be 1 or 2. Depends on available raw block storage`,
+		},
+		{
+			Name: "SingleHasherPerThread",
+			Type: "bool",
+
+			Comment: `SingleHasherPerThread is a compatibility flag for older CPUs. Zen3 and later supports two sectors per thread.
+Set to false for older CPUs (Zen 2 and before).`,
+		},
+		{
+			Name: "LayerNVMEDevices",
+			Type: "[]string",
+
+			Comment: `LayerNVMEDevices is a list of pcie device addresses that should be used for SDR layer storage.
+The required storage is 11 * BatchSealBatchSize * BatchSealSectorSize * BatchSealPipelines
+Total Read IOPS for optimal performance should be 10M+.
+The devices MUST be NVMe devices, not used for anything else. Any data on the devices will be lost!
+
+It's recommend to define these settings in a per-machine layer, as the devices are machine-specific.
+
+Example: ["0000:01:00.0", "0000:01:00.1"]`,
+		},
+	},
 	"CurioSubsystemsConfig": {
 		{
 			Name: "EnableWindowPost",
@@ -444,6 +491,17 @@ In lotus-miner this was run as part of PreCommit1.`,
 
 			Comment: `The maximum amount of SDR tasks that can run simultaneously. Note that the maximum number of tasks will
 also be bounded by resources available on the machine.`,
+		},
+		{
+			Name: "SealSDRMinTasks",
+			Type: "int",
+
+			Comment: `The maximum amount of SDR tasks that need to be queued before the system will start accepting new tasks.
+The main purpose of this setting is to allow for enough tasks to accumulate for batch sealing. When batch sealing
+nodes are present in the cluster, this value should be set to batch_size+1 to allow for the batch sealing node to
+fill up the batch.
+This setting can also be used to give priority to other nodes in the cluster by setting this value to a higher
+value on the nodes which should have less priority.`,
 		},
 		{
 			Name: "EnableSealSDRTrees",
@@ -649,6 +707,11 @@ And looks for a 200 response with the following JSON body:
 "timeout": 60
 }
 Timeout in seconds until it will be rescheduled.`,
+		},{
+			Name: "EnableBatchSeal",
+			Type: "bool",
+
+			Comment: `Batch Seal`,
 		},
 	},
 	"Duration time.Duration": {

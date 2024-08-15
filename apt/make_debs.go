@@ -114,6 +114,12 @@ func part2(base, product, extra string) {
 		base = path.Join(dir, "lib", "systemd", "system")
 		OrPanic(os.MkdirAll(base, 0755))
 		OrPanic(copyFile("apt/curio.service", path.Join(base, "curio.service")))
+		base = path.Join(dir, "usr", "share", "bash-completion", "completions")
+		OrPanic(os.MkdirAll(base, 0755))
+		OrPanic(copyFile("scripts/completion/bash_autocomplete", path.Join(base, "curio")))
+		base = path.Join(dir, "usr", "local", "share", "zsh", "site-functions")
+		OrPanic(os.MkdirAll(base, 0755))
+		OrPanic(copyFile("scripts/completion/zsh_autocomplete", path.Join(base, "_curio")))
 	}
 	// fix the debian/control "package" and "version" fields
 	fb, err := os.ReadFile(path.Join(dir, "DEBIAN", "control"))
