@@ -9,8 +9,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/filecoin-project/curio/build"
-	"github.com/filecoin-project/curio/deps/config"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"

@@ -407,7 +407,7 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 			if err != nil {
 				return false, xerrors.Errorf("error making GET request: %w", err)
 			}
-			
+
 			// Check the response code for 404
 			if resp.StatusCode != http.StatusOK {
 				if resp.StatusCode != 404 {
