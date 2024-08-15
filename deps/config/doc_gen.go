@@ -707,7 +707,8 @@ And looks for a 200 response with the following JSON body:
 "timeout": 60
 }
 Timeout in seconds until it will be rescheduled.`,
-		},{
+		},
+		{
 			Name: "EnableBatchSeal",
 			Type: "bool",
 
