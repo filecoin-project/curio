@@ -99,6 +99,7 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 		MinerID        int64 `db:"miner_id"`
 		SectorNum      int64 `db:"sector_num"`
 		SectorFiletype int   `db:"sector_filetype" json:"-"` // Useless?
+		MinerAddress   address.Address
 		HasSealed      bool
 		HasUnsealed    bool
 		HasSnap        bool
@@ -148,9 +149,11 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 		sectors[i].HasUnsealed = s.SectorFiletype&int(storiface.FTUnsealed) != 0
 		sectors[i].HasSnap = s.SectorFiletype&int(storiface.FTUpdate) != 0
 		sectorIdx[sectorID{s.MinerID, uint64(s.SectorNum)}] = i
+		addr, err := address.NewIDAddress(uint64(s.MinerID))
+		apihelper.OrHTTPFail(w, err)
+		sectors[i].MinerAddress = addr
 		if _, ok := minerToAddr[s.MinerID]; !ok {
-			minerToAddr[s.MinerID], err = address.NewIDAddress(uint64(s.MinerID))
-			apihelper.OrHTTPFail(w, err)
+			minerToAddr[s.MinerID] = addr
 		}
 	}
 

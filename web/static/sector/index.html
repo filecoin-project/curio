@@ -70,11 +70,11 @@
       ajax: '/api/sector/all',
       columns: [
         { title: "", data: null },
-        { title: "SpID", data: 'MinerID',  },
+        { title: "SpID", data: 'MinerAddress',  },
         {
           title: "Sector", data: 'SectorNum', render: function (data, type, row) {
             if (type === 'display') {
-              return `<a href="/pages/sector/?sp=t0${row.MinerID}&id=${data}">${data}</a>`;
+              return `<a href="/pages/sector/?sp=${row.MinerAddress}&id=${data}">${data}</a>`;
             }
             return data;
           }
