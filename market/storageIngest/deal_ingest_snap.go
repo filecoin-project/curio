@@ -9,8 +9,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/filecoin-project/curio/build"
-	"github.com/filecoin-project/curio/deps/config"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -22,6 +20,8 @@ import (
 	verifreg13 "github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 	"github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 
+	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
 	"github.com/filecoin-project/lotus/api"
@@ -692,4 +692,8 @@ func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*open
 	}
 
 	return os, nil
+}
+
+func (p *PieceIngesterSnap) GetExpectedSealDuration() abi.ChainEpoch {
+	return p.expectedSnapDuration
 }

@@ -753,7 +753,7 @@ also be bounded by resources available on the machine.`,
 			Name: "Miners",
 			Type: "[]string",
 
-			Comment: `Miners is a list of miner to enable MK12 deals(Boost) for`,
+			Comment: `Miners is a list of miner addresses to enable MK12 deals(Boost) for`,
 		},
 		{
 			Name: "PublishMsgPeriod",
@@ -778,12 +778,18 @@ as a multiplier of the minimum collateral bound
 The maximum fee to pay when sending the PublishStorageDeals message`,
 		},
 		{
-			Name: "ExpectedSealDuration",
+			Name: "ExpectedPoRepSealDuration",
 			Type: "Duration",
 
-			Comment: `ExpectedSealDuration is the expected time it would take to seal the deal sector
-This will be used to fail the deals which cannot be sealed on time.
-Please make sure to update this to shorter duration for snap deals`,
+			Comment: `ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
+This will be used to fail the deals which cannot be sealed on time.`,
+		},
+		{
+			Name: "ExpectedSnapSealDuration",
+			Type: "Duration",
+
+			Comment: `ExpectedSnapSealDuration is the expected time it would take to snap the deal sector
+This will be used to fail the deals which cannot be sealed on time.`,
 		},
 		{
 			Name: "SkipCommP",

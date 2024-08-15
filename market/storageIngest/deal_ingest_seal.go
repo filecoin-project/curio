@@ -9,8 +9,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/filecoin-project/curio/build"
-	"github.com/filecoin-project/curio/deps/config"
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
@@ -22,6 +20,8 @@ import (
 	"github.com/filecoin-project/go-state-types/dline"
 	"github.com/filecoin-project/go-state-types/network"
 
+	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/tasks/seal"
 
@@ -38,6 +38,7 @@ var log = logging.Logger("storage-ingest")
 type Ingester interface {
 	AllocatePieceToSector(ctx context.Context, tx *harmonydb.Tx, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (api.SectorOffset, error)
 	SectorStartSealing(ctx context.Context, maddr address.Address, sector abi.SectorNumber) error
+	GetExpectedSealDuration() abi.ChainEpoch
 }
 
 type PieceIngesterApi interface {
@@ -571,4 +572,8 @@ func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx, mid int64) ([]*openSect
 	}
 
 	return os, nil
+}
+
+func (p *PieceIngester) GetExpectedSealDuration() abi.ChainEpoch {
+	return p.expectedSealDuration
 }

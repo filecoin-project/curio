@@ -217,24 +217,20 @@ description: The default curio configuration
   # type: int
   #SyntheticPoRepMaxTasks = 0
 
-<<<<<<< HEAD
-<<<<<<< HEAD
   # Batch Seal
   #
   # type: bool
   #EnableBatchSeal = false
-=======
+
   # EnableDealMarket
   #
   # type: bool
   #EnableDealMarket = false
->>>>>>> 6d3d660 (basic mk12 scafolding)
-=======
+
   # EnableCommP enabled the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
   #
   # type: bool
   #EnableCommP = false
->>>>>>> bd6e6c0 (poller redesign)
 
 
 [Fees]
@@ -416,7 +412,7 @@ description: The default curio configuration
       #InsertConcurrency = 8
 
     [Market.StorageMarketConfig.MK12]
-      # Miners is a list of miner to enable MK12 deals(Boost) for
+      # Miners is a list of miner addresses to enable MK12 deals(Boost) for
       #
       # type: []string
       #Miners = []
@@ -425,27 +421,32 @@ description: The default curio configuration
       # deals to be ready to publish before publishing them all as a batch
       #
       # type: Duration
-      #PublishMsgPeriod = "0s"
+      #PublishMsgPeriod = "30m0s"
 
       # The maximum number of deals to include in a single PublishStorageDeals
       # message
       #
       # type: uint64
-      #MaxDealsPerPublishMsg = 0
+      #MaxDealsPerPublishMsg = 8
 
       # The maximum collateral that the provider will put up against a deal,
       # as a multiplier of the minimum collateral bound
       # The maximum fee to pay when sending the PublishStorageDeals message
       #
       # type: types.FIL
-      #MaxPublishDealsFee = "0 FIL"
+      #MaxPublishDealsFee = "5 FIL"
 
-      # ExpectedSealDuration is the expected time it would take to seal the deal sector
+      # ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
       # This will be used to fail the deals which cannot be sealed on time.
-      # Please make sure to update this to shorter duration for snap deals
       #
       # type: Duration
-      #ExpectedSealDuration = "0s"
+      #ExpectedPoRepSealDuration = "8h0m0s"
+
+      # ExpectedSnapSealDuration is the expected time it would take to snap the deal sector
+      # This will be used to fail the deals which cannot be sealed on time.
+      #
+      # type: Duration
+      #ExpectedSnapSealDuration = "2h0m0s"
 
       # SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
       # Warning: If this check is skipped and there is a commP mismatch, all deals in the

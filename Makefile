@@ -50,10 +50,11 @@ build/.update-modules:
 # end git modules
 
 ## CUDA Library Path
-CUDA_PATH := $(shell dirname $$(dirname $$(which nvcc)))
-CUDA_LIB_PATH := $(CUDA_PATH)/lib64
-LIBRARY_PATH ?= $(CUDA_LIB_PATH)
-export LIBRARY_PATH
+setup_cuda:
+	$(eval CUDA_PATH := $(shell dirname $$(dirname $$(which nvcc))))
+	$(eval CUDA_LIB_PATH := $(CUDA_PATH)/lib64)
+	export LIBRARY_PATH=$(CUDA_LIB_PATH)
+.PHONY: setup_cuda
 
 ## MAIN BINARIES
 
@@ -81,9 +82,9 @@ BINS+=sptool
 
 ifeq ($(shell uname),Linux)
 
-batchdep: build/.supraseal-install
+batchdep: setup_cuda build/.supraseal-install
 batchdep: $(BUILD_DEPS)
-,PHONY: batchdep
+.PHONY: batchdep
 
 batch: GOFLAGS+=-tags=supraseal
 batch: CGO_LDFLAGS_ALLOW='.*'

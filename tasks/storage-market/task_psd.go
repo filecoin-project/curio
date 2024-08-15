@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
-	"time"
 
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
@@ -18,7 +16,6 @@ import (
 	"github.com/filecoin-project/go-state-types/crypto"
 	"github.com/filecoin-project/go-state-types/exitcode"
 
-	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -135,8 +132,7 @@ func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 		if err != nil {
 			return false, err
 		}
-		buff := int64(math.Floor(time.Duration(p.cfg.ExpectedSealDuration).Seconds() / float64(build.BlockDelaySecs)))
-		if head.Height()+abi.ChainEpoch(buff) > d.sprop.Proposal.StartEpoch {
+		if head.Height()+p.sm.pin.GetExpectedSealDuration() > d.sprop.Proposal.StartEpoch {
 			psdlog.Errorf(
 				"cannot publish deal with piece CID %s: current epoch %d has passed deal proposal start epoch %d",
 				d.sprop.Proposal.PieceCID, head.Height(), d.sprop.Proposal.StartEpoch)

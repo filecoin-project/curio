@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/url"
 	"strconv"
-	"time"
 
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
@@ -20,7 +18,6 @@ import (
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -73,7 +70,7 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 	piece := pieces[0]
 
-	expired, err := checkExpiry(ctx, c.db, c.api, piece.UUID, c.cfg.ExpectedSealDuration)
+	expired, err := checkExpiry(ctx, c.db, c.api, piece.UUID, c.sm.pin.GetExpectedSealDuration())
 	if err != nil {
 		return false, xerrors.Errorf("deal %s expired: %w", piece.UUID, err)
 	}
@@ -316,7 +313,7 @@ type headAPI interface {
 	ChainHead(context.Context) (*types.TipSet, error)
 }
 
-func checkExpiry(ctx context.Context, db *harmonydb.DB, api headAPI, deal string, buffer config.Duration) (bool, error) {
+func checkExpiry(ctx context.Context, db *harmonydb.DB, api headAPI, deal string, sealDuration abi.ChainEpoch) (bool, error) {
 	var starts []struct {
 		StartEpoch int64 `db:"start_epoch"`
 	}
@@ -333,9 +330,7 @@ func checkExpiry(ctx context.Context, db *harmonydb.DB, api headAPI, deal string
 		return false, err
 	}
 
-	buff := int64(math.Floor(time.Duration(buffer).Seconds() / float64(build.BlockDelaySecs)))
-
-	if head.Height()+abi.ChainEpoch(buff) > startEPoch {
+	if head.Height()+sealDuration > startEPoch {
 		err = failDeal(ctx, db, deal, true, fmt.Sprintf("deal proposal must be proven on chain by deal proposal start epoch %d, but it has expired: current chain height: %d",
 			startEPoch, head.Height()))
 		return true, err

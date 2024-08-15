@@ -88,7 +88,7 @@ func (f *FindDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	}
 	bd := bdeals[0]
 
-	expired, err := checkExpiry(ctx, f.db, f.api, bd.UUID, f.cfg.ExpectedSealDuration)
+	expired, err := checkExpiry(ctx, f.db, f.api, bd.UUID, f.sm.pin.GetExpectedSealDuration())
 	if err != nil {
 		return false, xerrors.Errorf("deal %s expired: %w", bd.UUID, err)
 	}
