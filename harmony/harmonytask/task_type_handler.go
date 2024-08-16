@@ -306,19 +306,22 @@ retryRecordCompletion:
 				}
 			}
 		}
-		var spID *uint64
-		var sectorNumber *uint64
-		if sectorID != nil { // if we have a sectorID, we should record it
-			spID = (*uint64)(&sectorID.Miner)
-			sectorNumber = (*uint64)(&sectorID.Number)
-		}
 
-		_, err = tx.Exec(`INSERT INTO harmony_task_history 
-									 (task_id, name, posted, work_start, work_end, result, completed_by_host_and_port, err, sp_id, sector_number)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, tID, h.Name, postedTime.UTC(), workStart.UTC(), workEnd.UTC(), done, h.TaskEngine.hostAndPort, result, spID, sectorNumber)
+		var hid int
+		err = tx.QueryRow(`INSERT INTO harmony_task_history 
+									 (task_id, name, posted, work_start, work_end, result, completed_by_host_and_port, err)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.UTC(), workStart.UTC(), workEnd.UTC(), done, h.TaskEngine.hostAndPort, result).Scan(&hid)
 		if err != nil {
 			return false, fmt.Errorf("could not write history: %w", err)
 		}
+		// If we have a sectorID, means this is a pipeline task, so we should record it
+		if sectorID != nil {
+			_, err = tx.Exec(`SELECT append_sector_pipeline_events($1, $2, $3)`, uint64(sectorID.Miner), uint64(sectorID.Number), hid)
+			if err != nil {
+				return false, fmt.Errorf("could not append sector pipeline events: %w", err)
+			}
+		}
+
 		return true, nil
 	})
 	if err != nil {
