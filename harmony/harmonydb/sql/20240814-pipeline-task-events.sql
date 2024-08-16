@@ -17,6 +17,6 @@ BEGIN
     INSERT INTO sectors_pipeline_events (sp_id, sector_number, task_history_ids)
     VALUES (sp_id_param, sector_number_param, ARRAY[new_task_history_id_param])
     ON CONFLICT (sp_id, sector_number) DO UPDATE
-        SET task_history_ids = array_append(sectors_pipeline_events.task_history_ids, new_task_history_id_param);
+        SET task_history_ids = array_append(task_history_ids, new_task_history_id_param);
 END;
 $$ LANGUAGE plpgsql;
