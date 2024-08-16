@@ -314,7 +314,6 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.U
 		if err != nil {
 			return false, fmt.Errorf("could not write history: %w", err)
 		}
-		// If we have a sectorID, means this is a pipeline task, so we should record it
 		if sectorID != nil {
 			_, err = tx.Exec(`SELECT append_sector_pipeline_events($1, $2, $3)`, uint64(sectorID.Miner), uint64(sectorID.Number), hid)
 			if err != nil {
