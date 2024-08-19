@@ -164,7 +164,6 @@ class CurioUX extends LitElement {
             <img src="/favicon.svg" width="40" height="32" class="d-inline-block align-top me-2" alt="">
             <span class="fs-4">Curio</span>
           </a>
-<<<<<<< HEAD
           <hr>
           <ul class="nav nav-pills flex-column mb-auto">
             <li class="nav-item">

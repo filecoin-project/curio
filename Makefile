@@ -134,7 +134,7 @@ debug: build
 all: build 
 .PHONY: all
 
-build: curio sptool
+build: curio
 	@[[ $$(type -P "curio") ]] && echo "Caution: you have \
 an existing curio binary in your PATH. This may cause problems if you don't run 'sudo make install'" || true
 

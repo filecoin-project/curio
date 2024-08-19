@@ -16,8 +16,6 @@ import (
 	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	fsutil "github.com/filecoin-project/lotus/storage/sealer/fsutil"
-
-	gomock "github.com/golang/mock/gomock"
 )
 
 // MockSectorIndex is a mock of SectorIndex interface.

@@ -21,7 +21,6 @@ CREATE TABLE market_mk12_deals (
 
     piece_cid TEXT NOT NULL,
     piece_size BIGINT NOT NULL,
-    length BIGINT DEFAULT NULL,
 
     fast_retrieval BOOLEAN NOT NULL,
     announce_to_ipni BOOLEAN NOT NULL,
@@ -41,7 +40,12 @@ CREATE TABLE market_piece_metadata (
     piece_cid TEXT NOT NULL PRIMARY KEY,
 
     version INT NOT NULL DEFAULT 2,
+<<<<<<< HEAD
     created_at TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP AT TIME ZONE 'UTC',
+=======
+
+    created_at TIMESTAMPTZ  NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
+>>>>>>> d1327dc (incomplete basic UI code)
 
     indexed BOOLEAN NOT NULL DEFAULT FALSE,
     indexed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP AT TIME ZONE 'UTC',
@@ -276,28 +280,32 @@ ALTER TABLE parked_piece_refs
 -- Table for old lotus market deals. This is just for deal
 -- which are still alive. It should not be used for any processing
 CREATE TABLE market_legacy_deals (
-    signed_proposal_cid TEXT,
-    sp_id BIGINT,
+    signed_proposal_cid TEXT  NOT NULL,
+    sp_id BIGINT  NOT NULL,
+    client_peer_id TEXT NOT NULL,
 
-    proposal_signature BYTEA,
-    proposal jsonb,
+    proposal_signature BYTEA  NOT NULL,
+    proposal jsonb  NOT NULL,
 
-    piece_cid TEXT,
-    piece_size BIGINT,
+    piece_cid TEXT  NOT NULL,
+    piece_size BIGINT  NOT NULL,
 
-    offline BOOLEAN,
-    verified BOOLEAN,
+    offline BOOLEAN  NOT NULL,
+    verified BOOLEAN  NOT NULL,
 
-    start_epoch BIGINT,
-    end_epoch BIGINT,
+    start_epoch BIGINT  NOT NULL,
+    end_epoch BIGINT  NOT NULL,
 
-    publish_cid TEXT,
-    chain_deal_id BIGINT,
+    publish_cid TEXT  NOT NULL,
+    chain_deal_id BIGINT  NOT NULL,
 
-    fast_retrieval BOOLEAN,
+    piece_cid TEXT NOT NULL,
+    piece_size BIGINT NOT NULL,
 
-    created_at TIMESTAMPTZ,
-    sector_num BIGINT,
+    fast_retrieval BOOLEAN  NOT NULL,
+
+    created_at TIMESTAMPTZ  NOT NULL,
+    sector_num BIGINT  NOT NULL,
 
     primary key (sp_id, piece_cid, signed_proposal_cid)
 );
