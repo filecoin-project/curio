@@ -2,9 +2,9 @@ CREATE TABLE sectors_pipeline_events
 (
     sp_id            BIGINT   NOT NULL,
     sector_number    BIGINT   NOT NULL,
-    task_history_ids BIGINT[] NOT NULL,
+    task_history_id BIGINT NOT NULL,
 
-    PRIMARY KEY (sp_id, sector_number)
+    PRIMARY KEY (sp_id, sector_number, task_history_id)
 );
 
 CREATE OR REPLACE FUNCTION append_sector_pipeline_events(
