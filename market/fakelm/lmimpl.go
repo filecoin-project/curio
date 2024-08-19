@@ -76,15 +76,19 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 	// TODO: Add snap, Add open_sector_pieces
 
 	var ssip []struct {
-		PieceCID *string `db:"piece_cid"`
-		DealID   *int64  `db:"f05_deal_id"`
-		DDOPAM   *string `db:"ddo_pam"`
-		Complete bool    `db:"after_commit_msg_success"`
-		Failed   bool    `db:"failed"`
-		SDR      bool    `db:"after_sdr"`
-		PoRep    bool    `db:"after_porep"`
-		Tree     bool    `db:"after_tree_r"`
-		IsSnap   bool    `db:"is_snap"`
+		PieceCID        *string `db:"piece_cid"`
+		DealID          *int64  `db:"f05_deal_id"`
+		DDOPAM          *string `db:"ddo_pam"`
+		Complete        bool    `db:"after_commit_msg_success"`
+		Failed          bool    `db:"failed"`
+		SDR             bool    `db:"after_sdr"`
+		PoRep           bool    `db:"after_porep"`
+		Tree            bool    `db:"after_tree_r"`
+		IsSnap          bool    `db:"is_snap"`
+		Encode          bool    `db:"after_encode"`
+		SnapProve       bool    `db:"after_prove"`
+		SnapCommit      bool    `db:"after_prove_msg_success"`
+		SnapMoveStorage bool    `db:"after_move_storage"`
 	}
 
 	err := l.db.Select(ctx, &ssip, `
@@ -99,14 +103,18 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 							COALESCE(sp.after_tree_r, TRUE) AS after_tree_r,
 							COALESCE(sp.after_commit_msg_success, TRUE) AS after_commit_msg_success,
 							COALESCE(snap.after_prove_msg_success, snap.after_prove_msg_success is null) AS after_snap_msg_success,
-							COALESCE(sm.orig_sealed_cid != sm.cur_sealed_cid, FALSE) AS is_snap
+							COALESCE(sm.orig_sealed_cid != sm.cur_sealed_cid, FALSE) AS is_snap,
+							COALESCE(FALSE, snap.after_encode) AS after_encode,
+							COALESCE(FALSE, snap.after_prove) AS after_prove,
+							COALESCE(FALSE, snap.after_prove_msg_success) AS after_prove_msg_success,
+							COALESCE(FALSE, snap.after_move_storage) AS after_move_storage
 						FROM
 							sectors_sdr_pipeline sp
 								FULL OUTER JOIN sectors_meta sm ON sp.sp_id = sm.sp_id AND sp.sector_number = sm.sector_num
 								LEFT JOIN sectors_snap_pipeline snap ON sm.sp_id = snap.sp_id AND sm.sector_num = snap.sector_number
 						WHERE
 							(sp.sp_id = $1 AND sp.sector_number = $2) OR (sm.sp_id = $1 AND sm.sector_num = $2)
-					),
+						),
 						 MetaPieces AS (
 							 SELECT
 								 mp.piece_cid,
@@ -192,6 +200,8 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 	var deals []abi.DealID
 	var seenDealIDs = make(map[abi.DealID]struct{})
 
+	var isSnap bool
+
 	if len(ssip) > 0 {
 		for _, d := range ssip {
 			var dealID abi.DealID
@@ -219,6 +229,10 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 					continue
 				}
 				dealID = abi.DealID(val)
+			}
+
+			if !isSnap && d.IsSnap {
+				isSnap = true
 			}
 
 			if _, ok := seenDealIDs[dealID]; !ok {
@@ -268,9 +282,19 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 	currentSSIP := ssip[0]
 
 	switch {
+	case isSnap && !currentSSIP.Encode:
+		ret.State = lapi.SectorState(sealing.UpdateReplica)
+	case currentSSIP.Encode && !currentSSIP.SnapProve:
+		ret.State = lapi.SectorState(sealing.ProveReplicaUpdate)
+	case currentSSIP.SnapProve && !currentSSIP.SnapCommit:
+		ret.State = lapi.SectorState(sealing.SubmitReplicaUpdate)
+	case currentSSIP.SnapCommit && !currentSSIP.SnapMoveStorage:
+		ret.State = lapi.SectorState(sealing.FinalizeReplicaUpdate)
+	case currentSSIP.SnapMoveStorage:
+		ret.State = lapi.SectorState(sealing.Proving)
 	case currentSSIP.Failed:
 		ret.State = lapi.SectorState(sealing.FailedUnrecoverable)
-	case !currentSSIP.SDR:
+	case !isSnap && !currentSSIP.SDR:
 		ret.State = lapi.SectorState(sealing.PreCommit1)
 	case currentSSIP.SDR && !currentSSIP.Tree:
 		ret.State = lapi.SectorState(sealing.PreCommit2)
