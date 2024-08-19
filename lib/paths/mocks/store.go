@@ -11,7 +11,7 @@ import (
 	abi "github.com/filecoin-project/go-state-types/abi"
 	gomock "github.com/golang/mock/gomock"
 	cid "github.com/ipfs/go-cid"
-	
+
 	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	fsutil "github.com/filecoin-project/lotus/storage/sealer/fsutil"

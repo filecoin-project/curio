@@ -52,7 +52,6 @@ type storageMarketAPI interface {
 }
 
 type CurioStorageDealMarket struct {
-	ctx         context.Context
 	cfg         *config.CurioConfig
 	db          *harmonydb.DB
 	pin         storageIngest.Ingester
@@ -96,7 +95,6 @@ func NewCurioStorageDealMarket(db *harmonydb.DB, cfg *config.CurioConfig, sc *ff
 	}
 
 	return &CurioStorageDealMarket{
-		ctx:    context.Background(),
 		cfg:    cfg,
 		db:     db,
 		api:    mapi,
@@ -136,7 +134,7 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	d.runPoller(ctx)
+	go d.runPoller(ctx)
 
 	return nil
 
@@ -192,7 +190,7 @@ func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
 									p.offline as offline,
 									p.raw_size as raw_size,
 									p.url as url,
-									p.url_headers as url_headers,
+									p.headers as headers,
 									p.commp_task_id as commp_task_id,
 									p.after_commp as after_commp,
 									p.psd_task_id as psd_task_id,
