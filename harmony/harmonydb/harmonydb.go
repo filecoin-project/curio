@@ -234,90 +234,104 @@ func ensureSchemaExists(connString, schema string) error {
 //go:embed sql
 var fs embed.FS
 
-func (db *DB) upgrade() error {
+func (db *DB) upgrade() (err error) {
 	// Does the version table exist? if not, make it.
 	// NOTE: This cannot change except via the next sql file.
-	_, err := db.BeginTransaction(context.Background(), func(tx *Tx) (commit bool, err error) {
-		_, err = tx.Exec(`CREATE TABLE IF NOT EXISTS base (
+	_, err = db.Exec(context.Background(), `CREATE TABLE IF NOT EXISTS base (
 		id SERIAL PRIMARY KEY,
 		entry CHAR(12),
 		applied TIMESTAMP DEFAULT current_timestamp
 		)`)
-		if err != nil {
-			logger.Error("Upgrade failed.")
-			return false, xerrors.Errorf("Cannot create base table %w", err)
-		}
-		_, err = tx.Exec(`LOCK TABLE base`)
-		if err != nil {
-			logger.Error("Upgrade failed: could not lock.")
-			return false, xerrors.Errorf("Cannot create base table %w", err)
-		}
-
-		// __Run scripts in order.__
-
-		landed := map[string]bool{}
-		{
-			var landedEntries []struct{ Entry string }
-			err = db.Select(context.Background(), &landedEntries, "SELECT entry FROM base")
+	if err != nil {
+		logger.Error("Upgrade failed.")
+		return xerrors.Errorf("Cannot create base table %w", err)
+	}
+	done := make(chan struct{})
+	txErr := make(chan error)
+	go func() {
+		_, err = db.BeginTransaction(context.Background(), func(tx *Tx) (commit bool, err error) {
+			_, err = tx.Exec(`LOCK TABLE base`)
 			if err != nil {
-				logger.Error("Cannot read entries: " + err.Error())
-				return false, xerrors.Errorf("cannot read entries: %w", err)
+				logger.Error("Upgrade failed: could not lock.")
+				return false, xerrors.Errorf("Cannot create base table %w", err)
 			}
-			for _, l := range landedEntries {
-				landed[l.Entry[:8]] = true
-			}
+			<-done
+			return true, nil
+		})
+		txErr <- err
+	}()
+	defer func() {
+		close(done)
+		err2 := <-txErr
+		if err == nil {
+			err = err2
 		}
-		dir, err := fs.ReadDir("sql")
-		if err != nil {
-			logger.Error("Cannot read fs entries: " + err.Error())
-			return false, err
-		}
-		sort.Slice(dir, func(i, j int) bool { return dir[i].Name() < dir[j].Name() })
+	}()
 
-		if len(dir) == 0 {
-			logger.Error("No sql files found.")
+	// __Run scripts in order.__
+
+	landed := map[string]bool{}
+	{
+		var landedEntries []struct{ Entry string }
+		err = db.Select(context.Background(), &landedEntries, "SELECT entry FROM base")
+		if err != nil {
+			logger.Error("Cannot read entries: " + err.Error())
+			return xerrors.Errorf("cannot read entries: %w", err)
 		}
-		for _, e := range dir {
-			name := e.Name()
-			if !strings.HasSuffix(name, ".sql") {
-				logger.Debug("Must have only SQL files here, found: " + name)
+		for _, l := range landedEntries {
+			landed[l.Entry[:8]] = true
+		}
+	}
+	dir, err := fs.ReadDir("sql")
+	if err != nil {
+		logger.Error("Cannot read fs entries: " + err.Error())
+		return err
+	}
+	sort.Slice(dir, func(i, j int) bool { return dir[i].Name() < dir[j].Name() })
+
+	if len(dir) == 0 {
+		logger.Error("No sql files found.")
+	}
+	for _, e := range dir {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".sql") {
+			logger.Debug("Must have only SQL files here, found: " + name)
+			continue
+		}
+		if landed[name[:8]] {
+			logger.Debug("DB Schema " + name + " already applied.")
+			continue
+		}
+		file, err := fs.ReadFile("sql/" + name)
+		if err != nil {
+			logger.Error("weird embed file read err")
+			return err
+		}
+
+		logger.Infow("Upgrading", "file", name, "size", len(file))
+
+		megaSql := ""
+		for _, s := range parseSQLStatements(string(file)) { // Implement the changes.
+			if len(strings.TrimSpace(s)) == 0 {
 				continue
 			}
-			if landed[name[:8]] {
-				logger.Debug("DB Schema " + name + " already applied.")
-				continue
-			}
-			file, err := fs.ReadFile("sql/" + name)
-			if err != nil {
-				logger.Error("weird embed file read err")
-				return false, err
-			}
-
-			logger.Infow("Upgrading", "file", name, "size", len(file))
-
-			megaSql := ""
-			for _, s := range parseSQLStatements(string(file)) { // Implement the changes.
-				if len(strings.TrimSpace(s)) == 0 {
-					continue
-				}
-				megaSql += s + ";"
-			}
-			_, err = db.pgx.Exec(context.Background(), megaSql)
-			if err != nil {
-				msg := fmt.Sprintf("Could not upgrade! %s", err.Error())
-				logger.Error(msg)
-				return false, xerrors.New(msg) // makes devs lives easier by placing message at the end.
-			}
-
-			// Mark Completed.
-			_, err = db.Exec(context.Background(), "INSERT INTO base (entry) VALUES ($1)", name[:8])
-			if err != nil {
-				logger.Error("Cannot update base: " + err.Error())
-				return false, xerrors.Errorf("cannot insert into base: %w", err)
-			}
+			megaSql += s + ";"
 		}
-		return true, nil
-	}, OptionRetry())
+		_, err = db.pgx.Exec(context.Background(), megaSql)
+		if err != nil {
+			msg := fmt.Sprintf("Could not upgrade! %s", err.Error())
+			logger.Error(msg)
+			return xerrors.New(msg) // makes devs lives easier by placing message at the end.
+		}
+
+		// Mark Completed.
+		_, err = db.Exec(context.Background(), "INSERT INTO base (entry) VALUES ($1)", name[:8])
+		if err != nil {
+			logger.Error("Cannot update base: " + err.Error())
+			return xerrors.Errorf("cannot insert into base: %w", err)
+		}
+	}
+
 	return err
 }
 
