@@ -98,7 +98,6 @@ type interceptResponseWriter struct {
 	http.ResponseWriter
 	length   int
 	status   int
-	written  bool
 	hijacker http.Hijacker
 }
 
