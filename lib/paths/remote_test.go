@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -60,7 +61,10 @@ func createTestStorage(t *testing.T, p string, seal bool, att ...*paths.Local) s
 func TestMoveShared(t *testing.T) {
 	logging.SetAllLoggers(logging.LevelDebug)
 
-	index := paths.NewMemIndex(nil)
+	db, err := harmonydb.NewFromConfigWithITestID(t, "testlocalstorage")
+	require.NoError(t, err)
+
+	index := paths.NewDBIndex(nil, db)
 
 	ctx := context.Background()
 

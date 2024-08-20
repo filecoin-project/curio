@@ -3,6 +3,7 @@ package paths
 import (
 	"context"
 	"encoding/json"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"os"
 	"path/filepath"
 	"testing"
@@ -80,7 +81,10 @@ func TestLocalStorage(t *testing.T) {
 		root: root,
 	}
 
-	index := NewMemIndex(nil)
+	db, err := harmonydb.NewFromConfigWithITestID(t, "testlocalstorage")
+	require.NoError(t, err)
+
+	index := NewDBIndex(nil, db)
 
 	st, err := NewLocal(ctx, tstor, index, nil)
 	require.NoError(t, err)
