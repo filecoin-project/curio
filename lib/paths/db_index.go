@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/yugabyte/pgx/v5"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
@@ -379,39 +380,84 @@ func (dbi *DBIndex) checkFileType(fileType storiface.SectorFileType) bool {
 }
 
 func (dbi *DBIndex) StorageDeclareSector(ctx context.Context, storageID storiface.ID, s abi.SectorID, ft storiface.SectorFileType, primary bool) error {
-
 	if !dbi.checkFileType(ft) {
 		return xerrors.Errorf("invalid filetype")
 	}
 
-	_, err := dbi.harmonyDB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		var currPrimary sql.NullBool
-		err = tx.QueryRow(
-			"SELECT is_primary FROM sector_location WHERE miner_id=$1 and sector_num=$2 and sector_filetype=$3 and storage_id=$4",
-			uint64(s.Miner), uint64(s.Number), int(ft), string(storageID)).Scan(&currPrimary)
-		if err != nil && !strings.Contains(err.Error(), "no rows in result set") {
-			return false, xerrors.Errorf("DB SELECT fails: %v", err)
+	_, err := dbi.harmonyDB.Exec(ctx, `
+        INSERT INTO sector_location (miner_id, sector_num, sector_filetype, storage_id, is_primary)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (miner_id, sector_num, sector_filetype, storage_id)
+        DO UPDATE SET is_primary = 
+            CASE 
+                WHEN sector_location.is_primary = FALSE AND $5 = TRUE THEN TRUE 
+                ELSE sector_location.is_primary 
+            END
+        WHERE sector_location.is_primary IS DISTINCT FROM
+            CASE 
+                WHEN sector_location.is_primary = FALSE AND $5 = TRUE THEN TRUE 
+                ELSE sector_location.is_primary 
+            END
+    `,
+		uint64(s.Miner), uint64(s.Number), int(ft), string(storageID), primary)
+	if err != nil {
+		return xerrors.Errorf("DB upsert fails: %v", err)
+	}
+
+	return err
+}
+
+// SectorDeclaration represents a single sector declaration
+type SectorDeclaration struct {
+	StorageID storiface.ID
+	SectorID  abi.SectorID
+	FileType  storiface.SectorFileType
+	Primary   bool
+}
+
+func (dbi *DBIndex) BatchStorageDeclareSectors(ctx context.Context, declarations []SectorDeclaration) error {
+	if len(declarations) == 0 {
+		return nil
+	}
+
+	_, err := dbi.harmonyDB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		batch := &pgx.Batch{}
+
+		for _, d := range declarations {
+			if !dbi.checkFileType(d.FileType) {
+				return false, xerrors.Errorf("invalid filetype for declaration %v", d)
+			}
+
+			batch.Queue(`
+                INSERT INTO sector_location (miner_id, sector_num, sector_filetype, storage_id, is_primary)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (miner_id, sector_num, sector_filetype, storage_id)
+                DO UPDATE SET is_primary = 
+                    CASE 
+                        WHEN sector_location.is_primary = FALSE AND $5 = TRUE THEN TRUE 
+                        ELSE sector_location.is_primary 
+                    END
+                WHERE sector_location.is_primary IS DISTINCT FROM
+                    CASE 
+                        WHEN sector_location.is_primary = FALSE AND $5 = TRUE THEN TRUE 
+                        ELSE sector_location.is_primary 
+                    END
+            `,
+				uint64(d.SectorID.Miner),
+				uint64(d.SectorID.Number),
+				int(d.FileType),
+				string(d.StorageID),
+				d.Primary,
+			)
 		}
 
-		// If storage id already exists for this sector, update primary if need be
-		if currPrimary.Valid {
-			if !currPrimary.Bool && primary {
-				_, err = tx.Exec(
-					"UPDATE sector_location set is_primary = TRUE WHERE miner_id=$1 and sector_num=$2 and sector_filetype=$3 and storage_id=$4",
-					s.Miner, s.Number, ft, storageID)
-				if err != nil {
-					return false, xerrors.Errorf("DB update fails: %v", err)
-				}
-			} else {
-				log.Debugf("sector %v redeclared in %s", s, storageID)
-			}
-		} else {
-			_, err = tx.Exec(
-				"INSERT INTO sector_location (miner_id, sector_num, sector_filetype, storage_id, is_primary)"+
-					"values($1, $2, $3, $4, $5)",
-				s.Miner, s.Number, ft, storageID, primary)
+		br := tx.SendBatch(ctx, batch)
+		defer br.Close()
+
+		for i := 0; i < batch.Len(); i++ {
+			_, err := br.Exec()
 			if err != nil {
-				return false, xerrors.Errorf("DB insert fails: %v", err)
+				return false, xerrors.Errorf("failed to execute batch item %d: %w", i, err)
 			}
 		}
 
