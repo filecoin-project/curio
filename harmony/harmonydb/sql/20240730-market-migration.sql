@@ -40,12 +40,7 @@ CREATE TABLE market_piece_metadata (
     piece_cid TEXT NOT NULL PRIMARY KEY,
 
     version INT NOT NULL DEFAULT 2,
-<<<<<<< HEAD
     created_at TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP AT TIME ZONE 'UTC',
-=======
-
-    created_at TIMESTAMPTZ  NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
->>>>>>> d1327dc (incomplete basic UI code)
 
     indexed BOOLEAN NOT NULL DEFAULT FALSE,
     indexed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP AT TIME ZONE 'UTC',
@@ -244,7 +239,8 @@ CREATE TABLE market_offline_urls (
      CONSTRAINT market_offline_urls_uuid_unique UNIQUE (uuid)
 );
 
-CREATE TABLE libp2p_keys (
+-- This table is used for coordinating libp2p nodes
+CREATE TABLE libp2p (
     sp_id BIGINT NOT NULL,
     priv_key BYTEA NOT NULL,
     listen_address TEXT NOT NULL,
@@ -272,6 +268,60 @@ CREATE TABLE direct_deals (
     keep_unsealed_copy BOOLEAN
 );
 
+-- -- Function used to update the libp2p table
+CREATE OR REPLACE FUNCTION insert_or_update_libp2p(
+    _sp_id BIGINT,
+    _listen_address TEXT,
+    _announce_address TEXT,
+    _no_announce_address TEXT,
+    _running_on TEXT
+)
+RETURNS BYTEA AS $$
+DECLARE
+_priv_key BYTEA;
+    _current_running_on TEXT;
+    _current_updated_at TIMESTAMPTZ;
+BEGIN
+    -- Check if the sp_id exists and retrieve the current values
+    SELECT priv_key, running_on, updated_at INTO _priv_key, _current_running_on, _current_updated_at
+    FROM libp2p
+    WHERE sp_id = _sp_id;
+
+    -- Raise an exception if no row was found
+    IF NOT FOUND THEN
+            RAISE EXCEPTION 'libp2p key for sp_id "%" does not exist', _sp_id;
+    END IF;
+
+    -- If the sp_id exists and running_on is NULL or matches _running_on
+    IF _current_running_on IS NULL OR _current_running_on = _running_on THEN
+        -- Update the record with the provided values and set updated_at to NOW
+        UPDATE libp2p
+        SET
+            listen_address = _listen_address,
+            announce_address = _announce_address,
+            no_announce_address = _no_announce_address,
+            running_on = _running_on,
+            updated_at = NOW() AT TIME ZONE 'UTC'
+        WHERE sp_id = _sp_id;
+    ELSIF _current_updated_at > NOW() - INTERVAL '10 seconds' THEN
+            -- Raise an exception if running_on is different and updated_at is recent
+            RAISE EXCEPTION 'Libp2p node already running on "%"', _current_running_on;
+    ELSE
+            -- Update running_on and other columns if updated_at is older than 10 seconds
+        UPDATE libp2p
+        SET
+            listen_address = _listen_address,
+            announce_address = _announce_address,
+            no_announce_address = _no_announce_address,
+            running_on = _running_on,
+            updated_at = NOW() AT TIME ZONE 'UTC'
+        WHERE sp_id = _sp_id;
+    END IF;
+
+RETURN _priv_key;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Add host column to allow local file based
 -- piece park
 ALTER TABLE parked_piece_refs
@@ -298,9 +348,6 @@ CREATE TABLE market_legacy_deals (
 
     publish_cid TEXT  NOT NULL,
     chain_deal_id BIGINT  NOT NULL,
-
-    piece_cid TEXT NOT NULL,
-    piece_size BIGINT NOT NULL,
 
     fast_retrieval BOOLEAN  NOT NULL,
 

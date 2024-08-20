@@ -22,7 +22,6 @@ func TestAlertNow(t *testing.T) {
 	// Create dependencies
 	sharedITestID := harmonydb.ITestNewID()
 	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
-
 	require.NoError(t, err)
 
 	an := alertmanager.NewAlertNow(db, "alertNowMachine")

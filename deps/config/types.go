@@ -638,6 +638,7 @@ type IndexingConfig struct {
 type Libp2pConfig struct {
 	// Miners ID for which MK12 deals (boosts) should be disabled
 	DisabledMiners []string
+
 	// Binding address for the libp2p host - 0 means random port.
 	// Format: multiaddress; see https://multiformats.io/multiaddr/
 	ListenAddresses []string
