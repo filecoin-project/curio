@@ -14,6 +14,7 @@ import (
 	"github.com/yugabyte/pgx/v5"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
@@ -61,7 +62,7 @@ func (dbi *DBIndex) StorageList(ctx context.Context) (map[storiface.ID][]storifa
 	err := dbi.harmonyDB.Select(ctx, &sectorEntries,
 		"SELECT stor.storage_id, miner_id, sector_num, sector_filetype, is_primary FROM storage_path stor LEFT JOIN sector_location sec on stor.storage_id=sec.storage_id")
 	if err != nil {
-		return nil, xerrors.Errorf("StorageList DB query fails: %v", err)
+		return nil, xerrors.Errorf("StorageList DB query fails: %w", err)
 	}
 
 	byID := map[storiface.ID]map[abi.SectorID]storiface.SectorFileType{}
@@ -193,7 +194,7 @@ func (dbi *DBIndex) StorageAttach(ctx context.Context, si storiface.StorageInfo,
 		err = tx.QueryRow(
 			"SELECT storage_id, urls FROM storage_path WHERE storage_id = $1", string(si.ID)).Scan(&storageId, &urls)
 		if err != nil && !strings.Contains(err.Error(), "no rows in result set") {
-			return false, xerrors.Errorf("storage attach select fails: %v", err)
+			return false, xerrors.Errorf("storage attach select fails: %w", err)
 		}
 
 		// Storage ID entry exists
@@ -220,7 +221,7 @@ func (dbi *DBIndex) StorageAttach(ctx context.Context, si storiface.StorageInfo,
 				strings.Join(si.DenyMiners, ","),
 				si.ID)
 			if err != nil {
-				return false, xerrors.Errorf("storage attach UPDATE fails: %v", err)
+				return false, xerrors.Errorf("storage attach UPDATE fails: %w", err)
 			}
 
 			return true, nil
@@ -248,7 +249,7 @@ func (dbi *DBIndex) StorageAttach(ctx context.Context, si storiface.StorageInfo,
 			strings.Join(si.AllowMiners, ","),
 			strings.Join(si.DenyMiners, ","))
 		if err != nil {
-			return false, xerrors.Errorf("StorageAttach insert fails: %v", err)
+			return false, xerrors.Errorf("StorageAttach insert fails: %w", err)
 		}
 		return true, nil
 	}, harmonydb.OptionRetry())
@@ -325,7 +326,7 @@ retryReportHealth:
 		report.Stat.Used,
 		id)
 	if err != nil {
-		//return xerrors.Errorf("updating storage health in DB fails with err: %v", err)
+		//return xerrors.Errorf("updating storage health in DB fails with err: %w", err)
 		if harmonydb.IsErrSerialization(err) {
 			time.Sleep(retryWait)
 			retryWait *= 2
@@ -338,7 +339,7 @@ retryReportHealth:
 	err = dbi.harmonyDB.QueryRow(ctx,
 		"SELECT can_seal, can_store FROM storage_path WHERE storage_id=$1", id).Scan(&canSeal, &canStore)
 	if err != nil {
-		return xerrors.Errorf("Querying for storage id %s fails with err %v", id, err)
+		return xerrors.Errorf("Querying for storage id %s fails with err %w", id, err)
 	}
 
 	if report.Stat.Capacity > 0 {
@@ -401,7 +402,7 @@ func (dbi *DBIndex) StorageDeclareSector(ctx context.Context, storageID storifac
     `,
 		uint64(s.Miner), uint64(s.Number), int(ft), string(storageID), primary)
 	if err != nil {
-		return xerrors.Errorf("DB upsert fails: %v", err)
+		return xerrors.Errorf("DB upsert fails: %w", err)
 	}
 
 	return err
@@ -415,7 +416,55 @@ type SectorDeclaration struct {
 	Primary   bool
 }
 
+const maxParallelSubBatches = 8
+
 func (dbi *DBIndex) BatchStorageDeclareSectors(ctx context.Context, declarations []SectorDeclaration) error {
+	if len(declarations) == 0 {
+		return nil
+	}
+
+	// Determine the number of sub-batches
+	numDeclarations := len(declarations)
+	numSubBatches := numDeclarations / maxParallelSubBatches
+	if numDeclarations%maxParallelSubBatches != 0 {
+		numSubBatches++
+	}
+	if numSubBatches > maxParallelSubBatches {
+		numSubBatches = maxParallelSubBatches
+	}
+
+	// Create sub-batches
+	subBatchSize := (numDeclarations + numSubBatches - 1) / numSubBatches
+	subBatches := make([][]SectorDeclaration, numSubBatches)
+	for i := range subBatches {
+		start := i * subBatchSize
+		end := start + subBatchSize
+		if end > numDeclarations {
+			end = numDeclarations
+		}
+		subBatches[i] = declarations[start:end]
+	}
+
+	// Create a new error group
+	g, ctx := errgroup.WithContext(ctx)
+
+	// Process sub-batches concurrently
+	for _, subBatch := range subBatches {
+		batch := subBatch // Create a new variable to avoid closure issues
+		g.Go(func() error {
+			return dbi.batchStorageDeclareSectors(ctx, batch)
+		})
+	}
+
+	// Wait for all goroutines to finish and collect errors
+	if err := g.Wait(); err != nil {
+		return xerrors.Errorf("error in sub-batch processing: %w", err)
+	}
+
+	return nil
+}
+
+func (dbi *DBIndex) batchStorageDeclareSectors(ctx context.Context, declarations []SectorDeclaration) error {
 	if len(declarations) == 0 {
 		return nil
 	}
@@ -425,7 +474,7 @@ func (dbi *DBIndex) BatchStorageDeclareSectors(ctx context.Context, declarations
 
 		for _, d := range declarations {
 			if !dbi.checkFileType(d.FileType) {
-				return false, xerrors.Errorf("invalid filetype for declaration %v", d)
+				return false, xerrors.Errorf("invalid filetype for declaration %w", d)
 			}
 
 			batch.Queue(`
@@ -477,7 +526,7 @@ func (dbi *DBIndex) StorageDropSector(ctx context.Context, storageID storiface.I
 		"DELETE FROM sector_location WHERE miner_id=$1 and sector_num=$2 and sector_filetype=$3 and storage_id=$4",
 		int(s.Miner), int(s.Number), int(ft), string(storageID))
 	if err != nil {
-		return xerrors.Errorf("StorageDropSector DELETE query fails: %v", err)
+		return xerrors.Errorf("StorageDropSector DELETE query fails: %w", err)
 	}
 
 	return nil
@@ -529,7 +578,7 @@ func (dbi *DBIndex) StorageFindSector(ctx context.Context, s abi.SectorID, ft st
 						ORDER BY stor.storage_id`,
 		s.Miner, s.Number, fts)
 	if err != nil {
-		return nil, xerrors.Errorf("Finding sector storage from DB fails with err: %v", err)
+		return nil, xerrors.Errorf("Finding sector storage from DB fails with err: %w", err)
 	}
 
 	for _, row := range rows {
@@ -616,7 +665,7 @@ func (dbi *DBIndex) StorageFindSector(ctx context.Context, s abi.SectorID, ft st
 				  and heartbeat_err is null`,
 			spaceReq, SkippedHeartbeatThresh.Seconds())
 		if err != nil {
-			return nil, xerrors.Errorf("Selecting allowfetch storage paths from DB fails err: %v", err)
+			return nil, xerrors.Errorf("Selecting allowfetch storage paths from DB fails err: %w", err)
 		}
 
 		for _, row := range rows {
@@ -704,7 +753,7 @@ func (dbi *DBIndex) StorageInfo(ctx context.Context, id storiface.ID) (storiface
 		"SELECT urls, weight, max_storage, can_seal, can_store, groups, allow_to, allow_types, deny_types, allow_miners, deny_miners "+
 			"FROM storage_path WHERE storage_id=$1", string(id))
 	if err != nil {
-		return storiface.StorageInfo{}, xerrors.Errorf("StorageInfo query fails: %v", err)
+		return storiface.StorageInfo{}, xerrors.Errorf("StorageInfo query fails: %w", err)
 	}
 
 	var sinfo storiface.StorageInfo
@@ -857,7 +906,7 @@ func (dbi *DBIndex) lock(ctx context.Context, sector abi.SectorID, read storifac
 								   AND sector_filetype = ANY($3)`,
 			sector.Miner, sector.Number, fts)
 		if err != nil {
-			return false, xerrors.Errorf("StorageLock SELECT fails: %v", err)
+			return false, xerrors.Errorf("StorageLock SELECT fails: %w", err)
 		}
 
 		type locks struct {
@@ -902,7 +951,7 @@ func (dbi *DBIndex) lock(ctx context.Context, sector abi.SectorID, read storifac
 			sector.Number,
 			write.AllSet())
 		if err != nil {
-			return false, xerrors.Errorf("acquiring write locks for sector %v fails with err: %v", sector, err)
+			return false, xerrors.Errorf("acquiring write locks for sector %v fails with err: %w", sector, err)
 		}
 
 		// Acquire read locks
@@ -916,7 +965,7 @@ func (dbi *DBIndex) lock(ctx context.Context, sector abi.SectorID, read storifac
 			sector.Number,
 			read.AllSet())
 		if err != nil {
-			return false, xerrors.Errorf("acquiring read locks for sector %v fails with err: %v", sector, err)
+			return false, xerrors.Errorf("acquiring read locks for sector %v fails with err: %w", sector, err)
 		}
 
 		return true, nil
@@ -952,7 +1001,7 @@ func (dbi *DBIndex) unlock(sector abi.SectorID, read storiface.SectorFileType, w
 		lockUuid.String(),
 		write.AllSet())
 	if err != nil {
-		return false, xerrors.Errorf("relinquishing write locks for sector %v fails with err: %v", sector, err)
+		return false, xerrors.Errorf("relinquishing write locks for sector %v fails with err: %w", sector, err)
 	}
 
 	// Relinquish read locks
@@ -967,7 +1016,7 @@ func (dbi *DBIndex) unlock(sector abi.SectorID, read storiface.SectorFileType, w
 		sector.Number,
 		read.AllSet())
 	if err != nil {
-		return false, xerrors.Errorf("relinquishing read locks for sector %v fails with err: %v", sector, err)
+		return false, xerrors.Errorf("relinquishing read locks for sector %v fails with err: %w", sector, err)
 	}
 
 	return true, nil
@@ -1012,7 +1061,7 @@ func (dbi *DBIndex) StorageLock(ctx context.Context, sector abi.SectorID, read s
 		<-ctx.Done()
 		_, err := dbi.unlock(sector, read, write, lockUuid)
 		if err != nil {
-			log.Errorf("unlocking sector %v for filetypes: read=%d, write=%d, fails with err: %v", sector, read, write, err)
+			log.Errorf("unlocking sector %v for filetypes: read=%d, write=%d, fails with err: %w", sector, read, write, err)
 		}
 
 	}()
@@ -1032,7 +1081,7 @@ func (dbi *DBIndex) StorageTryLock(ctx context.Context, sector abi.SectorID, rea
 			<-ctx.Done()
 			_, err := dbi.unlock(sector, read, write, lockUuid)
 			if err != nil {
-				log.Errorf("unlocking sector %v for filetypes: read=%d, write=%d, fails with err: %v", sector, read, write, err)
+				log.Errorf("unlocking sector %v for filetypes: read=%d, write=%d, fails with err: %w", sector, read, write, err)
 			}
 		}()
 	}
