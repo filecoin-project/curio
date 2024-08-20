@@ -264,8 +264,52 @@ type CurioSubsystemsConfig struct {
 	// also be bounded by resources available on the machine.
 	SyntheticPoRepMaxTasks int
 
+	// UserScheduler allows for the user to schedule tasks on specific machines of their choice.
+	// This http endpoint gets a POST request with the following JSON body:
+	// {
+	//   "task_id": "task_id",
+	//   "task_type": "task_type",
+	//   "workers": ["worker1", "worker2"]
+	// }
+	// And looks for a 200 response with the following JSON body:
+	// {
+	//   "worker": "worker1"
+	//   "timeout": 60
+	// }
+	// Timeout in seconds until it will be rescheduled.
+	UserScheduler []UserSchedule
+
 	// Batch Seal
 	EnableBatchSeal bool
+}
+
+// UserSchedule allows for the user to schedule a task on specific machines of their choice.
+// This http endpoint gets a POST request with the following JSON body:
+//
+//	{
+//	  "task_id": "task_id",
+//	  "task_type": "task_type",
+//	  "workers": ["worker1", "worker2"]
+//	}
+//
+// And looks for a 200 response with the following JSON body:
+//
+//	{
+//	  "worker": "worker1"
+//	  "timeout": 60
+//	}
+//
+// Timeout in seconds until it will be rescheduled.
+type UserSchedule struct {
+	// TaskName as listed in the GUI. Ex: SDR
+	TaskName string
+
+	// URL to http(s) user scheduler
+	URL string
+
+	// HaltOnSchedulerDown - If true, the tasks will not run when the URL response is not usable.
+	// The False value is recommended to keep scheduling working even if the UserScheduler service is down.
+	HaltOnSchedulerDown bool
 }
 type CurioFees struct {
 	DefaultMaxFee      types.FIL

@@ -79,6 +79,11 @@ sptool: $(BUILD_DEPS)
 .PHONY: sptool
 BINS+=sptool
 
+userschedule:
+	rm -f userschedule
+	$(GOCC) build $(GOFLAGS) -o userschedule ./cmd/userschedule
+.PHONY: userschedule
+
 ifeq ($(shell uname),Linux)
 
 batchdep: build/.supraseal-install
