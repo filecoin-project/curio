@@ -3,13 +3,14 @@ package paths
 import (
 	"context"
 	"encoding/json"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"

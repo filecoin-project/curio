@@ -423,8 +423,19 @@ func (dbi *DBIndex) BatchStorageDeclareSectors(ctx context.Context, declarations
 		return nil
 	}
 
+	// Deduplicate declarations to avoid processing the same sector multiple times
+	dedupMap := make(map[SectorDeclaration]struct{})
+	for _, d := range declarations {
+		dedupMap[d] = struct{}{}
+	}
+
+	uniqueDeclarations := make([]SectorDeclaration, 0, len(dedupMap))
+	for d := range dedupMap {
+		uniqueDeclarations = append(uniqueDeclarations, d)
+	}
+
 	// Determine the number of sub-batches
-	numDeclarations := len(declarations)
+	numDeclarations := len(uniqueDeclarations)
 	numSubBatches := numDeclarations / maxParallelSubBatches
 	if numDeclarations%maxParallelSubBatches != 0 {
 		numSubBatches++
@@ -442,17 +453,27 @@ func (dbi *DBIndex) BatchStorageDeclareSectors(ctx context.Context, declarations
 		if end > numDeclarations {
 			end = numDeclarations
 		}
-		subBatches[i] = declarations[start:end]
+		subBatches[i] = uniqueDeclarations[start:end]
 	}
 
 	// Create a new error group
 	g, ctx := errgroup.WithContext(ctx)
 
 	// Process sub-batches concurrently
-	for _, subBatch := range subBatches {
+	for i, subBatch := range subBatches {
 		batch := subBatch // Create a new variable to avoid closure issues
+		batchIndex := i   // Capture the batch index for logging
 		g.Go(func() error {
-			return dbi.batchStorageDeclareSectors(ctx, batch)
+			err := dbi.batchStorageDeclareSectors(ctx, batch)
+			if err != nil {
+				// Check if it's a duplicate request error
+				if strings.Contains(err.Error(), "Duplicate request") {
+					log.Warnf("Duplicate request detected in batch %d, retrying after delay", batchIndex)
+					time.Sleep(time.Second)                          // Add a delay before retry
+					err = dbi.batchStorageDeclareSectors(ctx, batch) // Retry once
+				}
+			}
+			return err
 		})
 	}
 
