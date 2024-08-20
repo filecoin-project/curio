@@ -748,12 +748,43 @@ also be bounded by resources available on the machine.`,
 			Comment: `Number of concurrent inserts to split AddIndex calls to`,
 		},
 	},
-	"MK12Config": {
+	"Libp2pConfig": {
 		{
-			Name: "Miners",
+			Name: "Miner",
+			Type: "string",
+
+			Comment: `Miners ID for which MK12 deals (boosts) should be enabled and associated with this libp2p configuration.`,
+		},
+		{
+			Name: "ListenAddresses",
 			Type: "[]string",
 
-			Comment: `Miners is a list of miner addresses to enable MK12 deals(Boost) for`,
+			Comment: `Binding address for the libp2p host - 0 means random port.
+Format: multiaddress; see https://multiformats.io/multiaddr/`,
+		},
+		{
+			Name: "AnnounceAddresses",
+			Type: "[]string",
+
+			Comment: `Addresses to explicitally announce to other peers. If not specified,
+all interface addresses are announced
+Format: multiaddress`,
+		},
+		{
+			Name: "NoAnnounceAddresses",
+			Type: "[]string",
+
+			Comment: `Addresses to not announce
+Format: multiaddress`,
+		},
+	},
+	"MK12Config": {
+		{
+			Name: "Libp2p",
+			Type: "[]Libp2pConfig",
+
+			Comment: `Libp2p is a list of libp2p config for each miner ID. These values must be set explicitly
+for each miner ID.`,
 		},
 		{
 			Name: "PublishMsgPeriod",

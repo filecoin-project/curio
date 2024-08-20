@@ -27,6 +27,7 @@ import (
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/libp2p"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/slotmgr"
@@ -221,15 +222,11 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		dealFindTask := storage_market.NewFindDealTask(dm, db, full, &cfg.Market.StorageMarketConfig.MK12)
 		activeTasks = append(activeTasks, psdTask, dealFindTask)
 
-		//p2pMap, err := libp2p.NewLibp2pHost(ctx, db, cfg)
-		//if err != nil {
-		//	return nil, err
-		//}
-		//
-		//for _, h := range p2pMap {
-		//	dp := libp2pimpl.NewDealProvider(h, db, dm.MK12Handler, full)
-		//	go dp.Start(ctx)
-		//}
+		// Start libp2p hosts and handle streams
+		err = libp2p.NewDealProvider(ctx, db, cfg, dm.MK12Handler, full, machine)
+		if err != nil {
+			return nil, err
+		}
 
 		indexingTask := indexing.NewIndexingTask(db, sc, iStore, pp, cfg)
 		activeTasks = append(activeTasks, indexingTask)

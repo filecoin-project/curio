@@ -412,10 +412,11 @@ description: The default curio configuration
       #InsertConcurrency = 8
 
     [Market.StorageMarketConfig.MK12]
-      # Miners is a list of miner addresses to enable MK12 deals(Boost) for
+      # Libp2p is a list of libp2p config for each miner ID. These values must be set explicitly
+      # for each miner ID.
       #
-      # type: []string
-      #Miners = []
+      # type: []Libp2pConfig
+      #Libp2p = []
 
       # When a deal is ready to publish, the amount of time to wait for more
       # deals to be ready to publish before publishing them all as a batch

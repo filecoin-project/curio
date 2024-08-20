@@ -130,7 +130,6 @@ var runCmd = &cli.Command{
 		}
 		defer taskEngine.GracefullyTerminate()
 
-		log.Infof("WILL START RPC SERVER NOW")
 		err = rpc.ListenAndServe(ctx, dependencies, shutdownChan) // Monitor for shutdown.
 		if err != nil {
 			return err

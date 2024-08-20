@@ -9,10 +9,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/filecoin-project/go-address"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-address"
 )
 
 type StorageDealSummary struct {

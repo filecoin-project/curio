@@ -20,7 +20,9 @@ func TestAlertNow(t *testing.T) {
 		tp,
 	}
 	// Create dependencies
-	db, err := harmonydb.NewFromConfigWithITestID(t, "alertnow")
+	sharedITestID := harmonydb.ITestNewID()
+	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
+
 	require.NoError(t, err)
 
 	an := alertmanager.NewAlertNow(db, "alertNowMachine")
@@ -33,7 +35,7 @@ func TestAlertNow(t *testing.T) {
 	done, err := at.Do(123, func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
-	require.Equal(t, "alertNowMachine: testMessage", tp.output)
+	require.Equal(t, "Machine alertNowMachine: testMessage", tp.output)
 }
 
 // testPlugin is a test plugin
@@ -42,6 +44,6 @@ type testPlugin struct {
 }
 
 func (tp *testPlugin) SendAlert(data *plugin.AlertPayload) error {
-	tp.output = data.Summary
+	tp.output = data.Details["NowCheck"].(string)
 	return nil
 }

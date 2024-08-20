@@ -87,7 +87,9 @@ type MK12Pipeline struct {
 func NewCurioStorageDealMarket(db *harmonydb.DB, cfg *config.CurioConfig, sc *ffi.SealCalls, mapi storageMarketAPI) *CurioStorageDealMarket {
 
 	moduleMap := make(map[string][]string)
-	moduleMap[mk12Str] = cfg.Market.StorageMarketConfig.MK12.Miners
+	for _, l := range cfg.Market.StorageMarketConfig.MK12.Libp2p {
+		moduleMap[mk12Str] = append(moduleMap[mk12Str], l.Miner)
+	}
 
 	urls := make(map[string]http.Header)
 	for _, curl := range cfg.Market.StorageMarketConfig.PieceLocator {
@@ -109,6 +111,10 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 
 	for module, miners := range d.miners {
 		if module == mk12Str {
+			if len(miners) == 0 {
+				// Do not start the poller if no minerID present
+				return nil
+			}
 			d.MK12Handler, err = mk12.NewMK12Handler(miners, d.db, d.sc, d.api)
 			if err != nil {
 				return err
@@ -175,7 +181,13 @@ func (d *CurioStorageDealMarket) poll(ctx context.Context) {
 				B. Do streaming commP if we have URL
 			5. Once commP is complete, add the deal using pieceIngest
 	*/
-	d.processMK12Deals(ctx)
+	for module, miners := range d.miners {
+		if module == mk12Str {
+			if len(miners) > 0 {
+				d.processMK12Deals(ctx)
+			}
+		}
+	}
 }
 
 func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {

@@ -250,7 +250,6 @@ func (p *CurioAPI) LogSetLevel(ctx context.Context, subsystem, level string) err
 }
 
 func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) error {
-	log.Errorf("ENTERED RPC SERVER")
 	fh := &paths.FetchHandler{Local: dependencies.LocalStore, PfHandler: &paths.DefaultPartialFileHandler{}}
 	remoteHandler := func(w http.ResponseWriter, r *http.Request) {
 		if !auth.HasPerm(r.Context(), nil, lapi.PermAdmin) {
@@ -261,8 +260,6 @@ func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan c
 
 		fh.ServeHTTP(w, r)
 	}
-
-	log.Errorf("CREATED STORAGE HANDLER")
 
 	var authVerify func(context.Context, string) ([]auth.Permission, error)
 	{
