@@ -86,7 +86,6 @@ func NewLibp2pHost(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfi
 			libp2p.Peerstore(pstore),
 			libp2p.UserAgent("curio-" + build.UserVersion()),
 			libp2p.Ping(true),
-			libp2p.DisableRelay(),
 			libp2p.EnableNATService(),
 			libp2p.BandwidthReporter(metrics.NewBandwidthCounter()),
 		}
