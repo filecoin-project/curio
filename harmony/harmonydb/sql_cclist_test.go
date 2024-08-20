@@ -12,7 +12,7 @@ import (
 func TestCCList(t *testing.T) {
 	// this tests outputs the cc cid list defined in 20240611-snap-pipeline.sql
 
-	numProofs := abi.RegisteredSealProof_StackedDrg64GiBV1_1_Feat_SyntheticPoRep + 1
+	numProofs := abi.RegisteredSealProof_StackedDrg64GiBV1_2_Feat_NiPoRep + 1
 
 	pstrs := make([]string, numProofs)
 
