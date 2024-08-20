@@ -64,13 +64,12 @@ func NewSubmitPrecommitTask(sp *SealPoller, db *harmonydb.DB, api SubmitPrecommi
 }
 
 func (s *SubmitPrecommitTask) GetSpid(db *harmonydb.DB, taskID int64) string {
-	var spid string
-	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_precommit_msg = $1`, taskID).Scan(&spid)
+	sid, err := s.GetSectorID(db, taskID)
 	if err != nil {
-		log.Errorf("getting spid: %v", err)
+		log.Errorf("getting sector id: %s", err)
 		return ""
 	}
-	return spid
+	return sid.Miner.String()
 }
 
 func (s *SubmitPrecommitTask) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error) {

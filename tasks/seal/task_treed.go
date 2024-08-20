@@ -55,13 +55,12 @@ func (t *TreeDTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (t *TreeDTask) GetSpid(db *harmonydb.DB, taskID int64) string {
-	var spid string
-	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_tree_d = $1`, taskID).Scan(&spid)
+	sid, err := t.GetSectorID(db, taskID)
 	if err != nil {
-		log.Errorf("getting spid: %v", err)
+		log.Errorf("getting sector id: %s", err)
 		return ""
 	}
-	return spid
+	return sid.Miner.String()
 }
 
 func (t *TreeDTask) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error) {

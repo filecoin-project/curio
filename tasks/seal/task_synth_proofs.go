@@ -193,13 +193,12 @@ func (s *SyntheticProofTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 var _ harmonytask.TaskInterface = &SyntheticProofTask{}
 
 func (s *SyntheticProofTask) GetSpid(db *harmonydb.DB, taskID int64) string {
-	var spid string
-	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_synth = $1`, taskID).Scan(&spid)
+	sid, err := s.GetSectorID(db, taskID)
 	if err != nil {
-		log.Errorf("getting spid: %s", err)
+		log.Errorf("getting sector id: %s", err)
 		return ""
 	}
-	return spid
+	return sid.Miner.String()
 }
 
 func (s *SyntheticProofTask) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error) {

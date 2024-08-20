@@ -182,13 +182,12 @@ func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (p *PoRepTask) GetSpid(db *harmonydb.DB, taskID int64) string {
-	var spid string
-	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_porep = $1`, taskID).Scan(&spid)
+	sid, err := p.GetSectorID(db, taskID)
 	if err != nil {
-		log.Errorf("getting spid: %s", err)
+		log.Errorf("getting sector id: %s", err)
 		return ""
 	}
-	return spid
+	return sid.Miner.String()
 }
 
 func (p *PoRepTask) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error) {
