@@ -56,6 +56,7 @@ func DefaultCurioConfig() *CurioConfig {
 			MaxQueueTrees:      0, // default don't use this limit
 			MaxQueuePoRep:      0, // default don't use this limit
 			MaxDealWaitTime:    Duration(1 * time.Hour),
+			AutoCC:             true,
 		},
 		Alerting: CurioAlertingConfig{
 			MinimumWalletBalance: types.MustParseFIL("5"),
@@ -446,6 +447,9 @@ type CurioIngestConfig struct {
 	// DoSnap enables the snap deal process for deals ingested by this instance. Unlike in lotus-miner there is no
 	// fallback to porep when no sectors are available to snap into. When enabled all deals will be snap deals.
 	DoSnap bool
+
+	// Auto-CC enables the automatic creation of CC sectors when doSnap is enabled.
+	AutoCC bool
 }
 
 type CurioAlertingConfig struct {
