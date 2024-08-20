@@ -144,7 +144,7 @@ jobs:
         description: Flags passed to go test.
       target:
         type: string
-        default: "./... | grep -v itests"
+        default: "./..."
         description: Import paths of packages to be tested.
       proofs-log-test:
         type: string
@@ -279,6 +279,7 @@ workflows:
           name: test-all
           requires:
             - build
+          target: "`go list ./... | grep -v curio/itests`"
           suite: test-all
           target: "`go list ./... | grep -v curio/itests`"
           get-params: true
