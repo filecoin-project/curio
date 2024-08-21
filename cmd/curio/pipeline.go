@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/samber/lo"
-
 	"github.com/ipfs/go-datastore"
+	"github.com/samber/lo"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
