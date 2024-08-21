@@ -497,6 +497,7 @@ USAGE:
 
 COMMANDS:
    start    Start new sealing operations manually
+   events   List pipeline events
    help, h  Shows a list of commands or help for one command
 
 OPTIONS:
@@ -520,6 +521,21 @@ OPTIONS:
    --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
    --duration-days value, -d value    How long to commit sectors for (default: 1278 (3.5 years))
    --help, -h                         show help
+```
+
+### curio seal events
+```
+NAME:
+   curio seal events - List pipeline events
+
+USAGE:
+   curio seal events [command options] [arguments...]
+
+OPTIONS:
+   --actor value   Filter events by actor address; lists all if not specified
+   --sector value  Filter events by sector number; requires --actor to be specified (default: 0)
+   --last value    Limit output to the last N events (default: 100)
+   --help, -h      show help
 ```
 
 ## curio market
