@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+
 	"github.com/filecoin-project/lotus/itests/kit"
-	"github.com/filecoin-project/lotus/lib/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/node/impl"
 )
 
