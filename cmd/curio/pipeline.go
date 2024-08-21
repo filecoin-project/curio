@@ -2,6 +2,9 @@ package main
 
 import (
 	"fmt"
+	"time"
+
+	"github.com/samber/lo"
 
 	"github.com/ipfs/go-datastore"
 	"github.com/urfave/cli/v2"
@@ -29,6 +32,7 @@ var sealCmd = &cli.Command{
 	Subcommands: []*cli.Command{
 		sealStartCmd,
 		sealMigrateLMSectorsCmd,
+		sealEventsCmd,
 	},
 }
 
@@ -234,6 +238,111 @@ var sealMigrateLMSectorsCmd = &cli.Command{
 			return xerrors.Errorf("migrating sectors: %w", err)
 		}
 
+		return nil
+	},
+}
+
+var sealEventsCmd = &cli.Command{
+	Name:  "events",
+	Usage: "List pipeline events",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:  "actor",
+			Usage: "Filter events by actor address; lists all if not specified",
+		},
+		&cli.IntFlag{
+			Name:  "sector",
+			Usage: "Filter events by sector number; requires --actor to be specified",
+		},
+		&cli.UintFlag{
+			Name:  "last",
+			Usage: "Limit output to the last N events",
+			Value: 100,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+
+		var actorID uint64
+		var sector abi.SectorNumber
+		if cctx.IsSet("actor") {
+			act, err := address.NewFromString(cctx.String("actor"))
+			if err != nil {
+				return fmt.Errorf("parsing --actor: %w", err)
+			}
+			mid, err := address.IDFromAddress(act)
+			if err != nil {
+				return fmt.Errorf("getting miner id: %w", err)
+			}
+			actorID = mid
+		}
+		if cctx.IsSet("sector") {
+			sector = abi.SectorNumber(cctx.Int("sector"))
+			if !cctx.IsSet("actor") {
+				return fmt.Errorf("the --actor flag is required when using --sector")
+			}
+		}
+
+		ctx := reqcontext.ReqContext(cctx)
+		dep, err := deps.GetDepsCLI(ctx, cctx)
+		if err != nil {
+			return err
+		}
+
+		var events []struct {
+			ActorID   int       `db:"sp_id"`
+			Sector    int       `db:"sector_number"`
+			ID        int       `db:"id"`
+			TaskID    int       `db:"task_id"`
+			Name      string    `db:"name"`
+			Posted    time.Time `db:"posted"`
+			WorkStart time.Time `db:"work_start"`
+			WorkEnd   time.Time `db:"work_end"`
+			Result    bool      `db:"result"`
+			Err       string    `db:"err"`
+			ByHost    string    `db:"completed_by_host_and_port"`
+		}
+
+		if !cctx.IsSet("actor") {
+			// list for all actors
+			err = dep.DB.Select(ctx, &events, `SELECT s.sp_id, s.sector_number, h.*
+				FROM harmony_task_history h
+         			JOIN sectors_pipeline_events s ON h.id = s.task_history_id
+				ORDER BY h.work_end DESC LIMIT $1;`, cctx.Int("last"))
+		} else if cctx.IsSet("sector") {
+			// list for specific actor and sector
+			err = dep.DB.Select(ctx, &events, `SELECT s.sp_id, s.sector_number, h.*
+				FROM harmony_task_history h
+         			JOIN sectors_pipeline_events s ON h.id = s.task_history_id
+				WHERE s.sp_id = $1 AND s.sector_number = $2 ORDER BY h.work_end DESC LIMIT $3;`, actorID, sector, cctx.Int("last"))
+		} else {
+			fmt.Println(cctx.IsSet("actor"), cctx.IsSet("sector"))
+			// list for specific actor
+			err = dep.DB.Select(ctx, &events, `SELECT s.sp_id, s.sector_number, h.*
+				FROM harmony_task_history h
+         			JOIN sectors_pipeline_events s ON h.id = s.task_history_id
+				WHERE s.sp_id = $1 ORDER BY h.work_end DESC LIMIT $2;`, actorID, cctx.Int("last"))
+		}
+
+		if err != nil {
+			return fmt.Errorf("getting events: %w", err)
+		}
+		fmt.Printf("Total Events: %d\n", len(events))
+
+		fmt.Printf("%-10s %-10s %-18s %-10s %-28s %-28s %-20s %-20s %-10s %-20s \n", "ActorID", "Sector", "Task", "HistoryID", "Posted", "Start", "Took", "Machine", "Status", "Error")
+		for _, e := range events {
+			fmt.Printf("%-10d %-10d %-18s %-10d %-28s %-28s %-20s %-20s %-10s %-20s \n",
+				e.ActorID,
+				e.Sector,
+				e.Name,
+				e.TaskID,
+				e.Posted.Format(time.RFC3339),
+				e.WorkStart.Format(time.RFC3339),
+				e.WorkEnd.Sub(e.WorkStart),
+				e.ByHost,
+				lo.Ternary(e.Result, "Success", "Failure"),
+				e.Err,
+			)
+		}
 		return nil
 	},
 }

@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/filecoin-project/go-state-types/abi"
+
 	logging "github.com/ipfs/go-log/v2"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
@@ -17,6 +19,10 @@ import (
 )
 
 var log = logging.Logger("harmonytask")
+
+type PipelineTask interface {
+	GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error)
+}
 
 type taskTypeHandler struct {
 	TaskInterface
@@ -180,6 +186,14 @@ canAcceptAgain:
 		var doErr error
 		workStart := time.Now()
 
+		var sectorID *abi.SectorID
+		if ht, ok := h.TaskInterface.(PipelineTask); ok {
+			sectorID, err = ht.GetSectorID(h.TaskEngine.db, int64(*tID))
+			if err != nil {
+				log.Errorw("Could not get sector ID", "task", h.Name, "id", *tID, "error", err)
+			}
+		}
+
 		defer func() {
 			if r := recover(); r != nil {
 				stackSlice := make([]byte, 4092)
@@ -191,7 +205,7 @@ canAcceptAgain:
 			h.Count.Add(-1)
 
 			releaseStorage()
-			h.recordCompletion(*tID, workStart, done, doErr)
+			h.recordCompletion(*tID, sectorID, workStart, done, doErr)
 			if done {
 				for _, fs := range h.TaskEngine.follows[h.Name] { // Do we know of any follows for this task type?
 					if _, err := fs.f(*tID, fs.h.AddTask); err != nil {
@@ -219,7 +233,7 @@ canAcceptAgain:
 	return true
 }
 
-func (h *taskTypeHandler) recordCompletion(tID TaskID, workStart time.Time, done bool, doErr error) {
+func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, workStart time.Time, done bool, doErr error) {
 	workEnd := time.Now()
 	retryWait := time.Millisecond * 100
 
@@ -292,12 +306,21 @@ retryRecordCompletion:
 				}
 			}
 		}
-		_, err = tx.Exec(`INSERT INTO harmony_task_history 
-									 (task_id,   name, posted,    work_start, work_end, result, completed_by_host_and_port,      err)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, tID, h.Name, postedTime.UTC(), workStart.UTC(), workEnd.UTC(), done, h.TaskEngine.hostAndPort, result)
+
+		var hid int
+		err = tx.QueryRow(`INSERT INTO harmony_task_history 
+									 (task_id, name, posted, work_start, work_end, result, completed_by_host_and_port, err)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.UTC(), workStart.UTC(), workEnd.UTC(), done, h.TaskEngine.hostAndPort, result).Scan(&hid)
 		if err != nil {
 			return false, fmt.Errorf("could not write history: %w", err)
 		}
+		if sectorID != nil {
+			_, err = tx.Exec(`SELECT append_sector_pipeline_events($1, $2, $3)`, uint64(sectorID.Miner), uint64(sectorID.Number), hid)
+			if err != nil {
+				return false, fmt.Errorf("could not append sector pipeline events: %w", err)
+			}
+		}
+
 		return true, nil
 	})
 	if err != nil {
