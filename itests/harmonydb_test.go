@@ -66,7 +66,8 @@ func TestTransaction(t *testing.T) {
 	defer cancel()
 
 	withSetup(t, func(miner *kit.TestMiner) {
-		cdb := miner.BaseAPI.(*impl.StorageMinerAPI).HarmonyDB
+		testID := harmonydb.ITestNewID()
+		cdb := setupTestDB(t, testID)
 		if _, err := cdb.Exec(ctx, "INSERT INTO itest_scratch (some_int) VALUES (4), (5), (6)"); err != nil {
 			t.Fatal("E0", err)
 		}
@@ -127,7 +128,8 @@ func TestPartialWalk(t *testing.T) {
 	defer cancel()
 
 	withSetup(t, func(miner *kit.TestMiner) {
-		cdb := miner.BaseAPI.(*impl.StorageMinerAPI).HarmonyDB
+		testID := harmonydb.ITestNewID()
+		cdb := setupTestDB(t, testID)
 		if _, err := cdb.Exec(ctx, `
 			INSERT INTO 
 				itest_scratch (content, some_int) 

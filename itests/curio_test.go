@@ -131,15 +131,7 @@ func TestCurioHappyPath(t *testing.T) {
 	fapi := fmt.Sprintf("%s:%s", string(token), full.ListenAddr)
 
 	sharedITestID := harmonydb.ITestNewID()
-	dbConfig := config.HarmonyDB{
-		Hosts:    []string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")},
-		Database: "yugabyte",
-		Username: "yugabyte",
-		Password: "yugabyte",
-		Port:     "5433",
-	}
-	db, err := harmonydb.NewFromConfigWithITestID(t, dbConfig, sharedITestID)
-	require.NoError(t, err)
+	db := setupTestDB(t, sharedITestID)
 
 	defer db.ITestDeleteAll()
 
@@ -438,4 +430,18 @@ func envElse(env, els string) string {
 		return v
 	}
 	return els
+}
+
+func setupTestDB(t *testing.T, sharedITestID harmonydb.ITestID) *harmonydb.DB {
+	t.Helper()
+	dbConfig := config.HarmonyDB{
+		Hosts:    []string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")},
+		Database: "yugabyte",
+		Username: "yugabyte",
+		Password: "yugabyte",
+		Port:     "5433",
+	}
+	db, err := harmonydb.NewFromConfigWithITestID(t, dbConfig, sharedITestID)
+	require.NoError(t, err)
+	return db
 }
