@@ -11,13 +11,11 @@ import (
 
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
-	"github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-bitfield"
-	"github.com/filecoin-project/go-commp-utils/zerocomm"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
@@ -322,10 +320,16 @@ var sectorsListCmd = &cli.Command{
 				"Active":  yesno(inASet),
 			}
 
+			isCC := st.DealWeight.IsZero() && st.VerifiedDealWeight.IsZero()
+
 			if deals > 0 {
 				m["Deals"] = color.GreenString("%d", deals)
 			} else {
-				m["Deals"] = color.BlueString("CC")
+				if isCC {
+					m["Deals"] = color.BlueString("CC")
+				} else {
+					m["Deals"] = color.CyanString("DDO")
+				}
 				// if st.ToUpgrade {
 				// 	m["Deals"] = color.CyanString("CC(upgrade)")
 				// }
@@ -345,7 +349,7 @@ var sectorsListCmd = &cli.Command{
 				}
 			}
 
-			if !fast && deals > 0 {
+			if !fast && (deals > 0 || !isCC) {
 				m["DealWeight"] = units.BytesSize(dw)
 				if vp > 0 {
 					m["VerifiedPower"] = color.GreenString(units.BytesSize(vp))
@@ -890,15 +894,6 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 
 		return nil
 	},
-}
-
-func ccCidForSpt(sp abi.RegisteredSealProof) (cid.Cid, error) {
-	ssize, err := sp.SectorSize()
-	if err != nil {
-		return cid.Undef, err
-	}
-
-	return zerocomm.ZeroPieceCommitment(abi.PaddedPieceSize(ssize).Unpadded()), nil
 }
 
 func yesno(b bool) string {
