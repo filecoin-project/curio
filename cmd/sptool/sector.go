@@ -4,10 +4,14 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/go-commp-utils/zerocomm"
 	"github.com/filecoin-project/go-state-types/builtin"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/verifreg"
+	"github.com/filecoin-project/lotus/lib/must"
+	"github.com/ipfs/go-cid"
+	gobig "math/big"
 	"os"
 	"sort"
 	"strconv"
@@ -357,17 +361,32 @@ var sectorsListCmd = &cli.Command{
 }
 
 var sectorsExtendCmd = &cli.Command{
-	Name:      "extend",
-	Usage:     "Extend expiring sectors while not exceeding each sector's max life",
+	Name:  "extend",
+	Usage: "Extend expiring sectors while not exceeding each sector's max life",
+	Description: `NOTE: --from and --to flags have multiple formats:
+	1. Absolute epoch number: <epoch>
+	2. Relative epoch number: +<delta>, e.g. +1000, means 1000 epochs from now
+	3. Relative day number: +<delta>d, e.g. +10d, means 10 days from now
+
+The --extension flag has two formats:
+	1. Number of epochs to extend by: <epoch>
+	2. Number of days to extend by: <delta>d
+
+Extensions will be clamped at either the maximum sector extension of 3.5 years/1278 days or the sector's maximum lifetime
+	which currently is 5 years.
+
+`,
 	ArgsUsage: "<sectorNumbers...(optional)>",
 	Flags: []cli.Flag{
-		&cli.Int64Flag{
+		&cli.StringFlag{
 			Name:  "from",
 			Usage: "only consider sectors whose current expiration epoch is in the range of [from, to], <from> defaults to: now + 120 (1 hour)",
+			Value: "+120",
 		},
-		&cli.Int64Flag{
+		&cli.StringFlag{
 			Name:  "to",
 			Usage: "only consider sectors whose current expiration epoch is in the range of [from, to], <to> defaults to: now + 92160 (32 days)",
+			Value: "+92160",
 		},
 		&cli.StringFlag{
 			Name:  "sector-file",
@@ -377,10 +396,10 @@ var sectorsExtendCmd = &cli.Command{
 			Name:  "exclude",
 			Usage: "optionally provide a file containing excluding sectors",
 		},
-		&cli.Int64Flag{
+		&cli.StringFlag{
 			Name:  "extension",
 			Usage: "try to extend selected sectors by this number of epochs, defaults to 540 days",
-			Value: 1555200,
+			Value: "540d",
 		},
 		&cli.Int64Flag{
 			Name:  "new-expiration",
@@ -389,6 +408,10 @@ var sectorsExtendCmd = &cli.Command{
 		&cli.BoolFlag{
 			Name:  "only-cc",
 			Usage: "only extend CC sectors (useful for making sector ready for snap upgrade)",
+		},
+		&cli.BoolFlag{
+			Name:  "no-cc",
+			Usage: "don't extend CC sectors (exclusive with --only-cc)",
 		},
 		&cli.BoolFlag{
 			Name:  "drop-claims",
@@ -414,6 +437,10 @@ var sectorsExtendCmd = &cli.Command{
 		},
 	},
 	Action: func(cctx *cli.Context) error {
+		if cctx.Bool("only-cc") && cctx.Bool("no-cc") {
+			return xerrors.Errorf("only one of --only-cc and --no-cc can be set")
+		}
+
 		mf, err := types.ParseFIL(cctx.String("max-fee"))
 		if err != nil {
 			return err
@@ -439,6 +466,24 @@ var sectorsExtendCmd = &cli.Command{
 			return err
 		}
 		currEpoch := head.Height()
+
+		parseEpochString := func(relTo abi.ChainEpoch, s string) (abi.ChainEpoch, error) {
+			base := abi.ChainEpoch(0)
+			numMult := abi.ChainEpoch(1)
+			if s[0] == '+' {
+				base = relTo
+				s = s[1:]
+			}
+			if len(s) > 1 && s[len(s)-1] == 'd' {
+				s = s[:len(s)-1]
+				numMult = builtin.EpochsInDay
+			}
+			d, err := strconv.ParseInt(s, 10, 64)
+			if err != nil {
+				return 0, err
+			}
+			return base + (numMult * abi.ChainEpoch(d)), nil
+		}
 
 		nv, err := fullApi.StateNetworkVersion(ctx, types.EmptyTSK)
 		if err != nil {
@@ -522,13 +567,20 @@ var sectorsExtendCmd = &cli.Command{
 		} else {
 			from := currEpoch + 120
 			to := currEpoch + 92160
+			var err error
 
 			if cctx.IsSet("from") {
-				from = abi.ChainEpoch(cctx.Int64("from"))
+				from, err = parseEpochString(currEpoch, cctx.String("from"))
+				if err != nil {
+					return xerrors.Errorf("parsing epoch string: %w", err)
+				}
 			}
 
 			if cctx.IsSet("to") {
-				to = abi.ChainEpoch(cctx.Int64("to"))
+				to, err = parseEpochString(currEpoch, cctx.String("to"))
+				if err != nil {
+					return xerrors.Errorf("parsing epoch string: %w", err)
+				}
 			}
 
 			for _, si := range activeSet {
@@ -548,7 +600,12 @@ var sectorsExtendCmd = &cli.Command{
 			if !found {
 				return xerrors.Errorf("sector %d is not active", id)
 			}
-			if len(si.DealIDs) > 0 && cctx.Bool("only-cc") {
+
+			isCC := len(si.DealIDs) == 0 && si.SealedCID == must.One(ccCidForSpt(si.SealProof))
+			if !isCC && cctx.Bool("only-cc") {
+				continue
+			}
+			if isCC && cctx.Bool("no-cc") {
 				continue
 			}
 
@@ -566,8 +623,8 @@ var sectorsExtendCmd = &cli.Command{
 
 		extensions := map[miner.SectorLocation]map[abi.ChainEpoch][]abi.SectorNumber{}
 		for _, si := range sis {
-			extension := abi.ChainEpoch(cctx.Int64("extension"))
-			newExp := si.Expiration + extension
+			estr := cctx.String("extension")
+			newExp, err := parseEpochString(si.Expiration, "+"+estr)
 
 			if cctx.IsSet("new-expiration") {
 				newExp = abi.ChainEpoch(cctx.Int64("new-expiration"))
@@ -799,10 +856,14 @@ var sectorsExtendCmd = &cli.Command{
 
 				fmt.Println("\n", string(data))
 
-				_, err = fullApi.GasEstimateMessageGas(ctx, m, spec, types.EmptyTSK)
+				ge, err := fullApi.GasEstimateMessageGas(ctx, m, spec, types.EmptyTSK)
 				if err != nil {
 					return xerrors.Errorf("simulating message execution: %w", err)
 				}
+
+				fmt.Printf("GasLimit: %v\n", siStr(types.NewInt(uint64(ge.GasLimit))))
+				fmt.Printf("FeeCap: %s\n", types.FIL(ge.GasFeeCap).Short())
+				fmt.Printf("MaxFee: %s\n", types.FIL(ge.RequiredFunds()))
 
 				continue
 			}
@@ -815,10 +876,23 @@ var sectorsExtendCmd = &cli.Command{
 			fmt.Println(smsg.Cid())
 		}
 
-		fmt.Printf("%d sectors extended\n", stotal)
+		if !cctx.Bool("really-do-it") {
+			fmt.Printf("%d sectors to extended, pass --really-do-it to proceed\n", stotal)
+		} else {
+			fmt.Printf("%d sectors extended\n", stotal)
+		}
 
 		return nil
 	},
+}
+
+func ccCidForSpt(sp abi.RegisteredSealProof) (cid.Cid, error) {
+	ssize, err := sp.SectorSize()
+	if err != nil {
+		return cid.Undef, err
+	}
+
+	return zerocomm.ZeroPieceCommitment(abi.PaddedPieceSize(ssize).Unpadded()), nil
 }
 
 func yesno(b bool) string {
@@ -853,4 +927,20 @@ func getSectorsFromFile(filePath string) ([]abi.SectorNumber, error) {
 	}
 
 	return sectors, nil
+}
+
+var siUnits = []string{"", "K", "M", "G", "T"}
+
+func siStr(bi types.BigInt) string {
+	r := new(gobig.Rat).SetInt(bi.Int)
+	den := gobig.NewRat(1, 1000)
+
+	var i int
+	for f, _ := r.Float64(); f >= 1000 && i+1 < len(siUnits); f, _ = r.Float64() {
+		i++
+		r = r.Mul(r, den)
+	}
+
+	f, _ := r.Float64()
+	return fmt.Sprintf("%.3g %s", f, siUnits[i])
 }
