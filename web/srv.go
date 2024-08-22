@@ -2,8 +2,10 @@
 package web
 
 import (
+	"bufio"
 	"context"
 	"embed"
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
@@ -94,9 +96,21 @@ func GetSrv(ctx context.Context, deps *deps.Deps) (*http.Server, error) {
 
 type interceptResponseWriter struct {
 	http.ResponseWriter
-	length  int
-	status  int
-	written bool
+	length   int
+	status   int
+	hijacker http.Hijacker
+}
+
+func (w *interceptResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if w.hijacker != nil {
+		return w.hijacker.Hijack()
+	}
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("ResponseWriter does not support Hijacker interface")
+	}
+	w.hijacker = hijacker
+	return hijacker.Hijack()
 }
 
 func (w *interceptResponseWriter) WriteHeader(statusCode int) {
@@ -105,9 +119,6 @@ func (w *interceptResponseWriter) WriteHeader(statusCode int) {
 }
 
 func (w *interceptResponseWriter) Write(b []byte) (int, error) {
-	if !w.written {
-		w.WriteHeader(http.StatusOK)
-	}
 	n, err := w.ResponseWriter.Write(b)
 	w.length += n
 	return n, err
