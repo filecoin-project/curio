@@ -35,7 +35,6 @@ import (
 	lcli "github.com/filecoin-project/lotus/cli"
 	"github.com/filecoin-project/lotus/cli/spcli"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
-	"github.com/filecoin-project/lotus/lib/must"
 	"github.com/filecoin-project/lotus/lib/tablewriter"
 )
 
@@ -604,7 +603,7 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 				return xerrors.Errorf("sector %d is not active", id)
 			}
 
-			isCC := len(si.DealIDs) == 0 && si.SealedCID == must.One(ccCidForSpt(si.SealProof))
+			isCC := len(si.DealIDs) == 0 && si.DealWeight.IsZero() && si.VerifiedDealWeight.IsZero()
 			if !isCC && cctx.Bool("only-cc") {
 				continue
 			}
