@@ -88,25 +88,51 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 	}
 
 	err := l.db.Select(ctx, &ssip, `
-						WITH CheckCommit AS (
-						SELECT
-							COALESCE(sp.sp_id, sm.sp_id) AS sp_id,
-							COALESCE(sp.sector_number, sm.sector_num) AS sector_number,
-							COALESCE(sp.after_commit_msg, TRUE) AS after_commit_msg,
-							COALESCE(sp.failed, FALSE) AS failed,
-							COALESCE(sp.after_sdr, TRUE) AS after_sdr,
-							COALESCE(sp.after_porep, TRUE) AS after_porep,
-							COALESCE(sp.after_tree_r, TRUE) AS after_tree_r,
-							COALESCE(sp.after_commit_msg_success, TRUE) AS after_commit_msg_success,
-							COALESCE(snap.after_prove_msg_success, snap.after_prove_msg_success is null) AS after_snap_msg_success,
-							COALESCE(sm.orig_sealed_cid != sm.cur_sealed_cid, FALSE) AS is_snap
-						FROM
-							sectors_sdr_pipeline sp
-								FULL OUTER JOIN sectors_meta sm ON sp.sp_id = sm.sp_id AND sp.sector_number = sm.sector_num
-								LEFT JOIN sectors_snap_pipeline snap ON sm.sp_id = snap.sp_id AND sm.sector_num = snap.sector_number
-						WHERE
-							(sp.sp_id = $1 AND sp.sector_number = $2) OR (sm.sp_id = $1 AND sm.sector_num = $2)
-					),
+						WITH SectorMeta AS (
+							SELECT
+								sm.sp_id,
+								sm.sector_num,
+								sm.orig_sealed_cid,
+								sm.cur_sealed_cid
+							FROM
+								sectors_meta sm
+							WHERE
+								sm.sp_id = $1 AND sm.sector_num = $2
+						),
+						SDRMeta AS (
+							SELECT
+								sp.sp_id,
+								sp.sector_number,
+								sp.after_commit_msg,
+								sp.failed,
+								sp.after_sdr,
+								sp.after_porep,
+								sp.after_tree_r,
+								sp.after_commit_msg_success
+							FROM
+								sectors_sdr_pipeline sp
+							WHERE
+								sp.sp_id = $1 AND sp.sector_number = $2
+						),
+						CheckCommit AS (
+							SELECT
+								COALESCE(sp.sp_id, sm.sp_id) AS sp_id,
+								COALESCE(sp.sector_number, sm.sector_num) AS sector_number,
+								COALESCE(sp.after_commit_msg, TRUE) AS after_commit_msg,
+								COALESCE(sp.failed, FALSE) AS failed,
+								COALESCE(sp.after_sdr, TRUE) AS after_sdr,
+								COALESCE(sp.after_porep, TRUE) AS after_porep,
+								COALESCE(sp.after_tree_r, TRUE) AS after_tree_r,
+								COALESCE(sp.after_commit_msg_success, TRUE) AS after_commit_msg_success,
+								COALESCE(snap.after_prove_msg_success, snap.after_prove_msg_success is null) AS after_snap_msg_success,
+								COALESCE(sm.orig_sealed_cid != sm.cur_sealed_cid, FALSE) AS is_snap
+							FROM
+								SDRMeta sp
+									FULL OUTER JOIN SectorMeta sm ON sp.sp_id = sm.sp_id AND sp.sector_number = sm.sector_num
+									LEFT JOIN sectors_snap_pipeline snap ON sm.sp_id = snap.sp_id AND sm.sector_num = snap.sector_number
+							WHERE
+								(sp.sp_id = $1 AND sp.sector_number = $2) OR (sm.sp_id = $1 AND sm.sector_num = $2)
+						),
 						 MetaPieces AS (
 							 SELECT
 								 mp.piece_cid,
