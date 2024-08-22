@@ -363,7 +363,7 @@ var sectorsListCmd = &cli.Command{
 var sectorsExtendCmd = &cli.Command{
 	Name:  "extend",
 	Usage: "Extend expiring sectors while not exceeding each sector's max life",
-	Description: `NOTE: --from and --to flags have multiple formats:
+	Description: `NOTE: --new-expiration, --from and --to flags have multiple formats:
 	1. Absolute epoch number: <epoch>
 	2. Relative epoch number: +<delta>, e.g. +1000, means 1000 epochs from now
 	3. Relative day number: +<delta>d, e.g. +10d, means 10 days from now
@@ -401,7 +401,7 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 			Usage: "try to extend selected sectors by this number of epochs, defaults to 540 days",
 			Value: "540d",
 		},
-		&cli.Int64Flag{
+		&cli.StringFlag{
 			Name:  "new-expiration",
 			Usage: "try to extend selected sectors to this epoch, ignoring extension",
 		},
@@ -475,6 +475,9 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 				s = s[1:]
 			}
 			if len(s) > 1 && s[len(s)-1] == 'd' {
+				if base == 0 {
+					return 0, xerrors.Errorf("cannot use day-based delta in absolute mode (add a + prefix)")
+				}
 				s = s[:len(s)-1]
 				numMult = builtin.EpochsInDay
 			}
@@ -623,11 +626,15 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 
 		extensions := map[miner.SectorLocation]map[abi.ChainEpoch][]abi.SectorNumber{}
 		for _, si := range sis {
-			estr := cctx.String("extension")
-			newExp, err := parseEpochString(si.Expiration, "+"+estr)
-
+			var newExp abi.ChainEpoch
 			if cctx.IsSet("new-expiration") {
-				newExp = abi.ChainEpoch(cctx.Int64("new-expiration"))
+				newExp, err = parseEpochString(currEpoch, cctx.String("new-expiration"))
+			} else {
+				estr := cctx.String("extension")
+				newExp, err = parseEpochString(si.Expiration, "+"+estr)
+			}
+			if err != nil {
+				return xerrors.Errorf("parsing expiration: %w", err)
 			}
 
 			maxExtension, err := policy.GetMaxSectorExpirationExtension(nv)

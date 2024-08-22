@@ -359,7 +359,7 @@ USAGE:
    sptool sectors extend [command options] <sectorNumbers...(optional)>
 
 DESCRIPTION:
-   NOTE: --from and --to flags have multiple formats:
+   NOTE: --new-expiration, --from and --to flags have multiple formats:
      1. Absolute epoch number: <epoch>
      2. Relative epoch number: +<delta>, e.g. +1000, means 1000 epochs from now
      3. Relative day number: +<delta>d, e.g. +10d, means 10 days from now
@@ -379,7 +379,7 @@ OPTIONS:
    --sector-file value     provide a file containing one sector number in each line, ignoring above selecting criteria
    --exclude value         optionally provide a file containing excluding sectors
    --extension value       try to extend selected sectors by this number of epochs, defaults to 540 days (default: "540d")
-   --new-expiration value  try to extend selected sectors to this epoch, ignoring extension (default: 0)
+   --new-expiration value  try to extend selected sectors to this epoch, ignoring extension
    --only-cc               only extend CC sectors (useful for making sector ready for snap upgrade) (default: false)
    --no-cc                 don't extend CC sectors (exclusive with --only-cc) (default: false)
    --drop-claims           drop claims for sectors that can be extended, but only by dropping some of their verified power claims (default: false)
