@@ -130,10 +130,10 @@ func (l *LMRPCProvider) SectorsStatus(ctx context.Context, sid abi.SectorNumber,
 								COALESCE(sp.after_commit_msg_success, TRUE) AS after_commit_msg_success,
 								COALESCE(snap.after_prove_msg_success, snap.after_prove_msg_success is null) AS after_snap_msg_success,
 								COALESCE(sm.orig_sealed_cid != sm.cur_sealed_cid, FALSE) AS is_snap,
-								COALESCE(snap.after_encode, FALSE) AS after_encode,
-								COALESCE(snap.after_prove, FALSE) AS after_prove,
-								COALESCE(snap.after_prove_msg_success, FALSE) AS after_prove_msg_success,
-								COALESCE(snap.after_move_storage, FALSE) AS after_move_storage
+								COALESCE(snap.after_encode, COALESCE(sm.orig_sealed_cid != sm.cur_sealed_cid, FALSE)) AS after_encode,
+								COALESCE(snap.after_prove, COALESCE(sm.orig_sealed_cid != sm.cur_sealed_cid, FALSE)) AS after_prove,
+								COALESCE(snap.after_prove_msg_success, COALESCE(sm.orig_sealed_cid != sm.cur_sealed_cid, FALSE)) AS after_prove_msg_success,
+								COALESCE(snap.after_move_storage, COALESCE(sm.orig_sealed_cid != sm.cur_sealed_cid, FALSE)) AS after_move_storage
 							FROM
 								SDRMeta sp
 									FULL OUTER JOIN SectorMeta sm ON sp.sp_id = sm.sp_id AND sp.sector_number = sm.sector_num
