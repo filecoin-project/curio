@@ -542,66 +542,112 @@ func closeDataReader(pieceData storiface.Data) {
 }
 
 func maybeApplyBackpressure(tx *harmonydb.Tx, cfg config.CurioIngestConfig, ssize abi.SectorSize) (wait bool, err error) {
-	var bufferedSDR, bufferedTrees, bufferedPoRep, waitDealSectors int
-	err = tx.QueryRow(`
-	WITH BufferedSDR AS (
-    SELECT COUNT(p.task_id_sdr) - COUNT(t.owner_id) AS buffered_sdr_count
-    FROM sectors_sdr_pipeline p
-    LEFT JOIN harmony_task t ON p.task_id_sdr = t.id
-    WHERE p.after_sdr = false
-	),
-	BufferedTrees AS (
-    SELECT COUNT(p.task_id_tree_r) - COUNT(t.owner_id) AS buffered_trees_count
-    FROM sectors_sdr_pipeline p
-    LEFT JOIN harmony_task t ON p.task_id_tree_r = t.id
-    WHERE p.after_sdr = true AND p.after_tree_r = false
-	),
-	BufferedPoRep AS (
-    SELECT COUNT(p.task_id_porep) - COUNT(t.owner_id) AS buffered_porep_count
-    FROM sectors_sdr_pipeline p
-    LEFT JOIN harmony_task t ON p.task_id_porep = t.id
-    WHERE p.after_tree_r = true AND p.after_porep = false
-	),
-	WaitDealSectors AS (
-    SELECT COUNT(DISTINCT sip.sector_number) AS wait_deal_sectors_count
-    FROM sectors_sdr_initial_pieces sip
-    LEFT JOIN sectors_sdr_pipeline sp ON sip.sp_id = sp.sp_id AND sip.sector_number = sp.sector_number
-    WHERE sp.sector_number IS NULL
-	)
-	SELECT
-    (SELECT buffered_sdr_count FROM BufferedSDR) AS total_buffered_sdr,
-    (SELECT buffered_trees_count FROM BufferedTrees) AS buffered_trees_count,
-    (SELECT buffered_porep_count FROM BufferedPoRep) AS buffered_porep_count,
-    (SELECT wait_deal_sectors_count FROM WaitDealSectors) AS wait_deal_sectors_count
-`).Scan(&bufferedSDR, &bufferedTrees, &bufferedPoRep, &waitDealSectors)
-	if err != nil {
-		return false, xerrors.Errorf("counting buffered sectors: %w", err)
-	}
-
 	var pieceSizes []abi.PaddedPieceSize
 
 	err = tx.Select(&pieceSizes, `SELECT piece_padded_size FROM parked_pieces WHERE complete = false;`)
 	if err != nil {
 		return false, xerrors.Errorf("getting in-process pieces")
 	}
-
 	sectors := sectorCount(pieceSizes, abi.PaddedPieceSize(ssize))
-	if cfg.MaxQueueDealSector != 0 && waitDealSectors+sectors > cfg.MaxQueueDealSector {
-		log.Debugw("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "max", cfg.MaxQueueDealSector)
-		return true, nil
-	}
 
-	if bufferedSDR > cfg.MaxQueueSDR {
-		log.Debugw("backpressure", "reason", "too many SDR tasks", "buffered", bufferedSDR, "max", cfg.MaxQueueSDR)
-		return true, nil
-	}
-	if cfg.MaxQueueTrees != 0 && bufferedTrees > cfg.MaxQueueTrees {
-		log.Debugw("backpressure", "reason", "too many tree tasks", "buffered", bufferedTrees, "max", cfg.MaxQueueTrees)
-		return true, nil
-	}
-	if cfg.MaxQueuePoRep != 0 && bufferedPoRep > cfg.MaxQueuePoRep {
-		log.Debugw("backpressure", "reason", "too many PoRep tasks", "buffered", bufferedPoRep, "max", cfg.MaxQueuePoRep)
-		return true, nil
+	if cfg.DoSnap {
+		var bufferedEncode, bufferedProve, waitDealSectors int
+		err = tx.QueryRow(`
+		WITH BufferedEncode AS (
+			SELECT COUNT(p.task_id_encode) - COUNT(t.owner_id) AS buffered_encode
+			FROM sectors_snap_pipeline p
+					 LEFT JOIN harmony_task t ON p.task_id_encode = t.id
+			WHERE p.after_encode = false
+		),
+		 BufferedProve AS (
+			 SELECT COUNT(p.task_id_prove) - COUNT(t.owner_id) AS buffered_prove
+			 FROM sectors_snap_pipeline p
+					  LEFT JOIN harmony_task t ON p.task_id_prove = t.id
+			 WHERE p.after_prove = true AND p.after_move_storage = false
+		 ),
+		 WaitDealSectors AS (
+			 SELECT COUNT(DISTINCT sip.sector_number) AS wait_deal_sectors_count
+			 FROM sectors_snap_initial_pieces sip
+					  LEFT JOIN curio.sectors_snap_pipeline sp ON sip.sp_id = sp.sp_id AND sip.sector_number = sp.sector_number
+			 WHERE sp.sector_number IS NULL
+		 )
+		SELECT
+			(SELECT buffered_encode FROM BufferedEncode) AS total_encode,
+			(SELECT buffered_prove FROM BufferedProve) AS buffered_prove,
+			(SELECT wait_deal_sectors_count FROM WaitDealSectors) AS wait_deal_sectors_count
+		`).Scan(&bufferedEncode, &bufferedProve, &waitDealSectors)
+		if err != nil {
+			return false, xerrors.Errorf("counting buffered sectors: %w", err)
+		}
+
+		if cfg.MaxQueueDealSector != 0 && waitDealSectors+sectors > cfg.MaxQueueDealSector {
+			log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "max", cfg.MaxQueueDealSector)
+			return true, nil
+		}
+
+		if cfg.MaxQueueSnapEncode != 0 && bufferedEncode > cfg.MaxQueueSnapEncode {
+			log.Infow("backpressure", "reason", "too many encode tasks", "buffered", bufferedEncode, "max", cfg.MaxQueueSnapEncode)
+			return true, nil
+		}
+
+		if cfg.MaxQueueSnapProve != 0 && bufferedProve > cfg.MaxQueueSnapProve {
+			log.Infow("backpressure", "reason", "too many prove tasks", "buffered", bufferedProve, "max", cfg.MaxQueueSnapProve)
+			return
+		}
+	} else {
+		var bufferedSDR, bufferedTrees, bufferedPoRep, waitDealSectors int
+		err = tx.QueryRow(`
+		WITH BufferedSDR AS (
+			SELECT COUNT(p.task_id_sdr) - COUNT(t.owner_id) AS buffered_sdr_count
+			FROM sectors_sdr_pipeline p
+			LEFT JOIN harmony_task t ON p.task_id_sdr = t.id
+			WHERE p.after_sdr = false
+		),
+		BufferedTrees AS (
+			SELECT COUNT(p.task_id_tree_r) - COUNT(t.owner_id) AS buffered_trees_count
+			FROM sectors_sdr_pipeline p
+			LEFT JOIN harmony_task t ON p.task_id_tree_r = t.id
+			WHERE p.after_sdr = true AND p.after_tree_r = false
+		),
+		BufferedPoRep AS (
+			SELECT COUNT(p.task_id_porep) - COUNT(t.owner_id) AS buffered_porep_count
+			FROM sectors_sdr_pipeline p
+			LEFT JOIN harmony_task t ON p.task_id_porep = t.id
+			WHERE p.after_tree_r = true AND p.after_porep = false
+		),
+		WaitDealSectors AS (
+			SELECT COUNT(DISTINCT sip.sector_number) AS wait_deal_sectors_count
+			FROM sectors_sdr_initial_pieces sip
+			LEFT JOIN sectors_sdr_pipeline sp ON sip.sp_id = sp.sp_id AND sip.sector_number = sp.sector_number
+			WHERE sp.sector_number IS NULL
+		)
+		SELECT
+			(SELECT buffered_sdr_count FROM BufferedSDR) AS total_buffered_sdr,
+			(SELECT buffered_trees_count FROM BufferedTrees) AS buffered_trees_count,
+			(SELECT buffered_porep_count FROM BufferedPoRep) AS buffered_porep_count,
+			(SELECT wait_deal_sectors_count FROM WaitDealSectors) AS wait_deal_sectors_count
+		`).Scan(&bufferedSDR, &bufferedTrees, &bufferedPoRep, &waitDealSectors)
+		if err != nil {
+			return false, xerrors.Errorf("counting buffered sectors: %w", err)
+		}
+
+		if cfg.MaxQueueDealSector != 0 && waitDealSectors+sectors > cfg.MaxQueueDealSector {
+			log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "max", cfg.MaxQueueDealSector)
+			return true, nil
+		}
+
+		if bufferedSDR > cfg.MaxQueueSDR {
+			log.Infow("backpressure", "reason", "too many SDR tasks", "buffered", bufferedSDR, "max", cfg.MaxQueueSDR)
+			return true, nil
+		}
+		if cfg.MaxQueueTrees != 0 && bufferedTrees > cfg.MaxQueueTrees {
+			log.Infow("backpressure", "reason", "too many tree tasks", "buffered", bufferedTrees, "max", cfg.MaxQueueTrees)
+			return true, nil
+		}
+		if cfg.MaxQueuePoRep != 0 && bufferedPoRep > cfg.MaxQueuePoRep {
+			log.Infow("backpressure", "reason", "too many PoRep tasks", "buffered", bufferedPoRep, "max", cfg.MaxQueuePoRep)
+			return true, nil
+		}
 	}
 
 	return false, nil
