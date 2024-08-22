@@ -1,9 +1,16 @@
 package main
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/go-state-types/builtin"
+	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/actors"
+	"github.com/filecoin-project/lotus/chain/actors/builtin/verifreg"
 	"os"
 	"sort"
+	"strconv"
 
 	"github.com/docker/go-units"
 	"github.com/fatih/color"
@@ -37,7 +44,7 @@ var sectorsCmd = &cli.Command{
 		spcli.SectorPreCommitsCmd(SPTActorGetter),
 		spcli.SectorsCheckExpireCmd(SPTActorGetter),
 		sectorsExpiredCmd, // in-house b/c chain-only is so different
-		spcli.SectorsExtendCmd(SPTActorGetter),
+		sectorsExtendCmd,
 		spcli.TerminateSectorCmd(SPTActorGetter),
 		spcli.SectorsCompactPartitionsCmd(SPTActorGetter),
 	}}
@@ -349,9 +356,501 @@ var sectorsListCmd = &cli.Command{
 	},
 }
 
+var sectorsExtendCmd = &cli.Command{
+	Name:      "extend",
+	Usage:     "Extend expiring sectors while not exceeding each sector's max life",
+	ArgsUsage: "<sectorNumbers...(optional)>",
+	Flags: []cli.Flag{
+		&cli.Int64Flag{
+			Name:  "from",
+			Usage: "only consider sectors whose current expiration epoch is in the range of [from, to], <from> defaults to: now + 120 (1 hour)",
+		},
+		&cli.Int64Flag{
+			Name:  "to",
+			Usage: "only consider sectors whose current expiration epoch is in the range of [from, to], <to> defaults to: now + 92160 (32 days)",
+		},
+		&cli.StringFlag{
+			Name:  "sector-file",
+			Usage: "provide a file containing one sector number in each line, ignoring above selecting criteria",
+		},
+		&cli.StringFlag{
+			Name:  "exclude",
+			Usage: "optionally provide a file containing excluding sectors",
+		},
+		&cli.Int64Flag{
+			Name:  "extension",
+			Usage: "try to extend selected sectors by this number of epochs, defaults to 540 days",
+			Value: 1555200,
+		},
+		&cli.Int64Flag{
+			Name:  "new-expiration",
+			Usage: "try to extend selected sectors to this epoch, ignoring extension",
+		},
+		&cli.BoolFlag{
+			Name:  "only-cc",
+			Usage: "only extend CC sectors (useful for making sector ready for snap upgrade)",
+		},
+		&cli.BoolFlag{
+			Name:  "drop-claims",
+			Usage: "drop claims for sectors that can be extended, but only by dropping some of their verified power claims",
+		},
+		&cli.Int64Flag{
+			Name:  "tolerance",
+			Usage: "don't try to extend sectors by fewer than this number of epochs, defaults to 7 days",
+			Value: 20160,
+		},
+		&cli.StringFlag{
+			Name:  "max-fee",
+			Usage: "use up to this amount of FIL for one message. pass this flag to avoid message congestion.",
+			Value: "0",
+		},
+		&cli.Int64Flag{
+			Name:  "max-sectors",
+			Usage: "the maximum number of sectors contained in each message",
+		},
+		&cli.BoolFlag{
+			Name:  "really-do-it",
+			Usage: "pass this flag to really extend sectors, otherwise will only print out json representation of parameters",
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		mf, err := types.ParseFIL(cctx.String("max-fee"))
+		if err != nil {
+			return err
+		}
+
+		spec := &api.MessageSendSpec{MaxFee: abi.TokenAmount(mf)}
+
+		fullApi, nCloser, err := lcli.GetFullNodeAPI(cctx)
+		if err != nil {
+			return err
+		}
+		defer nCloser()
+
+		ctx := lcli.ReqContext(cctx)
+
+		maddr, err := SPTActorGetter(cctx)
+		if err != nil {
+			return err
+		}
+
+		head, err := fullApi.ChainHead(ctx)
+		if err != nil {
+			return err
+		}
+		currEpoch := head.Height()
+
+		nv, err := fullApi.StateNetworkVersion(ctx, types.EmptyTSK)
+		if err != nil {
+			return err
+		}
+
+		activeSet, err := fullApi.StateMinerActiveSectors(ctx, maddr, types.EmptyTSK)
+		if err != nil {
+			return err
+		}
+
+		activeSectorsInfo := make(map[abi.SectorNumber]*miner.SectorOnChainInfo, len(activeSet))
+		for _, info := range activeSet {
+			activeSectorsInfo[info.SectorNumber] = info
+		}
+
+		mact, err := fullApi.StateGetActor(ctx, maddr, types.EmptyTSK)
+		if err != nil {
+			return err
+		}
+
+		tbs := blockstore.NewTieredBstore(blockstore.NewAPIBlockstore(fullApi), blockstore.NewMemory())
+		adtStore := adt.WrapStore(ctx, cbor.NewCborStore(tbs))
+		mas, err := miner.Load(adtStore, mact)
+		if err != nil {
+			return err
+		}
+
+		activeSectorsLocation := make(map[abi.SectorNumber]*miner.SectorLocation, len(activeSet))
+
+		if err := mas.ForEachDeadline(func(dlIdx uint64, dl miner.Deadline) error {
+			return dl.ForEachPartition(func(partIdx uint64, part miner.Partition) error {
+				pas, err := part.ActiveSectors()
+				if err != nil {
+					return err
+				}
+
+				return pas.ForEach(func(i uint64) error {
+					activeSectorsLocation[abi.SectorNumber(i)] = &miner.SectorLocation{
+						Deadline:  dlIdx,
+						Partition: partIdx,
+					}
+					return nil
+				})
+			})
+		}); err != nil {
+			return err
+		}
+
+		excludeSet := make(map[abi.SectorNumber]struct{})
+		if cctx.IsSet("exclude") {
+			excludeSectors, err := getSectorsFromFile(cctx.String("exclude"))
+			if err != nil {
+				return err
+			}
+
+			for _, id := range excludeSectors {
+				excludeSet[id] = struct{}{}
+			}
+		}
+
+		var sectors []abi.SectorNumber
+		if cctx.Args().Present() {
+			if cctx.IsSet("sector-file") {
+				return xerrors.Errorf("sector-file specified along with command line params")
+			}
+
+			for i, s := range cctx.Args().Slice() {
+				id, err := strconv.ParseUint(s, 10, 64)
+				if err != nil {
+					return xerrors.Errorf("could not parse sector %d: %w", i, err)
+				}
+
+				sectors = append(sectors, abi.SectorNumber(id))
+			}
+		} else if cctx.IsSet("sector-file") {
+			sectors, err = getSectorsFromFile(cctx.String("sector-file"))
+			if err != nil {
+				return err
+			}
+		} else {
+			from := currEpoch + 120
+			to := currEpoch + 92160
+
+			if cctx.IsSet("from") {
+				from = abi.ChainEpoch(cctx.Int64("from"))
+			}
+
+			if cctx.IsSet("to") {
+				to = abi.ChainEpoch(cctx.Int64("to"))
+			}
+
+			for _, si := range activeSet {
+				if si.Expiration >= from && si.Expiration <= to {
+					sectors = append(sectors, si.SectorNumber)
+				}
+			}
+		}
+
+		var sis []*miner.SectorOnChainInfo
+		for _, id := range sectors {
+			if _, exclude := excludeSet[id]; exclude {
+				continue
+			}
+
+			si, found := activeSectorsInfo[id]
+			if !found {
+				return xerrors.Errorf("sector %d is not active", id)
+			}
+			if len(si.DealIDs) > 0 && cctx.Bool("only-cc") {
+				continue
+			}
+
+			sis = append(sis, si)
+		}
+
+		withinTolerance := func(a, b abi.ChainEpoch) bool {
+			diff := a - b
+			if diff < 0 {
+				diff = -diff
+			}
+
+			return diff <= abi.ChainEpoch(cctx.Int64("tolerance"))
+		}
+
+		extensions := map[miner.SectorLocation]map[abi.ChainEpoch][]abi.SectorNumber{}
+		for _, si := range sis {
+			extension := abi.ChainEpoch(cctx.Int64("extension"))
+			newExp := si.Expiration + extension
+
+			if cctx.IsSet("new-expiration") {
+				newExp = abi.ChainEpoch(cctx.Int64("new-expiration"))
+			}
+
+			maxExtension, err := policy.GetMaxSectorExpirationExtension(nv)
+			if err != nil {
+				return xerrors.Errorf("failed to get max extension: %w", err)
+			}
+
+			maxExtendNow := currEpoch + maxExtension
+			if newExp > maxExtendNow {
+				newExp = maxExtendNow
+			}
+
+			maxExp := si.Activation + policy.GetSectorMaxLifetime(si.SealProof, nv)
+			if newExp > maxExp {
+				newExp = maxExp
+			}
+
+			if newExp <= si.Expiration || withinTolerance(newExp, si.Expiration) {
+				continue
+			}
+
+			l, found := activeSectorsLocation[si.SectorNumber]
+			if !found {
+				return xerrors.Errorf("location for sector %d not found", si.SectorNumber)
+			}
+
+			es, found := extensions[*l]
+			if !found {
+				ne := make(map[abi.ChainEpoch][]abi.SectorNumber)
+				ne[newExp] = []abi.SectorNumber{si.SectorNumber}
+				extensions[*l] = ne
+			} else {
+				added := false
+				for exp := range es {
+					if withinTolerance(newExp, exp) {
+						es[exp] = append(es[exp], si.SectorNumber)
+						added = true
+						break
+					}
+				}
+
+				if !added {
+					es[newExp] = []abi.SectorNumber{si.SectorNumber}
+				}
+			}
+		}
+
+		verifregAct, err := fullApi.StateGetActor(ctx, builtin.VerifiedRegistryActorAddr, types.EmptyTSK)
+		if err != nil {
+			return xerrors.Errorf("failed to lookup verifreg actor: %w", err)
+		}
+
+		verifregSt, err := verifreg.Load(adtStore, verifregAct)
+		if err != nil {
+			return xerrors.Errorf("failed to load verifreg state: %w", err)
+		}
+
+		claimsMap, err := verifregSt.GetClaims(maddr)
+		if err != nil {
+			return xerrors.Errorf("failed to lookup claims for miner: %w", err)
+		}
+
+		claimIdsBySector, err := verifregSt.GetClaimIdsBySector(maddr)
+		if err != nil {
+			return xerrors.Errorf("failed to lookup claim IDs by sector: %w", err)
+		}
+
+		sectorsMax, err := policy.GetAddressedSectorsMax(nv)
+		if err != nil {
+			return err
+		}
+
+		declMax, err := policy.GetDeclarationsMax(nv)
+		if err != nil {
+			return err
+		}
+
+		addrSectors := sectorsMax
+		if cctx.Int("max-sectors") != 0 {
+			addrSectors = cctx.Int("max-sectors")
+			if addrSectors > sectorsMax {
+				return xerrors.Errorf("the specified max-sectors exceeds the maximum limit")
+			}
+		}
+
+		var params []miner.ExtendSectorExpiration2Params
+
+		p := miner.ExtendSectorExpiration2Params{}
+		scount := 0
+
+		for l, exts := range extensions {
+			for newExp, numbers := range exts {
+				sectorsWithoutClaimsToExtend := bitfield.New()
+				numbersToExtend := make([]abi.SectorNumber, 0, len(numbers))
+				var sectorsWithClaims []miner.SectorClaim
+				for _, sectorNumber := range numbers {
+					claimIdsToMaintain := make([]verifreg.ClaimId, 0)
+					claimIdsToDrop := make([]verifreg.ClaimId, 0)
+					cannotExtendSector := false
+					claimIds, ok := claimIdsBySector[sectorNumber]
+					// Nothing to check, add to ccSectors
+					if !ok {
+						sectorsWithoutClaimsToExtend.Set(uint64(sectorNumber))
+						numbersToExtend = append(numbersToExtend, sectorNumber)
+					} else {
+						for _, claimId := range claimIds {
+							claim, ok := claimsMap[claimId]
+							if !ok {
+								return xerrors.Errorf("failed to find claim for claimId %d", claimId)
+							}
+							claimExpiration := claim.TermStart + claim.TermMax
+							// can be maintained in the extended sector
+							if claimExpiration > newExp {
+								claimIdsToMaintain = append(claimIdsToMaintain, claimId)
+							} else {
+								sectorInfo, ok := activeSectorsInfo[sectorNumber]
+								if !ok {
+									return xerrors.Errorf("failed to find sector in active sector set: %w", err)
+								}
+								if !cctx.Bool("drop-claims") ||
+									// FIP-0045 requires the claim minimum duration to have passed
+									currEpoch <= (claim.TermStart+claim.TermMin) ||
+									// FIP-0045 requires the sector to be in its last 30 days of life
+									(currEpoch <= sectorInfo.Expiration-builtin.EndOfLifeClaimDropPeriod) {
+									fmt.Printf("skipping sector %d because claim %d (client f0%s, piece %s) does not live long enough \n", sectorNumber, claimId, claim.Client, claim.Data)
+									cannotExtendSector = true
+									break
+								}
+
+								claimIdsToDrop = append(claimIdsToDrop, claimId)
+							}
+
+							numbersToExtend = append(numbersToExtend, sectorNumber)
+						}
+						if cannotExtendSector {
+							continue
+						}
+
+						if len(claimIdsToMaintain)+len(claimIdsToDrop) != 0 {
+							sectorsWithClaims = append(sectorsWithClaims, miner.SectorClaim{
+								SectorNumber:   sectorNumber,
+								MaintainClaims: claimIdsToMaintain,
+								DropClaims:     claimIdsToDrop,
+							})
+						}
+					}
+				}
+
+				sectorsWithoutClaimsCount, err := sectorsWithoutClaimsToExtend.Count()
+				if err != nil {
+					return xerrors.Errorf("failed to count cc sectors: %w", err)
+				}
+
+				sectorsInDecl := int(sectorsWithoutClaimsCount) + len(sectorsWithClaims)
+				scount += sectorsInDecl
+
+				if scount > addrSectors || len(p.Extensions) >= declMax {
+					params = append(params, p)
+					p = miner.ExtendSectorExpiration2Params{}
+					scount = sectorsInDecl
+				}
+
+				p.Extensions = append(p.Extensions, miner.ExpirationExtension2{
+					Deadline:          l.Deadline,
+					Partition:         l.Partition,
+					Sectors:           spcli.SectorNumsToBitfield(numbersToExtend),
+					SectorsWithClaims: sectorsWithClaims,
+					NewExpiration:     newExp,
+				})
+
+			}
+		}
+
+		// if we have any sectors, then one last append is needed here
+		if scount != 0 {
+			params = append(params, p)
+		}
+
+		if len(params) == 0 {
+			fmt.Println("nothing to extend")
+			return nil
+		}
+
+		mi, err := fullApi.StateMinerInfo(ctx, maddr, types.EmptyTSK)
+		if err != nil {
+			return xerrors.Errorf("getting miner info: %w", err)
+		}
+
+		stotal := 0
+
+		for i := range params {
+			scount := 0
+			for _, ext := range params[i].Extensions {
+				count, err := ext.Sectors.Count()
+				if err != nil {
+					return err
+				}
+				scount += int(count)
+			}
+			fmt.Printf("Extending %d sectors: ", scount)
+			stotal += scount
+
+			sp, aerr := actors.SerializeParams(&params[i])
+			if aerr != nil {
+				return xerrors.Errorf("serializing params: %w", err)
+			}
+
+			m := &types.Message{
+				From:   mi.Worker,
+				To:     maddr,
+				Method: builtin.MethodsMiner.ExtendSectorExpiration2,
+				Value:  big.Zero(),
+				Params: sp,
+			}
+
+			if !cctx.Bool("really-do-it") {
+				pp, err := spcli.NewPseudoExtendParams(&params[i])
+				if err != nil {
+					return err
+				}
+
+				data, err := json.MarshalIndent(pp, "", "  ")
+				if err != nil {
+					return err
+				}
+
+				fmt.Println("\n", string(data))
+
+				_, err = fullApi.GasEstimateMessageGas(ctx, m, spec, types.EmptyTSK)
+				if err != nil {
+					return xerrors.Errorf("simulating message execution: %w", err)
+				}
+
+				continue
+			}
+
+			smsg, err := fullApi.MpoolPushMessage(ctx, m, spec)
+			if err != nil {
+				return xerrors.Errorf("mpool push message: %w", err)
+			}
+
+			fmt.Println(smsg.Cid())
+		}
+
+		fmt.Printf("%d sectors extended\n", stotal)
+
+		return nil
+	},
+}
+
 func yesno(b bool) string {
 	if b {
 		return color.GreenString("YES")
 	}
 	return color.RedString("NO")
+}
+
+func getSectorsFromFile(filePath string) ([]abi.SectorNumber, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	scanner := bufio.NewScanner(file)
+	sectors := make([]abi.SectorNumber, 0)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		id, err := strconv.ParseUint(line, 10, 64)
+		if err != nil {
+			return nil, xerrors.Errorf("could not parse %s as sector id: %s", line, err)
+		}
+
+		sectors = append(sectors, abi.SectorNumber(id))
+	}
+
+	if err = file.Close(); err != nil {
+		return nil, err
+	}
+
+	return sectors, nil
 }
