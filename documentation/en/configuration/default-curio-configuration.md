@@ -417,6 +417,7 @@ description: The default curio configuration
   # The SDR queue includes deals which are in the process of entering the sealing pipeline. In case of the SDR tasks it is
   # possible that this queue grows more than this limit(CC sectors), the backpressure is only applied to sectors
   # entering the pipeline.
+  # Only applies to PoRep pipeline (DoSnap = false)
   #
   # type: int
   #MaxQueueSDR = 8
@@ -426,6 +427,7 @@ description: The default curio configuration
   # Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
   # In case of the trees tasks it is possible that this queue grows more than this limit, the backpressure is only
   # applied to sectors entering the pipeline.
+  # Only applies to PoRep pipeline (DoSnap = false)
   #
   # type: int
   #MaxQueueTrees = 0
@@ -435,9 +437,26 @@ description: The default curio configuration
   # Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
   # Like with the trees tasks, it is possible that this queue grows more than this limit, the backpressure is only
   # applied to sectors entering the pipeline.
+  # Only applies to PoRep pipeline (DoSnap = false)
   #
   # type: int
   #MaxQueuePoRep = 0
+
+  # MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode to start processing.
+  # 0 means unlimited.
+  # This applies backpressure to the market subsystem by delaying the ingestion of deal data.
+  # Only applies to the Snap Deals pipeline (DoSnap = true).
+  #
+  # type: int
+  #MaxQueueSnapEncode = 16
+
+  # MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
+  # 0 means unlimited.
+  # This applies backpressure to the market subsystem by delaying the ingestion of deal data.
+  # Only applies to the Snap Deals pipeline (DoSnap = true).
+  #
+  # type: int
+  #MaxQueueSnapProve = 0
 
   # Maximum time an open deal sector should wait for more deal before it starts sealing
   #
