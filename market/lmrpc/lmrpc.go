@@ -582,7 +582,7 @@ func maybeApplyBackpressure(tx *harmonydb.Tx, cfg config.CurioIngestConfig, ssiz
 
 	err = tx.Select(&pieceSizes, `SELECT piece_padded_size FROM parked_pieces WHERE complete = false;`)
 	if err != nil {
-		return false, xerrors.Errorf("getting in-process pieces")
+		return false, xerrors.Errorf("getting in-process pieces: %w", err)
 	}
 
 	sectors := sectorCount(pieceSizes, abi.PaddedPieceSize(ssize))
