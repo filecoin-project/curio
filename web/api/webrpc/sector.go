@@ -410,7 +410,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	}, nil
 }
 
-func (a *WebRPC) SectorResume(ctx context.Context, spid, id int) error {
+func (a *WebRPC) SectorResume(ctx context.Context, spid, id int64) error {
 	_, err := a.deps.DB.Exec(ctx, `SELECT unset_task_id($1, $2)`, spid, id)
 	if err != nil {
 		return xerrors.Errorf("failed to resume sector: %w", err)
@@ -418,7 +418,7 @@ func (a *WebRPC) SectorResume(ctx context.Context, spid, id int) error {
 	return nil
 }
 
-func (a *WebRPC) SectorRemove(ctx context.Context, spid, id int) error {
+func (a *WebRPC) SectorRemove(ctx context.Context, spid, id int64) error {
 	_, err := a.deps.DB.Exec(ctx, `DELETE FROM batch_sector_refs WHERE sp_id = $1 AND sector_number = $2`, spid, id)
 	if err != nil {
 		return xerrors.Errorf("failed to remove sector batch refs: %w", err)
