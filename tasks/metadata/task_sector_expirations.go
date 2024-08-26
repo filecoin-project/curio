@@ -24,6 +24,7 @@ const SectorMetadataRefreshInterval = 191 * time.Minute
 
 type SectorMetadataNodeAPI interface {
 	StateGetActor(ctx context.Context, actor address.Address, tsk types.TipSetKey) (*types.Actor, error)
+	StateSectorPartition(ctx context.Context, maddr address.Address, sectorNumber abi.SectorNumber, tok types.TipSetKey) (*miner.SectorLocation, error)
 }
 
 type SectorMetadata struct {
@@ -49,9 +50,12 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		SectorNum uint64 `db:"sector_num"`
 
 		Expiration *uint64 `db:"expiration_epoch"`
+
+		Partition *uint64 `db:"partition"`
+		Deadline  *uint64 `db:"deadline"`
 	}
 
-	if err := s.db.Select(ctx, &sectors, "select sp_id, sector_num, expiration_epoch from sectors_meta ORDER BY sp_id, sector_num"); err != nil {
+	if err := s.db.Select(ctx, &sectors, "select sp_id, sector_num, expiration_epoch, partition, deadline from sectors_meta ORDER BY sp_id, sector_num"); err != nil {
 		return false, xerrors.Errorf("get sector list: %w", err)
 	}
 
@@ -59,12 +63,13 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	minerStates := map[abi.ActorID]miner.State{}
 
 	for _, sector := range sectors {
+		maddr, err := address.NewIDAddress(sector.SpID)
+		if err != nil {
+			return false, xerrors.Errorf("creating miner address: %w", err)
+		}
+
 		mstate, ok := minerStates[abi.ActorID(sector.SpID)]
 		if !ok {
-			maddr, err := address.NewIDAddress(sector.SpID)
-			if err != nil {
-				return false, xerrors.Errorf("creating miner address: %w", err)
-			}
 
 			act, err := s.api.StateGetActor(ctx, maddr, types.EmptyTSK)
 			if err != nil {
@@ -91,6 +96,20 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 			_, err := s.db.Exec(ctx, "update sectors_meta set expiration_epoch = $1 where sp_id = $2 and sector_num = $3", si.Expiration, sector.SpID, sector.SectorNum)
 			if err != nil {
 				return false, xerrors.Errorf("updating sector expiration: %w", err)
+			}
+		}
+
+		if sector.Partition == nil || sector.Deadline == nil {
+			loc, err := s.api.StateSectorPartition(ctx, maddr, abi.SectorNumber(sector.SectorNum), types.EmptyTSK)
+			if err != nil {
+				return false, xerrors.Errorf("getting sector partition: %w", err)
+			}
+
+			if loc != nil {
+				_, err := s.db.Exec(ctx, "update sectors_meta set partition = $1, deadline = $2 where sp_id = $3 and sector_num = $4", loc.Partition, loc.Deadline, sector.SpID, sector.SectorNum)
+				if err != nil {
+					return false, xerrors.Errorf("updating sector partition: %w", err)
+				}
 			}
 		}
 	}

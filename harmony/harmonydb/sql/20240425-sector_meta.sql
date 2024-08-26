@@ -23,6 +23,10 @@ CREATE TABLE sectors_meta (
     -- is_cc BOOLEAN NOT NULL DEFAULT (complex condition),
     -- expiration_epoch BIGINT, (null = not crawled)
 
+    -- Added in 20240826-sector-partition.sql
+    -- deadline BIGINT, (null = not crawled)
+    -- partition BIGINT, (null = not crawled)
+
     PRIMARY KEY (sp_id, sector_num)
 );
 
