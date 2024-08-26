@@ -397,6 +397,8 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 			return false, xerrors.Errorf("iterating rows: %w", err)
 		}
 
+		rows.Close()
+
 		if bestCandidate == nil {
 			minEpoch := piece.DealSchedule.EndEpoch
 			maxEpoch := abi.ChainEpoch(maxExpiration)
