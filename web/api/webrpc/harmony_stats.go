@@ -68,7 +68,7 @@ type HarmonyTaskHistory struct {
 	CompletedByName *string `db:"completed_by_machine_name"`
 }
 
-func (a *WebRPC) HarmonyTaskHistory(ctx context.Context, taskName string) ([]HarmonyTaskHistory, error) {
+func (a *WebRPC) HarmonyTaskHistory(ctx context.Context, taskName string, fails bool) ([]HarmonyTaskHistory, error) {
 	var stats []HarmonyTaskHistory
 	err := a.deps.DB.Select(ctx, &stats, `SELECT
 	hist.task_id, hist.name, hist.work_start, hist.work_end, hist.posted, hist.result, hist.err,
@@ -76,7 +76,7 @@ func (a *WebRPC) HarmonyTaskHistory(ctx context.Context, taskName string) ([]Har
     FROM harmony_task_history hist
     LEFT JOIN harmony_machines mach ON hist.completed_by_host_and_port = mach.host_and_port
     LEFT JOIN curio.harmony_machine_details hmd on mach.id = hmd.machine_id
-    WHERE name = $1 AND work_end > current_timestamp - interval '1 day' ORDER BY work_end DESC LIMIT 30`, taskName)
+    WHERE name = $1 AND work_end > current_timestamp - interval '1 day' AND ($2 OR NOT hist.result) ORDER BY work_end DESC LIMIT 30`, taskName, !fails)
 	if err != nil {
 		return nil, err
 	}
