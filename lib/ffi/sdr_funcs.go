@@ -478,13 +478,7 @@ func (sb *SealCalls) LocalStorage(ctx context.Context) ([]storiface.StoragePath,
 }
 
 func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface.SectorRef, keepUnsealed bool) error {
-	alloc := storiface.FTNone
-	if keepUnsealed {
-		// note: In Curio we don't write the unsealed file in any of the previous stages, it's only written here from tree-d
-		alloc = storiface.FTUnsealed
-	}
-
-	sectorPaths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, nil, sector, storiface.FTCache, alloc, storiface.PathSealing)
+	sectorPaths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, nil, sector, storiface.FTCache, storiface.FTNone, storiface.PathSealing)
 	if err != nil {
 		return xerrors.Errorf("acquiring sector paths: %w", err)
 	}
@@ -496,6 +490,17 @@ func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface.Sector
 	}
 
 	if keepUnsealed {
+		// We are going to be moving the unsealed file, no need to allocate storage specifically for it
+		sectorPaths.Unsealed = sectorPaths.Cache
+		pathIDs.Unsealed = pathIDs.Cache
+
+		defer func() {
+			// We don't pass FTUnsealed to Acquire, so releaseSector won't declare it. Do it here.
+			if err := sb.sectors.sindex.StorageDeclareSector(ctx, storiface.ID(pathIDs.Unsealed), sector.ID, storiface.FTUnsealed, true); err != nil {
+				log.Errorf("declare unsealed sector error: %+v", err)
+			}
+		}()
+
 		// tree-d contains exactly unsealed data in the prefix, so
 		// * we move it to a temp file
 		// * we truncate the temp file to the sector size
@@ -579,7 +584,12 @@ afterUnsealedMove:
 		return xerrors.Errorf("clearing cache: %w", err)
 	}
 
-	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTCache|alloc); err != nil {
+	maybeUns := storiface.FTUnsealed
+	if !keepUnsealed {
+		maybeUns = storiface.FTNone
+	}
+
+	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTCache|maybeUns); err != nil {
 		return xerrors.Errorf("ensure one copy: %w", err)
 	}
 
