@@ -358,14 +358,30 @@ NAME:
 USAGE:
    sptool sectors extend [command options] <sectorNumbers...(optional)>
 
+DESCRIPTION:
+   NOTE: --new-expiration, --from and --to flags have multiple formats:
+     1. Absolute epoch number: <epoch>
+     2. Relative epoch number: +<delta>, e.g. +1000, means 1000 epochs from now
+     3. Relative day number: +<delta>d, e.g. +10d, means 10 days from now
+
+   The --extension flag has two formats:
+     1. Number of epochs to extend by: <epoch>
+     2. Number of days to extend by: <delta>d
+
+   Extensions will be clamped at either the maximum sector extension of 3.5 years/1278 days or the sector's maximum lifetime
+     which currently is 5 years.
+
+
+
 OPTIONS:
-   --from value            only consider sectors whose current expiration epoch is in the range of [from, to], <from> defaults to: now + 120 (1 hour) (default: 0)
-   --to value              only consider sectors whose current expiration epoch is in the range of [from, to], <to> defaults to: now + 92160 (32 days) (default: 0)
+   --from value            only consider sectors whose current expiration epoch is in the range of [from, to], <from> defaults to: now + 120 (1 hour) (default: "+120")
+   --to value              only consider sectors whose current expiration epoch is in the range of [from, to], <to> defaults to: now + 92160 (32 days) (default: "+92160")
    --sector-file value     provide a file containing one sector number in each line, ignoring above selecting criteria
    --exclude value         optionally provide a file containing excluding sectors
-   --extension value       try to extend selected sectors by this number of epochs, defaults to 540 days (default: 1555200)
-   --new-expiration value  try to extend selected sectors to this epoch, ignoring extension (default: 0)
+   --extension value       try to extend selected sectors by this number of epochs, defaults to 540 days (default: "540d")
+   --new-expiration value  try to extend selected sectors to this epoch, ignoring extension
    --only-cc               only extend CC sectors (useful for making sector ready for snap upgrade) (default: false)
+   --no-cc                 don't extend CC sectors (exclusive with --only-cc) (default: false)
    --drop-claims           drop claims for sectors that can be extended, but only by dropping some of their verified power claims (default: false)
    --tolerance value       don't try to extend sectors by fewer than this number of epochs, defaults to 7 days (default: 20160)
    --max-fee value         use up to this amount of FIL for one message. pass this flag to avoid message congestion. (default: "0")
