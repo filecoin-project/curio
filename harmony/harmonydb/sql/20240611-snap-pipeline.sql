@@ -47,6 +47,10 @@ CREATE TABLE sectors_snap_pipeline (
     -- failed_reason varchar(20) not null default '',
     -- failed_reason_msg text not null default '',
 
+    -- added in 20240826-sector-partition.sql
+    -- when not null delays scheduling of the submit task
+    -- submit_after TIMESTAMP WITH TIME ZONE,
+
     FOREIGN KEY (sp_id, sector_number) REFERENCES sectors_meta (sp_id, sector_num),
     PRIMARY KEY (sp_id, sector_number)
 );

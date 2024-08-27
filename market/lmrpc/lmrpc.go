@@ -581,7 +581,7 @@ func maybeApplyBackpressure(tx *harmonydb.Tx, cfg config.CurioIngestConfig, ssiz
 		}
 
 		if cfg.MaxQueueDealSector != 0 && waitDealSectors+sectors > cfg.MaxQueueDealSector {
-			log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "max", cfg.MaxQueueDealSector)
+			log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "parking-sectors", sectors, "parking-pieces", len(pieceSizes), "max", cfg.MaxQueueDealSector)
 			return true, nil
 		}
 
