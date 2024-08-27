@@ -94,7 +94,9 @@ class CurioUX extends LitElement {
     document.documentElement.classList.add('dark');
 
     this.messsage = this.getCookieMessage();
-    document.body.style.padding = 0;
+    
+    var s = document.body.style;
+    s.padding = 0;
   }
 
   render() {
