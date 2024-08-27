@@ -15,7 +15,8 @@ create table parked_pieces (
     foreign key (task_id) references harmony_task (id) on delete set null, -- dropped
     foreign key (cleanup_task_id) references harmony_task (id) on delete set null, -- dropped
 
-    unique (piece_cid)
+    unique (piece_cid) -- dropped
+    -- unique (piece_cid, cleanup_task_id) -- Added in 20240827-piecepark-uniq-cleanup.sql
 );
 
 /*

@@ -147,7 +147,7 @@ func (rt *refTracker) addPieceEntry(ctx context.Context, db *harmonydb.DB, conf 
 
 			var pieceID int64
 			// Attempt to select the piece ID first
-			err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1`, deal.PieceCID().String()).Scan(&pieceID)
+			err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1 AND cleanup_task_id IS NULL`, deal.PieceCID().String()).Scan(&pieceID)
 
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
@@ -155,7 +155,6 @@ func (rt *refTracker) addPieceEntry(ctx context.Context, db *harmonydb.DB, conf 
 					err = tx.QueryRow(`
 							INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size)
 							VALUES ($1, $2, $3)
-							ON CONFLICT (piece_cid) DO NOTHING
 							RETURNING id`, deal.PieceCID().String(), int64(pieceSize.Padded()), int64(pieceSize)).Scan(&pieceID)
 					if err != nil {
 						return false, xerrors.Errorf("inserting new parked piece and getting id: %w", err)
