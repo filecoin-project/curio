@@ -5,6 +5,8 @@ import (
 	"time"
 
 	cbor "github.com/ipfs/go-ipld-cbor"
+	logging "github.com/ipfs/go-log/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -19,6 +21,8 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 )
+
+var log = logging.Logger("metadata")
 
 const SectorMetadataRefreshInterval = 191 * time.Minute
 
@@ -62,6 +66,47 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	astor := adt.WrapStore(ctx, cbor.NewCborStore(s.bstore))
 	minerStates := map[abi.ActorID]miner.State{}
 
+	type partitionUpdate struct {
+		SpID      uint64
+		SectorNum uint64
+		Partition uint64
+		Deadline  uint64
+	}
+
+	const batchSize = 1000
+	updateBatch := make([]partitionUpdate, 0, batchSize)
+	total := 0
+
+	flushBatch := func() error {
+		if len(updateBatch) == 0 {
+			return nil
+		}
+
+		total += len(updateBatch)
+		log.Infow("updating sector partitions", "total", total)
+
+		_, err := s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			batch := &pgx.Batch{}
+			for _, update := range updateBatch {
+				batch.Queue("UPDATE sectors_meta SET partition = $1, deadline = $2 WHERE sp_id = $3 AND sector_num = $4",
+					update.Partition, update.Deadline, update.SpID, update.SectorNum)
+			}
+
+			br := tx.SendBatch(ctx, batch)
+			defer br.Close()
+
+			for i := 0; i < batch.Len(); i++ {
+				_, err := br.Exec()
+				if err != nil {
+					return false, xerrors.Errorf("executing batch update %d: %w", i, err)
+				}
+			}
+
+			return true, nil
+		}, harmonydb.OptionRetry())
+		return err
+	}
+
 	for _, sector := range sectors {
 		maddr, err := address.NewIDAddress(sector.SpID)
 		if err != nil {
@@ -70,7 +115,6 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 
 		mstate, ok := minerStates[abi.ActorID(sector.SpID)]
 		if !ok {
-
 			act, err := s.api.StateGetActor(ctx, maddr, types.EmptyTSK)
 			if err != nil {
 				return false, xerrors.Errorf("getting miner actor: %w", err)
@@ -106,12 +150,26 @@ func (s *SectorMetadata) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 			}
 
 			if loc != nil {
-				_, err := s.db.Exec(ctx, "update sectors_meta set partition = $1, deadline = $2 where sp_id = $3 and sector_num = $4", loc.Partition, loc.Deadline, sector.SpID, sector.SectorNum)
-				if err != nil {
-					return false, xerrors.Errorf("updating sector partition: %w", err)
+				updateBatch = append(updateBatch, partitionUpdate{
+					SpID:      sector.SpID,
+					SectorNum: sector.SectorNum,
+					Partition: loc.Partition,
+					Deadline:  loc.Deadline,
+				})
+
+				if len(updateBatch) >= batchSize {
+					if err := flushBatch(); err != nil {
+						return false, xerrors.Errorf("flushing batch: %w", err)
+					}
+					updateBatch = updateBatch[:0]
 				}
 			}
 		}
+	}
+
+	// Flush any remaining updates
+	if err := flushBatch(); err != nil {
+		return false, xerrors.Errorf("flushing final batch: %w", err)
 	}
 
 	return true, nil
