@@ -3,15 +3,19 @@ package lmrpc
 import (
 	"context"
 	"errors"
-	"github.com/filecoin-project/curio/deps/config"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/go-state-types/abi"
-	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
-	"github.com/yugabyte/pgx/v5"
-	"golang.org/x/xerrors"
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/yugabyte/pgx/v5"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+
+	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
 
 type refTracker struct {
@@ -127,7 +131,7 @@ func (rt *refTracker) init() error {
 	return nil
 }
 
-func (rt *refTracker) addPieceEntry(ctx context.Context, db *harmonydb.DB, conf *config.CurioConfig, deal lpiece.PieceDealInfo, pieceSize abi.UnpaddedPieceSize, dataUrl url.URL, ssize abi.SectorSize) (int64, bool, func(), error) {
+func (rt *refTracker) addPieceEntry(ctx context.Context, db *harmonydb.DB, conf *config.CurioConfig, deal lpiece.PieceDealInfo, pieceSize abi.UnpaddedPieceSize, dataUrl url.URL, ssize abi.SectorSize) (int64, func(), error) {
 	var refID int64
 	var pieceWasCreated bool
 
@@ -179,7 +183,7 @@ func (rt *refTracker) addPieceEntry(ctx context.Context, db *harmonydb.DB, conf 
 			return true, nil // This will commit the transaction
 		}, harmonydb.OptionRetry())
 		if err != nil {
-			return refID, false, nil, xerrors.Errorf("inserting parked piece: %w", err)
+			return refID, nil, xerrors.Errorf("inserting parked piece: %w", err)
 		}
 		if !comm {
 			if backpressureWait {
@@ -187,18 +191,20 @@ func (rt *refTracker) addPieceEntry(ctx context.Context, db *harmonydb.DB, conf 
 				select {
 				case <-time.After(backpressureWaitTime):
 				case <-ctx.Done():
-					return refID, false, nil, xerrors.Errorf("context done while waiting for backpressure: %w", ctx.Err())
+					return refID, nil, xerrors.Errorf("context done while waiting for backpressure: %w", ctx.Err())
 				}
 				continue
 			}
 
-			return refID, false, nil, xerrors.Errorf("piece tx didn't commit")
+			return refID, nil, xerrors.Errorf("piece tx didn't commit")
 		}
 
 		break
 	}
 
-	return refID, pieceWasCreated, func() {
+	log.Infow("added piece entry", "ref_id", refID, "piece_cid", deal.PieceCID().String(), "data_url", dataUrl.String(), "piece_was_created", pieceWasCreated)
+
+	return refID, func() {
 		_, err := db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (commit bool, err error) {
 			refUrl := "pieceref:" + strconv.FormatInt(refID, 10)
 

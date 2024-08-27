@@ -279,7 +279,6 @@ func ServeCurioMarketRPC(db *harmonydb.DB, full api.Chain, maddr address.Address
 		), int64(pi.size))
 
 		n, err := io.Copy(w, pieceData)
-		close(pi.done)
 
 		took := time.Since(start)
 		mbps := float64(n) / (1024 * 1024) / took.Seconds()
@@ -316,8 +315,6 @@ func ServeCurioMarketRPC(db *harmonydb.DB, full api.Chain, maddr address.Address
 type pieceInfo struct {
 	data storiface.Data
 	size abi.UnpaddedPieceSize
-
-	done chan struct{}
 }
 
 // A util to convert jsonrpc methods using incompatible Go types with same jsonrpc representation
@@ -394,8 +391,6 @@ func sectorAddPieceToAnyOperation(maddr address.Address, rootUrl url.URL, conf *
 		pi := pieceInfo{
 			data: pieceData,
 			size: pieceSize,
-
-			done: make(chan struct{}),
 		}
 
 		pieceUUID := uuid.New()
@@ -414,24 +409,14 @@ func sectorAddPieceToAnyOperation(maddr address.Address, rootUrl url.URL, conf *
 		dataUrl.RawQuery = "piece_id=" + pieceUUID.String()
 
 		// add piece entry
-		refID, pieceWasCreated, cleanup, err := prt.addPieceEntry(ctx, db, conf, deal, pieceSize, dataUrl, ssize)
+		refID, cleanup, err := prt.addPieceEntry(ctx, db, conf, deal, pieceSize, dataUrl, ssize)
 		if err != nil {
 			return lapi.SectorOffset{}, err
 		}
 		defer cleanup()
 
-		// wait for piece to be parked
-		if pieceWasCreated {
-			<-pi.done
-		} else {
-			// If the piece was not created, we need to close the done channel
-			close(pi.done)
-
-			closeDataReader(pieceData) // todo move down, after the piece is parked, and remove pi.done?
-		}
-
 		{
-			// piece park is either done or currently happening from another AP call
+			// piece park is either done or currently happening
 			// now we need to make sure that the piece is definitely parked successfully
 			// - in case of errors we return, and boost should be able to retry the call
 
@@ -489,6 +474,10 @@ func sectorAddPieceToAnyOperation(maddr address.Address, rootUrl url.URL, conf *
 			}
 		}
 
+		// piece is parked, ensure the data reader is closed
+		closeDataReader(pieceData)
+
+		// prepare pieceref url. TreeD / UpdateEncode etc. are aware of the "pieceref" scheme, and will use piecepark to get the data
 		pieceIDUrl := url.URL{
 			Scheme: "pieceref",
 			Opaque: fmt.Sprintf("%d", refID),
