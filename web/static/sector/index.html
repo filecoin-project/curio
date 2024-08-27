@@ -70,11 +70,11 @@
       ajax: '/api/sector/all',
       columns: [
         { title: "", data: null },
-        { title: "SpID", data: 'MinerID',  },
+        { title: "Miner", data: 'MinerAddress',  },
         {
           title: "Sector", data: 'SectorNum', render: function (data, type, row) {
             if (type === 'display') {
-              return `<a href="/pages/sector/?sp=${row.MinerID}&id=${data}">${data}</a>`;
+              return `<a href="/pages/sector/?sp=${row.MinerAddress}&id=${data}">${data}</a>`;
             }
             return data;
           }
@@ -106,10 +106,10 @@
           text: 'Terminate & Delete',
           action: function (e, dt, button, config) {
             var res = dt.rows({ selected: true }).data().toArray().map(function (row) {
-              return { MinerID: row.MinerID, Sector: row.SectorNum };
+              return { MinerAddress: row.MinerAddress, Sector: row.SectorNum };
             });
             console.log(res);
-            var confirmMessage = res.map(obj => `SpID: ${obj.MinerID}, Sector: ${obj.Sector}`).join(", ");
+            var confirmMessage = res.map(obj => `MinerAddress: ${obj.MinerAddress}, Sector: ${obj.Sector}`).join(", ");
 
             if (confirm("Terminate & Delete: " + confirmMessage)) {
               axios.post('/api/sector/terminate', res)

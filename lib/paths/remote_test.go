@@ -21,6 +21,7 @@ import (
 
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/paths/mocks"
 
@@ -60,7 +61,10 @@ func createTestStorage(t *testing.T, p string, seal bool, att ...*paths.Local) s
 func TestMoveShared(t *testing.T) {
 	logging.SetAllLoggers(logging.LevelDebug)
 
-	index := paths.NewMemIndex(nil)
+	db, err := harmonydb.NewFromConfigWithITestID(t, "testlocalstorage")
+	require.NoError(t, err)
+
+	index := paths.NewDBIndex(nil, db)
 
 	ctx := context.Background()
 

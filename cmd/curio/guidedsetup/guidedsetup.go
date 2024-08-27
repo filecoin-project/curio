@@ -328,7 +328,7 @@ func configToDB(d *MigrationData) {
 		return i == 1
 	}
 
-	d.MinerID, err = SaveConfigToLayerMigrateSectors(d.MinerConfigPath, chainApiInfo, shouldErrPrompt)
+	d.MinerID, err = SaveConfigToLayerMigrateSectors(d.DB, d.MinerConfigPath, chainApiInfo, shouldErrPrompt)
 	if err != nil {
 		d.say(notice, "Error saving config to layer: %s. Aborting Migration", err.Error())
 		os.Exit(1)

@@ -241,7 +241,8 @@ DealSector queue is the first queue in the sealing pipeline, meaning that it sho
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 The SDR queue includes deals which are in the process of entering the sealing pipeline. In case of the SDR tasks it is
 possible that this queue grows more than this limit(CC sectors), the backpressure is only applied to sectors
-entering the pipeline.`,
+entering the pipeline.
+Only applies to PoRep pipeline (DoSnap = false)`,
 		},
 		{
 			Name: "MaxQueueTrees",
@@ -251,7 +252,8 @@ entering the pipeline.`,
 0 = unlimited
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 In case of the trees tasks it is possible that this queue grows more than this limit, the backpressure is only
-applied to sectors entering the pipeline.`,
+applied to sectors entering the pipeline.
+Only applies to PoRep pipeline (DoSnap = false)`,
 		},
 		{
 			Name: "MaxQueuePoRep",
@@ -261,7 +263,26 @@ applied to sectors entering the pipeline.`,
 0 = unlimited
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 Like with the trees tasks, it is possible that this queue grows more than this limit, the backpressure is only
-applied to sectors entering the pipeline.`,
+applied to sectors entering the pipeline.
+Only applies to PoRep pipeline (DoSnap = false)`,
+		},
+		{
+			Name: "MaxQueueSnapEncode",
+			Type: "int",
+
+			Comment: `MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode to start processing.
+0 means unlimited.
+This applies backpressure to the market subsystem by delaying the ingestion of deal data.
+Only applies to the Snap Deals pipeline (DoSnap = true).`,
+		},
+		{
+			Name: "MaxQueueSnapProve",
+			Type: "int",
+
+			Comment: `MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
+0 means unlimited.
+This applies backpressure to the market subsystem by delaying the ingestion of deal data.
+Only applies to the Snap Deals pipeline (DoSnap = true).`,
 		},
 		{
 			Name: "MaxDealWaitTime",

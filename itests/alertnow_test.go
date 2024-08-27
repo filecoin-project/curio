@@ -19,15 +19,8 @@ func TestAlertNow(t *testing.T) {
 	plugin.TestPlugins = []plugin.Plugin{
 		tp,
 	}
-	dbConfig := config.HarmonyDB{
-		Hosts:    []string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")},
-		Database: "yugabyte",
-		Username: "yugabyte",
-		Password: "yugabyte",
-		Port:     "5433",
-	}
 	// Create dependencies
-	db, err := harmonydb.NewFromConfigWithITestID(t, dbConfig, "alertnow")
+	db, err := harmonydb.NewFromConfigWithITestID(t, "alertnow")
 	require.NoError(t, err)
 
 	an := alertmanager.NewAlertNow(db, "alertNowMachine")

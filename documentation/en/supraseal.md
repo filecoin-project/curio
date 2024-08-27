@@ -393,3 +393,70 @@ To troubleshoot:
 * [Benchmark NVME IOPS](supraseal.md#benchmark-nvme-iops)
 * Validate GPU setup if PC2 is slow
 * Review logs for any errors during batch processing
+
+### Slower than expeted NVMe speed
+
+If the [NVME Benchmark](supraseal.md#benchmark-nvme-iops) shows lower than expected IOPS, you can try formatting the NVMe devices with SPDK:
+
+```bash
+cd extern/supra_seal/deps/spdk-v22.09/
+./build/examples/nvme_manage
+```
+
+Go through the menus like this
+```
+NVMe Management Options
+	[1: list controllers]
+	[2: create namespace]
+	[3: delete namespace]
+	[4: attach namespace to controller]
+	[5: detach namespace from controller]
+	[6: format namespace or controller]
+	[7: firmware update]
+	[8: opal]
+	[9: quit]
+6
+
+0000:04:00.00 SAMSUNG MZQL23T8HCLS-00A07               S64HNG0W829861           6 
+0000:41:00.00 SAMSUNG MZQL23T8HCLS-00A07               S64HNG0W829862           6 
+0000:42:00.00 SAMSUNG MZQL23T8HCLS-00A07               S64HNG0W829860           6 
+0000:86:00.00 SAMSUNG MZQL23T8HCLS-00A07               S64HNG0W829794           6 
+0000:87:00.00 SAMSUNG MZQL23T8HCLS-00A07               S64HNG0W829798           6 
+0000:88:00.00 SAMSUNG MZQL23T8HCLS-00A07               S64HNG0W829837           6 
+0000:c1:00.00 SAMSUNG MZQL23T8HCLS-00A07               S64HNG0W829795           6 
+0000:c2:00.00 SAMSUNG MZQL23T8HCLS-00A07               S64HNG0W829836           6 
+0000:c3:00.00 SAMSUNG MZQL23T8HCLS-00A07               S64HNG0W829797           6 
+0000:c4:00.00 SAMSUNG MZQL23T8HCLS-00A07               S64HNG0W829850           6 
+Please Input PCI Address(domain:bus:dev.func):
+0000:c4:00.00
+Please Input Namespace ID (1 - 32):
+1                                                          ## Select 1
+
+Please Input Secure Erase Setting:
+	0: No secure erase operation requested
+	1: User data erase
+	2: Cryptographic erase
+0
+
+Supported LBA formats:
+ 0: 512 data bytes
+ 1: 4096 data bytes
+Please input LBA format index (0 - 1):
+1                                                          ## Select 4096 data bytes
+
+Warning: use this utility at your own risk.
+This command will format your namespace and all data will be lost.
+This command may take several minutes to complete,
+so do not interrupt the utility until it completes.
+Press 'Y' to continue with the format operation.
+y
+```
+
+Then you might see a difference in performance like this:
+```
+                                                                           Latency(us)
+Device Information                     :       IOPS      MiB/s    Average        min        max
+PCIE (0000:c1:00.0) NSID 1 from core  0:  721383.71    2817.91      88.68      11.20     591.51  ## before
+PCIE (0000:86:00.0) NSID 1 from core  0: 1205271.62    4708.09      53.07      11.87     446.84  ## after
+```
+

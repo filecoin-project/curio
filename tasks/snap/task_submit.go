@@ -57,6 +57,7 @@ type SubmitTaskNodeAPI interface {
 	StateSectorGetInfo(ctx context.Context, maddr address.Address, sectorNumber abi.SectorNumber, tsk types.TipSetKey) (*miner.SectorOnChainInfo, error)
 
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
+	StateMinerAvailableBalance(context.Context, address.Address, types.TipSetKey) (big.Int, error)
 	StateGetActor(ctx context.Context, actor address.Address, tsk types.TipSetKey) (*types.Actor, error)
 	StateVMCirculatingSupplyInternal(ctx context.Context, tsk types.TipSetKey) (api.CirculatingSupply, error)
 }
@@ -65,6 +66,8 @@ type submitConfig struct {
 	maxFee                     types.FIL
 	RequireActivationSuccess   bool
 	RequireNotificationSuccess bool
+	CollateralFromMinerBalance bool
+	DisableCollateralFallback  bool
 }
 
 type SubmitTask struct {
@@ -92,6 +95,9 @@ func NewSubmitTask(db *harmonydb.DB, api SubmitTaskNodeAPI, bstore curiochain.Cu
 			maxFee:                     cfg.Fees.MaxCommitGasFee, // todo snap-specific
 			RequireActivationSuccess:   cfg.Subsystems.RequireActivationSuccess,
 			RequireNotificationSuccess: cfg.Subsystems.RequireNotificationSuccess,
+
+			CollateralFromMinerBalance: cfg.Fees.CollateralFromMinerBalance,
+			DisableCollateralFallback:  cfg.Fees.DisableCollateralFallback,
 		},
 	}
 }
@@ -253,6 +259,22 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	collateral = big.Sub(collateral, onChainInfo.InitialPledge)
 	if collateral.LessThan(big.Zero()) {
 		collateral = big.Zero()
+	}
+
+	if s.cfg.CollateralFromMinerBalance {
+		if s.cfg.DisableCollateralFallback {
+			collateral = big.Zero()
+		}
+		balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)
+		if err != nil {
+			if err != nil {
+				return false, xerrors.Errorf("getting miner balance: %w", err)
+			}
+		}
+		collateral = big.Sub(collateral, balance)
+		if collateral.LessThan(big.Zero()) {
+			collateral = big.Zero()
+		}
 	}
 
 	a, _, err := s.as.AddressFor(ctx, s.api, maddr, mi, api.CommitAddr, collateral, big.Zero())
@@ -551,13 +573,24 @@ func (s *SubmitTask) pledgeForPower(ctx context.Context, addedPower abi.StorageP
 }
 
 func (s *SubmitTask) GetSpid(db *harmonydb.DB, taskID int64) string {
-	var spid string
-	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_snap_pipeline WHERE task_id_submit = $1`, taskID).Scan(&spid)
+	sid, err := s.GetSectorID(db, taskID)
 	if err != nil {
-		log.Errorf("getting spid: %s", err)
+		log.Errorf("getting sector id: %s", err)
 		return ""
 	}
-	return spid
+	return sid.Miner.String()
+}
+
+func (s *SubmitTask) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error) {
+	var spId, sectorNumber uint64
+	err := db.QueryRow(context.Background(), `SELECT sp_id,sector_number FROM sectors_snap_pipeline WHERE task_id_submit = $1`, taskID).Scan(&spId, &sectorNumber)
+	if err != nil {
+		return nil, err
+	}
+	return &abi.SectorID{
+		Miner:  abi.ActorID(spId),
+		Number: abi.SectorNumber(sectorNumber),
+	}, nil
 }
 
 var _ = harmonytask.Reg(&SubmitTask{})

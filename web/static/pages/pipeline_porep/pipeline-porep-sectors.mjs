@@ -105,18 +105,18 @@ customElements.define('pipeline-porep-sectors',class PipelinePorepSectors extend
             <table class="porep-state">
                 <tbody>
                     <tr>
-                        ${this.renderSectorState('SDR', 1, sector.TaskSDR, sector.AfterSDR)}
-                        ${this.renderSectorState('TreeC', 1, sector.TaskTreeC, sector.AfterTreeC)}
-                        ${this.renderSectorState('Synthetic', 2, sector.TaskSynthetic, sector.AfterSynthetic)}
-                        ${this.renderSectorState('PComm Msg', 2, sector.TaskPrecommitMsg, sector.AfterPrecommitMsg)}
+                        ${this.renderSectorState('SDR', 1, sector, sector.TaskSDR, sector.AfterSDR)}
+                        ${this.renderSectorState('TreeC', 1, sector, sector.TaskTreeC, sector.AfterTreeC)}
+                        ${this.renderSectorState('Synthetic', 2, sector, sector.TaskSynthetic, sector.AfterSynthetic)}
+                        ${this.renderSectorState('PComm Msg', 2, sector, sector.TaskPrecommitMsg, sector.AfterPrecommitMsg)}
                         ${this.renderSectorStateNoTask('PComm Wait', 2, sector.AfterPrecommitMsg, sector.AfterPrecommitMsgSuccess)}
                         <td rowspan=2 class="${sector.AfterPrecommitMsgSuccess?'pipeline-active':''} ${sector.AfterSeed?'pipeline-success':''}">
                             <div>Wait Seed</div>
                             <div>${sector.AfterSeed?'done':sector.SeedEpoch}</div>
                         </td>
-                        ${this.renderSectorState('PoRep', 2, sector.TaskPoRep, sector.AfterPoRep)}
-                        ${this.renderSectorState('Clear Cache', 1, sector.TaskFinalize, sector.AfterFinalize)}
-                        ${this.renderSectorState('Move Storage', 1, sector.TaskMoveStorage, sector.AfterMoveStorage)}
+                        ${this.renderSectorState('PoRep', 2, sector, sector.TaskPoRep, sector.AfterPoRep)}
+                        ${this.renderSectorState('Clear Cache', 1, sector, sector.TaskFinalize, sector.AfterFinalize)}
+                        ${this.renderSectorState('Move Storage', 1, sector, sector.TaskMoveStorage, sector.AfterMoveStorage)}
                         <td class="${sector.ChainSector ? 'pipeline-success' : (sector.ChainAlloc ? 'pipeline-active' : 'pipeline-failed')}">
                             <div>On Chain</div>
                             <div>${sector.ChainSector ? 'yes' : (sector.ChainAlloc ? 'allocated' : 'no')}</div>
@@ -127,10 +127,10 @@ customElements.define('pipeline-porep-sectors',class PipelinePorepSectors extend
                         </td>
                     </tr>
                     <tr>
-                        ${this.renderSectorState('TreeD', 1, sector.TaskTreeD, sector.AfterTreeD)}
-                        ${this.renderSectorState('TreeR', 1, sector.TaskTreeR, sector.AfterTreeR)}
+                        ${this.renderSectorState('TreeD', 1, sector, sector.TaskTreeD, sector.AfterTreeD)}
+                        ${this.renderSectorState('TreeR', 1, sector, sector.TaskTreeR, sector.AfterTreeR)}
                         <!-- PC-S, PC-W, WS, PoRep -->
-                        ${this.renderSectorState('Commit Msg', 1, sector.TaskCommitMsg, sector.AfterCommitMsg)}
+                        ${this.renderSectorState('Commit Msg', 1, sector, sector.TaskCommitMsg, sector.AfterCommitMsg)}
                         ${this.renderSectorStateNoTask('Commit Wait', 1, sector.AfterCommitMsg, sector.AfterCommitMsgSuccess)}
                         <td class="${sector.ChainActive ? 'pipeline-success' : 'pipeline-failed'}">
                             <div>Active</div>
@@ -149,13 +149,26 @@ customElements.define('pipeline-porep-sectors',class PipelinePorepSectors extend
             </td>
         `;
     }
-    renderSectorState(name, rowspan, task, after) {
+    renderSectorState(name, rowspan, sector, task, after) {
+        if(task) {
+            // sector.MissingTasks is a list of tasks
+            // sector.MissingTasks.includes(task) is true if task is missing
+            let missing = sector.MissingTasks && sector.MissingTasks.includes(task);
+
+            return html`
+                <td rowspan="${rowspan}" class="${missing ? 'pipeline-failed' : 'pipeline-active'}">
+                    <div>${name}</div>
+                    <div>T:${task}</div>
+                    ${missing ? html`<div><b>FAILED</b></div>` : ''}
+                </td>
+            `;
+        }
+
         return html` 
-            <td rowspan="${rowspan}" class="${task?'pipeline-active':''} ${after?'pipeline-success':''}">
+            <td rowspan="${rowspan}" class="${after?'pipeline-success':''}">
                 <div>${name}</div>
-                <div>${after?'done':task?'T:'+task:'--'}</div>
+                <div>${after?'done':'--'}</div>
             </td>
         `;
     }
-
 } );

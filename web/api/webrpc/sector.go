@@ -410,7 +410,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	}, nil
 }
 
-func (a *WebRPC) SectorResume(ctx context.Context, spid, id int) error {
+func (a *WebRPC) SectorResume(ctx context.Context, spid, id int64) error {
 	_, err := a.deps.DB.Exec(ctx, `SELECT unset_task_id($1, $2)`, spid, id)
 	if err != nil {
 		return xerrors.Errorf("failed to resume sector: %w", err)
@@ -418,10 +418,15 @@ func (a *WebRPC) SectorResume(ctx context.Context, spid, id int) error {
 	return nil
 }
 
-func (a *WebRPC) SectorRemove(ctx context.Context, spid, id int) error {
-	_, err := a.deps.DB.Exec(ctx, `DELETE FROM sectors_sdr_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, id)
+func (a *WebRPC) SectorRemove(ctx context.Context, spid, id int64) error {
+	_, err := a.deps.DB.Exec(ctx, `DELETE FROM batch_sector_refs WHERE sp_id = $1 AND sector_number = $2`, spid, id)
 	if err != nil {
-		return xerrors.Errorf("failed to resume sector: %w", err)
+		return xerrors.Errorf("failed to remove sector batch refs: %w", err)
+	}
+
+	_, err = a.deps.DB.Exec(ctx, `DELETE FROM sectors_sdr_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, id)
+	if err != nil {
+		return xerrors.Errorf("failed to remove sector: %w", err)
 	}
 
 	_, err = a.deps.DB.Exec(ctx, `INSERT INTO storage_removal_marks (sp_id, sector_num, sector_filetype, storage_id, created_at, approved, approved_at)
