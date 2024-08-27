@@ -7,8 +7,16 @@ html {
 
 body {
     margin: 0;
-    padding: 3px 4px;
     background: rgb(11, 22, 34);
+    font-family: Metropolis, monospace;
+    font-weight: 400;
+}
+
+* {
+    font-weight: 400;
+}
+h1,h2,h3,h4,h5,h6 {
+    font-weight: 400;
 }
 
 curio-ux {
@@ -16,7 +24,7 @@ curio-ux {
     color: rgb(227, 234, 237);
     font-family: Metropolis, monospace;
     font-weight: 400;
-    background: rgb(11, 22, 34);
+    background: RGB(54, 57, 63);
 }
 
 
