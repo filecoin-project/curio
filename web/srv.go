@@ -8,15 +8,18 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path"
 	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/gorilla/websocket"
+	logging "github.com/ipfs/go-log/v2"
 	"go.opencensus.io/tag"
 
 	"github.com/filecoin-project/curio/deps"
@@ -25,35 +28,37 @@ import (
 	"github.com/filecoin-project/lotus/metrics"
 )
 
+var log = logging.Logger("web")
+
 //go:embed static
 var static embed.FS
 
 var basePath = "/static/"
 
-// An dev mode hack for no-restart changes to static and templates.
-// You still need to recomplie the binary for changes to go code.
+// A dev mode hack for no-restart changes to static and templates.
+// You still need to recompile the binary for changes to go code.
 var webDev = os.Getenv("CURIO_WEB_DEV") == "1"
 
-func GetSrv(ctx context.Context, deps *deps.Deps) (*http.Server, error) {
+func GetSrv(ctx context.Context, deps *deps.Deps, devMode bool) (*http.Server, error) {
 	mx := mux.NewRouter()
-	api.Routes(mx.PathPrefix("/api").Subrouter(), deps, webDev)
+	if !devMode {
+		api.Routes(mx.PathPrefix("/api").Subrouter(), deps, webDev)
+	} else {
+		if err := setupDevModeProxy(mx); err != nil {
+			return nil, fmt.Errorf("failed to setup dev mode proxy: %v", err)
+		}
+	}
 
 	var static fs.FS = static
-	if webDev {
+	if webDev || devMode {
 		basePath = ""
 		static = os.DirFS("web/static")
 		mx.Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// Log the request
-				log.Printf("Rcv request: %s %s", r.Method, r.URL.Path)
-
+				log.Debugf("Rcv request: %s %s", r.Method, r.URL.Path)
 				x := &interceptResponseWriter{ResponseWriter: w}
-
-				// Call the next handler
 				next.ServeHTTP(x, r)
-
-				// Log the response
-				log.Printf("HTTP %s %s returned %d bytes with status code %d", r.Method, r.URL.Path, x.Length(), x.StatusCode())
+				log.Debugf("HTTP %s %s returned %d bytes with status code %d", r.Method, r.URL.Path, x.Length(), x.StatusCode())
 			})
 		})
 	}
@@ -130,4 +135,140 @@ func (w *interceptResponseWriter) Length() int {
 
 func (w *interceptResponseWriter) StatusCode() int {
 	return w.status
+}
+
+func setupDevModeProxy(mx *mux.Router) error {
+	log.Debugf("Setting up dev mode proxy")
+	apiSrv := os.Getenv("CURIO_API_SRV")
+	if apiSrv == "" {
+		return fmt.Errorf("CURIO_API_SRV environment variable is not set")
+	}
+
+	apiURL, err := url.Parse(apiSrv)
+	if err != nil {
+		return fmt.Errorf("invalid CURIO_API_SRV URL: %v", err)
+	}
+	log.Debugf("Parsed API URL: %s", apiURL.String())
+
+	proxy := createReverseProxy(apiURL)
+
+	mx.PathPrefix("/api").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Debugf("Received request: %s %s", r.Method, r.URL.Path)
+		if websocket.IsWebSocketUpgrade(r) {
+			websocketProxy(apiURL, w, r)
+		} else {
+			proxy.ServeHTTP(w, r)
+		}
+	})
+
+	log.Infof("Dev mode proxy setup complete")
+	return nil
+}
+
+func createReverseProxy(target *url.URL) *httputil.ReverseProxy {
+	log.Debugf("Creating reverse proxy")
+	proxy := httputil.NewSingleHostReverseProxy(target)
+
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		log.Debugf("Directing request: %s %s", req.Method, req.URL.Path)
+		originalDirector(req)
+		req.URL.Path = path.Join(target.Path, req.URL.Path)
+
+		if !strings.HasPrefix(req.URL.Path, "/") {
+			req.URL.Path = "/" + req.URL.Path
+		}
+
+		req.URL.Scheme = target.Scheme
+		req.URL.Host = target.Host
+	}
+
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		log.Debugf("Modifying response: %d %s", resp.StatusCode, resp.Status)
+		resp.Header.Del("Connection")
+		resp.Header.Del("Upgrade")
+		return nil
+	}
+
+	proxy.Transport = &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	log.Infof("Reverse proxy created")
+	return proxy
+}
+
+func websocketProxy(target *url.URL, w http.ResponseWriter, r *http.Request) {
+	log.Debugf("Starting WebSocket proxy")
+	d := websocket.Dialer{
+		Proxy:            http.ProxyFromEnvironment,
+		HandshakeTimeout: 45 * time.Second,
+	}
+
+	// Preserve the original path and query
+	wsTarget := *target
+	wsTarget.Scheme = "ws"
+	wsTarget.Path = path.Join(wsTarget.Path, r.URL.Path)
+
+	if !strings.HasPrefix(wsTarget.Path, "/") {
+		wsTarget.Path = "/" + wsTarget.Path
+	}
+
+	wsTarget.RawQuery = r.URL.RawQuery
+	backendConn, resp, err := d.Dial(wsTarget.String(), nil)
+	if err != nil {
+		log.Errorf("Failed to connect to backend: %v", err)
+		if resp != nil {
+			log.Debugf("Backend response: %d %s", resp.StatusCode, resp.Status)
+		}
+		http.Error(w, "Failed to connect to backend", http.StatusServiceUnavailable)
+		return
+	}
+	defer backendConn.Close()
+
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true // Implement a more secure check in production
+		},
+	}
+	clientConn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Errorf("Failed to upgrade connection: %v", err)
+		http.Error(w, "Failed to upgrade connection", http.StatusInternalServerError)
+		return
+	}
+	defer clientConn.Close()
+
+	errc := make(chan error, 2)
+	go proxyCopy(clientConn, backendConn, errc, "client -> backend")
+	go proxyCopy(backendConn, clientConn, errc, "backend -> client")
+
+	err = <-errc
+	log.Debugf("WebSocket proxy ended: %v", err)
+}
+
+func proxyCopy(dst, src *websocket.Conn, errc chan<- error, direction string) {
+	for {
+		messageType, p, err := src.ReadMessage()
+		if err != nil {
+			log.Errorf("Error reading message (%s): %v", direction, err)
+			errc <- err
+			return
+		}
+		log.Debugf("Proxying message (%s): type %d, size %d bytes", direction, messageType, len(p))
+		if err := dst.WriteMessage(messageType, p); err != nil {
+			log.Errorf("Error writing message (%s): %v", direction, err)
+			errc <- err
+			return
+		}
+	}
 }

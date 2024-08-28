@@ -296,7 +296,7 @@ func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan c
 	eg.Go(srv.ListenAndServe)
 
 	if dependencies.Cfg.Subsystems.EnableWebGui {
-		web, err := web.GetSrv(ctx, dependencies)
+		web, err := web.GetSrv(ctx, dependencies, false)
 		if err != nil {
 			return err
 		}
