@@ -15,8 +15,8 @@ contract PaymentContract {
     address public signerPublicKey; // The public key for verifying signatures
 
     struct PaymentRecord {
-        uint16 uuid;
-        uint16 daysSince2024AndLevel; // Combined daysSince2024 and level in a single uint16
+        uint32 uuid;
+        uint16 dl; // Combined daysSince2024 and level in a single uint16
     }
 
     mapping(address => PaymentRecord) public paymentRecords;
@@ -30,7 +30,7 @@ contract PaymentContract {
     }
 
     function setExchangeRate(uint256 newRate, uint256 newTimestamp, bytes memory signature) external {
-        require(block.timestamp <= newTimestamp + 60 minutes, "Exchange rate update is too old");
+        require(block.timestamp <= newTimestamp + 35 minutes, "Exchange rate update is too old");
 
         // Verify the signature directly without the "Ethereum Signed Message" prefix
         bytes32 messageHash = keccak256(abi.encodePacked(newRate, newTimestamp));
@@ -41,8 +41,8 @@ contract PaymentContract {
         lastUpdateTimestamp = newTimestamp;
     }
 
-    function pay(uint16 uuid) external payable {
-        require(block.timestamp <= lastUpdateTimestamp + 90 minutes, "Exchange rate is outdated");
+    function pay(uint32 uuid) external payable {
+        require(block.timestamp <= lastUpdateTimestamp + 40 minutes, "Exchange rate is outdated");
 
         uint256 level2Amount = exchangeRate * 2000;
         require(
@@ -53,7 +53,7 @@ contract PaymentContract {
         // Store the payment record, combining daysSince2024 and level
         paymentRecords[msg.sender] = PaymentRecord({
             uuid: uuid,
-            daysSince2024AndLevel: uint16(
+            dl: uint16(
                 ((block.timestamp - 1704067200) / 1 days) << 1 | 
                 (msg.value == level2Amount ? 1 : 0)
             )
