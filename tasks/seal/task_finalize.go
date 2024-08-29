@@ -2,6 +2,7 @@ package seal
 
 import (
 	"context"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 
 	"golang.org/x/xerrors"
 
@@ -12,8 +13,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/slotmgr"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 type FinalizeTask struct {
@@ -86,7 +85,7 @@ func (f *FinalizeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return false, err
 	}
 
-	sector := storiface.SectorRef{
+	sector := storiface2.SectorRef{
 		ID: abi.SectorID{
 			Miner:  abi.ActorID(task.SpID),
 			Number: abi.SectorNumber(task.SectorNumber),
@@ -207,7 +206,7 @@ func (f *FinalizeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		StorageID    string             `db:"storage_id"`
 	}
 
-	if storiface.FTCache != 4 {
+	if storiface2.FTCache != 4 {
 		panic("storiface.FTCache != 4")
 	}
 

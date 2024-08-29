@@ -2,6 +2,7 @@ package seal
 
 import (
 	"context"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 	"strings"
 
 	"github.com/ipfs/go-cid"
@@ -15,8 +16,6 @@ import (
 	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 type SyntheticProofTask struct {
@@ -81,7 +80,7 @@ func (s *SyntheticProofTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 		return false, xerrors.Errorf("failed to parse unsealed cid: %w", err)
 	}
 
-	sref := storiface.SectorRef{
+	sref := storiface2.SectorRef{
 		ID: abi.SectorID{
 			Miner:  abi.ActorID(sectorParams.SpID),
 			Number: abi.SectorNumber(sectorParams.SectorNumber),
@@ -162,7 +161,7 @@ func (s *SyntheticProofTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu:     1,
 			Gpu:     0,
 			Ram:     ram,
-			Storage: s.sc.Storage(s.taskToSector, storiface.FTNone, storiface.FTCache|storiface.FTSealed, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
+			Storage: s.sc.Storage(s.taskToSector, storiface2.FTNone, storiface2.FTCache|storiface2.FTSealed, ssize, storiface2.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 5,
 		Follows:     nil,

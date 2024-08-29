@@ -4,14 +4,13 @@ package ffidirect
 
 import (
 	"errors"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/ipfs/go-cid"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/proof"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 // This allow reflection access to the FFI functions.

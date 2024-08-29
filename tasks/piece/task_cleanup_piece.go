@@ -2,6 +2,7 @@ package piece
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -11,8 +12,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/promise"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 type CleanupPieceTask struct {

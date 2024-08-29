@@ -2,6 +2,7 @@ package seal
 
 import (
 	"context"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 
 	"golang.org/x/xerrors"
 
@@ -12,8 +13,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 type MoveStorageTask struct {
@@ -52,7 +51,7 @@ func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	}
 	task := tasks[0]
 
-	sector := storiface.SectorRef{
+	sector := storiface2.SectorRef{
 		ID: abi.SectorID{
 			Miner:  abi.ActorID(task.SpID),
 			Number: abi.SectorNumber(task.SectorNumber),
@@ -150,7 +149,7 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu:     1,
 			Gpu:     0,
 			Ram:     128 << 20,
-			Storage: m.sc.Storage(m.taskToSector, storiface.FTNone, storiface.FTCache|storiface.FTSealed|storiface.FTUnsealed, ssize, storiface.PathStorage, paths.MinFreeStoragePercentage),
+			Storage: m.sc.Storage(m.taskToSector, storiface2.FTNone, storiface2.FTCache|storiface2.FTSealed|storiface2.FTUnsealed, ssize, storiface2.PathStorage, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 10,
 	}

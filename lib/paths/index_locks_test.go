@@ -2,14 +2,13 @@ package paths
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/go-state-types/abi"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var aSector = abi.SectorID{

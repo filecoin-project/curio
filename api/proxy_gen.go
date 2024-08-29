@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -29,7 +30,6 @@ import (
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var _ = reflect.TypeOf([]byte(nil))
@@ -52,17 +52,17 @@ type CurioMethods struct {
 
 	StorageDetachLocal func(p0 context.Context, p1 string) error `perm:"admin"`
 
-	StorageFindSector func(p0 context.Context, p1 abi.SectorID, p2 storiface.SectorFileType, p3 abi.SectorSize, p4 bool) ([]storiface.SectorStorageInfo, error) `perm:"admin"`
+	StorageFindSector func(p0 context.Context, p1 abi.SectorID, p2 storiface2.SectorFileType, p3 abi.SectorSize, p4 bool) ([]storiface2.SectorStorageInfo, error) `perm:"admin"`
 
-	StorageInfo func(p0 context.Context, p1 storiface.ID) (storiface.StorageInfo, error) `perm:"admin"`
+	StorageInfo func(p0 context.Context, p1 storiface2.ID) (storiface2.StorageInfo, error) `perm:"admin"`
 
-	StorageInit func(p0 context.Context, p1 string, p2 storiface.LocalStorageMeta) error `perm:"admin"`
+	StorageInit func(p0 context.Context, p1 string, p2 storiface2.LocalStorageMeta) error `perm:"admin"`
 
-	StorageList func(p0 context.Context) (map[storiface.ID][]storiface.Decl, error) `perm:"admin"`
+	StorageList func(p0 context.Context) (map[storiface2.ID][]storiface2.Decl, error) `perm:"admin"`
 
-	StorageLocal func(p0 context.Context) (map[storiface.ID]string, error) `perm:"admin"`
+	StorageLocal func(p0 context.Context) (map[storiface2.ID]string, error) `perm:"admin"`
 
-	StorageStat func(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) `perm:"admin"`
+	StorageStat func(p0 context.Context, p1 storiface2.ID) (fsutil.FsStat, error) `perm:"admin"`
 
 	Version func(p0 context.Context) ([]int, error) `perm:"admin"`
 }
@@ -281,69 +281,69 @@ func (s *CurioStub) StorageDetachLocal(p0 context.Context, p1 string) error {
 	return ErrNotSupported
 }
 
-func (s *CurioStruct) StorageFindSector(p0 context.Context, p1 abi.SectorID, p2 storiface.SectorFileType, p3 abi.SectorSize, p4 bool) ([]storiface.SectorStorageInfo, error) {
+func (s *CurioStruct) StorageFindSector(p0 context.Context, p1 abi.SectorID, p2 storiface2.SectorFileType, p3 abi.SectorSize, p4 bool) ([]storiface2.SectorStorageInfo, error) {
 	if s.Internal.StorageFindSector == nil {
-		return *new([]storiface.SectorStorageInfo), ErrNotSupported
+		return *new([]storiface2.SectorStorageInfo), ErrNotSupported
 	}
 	return s.Internal.StorageFindSector(p0, p1, p2, p3, p4)
 }
 
-func (s *CurioStub) StorageFindSector(p0 context.Context, p1 abi.SectorID, p2 storiface.SectorFileType, p3 abi.SectorSize, p4 bool) ([]storiface.SectorStorageInfo, error) {
-	return *new([]storiface.SectorStorageInfo), ErrNotSupported
+func (s *CurioStub) StorageFindSector(p0 context.Context, p1 abi.SectorID, p2 storiface2.SectorFileType, p3 abi.SectorSize, p4 bool) ([]storiface2.SectorStorageInfo, error) {
+	return *new([]storiface2.SectorStorageInfo), ErrNotSupported
 }
 
-func (s *CurioStruct) StorageInfo(p0 context.Context, p1 storiface.ID) (storiface.StorageInfo, error) {
+func (s *CurioStruct) StorageInfo(p0 context.Context, p1 storiface2.ID) (storiface2.StorageInfo, error) {
 	if s.Internal.StorageInfo == nil {
-		return *new(storiface.StorageInfo), ErrNotSupported
+		return *new(storiface2.StorageInfo), ErrNotSupported
 	}
 	return s.Internal.StorageInfo(p0, p1)
 }
 
-func (s *CurioStub) StorageInfo(p0 context.Context, p1 storiface.ID) (storiface.StorageInfo, error) {
-	return *new(storiface.StorageInfo), ErrNotSupported
+func (s *CurioStub) StorageInfo(p0 context.Context, p1 storiface2.ID) (storiface2.StorageInfo, error) {
+	return *new(storiface2.StorageInfo), ErrNotSupported
 }
 
-func (s *CurioStruct) StorageInit(p0 context.Context, p1 string, p2 storiface.LocalStorageMeta) error {
+func (s *CurioStruct) StorageInit(p0 context.Context, p1 string, p2 storiface2.LocalStorageMeta) error {
 	if s.Internal.StorageInit == nil {
 		return ErrNotSupported
 	}
 	return s.Internal.StorageInit(p0, p1, p2)
 }
 
-func (s *CurioStub) StorageInit(p0 context.Context, p1 string, p2 storiface.LocalStorageMeta) error {
+func (s *CurioStub) StorageInit(p0 context.Context, p1 string, p2 storiface2.LocalStorageMeta) error {
 	return ErrNotSupported
 }
 
-func (s *CurioStruct) StorageList(p0 context.Context) (map[storiface.ID][]storiface.Decl, error) {
+func (s *CurioStruct) StorageList(p0 context.Context) (map[storiface2.ID][]storiface2.Decl, error) {
 	if s.Internal.StorageList == nil {
-		return *new(map[storiface.ID][]storiface.Decl), ErrNotSupported
+		return *new(map[storiface2.ID][]storiface2.Decl), ErrNotSupported
 	}
 	return s.Internal.StorageList(p0)
 }
 
-func (s *CurioStub) StorageList(p0 context.Context) (map[storiface.ID][]storiface.Decl, error) {
-	return *new(map[storiface.ID][]storiface.Decl), ErrNotSupported
+func (s *CurioStub) StorageList(p0 context.Context) (map[storiface2.ID][]storiface2.Decl, error) {
+	return *new(map[storiface2.ID][]storiface2.Decl), ErrNotSupported
 }
 
-func (s *CurioStruct) StorageLocal(p0 context.Context) (map[storiface.ID]string, error) {
+func (s *CurioStruct) StorageLocal(p0 context.Context) (map[storiface2.ID]string, error) {
 	if s.Internal.StorageLocal == nil {
-		return *new(map[storiface.ID]string), ErrNotSupported
+		return *new(map[storiface2.ID]string), ErrNotSupported
 	}
 	return s.Internal.StorageLocal(p0)
 }
 
-func (s *CurioStub) StorageLocal(p0 context.Context) (map[storiface.ID]string, error) {
-	return *new(map[storiface.ID]string), ErrNotSupported
+func (s *CurioStub) StorageLocal(p0 context.Context) (map[storiface2.ID]string, error) {
+	return *new(map[storiface2.ID]string), ErrNotSupported
 }
 
-func (s *CurioStruct) StorageStat(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) {
+func (s *CurioStruct) StorageStat(p0 context.Context, p1 storiface2.ID) (fsutil.FsStat, error) {
 	if s.Internal.StorageStat == nil {
 		return *new(fsutil.FsStat), ErrNotSupported
 	}
 	return s.Internal.StorageStat(p0, p1)
 }
 
-func (s *CurioStub) StorageStat(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) {
+func (s *CurioStub) StorageStat(p0 context.Context, p1 storiface2.ID) (fsutil.FsStat, error) {
 	return *new(fsutil.FsStat), ErrNotSupported
 }
 

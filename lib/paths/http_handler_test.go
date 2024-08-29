@@ -2,6 +2,7 @@ package paths_test
 
 import (
 	"fmt"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,14 +20,13 @@ import (
 	"github.com/filecoin-project/curio/lib/paths/mocks"
 
 	"github.com/filecoin-project/lotus/storage/sealer/partialfile"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 func TestRemoteGetAllocated(t *testing.T) {
 
 	emptyPartialFile := &partialfile.PartialFile{}
 	pfPath := "path"
-	expectedSectorRef := storiface.SectorRef{
+	expectedSectorRef := storiface2.SectorRef{
 		ID: abi.SectorID{
 			Miner:  123,
 			Number: 123,
@@ -35,7 +35,7 @@ func TestRemoteGetAllocated(t *testing.T) {
 	}
 
 	validSectorName := fmt.Sprintf("s-t0%d-%d", 123, 123)
-	validSectorFileType := storiface.FTUnsealed.String()
+	validSectorFileType := storiface2.FTUnsealed.String()
 	validSectorType := "1"
 	sectorSize := abi.SealProofInfos[1].SectorSize
 
@@ -104,31 +104,31 @@ func TestRemoteGetAllocated(t *testing.T) {
 			expectedStatusCode: http.StatusInternalServerError,
 			storeFnc: func(l *mocks.MockStore) {
 
-				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface.FTUnsealed,
-					storiface.FTNone, storiface.PathStorage, storiface.AcquireMove).Return(storiface.SectorPaths{
+				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface2.FTUnsealed,
+					storiface2.FTNone, storiface2.PathStorage, storiface2.AcquireMove).Return(storiface2.SectorPaths{
 					Unsealed: "path",
 				},
-					storiface.SectorPaths{}, xerrors.New("some error")).Times(1)
+					storiface2.SectorPaths{}, xerrors.New("some error")).Times(1)
 			},
 		},
 		"fails when unsealed sector file is not found locally": {
 			expectedStatusCode: http.StatusInternalServerError,
 			storeFnc: func(l *mocks.MockStore) {
 
-				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface.FTUnsealed,
-					storiface.FTNone, storiface.PathStorage, storiface.AcquireMove).Return(storiface.SectorPaths{},
-					storiface.SectorPaths{}, nil).Times(1)
+				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface2.FTUnsealed,
+					storiface2.FTNone, storiface2.PathStorage, storiface2.AcquireMove).Return(storiface2.SectorPaths{},
+					storiface2.SectorPaths{}, nil).Times(1)
 			},
 		},
 		"fails when error while opening partial file": {
 			expectedStatusCode: http.StatusInternalServerError,
 			storeFnc: func(l *mocks.MockStore) {
 
-				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface.FTUnsealed,
-					storiface.FTNone, storiface.PathStorage, storiface.AcquireMove).Return(storiface.SectorPaths{
+				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface2.FTUnsealed,
+					storiface2.FTNone, storiface2.PathStorage, storiface2.AcquireMove).Return(storiface2.SectorPaths{
 					Unsealed: pfPath,
 				},
-					storiface.SectorPaths{}, nil).Times(1)
+					storiface2.SectorPaths{}, nil).Times(1)
 			},
 
 			pfFunc: func(pf *mocks.MockPartialFileHandler) {
@@ -141,18 +141,18 @@ func TestRemoteGetAllocated(t *testing.T) {
 			expectedStatusCode: http.StatusInternalServerError,
 			storeFnc: func(l *mocks.MockStore) {
 
-				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface.FTUnsealed,
-					storiface.FTNone, storiface.PathStorage, storiface.AcquireMove).Return(storiface.SectorPaths{
+				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface2.FTUnsealed,
+					storiface2.FTNone, storiface2.PathStorage, storiface2.AcquireMove).Return(storiface2.SectorPaths{
 					Unsealed: pfPath,
 				},
-					storiface.SectorPaths{}, nil).Times(1)
+					storiface2.SectorPaths{}, nil).Times(1)
 			},
 
 			pfFunc: func(pf *mocks.MockPartialFileHandler) {
 				pf.EXPECT().OpenPartialFile(abi.PaddedPieceSize(sectorSize), pfPath).Return(emptyPartialFile,
 					nil).Times(1)
 
-				pf.EXPECT().HasAllocated(emptyPartialFile, storiface.UnpaddedByteIndex(validOffsetInt),
+				pf.EXPECT().HasAllocated(emptyPartialFile, storiface2.UnpaddedByteIndex(validOffsetInt),
 					abi.UnpaddedPieceSize(validSizeInt)).Return(true, xerrors.New("some error")).Times(1)
 			},
 		},
@@ -160,18 +160,18 @@ func TestRemoteGetAllocated(t *testing.T) {
 			expectedStatusCode: http.StatusRequestedRangeNotSatisfiable,
 			storeFnc: func(l *mocks.MockStore) {
 
-				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface.FTUnsealed,
-					storiface.FTNone, storiface.PathStorage, storiface.AcquireMove).Return(storiface.SectorPaths{
+				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface2.FTUnsealed,
+					storiface2.FTNone, storiface2.PathStorage, storiface2.AcquireMove).Return(storiface2.SectorPaths{
 					Unsealed: pfPath,
 				},
-					storiface.SectorPaths{}, nil).Times(1)
+					storiface2.SectorPaths{}, nil).Times(1)
 			},
 
 			pfFunc: func(pf *mocks.MockPartialFileHandler) {
 				pf.EXPECT().OpenPartialFile(abi.PaddedPieceSize(sectorSize), pfPath).Return(emptyPartialFile,
 					nil).Times(1)
 
-				pf.EXPECT().HasAllocated(emptyPartialFile, storiface.UnpaddedByteIndex(validOffsetInt),
+				pf.EXPECT().HasAllocated(emptyPartialFile, storiface2.UnpaddedByteIndex(validOffsetInt),
 					abi.UnpaddedPieceSize(validSizeInt)).Return(false, nil).Times(1)
 			},
 		},
@@ -179,18 +179,18 @@ func TestRemoteGetAllocated(t *testing.T) {
 			expectedStatusCode: http.StatusOK,
 			storeFnc: func(l *mocks.MockStore) {
 
-				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface.FTUnsealed,
-					storiface.FTNone, storiface.PathStorage, storiface.AcquireMove).Return(storiface.SectorPaths{
+				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface2.FTUnsealed,
+					storiface2.FTNone, storiface2.PathStorage, storiface2.AcquireMove).Return(storiface2.SectorPaths{
 					Unsealed: pfPath,
 				},
-					storiface.SectorPaths{}, nil).Times(1)
+					storiface2.SectorPaths{}, nil).Times(1)
 			},
 
 			pfFunc: func(pf *mocks.MockPartialFileHandler) {
 				pf.EXPECT().OpenPartialFile(abi.PaddedPieceSize(sectorSize), pfPath).Return(emptyPartialFile,
 					nil).Times(1)
 
-				pf.EXPECT().HasAllocated(emptyPartialFile, storiface.UnpaddedByteIndex(validOffsetInt),
+				pf.EXPECT().HasAllocated(emptyPartialFile, storiface2.UnpaddedByteIndex(validOffsetInt),
 					abi.UnpaddedPieceSize(validSizeInt)).Return(true, nil).Times(1)
 			},
 		},
@@ -254,8 +254,8 @@ func TestRemoteGetSector(t *testing.T) {
 	fileBytes := []byte(str)
 
 	validSectorName := fmt.Sprintf("s-t0%d-%d", 123, 123)
-	validSectorFileType := storiface.FTUnsealed.String()
-	expectedSectorRef := storiface.SectorRef{
+	validSectorFileType := storiface2.FTUnsealed.String()
+	expectedSectorRef := storiface2.SectorRef{
 		ID: abi.SectorID{
 			Miner:  123,
 			Number: 123,
@@ -302,11 +302,11 @@ func TestRemoteGetSector(t *testing.T) {
 		"fails when error while acquiring sector file": {
 			storeFnc: func(l *mocks.MockStore, _ string) {
 
-				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface.FTUnsealed,
-					storiface.FTNone, storiface.PathStorage, storiface.AcquireMove).Return(storiface.SectorPaths{
+				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface2.FTUnsealed,
+					storiface2.FTNone, storiface2.PathStorage, storiface2.AcquireMove).Return(storiface2.SectorPaths{
 					Unsealed: "path",
 				},
-					storiface.SectorPaths{}, xerrors.New("some error")).Times(1)
+					storiface2.SectorPaths{}, xerrors.New("some error")).Times(1)
 			},
 			expectedStatusCode: http.StatusInternalServerError,
 			noResponseBytes:    true,
@@ -315,9 +315,9 @@ func TestRemoteGetSector(t *testing.T) {
 			expectedStatusCode: http.StatusInternalServerError,
 			storeFnc: func(l *mocks.MockStore, _ string) {
 
-				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface.FTUnsealed,
-					storiface.FTNone, storiface.PathStorage, storiface.AcquireMove).Return(storiface.SectorPaths{},
-					storiface.SectorPaths{}, nil).Times(1)
+				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface2.FTUnsealed,
+					storiface2.FTNone, storiface2.PathStorage, storiface2.AcquireMove).Return(storiface2.SectorPaths{},
+					storiface2.SectorPaths{}, nil).Times(1)
 			},
 			noResponseBytes: true,
 		},
@@ -325,22 +325,22 @@ func TestRemoteGetSector(t *testing.T) {
 			expectedStatusCode: http.StatusInternalServerError,
 			storeFnc: func(l *mocks.MockStore, _ string) {
 
-				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface.FTUnsealed,
-					storiface.FTNone, storiface.PathStorage, storiface.AcquireMove).Return(storiface.SectorPaths{
+				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface2.FTUnsealed,
+					storiface2.FTNone, storiface2.PathStorage, storiface2.AcquireMove).Return(storiface2.SectorPaths{
 					Unsealed: "path",
 				},
-					storiface.SectorPaths{}, nil)
+					storiface2.SectorPaths{}, nil)
 			},
 			noResponseBytes: true,
 		},
 		"successfully read a sector file": {
 			storeFnc: func(l *mocks.MockStore, path string) {
 
-				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface.FTUnsealed,
-					storiface.FTNone, storiface.PathStorage, storiface.AcquireMove).Return(storiface.SectorPaths{
+				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface2.FTUnsealed,
+					storiface2.FTNone, storiface2.PathStorage, storiface2.AcquireMove).Return(storiface2.SectorPaths{
 					Unsealed: path,
 				},
-					storiface.SectorPaths{}, nil)
+					storiface2.SectorPaths{}, nil)
 			},
 
 			noResponseBytes:       false,
@@ -351,11 +351,11 @@ func TestRemoteGetSector(t *testing.T) {
 		"successfully read a sector dir": {
 			storeFnc: func(l *mocks.MockStore, path string) {
 
-				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface.FTUnsealed,
-					storiface.FTNone, storiface.PathStorage, storiface.AcquireMove).Return(storiface.SectorPaths{
+				l.EXPECT().AcquireSector(gomock.Any(), expectedSectorRef, storiface2.FTUnsealed,
+					storiface2.FTNone, storiface2.PathStorage, storiface2.AcquireMove).Return(storiface2.SectorPaths{
 					Unsealed: path,
 				},
-					storiface.SectorPaths{}, nil)
+					storiface2.SectorPaths{}, nil)
 			},
 
 			isDir:                 true,

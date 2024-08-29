@@ -4,6 +4,7 @@ package guidedsetup
 
 import (
 	"fmt"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"math"
 	"sort"
@@ -15,8 +16,6 @@ import (
 	abi "github.com/filecoin-project/go-state-types/abi"
 
 	sector "github.com/filecoin-project/curio/lib/types/sector"
-
-	storiface "github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var _ = xerrors.Errorf

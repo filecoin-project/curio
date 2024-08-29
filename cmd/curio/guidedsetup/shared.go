@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"os"
 	"path"
 	"strings"
@@ -30,7 +31,6 @@ import (
 
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/repo"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 const (

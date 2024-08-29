@@ -2,6 +2,7 @@ package docgen
 
 import (
 	"fmt"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -199,18 +200,18 @@ func init() {
 	//	},
 	//})
 	//addExample(api.SectorState(sealing.Proving))
-	addExample(storiface.ID("76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8"))
-	addExample(storiface.FTUnsealed)
-	addExample(storiface.PathSealing)
-	addExample(map[storiface.ID][]storiface.Decl{
+	addExample(storiface2.ID("76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8"))
+	addExample(storiface2.FTUnsealed)
+	addExample(storiface2.PathSealing)
+	addExample(map[storiface2.ID][]storiface2.Decl{
 		"76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8": {
 			{
 				SectorID:       abi.SectorID{Miner: 1000, Number: 100},
-				SectorFileType: storiface.FTSealed,
+				SectorFileType: storiface2.FTSealed,
 			},
 		},
 	})
-	addExample(map[storiface.ID]string{
+	addExample(map[storiface2.ID]string{
 		"76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8": "/data/path",
 	})
 	addExample(map[uuid.UUID][]storiface.WorkerJob{
@@ -340,8 +341,8 @@ func init() {
 		"Authorization": []string{"Bearer ey.."},
 	})
 
-	addExample(map[storiface.SectorFileType]storiface.SectorLocation{
-		storiface.FTSealed: {
+	addExample(map[storiface2.SectorFileType]storiface2.SectorLocation{
+		storiface2.FTSealed: {
 			Local:   false,
 			URL:     "https://example.com/sealingservice/sectors/s-f0123-12345",
 			Headers: nil,

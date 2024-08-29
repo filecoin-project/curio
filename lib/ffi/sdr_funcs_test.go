@@ -1,18 +1,17 @@
 package ffi
 
 import (
+	"github.com/filecoin-project/curio/lib/storiface"
 	"path/filepath"
 	"testing"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 func TestChangePathType(t *testing.T) {
 	tests := []struct {
 		name        string
-		path        string
-		newType     storiface.SectorFileType
-		expected    string
+		path     string
+		newType  storiface.SectorFileType
+		expected string
 		expectError bool
 	}{
 		{

@@ -3,6 +3,7 @@ package paths
 import (
 	"bytes"
 	"encoding/json"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"net/http"
 	"os"
@@ -33,11 +34,11 @@ type DefaultPartialFileHandler struct{}
 func (d *DefaultPartialFileHandler) OpenPartialFile(maxPieceSize abi.PaddedPieceSize, path string) (*partialfile.PartialFile, error) {
 	return partialfile.OpenPartialFile(maxPieceSize, path)
 }
-func (d *DefaultPartialFileHandler) HasAllocated(pf *partialfile.PartialFile, offset storiface.UnpaddedByteIndex, size abi.UnpaddedPieceSize) (bool, error) {
+func (d *DefaultPartialFileHandler) HasAllocated(pf *partialfile.PartialFile, offset storiface2.UnpaddedByteIndex, size abi.UnpaddedPieceSize) (bool, error) {
 	return pf.HasAllocated(offset, size)
 }
 
-func (d *DefaultPartialFileHandler) Reader(pf *partialfile.PartialFile, offset storiface.PaddedByteIndex, size abi.PaddedPieceSize) (io.Reader, error) {
+func (d *DefaultPartialFileHandler) Reader(pf *partialfile.PartialFile, offset storiface2.PaddedByteIndex, size abi.PaddedPieceSize) (io.Reader, error) {
 	return pf.Reader(offset, size)
 }
 
@@ -67,7 +68,7 @@ func (handler *FetchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (handler *FetchHandler) remoteStatFs(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	id := storiface.ID(vars["id"])
+	id := storiface2.ID(vars["id"])
 
 	st, err := handler.Local.FsStat(r.Context(), id)
 	switch err {
@@ -92,7 +93,7 @@ func (handler *FetchHandler) remoteStatFs(w http.ResponseWriter, r *http.Request
 func (handler *FetchHandler) remoteGetSector(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 
-	id, err := storiface.ParseSectorID(vars["id"])
+	id, err := storiface2.ParseSectorID(vars["id"])
 	if err != nil {
 		log.Errorf("%+v", err)
 		w.WriteHeader(500)
@@ -108,12 +109,12 @@ func (handler *FetchHandler) remoteGetSector(w http.ResponseWriter, r *http.Requ
 
 	// The caller has a lock on this sector already, no need to get one here
 	// passing 0 spt because we don't allocate anything
-	si := storiface.SectorRef{
+	si := storiface2.SectorRef{
 		ID:        id,
 		ProofType: 0,
 	}
 
-	paths, _, err := handler.Local.AcquireSector(r.Context(), si, ft, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
+	paths, _, err := handler.Local.AcquireSector(r.Context(), si, ft, storiface2.FTNone, storiface2.PathStorage, storiface2.AcquireMove)
 	if err != nil {
 		log.Errorf("AcquireSector: %+v", err)
 		w.WriteHeader(500)
@@ -122,7 +123,7 @@ func (handler *FetchHandler) remoteGetSector(w http.ResponseWriter, r *http.Requ
 
 	// TODO: reserve local storage here
 
-	path := storiface.PathByType(paths, ft)
+	path := storiface2.PathByType(paths, ft)
 	if path == "" {
 		log.Error("acquired path was empty")
 		w.WriteHeader(500)
@@ -169,7 +170,7 @@ func (handler *FetchHandler) remoteDeleteSector(w http.ResponseWriter, r *http.R
 	log.Infof("SERVE DELETE %s", r.URL)
 	vars := mux.Vars(r)
 
-	id, err := storiface.ParseSectorID(vars["id"])
+	id, err := storiface2.ParseSectorID(vars["id"])
 	if err != nil {
 		log.Errorf("%+v", err)
 		w.WriteHeader(500)
@@ -183,7 +184,7 @@ func (handler *FetchHandler) remoteDeleteSector(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	if err := handler.Local.Remove(r.Context(), id, ft, false, storiface.ParseIDList(r.FormValue("keep"))); err != nil {
+	if err := handler.Local.Remove(r.Context(), id, ft, false, storiface2.ParseIDList(r.FormValue("keep"))); err != nil {
 		log.Errorf("%+v", err)
 		w.WriteHeader(500)
 		return
@@ -197,7 +198,7 @@ func (handler *FetchHandler) remoteGetAllocated(w http.ResponseWriter, r *http.R
 	log.Infof("SERVE Alloc check %s", r.URL)
 	vars := mux.Vars(r)
 
-	id, err := storiface.ParseSectorID(vars["id"])
+	id, err := storiface2.ParseSectorID(vars["id"])
 	if err != nil {
 		log.Errorf("parsing sectorID: %+v", err)
 		w.WriteHeader(500)
@@ -210,7 +211,7 @@ func (handler *FetchHandler) remoteGetAllocated(w http.ResponseWriter, r *http.R
 		w.WriteHeader(500)
 		return
 	}
-	if ft != storiface.FTUnsealed {
+	if ft != storiface2.FTUnsealed {
 		log.Errorf("/allocated only supports unsealed sector files")
 		w.WriteHeader(500)
 		return
@@ -246,21 +247,21 @@ func (handler *FetchHandler) remoteGetAllocated(w http.ResponseWriter, r *http.R
 	// The caller has a lock on this sector already, no need to get one here
 
 	// passing 0 spt because we don't allocate anything
-	si := storiface.SectorRef{
+	si := storiface2.SectorRef{
 		ID:        id,
 		ProofType: 0,
 	}
 
 	// get the path of the local Unsealed file for the given sector.
 	// return error if we do NOT have it.
-	paths, _, err := handler.Local.AcquireSector(r.Context(), si, ft, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
+	paths, _, err := handler.Local.AcquireSector(r.Context(), si, ft, storiface2.FTNone, storiface2.PathStorage, storiface2.AcquireMove)
 	if err != nil {
 		log.Errorf("AcquireSector: %+v", err)
 		w.WriteHeader(500)
 		return
 	}
 
-	path := storiface.PathByType(paths, ft)
+	path := storiface2.PathByType(paths, ft)
 	if path == "" {
 		log.Error("acquired path was empty")
 		w.WriteHeader(500)
@@ -280,7 +281,7 @@ func (handler *FetchHandler) remoteGetAllocated(w http.ResponseWriter, r *http.R
 		}
 	}()
 
-	has, err := handler.PfHandler.HasAllocated(pf, storiface.UnpaddedByteIndex(offi), abi.UnpaddedPieceSize(szi))
+	has, err := handler.PfHandler.HasAllocated(pf, storiface2.UnpaddedByteIndex(offi), abi.UnpaddedPieceSize(szi))
 	if err != nil {
 		log.Error("has allocated: ", err)
 		w.WriteHeader(500)
@@ -321,8 +322,8 @@ func (handler *FetchHandler) generateSingleVanillaProof(w http.ResponseWriter, r
 }
 
 type PoRepVanillaParams struct {
-	Sector   storiface.SectorRef
-	Sealed   cid.Cid
+	Sector storiface2.SectorRef
+	Sealed cid.Cid
 	Unsealed cid.Cid
 	Ticket   abi.SealRandomness
 	Seed     abi.InteractiveSealRandomness
@@ -346,7 +347,7 @@ func (handler *FetchHandler) generatePoRepVanillaProof(w http.ResponseWriter, r 
 }
 
 type SnapVanillaParams struct {
-	Sector storiface.SectorRef
+	Sector storiface2.SectorRef
 }
 
 func (handler *FetchHandler) readSnapVanillaProof(w http.ResponseWriter, r *http.Request) {
@@ -366,6 +367,6 @@ func (handler *FetchHandler) readSnapVanillaProof(w http.ResponseWriter, r *http
 	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(vanilla))
 }
 
-func FileTypeFromString(t string) (storiface.SectorFileType, error) {
-	return storiface.TypeFromString(t)
+func FileTypeFromString(t string) (storiface2.SectorFileType, error) {
+	return storiface2.TypeFromString(t)
 }

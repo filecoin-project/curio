@@ -2,6 +2,7 @@ package gc
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"time"
 
 	cbor "github.com/ipfs/go-ipld-cbor"
@@ -20,7 +21,6 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 const StorageGCInterval = 9 * time.Minute

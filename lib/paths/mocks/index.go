@@ -6,6 +6,7 @@ package mocks
 
 import (
 	context "context"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
@@ -15,7 +16,6 @@ import (
 	paths "github.com/filecoin-project/curio/lib/paths"
 
 	fsutil "github.com/filecoin-project/lotus/storage/sealer/fsutil"
-	storiface "github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 // MockSectorIndex is a mock of SectorIndex interface.
@@ -56,7 +56,7 @@ func (mr *MockSectorIndexMockRecorder) BatchStorageDeclareSectors(arg0, arg1 int
 }
 
 // StorageAttach mocks base method.
-func (m *MockSectorIndex) StorageAttach(arg0 context.Context, arg1 storiface.StorageInfo, arg2 fsutil.FsStat) error {
+func (m *MockSectorIndex) StorageAttach(arg0 context.Context, arg1 storiface2.StorageInfo, arg2 fsutil.FsStat) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StorageAttach", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
@@ -70,10 +70,10 @@ func (mr *MockSectorIndexMockRecorder) StorageAttach(arg0, arg1, arg2 interface{
 }
 
 // StorageBestAlloc mocks base method.
-func (m *MockSectorIndex) StorageBestAlloc(arg0 context.Context, arg1 storiface.SectorFileType, arg2 abi.SectorSize, arg3 storiface.PathType, arg4 abi.ActorID) ([]storiface.StorageInfo, error) {
+func (m *MockSectorIndex) StorageBestAlloc(arg0 context.Context, arg1 storiface2.SectorFileType, arg2 abi.SectorSize, arg3 storiface2.PathType, arg4 abi.ActorID) ([]storiface2.StorageInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StorageBestAlloc", arg0, arg1, arg2, arg3, arg4)
-	ret0, _ := ret[0].([]storiface.StorageInfo)
+	ret0, _ := ret[0].([]storiface2.StorageInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -85,7 +85,7 @@ func (mr *MockSectorIndexMockRecorder) StorageBestAlloc(arg0, arg1, arg2, arg3, 
 }
 
 // StorageDeclareSector mocks base method.
-func (m *MockSectorIndex) StorageDeclareSector(arg0 context.Context, arg1 storiface.ID, arg2 abi.SectorID, arg3 storiface.SectorFileType, arg4 bool) error {
+func (m *MockSectorIndex) StorageDeclareSector(arg0 context.Context, arg1 storiface2.ID, arg2 abi.SectorID, arg3 storiface2.SectorFileType, arg4 bool) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StorageDeclareSector", arg0, arg1, arg2, arg3, arg4)
 	ret0, _ := ret[0].(error)
@@ -99,7 +99,7 @@ func (mr *MockSectorIndexMockRecorder) StorageDeclareSector(arg0, arg1, arg2, ar
 }
 
 // StorageDetach mocks base method.
-func (m *MockSectorIndex) StorageDetach(arg0 context.Context, arg1 storiface.ID, arg2 string) error {
+func (m *MockSectorIndex) StorageDetach(arg0 context.Context, arg1 storiface2.ID, arg2 string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StorageDetach", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
@@ -113,7 +113,7 @@ func (mr *MockSectorIndexMockRecorder) StorageDetach(arg0, arg1, arg2 interface{
 }
 
 // StorageDropSector mocks base method.
-func (m *MockSectorIndex) StorageDropSector(arg0 context.Context, arg1 storiface.ID, arg2 abi.SectorID, arg3 storiface.SectorFileType) error {
+func (m *MockSectorIndex) StorageDropSector(arg0 context.Context, arg1 storiface2.ID, arg2 abi.SectorID, arg3 storiface2.SectorFileType) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StorageDropSector", arg0, arg1, arg2, arg3)
 	ret0, _ := ret[0].(error)
@@ -127,10 +127,10 @@ func (mr *MockSectorIndexMockRecorder) StorageDropSector(arg0, arg1, arg2, arg3 
 }
 
 // StorageFindSector mocks base method.
-func (m *MockSectorIndex) StorageFindSector(arg0 context.Context, arg1 abi.SectorID, arg2 storiface.SectorFileType, arg3 abi.SectorSize, arg4 bool) ([]storiface.SectorStorageInfo, error) {
+func (m *MockSectorIndex) StorageFindSector(arg0 context.Context, arg1 abi.SectorID, arg2 storiface2.SectorFileType, arg3 abi.SectorSize, arg4 bool) ([]storiface2.SectorStorageInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StorageFindSector", arg0, arg1, arg2, arg3, arg4)
-	ret0, _ := ret[0].([]storiface.SectorStorageInfo)
+	ret0, _ := ret[0].([]storiface2.SectorStorageInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -142,10 +142,10 @@ func (mr *MockSectorIndexMockRecorder) StorageFindSector(arg0, arg1, arg2, arg3,
 }
 
 // StorageGetLocks mocks base method.
-func (m *MockSectorIndex) StorageGetLocks(arg0 context.Context) (storiface.SectorLocks, error) {
+func (m *MockSectorIndex) StorageGetLocks(arg0 context.Context) (storiface2.SectorLocks, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StorageGetLocks", arg0)
-	ret0, _ := ret[0].(storiface.SectorLocks)
+	ret0, _ := ret[0].(storiface2.SectorLocks)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -157,10 +157,10 @@ func (mr *MockSectorIndexMockRecorder) StorageGetLocks(arg0 interface{}) *gomock
 }
 
 // StorageInfo mocks base method.
-func (m *MockSectorIndex) StorageInfo(arg0 context.Context, arg1 storiface.ID) (storiface.StorageInfo, error) {
+func (m *MockSectorIndex) StorageInfo(arg0 context.Context, arg1 storiface2.ID) (storiface2.StorageInfo, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StorageInfo", arg0, arg1)
-	ret0, _ := ret[0].(storiface.StorageInfo)
+	ret0, _ := ret[0].(storiface2.StorageInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -172,10 +172,10 @@ func (mr *MockSectorIndexMockRecorder) StorageInfo(arg0, arg1 interface{}) *gomo
 }
 
 // StorageList mocks base method.
-func (m *MockSectorIndex) StorageList(arg0 context.Context) (map[storiface.ID][]storiface.Decl, error) {
+func (m *MockSectorIndex) StorageList(arg0 context.Context) (map[storiface2.ID][]storiface2.Decl, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StorageList", arg0)
-	ret0, _ := ret[0].(map[storiface.ID][]storiface.Decl)
+	ret0, _ := ret[0].(map[storiface2.ID][]storiface2.Decl)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -187,7 +187,7 @@ func (mr *MockSectorIndexMockRecorder) StorageList(arg0 interface{}) *gomock.Cal
 }
 
 // StorageLock mocks base method.
-func (m *MockSectorIndex) StorageLock(arg0 context.Context, arg1 abi.SectorID, arg2, arg3 storiface.SectorFileType) error {
+func (m *MockSectorIndex) StorageLock(arg0 context.Context, arg1 abi.SectorID, arg2, arg3 storiface2.SectorFileType) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StorageLock", arg0, arg1, arg2, arg3)
 	ret0, _ := ret[0].(error)
@@ -201,7 +201,7 @@ func (mr *MockSectorIndexMockRecorder) StorageLock(arg0, arg1, arg2, arg3 interf
 }
 
 // StorageReportHealth mocks base method.
-func (m *MockSectorIndex) StorageReportHealth(arg0 context.Context, arg1 storiface.ID, arg2 storiface.HealthReport) error {
+func (m *MockSectorIndex) StorageReportHealth(arg0 context.Context, arg1 storiface2.ID, arg2 storiface2.HealthReport) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StorageReportHealth", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
@@ -215,7 +215,7 @@ func (mr *MockSectorIndexMockRecorder) StorageReportHealth(arg0, arg1, arg2 inte
 }
 
 // StorageTryLock mocks base method.
-func (m *MockSectorIndex) StorageTryLock(arg0 context.Context, arg1 abi.SectorID, arg2, arg3 storiface.SectorFileType) (bool, error) {
+func (m *MockSectorIndex) StorageTryLock(arg0 context.Context, arg1 abi.SectorID, arg2, arg3 storiface2.SectorFileType) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StorageTryLock", arg0, arg1, arg2, arg3)
 	ret0, _ := ret[0].(bool)

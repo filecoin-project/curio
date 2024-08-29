@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 	"net"
 	"os"
 	"testing"
@@ -41,7 +42,6 @@ import (
 	"github.com/filecoin-project/lotus/cli/spcli/createminer"
 	"github.com/filecoin-project/lotus/itests/kit"
 	"github.com/filecoin-project/lotus/node"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 func TestCurioNewActor(t *testing.T) {
@@ -395,8 +395,8 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	capi, ccloser, err := rpc.GetCurioAPI(&cli.Context{})
 	require.NoError(t, err)
 
-	scfg := storiface.LocalStorageMeta{
-		ID:         storiface.ID(uuid.New().String()),
+	scfg := storiface2.LocalStorageMeta{
+		ID:         storiface2.ID(uuid.New().String()),
 		Weight:     10,
 		CanSeal:    true,
 		CanStore:   true,

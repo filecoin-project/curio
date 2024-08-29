@@ -2,6 +2,7 @@ package gc
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"strings"
 	"sync"
 	"time"
@@ -17,7 +18,6 @@ import (
 
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var log = logging.Logger("curiogc")
@@ -53,8 +53,8 @@ func (s *StorageEndpointGC) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	ctx := context.Background()
 
 	var pathRefs []struct {
-		StorageID     storiface.ID `db:"storage_id"`
-		Urls          string       `db:"urls"`
+		StorageID storiface.ID `db:"storage_id"`
+		Urls      string       `db:"urls"`
 		LastHeartbeat *time.Time   `db:"last_heartbeat"`
 	}
 

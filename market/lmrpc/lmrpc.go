@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"net"
 	"net/http"
@@ -36,7 +37,6 @@ import (
 	"github.com/filecoin-project/lotus/lib/nullreader"
 	"github.com/filecoin-project/lotus/metrics/proxy"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var log = logging.Logger("lmrpc")

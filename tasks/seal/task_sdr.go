@@ -3,6 +3,7 @@ package seal
 import (
 	"bytes"
 	"context"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 
 	"golang.org/x/xerrors"
 
@@ -20,7 +21,6 @@ import (
 
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var IsDevnet = build.BlockDelaySecs < 30
@@ -86,7 +86,7 @@ func (s *SDRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 		return false, xerrors.Errorf("getting deal data: %w", err)
 	}
 
-	sref := storiface.SectorRef{
+	sref := storiface2.SectorRef{
 		ID: abi.SectorID{
 			Miner:  abi.ActorID(sectorParams.SpID),
 			Number: abi.SectorNumber(sectorParams.SectorNumber),
@@ -185,7 +185,7 @@ func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu:     4, // todo multicore sdr
 			Gpu:     0,
 			Ram:     (64 << 30) + (256 << 20),
-			Storage: s.sc.Storage(s.taskToSector, storiface.FTCache, storiface.FTNone, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
+			Storage: s.sc.Storage(s.taskToSector, storiface2.FTCache, storiface2.FTNone, ssize, storiface2.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 2,
 		Follows:     nil,

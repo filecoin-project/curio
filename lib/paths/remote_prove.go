@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"net/http"
 	"net/url"
@@ -22,13 +23,13 @@ import (
 )
 
 // ReadMinCacheInto reads finalized-like (few MiB) cache files into the target dir
-func (r *Remote) ReadMinCacheInto(ctx context.Context, s storiface.SectorRef, ft storiface.SectorFileType, w io.Writer) error {
-	paths, _, err := r.local.AcquireSector(ctx, s, ft, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
+func (r *Remote) ReadMinCacheInto(ctx context.Context, s storiface2.SectorRef, ft storiface2.SectorFileType, w io.Writer) error {
+	paths, _, err := r.local.AcquireSector(ctx, s, ft, storiface2.FTNone, storiface2.PathStorage, storiface2.AcquireMove)
 	if err != nil {
 		return xerrors.Errorf("acquire local: %w", err)
 	}
 
-	path := storiface.PathByType(paths, ft)
+	path := storiface2.PathByType(paths, ft)
 	if path != "" {
 		return readMinCache(path, w)
 	}
@@ -40,7 +41,7 @@ func (r *Remote) ReadMinCacheInto(ctx context.Context, s storiface.SectorRef, ft
 	}
 
 	if len(si) == 0 {
-		return xerrors.Errorf("failed to read sector %v from remote(%d): %w", s, ft, storiface.ErrSectorNotFound)
+		return xerrors.Errorf("failed to read sector %v from remote(%d): %w", s, ft, storiface2.ErrSectorNotFound)
 	}
 
 	sort.Slice(si, func(i, j int) bool {
@@ -81,7 +82,7 @@ func (r *Remote) ReadMinCacheInto(ctx context.Context, s storiface.SectorRef, ft
 		}
 	}
 
-	return xerrors.Errorf("failed to read minimal sector cache %v from remote(%d): %w", s, ft, storiface.ErrSectorNotFound)
+	return xerrors.Errorf("failed to read minimal sector cache %v from remote(%d): %w", s, ft, storiface2.ErrSectorNotFound)
 }
 
 func readMinCache(dir string, writer io.Writer) error {
@@ -99,9 +100,9 @@ func (r *Remote) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 		Number: sinfo.SectorNumber,
 	}
 
-	ft := storiface.FTSealed | storiface.FTCache
+	ft := storiface2.FTSealed | storiface2.FTCache
 	if sinfo.Update {
-		ft = storiface.FTUpdate | storiface.FTUpdateCache
+		ft = storiface2.FTUpdate | storiface2.FTUpdateCache
 	}
 
 	si, err := r.index.StorageFindSector(ctx, sid, ft, 0, false)
@@ -185,7 +186,7 @@ func (r *Remote) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 	return nil, merr
 }
 
-func (r *Remote) GeneratePoRepVanillaProof(ctx context.Context, sr storiface.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error) {
+func (r *Remote) GeneratePoRepVanillaProof(ctx context.Context, sr storiface2.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error) {
 	// Attempt to generate the proof locally first
 	p, err := r.local.GeneratePoRepVanillaProof(ctx, sr, sealed, unsealed, ticket, seed)
 	if err != errPathNotFound {
@@ -193,7 +194,7 @@ func (r *Remote) GeneratePoRepVanillaProof(ctx context.Context, sr storiface.Sec
 	}
 
 	// Define the file types to look for based on the sector's state
-	ft := storiface.FTSealed | storiface.FTCache
+	ft := storiface2.FTSealed | storiface2.FTCache
 
 	// Find sector information
 	si, err := r.index.StorageFindSector(ctx, sr.ID, ft, 0, false)
@@ -275,7 +276,7 @@ func (r *Remote) GeneratePoRepVanillaProof(ctx context.Context, sr storiface.Sec
 	return nil, merr
 }
 
-func (r *Remote) ReadSnapVanillaProof(ctx context.Context, sr storiface.SectorRef) ([]byte, error) {
+func (r *Remote) ReadSnapVanillaProof(ctx context.Context, sr storiface2.SectorRef) ([]byte, error) {
 	// Attempt to generate the proof locally first
 	p, err := r.local.ReadSnapVanillaProof(ctx, sr)
 	if err != errPathNotFound {
@@ -283,7 +284,7 @@ func (r *Remote) ReadSnapVanillaProof(ctx context.Context, sr storiface.SectorRe
 	}
 
 	// Define the file types to look for based on the sector's state
-	ft := storiface.FTUpdateCache
+	ft := storiface2.FTUpdateCache
 
 	// Find sector information
 	si, err := r.index.StorageFindSector(ctx, sr.ID, ft, 0, false)

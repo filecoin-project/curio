@@ -3,6 +3,7 @@ package paths
 import (
 	"context"
 	"encoding/json"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,25 +14,24 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 const pathSize = 16 << 20
 
 type TestingLocalStorage struct {
 	root string
-	c    storiface.StorageConfig
+	c    storiface2.StorageConfig
 }
 
 func (t *TestingLocalStorage) DiskUsage(path string) (int64, error) {
 	return 1, nil
 }
 
-func (t *TestingLocalStorage) GetStorage() (storiface.StorageConfig, error) {
+func (t *TestingLocalStorage) GetStorage() (storiface2.StorageConfig, error) {
 	return t.c, nil
 }
 
-func (t *TestingLocalStorage) SetStorage(f func(*storiface.StorageConfig)) error {
+func (t *TestingLocalStorage) SetStorage(f func(*storiface2.StorageConfig)) error {
 	f(&t.c)
 	return nil
 }
@@ -52,8 +52,8 @@ func (t *TestingLocalStorage) init(subpath string) error {
 
 	metaFile := filepath.Join(path, MetaFile)
 
-	meta := &storiface.LocalStorageMeta{
-		ID:       storiface.ID(uuid.New().String()),
+	meta := &storiface2.LocalStorageMeta{
+		ID:       storiface2.ID(uuid.New().String()),
 		Weight:   1,
 		CanSeal:  true,
 		CanStore: true,

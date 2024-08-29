@@ -1,9 +1,9 @@
 package paths
 
 import (
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 type BasicLocalStorage struct {

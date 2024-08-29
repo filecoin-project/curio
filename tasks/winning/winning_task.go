@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -45,7 +46,7 @@ type WinPostTask struct {
 	db  *harmonydb.DB
 
 	paths       *paths.Remote
-	verifier    storiface.Verifier
+	verifier    storiface2.Verifier
 	paramsReady func() (bool, error)
 
 	api    WinPostAPI
@@ -73,7 +74,7 @@ type WinPostAPI interface {
 	WalletSign(context.Context, address.Address, []byte) (*crypto.Signature, error)
 }
 
-func NewWinPostTask(max int, db *harmonydb.DB, remote *paths.Remote, verifier storiface.Verifier, paramck func() (bool, error), api WinPostAPI, actors map[dtypes.MinerAddress]bool) *WinPostTask {
+func NewWinPostTask(max int, db *harmonydb.DB, remote *paths.Remote, verifier storiface2.Verifier, paramck func() (bool, error), api WinPostAPI, actors map[dtypes.MinerAddress]bool) *WinPostTask {
 	t := &WinPostTask{
 		max:         max,
 		db:          db,

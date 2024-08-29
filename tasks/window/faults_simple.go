@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 	"sync"
 	"time"
 
@@ -38,7 +39,7 @@ func NewSimpleFaultTracker(storage paths.Store, index paths.SectorIndex,
 	}
 }
 
-func (m *SimpleFaultTracker) CheckProvable(ctx context.Context, pp abi.RegisteredPoStProof, sectors []storiface.SectorRef, rg storiface.RGetter) (map[abi.SectorID]string, error) {
+func (m *SimpleFaultTracker) CheckProvable(ctx context.Context, pp abi.RegisteredPoStProof, sectors []storiface2.SectorRef, rg storiface2.RGetter) (map[abi.SectorID]string, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -83,7 +84,7 @@ func (m *SimpleFaultTracker) CheckProvable(ctx context.Context, pp abi.Registere
 			continue
 		}
 
-		go func(sector storiface.SectorRef) {
+		go func(sector storiface2.SectorRef) {
 			defer wg.Done()
 			defer func() {
 				<-throttle
@@ -98,12 +99,12 @@ func (m *SimpleFaultTracker) CheckProvable(ctx context.Context, pp abi.Registere
 				return
 			}
 
-			toLock := storiface.FTSealed | storiface.FTCache
+			toLock := storiface2.FTSealed | storiface2.FTCache
 			if update {
-				toLock = storiface.FTUpdate | storiface.FTUpdateCache
+				toLock = storiface2.FTUpdate | storiface2.FTUpdateCache
 			}
 
-			locked, err := m.index.StorageTryLock(ctx, sector.ID, toLock, storiface.FTNone)
+			locked, err := m.index.StorageTryLock(ctx, sector.ID, toLock, storiface2.FTNone)
 			if err != nil {
 				addBad(sector.ID, fmt.Sprintf("tryLock error: %s", err))
 				return

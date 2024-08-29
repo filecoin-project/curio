@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"os"
 	"path/filepath"
@@ -24,7 +25,6 @@ import (
 	"github.com/filecoin-project/curio/lib/tarutil"
 
 	"github.com/filecoin-project/lotus/storage/sealer/fr32"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 func (sb *SealCalls) EncodeUpdate(
@@ -32,16 +32,16 @@ func (sb *SealCalls) EncodeUpdate(
 	sectorKeyCid cid.Cid,
 	taskID harmonytask.TaskID,
 	proofType abi.RegisteredUpdateProof,
-	sector storiface.SectorRef,
+	sector storiface2.SectorRef,
 	data io.Reader,
 	pieces []abi.PieceInfo,
 	keepUnsealed bool) (sealedCID cid.Cid, unsealedCID cid.Cid, err error) {
-	noDecl := storiface.FTNone
+	noDecl := storiface2.FTNone
 	if !keepUnsealed {
-		noDecl = storiface.FTUnsealed
+		noDecl = storiface2.FTUnsealed
 	}
 
-	paths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, &taskID, sector, storiface.FTNone, storiface.FTUpdate|storiface.FTUpdateCache|storiface.FTUnsealed, storiface.PathSealing)
+	paths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, &taskID, sector, storiface2.FTNone, storiface2.FTUpdate|storiface2.FTUpdateCache|storiface2.FTUnsealed, storiface2.PathSealing)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("acquiring sector paths: %w", err)
 	}
@@ -133,7 +133,7 @@ func (sb *SealCalls) EncodeUpdate(
 
 		log.Debugw("get key data", "keyPath", keyPath, "keyCachePath", keyCachePath, "sectorID", sector.ID, "taskID", taskID)
 
-		r, err := sb.sectors.storage.ReaderSeq(ctx, sector, storiface.FTSealed)
+		r, err := sb.sectors.storage.ReaderSeq(ctx, sector, storiface2.FTSealed)
 		if err != nil {
 			return cid.Undef, cid.Undef, xerrors.Errorf("getting sealed sector reader: %w", err)
 		}
@@ -177,7 +177,7 @@ func (sb *SealCalls) EncodeUpdate(
 
 		// fetch cache
 		var buf bytes.Buffer // usually 73.2 MiB
-		err = sb.sectors.storage.ReadMinCacheInto(ctx, sector, storiface.FTCache, &buf)
+		err = sb.sectors.storage.ReadMinCacheInto(ctx, sector, storiface2.FTCache, &buf)
 		if err != nil {
 			return cid.Undef, cid.Undef, xerrors.Errorf("reading cache: %w", err)
 		}
@@ -256,9 +256,9 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Undef, cid.Undef, xerrors.Errorf("clear cache: %w", err)
 	}
 
-	ensureTypes := storiface.FTUpdate | storiface.FTUpdateCache
+	ensureTypes := storiface2.FTUpdate | storiface2.FTUpdateCache
 	if keepUnsealed {
-		ensureTypes |= storiface.FTUnsealed
+		ensureTypes |= storiface2.FTUnsealed
 	}
 
 	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, ensureTypes); err != nil {
@@ -268,7 +268,7 @@ func (sb *SealCalls) EncodeUpdate(
 	return out.Sealed, out.Unsealed, nil
 }
 
-func (sb *SealCalls) ProveUpdate(ctx context.Context, proofType abi.RegisteredUpdateProof, sector storiface.SectorRef, key, sealed, unsealed cid.Cid) ([]byte, error) {
+func (sb *SealCalls) ProveUpdate(ctx context.Context, proofType abi.RegisteredUpdateProof, sector storiface2.SectorRef, key, sealed, unsealed cid.Cid) ([]byte, error) {
 	jsonb, err := sb.sectors.storage.ReadSnapVanillaProof(ctx, sector)
 	if err != nil {
 		return nil, xerrors.Errorf("read snap vanilla proof: %w", err)
@@ -283,23 +283,23 @@ func (sb *SealCalls) ProveUpdate(ctx context.Context, proofType abi.RegisteredUp
 	return ffiselect.FFISelect.GenerateUpdateProofWithVanilla(ctx, proofType, key, sealed, unsealed, vproofs)
 }
 
-func (sb *SealCalls) MoveStorageSnap(ctx context.Context, sector storiface.SectorRef, taskID *harmonytask.TaskID) error {
+func (sb *SealCalls) MoveStorageSnap(ctx context.Context, sector storiface2.SectorRef, taskID *harmonytask.TaskID) error {
 	// only move the unsealed file if it still exists and needs moving
-	moveUnsealed := storiface.FTUnsealed
+	moveUnsealed := storiface2.FTUnsealed
 	{
-		found, unsealedPathType, err := sb.sectorStorageType(ctx, sector, storiface.FTUnsealed)
+		found, unsealedPathType, err := sb.sectorStorageType(ctx, sector, storiface2.FTUnsealed)
 		if err != nil {
 			return xerrors.Errorf("checking cache storage type: %w", err)
 		}
 
-		if !found || unsealedPathType == storiface.PathStorage {
-			moveUnsealed = storiface.FTNone
+		if !found || unsealedPathType == storiface2.PathStorage {
+			moveUnsealed = storiface2.FTNone
 		}
 	}
 
-	toMove := storiface.FTUpdateCache | storiface.FTUpdate | moveUnsealed
+	toMove := storiface2.FTUpdateCache | storiface2.FTUpdate | moveUnsealed
 
-	var opts []storiface.AcquireOption
+	var opts []storiface2.AcquireOption
 	if taskID != nil {
 		resv, ok := sb.sectors.storageReservations.Load(*taskID)
 		// if the reservation is missing MoveStorage will simply create one internally. This is fine as the reservation
@@ -308,14 +308,14 @@ func (sb *SealCalls) MoveStorageSnap(ctx context.Context, sector storiface.Secto
 		if ok {
 			defer resv.Release()
 
-			if resv.Alloc != storiface.FTNone {
+			if resv.Alloc != storiface2.FTNone {
 				return xerrors.Errorf("task %d has storage reservation with alloc", taskID)
 			}
-			if resv.Existing != toMove|storiface.FTUnsealed {
+			if resv.Existing != toMove|storiface2.FTUnsealed {
 				return xerrors.Errorf("task %d has storage reservation with different existing", taskID)
 			}
 
-			opts = append(opts, storiface.AcquireInto(storiface.PathsWithIDs{Paths: resv.Paths, IDs: resv.PathIDs}))
+			opts = append(opts, storiface2.AcquireInto(storiface2.PathsWithIDs{Paths: resv.Paths, IDs: resv.PathIDs}))
 		}
 	}
 

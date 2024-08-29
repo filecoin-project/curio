@@ -2,6 +2,7 @@ package paths
 
 import (
 	"context"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 	"io"
 
 	"github.com/ipfs/go-cid"
@@ -23,10 +24,10 @@ type PartialFileHandler interface {
 
 	// HasAllocated returns true if the given partial file has an unsealed piece starting at the given offset with the given size.
 	// returns false otherwise.
-	HasAllocated(pf *partialfile.PartialFile, offset storiface.UnpaddedByteIndex, size abi.UnpaddedPieceSize) (bool, error)
+	HasAllocated(pf *partialfile.PartialFile, offset storiface2.UnpaddedByteIndex, size abi.UnpaddedPieceSize) (bool, error)
 
 	// Reader returns a file from which we can read the unsealed piece in the partial file.
-	Reader(pf *partialfile.PartialFile, offset storiface.PaddedByteIndex, size abi.PaddedPieceSize) (io.Reader, error)
+	Reader(pf *partialfile.PartialFile, offset storiface2.PaddedByteIndex, size abi.PaddedPieceSize) (io.Reader, error)
 
 	// Close closes the partial file
 	Close(pf *partialfile.PartialFile) error
@@ -35,21 +36,21 @@ type PartialFileHandler interface {
 //go:generate go run github.com/golang/mock/mockgen -destination=mocks/store.go -package=mocks . Store
 
 type Store interface {
-	AcquireSector(ctx context.Context, s storiface.SectorRef, existing storiface.SectorFileType, allocate storiface.SectorFileType, sealing storiface.PathType, op storiface.AcquireMode, opts ...storiface.AcquireOption) (paths storiface.SectorPaths, stores storiface.SectorPaths, err error)
-	Remove(ctx context.Context, s abi.SectorID, types storiface.SectorFileType, force bool, keepIn []storiface.ID) error
+	AcquireSector(ctx context.Context, s storiface2.SectorRef, existing storiface2.SectorFileType, allocate storiface2.SectorFileType, sealing storiface2.PathType, op storiface2.AcquireMode, opts ...storiface2.AcquireOption) (paths storiface2.SectorPaths, stores storiface2.SectorPaths, err error)
+	Remove(ctx context.Context, s abi.SectorID, types storiface2.SectorFileType, force bool, keepIn []storiface2.ID) error
 
 	// like remove, but doesn't remove the primary sector copy, nor the last
 	// non-primary copy if there no primary copies
-	RemoveCopies(ctx context.Context, s abi.SectorID, types storiface.SectorFileType) error
+	RemoveCopies(ctx context.Context, s abi.SectorID, types storiface2.SectorFileType) error
 
 	// move sectors into storage
-	MoveStorage(ctx context.Context, s storiface.SectorRef, types storiface.SectorFileType, opts ...storiface.AcquireOption) error
+	MoveStorage(ctx context.Context, s storiface2.SectorRef, types storiface2.SectorFileType, opts ...storiface2.AcquireOption) error
 
-	FsStat(ctx context.Context, id storiface.ID) (fsutil.FsStat, error)
+	FsStat(ctx context.Context, id storiface2.ID) (fsutil.FsStat, error)
 
-	Reserve(ctx context.Context, sid storiface.SectorRef, ft storiface.SectorFileType, storageIDs storiface.SectorPaths, overheadTab map[storiface.SectorFileType]int, minFreePercentage float64) (func(), error)
+	Reserve(ctx context.Context, sid storiface2.SectorRef, ft storiface2.SectorFileType, storageIDs storiface2.SectorPaths, overheadTab map[storiface2.SectorFileType]int, minFreePercentage float64) (func(), error)
 
 	GenerateSingleVanillaProof(ctx context.Context, minerID abi.ActorID, si storiface.PostSectorChallenge, ppt abi.RegisteredPoStProof) ([]byte, error)
-	GeneratePoRepVanillaProof(ctx context.Context, sr storiface.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error)
-	ReadSnapVanillaProof(ctx context.Context, sr storiface.SectorRef) ([]byte, error)
+	GeneratePoRepVanillaProof(ctx context.Context, sr storiface2.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error)
+	ReadSnapVanillaProof(ctx context.Context, sr storiface2.SectorRef) ([]byte, error)
 }

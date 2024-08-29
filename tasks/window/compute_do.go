@@ -3,6 +3,7 @@ package window
 import (
 	"bytes"
 	"context"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 	"sort"
 	"sync"
 	"time"
@@ -279,13 +280,13 @@ func checkSectors(ctx context.Context, api CheckSectorsAPI, ft sealer.FaultTrack
 	}
 
 	sectors := make(map[abi.SectorNumber]checkSector)
-	var tocheck []storiface.SectorRef
+	var tocheck []storiface2.SectorRef
 	for _, info := range sectorInfos {
 		sectors[info.SectorNumber] = checkSector{
 			sealed: info.SealedCID,
 			update: info.SectorKeyCID != nil,
 		}
-		tocheck = append(tocheck, storiface.SectorRef{
+		tocheck = append(tocheck, storiface2.SectorRef{
 			ProofType: info.SealProof,
 			ID: abi.SectorID{
 				Miner:  abi.ActorID(mid),

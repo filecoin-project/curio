@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 	"math/bits"
 	"sort"
 	"strconv"
@@ -23,7 +24,6 @@ import (
 
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var storageCmd = &cli.Command{
@@ -126,8 +126,8 @@ over time
 				}
 			}
 
-			cfg := storiface.LocalStorageMeta{
-				ID:         storiface.ID(uuid.New().String()),
+			cfg := storiface2.LocalStorageMeta{
+				ID:         storiface2.ID(uuid.New().String()),
 				Weight:     cctx.Uint64("weight"),
 				CanSeal:    cctx.Bool("seal"),
 				CanStore:   cctx.Bool("store"),
@@ -214,8 +214,8 @@ var storageListCmd = &cli.Command{
 		}
 
 		type fsInfo struct {
-			storiface.ID
-			sectors []storiface.Decl
+			storiface2.ID
+			sectors []storiface2.Decl
 			stat    fsutil.FsStat
 		}
 
@@ -359,8 +359,8 @@ var storageListCmd = &cli.Command{
 			}
 
 			if len(si.AllowTypes) > 0 || len(si.DenyTypes) > 0 {
-				denied := storiface.FTAll.SubAllowed(si.AllowTypes, si.DenyTypes)
-				allowed := storiface.FTAll ^ denied
+				denied := storiface2.FTAll.SubAllowed(si.AllowTypes, si.DenyTypes)
+				allowed := storiface2.FTAll ^ denied
 
 				switch {
 				case bits.OnesCount64(uint64(allowed)) == 0:
@@ -391,9 +391,9 @@ var storageListCmd = &cli.Command{
 }
 
 type storedSector struct {
-	id    storiface.ID
-	store storiface.SectorStorageInfo
-	types map[storiface.SectorFileType]bool
+	id    storiface2.ID
+	store storiface2.SectorStorageInfo
+	types map[storiface2.SectorFileType]bool
 }
 
 var storageFindCmd = &cli.Command{
@@ -437,11 +437,11 @@ var storageFindCmd = &cli.Command{
 			Number: abi.SectorNumber(snum),
 		}
 
-		sectorTypes := []storiface.SectorFileType{
-			storiface.FTUnsealed, storiface.FTSealed, storiface.FTCache, storiface.FTUpdate, storiface.FTUpdateCache,
+		sectorTypes := []storiface2.SectorFileType{
+			storiface2.FTUnsealed, storiface2.FTSealed, storiface2.FTCache, storiface2.FTUpdate, storiface2.FTUpdateCache, storiface2.FTPiece,
 		}
 
-		byId := make(map[storiface.ID]*storedSector)
+		byId := make(map[storiface2.ID]*storedSector)
 		for _, sectorType := range sectorTypes {
 			infos, err := minerApi.StorageFindSector(ctx, sid, sectorType, 0, false)
 			if err != nil {
@@ -454,7 +454,7 @@ var storageFindCmd = &cli.Command{
 					sts = &storedSector{
 						id:    info.ID,
 						store: info,
-						types: make(map[storiface.SectorFileType]bool),
+						types: make(map[storiface2.SectorFileType]bool),
 					}
 					byId[info.ID] = sts
 				}

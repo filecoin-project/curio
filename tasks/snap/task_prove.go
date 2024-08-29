@@ -2,6 +2,7 @@ package snap
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"math/rand/v2"
 
 	"github.com/ipfs/go-cid"
@@ -15,8 +16,6 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/tasks/seal"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 type ProveTask struct {

@@ -3,6 +3,7 @@ package tasks
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"sort"
 	"strings"
 	"sync"
@@ -44,7 +45,6 @@ import (
 	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var log = logging.Logger("curio/deps")

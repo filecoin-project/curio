@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"net"
 	"net/http"
@@ -46,7 +47,6 @@ import (
 	lrepo "github.com/filecoin-project/lotus/node/repo"
 	"github.com/filecoin-project/lotus/storage/sealer"
 	"github.com/filecoin-project/lotus/storage/sealer/ffiwrapper"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var log = logging.Logger("curio/deps")
@@ -169,9 +169,9 @@ type Deps struct {
 	Cfg        *config.CurioConfig // values
 	DB         *harmonydb.DB       // has itest capability
 	Chain      api.Chain
-	Bstore     curiochain.CurioBlockstore
-	Verif      storiface.Verifier
-	As         *multictladdr.MultiAddressSelector
+	Bstore curiochain.CurioBlockstore
+	Verif  storiface.Verifier
+	As     *multictladdr.MultiAddressSelector
 	Maddrs     map[dtypes.MinerAddress]bool
 	ProofTypes map[abi.RegisteredSealProof]bool
 	Stor       *paths.Remote

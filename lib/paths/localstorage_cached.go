@@ -1,6 +1,7 @@
 package paths
 
 import (
+	"github.com/filecoin-project/curio/lib/storiface"
 	"os"
 	"sync"
 	"time"
@@ -8,7 +9,6 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var StatTimeout = 5 * time.Second

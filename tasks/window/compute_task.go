@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 	"sort"
 	"time"
 
@@ -65,9 +66,9 @@ type WdPostTask struct {
 	db  *harmonydb.DB
 
 	faultTracker sealer.FaultTracker
-	storage      paths.Store
-	verifier     storiface.Verifier
-	paramsReady  func() (bool, error)
+	storage     paths.Store
+	verifier    storiface2.Verifier
+	paramsReady func() (bool, error)
 
 	windowPoStTF promise.Promise[harmonytask.AddTaskFunc]
 
@@ -88,7 +89,7 @@ func NewWdPostTask(db *harmonydb.DB,
 	api WDPoStAPI,
 	faultTracker sealer.FaultTracker,
 	storage paths.Store,
-	verifier storiface.Verifier,
+	verifier storiface2.Verifier,
 	paramck func() (bool, error),
 	pcs *chainsched.CurioChainSched,
 	actors map[dtypes.MinerAddress]bool,
