@@ -15,11 +15,10 @@ import (
 
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/lib/partialfile"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/paths/mocks"
 	storiface "github.com/filecoin-project/curio/lib/storiface"
-
-	"github.com/filecoin-project/lotus/storage/sealer/partialfile"
 )
 
 func TestRemoteGetAllocated(t *testing.T) {
