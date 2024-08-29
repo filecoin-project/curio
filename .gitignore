@@ -16,6 +16,7 @@ build/.*
 .vscode
 /venv
 scratchpad
+node_modules
 
 # to ensure tests build: itests/ go test -c .
 /itests/itests.test

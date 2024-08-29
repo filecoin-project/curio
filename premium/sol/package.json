@@ -1,0 +1,10 @@
+{
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.9"
+  },
+  "dependencies": {
+    "elliptic": "^6.5.7",
+    "ethereumjs-util": "^7.1.5"
+  }
+}

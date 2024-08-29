@@ -4,10 +4,12 @@ pragma solidity ^0.8.0;
 // Knowns risks: 
 // - This contract fails in 2092 (overflow)
 // - Only free and 500 & 2000 (x rate) payments are allowed. 
-//   -- As the admin key is automatically used to set exchange rates, it should have limits. 
-// - A wallet can only pay for 1 account UUID. 
+// - Someone could downgrade someone else by paying 500 for their UUID. 
+//  -- We could see event logs to see this having happened from the emits. 
+// - A clever person could overwhelm uint16, 
+//     but this would be expensive if we only consider it valid if paid. 
 
-contract PaymentContract {
+contract CurioMembership {
     address public admin;
     address public fundsReceiver;
     uint256 public exchangeRate;
@@ -15,18 +17,34 @@ contract PaymentContract {
     address public signerPublicKey; // The public key for verifying signatures
 
     struct PaymentRecord {
-        uint32 uuid;
-        uint16 dl; // Combined daysSince2024 and level in a single uint16
+        uint16 daysSince2024AndLevel; // Combines daysSince2024 and level
     }
 
-    mapping(address => PaymentRecord) public paymentRecords;
+    // Mapping from UUID to PaymentRecord instead of from address to PaymentRecord
+    mapping(uint16 => PaymentRecord) public paymentRecords;
+    
+    // Define an event to emit the amount and UUID
+    event PaymentMade(uint16 indexed uuid, uint256 amount, uint8 level);
+    event FundsReceiverChanged(address indexed oldReceiver, address indexed newReceiver);
+    event ExchangeRateUpdated(uint256 newRate, uint256 newTimestamp);
 
-    constructor(address inFundsReceiver, address inSignerPublicKey) {
+    constructor(address inFundsReceiver, address inSignerPublicKey, uint256 inExchangeRate, uint256 inLastUpdateTimestamp) {
         require(inFundsReceiver != address(0), "Invalid funds receiver address");
         require(inSignerPublicKey != address(0), "Invalid signer public key");
         admin = msg.sender;
         fundsReceiver = inFundsReceiver;
         signerPublicKey = inSignerPublicKey;
+        
+        // For testing purposes, set the exchange rate and last update timestamp.
+        exchangeRate = inExchangeRate;
+        lastUpdateTimestamp = inLastUpdateTimestamp;
+    }
+
+    function changeFundsReceiver(address _newReceiver) public {
+        require(msg.sender == admin, "Only admin can perform this action");
+        require(_newReceiver != address(0), "New receiver cannot be the zero address");
+        emit FundsReceiverChanged(fundsReceiver, _newReceiver);
+        fundsReceiver = _newReceiver;
     }
 
     function setExchangeRate(uint256 newRate, uint256 newTimestamp, bytes memory signature) external {
@@ -39,21 +57,28 @@ contract PaymentContract {
         // Update the exchange rate and timestamp if the signature is valid
         exchangeRate = newRate;
         lastUpdateTimestamp = newTimestamp;
+
+        // Emit the ExchangeRateUpdated event
+        emit ExchangeRateUpdated(newRate, newTimestamp);
     }
 
-    function pay(uint32 uuid) external payable {
+    function pay(uint16 uuid) external payable {
         require(block.timestamp <= lastUpdateTimestamp + 40 minutes, "Exchange rate is outdated");
 
+        uint256 level1Amount = exchangeRate * 500;
         uint256 level2Amount = exchangeRate * 2000;
-        require(
-            msg.value == level2Amount / 4 || msg.value == level2Amount,
-            "Incorrect payment amount"
-        );
+        uint8 level; // Variable to store the payment level
+        if (msg.value == level2Amount) {
+            level = 2;
+        } else if (msg.value == level1Amount) {
+            level = 1;
+        } else {
+            revert("Incorrect payment amount");
+        }
 
         // Store the payment record, combining daysSince2024 and level
-        paymentRecords[msg.sender] = PaymentRecord({
-            uuid: uuid,
-            dl: uint16(
+        paymentRecords[uuid] = PaymentRecord({
+            daysSince2024AndLevel: uint16(
                 ((block.timestamp - 1704067200) / 1 days) << 1 | 
                 (msg.value == level2Amount ? 1 : 0)
             )
@@ -61,6 +86,9 @@ contract PaymentContract {
 
         // Forward the funds to the fundsReceiver address
         payable(fundsReceiver).transfer(msg.value);
+
+        // Emit the PaymentMade event
+        emit PaymentMade(uuid, msg.value, level);
     }
 
     // Helper function to recover the signer from the signature
