@@ -62,6 +62,7 @@ type itask struct {
 	ChainID     abi.DealID              `db:"chain_deal_id"`
 	RawSize     int64                   `db:"raw_size"`
 	ShouldIndex bool                    `db:"should_index"`
+	Announce    bool                    `db:"announce"`
 }
 
 func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
@@ -80,7 +81,8 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 											reg_seal_proof,
 											chain_deal_id,
 											raw_size,
-											should_index
+											should_index,
+											announce
 										FROM 
 											market_mk12_deal_pipeline
 										WHERE 

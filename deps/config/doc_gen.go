@@ -756,6 +756,52 @@ on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
 			Comment: ``,
 		},
 	},
+	"HTTPConfig": {
+		{
+			Name: "ListenAddress",
+			Type: "string",
+
+			Comment: `ListenAddress is where HTTP server will be listening on`,
+		},
+		{
+			Name: "AnnounceAddresses",
+			Type: "[]string",
+
+			Comment: `AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
+Curio allows running more than one node for HTTP server and thus all addressed can be announced
+simultaneously to the client`,
+		},
+	},
+	"IPNIConfig": {
+		{
+			Name: "Enable",
+			Type: "bool",
+
+			Comment: `Enable set whether to enable indexing announcement to the network and expose endpoints that
+allow indexer nodes to process announcements. Enabled by default.`,
+		},
+		{
+			Name: "TopicName",
+			Type: "string",
+
+			Comment: `TopicName sets the topic name on which the changes to the advertised content are announced.
+If not explicitly specified, the topic name is automatically inferred from the network name
+in following format: '/indexer/ingest/<network-name>'
+Defaults to empty, which implies the topic name is inferred from network name.`,
+		},
+		{
+			Name: "WebHost",
+			Type: "string",
+
+			Comment: `The network indexer host that the web UI should link to for published announcements`,
+		},
+		{
+			Name: "DirectAnnounceURLs",
+			Type: "[]string",
+
+			Comment: `The list of URLs of indexing nodes to announce to.`,
+		},
+	},
 	"IndexingConfig": {
 		{
 			Name: "InsertBatchSize",
@@ -865,6 +911,12 @@ sector will need to be sent again`,
 
 			Comment: `StorageMarketConfig houses all the deal related market configuration`,
 		},
+		{
+			Name: "HTTP",
+			Type: "HTTPConfig",
+
+			Comment: `HTTP configuration for market HTTP server`,
+		},
 	},
 	"PagerDutyConfig": {
 		{
@@ -948,6 +1000,12 @@ The server must have 2 endpoints
 			Type: "IndexingConfig",
 
 			Comment: `Indexing configuration for deal indexing`,
+		},
+		{
+			Name: "IPNI",
+			Type: "IPNIConfig",
+
+			Comment: `IPNI configuration for ipni-provider`,
 		},
 		{
 			Name: "MK12",

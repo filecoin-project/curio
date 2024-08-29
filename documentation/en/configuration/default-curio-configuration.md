@@ -229,6 +229,7 @@ description: The default curio configuration
   # type: bool
   #EnableBatchSeal = false
 
+<<<<<<< HEAD
   # EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured.
   #
   # type: bool
@@ -236,6 +237,9 @@ description: The default curio configuration
 
   # EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
   # Must have EnableDealMarket = True
+=======
+  # EnableCommP enabled the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
+>>>>>>> 563f95c (ipni provider)
   #
   # type: bool
   #EnableCommP = false
@@ -430,6 +434,31 @@ description: The default curio configuration
       #
       # type: int
       #InsertConcurrency = 8
+
+    [Market.StorageMarketConfig.IPNI]
+      # Enable set whether to enable indexing announcement to the network and expose endpoints that
+      # allow indexer nodes to process announcements. Enabled by default.
+      #
+      # type: bool
+      #Enable = true
+
+      # TopicName sets the topic name on which the changes to the advertised content are announced.
+      # If not explicitly specified, the topic name is automatically inferred from the network name
+      # in following format: '/indexer/ingest/<network-name>'
+      # Defaults to empty, which implies the topic name is inferred from network name.
+      #
+      # type: string
+      #TopicName = ""
+
+      # The network indexer host that the web UI should link to for published announcements
+      #
+      # type: string
+      #WebHost = "https://cid.contact"
+
+      # The list of URLs of indexing nodes to announce to.
+      #
+      # type: []string
+      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
 
     [Market.StorageMarketConfig.MK12]
       # When a deal is ready to publish, the amount of time to wait for more

@@ -71,6 +71,10 @@ func DefaultCurioConfig() *CurioConfig {
 			},
 		},
 		Market: MarketConfig{
+			HTTP: HTTPConfig{
+				ListenAddress:     "0.0.0.0:8888",
+				AnnounceAddresses: []string{},
+			},
 			StorageMarketConfig: StorageMarketConfig{
 				PieceLocator: []PieceLocatorConfig{},
 				Indexing: IndexingConfig{
@@ -89,6 +93,12 @@ func DefaultCurioConfig() *CurioConfig {
 					MaxPublishDealFee:         types.MustParseFIL("0.5 FIL"),
 					ExpectedPoRepSealDuration: Duration(8 * time.Hour),
 					ExpectedSnapSealDuration:  Duration(2 * time.Hour),
+				},
+				IPNI: IPNIConfig{
+					Enable:             true,
+					TopicName:          "",
+					WebHost:            "https://cid.contact",
+					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce"},
 				},
 			},
 		},
@@ -576,6 +586,9 @@ type ApisConfig struct {
 type MarketConfig struct {
 	// StorageMarketConfig houses all the deal related market configuration
 	StorageMarketConfig StorageMarketConfig
+
+	// HTTP configuration for market HTTP server
+	HTTP HTTPConfig
 }
 
 type StorageMarketConfig struct {
@@ -588,6 +601,9 @@ type StorageMarketConfig struct {
 
 	// Indexing configuration for deal indexing
 	Indexing IndexingConfig
+
+	// IPNI configuration for ipni-provider
+	IPNI IPNIConfig
 
 	// MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)
 	MK12 MK12Config
@@ -649,4 +665,32 @@ type Libp2pConfig struct {
 	// Addresses to not announce
 	// Format: multiaddress
 	NoAnnounceAddresses []string
+}
+
+type IPNIConfig struct {
+	// Enable set whether to enable indexing announcement to the network and expose endpoints that
+	// allow indexer nodes to process announcements. Enabled by default.
+	Enable bool
+
+	// TopicName sets the topic name on which the changes to the advertised content are announced.
+	// If not explicitly specified, the topic name is automatically inferred from the network name
+	// in following format: '/indexer/ingest/<network-name>'
+	// Defaults to empty, which implies the topic name is inferred from network name.
+	TopicName string
+
+	// The network indexer host that the web UI should link to for published announcements
+	WebHost string
+
+	// The list of URLs of indexing nodes to announce to.
+	DirectAnnounceURLs []string
+}
+
+type HTTPConfig struct {
+	// ListenAddress is where HTTP server will be listening on
+	ListenAddress string
+
+	// AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
+	// Curio allows running more than one node for HTTP server and thus all addressed can be announced
+	// simultaneously to the client
+	AnnounceAddresses []string
 }

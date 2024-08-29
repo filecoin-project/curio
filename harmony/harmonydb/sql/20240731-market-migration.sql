@@ -178,6 +178,8 @@ CREATE TABLE market_mk12_deal_pipeline (
     indexing_task_id BIGINT DEFAULT NULL,
     indexed BOOLEAN DEFAULT FALSE,
 
+    announce BOOLEAN DEFAULT FALSE,
+
     complete BOOLEAN NOT NULL DEFAULT FALSE,
 
     constraint market_mk12_deal_pipeline_identity_key unique (uuid)
@@ -213,21 +215,21 @@ BEGIN
                 market_mk12_deal_pipeline dp ON ssp.sp_id = dp.sp_id AND ssp.sector_num = dp.sector
             WHERE
                 ssp.task_id_move_storage = $1', sealing_table);
-ELSE
+    ELSE
         RAISE EXCEPTION 'Invalid sealing_table name: %', sealing_table;
-END IF;
+    END IF;
 
     -- Execute the dynamic SQL query with the task_id parameter
 FOR pms IN EXECUTE query USING task_id
     LOOP
         -- Update the market_mk12_deal_pipeline table with the reg_seal_proof and indexing_created_at values
-UPDATE market_mk12_deal_pipeline
-SET
-    reg_seal_proof = pms.reg_seal_proof,
-    indexing_created_at = NOW() AT TIME ZONE 'UTC'
-WHERE
-    uuid = pms.uuid;
-END LOOP;
+    UPDATE market_mk12_deal_pipeline
+    SET
+        reg_seal_proof = pms.reg_seal_proof,
+        indexing_created_at = NOW() AT TIME ZONE 'UTC'
+    WHERE
+        uuid = pms.uuid;
+    END LOOP;
 
     -- If everything is successful, simply exit
     RETURN;
