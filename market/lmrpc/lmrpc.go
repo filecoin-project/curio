@@ -2,6 +2,7 @@ package lmrpc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -9,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -212,20 +214,20 @@ func ServeCurioMarketRPC(db *harmonydb.DB, full api.Chain, maddr address.Address
 	ast.Internal.SectorsList = lp.SectorsList
 	ast.Internal.SectorsSummary = lp.SectorsSummary
 	ast.Internal.SectorsListInStates = lp.SectorsListInStates
-	ast.Internal.StorageRedeclareLocal = lp.StorageRedeclareLocal
-	ast.Internal.ComputeDataCid = lp.ComputeDataCid
+	adaptFunc(&ast.Internal.StorageRedeclareLocal, lp.StorageRedeclareLocal)
+	adaptFunc(&ast.Internal.ComputeDataCid, lp.ComputeDataCid)
 	ast.Internal.SectorAddPieceToAny = sectorAddPieceToAnyOperation(maddr, rootUrl, conf, pieceInfoLk, pieceInfos, pin, db, mi.SectorSize)
-	ast.Internal.StorageList = si.StorageList
-	ast.Internal.StorageDetach = si.StorageDetach
-	ast.Internal.StorageReportHealth = si.StorageReportHealth
-	ast.Internal.StorageDeclareSector = si.StorageDeclareSector
-	ast.Internal.StorageDropSector = si.StorageDropSector
-	ast.Internal.StorageFindSector = si.StorageFindSector
-	ast.Internal.StorageInfo = si.StorageInfo
-	ast.Internal.StorageBestAlloc = si.StorageBestAlloc
-	ast.Internal.StorageLock = si.StorageLock
-	ast.Internal.StorageTryLock = si.StorageTryLock
-	ast.Internal.StorageGetLocks = si.StorageGetLocks
+	adaptFunc(&ast.Internal.StorageList, si.StorageList)
+	adaptFunc(&ast.Internal.StorageDetach, si.StorageDetach)
+	adaptFunc(&ast.Internal.StorageReportHealth, si.StorageReportHealth)
+	adaptFunc(&ast.Internal.StorageDeclareSector, si.StorageDeclareSector)
+	adaptFunc(&ast.Internal.StorageDropSector, si.StorageDropSector)
+	adaptFunc(&ast.Internal.StorageFindSector, si.StorageFindSector)
+	adaptFunc(&ast.Internal.StorageInfo, si.StorageInfo)
+	adaptFunc(&ast.Internal.StorageBestAlloc, si.StorageBestAlloc)
+	adaptFunc(&ast.Internal.StorageLock, si.StorageLock)
+	adaptFunc(&ast.Internal.StorageTryLock, si.StorageTryLock)
+	adaptFunc(&ast.Internal.StorageGetLocks, si.StorageGetLocks)
 	ast.Internal.SectorStartSealing = pin.SectorStartSealing
 
 	var pieceHandler http.HandlerFunc = func(w http.ResponseWriter, r *http.Request) {
@@ -312,6 +314,55 @@ type pieceInfo struct {
 	size abi.UnpaddedPieceSize
 
 	done chan struct{}
+}
+
+// A util to convert jsonrpc methods using incompatible Go types with same jsonrpc representation
+// Won't be needed in a post-boost world
+func adaptFunc(outFnPtr, inFun any) {
+	outFnValue := reflect.ValueOf(outFnPtr).Elem()
+	inFnValue := reflect.ValueOf(inFun)
+
+	adaptedFn := reflect.MakeFunc(outFnValue.Type(), func(args []reflect.Value) []reflect.Value {
+		inArgs := make([]reflect.Value, inFnValue.Type().NumIn())
+		for i := 0; i < len(inArgs); i++ {
+			if i < len(args) {
+				if args[i].Type() == inFnValue.Type().In(i) {
+					inArgs[i] = args[i]
+				} else {
+					// Convert using JSON
+					jsonData, _ := json.Marshal(args[i].Interface())
+					newArg := reflect.New(inFnValue.Type().In(i)).Interface()
+					_ = json.Unmarshal(jsonData, newArg)
+					inArgs[i] = reflect.ValueOf(newArg).Elem()
+				}
+			} else {
+				inArgs[i] = reflect.Zero(inFnValue.Type().In(i))
+			}
+		}
+
+		results := inFnValue.Call(inArgs)
+		outResults := make([]reflect.Value, outFnValue.Type().NumOut())
+
+		for i := 0; i < len(outResults); i++ {
+			if i < len(results) {
+				if results[i].Type() == outFnValue.Type().Out(i) {
+					outResults[i] = results[i]
+				} else {
+					// Convert using JSON
+					jsonData, _ := json.Marshal(results[i].Interface())
+					newResult := reflect.New(outFnValue.Type().Out(i)).Interface()
+					_ = json.Unmarshal(jsonData, newResult)
+					outResults[i] = reflect.ValueOf(newResult).Elem()
+				}
+			} else {
+				outResults[i] = reflect.Zero(outFnValue.Type().Out(i))
+			}
+		}
+
+		return outResults
+	})
+
+	outFnValue.Set(adaptedFn)
 }
 
 type PieceIngester interface {

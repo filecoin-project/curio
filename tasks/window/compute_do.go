@@ -3,7 +3,7 @@ package window
 import (
 	"bytes"
 	"context"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"sort"
 	"sync"
 	"time"
@@ -29,8 +29,6 @@ import (
 
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/storage/sealer"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 const disablePreChecks = false // todo config
@@ -262,7 +260,11 @@ type CheckSectorsAPI interface {
 	StateMinerSectors(ctx context.Context, addr address.Address, bf *bitfield.BitField, tsk types.TipSetKey) ([]*miner.SectorOnChainInfo, error)
 }
 
-func checkSectors(ctx context.Context, api CheckSectorsAPI, ft sealer.FaultTracker,
+type FaultTracker interface {
+	CheckProvable(ctx context.Context, pp abi.RegisteredPoStProof, sectors []storiface.SectorRef, rg storiface.RGetter) (map[abi.SectorID]string, error)
+}
+
+func checkSectors(ctx context.Context, api CheckSectorsAPI, ft FaultTracker,
 	maddr address.Address, check bitfield.BitField, tsk types.TipSetKey) (bitfield.BitField, error) {
 	mid, err := address.IDFromAddress(maddr)
 	if err != nil {
@@ -280,13 +282,13 @@ func checkSectors(ctx context.Context, api CheckSectorsAPI, ft sealer.FaultTrack
 	}
 
 	sectors := make(map[abi.SectorNumber]checkSector)
-	var tocheck []storiface2.SectorRef
+	var tocheck []storiface.SectorRef
 	for _, info := range sectorInfos {
 		sectors[info.SectorNumber] = checkSector{
 			sealed: info.SealedCID,
 			update: info.SectorKeyCID != nil,
 		}
-		tocheck = append(tocheck, storiface2.SectorRef{
+		tocheck = append(tocheck, storiface.SectorRef{
 			ProofType: info.SealProof,
 			ID: abi.SectorID{
 				Miner:  abi.ActorID(mid),

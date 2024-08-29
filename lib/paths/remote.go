@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/curio/lib/partialfile"
 	storiface2 "github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"math/bits"
@@ -22,7 +23,6 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
-	"github.com/filecoin-project/lotus/storage/sealer/partialfile"
 )
 
 var FetchTempSubdir = "fetching"

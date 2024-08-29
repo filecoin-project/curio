@@ -24,14 +24,13 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
-	"github.com/filecoin-project/lotus/storage/sealer"
 )
 
 type WdPostRecoverDeclareTask struct {
 	sender       *message.Sender
 	db           *harmonydb.DB
 	api          WdPostRecoverDeclareTaskApi
-	faultTracker sealer.FaultTracker
+	faultTracker FaultTracker
 
 	maxDeclareRecoveriesGasFee types.FIL
 	as                         *multictladdr.MultiAddressSelector
@@ -60,7 +59,7 @@ type WdPostRecoverDeclareTaskApi interface {
 func NewWdPostRecoverDeclareTask(sender *message.Sender,
 	db *harmonydb.DB,
 	api WdPostRecoverDeclareTaskApi,
-	faultTracker sealer.FaultTracker,
+	faultTracker FaultTracker,
 	as *multictladdr.MultiAddressSelector,
 	pcs *chainsched.CurioChainSched,
 

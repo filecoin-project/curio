@@ -31,7 +31,6 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
-	"github.com/filecoin-project/lotus/storage/sealer"
 	"github.com/filecoin-project/lotus/storage/sealer/sealtasks"
 	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
@@ -65,10 +64,10 @@ type WdPostTask struct {
 	api WDPoStAPI
 	db  *harmonydb.DB
 
-	faultTracker sealer.FaultTracker
-	storage     paths.Store
-	verifier    storiface2.Verifier
-	paramsReady func() (bool, error)
+	faultTracker FaultTracker
+	storage      paths.Store
+	verifier     storiface2.Verifier
+	paramsReady  func() (bool, error)
 
 	windowPoStTF promise.Promise[harmonytask.AddTaskFunc]
 
@@ -87,7 +86,7 @@ type wdTaskIdentity struct {
 
 func NewWdPostTask(db *harmonydb.DB,
 	api WDPoStAPI,
-	faultTracker sealer.FaultTracker,
+	faultTracker FaultTracker,
 	storage paths.Store,
 	verifier storiface2.Verifier,
 	paramck func() (bool, error),

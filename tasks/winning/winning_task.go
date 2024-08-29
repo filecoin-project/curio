@@ -6,7 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -36,7 +36,6 @@ import (
 	lrand "github.com/filecoin-project/lotus/chain/rand"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var log = logging.Logger("curio/winning")
@@ -46,7 +45,7 @@ type WinPostTask struct {
 	db  *harmonydb.DB
 
 	paths       *paths.Remote
-	verifier    storiface2.Verifier
+	verifier    storiface.Verifier
 	paramsReady func() (bool, error)
 
 	api    WinPostAPI
@@ -74,7 +73,7 @@ type WinPostAPI interface {
 	WalletSign(context.Context, address.Address, []byte) (*crypto.Signature, error)
 }
 
-func NewWinPostTask(max int, db *harmonydb.DB, remote *paths.Remote, verifier storiface2.Verifier, paramck func() (bool, error), api WinPostAPI, actors map[dtypes.MinerAddress]bool) *WinPostTask {
+func NewWinPostTask(max int, db *harmonydb.DB, remote *paths.Remote, verifier storiface.Verifier, paramck func() (bool, error), api WinPostAPI, actors map[dtypes.MinerAddress]bool) *WinPostTask {
 	t := &WinPostTask{
 		max:         max,
 		db:          db,
