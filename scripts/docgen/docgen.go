@@ -2,7 +2,7 @@ package docgen
 
 import (
 	"fmt"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -10,10 +10,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
-	"time"
 	"unicode"
 
-	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 
 	"github.com/filecoin-project/go-address"
@@ -25,8 +23,6 @@ import (
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/storage/sealer/sealtasks"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var ExampleValues = map[reflect.Type]interface{}{
@@ -200,34 +196,19 @@ func init() {
 	//	},
 	//})
 	//addExample(api.SectorState(sealing.Proving))
-	addExample(storiface2.ID("76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8"))
-	addExample(storiface2.FTUnsealed)
-	addExample(storiface2.PathSealing)
-	addExample(map[storiface2.ID][]storiface2.Decl{
+	addExample(storiface.ID("76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8"))
+	addExample(storiface.FTUnsealed)
+	addExample(storiface.PathSealing)
+	addExample(map[storiface.ID][]storiface.Decl{
 		"76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8": {
 			{
 				SectorID:       abi.SectorID{Miner: 1000, Number: 100},
-				SectorFileType: storiface2.FTSealed,
+				SectorFileType: storiface.FTSealed,
 			},
 		},
 	})
-	addExample(map[storiface2.ID]string{
+	addExample(map[storiface.ID]string{
 		"76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8": "/data/path",
-	})
-	addExample(map[uuid.UUID][]storiface.WorkerJob{
-		uuid.MustParse("ef8d99a2-6865-4189-8ffa-9fef0f806eee"): {
-			{
-				ID: storiface.CallID{
-					Sector: abi.SectorID{Miner: 1000, Number: 100},
-					ID:     uuid.MustParse("76081ba0-61bd-45a5-bc08-af05f1c26e5d"),
-				},
-				Sector:   abi.SectorID{Miner: 1000, Number: 100},
-				Task:     sealtasks.TTPreCommit2,
-				RunWait:  0,
-				Start:    time.Unix(1605172927, 0).UTC(),
-				Hostname: "host",
-			},
-		},
 	})
 	//addExample(map[uuid.UUID]storiface.WorkerStats{
 	//	uuid.MustParse("ef8d99a2-6865-4189-8ffa-9fef0f806eee"): {
@@ -341,8 +322,8 @@ func init() {
 		"Authorization": []string{"Bearer ey.."},
 	})
 
-	addExample(map[storiface2.SectorFileType]storiface2.SectorLocation{
-		storiface2.FTSealed: {
+	addExample(map[storiface.SectorFileType]storiface.SectorLocation{
+		storiface.FTSealed: {
 			Local:   false,
 			URL:     "https://example.com/sealingservice/sectors/s-f0123-12345",
 			Headers: nil,

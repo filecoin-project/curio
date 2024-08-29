@@ -6,7 +6,7 @@ package mocks
 
 import (
 	context "context"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
@@ -15,7 +15,6 @@ import (
 	abi "github.com/filecoin-project/go-state-types/abi"
 
 	fsutil "github.com/filecoin-project/lotus/storage/sealer/fsutil"
-	storiface "github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 // MockStore is a mock of Store interface.
@@ -42,15 +41,15 @@ func (m *MockStore) EXPECT() *MockStoreMockRecorder {
 }
 
 // AcquireSector mocks base method.
-func (m *MockStore) AcquireSector(arg0 context.Context, arg1 storiface2.SectorRef, arg2, arg3 storiface2.SectorFileType, arg4 storiface2.PathType, arg5 storiface2.AcquireMode, arg6 ...storiface2.AcquireOption) (storiface2.SectorPaths, storiface2.SectorPaths, error) {
+func (m *MockStore) AcquireSector(arg0 context.Context, arg1 storiface.SectorRef, arg2, arg3 storiface.SectorFileType, arg4 storiface.PathType, arg5 storiface.AcquireMode, arg6 ...storiface.AcquireOption) (storiface.SectorPaths, storiface.SectorPaths, error) {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{arg0, arg1, arg2, arg3, arg4, arg5}
 	for _, a := range arg6 {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "AcquireSector", varargs...)
-	ret0, _ := ret[0].(storiface2.SectorPaths)
-	ret1, _ := ret[1].(storiface2.SectorPaths)
+	ret0, _ := ret[0].(storiface.SectorPaths)
+	ret1, _ := ret[1].(storiface.SectorPaths)
 	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }
@@ -63,7 +62,7 @@ func (mr *MockStoreMockRecorder) AcquireSector(arg0, arg1, arg2, arg3, arg4, arg
 }
 
 // FsStat mocks base method.
-func (m *MockStore) FsStat(arg0 context.Context, arg1 storiface2.ID) (fsutil.FsStat, error) {
+func (m *MockStore) FsStat(arg0 context.Context, arg1 storiface.ID) (fsutil.FsStat, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FsStat", arg0, arg1)
 	ret0, _ := ret[0].(fsutil.FsStat)
@@ -78,7 +77,7 @@ func (mr *MockStoreMockRecorder) FsStat(arg0, arg1 interface{}) *gomock.Call {
 }
 
 // GeneratePoRepVanillaProof mocks base method.
-func (m *MockStore) GeneratePoRepVanillaProof(arg0 context.Context, arg1 storiface2.SectorRef, arg2, arg3 cid.Cid, arg4 abi.SealRandomness, arg5 abi.InteractiveSealRandomness) ([]byte, error) {
+func (m *MockStore) GeneratePoRepVanillaProof(arg0 context.Context, arg1 storiface.SectorRef, arg2, arg3 cid.Cid, arg4 abi.SealRandomness, arg5 abi.InteractiveSealRandomness) ([]byte, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GeneratePoRepVanillaProof", arg0, arg1, arg2, arg3, arg4, arg5)
 	ret0, _ := ret[0].([]byte)
@@ -108,7 +107,7 @@ func (mr *MockStoreMockRecorder) GenerateSingleVanillaProof(arg0, arg1, arg2, ar
 }
 
 // MoveStorage mocks base method.
-func (m *MockStore) MoveStorage(arg0 context.Context, arg1 storiface2.SectorRef, arg2 storiface2.SectorFileType, arg3 ...storiface2.AcquireOption) error {
+func (m *MockStore) MoveStorage(arg0 context.Context, arg1 storiface.SectorRef, arg2 storiface.SectorFileType, arg3 ...storiface.AcquireOption) error {
 	m.ctrl.T.Helper()
 	varargs := []interface{}{arg0, arg1, arg2}
 	for _, a := range arg3 {
@@ -127,7 +126,7 @@ func (mr *MockStoreMockRecorder) MoveStorage(arg0, arg1, arg2 interface{}, arg3 
 }
 
 // ReadSnapVanillaProof mocks base method.
-func (m *MockStore) ReadSnapVanillaProof(arg0 context.Context, arg1 storiface2.SectorRef) ([]byte, error) {
+func (m *MockStore) ReadSnapVanillaProof(arg0 context.Context, arg1 storiface.SectorRef) ([]byte, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReadSnapVanillaProof", arg0, arg1)
 	ret0, _ := ret[0].([]byte)
@@ -142,7 +141,7 @@ func (mr *MockStoreMockRecorder) ReadSnapVanillaProof(arg0, arg1 interface{}) *g
 }
 
 // Remove mocks base method.
-func (m *MockStore) Remove(arg0 context.Context, arg1 abi.SectorID, arg2 storiface2.SectorFileType, arg3 bool, arg4 []storiface2.ID) error {
+func (m *MockStore) Remove(arg0 context.Context, arg1 abi.SectorID, arg2 storiface.SectorFileType, arg3 bool, arg4 []storiface.ID) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Remove", arg0, arg1, arg2, arg3, arg4)
 	ret0, _ := ret[0].(error)
@@ -156,7 +155,7 @@ func (mr *MockStoreMockRecorder) Remove(arg0, arg1, arg2, arg3, arg4 interface{}
 }
 
 // RemoveCopies mocks base method.
-func (m *MockStore) RemoveCopies(arg0 context.Context, arg1 abi.SectorID, arg2 storiface2.SectorFileType) error {
+func (m *MockStore) RemoveCopies(arg0 context.Context, arg1 abi.SectorID, arg2 storiface.SectorFileType) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RemoveCopies", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
@@ -170,7 +169,7 @@ func (mr *MockStoreMockRecorder) RemoveCopies(arg0, arg1, arg2 interface{}) *gom
 }
 
 // Reserve mocks base method.
-func (m *MockStore) Reserve(arg0 context.Context, arg1 storiface2.SectorRef, arg2 storiface2.SectorFileType, arg3 storiface2.SectorPaths, arg4 map[storiface2.SectorFileType]int, arg5 float64) (func(), error) {
+func (m *MockStore) Reserve(arg0 context.Context, arg1 storiface.SectorRef, arg2 storiface.SectorFileType, arg3 storiface.SectorPaths, arg4 map[storiface.SectorFileType]int, arg5 float64) (func(), error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Reserve", arg0, arg1, arg2, arg3, arg4, arg5)
 	ret0, _ := ret[0].(func())

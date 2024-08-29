@@ -2,7 +2,7 @@ package seal
 
 import (
 	"context"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	"golang.org/x/xerrors"
 
@@ -46,7 +46,7 @@ func (t *TreeDTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu:     1,
 			Ram:     1 << 30,
 			Gpu:     0,
-			Storage: t.sc.Storage(t.taskToSector, storiface2.FTNone, storiface2.FTCache, ssize, storiface2.PathSealing, 1.0),
+			Storage: t.sc.Storage(t.taskToSector, storiface.FTNone, storiface.FTCache, ssize, storiface.PathSealing, 1.0),
 		},
 		MaxFailures: 3,
 		Follows:     nil,
@@ -127,7 +127,7 @@ func (t *TreeDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 	sectorParams := sectorParamsArr[0]
 
-	sref := storiface2.SectorRef{
+	sref := storiface.SectorRef{
 		ID: abi.SectorID{
 			Miner:  abi.ActorID(sectorParams.SpID),
 			Number: abi.SectorNumber(sectorParams.SectorNumber),

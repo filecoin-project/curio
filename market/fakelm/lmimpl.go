@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"net/http"
 	"net/url"
 
@@ -32,7 +32,6 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	sealing "github.com/filecoin-project/lotus/storage/pipeline"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var log = logging.Logger("lmrpc")
@@ -396,9 +395,9 @@ func (l *LMRPCProvider) SectorsSummary(ctx context.Context) (map[lapi.SectorStat
 			}
 
 			state := states[abi.SectorID{Miner: decl.Miner, Number: decl.SectorID.Number}]
-			state.sealed = state.sealed || decl.Has(storiface2.FTSealed)
-			state.unsealed = state.unsealed || decl.Has(storiface2.FTUnsealed)
-			state.cache = state.cache || decl.Has(storiface2.FTCache)
+			state.sealed = state.sealed || decl.Has(storiface.FTSealed)
+			state.unsealed = state.unsealed || decl.Has(storiface.FTUnsealed)
+			state.cache = state.cache || decl.Has(storiface.FTCache)
 			state.inStorage = state.inStorage || sinfo.CanStore
 			states[abi.SectorID{Miner: decl.Miner, Number: decl.SectorID.Number}] = state
 		}
@@ -448,9 +447,9 @@ func (l *LMRPCProvider) SectorsListInStates(ctx context.Context, want []lapi.Sec
 			}
 
 			state := states[abi.SectorID{Miner: decl.Miner, Number: decl.SectorID.Number}]
-			state.sealed = state.sealed || decl.Has(storiface2.FTSealed)
-			state.unsealed = state.unsealed || decl.Has(storiface2.FTUnsealed)
-			state.cache = state.cache || decl.Has(storiface2.FTCache)
+			state.sealed = state.sealed || decl.Has(storiface.FTSealed)
+			state.unsealed = state.unsealed || decl.Has(storiface.FTUnsealed)
+			state.cache = state.cache || decl.Has(storiface.FTCache)
 			state.inStorage = state.inStorage || sinfo.CanStore
 			states[abi.SectorID{Miner: decl.Miner, Number: decl.SectorID.Number}] = state
 		}
@@ -474,7 +473,7 @@ func (l *LMRPCProvider) SectorsListInStates(ctx context.Context, want []lapi.Sec
 	return out, nil
 }
 
-func (l *LMRPCProvider) StorageRedeclareLocal(ctx context.Context, id *storiface2.ID, b bool) error {
+func (l *LMRPCProvider) StorageRedeclareLocal(ctx context.Context, id *storiface.ID, b bool) error {
 	// so this rescans and redeclares sectors on lotus-miner; whyyy is boost even calling this?
 
 	return nil
@@ -483,7 +482,7 @@ func (l *LMRPCProvider) StorageRedeclareLocal(ctx context.Context, id *storiface
 func (l *LMRPCProvider) IsUnsealed(ctx context.Context, sectorNum abi.SectorNumber, offset abi.UnpaddedPieceSize, length abi.UnpaddedPieceSize) (bool, error) {
 	sectorID := abi.SectorID{Miner: l.minerID, Number: sectorNum}
 
-	si, err := l.si.StorageFindSector(ctx, sectorID, storiface2.FTUnsealed, 0, false)
+	si, err := l.si.StorageFindSector(ctx, sectorID, storiface.FTUnsealed, 0, false)
 	if err != nil {
 		return false, err
 	}
@@ -493,11 +492,11 @@ func (l *LMRPCProvider) IsUnsealed(ctx context.Context, sectorNum abi.SectorNumb
 	return len(si) > 0, nil
 }
 
-func (l *LMRPCProvider) ComputeDataCid(ctx context.Context, pieceSize abi.UnpaddedPieceSize, pieceData storiface2.Data) (abi.PieceInfo, error) {
+func (l *LMRPCProvider) ComputeDataCid(ctx context.Context, pieceSize abi.UnpaddedPieceSize, pieceData storiface.Data) (abi.PieceInfo, error) {
 	return abi.PieceInfo{}, xerrors.Errorf("not supported")
 }
 
-func (l *LMRPCProvider) SectorAddPieceToAny(ctx context.Context, size abi.UnpaddedPieceSize, r storiface2.Data, d lapi.PieceDealInfo) (lapi.SectorOffset, error) {
+func (l *LMRPCProvider) SectorAddPieceToAny(ctx context.Context, size abi.UnpaddedPieceSize, r storiface.Data, d lapi.PieceDealInfo) (lapi.SectorOffset, error) {
 	if d.DealProposal.PieceSize != abi.PaddedPieceSize(l.ssize) {
 		return lapi.SectorOffset{}, xerrors.Errorf("only full-sector pieces are supported")
 	}

@@ -2,7 +2,7 @@ package ffi
 
 import (
 	"context"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"os"
 	"time"
@@ -12,10 +12,10 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 )
 
-func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID, pieceID storiface2.PieceNumber, size int64, data io.Reader) error {
+func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID, pieceID storiface.PieceNumber, size int64, data io.Reader) error {
 	// todo: config(?): allow setting PathStorage for this
 	// todo storage reservations
-	paths, _, done, err := sb.sectors.AcquireSector(ctx, taskID, pieceID.Ref(), storiface2.FTNone, storiface2.FTPiece, storiface2.PathSealing)
+	paths, _, done, err := sb.sectors.AcquireSector(ctx, taskID, pieceID.Ref(), storiface.FTNone, storiface.FTPiece, storiface.PathSealing)
 	if err != nil {
 		return err
 	}
@@ -67,10 +67,10 @@ func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID,
 	return nil
 }
 
-func (sb *SealCalls) PieceReader(ctx context.Context, id storiface2.PieceNumber) (io.ReadCloser, error) {
-	return sb.sectors.storage.ReaderSeq(ctx, id.Ref(), storiface2.FTPiece)
+func (sb *SealCalls) PieceReader(ctx context.Context, id storiface.PieceNumber) (io.ReadCloser, error) {
+	return sb.sectors.storage.ReaderSeq(ctx, id.Ref(), storiface.FTPiece)
 }
 
-func (sb *SealCalls) RemovePiece(ctx context.Context, id storiface2.PieceNumber) error {
-	return sb.sectors.storage.Remove(ctx, id.Ref().ID, storiface2.FTPiece, true, nil)
+func (sb *SealCalls) RemovePiece(ctx context.Context, id storiface.PieceNumber) error {
+	return sb.sectors.storage.Remove(ctx, id.Ref().ID, storiface.FTPiece, true, nil)
 }

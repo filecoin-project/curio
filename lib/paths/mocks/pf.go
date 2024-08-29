@@ -5,6 +5,7 @@
 package mocks
 
 import (
+	"github.com/filecoin-project/curio/lib/partialfile"
 	"github.com/filecoin-project/curio/lib/storiface"
 	io "io"
 	reflect "reflect"
@@ -12,8 +13,6 @@ import (
 	gomock "github.com/golang/mock/gomock"
 
 	abi "github.com/filecoin-project/go-state-types/abi"
-
-	partialfile "github.com/filecoin-project/lotus/storage/sealer/partialfile"
 )
 
 // MockPartialFileHandler is a mock of PartialFileHandler interface.

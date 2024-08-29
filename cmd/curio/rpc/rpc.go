@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"net"
 	"net/http"
 	"net/url"
@@ -108,7 +108,7 @@ func (p *CurioAPI) StorageDetachLocal(ctx context.Context, path string) error {
 		return xerrors.Errorf("getting local path list: %w", err)
 	}
 
-	var localPath *storiface2.StoragePath
+	var localPath *storiface.StoragePath
 	for _, lp := range lps {
 		if lp.LocalPath == path {
 			lp := lp // copy to make the linter happy
@@ -122,8 +122,8 @@ func (p *CurioAPI) StorageDetachLocal(ctx context.Context, path string) error {
 
 	// drop from the persisted storage.json
 	var found bool
-	if err := p.LocalPaths.SetStorage(func(sc *storiface2.StorageConfig) {
-		out := make([]storiface2.LocalPath, 0, len(sc.StoragePaths))
+	if err := p.LocalPaths.SetStorage(func(sc *storiface.StorageConfig) {
+		out := make([]storiface.LocalPath, 0, len(sc.StoragePaths))
 		for _, storagePath := range sc.StoragePaths {
 			if storagePath.Path != path {
 				out = append(out, storagePath)
@@ -144,13 +144,13 @@ func (p *CurioAPI) StorageDetachLocal(ctx context.Context, path string) error {
 	return p.LocalStore.ClosePath(ctx, localPath.ID)
 }
 
-func (p *CurioAPI) StorageLocal(ctx context.Context) (map[storiface2.ID]string, error) {
+func (p *CurioAPI) StorageLocal(ctx context.Context) (map[storiface.ID]string, error) {
 	ps, err := p.LocalStore.Local(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	var out = make(map[storiface2.ID]string)
+	var out = make(map[storiface.ID]string)
 	for _, path := range ps {
 		out[path.ID] = path.LocalPath
 	}
@@ -158,7 +158,7 @@ func (p *CurioAPI) StorageLocal(ctx context.Context) (map[storiface2.ID]string, 
 	return out, nil
 }
 
-func (p *CurioAPI) StorageStat(ctx context.Context, id storiface2.ID) (fsutil.FsStat, error) {
+func (p *CurioAPI) StorageStat(ctx context.Context, id storiface.ID) (fsutil.FsStat, error) {
 	return p.Stor.FsStat(ctx, id)
 }
 
@@ -188,7 +188,7 @@ func (p *CurioAPI) Shutdown(context.Context) error {
 	return nil
 }
 
-func (p *CurioAPI) StorageInit(ctx context.Context, path string, opts storiface2.LocalStorageMeta) error {
+func (p *CurioAPI) StorageInit(ctx context.Context, path string, opts storiface.LocalStorageMeta) error {
 	path, err := homedir.Expand(path)
 	if err != nil {
 		return xerrors.Errorf("expanding local path: %w", err)
@@ -207,7 +207,7 @@ func (p *CurioAPI) StorageInit(ctx context.Context, path string, opts storiface2
 		return err
 	}
 	if opts.ID == "" {
-		opts.ID = storiface2.ID(uuid.New().String())
+		opts.ID = storiface.ID(uuid.New().String())
 	}
 	if !(opts.CanStore || opts.CanSeal) {
 		return xerrors.Errorf("must specify at least one of --store or --seal")
@@ -232,8 +232,8 @@ func (p *CurioAPI) StorageAddLocal(ctx context.Context, path string) error {
 		return xerrors.Errorf("opening local path: %w", err)
 	}
 
-	if err := p.LocalPaths.SetStorage(func(sc *storiface2.StorageConfig) {
-		sc.StoragePaths = append(sc.StoragePaths, storiface2.LocalPath{Path: path})
+	if err := p.LocalPaths.SetStorage(func(sc *storiface.StorageConfig) {
+		sc.StoragePaths = append(sc.StoragePaths, storiface.LocalPath{Path: path})
 	}); err != nil {
 		return xerrors.Errorf("get storage config: %w", err)
 	}

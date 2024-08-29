@@ -2,7 +2,7 @@ package snap
 
 import (
 	"context"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"math/rand/v2"
 
 	"golang.org/x/xerrors"
@@ -55,7 +55,7 @@ func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 
 	task := sectorParamsArr[0]
 
-	sector := storiface2.SectorRef{
+	sector := storiface.SectorRef{
 		ID: abi.SectorID{
 			Miner:  abi.ActorID(task.SpID),
 			Number: abi.SectorNumber(task.SectorNumber),
@@ -92,7 +92,7 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{
 			Cpu:     1,
 			Ram:     512 << 20,
-			Storage: m.sc.Storage(m.taskToSector, storiface2.FTNone, storiface2.FTUpdate|storiface2.FTUpdateCache|storiface2.FTUnsealed, ssize, storiface2.PathStorage, paths.MinFreeStoragePercentage),
+			Storage: m.sc.Storage(m.taskToSector, storiface.FTNone, storiface.FTUpdate|storiface.FTUpdateCache|storiface.FTUnsealed, ssize, storiface.PathStorage, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 3,
 		IAmBored: passcall.Every(MinSnapSchedInterval, func(taskFunc harmonytask.AddTaskFunc) error {

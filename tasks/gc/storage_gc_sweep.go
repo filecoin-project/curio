@@ -2,7 +2,7 @@ package gc
 
 import (
 	"context"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"time"
 
 	"github.com/samber/lo"
@@ -68,7 +68,7 @@ func (s *StorageGCSweep) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 			Miner:  abi.ActorID(mark.Actor),
 			Number: abi.SectorNumber(mark.SectorNum),
 		}
-		typ := storiface2.SectorFileType(mark.FileType)
+		typ := storiface.SectorFileType(mark.FileType)
 
 		// compute the set of paths where we want to keep the sector
 		si, err := s.index.StorageFindSector(ctx, sid, typ, 0, false)
@@ -76,11 +76,11 @@ func (s *StorageGCSweep) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 			return false, xerrors.Errorf("finding existing sector %d(t:%d) failed: %w", sid, typ, err)
 		}
 
-		keepIn := lo.Map(si, func(item storiface2.SectorStorageInfo, index int) storiface2.ID {
+		keepIn := lo.Map(si, func(item storiface.SectorStorageInfo, index int) storiface.ID {
 			return item.ID
 		})
-		keepIn = lo.Filter(keepIn, func(item storiface2.ID, index int) bool {
-			return item != storiface2.ID(mark.StorageID)
+		keepIn = lo.Filter(keepIn, func(item storiface.ID, index int) bool {
+			return item != storiface.ID(mark.StorageID)
 		})
 
 		// Log in detail what we are doing

@@ -3,7 +3,7 @@ package piece
 import (
 	"context"
 	"encoding/json"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"strconv"
 	"time"
 
@@ -62,7 +62,7 @@ func (p *ParkPieceTask) pollPieceTasks(ctx context.Context) {
 	for {
 		// select parked pieces with no task_id
 		var pieceIDs []struct {
-			ID storiface2.PieceNumber `db:"id"`
+			ID storiface.PieceNumber `db:"id"`
 		}
 
 		err := p.db.Select(ctx, &pieceIDs, `SELECT id FROM parked_pieces WHERE complete = FALSE AND task_id IS NULL`)
@@ -163,7 +163,7 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 				_ = upr.Close()
 			}()
 
-			pnum := storiface2.PieceNumber(pieceData.PieceID)
+			pnum := storiface.PieceNumber(pieceData.PieceID)
 
 			if err := p.sc.WritePiece(ctx, &taskID, pnum, pieceRawSize, upr); err != nil {
 				merr = multierror.Append(merr, xerrors.Errorf("write piece: %w", err))
@@ -199,7 +199,7 @@ func (p *ParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu:     1,
 			Gpu:     0,
 			Ram:     64 << 20,
-			Storage: p.sc.Storage(p.taskToRef, storiface2.FTPiece, storiface2.FTNone, maxSizePiece, storiface2.PathSealing, paths.MinFreeStoragePercentage),
+			Storage: p.sc.Storage(p.taskToRef, storiface.FTPiece, storiface.FTNone, maxSizePiece, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 10,
 	}
@@ -207,7 +207,7 @@ func (p *ParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 func (p *ParkPieceTask) taskToRef(id harmonytask.TaskID) (ffi2.SectorRef, error) {
 	var pieceIDs []struct {
-		ID storiface2.PieceNumber `db:"id"`
+		ID storiface.PieceNumber `db:"id"`
 	}
 
 	err := p.db.Select(context.Background(), &pieceIDs, `SELECT id FROM parked_pieces WHERE task_id = $1`, id)

@@ -2,7 +2,7 @@ package seal
 
 import (
 	"context"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
@@ -64,7 +64,7 @@ func (t *TreeRCTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("parsing unsealed CID: %w", err)
 	}
 
-	sref := storiface2.SectorRef{
+	sref := storiface.SectorRef{
 		ID: abi.SectorID{
 			Miner:  abi.ActorID(sectorParams.SpID),
 			Number: abi.SectorNumber(sectorParams.SectorNumber),
@@ -112,7 +112,7 @@ func (t *TreeRCTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 		StorageID    string             `db:"storage_id"`
 	}
 
-	if storiface2.FTCache != 4 {
+	if storiface.FTCache != 4 {
 		panic("storiface.FTCache != 4")
 	}
 
@@ -177,7 +177,7 @@ func (t *TreeRCTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu:     1,
 			Gpu:     gpu,
 			Ram:     ram,
-			Storage: t.sc.Storage(t.taskToSector, storiface2.FTSealed, storiface2.FTCache, ssize, storiface2.PathSealing, paths.MinFreeStoragePercentage),
+			Storage: t.sc.Storage(t.taskToSector, storiface.FTSealed, storiface.FTCache, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 3,
 		Follows:     nil,

@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"os"
 	"path/filepath"
 	"time"
@@ -192,8 +192,8 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	tickets := make([]abi.SealRandomness, len(sectors))
 	replicaIDs := make([][32]byte, len(sectors))
 	outPaths := make([]supraffi.Path, len(sectors))
-	outPathIDs := make([]storiface2.SectorPaths, len(sectors))
-	alloc := storiface2.FTSealed | storiface2.FTCache
+	outPathIDs := make([]storiface.SectorPaths, len(sectors))
+	alloc := storiface.FTSealed | storiface.FTCache
 
 	for i, t := range sectors {
 		sid := abi.SectorID{
@@ -202,10 +202,10 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		}
 
 		// cleanup any potential previous failed attempts
-		if err := s.storage.Remove(ctx, sid, storiface2.FTSealed, true, nil); err != nil {
+		if err := s.storage.Remove(ctx, sid, storiface.FTSealed, true, nil); err != nil {
 			return false, xerrors.Errorf("removing sector: %w", err)
 		}
-		if err := s.storage.Remove(ctx, sid, storiface2.FTCache, true, nil); err != nil {
+		if err := s.storage.Remove(ctx, sid, storiface.FTCache, true, nil); err != nil {
 			return false, xerrors.Errorf("removing sector: %w", err)
 		}
 
@@ -229,14 +229,14 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		}
 
 		// get output paths (before SDR so that allocating can fail early)
-		sref := storiface2.SectorRef{
+		sref := storiface.SectorRef{
 			ID:        abi.SectorID{Miner: abi.ActorID(t.SpID), Number: abi.SectorNumber(t.SectorNumber)},
 			ProofType: abi.RegisteredSealProof(t.RegSealProof),
 		}
 
 		ctx := context.WithValue(ctx, paths.SpaceUseKey, paths.SpaceUseFunc(SupraSpaceUse))
 
-		ps, pathIDs, err := s.storage.AcquireSector(ctx, sref, storiface2.FTNone, alloc, storiface2.PathSealing, storiface2.AcquireMove)
+		ps, pathIDs, err := s.storage.AcquireSector(ctx, sref, storiface.FTNone, alloc, storiface.PathSealing, storiface.AcquireMove)
 		if err != nil {
 			return false, xerrors.Errorf("acquiring sector storage: %w", err)
 		}
@@ -332,8 +332,8 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			Number: abi.SectorNumber(sectors[i].SectorNumber),
 		}
 		for _, ft := range alloc.AllSet() {
-			storageID := storiface2.PathByType(ids, ft)
-			if err := s.sindex.StorageDeclareSector(ctx, storiface2.ID(storageID), sid, ft, true); err != nil {
+			storageID := storiface.PathByType(ids, ft)
+			if err := s.sindex.StorageDeclareSector(ctx, storiface.ID(storageID), sid, ft, true); err != nil {
 				log.Errorf("declare sector error: %+v", err)
 			}
 		}
@@ -486,13 +486,13 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 	return nil
 }
 
-var FSOverheadSupra = map[storiface2.SectorFileType]int{ // 10x overheads
-	storiface2.FTUnsealed: storiface2.FSOverheadDen,
-	storiface2.FTSealed:   storiface2.FSOverheadDen,
-	storiface2.FTCache:    11, // C + R' (no 11 layers + D(2x ssize));
+var FSOverheadSupra = map[storiface.SectorFileType]int{ // 10x overheads
+	storiface.FTUnsealed: storiface.FSOverheadDen,
+	storiface.FTSealed:   storiface.FSOverheadDen,
+	storiface.FTCache:    11, // C + R' (no 11 layers + D(2x ssize));
 }
 
-func SupraSpaceUse(ft storiface2.SectorFileType, ssize abi.SectorSize) (uint64, error) {
+func SupraSpaceUse(ft storiface.SectorFileType, ssize abi.SectorSize) (uint64, error) {
 	var need uint64
 	for _, pathType := range ft.AllSet() {
 
@@ -501,7 +501,7 @@ func SupraSpaceUse(ft storiface2.SectorFileType, ssize abi.SectorSize) (uint64, 
 			return 0, xerrors.Errorf("no seal overhead info for %s", pathType)
 		}
 
-		need += uint64(oh) * uint64(ssize) / storiface2.FSOverheadDen
+		need += uint64(oh) * uint64(ssize) / storiface.FSOverheadDen
 	}
 
 	return need, nil

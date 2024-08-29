@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -32,15 +32,15 @@ import (
 
 const metaFile = "sectorstore.json"
 
-func createTestStorage(t *testing.T, p string, seal bool, att ...*paths.Local) storiface2.ID {
+func createTestStorage(t *testing.T, p string, seal bool, att ...*paths.Local) storiface.ID {
 	if err := os.MkdirAll(p, 0755); err != nil {
 		if !os.IsExist(err) {
 			require.NoError(t, err)
 		}
 	}
 
-	cfg := &storiface2.LocalStorageMeta{
-		ID:       storiface2.ID(uuid.New().String()),
+	cfg := &storiface.LocalStorageMeta{
+		ID:       storiface.ID(uuid.New().String()),
 		Weight:   10,
 		CanSeal:  seal,
 		CanStore: !seal,
@@ -81,8 +81,8 @@ func TestMoveShared(t *testing.T) {
 			_ = lr.Close()
 		})
 
-		err = lr.SetStorage(func(config *storiface2.StorageConfig) {
-			*config = storiface2.StorageConfig{}
+		err = lr.SetStorage(func(config *storiface.StorageConfig) {
+			*config = storiface.StorageConfig{}
 		})
 		require.NoError(t, err)
 
@@ -120,7 +120,7 @@ func TestMoveShared(t *testing.T) {
 
 	// add a sealed replica file to the sealing (non-shared) path
 
-	s1ref := storiface2.SectorRef{
+	s1ref := storiface.SectorRef{
 		ID: abi.SectorID{
 			Miner:  12,
 			Number: 1,
@@ -128,25 +128,25 @@ func TestMoveShared(t *testing.T) {
 		ProofType: abi.RegisteredSealProof_StackedDrg2KiBV1,
 	}
 
-	sp, sid, err := rs1.AcquireSector(ctx, s1ref, storiface2.FTNone, storiface2.FTSealed, storiface2.PathSealing, storiface2.AcquireMove)
+	sp, sid, err := rs1.AcquireSector(ctx, s1ref, storiface.FTNone, storiface.FTSealed, storiface.PathSealing, storiface.AcquireMove)
 	require.NoError(t, err)
-	require.Equal(t, id2, storiface2.ID(sid.Sealed))
+	require.Equal(t, id2, storiface.ID(sid.Sealed))
 
 	data := make([]byte, 2032)
 	data[1] = 54
 	require.NoError(t, os.WriteFile(sp.Sealed, data, 0666))
 	fmt.Println("write to ", sp.Sealed)
 
-	require.NoError(t, index.StorageDeclareSector(ctx, storiface2.ID(sid.Sealed), s1ref.ID, storiface2.FTSealed, true))
+	require.NoError(t, index.StorageDeclareSector(ctx, storiface.ID(sid.Sealed), s1ref.ID, storiface.FTSealed, true))
 
 	// move to the shared path from the second node (remote move / delete)
 
-	require.NoError(t, rs2.MoveStorage(ctx, s1ref, storiface2.FTSealed))
+	require.NoError(t, rs2.MoveStorage(ctx, s1ref, storiface.FTSealed))
 
 	// check that the file still exists
-	sp, sid, err = rs2.AcquireSector(ctx, s1ref, storiface2.FTSealed, storiface2.FTNone, storiface2.PathStorage, storiface2.AcquireMove)
+	sp, sid, err = rs2.AcquireSector(ctx, s1ref, storiface.FTSealed, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
 	require.NoError(t, err)
-	require.Equal(t, id1, storiface2.ID(sid.Sealed))
+	require.Equal(t, id1, storiface.ID(sid.Sealed))
 	fmt.Println("read from ", sp.Sealed)
 
 	read, err := os.ReadFile(sp.Sealed)
@@ -163,9 +163,9 @@ func TestReader(t *testing.T) {
 	emptyPartialFile := &partialfile.PartialFile{}
 	sectorSize := abi.SealProofInfos[1].SectorSize
 
-	ft := storiface2.FTUnsealed
+	ft := storiface.FTUnsealed
 
-	sectorRef := storiface2.SectorRef{
+	sectorRef := storiface.SectorRef{
 		ID: abi.SectorID{
 			Miner:  123,
 			Number: 123,
@@ -266,7 +266,7 @@ func TestReader(t *testing.T) {
 			},
 
 			indexFnc: func(in *mocks.MockSectorIndex, _ string) {
-				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface2.FTUnsealed, gomock.Any(),
+				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface.FTUnsealed, gomock.Any(),
 					false).Return(nil, xerrors.New("find sector error"))
 			},
 			errStr: "find sector error",
@@ -278,10 +278,10 @@ func TestReader(t *testing.T) {
 			},
 
 			indexFnc: func(in *mocks.MockSectorIndex, _ string) {
-				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface2.FTUnsealed, gomock.Any(),
+				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface.FTUnsealed, gomock.Any(),
 					false).Return(nil, nil)
 			},
-			errStr: storiface2.ErrSectorNotFound.Error(),
+			errStr: storiface.ErrSectorNotFound.Error(),
 		},
 
 		// --- nil reader when local unsealed file does NOT have unsealed piece
@@ -300,12 +300,12 @@ func TestReader(t *testing.T) {
 			},
 
 			indexFnc: func(in *mocks.MockSectorIndex, url string) {
-				si := storiface2.SectorStorageInfo{
+				si := storiface.SectorStorageInfo{
 					URLs: []string{url},
 				}
 
-				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface2.FTUnsealed, gomock.Any(),
-					false).Return([]storiface2.SectorStorageInfo{si}, nil).Times(1)
+				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface.FTUnsealed, gomock.Any(),
+					false).Return([]storiface.SectorStorageInfo{si}, nil).Times(1)
 			},
 
 			needHttpServer:         true,
@@ -319,12 +319,12 @@ func TestReader(t *testing.T) {
 			},
 
 			indexFnc: func(in *mocks.MockSectorIndex, url string) {
-				si := storiface2.SectorStorageInfo{
+				si := storiface.SectorStorageInfo{
 					URLs: []string{url},
 				}
 
-				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface2.FTUnsealed, gomock.Any(),
-					false).Return([]storiface2.SectorStorageInfo{si}, nil).Times(1)
+				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface.FTUnsealed, gomock.Any(),
+					false).Return([]storiface.SectorStorageInfo{si}, nil).Times(1)
 			},
 
 			needHttpServer:         true,
@@ -337,12 +337,12 @@ func TestReader(t *testing.T) {
 			},
 
 			indexFnc: func(in *mocks.MockSectorIndex, url string) {
-				si := storiface2.SectorStorageInfo{
+				si := storiface.SectorStorageInfo{
 					URLs: []string{url},
 				}
 
-				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface2.FTUnsealed, gomock.Any(),
-					false).Return([]storiface2.SectorStorageInfo{si}, nil).Times(1)
+				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface.FTUnsealed, gomock.Any(),
+					false).Return([]storiface.SectorStorageInfo{si}, nil).Times(1)
 			},
 
 			needHttpServer:         true,
@@ -394,12 +394,12 @@ func TestReader(t *testing.T) {
 			},
 
 			indexFnc: func(in *mocks.MockSectorIndex, url string) {
-				si := storiface2.SectorStorageInfo{
+				si := storiface.SectorStorageInfo{
 					URLs: []string{url},
 				}
 
-				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface2.FTUnsealed, gomock.Any(),
-					false).Return([]storiface2.SectorStorageInfo{si}, nil).Times(1)
+				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface.FTUnsealed, gomock.Any(),
+					false).Return([]storiface.SectorStorageInfo{si}, nil).Times(1)
 			},
 
 			needHttpServer:         true,
@@ -415,12 +415,12 @@ func TestReader(t *testing.T) {
 			},
 
 			indexFnc: func(in *mocks.MockSectorIndex, url string) {
-				si := storiface2.SectorStorageInfo{
+				si := storiface.SectorStorageInfo{
 					URLs: []string{url},
 				}
 
-				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface2.FTUnsealed, gomock.Any(),
-					false).Return([]storiface2.SectorStorageInfo{si}, nil).Times(1)
+				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface.FTUnsealed, gomock.Any(),
+					false).Return([]storiface.SectorStorageInfo{si}, nil).Times(1)
 			},
 
 			needHttpServer:         true,
@@ -454,7 +454,7 @@ func TestReader(t *testing.T) {
 			if tc.needHttpServer {
 				// run http server
 				ts := httptest.NewServer(&mockHttpServer{
-					expectedSectorName: storiface2.SectorName(sectorRef.ID),
+					expectedSectorName: storiface.SectorName(sectorRef.ID),
 					expectedFileType:   ft.String(),
 					expectedOffset:     fmt.Sprintf("%d", offset.Unpadded()),
 					expectedSize:       fmt.Sprintf("%d", size.Unpadded()),
@@ -465,7 +465,7 @@ func TestReader(t *testing.T) {
 					getSectorBytes:         tc.expectedSectorBytes,
 				})
 				defer ts.Close()
-				tc.serverUrl = fmt.Sprintf("%s/remote/%s/%s", ts.URL, ft.String(), storiface2.SectorName(sectorRef.ID))
+				tc.serverUrl = fmt.Sprintf("%s/remote/%s/%s", ts.URL, ft.String(), storiface.SectorName(sectorRef.ID))
 			}
 			if tc.indexFnc != nil {
 				tc.indexFnc(index, tc.serverUrl)
@@ -482,7 +482,7 @@ func TestReader(t *testing.T) {
 					require.Nil(t, rdg)
 					require.Contains(t, err.Error(), tc.errStr)
 				} else {
-					rd, err = rdg(0, storiface2.PaddedByteIndex(size))
+					rd, err = rdg(0, storiface.PaddedByteIndex(size))
 					require.Error(t, err)
 					require.Nil(t, rd)
 					require.Contains(t, err.Error(), tc.errStr)
@@ -495,7 +495,7 @@ func TestReader(t *testing.T) {
 				require.Nil(t, rd)
 			} else {
 				require.NotNil(t, rdg)
-				rd, err := rdg(0, storiface2.PaddedByteIndex(size))
+				rd, err := rdg(0, storiface.PaddedByteIndex(size))
 				require.NoError(t, err)
 
 				defer func() {
@@ -519,10 +519,10 @@ func TestCheckIsUnsealed(t *testing.T) {
 	logging.SetAllLoggers(logging.LevelDebug)
 
 	pfPath := "path"
-	ft := storiface2.FTUnsealed
+	ft := storiface.FTUnsealed
 	emptyPartialFile := &partialfile.PartialFile{}
 
-	sectorRef := storiface2.SectorRef{
+	sectorRef := storiface.SectorRef{
 		ID: abi.SectorID{
 			Miner:  123,
 			Number: 123,
@@ -609,7 +609,7 @@ func TestCheckIsUnsealed(t *testing.T) {
 			},
 
 			indexFnc: func(in *mocks.MockSectorIndex, _ string) {
-				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface2.FTUnsealed, gomock.Any(),
+				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface.FTUnsealed, gomock.Any(),
 					false).Return(nil, xerrors.New("find sector error"))
 			},
 			errStr: "find sector error",
@@ -621,7 +621,7 @@ func TestCheckIsUnsealed(t *testing.T) {
 			},
 
 			indexFnc: func(in *mocks.MockSectorIndex, _ string) {
-				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface2.FTUnsealed, gomock.Any(),
+				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface.FTUnsealed, gomock.Any(),
 					false).Return(nil, nil)
 			},
 		},
@@ -641,12 +641,12 @@ func TestCheckIsUnsealed(t *testing.T) {
 			},
 
 			indexFnc: func(in *mocks.MockSectorIndex, url string) {
-				si := storiface2.SectorStorageInfo{
+				si := storiface.SectorStorageInfo{
 					URLs: []string{url},
 				}
 
-				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface2.FTUnsealed, gomock.Any(),
-					false).Return([]storiface2.SectorStorageInfo{si}, nil).Times(1)
+				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface.FTUnsealed, gomock.Any(),
+					false).Return([]storiface.SectorStorageInfo{si}, nil).Times(1)
 			},
 
 			needHttpServer:         true,
@@ -659,12 +659,12 @@ func TestCheckIsUnsealed(t *testing.T) {
 			},
 
 			indexFnc: func(in *mocks.MockSectorIndex, url string) {
-				si := storiface2.SectorStorageInfo{
+				si := storiface.SectorStorageInfo{
 					URLs: []string{url},
 				}
 
-				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface2.FTUnsealed, gomock.Any(),
-					false).Return([]storiface2.SectorStorageInfo{si}, nil).Times(1)
+				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface.FTUnsealed, gomock.Any(),
+					false).Return([]storiface.SectorStorageInfo{si}, nil).Times(1)
 			},
 
 			needHttpServer:         true,
@@ -695,12 +695,12 @@ func TestCheckIsUnsealed(t *testing.T) {
 			},
 
 			indexFnc: func(in *mocks.MockSectorIndex, url string) {
-				si := storiface2.SectorStorageInfo{
+				si := storiface.SectorStorageInfo{
 					URLs: []string{url},
 				}
 
-				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface2.FTUnsealed, gomock.Any(),
-					false).Return([]storiface2.SectorStorageInfo{si}, nil).Times(1)
+				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface.FTUnsealed, gomock.Any(),
+					false).Return([]storiface.SectorStorageInfo{si}, nil).Times(1)
 			},
 
 			needHttpServer:         true,
@@ -722,12 +722,12 @@ func TestCheckIsUnsealed(t *testing.T) {
 			},
 
 			indexFnc: func(in *mocks.MockSectorIndex, url string) {
-				si := storiface2.SectorStorageInfo{
+				si := storiface.SectorStorageInfo{
 					URLs: []string{url},
 				}
 
-				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface2.FTUnsealed, gomock.Any(),
-					false).Return([]storiface2.SectorStorageInfo{si}, nil).Times(1)
+				in.EXPECT().StorageFindSector(gomock.Any(), sectorRef.ID, storiface.FTUnsealed, gomock.Any(),
+					false).Return([]storiface.SectorStorageInfo{si}, nil).Times(1)
 			},
 
 			needHttpServer:         true,
@@ -759,7 +759,7 @@ func TestCheckIsUnsealed(t *testing.T) {
 			if tc.needHttpServer {
 				// run http server
 				ts := httptest.NewServer(&mockHttpServer{
-					expectedSectorName: storiface2.SectorName(sectorRef.ID),
+					expectedSectorName: storiface.SectorName(sectorRef.ID),
 					expectedFileType:   ft.String(),
 					expectedOffset:     fmt.Sprintf("%d", offset.Unpadded()),
 					expectedSize:       fmt.Sprintf("%d", size.Unpadded()),
@@ -768,7 +768,7 @@ func TestCheckIsUnsealed(t *testing.T) {
 					getAllocatedReturnCode: tc.getAllocatedReturnCode,
 				})
 				defer ts.Close()
-				tc.serverUrl = fmt.Sprintf("%s/remote/%s/%s", ts.URL, ft.String(), storiface2.SectorName(sectorRef.ID))
+				tc.serverUrl = fmt.Sprintf("%s/remote/%s/%s", ts.URL, ft.String(), storiface.SectorName(sectorRef.ID))
 			}
 			if tc.indexFnc != nil {
 				tc.indexFnc(index, tc.serverUrl)
@@ -792,12 +792,12 @@ func TestCheckIsUnsealed(t *testing.T) {
 	}
 }
 
-func mockSectorAcquire(l *mocks.MockStore, sectorRef storiface2.SectorRef, pfPath string, err error) {
-	l.EXPECT().AcquireSector(gomock.Any(), sectorRef, storiface2.FTUnsealed,
-		storiface2.FTNone, storiface2.PathStorage, storiface2.AcquireMove).Return(storiface2.SectorPaths{
+func mockSectorAcquire(l *mocks.MockStore, sectorRef storiface.SectorRef, pfPath string, err error) {
+	l.EXPECT().AcquireSector(gomock.Any(), sectorRef, storiface.FTUnsealed,
+		storiface.FTNone, storiface.PathStorage, storiface.AcquireMove).Return(storiface.SectorPaths{
 		Unsealed: pfPath,
 	},
-		storiface2.SectorPaths{}, err).Times(1)
+		storiface.SectorPaths{}, err).Times(1)
 }
 
 func mockPartialFileOpen(pf *mocks.MockPartialFileHandler, sectorSize abi.SectorSize, pfPath string, err error) {
@@ -807,13 +807,13 @@ func mockPartialFileOpen(pf *mocks.MockPartialFileHandler, sectorSize abi.Sector
 
 func mockCheckAllocation(pf *mocks.MockPartialFileHandler, offset, size abi.PaddedPieceSize, file *partialfile.PartialFile,
 	out bool, err error) {
-	pf.EXPECT().HasAllocated(file, storiface2.UnpaddedByteIndex(offset.Unpadded()),
+	pf.EXPECT().HasAllocated(file, storiface.UnpaddedByteIndex(offset.Unpadded()),
 		size.Unpadded()).Return(out, err).Times(1)
 }
 
 func mockPfReader(pf *mocks.MockPartialFileHandler, file *partialfile.PartialFile, offset, size abi.PaddedPieceSize,
 	outFile *os.File, err error) {
-	pf.EXPECT().Reader(file, storiface2.PaddedByteIndex(offset), size).Return(outFile, err)
+	pf.EXPECT().Reader(file, storiface.PaddedByteIndex(offset), size).Return(outFile, err)
 }
 
 type mockHttpServer struct {

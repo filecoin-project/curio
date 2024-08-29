@@ -75,3 +75,5 @@ func Err(code ErrorCode, sub error) *CallError {
 		sub: sub,
 	}
 }
+
+type WorkerJob struct{} // dummy

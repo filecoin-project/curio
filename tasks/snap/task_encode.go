@@ -2,7 +2,7 @@ package snap
 
 import (
 	"context"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"math/rand/v2"
 	"time"
 
@@ -65,7 +65,7 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 
 	sectorParams := tasks[0]
 
-	sref := storiface2.SectorRef{
+	sref := storiface.SectorRef{
 		ID: abi.SectorID{
 			Miner:  abi.ActorID(sectorParams.SpID),
 			Number: abi.SectorNumber(sectorParams.SectorNumber),
@@ -134,7 +134,7 @@ func (e *EncodeTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu:     1,
 			Ram:     1 << 30, // todo correct value
 			Gpu:     gpu,
-			Storage: e.sc.Storage(e.taskToSector, storiface2.FTUpdate|storiface2.FTUpdateCache|storiface2.FTUnsealed, storiface2.FTNone, ssize, storiface2.PathSealing, 1.0),
+			Storage: e.sc.Storage(e.taskToSector, storiface.FTUpdate|storiface.FTUpdateCache|storiface.FTUnsealed, storiface.FTNone, ssize, storiface.PathSealing, 1.0),
 		},
 		MaxFailures: 3,
 		IAmBored: passcall.Every(MinSnapSchedInterval, func(taskFunc harmonytask.AddTaskFunc) error {

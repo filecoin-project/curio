@@ -2,7 +2,7 @@ package ffi
 
 import (
 	"context"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"sync"
 	"time"
 
@@ -28,8 +28,8 @@ func (sr SectorRef) ID() abi.SectorID {
 	}
 }
 
-func (sr SectorRef) Ref() storiface2.SectorRef {
-	return storiface2.SectorRef{
+func (sr SectorRef) Ref() storiface.SectorRef {
+	return storiface.SectorRef{
 		ID:        sr.ID(),
 		ProofType: sr.RegSealProof,
 	}
@@ -38,9 +38,9 @@ func (sr SectorRef) Ref() storiface2.SectorRef {
 type TaskStorage struct {
 	sc *SealCalls
 
-	alloc, existing storiface2.SectorFileType
+	alloc, existing storiface.SectorFileType
 	ssize           abi.SectorSize
-	pathType        storiface2.PathType
+	pathType        storiface.PathType
 
 	taskToSectorRef func(taskID harmonytask.TaskID) (SectorRef, error)
 
@@ -52,14 +52,14 @@ type ReleaseStorageFunc func() // free storage reservation
 
 type StorageReservation struct {
 	SectorRef SectorRef
-	Release ReleaseStorageFunc
-	Paths   storiface2.SectorPaths
-	PathIDs storiface2.SectorPaths
+	Release   ReleaseStorageFunc
+	Paths     storiface.SectorPaths
+	PathIDs   storiface.SectorPaths
 
-	Alloc, Existing storiface2.SectorFileType
+	Alloc, Existing storiface.SectorFileType
 }
 
-func (sb *SealCalls) Storage(taskToSectorRef func(taskID harmonytask.TaskID) (SectorRef, error), alloc, existing storiface2.SectorFileType, ssize abi.SectorSize, pathType storiface2.PathType, MinFreeStoragePercentage float64) *TaskStorage {
+func (sb *SealCalls) Storage(taskToSectorRef func(taskID harmonytask.TaskID) (SectorRef, error), alloc, existing storiface.SectorFileType, ssize abi.SectorSize, pathType storiface.PathType, MinFreeStoragePercentage float64) *TaskStorage {
 	return &TaskStorage{
 		sc:                       sb,
 		alloc:                    alloc,
@@ -87,10 +87,10 @@ func (t *TaskStorage) HasCapacity() bool {
 	}
 
 	for _, path := range paths {
-		if t.pathType == storiface2.PathStorage && !path.CanStore {
+		if t.pathType == storiface.PathStorage && !path.CanStore {
 			continue // we want to store, and this isn't a store path
 		}
-		if t.pathType == storiface2.PathSealing && !path.CanSeal {
+		if t.pathType == storiface.PathSealing && !path.CanSeal {
 			continue // we want to seal, and this isn't a seal path
 		}
 
@@ -145,7 +145,7 @@ func (t *TaskStorage) Claim(taskID int) (func() error, error) {
 		}
 	}()
 
-	if err := t.sc.sectors.sindex.StorageLock(lkctx, sectorRef.ID(), storiface2.FTNone, requestedTypes); err != nil {
+	if err := t.sc.sectors.sindex.StorageLock(lkctx, sectorRef.ID(), storiface.FTNone, requestedTypes); err != nil {
 		// timer will expire
 		return nil, xerrors.Errorf("claim StorageLock: %w", err)
 	}
@@ -164,13 +164,13 @@ func (t *TaskStorage) Claim(taskID int) (func() error, error) {
 	// be fetched, so we will need to create reservations for that too.
 	// NOTE localStore.AcquireSector does not open or create any files, nor does it reserve space. It only proposes
 	// paths to be used.
-	pathsFs, pathIDs, err := t.sc.sectors.localStore.AcquireSector(ctx, sectorRef.Ref(), storiface2.FTNone, requestedTypes, t.pathType, storiface2.AcquireMove)
+	pathsFs, pathIDs, err := t.sc.sectors.localStore.AcquireSector(ctx, sectorRef.Ref(), storiface.FTNone, requestedTypes, t.pathType, storiface.AcquireMove)
 	if err != nil {
 		return nil, err
 	}
 
 	// reserve the space
-	release, err := t.sc.sectors.localStore.Reserve(ctx, sectorRef.Ref(), requestedTypes, pathIDs, storiface2.FSOverheadSeal, t.MinFreeStoragePercentage)
+	release, err := t.sc.sectors.localStore.Reserve(ctx, sectorRef.Ref(), requestedTypes, pathIDs, storiface.FSOverheadSeal, t.MinFreeStoragePercentage)
 	if err != nil {
 		return nil, err
 	}

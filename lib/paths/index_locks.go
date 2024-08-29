@@ -2,7 +2,7 @@ package paths
 
 import (
 	"context"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"sort"
 	"sync"
 
@@ -14,13 +14,13 @@ import (
 type sectorLock struct {
 	cond *ctxCond
 
-	r [storiface2.FileTypes]uint
-	w storiface2.SectorFileType
+	r [storiface.FileTypes]uint
+	w storiface.SectorFileType
 
 	refs uint // access with indexLocks.lk
 }
 
-func (l *sectorLock) canLock(read storiface2.SectorFileType, write storiface2.SectorFileType) bool {
+func (l *sectorLock) canLock(read storiface.SectorFileType, write storiface.SectorFileType) bool {
 	for i, b := range write.All() {
 		if b && l.r[i] > 0 {
 			return false
@@ -31,7 +31,7 @@ func (l *sectorLock) canLock(read storiface2.SectorFileType, write storiface2.Se
 	return l.w&read == 0 && l.w&write == 0
 }
 
-func (l *sectorLock) tryLock(read storiface2.SectorFileType, write storiface2.SectorFileType) bool {
+func (l *sectorLock) tryLock(read storiface.SectorFileType, write storiface.SectorFileType) bool {
 	if !l.canLock(read, write) {
 		return false
 	}
@@ -47,16 +47,16 @@ func (l *sectorLock) tryLock(read storiface2.SectorFileType, write storiface2.Se
 	return true
 }
 
-type lockFn func(l *sectorLock, ctx context.Context, read storiface2.SectorFileType, write storiface2.SectorFileType) (bool, error)
+type lockFn func(l *sectorLock, ctx context.Context, read storiface.SectorFileType, write storiface.SectorFileType) (bool, error)
 
-func (l *sectorLock) tryLockSafe(ctx context.Context, read storiface2.SectorFileType, write storiface2.SectorFileType) (bool, error) {
+func (l *sectorLock) tryLockSafe(ctx context.Context, read storiface.SectorFileType, write storiface.SectorFileType) (bool, error) {
 	l.cond.L.Lock()
 	defer l.cond.L.Unlock()
 
 	return l.tryLock(read, write), nil
 }
 
-func (l *sectorLock) lock(ctx context.Context, read storiface2.SectorFileType, write storiface2.SectorFileType) (bool, error) {
+func (l *sectorLock) lock(ctx context.Context, read storiface.SectorFileType, write storiface.SectorFileType) (bool, error) {
 	l.cond.L.Lock()
 	defer l.cond.L.Unlock()
 
@@ -69,7 +69,7 @@ func (l *sectorLock) lock(ctx context.Context, read storiface2.SectorFileType, w
 	return true, nil
 }
 
-func (l *sectorLock) unlock(read storiface2.SectorFileType, write storiface2.SectorFileType) {
+func (l *sectorLock) unlock(read storiface.SectorFileType, write storiface.SectorFileType) {
 	l.cond.L.Lock()
 	defer l.cond.L.Unlock()
 
@@ -90,12 +90,12 @@ type indexLocks struct {
 	locks map[abi.SectorID]*sectorLock
 }
 
-func (i *indexLocks) lockWith(ctx context.Context, lockFn lockFn, sector abi.SectorID, read storiface2.SectorFileType, write storiface2.SectorFileType) (bool, error) {
+func (i *indexLocks) lockWith(ctx context.Context, lockFn lockFn, sector abi.SectorID, read storiface.SectorFileType, write storiface.SectorFileType) (bool, error) {
 	if read|write == 0 {
 		return false, nil
 	}
 
-	if read|write > (1<<storiface2.FileTypes)-1 {
+	if read|write > (1<<storiface.FileTypes)-1 {
 		return false, xerrors.Errorf("unknown file types specified")
 	}
 
@@ -138,7 +138,7 @@ func (i *indexLocks) lockWith(ctx context.Context, lockFn lockFn, sector abi.Sec
 	return true, nil
 }
 
-func (i *indexLocks) StorageLock(ctx context.Context, sector abi.SectorID, read storiface2.SectorFileType, write storiface2.SectorFileType) error {
+func (i *indexLocks) StorageLock(ctx context.Context, sector abi.SectorID, read storiface.SectorFileType, write storiface.SectorFileType) error {
 	ok, err := i.lockWith(ctx, (*sectorLock).lock, sector, read, write)
 	if err != nil {
 		return err
@@ -151,20 +151,20 @@ func (i *indexLocks) StorageLock(ctx context.Context, sector abi.SectorID, read 
 	return nil
 }
 
-func (i *indexLocks) StorageTryLock(ctx context.Context, sector abi.SectorID, read storiface2.SectorFileType, write storiface2.SectorFileType) (bool, error) {
+func (i *indexLocks) StorageTryLock(ctx context.Context, sector abi.SectorID, read storiface.SectorFileType, write storiface.SectorFileType) (bool, error) {
 	return i.lockWith(ctx, (*sectorLock).tryLockSafe, sector, read, write)
 }
 
-func (i *indexLocks) StorageGetLocks(context.Context) (storiface2.SectorLocks, error) {
+func (i *indexLocks) StorageGetLocks(context.Context) (storiface.SectorLocks, error) {
 	i.lk.Lock()
 	defer i.lk.Unlock()
 
-	out := storiface2.SectorLocks{
-		Locks: []storiface2.SectorLock{},
+	out := storiface.SectorLocks{
+		Locks: []storiface.SectorLock{},
 	}
 
 	for id, lock := range i.locks {
-		l := storiface2.SectorLock{Sector: id}
+		l := storiface.SectorLock{Sector: id}
 
 		for t, b := range lock.w.All() {
 			if b {

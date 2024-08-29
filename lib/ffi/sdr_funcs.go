@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"os"
 	"path/filepath"
@@ -67,8 +67,8 @@ type storageProvider struct {
 	storageReservations *xsync.MapOf[harmonytask.TaskID, *StorageReservation]
 }
 
-func (l *storageProvider) AcquireSector(ctx context.Context, taskID *harmonytask.TaskID, sector storiface2.SectorRef, existing, allocate storiface2.SectorFileType, sealing storiface2.PathType) (fspaths, ids storiface2.SectorPaths, release func(dontDeclare ...storiface2.SectorFileType), err error) {
-	var sectorPaths, storageIDs storiface2.SectorPaths
+func (l *storageProvider) AcquireSector(ctx context.Context, taskID *harmonytask.TaskID, sector storiface.SectorRef, existing, allocate storiface.SectorFileType, sealing storiface.PathType) (fspaths, ids storiface.SectorPaths, release func(dontDeclare ...storiface.SectorFileType), err error) {
+	var sectorPaths, storageIDs storiface.SectorPaths
 	var releaseStorage func()
 
 	var ok bool
@@ -79,7 +79,7 @@ func (l *storageProvider) AcquireSector(ctx context.Context, taskID *harmonytask
 	if ok && resv != nil {
 		if resv.Alloc != allocate || resv.Existing != existing {
 			// this should never happen, only when task definition is wrong
-			return storiface2.SectorPaths{}, storiface2.SectorPaths{}, nil, xerrors.Errorf("storage reservation type mismatch")
+			return storiface.SectorPaths{}, storiface.SectorPaths{}, nil, xerrors.Errorf("storage reservation type mismatch")
 		}
 
 		log.Debugw("using existing storage reservation", "task", taskID, "sector", sector, "existing", existing, "allocate", allocate)
@@ -94,38 +94,38 @@ func (l *storageProvider) AcquireSector(ctx context.Context, taskID *harmonytask
 			// present locally. Note that we do not care about 'allocate' reqeuests, those files don't exist, and are just
 			// proposed paths with a reservation of space.
 
-			_, checkPathIDs, err := l.storage.AcquireSector(ctx, sector, existing, storiface2.FTNone, sealing, storiface2.AcquireMove, storiface2.AcquireInto(storiface2.PathsWithIDs{Paths: sectorPaths, IDs: storageIDs}))
+			_, checkPathIDs, err := l.storage.AcquireSector(ctx, sector, existing, storiface.FTNone, sealing, storiface.AcquireMove, storiface.AcquireInto(storiface.PathsWithIDs{Paths: sectorPaths, IDs: storageIDs}))
 			if err != nil {
-				return storiface2.SectorPaths{}, storiface2.SectorPaths{}, nil, xerrors.Errorf("acquire reserved existing files: %w", err)
+				return storiface.SectorPaths{}, storiface.SectorPaths{}, nil, xerrors.Errorf("acquire reserved existing files: %w", err)
 			}
 
 			// assert that checkPathIDs is the same as storageIDs
 			if storageIDs.Subset(existing) != checkPathIDs.Subset(existing) {
-				return storiface2.SectorPaths{}, storiface2.SectorPaths{}, nil, xerrors.Errorf("acquire reserved existing files: pathIDs mismatch %#v != %#v", storageIDs, checkPathIDs)
+				return storiface.SectorPaths{}, storiface.SectorPaths{}, nil, xerrors.Errorf("acquire reserved existing files: pathIDs mismatch %#v != %#v", storageIDs, checkPathIDs)
 			}
 		}
 	} else {
 		// No related reservation, acquire storage as usual
 
 		var err error
-		sectorPaths, storageIDs, err = l.storage.AcquireSector(ctx, sector, existing, allocate, sealing, storiface2.AcquireMove)
+		sectorPaths, storageIDs, err = l.storage.AcquireSector(ctx, sector, existing, allocate, sealing, storiface.AcquireMove)
 		if err != nil {
-			return storiface2.SectorPaths{}, storiface2.SectorPaths{}, nil, err
+			return storiface.SectorPaths{}, storiface.SectorPaths{}, nil, err
 		}
 
-		releaseStorage, err = l.localStore.Reserve(ctx, sector, allocate, storageIDs, storiface2.FSOverheadSeal, paths.MinFreeStoragePercentage)
+		releaseStorage, err = l.localStore.Reserve(ctx, sector, allocate, storageIDs, storiface.FSOverheadSeal, paths.MinFreeStoragePercentage)
 		if err != nil {
-			return storiface2.SectorPaths{}, storiface2.SectorPaths{}, nil, xerrors.Errorf("reserving storage space: %w", err)
+			return storiface.SectorPaths{}, storiface.SectorPaths{}, nil, xerrors.Errorf("reserving storage space: %w", err)
 		}
 	}
 
 	log.Debugf("acquired sector %d (e:%d; a:%d): %v", sector, existing, allocate, sectorPaths)
 
-	return sectorPaths, storageIDs, func(dontDeclare ...storiface2.SectorFileType) {
+	return sectorPaths, storageIDs, func(dontDeclare ...storiface.SectorFileType) {
 		releaseStorage()
 
 	nextType:
-		for _, fileType := range storiface2.PathTypes {
+		for _, fileType := range storiface.PathTypes {
 			if fileType&allocate == 0 {
 				continue
 			}
@@ -135,16 +135,16 @@ func (l *storageProvider) AcquireSector(ctx context.Context, taskID *harmonytask
 				}
 			}
 
-			sid := storiface2.PathByType(storageIDs, fileType)
-			if err := l.sindex.StorageDeclareSector(ctx, storiface2.ID(sid), sector.ID, fileType, true); err != nil {
+			sid := storiface.PathByType(storageIDs, fileType)
+			if err := l.sindex.StorageDeclareSector(ctx, storiface.ID(sid), sector.ID, fileType, true); err != nil {
 				log.Errorf("declare sector error: %+v", err)
 			}
 		}
 	}, nil
 }
 
-func (sb *SealCalls) GenerateSDR(ctx context.Context, taskID harmonytask.TaskID, sector storiface2.SectorRef, ticket abi.SealRandomness, commKcid cid.Cid) error {
-	paths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, &taskID, sector, storiface2.FTNone, storiface2.FTCache, storiface2.PathSealing)
+func (sb *SealCalls) GenerateSDR(ctx context.Context, taskID harmonytask.TaskID, sector storiface.SectorRef, ticket abi.SealRandomness, commKcid cid.Cid) error {
+	paths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, &taskID, sector, storiface.FTNone, storiface.FTCache, storiface.PathSealing)
 	if err != nil {
 		return xerrors.Errorf("acquiring sector paths: %w", err)
 	}
@@ -179,7 +179,7 @@ func (sb *SealCalls) GenerateSDR(ctx context.Context, taskID harmonytask.TaskID,
 		return xerrors.Errorf("generating SDR %d (%s): %w", sector.ID.Number, paths.Unsealed, err)
 	}
 
-	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface2.FTCache); err != nil {
+	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTCache); err != nil {
 		return xerrors.Errorf("ensure one copy: %w", err)
 	}
 
@@ -188,14 +188,14 @@ func (sb *SealCalls) GenerateSDR(ctx context.Context, taskID harmonytask.TaskID,
 
 // ensureOneCopy makes sure that there is only one version of sector data.
 // Usually called after a successful operation was done successfully on sector data.
-func (sb *SealCalls) ensureOneCopy(ctx context.Context, sid abi.SectorID, pathIDs storiface2.SectorPaths, fts storiface2.SectorFileType) error {
+func (sb *SealCalls) ensureOneCopy(ctx context.Context, sid abi.SectorID, pathIDs storiface.SectorPaths, fts storiface.SectorFileType) error {
 	if !pathIDs.HasAllSet(fts) {
 		return xerrors.Errorf("ensure one copy: not all paths are set")
 	}
 
 	for _, fileType := range fts.AllSet() {
-		pid := storiface2.PathByType(pathIDs, fileType)
-		keepIn := []storiface2.ID{storiface2.ID(pid)}
+		pid := storiface.PathByType(pathIDs, fileType)
+		keepIn := []storiface.ID{storiface.ID(pid)}
 
 		log.Debugw("ensureOneCopy", "sector", sid, "type", fileType, "keep", keepIn)
 
@@ -207,13 +207,13 @@ func (sb *SealCalls) ensureOneCopy(ctx context.Context, sid abi.SectorID, pathID
 	return nil
 }
 
-func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, sector storiface2.SectorRef, unsealed cid.Cid, randomness abi.SealRandomness, pieces []abi.PieceInfo) (scid cid.Cid, ucid cid.Cid, err error) {
+func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, sector storiface.SectorRef, unsealed cid.Cid, randomness abi.SealRandomness, pieces []abi.PieceInfo) (scid cid.Cid, ucid cid.Cid, err error) {
 	p1o, err := sb.makePhase1Out(unsealed, sector.ProofType)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("make phase1 output: %w", err)
 	}
 
-	fspaths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, task, sector, storiface2.FTCache, storiface2.FTSealed, storiface2.PathSealing)
+	fspaths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, task, sector, storiface.FTCache, storiface.FTSealed, storiface.PathSealing)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("acquiring sector paths: %w", err)
 	}
@@ -279,7 +279,7 @@ func (sb *SealCalls) TreeRC(ctx context.Context, task *harmonytask.TaskID, secto
 		return cid.Undef, cid.Undef, xerrors.Errorf("unsealed cid changed after sealing")
 	}
 
-	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface2.FTCache|storiface2.FTSealed); err != nil {
+	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTCache|storiface.FTSealed); err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("ensure one copy: %w", err)
 	}
 
@@ -327,7 +327,7 @@ func (sb *SealCalls) GenerateSynthPoRep() {
 	panic("todo")
 }
 
-func (sb *SealCalls) PoRepSnark(ctx context.Context, sn storiface2.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error) {
+func (sb *SealCalls) PoRepSnark(ctx context.Context, sn storiface.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error) {
 	vproof, err := sb.sectors.storage.GeneratePoRepVanillaProof(ctx, sn, sealed, unsealed, ticket, seed)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to generate vanilla proof: %w", err)
@@ -473,11 +473,11 @@ func (sb *SealCalls) makePhase1Out(unsCid cid.Cid, spt abi.RegisteredSealProof) 
 	return json.Marshal(phase1Output)
 }
 
-func (sb *SealCalls) LocalStorage(ctx context.Context) ([]storiface2.StoragePath, error) {
+func (sb *SealCalls) LocalStorage(ctx context.Context) ([]storiface.StoragePath, error) {
 	return sb.sectors.localStore.Local(ctx)
 }
 
-func changePathType(path string, newType storiface2.SectorFileType) (string, error) {
+func changePathType(path string, newType storiface.SectorFileType) (string, error) {
 	// /some/parent/[type]/filename -> /some/parent/[newType]/filename
 
 	dir, file := filepath.Split(path)
@@ -501,8 +501,8 @@ func changePathType(path string, newType storiface2.SectorFileType) (string, err
 
 	return newPath, nil
 }
-func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface2.SectorRef, keepUnsealed bool) error {
-	sectorPaths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, nil, sector, storiface2.FTCache, storiface2.FTNone, storiface2.PathSealing)
+func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface.SectorRef, keepUnsealed bool) error {
+	sectorPaths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, nil, sector, storiface.FTCache, storiface.FTNone, storiface.PathSealing)
 	if err != nil {
 		return xerrors.Errorf("acquiring sector paths: %w", err)
 	}
@@ -515,7 +515,7 @@ func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface2.Secto
 
 	if keepUnsealed {
 		// We are going to be moving the unsealed file, no need to allocate storage specifically for it
-		sectorPaths.Unsealed, err = changePathType(sectorPaths.Cache, storiface2.FTUnsealed)
+		sectorPaths.Unsealed, err = changePathType(sectorPaths.Cache, storiface.FTUnsealed)
 		if err != nil {
 			return xerrors.Errorf("changing path type: %w", err)
 		}
@@ -524,7 +524,7 @@ func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface2.Secto
 
 		defer func() {
 			// We don't pass FTUnsealed to Acquire, so releaseSector won't declare it. Do it here.
-			if err := sb.sectors.sindex.StorageDeclareSector(ctx, storiface2.ID(pathIDs.Unsealed), sector.ID, storiface2.FTUnsealed, true); err != nil {
+			if err := sb.sectors.sindex.StorageDeclareSector(ctx, storiface.ID(pathIDs.Unsealed), sector.ID, storiface.FTUnsealed, true); err != nil {
 				log.Errorf("declare unsealed sector error: %+v", err)
 			}
 		}()
@@ -537,7 +537,7 @@ func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface2.Secto
 		// temp path in cache where we'll move tree-d before truncating
 		// it is in the cache directory so that we can use os.Rename to move it
 		// to unsealed (which may be on a different filesystem)
-		tempUnsealed := filepath.Join(sectorPaths.Cache, storiface2.SectorName(sector.ID))
+		tempUnsealed := filepath.Join(sectorPaths.Cache, storiface.SectorName(sector.ID))
 
 		_, terr := os.Stat(tempUnsealed)
 		tempUnsealedExists := terr == nil
@@ -612,35 +612,35 @@ afterUnsealedMove:
 		return xerrors.Errorf("clearing cache: %w", err)
 	}
 
-	maybeUns := storiface2.FTUnsealed
+	maybeUns := storiface.FTUnsealed
 	if !keepUnsealed {
-		maybeUns = storiface2.FTNone
+		maybeUns = storiface.FTNone
 	}
 
-	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface2.FTCache|maybeUns); err != nil {
+	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTCache|maybeUns); err != nil {
 		return xerrors.Errorf("ensure one copy: %w", err)
 	}
 
 	return nil
 }
 
-func (sb *SealCalls) MoveStorage(ctx context.Context, sector storiface2.SectorRef, taskID *harmonytask.TaskID) error {
+func (sb *SealCalls) MoveStorage(ctx context.Context, sector storiface.SectorRef, taskID *harmonytask.TaskID) error {
 	// only move the unsealed file if it still exists and needs moving
-	moveUnsealed := storiface2.FTUnsealed
+	moveUnsealed := storiface.FTUnsealed
 	{
-		found, unsealedPathType, err := sb.sectorStorageType(ctx, sector, storiface2.FTUnsealed)
+		found, unsealedPathType, err := sb.sectorStorageType(ctx, sector, storiface.FTUnsealed)
 		if err != nil {
 			return xerrors.Errorf("checking cache storage type: %w", err)
 		}
 
-		if !found || unsealedPathType == storiface2.PathStorage {
-			moveUnsealed = storiface2.FTNone
+		if !found || unsealedPathType == storiface.PathStorage {
+			moveUnsealed = storiface.FTNone
 		}
 	}
 
-	toMove := storiface2.FTCache | storiface2.FTSealed | moveUnsealed
+	toMove := storiface.FTCache | storiface.FTSealed | moveUnsealed
 
-	var opts []storiface2.AcquireOption
+	var opts []storiface.AcquireOption
 	if taskID != nil {
 		resv, ok := sb.sectors.storageReservations.Load(*taskID)
 		// if the reservation is missing MoveStorage will simply create one internally. This is fine as the reservation
@@ -649,14 +649,14 @@ func (sb *SealCalls) MoveStorage(ctx context.Context, sector storiface2.SectorRe
 		if ok {
 			defer resv.Release()
 
-			if resv.Alloc != storiface2.FTNone {
+			if resv.Alloc != storiface.FTNone {
 				return xerrors.Errorf("task %d has storage reservation with alloc", taskID)
 			}
-			if resv.Existing != toMove|storiface2.FTUnsealed {
+			if resv.Existing != toMove|storiface.FTUnsealed {
 				return xerrors.Errorf("task %d has storage reservation with different existing", taskID)
 			}
 
-			opts = append(opts, storiface2.AcquireInto(storiface2.PathsWithIDs{Paths: resv.Paths, IDs: resv.PathIDs}))
+			opts = append(opts, storiface.AcquireInto(storiface.PathsWithIDs{Paths: resv.Paths, IDs: resv.PathIDs}))
 		}
 	}
 
@@ -674,7 +674,7 @@ func (sb *SealCalls) MoveStorage(ctx context.Context, sector storiface2.SectorRe
 	return nil
 }
 
-func (sb *SealCalls) sectorStorageType(ctx context.Context, sector storiface2.SectorRef, ft storiface2.SectorFileType) (sectorFound bool, ptype storiface2.PathType, err error) {
+func (sb *SealCalls) sectorStorageType(ctx context.Context, sector storiface.SectorRef, ft storiface.SectorFileType) (sectorFound bool, ptype storiface.PathType, err error) {
 	stores, err := sb.sectors.sindex.StorageFindSector(ctx, sector.ID, ft, 0, false)
 	if err != nil {
 		return false, "", xerrors.Errorf("finding sector: %w", err)
@@ -685,24 +685,24 @@ func (sb *SealCalls) sectorStorageType(ctx context.Context, sector storiface2.Se
 
 	for _, store := range stores {
 		if store.CanSeal {
-			return true, storiface2.PathSealing, nil
+			return true, storiface.PathSealing, nil
 		}
 	}
 
-	return true, storiface2.PathStorage, nil
+	return true, storiface.PathStorage, nil
 }
 
 // PreFetch fetches the sector file to local storage before SDR and TreeRC Tasks
-func (sb *SealCalls) PreFetch(ctx context.Context, sector storiface2.SectorRef, task *harmonytask.TaskID) (fsPath, pathID storiface2.SectorPaths, releaseSector func(...storiface2.SectorFileType), err error) {
-	fsPath, pathID, releaseSector, err = sb.sectors.AcquireSector(ctx, task, sector, storiface2.FTCache, storiface2.FTNone, storiface2.PathSealing)
+func (sb *SealCalls) PreFetch(ctx context.Context, sector storiface.SectorRef, task *harmonytask.TaskID) (fsPath, pathID storiface.SectorPaths, releaseSector func(...storiface.SectorFileType), err error) {
+	fsPath, pathID, releaseSector, err = sb.sectors.AcquireSector(ctx, task, sector, storiface.FTCache, storiface.FTNone, storiface.PathSealing)
 	if err != nil {
-		return storiface2.SectorPaths{}, storiface2.SectorPaths{}, nil, xerrors.Errorf("acquiring sector paths: %w", err)
+		return storiface.SectorPaths{}, storiface.SectorPaths{}, nil, xerrors.Errorf("acquiring sector paths: %w", err)
 	}
 	// Don't release the storage locks. They will be released in TreeD func()
 	return
 }
 
-func (sb *SealCalls) TreeD(ctx context.Context, sector storiface2.SectorRef, unsealed cid.Cid, size abi.PaddedPieceSize, data io.Reader, unpaddedData bool, fspaths, pathIDs storiface2.SectorPaths) error {
+func (sb *SealCalls) TreeD(ctx context.Context, sector storiface.SectorRef, unsealed cid.Cid, size abi.PaddedPieceSize, data io.Reader, unpaddedData bool, fspaths, pathIDs storiface.SectorPaths) error {
 	var err error
 	defer func() {
 		if err != nil {
@@ -722,15 +722,15 @@ func (sb *SealCalls) TreeD(ctx context.Context, sector storiface2.SectorRef, uns
 		return xerrors.Errorf("tree-d cid %s mismatch with supplied unsealed cid %s", treeDUnsealed, unsealed)
 	}
 
-	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface2.FTCache); err != nil {
+	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTCache); err != nil {
 		return xerrors.Errorf("ensure one copy: %w", err)
 	}
 
 	return nil
 }
 
-func (sb *SealCalls) SyntheticProofs(ctx context.Context, task *harmonytask.TaskID, sector storiface2.SectorRef, sealed cid.Cid, unsealed cid.Cid, randomness abi.SealRandomness, pieces []abi.PieceInfo) error {
-	fspaths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, task, sector, storiface2.FTCache|storiface2.FTSealed, storiface2.FTNone, storiface2.PathSealing)
+func (sb *SealCalls) SyntheticProofs(ctx context.Context, task *harmonytask.TaskID, sector storiface.SectorRef, sealed cid.Cid, unsealed cid.Cid, randomness abi.SealRandomness, pieces []abi.PieceInfo) error {
+	fspaths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, task, sector, storiface.FTCache|storiface.FTSealed, storiface.FTNone, storiface.PathSealing)
 	if err != nil {
 		return xerrors.Errorf("acquiring sector paths: %w", err)
 	}
@@ -760,7 +760,7 @@ func (sb *SealCalls) SyntheticProofs(ctx context.Context, task *harmonytask.Task
 		return xerrors.Errorf("failed to clear cache for synthetic proof of sector %d of miner %d", sector.ID.Miner, sector.ID.Number)
 	}
 
-	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface2.FTCache|storiface2.FTSealed); err != nil {
+	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTCache|storiface.FTSealed); err != nil {
 		return xerrors.Errorf("ensure one copy: %w", err)
 	}
 

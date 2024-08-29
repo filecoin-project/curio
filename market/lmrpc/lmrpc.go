@@ -209,7 +209,7 @@ func ServeCurioMarketRPC(db *harmonydb.DB, full api.Chain, maddr address.Address
 
 	ast.CommonStruct.Internal.AuthNew = lp.AuthNew
 	ast.Internal.ActorAddress = lp.ActorAddress
-	ast.Internal.WorkerJobs = lp.WorkerJobs
+	adaptFunc(&ast.Internal.WorkerJobs, lp.WorkerJobs)
 	ast.Internal.SectorsStatus = lp.SectorsStatus
 	ast.Internal.SectorsList = lp.SectorsList
 	ast.Internal.SectorsSummary = lp.SectorsSummary

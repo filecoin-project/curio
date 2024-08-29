@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	storiface2 "github.com/filecoin-project/curio/lib/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"net/url"
 	gopath "path"
 	"strings"
@@ -35,7 +35,7 @@ var errAlreadyLocked = errors.New("already locked")
 
 type DBIndex struct {
 	alerting   alertinginterface.AlertingInterface
-	pathAlerts map[storiface2.ID]alertinginterface.AlertType
+	pathAlerts map[storiface.ID]alertinginterface.AlertType
 
 	harmonyDB *harmonydb.DB
 }
@@ -45,11 +45,11 @@ func NewDBIndex(al alertinginterface.AlertingInterface, db *harmonydb.DB) *DBInd
 		harmonyDB: db,
 
 		alerting:   al,
-		pathAlerts: map[storiface2.ID]alertinginterface.AlertType{},
+		pathAlerts: map[storiface.ID]alertinginterface.AlertType{},
 	}
 }
 
-func (dbi *DBIndex) StorageList(ctx context.Context) (map[storiface2.ID][]storiface2.Decl, error) {
+func (dbi *DBIndex) StorageList(ctx context.Context) (map[storiface.ID][]storiface.Decl, error) {
 
 	var sectorEntries []struct {
 		StorageId      string
@@ -65,12 +65,12 @@ func (dbi *DBIndex) StorageList(ctx context.Context) (map[storiface2.ID][]storif
 		return nil, xerrors.Errorf("StorageList DB query fails: %w", err)
 	}
 
-	byID := map[storiface2.ID]map[abi.SectorID]storiface2.SectorFileType{}
+	byID := map[storiface.ID]map[abi.SectorID]storiface.SectorFileType{}
 	for _, entry := range sectorEntries {
-		id := storiface2.ID(entry.StorageId)
+		id := storiface.ID(entry.StorageId)
 		_, ok := byID[id]
 		if !ok {
-			byID[id] = map[abi.SectorID]storiface2.SectorFileType{}
+			byID[id] = map[abi.SectorID]storiface.SectorFileType{}
 		}
 
 		// skip sector info for storage paths with no sectors
@@ -83,14 +83,14 @@ func (dbi *DBIndex) StorageList(ctx context.Context) (map[storiface2.ID][]storif
 			Number: abi.SectorNumber(entry.SectorNum.Int64),
 		}
 
-		byID[id][sectorId] |= storiface2.SectorFileType(entry.SectorFiletype.Int32)
+		byID[id][sectorId] |= storiface.SectorFileType(entry.SectorFiletype.Int32)
 	}
 
-	out := map[storiface2.ID][]storiface2.Decl{}
+	out := map[storiface.ID][]storiface.Decl{}
 	for id, m := range byID {
-		out[id] = []storiface2.Decl{}
+		out[id] = []storiface.Decl{}
 		for sectorID, fileType := range m {
-			out[id] = append(out[id], storiface2.Decl{
+			out[id] = append(out[id], storiface.Decl{
 				SectorID:       sectorID,
 				SectorFileType: fileType,
 			})
@@ -122,7 +122,7 @@ func splitString(str string) []string {
 	return strings.Split(str, ",")
 }
 
-func (dbi *DBIndex) StorageAttach(ctx context.Context, si storiface2.StorageInfo, st fsutil.FsStat) error {
+func (dbi *DBIndex) StorageAttach(ctx context.Context, si storiface.StorageInfo, st fsutil.FsStat) error {
 	var allow, deny = make([]string, 0, len(si.AllowTypes)), make([]string, 0, len(si.DenyTypes))
 
 	if _, hasAlert := dbi.pathAlerts[si.ID]; dbi.alerting != nil && !hasAlert {
@@ -132,7 +132,7 @@ func (dbi *DBIndex) StorageAttach(ctx context.Context, si storiface2.StorageInfo
 	var hasConfigIssues bool
 
 	for id, typ := range si.AllowTypes {
-		_, err := storiface2.TypeFromString(typ)
+		_, err := storiface.TypeFromString(typ)
 		if err != nil {
 			//No need to hard-fail here, just warn the user
 			//(note that even with all-invalid entries we'll deny all types, so nothing unexpected should enter the path)
@@ -153,7 +153,7 @@ func (dbi *DBIndex) StorageAttach(ctx context.Context, si storiface2.StorageInfo
 		allow = append(allow, typ)
 	}
 	for id, typ := range si.DenyTypes {
-		_, err := storiface2.TypeFromString(typ)
+		_, err := storiface.TypeFromString(typ)
 		if err != nil {
 			//No need to hard-fail here, just warn the user
 			hasConfigIssues = true
@@ -257,7 +257,7 @@ func (dbi *DBIndex) StorageAttach(ctx context.Context, si storiface2.StorageInfo
 	return err
 }
 
-func (dbi *DBIndex) StorageDetach(ctx context.Context, id storiface2.ID, url string) error {
+func (dbi *DBIndex) StorageDetach(ctx context.Context, id storiface.ID, url string) error {
 
 	// If url not in path urls, error out
 	// if this is only path url for this storage path, drop storage path and sector decls which have this as a storage path
@@ -314,7 +314,7 @@ func (dbi *DBIndex) StorageDetach(ctx context.Context, id storiface2.ID, url str
 	return err
 }
 
-func (dbi *DBIndex) StorageReportHealth(ctx context.Context, id storiface2.ID, report storiface2.HealthReport) error {
+func (dbi *DBIndex) StorageReportHealth(ctx context.Context, id storiface.ID, report storiface.HealthReport) error {
 	retryWait := time.Millisecond * 20
 retryReportHealth:
 	_, err := dbi.harmonyDB.Exec(ctx,
@@ -369,9 +369,9 @@ retryReportHealth:
 }
 
 // function to check if a filetype is valid
-func (dbi *DBIndex) checkFileType(fileType storiface2.SectorFileType) bool {
+func (dbi *DBIndex) checkFileType(fileType storiface.SectorFileType) bool {
 	ftValid := false
-	for _, fileTypeValid := range storiface2.PathTypes {
+	for _, fileTypeValid := range storiface.PathTypes {
 		if fileTypeValid&fileType == 0 {
 			ftValid = true
 			break
@@ -380,7 +380,7 @@ func (dbi *DBIndex) checkFileType(fileType storiface2.SectorFileType) bool {
 	return ftValid
 }
 
-func (dbi *DBIndex) StorageDeclareSector(ctx context.Context, storageID storiface2.ID, s abi.SectorID, ft storiface2.SectorFileType, primary bool) error {
+func (dbi *DBIndex) StorageDeclareSector(ctx context.Context, storageID storiface.ID, s abi.SectorID, ft storiface.SectorFileType, primary bool) error {
 	if !dbi.checkFileType(ft) {
 		return xerrors.Errorf("invalid filetype")
 	}
@@ -410,9 +410,9 @@ func (dbi *DBIndex) StorageDeclareSector(ctx context.Context, storageID storifac
 
 // SectorDeclaration represents a single sector declaration
 type SectorDeclaration struct {
-	StorageID storiface2.ID
+	StorageID storiface.ID
 	SectorID  abi.SectorID
-	FileType  storiface2.SectorFileType
+	FileType  storiface.SectorFileType
 	Primary   bool
 }
 
@@ -537,7 +537,7 @@ func (dbi *DBIndex) batchStorageDeclareSectors(ctx context.Context, declarations
 	return err
 }
 
-func (dbi *DBIndex) StorageDropSector(ctx context.Context, storageID storiface2.ID, s abi.SectorID, ft storiface2.SectorFileType) error {
+func (dbi *DBIndex) StorageDropSector(ctx context.Context, storageID storiface.ID, s abi.SectorID, ft storiface.SectorFileType) error {
 
 	if !dbi.checkFileType(ft) {
 		return xerrors.Errorf("invalid filetype")
@@ -553,9 +553,9 @@ func (dbi *DBIndex) StorageDropSector(ctx context.Context, storageID storiface2.
 	return nil
 }
 
-func (dbi *DBIndex) StorageFindSector(ctx context.Context, s abi.SectorID, ft storiface2.SectorFileType, ssize abi.SectorSize, allowFetch bool) ([]storiface2.SectorStorageInfo, error) {
+func (dbi *DBIndex) StorageFindSector(ctx context.Context, s abi.SectorID, ft storiface.SectorFileType, ssize abi.SectorSize, allowFetch bool) ([]storiface.SectorStorageInfo, error) {
 
-	var result []storiface2.SectorStorageInfo
+	var result []storiface.SectorStorageInfo
 
 	allowList := make(map[string]struct{})
 	storageWithSector := map[string]bool{}
@@ -611,13 +611,13 @@ func (dbi *DBIndex) StorageFindSector(ctx context.Context, s abi.SectorID, ft st
 			if err != nil {
 				return nil, xerrors.Errorf("failed to parse url: %w", err)
 			}
-			rl.Path = gopath.Join(rl.Path, ft.String(), storiface2.SectorName(s))
+			rl.Path = gopath.Join(rl.Path, ft.String(), storiface.SectorName(s))
 			urls = append(urls, rl.String())
 			burls = append(burls, u)
 		}
 
-		result = append(result, storiface2.SectorStorageInfo{
-			ID:         storiface2.ID(row.StorageId),
+		result = append(result, storiface.SectorStorageInfo{
+			ID:         storiface.ID(row.StorageId),
 			URLs:       urls,
 			BaseURLs:   burls,
 			Weight:     row.Weight * row.Count,
@@ -732,13 +732,13 @@ func (dbi *DBIndex) StorageFindSector(ctx context.Context, s abi.SectorID, ft st
 				if err != nil {
 					return nil, xerrors.Errorf("failed to parse url: %w", err)
 				}
-				rl.Path = gopath.Join(rl.Path, ft.String(), storiface2.SectorName(s))
+				rl.Path = gopath.Join(rl.Path, ft.String(), storiface.SectorName(s))
 				urls = append(urls, rl.String())
 				burls = append(burls, u)
 			}
 
-			result = append(result, storiface2.SectorStorageInfo{
-				ID:         storiface2.ID(row.StorageId),
+			result = append(result, storiface.SectorStorageInfo{
+				ID:         storiface.ID(row.StorageId),
 				URLs:       urls,
 				BaseURLs:   burls,
 				Weight:     row.Weight * 0,
@@ -754,7 +754,7 @@ func (dbi *DBIndex) StorageFindSector(ctx context.Context, s abi.SectorID, ft st
 	return result, nil
 }
 
-func (dbi *DBIndex) StorageInfo(ctx context.Context, id storiface2.ID) (storiface2.StorageInfo, error) {
+func (dbi *DBIndex) StorageInfo(ctx context.Context, id storiface.ID) (storiface.StorageInfo, error) {
 
 	var qResults []struct {
 		Urls        string
@@ -774,10 +774,10 @@ func (dbi *DBIndex) StorageInfo(ctx context.Context, id storiface2.ID) (storifac
 		"SELECT urls, weight, max_storage, can_seal, can_store, groups, allow_to, allow_types, deny_types, allow_miners, deny_miners "+
 			"FROM storage_path WHERE storage_id=$1", string(id))
 	if err != nil {
-		return storiface2.StorageInfo{}, xerrors.Errorf("StorageInfo query fails: %w", err)
+		return storiface.StorageInfo{}, xerrors.Errorf("StorageInfo query fails: %w", err)
 	}
 
-	var sinfo storiface2.StorageInfo
+	var sinfo storiface.StorageInfo
 	sinfo.ID = id
 	sinfo.URLs = splitString(qResults[0].Urls)
 	sinfo.Weight = qResults[0].Weight
@@ -794,7 +794,7 @@ func (dbi *DBIndex) StorageInfo(ctx context.Context, id storiface2.ID) (storifac
 	return sinfo, nil
 }
 
-func (dbi *DBIndex) StorageBestAlloc(ctx context.Context, allocate storiface2.SectorFileType, ssize abi.SectorSize, pathType storiface2.PathType, miner abi.ActorID) ([]storiface2.StorageInfo, error) {
+func (dbi *DBIndex) StorageBestAlloc(ctx context.Context, allocate storiface.SectorFileType, ssize abi.SectorSize, pathType storiface.PathType, miner abi.ActorID) ([]storiface.StorageInfo, error) {
 	var err error
 	var spaceReq uint64
 
@@ -802,9 +802,9 @@ func (dbi *DBIndex) StorageBestAlloc(ctx context.Context, allocate storiface2.Se
 		spaceReq, err = (ctx.Value(SpaceUseKey).(SpaceUseFunc))(allocate, ssize)
 	} else {
 		switch pathType {
-		case storiface2.PathSealing:
+		case storiface.PathSealing:
 			spaceReq, err = allocate.SealSpaceUse(ssize)
-		case storiface2.PathStorage:
+		case storiface.PathStorage:
 			spaceReq, err = allocate.StoreSpaceUse(ssize)
 		default:
 			return nil, xerrors.Errorf("unexpected path type")
@@ -850,14 +850,14 @@ func (dbi *DBIndex) StorageBestAlloc(ctx context.Context, allocate storiface2.Se
 						order by (available::numeric * weight) desc`,
 		spaceReq,
 		SkippedHeartbeatThresh.Seconds(),
-		pathType == storiface2.PathSealing,
-		pathType == storiface2.PathStorage,
+		pathType == storiface.PathSealing,
+		pathType == storiface.PathStorage,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("Querying for best storage sectors fails with err %w: ", err)
 	}
 
-	var result []storiface2.StorageInfo
+	var result []storiface.StorageInfo
 
 	for _, row := range rows {
 		// Matching with 0 as a workaround to avoid having minerID
@@ -875,8 +875,8 @@ func (dbi *DBIndex) StorageBestAlloc(ctx context.Context, allocate storiface2.Se
 			}
 		}
 
-		result = append(result, storiface2.StorageInfo{
-			ID:          storiface2.ID(row.StorageId),
+		result = append(result, storiface.StorageInfo{
+			ID:          storiface.ID(row.StorageId),
 			URLs:        splitString(row.Urls),
 			Weight:      row.Weight,
 			MaxStorage:  row.MaxStorage,
@@ -901,17 +901,17 @@ func isLocked(ts sql.NullTime) bool {
 	return ts.Valid && ts.Time.After(time.Now().Add(-LockTimeOut))
 }
 
-func (dbi *DBIndex) lock(ctx context.Context, sector abi.SectorID, read storiface2.SectorFileType, write storiface2.SectorFileType, lockUuid uuid.UUID) (bool, error) {
+func (dbi *DBIndex) lock(ctx context.Context, sector abi.SectorID, read storiface.SectorFileType, write storiface.SectorFileType, lockUuid uuid.UUID) (bool, error) {
 	if read|write == 0 {
 		return false, nil
 	}
 
-	if read|write > (1<<storiface2.FileTypes)-1 {
+	if read|write > (1<<storiface.FileTypes)-1 {
 		return false, xerrors.Errorf("unknown file types specified")
 	}
 
 	var rows []struct {
-		SectorFileType storiface2.SectorFileType `db:"sector_filetype"`
+		SectorFileType storiface.SectorFileType `db:"sector_filetype"`
 		ReadTs         sql.NullTime
 		ReadRefs       int
 		WriteTs        sql.NullTime
@@ -935,7 +935,7 @@ func (dbi *DBIndex) lock(ctx context.Context, sector abi.SectorID, read storifac
 			readRefs int
 			writeTs  sql.NullTime
 		}
-		lockMap := make(map[storiface2.SectorFileType]locks)
+		lockMap := make(map[storiface.SectorFileType]locks)
 		for _, row := range rows {
 			lockMap[row.SectorFileType] = locks{
 				readTs:   row.ReadTs,
@@ -998,14 +998,14 @@ func (dbi *DBIndex) lock(ctx context.Context, sector abi.SectorID, read storifac
 	return true, nil
 }
 
-func (dbi *DBIndex) unlock(sector abi.SectorID, read storiface2.SectorFileType, write storiface2.SectorFileType, lockUuid uuid.UUID) (bool, error) {
+func (dbi *DBIndex) unlock(sector abi.SectorID, read storiface.SectorFileType, write storiface.SectorFileType, lockUuid uuid.UUID) (bool, error) {
 	ctx := context.Background()
 
 	if read|write == 0 {
 		return false, nil
 	}
 
-	if read|write > (1<<storiface2.FileTypes)-1 {
+	if read|write > (1<<storiface.FileTypes)-1 {
 		return false, xerrors.Errorf("unknown file types specified")
 	}
 
@@ -1044,7 +1044,7 @@ func (dbi *DBIndex) unlock(sector abi.SectorID, read storiface2.SectorFileType, 
 
 }
 
-func (dbi *DBIndex) StorageLock(ctx context.Context, sector abi.SectorID, read storiface2.SectorFileType, write storiface2.SectorFileType) error {
+func (dbi *DBIndex) StorageLock(ctx context.Context, sector abi.SectorID, read storiface.SectorFileType, write storiface.SectorFileType) error {
 
 	retries := 5
 	maxWaitTime := 300 // Set max wait time to 5 minutes
@@ -1090,7 +1090,7 @@ func (dbi *DBIndex) StorageLock(ctx context.Context, sector abi.SectorID, read s
 	return nil
 }
 
-func (dbi *DBIndex) StorageTryLock(ctx context.Context, sector abi.SectorID, read storiface2.SectorFileType, write storiface2.SectorFileType) (bool, error) {
+func (dbi *DBIndex) StorageTryLock(ctx context.Context, sector abi.SectorID, read storiface.SectorFileType, write storiface.SectorFileType) (bool, error) {
 	lockUuid := uuid.New()
 	locked, err := dbi.lock(ctx, sector, read, write, lockUuid)
 	if err != nil {
@@ -1110,7 +1110,7 @@ func (dbi *DBIndex) StorageTryLock(ctx context.Context, sector abi.SectorID, rea
 	return locked, nil
 }
 
-func (dbi *DBIndex) StorageGetLocks(ctx context.Context) (storiface2.SectorLocks, error) {
+func (dbi *DBIndex) StorageGetLocks(ctx context.Context) (storiface.SectorLocks, error) {
 
 	var rows []struct {
 		MinerId        uint64
@@ -1124,11 +1124,11 @@ func (dbi *DBIndex) StorageGetLocks(ctx context.Context) (storiface2.SectorLocks
 	err := dbi.harmonyDB.Select(ctx, &rows,
 		"SELECT miner_id, sector_num, sector_filetype, read_ts, read_refs, write_ts FROM sector_location")
 	if err != nil {
-		return storiface2.SectorLocks{}, err
+		return storiface.SectorLocks{}, err
 	}
 
 	type locks struct {
-		sectorFileType storiface2.SectorFileType
+		sectorFileType storiface.SectorFileType
 		readRefs       uint
 		writeLk        bool
 	}
@@ -1145,15 +1145,15 @@ func (dbi *DBIndex) StorageGetLocks(ctx context.Context) (storiface2.SectorLocks
 		}
 
 		sectorLocks[sector] = locks{
-			sectorFileType: storiface2.SectorFileType(row.SectorFileType),
+			sectorFileType: storiface.SectorFileType(row.SectorFileType),
 			readRefs:       readRefs,
 			writeLk:        isLocked(row.WriteTs),
 		}
 	}
 
-	var result storiface2.SectorLocks
+	var result storiface.SectorLocks
 	for sector, locks := range sectorLocks {
-		var lock storiface2.SectorLock
+		var lock storiface.SectorLock
 		lock.Sector = sector
 		lock.Read[locks.sectorFileType] = locks.readRefs
 		if locks.writeLk {
