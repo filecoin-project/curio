@@ -68,7 +68,7 @@ describe("CurioMembership", function () {
       var signature = sign(rate, now);
       const binaryBuffer = Buffer.from(signature.slice(2), 'hex') // turns hex 0x..... into a buffer of bytes.
       var fn = await contract.connect(owner).getFunction('setExchangeRate')(rate, now, signature);
-      fn.to.emit(contract, "ExchangeRateUpdated").withArgs(rate, now);
+      fn.to.emit(contract, "ExchangeRateUpdated").withArgs(rate, now, signature);
       expect(await contract.exchangeRate).to.equal(rate);
     });
 
@@ -115,13 +115,21 @@ describe("CurioMembership", function () {
   })
 });
 
-// Function to pack a 64-bit unsigned integer (equivalent to PHP's pack("Q", ...))
-function packUint64(value:number) {
-  const buffer = Buffer.alloc(8);
-  buffer.writeBigUInt64BE(BigInt(value));
+// Function to pack a 256-bit unsigned integer (equivalent to PHP's pack("Q", ...))
+function abiEncodePackedUint256(value1:bigint, value2:bigint) {
+  // Allocate a buffer of 64 bytes (32 bytes for each uint256 value)
+  const buffer = Buffer.alloc(64);
+
+  // Write the first uint256 value to the first 32 bytes (big-endian format)
+  buffer.writeBigUInt64BE(BigInt(value1 >> BigInt(64)), 0); // High 64 bits
+  buffer.writeBigUInt64BE(BigInt(value1 & BigInt(0xFFFFFFFFFFFFFFFF)), 8); // Low 64 bits
+
+  // Write the second uint256 value to the next 32 bytes (big-endian format)
+  buffer.writeBigUInt64BE(BigInt(value2 >> BigInt(64)), 32); // High 64 bits
+  buffer.writeBigUInt64BE(BigInt(value2 & BigInt(0xFFFFFFFFFFFFFFFF)), 40); // Low 64 bits
+
   return buffer;
 }
-
 function sign(rate:number, timestamp:number) {
   // Import the necessary libraries
   const EC = require('elliptic').ec;
@@ -135,7 +143,7 @@ function sign(rate:number, timestamp:number) {
   const keyPair = ec.keyFromPrivate(privateKey);
 
   // Pack the rate and timestamp like PHP's pack("Q", $rate) . pack("Q", $timestamp)
-  const packedData = Buffer.concat([packUint64(rate), packUint64(timestamp)]);
+  const packedData = abiEncodePackedUint256(BigInt(rate), BigInt(timestamp));
 
   // Hash the packed data using keccak256 (Ethereum's hash function)
   const messageHash = keccak256(packedData);
