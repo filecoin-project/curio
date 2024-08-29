@@ -2,7 +2,6 @@ package ffi
 
 import (
 	"context"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"os"
 	"time"
@@ -10,6 +9,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonytask"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 )
 
 func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID, pieceID storiface.PieceNumber, size int64, data io.Reader) error {

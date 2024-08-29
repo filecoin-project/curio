@@ -2,7 +2,6 @@ package seal
 
 import (
 	"context"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	"golang.org/x/xerrors"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 )
 
 type MoveStorageTask struct {

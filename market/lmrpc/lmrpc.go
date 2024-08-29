@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"net"
 	"net/http"
@@ -30,6 +29,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/storiface"
 	cumarket "github.com/filecoin-project/curio/market"
 	"github.com/filecoin-project/curio/market/fakelm"
 

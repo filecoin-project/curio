@@ -3,7 +3,6 @@ package seal
 import (
 	"bytes"
 	"context"
-	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
@@ -16,6 +15,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )

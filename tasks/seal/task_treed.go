@@ -2,7 +2,6 @@ package seal
 
 import (
 	"context"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	"golang.org/x/xerrors"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/dealdata"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 )
 
 type TreeDTask struct {

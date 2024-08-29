@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/tasks/seal"
 	"sort"
 	"time"
 
@@ -27,6 +25,8 @@ import (
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/seal"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"

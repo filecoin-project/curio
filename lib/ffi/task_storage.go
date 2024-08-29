@@ -2,7 +2,6 @@ package ffi
 
 import (
 	"context"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"sync"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	storagePaths "github.com/filecoin-project/curio/lib/paths"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 )
 
 type SectorRef struct {

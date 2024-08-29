@@ -1,12 +1,13 @@
 package paths
 
 import (
-	"github.com/filecoin-project/curio/lib/storiface"
 	"os"
 	"sync"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
+
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 )

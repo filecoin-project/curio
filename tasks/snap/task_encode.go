@@ -2,7 +2,6 @@ package snap
 
 import (
 	"context"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"math/rand/v2"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
 )
 

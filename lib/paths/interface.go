@@ -2,13 +2,14 @@ package paths
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/lib/partialfile"
-	"github.com/filecoin-project/curio/lib/storiface"
 	"io"
 
 	"github.com/ipfs/go-cid"
 
 	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/partialfile"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 )

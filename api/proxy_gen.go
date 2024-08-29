@@ -4,7 +4,6 @@ package api
 
 import (
 	"context"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -23,6 +22,8 @@ import (
 	"github.com/filecoin-project/go-state-types/crypto"
 	"github.com/filecoin-project/go-state-types/dline"
 	"github.com/filecoin-project/go-state-types/network"
+
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"

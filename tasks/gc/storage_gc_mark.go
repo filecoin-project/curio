@@ -2,7 +2,6 @@ package gc
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/lib/storiface"
 	"time"
 
 	cbor "github.com/ipfs/go-ipld-cbor"
@@ -17,6 +16,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"

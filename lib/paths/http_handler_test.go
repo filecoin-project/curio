@@ -2,7 +2,6 @@ package paths_test
 
 import (
 	"fmt"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/paths/mocks"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/storage/sealer/partialfile"
 )

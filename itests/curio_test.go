@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"net"
 	"os"
 	"testing"
@@ -32,6 +31,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ffiselect"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/lmrpc"
 	"github.com/filecoin-project/curio/tasks/seal"
 

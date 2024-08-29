@@ -341,4 +341,3 @@ func (t *SectorLocation) UnmarshalCBOR(r io.Reader) (err error) {
 
 	return nil
 }
-

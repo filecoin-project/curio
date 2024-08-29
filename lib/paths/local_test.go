@@ -3,7 +3,6 @@ package paths
 import (
 	"context"
 	"encoding/json"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 )

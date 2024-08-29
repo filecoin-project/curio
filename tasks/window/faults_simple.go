@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"github.com/filecoin-project/curio/lib/storiface"
 	"sync"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
 
 type SimpleFaultTracker struct {

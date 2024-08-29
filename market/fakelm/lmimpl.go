@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"net/http"
 	"net/url"
 
@@ -25,6 +24,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/paths"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market"
 
 	lapi "github.com/filecoin-project/lotus/api"

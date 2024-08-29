@@ -2,7 +2,6 @@ package partialfile
 
 import (
 	"encoding/binary"
-	"github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"os"
 	"syscall"
@@ -13,6 +12,8 @@ import (
 
 	rlepluslazy "github.com/filecoin-project/go-bitfield/rle"
 	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/lib/readerutil"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"

@@ -2,7 +2,6 @@ package docgen
 
 import (
 	"fmt"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -20,6 +19,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 
 	"github.com/filecoin-project/curio/api"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"

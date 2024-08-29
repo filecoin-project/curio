@@ -2,7 +2,6 @@ package seal
 
 import (
 	"context"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"strings"
 
 	"github.com/ipfs/go-cid"
@@ -16,6 +15,7 @@ import (
 	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 )
 
 type SyntheticProofTask struct {

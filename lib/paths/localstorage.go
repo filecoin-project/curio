@@ -3,14 +3,17 @@ package paths
 import (
 	"encoding/json"
 	"errors"
-	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
-	"github.com/mitchellh/go-homedir"
-	"golang.org/x/xerrors"
 	"io"
 	"io/fs"
 	"os"
 	gopath "path"
+
+	"github.com/mitchellh/go-homedir"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/lib/storiface"
+
+	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 )
 
 type BasicLocalStorage struct {

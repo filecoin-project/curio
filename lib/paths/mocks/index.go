@@ -6,7 +6,6 @@ package mocks
 
 import (
 	context "context"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
@@ -14,6 +13,7 @@ import (
 	abi "github.com/filecoin-project/go-state-types/abi"
 
 	paths "github.com/filecoin-project/curio/lib/paths"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	fsutil "github.com/filecoin-project/lotus/storage/sealer/fsutil"
 )

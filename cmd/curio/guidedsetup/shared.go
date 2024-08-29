@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/filecoin-project/curio/lib/storiface"
 	"os"
 	"path"
 	"strings"
@@ -27,6 +26,7 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/types/sector"
 
 	"github.com/filecoin-project/lotus/chain/types"

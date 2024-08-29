@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/filecoin-project/curio/lib/storiface"
 	"net/http"
 	"sync"
 	"time"
@@ -23,6 +22,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/web/api/apihelper"
 
 	"github.com/filecoin-project/lotus/blockstore"

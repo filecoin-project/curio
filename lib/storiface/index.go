@@ -102,8 +102,8 @@ type HealthReport struct {
 }
 
 type SectorStorageInfo struct {
-	ID   ID
-	URLs []string // TODO: Support non-http transports
+	ID       ID
+	URLs     []string // TODO: Support non-http transports
 	BaseURLs []string
 	Weight   uint64
 

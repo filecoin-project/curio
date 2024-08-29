@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/filecoin-project/curio/lib/storiface"
 	"math/bits"
 	"math/rand"
 	"os"
@@ -23,6 +22,7 @@ import (
 	"github.com/filecoin-project/go-state-types/proof"
 
 	cuproof "github.com/filecoin-project/curio/lib/proof"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/supraffi"
 
 	"github.com/filecoin-project/lotus/lib/result"

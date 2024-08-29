@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"math/bits"
 	"sort"
 	"strconv"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/lib/reqcontext"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"

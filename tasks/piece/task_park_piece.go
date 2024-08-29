@@ -3,7 +3,6 @@ package piece
 import (
 	"context"
 	"encoding/json"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"strconv"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 )
 
 var log = logging.Logger("cu-piece")

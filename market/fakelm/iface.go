@@ -2,12 +2,13 @@ package fakelm
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/google/uuid"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/api"
 )

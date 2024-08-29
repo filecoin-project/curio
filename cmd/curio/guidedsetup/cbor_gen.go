@@ -4,7 +4,6 @@ package guidedsetup
 
 import (
 	"fmt"
-	"github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"math"
 	"sort"
@@ -15,6 +14,7 @@ import (
 
 	abi "github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/lib/storiface"
 	sector "github.com/filecoin-project/curio/lib/types/sector"
 )
 

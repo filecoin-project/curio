@@ -2,7 +2,6 @@ package gc
 
 import (
 	"context"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"time"
 
 	"github.com/samber/lo"
@@ -14,6 +13,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/paths"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 )
 
 type StorageGCSweep struct {

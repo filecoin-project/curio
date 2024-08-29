@@ -2,13 +2,14 @@ package paths
 
 import (
 	"context"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"sort"
 	"sync"
 
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
+
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 )
 
 type sectorLock struct {

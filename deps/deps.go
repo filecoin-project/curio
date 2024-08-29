@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"net"
 	"net/http"
@@ -39,6 +38,7 @@ import (
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/repo"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -169,9 +169,9 @@ type Deps struct {
 	Cfg        *config.CurioConfig // values
 	DB         *harmonydb.DB       // has itest capability
 	Chain      api.Chain
-	Bstore curiochain.CurioBlockstore
-	Verif  storiface.Verifier
-	As     *multictladdr.MultiAddressSelector
+	Bstore     curiochain.CurioBlockstore
+	Verif      storiface.Verifier
+	As         *multictladdr.MultiAddressSelector
 	Maddrs     map[dtypes.MinerAddress]bool
 	ProofTypes map[abi.RegisteredSealProof]bool
 	Stor       *paths.Remote

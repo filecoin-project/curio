@@ -2,8 +2,9 @@ package webrpc
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/lib/storiface"
 	"time"
+
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )

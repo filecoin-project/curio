@@ -2,12 +2,13 @@ package api
 
 import (
 	"context"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"net/http"
 	"net/url"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/api"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"

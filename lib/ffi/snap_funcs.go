@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"io"
 	"os"
 	"path/filepath"
@@ -22,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	paths2 "github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/proof"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/tarutil"
 
 	"github.com/filecoin-project/lotus/storage/sealer/fr32"
