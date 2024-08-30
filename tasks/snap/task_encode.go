@@ -16,9 +16,8 @@ import (
 	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 const MinSnapSchedInterval = 10 * time.Second

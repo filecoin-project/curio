@@ -31,6 +31,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ffiselect"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/lmrpc"
 	"github.com/filecoin-project/curio/tasks/seal"
 
@@ -41,7 +42,6 @@ import (
 	"github.com/filecoin-project/lotus/cli/spcli/createminer"
 	"github.com/filecoin-project/lotus/itests/kit"
 	"github.com/filecoin-project/lotus/node"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 func TestCurioNewActor(t *testing.T) {

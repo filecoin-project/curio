@@ -4,8 +4,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/filecoin-project/curio/lib/storiface"
+
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 type StorageGCStats struct {

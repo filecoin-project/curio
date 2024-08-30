@@ -14,9 +14,8 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 type ProveTask struct {

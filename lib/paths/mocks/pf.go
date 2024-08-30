@@ -12,8 +12,8 @@ import (
 
 	abi "github.com/filecoin-project/go-state-types/abi"
 
-	partialfile "github.com/filecoin-project/lotus/storage/sealer/partialfile"
-	storiface "github.com/filecoin-project/lotus/storage/sealer/storiface"
+	partialfile "github.com/filecoin-project/curio/lib/partialfile"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 )
 
 // MockPartialFileHandler is a mock of PartialFileHandler interface.
