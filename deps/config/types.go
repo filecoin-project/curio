@@ -72,7 +72,7 @@ func DefaultCurioConfig() *CurioConfig {
 		},
 		Market: MarketConfig{
 			HTTP: HTTPConfig{
-				ListenAddress:     "0.0.0.0:8888",
+				ListenAddress:     "0.0.0.0:12400",
 				AnnounceAddresses: []string{},
 			},
 			StorageMarketConfig: StorageMarketConfig{
@@ -686,11 +686,11 @@ type IPNIConfig struct {
 }
 
 type HTTPConfig struct {
-	// ListenAddress is where HTTP server will be listening on
+	// ListenAddress is where HTTP server will be listening on. Default is "0.0.0.0:12400"
 	ListenAddress string
 
 	// AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
 	// Curio allows running more than one node for HTTP server and thus all addressed can be announced
-	// simultaneously to the client
+	// simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
 	AnnounceAddresses []string
 }

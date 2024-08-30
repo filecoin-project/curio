@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	carv2 "github.com/ipld/go-car/v2"
@@ -33,6 +32,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/market/indexstore"
 )
 
 var ilog = logging.Logger("ipni")
@@ -144,6 +144,9 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 
 	mis := make(index.MultihashIndexSorted)
 	err = mis.Load(recs)
+	if err != nil {
+		return false, xerrors.Errorf("failed to load indexed in multihash sorter: %w", err)
+	}
 
 	// To avoid - Cannot assert pinter to interface
 	idxF := func(sorted *index.MultihashIndexSorted) index.Index {

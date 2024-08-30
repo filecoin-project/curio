@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/gorilla/mux"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/ipfs/go-cid"
@@ -39,10 +38,13 @@ import (
 	"github.com/filecoin-project/curio/lib/ipni/chunker"
 	"github.com/filecoin-project/curio/lib/ipni/ipniculib"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
+	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/urltomultiaddr"
 
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 )
 
+const IPNIRoutePath = "/ipni-provider"
 const IPNIPath = "/ipni/v1/ad/"
 const ProviderPath = "/ipni-provider"
 
@@ -141,7 +143,11 @@ func NewProvider(api ipniAPI, deps *deps.Deps) (*Provider, error) {
 	var httpServerAddresses []multiaddr.Multiaddr
 
 	for _, a := range deps.Cfg.Market.HTTP.AnnounceAddresses {
-		addr, err := multiaddr.NewMultiaddr(a)
+		addr, err := urltomultiaddr.UrlToMultiaddr(a)
+		if err != nil {
+			return nil, err
+		}
+		addr, err = multiaddr.NewMultiaddr(addr.String() + IPNIRoutePath)
 		if err != nil {
 			return nil, err
 		}
@@ -393,6 +399,9 @@ func (p *Provider) GetEntry(block cid.Cid, provider string) ([]byte, error) {
 
 			mis := make(index.MultihashIndexSorted)
 			err = mis.Load(recs)
+			if err != nil {
+				return nil, xerrors.Errorf("failed to load indexed in multihash sorter: %w", err)
+			}
 
 			// To avoid - Cannot assert pinter to interface
 			idxF := func(sorted *index.MultihashIndexSorted) index.Index {
@@ -516,7 +525,7 @@ func contentRouter(r *mux.Router, p *Provider) {
 }
 
 func Routes(r *mux.Router, p *Provider) {
-	contentRouter(r.PathPrefix("/ipni-provider").Subrouter(), p)
+	contentRouter(r.PathPrefix(IPNIRoutePath).Subrouter(), p)
 }
 
 func (p *Provider) StartPublishing(ctx context.Context) {
@@ -572,6 +581,24 @@ func (p *Provider) publishhttp(ctx context.Context, adCid cid.Cid, peer string) 
 		return fmt.Errorf("cannot create http announce sender: %w", err)
 	}
 
+	addrs, err := p.getHTTPAddressForPeer(peer)
+	if err != nil {
+		return fmt.Errorf("cannot create provider http addresses: %w", err)
+	}
+
 	log.Infow("Announcing advertisements over HTTP", "urls", p.announceURLs)
-	return announce.Send(ctx, adCid, p.httpServerAddresses, httpSender)
+	return announce.Send(ctx, adCid, addrs, httpSender)
+}
+
+func (p *Provider) getHTTPAddressForPeer(peer string) ([]multiaddr.Multiaddr, error) {
+	var ret []multiaddr.Multiaddr
+	for _, addr := range p.httpServerAddresses {
+		a, err := multiaddr.NewMultiaddr(addr.String() + "/" + peer)
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, a)
+	}
+
+	return ret, nil
 }
