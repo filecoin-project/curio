@@ -92,6 +92,8 @@ func NewProvider(api ipniAPI, deps *deps.Deps) (*Provider, error) {
 		return nil, xerrors.Errorf("failed to get private libp2p keys from DB: %w", err)
 	}
 
+	defer rows.Close()
+
 	for rows.Next() && rows.Err() == nil {
 		var priv []byte
 		err := rows.Scan(&priv)
@@ -284,14 +286,16 @@ func (p *Provider) GetEntry(block cid.Cid, provider string) ([]byte, error) {
 
 	var pis []abi.PieceInfo
 
-	row, err := p.db.Query(ctx, `SELECT context_id FROM ipni WHERE entries = $1 AND provider = $2`, block.String(), provider)
+	rows, err := p.db.Query(ctx, `SELECT context_id FROM ipni WHERE entries = $1 AND provider = $2`, block.String(), provider)
 	if err != nil {
 		return nil, xerrors.Errorf("querying ads with entry link %s: %w", block, err)
 	}
 
-	for row.Next() && row.Err() == nil {
+	defer rows.Close()
+
+	for rows.Next() && rows.Err() == nil {
 		var contextID []byte
-		err := row.Scan(&contextID)
+		err := rows.Scan(&contextID)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to scan the row: %w", err)
 		}
@@ -305,7 +309,7 @@ func (p *Provider) GetEntry(block cid.Cid, provider string) ([]byte, error) {
 		pis = append(pis, pi)
 	}
 
-	if row.Err() != nil {
+	if rows.Err() != nil {
 		return nil, err
 	}
 
