@@ -95,10 +95,9 @@ func DefaultCurioConfig() *CurioConfig {
 					ExpectedSnapSealDuration:  Duration(2 * time.Hour),
 				},
 				IPNI: IPNIConfig{
-					Enable:             true,
-					TopicName:          "",
-					WebHost:            "https://cid.contact",
-					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce"},
+					EntriesCacheCapacity: 4096,
+					WebHost:              "https://cid.contact",
+					DirectAnnounceURLs:   []string{"https://cid.contact/ingest/announce"},
 				},
 			},
 		},
@@ -668,17 +667,20 @@ type Libp2pConfig struct {
 }
 
 type IPNIConfig struct {
-	// Enable set whether to enable indexing announcement to the network and expose endpoints that
-	// allow indexer nodes to process announcements. Enabled by default.
-	Enable bool
+	// Disable set whether to disable indexing announcement to the network and expose endpoints that
+	// allow indexer nodes to process announcements. Default: False
+	Disable bool
 
-	// TopicName sets the topic name on which the changes to the advertised content are announced.
-	// If not explicitly specified, the topic name is automatically inferred from the network name
-	// in following format: '/indexer/ingest/<network-name>'
-	// Defaults to empty, which implies the topic name is inferred from network name.
-	TopicName string
+	// EntriesCacheCapacity sets the maximum capacity to use for caching the indexing advertisement
+	// entries. Defaults to 4096 if not specified. The cache is evicted using LRU policy. The
+	// maximum storage used by the cache is a factor of EntriesCacheCapacity, EntriesChunkSize(16384) and
+	// the length of multihashes being advertised. For example, advertising 128-bit long multihashes
+	// with the default EntriesCacheCapacity, and EntriesChunkSize(16384) means the cache size can grow to
+	// 1GiB when full.
+	EntriesCacheCapacity int
 
 	// The network indexer host that the web UI should link to for published announcements
+	// TODO: should we use this for checking published heas before publishing? Later commit
 	WebHost string
 
 	// The list of URLs of indexing nodes to announce to.

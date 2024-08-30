@@ -47,6 +47,7 @@ import (
 const IPNIRoutePath = "/ipni-provider"
 const IPNIPath = "/ipni/v1/ad/"
 const ProviderPath = "/ipni-provider"
+const publishInterval = 10 * time.Minute
 
 var (
 	log         = logging.Logger("ipni-provider")
@@ -68,7 +69,6 @@ type Provider struct {
 	pieceProvider  *pieceprovider.PieceProvider
 	entriesChunker *chunker.Chunker
 	cache          *lru.Cache[ipld.Link, datamodel.Node]
-	topic          string
 	httpPrefix     string
 	keys           map[string]*peerInfo // map[peerID String]Private_Key
 	// announceURLs enables sending direct announcements via HTTP. This is
@@ -78,7 +78,7 @@ type Provider struct {
 }
 
 func NewProvider(api ipniAPI, deps *deps.Deps) (*Provider, error) {
-	c, err := lru.New[ipld.Link, datamodel.Node](chunker.EntriesCacheCapacity)
+	c, err := lru.New[ipld.Link, datamodel.Node](deps.Cfg.Market.StorageMarketConfig.IPNI.EntriesCacheCapacity)
 	if err != nil {
 		return nil, xerrors.Errorf("creating new cache: %w", err)
 	}
@@ -121,30 +121,19 @@ func NewProvider(api ipniAPI, deps *deps.Deps) (*Provider, error) {
 		return nil, err
 	}
 
-	nn, err := api.StateNetworkName(ctx)
-	if err != nil {
-		return nil, err
-	}
+	announceURLs := make([]*url.URL, 0, len(deps.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs))
 
-	topic := "/indexer/ingest/" + string(nn)
-
-	if deps.Cfg.Market.StorageMarketConfig.IPNI.TopicName != "" {
-		topic = deps.Cfg.Market.StorageMarketConfig.IPNI.TopicName
-	}
-
-	var announceURLs []*url.URL
-
-	for _, us := range deps.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs {
+	for i, us := range deps.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs {
 		u, err := url.Parse(us)
 		if err != nil {
 			return nil, err
 		}
-		announceURLs = append(announceURLs, u)
+		announceURLs[i] = u
 	}
 
-	var httpServerAddresses []multiaddr.Multiaddr
+	httpServerAddresses := make([]multiaddr.Multiaddr, 0, len(deps.Cfg.Market.HTTP.AnnounceAddresses))
 
-	for _, a := range deps.Cfg.Market.HTTP.AnnounceAddresses {
+	for i, a := range deps.Cfg.Market.HTTP.AnnounceAddresses {
 		addr, err := urltomultiaddr.UrlToMultiaddr(a)
 		if err != nil {
 			return nil, err
@@ -153,7 +142,7 @@ func NewProvider(api ipniAPI, deps *deps.Deps) (*Provider, error) {
 		if err != nil {
 			return nil, err
 		}
-		httpServerAddresses = append(httpServerAddresses, addr)
+		httpServerAddresses[i] = addr
 	}
 
 	return &Provider{
@@ -162,7 +151,6 @@ func NewProvider(api ipniAPI, deps *deps.Deps) (*Provider, error) {
 		pieceProvider:       deps.PieceProvider,
 		cache:               c,
 		keys:                keyMap,
-		topic:               topic,
 		announceURLs:        announceURLs,
 		httpServerAddresses: httpServerAddresses,
 	}, nil
@@ -179,9 +167,17 @@ func (p *Provider) getAd(ctx context.Context, ad cid.Cid, provider string) (sche
 		IsRm       bool
 	}
 
-	err := p.db.Select(ctx, &ads, `SELECT context_id,
-       is_rm, previous, provider, addresses, 
-       signature, entries FROM ipni WHERE ad_cid = $1 AND provider = $2`, ad.String(), provider)
+	err := p.db.Select(ctx, &ads, `SELECT 
+										context_id,
+										is_rm, 
+										previous, 
+										provider, 
+										addresses, 
+										signature, 
+										entries 
+										FROM ipni 
+										WHERE ad_cid = $1 
+										  AND provider = $2`, ad.String(), provider)
 
 	if err != nil {
 		return schema.Advertisement{}, xerrors.Errorf("getting ad from DB: %w", err)
@@ -256,7 +252,7 @@ func (p *Provider) getHead(ctx context.Context, provider string) ([]byte, error)
 		return nil, err
 	}
 
-	signedHead, err := head.NewSignedHead(lnk.(cidlink.Link).Cid, p.topic, p.keys[provider].Key)
+	signedHead, err := head.NewSignedHead(lnk.(cidlink.Link).Cid, "", p.keys[provider].Key)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to generate signed head for peer %s: %w", provider, err)
 	}
@@ -461,7 +457,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			log.Errorf("failed to get signed head for peer %s: %w", providerID, err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "", http.StatusInternalServerError)
 		}
 		w.WriteHeader(http.StatusOK)
 		_, err = w.Write(sh)
@@ -487,7 +483,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 					log.Errorf("failed to get entry %s for peer %s: %w", b.String(), providerID, err)
-					http.Error(w, err.Error(), http.StatusInternalServerError)
+					http.Error(w, "", http.StatusInternalServerError)
 					return
 				}
 				w.WriteHeader(http.StatusOK)
@@ -498,13 +494,13 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			log.Errorf("failed to get ad %s for peer %s: %w", b.String(), providerID, err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "", http.StatusInternalServerError)
 			return
 		}
 		adn, err := ad.ToNode()
 		if err != nil {
 			log.Errorf("failed to convert ad %s for peer %s to IPLD node: %w", b.String(), providerID, err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "", http.StatusInternalServerError)
 			return
 		}
 		// Use local buffer for better error handing
@@ -512,7 +508,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		err = dagjson.Encode(adn, resp)
 		if err != nil {
 			log.Errorf("failed to encode ad %s for peer %s: %w", b.String(), providerID, err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, "", http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -535,7 +531,7 @@ func Routes(r *mux.Router, p *Provider) {
 func (p *Provider) StartPublishing(ctx context.Context) {
 	// A poller which publishes head for each provider
 	// every 10 minutes
-	ticker := time.NewTicker(10 * time.Minute)
+	ticker := time.NewTicker(publishInterval)
 	go func() {
 		for {
 			select {

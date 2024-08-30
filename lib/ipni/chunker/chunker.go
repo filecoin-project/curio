@@ -20,8 +20,7 @@ import (
 
 var log = logging.Logger("chunker")
 
-const EntriesChunkSize = 16384
-const EntriesCacheCapacity = 4096
+const entriesChunkSize = 16384
 
 // Chunker chunks advertisement entries as a chained series of schema.EntryChunk nodes.
 // See: NewChunker
@@ -36,13 +35,10 @@ type Chunker struct {
 //
 // See: schema.EntryChunk.
 func NewChunker(cache *lru.Cache[ipld.Link, datamodel.Node]) *Chunker {
-	chunker := &Chunker{
-		chunkSize: EntriesChunkSize,
+	return &Chunker{
+		chunkSize: entriesChunkSize,
+		cache:     cache,
 	}
-	if cache != nil {
-		chunker.cache = cache
-	}
-	return chunker
 }
 
 // Chunk chunks all the mulithashes returned by the given iterator into a chain of schema.EntryChunk
@@ -63,7 +59,6 @@ func (ls *Chunker) Chunk(mhi SliceMhIterator) (ipld.Link, error) {
 			return nil, err
 		}
 		mhs = append(mhs, mh)
-		mhCount++
 		if len(mhs) >= ls.chunkSize {
 			cNode, err := newEntriesChunkNode(mhs, next)
 			if err != nil {
@@ -77,6 +72,7 @@ func (ls *Chunker) Chunk(mhi SliceMhIterator) (ipld.Link, error) {
 				ls.cache.Add(next, cNode)
 			}
 			chunkCount++
+			mhCount += len(mhs)
 			// NewLinkedListOfMhs makes it own copy, so safe to reuse mhs
 			mhs = mhs[:0]
 		}
@@ -91,6 +87,7 @@ func (ls *Chunker) Chunk(mhi SliceMhIterator) (ipld.Link, error) {
 			return nil, err
 		}
 		chunkCount++
+		mhCount += len(mhs)
 	}
 
 	log.Infow("Generated linked chunks of multihashes", "totalMhCount", mhCount, "chunkCount", chunkCount)

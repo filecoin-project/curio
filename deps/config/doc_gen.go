@@ -761,7 +761,7 @@ on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
 			Name: "ListenAddress",
 			Type: "string",
 
-			Comment: `ListenAddress is where HTTP server will be listening on`,
+			Comment: `ListenAddress is where HTTP server will be listening on. Default is "0.0.0.0:12400"`,
 		},
 		{
 			Name: "AnnounceAddresses",
@@ -769,31 +769,34 @@ on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
 
 			Comment: `AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
 Curio allows running more than one node for HTTP server and thus all addressed can be announced
-simultaneously to the client`,
+simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]`,
 		},
 	},
 	"IPNIConfig": {
 		{
-			Name: "Enable",
+			Name: "Disable",
 			Type: "bool",
 
-			Comment: `Enable set whether to enable indexing announcement to the network and expose endpoints that
-allow indexer nodes to process announcements. Enabled by default.`,
+			Comment: `Disable set whether to disable indexing announcement to the network and expose endpoints that
+allow indexer nodes to process announcements. Default: False`,
 		},
 		{
-			Name: "TopicName",
-			Type: "string",
+			Name: "EntriesCacheCapacity",
+			Type: "int",
 
-			Comment: `TopicName sets the topic name on which the changes to the advertised content are announced.
-If not explicitly specified, the topic name is automatically inferred from the network name
-in following format: '/indexer/ingest/<network-name>'
-Defaults to empty, which implies the topic name is inferred from network name.`,
+			Comment: `EntriesCacheCapacity sets the maximum capacity to use for caching the indexing advertisement
+entries. Defaults to 4096 if not specified. The cache is evicted using LRU policy. The
+maximum storage used by the cache is a factor of EntriesCacheCapacity, EntriesChunkSize(16384) and
+the length of multihashes being advertised. For example, advertising 128-bit long multihashes
+with the default EntriesCacheCapacity, and EntriesChunkSize(16384) means the cache size can grow to
+1GiB when full.`,
 		},
 		{
 			Name: "WebHost",
 			Type: "string",
 
-			Comment: `The network indexer host that the web UI should link to for published announcements`,
+			Comment: `The network indexer host that the web UI should link to for published announcements
+TODO: should we use this for checking published heas before publishing? Later commit`,
 		},
 		{
 			Name: "DirectAnnounceURLs",

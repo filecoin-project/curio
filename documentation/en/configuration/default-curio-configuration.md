@@ -229,7 +229,6 @@ description: The default curio configuration
   # type: bool
   #EnableBatchSeal = false
 
-<<<<<<< HEAD
   # EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured.
   #
   # type: bool
@@ -237,9 +236,6 @@ description: The default curio configuration
 
   # EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
   # Must have EnableDealMarket = True
-=======
-  # EnableCommP enabled the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
->>>>>>> 563f95c (ipni provider)
   #
   # type: bool
   #EnableCommP = false
@@ -436,21 +432,24 @@ description: The default curio configuration
       #InsertConcurrency = 8
 
     [Market.StorageMarketConfig.IPNI]
-      # Enable set whether to enable indexing announcement to the network and expose endpoints that
-      # allow indexer nodes to process announcements. Enabled by default.
+      # Disable set whether to disable indexing announcement to the network and expose endpoints that
+      # allow indexer nodes to process announcements. Default: False
       #
       # type: bool
-      #Enable = true
+      #Disable = false
 
-      # TopicName sets the topic name on which the changes to the advertised content are announced.
-      # If not explicitly specified, the topic name is automatically inferred from the network name
-      # in following format: '/indexer/ingest/<network-name>'
-      # Defaults to empty, which implies the topic name is inferred from network name.
+      # EntriesCacheCapacity sets the maximum capacity to use for caching the indexing advertisement
+      # entries. Defaults to 4096 if not specified. The cache is evicted using LRU policy. The
+      # maximum storage used by the cache is a factor of EntriesCacheCapacity, EntriesChunkSize(16384) and
+      # the length of multihashes being advertised. For example, advertising 128-bit long multihashes
+      # with the default EntriesCacheCapacity, and EntriesChunkSize(16384) means the cache size can grow to
+      # 1GiB when full.
       #
-      # type: string
-      #TopicName = ""
+      # type: int
+      #EntriesCacheCapacity = 4096
 
       # The network indexer host that the web UI should link to for published announcements
+      # TODO: should we use this for checking published heas before publishing? Later commit
       #
       # type: string
       #WebHost = "https://cid.contact"

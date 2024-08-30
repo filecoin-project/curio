@@ -64,8 +64,8 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		Sector abi.SectorNumber        `db:"sector"`
 		Proof  abi.RegisteredSealProof `db:"reg_seal_proof"`
 		Offset int64                   `db:"sector_offset"`
-		CTXID  []byte                  `db:"context_id"`
-		RM     bool                    `db:"is_rm"`
+		CtxID  []byte                  `db:"context_id"`
+		Rm     bool                    `db:"is_rm"`
 		Prov   string                  `db:"provider"`
 	}
 
@@ -92,7 +92,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	task := tasks[0]
 
 	var pi abi.PieceInfo
-	err = pi.UnmarshalCBOR(bytes.NewReader(task.CTXID))
+	err = pi.UnmarshalCBOR(bytes.NewReader(task.CtxID))
 	if err != nil {
 		return false, xerrors.Errorf("unmarshaling piece info: %w", err)
 	}
@@ -200,9 +200,9 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 			Provider:   task.Prov,
 			Addresses:  make([]string, 0),
 			Entries:    lnk,
-			ContextID:  task.CTXID,
+			ContextID:  task.CtxID,
 			Metadata:   md,
-			IsRm:       task.RM,
+			IsRm:       task.Rm,
 		}
 
 		err = adv.Sign(pkey)
@@ -316,6 +316,11 @@ func (I *IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
+	// If IPNI is disabled then don't schedule any tasks
+	if I.cfg.Market.StorageMarketConfig.IPNI.Disable {
+		return nil
+	}
+
 	// schedule submits
 	var stop bool
 	for !stop {
