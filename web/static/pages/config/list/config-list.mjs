@@ -1,11 +1,41 @@
-import { LitElement, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
+import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
+import './list-tile.mjs';
 
-customElements.define('config-list', class NodeInfoElement extends LitElement {
+customElements.define('config-list', class ConfigList extends LitElement {
+    static styles = css`
+    .add-layer {
+        display: grid;
+        grid-template-columns: 1fr max-content;
+        grid-column-gap: 0.75rem;
+        margin-bottom: 1rem;
+    }
+        
+    .list {
+        padding: 0; // todo: why the reset is not picking it up?
+        margin-bottom: 2.5rem;
+    }
+
+    .text-field {
+        all: unset;
+        box-sizing: border-box;
+        
+        width: 100%;
+        padding: 0.25rem 0.75rem;
+        border: 1px solid #A1A1A1;
+        background-color: rgba(255, 255, 255, 0.08);
+        
+        font-size: 1rem;
+        
+        &:hover {
+            box-shadow:0 0 0 1px #FFF inset;
+        }
+    }
+    `;
 
     // todo
     constructor() {
         super();
-        this.layers = [];
+        this.layers = []; // string[]
         this.topo = [];
         this.loadData();
         this.message = this.readCookie('message');
@@ -72,19 +102,19 @@ customElements.define('config-list', class NodeInfoElement extends LitElement {
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
 
             ${this.message ? html`<div class="alert">${this.message}</div>` : ''}
-            <table>
+
+            <div class="add-layer">
+                <input class="text-field" autofocus type="text" id="layername" placeholder="Layer Name" @change=${this.updateName}>
+                <button class="button" @click=${this.addLayer}>Add Layer</button>
+            </div>
+            <ul class="list">
                 ${this.layers.map((layer, index) => html`
-                  <tr>
-                    <td style="width: 50%"><a href="/config/edit.html?layer=${layer}"><button>${layer}</button></a></td>
-                    <td>
-                    Used By: ${(f=> f.length?f.map(topo => html`${topo.Server}`):'-')(
-                        this.topo.filter(topo => topo.LayersCSV.split(",").includes(layer)))} 
-                    </td>
-                  </tr>
-              `)}
-            </table>
-            <input autofocus type="text" id="layername" placeholder="Layer Name" @change=${this.updateName}>
-            <button class="button" @click=${this.addLayer}>Add Layer</button>
+                    <list-tile id=${index} 
+                               .layerName=${layer} 
+                               .layerNodes=${this.topo.filter(topo => topo.LayersCSV.split(",").includes(layer))}>
+                    </list-tile>
+                `)}
+            </ul>
             <hr>
             <span>
             To delete a layer, use ysqlsh to issue the following command:<br>
