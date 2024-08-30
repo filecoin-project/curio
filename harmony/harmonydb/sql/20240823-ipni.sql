@@ -105,7 +105,7 @@ CREATE TABLE ipni_task (
     reg_seal_proof INT NOT NULL,
     sector_offset BIGINT,
 
-    context_id BYTEA NOT NULL PRIMARY KEY,
+    context_id BYTEA NOT NULL,
     is_rm BOOLEAN NOT NULL,
 
     provider TEXT NOT NULL,

@@ -214,13 +214,25 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 		return xerrors.Errorf("failed to update piece metadata and piece deal for deal %s: %w", task.UUID, err)
 	}
 
-	n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE, complete = TRUE WHERE uuid = $1`, task.UUID)
-	if err != nil {
-		return xerrors.Errorf("store indexing success: updating pipeline: %w", err)
+	// If IPNI is disabled then mark deal as complete otherwise just mark as indexed
+	if i.cfg.Market.StorageMarketConfig.IPNI.Disable {
+		n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE, complete = TRUE WHERE uuid = $1`, task.UUID)
+		if err != nil {
+			return xerrors.Errorf("store indexing success: updating pipeline: %w", err)
+		}
+		if n != 1 {
+			return xerrors.Errorf("store indexing success: updated %d rows", n)
+		}
+	} else {
+		n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE WHERE uuid = $1`, task.UUID)
+		if err != nil {
+			return xerrors.Errorf("store indexing success: updating pipeline: %w", err)
+		}
+		if n != 1 {
+			return xerrors.Errorf("store indexing success: updated %d rows", n)
+		}
 	}
-	if n != 1 {
-		return xerrors.Errorf("store indexing success: updated %d rows", n)
-	}
+
 	return nil
 }
 

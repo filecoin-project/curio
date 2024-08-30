@@ -317,6 +317,8 @@ func (I *IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 
 func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
 	// If IPNI is disabled then don't schedule any tasks
+	// Deals should already be marked as complete by task_indexing
+	// This check is to cover any edge case
 	if I.cfg.Market.StorageMarketConfig.IPNI.Disable {
 		return nil
 	}
