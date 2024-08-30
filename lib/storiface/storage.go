@@ -13,22 +13,10 @@ import (
 
 type Data = io.Reader
 
-// Reader is a fully-featured Reader. It is the
-// union of the standard IO sequential access method (Read), with seeking
-// ability (Seek), as well random access (ReadAt).
-type Reader interface {
-	io.Closer
-	io.Reader
-	io.ReaderAt
-	io.Seeker
-}
-
 type SectorRef struct {
 	ID        abi.SectorID
 	ProofType abi.RegisteredSealProof
 }
-
-var NoSectorRef = SectorRef{}
 
 // PieceNumber is a reference to a piece in the storage system; mapping between
 // pieces in the storage system and piece CIDs is maintained by the storage index
@@ -41,95 +29,14 @@ func (pn PieceNumber) Ref() SectorRef {
 	}
 }
 
-type ProverPoSt interface {
-	GenerateWinningPoSt(ctx context.Context, minerID abi.ActorID, sectorInfo []proof.ExtendedSectorInfo, randomness abi.PoStRandomness) ([]proof.PoStProof, error)
-	GenerateWindowPoSt(ctx context.Context, minerID abi.ActorID, ppt abi.RegisteredPoStProof, sectorInfo []proof.ExtendedSectorInfo, randomness abi.PoStRandomness) (proof []proof.PoStProof, skipped []abi.SectorID, err error)
-
-	GenerateWinningPoStWithVanilla(ctx context.Context, proofType abi.RegisteredPoStProof, minerID abi.ActorID, randomness abi.PoStRandomness, proofs [][]byte) ([]proof.PoStProof, error)
-	GenerateWindowPoStWithVanilla(ctx context.Context, proofType abi.RegisteredPoStProof, minerID abi.ActorID, randomness abi.PoStRandomness, proofs [][]byte, partitionIdx int) (proof.PoStProof, error)
-}
-
 type PreCommit1Out []byte
-
-type Commit1Out []byte
-
-type Proof []byte
 
 type SectorCids struct {
 	Unsealed cid.Cid
 	Sealed   cid.Cid
 }
 
-type Range struct {
-	Offset abi.UnpaddedPieceSize
-	Size   abi.UnpaddedPieceSize
-}
-
 type ReplicaUpdateProof []byte
-type ReplicaVanillaProofs [][]byte
-
-type ReplicaUpdateOut struct {
-	NewSealed   cid.Cid
-	NewUnsealed cid.Cid
-}
-
-type Sealer interface {
-	NewSector(ctx context.Context, sector SectorRef) error
-	DataCid(ctx context.Context, pieceSize abi.UnpaddedPieceSize, pieceData Data) (abi.PieceInfo, error)
-	AddPiece(ctx context.Context, sector SectorRef, pieceSizes []abi.UnpaddedPieceSize, newPieceSize abi.UnpaddedPieceSize, pieceData Data) (abi.PieceInfo, error)
-
-	SealPreCommit1(ctx context.Context, sector SectorRef, ticket abi.SealRandomness, pieces []abi.PieceInfo) (PreCommit1Out, error)
-	SealPreCommit2(ctx context.Context, sector SectorRef, pc1o PreCommit1Out) (SectorCids, error)
-
-	SealCommit1(ctx context.Context, sector SectorRef, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness, pieces []abi.PieceInfo, cids SectorCids) (Commit1Out, error)
-	SealCommit2(ctx context.Context, sector SectorRef, c1o Commit1Out) (Proof, error)
-
-	FinalizeSector(ctx context.Context, sector SectorRef) error
-
-	// ReleaseUnsealed marks parts of the unsealed sector file as safe to drop
-	//  (called by the fsm on restart, allows storage to keep no persistent
-	//   state about unsealed fast-retrieval copies)
-	ReleaseUnsealed(ctx context.Context, sector SectorRef, keepUnsealed []Range) error
-	// ReleaseSectorKey removes `sealed` from all storage
-	// called after successful sector upgrade
-	ReleaseSectorKey(ctx context.Context, sector SectorRef) error
-	// ReleaseReplicaUpgrade removes `update` / `update-cache` from all storage
-	// called when aborting sector upgrade
-	ReleaseReplicaUpgrade(ctx context.Context, sector SectorRef) error
-
-	// Removes all data associated with the specified sector
-	Remove(ctx context.Context, sector SectorRef) error
-
-	// Generate snap deals replica update
-	ReplicaUpdate(ctx context.Context, sector SectorRef, pieces []abi.PieceInfo) (ReplicaUpdateOut, error)
-
-	// Prove that snap deals replica was done correctly
-	ProveReplicaUpdate1(ctx context.Context, sector SectorRef, sectorKey, newSealed, newUnsealed cid.Cid) (ReplicaVanillaProofs, error)
-	ProveReplicaUpdate2(ctx context.Context, sector SectorRef, sectorKey, newSealed, newUnsealed cid.Cid, vanillaProofs ReplicaVanillaProofs) (ReplicaUpdateProof, error)
-
-	// GenerateSectorKeyFromData computes sector key given unsealed data and updated replica
-	GenerateSectorKeyFromData(ctx context.Context, sector SectorRef, unsealed cid.Cid) error
-
-	FinalizeReplicaUpdate(ctx context.Context, sector SectorRef) error
-
-	DownloadSectorData(ctx context.Context, sector SectorRef, finalized bool, src map[SectorFileType]SectorLocation) error
-}
-
-type Unsealer interface {
-	UnsealPiece(ctx context.Context, sector SectorRef, offset UnpaddedByteIndex, size abi.UnpaddedPieceSize, randomness abi.SealRandomness, commd cid.Cid) error
-	ReadPiece(ctx context.Context, writer io.Writer, sector SectorRef, offset UnpaddedByteIndex, size abi.UnpaddedPieceSize) (bool, error)
-}
-
-type Storage interface {
-	ProverPoSt
-	Sealer
-	Unsealer
-}
-
-type Validator interface {
-	CanCommit(sector SectorPaths) (bool, error)
-	CanProve(sector SectorPaths) (bool, error)
-}
 
 type Verifier interface {
 	VerifySeal(proof.SealVerifyInfo) (bool, error)
