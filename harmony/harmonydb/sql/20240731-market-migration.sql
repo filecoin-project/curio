@@ -230,14 +230,17 @@ $$ LANGUAGE plpgsql;
 -- This table can be used to track remote piece for offline deals
 -- The entries must be created by users
 CREATE TABLE market_offline_urls (
-    piece_cid TEXT NOT NULL,
+    uuid TEXT NOT NULL,
 
     url TEXT NOT NULL,
     headers jsonb NOT NULL DEFAULT '{}',
 
     raw_size BIGINT NOT NULL,
 
-    unique (piece_cid)
+    CONSTRAINT market_offline_urls_uuid_fk FOREIGN KEY (uuid)
+        REFERENCES market_mk12_deal_pipeline (uuid)
+        ON DELETE CASCADE,
+    CONSTRAINT market_offline_urls_uuid_unique UNIQUE (uuid)
 );
 
 -- This table is used for coordinating libp2p nodes

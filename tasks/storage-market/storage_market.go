@@ -378,7 +378,7 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 	}
 
 	err := d.db.Select(ctx, &goUrls, `SELECT url, headers, raw_size   
-								FROM market_offline_urls WHERE piece_cid = $1`, pcid)
+							FROM market_offline_urls WHERE piece_cid = $1 AND uuid = $2`, pcid, deal)
 
 	if err != nil {
 		return false, xerrors.Errorf("getting url and headers from db: %w", err)
