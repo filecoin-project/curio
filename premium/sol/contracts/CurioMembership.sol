@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+
 // Knowns risks: 
 // - This contract fails in 2092 (overflow)
 // - Only free and 500 & 2000 (x rate) payments are allowed. 
 // - Someone could downgrade someone else by paying 500 for their UUID. 
 //  -- We could see event logs to see this having happened from the emits. 
-// - A clever person could overwhelm uint16, 
-//     but this would be expensive if we only consider it valid if paid. 
+// - Tiny chance of colllision in UUIDs, mitigated by different addresses if needed.
 
 contract CurioMembership {
     address public admin;
@@ -18,13 +19,14 @@ contract CurioMembership {
 
     struct PaymentRecord {
         uint16 daysSince2024AndLevel; // Combines daysSince2024 and level
+        address payer;
     }
 
     // Mapping from UUID to PaymentRecord instead of from address to PaymentRecord
-    mapping(uint16 => PaymentRecord) public paymentRecords;
+    mapping(uint256 => PaymentRecord) public paymentRecords;
     
     // Define an event to emit the amount and UUID
-    event PaymentMade(uint16 indexed uuid, uint256 amount, uint8 level);
+    event PaymentMade(uint256 indexed uuid, address payer, uint256 amount, uint8 level);
     event FundsReceiverChanged(address indexed oldReceiver, address indexed newReceiver);
     event ExchangeRateUpdated(uint256 newRate, uint256 newTimestamp);
 
@@ -47,22 +49,39 @@ contract CurioMembership {
         fundsReceiver = _newReceiver;
     }
 
-    function setExchangeRate(uint256 newRate, uint256 newTimestamp, bytes memory signature) external {
+    function setExchangeRate(bytes memory rateAndTimestampBytes, bytes memory signature) external {
+        uint256 rateAndTimestamp;
+        assembly {
+            rateAndTimestamp := mload(add(rateAndTimestampBytes, 32))
+        }
+        uint256 newTimestamp = rateAndTimestamp & 0xFFFFFFFFFFFFFFFF;
         require(block.timestamp <= newTimestamp + 35 minutes, "Exchange rate update is too old");
 
-        // Verify the signature directly without the "Ethereum Signed Message" prefix
-        bytes32 messageHash = keccak256(abi.encodePacked(newRate, newTimestamp));
-        require(recoverSigner(messageHash, signature) == signerPublicKey, "Invalid signature");
+        bytes32 hashedMessage = getEthSignedMessageHash(keccak256(abi.encodePacked(rateAndTimestampBytes)));
+        require(ECDSA.recover(hashedMessage, signature) == signerPublicKey, "Invalid signature");
 
         // Update the exchange rate and timestamp if the signature is valid
-        exchangeRate = newRate;
+        exchangeRate = rateAndTimestamp >> 64;
         lastUpdateTimestamp = newTimestamp;
 
         // Emit the ExchangeRateUpdated event
-        emit ExchangeRateUpdated(newRate, newTimestamp);
+        emit ExchangeRateUpdated(exchangeRate, newTimestamp);
     }
 
-    function pay(uint16 uuid) external payable {
+    function getEthSignedMessageHash(bytes32 _messageHash) public pure returns (bytes32) {
+        // This replicates the behavior of ECDSA.toEthSignedMessageHash
+        return keccak256(
+            abi.encodePacked("\x19Ethereum Signed Message:\n32", _messageHash)
+        );
+    }
+
+    function adminUpdateMapping(uint256 uuid, uint8 level, address payer) external {
+        require(msg.sender == admin, "Only admin can perform this action");
+        updateRecord(uuid, level, payer);
+        emit PaymentMade(uuid, msg.sender, 0, level);
+    }
+
+    function pay(uint256 uuid) external payable {
         require(block.timestamp <= lastUpdateTimestamp + 40 minutes, "Exchange rate is outdated");
 
         uint256 level1Amount = exchangeRate * 500;
@@ -76,37 +95,23 @@ contract CurioMembership {
             revert("Incorrect payment amount");
         }
 
-        // Store the payment record, combining daysSince2024 and level
-        paymentRecords[uuid] = PaymentRecord({
-            daysSince2024AndLevel: uint16(
-                ((block.timestamp - 1704067200) / 1 days) << 1 | 
-                (msg.value == level2Amount ? 1 : 0)
-            )
-        });
+        updateRecord(uuid, level, msg.sender);
 
         // Forward the funds to the fundsReceiver address
         payable(fundsReceiver).transfer(msg.value);
 
         // Emit the PaymentMade event
-        emit PaymentMade(uuid, msg.value, level);
+        emit PaymentMade(uuid, msg.sender, msg.value, level);
     }
 
-    // Helper function to recover the signer from the signature
-    function recoverSigner(bytes32 messageHash, bytes memory signature) internal pure returns (address) {
-        (bytes32 r, bytes32 s, uint8 v) = splitSignature(signature);
-        return ecrecover(messageHash, v, r, s);
-    }
-
-    // Helper function to split the signature into r, s, and v
-    function splitSignature(bytes memory sig) internal pure returns (bytes32 r, bytes32 s, uint8 v) {
-        require(sig.length == 65, "Invalid signature length");
-
-        assembly {
-            r := mload(add(sig, 32))
-            s := mload(add(sig, 64))
-            v := byte(0, mload(add(sig, 96)))
-        }
-
-        return (r, s, v);
+    function updateRecord(uint256 uuid, uint8 level, address wallet) internal {
+        // Store the payment record, combining daysSince2024 and level
+        paymentRecords[uuid] = PaymentRecord({
+            daysSince2024AndLevel: uint16(
+                ((block.timestamp - 1704067200) / 1 days) << 1 | 
+                level
+            ),
+            payer: wallet
+        });
     }
 }

@@ -1,6 +1,8 @@
 import { ethers } from "hardhat";
 import { Contract } from "ethers";
 import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import { expectEvent } from "@openzeppelin/test-helpers";
+
 import { expect } from "chai";
 
 /* From the keymaker: (a different keymaker output is used in production)
@@ -64,40 +66,79 @@ describe("CurioMembership", function () {
     it("Should allow a signed rate change", async function () {
       const { contract, owner, otherAccount, fundsDestWallet } = await loadFixture(deployCurioMembershipFixture);
       var now = (+new Date() / 1000)|0;
-      var rate = 1000;
-      var signature = sign(rate, now);
-      const binaryBuffer = Buffer.from(signature.slice(2), 'hex') // turns hex 0x..... into a buffer of bytes.
-      var fn = await contract.connect(owner).getFunction('setExchangeRate')(rate, now, signature);
-      fn.to.emit(contract, "ExchangeRateUpdated").withArgs(rate, now, signature);
-      expect(await contract.exchangeRate).to.equal(rate);
+      var rate = 2000;
+      var {signature, sig, packedMessage, messageHash} = await sign(rate, now);
+      
+      //ethers.Signature.getNormalizedV(sig.v);
+      //const recoveredAddress = ethers.Signature.verify(messageHash, signature);
+      //expect(recoveredAddress).to.equal(rateChangeSignerAddress);
+
+      // Pack the rate and timestamp like PHP's pack("Q", $rate) . pack("Q", $timestamp)
+      //const packedData = coder.encode(['uint64', 'uint64'], [rate, now]);
+      await expect(contract.connect(owner).setExchangeRate(packedMessage, signature)).
+        //to.emit(contract, "DebugRate").withArgs(rate).
+        //to.emit(contract, "DebugTimestamp").withArgs(now).
+        //to.emit(contract, "DebugPackedData").withArgs(packedData).
+        //to.emit(contract, "DebugMessageHash").withArgs(ethers.keccak256(packedData)).
+        //to.emit(contract, "DebugExpectedSigner").withArgs('0x410EeD40c00cab9EE850bec3EE8336f6f21B54C3'). // it's right, but caps are off
+        //to.emit(contract, "DebugSplitSig").withArgs(sig.r, sig.s, sig.v).
+        //to.emit(contract, "DebugRecoveredSigner").withArgs(rateChangeSignerAddress). // <-- here's the failure
+        to.emit(contract, "ExchangeRateUpdated").withArgs(rate, now);
+
+      expect(await contract.exchangeRate()).to.equal(rate);
     });
 
     it("Should forbid a rate change with a bad signature", async function () {
       const { contract, owner, otherAccount, fundsDestWallet } = await loadFixture(deployCurioMembershipFixture);
-      var fn = await expect(contract.connect(owner).getFunction('setExchangeRate')(1000, +new Date()/1000, atob("SGVsbG8sIHdvcmxk")));
+      var now = (+new Date() / 1000)|0;
+      var rate = 2000;
+      var {signature, sig, packedMessage, messageHash} = await sign(rate, now);
+      var fn = await expect(contract.connect(owner).getFunction('setExchangeRate')(packedMessage, atob("SGVsbG8sIHdvcmxk")));
       fn.to.be.revertedWith("Exchange rate update is too old");
     });
 
     it("Should forbid a rate change from the distant past", async function () {
       const { contract, owner, otherAccount, fundsDestWallet } = await loadFixture(deployCurioMembershipFixture);
-
-      var fn = await expect(contract.connect(owner).getFunction('setExchangeRate')(1000, 100_000, atob("SGVsbG8sIHdvcmxk")));
+      var now = (+new Date("2005-01-01") / 1000)|0;
+      var rate = 2000;
+      var {signature, sig, packedMessage, messageHash} = await sign(rate, now);
+      var fn = await expect(contract.connect(owner).getFunction('setExchangeRate')(packedMessage, atob("SGVsbG8sIHdvcmxk")));
       fn.to.be.revertedWith("Exchange rate update is too old");
     });
   });
   describe("Pay", function() {
     it("Should allow pay() happy path for 500 with emit and updated pay record", async function() {
       const { contract, owner, otherAccount, fundsDestWallet } = await loadFixture(deployCurioMembershipFixture);
-      var fn = await contract.connect(owner).getFunction('pay')(1234, {value: 5_000});
-      fn.to.emit(contract, "PaymentMade").withArgs(1234, 5_000, 1);
-      expect(await contract.paymentRecords(1234)).to.equal(5_000);
+
+      var {signature, sig, packedMessage, messageHash} = await sign(1000, (+new Date() / 1000)|0);
+      var setup = await expect(contract.connect(owner).setExchangeRate(packedMessage, signature));
+      setup.to.emit(contract, "ExchangeRateUpdated").withArgs(1000, (+new Date() / 1000)|0);
+
+      var tx = await contract.connect(owner).getFunction('pay')(1234, {value: 5_000_000});
+      var receipt = await tx.wait();
+      expectEvent(receipt, "PaymentMade", {
+        memberId: 1234,
+        amount: 5_000_000,
+        paymentId: 1
+      });
+      expect(await contract.paymentRecords(1234)).to.equal(5_000_000);
     });
 
     it("Should allow pay() happy path for 2000 with emit and updated pay record", async function() {
       const { contract, owner, otherAccount, fundsDestWallet } = await loadFixture(deployCurioMembershipFixture);
-      var fn = await contract.connect(owner).getFunction('pay')(5678, {value: 20_000});
-      fn.to.emit(contract, "PaymentMade").withArgs(1234, 20_000, 1);
-      expect(await contract.paymentRecords(5678)).to.equal(20_000);
+
+      var {signature, sig, packedMessage, messageHash} = await sign(1000, (+new Date() / 1000)|0);
+      var setup = await expect(contract.connect(owner).setExchangeRate(packedMessage, signature));
+      setup.to.emit(contract, "ExchangeRateUpdated").withArgs(1000, (+new Date() / 1000)|0);
+
+      var tx = await contract.connect(owner).getFunction('pay')(5678, {value: 20_000_000});
+      var receipt = await tx.wait();
+      expectEvent(receipt, "PaymentMade", {
+        memberId: 5678,
+        amount: 20_000_000,
+        paymentId: 1
+      });
+      expect(await contract.paymentRecords(5678)).to.equal(20_000_000);
       // TODO verify event log entry
     });
 
@@ -115,46 +156,42 @@ describe("CurioMembership", function () {
   })
 });
 
-// Function to pack a 256-bit unsigned integer (equivalent to PHP's pack("Q", ...))
-function abiEncodePackedUint256(value1:bigint, value2:bigint) {
-  // Allocate a buffer of 64 bytes (32 bytes for each uint256 value)
-  const buffer = Buffer.alloc(64);
-
-  // Write the first uint256 value to the first 32 bytes (big-endian format)
-  buffer.writeBigUInt64BE(BigInt(value1 >> BigInt(64)), 0); // High 64 bits
-  buffer.writeBigUInt64BE(BigInt(value1 & BigInt(0xFFFFFFFFFFFFFFFF)), 8); // Low 64 bits
-
-  // Write the second uint256 value to the next 32 bytes (big-endian format)
-  buffer.writeBigUInt64BE(BigInt(value2 >> BigInt(64)), 32); // High 64 bits
-  buffer.writeBigUInt64BE(BigInt(value2 & BigInt(0xFFFFFFFFFFFFFFFF)), 40); // Low 64 bits
-
+// Function to pack a 64-bit unsigned integer (equivalent to PHP's pack("Q", ...))
+function packUint64(value:number) {
+  const buffer = Buffer.alloc(8);
+  buffer.writeBigUInt64BE(BigInt(value));
   return buffer;
 }
-function sign(rate:number, timestamp:number) {
+
+function packUint256(value:number) {
+  const buffer = Buffer.alloc(32);
+  buffer.writeBigUInt64BE(BigInt(value), 24);
+  return buffer;
+}
+
+async function sign(rate:number, timestamp:number) {
   // Import the necessary libraries
   const EC = require('elliptic').ec;
   const keccak256 = require('ethereumjs-util').keccak256;
   const ec = new EC('secp256k1');
 
   // Use the private key generated in PHP
-  const privateKey = '01a1f7cd43fc707d4012705d11b34758ec91d7b5fc3c733aa89e4e9a75f3c1d7';
+  const privateKey = '0x01a1f7cd43fc707d4012705d11b34758ec91d7b5fc3c733aa89e4e9a75f3c1d7';
 
   // Convert the private key to a key pair
-  const keyPair = ec.keyFromPrivate(privateKey);
+  const wallet = new ethers.Wallet(privateKey);
 
+  //const coder = new ethers.AbiCoder();
   // Pack the rate and timestamp like PHP's pack("Q", $rate) . pack("Q", $timestamp)
-  const packedData = abiEncodePackedUint256(BigInt(rate), BigInt(timestamp));
+  //const packedData = coder.encode(['uint64', 'uint64'], [rate, timestamp]);
+  const packedMessage = new Uint8Array(
+    [...packUint64(0), ...packUint64(0), ...packUint64(rate), ...packUint64(timestamp)]);
 
   // Hash the packed data using keccak256 (Ethereum's hash function)
-  const messageHash = keccak256(packedData);
+  const messageHash = ethers.keccak256(packedMessage);
 
   // Sign the message hash
-  const signature = keyPair.sign(messageHash);
-
-  // Get the signature in hex format
-  const r = signature.r.toString('hex');
-  const s = signature.s.toString('hex');
-  const v = signature.recoveryParam + 27; // Ethereum specific
-
-  return `0x${r}${s}${v}`;
+  const signature = await wallet.signMessage(ethers.getBytes(messageHash));
+  const sig = ethers.Signature.from(signature);
+  return {signature, sig, packedMessage, messageHash};//Buffer.from(signature, 'hex');
 }

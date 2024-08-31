@@ -1,7 +1,11 @@
 {
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
-    "hardhat": "^2.22.9"
+    "@openzeppelin/contracts": "^5.0.2",
+    "@openzeppelin/test-helpers": "^0.5.16",
+    "ethers": "^6.13.2",
+    "hardhat": "^2.22.9",
+    "typescript": "^5.5.4"
   },
   "dependencies": {
     "elliptic": "^6.5.7",
