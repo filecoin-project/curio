@@ -23,8 +23,7 @@ import (
 	"github.com/filecoin-project/curio/lib/indexing/indexstore"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
 
 var log = logging.Logger("indexing")

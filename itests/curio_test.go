@@ -31,12 +31,8 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ffiselect"
-<<<<<<< HEAD
-	storiface "github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/market/lmrpc"
-=======
 	"github.com/filecoin-project/curio/lib/indexing/indexstore"
->>>>>>> 48e953d (poller redesign)
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
 
 	lapi "github.com/filecoin-project/lotus/api"
@@ -131,14 +127,11 @@ func TestCurioHappyPath(t *testing.T) {
 	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
 	require.NoError(t, err)
 
-<<<<<<< HEAD
-=======
 	defer db.ITestDeleteAll()
 
 	idxStore, err := indexstore.NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, config.DefaultCurioConfig())
 	require.NoError(t, err)
 
->>>>>>> 48e953d (poller redesign)
 	var titles []string
 	err = db.Select(ctx, &titles, `SELECT title FROM harmony_config WHERE LENGTH(config) > 0`)
 	require.NoError(t, err)
@@ -446,4 +439,11 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	_ = logging.SetLogLevel("cu/seal", "DEBUG")
 
 	return capi, taskEngine.GracefullyTerminate, ccloser, finishCh
+}
+
+func envElse(env, els string) string {
+	if v := os.Getenv(env); v != "" {
+		return v
+	}
+	return els
 }

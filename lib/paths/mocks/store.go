@@ -8,9 +8,10 @@ import (
 	context "context"
 	reflect "reflect"
 
-	abi "github.com/filecoin-project/go-state-types/abi"
 	gomock "github.com/golang/mock/gomock"
 	cid "github.com/ipfs/go-cid"
+
+	abi "github.com/filecoin-project/go-state-types/abi"
 
 	storiface "github.com/filecoin-project/curio/lib/storiface"
 
