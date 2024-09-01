@@ -281,6 +281,5 @@ workflows:
             - build
           target: "`go list ./... | grep -v curio/itests`"
           suite: test-all
-          target: "`go list ./... | grep -v curio/itests`"
           get-params: true
           resource_class: 2xlarge
