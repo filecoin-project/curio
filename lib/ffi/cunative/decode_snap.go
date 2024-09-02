@@ -42,7 +42,6 @@ import (
 	"github.com/triplewz/poseidon"
 	"golang.org/x/xerrors"
 	"io"
-	"log"
 	"math/big"
 	"math/bits"
 	"unsafe"
@@ -52,78 +51,60 @@ type B32le = [32]byte
 type BytesLE = []byte
 
 func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica io.Reader, out io.Writer) error {
-	log.Println("Starting DecodeSnap")
-	log.Printf("spt: %v, commD: %s, commK: %s", spt, commD, commK)
-
 	ssize, err := spt.SectorSize()
 	if err != nil {
 		return xerrors.Errorf("failed to get sector size: %w", err)
 	}
-	log.Printf("Sector size: %d", ssize)
 
 	nodesCount := uint64(ssize / proof.NODE_SIZE)
-	log.Printf("Nodes count: %d", nodesCount)
 
 	commDNew, err := commcid.CIDToDataCommitmentV1(commD)
 	if err != nil {
 		return xerrors.Errorf("failed to convert commD to CID: %w", err)
 	}
-	log.Printf("commDNew: %x", commDNew)
 
 	commROld, err := commcid.CIDToReplicaCommitmentV1(commK)
 	if err != nil {
 		return xerrors.Errorf("failed to convert commK to replica commitment: %w", err)
 	}
-	log.Printf("commROld: %x", commROld)
 
 	// Calculate phi
 	phi, err := Phi(commDNew, commROld)
 	if err != nil {
 		return xerrors.Errorf("failed to calculate phi: %w", err)
 	}
-	log.Printf("phi: %x", phi)
 
 	// Precompute all rho^-1 values
 	h := hDefault(nodesCount)
-	log.Printf("h value: %d", h)
 	rhoInvs, err := NewInv(phi, h, nodesCount)
 	if err != nil {
 		return xerrors.Errorf("failed to compute rho inverses: %w", err)
 	}
-	log.Println("rho inverses computed")
 
 	// Allocate buffers
 	replicaBuffer := make([]byte, ssize)
 	keyBuffer := make([]byte, ssize)
 	outBuffer := make([]byte, ssize)
-	log.Printf("Buffers allocated, size: %d", ssize)
 
 	// Read all data into buffers
 	_, err = io.ReadFull(replica, replicaBuffer)
 	if err != nil {
 		return xerrors.Errorf("failed to read replica data: %w", err)
 	}
-	log.Printf("Replica data read, first 32 bytes: %x", replicaBuffer[:32])
 
 	_, err = io.ReadFull(key, keyBuffer)
 	if err != nil {
 		return xerrors.Errorf("failed to read key data: %w", err)
 	}
-	log.Printf("Key data read, first 32 bytes: %x", keyBuffer[:32])
 
 	// Convert rhoInvs to byte slice
 	rhoInvsBytes := make([]byte, nodesCount*32)
 	for i := uint64(0); i < nodesCount; i++ {
 		rhoInv := rhoInvs.Get(i)
 		copy(rhoInvsBytes[i*32:(i+1)*32], rhoInv[:])
-		if i < 5 {
-			log.Printf("rhoInv[%d]: %x", i, rhoInv)
-		}
 	}
-	log.Println("rhoInvs converted to byte slice")
 
 	// Call the C function
-	log.Println("Calling snap_decode_loop")
 	C.snap_decode_loop(
 		(*C.uint8_t)(unsafe.Pointer(&replicaBuffer[0])),
 		(*C.uint8_t)(unsafe.Pointer(&keyBuffer[0])),
@@ -132,15 +113,12 @@ func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica 
 		C.size_t(nodesCount),
 		C.size_t(proof.NODE_SIZE),
 	)
-	log.Println("snap_decode_loop completed")
 
 	// Write the result
-	log.Printf("Writing output, first 32 bytes: %x", outBuffer[:32])
 	_, err = out.Write(outBuffer)
 	if err != nil {
 		return xerrors.Errorf("failed to write output data: %w", err)
 	}
-	log.Println("Output written successfully")
 
 	return nil
 }
@@ -200,13 +178,8 @@ func NewInv(phi [32]byte, h uint64, nodesCount uint64) (*Rhos, error) {
 
 // NewInvRange generates the inverted rhos for a certain number of nodes and range
 func NewInvRange(phi [32]byte, h uint64, nodesCount, offset, num uint64) (*Rhos, error) {
-	log.Printf("NewInvRange: h=%d, nodesCount=%d, offset=%d, num=%d", h, nodesCount, offset, num)
-
 	bitsShr := calcBitsShr(h, nodesCount)
 	highRange := calcHighRange(offset, num, bitsShr)
-
-	log.Printf("bitsShr: %d", bitsShr)
-	log.Printf("highRange: %v", highRange)
 
 	rhos := make(map[uint64]B32le)
 	for high := highRange.Start; high <= highRange.End; high++ {
@@ -217,8 +190,6 @@ func NewInvRange(phi [32]byte, h uint64, nodesCount, offset, num uint64) (*Rhos,
 
 		invRho := new(fr.Element).Inverse(rhoVal) // same as blst_fr_eucl_inverse??
 		rhos[high] = ffElementBytesLE(invRho)
-
-		log.Printf("rho[%d]: %x", high, rhos[high])
 	}
 
 	return &Rhos{
