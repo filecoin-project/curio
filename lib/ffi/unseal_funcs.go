@@ -2,12 +2,14 @@ package ffi
 
 import (
 	"context"
+	"os"
+	"time"
+
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/ffi/cunative"
 	"github.com/filecoin-project/curio/lib/storiface"
-	"golang.org/x/xerrors"
-	"os"
-	"time"
 )
 
 func (sb *SealCalls) DecodeSDR(ctx context.Context, taskID harmonytask.TaskID, sector storiface.SectorRef) error {

@@ -26,11 +26,12 @@ void curio_blst_decode(const uint8_t *replica, const uint8_t *key, uint8_t *out,
 */
 import "C"
 import (
-	pool "github.com/libp2p/go-buffer-pool"
 	"io"
 	"runtime"
 	"sync"
 	"unsafe"
+
+	pool "github.com/libp2p/go-buffer-pool"
 )
 
 /*
