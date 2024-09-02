@@ -33,10 +33,12 @@ import "C"
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"github.com/filecoin-project/curio/lib/proof"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/ipfs/go-cid"
+	"github.com/snadrus/must"
 	"github.com/triplewz/poseidon"
 	ff "github.com/triplewz/poseidon/bls12_381"
 	"golang.org/x/xerrors"
@@ -144,17 +146,27 @@ func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica 
 	return nil
 }
 
+func calculateDomainTag() *big.Int {
+	// This matches the HASH_TYPE_GEN_RANDOMNESS in Rust
+	// HashType::Custom(CType::Arbitrary(1))
+	tag := new(big.Int).SetUint64(1)
+	tag.Mul(tag, new(big.Int).SetUint64(1<<40)) // x_pow2(1, 40)
+	return tag
+}
+
 // Phi implements the phi function as described in the Rust code.
 // It computes phi = H(comm_d_new, comm_r_old) using Poseidon hash with a custom domain separation tag.
 func Phi(commDNew, commROld BytesLE) ([32]byte, error) {
+	domainHex := "0000000000010000000000000000000000000000000000000000000000000000"
+
+	domain := bigIntLE(must.One(hex.DecodeString(domainHex)))
 	inputA := bigIntLE(commDNew)
 	inputB := bigIntLE(commROld)
-	input := []*big.Int{inputA, inputB}
+	input := []*big.Int{domain, inputA, inputB}
 
-	// Generate Poseidon constants with a custom domain separation tag
-	cons, err := genPoseidonConstantsWithCustomTag(3, 1) // Using 1 as the custom tag
+	cons, err := poseidon.GenPoseidonConstants(4)
 	if err != nil {
-		return [32]byte{}, xerrors.Errorf("failed to generate Poseidon constants: %w", err)
+		return [32]byte{}, err
 	}
 
 	// Compute the hash
@@ -178,8 +190,7 @@ func rho(phi [32]byte, high uint32) (*ff.Element, error) {
 	inputB := new(big.Int).SetUint64(uint64(high))
 	input := []*big.Int{inputA, inputB}
 
-	// Generate Poseidon constants with a custom domain separation tag
-	cons, err := genPoseidonConstantsWithCustomTag(3, 1) // Using 1 as the custom tag
+	cons, err := poseidon.GenPoseidonConstants(3)
 	if err != nil {
 		return nil, err
 	}
@@ -247,19 +258,6 @@ func calcHighRange(offset, num uint64, bitsShr uint64) Range {
 	return Range{Start: firstHigh, End: lastHigh}
 }
 
-// genPoseidonConstantsWithCustomTag generates Poseidon constants with a custom domain separation tag.
-func genPoseidonConstantsWithCustomTag(width, customTag int) (*poseidon.PoseidonConst, error) {
-	cons, err := poseidon.GenPoseidonConstants(width)
-	if err != nil {
-		return nil, err
-	}
-
-	// ???
-	cons.RoundConsts[0] = new(ff.Element).SetUint64(uint64(customTag))
-
-	return cons, nil
-}
-
 // the `h` values allowed for the given sector-size. Each `h` value is a possible number
 // of high bits taken from each challenge `c`. A single value of `h = hs[i]` is taken from `hs`
 // for each proof; the circuit takes `h_select = 2^i` as a public input.
@@ -288,7 +286,6 @@ func ffElementBytesLE(z *ff.Element) (res B32le) {
 	return
 }
 
-// BE new(big.Int).SetBytes(commDNew[:])
 func bigIntLE(in BytesLE) *big.Int {
 	// copy to b
 	b := make([]byte, len(in))
@@ -299,5 +296,6 @@ func bigIntLE(in BytesLE) *big.Int {
 		b[i], b[j] = b[j], b[i]
 	}
 
+	// SetBytes is BE, so we needed to invert
 	return new(big.Int).SetBytes(b)
 }

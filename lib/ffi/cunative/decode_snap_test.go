@@ -3,6 +3,7 @@ package cunative
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/hex"
 	"github.com/detailyang/go-fallocate"
 	"github.com/filecoin-project/curio/lib/proof"
 	ffi "github.com/filecoin-project/filecoin-ffi"
@@ -148,4 +149,21 @@ func TestSnapDecode(t *testing.T) {
 		t.Logf("i: %d", i)
 		require.Equal(t, unsBuf[i:i+proof.NODE_SIZE], out.Bytes()[i:i+proof.NODE_SIZE])
 	}
+}
+
+func TestPhi(t *testing.T) {
+	d := "b0c133e15929f16f9491f9c82a128786d006a3b7286642cc78644c974f55c42f"
+	r := "58b65c3e1a1d52c078cb69b4ac995e515c54be9cbecd8ed28ee8009722d3c969"
+
+	goodPhi := "436c953f3ae69bf47385748daf306871e6839a91d5229a55dda0e02653ce2f27"
+
+	dBytes, err := hex.DecodeString(d)
+	require.NoError(t, err)
+	rBytes, err := hex.DecodeString(r)
+	require.NoError(t, err)
+
+	phi, err := Phi(dBytes, rBytes)
+	require.NoError(t, err)
+
+	require.Equal(t, goodPhi, hex.EncodeToString(phi[:]))
 }
