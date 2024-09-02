@@ -145,9 +145,7 @@ func TestSnapDecode(t *testing.T) {
 	require.Equal(t, int(ssize), out.Len())
 
 	for i := 0; i < out.Len(); i += proof.NODE_SIZE {
-		//require.Equal(t, unsBuf[i], out.Bytes()[i])
-		t.Logf("i: %d", i)
-		require.Equal(t, unsBuf[i:i+proof.NODE_SIZE], out.Bytes()[i:i+proof.NODE_SIZE])
+		require.Equal(t, padded[i:i+proof.NODE_SIZE], out.Bytes()[i:i+proof.NODE_SIZE])
 	}
 }
 

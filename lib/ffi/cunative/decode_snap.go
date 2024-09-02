@@ -32,15 +32,14 @@ void snap_decode_loop(const uint8_t *replica, const uint8_t *key, const uint8_t 
 import "C"
 
 import (
-	"encoding/binary"
 	"encoding/hex"
+	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 	"github.com/filecoin-project/curio/lib/proof"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/ipfs/go-cid"
 	"github.com/snadrus/must"
 	"github.com/triplewz/poseidon"
-	ff "github.com/triplewz/poseidon/bls12_381"
 	"golang.org/x/xerrors"
 	"io"
 	"log"
@@ -146,25 +145,14 @@ func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica 
 	return nil
 }
 
-func calculateDomainTag() *big.Int {
-	// This matches the HASH_TYPE_GEN_RANDOMNESS in Rust
-	// HashType::Custom(CType::Arbitrary(1))
-	tag := new(big.Int).SetUint64(1)
-	tag.Mul(tag, new(big.Int).SetUint64(1<<40)) // x_pow2(1, 40)
-	return tag
-}
-
 // Phi implements the phi function as described in the Rust code.
 // It computes phi = H(comm_d_new, comm_r_old) using Poseidon hash with a custom domain separation tag.
-func Phi(commDNew, commROld BytesLE) ([32]byte, error) {
-	domainHex := "0000000000010000000000000000000000000000000000000000000000000000"
-
-	domain := bigIntLE(must.One(hex.DecodeString(domainHex)))
+func Phi(commDNew, commROld BytesLE) (B32le, error) {
 	inputA := bigIntLE(commDNew)
 	inputB := bigIntLE(commROld)
-	input := []*big.Int{domain, inputA, inputB}
+	input := []*big.Int{inputA, inputB}
 
-	cons, err := poseidon.GenPoseidonConstants(4)
+	cons, err := poseidon.GenPoseidonConstants[*CursedPoseidonGenRandomnessElement](3)
 	if err != nil {
 		return [32]byte{}, err
 	}
@@ -175,22 +163,17 @@ func Phi(commDNew, commROld BytesLE) ([32]byte, error) {
 		return [32]byte{}, xerrors.Errorf("failed to compute Poseidon hash: %w", err)
 	}
 
-	hElement := ffElementBytesLE(new(ff.Element).SetBigInt(h))
+	hElement := ffElementBytesLE(new(fr.Element).SetBigInt(h))
 
 	return hElement, nil
 }
 
-func rho(phi [32]byte, high uint32) (*ff.Element, error) {
-	// Reverse phi for correct endianness
-	for i, j := 0, len(phi)-1; i < j; i, j = i+1, j-1 {
-		phi[i], phi[j] = phi[j], phi[i]
-	}
-
-	inputA := new(big.Int).SetBytes(phi[:])
+func rho(phi B32le, high uint32) (*fr.Element, error) {
+	inputA := bigIntLE(phi[:])
 	inputB := new(big.Int).SetUint64(uint64(high))
 	input := []*big.Int{inputA, inputB}
 
-	cons, err := poseidon.GenPoseidonConstants(3)
+	cons, err := poseidon.GenPoseidonConstants[*CursedPoseidonGenRandomnessElement](3)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +184,7 @@ func rho(phi [32]byte, high uint32) (*ff.Element, error) {
 		return nil, err
 	}
 
-	return new(ff.Element).SetBigInt(h), nil
+	return new(fr.Element).SetBigInt(h), nil
 }
 
 // Rhos represents a collection of precomputed rho values
@@ -217,8 +200,13 @@ func NewInv(phi [32]byte, h uint64, nodesCount uint64) (*Rhos, error) {
 
 // NewInvRange generates the inverted rhos for a certain number of nodes and range
 func NewInvRange(phi [32]byte, h uint64, nodesCount, offset, num uint64) (*Rhos, error) {
+	log.Printf("NewInvRange: h=%d, nodesCount=%d, offset=%d, num=%d", h, nodesCount, offset, num)
+
 	bitsShr := calcBitsShr(h, nodesCount)
 	highRange := calcHighRange(offset, num, bitsShr)
+
+	log.Printf("bitsShr: %d", bitsShr)
+	log.Printf("highRange: %v", highRange)
 
 	rhos := make(map[uint64]B32le)
 	for high := highRange.Start; high <= highRange.End; high++ {
@@ -227,8 +215,10 @@ func NewInvRange(phi [32]byte, h uint64, nodesCount, offset, num uint64) (*Rhos,
 			return nil, err
 		}
 
-		invRho := new(ff.Element).Inverse(rhoVal) // same as blst_fr_eucl_inverse??
+		invRho := new(fr.Element).Inverse(rhoVal) // same as blst_fr_eucl_inverse??
 		rhos[high] = ffElementBytesLE(invRho)
+
+		log.Printf("rho[%d]: %x", high, rhos[high])
 	}
 
 	return &Rhos{
@@ -244,7 +234,7 @@ func (r *Rhos) Get(offset uint64) B32le {
 }
 
 func calcBitsShr(h uint64, nodesCount uint64) uint64 {
-	nodeIndexBitLen := 64 - uint64(bits.TrailingZeros64(nodesCount))
+	nodeIndexBitLen := uint64(bits.TrailingZeros64(nodesCount))
 	return nodeIndexBitLen - h
 }
 
@@ -276,13 +266,8 @@ func hDefault(nodesCount uint64) uint64 {
 	return 10
 }
 
-func ffElementBytesLE(z *ff.Element) (res B32le) {
-	_z := z.ToRegular()
-	binary.LittleEndian.PutUint64(res[0:8], _z[0])
-	binary.LittleEndian.PutUint64(res[8:16], _z[1])
-	binary.LittleEndian.PutUint64(res[16:24], _z[2])
-	binary.LittleEndian.PutUint64(res[24:32], _z[3])
-
+func ffElementBytesLE(z *fr.Element) (res B32le) {
+	fr.LittleEndian.PutElement(&res, *z)
 	return
 }
 
@@ -299,3 +284,149 @@ func bigIntLE(in BytesLE) *big.Int {
 	// SetBytes is BE, so we needed to invert
 	return new(big.Int).SetBytes(b)
 }
+
+/////
+// Sanity lost beyond this point
+
+type CursedPoseidonGenRandomnessElement struct {
+	*fr.Element
+}
+
+func (c *CursedPoseidonGenRandomnessElement) SetUint64(u uint64) *CursedPoseidonGenRandomnessElement {
+	if c.Element == nil {
+		c.Element = new(fr.Element)
+	}
+
+	c.Element = c.Element.SetUint64(u)
+	return c
+}
+
+func (c *CursedPoseidonGenRandomnessElement) SetBigInt(b *big.Int) *CursedPoseidonGenRandomnessElement {
+	if c.Element == nil {
+		c.Element = new(fr.Element)
+	}
+
+	c.Element = c.Element.SetBigInt(b)
+	return c
+}
+
+func (c *CursedPoseidonGenRandomnessElement) SetBytes(bytes []byte) *CursedPoseidonGenRandomnessElement {
+	if c.Element == nil {
+		c.Element = new(fr.Element)
+	}
+
+	c.Element = c.Element.SetBytes(bytes)
+	return c
+}
+
+func (c *CursedPoseidonGenRandomnessElement) BigInt(b *big.Int) *big.Int {
+	if c.Element == nil {
+		c.Element = new(fr.Element)
+	}
+
+	return c.Element.BigInt(b)
+}
+
+func (c *CursedPoseidonGenRandomnessElement) SetOne() *CursedPoseidonGenRandomnessElement {
+	if c.Element == nil {
+		c.Element = new(fr.Element)
+	}
+
+	c.Element = c.Element.SetOne()
+	return c
+}
+
+func (c *CursedPoseidonGenRandomnessElement) SetZero() *CursedPoseidonGenRandomnessElement {
+	if c.Element == nil {
+		c.Element = new(fr.Element)
+	}
+
+	c.Element = c.Element.SetZero()
+	return c
+}
+
+func (c *CursedPoseidonGenRandomnessElement) Inverse(e *CursedPoseidonGenRandomnessElement) *CursedPoseidonGenRandomnessElement {
+	if c.Element == nil {
+		c.Element = new(fr.Element)
+	}
+
+	c.Element = c.Element.Inverse(e.Element)
+	return c
+}
+
+func (c *CursedPoseidonGenRandomnessElement) Set(e *CursedPoseidonGenRandomnessElement) *CursedPoseidonGenRandomnessElement {
+	if c.Element == nil {
+		c.Element = new(fr.Element)
+	}
+
+	c.Element = c.Element.Set(e.Element)
+	return c
+}
+
+func (c *CursedPoseidonGenRandomnessElement) Square(e *CursedPoseidonGenRandomnessElement) *CursedPoseidonGenRandomnessElement {
+	if c.Element == nil {
+		c.Element = new(fr.Element)
+	}
+
+	c.Element = c.Element.Square(e.Element)
+	return c
+}
+
+func (c *CursedPoseidonGenRandomnessElement) Mul(e2 *CursedPoseidonGenRandomnessElement, e *CursedPoseidonGenRandomnessElement) *CursedPoseidonGenRandomnessElement {
+	if c.Element == nil {
+		c.Element = new(fr.Element)
+	}
+
+	c.Element = c.Element.Mul(e2.Element, e.Element)
+	return c
+}
+
+func (c *CursedPoseidonGenRandomnessElement) Add(e2 *CursedPoseidonGenRandomnessElement, e *CursedPoseidonGenRandomnessElement) *CursedPoseidonGenRandomnessElement {
+	if c.Element == nil {
+		c.Element = new(fr.Element)
+	}
+
+	c.Element = c.Element.Add(e2.Element, e.Element)
+	return c
+}
+
+func (c *CursedPoseidonGenRandomnessElement) Sub(e2 *CursedPoseidonGenRandomnessElement, e *CursedPoseidonGenRandomnessElement) *CursedPoseidonGenRandomnessElement {
+	if c.Element == nil {
+		c.Element = new(fr.Element)
+	}
+
+	c.Element = c.Element.Sub(e2.Element, e.Element)
+	return c
+}
+
+func (c *CursedPoseidonGenRandomnessElement) Cmp(x *CursedPoseidonGenRandomnessElement) int {
+	if c.Element == nil {
+		c.Element = new(fr.Element)
+	}
+
+	return c.Element.Cmp(x.Element)
+}
+
+func (c *CursedPoseidonGenRandomnessElement) SetString(s string) (*CursedPoseidonGenRandomnessElement, error) {
+	if s == "3" {
+		whatTheFuck := "0000000000010000000000000000000000000000000000000000000000000000"
+		dstLE := must.One(hex.DecodeString(whatTheFuck))
+		inverted := make([]byte, len(dstLE))
+		for i := 0; i < len(dstLE); i++ {
+			inverted[i] = dstLE[len(dstLE)-1-i]
+		}
+
+		c.SetBytes(inverted)
+		return c, nil
+	}
+
+	el, err := c.Element.SetString(s)
+	if err != nil {
+		return nil, err
+	}
+
+	c.Element = el
+	return c, nil
+}
+
+var _ poseidon.Element[*CursedPoseidonGenRandomnessElement] = &CursedPoseidonGenRandomnessElement{}
