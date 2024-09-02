@@ -110,6 +110,7 @@ func Decode(replica, key io.Reader, out io.Writer) error {
 	// Start a goroutine to close the job channel when all reading is done
 	go func() {
 		defer close(jobChan)
+		chunkID := int64(0)
 		for {
 			rbuf := pool.Get(bufSz)
 			kbuf := pool.Get(bufSz)
@@ -139,7 +140,8 @@ func Decode(replica, key io.Reader, out io.Writer) error {
 			// worker will release rbuff and kbuf, so get len here
 			rblen := len(rbuf)
 
-			jobChan <- job{rbuf[:rn], kbuf[:rn], rn}
+			jobChan <- job{rbuf[:rn], kbuf[:rn], rn, chunkID}
+			chunkID++
 
 			if rn < rblen {
 				return
@@ -155,12 +157,31 @@ func Decode(replica, key io.Reader, out io.Writer) error {
 
 	// Write results in order
 	var writeErr error
-	for r := range resultChan {
-		_, err := out.Write(r.data)
-		pool.Put(r.data)
+	expectedChunkID := int64(0)
+	resultBuffer := make(map[int64]result)
 
-		if err != nil && writeErr == nil {
-			writeErr = err
+	for r := range resultChan {
+		for {
+			if r.chunkID == expectedChunkID {
+				_, err := out.Write(r.data)
+				pool.Put(r.data)
+				if err != nil && writeErr == nil {
+					writeErr = err
+				}
+				expectedChunkID++
+
+				// Check if we have buffered results that can now be written
+				if nextResult, ok := resultBuffer[expectedChunkID]; ok {
+					r = nextResult
+					delete(resultBuffer, expectedChunkID)
+					continue
+				}
+				break
+			} else {
+				// Buffer this result for later
+				resultBuffer[r.chunkID] = r
+				break
+			}
 		}
 	}
 
@@ -177,14 +198,16 @@ func Decode(replica, key io.Reader, out io.Writer) error {
 }
 
 type job struct {
-	rbuf []byte
-	kbuf []byte
-	size int
+	rbuf    []byte
+	kbuf    []byte
+	size    int
+	chunkID int64
 }
 
 type result struct {
-	data []byte
-	size int
+	data    []byte
+	size    int
+	chunkID int64
 }
 
 func worker(wg *sync.WaitGroup, jobs <-chan job, results chan<- result) {
@@ -201,6 +224,6 @@ func worker(wg *sync.WaitGroup, jobs <-chan job, results chan<- result) {
 		pool.Put(j.rbuf)
 		pool.Put(j.kbuf)
 
-		results <- result{obuf, j.size}
+		results <- result{obuf, j.size, j.chunkID}
 	}
 }
