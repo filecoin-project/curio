@@ -18,7 +18,8 @@ contract CurioMembership {
     address public signerPublicKey; // The public key for verifying signatures
 
     struct PaymentRecord {
-        uint16 daysSince2024AndLevel; // Combines daysSince2024 and level
+        uint16 daysSince2024;
+        uint16 level; 
         address payer;
     }
 
@@ -107,10 +108,8 @@ contract CurioMembership {
     function updateRecord(uint256 uuid, uint8 level, address wallet) internal {
         // Store the payment record, combining daysSince2024 and level
         paymentRecords[uuid] = PaymentRecord({
-            daysSince2024AndLevel: uint16(
-                ((block.timestamp - 1704067200) / 1 days) << 1 | 
-                level
-            ),
+            daysSince2024: uint16((block.timestamp - 1704067200) / 1 days),
+            level: level,
             payer: wallet
         });
     }
