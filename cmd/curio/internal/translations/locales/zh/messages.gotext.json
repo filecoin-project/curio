@@ -1185,6 +1185,186 @@
       "translation": "更多信息请访问 http://docs.curiostorage.org",
       "message": "Additional info is at http://docs.curiostorage.org",
       "placeholder": null
+    },
+    {
+      "id": "Not adding DB variables to RC file as shell {Shell} is not BASH or ZSH.",
+      "translation": "由于 shell {Shell} 不是 BASH 或 ZSH，因此未将数据库变量添加到 RC 文件中。",
+      "message": "Not adding DB variables to RC file as shell {Shell} is not BASH or ZSH.",
+      "placeholder": null
+    },
+    {
+      "id": "Error getting user home directory:",
+      "translation": "获取用户主目录时出错:",
+      "message": "Error getting user home directory:",
+      "placeholder": null
+    },
+    {
+      "id": "Error opening {RcFile} file: {Err}",
+      "translation": "打开文件 {RcFile} 时出错: {Err}",
+      "message": "Error opening {RcFile} file: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Error reading {RcFile} file: {Err}",
+      "translation": "读取文件 {RcFile} 时出错: {Err}",
+      "message": "Error reading {RcFile} file: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Error opening {RcFile} file in write mode:",
+      "translation": "以写入模式打开文件 {RcFile} 时出错:",
+      "message": "Error opening {RcFile} file in write mode:",
+      "placeholder": null
+    },
+    {
+      "id": "Error writing to {RcFile} file: {Err}",
+      "translation": "写入文件 {RcFile} 时出错: {Err}",
+      "message": "Error writing to {RcFile} file: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Failed to flush thw writes to file {RcFile}: {Err}",
+      "translation": "无法将写入内容刷新到文件 {RcFile}: {Err}",
+      "message": "Failed to flush thw writes to file {RcFile}: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Retrying.......({I}/5)",
+      "translation": "重试中.......({I}/5)",
+      "message": "Retrying.......({I}/5)",
+      "placeholder": null
+    },
+    {
+      "id": "Execute 'curio service-setup' to setup the Curio service on this node and proceed to do the same on the other nodes",
+      "translation": "执行 'curio service-setup' 以在此节点上设置 Curio 服务，并在其他节点上执行相同操作",
+      "message": "Execute 'curio service-setup' to setup the Curio service on this node and proceed to do the same on the other nodes",
+      "placeholder": null
+    },
+    {
+      "id": "This interactive tool creates/replace Curio service file and creates the basic env file for it.",
+      "translation": "此交互式工具创建/替换 Curio 服务文件并为其创建基本的 env 文件。",
+      "message": "This interactive tool creates/replace Curio service file and creates the basic env file for it.",
+      "placeholder": null
+    },
+    {
+      "id": "This process is idempotent.",
+      "translation": "此过程是幂等的。",
+      "message": "This process is idempotent.",
+      "placeholder": null
+    },
+    {
+      "id": "Service file {ServiceName} already exists at {ServicePath}, no changes made.",
+      "translation": "服务文件 {ServiceName} 已存在于 {ServicePath}，未做任何更改。",
+      "message": "Service file {ServiceName} already exists at {ServicePath}, no changes made.",
+      "placeholder": null
+    },
+    {
+      "id": "Error checking for service file at {ServicePath}: {Err}",
+      "translation": "检查 {ServicePath} 的服务文件时出错: {Err}",
+      "message": "Error checking for service file at {ServicePath}: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Error writing service file: {Err}",
+      "translation": "写入服务文件时出错: {Err}",
+      "message": "Error writing service file: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Service file {ServiceName} created successfully at {TargetServicePath}",
+      "translation": "服务文件 {ServiceName} 已成功创建于 {TargetServicePath}",
+      "message": "Service file {ServiceName} created successfully at {TargetServicePath}",
+      "placeholder": null
+    },
+    {
+      "id": "Error reloading systemd: {Err}",
+      "translation": "重新加载 systemd 时出错: {Err}",
+      "message": "Error reloading systemd: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Error enabling service: {Err}",
+      "translation": "启用服务时出错: {Err}",
+      "message": "Error enabling service: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Service {ServiceName} enabled.",
+      "translation": "服务 {ServiceName} 已启用。",
+      "message": "Service {ServiceName} enabled.",
+      "placeholder": null
+    },
+    {
+      "id": "Enter the info to configure your Curio node",
+      "translation": "输入信息以配置您的 Curio 节点",
+      "message": "Enter the info to configure your Curio node",
+      "placeholder": null
+    },
+    {
+      "id": "CURIO_LAYERS: {}",
+      "translation": "CURIO_LAYERS: {}",
+      "message": "CURIO_LAYERS: {}",
+      "placeholder": null
+    },
+    {
+      "id": "CURIO_REPO_PATH: {Curio}",
+      "translation": "CURIO_REPO_PATH: {Curio}",
+      "message": "CURIO_REPO_PATH: {Curio}",
+      "placeholder": null
+    },
+    {
+      "id": "CURIO_NODE_NAME: {}",
+      "translation": "CURIO_NODE_NAME: {}",
+      "message": "CURIO_NODE_NAME: {}",
+      "placeholder": null
+    },
+    {
+      "id": "Continue update the env file.",
+      "translation": "继续更新 env 文件。",
+      "message": "Continue update the env file.",
+      "placeholder": null
+    },
+    {
+      "id": "Env config error occurred, abandoning: {Error}",
+      "translation": "发生环境配置错误，放弃中: {Error}",
+      "message": "Env config error occurred, abandoning: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "Enter the config layer name to use for this node. Base is already included by default",
+      "translation": "输入此节点要使用的配置层名称。默认情况下已包含 Base",
+      "message": "Enter the config layer name to use for this node. Base is already included by default",
+      "placeholder": null
+    },
+    {
+      "id": "No layer provided",
+      "translation": "未提供层",
+      "message": "No layer provided",
+      "placeholder": null
+    },
+    {
+      "id": "Enter the {Stringrepo_path_node_namei_1}",
+      "translation": "输入 {Stringrepo_path_node_namei_1}",
+      "message": "Enter the {Stringrepo_path_node_namei_1}",
+      "placeholder": null
+    },
+    {
+      "id": "Error opening or creating file {EnvFilePath}: {Err}",
+      "translation": "打开或创建文件 {EnvFilePath} 时出错: {Err}",
+      "message": "Error opening or creating file {EnvFilePath}: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Error writing to file {EnvFilePath}: {Err}",
+      "translation": "写入文件 {EnvFilePath} 时出错: {Err}",
+      "message": "Error writing to file {EnvFilePath}: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Service env file /etc/curio.env created successfully.",
+      "translation": "服务环境文件 /etc/curio.env 已成功创建。",
+      "message": "Service env file /etc/curio.env created successfully.",
+      "placeholder": null
     }
   ]
 }

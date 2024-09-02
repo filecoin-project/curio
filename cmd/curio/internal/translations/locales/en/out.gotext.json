@@ -89,42 +89,177 @@
             "fuzzy": true
         },
         {
-            "id": "Where should we save your database config file?",
-            "message": "Where should we save your database config file?",
-            "translation": "Where should we save your database config file?",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "Aborting migration.",
-            "message": "Aborting migration.",
-            "translation": "Aborting migration.",
+            "id": "Not adding DB variables to RC file as shell {Shell} is not BASH or ZSH.",
+            "message": "Not adding DB variables to RC file as shell {Shell} is not BASH or ZSH.",
+            "translation": "Not adding DB variables to RC file as shell {Shell} is not BASH or ZSH.",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
-                    "id": "Error",
-                    "string": "%[1]v",
+                    "id": "Shell",
+                    "string": "%[1]s",
                     "type": "string",
                     "underlyingType": "string",
                     "argNum": 1,
-                    "expr": "err.Error()"
+                    "expr": "shell"
                 }
             ],
             "fuzzy": true
         },
         {
-            "id": "Error writing file: {Error}",
-            "message": "Error writing file: {Error}",
-            "translation": "Error writing file: {Error}",
+            "id": "Error getting user home directory:",
+            "message": "Error getting user home directory:",
+            "translation": "Error getting user home directory:",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
-                    "id": "Error",
+                    "id": "Err",
+                    "string": "%[1]v",
+                    "type": "error",
+                    "underlyingType": "interface{Error() string}",
+                    "argNum": 1,
+                    "expr": "err"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Error opening {RcFile} file: {Err}",
+            "message": "Error opening {RcFile} file: {Err}",
+            "translation": "Error opening {RcFile} file: {Err}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "RcFile",
                     "string": "%[1]s",
                     "type": "string",
                     "underlyingType": "string",
                     "argNum": 1,
-                    "expr": "err.Error()"
+                    "expr": "rcFile"
+                },
+                {
+                    "id": "Err",
+                    "string": "%[2]s",
+                    "type": "error",
+                    "underlyingType": "interface{Error() string}",
+                    "argNum": 2,
+                    "expr": "err"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Error reading {RcFile} file: {Err}",
+            "message": "Error reading {RcFile} file: {Err}",
+            "translation": "Error reading {RcFile} file: {Err}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "RcFile",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "rcFile"
+                },
+                {
+                    "id": "Err",
+                    "string": "%[2]s",
+                    "type": "error",
+                    "underlyingType": "interface{Error() string}",
+                    "argNum": 2,
+                    "expr": "err"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Error opening {RcFile} file in write mode:",
+            "message": "Error opening {RcFile} file in write mode:",
+            "translation": "Error opening {RcFile} file in write mode:",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "RcFile",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "rcFile"
+                },
+                {
+                    "id": "Err",
+                    "string": "%[2]v",
+                    "type": "error",
+                    "underlyingType": "interface{Error() string}",
+                    "argNum": 2,
+                    "expr": "err"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Error writing to {RcFile} file: {Err}",
+            "message": "Error writing to {RcFile} file: {Err}",
+            "translation": "Error writing to {RcFile} file: {Err}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "RcFile",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "rcFile"
+                },
+                {
+                    "id": "Err",
+                    "string": "%[2]s",
+                    "type": "error",
+                    "underlyingType": "interface{Error() string}",
+                    "argNum": 2,
+                    "expr": "err"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Failed to flush thw writes to file {RcFile}: {Err}",
+            "message": "Failed to flush thw writes to file {RcFile}: {Err}",
+            "translation": "Failed to flush thw writes to file {RcFile}: {Err}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "RcFile",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "rcFile"
+                },
+                {
+                    "id": "Err",
+                    "string": "%[2]s",
+                    "type": "error",
+                    "underlyingType": "interface{Error() string}",
+                    "argNum": 2,
+                    "expr": "err"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Retrying.......({I}/5)",
+            "message": "Retrying.......({I}/5)",
+            "translation": "Retrying.......({I}/5)",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "I",
+                    "string": "%[1]d",
+                    "type": "int",
+                    "underlyingType": "int",
+                    "argNum": 1,
+                    "expr": "i"
                 }
             ],
             "fuzzy": true
@@ -147,9 +282,9 @@
             "fuzzy": true
         },
         {
-            "id": "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.",
-            "message": "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.",
-            "translation": "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.",
+            "id": "Execute 'curio service-setup' to setup the Curio service on this node and proceed to do the same on the other nodes",
+            "message": "Execute 'curio service-setup' to setup the Curio service on this node and proceed to do the same on the other nodes",
+            "translation": "Execute 'curio service-setup' to setup the Curio service on this node and proceed to do the same on the other nodes",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },
@@ -261,6 +396,23 @@
             "message": "No, abort",
             "translation": "No, abort",
             "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Aborting migration.",
+            "message": "Aborting migration.",
+            "translation": "Aborting migration.",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]v",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
             "fuzzy": true
         },
         {
@@ -1314,6 +1466,326 @@
                     "expr": "err.Error()"
                 }
             ],
+            "fuzzy": true
+        },
+        {
+            "id": "This interactive tool creates/replace Curio service file and creates the basic env file for it.",
+            "message": "This interactive tool creates/replace Curio service file and creates the basic env file for it.",
+            "translation": "This interactive tool creates/replace Curio service file and creates the basic env file for it.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Service file {ServiceName} already exists at {ServicePath}, no changes made.",
+            "message": "Service file {ServiceName} already exists at {ServicePath}, no changes made.",
+            "translation": "Service file {ServiceName} already exists at {ServicePath}, no changes made.",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "ServiceName",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "serviceName"
+                },
+                {
+                    "id": "ServicePath",
+                    "string": "%[2]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 2,
+                    "expr": "servicePath"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Error checking for service file at {ServicePath}: {Err}",
+            "message": "Error checking for service file at {ServicePath}: {Err}",
+            "translation": "Error checking for service file at {ServicePath}: {Err}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "ServicePath",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "servicePath"
+                },
+                {
+                    "id": "Err",
+                    "string": "%[2]s",
+                    "type": "error",
+                    "underlyingType": "interface{Error() string}",
+                    "argNum": 2,
+                    "expr": "err"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Error writing service file: {Err}",
+            "message": "Error writing service file: {Err}",
+            "translation": "Error writing service file: {Err}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Err",
+                    "string": "%[1]s",
+                    "type": "error",
+                    "underlyingType": "interface{Error() string}",
+                    "argNum": 1,
+                    "expr": "err"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Service file {ServiceName} created successfully at {TargetServicePath}",
+            "message": "Service file {ServiceName} created successfully at {TargetServicePath}",
+            "translation": "Service file {ServiceName} created successfully at {TargetServicePath}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "ServiceName",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "serviceName"
+                },
+                {
+                    "id": "TargetServicePath",
+                    "string": "%[2]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 2,
+                    "expr": "targetServicePath"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Error reloading systemd: {Err}",
+            "message": "Error reloading systemd: {Err}",
+            "translation": "Error reloading systemd: {Err}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Err",
+                    "string": "%[1]s",
+                    "type": "error",
+                    "underlyingType": "interface{Error() string}",
+                    "argNum": 1,
+                    "expr": "err"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Error enabling service: {Err}",
+            "message": "Error enabling service: {Err}",
+            "translation": "Error enabling service: {Err}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Err",
+                    "string": "%[1]s",
+                    "type": "error",
+                    "underlyingType": "interface{Error() string}",
+                    "argNum": 1,
+                    "expr": "err"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Service {ServiceName} enabled.",
+            "message": "Service {ServiceName} enabled.",
+            "translation": "Service {ServiceName} enabled.",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "ServiceName",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "serviceName"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Enter the info to configure your Curio node",
+            "message": "Enter the info to configure your Curio node",
+            "translation": "Enter the info to configure your Curio node",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "CURIO_LAYERS: {}",
+            "message": "CURIO_LAYERS: {}",
+            "translation": "CURIO_LAYERS: {}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "\"\""
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "CURIO_REPO_PATH: {Curio}",
+            "message": "CURIO_REPO_PATH: {Curio}",
+            "translation": "CURIO_REPO_PATH: {Curio}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Curio",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "\"~/.curio\""
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "CURIO_NODE_NAME: {}",
+            "message": "CURIO_NODE_NAME: {}",
+            "translation": "CURIO_NODE_NAME: {}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "\"\""
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Continue update the env file.",
+            "message": "Continue update the env file.",
+            "translation": "Continue update the env file.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Env config error occurred, abandoning: {Error}",
+            "message": "Env config error occurred, abandoning: {Error}",
+            "translation": "Env config error occurred, abandoning: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Enter the config layer name to use for this node. Base is already included by default",
+            "message": "Enter the config layer name to use for this node. Base is already included by default",
+            "translation": "Enter the config layer name to use for this node. Base is already included by default",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "No layer provided",
+            "message": "No layer provided",
+            "translation": "No layer provided",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Enter the {Stringrepo_path_node_namei_1}",
+            "message": "Enter the {Stringrepo_path_node_namei_1}",
+            "translation": "Enter the {Stringrepo_path_node_namei_1}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Stringrepo_path_node_namei_1",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "[]string{\"repo path\", \"node name\"}[i-1]"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Error opening or creating file {EnvFilePath}: {Err}",
+            "message": "Error opening or creating file {EnvFilePath}: {Err}",
+            "translation": "Error opening or creating file {EnvFilePath}: {Err}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "EnvFilePath",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "envFilePath"
+                },
+                {
+                    "id": "Err",
+                    "string": "%[2]s",
+                    "type": "error",
+                    "underlyingType": "interface{Error() string}",
+                    "argNum": 2,
+                    "expr": "err"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Error writing to file {EnvFilePath}: {Err}",
+            "message": "Error writing to file {EnvFilePath}: {Err}",
+            "translation": "Error writing to file {EnvFilePath}: {Err}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "EnvFilePath",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "envFilePath"
+                },
+                {
+                    "id": "Err",
+                    "string": "%[2]s",
+                    "type": "error",
+                    "underlyingType": "interface{Error() string}",
+                    "argNum": 2,
+                    "expr": "err"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Service env file /etc/curio.env created successfully.",
+            "message": "Service env file /etc/curio.env created successfully.",
+            "translation": "Service env file /etc/curio.env created successfully.",
+            "translatorComment": "Copied from source.",
             "fuzzy": true
         },
         {
