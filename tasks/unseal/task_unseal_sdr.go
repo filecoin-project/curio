@@ -1,17 +1,19 @@
 package unseal
 
 import (
-"context"
+	"context"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 )
 
@@ -24,8 +26,8 @@ type UnsealSDRApi interface {
 type TaskUnsealSdr struct {
 	max int
 
-	sc *ffi.SealCalls
-	db *harmonydb.DB
+	sc  *ffi.SealCalls
+	db  *harmonydb.DB
 	api UnsealSDRApi
 }
 
@@ -51,17 +53,30 @@ func (t *TaskUnsealSdr) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 	sectorParams := sectorParamsArr[0]
 
-	maddr, err := address.NewIDAddress(uint64(sectorParams.SpID))
+	var sectorMeta []struct {
+		RegSealProof  int64  `db:"reg_seal_proof"`
+		TicketValue   []byte `db:"ticket_value"`
+		OrigSealedCID string `db:"orig_sealed_cid"`
+	}
+	err = t.db.Select(ctx, &sectorMeta, `
+		SELECT ticket_value, orig_sealed_cid
+		FROM sectors_meta
+		WHERE sp_id = $1 AND sector_num = $2`, sectorParams.SpID, sectorParams.SectorNumber)
 	if err != nil {
-		return false, xerrors.Errorf("failed to convert miner ID to address: %w", err)
+		return false, xerrors.Errorf("getting sector meta: %w", err)
 	}
 
-	sinfo, err := t.api.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(sectorParams.SectorNumber), types.EmptyTSK)
-	if err != nil {
-		return false, xerrors.Errorf("getting sector info: %w", err)
+	if len(sectorMeta) != 1 {
+		return false, xerrors.Errorf("expected 1 sector meta, got %d", len(sectorMeta))
 	}
-	if sinfo == nil {
-		return false, xerrors.Errorf("sector not found")
+
+	commK, err := cid.Decode(sectorMeta[0].OrigSealedCID)
+	if err != nil {
+		return false, xerrors.Errorf("decoding commk: %w", err)
+	}
+
+	if len(sectorMeta[0].TicketValue) != abi.RandomnessLength {
+		return false, xerrors.Errorf("invalid ticket value length %d", len(sectorMeta[0].TicketValue))
 	}
 
 	sref := storiface.SectorRef{
@@ -69,10 +84,14 @@ func (t *TaskUnsealSdr) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			Miner:  abi.ActorID(sectorParams.SpID),
 			Number: abi.SectorNumber(sectorParams.SectorNumber),
 		},
-		ProofType: sinfo.SealProof,
+		ProofType: abi.RegisteredSealProof(sectorMeta[0].RegSealProof),
 	}
 
-	t.sc.GenerateSDR(ctx, taskID, storiface.FTKeyCache, sref,
+	if err := t.sc.GenerateSDR(ctx, taskID, storiface.FTKeyCache, sref, sectorMeta[0].TicketValue, commK); err != nil {
+		return false, xerrors.Errorf("generate sdr: %w", err)
+	}
+
+	return true, nil
 }
 
 func (t *TaskUnsealSdr) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
@@ -93,7 +112,7 @@ func (t *TaskUnsealSdr) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu:     4, // todo multicore sdr
 			Gpu:     0,
 			Ram:     54 << 30,
-			Storage: t.sc.Storage(t.taskToSector, storiface.FTKeyCache, storiface.FTNone, ssize, storiface.PathSealing),
+			Storage: t.sc.Storage(t.taskToSector, storiface.FTKeyCache, storiface.FTNone, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 2,
 		Follows:     nil,
