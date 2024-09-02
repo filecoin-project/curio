@@ -1,32 +1,34 @@
 package cunative
 
-// #cgo CFLAGS: -I${SRCDIR}/../../../extern/supra_seal/deps/blst/bindings
-// #cgo LDFLAGS: -L${SRCDIR}/../../../extern/supra_seal/deps/blst -lblst
-// #include <stdint.h>
-// #include <stdlib.h>
-// #include "blst.h"
-//
-// void snap_decode_loop(const uint8_t *replica, const uint8_t *key, const uint8_t *rho_invs, uint8_t *out, size_t node_count, size_t node_size) {
-//     blst_fr replica_fr, key_fr, rho_inv_fr, out_fr;
-//
-//     for (size_t i = 0; i < node_count; i++) {
-//         // Read replica data
-//         blst_fr_from_lendian(&replica_fr, replica + i * node_size);
-//
-//         // Read key data
-//         blst_fr_from_lendian(&key_fr, key + i * node_size);
-//
-//         // Read rho inverse
-//         blst_fr_from_lendian(&rho_inv_fr, rho_invs + i * 32);
-//
-//         // Perform the decoding operation
-//         blst_fr_sub(&out_fr, &replica_fr, &key_fr);
-//         blst_fr_mul(&out_fr, &out_fr, &rho_inv_fr);
-//
-//         // Write the result
-//         blst_fr_to_lendian(out + i * node_size, &out_fr);
-//     }
-// }
+/*
+#cgo CFLAGS: -I${SRCDIR}/../../../extern/supra_seal/deps/blst/bindings
+#cgo LDFLAGS: -L${SRCDIR}/../../../extern/supra_seal/deps/blst -lblst
+#include <stdint.h>
+#include <stdlib.h>
+#include "blst.h"
+
+void snap_decode_loop(const uint8_t *replica, const uint8_t *key, const uint8_t *rho_invs, uint8_t *out, size_t node_count, size_t node_size) {
+    blst_fr replica_fr, key_fr, rho_inv_fr, out_fr;
+
+    for (size_t i = 0; i < node_count; i++) {
+        // Read replica data
+        blst_fr_from_uint64(&replica_fr, (const uint64_t*)(replica + i * node_size));
+
+        // Read key data
+        blst_fr_from_uint64(&key_fr, (const uint64_t*)(key + i * node_size));
+
+        // Read rho inverse
+        blst_fr_from_uint64(&rho_inv_fr, (const uint64_t*)(rho_invs + i * 32));
+
+        // Perform the decoding operation
+        blst_fr_sub(&out_fr, &replica_fr, &key_fr);
+        blst_fr_mul(&out_fr, &out_fr, &rho_inv_fr);
+
+        // Write the result
+        blst_uint64_from_fr((uint64_t*)(out + i * node_size), &out_fr);
+    }
+}
+*/
 import "C"
 
 import (
