@@ -88,13 +88,11 @@ func (t *TaskUnsealDecode) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	isSnap := commK != commR
 	log.Infow("unseal decode", "snap", isSnap, "task", taskID, "commK", commK, "commR", commR)
 	if isSnap {
-		// snap
-		err := t.doSnap()
+		err := t.sc.DecodeSnap(ctx, taskID, commR, commK, sref)
 		if err != nil {
-			return false, xerrors.Errorf("doSnap: %w", err)
+			return false, xerrors.Errorf("DecodeSnap: %w", err)
 		}
 	} else {
-		// sdr
 		err = t.sc.DecodeSDR(ctx, taskID, sref)
 		if err != nil {
 			return false, xerrors.Errorf("DecodeSDR: %w", err)
@@ -107,10 +105,6 @@ func (t *TaskUnsealDecode) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	}
 
 	return true, nil
-}
-
-func (t *TaskUnsealDecode) doSnap() error {
-	panic("todo")
 }
 
 func (t *TaskUnsealDecode) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
