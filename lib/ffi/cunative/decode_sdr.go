@@ -8,7 +8,7 @@ package cunative
 #include "blst.h"
 
 // Decode function using blst_fr_sub
-void blst_decode(const uint8_t *replica, const uint8_t *key, uint8_t *out, size_t len) {
+void curio_blst_decode(const uint8_t *replica, const uint8_t *key, uint8_t *out, size_t len) {
     blst_fr value, k, result;
 
     for (size_t i = 0; i < len; i += 32) {
@@ -64,7 +64,7 @@ func Decode(replica, key io.Reader, out io.Writer) error {
 		}
 
 		// Decode the chunk using blst_decode
-		C.blst_decode(
+		C.curio_blst_decode(
 			(*C.uint8_t)(unsafe.Pointer(&rbuf[0])),
 			(*C.uint8_t)(unsafe.Pointer(&kbuf[0])),
 			(*C.uint8_t)(unsafe.Pointer(&obuf[0])),
@@ -214,7 +214,7 @@ func worker(wg *sync.WaitGroup, jobs <-chan job, results chan<- result) {
 	defer wg.Done()
 	for j := range jobs {
 		obuf := pool.Get(j.size)
-		C.blst_decode(
+		C.curio_blst_decode(
 			(*C.uint8_t)(unsafe.Pointer(&j.rbuf[0])),
 			(*C.uint8_t)(unsafe.Pointer(&j.kbuf[0])),
 			(*C.uint8_t)(unsafe.Pointer(&obuf[0])),

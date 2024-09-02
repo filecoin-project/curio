@@ -92,6 +92,12 @@ func (t *TaskUnsealSdr) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return false, xerrors.Errorf("generate sdr: %w", err)
 	}
 
+	// Mark the task as done
+	_, err = t.db.Exec(ctx, `UPDATE sectors_unseal_pipeline SET after_unseal_sdr = TRUE, task_id_unseal_sdr = NULL WHERE task_id_unseal_sdr = $1`, taskID)
+	if err != nil {
+		return false, xerrors.Errorf("updating task: %w", err)
+	}
+
 	return true, nil
 }
 

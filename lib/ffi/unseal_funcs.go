@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func (sb *SealCalls) UnsealSDR(ctx context.Context, taskID harmonytask.TaskID, sector storiface.SectorRef) error {
+func (sb *SealCalls) DecodeSDR(ctx context.Context, taskID harmonytask.TaskID, sector storiface.SectorRef) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -30,7 +30,7 @@ func (sb *SealCalls) UnsealSDR(ctx context.Context, taskID harmonytask.TaskID, s
 		return xerrors.Errorf("getting key reader: %w", err)
 	}
 
-	tempDest := paths.Unsealed + ".tmp"
+	tempDest := paths.Unsealed + storiface.TempSuffix
 
 	outFile, err := os.Create(tempDest)
 	if err != nil {

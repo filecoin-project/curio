@@ -74,6 +74,14 @@ func (t *TaskUnsealDecode) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("decoding CurSealedCID: %w", err)
 	}
 
+	sref := storiface.SectorRef{
+		ID: abi.SectorID{
+			Miner:  abi.ActorID(sectorParams.SpID),
+			Number: abi.SectorNumber(sectorParams.SectorNumber),
+		},
+		ProofType: abi.RegisteredSealProof(sectorParams.RegSealProof),
+	}
+
 	isSnap := commK != commR
 	log.Infow("unseal decode", "snap", isSnap, "task", taskID, "commK", commK, "commR", commR)
 	if isSnap {
@@ -82,21 +90,20 @@ func (t *TaskUnsealDecode) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		if err != nil {
 			return false, xerrors.Errorf("doSnap: %w", err)
 		}
-
-		return true, nil
+	} else {
+		// sdr
+		err = t.sc.DecodeSDR(ctx, taskID, sref)
+		if err != nil {
+			return false, xerrors.Errorf("DecodeSDR: %w", err)
+		}
 	}
 
-	// sdr
-	err = t.doSDR()
+	_, err = t.db.Exec(ctx, `UPDATE sectors_unseal_pipeline SET after_decode_sector = TRUE, task_id_decode_sector = NULL WHERE task_id_decode_sector = $1`, taskID)
 	if err != nil {
-		return false, xerrors.Errorf("doSDR: %w", err)
+		return false, xerrors.Errorf("updating task: %w", err)
 	}
 
 	return true, nil
-}
-
-func (t *TaskUnsealDecode) doSDR() error {
-	panic("todo")
 }
 
 func (t *TaskUnsealDecode) doSnap() error {
@@ -121,7 +128,7 @@ func (t *TaskUnsealDecode) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu:     4, // todo multicore sdr
 			Gpu:     0,
 			Ram:     54 << 30,
-			Storage: t.sc.Storage(t.taskToSector, storiface.FTUnsealed, storiface.FTNone, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
+			Storage: t.sc.Storage(t.taskToSector, storiface.FTUnsealed, storiface.FTNone, ssize, storiface.PathStorage, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 2,
 		Follows:     nil,

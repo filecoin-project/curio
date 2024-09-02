@@ -114,6 +114,10 @@ var FsOverheadFinalized = map[SectorFileType]int{
 // TypeFromString converts a string to a SectorFileType
 type SectorFileType int
 
+// TempSuffix is appended to file names when thef are worked on before being atomically moved to their final location.
+// Local Path GC should be aware of this suffix and have adequate cleanup logic.
+const TempSuffix = ".tmp"
+
 // TypeFromString converts a string representation of a SectorFileType to its corresponding value.
 // It returns the SectorFileType and nil error if the string matches one of the existing types.
 // If the string does not match any type, it returns 0 and an error.

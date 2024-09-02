@@ -104,12 +104,15 @@ func (p *path) stat(ls LocalStorage, newReserve ...statExistingSectorForReservat
 
 		used, err := ls.DiskUsage(sp)
 		if err == os.ErrNotExist {
-			p, ferr := tempFetchDest(sp, false)
-			if ferr != nil {
-				return 0, ferr
-			}
+			used, err = ls.DiskUsage(sp + storiface.TempSuffix)
+			if err == os.ErrNotExist {
+				p, ferr := tempFetchDest(sp, false)
+				if ferr != nil {
+					return 0, ferr
+				}
 
-			used, err = ls.DiskUsage(p)
+				used, err = ls.DiskUsage(p)
+			}
 		}
 		if err != nil {
 			// we don't care about 'not exist' errors, as storage can be

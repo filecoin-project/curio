@@ -22,7 +22,7 @@ func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID,
 	defer done()
 
 	dest := paths.Piece
-	tempDest := dest + ".tmp"
+	tempDest := dest + storiface.TempSuffix
 
 	destFile, err := os.OpenFile(tempDest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
