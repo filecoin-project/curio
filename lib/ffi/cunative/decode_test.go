@@ -196,13 +196,25 @@ func TestDecode(t *testing.T) {
 
 /*
 2024-09-02:
+
 goos: linux
 goarch: amd64
 pkg: github.com/filecoin-project/curio/lib/ffi/cunative
 cpu: AMD Ryzen Threadripper PRO 7995WX 96-Cores
 BenchmarkDecode4G
 BenchmarkDecode4G-192     	       1	1201906605 ns/op	3573.46 MB/s
-PASS
+
+goos: linux
+goarch: amd64
+pkg: github.com/filecoin-project/curio/lib/ffi/cunative
+cpu: AMD Ryzen 7 7840HS w/ Radeon 780M Graphics
+BenchmarkDecode4G-16                   1        23175794389 ns/op        185.32 MB/s
+
+goos: linux
+goarch: amd64
+pkg: github.com/filecoin-project/curio/lib/ffi/cunative
+cpu: Intel(R) Xeon(R) Silver 4310T CPU @ 2.30GHz
+BenchmarkDecode4G-40    	       1	6854494251 ns/op	 626.59 MB/s
 */
 func BenchmarkDecode4G(b *testing.B) {
 	// Size of the data to decode (4 GiB)
@@ -234,8 +246,8 @@ func BenchmarkDecode4G(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		// Reset the readers and output buffer for each iteration
-		sealedReader.Seek(0, io.SeekStart)
-		keyReader.Seek(0, io.SeekStart)
+		_, _ = sealedReader.Seek(0, io.SeekStart)
+		_, _ = keyReader.Seek(0, io.SeekStart)
 		outputBuffer.Reset()
 
 		// Call the Decode function

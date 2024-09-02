@@ -162,23 +162,45 @@ func (sb *SealCalls) GenerateSDR(ctx context.Context, taskID harmonytask.TaskID,
 	}
 
 	intoPath := storiface.PathByType(paths, into)
+	intoTemp := intoPath + ".tmp"
 
 	// make sure the cache dir is empty
 	if err := os.RemoveAll(intoPath); err != nil {
-		return xerrors.Errorf("removing cache dir: %w", err)
+		return xerrors.Errorf("removing into: %w", err)
 	}
-	if err := os.MkdirAll(intoPath, 0755); err != nil {
-		return xerrors.Errorf("mkdir cache dir: %w", err)
+	if err := os.RemoveAll(intoTemp); err != nil {
+		return xerrors.Errorf("removing intoTemp: %w", err)
+	}
+	if err := os.MkdirAll(intoTemp, 0755); err != nil {
+		return xerrors.Errorf("mkdir intoTemp dir: %w", err)
 	}
 
 	// generate new sector key
 	err = ffi.GenerateSDR(
 		sector.ProofType,
-		intoPath,
+		intoTemp,
 		replicaID,
 	)
 	if err != nil {
-		return xerrors.Errorf("generating SDR %d (%s): %w", sector.ID.Number, intoPath, err)
+		return xerrors.Errorf("generating SDR %d (%s): %w", sector.ID.Number, intoTemp, err)
+	}
+
+	onlyLastLayer := into == storiface.FTKey
+	if onlyLastLayer {
+		// move the last layer to the final location
+		numLayers, err := proofpaths.SDRLayers(sector.ProofType)
+		if err != nil {
+			return xerrors.Errorf("getting number of layers: %w", err)
+		}
+		lastLayer := proofpaths.LayerFileName(numLayers)
+
+		if err := os.Rename(filepath.Join(intoTemp, lastLayer), filepath.Join(intoPath)); err != nil {
+			return xerrors.Errorf("renaming last layer: %w", err)
+		}
+	} else {
+		if err := os.Rename(intoTemp, intoPath); err != nil {
+			return xerrors.Errorf("renaming into: %w", err)
+		}
 	}
 
 	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, into); err != nil {

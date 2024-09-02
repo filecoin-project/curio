@@ -97,14 +97,14 @@ func Decode(replica, key io.Reader, out io.Writer) error {
 	}
 
 	var wg sync.WaitGroup
-	errChan := make(chan error, workers)
+	errChan := make(chan error, 1)
 	jobChan := make(chan job, workers)
 	resultChan := make(chan result, workers)
 
 	// Start worker goroutines
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
-		go worker(&wg, jobChan, resultChan, errChan)
+		go worker(&wg, jobChan, resultChan)
 	}
 
 	// Start a goroutine to close the job channel when all reading is done
@@ -187,7 +187,7 @@ type result struct {
 	size int
 }
 
-func worker(wg *sync.WaitGroup, jobs <-chan job, results chan<- result, errors chan<- error) {
+func worker(wg *sync.WaitGroup, jobs <-chan job, results chan<- result) {
 	defer wg.Done()
 	for j := range jobs {
 		obuf := pool.Get(j.size)
