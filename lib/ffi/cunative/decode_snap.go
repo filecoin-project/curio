@@ -41,6 +41,7 @@ import (
 	ff "github.com/triplewz/poseidon/bls12_381"
 	"golang.org/x/xerrors"
 	"io"
+	"log"
 	"math/big"
 	"math/bits"
 	"unsafe"
@@ -50,59 +51,78 @@ type B32le = [32]byte
 type BytesLE = []byte
 
 func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica io.Reader, out io.Writer) error {
+	log.Println("Starting DecodeSnap")
+	log.Printf("spt: %v, commD: %s, commK: %s", spt, commD, commK)
+
 	ssize, err := spt.SectorSize()
 	if err != nil {
 		return xerrors.Errorf("failed to get sector size: %w", err)
 	}
+	log.Printf("Sector size: %d", ssize)
 
 	nodesCount := uint64(ssize / proof.NODE_SIZE)
+	log.Printf("Nodes count: %d", nodesCount)
 
 	commDNew, err := commcid.CIDToDataCommitmentV1(commD)
 	if err != nil {
 		return xerrors.Errorf("failed to convert commD to CID: %w", err)
 	}
+	log.Printf("commDNew: %x", commDNew)
 
 	commROld, err := commcid.CIDToReplicaCommitmentV1(commK)
 	if err != nil {
 		return xerrors.Errorf("failed to convert commK to replica commitment: %w", err)
 	}
+	log.Printf("commROld: %x", commROld)
 
 	// Calculate phi
 	phi, err := Phi(commDNew, commROld)
 	if err != nil {
 		return xerrors.Errorf("failed to calculate phi: %w", err)
 	}
+	log.Printf("phi: %x", phi)
 
 	// Precompute all rho^-1 values
 	h := hDefault(nodesCount)
+	log.Printf("h value: %d", h)
 	rhoInvs, err := NewInv(phi, h, nodesCount)
 	if err != nil {
 		return xerrors.Errorf("failed to compute rho inverses: %w", err)
 	}
+	log.Println("rho inverses computed")
 
 	// Allocate buffers
 	replicaBuffer := make([]byte, ssize)
 	keyBuffer := make([]byte, ssize)
 	outBuffer := make([]byte, ssize)
+	log.Printf("Buffers allocated, size: %d", ssize)
 
 	// Read all data into buffers
 	_, err = io.ReadFull(replica, replicaBuffer)
 	if err != nil {
 		return xerrors.Errorf("failed to read replica data: %w", err)
 	}
+	log.Printf("Replica data read, first 32 bytes: %x", replicaBuffer[:32])
+
 	_, err = io.ReadFull(key, keyBuffer)
 	if err != nil {
 		return xerrors.Errorf("failed to read key data: %w", err)
 	}
+	log.Printf("Key data read, first 32 bytes: %x", keyBuffer[:32])
 
 	// Convert rhoInvs to byte slice
 	rhoInvsBytes := make([]byte, nodesCount*32)
 	for i := uint64(0); i < nodesCount; i++ {
 		rhoInv := rhoInvs.Get(i)
 		copy(rhoInvsBytes[i*32:(i+1)*32], rhoInv[:])
+		if i < 5 {
+			log.Printf("rhoInv[%d]: %x", i, rhoInv)
+		}
 	}
+	log.Println("rhoInvs converted to byte slice")
 
 	// Call the C function
+	log.Println("Calling snap_decode_loop")
 	C.snap_decode_loop(
 		(*C.uint8_t)(unsafe.Pointer(&replicaBuffer[0])),
 		(*C.uint8_t)(unsafe.Pointer(&keyBuffer[0])),
@@ -111,12 +131,15 @@ func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica 
 		C.size_t(nodesCount),
 		C.size_t(proof.NODE_SIZE),
 	)
+	log.Println("snap_decode_loop completed")
 
 	// Write the result
+	log.Printf("Writing output, first 32 bytes: %x", outBuffer[:32])
 	_, err = out.Write(outBuffer)
 	if err != nil {
 		return xerrors.Errorf("failed to write output data: %w", err)
 	}
+	log.Println("Output written successfully")
 
 	return nil
 }
@@ -231,7 +254,7 @@ func genPoseidonConstantsWithCustomTag(width, customTag int) (*poseidon.Poseidon
 		return nil, err
 	}
 
-	// Set the custom domain tag
+	// ???
 	cons.RoundConsts[0] = new(ff.Element).SetUint64(uint64(customTag))
 
 	return cons, nil
@@ -266,8 +289,12 @@ func ffElementBytesLE(z *ff.Element) (res B32le) {
 }
 
 // BE new(big.Int).SetBytes(commDNew[:])
-func bigIntLE(b []byte) *big.Int {
-	// invert b
+func bigIntLE(in BytesLE) *big.Int {
+	// copy to b
+	b := make([]byte, len(in))
+	copy(b, in)
+
+	// invert
 	for i, j := 0, len(b)-1; i < j; i, j = i+1, j-1 {
 		b[i], b[j] = b[j], b[i]
 	}
