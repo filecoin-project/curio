@@ -12,8 +12,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 )
 
 type MoveStorageTask struct {
@@ -157,13 +156,24 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (m *MoveStorageTask) GetSpid(db *harmonydb.DB, taskID int64) string {
-	var spid string
-	err := db.QueryRow(context.Background(), `SELECT sp_id FROM sectors_sdr_pipeline WHERE task_id_move_storage = $1`, taskID).Scan(&spid)
+	sid, err := m.GetSectorID(db, taskID)
 	if err != nil {
-		log.Errorf("getting spid: %s", err)
+		log.Errorf("getting sector id: %s", err)
 		return ""
 	}
-	return spid
+	return sid.Miner.String()
+}
+
+func (m *MoveStorageTask) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error) {
+	var spId, sectorNumber uint64
+	err := db.QueryRow(context.Background(), `SELECT sp_id,sector_number FROM sectors_sdr_pipeline WHERE task_id_move_storage = $1`, taskID).Scan(&spId, &sectorNumber)
+	if err != nil {
+		return nil, err
+	}
+	return &abi.SectorID{
+		Miner:  abi.ActorID(spId),
+		Number: abi.SectorNumber(sectorNumber),
+	}, nil
 }
 
 var _ = harmonytask.Reg(&MoveStorageTask{})

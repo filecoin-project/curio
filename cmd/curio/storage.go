@@ -20,10 +20,10 @@ import (
 
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/lib/reqcontext"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var storageCmd = &cli.Command{
@@ -438,7 +438,7 @@ var storageFindCmd = &cli.Command{
 		}
 
 		sectorTypes := []storiface.SectorFileType{
-			storiface.FTUnsealed, storiface.FTSealed, storiface.FTCache, storiface.FTUpdate, storiface.FTUpdateCache,
+			storiface.FTUnsealed, storiface.FTSealed, storiface.FTCache, storiface.FTUpdate, storiface.FTUpdateCache, storiface.FTPiece,
 		}
 
 		byId := make(map[storiface.ID]*storedSector)

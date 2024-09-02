@@ -31,6 +31,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ffiselect"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/lmrpc"
 	"github.com/filecoin-project/curio/tasks/seal"
 
@@ -41,7 +42,6 @@ import (
 	"github.com/filecoin-project/lotus/cli/spcli/createminer"
 	"github.com/filecoin-project/lotus/itests/kit"
 	"github.com/filecoin-project/lotus/node"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 func TestCurioNewActor(t *testing.T) {
@@ -63,14 +63,7 @@ func TestCurioNewActor(t *testing.T) {
 	require.NoError(t, err)
 
 	sharedITestID := harmonydb.ITestNewID()
-	dbConfig := config.HarmonyDB{
-		Hosts:    []string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")},
-		Database: "yugabyte",
-		Username: "yugabyte",
-		Password: "yugabyte",
-		Port:     "5433",
-	}
-	db, err := harmonydb.NewFromConfigWithITestID(t, dbConfig, sharedITestID)
+	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
 	require.NoError(t, err)
 
 	var titles []string
@@ -131,9 +124,9 @@ func TestCurioHappyPath(t *testing.T) {
 	fapi := fmt.Sprintf("%s:%s", string(token), full.ListenAddr)
 
 	sharedITestID := harmonydb.ITestNewID()
-	db := setupTestDB(t, sharedITestID)
 
-	defer db.ITestDeleteAll()
+	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
+	require.NoError(t, err)
 
 	var titles []string
 	err = db.Select(ctx, &titles, `SELECT title FROM harmony_config WHERE LENGTH(config) > 0`)
@@ -423,25 +416,4 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	_ = logging.SetLogLevel("cu/seal", "DEBUG")
 
 	return capi, taskEngine.GracefullyTerminate, ccloser, finishCh
-}
-
-func envElse(env, els string) string {
-	if v := os.Getenv(env); v != "" {
-		return v
-	}
-	return els
-}
-
-func setupTestDB(t *testing.T, sharedITestID harmonydb.ITestID) *harmonydb.DB {
-	t.Helper()
-	dbConfig := config.HarmonyDB{
-		Hosts:    []string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")},
-		Database: "yugabyte",
-		Username: "yugabyte",
-		Password: "yugabyte",
-		Port:     "5433",
-	}
-	db, err := harmonydb.NewFromConfigWithITestID(t, dbConfig, sharedITestID)
-	require.NoError(t, err)
-	return db
 }

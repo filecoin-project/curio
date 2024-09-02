@@ -9,8 +9,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonytask"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 )
 
 func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID, pieceID storiface.PieceNumber, size int64, data io.Reader) error {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -57,13 +58,20 @@ func NewFromConfig(cfg config.HarmonyDB) (*DB, error) {
 	)
 }
 
-func NewFromConfigWithITestID(t *testing.T, cfg config.HarmonyDB, id ITestID) (*DB, error) {
+func envElse(env, els string) string {
+	if v := os.Getenv(env); v != "" {
+		return v
+	}
+	return els
+}
+
+func NewFromConfigWithITestID(t *testing.T, id ITestID) (*DB, error) {
 	db, err := New(
-		cfg.Hosts,
-		cfg.Username,
-		cfg.Password,
-		cfg.Database,
-		cfg.Port,
+		[]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")},
+		"yugabyte",
+		"yugabyte",
+		"yugabyte",
+		"5433",
 		id,
 	)
 	if err != nil {

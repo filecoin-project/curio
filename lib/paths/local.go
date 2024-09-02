@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -21,11 +22,11 @@ import (
 	"github.com/filecoin-project/go-state-types/proof"
 
 	cuproof "github.com/filecoin-project/curio/lib/proof"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/supraffi"
 
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 type LocalStorage interface {
@@ -308,6 +309,9 @@ func (st *Local) open(ctx context.Context) error {
 		return xerrors.Errorf("getting local storage config: %w", err)
 	}
 
+	startCtr := declareCounter.Load()
+	startTime := time.Now()
+
 	for _, path := range cfg.StoragePaths {
 		err := st.OpenPath(ctx, path.Path)
 		if err != nil {
@@ -315,10 +319,16 @@ func (st *Local) open(ctx context.Context) error {
 		}
 	}
 
+	// log declare/s
+	declareCtr := declareCounter.Load() - startCtr
+	log.Infof("declared %d sectors in %s, %d/s", declareCtr, time.Since(startTime), int(float64(declareCtr)/time.Since(startTime).Seconds()))
+
 	go st.reportHealth(ctx)
 
 	return nil
 }
+
+var declareCounter atomic.Int32
 
 func (st *Local) Redeclare(ctx context.Context, filterId *storiface.ID, dropMissingDecls bool) error {
 	st.localLk.Lock()
@@ -392,6 +402,8 @@ func (st *Local) declareSectors(ctx context.Context, p string, id storiface.ID, 
 		}
 	}
 
+	var declarations []SectorDeclaration
+
 	for _, t := range storiface.PathTypes {
 		ents, err := os.ReadDir(filepath.Join(p, t.String()))
 		if err != nil {
@@ -399,7 +411,6 @@ func (st *Local) declareSectors(ctx context.Context, p string, id storiface.ID, 
 				if err := os.MkdirAll(filepath.Join(p, t.String()), 0755); err != nil { // nolint
 					return xerrors.Errorf("openPath mkdir '%s': %w", filepath.Join(p, t.String()), err)
 				}
-
 				continue
 			}
 			return xerrors.Errorf("listing %s: %w", filepath.Join(p, t.String()), err)
@@ -419,12 +430,23 @@ func (st *Local) declareSectors(ctx context.Context, p string, id storiface.ID, 
 				SectorID:       sid,
 				SectorFileType: t,
 			})
+			declareCounter.Add(1)
 
-			if err := st.index.StorageDeclareSector(ctx, id, sid, t, primary); err != nil {
-				return xerrors.Errorf("declare sector %d(t:%d) -> %s: %w", sid, t, id, err)
-			}
+			declarations = append(declarations, SectorDeclaration{
+				StorageID: id,
+				SectorID:  sid,
+				FileType:  t,
+				Primary:   primary,
+			})
 		}
 	}
+
+	// Batch declare sectors
+	log.Infow("starting batch declare", "count", len(declarations), "id", id, "primary", primary)
+	if err := st.index.BatchStorageDeclareSectors(ctx, declarations); err != nil {
+		return xerrors.Errorf("batch declare sectors: %w", err)
+	}
+	log.Infow("finished batch declare", "count", len(declarations), "id", id, "primary", primary)
 
 	if len(indexed) > 0 {
 		log.Warnw("index contains sectors which are missing in the storage path", "count", len(indexed), "dropMissing", dropMissing)
@@ -440,7 +462,6 @@ func (st *Local) declareSectors(ctx context.Context, p string, id storiface.ID, 
 
 	return nil
 }
-
 func (st *Local) reportHealth(ctx context.Context) {
 	// randomize interval by ~10%
 	interval := (HeartbeatInterval*100_000 + time.Duration(rand.Int63n(10_000))) / 100_000

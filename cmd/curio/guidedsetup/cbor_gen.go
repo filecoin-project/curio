@@ -14,9 +14,8 @@ import (
 
 	abi "github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/lib/storiface"
 	sector "github.com/filecoin-project/curio/lib/types/sector"
-
-	storiface "github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var _ = xerrors.Errorf

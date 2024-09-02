@@ -40,12 +40,22 @@ Curio Storage is designed to deliver significant improvements and new features f
 - **Scalability**: No single point of stress, allowing for seamless expansion from a single machine to thousands.
 - **Multi-Miner-ID Support**: Saves hardware resources by enabling multi-proving.
 - **Rich Filtering**: Allows detailed filtering at storage locations by ID, purpose, etc.
+- **Better Hardware Efficiency**: Tasks pack tightly onto any machine that has that work layer enabled.
+- **Debian/Ubuntu APT Repo**: Automatic updates & no building (for the common case).
+- **Simple Migrator**: Switch from Lotus Miner to Curio in minutes.
 
 ## Future Developments
 
-Curio Storage is continuously evolving, with future plans including:
+Since release, Curio's team has added:
 
 - **New Snap Sectors & Unsealing**: Completing the feature set of lotus-miner.
+- **Curio SupraSeal (beta) integration**: 10x more efficient Sealing than through other means (Read docs).
+- **Disk Garbage Collection**: Know you're storing only what you need.
+- **Binary size reduction**: All this functionality is now in a binary under 100MiB.
+
+
+Curio Storage is continuously evolving, with future plans including:
+
 - **Built-In Markets (like Boost) with Automation**: Enhancing market capabilities with automation.
 - **Staking, Resource Sharing, & Deals 2.0**: Introducing advanced features for resource management.
 - **Efficiency Gains**: Achieving significant cost savings for storage providers of all sizes.
@@ -58,7 +68,9 @@ Curio Storage is continuously evolving, with future plans including:
 
 ## Getting Started
 
-To get started with Curio Storage, follow these steps:
+We recommend reading [docs.CurioStorage.org](https://docs.curiostorage.org/) where you may have a pre-built binary for your system.
+
+One way to get started with Curio Storage, follow these steps:
 
 1. **Clone the Repository**:
     ```sh
@@ -89,7 +101,7 @@ Dual-licensed under [MIT](https://github.com/filecoin-project/curio/blob/master/
 
 # Contributing
 
-We welcome contributions from the community! Please see our [Contributing Guide](CONTRIBUTING.md) for more details.
+We welcome contributions from the community! Feel free to open PRs. Reach out to the team on Slack if you need any help.
 
 ---
 

@@ -25,11 +25,10 @@ import (
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/lib/ffiselect"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/storage/sealer"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 const disablePreChecks = false // todo config
@@ -261,7 +260,11 @@ type CheckSectorsAPI interface {
 	StateMinerSectors(ctx context.Context, addr address.Address, bf *bitfield.BitField, tsk types.TipSetKey) ([]*miner.SectorOnChainInfo, error)
 }
 
-func checkSectors(ctx context.Context, api CheckSectorsAPI, ft sealer.FaultTracker,
+type FaultTracker interface {
+	CheckProvable(ctx context.Context, pp abi.RegisteredPoStProof, sectors []storiface.SectorRef, rg storiface.RGetter) (map[abi.SectorID]string, error)
+}
+
+func checkSectors(ctx context.Context, api CheckSectorsAPI, ft FaultTracker,
 	maddr address.Address, check bitfield.BitField, tsk types.TipSetKey) (bitfield.BitField, error) {
 	mid, err := address.IDFromAddress(maddr)
 	if err != nil {

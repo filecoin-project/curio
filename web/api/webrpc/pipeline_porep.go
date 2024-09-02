@@ -9,6 +9,7 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-bitfield"
+	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -61,6 +62,10 @@ type PipelineTask struct {
 	FailedReason string `db:"failed_reason"`
 }
 
+func (pt PipelineTask) sectorID() abi.SectorID {
+	return abi.SectorID{Miner: abi.ActorID(pt.SpID), Number: abi.SectorNumber(pt.SectorNumber)}
+}
+
 type sectorListEntry struct {
 	PipelineTask
 
@@ -69,6 +74,9 @@ type sectorListEntry struct {
 	AfterSeed  bool
 
 	ChainAlloc, ChainSector, ChainActive, ChainUnproven, ChainFaulty bool
+
+	MissingTasks []int64
+	AllTasks     []int64
 }
 
 type minerBitfields struct {
@@ -97,6 +105,16 @@ func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, e
     FROM sectors_sdr_pipeline order by sp_id, sector_number`) // todo where constrain list
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch pipeline tasks: %w", err)
+	}
+
+	missingTasks, err := a.pipelinePorepMissingTasks(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to fetch missing tasks: %w", err)
+	}
+
+	missingTasksMap := make(map[abi.SectorID]porepMissingTask)
+	for _, mt := range missingTasks {
+		missingTasksMap[mt.sectorID()] = mt
 	}
 
 	head, err := a.deps.Chain.ChainHead(ctx)
@@ -129,6 +147,12 @@ func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, e
 
 		afterSeed := task.SeedEpoch != nil && *task.SeedEpoch <= int64(epoch)
 
+		var missingTasks, allTasks []int64
+		if mt, ok := missingTasksMap[task.sectorID()]; ok {
+			missingTasks = mt.MissingTaskIDs
+			allTasks = mt.AllTaskIDs
+		}
+
 		sectorList = append(sectorList, sectorListEntry{
 			PipelineTask: task,
 			Address:      addr,
@@ -140,6 +164,9 @@ func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, e
 			ChainActive:   must.One(mbf.active.IsSet(uint64(task.SectorNumber))),
 			ChainUnproven: must.One(mbf.unproven.IsSet(uint64(task.SectorNumber))),
 			ChainFaulty:   must.One(mbf.faulty.IsSet(uint64(task.SectorNumber))),
+
+			MissingTasks: missingTasks,
+			AllTasks:     allTasks,
 		})
 	}
 
@@ -248,4 +275,88 @@ func (a *WebRPC) PorepPipelineSummary(ctx context.Context) ([]PorepPipelineSumma
 		summaries = append(summaries, summary)
 	}
 	return summaries, nil
+}
+
+func (a *WebRPC) PipelinePorepRestartAll(ctx context.Context) error {
+	missing, err := a.pipelinePorepMissingTasks(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, mt := range missing {
+		if len(mt.AllTaskIDs) != len(mt.MissingTaskIDs) || len(mt.MissingTaskIDs) == 0 {
+			continue
+		}
+
+		log.Infow("Restarting sector", "sector", mt.sectorID(), "missing_tasks", mt.MissingTasksCount)
+
+		if err := a.SectorResume(ctx, mt.SpID, mt.SectorNumber); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type porepMissingTask struct {
+	SpID         int64 `db:"sp_id"`
+	SectorNumber int64 `db:"sector_number"`
+
+	AllTaskIDs        []int64 `db:"all_task_ids"`
+	MissingTaskIDs    []int64 `db:"missing_task_ids"`
+	TotalTasks        int     `db:"total_tasks"`
+	MissingTasksCount int     `db:"missing_tasks_count"`
+	RestartStatus     string  `db:"restart_status"`
+}
+
+func (pmt porepMissingTask) sectorID() abi.SectorID {
+	return abi.SectorID{Miner: abi.ActorID(pmt.SpID), Number: abi.SectorNumber(pmt.SectorNumber)}
+}
+
+func (a *WebRPC) pipelinePorepMissingTasks(ctx context.Context) ([]porepMissingTask, error) {
+	var tasks []porepMissingTask
+	err := a.deps.DB.Select(ctx, &tasks, `
+		WITH sector_tasks AS (
+			SELECT
+				sp.sp_id,
+				sp.sector_number,
+				get_sdr_pipeline_tasks(sp.sp_id, sp.sector_number) AS task_ids
+			FROM
+				sectors_sdr_pipeline sp
+		),
+			 missing_tasks AS (
+				 SELECT
+					 st.sp_id,
+					 st.sector_number,
+					 st.task_ids,
+					 array_agg(CASE WHEN ht.id IS NULL THEN task_id ELSE NULL END) AS missing_task_ids
+				 FROM
+					 sector_tasks st
+						 CROSS JOIN UNNEST(st.task_ids) WITH ORDINALITY AS t(task_id, task_order)
+						 LEFT JOIN harmony_task ht ON ht.id = task_id
+				 GROUP BY
+					 st.sp_id, st.sector_number, st.task_ids
+			 )
+		SELECT
+			mt.sp_id,
+			mt.sector_number,
+			mt.task_ids AS all_task_ids,
+			mt.missing_task_ids,
+			array_length(mt.task_ids, 1) AS total_tasks,
+			array_length(mt.missing_task_ids, 1) AS missing_tasks_count,
+			CASE
+				WHEN array_length(mt.task_ids, 1) = array_length(mt.missing_task_ids, 1) THEN 'All tasks missing'
+				ELSE 'Some tasks missing'
+				END AS restart_status
+		FROM
+			missing_tasks mt
+		WHERE
+			array_length(mt.task_ids, 1) > 0 -- Has at least one task
+		  AND array_length(array_remove(mt.missing_task_ids, NULL), 1) > 0 -- At least one task is missing
+		ORDER BY
+			mt.sp_id, mt.sector_number;`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to fetch missing tasks: %w", err)
+	}
+
+	return tasks, nil
 }

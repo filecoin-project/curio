@@ -11,8 +11,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/promise"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
 
 type CleanupPieceTask struct {

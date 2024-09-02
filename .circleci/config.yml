@@ -274,3 +274,11 @@ workflows:
           target: "./itests/curio_test.go"
           get-params: true
           resource_class: 2xlarge
+      - test:
+          name: test-all
+          requires:
+            - build
+          suite: test-all
+          target: "`go list ./... | grep -v curio/itests`"
+          get-params: true
+          resource_class: 2xlarge

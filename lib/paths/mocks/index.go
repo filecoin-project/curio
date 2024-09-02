@@ -12,8 +12,10 @@ import (
 
 	abi "github.com/filecoin-project/go-state-types/abi"
 
+	paths "github.com/filecoin-project/curio/lib/paths"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
+
 	fsutil "github.com/filecoin-project/lotus/storage/sealer/fsutil"
-	storiface "github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 // MockSectorIndex is a mock of SectorIndex interface.
@@ -37,6 +39,20 @@ func NewMockSectorIndex(ctrl *gomock.Controller) *MockSectorIndex {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockSectorIndex) EXPECT() *MockSectorIndexMockRecorder {
 	return m.recorder
+}
+
+// BatchStorageDeclareSectors mocks base method.
+func (m *MockSectorIndex) BatchStorageDeclareSectors(arg0 context.Context, arg1 []paths.SectorDeclaration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BatchStorageDeclareSectors", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// BatchStorageDeclareSectors indicates an expected call of BatchStorageDeclareSectors.
+func (mr *MockSectorIndexMockRecorder) BatchStorageDeclareSectors(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BatchStorageDeclareSectors", reflect.TypeOf((*MockSectorIndex)(nil).BatchStorageDeclareSectors), arg0, arg1)
 }
 
 // StorageAttach mocks base method.

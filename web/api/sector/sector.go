@@ -22,6 +22,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/web/api/apihelper"
 
 	"github.com/filecoin-project/lotus/blockstore"
@@ -29,7 +30,6 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/cli/spcli"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 const verifiedPowerGainMul = 9
@@ -56,17 +56,19 @@ func Routes(r *mux.Router, deps *deps.Deps) {
 
 func (c *cfg) terminateSectors(w http.ResponseWriter, r *http.Request) {
 	var in []struct {
-		MinerID uint64
-		Sector  uint64
+		MinerAddress string
+		Sector       uint64
 	}
 	apihelper.OrHTTPFail(w, json.NewDecoder(r.Body).Decode(&in))
 	toDel := make(map[minerDetail][]sec)
 	for _, s := range in {
-		maddr, err := address.NewIDAddress(s.MinerID)
+		maddr, err := address.NewFromString(s.MinerAddress)
+		apihelper.OrHTTPFail(w, err)
+		mid, err := address.IDFromAddress(maddr)
 		apihelper.OrHTTPFail(w, err)
 		m := minerDetail{
 			Addr: maddr,
-			ID:   abi.ActorID(s.MinerID),
+			ID:   abi.ActorID(mid),
 		}
 		toDel[m] = append(toDel[m], sec{Sector: abi.SectorNumber(s.Sector), Terminate: false})
 	}
@@ -99,6 +101,7 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 		MinerID        int64 `db:"miner_id"`
 		SectorNum      int64 `db:"sector_num"`
 		SectorFiletype int   `db:"sector_filetype" json:"-"` // Useless?
+		MinerAddress   address.Address
 		HasSealed      bool
 		HasUnsealed    bool
 		HasSnap        bool
@@ -148,9 +151,11 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 		sectors[i].HasUnsealed = s.SectorFiletype&int(storiface.FTUnsealed) != 0
 		sectors[i].HasSnap = s.SectorFiletype&int(storiface.FTUpdate) != 0
 		sectorIdx[sectorID{s.MinerID, uint64(s.SectorNum)}] = i
+		addr, err := address.NewIDAddress(uint64(s.MinerID))
+		apihelper.OrHTTPFail(w, err)
+		sectors[i].MinerAddress = addr
 		if _, ok := minerToAddr[s.MinerID]; !ok {
-			minerToAddr[s.MinerID], err = address.NewIDAddress(uint64(s.MinerID))
-			apihelper.OrHTTPFail(w, err)
+			minerToAddr[s.MinerID] = addr
 		}
 	}
 
@@ -254,13 +259,14 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 			} else {
 				// sector is on chain but not in db
 				s := sector{
-					MinerID:   minerID,
-					SectorNum: int64(chainy.onChain.SectorNumber),
-					IsOnChain: true,
-					ExpiresAt: chainy.onChain.Expiration,
-					IsFilPlus: chainy.onChain.VerifiedDealWeight.GreaterThan(big.NewInt(0)),
-					Proving:   chainy.active,
-					Flag:      true, // All such sectors should be flagged to be terminated
+					MinerID:      minerID,
+					MinerAddress: maddr,
+					SectorNum:    int64(chainy.onChain.SectorNumber),
+					IsOnChain:    true,
+					ExpiresAt:    chainy.onChain.Expiration,
+					IsFilPlus:    chainy.onChain.VerifiedDealWeight.GreaterThan(big.NewInt(0)),
+					Proving:      chainy.active,
+					Flag:         true, // All such sectors should be flagged to be terminated
 				}
 				if ss, err := chainy.onChain.SealProof.SectorSize(); err == nil {
 					s.SealInfo = ss.ShortString()

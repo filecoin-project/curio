@@ -10,8 +10,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
+
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 const pathSize = 16 << 20
@@ -80,7 +82,10 @@ func TestLocalStorage(t *testing.T) {
 		root: root,
 	}
 
-	index := NewMemIndex(nil)
+	db, err := harmonydb.NewFromConfigWithITestID(t, "testlocalstorage")
+	require.NoError(t, err)
+
+	index := NewDBIndex(nil, db)
 
 	st, err := NewLocal(ctx, tstor, index, nil)
 	require.NoError(t, err)

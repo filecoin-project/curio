@@ -189,9 +189,9 @@ This will put `curio` in `/usr/local/bin`. `curio` will use the `$HOME/.curio` f
 Run `curio --version`
 
 ```md
-curio version 1.27.0-dev+mainnet+git.78d9d9baa
+curio version 1.23.0+mainnet+git_ae625a5_2024-08-21T15:21:45+04:00
 # or
-curio version 1.27.0-dev+calibnet+git.78d9d9baa
+curio version 1.23.0+calibnet+git_ae625a5_2024-08-21T15:21:45+04:00
 ```
 
 1. You should now have Curio installed. You can now [finish setting up the Curio node](https://lotus.filecoin.io/storage-providers/curio/setup/).
@@ -299,9 +299,9 @@ The installation instructions are different depending on which CPU is in your Ma
 6.  Run `curio --version`
 
     ```md
-    curio version 1.27.0-dev+mainnet+git.78d9d9baa
+    curio version 1.23.0+mainnet+git_ae625a5_2024-08-21T15:21:45+04:00
     # or
-    curio version 1.27.0-dev+calibnet+git.78d9d9baa
+    curio version 1.23.0+calibnet+git_ae625a5_2024-08-21T15:21:45+04:00
     ```
 7. You should now have Curio installed. You can now [set up a new Curio cluster or migrating from Lotus-Miner](https://lotus.filecoin.io/storage-providers/curio/setup/).
 
@@ -329,9 +329,9 @@ The installation instructions are different depending on which CPU is in your Ma
 4.  Run `curio --version`
 
     ```md
-    curio version 1.27.0-dev+mainnet+git.78d9d9baa
+    curio version 1.23.0+mainnet+git_ae625a5_2024-08-21T15:21:45+04:00
     # or
-    curio version 1.27.0-dev+calibnet+git.78d9d9baa
+    curio version 1.23.0+calibnet+git_ae625a5_2024-08-21T15:21:45+04:00
     ```
 
     You can now [finish setting up the Curio node](https://lotus.filecoin.io/storage-providers/curio/setup/).

@@ -19,8 +19,7 @@ import (
 	"github.com/filecoin-project/go-state-types/proof"
 
 	"github.com/filecoin-project/curio/build"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
 
 type logCtxKt struct{}

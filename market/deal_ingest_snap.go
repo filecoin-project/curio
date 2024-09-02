@@ -31,6 +31,11 @@ import (
 
 const IdealEndEpochBuffer = 2 * builtin.EpochsInDay
 
+// assuming that snap takes up to 20min to get to submitting the message we want to avoid sectors from deadlines which will
+// become immutable in the next 20min (40 epochs)
+// NOTE: Don't set this value to more than one deadline (60 epochs)
+var SnapImmutableDeadlineEpochsBuffer = abi.ChainEpoch(40)
+
 type PieceIngesterSnap struct {
 	ctx                 context.Context
 	db                  *harmonydb.DB
@@ -276,6 +281,25 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 		}
 	}
 
+	// non-mutable deadline is the current deadline and the next one. Doesn't matter if the current one was proven or not.
+
+	curDeadline, err := p.api.StateMinerProvingDeadline(ctx, p.miner, types.EmptyTSK)
+	if err != nil {
+		return api.SectorOffset{}, xerrors.Errorf("getting proving deadline: %w", err)
+	}
+
+	dlIdxImmutableCur := curDeadline.Index
+	dlIdxImmutableNext := (curDeadline.Index + 1) % curDeadline.WPoStPeriodDeadlines
+
+	// The deadline which might become mutable soon
+	dlIdxImmutableNextNext := dlIdxImmutableNext
+	epochsInDeadline := curDeadline.CurrentEpoch - curDeadline.Open // how many into the deadline we are
+	epochsPerDeadline := curDeadline.WPoStProvingPeriod / abi.ChainEpoch(curDeadline.WPoStPeriodDeadlines)
+
+	if epochsInDeadline >= epochsPerDeadline-SnapImmutableDeadlineEpochsBuffer {
+		dlIdxImmutableNextNext = (dlIdxImmutableNext + 1) % curDeadline.WPoStPeriodDeadlines
+	}
+
 	// Allocation to open sector failed, create a new sector and add the piece to it
 
 	// TX
@@ -291,7 +315,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 
 	var num *int64
 	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		var candidates []struct {
+		type CandidateSector struct {
 			Sector     int64 `db:"sector_num"`
 			Expiration int64 `db:"expiration_epoch"`
 		}
@@ -299,7 +323,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 		// maxExpiration = maybe(max sector expiration_epoch)
 		// minExpiration = piece.DealSchedule.EndEpoch
 		// ideal expiration = minExpiration + 2 days
-		err = tx.Select(&candidates, `
+		rows, err := tx.Query(`
 			SELECT sm.sector_num, sm.expiration_epoch
 			FROM sectors_meta sm
 			LEFT JOIN sectors_snap_pipeline ssp on sm.sp_id = ssp.sp_id and sm.sector_num = ssp.sector_number
@@ -309,28 +333,83 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 			  AND sm.expiration_epoch IS NOT NULL
 			  AND sm.expiration_epoch > $1
 			  AND ($2 = 0 OR sm.expiration_epoch < $2)
+			  AND deadline IS NOT NULL AND deadline NOT IN ($5, $6, $7)
 			ORDER BY ABS(sm.expiration_epoch - ($1 + $3))
-			LIMIT 10
-		`, int64(piece.DealSchedule.EndEpoch), maxExpiration, IdealEndEpochBuffer, p.mid)
+		`, int64(piece.DealSchedule.EndEpoch), maxExpiration, IdealEndEpochBuffer, p.mid, dlIdxImmutableCur, dlIdxImmutableNext, dlIdxImmutableNextNext)
 		if err != nil {
 			return false, xerrors.Errorf("allocating sector numbers: %w", err)
 		}
+		defer rows.Close()
 
-		if len(candidates) == 0 {
+		deadlineCache := map[uint64][]api.Partition{}
+		var tried int
+		var bestCandidate *CandidateSector
+
+		for rows.Next() {
+			var candidate CandidateSector
+			err := rows.Scan(&candidate.Sector, &candidate.Expiration)
+			if err != nil {
+				return false, xerrors.Errorf("scanning row: %w", err)
+			}
+			tried++
+
+			sloc, err := p.api.StateSectorPartition(ctx, p.miner, abi.SectorNumber(candidate.Sector), types.EmptyTSK)
+			if err != nil {
+				return false, xerrors.Errorf("getting sector locations: %w", err)
+			}
+
+			if _, ok := deadlineCache[sloc.Deadline]; !ok {
+				dls, err := p.api.StateMinerPartitions(ctx, p.miner, sloc.Deadline, types.EmptyTSK)
+				if err != nil {
+					return false, xerrors.Errorf("getting partitions: %w", err)
+				}
+
+				deadlineCache[sloc.Deadline] = dls
+			}
+
+			dl := deadlineCache[sloc.Deadline]
+			if len(dl) <= int(sloc.Partition) {
+				return false, xerrors.Errorf("partition %d not found in deadline %d", sloc.Partition, sloc.Deadline)
+			}
+			part := dl[sloc.Partition]
+
+			active, err := part.ActiveSectors.IsSet(uint64(candidate.Sector))
+			if err != nil {
+				return false, xerrors.Errorf("checking active sectors: %w", err)
+			}
+			if !active {
+				live, err1 := part.LiveSectors.IsSet(uint64(candidate.Sector))
+				faulty, err2 := part.FaultySectors.IsSet(uint64(candidate.Sector))
+				recovering, err3 := part.RecoveringSectors.IsSet(uint64(candidate.Sector))
+				if err1 != nil || err2 != nil || err3 != nil {
+					return false, xerrors.Errorf("checking sector status: %w, %w, %w", err1, err2, err3)
+				}
+
+				log.Debugw("sector not active, skipping", "sector", candidate.Sector, "live", live, "faulty", faulty, "recovering", recovering)
+				continue
+			}
+
+			bestCandidate = &candidate
+			break
+		}
+
+		if err := rows.Err(); err != nil {
+			return false, xerrors.Errorf("iterating rows: %w", err)
+		}
+
+		rows.Close()
+
+		if bestCandidate == nil {
 			minEpoch := piece.DealSchedule.EndEpoch
 			maxEpoch := abi.ChainEpoch(maxExpiration)
 
 			minEpochDays := (minEpoch - head.Height()) / builtin.EpochsInDay
 			maxEpochDays := (maxEpoch - head.Height()) / builtin.EpochsInDay
 
-			return false, xerrors.Errorf("no suitable sectors found, minEpoch: %d, maxEpoch: %d, minExpirationDays: %d, maxExpirationDays: %d", minEpoch, maxEpoch, minEpochDays, maxEpochDays)
+			return false, xerrors.Errorf("no suitable sectors found, minEpoch: %d, maxEpoch: %d, minExpirationDays: %d, maxExpirationDays: %d (avoiding deadlines %d,%d,%d)", minEpoch, maxEpoch, minEpochDays, maxEpochDays, dlIdxImmutableCur, dlIdxImmutableNext, dlIdxImmutableNextNext)
 		}
 
-		// todo - nice to have:
-		//  * check sector liveness
-		//  * check deadline mutable
-
-		candidate := candidates[0] // this one works best
+		candidate := *bestCandidate
 
 		si, err := p.api.StateSectorGetInfo(ctx, p.miner, abi.SectorNumber(candidate.Sector), types.EmptyTSK)
 		if err != nil {
@@ -356,6 +435,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, maddr add
 			"dealStartEpoch", piece.DealSchedule.StartEpoch,
 			"dealEndEpoch", piece.DealSchedule.EndEpoch,
 			"maxExpiration", maxExpiration,
+			"avoidingDeadlines", []int{int(dlIdxImmutableCur), int(dlIdxImmutableNext), int(dlIdxImmutableNextNext)},
 		)
 
 		_, err = tx.Exec(`SELECT insert_snap_ddo_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,

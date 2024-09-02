@@ -21,12 +21,11 @@ import (
 
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/partialfile"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/paths/mocks"
-
-	"github.com/filecoin-project/lotus/node/repo"
-	"github.com/filecoin-project/lotus/storage/sealer/partialfile"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 )
 
 const metaFile = "sectorstore.json"
@@ -60,29 +59,18 @@ func createTestStorage(t *testing.T, p string, seal bool, att ...*paths.Local) s
 func TestMoveShared(t *testing.T) {
 	logging.SetAllLoggers(logging.LevelDebug)
 
-	index := paths.NewMemIndex(nil)
+	db, err := harmonydb.NewFromConfigWithITestID(t, "testlocalstorage")
+	require.NoError(t, err)
+
+	index := paths.NewDBIndex(nil, db)
 
 	ctx := context.Background()
 
 	dir := t.TempDir()
 
-	openRepo := func(dir string) repo.LockedRepo {
-		r, err := repo.NewFS(dir)
-		require.NoError(t, err)
-		require.NoError(t, r.Init(repo.Worker))
-		lr, err := r.Lock(repo.Worker)
-		require.NoError(t, err)
-
-		t.Cleanup(func() {
-			_ = lr.Close()
-		})
-
-		err = lr.SetStorage(func(config *storiface.StorageConfig) {
-			*config = storiface.StorageConfig{}
-		})
-		require.NoError(t, err)
-
-		return lr
+	openRepo := func(dir string) paths.LocalStorage {
+		bls := &paths.BasicLocalStorage{PathToJSON: filepath.Join(t.TempDir(), "storage.json")}
+		return bls
 	}
 
 	// setup two repos with two storage paths:
