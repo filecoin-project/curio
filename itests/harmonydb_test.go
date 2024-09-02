@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
 	"github.com/filecoin-project/lotus/itests/kit"
@@ -67,11 +69,12 @@ func TestTransaction(t *testing.T) {
 
 	withSetup(t, func(miner *kit.TestMiner) {
 		testID := harmonydb.ITestNewID()
-		cdb := setupTestDB(t, testID)
+		cdb, err := harmonydb.NewFromConfigWithITestID(t, testID)
+		require.NoError(t, err)
 		if _, err := cdb.Exec(ctx, "INSERT INTO itest_scratch (some_int) VALUES (4), (5), (6)"); err != nil {
 			t.Fatal("E0", err)
 		}
-		_, err := cdb.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		_, err = cdb.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 			if _, err := tx.Exec("INSERT INTO itest_scratch (some_int) VALUES (7), (8), (9)"); err != nil {
 				t.Fatal("E1", err)
 			}
@@ -129,7 +132,8 @@ func TestPartialWalk(t *testing.T) {
 
 	withSetup(t, func(miner *kit.TestMiner) {
 		testID := harmonydb.ITestNewID()
-		cdb := setupTestDB(t, testID)
+		cdb, err := harmonydb.NewFromConfigWithITestID(t, testID)
+		require.NoError(t, err)
 		if _, err := cdb.Exec(ctx, `
 			INSERT INTO 
 				itest_scratch (content, some_int) 
