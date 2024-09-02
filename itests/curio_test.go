@@ -124,6 +124,7 @@ func TestCurioHappyPath(t *testing.T) {
 	fapi := fmt.Sprintf("%s:%s", string(token), full.ListenAddr)
 
 	sharedITestID := harmonydb.ITestNewID()
+
 	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
 	require.NoError(t, err)
 
