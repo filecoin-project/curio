@@ -38,12 +38,15 @@ import (
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/ipfs/go-cid"
+	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/snadrus/must"
 	"github.com/triplewz/poseidon"
 	"golang.org/x/xerrors"
 	"io"
 	"math/big"
 	"math/bits"
+	"runtime"
+	"sync"
 	"unsafe"
 )
 
@@ -81,22 +84,6 @@ func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica 
 		return xerrors.Errorf("failed to compute rho inverses: %w", err)
 	}
 
-	// Allocate buffers
-	replicaBuffer := make([]byte, ssize)
-	keyBuffer := make([]byte, ssize)
-	outBuffer := make([]byte, ssize)
-
-	// Read all data into buffers
-	_, err = io.ReadFull(replica, replicaBuffer)
-	if err != nil {
-		return xerrors.Errorf("failed to read replica data: %w", err)
-	}
-
-	_, err = io.ReadFull(key, keyBuffer)
-	if err != nil {
-		return xerrors.Errorf("failed to read key data: %w", err)
-	}
-
 	// Convert rhoInvs to byte slice
 	rhoInvsBytes := make([]byte, nodesCount*32)
 	for i := uint64(0); i < nodesCount; i++ {
@@ -104,23 +91,143 @@ func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica 
 		copy(rhoInvsBytes[i*32:(i+1)*32], rhoInv[:])
 	}
 
-	// Call the C function
-	C.snap_decode_loop(
-		(*C.uint8_t)(unsafe.Pointer(&replicaBuffer[0])),
-		(*C.uint8_t)(unsafe.Pointer(&keyBuffer[0])),
-		(*C.uint8_t)(unsafe.Pointer(&rhoInvsBytes[0])),
-		(*C.uint8_t)(unsafe.Pointer(&outBuffer[0])),
-		C.size_t(nodesCount),
-		C.size_t(proof.NODE_SIZE),
-	)
-
-	// Write the result
-	_, err = out.Write(outBuffer)
-	if err != nil {
-		return xerrors.Errorf("failed to write output data: %w", err)
+	workers := nWorkers
+	if runtime.NumCPU() < workers {
+		workers = runtime.NumCPU()
 	}
 
-	return nil
+	var wg sync.WaitGroup
+	errChan := make(chan error, 1)
+	jobChan := make(chan jobSnap, workers)
+	resultChan := make(chan resultSnap, workers)
+
+	// Start worker goroutines
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go workerSnap(&wg, jobChan, resultChan, rhoInvsBytes)
+	}
+
+	// Start a goroutine to close the job channel when all reading is done
+	go func() {
+		defer close(jobChan)
+		chunkID := int64(0)
+		for {
+			rbuf := pool.Get(bufSz)
+			kbuf := pool.Get(bufSz)
+
+			// Read replica
+			rn, err := io.ReadFull(replica, rbuf)
+			if err != nil && err != io.ErrUnexpectedEOF {
+				if err == io.EOF {
+					return
+				}
+				errChan <- err
+				return
+			}
+
+			// Read key
+			kn, err := io.ReadFull(key, kbuf[:rn])
+			if err != nil && err != io.ErrUnexpectedEOF {
+				errChan <- err
+				return
+			}
+
+			if kn != rn {
+				errChan <- io.ErrUnexpectedEOF
+				return
+			}
+
+			// worker will release rbuf and kbuf, so get len here
+			rblen := len(rbuf)
+
+			jobChan <- jobSnap{rbuf[:rn], kbuf[:rn], rn, chunkID}
+			chunkID++
+
+			if rn < rblen {
+				return
+			}
+		}
+	}()
+
+	// Start a goroutine to close the result channel when all jobs are done
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// Write results in order
+	var writeErr error
+	expectedChunkID := int64(0)
+	resultBuffer := make(map[int64]resultSnap)
+
+	for r := range resultChan {
+		for {
+			if r.chunkID == expectedChunkID {
+				_, err := out.Write(r.data)
+				pool.Put(r.data)
+				if err != nil && writeErr == nil {
+					writeErr = err
+				}
+				expectedChunkID++
+
+				// Check if we have buffered results that can now be written
+				if nextResult, ok := resultBuffer[expectedChunkID]; ok {
+					r = nextResult
+					delete(resultBuffer, expectedChunkID)
+					continue
+				}
+				break
+			} else {
+				// Buffer this result for later
+				resultBuffer[r.chunkID] = r
+				break
+			}
+		}
+	}
+
+	close(errChan)
+
+	// Check for any errors
+	for err := range errChan {
+		if err != nil {
+			return err
+		}
+	}
+
+	return writeErr
+}
+
+type jobSnap struct {
+	rbuf    []byte
+	kbuf    []byte
+	size    int
+	chunkID int64
+}
+
+type resultSnap struct {
+	data    []byte
+	size    int
+	chunkID int64
+}
+
+func workerSnap(wg *sync.WaitGroup, jobs <-chan jobSnap, results chan<- resultSnap, rhoInvsBytes []byte) {
+	defer wg.Done()
+	for j := range jobs {
+		obuf := pool.Get(j.size)
+		C.snap_decode_loop(
+			(*C.uint8_t)(unsafe.Pointer(&j.rbuf[0])),
+			(*C.uint8_t)(unsafe.Pointer(&j.kbuf[0])),
+			(*C.uint8_t)(unsafe.Pointer(&rhoInvsBytes[j.chunkID*bufSz])),
+			(*C.uint8_t)(unsafe.Pointer(&obuf[0])),
+			C.size_t(j.size/proof.NODE_SIZE),
+			C.size_t(proof.NODE_SIZE),
+		)
+
+		pool.Put(j.rbuf)
+		pool.Put(j.kbuf)
+
+		results <- resultSnap{obuf, j.size, j.chunkID}
+	}
 }
 
 // Phi implements the phi function as described in the Rust code.
