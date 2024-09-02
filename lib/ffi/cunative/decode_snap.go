@@ -104,7 +104,7 @@ func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica 
 	// Start worker goroutines
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
-		go workerSnap(&wg, jobChan, resultChan, rhoInvsBytes)
+		go workerSnap(&wg, jobChan, resultChan, rhoInvs)
 	}
 
 	// Start a goroutine to close the job channel when all reading is done
@@ -210,16 +210,28 @@ type resultSnap struct {
 	chunkID int64
 }
 
-func workerSnap(wg *sync.WaitGroup, jobs <-chan jobSnap, results chan<- resultSnap, rhoInvsBytes []byte) {
+func workerSnap(wg *sync.WaitGroup, jobs <-chan jobSnap, results chan<- resultSnap, rhos *Rhos) {
 	defer wg.Done()
 	for j := range jobs {
 		obuf := pool.Get(j.size)
+
+		// Calculate the starting node index for this chunk
+		startNode := uint64(j.chunkID) * uint64(bufSz) / proof.NODE_SIZE
+		nodeCount := uint64(j.size) / proof.NODE_SIZE
+
+		// Convert rhoInvs to byte slice
+		rhoInvsBytes := pool.Get(int(nodeCount * 32))
+		for i := uint64(0); i < nodeCount; i++ {
+			rhoInv := rhos.Get(startNode + i)
+			copy(rhoInvsBytes[i*32:(i+1)*32], rhoInv[:])
+		}
+
 		C.snap_decode_loop(
 			(*C.uint8_t)(unsafe.Pointer(&j.rbuf[0])),
 			(*C.uint8_t)(unsafe.Pointer(&j.kbuf[0])),
-			(*C.uint8_t)(unsafe.Pointer(&rhoInvsBytes[j.chunkID*bufSz])),
+			(*C.uint8_t)(unsafe.Pointer(&rhoInvsBytes[0])),
 			(*C.uint8_t)(unsafe.Pointer(&obuf[0])),
-			C.size_t(j.size/proof.NODE_SIZE),
+			C.size_t(nodeCount),
 			C.size_t(proof.NODE_SIZE),
 		)
 

@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestSnapDecode(t *testing.T) {
@@ -130,8 +131,13 @@ func testSnapDecode(spt abi.RegisteredSealProof) func(t *testing.T) {
 		require.NoError(t, fallocate.Fallocate(f, 0, int64(ssize)))
 		require.NoError(t, f.Close())
 
+		decStart := time.Now()
 		err = ffi.SectorUpdate.DecodeFrom(upt, decOut, update, sealKey, cache, commD)
 		require.NoError(t, err)
+
+		decDone := time.Now()
+		t.Logf("Decode time: %s", decDone.Sub(decStart))
+		t.Logf("Decode throughput: %f MB/s", float64(ssize)/decDone.Sub(decStart).Seconds()/1024/1024)
 
 		// read rust data
 		rustOut, err := os.Open(decOut)
