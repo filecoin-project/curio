@@ -111,17 +111,13 @@ describe("CurioMembership", function () {
       const { contract, owner, otherAccount, fundsDestWallet } = await loadFixture(deployCurioMembershipFixture);
 
       var {signature, sig, packedMessage, messageHash} = await sign(1000, (+new Date() / 1000)|0);
-      var setup = await expect(contract.connect(owner).setExchangeRate(packedMessage, signature));
-      setup.to.emit(contract, "ExchangeRateUpdated").withArgs(1000, (+new Date() / 1000)|0);
+      await expect(contract.connect(owner).setExchangeRate(packedMessage, signature)).
+        to.emit(contract, "ExchangeRateUpdated").withArgs(1000, (+new Date() / 1000)|0);
 
-      var tx = await contract.connect(owner).getFunction('pay')(1234, {value: 5_000_000});
-      var receipt = await tx.wait();
-      expectEvent(receipt, "PaymentMade", {
-        memberId: 1234,
-        amount: 5_000_000,
-        paymentId: 1
-      });
-      expect(await contract.paymentRecords(1234)).to.equal(5_000_000);
+      await expect(contract.connect(owner).getFunction('pay')(1234, {value: BigInt(500_000)})).
+       to.emit(contract, "PaymentMade").withArgs(1234, owner.address, 500_000, 1);
+
+       expect((await contract.paymentRecords(1234))[1]).to.equal(1);
     });
 
     it("Should allow pay() happy path for 2000 with emit and updated pay record", async function() {
@@ -131,14 +127,10 @@ describe("CurioMembership", function () {
       var setup = await expect(contract.connect(owner).setExchangeRate(packedMessage, signature));
       setup.to.emit(contract, "ExchangeRateUpdated").withArgs(1000, (+new Date() / 1000)|0);
 
-      var tx = await contract.connect(owner).getFunction('pay')(5678, {value: 20_000_000});
-      var receipt = await tx.wait();
-      expectEvent(receipt, "PaymentMade", {
-        memberId: 5678,
-        amount: 20_000_000,
-        paymentId: 1
-      });
-      expect(await contract.paymentRecords(5678)).to.equal(20_000_000);
+      await expect(contract.connect(owner).getFunction('pay')(5678, {value: 2_000_000})).
+      to.emit(contract, "PaymentMade").withArgs(5678, owner.address, 2_000_000, 2);
+
+      expect((await contract.paymentRecords(5678))[1]).to.equal(2);
       // TODO verify event log entry
     });
 
