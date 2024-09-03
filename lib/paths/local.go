@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -215,6 +216,10 @@ func (p *path) sectorPath(sid abi.SectorID, fileType storiface.SectorFileType) s
 }
 
 type URLs []string
+
+func UrlsFromString(in string) URLs {
+	return strings.Split(in, URLSeparator)
+}
 
 func NewLocal(ctx context.Context, ls LocalStorage, index SectorIndex, urls []string) (*Local, error) {
 	l := &Local{

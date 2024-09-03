@@ -3,7 +3,7 @@ CREATE TABLE sectors_unseal_pipeline (
     sector_number BIGINT NOT NULL,
     reg_seal_proof BIGINT NOT NULL,
 
-    create_time TIMESTAMP NOT NULL DEFAULT current_timestamp,
+    create_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp,
 
     task_id_unseal_sdr BIGINT, -- builds unseal cache
     after_unseal_sdr bool NOT NULL DEFAULT FALSE,
@@ -74,23 +74,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger function for sector_location
-CREATE OR REPLACE FUNCTION trig_sector_location_update_materialized() RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
-        PERFORM update_sectors_unseal_pipeline_materialized(NEW.miner_id, NEW.sector_num);
-    ELSIF TG_OP = 'DELETE' THEN
-        PERFORM update_sectors_unseal_pipeline_materialized(OLD.miner_id, OLD.sector_num);
-    END IF;
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
-
--- Update the triggers to be FOR EACH ROW instead of FOR EACH STATEMENT
 CREATE TRIGGER trig_sectors_meta_update_materialized
     AFTER INSERT OR UPDATE OR DELETE ON sectors_meta
     FOR EACH ROW EXECUTE FUNCTION trig_sectors_meta_update_materialized();
 
-CREATE TRIGGER trig_sector_location_update_materialized
-    AFTER INSERT OR UPDATE OR DELETE ON sector_location
-    FOR EACH ROW EXECUTE FUNCTION trig_sector_location_update_materialized();
+-- not triggering on sector_location, storage can be detached occasionally and auto-scheduling 10000s of unseals is bad
