@@ -24,6 +24,10 @@ class CurioUX extends LitElement {
   border-radius: 0;
 }
 
+.nav-pills .nav-link.active {
+  background-color: var(--color-secondary-main);
+}
+
 .btn-toggle {
   display: inline-flex;
   align-items: center;
