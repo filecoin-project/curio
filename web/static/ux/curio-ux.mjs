@@ -24,6 +24,10 @@ class CurioUX extends LitElement {
   border-radius: 0;
 }
 
+.nav-pills .nav-link.active {
+  background-color: var(--color-secondary-main);
+}
+
 .btn-toggle {
   display: inline-flex;
   align-items: center;
@@ -126,7 +130,7 @@ class CurioUX extends LitElement {
             <path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm15 2h-4v3h4V4zm0 4h-4v3h4V8zm0 4h-4v3h3a1 1 0 0 0 1-1v-2zm-5 3v-3H6v3h4zm-5 0v-3H1v2a1 1 0 0 0 1 1h3zm-4-4h4V8H1v3zm0-4h4V4H1v3zm5-3v3h4V4H6zm4 4H6v3h4V8z"></path>
           </symbol>
         </svg>
-        <div class="d-flex flex-column flex-shrink-0 p-3 text-white bg-dark" style="width: 240px; min-height:100vh; margin-right: 1rem">
+        <div class="d-flex flex-column flex-shrink-0 p-3 text-white" style="width: 240px; min-height:100vh; margin-right: 1rem; background-color: #2a2a2e;">
           <a href="/" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-white text-decoration-none">
             <img src="/favicon.svg" width="40" height="32" class="d-inline-block align-top me-2" alt="">
             <span class="fs-4">Curio</span>
@@ -140,7 +144,7 @@ class CurioUX extends LitElement {
               </a>
             </li>
             <li>
-              <a href="/config/" class="nav-link text-white ${active=='/config/'? 'active':''}">
+              <a href="/pages/config/list/" class="nav-link text-white ${active=='/pages/config/list/'? 'active':''}">
                 <svg class="bi me-2" width="16" height="16"><use xlink:href="#speedometer2"></use></svg>
                 <span>Configurations</span>
               </a>
