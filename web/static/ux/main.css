@@ -1,3 +1,35 @@
+:root {
+    /* Primary colors */
+    --color-primary-light: #8BEFE0;
+    --color-primary-main: #1DC8CC;
+    --color-primary-dark: #005cb2;
+
+    /* Secondary colors */
+    --color-secondary-light: #9644EE;
+    --color-secondary-main: #882EE8;
+    --color-secondary-dark: #5120C0;
+
+    /* Status colors */
+    --color-success-main: #7EA83E;
+    --color-warning-main: #FFD600;
+    --color-danger-main: #B63333;
+    --color-info-main: #00BFFF;
+
+    /* Text colors */
+    --color-text-primary: #FFF;
+    --color-text-secondary: #171717;
+
+    /* Forms */
+    --color-form-default: #808080; /* buttons, field outlines */
+    --color-form-default-pressed: #A1A1A1;
+    --color-form-field: rgba(255, 255, 255, 0.08);
+
+    --color-form-group-1: #484848;
+    --color-form-group-2: #71512B;
+    --color-form-group-3: #2A5D6A;
+    --color-form-group-4: #662671;
+}
+
 html {
     min-height: 100vh;
     background: rgb(11, 22, 34);
@@ -24,7 +56,7 @@ curio-ux {
     color: rgb(227, 234, 237);
     font-family: 'JetBrains Mono', monospace;
     font-weight: 200;
-    background: RGB(54, 57, 63);
+    background: #1d1d21;
 }
 
 .app-head {

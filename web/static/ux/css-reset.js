@@ -12,6 +12,7 @@ export default css `
 
     ul, ol {
         list-style: none;
+        padding: 0;
     }
 
     a {
