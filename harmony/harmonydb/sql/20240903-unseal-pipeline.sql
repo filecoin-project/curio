@@ -27,6 +27,7 @@ CREATE OR REPLACE FUNCTION update_sectors_unseal_pipeline_materialized(
 ) RETURNS VOID AS $$
 DECLARE
     should_be_added BOOLEAN;
+    should_not_be_removed BOOLEAN;
 BEGIN
     -- Check if the sector should be in the materialized table
     SELECT EXISTS (
@@ -56,9 +57,25 @@ BEGIN
             SELECT sm.sp_id, sm.sector_num, sm.reg_seal_proof
             FROM sectors_meta sm
             WHERE sm.sp_id = target_sp_id AND sm.sector_num = target_sector_num
-        ON CONFLICT (sp_id, sector_num) DO UPDATE
+        ON CONFLICT (sp_id, sector_number) DO UPDATE
             SET reg_seal_proof = EXCLUDED.reg_seal_proof;
     -- no else, the pipeline entries remove themselves after the unseal is done
+    END IF;
+
+    -- Check if the sector should not be removed
+    SELECT EXISTS (
+        SELECT 1
+        FROM sectors_meta sm
+        WHERE sm.sp_id = target_sp_id
+          AND sm.sector_num = target_sector_num
+          AND sm.target_unseal_state = TRUE
+    ) INTO should_not_be_removed;
+
+    -- If it should not be removed
+    IF should_not_be_removed THEN
+        -- Just in case make sure the sector is not scheduled for removal
+        DELETE FROM storage_removal_marks
+            WHERE sp_id = target_sp_id AND sector_num = target_sector_num AND sector_filetype = 1; -- 1 is unsealed
     END IF;
 END;
 $$ LANGUAGE plpgsql;

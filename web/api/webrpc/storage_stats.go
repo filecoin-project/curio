@@ -2,6 +2,11 @@ package webrpc
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/samber/lo"
+	"github.com/snadrus/must"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -72,19 +77,43 @@ type StorageGCMarks struct {
 	Approved   bool       `db:"approved"`
 	ApprovedAt *time.Time `db:"approved_at"`
 
+	CanSeal  bool `db:"can_seal"`
+	CanStore bool `db:"can_store"`
+
+	Urls string `db:"urls"`
+
 	// db ignored
 	TypeName string `db:"-"`
+	PathType string `db:"-"`
 }
 
 func (a *WebRPC) StorageGCMarks(ctx context.Context) ([]StorageGCMarks, error) {
 	var marks []StorageGCMarks
-	err := a.deps.DB.Select(ctx, &marks, `SELECT sp_id, sector_num, sector_filetype, storage_id, created_at, approved, approved_at FROM storage_removal_marks ORDER BY created_at DESC`)
+	err := a.deps.DB.Select(ctx, &marks, `
+		SELECT m.sp_id, m.sector_num, m.sector_filetype, m.storage_id, m.created_at, m.approved, m.approved_at, sl.can_seal, sl.can_store, sl.urls
+			FROM storage_removal_marks m LEFT JOIN storage_path sl ON m.storage_id = sl.storage_id
+			ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
 
 	for i, m := range marks {
 		marks[i].TypeName = storiface.SectorFileType(m.FileType).String()
+
+		var pathRole []string
+		if m.CanSeal {
+			pathRole = append(pathRole, "Scratch")
+		}
+		if m.CanStore {
+			pathRole = append(pathRole, "Store")
+		}
+		marks[i].PathType = strings.Join(pathRole, "/")
+
+		us := paths.UrlsFromString(m.Urls)
+		us = lo.Map(us, func(u string, _ int) string {
+			return must.One(url.Parse(u)).Host
+		})
+		marks[i].Urls = strings.Join(us, ", ")
 	}
 
 	return marks, nil
