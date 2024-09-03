@@ -6,7 +6,7 @@ import './list-tile.mjs';
 class ConfigList extends StyledLitElement {
   constructor() {
     super();
-    this.layers = []; // string[]
+    this.layers = [];
     this.topo = [];
     this.loadData();
     this.message = this.readCookie('message');

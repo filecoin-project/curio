@@ -1,5 +1,5 @@
 import {html, css} from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
-import {StyledLitElement} from "../../../ux/StyledLitElement.mjs";
+import {StyledLitElement} from "/ux/StyledLitElement.mjs";
 
 class ListTile extends StyledLitElement {
   static get properties() {
