@@ -37,6 +37,15 @@ type TaskUnsealSdr struct {
 	api UnsealSDRApi
 }
 
+func NewTaskUnsealSDR(sc *ffi.SealCalls, db *harmonydb.DB, max int, api UnsealSDRApi) *TaskUnsealSdr {
+	return &TaskUnsealSdr{
+		max: max,
+		sc:  sc,
+		db:  db,
+		api: api,
+	}
+}
+
 func (t *TaskUnsealSdr) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 

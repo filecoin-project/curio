@@ -3,6 +3,7 @@ package tasks
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/tasks/unseal"
 	"sort"
 	"strings"
 	"sync"
@@ -269,7 +270,9 @@ func addSealingTasks(
 
 	if cfg.Subsystems.EnableSealSDR {
 		sdrTask := seal.NewSDRTask(full, db, sp, slr, cfg.Subsystems.SealSDRMaxTasks, cfg.Subsystems.SealSDRMinTasks)
-		activeTasks = append(activeTasks, sdrTask)
+		keyTask := unseal.NewTaskUnsealSDR(slr, db, cfg.Subsystems.SealSDRMaxTasks, full)
+
+		activeTasks = append(activeTasks, sdrTask, keyTask)
 	}
 	if cfg.Subsystems.EnableSealSDRTrees {
 		treeDTask := seal.NewTreeDTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
@@ -295,6 +298,11 @@ func addSealingTasks(
 		moveStorageTask := seal.NewMoveStorageTask(sp, slr, db, cfg.Subsystems.MoveStorageMaxTasks)
 		moveStorageSnapTask := snap.NewMoveStorageTask(slr, db, cfg.Subsystems.MoveStorageMaxTasks)
 		activeTasks = append(activeTasks, moveStorageTask, moveStorageSnapTask)
+
+		if !cfg.Subsystems.NoUnsealedDecode {
+			unsealTask := unseal.NewTaskUnsealDecode(slr, db, cfg.Subsystems.MoveStorageMaxTasks, full)
+			activeTasks = append(activeTasks, unsealTask)
+		}
 	}
 	if cfg.Subsystems.EnableSendCommitMsg {
 		commitTask := seal.NewSubmitCommitTask(sp, db, full, sender, as, cfg)
