@@ -2,6 +2,9 @@ package unseal
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/lib/passcall"
+	"math/rand/v2"
+	"time"
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -18,6 +21,8 @@ import (
 )
 
 var log = logging.Logger("unseal")
+
+const MinSchedInterval = 120 * time.Second
 
 type TaskUnsealDecode struct {
 	max int
@@ -128,13 +133,66 @@ func (t *TaskUnsealDecode) TypeDetails() harmonytask.TaskTypeDetails {
 			Storage: t.sc.Storage(t.taskToSector, storiface.FTUnsealed, storiface.FTNone, ssize, storiface.PathStorage, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 2,
-		Follows:     nil,
+		IAmBored: passcall.Every(MinSchedInterval, func(taskFunc harmonytask.AddTaskFunc) error {
+			return t.schedule(context.Background(), taskFunc)
+		}),
 	}
 }
 
+func (t *TaskUnsealDecode) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
+	// schedule at most one decode when we're bored
+
+	taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
+		var tasks []struct {
+			SpID         int64 `db:"sp_id"`
+			SectorNumber int64 `db:"sector_number"`
+		}
+
+		err := t.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_unseal_pipeline WHERE after_unseal_sdr = TRUE AND after_decode_sector = FALSE AND task_id_decode_sector IS NULL`)
+		if err != nil {
+			return false, xerrors.Errorf("getting tasks: %w", err)
+		}
+
+		if len(tasks) == 0 {
+			return false, nil
+		}
+
+		// pick at random in case there are a bunch of schedules across the cluster
+		t := tasks[rand.N(len(tasks))]
+
+		_, err = tx.Exec(`UPDATE sectors_unseal_pipeline SET task_id_decode_sector = $1 WHERE sp_id = $2 AND sector_number = $3`, id, t.SpID, t.SectorNumber)
+		if err != nil {
+			return false, xerrors.Errorf("updating task id: %w", err)
+		}
+
+		return true, nil
+	})
+
+	return nil
+}
+
 func (t *TaskUnsealDecode) Adder(taskFunc harmonytask.AddTaskFunc) {
-	//TODO implement me
-	panic("implement me")
+}
+
+func (t *TaskUnsealDecode) GetSpid(db *harmonydb.DB, taskID int64) string {
+	sid, err := t.GetSectorID(db, taskID)
+	if err != nil {
+		log.Errorf("getting sector id: %s", err)
+		return ""
+	}
+	return sid.Miner.String()
+}
+
+func (t *TaskUnsealDecode) GetSectorID(db *harmonydb.DB, taskID int64) (*abi.SectorID, error) {
+	var spId, sectorNumber uint64
+	err := db.QueryRow(context.Background(), `SELECT sp_id,sector_number FROM sectors_unseal_pipeline WHERE task_id_decode_sector = $1`, taskID).Scan(&spId, &sectorNumber)
+	if err != nil {
+		return nil, err
+	}
+	return &abi.SectorID{
+		Miner:  abi.ActorID(spId),
+		Number: abi.SectorNumber(sectorNumber),
+	}, nil
 }
 
 func (t *TaskUnsealDecode) taskToSector(id harmonytask.TaskID) (ffi.SectorRef, error) {
@@ -152,4 +210,5 @@ func (t *TaskUnsealDecode) taskToSector(id harmonytask.TaskID) (ffi.SectorRef, e
 	return refs[0], nil
 }
 
+var _ = harmonytask.Reg(&TaskUnsealDecode{})
 var _ harmonytask.TaskInterface = &TaskUnsealDecode{}

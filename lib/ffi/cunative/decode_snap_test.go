@@ -4,20 +4,24 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
-	"github.com/detailyang/go-fallocate"
-	"github.com/filecoin-project/curio/lib/proof"
-	ffi "github.com/filecoin-project/filecoin-ffi"
-	commp2 "github.com/filecoin-project/go-commp-utils/v2"
-	"github.com/filecoin-project/go-commp-utils/zerocomm"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/lotus/lib/nullreader"
-	"github.com/filecoin-project/lotus/storage/sealer/fr32"
-	"github.com/stretchr/testify/require"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/detailyang/go-fallocate"
+	"github.com/stretchr/testify/require"
+
+	ffi "github.com/filecoin-project/filecoin-ffi"
+	commp2 "github.com/filecoin-project/go-commp-utils/v2"
+	"github.com/filecoin-project/go-commp-utils/zerocomm"
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/proof"
+
+	"github.com/filecoin-project/lotus/lib/nullreader"
+	"github.com/filecoin-project/lotus/storage/sealer/fr32"
 )
 
 func TestSnapDecode(t *testing.T) {

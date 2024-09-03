@@ -33,21 +33,24 @@ import "C"
 
 import (
 	"encoding/hex"
-	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
-	"github.com/filecoin-project/curio/lib/proof"
-	commcid "github.com/filecoin-project/go-fil-commcid"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/ipfs/go-cid"
-	pool "github.com/libp2p/go-buffer-pool"
-	"github.com/snadrus/must"
-	"github.com/triplewz/poseidon"
-	"golang.org/x/xerrors"
 	"io"
 	"math/big"
 	"math/bits"
 	"runtime"
 	"sync"
 	"unsafe"
+
+	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
+	"github.com/ipfs/go-cid"
+	pool "github.com/libp2p/go-buffer-pool"
+	"github.com/snadrus/must"
+	"github.com/triplewz/poseidon"
+	"golang.org/x/xerrors"
+
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/proof"
 )
 
 type B32le = [32]byte
