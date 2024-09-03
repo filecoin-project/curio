@@ -1,25 +1,23 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Configurations</title>
-    <script type="module" src="/ux/curio-ux.mjs"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
-    <script type="module" src="config-list.mjs"></script>
-    <link rel="stylesheet" href="/ux/main.css">
-    <!--  todo: delete -->
-    <!--  <meta http-equiv="refresh" content="3">-->
+  <title>Configurations</title>
+  <script type="module" src="/ux/curio-ux.mjs"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
+  <script type="module" src="config-list.mjs"></script>
+  <link rel="stylesheet" href="/ux/main.css">
 </head>
 <body style="visibility:hidden; background:rgb(11, 22, 34)" data-bs-theme="dark">
 <curio-ux>
-    <div class="row">
-        <div class="col-md-3"></div>
-        <div class="col-md-3" style="width: 70%">
-            <h1 style="text-wrap: nowrap">Configuration Editor</h1>
-            <h3 style="text-wrap: nowrap">Click on a layer to edit its configuration</h3>
-            <config-list></config-list>
-        </div>
-        <div class="col-md-3"></div>
+  <div class="row">
+    <div class="col-md-3"></div>
+    <div class="col-md-3 pt-4" style="width: 70%">
+      <h2 style="text-wrap: nowrap">Configuration Editor</h2>
+      <h4 style="text-wrap: nowrap">Click on a layer to edit its configuration</h4>
+      <config-list></config-list>
     </div>
+    <div class="col-md-3"></div>
+  </div>
 </curio-ux>
 </body>
 </html>

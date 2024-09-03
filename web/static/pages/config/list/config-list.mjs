@@ -73,7 +73,7 @@ class ConfigList extends StyledLitElement {
 
       ${this.message ? html`<div class="alert">${this.message}</div>` : ''}
 
-      <ul>
+      <ul class="py-3">
         ${this.layers.map((layer, index) => html`
           <list-tile id=${index}
                      .layerName=${layer}

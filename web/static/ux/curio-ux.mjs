@@ -140,7 +140,7 @@ class CurioUX extends LitElement {
               </a>
             </li>
             <li>
-              <a href="/config/" class="nav-link text-white ${active=='/config/'? 'active':''}">
+              <a href="/pages/config/list/" class="nav-link text-white ${active=='/pages/config/list/'? 'active':''}">
                 <svg class="bi me-2" width="16" height="16"><use xlink:href="#speedometer2"></use></svg>
                 <span>Configurations</span>
               </a>
