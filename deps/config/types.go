@@ -117,6 +117,7 @@ type CurioConfig struct {
 	Seal      CurioSealConfig
 	Apis      ApisConfig
 	Alerting  CurioAlertingConfig
+	HTTP      HTTPConfig
 }
 
 func DefaultDefaultMaxFee() types.FIL {
@@ -687,12 +688,60 @@ type IPNIConfig struct {
 	DirectAnnounceURLs []string
 }
 
+// HTTPConfig represents the configuration for an HTTP server.
 type HTTPConfig struct {
-	// ListenAddress is where HTTP server will be listening on. Default is "0.0.0.0:12400"
+	// DomainName specifies the domain name that the server uses to serve HTTP requests.
+	DomainName string
+
+	// CertCacheDir path to the cache directory for storing SSL certificates needed for HTTPS.
+	CertCacheDir string
+
+	// ListenAddress is the address that the server listens for HTTP requests.
 	ListenAddress string
 
 	// AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
 	// Curio allows running more than one node for HTTP server and thus all addressed can be announced
 	// simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
 	AnnounceAddresses []string
+
+	// ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
+	ReadTimeout time.Duration
+
+	// WriteTimeout is the maximum duration before timing out writes of the response to the client.
+	WriteTimeout time.Duration
+
+	// IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
+	IdleTimeout time.Duration
+
+	// ReadHeaderTimeout is amount of time allowed to read request headers
+	ReadHeaderTimeout time.Duration
+
+	// EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.
+	EnableCORS bool
+
+	// CompressionLevels hold the compression level for various compression methods supported by the server
+	CompressionLevels CompressionConfig
+
+	// EnableLoadBalancer indicates whether load balancing between backend servers is enabled. It should only
+	// be enabled on one node per domain name.
+	EnableLoadBalancer bool
+
+	// LoadBalancerListenAddr is the listen address for load balancer. This must be different from ListenAddr of the
+	// HTTP server.
+	LoadBalancerListenAddr string
+
+	// LoadBalancerBackends holds a list of listen addresses to which HTTP requests can be routed. Current ListenAddr
+	// should also be added to backends if LoadBalancer is enabled
+	LoadBalancerBackends []string
+
+	// LoadBalanceHealthCheckInterval is the duration to check the status of all backend URLs and adjust the
+	// loadbalancer backend based on the results
+	LoadBalanceHealthCheckInterval Duration
+}
+
+// CompressionConfig holds the compression levels for supported types
+type CompressionConfig struct {
+	GzipLevel    int
+	BrotliLevel  int
+	DeflateLevel int
 }

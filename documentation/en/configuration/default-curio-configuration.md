@@ -687,4 +687,79 @@ description: The default curio configuration
     # type: string
     #WebHookURL = ""
 
+
+[HTTP]
+  # DomainName specifies the domain name that the server uses to serve HTTP requests.
+  #
+  # type: string
+  #DomainName = ""
+
+  # CertCacheDir path to the cache directory for storing SSL certificates needed for HTTPS.
+  #
+  # type: string
+  #CertCacheDir = ""
+
+  # ListenAddr is the address that the server listens for HTTP requests.
+  #
+  # type: string
+  #ListenAddr = ""
+
+  # HTTPRedirectAddr is the address to which HTTP requests are redirected. It's usually used when you want to enforce HTTPS.
+  #
+  # type: string
+  #HTTPRedirectAddr = ""
+
+  # ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
+  #
+  # type: time.Duration
+  #ReadTimeout = "0s"
+
+  # WriteTimeout is the maximum duration before timing out writes of the response to the client.
+  #
+  # type: time.Duration
+  #WriteTimeout = "0s"
+
+  # IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
+  #
+  # type: time.Duration
+  #IdleTimeout = "0s"
+
+  # ReadHeaderTimeout is amount of time allowed to read request headers
+  #
+  # type: time.Duration
+  #ReadHeaderTimeout = "0s"
+
+  # EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.
+  #
+  # type: bool
+  #EnableCORS = false
+
+  # EnableLoadBalancer indicates whether load balancing between backend servers is enabled. It should only
+  # be enabled on one node per domain name.
+  #
+  # type: bool
+  #EnableLoadBalancer = false
+
+  # LoadBalancerListenAddr is the listen address for load balancer. This must be different from ListenAddr of the
+  # HTTP server.
+  #
+  # type: string
+  #LoadBalancerListenAddr = ""
+
+  # LoadBalanceHealthCheckInterval is the duration to check the status of all backend URLs and adjust the
+  # loadbalancer backend based on the results
+  #
+  # type: Duration
+  #LoadBalanceHealthCheckInterval = "0s"
+
+  [HTTP.CompressionLevels]
+    # type: int
+    #GzipLevel = 0
+
+    # type: int
+    #BrotliLevel = 0
+
+    # type: int
+    #DeflateLevel = 0
+
 ```

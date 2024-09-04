@@ -39,6 +39,26 @@ cat ~/.lotusminer/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU | jq -r .PrivateKey`,
 			Comment: ``,
 		},
 	},
+	"CompressionConfig": {
+		{
+			Name: "GzipLevel",
+			Type: "int",
+
+			Comment: ``,
+		},
+		{
+			Name: "BrotliLevel",
+			Type: "int",
+
+			Comment: ``,
+		},
+		{
+			Name: "DeflateLevel",
+			Type: "int",
+
+			Comment: ``,
+		},
+	},
 	"CurioAddresses": {
 		{
 			Name: "PreCommitControl",
@@ -160,6 +180,12 @@ alerts will be triggered for the wallet`,
 		{
 			Name: "Alerting",
 			Type: "CurioAlertingConfig",
+
+			Comment: ``,
+		},
+		{
+			Name: "HTTP",
+			Type: "HTTPConfig",
 
 			Comment: ``,
 		},
@@ -759,10 +785,22 @@ on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
 	},
 	"HTTPConfig": {
 		{
+			Name: "DomainName",
+			Type: "string",
+
+			Comment: `DomainName specifies the domain name that the server uses to serve HTTP requests.`,
+		},
+		{
+			Name: "CertCacheDir",
+			Type: "string",
+
+			Comment: `CertCacheDir path to the cache directory for storing SSL certificates needed for HTTPS.`,
+		},
+		{
 			Name: "ListenAddress",
 			Type: "string",
 
-			Comment: `ListenAddress is where HTTP server will be listening on. Default is "0.0.0.0:12400"`,
+			Comment: `ListenAddress is the address that the server listens for HTTP requests.`,
 		},
 		{
 			Name: "AnnounceAddresses",
@@ -771,6 +809,70 @@ on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
 			Comment: `AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
 Curio allows running more than one node for HTTP server and thus all addressed can be announced
 simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]`,
+		},
+		{
+			Name: "ReadTimeout",
+			Type: "time.Duration",
+
+			Comment: `ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.`,
+		},
+		{
+			Name: "WriteTimeout",
+			Type: "time.Duration",
+
+			Comment: `WriteTimeout is the maximum duration before timing out writes of the response to the client.`,
+		},
+		{
+			Name: "IdleTimeout",
+			Type: "time.Duration",
+
+			Comment: `IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.`,
+		},
+		{
+			Name: "ReadHeaderTimeout",
+			Type: "time.Duration",
+
+			Comment: `ReadHeaderTimeout is amount of time allowed to read request headers`,
+		},
+		{
+			Name: "EnableCORS",
+			Type: "bool",
+
+			Comment: `EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.`,
+		},
+		{
+			Name: "CompressionLevels",
+			Type: "CompressionConfig",
+
+			Comment: `CompressionLevels hold the compression level for various compression methods supported by the server`,
+		},
+		{
+			Name: "EnableLoadBalancer",
+			Type: "bool",
+
+			Comment: `EnableLoadBalancer indicates whether load balancing between backend servers is enabled. It should only
+be enabled on one node per domain name.`,
+		},
+		{
+			Name: "LoadBalancerListenAddr",
+			Type: "string",
+
+			Comment: `LoadBalancerListenAddr is the listen address for load balancer. This must be different from ListenAddr of the
+HTTP server.`,
+		},
+		{
+			Name: "LoadBalancerBackends",
+			Type: "[]string",
+
+			Comment: `LoadBalancerBackends holds a list of listen addresses to which HTTP requests can be routed. Current ListenAddr
+should also be added to backends if LoadBalancer is enabled`,
+		},
+		{
+			Name: "LoadBalanceHealthCheckInterval",
+			Type: "Duration",
+
+			Comment: `LoadBalanceHealthCheckInterval is the duration to check the status of all backend URLs and adjust the
+loadbalancer backend based on the results`,
 		},
 	},
 	"IPNIConfig": {
