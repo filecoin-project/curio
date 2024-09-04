@@ -2,7 +2,6 @@ package unseal
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/lib/dealdata"
 	"math/rand/v2"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/paths"

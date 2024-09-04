@@ -3,14 +3,18 @@ package ffi
 import (
 	"bufio"
 	"context"
-	"github.com/filecoin-project/curio/lib/proof"
-	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/lotus/storage/sealer/fr32"
-	"github.com/ipfs/go-cid"
-	"golang.org/x/xerrors"
 	"io"
 	"time"
+
+	"github.com/ipfs/go-cid"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/proof"
+	"github.com/filecoin-project/curio/lib/storiface"
+
+	"github.com/filecoin-project/lotus/storage/sealer/fr32"
 )
 
 func (sb *SealCalls) CheckUnsealedCID(ctx context.Context, s storiface.SectorRef) (cid.Cid, error) {

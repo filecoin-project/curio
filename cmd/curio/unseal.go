@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"fmt"
-	"github.com/filecoin-project/curio/lib/dealdata"
 	"net/url"
 	"os"
 	"strconv"
@@ -20,6 +19,7 @@ import (
 	"github.com/filecoin-project/go-address"
 
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/reqcontext"
 	"github.com/filecoin-project/curio/lib/storiface"

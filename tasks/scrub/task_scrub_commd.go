@@ -2,18 +2,21 @@ package scrub
 
 import (
 	"context"
+	"math/rand/v2"
+	"runtime"
+	"time"
+
+	"github.com/ipfs/go-cid"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/ipfs/go-cid"
-	"golang.org/x/xerrors"
-	"math/rand/v2"
-	"runtime"
-	"time"
 )
 
 const MinSchedInterval = 100 * time.Second

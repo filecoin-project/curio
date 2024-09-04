@@ -201,6 +201,13 @@ description: The default curio configuration
   # type: int
   #UpdateProveMaxTasks = 0
 
+  # EnableScrubUnsealed allows this node to run the scrubbing task for unsealed sectors. This task is computing
+  # UnsealedCID / CommD of sectors in storage and checks that they still match the metadata.
+  # Scrubbing is user-scheduled
+  #
+  # type: bool
+  #EnableScrubUnsealed = false
+
   # BoostAdapters is a list of tuples of miner address and port/ip to listen for market (e.g. boost) requests.
   # This interface is compatible with the lotus-miner RPC, implementing a subset needed for storage market operations.
   # Strings should be in the format "actor:ip:port". IP cannot be 0.0.0.0. We recommend using a private IP.

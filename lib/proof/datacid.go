@@ -4,16 +4,14 @@ import (
 	"math/bits"
 	"runtime"
 
-	"github.com/filecoin-project/go-commp-utils/nonffi"
-	commcid "github.com/filecoin-project/go-fil-commcid"
-	commp "github.com/filecoin-project/go-fil-commp-hashhash"
-
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/go-state-types/abi"
-
+	"github.com/filecoin-project/go-commp-utils/nonffi"
 	"github.com/filecoin-project/go-commp-utils/zerocomm"
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	commp "github.com/filecoin-project/go-fil-commp-hashhash"
+	"github.com/filecoin-project/go-state-types/abi"
 )
 
 type DataCIDSize struct {

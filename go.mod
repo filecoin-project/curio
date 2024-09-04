@@ -24,6 +24,7 @@ require (
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20240802040721-2a04ffc8ffe8
 	github.com/filecoin-project/go-commp-utils/v2 v2.1.0
 	github.com/filecoin-project/go-fil-commcid v0.1.0
+	github.com/filecoin-project/go-fil-commp-hashhash v0.2.0
 	github.com/filecoin-project/go-jsonrpc v0.6.1-0.20240820160949-2cfe810e5d2f
 	github.com/filecoin-project/go-padreader v0.0.1
 	github.com/filecoin-project/go-state-types v0.14.0
@@ -130,7 +131,6 @@ require (
 	github.com/filecoin-project/go-clock v0.1.0 // indirect
 	github.com/filecoin-project/go-crypto v0.1.0 // indirect
 	github.com/filecoin-project/go-f3 v0.2.0 // indirect
-	github.com/filecoin-project/go-fil-commp-hashhash v0.2.0 // indirect
 	github.com/filecoin-project/go-hamt-ipld v0.1.5 // indirect
 	github.com/filecoin-project/go-hamt-ipld/v2 v2.0.0 // indirect
 	github.com/filecoin-project/go-hamt-ipld/v3 v3.4.0 // indirect

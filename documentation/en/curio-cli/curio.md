@@ -551,6 +551,7 @@ COMMANDS:
    info              Get information about unsealed data
    list-sectors      List data from the sectors_unseal_pipeline and sectors_meta tables
    set-target-state  Set the target unseal state for a sector
+   check             Check data in unsealed sector files
    help, h           Shows a list of commands or help for one command
 
 OPTIONS:
@@ -596,6 +597,23 @@ DESCRIPTION:
       <sp-id>: The storage provider ID
       <sector-number>: The sector number
       <target-state>: The target state (true, false, or none)
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### curio unseal check
+```
+NAME:
+   curio unseal check - Check data in unsealed sector files
+
+USAGE:
+   curio unseal check [command options] <sp-id> <sector-number>
+
+DESCRIPTION:
+   Create a check task for a specific sector, wait for its completion, and output the result.
+      <sp-id>: The storage provider ID
+      <sector-number>: The sector number
 
 OPTIONS:
    --help, -h  show help

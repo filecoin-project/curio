@@ -671,6 +671,14 @@ This step submits the generated proofs to the chain.`,
 			Comment: `UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance.`,
 		},
 		{
+			Name: "EnableScrubUnsealed",
+			Type: "bool",
+
+			Comment: `EnableScrubUnsealed allows this node to run the scrubbing task for unsealed sectors. This task is computing
+UnsealedCID / CommD of sectors in storage and checks that they still match the metadata.
+Scrubbing is user-scheduled`,
+		},
+		{
 			Name: "BoostAdapters",
 			Type: "[]string",
 
