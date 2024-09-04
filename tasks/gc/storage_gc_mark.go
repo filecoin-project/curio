@@ -261,7 +261,8 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 		err = tx.Select(&unsealedSectors, `SELECT m.sector_num, m.sp_id, sl.storage_id FROM sectors_meta m
 			INNER JOIN sector_location sl ON m.sp_id = sl.miner_id AND m.sector_num = sl.sector_num
-			WHERE m.target_unseal_state = false AND sl.sector_filetype= 1`) // FTUnsealed = 1
+			LEFT JOIN sectors_unseal_pipeline sup ON m.sp_id = sup.sp_id AND m.sector_num = sup.sector_number
+			WHERE m.target_unseal_state = false AND sl.sector_filetype= 1 AND sup.sector_number IS NULL`) // FTUnsealed = 1
 		if err != nil {
 			return false, xerrors.Errorf("select unsealed sectors: %w", err)
 		}
