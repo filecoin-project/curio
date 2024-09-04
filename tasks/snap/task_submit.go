@@ -262,6 +262,10 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	if err != nil {
 		return false, xerrors.Errorf("parsing new sealed cid: %w", err)
 	}
+	newUnsealedCID, err := cid.Parse(update.UpdateUnsealedCID)
+	if err != nil {
+		return false, xerrors.Errorf("parsing new unsealed cid: %w", err)
+	}
 
 	// Prepare params
 	params := miner.ProveReplicaUpdates3Params{
@@ -369,7 +373,7 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("inserting into message_waits: %w", err)
 	}
 
-	if err := s.transferUpdatedSectorData(ctx, update.SpID, update.SectorNumber, newSealedCID, cid.Undef, mcid); err != nil {
+	if err := s.transferUpdatedSectorData(ctx, update.SpID, update.SectorNumber, newUnsealedCID, newSealedCID, mcid); err != nil {
 		return false, xerrors.Errorf("updating sector meta: %w", err)
 	}
 
