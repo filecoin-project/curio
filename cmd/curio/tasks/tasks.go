@@ -3,6 +3,7 @@ package tasks
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/tasks/scrub"
 	"sort"
 	"strings"
 	"sync"
@@ -251,6 +252,11 @@ func addSealingTasks(
 	var addFinalize bool
 
 	// NOTE: Tasks with the LEAST priority are at the top
+	if cfg.Subsystems.EnableScrubUnsealed {
+		scrubUnsealedTask := scrub.NewCommDCheckTask(db, slr)
+		activeTasks = append(activeTasks, scrubUnsealedTask)
+	}
+
 	if cfg.Subsystems.EnableBatchSeal {
 		slotMgr = slotmgr.NewSlotMgr()
 

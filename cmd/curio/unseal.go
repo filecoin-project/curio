@@ -1,8 +1,12 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/csv"
 	"fmt"
+	"github.com/filecoin-project/go-commp-utils/nonffi"
+	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/ipfs/go-cid"
 	"net/url"
 	"os"
 	"strconv"
@@ -30,6 +34,7 @@ var unsealCmd = &cli.Command{
 		unsealInfoCmd,
 		listUnsealPipelineCmd,
 		setTargetUnsealStateCmd,
+		unsealCheckCmd,
 	},
 }
 
@@ -430,4 +435,143 @@ func formatNullableBool(v *bool) string {
 		return ""
 	}
 	return strconv.FormatBool(*v)
+}
+
+var unsealCheckCmd = &cli.Command{
+	Name:      "check",
+	Usage:     "Check data in unsealed sector files",
+	ArgsUsage: "<sp-id> <sector-number>",
+	Description: `Create a check task for a specific sector, wait for its completion, and output the result.
+   <sp-id>: The storage provider ID
+   <sector-number>: The sector number`,
+	Action: func(cctx *cli.Context) error {
+		if cctx.Args().Len() != 2 {
+			return cli.ShowSubcommandHelp(cctx)
+		}
+
+		sp, err := address.NewFromString(cctx.Args().Get(0))
+		if err != nil {
+			return xerrors.Errorf("invalid storage provider address: %w", err)
+		}
+
+		spID, err := address.IDFromAddress(sp)
+		if err != nil {
+			return xerrors.Errorf("failed to get storage provider id: %w", err)
+		}
+
+		sectorNum, err := strconv.ParseInt(cctx.Args().Get(1), 10, 64)
+		if err != nil {
+			return xerrors.Errorf("invalid sector-number: %w", err)
+		}
+
+		ctx := reqcontext.ReqContext(cctx)
+		dep, err := deps.GetDepsCLI(ctx, cctx)
+		if err != nil {
+			return err
+		}
+
+		var unsealedCid cid.Cid
+		{
+			var sectorPieces []struct {
+				PieceNum  int64  `db:"piece_num"`
+				PieceCID  string `db:"piece_cid"`
+				PieceSize int64  `db:"piece_size"` // padded
+			}
+			err = dep.DB.Select(ctx, &sectorPieces, `
+			SELECT piece_num, piece_cid, piece_size
+				FROM sectors_meta_pieces
+				WHERE sp_id = $1 AND sector_num = $2
+				ORDER BY piece_num`, spID, sectorNum)
+			if err != nil {
+				return xerrors.Errorf("getting sector pieces: %w", err)
+			}
+
+			var sectorParams []struct {
+				RegSealProof int64 `db:"reg_seal_proof"`
+			}
+			err = dep.DB.Select(ctx, &sectorParams, `
+			SELECT reg_seal_proof
+				FROM sectors_meta
+				WHERE sp_id = $1 AND sector_num = $2`, spID, sectorNum)
+			if err != nil {
+				return xerrors.Errorf("getting sector params: %w", err)
+			}
+			if len(sectorParams) != 1 {
+				return xerrors.Errorf("expected 1 sector param, got %d", len(sectorParams))
+			}
+
+			spt := abi.RegisteredSealProof(sectorParams[0].RegSealProof)
+			var pieceInfos []abi.PieceInfo
+			for _, p := range sectorPieces {
+				c, err := cid.Decode(p.PieceCID)
+				if err != nil {
+					return xerrors.Errorf("decoding piece cid: %w", err)
+				}
+
+				fmt.Printf("Piece CID: %s %d\n", c.String(), abi.PaddedPieceSize(p.PieceSize))
+
+				pieceInfos = append(pieceInfos, abi.PieceInfo{
+					Size:     abi.PaddedPieceSize(p.PieceSize),
+					PieceCID: c,
+				})
+			}
+
+			unsealedCid, err = nonffi.GenerateUnsealedCID(spt, pieceInfos)
+			if err != nil {
+				return xerrors.Errorf("generating unsealed cid: %w", err)
+			}
+
+			fmt.Printf("Expected unsealed CID (spt %d): %s\n", spt, unsealedCid.String())
+		}
+
+		// Create the check task
+		var checkID int64
+		err = dep.DB.QueryRow(ctx, `
+			INSERT INTO scrub_unseal_commd_check (sp_id, sector_number, expected_unsealed_cid)
+			VALUES ($1, $2, $3)
+			RETURNING check_id
+		`, spID, sectorNum, unsealedCid.String()).Scan(&checkID)
+		if err != nil {
+			return xerrors.Errorf("failed to create check task: %w", err)
+		}
+
+		_, _ = fmt.Fprintf(os.Stderr, "Created check task with ID %d\n", checkID)
+
+		// Poll for completion
+		dots := 0
+		for {
+			var ok sql.NullBool
+			var actualUnsealedCID, message sql.NullString
+
+			err := dep.DB.QueryRow(ctx, `
+				SELECT ok, actual_unsealed_cid, message
+				FROM scrub_unseal_commd_check
+				WHERE check_id = $1
+			`, checkID).Scan(&ok, &actualUnsealedCID, &message)
+
+			if err != nil {
+				return xerrors.Errorf("failed to query check task status: %w", err)
+			}
+
+			if ok.Valid {
+				// Task completed
+				_, _ = fmt.Fprintf(os.Stderr, "\n") // Move to the next line after the dots
+				if ok.Bool {
+					fmt.Printf("Check task completed successfully\n")
+					fmt.Printf("Actual unsealed CID: %s\n", actualUnsealedCID.String)
+				} else {
+					fmt.Printf("Check task failed\n")
+					fmt.Printf("Error message: %s\n", message.String)
+					fmt.Printf("Actual unsealed CID:   %s\n", actualUnsealedCID.String)
+				}
+				return nil
+			}
+
+			// Update progress indicator
+			dots = (dots + 1) % 4
+			_, _ = fmt.Fprintf(os.Stderr, "Check task still in progress%s    \r", "."+strings.Repeat(".", dots))
+
+			time.Sleep(2 * time.Second)
+		}
+	},
 }
