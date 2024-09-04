@@ -143,20 +143,20 @@ func (l *storageProvider) AcquireSector(ctx context.Context, taskID *harmonytask
 	}, nil
 }
 
-func (sb *SealCalls) GenerateSDR(ctx context.Context, taskID harmonytask.TaskID, into storiface.SectorFileType, sector storiface.SectorRef, ticket abi.SealRandomness, commKcid cid.Cid) error {
-	paths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, &taskID, sector, storiface.FTNone, storiface.FTCache, storiface.PathSealing)
+func (sb *SealCalls) GenerateSDR(ctx context.Context, taskID harmonytask.TaskID, into storiface.SectorFileType, sector storiface.SectorRef, ticket abi.SealRandomness, commDcid cid.Cid) error {
+	paths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, &taskID, sector, storiface.FTNone, into, storiface.PathSealing)
 	if err != nil {
 		return xerrors.Errorf("acquiring sector paths: %w", err)
 	}
 	defer releaseSector()
 
 	// prepare SDR params
-	commp, err := commcid.CIDToDataCommitmentV1(commKcid)
+	commd, err := commcid.CIDToDataCommitmentV1(commDcid)
 	if err != nil {
-		return xerrors.Errorf("computing commK: %w", err)
+		return xerrors.Errorf("computing commD (%s): %w", commDcid, err)
 	}
 
-	replicaID, err := sector.ProofType.ReplicaId(sector.ID.Miner, sector.ID.Number, ticket, commp)
+	replicaID, err := sector.ProofType.ReplicaId(sector.ID.Miner, sector.ID.Number, ticket, commd)
 	if err != nil {
 		return xerrors.Errorf("computing replica id: %w", err)
 	}

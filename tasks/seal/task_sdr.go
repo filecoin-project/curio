@@ -117,7 +117,7 @@ func (s *SDRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 	//                Trees; After one retry, it should return the sector to the
 	// 			      SDR stage; max number of retries should be configurable
 
-	err = s.sc.GenerateSDR(ctx, taskID, storiface.FTUnsealed, sref, ticket, dealData.CommD)
+	err = s.sc.GenerateSDR(ctx, taskID, storiface.FTCache, sref, ticket, dealData.CommD)
 	if err != nil {
 		return false, xerrors.Errorf("generating sdr: %w", err)
 	}

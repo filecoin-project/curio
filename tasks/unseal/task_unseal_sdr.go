@@ -70,12 +70,11 @@ func (t *TaskUnsealSdr) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	sectorParams := sectorParamsArr[0]
 
 	var sectorMeta []struct {
-		TicketValue   []byte `db:"ticket_value"`
-		OrigSealedCID string `db:"orig_sealed_cid"`
-		CurSealedCID  string `db:"cur_sealed_cid"`
+		TicketValue    []byte `db:"ticket_value"`
+		CurUnsealedCID string `db:"cur_unsealed_cid"`
 	}
 	err = t.db.Select(ctx, &sectorMeta, `
-		SELECT ticket_value, orig_sealed_cid, cur_sealed_cid
+		SELECT ticket_value, cur_unsealed_cid
 		FROM sectors_meta
 		WHERE sp_id = $1 AND sector_num = $2`, sectorParams.SpID, sectorParams.SectorNumber)
 	if err != nil {
@@ -86,9 +85,9 @@ func (t *TaskUnsealSdr) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return false, xerrors.Errorf("expected 1 sector meta, got %d", len(sectorMeta))
 	}
 
-	commK, err := cid.Decode(sectorMeta[0].OrigSealedCID)
+	commD, err := cid.Decode(sectorMeta[0].CurUnsealedCID)
 	if err != nil {
-		return false, xerrors.Errorf("decoding commk: %w", err)
+		return false, xerrors.Errorf("decoding commd: %w", err)
 	}
 
 	if len(sectorMeta[0].TicketValue) != abi.RandomnessLength {
@@ -103,7 +102,7 @@ func (t *TaskUnsealSdr) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		ProofType: abi.RegisteredSealProof(sectorParams.RegSealProof),
 	}
 
-	if err := t.sc.GenerateSDR(ctx, taskID, storiface.FTKey, sref, sectorMeta[0].TicketValue, commK); err != nil {
+	if err := t.sc.GenerateSDR(ctx, taskID, storiface.FTKey, sref, sectorMeta[0].TicketValue, commD); err != nil {
 		return false, xerrors.Errorf("generate sdr: %w", err)
 	}
 
