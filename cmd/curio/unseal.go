@@ -185,9 +185,9 @@ var unsealInfoCmd = &cli.Command{
 		var pipeline []struct {
 			CreateTime         time.Time `db:"create_time"`
 			TaskIDUnsealSDR    *int64    `db:"task_id_unseal_sdr"`
-			AfterUnsealSDR     *bool     `db:"after_unseal_sdr"`
+			AfterUnsealSDR     bool      `db:"after_unseal_sdr"`
 			TaskIDDecodeSector *int64    `db:"task_id_decode_sector"`
-			AfterDecodeSector  *bool     `db:"after_decode_sector"`
+			AfterDecodeSector  bool      `db:"after_decode_sector"`
 		}
 
 		err = dep.DB.Select(ctx, &pipeline, `
@@ -204,29 +204,23 @@ var unsealInfoCmd = &cli.Command{
 			fmt.Printf("  - Created: %s\n", pipeline[0].CreateTime)
 
 			if pipeline[0].TaskIDUnsealSDR != nil {
-				fmt.Printf("  - Unseal SDR: %s\n", color.GreenString("✔"))
-				if pipeline[0].AfterUnsealSDR != nil {
-					if *pipeline[0].AfterUnsealSDR {
-						fmt.Printf("    - After: %s\n", color.GreenString("✔"))
-					} else {
-						fmt.Printf("    - After: %s\n", color.RedString("✘"))
-					}
-				}
+				fmt.Printf("  - Unseal SDR: %s running (task %d)\n", color.YellowString("⧖"), *pipeline[0].TaskIDUnsealSDR)
 			} else {
-				fmt.Printf("  - Unseal SDR: %s\n", color.RedString("✘"))
+				if pipeline[0].AfterUnsealSDR {
+					fmt.Printf("  - Unseal SDR: %s done\n", color.GreenString("✔"))
+				} else {
+					fmt.Printf("  - Unseal SDR: %s not done\n", color.RedString("✘"))
+				}
 			}
 
 			if pipeline[0].TaskIDDecodeSector != nil {
-				fmt.Printf("  - Decode Sector: %s\n", color.GreenString("✔"))
-				if pipeline[0].AfterDecodeSector != nil {
-					if *pipeline[0].AfterDecodeSector {
-						fmt.Printf("    - After: %s\n", color.GreenString("✔"))
-					} else {
-						fmt.Printf("    - After: %s\n", color.RedString("✘"))
-					}
-				}
+				fmt.Printf("  - Decode Sector: %s running (task %d)\n", color.YellowString("⧖"), *pipeline[0].TaskIDDecodeSector)
 			} else {
-				fmt.Printf("  - Decode Sector: %s\n", color.RedString("✘"))
+				if pipeline[0].AfterDecodeSector {
+					fmt.Printf("  - Decode Sector: %s done\n", color.GreenString("✔"))
+				} else {
+					fmt.Printf("  - Decode Sector: %s not done\n", color.RedString("✘"))
+				}
 			}
 		} else {
 			fmt.Printf("Unseal Pipeline: %s no entry\n", color.RedString("✘"))

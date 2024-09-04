@@ -88,14 +88,17 @@ func (t *TaskUnsealDecode) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	if err != nil {
 		return false, xerrors.Errorf("decoding OrigSealedCID: %w", err)
 	}
-	commR, err := cid.Decode(smeta.CurSealedCID)
-	if err != nil {
-		return false, xerrors.Errorf("decoding CurSealedCID: %w", err)
-	}
-	var commD cid.Cid
-	if smeta.CurUnsealedCID == "" || smeta.CurUnsealedCID == "b" {
+
+	var commD, commR cid.Cid
+	if smeta.CurSealedCID == "" || smeta.CurSealedCID == "b" {
 		// https://github.com/filecoin-project/curio/issues/191
 		// <workaround>
+
+		// "unsealed" actually stores the sealed CID, "sealed" is empty
+		commR, err = cid.Decode(smeta.CurUnsealedCID)
+		if err != nil {
+			return false, xerrors.Errorf("decoding CurSealedCID: %w", err)
+		}
 
 		var sectorPieces []struct {
 			PieceNum  int64  `db:"piece_num"`
@@ -136,7 +139,11 @@ func (t *TaskUnsealDecode) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	} else {
 		commD, err = cid.Decode(smeta.CurUnsealedCID)
 		if err != nil {
-			return false, xerrors.Errorf("decoding CurUnsealedCID: %w", err)
+			return false, xerrors.Errorf("decoding CurUnsealedCID (%s): %w", smeta.CurUnsealedCID, err)
+		}
+		commR, err = cid.Decode(smeta.CurSealedCID)
+		if err != nil {
+			return false, xerrors.Errorf("decoding CurSealedCID: %w", err)
 		}
 	}
 
