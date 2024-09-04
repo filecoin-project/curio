@@ -70,11 +70,11 @@ func (t *TaskUnsealSdr) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	sectorParams := sectorParamsArr[0]
 
 	var sectorMeta []struct {
-		TicketValue    []byte `db:"ticket_value"`
-		CurUnsealedCID string `db:"cur_unsealed_cid"`
+		TicketValue     []byte `db:"ticket_value"`
+		OrigUnsealedCID string `db:"orig_unsealed_cid"`
 	}
 	err = t.db.Select(ctx, &sectorMeta, `
-		SELECT ticket_value, cur_unsealed_cid
+		SELECT ticket_value, orig_unsealed_cid
 		FROM sectors_meta
 		WHERE sp_id = $1 AND sector_num = $2`, sectorParams.SpID, sectorParams.SectorNumber)
 	if err != nil {
@@ -85,7 +85,8 @@ func (t *TaskUnsealSdr) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return false, xerrors.Errorf("expected 1 sector meta, got %d", len(sectorMeta))
 	}
 
-	commD, err := cid.Decode(sectorMeta[0].CurUnsealedCID)
+	// NOTE: Even for snap sectors for SDR we need the original unsealed CID
+	commD, err := cid.Decode(sectorMeta[0].OrigUnsealedCID)
 	if err != nil {
 		return false, xerrors.Errorf("decoding commd: %w", err)
 	}

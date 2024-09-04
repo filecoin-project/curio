@@ -3,6 +3,7 @@ package unseal
 import (
 	"context"
 	"github.com/filecoin-project/curio/lib/passcall"
+	"github.com/filecoin-project/go-commp-utils/nonffi"
 	"math/rand/v2"
 	"time"
 
@@ -65,12 +66,13 @@ func (t *TaskUnsealDecode) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	sectorParams := sectorParamsArr[0]
 
 	var sectorMeta []struct {
-		TicketValue   []byte `db:"ticket_value"`
-		OrigSealedCID string `db:"orig_sealed_cid"`
-		CurSealedCID  string `db:"cur_sealed_cid"`
+		TicketValue    []byte `db:"ticket_value"`
+		OrigSealedCID  string `db:"orig_sealed_cid"`
+		CurSealedCID   string `db:"cur_sealed_cid"`
+		CurUnsealedCID string `db:"cur_unsealed_cid"`
 	}
 	err = t.db.Select(ctx, &sectorMeta, `
-		SELECT ticket_value, orig_sealed_cid, cur_sealed_cid
+		SELECT ticket_value, orig_sealed_cid, cur_sealed_cid, cur_unsealed_cid
 		FROM sectors_meta
 		WHERE sp_id = $1 AND sector_num = $2`, sectorParams.SpID, sectorParams.SectorNumber)
 	if err != nil {
@@ -90,6 +92,53 @@ func (t *TaskUnsealDecode) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	if err != nil {
 		return false, xerrors.Errorf("decoding CurSealedCID: %w", err)
 	}
+	var commD cid.Cid
+	if smeta.CurUnsealedCID == "" || smeta.CurUnsealedCID == "b" {
+		// https://github.com/filecoin-project/curio/issues/191
+		// <workaround>
+
+		var sectorPieces []struct {
+			PieceNum  int64  `db:"piece_num"`
+			PieceCID  string `db:"piece_cid"`
+			PieceSize int64  `db:"piece_size"` // padded
+		}
+		err = t.db.Select(ctx, &sectorPieces, `
+			SELECT piece_num, piece_cid, piece_size
+			FROM sectors_meta_pieces
+			WHERE sp_id = $1 AND sector_num = $2
+			ORDER BY piece_num`, sectorParams.SpID, sectorParams.SectorNumber)
+		if err != nil {
+			return false, xerrors.Errorf("getting sector pieces: %w", err)
+		}
+
+		spt := abi.RegisteredSealProof(sectorParams.RegSealProof)
+		var pieceInfos []abi.PieceInfo
+		for _, p := range sectorPieces {
+			c, err := cid.Decode(p.PieceCID)
+			if err != nil {
+				return false, xerrors.Errorf("decoding piece cid: %w", err)
+			}
+
+			pieceInfos = append(pieceInfos, abi.PieceInfo{
+				Size:     abi.PaddedPieceSize(p.PieceSize),
+				PieceCID: c,
+			})
+		}
+
+		commD, err = nonffi.GenerateUnsealedCID(spt, pieceInfos)
+		if err != nil {
+			return false, xerrors.Errorf("generating unsealed cid: %w", err)
+		}
+
+		log.Warnw("workaround for issue #191", "task", taskID, "commD", commD, "commK", commK, "commR", commR)
+
+		// </workaround>
+	} else {
+		commD, err = cid.Decode(smeta.CurUnsealedCID)
+		if err != nil {
+			return false, xerrors.Errorf("decoding CurUnsealedCID: %w", err)
+		}
+	}
 
 	sref := storiface.SectorRef{
 		ID: abi.SectorID{
@@ -100,9 +149,9 @@ func (t *TaskUnsealDecode) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	}
 
 	isSnap := commK != commR
-	log.Infow("unseal decode", "snap", isSnap, "task", taskID, "commK", commK, "commR", commR)
+	log.Infow("unseal decode", "snap", isSnap, "task", taskID, "commK", commK, "commR", commR, "commD", commD)
 	if isSnap {
-		err := t.sc.DecodeSnap(ctx, taskID, commR, commK, sref)
+		err := t.sc.DecodeSnap(ctx, taskID, commD, commK, sref)
 		if err != nil {
 			return false, xerrors.Errorf("DecodeSnap: %w", err)
 		}
