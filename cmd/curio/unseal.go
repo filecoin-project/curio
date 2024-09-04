@@ -4,9 +4,7 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"fmt"
-	"github.com/filecoin-project/go-commp-utils/nonffi"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/ipfs/go-cid"
+	"github.com/filecoin-project/curio/lib/dealdata"
 	"net/url"
 	"os"
 	"strconv"
@@ -470,59 +468,13 @@ var unsealCheckCmd = &cli.Command{
 			return err
 		}
 
-		var unsealedCid cid.Cid
-		{
-			var sectorPieces []struct {
-				PieceNum  int64  `db:"piece_num"`
-				PieceCID  string `db:"piece_cid"`
-				PieceSize int64  `db:"piece_size"` // padded
-			}
-			err = dep.DB.Select(ctx, &sectorPieces, `
-			SELECT piece_num, piece_cid, piece_size
-				FROM sectors_meta_pieces
-				WHERE sp_id = $1 AND sector_num = $2
-				ORDER BY piece_num`, spID, sectorNum)
-			if err != nil {
-				return xerrors.Errorf("getting sector pieces: %w", err)
-			}
+		// Figure out the expected unsealed CID
 
-			var sectorParams []struct {
-				RegSealProof int64 `db:"reg_seal_proof"`
-			}
-			err = dep.DB.Select(ctx, &sectorParams, `
-			SELECT reg_seal_proof
-				FROM sectors_meta
-				WHERE sp_id = $1 AND sector_num = $2`, spID, sectorNum)
-			if err != nil {
-				return xerrors.Errorf("getting sector params: %w", err)
-			}
-			if len(sectorParams) != 1 {
-				return xerrors.Errorf("expected 1 sector param, got %d", len(sectorParams))
-			}
-
-			spt := abi.RegisteredSealProof(sectorParams[0].RegSealProof)
-			var pieceInfos []abi.PieceInfo
-			for _, p := range sectorPieces {
-				c, err := cid.Decode(p.PieceCID)
-				if err != nil {
-					return xerrors.Errorf("decoding piece cid: %w", err)
-				}
-
-				fmt.Printf("Piece CID: %s %d\n", c.String(), abi.PaddedPieceSize(p.PieceSize))
-
-				pieceInfos = append(pieceInfos, abi.PieceInfo{
-					Size:     abi.PaddedPieceSize(p.PieceSize),
-					PieceCID: c,
-				})
-			}
-
-			unsealedCid, err = nonffi.GenerateUnsealedCID(spt, pieceInfos)
-			if err != nil {
-				return xerrors.Errorf("generating unsealed cid: %w", err)
-			}
-
-			fmt.Printf("Expected unsealed CID (spt %d): %s\n", spt, unsealedCid.String())
+		unsealedCid, err := dealdata.UnsealedCidFromPieces(ctx, dep.DB, int64(spID), sectorNum)
+		if err != nil {
+			return xerrors.Errorf("getting deal data: %w", err)
 		}
+		fmt.Printf("Expected unsealed CID: %s\n", unsealedCid)
 
 		// Create the check task
 		var checkID int64
@@ -557,10 +509,10 @@ var unsealCheckCmd = &cli.Command{
 				// Task completed
 				_, _ = fmt.Fprintf(os.Stderr, "\n") // Move to the next line after the dots
 				if ok.Bool {
-					fmt.Printf("Check task completed successfully\n")
+					fmt.Printf("Check task completed successfully %s\n", color.GreenString("✔"))
 					fmt.Printf("Actual unsealed CID: %s\n", actualUnsealedCID.String)
 				} else {
-					fmt.Printf("Check task failed\n")
+					fmt.Printf("Check task failed %s\n", color.RedString("✘"))
 					fmt.Printf("Error message: %s\n", message.String)
 					fmt.Printf("Actual unsealed CID:   %s\n", actualUnsealedCID.String)
 				}

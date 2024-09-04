@@ -7,6 +7,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
@@ -34,11 +35,13 @@ func (c *ScrubCommDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		SpID              int64  `db:"sp_id"`
 		SectorNumber      int64  `db:"sector_number"`
 		ExpectUnsealedCID string `db:"expected_unsealed_cid"`
+		RegSealProof      int64  `db:"reg_seal_proof"`
 	}
 
 	err = c.db.Select(ctx, &checkReq, `
-		SELECT check_id, sp_id, sector_number, expected_unsealed_cid
-		FROM scrub_unseal_commd_check
+		SELECT u.check_id, u.sp_id, u.sector_number, u.expected_unsealed_cid, sm.reg_seal_proof
+		FROM scrub_unseal_commd_check u
+		INNER JOIN sectors_meta sm ON sm.sp_id = u.sp_id AND sm.sector_num = u.sector_number
 		WHERE task_id = $1
 	`, taskID)
 	if err != nil {
@@ -50,9 +53,12 @@ func (c *ScrubCommDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 
 	check := checkReq[0]
 
-	sid := abi.SectorID{
-		Miner:  abi.ActorID(check.SpID),
-		Number: abi.SectorNumber(check.SectorNumber),
+	s := storiface.SectorRef{
+		ID: abi.SectorID{
+			Miner:  abi.ActorID(check.SpID),
+			Number: abi.SectorNumber(check.SectorNumber),
+		},
+		ProofType: abi.RegisteredSealProof(check.RegSealProof),
 	}
 
 	expectUnsealedCID, err := cid.Parse(check.ExpectUnsealedCID)
@@ -60,7 +66,7 @@ func (c *ScrubCommDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		return false, xerrors.Errorf("parsing expected unsealed CID: %w", err)
 	}
 
-	actual, err := c.sc.CheckUnsealedCID(ctx, sid)
+	actual, err := c.sc.CheckUnsealedCID(ctx, s)
 	if err != nil {
 		return false, xerrors.Errorf("checking unsealed CID: %w", err)
 	}

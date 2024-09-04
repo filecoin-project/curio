@@ -1,27 +1,39 @@
 package ffi
 
 import (
+	"bufio"
 	"context"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/lotus/storage/sealer/fr32"
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 	"io"
 	"time"
 )
 
-func (sb *SealCalls) CheckUnsealedCID(ctx context.Context, sid abi.SectorID) (cid.Cid, error) {
-	reader, err := sb.sectors.storage.ReaderSeq(ctx, storiface.SectorRef{ID: sid}, storiface.FTUnsealed)
+func (sb *SealCalls) CheckUnsealedCID(ctx context.Context, s storiface.SectorRef) (cid.Cid, error) {
+	reader, err := sb.sectors.storage.ReaderSeq(ctx, s, storiface.FTUnsealed)
 	if err != nil {
 		return cid.Undef, xerrors.Errorf("getting unsealed sector reader: %w", err)
 	}
 	defer reader.Close()
 
-	startTime := time.Now()
+	ssize, err := s.ProofType.SectorSize()
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("getting sector size: %w", err)
+	}
 
+	startTime := time.Now()
 	cc := new(proof.DataCidWriter)
-	n, err := io.CopyBuffer(cc, reader, make([]byte, 1<<20))
+
+	upReader, err := fr32.NewUnpadReader(bufio.NewReaderSize(io.LimitReader(reader, int64(ssize)), 1<<20), abi.PaddedPieceSize(ssize))
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("creating unpad reader")
+	}
+
+	n, err := io.CopyBuffer(cc, upReader, make([]byte, abi.PaddedPieceSize(1<<20).Unpadded()))
 	if err != nil {
 		return cid.Undef, xerrors.Errorf("computing unsealed CID: %w", err)
 	}
