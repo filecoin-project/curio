@@ -2,8 +2,6 @@ package unseal
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/lib/passcall"
-	"github.com/filecoin-project/go-commp-utils/nonffi"
 	"math/rand/v2"
 	"time"
 
@@ -11,12 +9,14 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-commp-utils/nonffi"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 )

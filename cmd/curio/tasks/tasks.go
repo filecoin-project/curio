@@ -3,7 +3,6 @@ package tasks
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/tasks/unseal"
 	"sort"
 	"strings"
 	"sync"
@@ -39,6 +38,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/seal"
 	"github.com/filecoin-project/curio/tasks/sealsupra"
 	"github.com/filecoin-project/curio/tasks/snap"
+	"github.com/filecoin-project/curio/tasks/unseal"
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
 

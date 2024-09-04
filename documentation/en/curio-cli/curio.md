@@ -17,6 +17,7 @@ COMMANDS:
    web           Start Curio web interface
    guided-setup  Run the guided setup for migrating from lotus-miner to Curio or Creating a new Curio miner
    seal          Manage the sealing pipeline
+   unseal        Manage unsealed data
    market        
    fetch-params  Fetch proving parameters
    calc          Math Utils
@@ -536,6 +537,68 @@ OPTIONS:
    --sector value  Filter events by sector number; requires --actor to be specified (default: 0)
    --last value    Limit output to the last N events (default: 100)
    --help, -h      show help
+```
+
+## curio unseal
+```
+NAME:
+   curio unseal - Manage unsealed data
+
+USAGE:
+   curio unseal command [command options] [arguments...]
+
+COMMANDS:
+   info              Get information about unsealed data
+   list-sectors      List data from the sectors_unseal_pipeline and sectors_meta tables
+   set-target-state  Set the target unseal state for a sector
+   help, h           Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### curio unseal info
+```
+NAME:
+   curio unseal info - Get information about unsealed data
+
+USAGE:
+   curio unseal info [command options] [minerAddress] [sectorNumber]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### curio unseal list-sectors
+```
+NAME:
+   curio unseal list-sectors - List data from the sectors_unseal_pipeline and sectors_meta tables
+
+USAGE:
+   curio unseal list-sectors [command options] [arguments...]
+
+OPTIONS:
+   --sp-id value, -s value   Filter by storage provider ID (default: 0)
+   --output value, -o value  Output file path (default: stdout)
+   --help, -h                show help
+```
+
+### curio unseal set-target-state
+```
+NAME:
+   curio unseal set-target-state - Set the target unseal state for a sector
+
+USAGE:
+   curio unseal set-target-state [command options] <sp-id> <sector-number> <target-state>
+
+DESCRIPTION:
+   Set the target unseal state for a specific sector.
+      <sp-id>: The storage provider ID
+      <sector-number>: The sector number
+      <target-state>: The target state (true, false, or none)
+
+OPTIONS:
+   --help, -h  show help
 ```
 
 ## curio market

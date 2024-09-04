@@ -3,21 +3,24 @@ package main
 import (
 	"encoding/csv"
 	"fmt"
-	"github.com/fatih/color"
-	"github.com/filecoin-project/curio/deps"
-	"github.com/filecoin-project/curio/lib/paths"
-	"github.com/filecoin-project/curio/lib/reqcontext"
-	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/go-address"
-	"github.com/samber/lo"
-	"github.com/snadrus/must"
-	"github.com/urfave/cli/v2"
-	"golang.org/x/xerrors"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/fatih/color"
+	"github.com/samber/lo"
+	"github.com/snadrus/must"
+	"github.com/urfave/cli/v2"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-address"
+
+	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/reqcontext"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
 
 var unsealCmd = &cli.Command{
