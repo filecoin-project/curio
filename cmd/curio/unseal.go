@@ -175,7 +175,7 @@ var unsealInfoCmd = &cli.Command{
 			} else if *meta[0].TargetUnsealState {
 				fmt.Printf("Target Unsealed State: %s\n", color.GreenString("ensure unsealed"))
 			} else {
-				fmt.Printf("Target Unsealed State: %s\n", color.BlueString("ensure no unsealed"))
+				fmt.Printf("Target Unsealed State: %s\n", color.CyanString("ensure no unsealed"))
 			}
 
 			if len(meta[0].TicketValue) > 0 {
@@ -472,7 +472,7 @@ var unsealCheckCmd = &cli.Command{
 
 		unsealedCid, err := dealdata.UnsealedCidFromPieces(ctx, dep.DB, int64(spID), sectorNum)
 		if err != nil {
-			return xerrors.Errorf("getting deal data: %w", err)
+			return xerrors.Errorf("getting deal data CID: %w", err)
 		}
 		fmt.Printf("Expected unsealed CID: %s\n", unsealedCid)
 

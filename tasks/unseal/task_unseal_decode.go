@@ -2,6 +2,7 @@ package unseal
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/lib/dealdata"
 	"math/rand/v2"
 	"time"
 
@@ -9,7 +10,6 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/go-commp-utils/nonffi"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -100,37 +100,9 @@ func (t *TaskUnsealDecode) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 			return false, xerrors.Errorf("decoding CurSealedCID: %w", err)
 		}
 
-		var sectorPieces []struct {
-			PieceNum  int64  `db:"piece_num"`
-			PieceCID  string `db:"piece_cid"`
-			PieceSize int64  `db:"piece_size"` // padded
-		}
-		err = t.db.Select(ctx, &sectorPieces, `
-			SELECT piece_num, piece_cid, piece_size
-			FROM sectors_meta_pieces
-			WHERE sp_id = $1 AND sector_num = $2
-			ORDER BY piece_num`, sectorParams.SpID, sectorParams.SectorNumber)
+		commD, err = dealdata.UnsealedCidFromPieces(ctx, t.db, sectorParams.SpID, sectorParams.SectorNumber)
 		if err != nil {
-			return false, xerrors.Errorf("getting sector pieces: %w", err)
-		}
-
-		spt := abi.RegisteredSealProof(sectorParams.RegSealProof)
-		var pieceInfos []abi.PieceInfo
-		for _, p := range sectorPieces {
-			c, err := cid.Decode(p.PieceCID)
-			if err != nil {
-				return false, xerrors.Errorf("decoding piece cid: %w", err)
-			}
-
-			pieceInfos = append(pieceInfos, abi.PieceInfo{
-				Size:     abi.PaddedPieceSize(p.PieceSize),
-				PieceCID: c,
-			})
-		}
-
-		commD, err = nonffi.GenerateUnsealedCID(spt, pieceInfos)
-		if err != nil {
-			return false, xerrors.Errorf("generating unsealed cid: %w", err)
+			return false, xerrors.Errorf("getting deal data CID: %w", err)
 		}
 
 		log.Warnw("workaround for issue #191", "task", taskID, "commD", commD, "commK", commK, "commR", commR)
