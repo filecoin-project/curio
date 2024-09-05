@@ -547,10 +547,9 @@ USAGE:
    curio market command [command options] [arguments...]
 
 COMMANDS:
-   seal         start sealing a deal sector early
-   import-data  Import data for offline deal
-   add-url      Add URL to fetch data for offline deals
-   help, h      Shows a list of commands or help for one command
+   seal     start sealing a deal sector early
+   add-url  Add URL to fetch data for offline deals
+   help, h  Shows a list of commands or help for one command
 
 OPTIONS:
    --help, -h  show help
@@ -567,19 +566,6 @@ USAGE:
 OPTIONS:
    --actor value  Specify actor address to start sealing sectors for
    --synthetic    Use synthetic PoRep (default: false)
-   --help, -h     show help
-```
-
-### curio market import-data
-```
-NAME:
-   curio market import-data - Import data for offline deal
-
-USAGE:
-   curio market import-data [command options] <deal UUID> <file> <host:port>
-
-OPTIONS:
-   --actor value  Specify actor address to start sealing sectors for
    --help, -h     show help
 ```
 

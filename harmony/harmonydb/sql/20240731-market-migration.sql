@@ -326,11 +326,6 @@ RETURN _priv_key;
 END;
 $$ LANGUAGE plpgsql;
 
--- Add host column to allow local file based
--- piece park
-ALTER TABLE parked_piece_refs
-    ADD COLUMN host text;
-
 -- Table for old lotus market deals. This is just for deal
 -- which are still alive. It should not be used for any processing
 CREATE TABLE market_legacy_deals (

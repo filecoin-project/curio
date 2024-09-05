@@ -395,7 +395,7 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 	}
 
 	if len(goUrls) > 1 {
-		return false, xerrors.Errorf("expected 1 row per piece, got %d", len(goUrls))
+		return false, xerrors.Errorf("expected 1 row per deal, got %d", len(goUrls))
 	}
 
 	if len(goUrls) == 1 {

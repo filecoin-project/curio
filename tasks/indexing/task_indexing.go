@@ -145,6 +145,8 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 
 	defer reader.Close()
 
+	startTime := time.Now()
+
 	dealCfg := i.cfg.Market.StorageMarketConfig
 	chanSize := dealCfg.Indexing.InsertConcurrency * dealCfg.Indexing.InsertBatchSize
 
@@ -190,6 +192,8 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	if err != nil {
 		return false, xerrors.Errorf("adding index to DB: %w", err)
 	}
+
+	log.Infof("Indexing deal %s took %d seconds", task.UUID, time.Since(startTime).Seconds())
 
 	err = i.recordCompletion(ctx, task, taskID, true)
 	if err != nil {
