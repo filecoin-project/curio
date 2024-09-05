@@ -671,12 +671,11 @@ This step submits the generated proofs to the chain.`,
 			Comment: `UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance.`,
 		},
 		{
-			Name: "EnableScrubUnsealed",
+			Name: "EnableCommP",
 			Type: "bool",
 
-			Comment: `EnableScrubUnsealed allows this node to run the scrubbing task for unsealed sectors. This task is computing
-UnsealedCID / CommD of sectors in storage and checks that they still match the metadata.
-Scrubbing is user-scheduled`,
+			Comment: `EnableCommP enabled the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12
+deal, and when checking sector data with 'curio unseal check'.`,
 		},
 		{
 			Name: "BoostAdapters",

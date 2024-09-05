@@ -252,7 +252,7 @@ func addSealingTasks(
 	var addFinalize bool
 
 	// NOTE: Tasks with the LEAST priority are at the top
-	if cfg.Subsystems.EnableScrubUnsealed {
+	if cfg.Subsystems.EnableCommP {
 		scrubUnsealedTask := scrub.NewCommDCheckTask(db, slr)
 		activeTasks = append(activeTasks, scrubUnsealedTask)
 	}
