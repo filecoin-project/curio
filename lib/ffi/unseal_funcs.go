@@ -81,6 +81,6 @@ func (sb *SealCalls) DecodeSDR(ctx context.Context, taskID harmonytask.TaskID, s
 
 func (sb *SealCalls) DecodeSnap(ctx context.Context, taskID harmonytask.TaskID, commD, commK cid.Cid, sector storiface.SectorRef) error {
 	return sb.decodeCommon(ctx, taskID, sector, storiface.FTUpdate, func(sealReader, keyReader io.Reader, outFile io.Writer) error {
-		return cunative.DecodeSnap(sector.ProofType, commD, commK, sealReader, keyReader, outFile)
+		return cunative.DecodeSnap(sector.ProofType, commD, commK, keyReader, sealReader, outFile)
 	})
 }

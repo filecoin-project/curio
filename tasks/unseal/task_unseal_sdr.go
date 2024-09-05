@@ -103,6 +103,8 @@ func (t *TaskUnsealSdr) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		ProofType: abi.RegisteredSealProof(sectorParams.RegSealProof),
 	}
 
+	log.Infow("unseal generate sdr key", "sector", sref.ID, "proof", sref.ProofType, "task", taskID, "ticket", sectorMeta[0].TicketValue, "commD", commD)
+
 	if err := t.sc.GenerateSDR(ctx, taskID, storiface.FTKey, sref, sectorMeta[0].TicketValue, commD); err != nil {
 		return false, xerrors.Errorf("generate sdr: %w", err)
 	}

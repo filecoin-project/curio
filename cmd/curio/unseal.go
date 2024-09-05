@@ -226,7 +226,39 @@ var unsealInfoCmd = &cli.Command{
 				}
 			}
 		} else {
-			fmt.Printf("Unseal Pipeline: %s no entry\n", color.RedString("✘"))
+			fmt.Printf("Unseal Pipeline: %s no entry\n", color.YellowString("✘"))
+		}
+
+		var scrubEntry []struct {
+			CreateTime time.Time `db:"create_time"`
+			Ok         *bool     `db:"ok"`
+			Message    *string   `db:"message"`
+		}
+
+		err = dep.DB.Select(ctx, &scrubEntry, `
+			SELECT create_time, ok, message FROM scrub_unseal_commd_check WHERE sp_id = $1 AND sector_number = $2
+			ORDER BY create_time DESC LIMIT 1`, minerId, sectorNumberInt)
+		if err != nil {
+			return xerrors.Errorf("failed to query scrub check: %w", err)
+		}
+
+		fmt.Println()
+		fmt.Printf("Integrity Check:\n")
+
+		if len(scrubEntry) == 0 {
+			fmt.Printf("  - No checks yet %s\n", color.YellowString("✘"))
+		} else {
+			fmt.Printf("  - Created: %s\n", scrubEntry[0].CreateTime)
+			if scrubEntry[0].Ok != nil {
+				if *scrubEntry[0].Ok {
+					fmt.Printf("  - Result: %s\n", color.GreenString("✔"))
+				} else {
+					fmt.Printf("  - Result: %s\n", color.RedString("✘"))
+					fmt.Printf("  - Message: %s\n", *scrubEntry[0].Message)
+				}
+			} else {
+				fmt.Printf("  - In progress\n")
+			}
 		}
 
 		return nil
