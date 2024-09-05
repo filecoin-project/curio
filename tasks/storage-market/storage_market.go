@@ -23,7 +23,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/market/mk12"
-	"github.com/filecoin-project/curio/market/storageIngest"
+	"github.com/filecoin-project/curio/market/storageingest"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/storage/pipeline/piece"
@@ -44,23 +44,23 @@ const (
 	numPollers
 )
 
-const dealPollerInterval = 10 * time.Second
+const dealPollerInterval = 30 * time.Second
 
 type storageMarketAPI interface {
 	mk12.MK12API
-	storageIngest.PieceIngesterApi
+	storageingest.PieceIngesterApi
 }
 
 type CurioStorageDealMarket struct {
 	cfg         *config.CurioConfig
 	db          *harmonydb.DB
-	pin         storageIngest.Ingester
+	pin         storageingest.Ingester
 	miners      map[string][]string
 	api         storageMarketAPI
 	MK12Handler *mk12.MK12
 	sc          *ffi.SealCalls
 	urls        map[string]http.Header
-	pollers     [numPollers]promise.Promise[harmonytask.AddTaskFunc]
+	adders      [numPollers]promise.Promise[harmonytask.AddTaskFunc]
 }
 
 type MK12Pipeline struct {
@@ -130,9 +130,9 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 			}
 
 			if d.cfg.Ingest.DoSnap {
-				d.pin, err = storageIngest.NewPieceIngesterSnap(ctx, d.db, d.api, maddrs, false, d.cfg)
+				d.pin, err = storageingest.NewPieceIngesterSnap(ctx, d.db, d.api, maddrs, false, d.cfg)
 			} else {
-				d.pin, err = storageIngest.NewPieceIngester(ctx, d.db, d.api, maddrs, false, d.cfg)
+				d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, maddrs, false, d.cfg)
 			}
 		}
 	}
@@ -191,6 +191,13 @@ func (d *CurioStorageDealMarket) poll(ctx context.Context) {
 }
 
 func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
+	// Catch any panics if encountered as we are working with user provided data
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("panic occurred: %v", r)
+		}
+	}()
+
 	// Get all deal sorted by start_epoch
 	var deals []MK12Pipeline
 
@@ -307,23 +314,26 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 			return nil
 		}
 
-		d.pollers[pollerCommP].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
-			// update
-			n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET commp_task_id = $1 WHERE uuid = $2 AND commp_task_id IS NULL`, id, deal.UUID)
-			if err != nil {
-				return false, xerrors.Errorf("UUID: %s: updating deal pipeline: %w", deal.UUID, err)
-			}
+		if d.adders[pollerCommP].IsSet() {
+			d.adders[pollerCommP].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
+				// update
+				n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET commp_task_id = $1 WHERE uuid = $2 AND commp_task_id IS NULL`, id, deal.UUID)
+				if err != nil {
+					return false, xerrors.Errorf("UUID: %s: updating deal pipeline: %w", deal.UUID, err)
+				}
 
-			// commit only if we updated the piece
-			return n > 0, nil
-		})
-		log.Infof("UUID: %s: commP task created successfully", deal.UUID)
+				// commit only if we updated the piece
+				return n > 0, nil
+			})
+			log.Infof("UUID: %s: commP task created successfully", deal.UUID)
+		}
+
 		return nil
 	}
 
 	// Create Find Deal task
 	if deal.Started && deal.AfterCommp && deal.AfterPSD && !deal.AfterFindDeal && deal.FindDealTaskID == nil {
-		d.pollers[pollerFindDeal].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
+		d.adders[pollerFindDeal].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
 			// update
 			n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET find_deal_task_id = $1 WHERE uuid = $2 AND find_deal_task_id IS NULL`, id, deal.UUID)
 			if err != nil {
@@ -487,7 +497,7 @@ func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context, deals []MK12Pip
 
 	for _, q := range dm {
 		if q.t.Add(time.Duration(publishPeriod)).After(time.Now()) || uint64(len(q.deals)) > maxDeals {
-			d.pollers[pollerPSD].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
+			d.adders[pollerPSD].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
 				// update
 				n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET psd_task_id = $1 WHERE uuid = ANY($2) AND psd_task_id IS NULL`, id, q.deals)
 				if err != nil {

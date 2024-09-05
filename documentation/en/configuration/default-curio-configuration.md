@@ -222,15 +222,21 @@ description: The default curio configuration
   # type: bool
   #EnableBatchSeal = false
 
-  # EnableDealMarket
+  # EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured.
   #
   # type: bool
   #EnableDealMarket = false
 
-  # EnableCommP enabled the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
+  # EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
   #
   # type: bool
   #EnableCommP = false
+
+  # The maximum amount of CommP tasks that can run simultaneously. Note that the maximum number of tasks will
+  # also be bounded by resources available on the machine.
+  #
+  # type: int
+  #CommPMaxTasks = 0
 
 
 [Fees]
@@ -422,7 +428,7 @@ description: The default curio configuration
       # deals to be ready to publish before publishing them all as a batch
       #
       # type: Duration
-      #PublishMsgPeriod = "30m0s"
+      #PublishMsgPeriod = "5m0s"
 
       # The maximum number of deals to include in a single PublishStorageDeals
       # message

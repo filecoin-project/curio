@@ -20,30 +20,34 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi"
-	"github.com/filecoin-project/curio/lib/indexing/indexstore"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/market/indexstore"
 )
 
 var log = logging.Logger("indexing")
 
 type IndexingTask struct {
-	db            *harmonydb.DB
-	indexStore    *indexstore.IndexStore
-	pieceProvider *pieceprovider.PieceProvider
-	sc            *ffi.SealCalls
-	cfg           *config.CurioConfig
+	db                *harmonydb.DB
+	indexStore        *indexstore.IndexStore
+	pieceProvider     *pieceprovider.PieceProvider
+	sc                *ffi.SealCalls
+	cfg               *config.CurioConfig
+	insertConcurrency int
+	insertBatchSize   int
 }
 
 func NewIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.PieceProvider, cfg *config.CurioConfig) *IndexingTask {
 
 	return &IndexingTask{
-		db:            db,
-		indexStore:    indexStore,
-		pieceProvider: pieceProvider,
-		sc:            sc,
-		cfg:           cfg,
+		db:                db,
+		indexStore:        indexStore,
+		pieceProvider:     pieceProvider,
+		sc:                sc,
+		cfg:               cfg,
+		insertConcurrency: cfg.Market.StorageMarketConfig.Indexing.InsertConcurrency,
+		insertBatchSize:   cfg.Market.StorageMarketConfig.Indexing.InsertBatchSize,
 	}
 }
 
@@ -138,6 +142,8 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
+
+	defer reader.Close()
 
 	dealCfg := i.cfg.Market.StorageMarketConfig
 	chanSize := dealCfg.Indexing.InsertConcurrency * dealCfg.Indexing.InsertBatchSize
@@ -267,15 +273,12 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 }
 
 func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
-	//dealCfg := i.cfg.Market.StorageMarketConfig
-	//chanSize := dealCfg.Indexing.InsertConcurrency * dealCfg.Indexing.InsertBatchSize * 56 // (56 = size of each index.Record)
 
 	return harmonytask.TaskTypeDetails{
 		Name: "Indexing",
 		Cost: resources.Resources{
 			Cpu: 1,
-			//Ram: uint64(chanSize * 2), // TODO: Find a way to make this variable
-			Ram: 1 << 30,
+			Ram: uint64(i.insertBatchSize * i.insertConcurrency * 56 * 2),
 		},
 		MaxFailures: 3,
 		IAmBored: passcall.Every(10*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {

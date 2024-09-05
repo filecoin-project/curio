@@ -286,7 +286,7 @@ func (p *PSDTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (p *PSDTask) Adder(taskFunc harmonytask.AddTaskFunc) {
-	p.sm.pollers[pollerPSD].Set(taskFunc)
+	p.sm.adders[pollerPSD].Set(taskFunc)
 }
 
 var _ = harmonytask.Reg(&PSDTask{})

@@ -31,8 +31,8 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ffiselect"
-	"github.com/filecoin-project/curio/lib/indexing/indexstore"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/tasks/seal"
 
 	lapi "github.com/filecoin-project/lotus/api"

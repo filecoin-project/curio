@@ -79,7 +79,7 @@ func DefaultCurioConfig() *CurioConfig {
 				},
 				MK12: MK12Config{
 					Libp2p:                    []Libp2pConfig{},
-					PublishMsgPeriod:          Duration(30 * time.Minute),
+					PublishMsgPeriod:          Duration(5 * time.Minute),
 					MaxDealsPerPublishMsg:     8,
 					MaxPublishDealsFee:        types.MustParseFIL("5 FIL"),
 					ExpectedPoRepSealDuration: Duration(8 * time.Hour),
@@ -270,11 +270,15 @@ type CurioSubsystemsConfig struct {
 	// Batch Seal
 	EnableBatchSeal bool
 
-	// EnableDealMarket
+	// EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured.
 	EnableDealMarket bool
 
-	// EnableCommP enabled the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
+	// EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
 	EnableCommP bool
+
+	// The maximum amount of CommP tasks that can run simultaneously. Note that the maximum number of tasks will
+	// also be bounded by resources available on the machine.
+	CommPMaxTasks int
 }
 type CurioFees struct {
 	DefaultMaxFee      types.FIL

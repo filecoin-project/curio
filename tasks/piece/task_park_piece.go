@@ -19,7 +19,7 @@ import (
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
 
 var log = logging.Logger("cu-piece")
@@ -225,7 +225,6 @@ func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 		}
 		if goUrl.Scheme == "file" {
 			if p.Host == engine.Host() {
-
 				return &ret, nil
 			}
 			continue

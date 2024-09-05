@@ -23,7 +23,7 @@ const keyspace = "curio"
 //go:embed create.cql
 var createCQL string
 
-var log = logging.Logger("cassandra")
+var log = logging.Logger("indexstore")
 
 type settings struct {
 	// Number of records per insert batch
@@ -111,7 +111,6 @@ func NewIndexStore(hosts []string, cfg *config.CurioConfig) (*IndexStore, error)
 }
 
 func (i *IndexStore) Start(ctx context.Context) error {
-	log.Info("Starting cassandra DB")
 	// Create cassandra keyspace
 	session, err := i.cluster.CreateSession()
 	if err != nil {
@@ -151,7 +150,6 @@ func (i *IndexStore) Start(ctx context.Context) error {
 	i.session = session
 	i.ctx = ctx
 
-	log.Infow("Successfully started Cassandra DB")
 	return nil
 }
 

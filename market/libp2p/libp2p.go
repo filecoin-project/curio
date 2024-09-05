@@ -109,7 +109,7 @@ func NewLibp2pHost(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfi
 
 	// Start a goroutine to update updated_at colum of libp2p table and release lock at node shutdown
 	go func() {
-		ticker := time.NewTicker(time.Second * 5)
+		ticker := time.NewTicker(time.Second * 30)
 		for {
 			select {
 			case <-ctx.Done():

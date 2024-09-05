@@ -1,4 +1,4 @@
-package storageIngest
+package storageingest
 
 import (
 	"context"

@@ -18,7 +18,6 @@ import (
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -33,16 +32,16 @@ type CommpTask struct {
 	db  *harmonydb.DB
 	sc  *ffi.SealCalls
 	api headAPI
-	cfg *config.MK12Config
+	max int
 }
 
-func NewCommpTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sc *ffi.SealCalls, api headAPI, cfg *config.MK12Config) *CommpTask {
+func NewCommpTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sc *ffi.SealCalls, api headAPI, max int) *CommpTask {
 	return &CommpTask{
 		sm:  sm,
 		db:  db,
 		sc:  sc,
 		api: api,
-		cfg: cfg,
+		max: max,
 	}
 }
 
@@ -217,31 +216,83 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 }
 
 func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+	// CommP task can be of 2 types
+	// 1. Using ParkPiece pieceRef
+	// 2. Using remote HTTP reader
+	// ParkPiece should be scheduled on same node which has the piece
+	// Remote HTTP ones can be scheduled on any node
+
+	ctx := context.Background()
+
 	var tasks []struct {
-		TaskID       harmonytask.TaskID `db:"task_id_tree_c"`
+		TaskID       harmonytask.TaskID `db:"commp_task_id"`
 		SpID         int64              `db:"sp_id"`
 		SectorNumber int64              `db:"sector_number"`
 		StorageID    string             `db:"storage_id"`
+		Url          *string            `db:"url"`
 	}
-
-	if storiface.FTCache != 4 {
-		panic("storiface.FTCache != 4")
-	}
-
-	ctx := context.Background()
 
 	indIDs := make([]int64, len(ids))
 	for i, id := range ids {
 		indIDs[i] = int64(id)
 	}
 
-	err := c.db.Select(ctx, &tasks, `
-		SELECT p.task_id_tree_c, p.sp_id, p.sector_number, l.storage_id FROM market_mk12_deal_pipeline p
-			INNER JOIN sector_location l ON p.sp_id = l.miner_id AND p.sector_number = l.sector_num
-			WHERE task_id_tree_r = ANY ($1) AND l.sector_filetype = 4
-`, indIDs)
+	comm, err := c.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		err = tx.Select(&tasks, `
+		SELECT commp_task_id, sp_id, sector_number, url FROM market_mk12_deal_pipeline
+			WHERE commp_task_id = ANY ($1)`, indIDs)
+		if err != nil {
+			return false, xerrors.Errorf("failed to get deal details from DB: %w", err)
+		}
+
+		if storiface.FTPiece != 32 {
+			panic("storiface.FTPiece != 32")
+		}
+
+		for _, task := range tasks {
+			if task.Url != nil {
+				goUrl, err := url.Parse(*task.Url)
+				if err != nil {
+					return false, xerrors.Errorf("parsing data URL: %w", err)
+				}
+				if goUrl.Scheme == "pieceref" {
+					refNum, err := strconv.ParseInt(goUrl.Opaque, 10, 64)
+					if err != nil {
+						return false, xerrors.Errorf("parsing piece reference number: %w", err)
+					}
+
+					// get pieceID
+					var pieceID []struct {
+						PieceID storiface.PieceNumber `db:"piece_id"`
+					}
+					err = tx.Select(&pieceID, `SELECT piece_id FROM parked_piece_refs WHERE ref_id = $1`, refNum)
+					if err != nil {
+						return false, xerrors.Errorf("getting pieceID: %w", err)
+					}
+
+					var sLocation string
+
+					err = tx.QueryRow(`
+					SELECT storage_id FROM sector_location 
+						WHERE miner_id = $1 AND sector_num = $2 AND l.sector_filetype = 32`, task.SpID, pieceID[0].PieceID).Scan(&sLocation)
+
+					if err != nil {
+						return false, xerrors.Errorf("failed to get storage location from DB: %w", err)
+					}
+
+					task.StorageID = sLocation
+				}
+			}
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+
 	if err != nil {
-		return nil, xerrors.Errorf("getting tasks: %w", err)
+		return nil, err
+	}
+
+	if !comm {
+		return nil, xerrors.Errorf("failed to commit the transaction")
 	}
 
 	ls, err := c.sc.LocalStorage(ctx)
@@ -267,12 +318,13 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 		}
 	}
 
-	return nil, nil
+	// If no local pieceRef was found then just return first TaskID
+	return &ids[0], nil
 }
 
 func (c *CommpTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  10, //TODO make config
+		Max:  c.max,
 		Name: "CommP",
 		Cost: resources.Resources{
 			Cpu: 1,
@@ -283,7 +335,7 @@ func (c *CommpTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (c *CommpTask) Adder(taskFunc harmonytask.AddTaskFunc) {
-	c.sm.pollers[pollerCommP].Set(taskFunc)
+	c.sm.adders[pollerCommP].Set(taskFunc)
 }
 
 var _ = harmonytask.Reg(&CommpTask{})

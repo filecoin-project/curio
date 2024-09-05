@@ -705,13 +705,20 @@ also be bounded by resources available on the machine.`,
 			Name: "EnableDealMarket",
 			Type: "bool",
 
-			Comment: `EnableDealMarket`,
+			Comment: `EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured.`,
 		},
 		{
 			Name: "EnableCommP",
 			Type: "bool",
 
-			Comment: `EnableCommP enabled the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal`,
+			Comment: `EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal`,
+		},
+		{
+			Name: "CommPMaxTasks",
+			Type: "int",
+
+			Comment: `The maximum amount of CommP tasks that can run simultaneously. Note that the maximum number of tasks will
+also be bounded by resources available on the machine.`,
 		},
 	},
 	"Duration time.Duration": {

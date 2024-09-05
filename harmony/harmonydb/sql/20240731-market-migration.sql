@@ -1,4 +1,7 @@
--- Table for Mk12 or Boost deals
+-- Table for Mk12 or Boost deals (Main deal table)
+-- Stores the deal received over the network.
+-- Entries are created by mk12 module and this will be used
+-- by UI to show deal details. Entries should never be removed from this table.
 CREATE TABLE market_mk12_deals (
     uuid TEXT NOT NULL,
     sp_id BIGINT NOT NULL,
@@ -36,11 +39,14 @@ CREATE TABLE market_mk12_deals (
     unique (signed_proposal_cid)
 );
 
--- This table is used for storing piece metadata (piece indexing)
+-- This table is used for storing piece metadata (piece indexing). Entries are added by task_indexing.
+-- It is also used to track if a piece is indexed or not.
+-- Version is used to track changes of how metadata is stored.
+-- Cleanup for this table will be created in a later stage.
 CREATE TABLE market_piece_metadata (
     piece_cid TEXT NOT NULL PRIMARY KEY,
 
-    version INT NOT NULL DEFAULT 2,
+    version INT NOT NULL DEFAULT 2, -- Boost stored in version 1. This is version 2.
 
     created_at TIMESTAMPTZ  NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
 
@@ -51,7 +57,10 @@ CREATE TABLE market_piece_metadata (
         unique (piece_cid)
 );
 
--- This table binds the piece metadata to specific deals (piece indexing)
+-- This table binds the piece metadata to specific deals (piece indexing). Entries are added by task_indexing.
+-- This along with market_mk12_deals is used to retrievals as well as
+-- deal detail page in UI.
+-- Cleanup for this table will be created in a later stage.
 CREATE TABLE market_piece_deal (
     id TEXT NOT NULL, -- (UUID for new deals, PropCID for old)
     piece_cid TEXT NOT NULL,
@@ -74,6 +83,7 @@ CREATE TABLE market_piece_deal (
 );
 
 -- This function is used to insert piece metadata and piece deal (piece indexing)
+-- This makes it easy to keep the logic of how table is updated and fast (in DB).
 CREATE OR REPLACE FUNCTION process_piece_deal(
     _id TEXT,
     _piece_cid TEXT,
@@ -110,7 +120,8 @@ INSERT INTO market_piece_deal (
 END;
 $$ LANGUAGE plpgsql;
 
--- Storage Ask for ask protocol
+-- Storage Ask for ask protocol over libp2p
+-- Entries for each MinerID must be present. These are updated by SetAsk method in mk12.
 CREATE TABLE market_mk12_storage_ask (
     sp_id BIGINT NOT NULL,
 
@@ -127,7 +138,9 @@ CREATE TABLE market_mk12_storage_ask (
     unique (sp_id)
 );
 
--- Used for processing Mk12 deals
+-- Used for processing Mk12 deals. This tables tracks the deal
+-- throughout their lifetime. Entries are added ad the same time as market_mk12_deals.
+-- Cleanup is done for complete deals by GC task.
 CREATE TABLE market_mk12_deal_pipeline (
     uuid TEXT NOT NULL,
     sp_id BIGINT NOT NULL,
@@ -228,7 +241,8 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- This table can be used to track remote piece for offline deals
--- The entries must be created by users
+-- The entries must be created by users. Entry is removed when deal is
+-- removed from market_mk12_deal_pipeline table using a key constraint
 CREATE TABLE market_offline_urls (
     uuid TEXT NOT NULL,
 

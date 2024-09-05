@@ -27,11 +27,11 @@ import (
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
 	"github.com/filecoin-project/curio/lib/ffi"
-	"github.com/filecoin-project/curio/lib/libp2p"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/slotmgr"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/indexing"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -213,7 +213,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		}
 
 		if cfg.Subsystems.EnableCommP {
-			commpTask := storage_market.NewCommpTask(dm, db, must.One(slrLazy.Val()), full, &cfg.Market.StorageMarketConfig.MK12)
+			commpTask := storage_market.NewCommpTask(dm, db, must.One(slrLazy.Val()), full, cfg.Subsystems.CommPMaxTasks)
 			activeTasks = append(activeTasks, commpTask)
 		}
 

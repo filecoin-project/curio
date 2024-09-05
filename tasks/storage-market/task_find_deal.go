@@ -313,7 +313,7 @@ func (f *FindDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (f *FindDealTask) Adder(taskFunc harmonytask.AddTaskFunc) {
-	f.sm.pollers[pollerFindDeal].Set(taskFunc)
+	f.sm.adders[pollerFindDeal].Set(taskFunc)
 }
 
 var _ = harmonytask.Reg(&FindDealTask{})

@@ -23,7 +23,7 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/reqcontext"
-	"github.com/filecoin-project/curio/market/storageIngest"
+	"github.com/filecoin-project/curio/market/storageingest"
 )
 
 var marketCmd = &cli.Command{
@@ -74,7 +74,7 @@ var marketSealCmd = &cli.Command{
 			return err
 		}
 
-		return storageIngest.SealNow(ctx, dep.Chain, dep.DB, act, abi.SectorNumber(sector), cctx.Bool("synthetic"))
+		return storageingest.SealNow(ctx, dep.Chain, dep.DB, act, abi.SectorNumber(sector), cctx.Bool("synthetic"))
 	},
 }
 
