@@ -68,7 +68,7 @@ describe("CurioMembership", function () {
       var now = (+new Date() / 1000)|0;
       var rate = 2000;
       var {signature, sig, packedMessage, messageHash} = await sign(rate, now);
-      
+      console.log("rate", rate, "\nnow", now, "\nsignature", signature, "\nsig", sig, "\npackedMessage", packedMessage, "\nmessageHash", messageHash);
       //ethers.Signature.getNormalizedV(sig.v);
       //const recoveredAddress = ethers.Signature.verify(messageHash, signature);
       //expect(recoveredAddress).to.equal(rateChangeSignerAddress);
@@ -109,10 +109,10 @@ describe("CurioMembership", function () {
   describe("Pay", function() {
     it("Should allow pay() happy path for 500 with emit and updated pay record", async function() {
       const { contract, owner, otherAccount, fundsDestWallet } = await loadFixture(deployCurioMembershipFixture);
-
-      var {signature, sig, packedMessage, messageHash} = await sign(1000, (+new Date() / 1000)|0);
+      var now = (+new Date() / 1000)|0;
+      var {signature, sig, packedMessage, messageHash} = await sign(1000,now);
       await expect(contract.connect(owner).setExchangeRate(packedMessage, signature)).
-        to.emit(contract, "ExchangeRateUpdated").withArgs(1000, (+new Date() / 1000)|0);
+        to.emit(contract, "ExchangeRateUpdated").withArgs(1000, now);
 
       await expect(contract.connect(owner).getFunction('pay')(1234, {value: BigInt(500_000)})).
        to.emit(contract, "PaymentMade").withArgs(1234, owner.address, 500_000, 1);
