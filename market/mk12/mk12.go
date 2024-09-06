@@ -58,17 +58,9 @@ type validationError struct {
 	reason string
 }
 
-func NewMK12Handler(miners []string, db *harmonydb.DB, sc *ffi.SealCalls, mapi MK12API) (*MK12, error) {
-	var maddrs []address.Address
-	for _, m := range miners {
-		maddr, err := address.NewFromString(m)
-		if err != nil {
-			return nil, err
-		}
-		maddrs = append(maddrs, maddr)
-	}
+func NewMK12Handler(miners []address.Address, db *harmonydb.DB, sc *ffi.SealCalls, mapi MK12API) (*MK12, error) {
 	return &MK12{
-		miners: maddrs,
+		miners: miners,
 		db:     db,
 		api:    mapi,
 		sc:     sc,

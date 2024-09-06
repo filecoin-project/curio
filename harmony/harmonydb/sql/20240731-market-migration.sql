@@ -167,9 +167,9 @@ CREATE TABLE market_mk12_deal_pipeline (
     find_deal_task_id BIGINT DEFAULT NULL,
     after_find_deal BOOLEAN DEFAULT FALSE,
 
-    sector BIGINT,
+    sector BIGINT DEFAULT NULL,
     reg_seal_proof INT NOT NULL,
-    sector_offset BIGINT,
+    sector_offset BIGINT DEFAULT NULL,
 
     sealed BOOLEAN DEFAULT FALSE,
 
@@ -259,72 +259,47 @@ CREATE TABLE market_offline_urls (
 
 -- This table is used for coordinating libp2p nodes
 CREATE TABLE libp2p (
-    sp_id BIGINT NOT NULL,
     priv_key BYTEA NOT NULL,
-    listen_address TEXT DEFAULT NULL,
-    announce_address TEXT DEFAULT NULL,
-    no_announce_address TEXT DEFAULT NULL,
     running_on TEXT DEFAULT NULL,
     updated_at TIMESTAMPTZ DEFAULT NULL,
-
-    -- sp_id, priv_key must be unique for miner<>peerID combo uniqueness
-    -- announce address should be unique to avoid having 2 peerID reachable on same address
-    constraint market_libp2p_identity_key unique (sp_id, priv_key, announce_address)
 );
 
 -- -- Function used to update the libp2p table
-CREATE OR REPLACE FUNCTION insert_or_update_libp2p(
-    _sp_id BIGINT,
-    _listen_address TEXT,
-    _announce_address TEXT,
-    _no_announce_address TEXT,
-    _running_on TEXT
-)
-RETURNS BYTEA AS $$
+CREATE OR REPLACE FUNCTION update_libp2p_node(_running_on TEXT)
+RETURNS VOID AS $$
 DECLARE
-_priv_key BYTEA;
-    _current_running_on TEXT;
-    _current_updated_at TIMESTAMPTZ;
+current_running_on TEXT;
+    last_updated TIMESTAMPTZ;
 BEGIN
-    -- Check if the sp_id exists and retrieve the current values
-    SELECT priv_key, running_on, updated_at INTO _priv_key, _current_running_on, _current_updated_at
+    -- Fetch the current values of running_on and updated_at
+    SELECT running_on, updated_at INTO current_running_on, last_updated
     FROM libp2p
-    WHERE sp_id = _sp_id;
+    WHERE running_on IS NOT NULL
+        LIMIT 1;
 
-    -- Raise an exception if no row was found
-    IF NOT FOUND THEN
-            RAISE EXCEPTION 'libp2p key for sp_id "%" does not exist', _sp_id;
-    END IF;
-
-    -- If the sp_id exists and running_on is NULL or matches _running_on
-    IF _current_running_on IS NULL OR _current_running_on = _running_on THEN
-        -- Update the record with the provided values and set updated_at to NOW
-        UPDATE libp2p
-        SET
-            listen_address = _listen_address,
-            announce_address = _announce_address,
-            no_announce_address = _no_announce_address,
-            running_on = _running_on,
-            updated_at = NOW() AT TIME ZONE 'UTC'
-        WHERE sp_id = _sp_id;
-    ELSIF _current_updated_at > NOW() - INTERVAL '10 seconds' THEN
-            -- Raise an exception if running_on is different and updated_at is recent
-            RAISE EXCEPTION 'Libp2p node already running on "%"', _current_running_on;
+    -- If running_on is already set
+    IF current_running_on IS NOT NULL THEN
+            -- Check if updated_at is more than 5 minutes old
+            IF last_updated < NOW() - INTERVAL '5 minutes' THEN
+                -- Update running_on and updated_at
+                UPDATE libp2p
+                SET running_on = _running_on,
+                    updated_at = NOW() AT TIME ZONE 'UTC'
+                WHERE running_on = current_running_on;
+            ELSE
+                -- Raise an exception if the node was updated within the last 5 minutes
+                RAISE EXCEPTION 'Libp2p node already running on "%"', current_running_on;
+            END IF;
     ELSE
-            -- Update running_on and other columns if updated_at is older than 10 seconds
-        UPDATE libp2p
-        SET
-            listen_address = _listen_address,
-            announce_address = _announce_address,
-            no_announce_address = _no_announce_address,
-            running_on = _running_on,
-            updated_at = NOW() AT TIME ZONE 'UTC'
-        WHERE sp_id = _sp_id;
+            -- If running_on is NULL, set it and update the timestamp
+            UPDATE libp2p
+            SET running_on = _running_on,
+                updated_at = NOW() AT TIME ZONE 'UTC'
+            WHERE running_on IS NULL;
     END IF;
-
-RETURN _priv_key;
 END;
 $$ LANGUAGE plpgsql;
+
 
 -- Table for old lotus market deals. This is just for deal
 -- which are still alive. It should not be used for any processing

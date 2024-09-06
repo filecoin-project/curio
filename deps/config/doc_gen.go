@@ -711,7 +711,15 @@ also be bounded by resources available on the machine.`,
 			Name: "EnableCommP",
 			Type: "bool",
 
-			Comment: `EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal`,
+			Comment: `EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
+Must have EnableDealMarket = True`,
+		},
+		{
+			Name: "EnableLibp2p",
+			Type: "bool",
+
+			Comment: `EnableLibp2p enabled the libp2p module for the market. Must have EnableDealMarket set to true and must only be enabled
+on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.`,
 		},
 		{
 			Name: "CommPMaxTasks",
@@ -757,10 +765,10 @@ also be bounded by resources available on the machine.`,
 	},
 	"Libp2pConfig": {
 		{
-			Name: "Miner",
-			Type: "string",
+			Name: "DisabledMiners",
+			Type: "[]string",
 
-			Comment: `Miners ID for which MK12 deals (boosts) should be enabled and associated with this libp2p configuration.`,
+			Comment: `Miners ID for which MK12 deals (boosts) should be disabled`,
 		},
 		{
 			Name: "ListenAddresses",
@@ -788,10 +796,9 @@ Format: multiaddress`,
 	"MK12Config": {
 		{
 			Name: "Libp2p",
-			Type: "[]Libp2pConfig",
+			Type: "Libp2pConfig",
 
-			Comment: `Libp2p is a list of libp2p config for each miner ID. These values must be set explicitly
-for each miner ID.`,
+			Comment: `Libp2p is a list of libp2p config for all miner IDs.`,
 		},
 		{
 			Name: "PublishMsgPeriod",
@@ -808,12 +815,10 @@ deals to be ready to publish before publishing them all as a batch`,
 message`,
 		},
 		{
-			Name: "MaxPublishDealsFee",
+			Name: "MaxPublishDealFee",
 			Type: "types.FIL",
 
-			Comment: `The maximum collateral that the provider will put up against a deal,
-as a multiplier of the minimum collateral bound
-The maximum fee to pay when sending the PublishStorageDeals message`,
+			Comment: `The maximum fee to pay per deal when sending the PublishStorageDeals message`,
 		},
 		{
 			Name: "ExpectedPoRepSealDuration",

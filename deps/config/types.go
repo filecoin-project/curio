@@ -78,10 +78,15 @@ func DefaultCurioConfig() *CurioConfig {
 					InsertBatchSize:   15000,
 				},
 				MK12: MK12Config{
-					Libp2p:                    []Libp2pConfig{},
+					Libp2p: Libp2pConfig{
+						DisabledMiners:      []string{},
+						ListenAddresses:     []string{},
+						AnnounceAddresses:   []string{},
+						NoAnnounceAddresses: []string{},
+					},
 					PublishMsgPeriod:          Duration(5 * time.Minute),
 					MaxDealsPerPublishMsg:     8,
-					MaxPublishDealsFee:        types.MustParseFIL("5 FIL"),
+					MaxPublishDealFee:         types.MustParseFIL("0.5 FIL"),
 					ExpectedPoRepSealDuration: Duration(8 * time.Hour),
 					ExpectedSnapSealDuration:  Duration(2 * time.Hour),
 				},
@@ -274,7 +279,12 @@ type CurioSubsystemsConfig struct {
 	EnableDealMarket bool
 
 	// EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
+	// Must have EnableDealMarket = True
 	EnableCommP bool
+
+	// EnableLibp2p enabled the libp2p module for the market. Must have EnableDealMarket set to true and must only be enabled
+	// on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
+	EnableLibp2p bool
 
 	// The maximum amount of CommP tasks that can run simultaneously. Note that the maximum number of tasks will
 	// also be bounded by resources available on the machine.
@@ -579,9 +589,8 @@ type StorageMarketConfig struct {
 }
 
 type MK12Config struct {
-	// Libp2p is a list of libp2p config for each miner ID. These values must be set explicitly
-	// for each miner ID.
-	Libp2p []Libp2pConfig
+	// Libp2p is a list of libp2p config for all miner IDs.
+	Libp2p Libp2pConfig
 
 	// When a deal is ready to publish, the amount of time to wait for more
 	// deals to be ready to publish before publishing them all as a batch
@@ -591,10 +600,8 @@ type MK12Config struct {
 	// message
 	MaxDealsPerPublishMsg uint64
 
-	// The maximum collateral that the provider will put up against a deal,
-	// as a multiplier of the minimum collateral bound
-	// The maximum fee to pay when sending the PublishStorageDeals message
-	MaxPublishDealsFee types.FIL
+	// The maximum fee to pay per deal when sending the PublishStorageDeals message
+	MaxPublishDealFee types.FIL
 
 	// ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
 	// This will be used to fail the deals which cannot be sealed on time.
@@ -624,8 +631,8 @@ type IndexingConfig struct {
 }
 
 type Libp2pConfig struct {
-	// Miners ID for which MK12 deals (boosts) should be enabled and associated with this libp2p configuration.
-	Miner string
+	// Miners ID for which MK12 deals (boosts) should be disabled
+	DisabledMiners []string
 	// Binding address for the libp2p host - 0 means random port.
 	// Format: multiaddress; see https://multiformats.io/multiaddr/
 	ListenAddresses []string

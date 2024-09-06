@@ -228,9 +228,16 @@ description: The default curio configuration
   #EnableDealMarket = false
 
   # EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
+  # Must have EnableDealMarket = True
   #
   # type: bool
   #EnableCommP = false
+
+  # EnableLibp2p enabled the libp2p module for the market. Must have EnableDealMarket set to true and must only be enabled
+  # on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
+  #
+  # type: bool
+  #EnableLibp2p = false
 
   # The maximum amount of CommP tasks that can run simultaneously. Note that the maximum number of tasks will
   # also be bounded by resources available on the machine.
@@ -418,12 +425,6 @@ description: The default curio configuration
       #InsertConcurrency = 8
 
     [Market.StorageMarketConfig.MK12]
-      # Libp2p is a list of libp2p config for each miner ID. These values must be set explicitly
-      # for each miner ID.
-      #
-      # type: []Libp2pConfig
-      #Libp2p = []
-
       # When a deal is ready to publish, the amount of time to wait for more
       # deals to be ready to publish before publishing them all as a batch
       #
@@ -436,12 +437,10 @@ description: The default curio configuration
       # type: uint64
       #MaxDealsPerPublishMsg = 8
 
-      # The maximum collateral that the provider will put up against a deal,
-      # as a multiplier of the minimum collateral bound
-      # The maximum fee to pay when sending the PublishStorageDeals message
+      # The maximum fee to pay per deal when sending the PublishStorageDeals message
       #
       # type: types.FIL
-      #MaxPublishDealsFee = "5 FIL"
+      #MaxPublishDealFee = "0.5 FIL"
 
       # ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
       # This will be used to fail the deals which cannot be sealed on time.
@@ -461,6 +460,31 @@ description: The default curio configuration
       #
       # type: bool
       #SkipCommP = false
+
+      [Market.StorageMarketConfig.MK12.Libp2p]
+        # Miners ID for which MK12 deals (boosts) should be disabled
+        #
+        # type: []string
+        #DisabledMiners = []
+
+        # Binding address for the libp2p host - 0 means random port.
+        # Format: multiaddress; see https://multiformats.io/multiaddr/
+        #
+        # type: []string
+        #ListenAddresses = []
+
+        # Addresses to explicitally announce to other peers. If not specified,
+        # all interface addresses are announced
+        # Format: multiaddress
+        #
+        # type: []string
+        #AnnounceAddresses = []
+
+        # Addresses to not announce
+        # Format: multiaddress
+        #
+        # type: []string
+        #NoAnnounceAddresses = []
 
 
 [Ingest]

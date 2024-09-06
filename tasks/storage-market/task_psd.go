@@ -14,7 +14,6 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin"
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 	"github.com/filecoin-project/go-state-types/crypto"
-	"github.com/filecoin-project/go-state-types/exitcode"
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -34,6 +33,7 @@ var psdlog = logging.Logger("PSD")
 
 type psdApi interface {
 	ChainHead(context.Context) (*types.TipSet, error)
+	GasEstimateMessageGas(context.Context, *types.Message, *api.MessageSendSpec, types.TipSetKey) (*types.Message, error)
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
 	StateCall(context.Context, *types.Message, types.TipSetKey) (*api.InvocResult, error)
 	ctladdr.NodeApi
@@ -157,23 +157,20 @@ func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 			return false, xerrors.Errorf("selecting address for publishing deals: %w", err)
 		}
 
-		res, err := p.api.StateCall(ctx, &types.Message{
+		mss := &api.MessageSendSpec{
+			MaxFee: abi.TokenAmount(p.cfg.MaxPublishDealFee),
+		}
+
+		_, err = p.api.GasEstimateMessageGas(ctx, &types.Message{
 			To:     builtin.StorageMarketActorAddr,
 			From:   addr,
 			Value:  types.NewInt(0),
 			Method: builtin.MethodsMarket.PublishStorageDeals,
 			Params: params,
-		}, head.Key())
+		}, mss, head.Key())
+
 		if err != nil {
-			return false, xerrors.Errorf("simulating deal publish message: %w", err)
-		}
-		if res.MsgRct.ExitCode != exitcode.Ok {
-			// If PSD simulation fails then skip the deal
-			psdlog.Errorf("simulating deal publish message: non-zero exitcode %s; message: %s", res.MsgRct.ExitCode, res.Error)
-			err = failDeal(ctx, p.db, d.uuid, true, fmt.Sprintf("simulating deal publish message: non-zero exitcode %s; message: %s", res.MsgRct.ExitCode, res.Error))
-			if err != nil {
-				return false, err
-			}
+			psdlog.Errorf("simulating deal publish message: %w", err)
 			continue
 		}
 		psdlog.Debugf("validated deal proposal %s successfully", pcid)
@@ -207,7 +204,7 @@ func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 	}
 
 	mss := &api.MessageSendSpec{
-		MaxFee: abi.TokenAmount(p.cfg.MaxPublishDealsFee),
+		MaxFee: big.Mul(abi.TokenAmount(p.cfg.MaxPublishDealFee), big.NewInt(int64(len(vdeals)))),
 	}
 
 	mcid, err := p.sender.Send(ctx, msg, mss, "psd")

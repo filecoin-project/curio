@@ -36,7 +36,7 @@ var DefaultVerifiedPrice = abi.NewTokenAmount(5000000)
 const DefaultDuration abi.ChainEpoch = 1000000
 
 // DefaultMinPieceSize is the minimum accepted piece size for data
-const DefaultMinPieceSize abi.PaddedPieceSize = 256
+const DefaultMinPieceSize abi.PaddedPieceSize = 16 << 30
 
 // DefaultMaxPieceSize is the default maximum accepted size for pieces for deals
 // TODO: It would be nice to default this to the miner's sector size
