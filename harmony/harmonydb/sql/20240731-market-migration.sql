@@ -168,7 +168,7 @@ CREATE TABLE market_mk12_deal_pipeline (
     after_find_deal BOOLEAN DEFAULT FALSE,
 
     sector BIGINT DEFAULT NULL,
-    reg_seal_proof INT NOT NULL,
+    reg_seal_proof INT DEFAULT NULL,
     sector_offset BIGINT DEFAULT NULL,
 
     sealed BOOLEAN DEFAULT FALSE,
@@ -261,7 +261,7 @@ CREATE TABLE market_offline_urls (
 CREATE TABLE libp2p (
     priv_key BYTEA NOT NULL,
     running_on TEXT DEFAULT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NULL
 );
 
 -- -- Function used to update the libp2p table
