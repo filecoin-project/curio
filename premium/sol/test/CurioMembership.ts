@@ -1,7 +1,6 @@
 import { ethers } from "hardhat";
-import { Contract } from "ethers";
+import { Contract, toBigInt } from "ethers";
 import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
-import { expectEvent } from "@openzeppelin/test-helpers";
 
 import { expect } from "chai";
 
@@ -176,14 +175,15 @@ async function sign(rate:number, timestamp:number) {
   //const coder = new ethers.AbiCoder();
   // Pack the rate and timestamp like PHP's pack("Q", $rate) . pack("Q", $timestamp)
   //const packedData = coder.encode(['uint64', 'uint64'], [rate, timestamp]);
-  const packedMessage = new Uint8Array(
+  const packedMessageAry = new Uint8Array(
     [...packUint64(0), ...packUint64(0), ...packUint64(rate), ...packUint64(timestamp)]);
 
   // Hash the packed data using keccak256 (Ethereum's hash function)
-  const messageHash = ethers.keccak256(packedMessage);
+  const messageHash = ethers.keccak256(packedMessageAry);
 
   // Sign the message hash
   const signature = await wallet.signMessage(ethers.getBytes(messageHash));
   const sig = ethers.Signature.from(signature);
+  const packedMessage = toBigInt(packedMessageAry);
   return {signature, sig, packedMessage, messageHash};//Buffer.from(signature, 'hex');
 }

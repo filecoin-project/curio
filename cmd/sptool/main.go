@@ -24,6 +24,7 @@ func main() {
 		spcli.InfoCmd(SPTActorGetter),
 		sectorsCmd,
 		provingCmd,
+		premiumCmd,
 		//multiSigCmd,
 	}
 
