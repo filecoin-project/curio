@@ -540,7 +540,7 @@ func (t *WinPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 	return harmonytask.TaskTypeDetails{
 		Name: "WinPost",
-		Max:  t.max,
+		Max:  harmonytask.Max(t.max),
 
 		// We're not allowing retry to be conservative. Retry in winningPoSt done badly can lead to slashing, and
 		// that is generally worse than not mining a block. In general the task code is heavily defensive, and

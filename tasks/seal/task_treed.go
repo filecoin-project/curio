@@ -40,7 +40,7 @@ func (t *TreeDTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Max:  t.max,
+		Max:  harmonytask.Max(t.max),
 		Name: "TreeD",
 		Cost: resources.Resources{
 			Cpu:     1,

@@ -116,7 +116,7 @@ func (c *CleanupPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 
 func (c *CleanupPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  c.max,
+		Max:  harmonytask.Max(c.max),
 		Name: "DropPiece",
 		Cost: resources.Resources{
 			Cpu:     1,

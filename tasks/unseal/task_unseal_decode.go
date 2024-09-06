@@ -161,7 +161,7 @@ func (t *TaskUnsealDecode) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Max:  t.max,
+		Max:  harmonytask.Max(t.max),
 		Name: "UnsealDecode",
 		Cost: resources.Resources{
 			Cpu:     4, // todo multicore sdr

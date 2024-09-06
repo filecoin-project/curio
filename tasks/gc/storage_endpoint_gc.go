@@ -270,7 +270,7 @@ func (s *StorageEndpointGC) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 
 func (s *StorageEndpointGC) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  1,
+		Max:  harmonytask.Max(1),
 		Name: "StorageMetaGC",
 		Cost: resources.Resources{
 			Cpu: 1,

@@ -236,7 +236,7 @@ func (s *SendTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 
 func (s *SendTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  1024,
+		Max:  harmonytask.Max(1024),
 		Name: "SendMessage",
 		Cost: resources.Resources{
 			Cpu: 0,

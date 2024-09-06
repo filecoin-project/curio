@@ -254,7 +254,7 @@ func (f *FinalizeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 
 func (f *FinalizeTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  f.max,
+		Max:  harmonytask.Max(f.max),
 		Name: "Finalize",
 		Cost: resources.Resources{
 			Cpu: 1,

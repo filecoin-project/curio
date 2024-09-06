@@ -128,7 +128,7 @@ func (e *EncodeTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Max:  e.max,
+		Max:  harmonytask.Max(e.max),
 		Name: "UpdateEncode",
 		Cost: resources.Resources{
 			Cpu:     1,

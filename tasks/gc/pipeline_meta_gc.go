@@ -44,7 +44,7 @@ func (s *PipelineGC) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 
 func (s *PipelineGC) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  1,
+		Max:  harmonytask.Max(1),
 		Name: "PipelineGC",
 		Cost: resources.Resources{
 			Cpu: 1,

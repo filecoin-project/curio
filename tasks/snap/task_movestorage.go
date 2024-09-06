@@ -87,7 +87,7 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 		ssize = abi.SectorSize(2 << 20)
 	}
 	return harmonytask.TaskTypeDetails{
-		Max:  m.max,
+		Max:  harmonytask.Max(m.max),
 		Name: "UpdateStore",
 		Cost: resources.Resources{
 			Cpu:     1,

@@ -155,7 +155,7 @@ func (s *SyntheticProofTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	res := harmonytask.TaskTypeDetails{
-		Max:  s.max,
+		Max:  harmonytask.Max(s.max),
 		Name: "SyntheticProofs",
 		Cost: resources.Resources{
 			Cpu:     1,

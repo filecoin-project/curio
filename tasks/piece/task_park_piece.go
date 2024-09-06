@@ -193,7 +193,7 @@ func (p *ParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	const maxSizePiece = 64 << 30
 
 	return harmonytask.TaskTypeDetails{
-		Max:  p.max,
+		Max:  harmonytask.Max(p.max),
 		Name: "ParkPiece",
 		Cost: resources.Resources{
 			Cpu:     1,

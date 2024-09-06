@@ -161,7 +161,7 @@ func (a *AlertTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 func (a *AlertTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  1,
+		Max:  harmonytask.Max(1),
 		Name: "AlertManager",
 		Cost: resources.Resources{
 			Cpu: 1,

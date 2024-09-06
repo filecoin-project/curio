@@ -88,7 +88,7 @@ func (i *InclusionCheckTask) CanAccept(ids []harmonytask.TaskID, engine *harmony
 
 func (i *InclusionCheckTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  1,
+		Max:  harmonytask.Max(1),
 		Name: "WinInclCheck",
 		Cost: resources.Resources{
 			Cpu: 1,

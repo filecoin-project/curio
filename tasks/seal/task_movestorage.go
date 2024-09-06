@@ -143,7 +143,7 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Max:  m.max,
+		Max:  harmonytask.Max(m.max),
 		Name: "MoveStorage",
 		Cost: resources.Resources{
 			Cpu:     1,

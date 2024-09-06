@@ -22,8 +22,9 @@ var FOLLOW_FREQUENCY = 1 * time.Minute          // Check for work to follow this
 
 type TaskTypeDetails struct {
 	// Max returns how many tasks this machine can run of this type.
-	// Zero (default) or less means unrestricted.
-	Max int
+	// Nil (default)/Zero or less means unrestricted.
+	// Counters can either be independent when created with Max, or shared between tasks with SharedMax.Make()
+	Max *MaxCounter
 
 	// Name is the task name to be added to the task list.
 	Name string
@@ -95,6 +96,43 @@ type TaskInterface interface {
 	//	  }
 	// }
 	Adder(AddTaskFunc)
+}
+
+type MaxCounter struct {
+	// maximum number of tasks of this type that can be run
+	N int
+
+	// current number of tasks of this type that are running (shared)
+	current *atomic.Int32
+
+	// current number of tasks of this type that are running (per task)
+	currentThis *atomic.Int32
+}
+
+func (m *MaxCounter) max() int {
+	if m == nil {
+		return 0
+	}
+
+	return m.N
+}
+
+// note: cur can't be called on counters for which max is 0
+func (m *MaxCounter) cur() int {
+	return int(m.current.Load())
+}
+
+func (m *MaxCounter) curThis() int {
+	return int(m.currentThis.Load())
+}
+
+func (m *MaxCounter) add(n int) {
+	m.current.Add(int32(n))
+	m.currentThis.Add(int32(n))
+}
+
+func Max(n int) *MaxCounter {
+	return &MaxCounter{N: n, current: new(atomic.Int32)}
 }
 
 // AddTaskFunc is responsible for adding a task's details "extra info" to the DB.
@@ -218,31 +256,31 @@ func (e *TaskEngine) GracefullyTerminate() {
 	for {
 		timeout := time.Millisecond
 		for _, h := range e.handlers {
-			if h.TaskTypeDetails.Name == "WinPost" && h.Count.Load() > 0 {
+			if h.TaskTypeDetails.Name == "WinPost" && h.Max.cur() > 0 {
 				timeout = time.Second
 				log.Infof("node shutdown deferred for %f seconds", timeout.Seconds())
 				continue
 			}
-			if h.TaskTypeDetails.Name == "WdPost" && h.Count.Load() > 0 {
+			if h.TaskTypeDetails.Name == "WdPost" && h.Max.cur() > 0 {
 				timeout = time.Second * 3
 				log.Infof("node shutdown deferred for %f seconds due to running WdPost task", timeout.Seconds())
 				continue
 			}
 
-			if h.TaskTypeDetails.Name == "WdPostSubmit" && h.Count.Load() > 0 {
+			if h.TaskTypeDetails.Name == "WdPostSubmit" && h.Max.cur() > 0 {
 				timeout = time.Second
 				log.Infof("node shutdown deferred for %f seconds due to running WdPostSubmit task", timeout.Seconds())
 				continue
 			}
 
-			if h.TaskTypeDetails.Name == "WdPostRecover" && h.Count.Load() > 0 {
+			if h.TaskTypeDetails.Name == "WdPostRecover" && h.Max.cur() > 0 {
 				timeout = time.Second
 				log.Infof("node shutdown deferred for %f seconds due to running WdPostRecover task", timeout.Seconds())
 				continue
 			}
 
 			// Test tasks for itest
-			if h.TaskTypeDetails.Name == "ThingOne" && h.Count.Load() > 0 {
+			if h.TaskTypeDetails.Name == "ThingOne" && h.Max.cur() > 0 {
 				timeout = time.Second
 				log.Infof("node shutdown deferred for %f seconds due to running itest task", timeout.Seconds())
 				continue
@@ -397,8 +435,8 @@ func (e *TaskEngine) pollerTryAllWork() bool {
 func (e *TaskEngine) ResourcesAvailable() resources.Resources {
 	tmp := e.reg.Resources
 	for _, t := range e.handlers {
-		ct := t.Count.Load()
-		tmp.Cpu -= int(ct) * t.Cost.Cpu
+		ct := t.Max.curThis()
+		tmp.Cpu -= ct * t.Cost.Cpu
 		tmp.Gpu -= float64(ct) * t.Cost.Gpu
 		tmp.Ram -= uint64(ct) * t.Cost.Ram
 	}

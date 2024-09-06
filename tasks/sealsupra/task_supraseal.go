@@ -425,7 +425,7 @@ var ssizeToName = map[abi.SectorSize]string{
 
 func (s *SupraSeal) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  s.pipelines,
+		Max:  harmonytask.Max(s.pipelines),
 		Name: fmt.Sprintf("Batch%d-%s", s.sectors, ssizeToName[must.One(s.spt.SectorSize())]),
 		Cost: resources.Resources{
 			Cpu: 1,

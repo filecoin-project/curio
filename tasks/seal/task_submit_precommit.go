@@ -332,7 +332,7 @@ func (s *SubmitPrecommitTask) CanAccept(ids []harmonytask.TaskID, engine *harmon
 
 func (s *SubmitPrecommitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  1024,
+		Max:  harmonytask.Max(1024),
 		Name: "PreCommitSubmit",
 		Cost: resources.Resources{
 			Cpu: 0,

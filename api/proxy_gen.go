@@ -4,15 +4,7 @@ package api
 
 import (
 	"context"
-	"net/http"
-	"net/url"
-	"reflect"
-
-	"github.com/google/uuid"
-	blocks "github.com/ipfs/go-block-format"
-	"github.com/ipfs/go-cid"
-	"golang.org/x/xerrors"
-
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-jsonrpc/auth"
@@ -22,199 +14,299 @@ import (
 	"github.com/filecoin-project/go-state-types/crypto"
 	"github.com/filecoin-project/go-state-types/dline"
 	"github.com/filecoin-project/go-state-types/network"
-
-	storiface "github.com/filecoin-project/curio/lib/storiface"
-
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
+	"github.com/google/uuid"
+	blocks "github.com/ipfs/go-block-format"
+	"github.com/ipfs/go-cid"
+	"net/http"
+	"net/url"
+	"reflect"
+
+	"golang.org/x/xerrors"
 )
+
 
 var _ = reflect.TypeOf([]byte(nil))
 var ErrNotSupported = xerrors.New("method not supported")
 
+
 type CurioStruct struct {
+
 	Internal CurioMethods
 }
 
 type CurioMethods struct {
+
 	AllocatePieceToSector func(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (api.SectorOffset, error) `perm:"write"`
+
 
 	LogList func(p0 context.Context) ([]string, error) `perm:"read"`
 
-	LogSetLevel func(p0 context.Context, p1 string, p2 string) error `perm:"admin"`
 
-	Shutdown func(p0 context.Context) error `perm:"admin"`
+	LogSetLevel func(p0 context.Context, p1 string, p2 string) (error) `perm:"admin"`
 
-	StorageAddLocal func(p0 context.Context, p1 string) error `perm:"admin"`
 
-	StorageDetachLocal func(p0 context.Context, p1 string) error `perm:"admin"`
+	Shutdown func(p0 context.Context) (error) `perm:"admin"`
+
+
+	StorageAddLocal func(p0 context.Context, p1 string) (error) `perm:"admin"`
+
+
+	StorageDetachLocal func(p0 context.Context, p1 string) (error) `perm:"admin"`
+
 
 	StorageFindSector func(p0 context.Context, p1 abi.SectorID, p2 storiface.SectorFileType, p3 abi.SectorSize, p4 bool) ([]storiface.SectorStorageInfo, error) `perm:"admin"`
 
+
 	StorageInfo func(p0 context.Context, p1 storiface.ID) (storiface.StorageInfo, error) `perm:"admin"`
 
-	StorageInit func(p0 context.Context, p1 string, p2 storiface.LocalStorageMeta) error `perm:"admin"`
+
+	StorageInit func(p0 context.Context, p1 string, p2 storiface.LocalStorageMeta) (error) `perm:"admin"`
+
 
 	StorageList func(p0 context.Context) (map[storiface.ID][]storiface.Decl, error) `perm:"admin"`
 
+
 	StorageLocal func(p0 context.Context) (map[storiface.ID]string, error) `perm:"admin"`
+
 
 	StorageStat func(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) `perm:"admin"`
 
+
 	Version func(p0 context.Context) ([]int, error) `perm:"admin"`
-}
+
+
+	}
 
 type CurioStub struct {
+
 }
 
 type CurioChainRPCStruct struct {
+
 	Internal CurioChainRPCMethods
 }
 
 type CurioChainRPCMethods struct {
+
 	AuthNew func(p0 context.Context, p1 []auth.Permission) ([]byte, error) `perm:"admin"`
+
 
 	AuthVerify func(p0 context.Context, p1 string) ([]auth.Permission, error) `perm:"read"`
 
+
 	ChainGetMessage func(p0 context.Context, p1 cid.Cid) (*types.Message, error) ``
+
 
 	ChainGetTipSet func(p0 context.Context, p1 types.TipSetKey) (*types.TipSet, error) ``
 
+
 	ChainGetTipSetAfterHeight func(p0 context.Context, p1 abi.ChainEpoch, p2 types.TipSetKey) (*types.TipSet, error) ``
+
 
 	ChainGetTipSetByHeight func(p0 context.Context, p1 abi.ChainEpoch, p2 types.TipSetKey) (*types.TipSet, error) ``
 
+
 	ChainHasObj func(p0 context.Context, p1 cid.Cid) (bool, error) ``
+
 
 	ChainHead func(p0 context.Context) (*types.TipSet, error) ``
 
+
 	ChainNotify func(p0 context.Context) (<-chan []*api.HeadChange, error) ``
 
-	ChainPutObj func(p0 context.Context, p1 blocks.Block) error ``
+
+	ChainPutObj func(p0 context.Context, p1 blocks.Block) (error) ``
+
 
 	ChainReadObj func(p0 context.Context, p1 cid.Cid) ([]byte, error) ``
 
+
 	ChainTipSetWeight func(p0 context.Context, p1 types.TipSetKey) (types.BigInt, error) ``
+
 
 	GasEstimateFeeCap func(p0 context.Context, p1 *types.Message, p2 int64, p3 types.TipSetKey) (types.BigInt, error) ``
 
+
 	GasEstimateGasPremium func(p0 context.Context, p1 uint64, p2 address.Address, p3 int64, p4 types.TipSetKey) (types.BigInt, error) ``
+
 
 	GasEstimateMessageGas func(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec, p3 types.TipSetKey) (*types.Message, error) ``
 
+
 	MinerCreateBlock func(p0 context.Context, p1 *api.BlockTemplate) (*types.BlockMsg, error) ``
+
 
 	MinerGetBaseInfo func(p0 context.Context, p1 address.Address, p2 abi.ChainEpoch, p3 types.TipSetKey) (*api.MiningBaseInfo, error) ``
 
+
 	MpoolGetNonce func(p0 context.Context, p1 address.Address) (uint64, error) ``
+
 
 	MpoolPush func(p0 context.Context, p1 *types.SignedMessage) (cid.Cid, error) ``
 
+
 	MpoolPushMessage func(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec) (*types.SignedMessage, error) ``
+
 
 	MpoolSelect func(p0 context.Context, p1 types.TipSetKey, p2 float64) ([]*types.SignedMessage, error) ``
 
+
 	Session func(p0 context.Context) (uuid.UUID, error) `perm:"read"`
 
-	Shutdown func(p0 context.Context) error `perm:"admin"`
+
+	Shutdown func(p0 context.Context) (error) `perm:"admin"`
+
 
 	StateAccountKey func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) ``
 
+
 	StateCirculatingSupply func(p0 context.Context, p1 types.TipSetKey) (big.Int, error) ``
+
 
 	StateDealProviderCollateralBounds func(p0 context.Context, p1 abi.PaddedPieceSize, p2 bool, p3 types.TipSetKey) (api.DealCollateralBounds, error) ``
 
+
 	StateGetActor func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*types.Actor, error) ``
+
 
 	StateGetAllocation func(p0 context.Context, p1 address.Address, p2 verifregtypes.AllocationId, p3 types.TipSetKey) (*verifregtypes.Allocation, error) ``
 
+
 	StateGetAllocationForPendingDeal func(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (*verifregtypes.Allocation, error) ``
+
 
 	StateGetAllocationIdForPendingDeal func(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (verifregtypes.AllocationId, error) ``
 
+
 	StateGetBeaconEntry func(p0 context.Context, p1 abi.ChainEpoch) (*types.BeaconEntry, error) ``
+
 
 	StateGetRandomnessFromBeacon func(p0 context.Context, p1 crypto.DomainSeparationTag, p2 abi.ChainEpoch, p3 []byte, p4 types.TipSetKey) (abi.Randomness, error) ``
 
+
 	StateGetRandomnessFromTickets func(p0 context.Context, p1 crypto.DomainSeparationTag, p2 abi.ChainEpoch, p3 []byte, p4 types.TipSetKey) (abi.Randomness, error) ``
+
 
 	StateListMessages func(p0 context.Context, p1 *api.MessageMatch, p2 types.TipSetKey, p3 abi.ChainEpoch) ([]cid.Cid, error) ``
 
+
 	StateListMiners func(p0 context.Context, p1 types.TipSetKey) ([]address.Address, error) ``
+
 
 	StateLookupID func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) ``
 
+
 	StateMarketBalance func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MarketBalance, error) ``
+
 
 	StateMarketStorageDeal func(p0 context.Context, p1 abi.DealID, p2 types.TipSetKey) (*api.MarketDeal, error) ``
 
+
 	StateMinerActiveSectors func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) ``
+
 
 	StateMinerAllocated func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*bitfield.BitField, error) ``
 
+
 	StateMinerAvailableBalance func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (types.BigInt, error) `perm:"read"`
+
 
 	StateMinerDeadlines func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) ([]api.Deadline, error) `perm:"read"`
 
+
 	StateMinerFaults func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (bitfield.BitField, error) ``
+
 
 	StateMinerInfo func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MinerInfo, error) ``
 
+
 	StateMinerInitialPledgeCollateral func(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) ``
+
 
 	StateMinerPartitions func(p0 context.Context, p1 address.Address, p2 uint64, p3 types.TipSetKey) ([]api.Partition, error) ``
 
+
 	StateMinerPower func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*api.MinerPower, error) `perm:"read"`
+
 
 	StateMinerPreCommitDepositForPower func(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) ``
 
+
 	StateMinerProvingDeadline func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*dline.Info, error) ``
+
 
 	StateMinerRecoveries func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (bitfield.BitField, error) ``
 
+
 	StateMinerSectorCount func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MinerSectors, error) ``
+
 
 	StateMinerSectors func(p0 context.Context, p1 address.Address, p2 *bitfield.BitField, p3 types.TipSetKey) ([]*miner.SectorOnChainInfo, error) ``
 
+
 	StateNetworkName func(p0 context.Context) (dtypes.NetworkName, error) ``
+
 
 	StateNetworkVersion func(p0 context.Context, p1 types.TipSetKey) (network.Version, error) ``
 
+
 	StateReadState func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*api.ActorState, error) ``
+
 
 	StateSearchMsg func(p0 context.Context, p1 types.TipSetKey, p2 cid.Cid, p3 abi.ChainEpoch, p4 bool) (*api.MsgLookup, error) ``
 
+
 	StateSectorGetInfo func(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorOnChainInfo, error) ``
+
 
 	StateSectorPartition func(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorLocation, error) ``
 
+
 	StateSectorPreCommitInfo func(p0 context.Context, p1 address.Address, p2 abi.SectorNumber, p3 types.TipSetKey) (*miner.SectorPreCommitOnChainInfo, error) ``
+
 
 	StateVMCirculatingSupplyInternal func(p0 context.Context, p1 types.TipSetKey) (api.CirculatingSupply, error) ``
 
+
 	StateVerifiedClientStatus func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (*abi.StoragePower, error) ``
+
 
 	StateWaitMsg func(p0 context.Context, p1 cid.Cid, p2 uint64, p3 abi.ChainEpoch, p4 bool) (*api.MsgLookup, error) `perm:"read"`
 
-	SyncSubmitBlock func(p0 context.Context, p1 *types.BlockMsg) error ``
+
+	SyncSubmitBlock func(p0 context.Context, p1 *types.BlockMsg) (error) ``
+
 
 	Version func(p0 context.Context) (api.APIVersion, error) `perm:"read"`
 
+
 	WalletBalance func(p0 context.Context, p1 address.Address) (big.Int, error) ``
+
 
 	WalletHas func(p0 context.Context, p1 address.Address) (bool, error) ``
 
+
 	WalletSign func(p0 context.Context, p1 address.Address, p2 []byte) (*crypto.Signature, error) ``
 
+
 	WalletSignMessage func(p0 context.Context, p1 address.Address, p2 *types.Message) (*types.SignedMessage, error) ``
-}
+
+
+	}
 
 type CurioChainRPCStub struct {
+
 }
+
+
+
+
 
 func (s *CurioStruct) AllocatePieceToSector(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (api.SectorOffset, error) {
 	if s.Internal.AllocatePieceToSector == nil {
@@ -238,47 +330,47 @@ func (s *CurioStub) LogList(p0 context.Context) ([]string, error) {
 	return *new([]string), ErrNotSupported
 }
 
-func (s *CurioStruct) LogSetLevel(p0 context.Context, p1 string, p2 string) error {
+func (s *CurioStruct) LogSetLevel(p0 context.Context, p1 string, p2 string) (error) {
 	if s.Internal.LogSetLevel == nil {
 		return ErrNotSupported
 	}
 	return s.Internal.LogSetLevel(p0, p1, p2)
 }
 
-func (s *CurioStub) LogSetLevel(p0 context.Context, p1 string, p2 string) error {
+func (s *CurioStub) LogSetLevel(p0 context.Context, p1 string, p2 string) (error) {
 	return ErrNotSupported
 }
 
-func (s *CurioStruct) Shutdown(p0 context.Context) error {
+func (s *CurioStruct) Shutdown(p0 context.Context) (error) {
 	if s.Internal.Shutdown == nil {
 		return ErrNotSupported
 	}
 	return s.Internal.Shutdown(p0)
 }
 
-func (s *CurioStub) Shutdown(p0 context.Context) error {
+func (s *CurioStub) Shutdown(p0 context.Context) (error) {
 	return ErrNotSupported
 }
 
-func (s *CurioStruct) StorageAddLocal(p0 context.Context, p1 string) error {
+func (s *CurioStruct) StorageAddLocal(p0 context.Context, p1 string) (error) {
 	if s.Internal.StorageAddLocal == nil {
 		return ErrNotSupported
 	}
 	return s.Internal.StorageAddLocal(p0, p1)
 }
 
-func (s *CurioStub) StorageAddLocal(p0 context.Context, p1 string) error {
+func (s *CurioStub) StorageAddLocal(p0 context.Context, p1 string) (error) {
 	return ErrNotSupported
 }
 
-func (s *CurioStruct) StorageDetachLocal(p0 context.Context, p1 string) error {
+func (s *CurioStruct) StorageDetachLocal(p0 context.Context, p1 string) (error) {
 	if s.Internal.StorageDetachLocal == nil {
 		return ErrNotSupported
 	}
 	return s.Internal.StorageDetachLocal(p0, p1)
 }
 
-func (s *CurioStub) StorageDetachLocal(p0 context.Context, p1 string) error {
+func (s *CurioStub) StorageDetachLocal(p0 context.Context, p1 string) (error) {
 	return ErrNotSupported
 }
 
@@ -304,14 +396,14 @@ func (s *CurioStub) StorageInfo(p0 context.Context, p1 storiface.ID) (storiface.
 	return *new(storiface.StorageInfo), ErrNotSupported
 }
 
-func (s *CurioStruct) StorageInit(p0 context.Context, p1 string, p2 storiface.LocalStorageMeta) error {
+func (s *CurioStruct) StorageInit(p0 context.Context, p1 string, p2 storiface.LocalStorageMeta) (error) {
 	if s.Internal.StorageInit == nil {
 		return ErrNotSupported
 	}
 	return s.Internal.StorageInit(p0, p1, p2)
 }
 
-func (s *CurioStub) StorageInit(p0 context.Context, p1 string, p2 storiface.LocalStorageMeta) error {
+func (s *CurioStub) StorageInit(p0 context.Context, p1 string, p2 storiface.LocalStorageMeta) (error) {
 	return ErrNotSupported
 }
 
@@ -358,6 +450,9 @@ func (s *CurioStruct) Version(p0 context.Context) ([]int, error) {
 func (s *CurioStub) Version(p0 context.Context) ([]int, error) {
 	return *new([]int), ErrNotSupported
 }
+
+
+
 
 func (s *CurioChainRPCStruct) AuthNew(p0 context.Context, p1 []auth.Permission) ([]byte, error) {
 	if s.Internal.AuthNew == nil {
@@ -458,14 +553,14 @@ func (s *CurioChainRPCStub) ChainNotify(p0 context.Context) (<-chan []*api.HeadC
 	return nil, ErrNotSupported
 }
 
-func (s *CurioChainRPCStruct) ChainPutObj(p0 context.Context, p1 blocks.Block) error {
+func (s *CurioChainRPCStruct) ChainPutObj(p0 context.Context, p1 blocks.Block) (error) {
 	if s.Internal.ChainPutObj == nil {
 		return ErrNotSupported
 	}
 	return s.Internal.ChainPutObj(p0, p1)
 }
 
-func (s *CurioChainRPCStub) ChainPutObj(p0 context.Context, p1 blocks.Block) error {
+func (s *CurioChainRPCStub) ChainPutObj(p0 context.Context, p1 blocks.Block) (error) {
 	return ErrNotSupported
 }
 
@@ -601,14 +696,14 @@ func (s *CurioChainRPCStub) Session(p0 context.Context) (uuid.UUID, error) {
 	return *new(uuid.UUID), ErrNotSupported
 }
 
-func (s *CurioChainRPCStruct) Shutdown(p0 context.Context) error {
+func (s *CurioChainRPCStruct) Shutdown(p0 context.Context) (error) {
 	if s.Internal.Shutdown == nil {
 		return ErrNotSupported
 	}
 	return s.Internal.Shutdown(p0)
 }
 
-func (s *CurioChainRPCStub) Shutdown(p0 context.Context) error {
+func (s *CurioChainRPCStub) Shutdown(p0 context.Context) (error) {
 	return ErrNotSupported
 }
 
@@ -1041,14 +1136,14 @@ func (s *CurioChainRPCStub) StateWaitMsg(p0 context.Context, p1 cid.Cid, p2 uint
 	return nil, ErrNotSupported
 }
 
-func (s *CurioChainRPCStruct) SyncSubmitBlock(p0 context.Context, p1 *types.BlockMsg) error {
+func (s *CurioChainRPCStruct) SyncSubmitBlock(p0 context.Context, p1 *types.BlockMsg) (error) {
 	if s.Internal.SyncSubmitBlock == nil {
 		return ErrNotSupported
 	}
 	return s.Internal.SyncSubmitBlock(p0, p1)
 }
 
-func (s *CurioChainRPCStub) SyncSubmitBlock(p0 context.Context, p1 *types.BlockMsg) error {
+func (s *CurioChainRPCStub) SyncSubmitBlock(p0 context.Context, p1 *types.BlockMsg) (error) {
 	return ErrNotSupported
 }
 
@@ -1107,5 +1202,9 @@ func (s *CurioChainRPCStub) WalletSignMessage(p0 context.Context, p1 address.Add
 	return nil, ErrNotSupported
 }
 
+
+
 var _ Curio = new(CurioStruct)
 var _ CurioChainRPC = new(CurioChainRPCStruct)
+
+

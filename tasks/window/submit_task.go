@@ -183,7 +183,7 @@ func (w *WdPostSubmitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 
 func (w *WdPostSubmitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  128,
+		Max:  harmonytask.Max(128),
 		Name: "WdPostSubmit",
 		Cost: resources.Resources{
 			Cpu: 0,

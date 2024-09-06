@@ -291,7 +291,7 @@ func (s *StorageGCMark) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 
 func (s *StorageGCMark) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  1,
+		Max:  harmonytask.Max(1),
 		Name: "StorageGCMark",
 		Cost: resources.Resources{
 			Cpu: 1,

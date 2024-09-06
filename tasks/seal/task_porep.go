@@ -162,7 +162,7 @@ func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 		gpu = 0
 	}
 	res := harmonytask.TaskTypeDetails{
-		Max:  p.max,
+		Max:  harmonytask.Max(p.max),
 		Name: "PoRep",
 		Cost: resources.Resources{
 			Cpu:       1,

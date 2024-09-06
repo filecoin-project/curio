@@ -420,7 +420,7 @@ func (s *SubmitCommitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 
 func (s *SubmitCommitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  128,
+		Max:  harmonytask.Max(128),
 		Name: "CommitSubmit",
 		Cost: resources.Resources{
 			Cpu: 0,
