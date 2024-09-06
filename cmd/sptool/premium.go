@@ -8,6 +8,8 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"strconv"
+	"time"
 
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
@@ -111,9 +113,12 @@ func pay(cctx *cli.Context) error {
 	// To verify, blockchain + wallet-signed blob w/txnID & timestamp.
 	//   Market used GLIF for txn read & verifies wallet signature.
 	var qry url.Values
+	qry.Add("network", build.BuildTypeString())
 	qry.Add("premiumID", premiumID)
+	qry.Add("timestamp", strconv.FormatInt(time.Now().Unix(), 10))
 	qry.Add("txnID", txnID)
-	sig, err := full.WalletSign(cctx.Context, walletAddress, []byte("Verification of Txn:"+txnID))
+	message := qry.Encode()
+	sig, err := full.WalletSign(cctx.Context, walletAddress, []byte(message))
 	if err != nil {
 		return xerrors.Errorf("Purchase made. Could not build link: signing txn: %w", err)
 	}
