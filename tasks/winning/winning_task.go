@@ -29,6 +29,7 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/seal"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
@@ -515,6 +516,11 @@ func (t *WinPostTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Ta
 }
 
 func (t *WinPostTask) TypeDetails() harmonytask.TaskTypeDetails {
+	gpu := 1.0
+	if seal.IsDevnet {
+		gpu = 0
+	}
+
 	return harmonytask.TaskTypeDetails{
 		Name:        "WinPost",
 		Max:         t.max,
@@ -523,9 +529,7 @@ func (t *WinPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{
 			Cpu: 1,
 
-			// todo set to something for 32/64G sector sizes? Technically windowPoSt is happy on a CPU
-			//  but it will use a GPU if available
-			Gpu: 0,
+			Gpu: gpu,
 
 			Ram: 1 << 30, // todo arbitrary number
 		},
