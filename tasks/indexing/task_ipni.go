@@ -27,12 +27,12 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/ffi"
-	"github.com/filecoin-project/curio/lib/ipni/chunker"
-	"github.com/filecoin-project/curio/lib/ipni/ipniculib"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
+	"github.com/filecoin-project/curio/market/ipni/chunker"
+	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 )
 
 var ilog = logging.Logger("ipni")

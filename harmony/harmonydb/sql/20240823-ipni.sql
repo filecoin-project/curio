@@ -2,7 +2,7 @@
 CREATE TABLE ipni (
     order_number BIGSERIAL PRIMARY KEY, -- Unique increasing order number
     ad_cid TEXT NOT NULL,
-    context_id TEXT NOT NULL, -- abi.PieceInfo in Curio
+    context_id BYTEA NOT NULL, -- abi.PieceInfo in Curio
     -- metadata column in not required as Curio only supports one type of metadata(HTTP)
     is_rm BOOLEAN NOT NULL,
 
@@ -39,7 +39,7 @@ CREATE TABLE ipni_head (
 
 CREATE OR REPLACE FUNCTION insert_ad_and_update_head(
     _ad_cid TEXT,
-    _context_id TEXT,
+    _context_id BYTEA,
     _is_rm BOOLEAN,
     _provider TEXT,
     _addresses TEXT,
@@ -71,7 +71,7 @@ CREATE OR REPLACE FUNCTION get_ad_chain(
     _ad_cid TEXT
 ) RETURNS TABLE (
     ad_cid TEXT,
-    context_id TEXT,
+    context_id BYTEA,
     is_rm BOOLEAN,
     previous TEXT,
     provider TEXT,
@@ -98,7 +98,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- IPNI pipeline is kept separate from rest for robustness
--- and reuse. This allows for removing, recreating as using CLI.
+-- and reuse. This allows for removing, recreating ads using CLI.
 CREATE TABLE ipni_task (
     sp_id BIGINT NOT NULL,
     sector BIGINT NOT NULL,

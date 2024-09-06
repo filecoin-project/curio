@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/filecoin-project/curio/market/ipni/chunker"
+	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	"github.com/gorilla/mux"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/ipfs/go-cid"
@@ -35,8 +37,6 @@ import (
 
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/ipni/chunker"
-	"github.com/filecoin-project/curio/lib/ipni/ipniculib"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/urltomultiaddr"
