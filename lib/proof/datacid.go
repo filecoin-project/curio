@@ -34,6 +34,8 @@ DataCidWriter is used as follows:
 cc := new(DataCidWriter)
 _, err = io.Copy(cc, f)
 dc, err := cc.Sum()
+
+This computes CommP / PieceCID from a stream, also returns piece and payload sizes.
 */
 type DataCidWriter struct {
 	len    int64

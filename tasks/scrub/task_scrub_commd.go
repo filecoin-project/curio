@@ -130,7 +130,7 @@ func (c *ScrubCommDTask) schedule(ctx context.Context, taskFunc harmonytask.AddT
 			SectorNumber int64 `db:"sector_number"`
 		}
 
-		err := c.db.Select(ctx, &checks, `
+		err := tx.Select(&checks, `
 			SELECT check_id, sp_id, sector_number
 			FROM scrub_unseal_commd_check
 			WHERE task_id IS NULL LIMIT 20

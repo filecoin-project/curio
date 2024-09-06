@@ -162,7 +162,7 @@ func (sb *SealCalls) GenerateSDR(ctx context.Context, taskID harmonytask.TaskID,
 	}
 
 	intoPath := storiface.PathByType(paths, into)
-	intoTemp := intoPath + ".tmp"
+	intoTemp := intoPath + storiface.TempSuffix
 
 	// make sure the cache dir is empty
 	if err := os.RemoveAll(intoPath); err != nil {

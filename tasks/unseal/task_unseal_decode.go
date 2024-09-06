@@ -141,6 +141,8 @@ func (t *TaskUnsealDecode) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		}
 	}
 
+	// NOTE: Decode.. drops the sector key at the end
+
 	_, err = t.db.Exec(ctx, `UPDATE sectors_unseal_pipeline SET after_decode_sector = TRUE, task_id_decode_sector = NULL WHERE task_id_decode_sector = $1`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("updating task: %w", err)

@@ -147,7 +147,7 @@ func (p *ProveTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFu
 				SectorNumber int64 `db:"sector_number"`
 			}
 
-			err := p.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_prove = FALSE AND task_id_prove IS NULL`)
+			err := tx.Select(&tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_prove = FALSE AND task_id_prove IS NULL`)
 			if err != nil {
 				return false, xerrors.Errorf("getting tasks: %w", err)
 			}

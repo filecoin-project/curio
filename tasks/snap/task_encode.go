@@ -157,7 +157,7 @@ func (e *EncodeTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 				SectorNumber int64 `db:"sector_number"`
 			}
 
-			err := e.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE data_assigned = true AND after_encode = FALSE AND task_id_encode IS NULL`)
+			err := tx.Select(&tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE data_assigned = true AND after_encode = FALSE AND task_id_encode IS NULL`)
 			if err != nil {
 				return false, xerrors.Errorf("getting tasks: %w", err)
 			}

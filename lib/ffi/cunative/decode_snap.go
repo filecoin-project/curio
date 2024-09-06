@@ -252,7 +252,7 @@ func Phi(commDNew, commROld BytesLE) (B32le, error) {
 	inputB := bigIntLE(commROld)
 	input := []*big.Int{inputA, inputB}
 
-	cons, err := poseidon.GenPoseidonConstants[*CursedPoseidonGenRandomnessElement](3)
+	cons, err := poseidon.GenPoseidonConstants[*CustomDomainSepTagElement](3)
 	if err != nil {
 		return [32]byte{}, err
 	}
@@ -273,7 +273,7 @@ func rho(phi B32le, high uint32) (*fr.Element, error) {
 	inputB := new(big.Int).SetUint64(uint64(high))
 	input := []*big.Int{inputA, inputB}
 
-	cons, err := poseidon.GenPoseidonConstants[*CursedPoseidonGenRandomnessElement](3)
+	cons, err := poseidon.GenPoseidonConstants[*CustomDomainSepTagElement](3)
 	if err != nil {
 		return nil, err
 	}
@@ -378,14 +378,13 @@ func bigIntLE(in BytesLE) *big.Int {
 	return new(big.Int).SetBytes(b)
 }
 
-/////
-// Sanity lost beyond this point
-
-type CursedPoseidonGenRandomnessElement struct {
+// CustomDomainSepTagElement is a custom element which overrides SetString used by the poseidon hash function to set
+// the default hardcoded DST. We hijack the SetString function to set the DST to the hardcoded value needed for Snap.
+type CustomDomainSepTagElement struct {
 	*fr.Element
 }
 
-func (c *CursedPoseidonGenRandomnessElement) SetUint64(u uint64) *CursedPoseidonGenRandomnessElement {
+func (c *CustomDomainSepTagElement) SetUint64(u uint64) *CustomDomainSepTagElement {
 	if c.Element == nil {
 		c.Element = new(fr.Element)
 	}
@@ -394,7 +393,7 @@ func (c *CursedPoseidonGenRandomnessElement) SetUint64(u uint64) *CursedPoseidon
 	return c
 }
 
-func (c *CursedPoseidonGenRandomnessElement) SetBigInt(b *big.Int) *CursedPoseidonGenRandomnessElement {
+func (c *CustomDomainSepTagElement) SetBigInt(b *big.Int) *CustomDomainSepTagElement {
 	if c.Element == nil {
 		c.Element = new(fr.Element)
 	}
@@ -403,7 +402,7 @@ func (c *CursedPoseidonGenRandomnessElement) SetBigInt(b *big.Int) *CursedPoseid
 	return c
 }
 
-func (c *CursedPoseidonGenRandomnessElement) SetBytes(bytes []byte) *CursedPoseidonGenRandomnessElement {
+func (c *CustomDomainSepTagElement) SetBytes(bytes []byte) *CustomDomainSepTagElement {
 	if c.Element == nil {
 		c.Element = new(fr.Element)
 	}
@@ -412,7 +411,7 @@ func (c *CursedPoseidonGenRandomnessElement) SetBytes(bytes []byte) *CursedPosei
 	return c
 }
 
-func (c *CursedPoseidonGenRandomnessElement) BigInt(b *big.Int) *big.Int {
+func (c *CustomDomainSepTagElement) BigInt(b *big.Int) *big.Int {
 	if c.Element == nil {
 		c.Element = new(fr.Element)
 	}
@@ -420,7 +419,7 @@ func (c *CursedPoseidonGenRandomnessElement) BigInt(b *big.Int) *big.Int {
 	return c.Element.BigInt(b)
 }
 
-func (c *CursedPoseidonGenRandomnessElement) SetOne() *CursedPoseidonGenRandomnessElement {
+func (c *CustomDomainSepTagElement) SetOne() *CustomDomainSepTagElement {
 	if c.Element == nil {
 		c.Element = new(fr.Element)
 	}
@@ -429,7 +428,7 @@ func (c *CursedPoseidonGenRandomnessElement) SetOne() *CursedPoseidonGenRandomne
 	return c
 }
 
-func (c *CursedPoseidonGenRandomnessElement) SetZero() *CursedPoseidonGenRandomnessElement {
+func (c *CustomDomainSepTagElement) SetZero() *CustomDomainSepTagElement {
 	if c.Element == nil {
 		c.Element = new(fr.Element)
 	}
@@ -438,7 +437,7 @@ func (c *CursedPoseidonGenRandomnessElement) SetZero() *CursedPoseidonGenRandomn
 	return c
 }
 
-func (c *CursedPoseidonGenRandomnessElement) Inverse(e *CursedPoseidonGenRandomnessElement) *CursedPoseidonGenRandomnessElement {
+func (c *CustomDomainSepTagElement) Inverse(e *CustomDomainSepTagElement) *CustomDomainSepTagElement {
 	if c.Element == nil {
 		c.Element = new(fr.Element)
 	}
@@ -447,7 +446,7 @@ func (c *CursedPoseidonGenRandomnessElement) Inverse(e *CursedPoseidonGenRandomn
 	return c
 }
 
-func (c *CursedPoseidonGenRandomnessElement) Set(e *CursedPoseidonGenRandomnessElement) *CursedPoseidonGenRandomnessElement {
+func (c *CustomDomainSepTagElement) Set(e *CustomDomainSepTagElement) *CustomDomainSepTagElement {
 	if c.Element == nil {
 		c.Element = new(fr.Element)
 	}
@@ -456,7 +455,7 @@ func (c *CursedPoseidonGenRandomnessElement) Set(e *CursedPoseidonGenRandomnessE
 	return c
 }
 
-func (c *CursedPoseidonGenRandomnessElement) Square(e *CursedPoseidonGenRandomnessElement) *CursedPoseidonGenRandomnessElement {
+func (c *CustomDomainSepTagElement) Square(e *CustomDomainSepTagElement) *CustomDomainSepTagElement {
 	if c.Element == nil {
 		c.Element = new(fr.Element)
 	}
@@ -465,7 +464,7 @@ func (c *CursedPoseidonGenRandomnessElement) Square(e *CursedPoseidonGenRandomne
 	return c
 }
 
-func (c *CursedPoseidonGenRandomnessElement) Mul(e2 *CursedPoseidonGenRandomnessElement, e *CursedPoseidonGenRandomnessElement) *CursedPoseidonGenRandomnessElement {
+func (c *CustomDomainSepTagElement) Mul(e2 *CustomDomainSepTagElement, e *CustomDomainSepTagElement) *CustomDomainSepTagElement {
 	if c.Element == nil {
 		c.Element = new(fr.Element)
 	}
@@ -474,7 +473,7 @@ func (c *CursedPoseidonGenRandomnessElement) Mul(e2 *CursedPoseidonGenRandomness
 	return c
 }
 
-func (c *CursedPoseidonGenRandomnessElement) Add(e2 *CursedPoseidonGenRandomnessElement, e *CursedPoseidonGenRandomnessElement) *CursedPoseidonGenRandomnessElement {
+func (c *CustomDomainSepTagElement) Add(e2 *CustomDomainSepTagElement, e *CustomDomainSepTagElement) *CustomDomainSepTagElement {
 	if c.Element == nil {
 		c.Element = new(fr.Element)
 	}
@@ -483,7 +482,7 @@ func (c *CursedPoseidonGenRandomnessElement) Add(e2 *CursedPoseidonGenRandomness
 	return c
 }
 
-func (c *CursedPoseidonGenRandomnessElement) Sub(e2 *CursedPoseidonGenRandomnessElement, e *CursedPoseidonGenRandomnessElement) *CursedPoseidonGenRandomnessElement {
+func (c *CustomDomainSepTagElement) Sub(e2 *CustomDomainSepTagElement, e *CustomDomainSepTagElement) *CustomDomainSepTagElement {
 	if c.Element == nil {
 		c.Element = new(fr.Element)
 	}
@@ -492,7 +491,7 @@ func (c *CursedPoseidonGenRandomnessElement) Sub(e2 *CursedPoseidonGenRandomness
 	return c
 }
 
-func (c *CursedPoseidonGenRandomnessElement) Cmp(x *CursedPoseidonGenRandomnessElement) int {
+func (c *CustomDomainSepTagElement) Cmp(x *CustomDomainSepTagElement) int {
 	if c.Element == nil {
 		c.Element = new(fr.Element)
 	}
@@ -500,10 +499,10 @@ func (c *CursedPoseidonGenRandomnessElement) Cmp(x *CursedPoseidonGenRandomnessE
 	return c.Element.Cmp(x.Element)
 }
 
-func (c *CursedPoseidonGenRandomnessElement) SetString(s string) (*CursedPoseidonGenRandomnessElement, error) {
+func (c *CustomDomainSepTagElement) SetString(s string) (*CustomDomainSepTagElement, error) {
 	if s == "3" {
-		whatTheFuck := "0000000000010000000000000000000000000000000000000000000000000000"
-		dstLE := must.One(hex.DecodeString(whatTheFuck))
+		genRandomnessDST := "0000000000010000000000000000000000000000000000000000000000000000"
+		dstLE := must.One(hex.DecodeString(genRandomnessDST))
 		inverted := make([]byte, len(dstLE))
 		for i := 0; i < len(dstLE); i++ {
 			inverted[i] = dstLE[len(dstLE)-1-i]
@@ -522,4 +521,4 @@ func (c *CursedPoseidonGenRandomnessElement) SetString(s string) (*CursedPoseido
 	return c, nil
 }
 
-var _ poseidon.Element[*CursedPoseidonGenRandomnessElement] = &CursedPoseidonGenRandomnessElement{}
+var _ poseidon.Element[*CustomDomainSepTagElement] = &CustomDomainSepTagElement{}

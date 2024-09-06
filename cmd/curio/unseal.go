@@ -364,7 +364,7 @@ var listUnsealPipelineCmd = &cli.Command{
 			}
 
 			row := []string{
-				"f0" + strconv.FormatInt(spID, 10),
+				must.One(address.NewIDAddress(uint64(spID))).String(),
 				strconv.FormatInt(sectorNumber, 10),
 				strconv.FormatInt(regSealProof, 10),
 				formatNullableBool(targetUnsealState),
@@ -393,11 +393,22 @@ var listUnsealPipelineCmd = &cli.Command{
 var setTargetUnsealStateCmd = &cli.Command{
 	Name:      "set-target-state",
 	Usage:     "Set the target unseal state for a sector",
-	ArgsUsage: "<sp-id> <sector-number> <target-state>",
+	ArgsUsage: "<miner-id> <sector-number> <target-state>",
 	Description: `Set the target unseal state for a specific sector.
-   <sp-id>: The storage provider ID
+   <miner-id>: The storage provider ID
    <sector-number>: The sector number
-   <target-state>: The target state (true, false, or none)`,
+   <target-state>: The target state (true, false, or none)
+
+   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.
+	   If the target state is true, curio will ensure that the sector is unsealed.
+	   If the target state is false, curio will ensure that there is no unsealed copy of the sector.
+	   If the target state is none, curio will not change the current state of the sector.
+
+   Currently when the curio will only start new unseal processes when the target state changes from another state to true.
+
+   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark
+   for the unsealed sector file. The file will only be removed after the removal mark is accepted.
+`,
 	Action: func(cctx *cli.Context) error {
 		if cctx.Args().Len() != 3 {
 			return cli.ShowSubcommandHelp(cctx)
@@ -469,10 +480,10 @@ func formatNullableBool(v *bool) string {
 
 var unsealCheckCmd = &cli.Command{
 	Name:      "check",
-	Usage:     "Check data in unsealed sector files",
-	ArgsUsage: "<sp-id> <sector-number>",
+	Usage:     "Check data integrity in unsealed sector files",
+	ArgsUsage: "<miner-id> <sector-number>",
 	Description: `Create a check task for a specific sector, wait for its completion, and output the result.
-   <sp-id>: The storage provider ID
+   <miner-id>: The storage provider ID
    <sector-number>: The sector number`,
 	Action: func(cctx *cli.Context) error {
 		if cctx.Args().Len() != 2 {

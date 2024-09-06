@@ -114,7 +114,7 @@ var FsOverheadFinalized = map[SectorFileType]int{
 // TypeFromString converts a string to a SectorFileType
 type SectorFileType int
 
-// TempSuffix is appended to file names when thef are worked on before being atomically moved to their final location.
+// TempSuffix is appended to file names when they are worked on before being atomically moved to their final location.
 // Local Path GC should be aware of this suffix and have adequate cleanup logic.
 const TempSuffix = ".tmp"
 

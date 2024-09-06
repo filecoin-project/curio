@@ -110,10 +110,6 @@ type MaxCounter struct {
 }
 
 func (m *MaxCounter) max() int {
-	if m == nil {
-		return 0
-	}
-
 	return m.N
 }
 
@@ -132,7 +128,7 @@ func (m *MaxCounter) add(n int) {
 }
 
 func Max(n int) *MaxCounter {
-	return &MaxCounter{N: n, current: new(atomic.Int32)}
+	return &MaxCounter{N: n, current: new(atomic.Int32), currentThis: new(atomic.Int32)}
 }
 
 // AddTaskFunc is responsible for adding a task's details "extra info" to the DB.
@@ -198,6 +194,10 @@ func New(
 			TaskTypeDetails: c.TypeDetails(),
 			TaskEngine:      e,
 		}
+		if h.Max == nil {
+			h.Max = Max(0)
+		}
+
 		if Registry[h.TaskTypeDetails.Name] == nil {
 			return nil, fmt.Errorf("task %s not registered: var _ = harmonytask.Reg(t TaskInterface)", h.TaskTypeDetails.Name)
 		}
