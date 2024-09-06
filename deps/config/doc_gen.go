@@ -846,34 +846,6 @@ simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCuri
 
 			Comment: `CompressionLevels hold the compression level for various compression methods supported by the server`,
 		},
-		{
-			Name: "EnableLoadBalancer",
-			Type: "bool",
-
-			Comment: `EnableLoadBalancer indicates whether load balancing between backend servers is enabled. It should only
-be enabled on one node per domain name.`,
-		},
-		{
-			Name: "LoadBalancerListenAddr",
-			Type: "string",
-
-			Comment: `LoadBalancerListenAddr is the listen address for load balancer. This must be different from ListenAddr of the
-HTTP server.`,
-		},
-		{
-			Name: "LoadBalancerBackends",
-			Type: "[]string",
-
-			Comment: `LoadBalancerBackends holds a list of listen addresses to which HTTP requests can be routed. Current ListenAddr
-should also be added to backends if LoadBalancer is enabled`,
-		},
-		{
-			Name: "LoadBalanceHealthCheckInterval",
-			Type: "Duration",
-
-			Comment: `LoadBalanceHealthCheckInterval is the duration to check the status of all backend URLs and adjust the
-loadbalancer backend based on the results`,
-		},
 	},
 	"IPNIConfig": {
 		{

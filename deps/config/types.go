@@ -71,10 +71,6 @@ func DefaultCurioConfig() *CurioConfig {
 			},
 		},
 		Market: MarketConfig{
-			HTTP: HTTPConfig{
-				ListenAddress:     "0.0.0.0:12400",
-				AnnounceAddresses: []string{},
-			},
 			StorageMarketConfig: StorageMarketConfig{
 				PieceLocator: []PieceLocatorConfig{},
 				Indexing: IndexingConfig{
@@ -98,6 +94,21 @@ func DefaultCurioConfig() *CurioConfig {
 					EntriesCacheCapacity: 4096,
 					WebHost:              "https://cid.contact",
 					DirectAnnounceURLs:   []string{"https://cid.contact/ingest/announce"},
+				},
+			},
+			HTTP: HTTPConfig{
+				DomainName:        "",
+				ListenAddress:     "0.0.0.0:12310",
+				AnnounceAddresses: []string{},
+				ReadTimeout:       time.Second * 10,
+				WriteTimeout:      time.Second * 10,
+				IdleTimeout:       time.Minute * 2,
+				ReadHeaderTimeout: time.Second * 5,
+				EnableCORS:        true,
+				CompressionLevels: CompressionConfig{
+					GzipLevel:    6,
+					BrotliLevel:  4,
+					DeflateLevel: 6,
 				},
 			},
 		},
@@ -721,22 +732,6 @@ type HTTPConfig struct {
 
 	// CompressionLevels hold the compression level for various compression methods supported by the server
 	CompressionLevels CompressionConfig
-
-	// EnableLoadBalancer indicates whether load balancing between backend servers is enabled. It should only
-	// be enabled on one node per domain name.
-	EnableLoadBalancer bool
-
-	// LoadBalancerListenAddr is the listen address for load balancer. This must be different from ListenAddr of the
-	// HTTP server.
-	LoadBalancerListenAddr string
-
-	// LoadBalancerBackends holds a list of listen addresses to which HTTP requests can be routed. Current ListenAddr
-	// should also be added to backends if LoadBalancer is enabled
-	LoadBalancerBackends []string
-
-	// LoadBalanceHealthCheckInterval is the duration to check the status of all backend URLs and adjust the
-	// loadbalancer backend based on the results
-	LoadBalanceHealthCheckInterval Duration
 }
 
 // CompressionConfig holds the compression levels for supported types

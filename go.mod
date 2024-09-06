@@ -82,7 +82,6 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/triplewz/poseidon v0.0.2-0.20240407130934-5265fab9d889
 	github.com/urfave/cli/v2 v2.25.5
-	github.com/vulcand/oxy v1.4.2
 	github.com/whyrusleeping/cbor-gen v0.1.2
 	github.com/whyrusleeping/multiaddr-filter v0.0.0-20160516205228-e903e4adabd7
 	github.com/yugabyte/gocql v1.6.0-yb-1
@@ -104,7 +103,6 @@ require (
 	github.com/GeertJohan/go.incremental v1.0.0 // indirect
 	github.com/GeertJohan/go.rice v1.0.3 // indirect
 	github.com/Gurpartap/async v0.0.0-20180927173644-4f7f499dd9ee // indirect
-	github.com/HdrHistogram/hdrhistogram-go v1.1.2 // indirect
 	github.com/Jorropo/jsync v1.0.1 // indirect
 	github.com/Kubuxu/go-broadcast v0.0.0-20240621161059-1a8c90734cd6 // indirect
 	github.com/Kubuxu/imtui v0.0.0-20210401140320-41663d68d0fa // indirect
@@ -297,7 +295,6 @@ require (
 	github.com/raulk/go-watchdog v1.3.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
-	github.com/segmentio/fasthash v1.0.3 // indirect
 	github.com/shirou/gopsutil v2.18.12+incompatible // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
