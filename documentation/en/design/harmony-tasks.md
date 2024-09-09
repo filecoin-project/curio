@@ -86,7 +86,7 @@ The DropPiece tasks are responsible for removing a piece from `Piece Park` and e
 
 SnapDeal sealing tasks are a special type of sealing tasks which allows a storage provider to takes already committed sealed sectors and place deal data into them. The UpdateEncode task encodes the incoming unsealed data (deal data), into an existing sealed sector. Once the encoding is complete, vanilla proofs are generated and verified to check and confirm that the data has been encoded correctly in the sealed sector file.
 
-### UpdateProve [#](https://lotus.filecoin.io/storage-providers/get-started/tasks/#prove-replica-update-2) <a href="#prove-replica-update-2" id="prove-replica-update-2"></a>
+### UpdateProve <a href="#prove-replica-update-2" id="prove-replica-update-2"></a>
 
 In the UpdateProve phase, the output from the UpdateEncode task gets compressed into a smaller proof using zk-SNARKs. The zk-SNARK generated after the UpdateProve can verify that the new data is encoded in the new sealed sector, and is small enough to be suitable for a blockchain. The generation of the zk-SNARK can be done by the CPU or accelerated by using a GPU.
 
