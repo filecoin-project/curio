@@ -128,6 +128,6 @@ func pay(cctx *cli.Context) error {
 	}
 	qry.Add("txnSign", hex.EncodeToString(txnSig))
 	fmt.Println(`Complete/Verify your registration at: 
-		https://market.curiostorage.org/pay_verify.html?` + qry.Encode())
+		https://market.curiostorage.org/pay/verify/?` + qry.Encode())
 	return errors.New("not implemented")
 }
