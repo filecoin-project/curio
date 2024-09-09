@@ -536,11 +536,38 @@ func (s *SubmitTask) updateLanded(ctx context.Context, spId, sectorNum int64) er
 		if err != nil {
 			return err
 		}
-
-		if exitcode.ExitCode(execResult[0].ExecutedRcptExitCode) != exitcode.Ok {
-			//return s.pollCommitMsgFail(ctx, task, execResult[0])
-			log.Errorw("todo handle failed snap prove", "sp", spId, "sector", sectorNum, "exec_epoch", execResult[0].ExecutedTskEpoch, "exec_tskcid", execResult[0].ExecutedTskCID, "msg_cid", execResult[0].ExecutedMsgCID)
+		switch exitcode.ExitCode(execResult[0].ExecutedRcptExitCode) {
+		case exitcode.Ok:
+			// good, noop
+		case exitcode.SysErrInsufficientFunds, exitcode.ErrInsufficientFunds:
+			fallthrough
+		case exitcode.SysErrOutOfGas:
+			// just retry
+			n, err := s.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET
+						after_prove_msg_success = FALSE, after_submit = FALSE
+						WHERE sp_id = $2 AND sector_number = $3 AND after_prove_msg_success = FALSE AND after_submit = TRUE`,
+				execResult[0].ExecutedTskCID, spId, sectorNum)
+			if err != nil {
+				return xerrors.Errorf("update sectors_snap_pipeline to retry prove send: %w", err)
+			}
+			if n == 0 {
+				return xerrors.Errorf("update sectors_snap_pipeline to retry prove send: no rows updated")
+			}
 			return nil
+		case exitcode.ErrNotFound:
+			// message not found, but maybe it's fine?
+
+			si, err := s.api.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(sectorNum), types.EmptyTSK)
+			if err != nil {
+				return xerrors.Errorf("get sector info: %w", err)
+			}
+			if si != nil && si.SealedCID.String() == execResult[0].UpdateSealedCID {
+				return nil
+			}
+
+			return xerrors.Errorf("sector info after prove message not found not as expected")
+		default:
+			return xerrors.Errorf("commit message failed with exit code %s", exitcode.ExitCode(execResult[0].ExecutedRcptExitCode))
 		}
 
 		si, err := s.api.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(sectorNum), types.EmptyTSK)
