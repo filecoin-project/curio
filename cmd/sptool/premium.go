@@ -117,6 +117,7 @@ func pay(cctx *cli.Context) error {
 	qry.Add("premiumID", premiumID)
 	qry.Add("timestamp", strconv.FormatInt(time.Now().Unix(), 10))
 	qry.Add("txnID", txnID)
+	qry.Add("walletID", walletID)
 	message := qry.Encode()
 	sig, err := full.WalletSign(cctx.Context, walletAddress, []byte(message))
 	if err != nil {
