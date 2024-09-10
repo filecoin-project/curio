@@ -9,6 +9,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -116,7 +117,7 @@ func (c *CleanupPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 
 func (c *CleanupPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  harmonytask.Max(c.max),
+		Max:  taskhelp.Max(c.max),
 		Name: "DropPiece",
 		Cost: resources.Resources{
 			Cpu:     1,

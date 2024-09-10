@@ -25,6 +25,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
@@ -540,7 +541,7 @@ func (t *WinPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 	return harmonytask.TaskTypeDetails{
 		Name: "WinPost",
-		Max:  harmonytask.Max(t.max),
+		Max:  taskhelp.Max(t.max),
 
 		// We're not allowing retry to be conservative. Retry in winningPoSt done badly can lead to slashing, and
 		// that is generally worse than not mining a block. In general the task code is heavily defensive, and

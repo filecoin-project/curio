@@ -30,14 +30,14 @@ type UnsealSDRApi interface {
 }
 
 type TaskUnsealSdr struct {
-	max *harmonytask.MaxCounter
+	max harmonytask.Limiter
 
 	sc  *ffi.SealCalls
 	db  *harmonydb.DB
 	api UnsealSDRApi
 }
 
-func NewTaskUnsealSDR(sc *ffi.SealCalls, db *harmonydb.DB, max *harmonytask.MaxCounter, api UnsealSDRApi) *TaskUnsealSdr {
+func NewTaskUnsealSDR(sc *ffi.SealCalls, db *harmonydb.DB, max harmonytask.Limiter, api UnsealSDRApi) *TaskUnsealSdr {
 	return &TaskUnsealSdr{
 		max: max,
 		sc:  sc,

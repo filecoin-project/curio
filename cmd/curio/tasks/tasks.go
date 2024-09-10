@@ -23,6 +23,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
@@ -275,7 +276,7 @@ func addSealingTasks(
 	}
 
 	if cfg.Subsystems.EnableSealSDR {
-		sdrMax := harmonytask.Max(cfg.Subsystems.SealSDRMaxTasks)
+		sdrMax := taskhelp.Max(cfg.Subsystems.SealSDRMaxTasks)
 
 		sdrTask := seal.NewSDRTask(full, db, sp, slr, sdrMax, cfg.Subsystems.SealSDRMinTasks)
 		keyTask := unseal.NewTaskUnsealSDR(slr, db, sdrMax, full)

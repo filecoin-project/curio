@@ -12,6 +12,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/paths"
 	storiface "github.com/filecoin-project/curio/lib/storiface"
 )
@@ -109,7 +110,7 @@ func (s *StorageGCSweep) CanAccept(ids []harmonytask.TaskID, engine *harmonytask
 
 func (s *StorageGCSweep) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  harmonytask.Max(1),
+		Max:  taskhelp.Max(1),
 		Name: "StorageGCSweep",
 		Cost: resources.Resources{
 			Cpu: 1,

@@ -12,6 +12,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 )
 
 // Consts (except for unit test)
@@ -24,7 +25,7 @@ type TaskTypeDetails struct {
 	// Max returns how many tasks this machine can run of this type.
 	// Nil (default)/Zero or less means unrestricted.
 	// Counters can either be independent when created with Max, or shared between tasks with SharedMax.Make()
-	Max *MaxCounter
+	Max Limiter
 
 	// Name is the task name to be added to the task list.
 	Name string
@@ -98,37 +99,21 @@ type TaskInterface interface {
 	Adder(AddTaskFunc)
 }
 
-type MaxCounter struct {
-	// maximum number of tasks of this type that can be run
-	N int
+type Limiter interface {
+	// Active returns the number of tasks of this type that are currently running
+	// in this limiter / limiter group.
+	Active() int
 
-	// current number of tasks of this type that are running (shared)
-	current *atomic.Int32
+	// ActiveThis returns the number of tasks of this type that are currently running
+	// in this limiter (e.g. per-task-type count).
+	ActiveThis() int
 
-	// current number of tasks of this type that are running (per task)
-	currentThis *atomic.Int32
-}
+	// AtMax returns whether this limiter permits more tasks to run.
+	AtMax() bool
 
-func (m *MaxCounter) max() int {
-	return m.N
-}
-
-// note: cur can't be called on counters for which max is 0
-func (m *MaxCounter) cur() int {
-	return int(m.current.Load())
-}
-
-func (m *MaxCounter) curThis() int {
-	return int(m.currentThis.Load())
-}
-
-func (m *MaxCounter) add(n int) {
-	m.current.Add(int32(n))
-	m.currentThis.Add(int32(n))
-}
-
-func Max(n int) *MaxCounter {
-	return &MaxCounter{N: n, current: new(atomic.Int32), currentThis: new(atomic.Int32)}
+	// Add increments / decrements the active task counters by delta. This call
+	// is atomic
+	Add(delta int)
 }
 
 // AddTaskFunc is responsible for adding a task's details "extra info" to the DB.
@@ -195,7 +180,7 @@ func New(
 			TaskEngine:      e,
 		}
 		if h.Max == nil {
-			h.Max = Max(0)
+			h.Max = taskhelp.Max(0)
 		}
 
 		if Registry[h.TaskTypeDetails.Name] == nil {
@@ -256,31 +241,31 @@ func (e *TaskEngine) GracefullyTerminate() {
 	for {
 		timeout := time.Millisecond
 		for _, h := range e.handlers {
-			if h.TaskTypeDetails.Name == "WinPost" && h.Max.cur() > 0 {
+			if h.TaskTypeDetails.Name == "WinPost" && h.Max.Active() > 0 {
 				timeout = time.Second
 				log.Infof("node shutdown deferred for %f seconds", timeout.Seconds())
 				continue
 			}
-			if h.TaskTypeDetails.Name == "WdPost" && h.Max.cur() > 0 {
+			if h.TaskTypeDetails.Name == "WdPost" && h.Max.Active() > 0 {
 				timeout = time.Second * 3
 				log.Infof("node shutdown deferred for %f seconds due to running WdPost task", timeout.Seconds())
 				continue
 			}
 
-			if h.TaskTypeDetails.Name == "WdPostSubmit" && h.Max.cur() > 0 {
+			if h.TaskTypeDetails.Name == "WdPostSubmit" && h.Max.Active() > 0 {
 				timeout = time.Second
 				log.Infof("node shutdown deferred for %f seconds due to running WdPostSubmit task", timeout.Seconds())
 				continue
 			}
 
-			if h.TaskTypeDetails.Name == "WdPostRecover" && h.Max.cur() > 0 {
+			if h.TaskTypeDetails.Name == "WdPostRecover" && h.Max.Active() > 0 {
 				timeout = time.Second
 				log.Infof("node shutdown deferred for %f seconds due to running WdPostRecover task", timeout.Seconds())
 				continue
 			}
 
 			// Test tasks for itest
-			if h.TaskTypeDetails.Name == "ThingOne" && h.Max.cur() > 0 {
+			if h.TaskTypeDetails.Name == "ThingOne" && h.Max.Active() > 0 {
 				timeout = time.Second
 				log.Infof("node shutdown deferred for %f seconds due to running itest task", timeout.Seconds())
 				continue
@@ -435,7 +420,7 @@ func (e *TaskEngine) pollerTryAllWork() bool {
 func (e *TaskEngine) ResourcesAvailable() resources.Resources {
 	tmp := e.reg.Resources
 	for _, t := range e.handlers {
-		ct := t.Max.curThis()
+		ct := t.Max.ActiveThis()
 		tmp.Cpu -= ct * t.Cost.Cpu
 		tmp.Gpu -= float64(ct) * t.Cost.Gpu
 		tmp.Ram -= uint64(ct) * t.Cost.Ram

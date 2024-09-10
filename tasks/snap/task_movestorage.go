@@ -11,6 +11,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -87,7 +88,7 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 		ssize = abi.SectorSize(2 << 20)
 	}
 	return harmonytask.TaskTypeDetails{
-		Max:  harmonytask.Max(m.max),
+		Max:  taskhelp.Max(m.max),
 		Name: "UpdateStore",
 		Cost: resources.Resources{
 			Cpu:     1,

@@ -17,6 +17,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/promise"
 
 	"github.com/filecoin-project/lotus/api"
@@ -236,7 +237,7 @@ func (s *SendTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 
 func (s *SendTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  harmonytask.Max(1024),
+		Max:  taskhelp.Max(1024),
 		Name: "SendMessage",
 		Cost: resources.Resources{
 			Cpu: 0,

@@ -85,7 +85,7 @@ top:
 	// 1. Can we do any more of this task type?
 	// NOTE: 0 is the default value, so this way people don't need to worry about
 	// this setting unless they want to limit the number of tasks of this type.
-	if h.Max.max() > 0 && h.Max.cur() >= h.Max.max() {
+	if h.Max.AtMax() {
 		log.Debugw("did not accept task", "name", h.Name, "reason", "at max already")
 		return false
 	}
@@ -172,10 +172,10 @@ canAcceptAgain:
 		tag.Upsert(sourceTag, from),
 	}, TaskMeasures.TasksStarted.M(1))
 
-	h.Max.add(1)
+	h.Max.Add(1)
 	_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 		tag.Upsert(taskNameTag, h.Name),
-	}, TaskMeasures.ActiveTasks.M(int64(h.Max.cur())))
+	}, TaskMeasures.ActiveTasks.M(int64(h.Max.ActiveThis())))
 
 	go func() {
 		log.Infow("Beginning work on Task", "id", *tID, "from", from, "name", h.Name)
@@ -200,7 +200,7 @@ canAcceptAgain:
 					"while processing "+h.Name+" task "+strconv.Itoa(int(*tID))+": ", r,
 					" Stack: ", string(stackSlice[:sz]))
 			}
-			h.Max.add(-1)
+			h.Max.Add(-1)
 
 			releaseStorage()
 			h.recordCompletion(*tID, sectorID, workStart, done, doErr)
@@ -240,7 +240,7 @@ func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, w
 
 		_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
 			tag.Upsert(taskNameTag, h.Name),
-		}, TaskMeasures.ActiveTasks.M(int64(h.Max.cur())))
+		}, TaskMeasures.ActiveTasks.M(int64(h.Max.ActiveThis())))
 
 		duration := workEnd.Sub(workStart).Seconds()
 		TaskMeasures.TaskDuration.Observe(duration)
@@ -338,7 +338,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.U
 func (h *taskTypeHandler) AssertMachineHasCapacity() error {
 	r := h.TaskEngine.ResourcesAvailable()
 
-	if h.Max.max() > 0 && h.Max.cur() >= h.Max.max() {
+	if h.Max.AtMax() {
 		return errors.New("Did not accept " + h.Name + " task: at max already")
 	}
 

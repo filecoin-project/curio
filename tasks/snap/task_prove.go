@@ -12,6 +12,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -122,7 +123,7 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 		gpu = 0
 	}
 	return harmonytask.TaskTypeDetails{
-		Max:  harmonytask.Max(p.max),
+		Max:  taskhelp.Max(p.max),
 		Name: "UpdateProve",
 		Cost: resources.Resources{
 			Cpu: 1,

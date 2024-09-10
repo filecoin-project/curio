@@ -10,6 +10,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/dealdata"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	storiface "github.com/filecoin-project/curio/lib/storiface"
@@ -40,7 +41,7 @@ func (t *TreeDTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Max:  harmonytask.Max(t.max),
+		Max:  taskhelp.Max(t.max),
 		Name: "TreeD",
 		Cost: resources.Resources{
 			Cpu:     1,

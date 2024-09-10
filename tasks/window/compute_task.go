@@ -366,7 +366,7 @@ func (t *WdPostTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 	return harmonytask.TaskTypeDetails{
 		Name:        "WdPost",
-		Max:         harmonytask.Max(t.max),
+		Max:         taskhelp.Max(t.max),
 		MaxFailures: 5,
 		Follows:     nil,
 		Cost: resources.Resources{

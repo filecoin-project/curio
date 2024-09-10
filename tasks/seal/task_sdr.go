@@ -45,11 +45,11 @@ type SDRTask struct {
 
 	sc *ffi2.SealCalls
 
-	max *harmonytask.MaxCounter
+	max harmonytask.Limiter
 	min int
 }
 
-func NewSDRTask(api SDRAPI, db *harmonydb.DB, sp *SealPoller, sc *ffi2.SealCalls, maxSDR *harmonytask.MaxCounter, minSDR int) *SDRTask {
+func NewSDRTask(api SDRAPI, db *harmonydb.DB, sp *SealPoller, sc *ffi2.SealCalls, maxSDR harmonytask.Limiter, minSDR int) *SDRTask {
 	return &SDRTask{
 		api: api,
 		db:  db,
