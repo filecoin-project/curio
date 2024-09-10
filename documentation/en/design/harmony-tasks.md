@@ -86,7 +86,7 @@ The DropPiece tasks are responsible for removing a piece from `Piece Park` and e
 
 SnapDeal sealing tasks are a special type of sealing tasks which allows a storage provider to takes already committed sealed sectors and place deal data into them. The UpdateEncode task encodes the incoming unsealed data (deal data), into an existing sealed sector. Once the encoding is complete, vanilla proofs are generated and verified to check and confirm that the data has been encoded correctly in the sealed sector file.
 
-### UpdateProve <a href="#prove-replica-update-2" id="prove-replica-update-2"></a>
+### UpdateProve&#x20;
 
 In the UpdateProve phase, the output from the UpdateEncode task gets compressed into a smaller proof using zk-SNARKs. The zk-SNARK generated after the UpdateProve can verify that the new data is encoded in the new sealed sector, and is small enough to be suitable for a blockchain. The generation of the zk-SNARK can be done by the CPU or accelerated by using a GPU.
 
@@ -96,8 +96,10 @@ By default, the number of tasks allowed for each type are not limited on any Cur
 
 | Task Name       | CPU | RAM(GiB) | GPU | Retry |
 | --------------- | --- | -------- | --- | ----- |
-| SDR             | 4   | 54       | 0   | 2     |
-| SDRTrees        | 1   | 8        | 1   | 3     |
+| SDR             | 4   | 64       | 0   | 2     |
+| SDRTreeD        | 1   | 1        | 0   | 3     |
+| SDRTreeRC       | 1   | 8        | 1   | 3     |
+| SyntheticProofs | 1   | 8        | 0   | 5     |
 | PreCommitSubmit | 0   | 1        | 0   | 16    |
 | PoRep           | 1   | 50       | 1   | 5     |
 | Finalize        | 1   | 0.1      | 0   | 10    |
@@ -105,10 +107,8 @@ By default, the number of tasks allowed for each type are not limited on any Cur
 | CommitSubmit    | 0   | 0.001    | 0   | 16    |
 | WdPostSubmit    | 0   | 0.010    | 0   | 10    |
 | WdPostRecover   | 1   | 0.128    | 0   | 10    |
-| WdPost          | 1   | TBD      | TBD | 3     |
-| WinPost         | 1   | TBD      | TBD | 3     |
+| WdPost          | 1   | 32       | 1   | 3     |
+| WinPost         | 1   | 1        | 1   | 3     |
 | SendMessage     | 0   | 0.001    | 0   | 1000  |
 | UpdateEncode    | 1   | 1        | 1   | 3     |
 | UpdateProve     | 1   | 50       | 1   | 3     |
-
-\
