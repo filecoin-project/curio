@@ -111,10 +111,10 @@ describe("CurioMembership", function () {
       var now = (+new Date() / 1000)|0;
       var {signature, sig, packedMessage, messageHash} = await sign(1000,now);
 
-      await expect(contract.connect(owner).getFunction('pay')(1234, packedMessage, signature, {value: BigInt(500_000)})).
-       to.emit(contract, "PaymentMade").withArgs(1234, owner.address, 500_000, 1);
+      await expect(contract.connect(owner).getFunction('pay')("pCU1234", packedMessage, signature, {value: BigInt(500_000)})).
+       to.emit(contract, "PaymentMade").withArgs("pCU1234", owner.address, 500_000, 1);
 
-       expect((await contract.paymentRecords(1234))[1]).to.equal(1);
+       expect((await contract.paymentRecords("pCU1234"))[1]).to.equal(1);
     });
 
     it("Should allow pay() happy path for 2000 with emit and updated pay record", async function() {
@@ -122,10 +122,10 @@ describe("CurioMembership", function () {
 
       var {signature, sig, packedMessage, messageHash} = await sign(1000, (+new Date() / 1000)|0);
 
-      await expect(contract.connect(owner).getFunction('pay')(5678, packedMessage, signature, {value: 2_000_000})).
-      to.emit(contract, "PaymentMade").withArgs(5678, owner.address, 2_000_000, 2);
+      await expect(contract.connect(owner).getFunction('pay')("tCU5678", packedMessage, signature, {value: 2_000_000})).
+      to.emit(contract, "PaymentMade").withArgs("tCU5678", owner.address, 2_000_000, 2);
 
-      expect((await contract.paymentRecords(5678))[1]).to.equal(2);
+      expect((await contract.paymentRecords("tCU5678"))[1]).to.equal(2);
       // TODO verify event log entry
     });
 
