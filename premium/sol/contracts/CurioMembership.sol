@@ -24,10 +24,10 @@ contract CurioMembership {
     }
 
     // Mapping from UUID to PaymentRecord instead of from address to PaymentRecord
-    mapping(uint256 => PaymentRecord) public paymentRecords;
+    mapping(string => PaymentRecord) public paymentRecords;
     
     // Define an event to emit the amount and UUID
-    event PaymentMade(uint256 indexed uuid, address payer, uint256 amount, uint8 level);
+    event PaymentMade(string indexed uuid, address payer, uint256 amount, uint8 level);
     event FundsReceiverChanged(address indexed oldReceiver, address indexed newReceiver);
     event ExchangeRateUpdated(uint256 newRate, uint256 newTimestamp);
 
@@ -80,13 +80,13 @@ contract CurioMembership {
         );
     }
 
-    function adminUpdateMapping(uint256 uuid, uint8 level, address payer) external {
+    function adminUpdateMapping(string memory uuid, uint8 level, address payer) external {
         require(msg.sender == adminGLOBAL, "Only admin can perform this action");
         updateRecord(uuid, level, payer);
         emit PaymentMade(uuid, msg.sender, 0, level);
     }
 
-    function pay(uint256 uuid, uint256 rateAndTimestamp, bytes memory signature) external payable {
+    function pay(string memory uuid, uint256 rateAndTimestamp, bytes memory signature) external payable {
         setExchangeRate(rateAndTimestamp, signature);
         uint256 level1Amount = exchangeRateGLOBAL * 500;
         uint256 level2Amount = exchangeRateGLOBAL * 2000;
@@ -108,7 +108,7 @@ contract CurioMembership {
         emit PaymentMade(uuid, msg.sender, msg.value, level);
     }
 
-    function updateRecord(uint256 uuid, uint8 level, address wallet) internal {
+    function updateRecord(string memory uuid, uint8 level, address wallet) internal {
         // Store the payment record: daysSince2024 and level
         // Wallet allows for various kinds of account recovery.
         paymentRecords[uuid] = PaymentRecord({
