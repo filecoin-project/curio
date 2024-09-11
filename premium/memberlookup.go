@@ -10,9 +10,10 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/exp/maps"
 
+	"github.com/filecoin-project/go-address"
+
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
-	"github.com/filecoin-project/go-address"
 )
 
 var log = logging.Logger("curio/premium")

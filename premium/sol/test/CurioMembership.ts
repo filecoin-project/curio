@@ -30,7 +30,7 @@ describe("CurioMembership", function () {
 
     const fundsDestWallet = await ethers.Wallet.createRandom();
     const myContractType = await ethers.getContractFactory("CurioMembership");
-    const contract = await myContractType.deploy(fundsDestWallet.address, rateChangeSignerAddress, 10, 0);
+    const contract = await myContractType.deploy(fundsDestWallet.address, rateChangeSignerAddress);
  
     console.log(contract);
     return { contract, owner, fundsDestWallet, otherAccount };
@@ -110,10 +110,8 @@ describe("CurioMembership", function () {
       const { contract, owner, otherAccount, fundsDestWallet } = await loadFixture(deployCurioMembershipFixture);
       var now = (+new Date() / 1000)|0;
       var {signature, sig, packedMessage, messageHash} = await sign(1000,now);
-      await expect(contract.connect(owner).setExchangeRate(packedMessage, signature)).
-        to.emit(contract, "ExchangeRateUpdated").withArgs(1000, now);
 
-      await expect(contract.connect(owner).getFunction('pay')(1234, {value: BigInt(500_000)})).
+      await expect(contract.connect(owner).getFunction('pay')(1234, packedMessage, signature, {value: BigInt(500_000)})).
        to.emit(contract, "PaymentMade").withArgs(1234, owner.address, 500_000, 1);
 
        expect((await contract.paymentRecords(1234))[1]).to.equal(1);
@@ -123,10 +121,8 @@ describe("CurioMembership", function () {
       const { contract, owner, otherAccount, fundsDestWallet } = await loadFixture(deployCurioMembershipFixture);
 
       var {signature, sig, packedMessage, messageHash} = await sign(1000, (+new Date() / 1000)|0);
-      var setup = await expect(contract.connect(owner).setExchangeRate(packedMessage, signature));
-      setup.to.emit(contract, "ExchangeRateUpdated").withArgs(1000, (+new Date() / 1000)|0);
 
-      await expect(contract.connect(owner).getFunction('pay')(5678, {value: 2_000_000})).
+      await expect(contract.connect(owner).getFunction('pay')(5678, packedMessage, signature, {value: 2_000_000})).
       to.emit(contract, "PaymentMade").withArgs(5678, owner.address, 2_000_000, 2);
 
       expect((await contract.paymentRecords(5678))[1]).to.equal(2);

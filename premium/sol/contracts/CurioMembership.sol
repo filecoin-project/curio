@@ -31,16 +31,24 @@ contract CurioMembership {
     event FundsReceiverChanged(address indexed oldReceiver, address indexed newReceiver);
     event ExchangeRateUpdated(uint256 newRate, uint256 newTimestamp);
 
-    constructor(address inFundsReceiver, address inSignerPublicKey, uint256 inExchangeRate, uint256 inLastUpdateTimestamp) {
+    constructor(address inFundsReceiver, address inSignerPublicKey) {
         require(inFundsReceiver != address(0), "Invalid funds receiver address");
         require(inSignerPublicKey != address(0), "Invalid signer public key");
         adminGLOBAL = msg.sender;
         fundsReceiverGLOBAL = inFundsReceiver;
         signerPublicKeyGLOBAL = inSignerPublicKey;
-        
-        // For testing purposes, set the exchange rate and last update timestamp.
-        exchangeRateGLOBAL = inExchangeRate;
-        updatedTimeGLOBAL = inLastUpdateTimestamp;
+    }
+
+    function admin() public view returns (address) {
+        return adminGLOBAL;
+    }
+
+    function fundsReceiver() public view returns (address) {
+        return fundsReceiverGLOBAL;
+    }
+
+    function exchangeRate() public view returns (uint256) {
+        return exchangeRateGLOBAL;
     }
 
     function changeFundsReceiver(address _newReceiver) public {
@@ -50,7 +58,7 @@ contract CurioMembership {
         fundsReceiverGLOBAL = _newReceiver;
     }
 
-    function setExchangeRate(uint256 rateAndTimestamp, bytes memory signature) external {
+    function setExchangeRate(uint256 rateAndTimestamp, bytes memory signature) public {
         uint256 newTimestamp = rateAndTimestamp & 0xFFFFFFFFFFFFFFFF;
         require(block.timestamp <= newTimestamp + 35 minutes, "Exchange rate update is too old");
 
@@ -78,9 +86,8 @@ contract CurioMembership {
         emit PaymentMade(uuid, msg.sender, 0, level);
     }
 
-    function pay(uint256 uuid) external payable {
-        require(block.timestamp <= updatedTimeGLOBAL + 40 minutes, "Exchange rate is outdated");
-
+    function pay(uint256 uuid, uint256 rateAndTimestamp, bytes memory signature) external payable {
+        setExchangeRate(rateAndTimestamp, signature);
         uint256 level1Amount = exchangeRateGLOBAL * 500;
         uint256 level2Amount = exchangeRateGLOBAL * 2000;
         uint8 level; // Variable to store the payment level

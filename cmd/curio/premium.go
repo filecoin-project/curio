@@ -3,9 +3,10 @@ package main
 import (
 	"fmt"
 
+	"github.com/urfave/cli/v2"
+
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/premium"
-	"github.com/urfave/cli/v2"
 )
 
 var premiumCmd = &cli.Command{
