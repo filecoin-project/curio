@@ -155,12 +155,7 @@ func pay(cctx *cli.Context) error {
 		return xerrors.Errorf("failed to convert Eth address to Filecoin address: %w", err)
 	}
 
-	rtString := exchangeRate.RateAndTimestamp
-
-	// Check if the string starts with "0x" and remove it
-	if strings.HasPrefix(rtString, "0x") {
-		rtString = rtString[2:]
-	}
+	rtString := strings.TrimPrefix(exchangeRate.RateAndTimestamp, "0x")
 
 	// Convert the hex string to a byte slice
 	rtb, err := hex.DecodeString(rtString)
@@ -171,12 +166,7 @@ func pay(cctx *cli.Context) error {
 	// Convert byte slice to big.Int
 	rt := new(big.Int).SetBytes(rtb)
 
-	sigString := exchangeRate.Sig
-
-	// Check if the string starts with "0x" and remove it
-	if strings.HasPrefix(sigString, "0x") {
-		sigString = sigString[2:]
-	}
+	sigString := strings.TrimPrefix(exchangeRate.Sig, "0x")
 
 	// Convert the hex string to a byte slice
 	sigb, err := hex.DecodeString(sigString)
