@@ -14,6 +14,7 @@ COMMANDS:
    info     Print miner actor info
    sectors  interact with sector store
    proving  View proving information
+   premium  Manage Filecoin Premium Memberships
    help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
@@ -488,4 +489,33 @@ USAGE:
 
 OPTIONS:
    --help, -h  show help
+```
+
+## sptool premium
+```
+NAME:
+   sptool premium - Manage Filecoin Premium Memberships
+
+USAGE:
+   sptool premium command [command options] [arguments...]
+
+COMMANDS:
+   pay      Pay for a premium membership
+   help, h  Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### sptool premium pay
+```
+NAME:
+   sptool premium pay - Pay for a premium membership
+
+USAGE:
+   sptool premium pay [command options] <PremiumID> <walletID> <Level [1|2]>
+
+OPTIONS:
+   --really-do-it  Actually pay for the membership (default: false)
+   --help, -h      show help
 ```
