@@ -25,4 +25,6 @@ node_modules
 # in dirty git state if removed from the docker context
 !extern/filecoin-ffi/rust/filecoin.pc
 
-node_modules
+# Premium smart contract deployment
+/premium/sol/deployments/
+

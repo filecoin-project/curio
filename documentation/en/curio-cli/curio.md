@@ -21,6 +21,7 @@ COMMANDS:
    market        
    fetch-params  Fetch proving parameters
    calc          Math Utils
+   premium       View premium information
    help, h       Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
@@ -829,4 +830,33 @@ OPTIONS:
    --dual-hashers                Zen3 and later supports two sectors per thread, set to false for older CPUs (default: true)
    --batch-size value, -b value  (default: 0)
    --help, -h                    show help
+```
+
+## curio premium
+```
+NAME:
+   curio premium - View premium information
+
+USAGE:
+   curio premium command [command options] [arguments...]
+
+COMMANDS:
+   id       Get the current premium ID. Ensure all miner addresses are in the base layer.
+   help, h  Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### curio premium id
+```
+NAME:
+   curio premium id - Get the current premium ID. Ensure all miner addresses are in the base layer.
+
+USAGE:
+   curio premium id [command options] [arguments...]
+
+OPTIONS:
+   --layers value, -l value, --layer value [ --layers value, -l value, --layer value ]  list of layers to be interpreted (atop defaults). Includes: base [$CURIO_LAYERS]
+   --help, -h                                                                           show help
 ```
