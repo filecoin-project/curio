@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -240,7 +241,45 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return len(toRemove) > 0, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		return false, xerrors.Errorf("BeginTransaction: %w", err)
+		return false, xerrors.Errorf("stage 1 mark transaction: %w", err)
+	}
+
+	/*
+		STAGE 2: Mark unsealed sectors which we don't want for removal
+	*/
+	_, err = s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		/*
+				SELECT m.sector_num, m.sp_id, sl.storage_id FROM sectors_meta m
+			         INNER JOIN sector_location sl ON m.sp_id = sl.miner_id AND m.sector_num = sl.sector_num
+			         WHERE m.target_unseal_state = false AND sl.sector_filetype= 1
+		*/
+
+		var unsealedSectors []struct {
+			SpID      int64  `db:"sp_id"`
+			SectorNum int64  `db:"sector_num"`
+			StorageID string `db:"storage_id"`
+		}
+
+		err = tx.Select(&unsealedSectors, `SELECT m.sector_num, m.sp_id, sl.storage_id FROM sectors_meta m
+			INNER JOIN sector_location sl ON m.sp_id = sl.miner_id AND m.sector_num = sl.sector_num
+			LEFT JOIN sectors_unseal_pipeline sup ON m.sp_id = sup.sp_id AND m.sector_num = sup.sector_number
+			WHERE m.target_unseal_state = false AND sl.sector_filetype= 1 AND sup.sector_number IS NULL`) // FTUnsealed = 1
+		if err != nil {
+			return false, xerrors.Errorf("select unsealed sectors: %w", err)
+		}
+
+		for _, sector := range unsealedSectors {
+			_, err := tx.Exec(`INSERT INTO storage_removal_marks (sp_id, sector_num, sector_filetype, storage_id)
+				VALUES ($1, $2, 1, $3) ON CONFLICT DO NOTHING`, sector.SpID, sector.SectorNum, sector.StorageID)
+			if err != nil {
+				return false, xerrors.Errorf("insert storage_removal_marks: %w", err)
+			}
+		}
+
+		return len(unsealedSectors) > 0, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return false, xerrors.Errorf("unseal stage transaction: %w", err)
 	}
 
 	return true, nil
@@ -253,7 +292,7 @@ func (s *StorageGCMark) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 
 func (s *StorageGCMark) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  1,
+		Max:  taskhelp.Max(1),
 		Name: "StorageGCMark",
 		Cost: resources.Resources{
 			Cpu: 1,

@@ -32,6 +32,7 @@ class StorageGCStats extends LitElement {
                     <th>Address</th>
                     <th>Sector Number</th>
                     <th>Storage Path</th>
+                    <th>Storage Type</th>
                     <th>File Type</th>
                     <th>Marked At</th>
                     <th>Approved</th>
@@ -42,7 +43,15 @@ class StorageGCStats extends LitElement {
                     <tr>
                         <td>f0${entry.Actor}</td>
                         <td>${entry.SectorNum}</td>
-                        <td>${entry.StorageID}</td>
+                        <td>
+                            <div>
+                                ${entry.StorageID}
+                            </div>
+                            <div>
+                                ${entry.Urls}
+                            </div>
+                        </td>
+                        <td>${entry.PathType}</td>
                         <td>${entry.TypeName}</td>
                         <td>${entry.CreatedAt}</td>
                         <td>

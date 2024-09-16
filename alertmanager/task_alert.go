@@ -19,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -161,7 +162,7 @@ func (a *AlertTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 func (a *AlertTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  1,
+		Max:  taskhelp.Max(1),
 		Name: "AlertManager",
 		Cost: resources.Resources{
 			Cpu: 1,

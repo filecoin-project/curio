@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 
@@ -270,7 +271,7 @@ func (s *StorageEndpointGC) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 
 func (s *StorageEndpointGC) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  1,
+		Max:  taskhelp.Max(1),
 		Name: "StorageMetaGC",
 		Cost: resources.Resources{
 			Cpu: 1,

@@ -17,6 +17,7 @@ COMMANDS:
    web           Start Curio web interface
    guided-setup  Run the guided setup for migrating from lotus-miner to Curio or Creating a new Curio miner
    seal          Manage the sealing pipeline
+   unseal        Manage unsealed data
    market        
    fetch-params  Fetch proving parameters
    calc          Math Utils
@@ -536,6 +537,97 @@ OPTIONS:
    --sector value  Filter events by sector number; requires --actor to be specified (default: 0)
    --last value    Limit output to the last N events (default: 100)
    --help, -h      show help
+```
+
+## curio unseal
+```
+NAME:
+   curio unseal - Manage unsealed data
+
+USAGE:
+   curio unseal command [command options] [arguments...]
+
+COMMANDS:
+   info              Get information about unsealed data
+   list-sectors      List data from the sectors_unseal_pipeline and sectors_meta tables
+   set-target-state  Set the target unseal state for a sector
+   check             Check data integrity in unsealed sector files
+   help, h           Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### curio unseal info
+```
+NAME:
+   curio unseal info - Get information about unsealed data
+
+USAGE:
+   curio unseal info [command options] [minerAddress] [sectorNumber]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### curio unseal list-sectors
+```
+NAME:
+   curio unseal list-sectors - List data from the sectors_unseal_pipeline and sectors_meta tables
+
+USAGE:
+   curio unseal list-sectors [command options] [arguments...]
+
+OPTIONS:
+   --sp-id value, -s value   Filter by storage provider ID (default: 0)
+   --output value, -o value  Output file path (default: stdout)
+   --help, -h                show help
+```
+
+### curio unseal set-target-state
+```
+NAME:
+   curio unseal set-target-state - Set the target unseal state for a sector
+
+USAGE:
+   curio unseal set-target-state [command options] <miner-id> <sector-number> <target-state>
+
+DESCRIPTION:
+   Set the target unseal state for a specific sector.
+      <miner-id>: The storage provider ID
+      <sector-number>: The sector number
+      <target-state>: The target state (true, false, or none)
+
+      The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.
+        If the target state is true, curio will ensure that the sector is unsealed.
+        If the target state is false, curio will ensure that there is no unsealed copy of the sector.
+        If the target state is none, curio will not change the current state of the sector.
+
+      Currently when the curio will only start new unseal processes when the target state changes from another state to true.
+
+      When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark
+      for the unsealed sector file. The file will only be removed after the removal mark is accepted.
+
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### curio unseal check
+```
+NAME:
+   curio unseal check - Check data integrity in unsealed sector files
+
+USAGE:
+   curio unseal check [command options] <miner-id> <sector-number>
+
+DESCRIPTION:
+   Create a check task for a specific sector, wait for its completion, and output the result.
+      <miner-id>: The storage provider ID
+      <sector-number>: The sector number
+
+OPTIONS:
+   --help, -h  show help
 ```
 
 ## curio market

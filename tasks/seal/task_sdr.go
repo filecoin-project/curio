@@ -45,10 +45,11 @@ type SDRTask struct {
 
 	sc *ffi2.SealCalls
 
-	max, min int
+	max harmonytask.Limiter
+	min int
 }
 
-func NewSDRTask(api SDRAPI, db *harmonydb.DB, sp *SealPoller, sc *ffi2.SealCalls, maxSDR, minSDR int) *SDRTask {
+func NewSDRTask(api SDRAPI, db *harmonydb.DB, sp *SealPoller, sc *ffi2.SealCalls, maxSDR harmonytask.Limiter, minSDR int) *SDRTask {
 	return &SDRTask{
 		api: api,
 		db:  db,
@@ -117,7 +118,7 @@ func (s *SDRTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 	//                Trees; After one retry, it should return the sector to the
 	// 			      SDR stage; max number of retries should be configurable
 
-	err = s.sc.GenerateSDR(ctx, taskID, sref, ticket, dealData.CommD)
+	err = s.sc.GenerateSDR(ctx, taskID, storiface.FTCache, sref, ticket, dealData.CommD)
 	if err != nil {
 		return false, xerrors.Errorf("generating sdr: %w", err)
 	}
@@ -181,7 +182,7 @@ func (s *SDRTask) TypeDetails() harmonytask.TaskTypeDetails {
 	res := harmonytask.TaskTypeDetails{
 		Max:  s.max,
 		Name: "SDR",
-		Cost: resources.Resources{ // todo offset for prefetch?
+		Cost: resources.Resources{
 			Cpu:     4, // todo multicore sdr
 			Gpu:     0,
 			Ram:     (64 << 30) + (256 << 20),

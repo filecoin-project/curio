@@ -27,6 +27,9 @@ CREATE TABLE sectors_meta (
     -- deadline BIGINT, (null = not crawled)
     -- partition BIGINT, (null = not crawled)
 
+    -- Added in 20240903-unseal-pipeline.sql
+    -- target_unseal_state BOOLEAN, (null = either way, true - ensure unsealed, false - ensure sealed only)
+
     PRIMARY KEY (sp_id, sector_num)
 );
 

@@ -24,6 +24,22 @@ BUILD_DEPS+=ffi-version-check
 
 .PHONY: ffi-version-check
 
+## BLST (from supraseal, but needed in curio)
+
+BLST_PATH:=extern/supra_seal/
+BLST_DEPS:=.install-blst
+BLST_DEPS:=$(addprefix $(BLST_PATH),$(BLST_DEPS))
+
+$(BLST_DEPS): build/.blst-install ;
+
+build/.blst-install: $(BLST_PATH)
+	bash scripts/build-blst.sh
+	@touch $@
+
+MODULES+=$(BLST_PATH)
+BUILD_DEPS+=build/.blst-install
+CLEAN+=build/.blst-install
+
 ## SUPRA-FFI
 
 ifeq ($(shell uname),Linux)
@@ -37,7 +53,7 @@ build/.supraseal-install: $(SUPRA_FFI_PATH)
 	cd $(SUPRA_FFI_PATH) && ./build.sh
 	@touch $@
 
-MODULES+=$(SUPRA_FFI_PATH)
+# MODULES+=$(SUPRA_FFI_PATH) -- already included in BLST_PATH
 CLEAN+=build/.supraseal-install
 endif
 

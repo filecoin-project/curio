@@ -622,6 +622,14 @@ The MoveStorage task is the last task in the sealing pipeline. It moves the seal
 SDRTrees machine into long-term storage. This task runs after the Finalize task.`,
 		},
 		{
+			Name: "NoUnsealedDecode",
+			Type: "bool",
+
+			Comment: `NoUnsealedDecode disables the decoding sector data on this node. Normally data encoding is enabled by default on
+storage nodes with the MoveStorage task enabled. Setting this option to true means that unsealed data for sectors
+will not be stored on this node`,
+		},
+		{
 			Name: "MoveStorageMaxTasks",
 			Type: "int",
 
@@ -661,6 +669,13 @@ This step submits the generated proofs to the chain.`,
 			Type: "int",
 
 			Comment: `UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance.`,
+		},
+		{
+			Name: "EnableCommP",
+			Type: "bool",
+
+			Comment: `EnableCommP enabled the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12
+deal, and when checking sector data with 'curio unseal check'.`,
 		},
 		{
 			Name: "BoostAdapters",
