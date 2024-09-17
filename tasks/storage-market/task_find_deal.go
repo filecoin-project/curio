@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
@@ -301,7 +302,7 @@ func (f *FindDealTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 
 func (f *FindDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  128,
+		Max:  taskhelp.Max(128),
 		Name: "FindDeal",
 		Cost: resources.Resources{
 			Cpu: 0,

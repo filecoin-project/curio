@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
@@ -271,7 +272,7 @@ func (p *PSDTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEn
 
 func (p *PSDTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  128,
+		Max:  taskhelp.Max(10),
 		Name: "PSD",
 		Cost: resources.Resources{
 			Cpu: 0,

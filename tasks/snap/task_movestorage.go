@@ -12,6 +12,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -94,7 +95,7 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 		ssize = abi.SectorSize(2 << 20)
 	}
 	return harmonytask.TaskTypeDetails{
-		Max:  m.max,
+		Max:  taskhelp.Max(m.max),
 		Name: "UpdateStore",
 		Cost: resources.Resources{
 			Cpu:     1,
@@ -119,7 +120,7 @@ func (m *MoveStorageTask) schedule(ctx context.Context, taskFunc harmonytask.Add
 				SectorNumber int64 `db:"sector_number"`
 			}
 
-			err := m.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_prove = TRUE AND after_move_storage = FALSE AND task_id_move_storage IS NULL`)
+			err := tx.Select(&tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_prove = TRUE AND after_move_storage = FALSE AND task_id_move_storage IS NULL`)
 			if err != nil {
 				return false, xerrors.Errorf("getting tasks: %w", err)
 			}

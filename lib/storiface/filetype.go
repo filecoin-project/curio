@@ -43,6 +43,9 @@ const (
 	// Piece Park
 	FTPiece
 
+	// Curio unseal
+	FTKey
+
 	FileTypes = iota
 )
 
@@ -54,7 +57,7 @@ const (
 // - FTUpdate: represents snap sectors
 // - FTUpdateCache: represents snap cache sectors
 // - FTPiece: represents Piece Park sectors
-var PathTypes = []SectorFileType{FTUnsealed, FTSealed, FTCache, FTUpdate, FTUpdateCache, FTPiece}
+var PathTypes = []SectorFileType{FTUnsealed, FTSealed, FTCache, FTUpdate, FTUpdateCache, FTPiece, FTKey}
 
 // FTNone represents a sector file type of none. This constant is used in the StorageLock method to specify that a sector should not have any file locked.
 // Example usage:
@@ -86,6 +89,7 @@ var FSOverheadSeal = map[SectorFileType]int{ // 10x overheads
 	FTUpdateCache: FSOverheadDen*2 + 1,
 	FTCache:       141, // 11 layers + D(2x ssize) + C + R'
 	FTPiece:       FSOverheadDen,
+	FTKey:         FSOverheadDen*11 + 1,
 }
 
 // sector size * disk / fs overhead.  FSOverheadDen is like the unit of sector size
@@ -103,11 +107,16 @@ var FsOverheadFinalized = map[SectorFileType]int{
 	FTUpdateCache: 1,
 	FTCache:       1,
 	FTPiece:       FSOverheadDen,
+	FTKey:         FSOverheadDen,
 }
 
 // SectorFileType represents the type of a sector file
 // TypeFromString converts a string to a SectorFileType
 type SectorFileType int
+
+// TempSuffix is appended to file names when they are worked on before being atomically moved to their final location.
+// Local Path GC should be aware of this suffix and have adequate cleanup logic.
+const TempSuffix = ".tmp"
 
 // TypeFromString converts a string representation of a SectorFileType to its corresponding value.
 // It returns the SectorFileType and nil error if the string matches one of the existing types.
@@ -126,6 +135,8 @@ func TypeFromString(s string) (SectorFileType, error) {
 		return FTUpdateCache, nil
 	case "piece":
 		return FTPiece, nil
+	case "key":
+		return FTKey, nil
 	default:
 		return 0, xerrors.Errorf("unknown sector file type '%s'", s)
 	}
@@ -146,6 +157,8 @@ func (t SectorFileType) String() string {
 		return "update-cache"
 	case FTPiece:
 		return "piece"
+	case FTKey:
+		return "key"
 	default:
 		return fmt.Sprintf("<unknown %d %v>", t, (t & ((1 << FileTypes) - 1)).Strings())
 	}
@@ -334,6 +347,7 @@ type SectorPaths struct {
 	Update      string
 	UpdateCache string
 	Piece       string
+	Key         string
 }
 
 // HasAllSet checks if all paths of a SectorPaths struct are set for a given SectorFileType.
@@ -425,6 +439,8 @@ func PathByType(sps SectorPaths, fileType SectorFileType) string {
 		return sps.UpdateCache
 	case FTPiece:
 		return sps.Piece
+	case FTKey:
+		return sps.Key
 	}
 
 	panic("requested unknown path type")
@@ -444,6 +460,8 @@ func SetPathByType(sps *SectorPaths, fileType SectorFileType, p string) {
 		sps.UpdateCache = p
 	case FTPiece:
 		sps.Piece = p
+	case FTKey:
+		sps.Key = p
 	}
 }
 

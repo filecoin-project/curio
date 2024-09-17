@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
@@ -324,7 +325,7 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 func (c *CommpTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  c.max,
+		Max:  taskhelp.Max(c.max),
 		Name: "CommP",
 		Cost: resources.Resources{
 			Cpu: 1,

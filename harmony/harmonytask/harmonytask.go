@@ -12,6 +12,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 )
 
 // Consts (except for unit test)
@@ -22,8 +23,9 @@ var FOLLOW_FREQUENCY = 1 * time.Minute          // Check for work to follow this
 
 type TaskTypeDetails struct {
 	// Max returns how many tasks this machine can run of this type.
-	// Zero (default) or less means unrestricted.
-	Max int
+	// Nil (default)/Zero or less means unrestricted.
+	// Counters can either be independent when created with Max, or shared between tasks with SharedMax.Make()
+	Max Limiter
 
 	// Name is the task name to be added to the task list.
 	Name string
@@ -97,6 +99,23 @@ type TaskInterface interface {
 	Adder(AddTaskFunc)
 }
 
+type Limiter interface {
+	// Active returns the number of tasks of this type that are currently running
+	// in this limiter / limiter group.
+	Active() int
+
+	// ActiveThis returns the number of tasks of this type that are currently running
+	// in this limiter (e.g. per-task-type count).
+	ActiveThis() int
+
+	// AtMax returns whether this limiter permits more tasks to run.
+	AtMax() bool
+
+	// Add increments / decrements the active task counters by delta. This call
+	// is atomic
+	Add(delta int)
+}
+
 // AddTaskFunc is responsible for adding a task's details "extra info" to the DB.
 // It should return true if the task should be added, false if it was already there.
 // This is typically accomplished with a "unique" index on your detals table that
@@ -160,6 +179,10 @@ func New(
 			TaskTypeDetails: c.TypeDetails(),
 			TaskEngine:      e,
 		}
+		if h.Max == nil {
+			h.Max = taskhelp.Max(0)
+		}
+
 		if Registry[h.TaskTypeDetails.Name] == nil {
 			return nil, fmt.Errorf("task %s not registered: var _ = harmonytask.Reg(t TaskInterface)", h.TaskTypeDetails.Name)
 		}
@@ -218,31 +241,31 @@ func (e *TaskEngine) GracefullyTerminate() {
 	for {
 		timeout := time.Millisecond
 		for _, h := range e.handlers {
-			if h.TaskTypeDetails.Name == "WinPost" && h.Count.Load() > 0 {
+			if h.TaskTypeDetails.Name == "WinPost" && h.Max.Active() > 0 {
 				timeout = time.Second
 				log.Infof("node shutdown deferred for %f seconds", timeout.Seconds())
 				continue
 			}
-			if h.TaskTypeDetails.Name == "WdPost" && h.Count.Load() > 0 {
+			if h.TaskTypeDetails.Name == "WdPost" && h.Max.Active() > 0 {
 				timeout = time.Second * 3
 				log.Infof("node shutdown deferred for %f seconds due to running WdPost task", timeout.Seconds())
 				continue
 			}
 
-			if h.TaskTypeDetails.Name == "WdPostSubmit" && h.Count.Load() > 0 {
+			if h.TaskTypeDetails.Name == "WdPostSubmit" && h.Max.Active() > 0 {
 				timeout = time.Second
 				log.Infof("node shutdown deferred for %f seconds due to running WdPostSubmit task", timeout.Seconds())
 				continue
 			}
 
-			if h.TaskTypeDetails.Name == "WdPostRecover" && h.Count.Load() > 0 {
+			if h.TaskTypeDetails.Name == "WdPostRecover" && h.Max.Active() > 0 {
 				timeout = time.Second
 				log.Infof("node shutdown deferred for %f seconds due to running WdPostRecover task", timeout.Seconds())
 				continue
 			}
 
 			// Test tasks for itest
-			if h.TaskTypeDetails.Name == "ThingOne" && h.Count.Load() > 0 {
+			if h.TaskTypeDetails.Name == "ThingOne" && h.Max.Active() > 0 {
 				timeout = time.Second
 				log.Infof("node shutdown deferred for %f seconds due to running itest task", timeout.Seconds())
 				continue
@@ -397,8 +420,8 @@ func (e *TaskEngine) pollerTryAllWork() bool {
 func (e *TaskEngine) ResourcesAvailable() resources.Resources {
 	tmp := e.reg.Resources
 	for _, t := range e.handlers {
-		ct := t.Count.Load()
-		tmp.Cpu -= int(ct) * t.Cost.Cpu
+		ct := t.Max.ActiveThis()
+		tmp.Cpu -= ct * t.Cost.Cpu
 		tmp.Gpu -= float64(ct) * t.Cost.Gpu
 		tmp.Ram -= uint64(ct) * t.Cost.Ram
 	}

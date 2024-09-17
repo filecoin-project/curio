@@ -10,6 +10,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/slotmgr"
 	storiface "github.com/filecoin-project/curio/lib/storiface"
@@ -254,7 +255,7 @@ func (f *FinalizeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 
 func (f *FinalizeTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  f.max,
+		Max:  taskhelp.Max(f.max),
 		Name: "Finalize",
 		Cost: resources.Resources{
 			Cpu: 1,

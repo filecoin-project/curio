@@ -19,7 +19,7 @@ class RestartAllButton extends LitElement {
         class="btn ${this.isProcessing ? 'btn-secondary' : 'btn-primary'}"
         ?disabled="${this.isProcessing}"
       >
-        ${this.isProcessing ? 'Processing...' : 'Restart All'}
+        ${this.isProcessing ? 'Processing...' : 'Resume All'}
       </button>
     `;
     }
@@ -28,9 +28,9 @@ class RestartAllButton extends LitElement {
         this.isProcessing = true;
         try {
             await RPCCall('PipelinePorepRestartAll', []);
-            console.log('Restart All operation completed successfully');
+            console.log('Resume All operation completed successfully');
         } catch (error) {
-            console.error('Error during Restart All operation:', error);
+            console.error('Error during Resume All operation:', error);
         } finally {
             this.isProcessing = false;
         }

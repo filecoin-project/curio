@@ -9,6 +9,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 )
 
 const SDRPipelineGCInterval = 19 * time.Minute
@@ -30,8 +31,14 @@ func (s *PipelineGC) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	if err := s.cleanupUpgrade(); err != nil {
 		return false, xerrors.Errorf("cleanupUpgrade: %w", err)
 	}
+
 	if err := s.cleanupMK12DealPipeline(); err != nil {
 		return false, xerrors.Errorf("cleanupMK12DealPipeline: %w", err)
+	}
+
+	if err := s.cleanupUnseal(); err != nil {
+		return false, xerrors.Errorf("cleanupUnseal: %w", err)
+
 	}
 
 	return true, nil
@@ -44,7 +51,7 @@ func (s *PipelineGC) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 
 func (s *PipelineGC) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  1,
+		Max:  taskhelp.Max(1),
 		Name: "PipelineGC",
 		Cost: resources.Resources{
 			Cpu: 1,
@@ -161,6 +168,25 @@ func (s *PipelineGC) cleanupMK12DealPipeline() error {
 	_, err := s.db.Exec(ctx, `DELETE FROM market_mk12_deal_pipeline WHERE complete = TRUE;`)
 	if err != nil {
 		return xerrors.Errorf("failed to clean up sealed deals: %w", err)
+	}
+
+	return nil
+}
+
+func (s *PipelineGC) cleanupUnseal() error {
+	// Remove sectors_unseal_pipeline entries where:
+	// after_unseal_sdr is true
+	// after_decode_sector is true
+
+	ctx := context.Background()
+
+	// Execute the query
+	_, err := s.db.Exec(ctx, `DELETE FROM sectors_unseal_pipeline
+									WHERE after_unseal_sdr = TRUE
+									AND after_decode_sector = TRUE;
+`)
+	if err != nil {
+		return xerrors.Errorf("failed to clean up unseal entries: %w", err)
 	}
 
 	return nil

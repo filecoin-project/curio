@@ -159,6 +159,13 @@ description: The default curio configuration
   # type: bool
   #EnableMoveStorage = false
 
+  # NoUnsealedDecode disables the decoding sector data on this node. Normally data encoding is enabled by default on
+  # storage nodes with the MoveStorage task enabled. Setting this option to true means that unsealed data for sectors
+  # will not be stored on this node
+  #
+  # type: bool
+  #NoUnsealedDecode = false
+
   # The maximum amount of MoveStorage tasks that can run simultaneously. Note that the maximum number of tasks will
   # also be bounded by resources available on the machine. It is recommended that this value is set to a number which
   # uses all available network (or disk) bandwidth on the machine without causing bottlenecks.

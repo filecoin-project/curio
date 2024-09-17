@@ -234,6 +234,11 @@ type CurioSubsystemsConfig struct {
 	// SDRTrees machine into long-term storage. This task runs after the Finalize task.
 	EnableMoveStorage bool
 
+	// NoUnsealedDecode disables the decoding sector data on this node. Normally data encoding is enabled by default on
+	// storage nodes with the MoveStorage task enabled. Setting this option to true means that unsealed data for sectors
+	// will not be stored on this node
+	NoUnsealedDecode bool
+
 	// The maximum amount of MoveStorage tasks that can run simultaneously. Note that the maximum number of tasks will
 	// also be bounded by resources available on the machine. It is recommended that this value is set to a number which
 	// uses all available network (or disk) bandwidth on the machine without causing bottlenecks.

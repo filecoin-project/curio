@@ -18,13 +18,13 @@ INSERT INTO harmony_config (title, config) VALUES
   EnablePoRepProof = true
   EnableSendCommitMsg = true
   EnableMoveStorage = true
-  '),
+  '), -- 20240904-scrub-unseal-check.sql adds EnableScrubUnsealed = true
 
   ('seal-gpu', '
   [Subsystems]
   EnableSealSDRTrees = true
   EnableSendPrecommitMsg = true
-  '),
+  '), -- 20240904-scrub-unseal-check.sql adds EnableScrubUnsealed = true
   ('seal-snark', '
   [Subsystems]
   EnablePoRepProof = true

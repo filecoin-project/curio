@@ -262,6 +262,10 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	if err != nil {
 		return false, xerrors.Errorf("parsing new sealed cid: %w", err)
 	}
+	newUnsealedCID, err := cid.Parse(update.UpdateUnsealedCID)
+	if err != nil {
+		return false, xerrors.Errorf("parsing new unsealed cid: %w", err)
+	}
 
 	// Prepare params
 	params := miner.ProveReplicaUpdates3Params{
@@ -369,7 +373,7 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, xerrors.Errorf("inserting into message_waits: %w", err)
 	}
 
-	if err := s.transferUpdatedSectorData(ctx, update.SpID, update.SectorNumber, newSealedCID, cid.Undef, mcid); err != nil {
+	if err := s.transferUpdatedSectorData(ctx, update.SpID, update.SectorNumber, newUnsealedCID, newSealedCID, mcid); err != nil {
 		return false, xerrors.Errorf("updating sector meta: %w", err)
 	}
 
@@ -465,7 +469,7 @@ func (s *SubmitTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 				SectorNumber int64 `db:"sector_number"`
 			}
 
-			err := s.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE failed = FALSE
+			err := tx.Select(&tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE failed = FALSE
                                                          AND after_encode = TRUE
                                                          AND after_prove = TRUE
                                                          AND after_submit = FALSE
@@ -536,11 +540,38 @@ func (s *SubmitTask) updateLanded(ctx context.Context, spId, sectorNum int64) er
 		if err != nil {
 			return err
 		}
-
-		if exitcode.ExitCode(execResult[0].ExecutedRcptExitCode) != exitcode.Ok {
-			//return s.pollCommitMsgFail(ctx, task, execResult[0])
-			log.Errorw("todo handle failed snap prove", "sp", spId, "sector", sectorNum, "exec_epoch", execResult[0].ExecutedTskEpoch, "exec_tskcid", execResult[0].ExecutedTskCID, "msg_cid", execResult[0].ExecutedMsgCID)
+		switch exitcode.ExitCode(execResult[0].ExecutedRcptExitCode) {
+		case exitcode.Ok:
+			// good, noop
+		case exitcode.SysErrInsufficientFunds, exitcode.ErrInsufficientFunds:
+			fallthrough
+		case exitcode.SysErrOutOfGas:
+			// just retry
+			n, err := s.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET
+						after_prove_msg_success = FALSE, after_submit = FALSE
+						WHERE sp_id = $2 AND sector_number = $3 AND after_prove_msg_success = FALSE AND after_submit = TRUE`,
+				execResult[0].ExecutedTskCID, spId, sectorNum)
+			if err != nil {
+				return xerrors.Errorf("update sectors_snap_pipeline to retry prove send: %w", err)
+			}
+			if n == 0 {
+				return xerrors.Errorf("update sectors_snap_pipeline to retry prove send: no rows updated")
+			}
 			return nil
+		case exitcode.ErrNotFound:
+			// message not found, but maybe it's fine?
+
+			si, err := s.api.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(sectorNum), types.EmptyTSK)
+			if err != nil {
+				return xerrors.Errorf("get sector info: %w", err)
+			}
+			if si != nil && si.SealedCID.String() == execResult[0].UpdateSealedCID {
+				return nil
+			}
+
+			return xerrors.Errorf("sector info after prove message not found not as expected")
+		default:
+			return xerrors.Errorf("commit message failed with exit code %s", exitcode.ExitCode(execResult[0].ExecutedRcptExitCode))
 		}
 
 		si, err := s.api.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(sectorNum), types.EmptyTSK)

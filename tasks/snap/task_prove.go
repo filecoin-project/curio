@@ -12,6 +12,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -122,7 +123,7 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 		gpu = 0
 	}
 	return harmonytask.TaskTypeDetails{
-		Max:  p.max,
+		Max:  taskhelp.Max(p.max),
 		Name: "UpdateProve",
 		Cost: resources.Resources{
 			Cpu: 1,
@@ -147,7 +148,7 @@ func (p *ProveTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFu
 				SectorNumber int64 `db:"sector_number"`
 			}
 
-			err := p.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_prove = FALSE AND task_id_prove IS NULL`)
+			err := tx.Select(&tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_prove = FALSE AND task_id_prove IS NULL`)
 			if err != nil {
 				return false, xerrors.Errorf("getting tasks: %w", err)
 			}
