@@ -250,6 +250,9 @@ func pay(cctx *cli.Context) error {
 	qry.Add("timestamp", strconv.FormatInt(time.Now().Unix(), 10))
 	qry.Add("MessageCID", res.Message.String())
 	qry.Add("walletID", walletID)
+	qry.Add("exchangeRate", rt.String())
+	qry.Add("blockHeight", res.Height.String())
+	qry.Add("amount", costFil.String())
 	message := qry.Encode()
 	sig, err := full.WalletSign(cctx.Context, walletAddress, []byte(message))
 	if err != nil {
@@ -262,6 +265,5 @@ func pay(cctx *cli.Context) error {
 	qry.Add("txnSign", hex.EncodeToString(txnSig))
 	fmt.Println(`Complete/Verify your registration at:
 		https://market.curiostorage.org/pay/verify/?` + qry.Encode())
-	fmt.Println("Purchase registered with Curio team")
 	return nil
 }
