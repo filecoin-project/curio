@@ -83,7 +83,7 @@ ifeq ($(shell uname),Linux)
 
 batchdep: build/.supraseal-install
 batchdep: $(BUILD_DEPS)
-,PHONY: batchdep
+.PHONY: batchdep
 
 batch: GOFLAGS+=-tags=supraseal
 batch: CGO_LDFLAGS_ALLOW='.*'

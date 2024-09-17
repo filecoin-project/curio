@@ -547,25 +547,12 @@ USAGE:
    curio market command [command options] [arguments...]
 
 COMMANDS:
-   rpc-info  
-   seal      start sealing a deal sector early
-   help, h   Shows a list of commands or help for one command
+   seal     start sealing a deal sector early
+   add-url  Add URL to fetch data for offline deals
+   help, h  Shows a list of commands or help for one command
 
 OPTIONS:
    --help, -h  show help
-```
-
-### curio market rpc-info
-```
-NAME:
-   curio market rpc-info
-
-USAGE:
-   curio market rpc-info [command options] [arguments...]
-
-OPTIONS:
-   --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
-   --help, -h                         show help
 ```
 
 ### curio market seal
@@ -580,6 +567,21 @@ OPTIONS:
    --actor value  Specify actor address to start sealing sectors for
    --synthetic    Use synthetic PoRep (default: false)
    --help, -h     show help
+```
+
+### curio market add-url
+```
+NAME:
+   curio market add-url - Add URL to fetch data for offline deals
+
+USAGE:
+   curio market add-url [command options] <deal UUID> <raw size/car size>
+
+OPTIONS:
+   --file value                                               CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'"
+   --header HEADER, -H HEADER [ --header HEADER, -H HEADER ]  Custom HEADER to include in the HTTP request
+   --url URL, -u URL                                          URL to send the request to
+   --help, -h                                                 show help
 ```
 
 ## curio fetch-params

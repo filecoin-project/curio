@@ -2,7 +2,9 @@ package dealdata
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"net/http"
 	"net/url"
 	"strconv"
 
@@ -32,7 +34,7 @@ type dealMetadata struct {
 	PieceSize  int64  `db:"piece_size"`
 
 	DataUrl     *string `db:"data_url"`
-	DataHeaders *[]byte `db:"data_headers"`
+	DataHeaders []byte  `db:"data_headers"`
 	DataRawSize *int64  `db:"data_raw_size"`
 
 	DataDelOnFinalize bool `db:"data_delete_on_finalize"`
@@ -134,6 +136,12 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 						return nil, xerrors.Errorf("parsing data URL: %w", err)
 					}
 
+					hdrs := http.Header{}
+					err = json.Unmarshal(p.DataHeaders, &hdrs)
+					if err != nil {
+						return nil, xerrors.Errorf("parsing data headers: %w", err)
+					}
+
 					if goUrl.Scheme == "pieceref" {
 						// url is to a piece reference
 
@@ -165,7 +173,7 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 						reader, _ := padreader.New(pr, uint64(*p.DataRawSize))
 						pieceReaders = append(pieceReaders, reader)
 					} else {
-						reader, _ := padreader.New(NewUrlReader(dataUrl, *p.DataRawSize), uint64(*p.DataRawSize))
+						reader, _ := padreader.New(NewUrlReader(dataUrl, hdrs, *p.DataRawSize), uint64(*p.DataRawSize))
 						pieceReaders = append(pieceReaders, reader)
 					}
 

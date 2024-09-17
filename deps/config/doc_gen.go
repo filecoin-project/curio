@@ -134,6 +134,12 @@ alerts will be triggered for the wallet`,
 			Comment: ``,
 		},
 		{
+			Name: "Market",
+			Type: "MarketConfig",
+
+			Comment: ``,
+		},
+		{
 			Name: "Ingest",
 			Type: "CurioIngestConfig",
 
@@ -663,28 +669,6 @@ This step submits the generated proofs to the chain.`,
 			Comment: `UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance.`,
 		},
 		{
-			Name: "BoostAdapters",
-			Type: "[]string",
-
-			Comment: `BoostAdapters is a list of tuples of miner address and port/ip to listen for market (e.g. boost) requests.
-This interface is compatible with the lotus-miner RPC, implementing a subset needed for storage market operations.
-Strings should be in the format "actor:ip:port". IP cannot be 0.0.0.0. We recommend using a private IP.
-Example: "f0123:127.0.0.1:32100". Multiple addresses can be specified.
-
-When a market node like boost gives Curio's market RPC a deal to placing into a sector, Curio will first store the
-deal data in a temporary location "Piece Park" before assigning it to a sector. This requires that at least one
-node in the cluster has the EnableParkPiece option enabled and has sufficient scratch space to store the deal data.
-This is different from lotus-miner which stored the deal data into an "unsealed" sector as soon as the deal was
-received. Deal data in PiecePark is accessed when the sector TreeD and TreeR are computed, but isn't needed for
-the initial SDR layers computation. Pieces in PiecePark are removed after all sectors referencing the piece are
-sealed.
-
-To get API info for boost configuration run 'curio market rpc-info'
-
-NOTE: All deal data will flow through this service, so it should be placed on a machine running boost or on
-a machine which handles ParkPiece tasks.`,
-		},
-		{
 			Name: "EnableWebGui",
 			Type: "bool",
 
@@ -717,6 +701,33 @@ also be bounded by resources available on the machine.`,
 
 			Comment: `Batch Seal`,
 		},
+		{
+			Name: "EnableDealMarket",
+			Type: "bool",
+
+			Comment: `EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured.`,
+		},
+		{
+			Name: "EnableCommP",
+			Type: "bool",
+
+			Comment: `EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
+Must have EnableDealMarket = True`,
+		},
+		{
+			Name: "CommPMaxTasks",
+			Type: "int",
+
+			Comment: `The maximum amount of CommP tasks that can run simultaneously. Note that the maximum number of tasks will
+also be bounded by resources available on the machine.`,
+		},
+		{
+			Name: "EnableLibp2p",
+			Type: "bool",
+
+			Comment: `EnableLibp2p enabled the libp2p module for the market. Must have EnableDealMarket set to true and must only be enabled
+on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.`,
+		},
 	},
 	"Duration time.Duration": {
 		{
@@ -736,6 +747,108 @@ also be bounded by resources available on the machine.`,
 			Type: "[]byte(d.String()),",
 
 			Comment: ``,
+		},
+	},
+	"IndexingConfig": {
+		{
+			Name: "InsertBatchSize",
+			Type: "int",
+
+			Comment: `Number of records per insert batch`,
+		},
+		{
+			Name: "InsertConcurrency",
+			Type: "int",
+
+			Comment: `Number of concurrent inserts to split AddIndex calls to`,
+		},
+	},
+	"Libp2pConfig": {
+		{
+			Name: "DisabledMiners",
+			Type: "[]string",
+
+			Comment: `Miners ID for which MK12 deals (boosts) should be disabled`,
+		},
+		{
+			Name: "ListenAddresses",
+			Type: "[]string",
+
+			Comment: `Binding address for the libp2p host - 0 means random port.
+Format: multiaddress; see https://multiformats.io/multiaddr/`,
+		},
+		{
+			Name: "AnnounceAddresses",
+			Type: "[]string",
+
+			Comment: `Addresses to explicitally announce to other peers. If not specified,
+all interface addresses are announced
+Format: multiaddress`,
+		},
+		{
+			Name: "NoAnnounceAddresses",
+			Type: "[]string",
+
+			Comment: `Addresses to not announce
+Format: multiaddress`,
+		},
+	},
+	"MK12Config": {
+		{
+			Name: "Libp2p",
+			Type: "Libp2pConfig",
+
+			Comment: `Libp2p is a list of libp2p config for all miner IDs.`,
+		},
+		{
+			Name: "PublishMsgPeriod",
+			Type: "Duration",
+
+			Comment: `When a deal is ready to publish, the amount of time to wait for more
+deals to be ready to publish before publishing them all as a batch`,
+		},
+		{
+			Name: "MaxDealsPerPublishMsg",
+			Type: "uint64",
+
+			Comment: `The maximum number of deals to include in a single PublishStorageDeals
+message`,
+		},
+		{
+			Name: "MaxPublishDealFee",
+			Type: "types.FIL",
+
+			Comment: `The maximum fee to pay per deal when sending the PublishStorageDeals message`,
+		},
+		{
+			Name: "ExpectedPoRepSealDuration",
+			Type: "Duration",
+
+			Comment: `ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
+This will be used to fail the deals which cannot be sealed on time.`,
+		},
+		{
+			Name: "ExpectedSnapSealDuration",
+			Type: "Duration",
+
+			Comment: `ExpectedSnapSealDuration is the expected time it would take to snap the deal sector
+This will be used to fail the deals which cannot be sealed on time.`,
+		},
+		{
+			Name: "SkipCommP",
+			Type: "bool",
+
+			Comment: `SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
+Warning: If this check is skipped and there is a commP mismatch, all deals in the
+sector will need to be sent again`,
+		},
+	},
+	"MarketConfig": {
+		{
+			Name: "StorageMarketConfig",
+			Type: "StorageMarketConfig",
+
+			Comment: `StorageMarketConfig houses all the deal related market configuration`,
 		},
 	},
 	"PagerDutyConfig": {
@@ -759,6 +872,20 @@ The default is sufficient for integration with the stock commercial PagerDuty.co
 
 			Comment: `PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
 identifier in the integration page for the service.`,
+		},
+	},
+	"PieceLocatorConfig": {
+		{
+			Name: "URL",
+			Type: "string",
+
+			Comment: ``,
+		},
+		{
+			Name: "Headers",
+			Type: "http.Header",
+
+			Comment: ``,
 		},
 	},
 	"PrometheusAlertManagerConfig": {
@@ -788,6 +915,30 @@ identifier in the integration page for the service.`,
 
 			Comment: `WebHookURL is the URL for the URL for slack Webhook.
 Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX`,
+		},
+	},
+	"StorageMarketConfig": {
+		{
+			Name: "PieceLocator",
+			Type: "[]PieceLocatorConfig",
+
+			Comment: `PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
+User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
+The server must have 2 endpoints
+1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
+2. /data?id=pieceCID must provide a reader for the requested piece`,
+		},
+		{
+			Name: "Indexing",
+			Type: "IndexingConfig",
+
+			Comment: `Indexing configuration for deal indexing`,
+		},
+		{
+			Name: "MK12",
+			Type: "MK12Config",
+
+			Comment: `MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)`,
 		},
 	},
 }

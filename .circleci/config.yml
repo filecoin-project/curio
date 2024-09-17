@@ -235,6 +235,7 @@ jobs:
       - attach_workspace:
           at: ~/
       - run: go install golang.org/x/tools/cmd/goimports
+      - run: go install github.com/hannahhoward/cbor-gen-for
       - run: make gen
       - run: git --no-pager diff && git --no-pager diff --quiet
   
@@ -278,7 +279,7 @@ workflows:
           name: test-all
           requires:
             - build
-          suite: test-all
           target: "`go list ./... | grep -v curio/itests`"
+          suite: test-all
           get-params: true
           resource_class: 2xlarge

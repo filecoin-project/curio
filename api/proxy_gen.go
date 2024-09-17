@@ -124,6 +124,8 @@ type CurioChainRPCMethods struct {
 
 	StateAccountKey func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) ``
 
+	StateCall func(p0 context.Context, p1 *types.Message, p2 types.TipSetKey) (*api.InvocResult, error) ``
+
 	StateCirculatingSupply func(p0 context.Context, p1 types.TipSetKey) (big.Int, error) ``
 
 	StateDealProviderCollateralBounds func(p0 context.Context, p1 abi.PaddedPieceSize, p2 bool, p3 types.TipSetKey) (api.DealCollateralBounds, error) ``
@@ -621,6 +623,17 @@ func (s *CurioChainRPCStruct) StateAccountKey(p0 context.Context, p1 address.Add
 
 func (s *CurioChainRPCStub) StateAccountKey(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) {
 	return *new(address.Address), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateCall(p0 context.Context, p1 *types.Message, p2 types.TipSetKey) (*api.InvocResult, error) {
+	if s.Internal.StateCall == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateCall(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateCall(p0 context.Context, p1 *types.Message, p2 types.TipSetKey) (*api.InvocResult, error) {
+	return nil, ErrNotSupported
 }
 
 func (s *CurioChainRPCStruct) StateCirculatingSupply(p0 context.Context, p1 types.TipSetKey) (big.Int, error) {

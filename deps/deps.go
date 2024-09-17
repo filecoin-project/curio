@@ -37,8 +37,10 @@ import (
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/repo"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/market/indexstore"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -165,23 +167,25 @@ func GetDeps(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 }
 
 type Deps struct {
-	Layers     []string
-	Cfg        *config.CurioConfig // values
-	DB         *harmonydb.DB       // has itest capability
-	Chain      api.Chain
-	Bstore     curiochain.CurioBlockstore
-	Verif      storiface.Verifier
-	As         *multictladdr.MultiAddressSelector
-	Maddrs     map[dtypes.MinerAddress]bool
-	ProofTypes map[abi.RegisteredSealProof]bool
-	Stor       *paths.Remote
-	Al         *curioalerting.AlertingSystem
-	Si         paths.SectorIndex
-	LocalStore *paths.Local
-	LocalPaths *paths.BasicLocalStorage
-	ListenAddr string
-	Name       string
-	Alert      *alertmanager.AlertNow
+	Layers        []string
+	Cfg           *config.CurioConfig // values
+	DB            *harmonydb.DB       // has itest capability
+	Chain         api.Chain
+	Bstore        curiochain.CurioBlockstore
+	Verif         storiface.Verifier
+	As            *multictladdr.MultiAddressSelector
+	Maddrs        map[dtypes.MinerAddress]bool
+	ProofTypes    map[abi.RegisteredSealProof]bool
+	Stor          *paths.Remote
+	Al            *curioalerting.AlertingSystem
+	Si            paths.SectorIndex
+	LocalStore    *paths.Local
+	LocalPaths    *paths.BasicLocalStorage
+	ListenAddr    string
+	Name          string
+	Alert         *alertmanager.AlertNow
+	IndexStore    *indexstore.IndexStore
+	PieceProvider *pieceprovider.PieceProvider
 }
 
 const (
@@ -346,6 +350,17 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 
 	if deps.Name == "" {
 		deps.Name = cctx.String("name")
+	}
+
+	if deps.IndexStore == nil {
+		deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(cctx.String("db-host"), ","), deps.Cfg)
+		if err != nil {
+			return xerrors.Errorf("failed to start index store: %w", err)
+		}
+	}
+
+	if deps.PieceProvider == nil {
+		deps.PieceProvider = pieceprovider.NewPieceProvider(deps.Stor, deps.Si)
 	}
 
 	return nil

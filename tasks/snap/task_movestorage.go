@@ -2,6 +2,7 @@ package snap
 
 import (
 	"context"
+	"fmt"
 	"math/rand/v2"
 
 	"golang.org/x/xerrors"
@@ -71,6 +72,12 @@ func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	_, err = m.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET after_move_storage = TRUE, task_id_move_storage = NULL WHERE task_id_move_storage = $1`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("updating task: %w", err)
+	}
+
+	// Create a indexing task
+	_, err = m.db.Exec(ctx, `SELECT create_indexing_task($1, $2)`, taskID, "sectors_snap_pipeline")
+	if err != nil {
+		return false, fmt.Errorf("error creating indexing task: %w", err)
 	}
 
 	return true, nil
