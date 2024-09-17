@@ -241,7 +241,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		}
 
 		indexingTask := indexing.NewIndexingTask(db, sc, iStore, pp, cfg)
-		activeTasks = append(activeTasks, indexingTask)
+		ipniTask := indexing.NewIPNITask(db, sc, iStore, pp, cfg)
+		activeTasks = append(activeTasks, indexingTask, ipniTask)
 
 	}
 

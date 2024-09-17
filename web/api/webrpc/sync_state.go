@@ -43,6 +43,8 @@ func (a *WebRPC) loadConfigs(ctx context.Context) (map[string]string, error) {
 		return nil, xerrors.Errorf("getting db configs: %w", err)
 	}
 
+	defer rows.Close()
+
 	configs := make(map[string]string)
 	for rows.Next() {
 		var title, config string

@@ -499,12 +499,12 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, tx *harmonyd
 	var allocated bool
 	var rerr error
 
-	head, err := p.api.ChainHead(ctx)
+	openSectors, err := p.getOpenSectors(tx, p.addToID[maddr])
 	if err != nil {
-		return false, api.SectorOffset{}, xerrors.Errorf("getting chain head: %w", err)
+		return false, api.SectorOffset{}, err
 	}
 
-	openSectors, err := p.getOpenSectors(tx, p.addToID[maddr])
+	head, err := p.api.ChainHead(ctx)
 	if err != nil {
 		return false, api.SectorOffset{}, err
 	}

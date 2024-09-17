@@ -283,3 +283,9 @@ workflows:
           suite: test-all
           get-params: true
           resource_class: 2xlarge
+      - test:
+          name: test-idxStore
+          requires:
+            - build
+          suite: test-all
+          get-params: true

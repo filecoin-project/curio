@@ -31,6 +31,9 @@ func (s *PipelineGC) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	if err := s.cleanupUpgrade(); err != nil {
 		return false, xerrors.Errorf("cleanupUpgrade: %w", err)
 	}
+	if err := s.cleanupMK12DealPipeline(); err != nil {
+		return false, xerrors.Errorf("cleanupMK12DealPipeline: %w", err)
+	}
 
 	if err := s.cleanupMK12DealPipeline(); err != nil {
 		return false, xerrors.Errorf("cleanupMK12DealPipeline: %w", err)

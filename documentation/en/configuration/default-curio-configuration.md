@@ -431,6 +431,34 @@ description: The default curio configuration
       # type: int
       #InsertConcurrency = 8
 
+    [Market.StorageMarketConfig.IPNI]
+      # Disable set whether to disable indexing announcement to the network and expose endpoints that
+      # allow indexer nodes to process announcements. Default: False
+      #
+      # type: bool
+      #Disable = false
+
+      # EntriesCacheCapacity sets the maximum capacity to use for caching the indexing advertisement
+      # entries. Defaults to 4096 if not specified. The cache is evicted using LRU policy. The
+      # maximum storage used by the cache is a factor of EntriesCacheCapacity, EntriesChunkSize(16384) and
+      # the length of multihashes being advertised. For example, advertising 128-bit long multihashes
+      # with the default EntriesCacheCapacity, and EntriesChunkSize(16384) means the cache size can grow to
+      # 1GiB when full.
+      #
+      # type: int
+      #EntriesCacheCapacity = 4096
+
+      # The network indexer host that the web UI should link to for published announcements
+      # TODO: should we use this for checking published heas before publishing? Later commit
+      #
+      # type: string
+      #WebHost = "https://cid.contact"
+
+      # The list of URLs of indexing nodes to announce to.
+      #
+      # type: []string
+      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
+
     [Market.StorageMarketConfig.MK12]
       # When a deal is ready to publish, the amount of time to wait for more
       # deals to be ready to publish before publishing them all as a batch
@@ -492,6 +520,19 @@ description: The default curio configuration
         #
         # type: []string
         #NoAnnounceAddresses = []
+
+  [Market.HTTP]
+    # ListenAddress is where HTTP server will be listening on. Default is "0.0.0.0:12400"
+    #
+    # type: string
+    #ListenAddress = "0.0.0.0:12400"
+
+    # AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
+    # Curio allows running more than one node for HTTP server and thus all addressed can be announced
+    # simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
+    #
+    # type: []string
+    #AnnounceAddresses = []
 
 
 [Ingest]

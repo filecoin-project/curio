@@ -757,6 +757,55 @@ on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
 			Comment: ``,
 		},
 	},
+	"HTTPConfig": {
+		{
+			Name: "ListenAddress",
+			Type: "string",
+
+			Comment: `ListenAddress is where HTTP server will be listening on. Default is "0.0.0.0:12400"`,
+		},
+		{
+			Name: "AnnounceAddresses",
+			Type: "[]string",
+
+			Comment: `AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
+Curio allows running more than one node for HTTP server and thus all addressed can be announced
+simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]`,
+		},
+	},
+	"IPNIConfig": {
+		{
+			Name: "Disable",
+			Type: "bool",
+
+			Comment: `Disable set whether to disable indexing announcement to the network and expose endpoints that
+allow indexer nodes to process announcements. Default: False`,
+		},
+		{
+			Name: "EntriesCacheCapacity",
+			Type: "int",
+
+			Comment: `EntriesCacheCapacity sets the maximum capacity to use for caching the indexing advertisement
+entries. Defaults to 4096 if not specified. The cache is evicted using LRU policy. The
+maximum storage used by the cache is a factor of EntriesCacheCapacity, EntriesChunkSize(16384) and
+the length of multihashes being advertised. For example, advertising 128-bit long multihashes
+with the default EntriesCacheCapacity, and EntriesChunkSize(16384) means the cache size can grow to
+1GiB when full.`,
+		},
+		{
+			Name: "WebHost",
+			Type: "string",
+
+			Comment: `The network indexer host that the web UI should link to for published announcements
+TODO: should we use this for checking published heas before publishing? Later commit`,
+		},
+		{
+			Name: "DirectAnnounceURLs",
+			Type: "[]string",
+
+			Comment: `The list of URLs of indexing nodes to announce to.`,
+		},
+	},
 	"IndexingConfig": {
 		{
 			Name: "InsertBatchSize",
@@ -858,6 +907,12 @@ sector will need to be sent again`,
 
 			Comment: `StorageMarketConfig houses all the deal related market configuration`,
 		},
+		{
+			Name: "HTTP",
+			Type: "HTTPConfig",
+
+			Comment: `HTTP configuration for market HTTP server`,
+		},
 	},
 	"PagerDutyConfig": {
 		{
@@ -941,6 +996,12 @@ The server must have 2 endpoints
 			Type: "IndexingConfig",
 
 			Comment: `Indexing configuration for deal indexing`,
+		},
+		{
+			Name: "IPNI",
+			Type: "IPNIConfig",
+
+			Comment: `IPNI configuration for ipni-provider`,
 		},
 		{
 			Name: "MK12",

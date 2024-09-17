@@ -71,6 +71,10 @@ func DefaultCurioConfig() *CurioConfig {
 			},
 		},
 		Market: MarketConfig{
+			HTTP: HTTPConfig{
+				ListenAddress:     "0.0.0.0:12400",
+				AnnounceAddresses: []string{},
+			},
 			StorageMarketConfig: StorageMarketConfig{
 				PieceLocator: []PieceLocatorConfig{},
 				Indexing: IndexingConfig{
@@ -89,6 +93,11 @@ func DefaultCurioConfig() *CurioConfig {
 					MaxPublishDealFee:         types.MustParseFIL("0.5 FIL"),
 					ExpectedPoRepSealDuration: Duration(8 * time.Hour),
 					ExpectedSnapSealDuration:  Duration(2 * time.Hour),
+				},
+				IPNI: IPNIConfig{
+					EntriesCacheCapacity: 4096,
+					WebHost:              "https://cid.contact",
+					DirectAnnounceURLs:   []string{"https://cid.contact/ingest/announce"},
 				},
 			},
 		},
@@ -576,6 +585,9 @@ type ApisConfig struct {
 type MarketConfig struct {
 	// StorageMarketConfig houses all the deal related market configuration
 	StorageMarketConfig StorageMarketConfig
+
+	// HTTP configuration for market HTTP server
+	HTTP HTTPConfig
 }
 
 type StorageMarketConfig struct {
@@ -588,6 +600,9 @@ type StorageMarketConfig struct {
 
 	// Indexing configuration for deal indexing
 	Indexing IndexingConfig
+
+	// IPNI configuration for ipni-provider
+	IPNI IPNIConfig
 
 	// MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)
 	MK12 MK12Config
@@ -638,6 +653,7 @@ type IndexingConfig struct {
 type Libp2pConfig struct {
 	// Miners ID for which MK12 deals (boosts) should be disabled
 	DisabledMiners []string
+
 	// Binding address for the libp2p host - 0 means random port.
 	// Format: multiaddress; see https://multiformats.io/multiaddr/
 	ListenAddresses []string
@@ -648,4 +664,35 @@ type Libp2pConfig struct {
 	// Addresses to not announce
 	// Format: multiaddress
 	NoAnnounceAddresses []string
+}
+
+type IPNIConfig struct {
+	// Disable set whether to disable indexing announcement to the network and expose endpoints that
+	// allow indexer nodes to process announcements. Default: False
+	Disable bool
+
+	// EntriesCacheCapacity sets the maximum capacity to use for caching the indexing advertisement
+	// entries. Defaults to 4096 if not specified. The cache is evicted using LRU policy. The
+	// maximum storage used by the cache is a factor of EntriesCacheCapacity, EntriesChunkSize(16384) and
+	// the length of multihashes being advertised. For example, advertising 128-bit long multihashes
+	// with the default EntriesCacheCapacity, and EntriesChunkSize(16384) means the cache size can grow to
+	// 1GiB when full.
+	EntriesCacheCapacity int
+
+	// The network indexer host that the web UI should link to for published announcements
+	// TODO: should we use this for checking published heas before publishing? Later commit
+	WebHost string
+
+	// The list of URLs of indexing nodes to announce to.
+	DirectAnnounceURLs []string
+}
+
+type HTTPConfig struct {
+	// ListenAddress is where HTTP server will be listening on. Default is "0.0.0.0:12400"
+	ListenAddress string
+
+	// AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
+	// Curio allows running more than one node for HTTP server and thus all addressed can be announced
+	// simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
+	AnnounceAddresses []string
 }

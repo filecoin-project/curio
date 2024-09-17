@@ -266,6 +266,8 @@ type ProviderDealState struct {
 	SectorID abi.SectorNumber
 	Offset   abi.PaddedPieceSize
 
+	Length abi.PaddedPieceSize
+
 	// set if there's an error
 	Err string
 

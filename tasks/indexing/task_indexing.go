@@ -62,6 +62,7 @@ type itask struct {
 	ChainID     abi.DealID              `db:"chain_deal_id"`
 	RawSize     int64                   `db:"raw_size"`
 	ShouldIndex bool                    `db:"should_index"`
+	Announce    bool                    `db:"announce"`
 }
 
 func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
@@ -80,7 +81,8 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 											reg_seal_proof,
 											chain_deal_id,
 											raw_size,
-											should_index
+											should_index,
+											announce
 										FROM 
 											market_mk12_deal_pipeline
 										WHERE 
@@ -212,13 +214,25 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 		return xerrors.Errorf("failed to update piece metadata and piece deal for deal %s: %w", task.UUID, err)
 	}
 
-	n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE, complete = TRUE WHERE uuid = $1`, task.UUID)
-	if err != nil {
-		return xerrors.Errorf("store indexing success: updating pipeline: %w", err)
+	// If IPNI is disabled then mark deal as complete otherwise just mark as indexed
+	if i.cfg.Market.StorageMarketConfig.IPNI.Disable {
+		n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE, complete = TRUE WHERE uuid = $1`, task.UUID)
+		if err != nil {
+			return xerrors.Errorf("store indexing success: updating pipeline: %w", err)
+		}
+		if n != 1 {
+			return xerrors.Errorf("store indexing success: updated %d rows", n)
+		}
+	} else {
+		n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE WHERE uuid = $1`, task.UUID)
+		if err != nil {
+			return xerrors.Errorf("store indexing success: updating pipeline: %w", err)
+		}
+		if n != 1 {
+			return xerrors.Errorf("store indexing success: updated %d rows", n)
+		}
 	}
-	if n != 1 {
-		return xerrors.Errorf("store indexing success: updated %d rows", n)
-	}
+
 	return nil
 }
 
@@ -277,6 +291,8 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 }
 
 func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
+	//dealCfg := i.cfg.Market.StorageMarketConfig
+	//chanSize := dealCfg.Indexing.InsertConcurrency * dealCfg.Indexing.InsertBatchSize * 56 // (56 = size of each index.Record)
 
 	return harmonytask.TaskTypeDetails{
 		Name: "Indexing",
