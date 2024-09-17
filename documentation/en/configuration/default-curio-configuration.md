@@ -521,12 +521,18 @@ description: The default curio configuration
         # type: []string
         #NoAnnounceAddresses = []
 
-      # SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
-      # Warning: If this check is skipped and there is a commP mismatch, all deals in the
-      # sector will need to be sent again
-      #
-      # type: bool
-      #SkipCommP = false
+  [Market.HTTP]
+    # ListenAddress is where HTTP server will be listening on. Default is "0.0.0.0:12400"
+    #
+    # type: string
+    #ListenAddress = "0.0.0.0:12400"
+
+    # AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
+    # Curio allows running more than one node for HTTP server and thus all addressed can be announced
+    # simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
+    #
+    # type: []string
+    #AnnounceAddresses = []
 
 
 [Ingest]

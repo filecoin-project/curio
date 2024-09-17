@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
@@ -22,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/storiface"
 

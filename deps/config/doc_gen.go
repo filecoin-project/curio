@@ -712,6 +712,7 @@ also be bounded by resources available on the machine.`,
 		{
 			Name: "EnableDealMarket",
 			Type: "bool",
+
 			Comment: `EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured.`,
 		},
 		{
@@ -889,14 +890,6 @@ This will be used to fail the deals which cannot be sealed on time.`,
 
 			Comment: `ExpectedSnapSealDuration is the expected time it would take to snap the deal sector
 This will be used to fail the deals which cannot be sealed on time.`,
-		},
-		{
-			Name: "SkipCommP",
-			Type: "bool",
-
-			Comment: `SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
-Warning: If this check is skipped and there is a commP mismatch, all deals in the
-sector will need to be sent again`,
 		},
 		{
 			Name: "SkipCommP",

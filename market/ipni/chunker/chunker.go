@@ -7,7 +7,6 @@ import (
 	"io"
 	"slices"
 
-	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	lru "github.com/hashicorp/golang-lru/v2"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/go-car/v2/index"
@@ -15,6 +14,8 @@ import (
 	"github.com/ipld/go-ipld-prime/datamodel"
 	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/multiformats/go-multihash"
+
+	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 )
 
 var log = logging.Logger("chunker")
