@@ -77,15 +77,13 @@ var marketAddOfflineURLCmd = &cli.Command{
 	Usage: "Add URL to fetch data for offline deals",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
-			Name:     "file",
-			Usage:    "CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'\"",
-			Required: true,
+			Name:  "file",
+			Usage: "CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'\"",
 		},
-		&cli.StringFlag{
-			Name:     "header",
-			Aliases:  []string{"H"},
-			Usage:    "Custom `HEADER` to include in the HTTP request",
-			Required: true,
+		&cli.StringSliceFlag{
+			Name:    "header",
+			Aliases: []string{"H"},
+			Usage:   "Custom `HEADER` to include in the HTTP request",
 		},
 		&cli.StringFlag{
 			Name:     "url",
@@ -179,8 +177,6 @@ var marketAddOfflineURLCmd = &cli.Command{
 
 		url := cctx.String("url")
 
-		headerValue := cctx.StringSlice("header")
-
 		uuid := cctx.Args().First()
 
 		sizeStr := cctx.Args().Get(1)
@@ -192,6 +188,7 @@ var marketAddOfflineURLCmd = &cli.Command{
 		if cctx.IsSet("header") {
 			// Split the header into key-value
 			header := http.Header{}
+			headerValue := cctx.StringSlice("header")
 			for _, s := range headerValue {
 				key, value, found := strings.Cut(s, ":")
 				if !found {

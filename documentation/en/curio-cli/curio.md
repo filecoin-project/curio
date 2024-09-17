@@ -578,10 +578,10 @@ USAGE:
    curio market add-url [command options] <deal UUID> <raw size/car size>
 
 OPTIONS:
-   --file value                CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'"
-   --header HEADER, -H HEADER  Custom HEADER to include in the HTTP request
-   --url URL, -u URL           URL to send the request to
-   --help, -h                  show help
+   --file value                                               CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'"
+   --header HEADER, -H HEADER [ --header HEADER, -H HEADER ]  Custom HEADER to include in the HTTP request
+   --url URL, -u URL                                          URL to send the request to
+   --help, -h                                                 show help
 ```
 
 ## curio fetch-params

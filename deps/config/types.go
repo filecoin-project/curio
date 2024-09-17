@@ -80,7 +80,7 @@ func DefaultCurioConfig() *CurioConfig {
 				MK12: MK12Config{
 					Libp2p: Libp2pConfig{
 						DisabledMiners:      []string{},
-						ListenAddresses:     []string{},
+						ListenAddresses:     []string{"/ip4/0.0.0.0/tcp/12200", "/ip4/0.0.0.0/udp/12280/quic-v1/webtransport"},
 						AnnounceAddresses:   []string{},
 						NoAnnounceAddresses: []string{},
 					},
@@ -282,13 +282,13 @@ type CurioSubsystemsConfig struct {
 	// Must have EnableDealMarket = True
 	EnableCommP bool
 
-	// EnableLibp2p enabled the libp2p module for the market. Must have EnableDealMarket set to true and must only be enabled
-	// on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
-	EnableLibp2p bool
-
 	// The maximum amount of CommP tasks that can run simultaneously. Note that the maximum number of tasks will
 	// also be bounded by resources available on the machine.
 	CommPMaxTasks int
+
+	// EnableLibp2p enabled the libp2p module for the market. Must have EnableDealMarket set to true and must only be enabled
+	// on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
+	EnableLibp2p bool
 }
 type CurioFees struct {
 	DefaultMaxFee      types.FIL

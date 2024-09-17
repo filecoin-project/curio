@@ -233,17 +233,17 @@ description: The default curio configuration
   # type: bool
   #EnableCommP = false
 
-  # EnableLibp2p enabled the libp2p module for the market. Must have EnableDealMarket set to true and must only be enabled
-  # on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
-  #
-  # type: bool
-  #EnableLibp2p = false
-
   # The maximum amount of CommP tasks that can run simultaneously. Note that the maximum number of tasks will
   # also be bounded by resources available on the machine.
   #
   # type: int
   #CommPMaxTasks = 0
+
+  # EnableLibp2p enabled the libp2p module for the market. Must have EnableDealMarket set to true and must only be enabled
+  # on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
+  #
+  # type: bool
+  #EnableLibp2p = false
 
 
 [Fees]
@@ -471,7 +471,7 @@ description: The default curio configuration
         # Format: multiaddress; see https://multiformats.io/multiaddr/
         #
         # type: []string
-        #ListenAddresses = []
+        #ListenAddresses = ["/ip4/0.0.0.0/tcp/12200", "/ip4/0.0.0.0/udp/12280/quic-v1/webtransport"]
 
         # Addresses to explicitally announce to other peers. If not specified,
         # all interface addresses are announced
