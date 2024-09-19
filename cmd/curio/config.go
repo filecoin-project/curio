@@ -15,6 +15,7 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -22,7 +23,7 @@ import (
 
 var configCmd = &cli.Command{
 	Name:  "config",
-	Usage: "Manage node config by layers. The layer 'base' will always be applied at Curio start-up.",
+	Usage: translations.T("Manage node config by layers. The layer 'base' will always be applied at Curio start-up."),
 	Subcommands: []*cli.Command{
 		configDefaultCmd,
 		configSetCmd,
@@ -38,11 +39,11 @@ var configCmd = &cli.Command{
 var configDefaultCmd = &cli.Command{
 	Name:    "default",
 	Aliases: []string{"defaults"},
-	Usage:   "Print default node config",
+	Usage:   translations.T("Print default node config"),
 	Flags: []cli.Flag{
 		&cli.BoolFlag{
 			Name:  "no-comment",
-			Usage: "don't comment default values",
+			Usage: translations.T("don't comment default values"),
 		},
 	},
 	Action: func(cctx *cli.Context) error {
@@ -60,12 +61,12 @@ var configDefaultCmd = &cli.Command{
 var configSetCmd = &cli.Command{
 	Name:      "set",
 	Aliases:   []string{"add", "update", "create"},
-	Usage:     "Set a config layer or the base by providing a filename or stdin.",
-	ArgsUsage: "a layer's file name",
+	Usage:     translations.T("Set a config layer or the base by providing a filename or stdin."),
+	ArgsUsage: translations.T("a layer's file name"),
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:  "title",
-			Usage: "title of the config layer (req'd for stdin)",
+			Usage: translations.T("title of the config layer (req'd for stdin)"),
 		},
 	},
 	Action: func(cctx *cli.Context) error {
@@ -124,8 +125,8 @@ func setConfig(db *harmonydb.DB, name, config string) error {
 var configGetCmd = &cli.Command{
 	Name:      "get",
 	Aliases:   []string{"cat", "show"},
-	Usage:     "Get a config layer by name. You may want to pipe the output to a file, or use 'less'",
-	ArgsUsage: "layer name",
+	Usage:     translations.T("Get a config layer by name. You may want to pipe the output to a file, or use 'less'"),
+	ArgsUsage: translations.T("layer name"),
 	Action: func(cctx *cli.Context) error {
 		args := cctx.Args()
 		if args.Len() != 1 {
@@ -158,7 +159,7 @@ func getConfig(db *harmonydb.DB, layer string) (string, error) {
 var configListCmd = &cli.Command{
 	Name:    "list",
 	Aliases: []string{"ls"},
-	Usage:   "List config layers present in the DB.",
+	Usage:   translations.T("List config layers present in the DB."),
 	Flags:   []cli.Flag{},
 	Action: func(cctx *cli.Context) error {
 		db, err := deps.MakeDB(cctx)
@@ -181,7 +182,7 @@ var configListCmd = &cli.Command{
 var configRmCmd = &cli.Command{
 	Name:    "remove",
 	Aliases: []string{"rm", "del", "delete"},
-	Usage:   "Remove a named config layer.",
+	Usage:   translations.T("Remove a named config layer."),
 	Flags:   []cli.Flag{},
 	Action: func(cctx *cli.Context) error {
 		args := cctx.Args()
@@ -206,12 +207,12 @@ var configRmCmd = &cli.Command{
 var configViewCmd = &cli.Command{
 	Name:      "interpret",
 	Aliases:   []string{"view", "stacked", "stack"},
-	Usage:     "Interpret stacked config layers by this version of curio, with system-generated comments.",
-	ArgsUsage: "a list of layers to be interpreted as the final config",
+	Usage:     translations.T("Interpret stacked config layers by this version of curio, with system-generated comments."),
+	ArgsUsage: translations.T("a list of layers to be interpreted as the final config"),
 	Flags: []cli.Flag{
 		&cli.StringSliceFlag{
 			Name:     "layers",
-			Usage:    "comma or space separated list of layers to be interpreted (base is always applied)",
+			Usage:    translations.T("comma or space separated list of layers to be interpreted (base is always applied)"),
 			Required: true,
 		},
 	},
@@ -236,32 +237,32 @@ var configViewCmd = &cli.Command{
 
 var configEditCmd = &cli.Command{
 	Name:      "edit",
-	Usage:     "edit a config layer",
-	ArgsUsage: "[layer name]",
+	Usage:     translations.T("edit a config layer"),
+	ArgsUsage: translations.T("[layer name]"),
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:    "editor",
-			Usage:   "editor to use",
+			Usage:   translations.T("editor to use"),
 			Value:   "vim",
 			EnvVars: []string{"EDITOR"},
 		},
 		&cli.StringFlag{
 			Name:        "source",
-			Usage:       "source config layer",
+			Usage:       translations.T("source config layer"),
 			DefaultText: "<edited layer>",
 		},
 		&cli.BoolFlag{
 			Name:  "allow-overwrite",
-			Usage: "allow overwrite of existing layer if source is a different layer",
+			Usage: translations.T("allow overwrite of existing layer if source is a different layer"),
 		},
 		&cli.BoolFlag{
 			Name:  "no-source-diff",
-			Usage: "save the whole config into the layer, not just the diff",
+			Usage: translations.T("save the whole config into the layer, not just the diff"),
 		},
 		&cli.BoolFlag{
 			Name:        "no-interpret-source",
-			Usage:       "do not interpret source layer",
-			DefaultText: "true if --source is set",
+			Usage:       translations.T("do not interpret source layer"),
+			DefaultText: translations.T("true if --source is set"),
 		},
 	},
 	Action: func(cctx *cli.Context) error {

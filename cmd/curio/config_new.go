@@ -6,6 +6,7 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 
 	"github.com/filecoin-project/lotus/api"
@@ -15,8 +16,8 @@ import (
 
 var configNewCmd = &cli.Command{
 	Name:      "new-cluster",
-	Usage:     "Create new configuration for a new cluster",
-	ArgsUsage: "[SP actor address...]",
+	Usage:     translations.T("Create new configuration for a new cluster"),
+	ArgsUsage: translations.T("[SP actor address...]"),
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:    "repo",

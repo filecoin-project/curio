@@ -17,6 +17,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/dline"
 
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/cmd/curio/tasks"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -24,7 +25,7 @@ import (
 
 var testCmd = &cli.Command{
 	Name:  "test",
-	Usage: "Utility functions for testing",
+	Usage: translations.T("Utility functions for testing"),
 	Subcommands: []*cli.Command{
 		//provingInfoCmd,
 		wdPostCmd,
@@ -37,31 +38,26 @@ var testCmd = &cli.Command{
 var wdPostCmd = &cli.Command{
 	Name:    "window-post",
 	Aliases: []string{"wd", "windowpost", "wdpost"},
-	Usage:   "Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.",
+	Usage:   translations.T("Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain."),
 	Subcommands: []*cli.Command{
 		wdPostHereCmd,
 		wdPostTaskCmd,
 	},
 }
 
-// wdPostTaskCmd writes to harmony_task and wdpost_partition_tasks, then waits for the result.
-// It is intended to be used to test the windowpost scheduler.
-// The end of the compute task puts the task_id onto wdpost_proofs, which is read by the submit task.
-// The submit task will not send test tasks to the chain, and instead will write the result to harmony_test.
-// The result is read by this command, and printed to stdout.
 var wdPostTaskCmd = &cli.Command{
 	Name:    "task",
 	Aliases: []string{"scheduled", "schedule", "async", "asynchronous"},
-	Usage:   "Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.",
+	Usage:   translations.T("Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit."),
 	Flags: []cli.Flag{
 		&cli.Uint64Flag{
 			Name:  "deadline",
-			Usage: "deadline to compute WindowPoSt for ",
+			Usage: translations.T("deadline to compute WindowPoSt for "),
 			Value: 0,
 		},
 		&cli.StringSliceFlag{
 			Name:  "layers",
-			Usage: "list of layers to be interpreted (atop defaults). Default: base",
+			Usage: translations.T("list of layers to be interpreted (atop defaults). Default: base"),
 		},
 	},
 	Action: func(cctx *cli.Context) error {
@@ -179,28 +175,28 @@ var wdPostTaskCmd = &cli.Command{
 var wdPostHereCmd = &cli.Command{
 	Name:    "here",
 	Aliases: []string{"cli"},
-	Usage:   "Compute WindowPoSt for performance and configuration testing.",
-	Description: `Note: This command is intended to be used to verify PoSt compute performance.
-It will not send any messages to the chain. Since it can compute any deadline, output may be incorrectly timed for the chain.`,
-	ArgsUsage: "[deadline index]",
+	Usage:   translations.T("Compute WindowPoSt for performance and configuration testing."),
+	Description: translations.T(`Note: This command is intended to be used to verify PoSt compute performance.
+It will not send any messages to the chain. Since it can compute any deadline, output may be incorrectly timed for the chain.`),
+	ArgsUsage: translations.T("[deadline index]"),
 	Flags: []cli.Flag{
 		&cli.Uint64Flag{
 			Name:  "deadline",
-			Usage: "deadline to compute WindowPoSt for ",
+			Usage: translations.T("deadline to compute WindowPoSt for "),
 			Value: 0,
 		},
 		&cli.StringSliceFlag{
 			Name:  "layers",
-			Usage: "list of layers to be interpreted (atop defaults). Default: base",
+			Usage: translations.T("list of layers to be interpreted (atop defaults). Default: base"),
 		},
 		&cli.StringFlag{
 			Name:  "storage-json",
-			Usage: "path to json file containing storage config",
+			Usage: translations.T("path to json file containing storage config"),
 			Value: "~/.curio/storage.json",
 		},
 		&cli.Uint64Flag{
 			Name:  "partition",
-			Usage: "partition to compute WindowPoSt for",
+			Usage: translations.T("partition to compute WindowPoSt for"),
 			Value: 0,
 		},
 	},

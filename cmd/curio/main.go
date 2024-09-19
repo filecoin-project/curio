@@ -24,6 +24,8 @@ import (
 	"github.com/filecoin-project/curio/lib/repo"
 	"github.com/filecoin-project/curio/lib/reqcontext"
 
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
+
 	proofparams "github.com/filecoin-project/lotus/build/proof-params"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/lib/tracing"
@@ -99,8 +101,8 @@ func main() {
 	}
 
 	app := &cli.App{
-		Name:                 "curio",
-		Usage:                "Filecoin decentralized storage network provider",
+		Name: "curio",
+		Usage:                translations.T("Filecoin decentralized storage network provider"),
 		Version:              curiobuild.UserVersion(),
 		EnableBashCompletion: true,
 		Before: func(c *cli.Context) error {
@@ -111,9 +113,10 @@ func main() {
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				// examined in the Before above
-				Name:        "color",
-				Usage:       "use color in display output",
-				DefaultText: "depends on output being a TTY",
+				Name: "color",
+
+				Usage:       translations.T("use color in display output"),
+				DefaultText: translations.T("depends on output being a TTY"),
 			},
 			&cli.StringFlag{
 				Name:    "panic-reports",
@@ -124,8 +127,8 @@ func main() {
 			&cli.StringFlag{
 				Name:    "db-host",
 				EnvVars: []string{"CURIO_DB_HOST", "CURIO_HARMONYDB_HOSTS"},
-				Usage:   "Command separated list of hostnames for yugabyte cluster",
-				Value:   "127.0.0.1",
+				Usage: translations.T("Command separated list of hostnames for yugabyte cluster"),
+				Value: "127.0.0.1",
 			},
 			&cli.StringFlag{
 				Name:    "db-name",
@@ -153,8 +156,8 @@ func main() {
 				Value:   "~/.curio",
 			},
 			&cli.BoolFlag{ // disconnected from cli/util for dependency reasons. Not used in curio that way.
-				Name:  "vv",
-				Usage: "enables very verbose mode, useful for debugging the CLI",
+				Name: "vv",
+				Usage: translations.T("enables very verbose mode, useful for debugging the CLI"),
 			},
 		},
 		Commands: local,
@@ -179,9 +182,10 @@ func main() {
 }
 
 var fetchParamCmd = &cli.Command{
-	Name:      "fetch-params",
-	Usage:     "Fetch proving parameters",
-	ArgsUsage: "[sectorSize]",
+	Name: "fetch-params",
+
+	Usage:     translations.T("Fetch proving parameters"),
+	ArgsUsage: translations.T("[sectorSize]"),
 	Action: func(cctx *cli.Context) error {
 		if cctx.NArg() != 1 {
 			return xerrors.Errorf("incorrect number of arguments")

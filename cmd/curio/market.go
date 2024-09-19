@@ -11,6 +11,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/reqcontext"
 	"github.com/filecoin-project/curio/market"
@@ -29,9 +30,10 @@ var marketRPCInfoCmd = &cli.Command{
 	Flags: []cli.Flag{
 		&cli.StringSliceFlag{
 			Name:  "layers",
-			Usage: "list of layers to be interpreted (atop defaults). Default: base",
+			Usage: translations.T("list of layers to be interpreted (atop defaults). Default: base"),
 		},
 	},
+
 	Action: func(cctx *cli.Context) error {
 		db, err := deps.MakeDB(cctx)
 		if err != nil {
@@ -75,25 +77,27 @@ var marketRPCInfoCmd = &cli.Command{
 
 		return nil
 	},
+
 	Name: "rpc-info",
 }
 
 var marketSealCmd = &cli.Command{
 	Name:  "seal",
-	Usage: "start sealing a deal sector early",
+	Usage: translations.T("start sealing a deal sector early"),
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:     "actor",
-			Usage:    "Specify actor address to start sealing sectors for",
+			Usage:    translations.T("Specify actor address to start sealing sectors for"),
 			Required: true,
 		},
 		&cli.BoolFlag{
 			Name:  "synthetic",
-			Usage: "Use synthetic PoRep",
+			Usage: translations.T("Use synthetic PoRep"),
 			Value: false,
 		},
 	},
-	ArgsUsage: "<sector>",
+
+	ArgsUsage: translations.T("<sector>"),
 	Action: func(cctx *cli.Context) error {
 		act, err := address.NewFromString(cctx.String("actor"))
 		if err != nil {
@@ -103,7 +107,6 @@ var marketSealCmd = &cli.Command{
 		if cctx.Args().Len() > 1 {
 			return xerrors.Errorf("specify only one sector")
 		}
-
 		sec := cctx.Args().First()
 
 		sector, err := strconv.ParseUint(sec, 10, 64)

@@ -23,6 +23,7 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-statestore"
 
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -67,7 +68,7 @@ func (storageMiner) APIInfoEnvVars() (primary string, fallbacks []string, deprec
 }
 
 func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiInfo string, unmigSectorShouldFail func() bool) (minerAddress address.Address, err error) {
-	_, say := SetupLanguage()
+	_, say := translations.SetupLanguage()
 	ctx := context.Background()
 
 	r, err := repo.NewFS(minerRepoPath)
