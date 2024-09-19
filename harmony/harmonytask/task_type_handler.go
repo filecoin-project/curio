@@ -11,6 +11,7 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
 
@@ -336,13 +337,13 @@ func (h *taskTypeHandler) AssertMachineHasCapacity() error {
 	}
 
 	if r.Cpu-h.Cost.Cpu < 0 {
-		return errors.New("Did not accept " + h.Name + " task: out of cpu")
+		return xerrors.Errorf("Did not accept %s task: out of cpu: required %d available %d)", h.Name, h.Cost.Cpu, r.Cpu)
 	}
 	if h.Cost.Ram > r.Ram {
-		return errors.New("Did not accept " + h.Name + " task: out of RAM")
+		return xerrors.Errorf("Did not accept %s task: out of RAM: required %d available %d)", h.Name, h.Cost.Ram, r.Ram)
 	}
 	if r.Gpu-h.Cost.Gpu < 0 {
-		return errors.New("Did not accept " + h.Name + " task: out of available GPU")
+		return xerrors.Errorf("Did not accept %s task: out of available GPU: required %f available %f)", h.Name, h.Cost.Gpu, r.Gpu)
 	}
 
 	if h.TaskTypeDetails.Cost.Storage != nil {
