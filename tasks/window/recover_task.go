@@ -272,7 +272,7 @@ func (w *WdPostRecoverDeclareTask) processHeadChange(ctx context.Context, revert
 			declDeadline := (di.Index + uint64(2*i)) % di.WPoStPeriodDeadlines
 
 			pps := di.PeriodStart
-			if declDeadline != di.Index + uint64(2*i) {
+			if declDeadline != di.Index+uint64(2*i) {
 				pps = di.NextPeriodStart()
 			}
 
