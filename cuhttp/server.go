@@ -118,7 +118,7 @@ func NewHTTPServer(ctx context.Context, deps *deps.Deps, config *config.HTTPConf
 
 	// Set up the HTTP server with proper timeouts
 	server := &http.Server{
-		Addr:              config.ListenAddr,
+		Addr:              config.ListenAddress,
 		Handler:           loggingMiddleware(compressionMw(chiRouter)), // Attach middlewares
 		ReadTimeout:       config.ReadTimeout,
 		WriteTimeout:      config.WriteTimeout,
