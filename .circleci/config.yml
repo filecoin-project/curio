@@ -288,6 +288,6 @@ workflows:
           requires:
             - build
           suite: test-idxStore
-          target: "./market/indexstore/indexstore_test.go"
+          target: "./market/indexstore"
           get-params: true
           resource_class: 2xlarge
