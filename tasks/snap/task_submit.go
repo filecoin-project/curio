@@ -509,7 +509,7 @@ func (s *SubmitTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 
 	for _, t := range tasks {
 		if err := s.updateLanded(ctx, t.SpID, t.SectorNumber); err != nil {
-			return xerrors.Errorf("updating landed: %w", err)
+			log.Errorw("updating landed", "sp", t.SpID, "sector", t.SectorNumber, "err", err)
 		}
 	}
 
