@@ -25,9 +25,12 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
+	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/seal"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
@@ -35,7 +38,6 @@ import (
 	lrand "github.com/filecoin-project/lotus/chain/rand"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var log = logging.Logger("curio/winning")
@@ -104,14 +106,20 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		Epoch     uint64
 		BlockCIDs []BlockCID
 		CompTime  time.Time
+		Won       bool
 	}
 
 	var details MiningTaskDetails
 
 	// First query to fetch from mining_tasks
-	err = t.db.QueryRow(ctx, `SELECT sp_id, epoch, base_compute_time FROM mining_tasks WHERE task_id = $1`, taskID).Scan(&details.SpID, &details.Epoch, &details.CompTime)
+	err = t.db.QueryRow(ctx, `SELECT sp_id, epoch, base_compute_time, won FROM mining_tasks WHERE task_id = $1`, taskID).Scan(&details.SpID, &details.Epoch, &details.CompTime, &details.Won)
 	if err != nil {
 		return false, xerrors.Errorf("query mining base info fail: %w", err)
+	}
+
+	if details.Won {
+		log.Errorw("WinPostTask.Do() task already won?!", "taskID", taskID)
+		return true, nil
 	}
 
 	// Second query to fetch from mining_base_block
@@ -414,11 +422,16 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			return false, xerrors.Errorf("failed to marshal block header: %w", err)
 		}
 
-		_, err = t.db.Exec(ctx, `UPDATE mining_tasks
+		n, err := t.db.Exec(ctx, `UPDATE mining_tasks
             SET won = true, mined_cid = $2, mined_header = $3, mined_at = $4
-            WHERE task_id = $1`, taskID, blockMsg.Header.Cid(), string(bhjson), time.Now().UTC())
+            WHERE task_id = $1 AND won = false`, taskID, blockMsg.Header.Cid(), string(bhjson), time.Now().UTC())
 		if err != nil {
 			return false, xerrors.Errorf("failed to update mining task: %w", err)
+		}
+
+		if n == 0 {
+			log.Warnw("WinPostTask task already mined?", "tipset", types.LogCids(base.TipSet.Cids()), "miner", maddr, "round", round, "block", blockMsg.Header.Cid())
+			return true, xerrors.Errorf("block already mined?")
 		}
 	}
 
@@ -426,6 +439,12 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	{
 		log.Infow("WinPostTask waiting for block timestamp", "tipset", types.LogCids(base.TipSet.Cids()), "miner", maddr, "round", round, "block", blockMsg.Header.Cid(), "until", time.Unix(int64(blockMsg.Header.Timestamp), 0))
 		time.Sleep(time.Until(time.Unix(int64(blockMsg.Header.Timestamp), 0)))
+	}
+
+	if !stillOwned() {
+		// make sure no one else got their hands on the task
+		log.Warnw("WinPostTask task no longer owned", "tipset", types.LogCids(base.TipSet.Cids()), "miner", maddr, "round", round, "block", blockMsg.Header.Cid())
+		return true, xerrors.Errorf("task no longer owned")
 	}
 
 	// submit block!!
@@ -515,17 +534,23 @@ func (t *WinPostTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Ta
 }
 
 func (t *WinPostTask) TypeDetails() harmonytask.TaskTypeDetails {
+	gpu := 1.0
+	if seal.IsDevnet {
+		gpu = 0
+	}
+
 	return harmonytask.TaskTypeDetails{
-		Name:        "WinPost",
-		Max:         t.max,
-		MaxFailures: 3,
-		Follows:     nil,
+		Name: "WinPost",
+		Max:  taskhelp.Max(t.max),
+
+		// We're not allowing retry to be conservative. Retry in winningPoSt done badly can lead to slashing, and
+		// that is generally worse than not mining a block. In general the task code is heavily defensive, and
+		// retry should be fine, but not allowing it is just another layer preventing slashing.
+		MaxFailures: 1,
 		Cost: resources.Resources{
 			Cpu: 1,
 
-			// todo set to something for 32/64G sector sizes? Technically windowPoSt is happy on a CPU
-			//  but it will use a GPU if available
-			Gpu: 0,
+			Gpu: gpu,
 
 			Ram: 1 << 30, // todo arbitrary number
 		},

@@ -1,3 +1,34 @@
+:root {
+    /* Primary colors */
+    --color-primary-light: #8BEFE0;
+    --color-primary-main: #1DC8CC;
+    --color-primary-dark: #005cb2;
+
+    /* Secondary colors */
+    --color-secondary-light: #9644EE;
+    --color-secondary-main: #7d2bd5;
+    --color-secondary-dark: #5120C0;
+
+    /* Status colors */
+    --color-success-main: #7EA83E;
+    --color-warning-main: #FFD600;
+    --color-danger-main: #B63333;
+    --color-info-main: #00BFFF;
+
+    /* Text colors */
+    --color-text-primary: #FFF;
+    --color-text-secondary: #171717;
+
+    /* Forms */
+    --color-form-default: #808080; /* buttons, field outlines */
+    --color-form-default-pressed: #A1A1A1;
+    --color-form-field: rgba(255, 255, 255, 0.08);
+
+    --color-form-group-1: #484848;
+    --color-form-group-2: #71512B;
+    --color-form-group-3: #2A5D6A;
+    --color-form-group-4: #662671;
+}
 
 html {
     min-height: 100vh;
@@ -7,18 +38,26 @@ html {
 
 body {
     margin: 0;
-    padding: 3px 4px;
     background: rgb(11, 22, 34);
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 300;
+}
+
+* {
+    font-weight: 200;
+}
+
+h1,h2,h3,h4,h5,h6 {
+    font-weight: 400;
 }
 
 curio-ux {
     /*  To resemble Clarity Design  */
     color: rgb(227, 234, 237);
-    font-family: Metropolis, monospace;
-    font-weight: 400;
-    background: rgb(11, 22, 34);
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 200;
+    background: #1d1d21;
 }
-
 
 .app-head {
     width: 100%;
@@ -59,50 +98,57 @@ a:hover {
 }
 
 @font-face {
-    font-family: metropolis;
+    font-family: 'JetBrains Mono';
     font-style: normal;
     font-weight: 400;
-    src: local('Metropolis'), url(/ux/fonts/Metropolis-Regular.woff) format('woff')
+    src: url('/ux/fonts/JetBrainsMono-Regular.woff2') format('woff2');
 }
 
 @font-face {
-    font-family: metropolis;
-    font-style: normal;
+    font-family: 'JetBrains Mono';
+    font-style: italic;
     font-weight: 400;
-    src: local('Metropolis'), url(/ux/fonts/Metropolis-ExtraLight.woff) format('woff')
+    src: url('/ux/fonts/JetBrainsMono-Italic.woff2') format('woff2');
 }
 
 @font-face {
-    font-family: metropolis;
+    font-family: 'JetBrains Mono';
     font-style: normal;
-    font-weight: 400;
-    src: local('Metropolis'), url(/ux/fonts/Metropolis-Light.woff) format('woff')
+    font-weight: 200;
+    src: url('/ux/fonts/JetBrainsMono-ExtraLight.woff2') format('woff2');
 }
 
 @font-face {
-    font-family: metropolis;
+    font-family: 'JetBrains Mono';
     font-style: normal;
-    font-weight: 400;
-    src: local('Metropolis'), url(/ux/fonts/Metropolis-Thin.woff) format('woff')
+    font-weight: 300;
+    src: url('/ux/fonts/JetBrainsMono-Light.woff2') format('woff2');
 }
 
 @font-face {
-    font-family: metropolis;
+    font-family: 'JetBrains Mono';
+    font-style: normal;
+    font-weight: 100;
+    src: url('/ux/fonts/JetBrainsMono-Thin.woff2') format('woff2');
+}
+
+@font-face {
+    font-family: 'JetBrains Mono';
     font-style: normal;
     font-weight: 500;
-    src: local('Metropolis'), url(/ux/fonts/Metropolis-Medium.woff) format('woff')
+    src: url('/ux/fonts/JetBrainsMono-Medium.woff2') format('woff2');
 }
 
 @font-face {
-    font-family: metropolis;
+    font-family: 'JetBrains Mono';
     font-style: normal;
     font-weight: 700;
-    src: local('Metropolis'), url(/ux/fonts/Metropolis-Bold.woff) format('woff')
+    src: url('/ux/fonts/JetBrainsMono-Bold.woff2') format('woff2');
 }
 
 @font-face {
-    font-family: metropolis;
+    font-family: 'JetBrains Mono';
     font-style: normal;
     font-weight: 800;
-    src: local('Metropolis'), url(/ux/fonts/Metropolis-ExtraBold.woff) format('woff')
+    src: url('/ux/fonts/JetBrainsMono-ExtraBold.woff2') format('woff2');
 }

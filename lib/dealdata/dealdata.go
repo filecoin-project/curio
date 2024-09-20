@@ -18,10 +18,10 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/filler"
+	"github.com/filecoin-project/curio/lib/storiface"
 
+	"github.com/filecoin-project/lotus/chain/proofs"
 	"github.com/filecoin-project/lotus/storage/pipeline/lib/nullreader"
-	"github.com/filecoin-project/lotus/storage/sealer/ffiwrapper"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var log = logging.Logger("dealdata")
@@ -73,6 +73,51 @@ func DealDataSnap(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, spId
 	return getDealMetadata(ctx, db, sc, spt, pieces, false)
 }
 
+func UnsealedCidFromPieces(ctx context.Context, db *harmonydb.DB, spId, sectorNumber int64) (cid.Cid, error) {
+	var sectorParams []struct {
+		RegSealProof int64 `db:"reg_seal_proof"`
+	}
+	err := db.Select(ctx, &sectorParams, `
+			SELECT reg_seal_proof
+				FROM sectors_meta
+				WHERE sp_id = $1 AND sector_num = $2`, spId, sectorNumber)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("getting sector params: %w", err)
+	}
+	if len(sectorParams) != 1 {
+		return cid.Undef, xerrors.Errorf("expected 1 sector param, got %d", len(sectorParams))
+	}
+
+	var minDealMetadata []struct {
+		PieceIndex int64  `db:"piece_num"`
+		PieceCID   string `db:"piece_cid"`
+		PieceSize  int64  `db:"piece_size"`
+	}
+	err = db.Select(ctx, &minDealMetadata, `
+		SELECT piece_num, piece_cid, piece_size
+		FROM sectors_meta_pieces
+		WHERE sp_id = $1 AND sector_num = $2 ORDER BY piece_num ASC`, spId, sectorNumber)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("getting pieces: %w", err)
+	}
+
+	var dms []dealMetadata
+	for _, md := range minDealMetadata {
+		dms = append(dms, dealMetadata{
+			PieceIndex: md.PieceIndex,
+			PieceCID:   md.PieceCID,
+			PieceSize:  md.PieceSize,
+		})
+	}
+
+	dd, err := getDealMetadata(ctx, db, nil, abi.RegisteredSealProof(sectorParams[0].RegSealProof), dms, true)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("getting deal metadata: %w", err)
+	}
+
+	return dd.CommD, nil
+}
+
 func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, spt abi.RegisteredSealProof, pieces []dealMetadata, commDOnly bool) (*DealData, error) {
 	ssize, err := spt.SectorSize()
 	if err != nil {
@@ -106,7 +151,7 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 				return nil, xerrors.Errorf("parsing piece cid: %w", err)
 			}
 
-			pads, padLength := ffiwrapper.GetRequiredPadding(offset.Padded(), abi.PaddedPieceSize(p.PieceSize))
+			pads, padLength := proofs.GetRequiredPadding(offset.Padded(), abi.PaddedPieceSize(p.PieceSize))
 			offset += padLength.Unpadded()
 
 			for _, pad := range pads {

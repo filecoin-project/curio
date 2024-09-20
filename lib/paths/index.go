@@ -9,8 +9,9 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	storiface "github.com/filecoin-project/curio/lib/storiface"
+
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var HeartbeatInterval = 10 * time.Second

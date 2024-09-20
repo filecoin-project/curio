@@ -19,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/proof"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	// TODO everywhere here that we call this we should call our proxy instead.
 	ffi "github.com/filecoin-project/filecoin-ffi"
@@ -28,8 +29,6 @@ import (
 
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/proofpaths"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 const C1CheckNumber = 3
@@ -144,43 +143,67 @@ func (l *storageProvider) AcquireSector(ctx context.Context, taskID *harmonytask
 	}, nil
 }
 
-func (sb *SealCalls) GenerateSDR(ctx context.Context, taskID harmonytask.TaskID, sector storiface.SectorRef, ticket abi.SealRandomness, commKcid cid.Cid) error {
-	paths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, &taskID, sector, storiface.FTNone, storiface.FTCache, storiface.PathSealing)
+func (sb *SealCalls) GenerateSDR(ctx context.Context, taskID harmonytask.TaskID, into storiface.SectorFileType, sector storiface.SectorRef, ticket abi.SealRandomness, commDcid cid.Cid) error {
+	paths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, &taskID, sector, storiface.FTNone, into, storiface.PathSealing)
 	if err != nil {
 		return xerrors.Errorf("acquiring sector paths: %w", err)
 	}
 	defer releaseSector()
 
 	// prepare SDR params
-	commp, err := commcid.CIDToDataCommitmentV1(commKcid)
+	commd, err := commcid.CIDToDataCommitmentV1(commDcid)
 	if err != nil {
-		return xerrors.Errorf("computing commK: %w", err)
+		return xerrors.Errorf("computing commD (%s): %w", commDcid, err)
 	}
 
-	replicaID, err := sector.ProofType.ReplicaId(sector.ID.Miner, sector.ID.Number, ticket, commp)
+	replicaID, err := sector.ProofType.ReplicaId(sector.ID.Miner, sector.ID.Number, ticket, commd)
 	if err != nil {
 		return xerrors.Errorf("computing replica id: %w", err)
 	}
 
+	intoPath := storiface.PathByType(paths, into)
+	intoTemp := intoPath + storiface.TempSuffix
+
 	// make sure the cache dir is empty
-	if err := os.RemoveAll(paths.Cache); err != nil {
-		return xerrors.Errorf("removing cache dir: %w", err)
+	if err := os.RemoveAll(intoPath); err != nil {
+		return xerrors.Errorf("removing into: %w", err)
 	}
-	if err := os.MkdirAll(paths.Cache, 0755); err != nil {
-		return xerrors.Errorf("mkdir cache dir: %w", err)
+	if err := os.RemoveAll(intoTemp); err != nil {
+		return xerrors.Errorf("removing intoTemp: %w", err)
+	}
+	if err := os.MkdirAll(intoTemp, 0755); err != nil {
+		return xerrors.Errorf("mkdir intoTemp dir: %w", err)
 	}
 
 	// generate new sector key
 	err = ffi.GenerateSDR(
 		sector.ProofType,
-		paths.Cache,
+		intoTemp,
 		replicaID,
 	)
 	if err != nil {
-		return xerrors.Errorf("generating SDR %d (%s): %w", sector.ID.Number, paths.Unsealed, err)
+		return xerrors.Errorf("generating SDR %d (%s): %w", sector.ID.Number, intoTemp, err)
 	}
 
-	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTCache); err != nil {
+	onlyLastLayer := into == storiface.FTKey
+	if onlyLastLayer {
+		// move the last layer to the final location
+		numLayers, err := proofpaths.SDRLayers(sector.ProofType)
+		if err != nil {
+			return xerrors.Errorf("getting number of layers: %w", err)
+		}
+		lastLayer := proofpaths.LayerFileName(numLayers)
+
+		if err := os.Rename(filepath.Join(intoTemp, lastLayer), filepath.Join(intoPath)); err != nil {
+			return xerrors.Errorf("renaming last layer: %w", err)
+		}
+	} else {
+		if err := os.Rename(intoTemp, intoPath); err != nil {
+			return xerrors.Errorf("renaming into: %w", err)
+		}
+	}
+
+	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, into); err != nil {
 		return xerrors.Errorf("ensure one copy: %w", err)
 	}
 

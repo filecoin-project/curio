@@ -66,6 +66,7 @@ func main() {
 		webCmd,
 		guidedsetup.GuidedsetupCmd,
 		sealCmd,
+		unsealCmd,
 		marketCmd,
 		fetchParamCmd,
 		ffiCmd,

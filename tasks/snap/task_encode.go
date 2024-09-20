@@ -13,12 +13,12 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 const MinSnapSchedInterval = 10 * time.Second
@@ -129,7 +129,7 @@ func (e *EncodeTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Max:  e.max,
+		Max:  taskhelp.Max(e.max),
 		Name: "UpdateEncode",
 		Cost: resources.Resources{
 			Cpu:     1,
@@ -158,7 +158,7 @@ func (e *EncodeTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 				SectorNumber int64 `db:"sector_number"`
 			}
 
-			err := e.db.Select(ctx, &tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE data_assigned = true AND after_encode = FALSE AND task_id_encode IS NULL`)
+			err := tx.Select(&tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE data_assigned = true AND after_encode = FALSE AND task_id_encode IS NULL`)
 			if err != nil {
 				return false, xerrors.Errorf("getting tasks: %w", err)
 			}

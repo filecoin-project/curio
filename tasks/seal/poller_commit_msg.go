@@ -82,7 +82,7 @@ func (s *SealPoller) pollCommitMsgLanded(ctx context.Context, task pollTask) err
 
 func (s *SealPoller) pollCommitMsgFail(ctx context.Context, maddr address.Address, task pollTask, execResult dbExecResult) error {
 	switch exitcode.ExitCode(execResult.ExecutedRcptExitCode) {
-	case exitcode.SysErrInsufficientFunds:
+	case exitcode.SysErrInsufficientFunds, exitcode.ErrInsufficientFunds:
 		fallthrough
 	case exitcode.SysErrOutOfGas:
 		// just retry

@@ -12,11 +12,11 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 )
 
 type SyntheticProofTask struct {
@@ -156,7 +156,7 @@ func (s *SyntheticProofTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	res := harmonytask.TaskTypeDetails{
-		Max:  s.max,
+		Max:  taskhelp.Max(s.max),
 		Name: "SyntheticProofs",
 		Cost: resources.Resources{
 			Cpu:     1,

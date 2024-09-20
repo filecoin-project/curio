@@ -18,6 +18,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/tasks/message"
 
@@ -332,7 +333,7 @@ func (s *SubmitPrecommitTask) CanAccept(ids []harmonytask.TaskID, engine *harmon
 
 func (s *SubmitPrecommitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  1024,
+		Max:  taskhelp.Max(1024),
 		Name: "PreCommitSubmit",
 		Cost: resources.Resources{
 			Cpu: 0,

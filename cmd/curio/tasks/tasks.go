@@ -23,6 +23,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
@@ -30,13 +31,16 @@ import (
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/slotmgr"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/metadata"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
+	"github.com/filecoin-project/curio/tasks/scrub"
 	"github.com/filecoin-project/curio/tasks/seal"
 	"github.com/filecoin-project/curio/tasks/sealsupra"
 	"github.com/filecoin-project/curio/tasks/snap"
+	"github.com/filecoin-project/curio/tasks/unseal"
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
 
@@ -44,7 +48,6 @@ import (
 	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var log = logging.Logger("curio/deps")
@@ -250,6 +253,11 @@ func addSealingTasks(
 	var addFinalize bool
 
 	// NOTE: Tasks with the LEAST priority are at the top
+	if cfg.Subsystems.EnableCommP {
+		scrubUnsealedTask := scrub.NewCommDCheckTask(db, slr)
+		activeTasks = append(activeTasks, scrubUnsealedTask)
+	}
+
 	if cfg.Subsystems.EnableBatchSeal {
 		slotMgr = slotmgr.NewSlotMgr()
 
@@ -268,8 +276,12 @@ func addSealingTasks(
 	}
 
 	if cfg.Subsystems.EnableSealSDR {
-		sdrTask := seal.NewSDRTask(full, db, sp, slr, cfg.Subsystems.SealSDRMaxTasks, cfg.Subsystems.SealSDRMinTasks)
-		activeTasks = append(activeTasks, sdrTask)
+		sdrMax := taskhelp.Max(cfg.Subsystems.SealSDRMaxTasks)
+
+		sdrTask := seal.NewSDRTask(full, db, sp, slr, sdrMax, cfg.Subsystems.SealSDRMinTasks)
+		keyTask := unseal.NewTaskUnsealSDR(slr, db, sdrMax, full)
+
+		activeTasks = append(activeTasks, sdrTask, keyTask)
 	}
 	if cfg.Subsystems.EnableSealSDRTrees {
 		treeDTask := seal.NewTreeDTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
@@ -295,6 +307,11 @@ func addSealingTasks(
 		moveStorageTask := seal.NewMoveStorageTask(sp, slr, db, cfg.Subsystems.MoveStorageMaxTasks)
 		moveStorageSnapTask := snap.NewMoveStorageTask(slr, db, cfg.Subsystems.MoveStorageMaxTasks)
 		activeTasks = append(activeTasks, moveStorageTask, moveStorageSnapTask)
+
+		if !cfg.Subsystems.NoUnsealedDecode {
+			unsealTask := unseal.NewTaskUnsealDecode(slr, db, cfg.Subsystems.MoveStorageMaxTasks, full)
+			activeTasks = append(activeTasks, unsealTask)
+		}
 	}
 	if cfg.Subsystems.EnableSendCommitMsg {
 		commitTask := seal.NewSubmitCommitTask(sp, db, full, sender, as, cfg)

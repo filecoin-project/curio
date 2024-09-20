@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/promise"
@@ -24,14 +25,13 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
-	"github.com/filecoin-project/lotus/storage/sealer"
 )
 
 type WdPostRecoverDeclareTask struct {
 	sender       *message.Sender
 	db           *harmonydb.DB
 	api          WdPostRecoverDeclareTaskApi
-	faultTracker sealer.FaultTracker
+	faultTracker FaultTracker
 
 	maxDeclareRecoveriesGasFee types.FIL
 	as                         *multictladdr.MultiAddressSelector
@@ -60,7 +60,7 @@ type WdPostRecoverDeclareTaskApi interface {
 func NewWdPostRecoverDeclareTask(sender *message.Sender,
 	db *harmonydb.DB,
 	api WdPostRecoverDeclareTaskApi,
-	faultTracker sealer.FaultTracker,
+	faultTracker FaultTracker,
 	as *multictladdr.MultiAddressSelector,
 	pcs *chainsched.CurioChainSched,
 
@@ -218,7 +218,7 @@ func (w *WdPostRecoverDeclareTask) CanAccept(ids []harmonytask.TaskID, engine *h
 
 func (w *WdPostRecoverDeclareTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  128,
+		Max:  taskhelp.Max(128),
 		Name: "WdPostRecover",
 		Cost: resources.Resources{
 			Cpu: 1,

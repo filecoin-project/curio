@@ -9,7 +9,7 @@ import (
 
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
 
 var aSector = abi.SectorID{

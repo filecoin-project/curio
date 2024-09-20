@@ -24,6 +24,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/paths"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market"
 
 	lapi "github.com/filecoin-project/lotus/api"
@@ -31,7 +32,6 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	sealing "github.com/filecoin-project/lotus/storage/pipeline"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var log = logging.Logger("lmrpc")

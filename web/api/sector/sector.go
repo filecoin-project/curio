@@ -22,6 +22,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 
 	"github.com/filecoin-project/curio/deps"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/web/api/apihelper"
 
 	"github.com/filecoin-project/lotus/blockstore"
@@ -29,7 +30,6 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/cli/spcli"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 const verifiedPowerGainMul = 9

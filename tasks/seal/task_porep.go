@@ -14,10 +14,11 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 type PoRepAPI interface {
@@ -162,7 +163,7 @@ func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 		gpu = 0
 	}
 	res := harmonytask.TaskTypeDetails{
-		Max:  p.max,
+		Max:  taskhelp.Max(p.max),
 		Name: "PoRep",
 		Cost: resources.Resources{
 			Cpu:       1,

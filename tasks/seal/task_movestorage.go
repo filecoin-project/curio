@@ -10,10 +10,10 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 )
 
 type MoveStorageTask struct {
@@ -144,7 +144,7 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	return harmonytask.TaskTypeDetails{
-		Max:  m.max,
+		Max:  taskhelp.Max(m.max),
 		Name: "MoveStorage",
 		Cost: resources.Resources{
 			Cpu:     1,

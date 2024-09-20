@@ -9,10 +9,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
-	"time"
 	"unicode"
 
-	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 
 	"github.com/filecoin-project/go-address"
@@ -21,11 +19,10 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 
 	"github.com/filecoin-project/curio/api"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/filecoin-project/lotus/storage/sealer/sealtasks"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var ExampleValues = map[reflect.Type]interface{}{
@@ -212,21 +209,6 @@ func init() {
 	})
 	addExample(map[storiface.ID]string{
 		"76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8": "/data/path",
-	})
-	addExample(map[uuid.UUID][]storiface.WorkerJob{
-		uuid.MustParse("ef8d99a2-6865-4189-8ffa-9fef0f806eee"): {
-			{
-				ID: storiface.CallID{
-					Sector: abi.SectorID{Miner: 1000, Number: 100},
-					ID:     uuid.MustParse("76081ba0-61bd-45a5-bc08-af05f1c26e5d"),
-				},
-				Sector:   abi.SectorID{Miner: 1000, Number: 100},
-				Task:     sealtasks.TTPreCommit2,
-				RunWait:  0,
-				Start:    time.Unix(1605172927, 0).UTC(),
-				Hostname: "host",
-			},
-		},
 	})
 	//addExample(map[uuid.UUID]storiface.WorkerStats{
 	//	uuid.MustParse("ef8d99a2-6865-4189-8ffa-9fef0f806eee"): {

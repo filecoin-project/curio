@@ -9,8 +9,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonytask"
-
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 )
 
 func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID, pieceID storiface.PieceNumber, size int64, data io.Reader) error {
@@ -23,7 +22,7 @@ func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID,
 	defer done()
 
 	dest := paths.Piece
-	tempDest := dest + ".tmp"
+	tempDest := dest + storiface.TempSuffix
 
 	destFile, err := os.OpenFile(tempDest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {

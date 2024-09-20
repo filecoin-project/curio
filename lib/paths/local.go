@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,11 +23,11 @@ import (
 	"github.com/filecoin-project/go-state-types/proof"
 
 	cuproof "github.com/filecoin-project/curio/lib/proof"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/supraffi"
 
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 type LocalStorage interface {
@@ -104,12 +105,15 @@ func (p *path) stat(ls LocalStorage, newReserve ...statExistingSectorForReservat
 
 		used, err := ls.DiskUsage(sp)
 		if err == os.ErrNotExist {
-			p, ferr := tempFetchDest(sp, false)
-			if ferr != nil {
-				return 0, ferr
-			}
+			used, err = ls.DiskUsage(sp + storiface.TempSuffix)
+			if err == os.ErrNotExist {
+				p, ferr := tempFetchDest(sp, false)
+				if ferr != nil {
+					return 0, ferr
+				}
 
-			used, err = ls.DiskUsage(p)
+				used, err = ls.DiskUsage(p)
+			}
 		}
 		if err != nil {
 			// we don't care about 'not exist' errors, as storage can be
@@ -212,6 +216,10 @@ func (p *path) sectorPath(sid abi.SectorID, fileType storiface.SectorFileType) s
 }
 
 type URLs []string
+
+func UrlsFromString(in string) URLs {
+	return strings.Split(in, URLSeparator)
+}
 
 func NewLocal(ctx context.Context, ls LocalStorage, index SectorIndex, urls []string) (*Local, error) {
 	l := &Local{

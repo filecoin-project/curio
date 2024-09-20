@@ -25,14 +25,13 @@ import (
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/tasks/seal"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
-	"github.com/filecoin-project/lotus/storage/sealer"
-	"github.com/filecoin-project/lotus/storage/sealer/sealtasks"
-	"github.com/filecoin-project/lotus/storage/sealer/storiface"
 )
 
 var log = logging.Logger("curio/window")
@@ -64,7 +63,7 @@ type WdPostTask struct {
 	api WDPoStAPI
 	db  *harmonydb.DB
 
-	faultTracker sealer.FaultTracker
+	faultTracker FaultTracker
 	storage      paths.Store
 	verifier     storiface.Verifier
 	paramsReady  func() (bool, error)
@@ -86,7 +85,7 @@ type wdTaskIdentity struct {
 
 func NewWdPostTask(db *harmonydb.DB,
 	api WDPoStAPI,
-	faultTracker sealer.FaultTracker,
+	faultTracker FaultTracker,
 	storage paths.Store,
 	verifier storiface.Verifier,
 	paramck func() (bool, error),
@@ -357,28 +356,26 @@ func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, te *harmonytask.TaskEng
 	return &tasks[0].TaskID, nil
 }
 
-var res = storiface.ResourceTable[sealtasks.TTGenerateWindowPoSt]
-
 func (t *WdPostTask) TypeDetails() harmonytask.TaskTypeDetails {
+	gpu := 1.0
+	ram := uint64(25 << 30)
+	if seal.IsDevnet {
+		gpu = 0
+		ram = 1 << 30
+	}
+
 	return harmonytask.TaskTypeDetails{
 		Name:        "WdPost",
-		Max:         t.max,
+		Max:         taskhelp.Max(t.max),
 		MaxFailures: 5,
 		Follows:     nil,
 		Cost: resources.Resources{
 			Cpu: 1,
 
-			// todo set to something for 32/64G sector sizes? Technically windowPoSt is happy on a CPU
-			//  but it will use a GPU if available
-			Gpu: 0,
+			Gpu: gpu,
 
 			// RAM of smallest proof's max is listed here
-			Ram: lo.Reduce(lo.Keys(res), func(i uint64, k abi.RegisteredSealProof, _ int) uint64 {
-				if res[k].MaxMemory < i {
-					return res[k].MaxMemory
-				}
-				return i
-			}, 1<<63),
+			Ram: ram,
 		},
 	}
 }
