@@ -71,10 +71,6 @@ func DefaultCurioConfig() *CurioConfig {
 			},
 		},
 		Market: MarketConfig{
-			HTTP: HTTPConfig{
-				ListenAddress:     "0.0.0.0:12400",
-				AnnounceAddresses: []string{},
-			},
 			StorageMarketConfig: StorageMarketConfig{
 				PieceLocator: []PieceLocatorConfig{},
 				Indexing: IndexingConfig{
@@ -98,6 +94,21 @@ func DefaultCurioConfig() *CurioConfig {
 					EntriesCacheCapacity: 4096,
 					WebHost:              "https://cid.contact",
 					DirectAnnounceURLs:   []string{"https://cid.contact/ingest/announce"},
+					AnnounceAddresses:    []string{},
+				},
+			},
+			HTTP: HTTPConfig{
+				DomainName:        "",
+				ListenAddress:     "0.0.0.0:12310",
+				ReadTimeout:       time.Second * 10,
+				WriteTimeout:      time.Second * 10,
+				IdleTimeout:       time.Minute * 2,
+				ReadHeaderTimeout: time.Second * 5,
+				EnableCORS:        true,
+				CompressionLevels: CompressionConfig{
+					GzipLevel:    6,
+					BrotliLevel:  4,
+					DeflateLevel: 6,
 				},
 			},
 		},
@@ -117,6 +128,7 @@ type CurioConfig struct {
 	Seal      CurioSealConfig
 	Apis      ApisConfig
 	Alerting  CurioAlertingConfig
+	HTTP      HTTPConfig
 }
 
 func DefaultDefaultMaxFee() types.FIL {
@@ -685,14 +697,46 @@ type IPNIConfig struct {
 
 	// The list of URLs of indexing nodes to announce to.
 	DirectAnnounceURLs []string
-}
-
-type HTTPConfig struct {
-	// ListenAddress is where HTTP server will be listening on. Default is "0.0.0.0:12400"
-	ListenAddress string
 
 	// AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
 	// Curio allows running more than one node for HTTP server and thus all addressed can be announced
 	// simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
 	AnnounceAddresses []string
+}
+
+// HTTPConfig represents the configuration for an HTTP server.
+type HTTPConfig struct {
+	// DomainName specifies the domain name that the server uses to serve HTTP requests.
+	DomainName string
+
+	// CertCacheDir path to the cache directory for storing SSL certificates needed for HTTPS.
+	CertCacheDir string
+
+	// ListenAddress is the address that the server listens for HTTP requests.
+	ListenAddress string
+
+	// ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
+	ReadTimeout time.Duration
+
+	// WriteTimeout is the maximum duration before timing out writes of the response to the client.
+	WriteTimeout time.Duration
+
+	// IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
+	IdleTimeout time.Duration
+
+	// ReadHeaderTimeout is amount of time allowed to read request headers
+	ReadHeaderTimeout time.Duration
+
+	// EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.
+	EnableCORS bool
+
+	// CompressionLevels hold the compression level for various compression methods supported by the server
+	CompressionLevels CompressionConfig
+}
+
+// CompressionConfig holds the compression levels for supported types
+type CompressionConfig struct {
+	GzipLevel    int
+	BrotliLevel  int
+	DeflateLevel int
 }

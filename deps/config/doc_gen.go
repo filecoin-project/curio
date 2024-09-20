@@ -39,6 +39,26 @@ cat ~/.lotusminer/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU | jq -r .PrivateKey`,
 			Comment: ``,
 		},
 	},
+	"CompressionConfig": {
+		{
+			Name: "GzipLevel",
+			Type: "int",
+
+			Comment: ``,
+		},
+		{
+			Name: "BrotliLevel",
+			Type: "int",
+
+			Comment: ``,
+		},
+		{
+			Name: "DeflateLevel",
+			Type: "int",
+
+			Comment: ``,
+		},
+	},
 	"CurioAddresses": {
 		{
 			Name: "PreCommitControl",
@@ -160,6 +180,12 @@ alerts will be triggered for the wallet`,
 		{
 			Name: "Alerting",
 			Type: "CurioAlertingConfig",
+
+			Comment: ``,
+		},
+		{
+			Name: "HTTP",
+			Type: "HTTPConfig",
 
 			Comment: ``,
 		},
@@ -759,18 +785,58 @@ on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
 	},
 	"HTTPConfig": {
 		{
+			Name: "DomainName",
+			Type: "string",
+
+			Comment: `DomainName specifies the domain name that the server uses to serve HTTP requests.`,
+		},
+		{
+			Name: "CertCacheDir",
+			Type: "string",
+
+			Comment: `CertCacheDir path to the cache directory for storing SSL certificates needed for HTTPS.`,
+		},
+		{
 			Name: "ListenAddress",
 			Type: "string",
 
-			Comment: `ListenAddress is where HTTP server will be listening on. Default is "0.0.0.0:12400"`,
+			Comment: `ListenAddress is the address that the server listens for HTTP requests.`,
 		},
 		{
-			Name: "AnnounceAddresses",
-			Type: "[]string",
+			Name: "ReadTimeout",
+			Type: "time.Duration",
 
-			Comment: `AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
-Curio allows running more than one node for HTTP server and thus all addressed can be announced
-simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]`,
+			Comment: `ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.`,
+		},
+		{
+			Name: "WriteTimeout",
+			Type: "time.Duration",
+
+			Comment: `WriteTimeout is the maximum duration before timing out writes of the response to the client.`,
+		},
+		{
+			Name: "IdleTimeout",
+			Type: "time.Duration",
+
+			Comment: `IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.`,
+		},
+		{
+			Name: "ReadHeaderTimeout",
+			Type: "time.Duration",
+
+			Comment: `ReadHeaderTimeout is amount of time allowed to read request headers`,
+		},
+		{
+			Name: "EnableCORS",
+			Type: "bool",
+
+			Comment: `EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.`,
+		},
+		{
+			Name: "CompressionLevels",
+			Type: "CompressionConfig",
+
+			Comment: `CompressionLevels hold the compression level for various compression methods supported by the server`,
 		},
 	},
 	"IPNIConfig": {
@@ -804,6 +870,14 @@ TODO: should we use this for checking published heas before publishing? Later co
 			Type: "[]string",
 
 			Comment: `The list of URLs of indexing nodes to announce to.`,
+		},
+		{
+			Name: "AnnounceAddresses",
+			Type: "[]string",
+
+			Comment: `AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
+Curio allows running more than one node for HTTP server and thus all addressed can be announced
+simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]`,
 		},
 	},
 	"IndexingConfig": {
