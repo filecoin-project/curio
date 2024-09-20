@@ -269,10 +269,10 @@ func (w *WdPostRecoverDeclareTask) processHeadChange(ctx context.Context, revert
 		// repeat checks for [2, 4, 6, 8, 10, 12], the closer deadline is prioritized
 		for i := 0; i < 7; i++ {
 			// declaring 2*i deadlines ahead
-			declDeadline := (di.Index + int64(2*i)) % di.WPoStPeriodDeadlines
+			declDeadline := (di.Index + uint64(2*i)) % di.WPoStPeriodDeadlines
 
 			pps := di.PeriodStart
-			if declDeadline != di.Index + int64(2*i) {
+			if declDeadline != di.Index + uint64(2*i) {
 				pps = di.NextPeriodStart()
 			}
 
