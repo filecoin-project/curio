@@ -142,25 +142,6 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, fmt.Errorf("generating index for piece: %w", err)
 	}
 
-	mis := make(index.MultihashIndexSorted)
-	err = mis.Load(recs)
-	if err != nil {
-		return false, xerrors.Errorf("failed to load indexed in multihash sorter: %w", err)
-	}
-
-	// To avoid - Cannot assert pinter to interface
-	idxF := func(sorted *index.MultihashIndexSorted) index.Index {
-		return sorted
-	}
-
-	idx := idxF(&mis)
-	iterableIndex := idx.(index.IterableIndex)
-
-	mhi, err := chunker.CarMultihashIterator(iterableIndex)
-	if err != nil {
-		return false, xerrors.Errorf("getting CAR multihash iterator: %w", err)
-	}
-
 	lnk, err := chunker.NewChunker().Chunk(*mhi)
 	if err != nil {
 		return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
