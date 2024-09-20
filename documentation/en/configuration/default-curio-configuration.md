@@ -529,7 +529,13 @@ description: The default curio configuration
         #NoAnnounceAddresses = []
 
   [Market.HTTP]
-    # DomainName specifies the domain name that the server uses to serve HTTP requests.
+    # Enable the HTTP server on the node
+    #
+    # type: bool
+    #Enable = false
+
+    # DomainName specifies the domain name that the server uses to serve HTTP requests. DomainName cannot be empty and cannot be
+    # an IP address
     #
     # type: string
     #DomainName = ""
@@ -734,7 +740,13 @@ description: The default curio configuration
 
 
 [HTTP]
-  # DomainName specifies the domain name that the server uses to serve HTTP requests.
+  # Enable the HTTP server on the node
+  #
+  # type: bool
+  #Enable = false
+
+  # DomainName specifies the domain name that the server uses to serve HTTP requests. DomainName cannot be empty and cannot be
+  # an IP address
   #
   # type: string
   #DomainName = ""

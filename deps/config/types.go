@@ -706,7 +706,11 @@ type IPNIConfig struct {
 
 // HTTPConfig represents the configuration for an HTTP server.
 type HTTPConfig struct {
-	// DomainName specifies the domain name that the server uses to serve HTTP requests.
+	// Enable the HTTP server on the node
+	Enable bool
+
+	// DomainName specifies the domain name that the server uses to serve HTTP requests. DomainName cannot be empty and cannot be
+	// an IP address
 	DomainName string
 
 	// CertCacheDir path to the cache directory for storing SSL certificates needed for HTTPS.

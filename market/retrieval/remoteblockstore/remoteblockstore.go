@@ -1,0 +1,287 @@
+package remoteblockstore
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/hashicorp/go-multierror"
+	blocks "github.com/ipfs/go-block-format"
+	"github.com/ipfs/go-cid"
+	format "github.com/ipfs/go-ipld-format"
+	logging "github.com/ipfs/go-log/v2"
+	"github.com/ipld/go-car/util"
+	"github.com/jellydator/ttlcache/v2"
+	"github.com/multiformats/go-multihash"
+	"go.opencensus.io/stats"
+
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/market/indexstore"
+
+	"github.com/filecoin-project/lotus/lib/readerutil"
+)
+
+const MaxCachedReaders = 128
+
+var log = logging.Logger("remote-blockstore")
+
+type idxAPI interface {
+	PiecesContainingMultihash(ctx context.Context, m multihash.Multihash) ([]cid.Cid, error)
+	GetOffsetSize(ctx context.Context, pieceCid cid.Cid, hash multihash.Multihash) (*indexstore.OffsetSize, error)
+}
+
+type pieceProviderAPI interface {
+	IsUnsealed(ctx context.Context, sector storiface.SectorRef, offset storiface.UnpaddedByteIndex, size abi.UnpaddedPieceSize) (bool, error)
+	ReadPiece(ctx context.Context, sector storiface.SectorRef, pieceOffset storiface.UnpaddedByteIndex, size abi.UnpaddedPieceSize, pieceCid cid.Cid) (storiface.Reader, error)
+}
+
+// RemoteBlockstore is a read-only blockstore over all cids across all pieces on a provider.
+type RemoteBlockstore struct {
+	idxApi       idxAPI
+	blockMetrics *BlockMetrics
+	db           *harmonydb.DB
+	pp           pieceProviderAPI
+
+	pieceReaderCacheMu sync.Mutex
+	pieceReaderCache   *ttlcache.Cache
+}
+
+type BlockMetrics struct {
+	GetRequestCount             *stats.Int64Measure
+	GetFailResponseCount        *stats.Int64Measure
+	GetSuccessResponseCount     *stats.Int64Measure
+	BytesSentCount              *stats.Int64Measure
+	HasRequestCount             *stats.Int64Measure
+	HasFailResponseCount        *stats.Int64Measure
+	HasSuccessResponseCount     *stats.Int64Measure
+	GetSizeRequestCount         *stats.Int64Measure
+	GetSizeFailResponseCount    *stats.Int64Measure
+	GetSizeSuccessResponseCount *stats.Int64Measure
+}
+
+func NewRemoteBlockstore(api idxAPI, db *harmonydb.DB, pp pieceProviderAPI) *RemoteBlockstore {
+	prCache := ttlcache.NewCache()
+	_ = prCache.SetTTL(time.Minute)
+	prCache.SetCacheSizeLimit(MaxCachedReaders)
+
+	httpBlockMetrics := &BlockMetrics{
+		GetRequestCount:             HttpRblsGetRequestCount,
+		GetFailResponseCount:        HttpRblsGetFailResponseCount,
+		GetSuccessResponseCount:     HttpRblsGetSuccessResponseCount,
+		BytesSentCount:              HttpRblsBytesSentCount,
+		HasRequestCount:             HttpRblsHasRequestCount,
+		HasFailResponseCount:        HttpRblsHasFailResponseCount,
+		HasSuccessResponseCount:     HttpRblsHasSuccessResponseCount,
+		GetSizeRequestCount:         HttpRblsGetSizeRequestCount,
+		GetSizeFailResponseCount:    HttpRblsGetSizeFailResponseCount,
+		GetSizeSuccessResponseCount: HttpRblsGetSizeSuccessResponseCount,
+	}
+
+	ro := &RemoteBlockstore{
+		idxApi:           api,
+		blockMetrics:     httpBlockMetrics,
+		db:               db,
+		pp:               pp,
+		pieceReaderCache: prCache,
+	}
+
+	expireCallback := func(key string, reason ttlcache.EvictionReason, value interface{}) {
+		log.Debugw("expire callback", "piececid", key, "reason", reason)
+
+		r := value.(*cachedSectionReader)
+
+		ro.pieceReaderCacheMu.Lock()
+		defer ro.pieceReaderCacheMu.Unlock()
+
+		r.expired = true
+
+		if r.refs <= 0 {
+			r.cancel()
+			return
+		}
+
+		log.Debugw("expire callback with refs > 0", "refs", r.refs, "piececid", key, "reason", reason)
+	}
+
+	prCache.SetExpirationReasonCallback(expireCallback)
+
+	return ro
+}
+
+func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block, err error) {
+	if ro.blockMetrics != nil {
+		stats.Record(ctx, ro.blockMetrics.GetRequestCount.M(1))
+	}
+
+	log.Debugw("Get", "cid", c)
+
+	// Get the pieces that contain the cid
+	pieces, err := ro.idxApi.PiecesContainingMultihash(ctx, c.Hash())
+
+	// Check if it's an identity cid, if it is, return its digest
+	if err != nil {
+		digest, ok, iderr := isIdentity(c)
+		if iderr == nil && ok {
+			if ro.blockMetrics != nil {
+				stats.Record(ctx, ro.blockMetrics.GetSuccessResponseCount.M(1))
+			}
+			return blocks.NewBlockWithCid(digest, c)
+		}
+		if ro.blockMetrics != nil {
+			stats.Record(ctx, ro.blockMetrics.GetFailResponseCount.M(1))
+		}
+		return nil, fmt.Errorf("getting pieces containing cid %s: %w", c, err)
+	}
+	if len(pieces) == 0 {
+		return nil, fmt.Errorf("no pieces with cid %s found", c)
+	}
+
+	// Get a reader over one of the pieces and extract the block data
+	var merr error
+	for _, pieceCid := range pieces {
+		data, err := func() ([]byte, error) {
+			// Get a reader over the piece data
+			reader, err := ro.GetSharedPieceReader(ctx, pieceCid)
+			if err != nil {
+				return nil, fmt.Errorf("getting piece reader: %w", err)
+			}
+			defer func(reader SectionReader) {
+				_ = reader.Close()
+			}(reader)
+
+			// Get the offset of the block within the piece (CAR file)
+			offsetSize, err := ro.idxApi.GetOffsetSize(ctx, pieceCid, c.Hash())
+			if err != nil {
+				return nil, fmt.Errorf("getting offset/size for cid %s in piece %s: %w", c, pieceCid, err)
+			}
+
+			// Seek to the section offset
+			readerAt := readerutil.NewReadSeekerFromReaderAt(reader, int64(offsetSize.Offset))
+			// Read the block data
+			bufferSize := 4096
+			if offsetSize.Size < 4096 {
+				bufferSize = int(offsetSize.Size)
+			}
+			readCid, data, err := util.ReadNode(bufio.NewReaderSize(readerAt, bufferSize))
+			if err != nil {
+				return nil, fmt.Errorf("reading data for block %s from reader for piece %s: %w", c, pieceCid, err)
+			}
+			if !bytes.Equal(readCid.Hash(), c.Hash()) {
+				return nil, fmt.Errorf("read block %s from reader for piece %s, but expected block %s", readCid, pieceCid, c)
+			}
+			return data, nil
+		}()
+		if err != nil {
+			merr = multierror.Append(merr, err)
+			continue
+		}
+		return blocks.NewBlockWithCid(data, c)
+	}
+
+	return nil, err
+}
+
+func (ro *RemoteBlockstore) Has(ctx context.Context, c cid.Cid) (bool, error) {
+	if ro.blockMetrics != nil {
+		stats.Record(ctx, ro.blockMetrics.HasRequestCount.M(1))
+	}
+
+	log.Debugw("Has", "cid", c)
+
+	pieces, err := ro.idxApi.PiecesContainingMultihash(ctx, c.Hash())
+	if err != nil {
+		if ro.blockMetrics != nil {
+			stats.Record(ctx, ro.blockMetrics.HasFailResponseCount.M(1))
+		}
+		return false, fmt.Errorf("getting pieces containing cid %s: %w", c, err)
+	}
+	has := len(pieces) > 0
+
+	log.Debugw("Has response", "cid", c, "has", has, "error", err)
+	if ro.blockMetrics != nil {
+		stats.Record(ctx, ro.blockMetrics.HasSuccessResponseCount.M(1))
+	}
+	return has, nil
+}
+
+func (ro *RemoteBlockstore) GetSize(ctx context.Context, c cid.Cid) (int, error) {
+	if ro.blockMetrics != nil {
+		stats.Record(ctx, ro.blockMetrics.GetSizeRequestCount.M(1))
+	}
+
+	log.Debugw("GetSize", "cid", c)
+	size, err := ro.blockstoreGetSize(ctx, c)
+	log.Debugw("GetSize response", "cid", c, "size", size, "error", err)
+	if err != nil && ro.blockMetrics != nil {
+		stats.Record(ctx, ro.blockMetrics.GetSizeFailResponseCount.M(1))
+	} else if ro.blockMetrics != nil {
+		stats.Record(ctx, ro.blockMetrics.GetSizeSuccessResponseCount.M(1))
+	}
+	return size, err
+}
+
+// --- UNSUPPORTED BLOCKSTORE METHODS -------
+func (ro *RemoteBlockstore) DeleteBlock(context.Context, cid.Cid) error {
+	return errors.New("unsupported operation DeleteBlock")
+}
+func (ro *RemoteBlockstore) HashOnRead(_ bool) {}
+func (ro *RemoteBlockstore) Put(context.Context, blocks.Block) error {
+	return errors.New("unsupported operation Put")
+}
+func (ro *RemoteBlockstore) PutMany(context.Context, []blocks.Block) error {
+	return errors.New("unsupported operation PutMany")
+}
+func (ro *RemoteBlockstore) AllKeysChan(ctx context.Context) (<-chan cid.Cid, error) {
+	return nil, errors.New("unsupported operation AllKeysChan")
+}
+
+func (ro *RemoteBlockstore) blockstoreGetSize(ctx context.Context, c cid.Cid) (int, error) {
+	// Get the pieces that contain the cid
+	pieces, err := ro.idxApi.PiecesContainingMultihash(ctx, c.Hash())
+	if err != nil {
+		return 0, fmt.Errorf("getting pieces containing cid %s: %w", c, err)
+	}
+	if len(pieces) == 0 {
+		// We must return ipld ErrNotFound here because that's the only type
+		// that bitswap interprets as a not found error. All other error types
+		// are treated as general errors.
+		return 0, format.ErrNotFound{Cid: c}
+	}
+
+	var merr error
+
+	// Iterate over all pieces in case the sector containing the first piece with the Block
+	// is not unsealed
+	for _, p := range pieces {
+		// Get the size of the block from the piece (should be the same for
+		// all pieces)
+		offsetSize, err := ro.idxApi.GetOffsetSize(ctx, p, c.Hash())
+		if err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("getting size of cid %s in piece %s: %w", c, p, err))
+			continue
+		}
+
+		if offsetSize.Size > 0 {
+			return int(offsetSize.Size), nil
+		}
+	}
+
+	return 0, merr
+}
+
+func isIdentity(c cid.Cid) (digest []byte, ok bool, err error) {
+	dmh, err := multihash.Decode(c.Hash())
+	if err != nil {
+		return nil, false, err
+	}
+	ok = dmh.Code == multihash.IDENTITY
+	digest = dmh.Digest
+	return digest, ok, nil
+}

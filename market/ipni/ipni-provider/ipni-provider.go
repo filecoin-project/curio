@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gorilla/mux"
+	"github.com/go-chi/chi/v5"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -44,9 +44,8 @@ import (
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 )
 
-const IPNIRoutePath = "/ipni-provider"
+const IPNIRoutePath = "/ipni-provider/"
 const IPNIPath = "/ipni/v1/ad/"
-const ProviderPath = "/ipni-provider"
 const publishInterval = 10 * time.Minute
 
 var (
@@ -77,8 +76,8 @@ type Provider struct {
 	httpServerAddresses []multiaddr.Multiaddr
 }
 
-func NewProvider(api ipniAPI, deps *deps.Deps) (*Provider, error) {
-	c, err := lru.New[ipld.Link, datamodel.Node](deps.Cfg.Market.StorageMarketConfig.IPNI.EntriesCacheCapacity)
+func NewProvider(d *deps.Deps) (*Provider, error) {
+	c, err := lru.New[ipld.Link, datamodel.Node](d.Cfg.Market.StorageMarketConfig.IPNI.EntriesCacheCapacity)
 	if err != nil {
 		return nil, xerrors.Errorf("creating new cache: %w", err)
 	}
@@ -87,7 +86,7 @@ func NewProvider(api ipniAPI, deps *deps.Deps) (*Provider, error) {
 
 	keyMap := make(map[string]*peerInfo)
 
-	rows, err := deps.DB.Query(ctx, `SELECT priv_key FROM libp2p`)
+	rows, err := d.DB.Query(ctx, `SELECT priv_key FROM libp2p`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get private libp2p keys from DB: %w", err)
 	}
@@ -121,9 +120,9 @@ func NewProvider(api ipniAPI, deps *deps.Deps) (*Provider, error) {
 		return nil, err
 	}
 
-	announceURLs := make([]*url.URL, 0, len(deps.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs))
+	announceURLs := make([]*url.URL, 0, len(d.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs))
 
-	for i, us := range deps.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs {
+	for i, us := range d.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs {
 		u, err := url.Parse(us)
 		if err != nil {
 			return nil, err
@@ -131,9 +130,9 @@ func NewProvider(api ipniAPI, deps *deps.Deps) (*Provider, error) {
 		announceURLs[i] = u
 	}
 
-	httpServerAddresses := make([]multiaddr.Multiaddr, 0, len(deps.Cfg.Market.StorageMarketConfig.IPNI.AnnounceAddresses))
+	httpServerAddresses := make([]multiaddr.Multiaddr, 0, len(d.Cfg.Market.StorageMarketConfig.IPNI.AnnounceAddresses))
 
-	for i, a := range deps.Cfg.Market.StorageMarketConfig.IPNI.AnnounceAddresses {
+	for i, a := range d.Cfg.Market.StorageMarketConfig.IPNI.AnnounceAddresses {
 		addr, err := urltomultiaddr.UrlToMultiaddr(a)
 		if err != nil {
 			return nil, err
@@ -146,9 +145,9 @@ func NewProvider(api ipniAPI, deps *deps.Deps) (*Provider, error) {
 	}
 
 	return &Provider{
-		api:                 api,
-		db:                  deps.DB,
-		pieceProvider:       deps.PieceProvider,
+		api:                 d.Chain,
+		db:                  d.DB,
+		pieceProvider:       d.PieceProvider,
 		cache:               c,
 		keys:                keyMap,
 		announceURLs:        announceURLs,
@@ -443,7 +442,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pp := strings.TrimPrefix(r.URL.RawPath, p.httpPrefix+ProviderPath)
+	pp := strings.TrimPrefix(r.URL.RawPath, p.httpPrefix+IPNIRoutePath)
 	pps := strings.Split(pp, "/")
 	providerID := pps[0]
 
@@ -520,12 +519,8 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func contentRouter(r *mux.Router, p *Provider) {
-	r.Methods("GET").Path("/*").HandlerFunc(p.handleGet)
-}
-
-func Routes(r *mux.Router, p *Provider) {
-	contentRouter(r.PathPrefix(IPNIRoutePath).Subrouter(), p)
+func Routes(r *chi.Mux, p *Provider) {
+	r.Get(IPNIRoutePath, p.handleGet)
 }
 
 func (p *Provider) StartPublishing(ctx context.Context) {

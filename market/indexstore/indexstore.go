@@ -295,3 +295,14 @@ func (i *IndexStore) PiecesContainingMultihash(ctx context.Context, m multihash.
 	}
 	return pcids, nil
 }
+
+func (i *IndexStore) GetOffsetSize(ctx context.Context, pieceCid cid.Cid, hash multihash.Multihash) (*OffsetSize, error) {
+	var offset, size uint64
+	qry := `SELECT BlockOffset, BlockSize FROM PayloadToPiece WHERE PieceCid = ? AND PayloadMultihash = ?`
+	err := i.session.Query(qry, pieceCid.Bytes(), trimMultihash(hash)).WithContext(ctx).Scan(&offset, &size)
+	if err != nil {
+		return nil, fmt.Errorf("getting offset / size: %w", err)
+	}
+
+	return &OffsetSize{Offset: offset, Size: size}, nil
+}
