@@ -161,7 +161,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, xerrors.Errorf("getting CAR multihash iterator: %w", err)
 	}
 
-	lnk, err := chunker.NewChunker(nil).Chunk(*mhi)
+	lnk, err := chunker.NewChunker().Chunk(*mhi)
 	if err != nil {
 		return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
 	}

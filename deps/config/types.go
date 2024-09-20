@@ -91,7 +91,6 @@ func DefaultCurioConfig() *CurioConfig {
 					ExpectedSnapSealDuration:  Duration(2 * time.Hour),
 				},
 				IPNI: IPNIConfig{
-					EntriesCacheCapacity: 4096,
 					WebHost:              "https://cid.contact",
 					DirectAnnounceURLs:   []string{"https://cid.contact/ingest/announce"},
 					AnnounceAddresses:    []string{},
@@ -679,14 +678,6 @@ type IPNIConfig struct {
 	// Disable set whether to disable indexing announcement to the network and expose endpoints that
 	// allow indexer nodes to process announcements. Default: False
 	Disable bool
-
-	// EntriesCacheCapacity sets the maximum capacity to use for caching the indexing advertisement
-	// entries. Defaults to 4096 if not specified. The cache is evicted using LRU policy. The
-	// maximum storage used by the cache is a factor of EntriesCacheCapacity, EntriesChunkSize(16384) and
-	// the length of multihashes being advertised. For example, advertising 128-bit long multihashes
-	// with the default EntriesCacheCapacity, and EntriesChunkSize(16384) means the cache size can grow to
-	// 1GiB when full.
-	EntriesCacheCapacity int
 
 	// The network indexer host that the web UI should link to for published announcements
 	// TODO: should we use this for checking published heas before publishing? Later commit

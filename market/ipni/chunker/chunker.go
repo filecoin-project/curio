@@ -1,19 +1,13 @@
 package chunker
 
 import (
-	"cmp"
 	"errors"
-	"fmt"
-	"io"
-	"slices"
-
-	lru "github.com/hashicorp/golang-lru/v2"
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/ipld/go-car/v2/index"
 	"github.com/ipld/go-ipld-prime"
 	"github.com/ipld/go-ipld-prime/datamodel"
 	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/multiformats/go-multihash"
+	"io"
 
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 )
@@ -26,7 +20,6 @@ const entriesChunkSize = 16384
 // See: NewChunker
 type Chunker struct {
 	chunkSize int
-	cache     *lru.Cache[ipld.Link, datamodel.Node]
 }
 
 // NewChunker instantiates a new chain chunker that given a provider.MultihashIterator it drains
@@ -34,11 +27,14 @@ type Chunker struct {
 // schema.EntryChunk nodes where each chunk contains no more than chunkSize number of multihashes.
 //
 // See: schema.EntryChunk.
-func NewChunker(cache *lru.Cache[ipld.Link, datamodel.Node]) *Chunker {
+func NewChunker() *Chunker {
 	return &Chunker{
 		chunkSize: entriesChunkSize,
-		cache:     cache,
 	}
+}
+
+type HashIterator interface {
+	Next() (multihash.Multihash, error)
 }
 
 // Chunk chunks all the mulithashes returned by the given iterator into a chain of schema.EntryChunk
@@ -46,7 +42,7 @@ func NewChunker(cache *lru.Cache[ipld.Link, datamodel.Node]) *Chunker {
 // the root chunk node.
 //
 // See: schema.EntryChunk.
-func (ls *Chunker) Chunk(mhi SliceMhIterator) (ipld.Link, error) {
+func (ls *Chunker) Chunk(mhi HashIterator) (ipld.Link, error) {
 	mhs := make([]multihash.Multihash, 0, ls.chunkSize)
 	var next ipld.Link
 	var mhCount, chunkCount int
@@ -67,9 +63,6 @@ func (ls *Chunker) Chunk(mhi SliceMhIterator) (ipld.Link, error) {
 			next, err = ipniculib.NodeToLink(cNode, schema.Linkproto)
 			if err != nil {
 				return nil, err
-			}
-			if ls.cache != nil {
-				ls.cache.Add(next, cNode)
 			}
 			chunkCount++
 			mhCount += len(mhs)
@@ -102,55 +95,4 @@ func newEntriesChunkNode(mhs []multihash.Multihash, next ipld.Link) (datamodel.N
 		chunk.Next = next
 	}
 	return chunk.ToNode()
-}
-
-// SliceMhIterator is a simple MultihashIterator implementation that
-// iterates a slice of multihash.Multihash.
-type SliceMhIterator struct {
-	mhs []multihash.Multihash
-	pos int
-}
-
-type iteratorStep struct {
-	mh     multihash.Multihash
-	offset uint64
-}
-
-// CarMultihashIterator constructs a new MultihashIterator from a CAR index.
-//
-// This iterator supplies multihashes in deterministic order of their
-// corresponding CAR offset. The order is maintained consistently regardless of
-// the underlying IterableIndex implementation. Returns error if duplicate
-// offsets detected.
-func CarMultihashIterator(idx index.IterableIndex) (*SliceMhIterator, error) {
-	var steps []iteratorStep
-	if err := idx.ForEach(func(mh multihash.Multihash, offset uint64) error {
-		steps = append(steps, iteratorStep{mh, offset})
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-	slices.SortFunc(steps, func(a, b iteratorStep) int {
-		return cmp.Compare(a.offset, b.offset)
-	})
-
-	var lastOffset uint64
-	mhs := make([]multihash.Multihash, len(steps))
-	for i := range steps {
-		if steps[i].offset == lastOffset {
-			return nil, fmt.Errorf("car multihash iterator has duplicate offset %d", steps[i].offset)
-		}
-		mhs[i] = steps[i].mh
-	}
-	return &SliceMhIterator{mhs: mhs}, nil
-}
-
-// Next implements the MultihashIterator interface.
-func (it *SliceMhIterator) Next() (multihash.Multihash, error) {
-	if it.pos >= len(it.mhs) {
-		return nil, io.EOF
-	}
-	mh := it.mhs[it.pos]
-	it.pos++
-	return mh, nil
 }
