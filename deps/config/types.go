@@ -94,12 +94,12 @@ func DefaultCurioConfig() *CurioConfig {
 					EntriesCacheCapacity: 4096,
 					WebHost:              "https://cid.contact",
 					DirectAnnounceURLs:   []string{"https://cid.contact/ingest/announce"},
+					AnnounceAddresses:    []string{},
 				},
 			},
 			HTTP: HTTPConfig{
 				DomainName:        "",
 				ListenAddress:     "0.0.0.0:12310",
-				AnnounceAddresses: []string{},
 				ReadTimeout:       time.Second * 10,
 				WriteTimeout:      time.Second * 10,
 				IdleTimeout:       time.Minute * 2,
@@ -697,6 +697,11 @@ type IPNIConfig struct {
 
 	// The list of URLs of indexing nodes to announce to.
 	DirectAnnounceURLs []string
+
+	// AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
+	// Curio allows running more than one node for HTTP server and thus all addressed can be announced
+	// simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
+	AnnounceAddresses []string
 }
 
 // HTTPConfig represents the configuration for an HTTP server.
@@ -709,11 +714,6 @@ type HTTPConfig struct {
 
 	// ListenAddress is the address that the server listens for HTTP requests.
 	ListenAddress string
-
-	// AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
-	// Curio allows running more than one node for HTTP server and thus all addressed can be announced
-	// simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
-	AnnounceAddresses []string
 
 	// ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
 	ReadTimeout time.Duration

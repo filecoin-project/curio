@@ -459,6 +459,13 @@ description: The default curio configuration
       # type: []string
       #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
 
+      # AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
+      # Curio allows running more than one node for HTTP server and thus all addressed can be announced
+      # simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
+      #
+      # type: []string
+      #AnnounceAddresses = []
+
     [Market.StorageMarketConfig.MK12]
       # When a deal is ready to publish, the amount of time to wait for more
       # deals to be ready to publish before publishing them all as a batch
@@ -522,17 +529,55 @@ description: The default curio configuration
         #NoAnnounceAddresses = []
 
   [Market.HTTP]
-    # ListenAddress is where HTTP server will be listening on. Default is "0.0.0.0:12400"
+    # DomainName specifies the domain name that the server uses to serve HTTP requests.
     #
     # type: string
-    #ListenAddress = "0.0.0.0:12400"
+    #DomainName = ""
 
-    # AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
-    # Curio allows running more than one node for HTTP server and thus all addressed can be announced
-    # simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
+    # CertCacheDir path to the cache directory for storing SSL certificates needed for HTTPS.
     #
-    # type: []string
-    #AnnounceAddresses = []
+    # type: string
+    #CertCacheDir = ""
+
+    # ListenAddress is the address that the server listens for HTTP requests.
+    #
+    # type: string
+    #ListenAddress = "0.0.0.0:12310"
+
+    # ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
+    #
+    # type: time.Duration
+    #ReadTimeout = "10s"
+
+    # WriteTimeout is the maximum duration before timing out writes of the response to the client.
+    #
+    # type: time.Duration
+    #WriteTimeout = "10s"
+
+    # IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
+    #
+    # type: time.Duration
+    #IdleTimeout = "2m0s"
+
+    # ReadHeaderTimeout is amount of time allowed to read request headers
+    #
+    # type: time.Duration
+    #ReadHeaderTimeout = "5s"
+
+    # EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.
+    #
+    # type: bool
+    #EnableCORS = true
+
+    [Market.HTTP.CompressionLevels]
+      # type: int
+      #GzipLevel = 6
+
+      # type: int
+      #BrotliLevel = 4
+
+      # type: int
+      #DeflateLevel = 6
 
 
 [Ingest]
@@ -694,44 +739,49 @@ description: The default curio configuration
   # type: string
   #DomainName = ""
 
-  # ListenAddr is the address that the server listens for HTTP requests.
+  # CertCacheDir path to the cache directory for storing SSL certificates needed for HTTPS.
   #
   # type: string
-  #ListenAddr = "0.0.0.0:12310"
+  #CertCacheDir = ""
+
+  # ListenAddress is the address that the server listens for HTTP requests.
+  #
+  # type: string
+  #ListenAddress = ""
 
   # ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
   #
   # type: time.Duration
-  #ReadTimeout = "10s"
+  #ReadTimeout = "0s"
 
   # WriteTimeout is the maximum duration before timing out writes of the response to the client.
   #
   # type: time.Duration
-  #WriteTimeout = "10s"
+  #WriteTimeout = "0s"
 
   # IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
   #
   # type: time.Duration
-  #IdleTimeout = "2m0s"
+  #IdleTimeout = "0s"
 
   # ReadHeaderTimeout is amount of time allowed to read request headers
   #
   # type: time.Duration
-  #ReadHeaderTimeout = "5s"
+  #ReadHeaderTimeout = "0s"
 
   # EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.
   #
   # type: bool
-  #EnableCORS = true
+  #EnableCORS = false
 
   [HTTP.CompressionLevels]
     # type: int
-    #GzipLevel = 6
+    #GzipLevel = 0
 
     # type: int
-    #BrotliLevel = 4
+    #BrotliLevel = 0
 
     # type: int
-    #DeflateLevel = 6
+    #DeflateLevel = 0
 
 ```

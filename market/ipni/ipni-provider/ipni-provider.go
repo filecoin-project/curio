@@ -131,9 +131,9 @@ func NewProvider(api ipniAPI, deps *deps.Deps) (*Provider, error) {
 		announceURLs[i] = u
 	}
 
-	httpServerAddresses := make([]multiaddr.Multiaddr, 0, len(deps.Cfg.Market.HTTP.AnnounceAddresses))
+	httpServerAddresses := make([]multiaddr.Multiaddr, 0, len(deps.Cfg.Market.StorageMarketConfig.IPNI.AnnounceAddresses))
 
-	for i, a := range deps.Cfg.Market.HTTP.AnnounceAddresses {
+	for i, a := range deps.Cfg.Market.StorageMarketConfig.IPNI.AnnounceAddresses {
 		addr, err := urltomultiaddr.UrlToMultiaddr(a)
 		if err != nil {
 			return nil, err
