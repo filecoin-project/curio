@@ -4,15 +4,17 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/market/ipni/ipniculib"
+	"sort"
+
 	"github.com/ipfs/go-cid"
 	"github.com/ipld/go-ipld-prime"
 	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/multiformats/go-multihash"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
-	"sort"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 )
 
 const longChainThreshold = 500_000

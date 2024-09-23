@@ -438,16 +438,6 @@ description: The default curio configuration
       # type: bool
       #Disable = false
 
-      # EntriesCacheCapacity sets the maximum capacity to use for caching the indexing advertisement
-      # entries. Defaults to 4096 if not specified. The cache is evicted using LRU policy. The
-      # maximum storage used by the cache is a factor of EntriesCacheCapacity, EntriesChunkSize(16384) and
-      # the length of multihashes being advertised. For example, advertising 128-bit long multihashes
-      # with the default EntriesCacheCapacity, and EntriesChunkSize(16384) means the cache size can grow to
-      # 1GiB when full.
-      #
-      # type: int
-      #EntriesCacheCapacity = 4096
-
       # The network indexer host that the web UI should link to for published announcements
       # TODO: should we use this for checking published heas before publishing? Later commit
       #
