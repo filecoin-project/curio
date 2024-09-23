@@ -3,12 +3,14 @@ package chunker
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 	"github.com/ipfs/go-cid"
 	"github.com/ipld/go-ipld-prime"
 	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/multiformats/go-multihash"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 	"sort"
 )
@@ -108,15 +110,15 @@ func (c *InitialChunker) processCarPending() error {
 	return nil
 }
 
-func (c *InitialChunker) Finish(db *harmonydb.DB, pieceCid cid.Cid) error {
+func (c *InitialChunker) Finish(ctx context.Context, db *harmonydb.DB, pieceCid cid.Cid) error {
 	// note: <= because we're not inserting anything here
 	if c.ingestedSoFar <= longChainThreshold {
 		// db-order ingest
-		return c.finishDB(db, pieceCid)
+		return c.finishDB(ctx, db, pieceCid)
 	}
 
 	// car-order ingest
-	return c.finishCAR(db, pieceCid)
+	return c.finishCAR(ctx, db, pieceCid)
 }
 
 /*
@@ -131,7 +133,7 @@ postgres: ipni_chunks
 * from_car
 */
 
-func (c *InitialChunker) finishDB(db *harmonydb.DB, pieceCid cid.Cid) error {
+func (c *InitialChunker) finishDB(ctx context.Context, db *harmonydb.DB, pieceCid cid.Cid) error {
 	if len(c.dbMultihashes) == 0 {
 		return nil
 	}
@@ -179,28 +181,49 @@ func (c *InitialChunker) finishDB(db *harmonydb.DB, pieceCid cid.Cid) error {
 		chunkLinks[i] = link
 	}
 
-	for i := 0; i < totalChunks; i++ {
-		link := chunkLinks[i]
-		firstCID := chunks[i][0]
-		numBlocks := len(chunks[i])
-		startOffset := (*int64)(nil)
+	commit, err := db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (bool, error) {
+		batch := &pgx.Batch{}
 
-		// Insert chunk metadata into the database
-		_, err := db.Exec(context.Background(), `
-            INSERT INTO ipni_chunks (cid, piece_cid, chunk_num, first_cid, start_offset, num_blocks, from_car)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-        `,
-			link.String(), pieceCid.String(), i, firstCID.HexString(), startOffset, numBlocks, false)
-		if err != nil {
-			return err
+		// Queue insert statements into the batch
+		for i := 0; i < totalChunks; i++ {
+			link := chunkLinks[i]
+			firstCID := chunks[i][0]
+			numBlocks := len(chunks[i])
+			startOffset := (*int64)(nil)
+
+			// Prepare the insert statement
+			batch.Queue(`
+                INSERT INTO ipni_chunks (cid, piece_cid, chunk_num, first_cid, start_offset, num_blocks, from_car)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+            `, link.String(), pieceCid.String(), i, firstCID.HexString(), startOffset, numBlocks, false)
 		}
+
+		// Send the batch
+		br := tx.SendBatch(ctx, batch)
+		defer br.Close()
+
+		// Execute the batch and check for errors
+		for i := 0; i < totalChunks; i++ {
+			_, err := br.Exec()
+			if err != nil {
+				return false, err
+			}
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return err
+	}
+	if !commit {
+		return fmt.Errorf("transaction was rolled back")
 	}
 
 	log.Infow("Generated linked chunks of multihashes for DB ingest", "totalMhCount", totalMhCount, "chunkCount", totalChunks)
 	return nil
 }
 
-func (c *InitialChunker) finishCAR(db *harmonydb.DB, pieceCid cid.Cid) error {
+func (c *InitialChunker) finishCAR(ctx context.Context, db *harmonydb.DB, pieceCid cid.Cid) error {
 	// Process any remaining carPending multihashes
 	if len(c.carPending) > 0 {
 		if err := c.processCarPending(); err != nil {
@@ -208,21 +231,42 @@ func (c *InitialChunker) finishCAR(db *harmonydb.DB, pieceCid cid.Cid) error {
 		}
 	}
 
-	for i := range c.prevChunks {
-		link := c.prevChunks[i].link
-		numBlocks := int(c.prevChunks[i].nodes)
-		startOffset := c.prevChunks[i].start
-		fromCar := true
+	totalChunks := len(c.prevChunks)
+	commit, err := db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (bool, error) {
+		batch := &pgx.Batch{}
 
-		// Insert chunk metadata into the database
-		_, err := db.Exec(context.Background(), `
-			INSERT INTO ipni_chunks (cid, piece_cid, chunk_num, first_cid, start_offset, num_blocks, from_car)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`,
-			link.String(), pieceCid.String(), i, nil, startOffset, numBlocks, fromCar)
-		if err != nil {
-			return err
+		// Queue insert statements into the batch
+		for i := 0; i < totalChunks; i++ {
+			link := c.prevChunks[i].link
+			numBlocks := int(c.prevChunks[i].nodes)
+			startOffset := c.prevChunks[i].start
+
+			// Prepare the insert statement
+			batch.Queue(`
+                INSERT INTO ipni_chunks (cid, piece_cid, chunk_num, first_cid, start_offset, num_blocks, from_car)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+            `, link.String(), pieceCid.String(), i, nil, startOffset, numBlocks, true)
 		}
+
+		// Send the batch
+		br := tx.SendBatch(ctx, batch)
+		defer br.Close()
+
+		// Execute the batch and check for errors
+		for i := 0; i < totalChunks; i++ {
+			_, err := br.Exec()
+			if err != nil {
+				return false, err
+			}
+		}
+
+		return true, nil
+	})
+	if err != nil {
+		return err
+	}
+	if !commit {
+		return fmt.Errorf("transaction was rolled back")
 	}
 
 	log.Infow("Generated linked chunks of multihashes for CAR ingest", "chunkCount", len(c.prevChunks))

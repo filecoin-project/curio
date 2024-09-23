@@ -37,6 +37,20 @@ CREATE TABLE ipni_head (
     FOREIGN KEY (head) REFERENCES ipni(ad_cid) ON DELETE RESTRICT -- Prevents deletion if it's referenced
 );
 
+CREATE TABLE ipni_chunks (
+    cid TEXT PRIMARY KEY,
+    piece_cid TEXT NOT NULL,
+    chunk_num INTEGER NOT NULL,
+    first_cid TEXT,
+    start_offset BIGINT,
+    num_blocks BIGINT NOT NULL,
+    from_car BOOLEAN NOT NULL,
+    CHECK (
+        (from_car = FALSE AND first_cid IS NOT NULL AND start_offset IS NULL) OR
+        (from_car = TRUE AND first_cid IS NULL AND start_offset IS NOT NULL)
+    )
+);
+
 CREATE OR REPLACE FUNCTION insert_ad_and_update_head(
     _ad_cid TEXT,
     _context_id BYTEA,
