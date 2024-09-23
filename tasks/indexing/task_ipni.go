@@ -12,7 +12,6 @@ import (
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	carv2 "github.com/ipld/go-car/v2"
-	"github.com/ipld/go-car/v2/index"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/ipni/go-libipni/metadata"
@@ -97,21 +96,6 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, xerrors.Errorf("unmarshaling piece info: %w", err)
 	}
 
-	unsealed, err := I.pieceProvider.IsUnsealed(ctx, storiface.SectorRef{
-		ID: abi.SectorID{
-			Miner:  abi.ActorID(task.SPID),
-			Number: task.Sector,
-		},
-		ProofType: task.Proof,
-	}, storiface.UnpaddedByteIndex(task.Offset), pi.Size.Unpadded())
-	if err != nil {
-		return false, xerrors.Errorf("checking if sector is unsealed :%w", err)
-	}
-
-	if !unsealed {
-		return false, xerrors.Errorf("sector %d for miner %d is not unsealed", task.Sector, task.SPID)
-	}
-
 	reader, err := I.pieceProvider.ReadPiece(ctx, storiface.SectorRef{
 		ID: abi.SectorID{
 			Miner:  abi.ActorID(task.SPID),
@@ -123,26 +107,27 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
 
-	var recs []index.Record
 	opts := []carv2.Option{carv2.ZeroLengthSectionAsEOF(true)}
 	blockReader, err := carv2.NewBlockReader(reader, opts...)
 	if err != nil {
 		return false, fmt.Errorf("getting block reader over piece: %w", err)
 	}
 
+	chk := chunker.NewInitialChunker()
+
 	blockMetadata, err := blockReader.SkipNext()
 	for err == nil {
-		recs = append(recs, index.Record{
-			Cid:    blockMetadata.Cid,
-			Offset: blockMetadata.Offset,
-		})
+		if err := chk.Accept(blockMetadata.Cid.Hash(), int64(blockMetadata.Offset)); err != nil {
+			return false, xerrors.Errorf("accepting block: %w", err)
+		}
+
 		blockMetadata, err = blockReader.SkipNext()
 	}
 	if !errors.Is(err, io.EOF) {
-		return false, fmt.Errorf("generating index for piece: %w", err)
+		return false, xerrors.Errorf("reading block: %w", err)
 	}
 
-	lnk, err := chunker.NewChunker().Chunk(*mhi)
+	lnk, err := chk.Finish(ctx, I.db, pi.PieceCID)
 	if err != nil {
 		return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
 	}
@@ -220,7 +205,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 
 		return true, nil
 
-	})
+	}, harmonydb.OptionRetry())
 	if err != nil {
 		return false, xerrors.Errorf("store IPNI success: %w", err)
 	}
@@ -287,7 +272,7 @@ func (I *IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name: "IPNI",
 		Cost: resources.Resources{
 			Cpu: 1,
-			Ram: 8 << 30, // 8 GiB for the most dense cars
+			Ram: 1 << 30,
 		},
 		MaxFailures: 3,
 		IAmBored: passcall.Every(5*time.Minute, func(taskFunc harmonytask.AddTaskFunc) error {

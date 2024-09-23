@@ -110,7 +110,7 @@ func (c *InitialChunker) processCarPending() error {
 	return nil
 }
 
-func (c *InitialChunker) Finish(ctx context.Context, db *harmonydb.DB, pieceCid cid.Cid) error {
+func (c *InitialChunker) Finish(ctx context.Context, db *harmonydb.DB, pieceCid cid.Cid) (ipld.Link, error) {
 	// note: <= because we're not inserting anything here
 	if c.ingestedSoFar <= longChainThreshold {
 		// db-order ingest
@@ -121,21 +121,9 @@ func (c *InitialChunker) Finish(ctx context.Context, db *harmonydb.DB, pieceCid 
 	return c.finishCAR(ctx, db, pieceCid)
 }
 
-/*
-
-postgres: ipni_chunks
-* cid -- chunk cid
-* piece_cid
-* chunk_num
-* first_cid -- for db-order ingest
-* start_offset -- nullable, for car-order ingest
-* num_blocks
-* from_car
-*/
-
-func (c *InitialChunker) finishDB(ctx context.Context, db *harmonydb.DB, pieceCid cid.Cid) error {
+func (c *InitialChunker) finishDB(ctx context.Context, db *harmonydb.DB, pieceCid cid.Cid) (ipld.Link, error) {
 	if len(c.dbMultihashes) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	c.carPending = nil
@@ -170,12 +158,12 @@ func (c *InitialChunker) finishDB(ctx context.Context, db *harmonydb.DB, pieceCi
 
 		cNode, err := newEntriesChunkNode(chunks[i], next)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		link, err := ipniculib.NodeToLink(cNode, schema.Linkproto)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		chunkLinks[i] = link
@@ -213,21 +201,23 @@ func (c *InitialChunker) finishDB(ctx context.Context, db *harmonydb.DB, pieceCi
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !commit {
-		return fmt.Errorf("transaction was rolled back")
+		return nil, fmt.Errorf("transaction was rolled back")
 	}
 
-	log.Infow("Generated linked chunks of multihashes for DB ingest", "totalMhCount", totalMhCount, "chunkCount", totalChunks)
-	return nil
+	lastLink := chunkLinks[totalChunks-1]
+
+	log.Infow("Generated linked chunks of multihashes for DB ingest", "totalMhCount", totalMhCount, "chunkCount", totalChunks, "lastCid", lastLink)
+	return lastLink, nil
 }
 
-func (c *InitialChunker) finishCAR(ctx context.Context, db *harmonydb.DB, pieceCid cid.Cid) error {
+func (c *InitialChunker) finishCAR(ctx context.Context, db *harmonydb.DB, pieceCid cid.Cid) (ipld.Link, error) {
 	// Process any remaining carPending multihashes
 	if len(c.carPending) > 0 {
 		if err := c.processCarPending(); err != nil {
-			return xerrors.Errorf("process car pending: %w", err)
+			return nil, xerrors.Errorf("process car pending: %w", err)
 		}
 	}
 
@@ -263,12 +253,14 @@ func (c *InitialChunker) finishCAR(ctx context.Context, db *harmonydb.DB, pieceC
 		return true, nil
 	})
 	if err != nil {
-		return err
+		return nil, xerrors.Errorf("transaction: %w", err)
 	}
 	if !commit {
-		return fmt.Errorf("transaction was rolled back")
+		return nil, fmt.Errorf("transaction was rolled back")
 	}
 
-	log.Infow("Generated linked chunks of multihashes for CAR ingest", "chunkCount", len(c.prevChunks))
-	return nil
+	lastLink := c.prevChunks[totalChunks-1].link
+
+	log.Infow("Generated linked chunks of multihashes for CAR ingest", "chunkCount", len(c.prevChunks), "lastCid", lastLink)
+	return lastLink, nil
 }
