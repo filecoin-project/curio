@@ -2,10 +2,14 @@ package chunker
 
 import (
 	"bytes"
+	"context"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
+	"github.com/ipfs/go-cid"
 	"github.com/ipld/go-ipld-prime"
 	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/multiformats/go-multihash"
+	"golang.org/x/xerrors"
 	"sort"
 )
 
@@ -29,7 +33,6 @@ type InitialChunker struct {
 	// car-order ingest, after longChainThreshold
 	carPending    []multihash.Multihash
 	carChunkStart *int64
-	carChunkNodes int64
 
 	prevChunks []carChunkMeta
 }
@@ -65,18 +68,105 @@ func (c *InitialChunker) Accept(mh multihash.Multihash, startOff int64) error {
 	c.carPending = append(c.carPending, mh)
 	if c.carChunkStart == nil {
 		c.carChunkStart = &startOff
-		c.carChunkNodes = 0
 	}
-	c.carChunkNodes++
 
 	if len(c.carPending) >= c.chunkSize {
-		// create a chunk
+		if err := c.processCarPending(); err != nil {
+			return xerrors.Errorf("process car pending: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (c *InitialChunker) processCarPending() error {
+	// create a chunk
+	var next ipld.Link
+	if len(c.prevChunks) > 0 {
+		next = c.prevChunks[len(c.prevChunks)-1].link
+	}
+
+	cNode, err := newEntriesChunkNode(c.carPending, next)
+	if err != nil {
+		return err
+	}
+
+	link, err := ipniculib.NodeToLink(cNode, schema.Linkproto)
+	if err != nil {
+		return err
+	}
+
+	c.prevChunks = append(c.prevChunks, carChunkMeta{
+		link:  link,
+		start: *c.carChunkStart,
+		nodes: int64(len(c.carPending)),
+	})
+
+	c.carPending = c.carPending[:0]
+	c.carChunkStart = nil
+
+	return nil
+}
+
+func (c *InitialChunker) Finish(db *harmonydb.DB, pieceCid cid.Cid) error {
+	// note: <= because we're not inserting anything here
+	if c.ingestedSoFar <= longChainThreshold {
+		// db-order ingest
+		return c.finishDB(db, pieceCid)
+	}
+
+	// car-order ingest
+	return c.finishCAR(db, pieceCid)
+}
+
+/*
+
+postgres: ipni_chunks
+* cid -- chunk cid
+* piece_cid
+* chunk_num
+* first_cid -- for db-order ingest
+* start_offset -- nullable, for car-order ingest
+* num_blocks
+* from_car
+*/
+
+func (c *InitialChunker) finishDB(db *harmonydb.DB, pieceCid cid.Cid) error {
+	if len(c.dbMultihashes) == 0 {
+		return nil
+	}
+
+	c.carPending = nil
+	c.prevChunks = nil
+
+	// Sort multihashes
+	sort.Slice(c.dbMultihashes, func(i, j int) bool {
+		return bytes.Compare(c.dbMultihashes[i], c.dbMultihashes[j]) < 0
+	})
+
+	totalMhCount := len(c.dbMultihashes)
+
+	// Partition multihashes into chunks
+	var chunks [][]multihash.Multihash
+	for i := 0; i < len(c.dbMultihashes); i += c.chunkSize {
+		end := i + c.chunkSize
+		if end > len(c.dbMultihashes) {
+			end = len(c.dbMultihashes)
+		}
+		chunks = append(chunks, c.dbMultihashes[i:end])
+	}
+
+	// Collect links for each chunk
+	totalChunks := len(chunks)
+	chunkLinks := make([]ipld.Link, totalChunks)
+
+	for i := 0; i < totalChunks; i++ {
 		var next ipld.Link
-		if len(c.prevChunks) > 0 {
-			next = c.prevChunks[len(c.prevChunks)-1].link
+		if i > 0 {
+			next = chunkLinks[i-1]
 		}
 
-		cNode, err := newEntriesChunkNode(c.carPending, next)
+		cNode, err := newEntriesChunkNode(chunks[i], next)
 		if err != nil {
 			return err
 		}
@@ -86,44 +176,55 @@ func (c *InitialChunker) Accept(mh multihash.Multihash, startOff int64) error {
 			return err
 		}
 
-		c.prevChunks = append(c.prevChunks, carChunkMeta{
-			link:  link,
-			start: *c.carChunkStart,
-			nodes: c.carChunkNodes,
-		})
-
-		c.carPending = c.carPending[:0]
+		chunkLinks[i] = link
 	}
 
+	for i := 0; i < totalChunks; i++ {
+		link := chunkLinks[i]
+		firstCID := chunks[i][0]
+		numBlocks := len(chunks[i])
+		startOffset := (*int64)(nil)
+
+		// Insert chunk metadata into the database
+		_, err := db.Exec(context.Background(), `
+            INSERT INTO ipni_chunks (cid, piece_cid, chunk_num, first_cid, start_offset, num_blocks, from_car)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `,
+			link.String(), pieceCid.String(), i, firstCID.HexString(), startOffset, numBlocks, false)
+		if err != nil {
+			return err
+		}
+	}
+
+	log.Infow("Generated linked chunks of multihashes for DB ingest", "totalMhCount", totalMhCount, "chunkCount", totalChunks)
 	return nil
 }
 
-func (c *InitialChunker) Finish() error {
-	// note: <= because we're not inserting anything here
-	if c.ingestedSoFar <= longChainThreshold {
-		// db-order ingest
-		return c.finishDB()
+func (c *InitialChunker) finishCAR(db *harmonydb.DB, pieceCid cid.Cid) error {
+	// Process any remaining carPending multihashes
+	if len(c.carPending) > 0 {
+		if err := c.processCarPending(); err != nil {
+			return xerrors.Errorf("process car pending: %w", err)
+		}
 	}
 
-	// car-order ingest
-	return c.finishCAR()
-}
+	for i := range c.prevChunks {
+		link := c.prevChunks[i].link
+		numBlocks := int(c.prevChunks[i].nodes)
+		startOffset := c.prevChunks[i].start
+		fromCar := true
 
-func (c *InitialChunker) finishDB() error {
-	if len(c.dbMultihashes) == 0 {
-		return nil
+		// Insert chunk metadata into the database
+		_, err := db.Exec(context.Background(), `
+			INSERT INTO ipni_chunks (cid, piece_cid, chunk_num, first_cid, start_offset, num_blocks, from_car)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`,
+			link.String(), pieceCid.String(), i, nil, startOffset, numBlocks, fromCar)
+		if err != nil {
+			return err
+		}
 	}
 
-	// in db-order ingest, we create a chain of schema.EntryChunk nodes with sorted multihashes
-
-	// sort multihashes
-	sort.Slice(c.dbMultihashes, func(i, j int) bool {
-		return bytes.Compare(c.dbMultihashes[i], c.dbMultihashes[j]) < 0
-	})
-
+	log.Infow("Generated linked chunks of multihashes for CAR ingest", "chunkCount", len(c.prevChunks))
 	return nil
-}
-
-func (c *InitialChunker) finishCAR() error {
-
 }
