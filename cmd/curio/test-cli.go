@@ -45,6 +45,11 @@ var wdPostCmd = &cli.Command{
 	},
 }
 
+// wdPostTaskCmd writes to harmony_task and wdpost_partition_tasks, then waits for the result.
+// It is intended to be used to test the windowpost scheduler.
+// The end of the compute task puts the task_id onto wdpost_proofs, which is read by the submit task.
+// The submit task will not send test tasks to the chain, and instead will write the result to harmony_test.
+// The result is read by this command, and printed to stdout.
 var wdPostTaskCmd = &cli.Command{
 	Name:    "task",
 	Aliases: []string{"scheduled", "schedule", "async", "asynchronous"},
