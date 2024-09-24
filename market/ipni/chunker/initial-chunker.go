@@ -8,7 +8,6 @@ import (
 
 	"github.com/ipfs/go-cid"
 	"github.com/ipld/go-ipld-prime"
-	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/multiformats/go-multihash"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
@@ -90,12 +89,12 @@ func (c *InitialChunker) processCarPending() error {
 		next = c.prevChunks[len(c.prevChunks)-1].link
 	}
 
-	cNode, err := newEntriesChunkNode(c.carPending, next)
+	cNode, err := NewEntriesChunkNode(c.carPending, next)
 	if err != nil {
 		return err
 	}
 
-	link, err := ipniculib.NodeToLink(cNode, schema.Linkproto)
+	link, err := ipniculib.NodeToLink(cNode, ipniculib.EntryLinkproto)
 	if err != nil {
 		return err
 	}
@@ -158,12 +157,12 @@ func (c *InitialChunker) finishDB(ctx context.Context, db *harmonydb.DB, pieceCi
 			next = chunkLinks[i-1]
 		}
 
-		cNode, err := newEntriesChunkNode(chunks[i], next)
+		cNode, err := NewEntriesChunkNode(chunks[i], next)
 		if err != nil {
 			return nil, err
 		}
 
-		link, err := ipniculib.NodeToLink(cNode, schema.Linkproto)
+		link, err := ipniculib.NodeToLink(cNode, ipniculib.EntryLinkproto)
 		if err != nil {
 			return nil, err
 		}

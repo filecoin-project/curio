@@ -91,7 +91,7 @@ CREATE OR REPLACE FUNCTION process_piece_deal(
     _sp_id BIGINT,
     _sector_num BIGINT,
     _piece_offset BIGINT,
-    _piece_length BIGINT,
+    _piece_length BIGINT, -- padded length
     _raw_size BIGINT,
     _indexed BOOLEAN,
     _legacy_deal BOOLEAN DEFAULT FALSE,

@@ -48,7 +48,9 @@ CREATE TABLE ipni_chunks (
     CHECK (
         (from_car = FALSE AND first_cid IS NOT NULL AND start_offset IS NULL) OR
         (from_car = TRUE AND first_cid IS NULL AND start_offset IS NOT NULL)
-    )
+    ),
+
+    UNIQUE (piece_cid, chunk_num)
 );
 
 CREATE OR REPLACE FUNCTION insert_ad_and_update_head(

@@ -91,9 +91,9 @@ func DefaultCurioConfig() *CurioConfig {
 					ExpectedSnapSealDuration:  Duration(2 * time.Hour),
 				},
 				IPNI: IPNIConfig{
-					WebHost:              "https://cid.contact",
-					DirectAnnounceURLs:   []string{"https://cid.contact/ingest/announce"},
-					AnnounceAddresses:    []string{},
+					WebHost:            "https://cid.contact",
+					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce"},
+					AnnounceAddresses:  []string{},
 				},
 			},
 		},
