@@ -76,7 +76,6 @@ func SetupLanguage() (func(key message.Reference, a ...interface{}) string, func
 		_ = os.Setenv("LANG", "en-US") // for later users of this function
 		notice.Copy().AlignHorizontal(lipgloss.Right).
 			Render("$LANG=" + langText + " unsupported. Available: " + strings.Join(lo.Keys(have), ", "))
-		fmt.Println("Defaulting to English. Please reach out to the Curio team if you would like to have additional language support.")
 	}
 	return func(key message.Reference, a ...interface{}) string {
 			return message.NewPrinter(lang).Sprintf(key, a...)

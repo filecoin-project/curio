@@ -29,11 +29,11 @@ import (
 const providerEnvVar = "CURIO_API_INFO"
 
 var cliCmd = &cli.Command{
-	Name: "cli",
+	Name:  "cli",
 	Usage: translations.T("Execute cli commands"),
 	Flags: []cli.Flag{
 		&cli.StringFlag{
-			Name: "machine",
+			Name:  "machine",
 			Usage: translations.T("machine host:port (curio run --listen address)"),
 		},
 	},
@@ -209,11 +209,11 @@ var cliCmd = &cli.Command{
 }
 
 var waitApiCmd = &cli.Command{
-	Name: "wait-api",
+	Name:  "wait-api",
 	Usage: translations.T("Wait for Curio api to come online"),
 	Flags: []cli.Flag{
 		&cli.DurationFlag{
-			Name: "timeout",
+			Name:  "timeout",
 			Usage: translations.T("duration to wait till fail"),
 			Value: time.Second * 30,
 		},

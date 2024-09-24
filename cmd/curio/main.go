@@ -18,13 +18,12 @@ import (
 
 	curiobuild "github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
 	"github.com/filecoin-project/curio/lib/panicreport"
 	"github.com/filecoin-project/curio/lib/repo"
 	"github.com/filecoin-project/curio/lib/reqcontext"
-
-	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 
 	proofparams "github.com/filecoin-project/lotus/build/proof-params"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
@@ -102,7 +101,7 @@ func main() {
 	}
 
 	app := &cli.App{
-		Name: "curio",
+		Name:                 "curio",
 		Usage:                translations.T("Filecoin decentralized storage network provider"),
 		Version:              curiobuild.UserVersion(),
 		EnableBashCompletion: true,
@@ -128,8 +127,8 @@ func main() {
 			&cli.StringFlag{
 				Name:    "db-host",
 				EnvVars: []string{"CURIO_DB_HOST", "CURIO_HARMONYDB_HOSTS"},
-				Usage: translations.T("Command separated list of hostnames for yugabyte cluster"),
-				Value: "127.0.0.1",
+				Usage:   translations.T("Command separated list of hostnames for yugabyte cluster"),
+				Value:   "127.0.0.1",
 			},
 			&cli.StringFlag{
 				Name:    "db-name",
@@ -157,7 +156,7 @@ func main() {
 				Value:   "~/.curio",
 			},
 			&cli.BoolFlag{ // disconnected from cli/util for dependency reasons. Not used in curio that way.
-				Name: "vv",
+				Name:  "vv",
 				Usage: translations.T("enables very verbose mode, useful for debugging the CLI"),
 			},
 		},

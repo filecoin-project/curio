@@ -28,44 +28,44 @@ type stackTracer interface {
 }
 
 var runCmd = &cli.Command{
-	Name: "run",
+	Name:  "run",
 	Usage: translations.T("Start a Curio process"),
 	Flags: []cli.Flag{
 		&cli.StringFlag{
-			Name: "listen",
+			Name:    "listen",
 			Usage:   translations.T("host address and port the worker api will listen on"),
 			Value:   "0.0.0.0:12300",
 			EnvVars: []string{"CURIO_LISTEN"},
 		},
 		&cli.StringFlag{
-			Name: "gui-listen",
+			Name:   "gui-listen",
 			Usage:  translations.T("host address and port the gui will listen on"),
 			Hidden: true,
 		},
 		&cli.BoolFlag{
-			Name: "nosync",
+			Name:  "nosync",
 			Usage: translations.T("don't check full-node sync status"),
 		},
 		&cli.BoolFlag{
-			Name: "halt-after-init",
+			Name:   "halt-after-init",
 			Usage:  translations.T("only run init, then return"),
 			Hidden: true,
 		},
 		&cli.BoolFlag{
-			Name: "manage-fdlimit",
+			Name:  "manage-fdlimit",
 			Usage: translations.T("manage open file limit"),
 			Value: true,
 		},
 		&cli.StringSliceFlag{
-			Name: "layers",
+			Name:    "layers",
 			Usage:   translations.T("list of layers to be interpreted (atop defaults). Default: base"),
 			EnvVars: []string{"CURIO_LAYERS"},
 			Aliases: []string{"l", "layer"},
 		},
 		&cli.StringFlag{
-			Name: "name",
-			Usage:   translations.T("custom node name"),
-			EnvVars: []string{"CURIO_NODE_NAME"},
+			Name:        "name",
+			Usage:       translations.T("custom node name"),
+			EnvVars:     []string{"CURIO_NODE_NAME"},
 			DefaultText: translations.T(""),
 		},
 	},
@@ -150,7 +150,7 @@ var runCmd = &cli.Command{
 }
 
 var layersFlag = &cli.StringSliceFlag{
-	Name: "layers",
+	Name:  "layers",
 	Usage: translations.T("list of layers to be interpreted (atop defaults). Default: base"),
 }
 
@@ -162,12 +162,12 @@ var webCmd = &cli.Command{
 	This creates the 'web' layer if it does not exist, then calls run with that layer.`),
 	Flags: []cli.Flag{
 		&cli.StringFlag{
-			Name: "gui-listen",
+			Name:  "gui-listen",
 			Usage: translations.T("Address to listen for the GUI on"),
 			Value: "0.0.0.0:4701",
 		},
 		&cli.BoolFlag{
-			Name: "nosync",
+			Name:  "nosync",
 			Usage: translations.T("don't check full-node sync status"),
 		},
 		layersFlag,
