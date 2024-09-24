@@ -52,19 +52,6 @@ type Record struct {
 	OffsetSize `json:"offsetsize"`
 }
 
-// Probability of a collision in two 20 byte hashes (birthday problem):
-// 2^(20*8/2) = 1.4 x 10^24
-const multihashLimitBytes = 20
-
-// trimMultihash trims the multihash to the last multihashLimitBytes bytes
-func trimMultihash(mh multihash.Multihash) []byte {
-	var idx int
-	if len(mh) > multihashLimitBytes {
-		idx = len(mh) - multihashLimitBytes
-	}
-	return mh[idx:]
-}
-
 var ErrNotFound = errors.New("not found")
 
 func normalizeMultihashError(m multihash.Multihash, err error) error {
@@ -189,7 +176,7 @@ func (i *IndexStore) AddIndex(ctx context.Context, pieceCid cid.Cid, recordsChan
 
 				batch.Entries = append(batch.Entries, gocql.BatchEntry{
 					Stmt:       Qry,
-					Args:       []any{pieceCidBytes, trimMultihash(rec.Cid.Hash()), rec.Offset, rec.Size},
+					Args:       []any{pieceCidBytes, []byte(rec.Cid.Hash()), rec.Offset, rec.Size},
 					Idempotent: true,
 				})
 
@@ -277,7 +264,7 @@ func (i *IndexStore) PiecesContainingMultihash(ctx context.Context, m multihash.
 	var pcids []cid.Cid
 	var bz []byte
 	qry := `SELECT PieceCid FROM PayloadToPiece WHERE PayloadMultihash = ?`
-	iter := i.session.Query(qry, trimMultihash(m)).WithContext(ctx).Iter()
+	iter := i.session.Query(qry, []byte(m)).WithContext(ctx).Iter()
 	for iter.Scan(&bz) {
 		pcid, err := cid.Parse(bz)
 		if err != nil {
@@ -299,7 +286,7 @@ func (i *IndexStore) PiecesContainingMultihash(ctx context.Context, m multihash.
 func (i *IndexStore) GetOffsetSize(ctx context.Context, pieceCid cid.Cid, hash multihash.Multihash) (*OffsetSize, error) {
 	var offset, size uint64
 	qry := `SELECT BlockOffset, BlockSize FROM PayloadToPiece WHERE PieceCid = ? AND PayloadMultihash = ?`
-	err := i.session.Query(qry, pieceCid.Bytes(), trimMultihash(hash)).WithContext(ctx).Scan(&offset, &size)
+	err := i.session.Query(qry, pieceCid.Bytes(), []byte(hash)).WithContext(ctx).Scan(&offset, &size)
 	if err != nil {
 		return nil, fmt.Errorf("getting offset / size: %w", err)
 	}
@@ -309,7 +296,7 @@ func (i *IndexStore) GetOffsetSize(ctx context.Context, pieceCid cid.Cid, hash m
 
 func (i *IndexStore) GetPieceHashRange(ctx context.Context, piece cid.Cid, start multihash.Multihash, num int64) ([]multihash.Multihash, error) {
 	qry := "SELECT PayloadMultihash FROM PayloadToPiece WHERE PieceCid = ? AND PayloadMultihash >= ? LIMIT ?"
-	iter := i.session.Query(qry, piece.Bytes(), trimMultihash(start), num).WithContext(ctx).Iter()
+	iter := i.session.Query(qry, piece.Bytes(), []byte(start), num).WithContext(ctx).Iter()
 
 	var hashes []multihash.Multihash
 	var r []byte
