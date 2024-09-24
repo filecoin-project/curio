@@ -19,6 +19,7 @@ import (
 
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/api"
+	"github.com/filecoin-project/curio/cuhttp"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -244,6 +245,12 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		ipniTask := indexing.NewIPNITask(db, sc, iStore, pp, cfg)
 		activeTasks = append(activeTasks, indexingTask, ipniTask)
 
+		if cfg.HTTP.Enable {
+			err = cuhttp.StartHTTPServer(ctx, dependencies)
+			if err != nil {
+				return nil, xerrors.Errorf("failed to start the HTTP server: %w", err)
+			}
+		}
 	}
 
 	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting, dependencies.Al)

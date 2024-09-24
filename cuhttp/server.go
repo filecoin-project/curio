@@ -19,6 +19,8 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
+	"github.com/filecoin-project/curio/market/retrieval"
 )
 
 var log = logging.Logger("cu-http")
@@ -66,14 +68,15 @@ func compressionMiddleware(config *config.CompressionConfig) (func(http.Handler)
 	return adapter, nil
 }
 
-func NewHTTPServer(ctx context.Context, deps *deps.Deps, config *config.HTTPConfig) error {
-	ch := cache{db: deps.DB}
+func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
+	ch := cache{db: d.DB}
+	cfg := d.Cfg.HTTP
 
 	// Set up the autocert manager for Let's Encrypt
 	certManager := autocert.Manager{
 		Cache:      ch,
 		Prompt:     autocert.AcceptTOS, // Automatically accept the Terms of Service
-		HostPolicy: autocert.HostWhitelist(config.DomainName),
+		HostPolicy: autocert.HostWhitelist(cfg.DomainName),
 	}
 
 	// Setup the Chi router for more complex routing (if needed in the future)
@@ -86,12 +89,12 @@ func NewHTTPServer(ctx context.Context, deps *deps.Deps, config *config.HTTPConf
 	chiRouter.Use(handlers.ProxyHeaders) // Handle reverse proxy headers like X-Forwarded-For
 	chiRouter.Use(secureHeaders)
 
-	if config.EnableCORS {
-		chiRouter.Use(handlers.CORS(handlers.AllowedOrigins([]string{"https://" + config.DomainName})))
+	if cfg.EnableCORS {
+		chiRouter.Use(handlers.CORS(handlers.AllowedOrigins([]string{"https://" + cfg.DomainName})))
 	}
 
 	// Set up the compression middleware with custom compression levels
-	compressionMw, err := compressionMiddleware(&config.CompressionLevels)
+	compressionMw, err := compressionMiddleware(&cfg.CompressionLevels)
 	if err != nil {
 		log.Fatalf("Failed to initialize compression middleware: %s", err)
 	}
@@ -114,16 +117,19 @@ func NewHTTPServer(ctx context.Context, deps *deps.Deps, config *config.HTTPConf
 		fmt.Fprintf(w, "Service is up and running")
 	})
 
-	// TODO: Attach other subrouters here
+	chiRouter, err = attachRouters(ctx, chiRouter, d)
+	if err != nil {
+		return xerrors.Errorf("failed to attach routers: %w", err)
+	}
 
 	// Set up the HTTP server with proper timeouts
 	server := &http.Server{
-		Addr:              config.ListenAddress,
+		Addr:              cfg.ListenAddress,
 		Handler:           loggingMiddleware(compressionMw(chiRouter)), // Attach middlewares
-		ReadTimeout:       config.ReadTimeout,
-		WriteTimeout:      config.WriteTimeout,
-		IdleTimeout:       config.IdleTimeout,
-		ReadHeaderTimeout: config.ReadHeaderTimeout,
+		ReadTimeout:       cfg.ReadTimeout,
+		WriteTimeout:      cfg.WriteTimeout,
+		IdleTimeout:       cfg.IdleTimeout,
+		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		TLSConfig: &tls.Config{
 			GetCertificate: certManager.GetCertificate,
 		},
@@ -134,7 +140,7 @@ func NewHTTPServer(ctx context.Context, deps *deps.Deps, config *config.HTTPConf
 	// Start the server with TLS
 	eg := errgroup.Group{}
 	eg.Go(func() error {
-		log.Infof("Starting HTTPS server on https://%s", config.DomainName)
+		log.Infof("Starting HTTPS server for https://%s on %s", cfg.DomainName, cfg.ListenAddress)
 		serr := server.ListenAndServeTLS("", "")
 		if serr != nil {
 			return xerrors.Errorf("failed to start listening: %w", serr)
@@ -185,3 +191,18 @@ func (c cache) Delete(ctx context.Context, key string) error {
 }
 
 var _ autocert.Cache = cache{}
+
+func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps) (*chi.Mux, error) {
+	// Attach retrievals
+	rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.PieceProvider)
+	retrieval.Router(r, rp)
+
+	// Attach IPNI
+	ipp, err := ipni_provider.NewProvider(d)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to create new ipni provider: %w", err)
+	}
+	ipni_provider.Routes(r, ipp)
+
+	return r, nil
+}

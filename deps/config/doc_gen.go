@@ -785,10 +785,17 @@ on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
 	},
 	"HTTPConfig": {
 		{
+			Name: "Enable",
+			Type: "bool",
+
+			Comment: `Enable the HTTP server on the node`,
+		},
+		{
 			Name: "DomainName",
 			Type: "string",
 
-			Comment: `DomainName specifies the domain name that the server uses to serve HTTP requests.`,
+			Comment: `DomainName specifies the domain name that the server uses to serve HTTP requests. DomainName cannot be empty and cannot be
+an IP address`,
 		},
 		{
 			Name: "CertCacheDir",
@@ -980,12 +987,6 @@ sector will need to be sent again`,
 			Type: "StorageMarketConfig",
 
 			Comment: `StorageMarketConfig houses all the deal related market configuration`,
-		},
-		{
-			Name: "HTTP",
-			Type: "HTTPConfig",
-
-			Comment: `HTTP configuration for market HTTP server`,
 		},
 	},
 	"PagerDutyConfig": {

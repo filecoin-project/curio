@@ -97,19 +97,19 @@ func DefaultCurioConfig() *CurioConfig {
 					AnnounceAddresses:    []string{},
 				},
 			},
-			HTTP: HTTPConfig{
-				DomainName:        "",
-				ListenAddress:     "0.0.0.0:12310",
-				ReadTimeout:       time.Second * 10,
-				WriteTimeout:      time.Second * 10,
-				IdleTimeout:       time.Minute * 2,
-				ReadHeaderTimeout: time.Second * 5,
-				EnableCORS:        true,
-				CompressionLevels: CompressionConfig{
-					GzipLevel:    6,
-					BrotliLevel:  4,
-					DeflateLevel: 6,
-				},
+		},
+		HTTP: HTTPConfig{
+			DomainName:        "",
+			ListenAddress:     "0.0.0.0:12310",
+			ReadTimeout:       time.Second * 10,
+			WriteTimeout:      time.Second * 10,
+			IdleTimeout:       time.Minute * 2,
+			ReadHeaderTimeout: time.Second * 5,
+			EnableCORS:        true,
+			CompressionLevels: CompressionConfig{
+				GzipLevel:    6,
+				BrotliLevel:  4,
+				DeflateLevel: 6,
 			},
 		},
 	}
@@ -597,9 +597,6 @@ type ApisConfig struct {
 type MarketConfig struct {
 	// StorageMarketConfig houses all the deal related market configuration
 	StorageMarketConfig StorageMarketConfig
-
-	// HTTP configuration for market HTTP server
-	HTTP HTTPConfig
 }
 
 type StorageMarketConfig struct {
@@ -706,7 +703,11 @@ type IPNIConfig struct {
 
 // HTTPConfig represents the configuration for an HTTP server.
 type HTTPConfig struct {
-	// DomainName specifies the domain name that the server uses to serve HTTP requests.
+	// Enable the HTTP server on the node
+	Enable bool
+
+	// DomainName specifies the domain name that the server uses to serve HTTP requests. DomainName cannot be empty and cannot be
+	// an IP address
 	DomainName string
 
 	// CertCacheDir path to the cache directory for storing SSL certificates needed for HTTPS.

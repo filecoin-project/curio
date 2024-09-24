@@ -279,7 +279,7 @@ workflows:
           name: test-all
           requires:
             - build
-          target: "`go list ./... | grep -v curio/itests`"
+          target: "`go list ./... | grep -v curio/itests | grep -v market/indexstore`"
           suite: test-all
           get-params: true
           resource_class: 2xlarge
@@ -287,5 +287,7 @@ workflows:
           name: test-idxStore
           requires:
             - build
-          suite: test-all
+          suite: test-idxStore
+          target: "./market/indexstore"
           get-params: true
+          resource_class: 2xlarge
