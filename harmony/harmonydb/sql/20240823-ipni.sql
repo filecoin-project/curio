@@ -37,14 +37,16 @@ CREATE TABLE ipni_head (
     FOREIGN KEY (head) REFERENCES ipni(ad_cid) ON DELETE RESTRICT -- Prevents deletion if it's referenced
 );
 
+-- This table stores metadata for ipni ad entry chunks. This metadata is used to reconstruct the original ad entry from
+-- on-disk .car block headers or from data in the piece index database.
 CREATE TABLE ipni_chunks (
-    cid TEXT PRIMARY KEY,
-    piece_cid TEXT NOT NULL,
-    chunk_num INTEGER NOT NULL,
-    first_cid TEXT,
-    start_offset BIGINT,
-    num_blocks BIGINT NOT NULL,
-    from_car BOOLEAN NOT NULL,
+    cid TEXT PRIMARY KEY, -- CID of the chunk
+    piece_cid TEXT NOT NULL, -- Related Piece CID
+    chunk_num INTEGER NOT NULL, -- Chunk number within the piece. Chunk 0 has no "next" link.
+    first_cid TEXT, -- In case of db-based chunks, the CID of the first cid in the chunk
+    start_offset BIGINT, -- In case of .car-based chunks, the offset in the .car file where the chunk starts
+    num_blocks BIGINT NOT NULL, -- Number of blocks in the chunk
+    from_car BOOLEAN NOT NULL, -- Whether the chunk is from a .car file or from the database
     CHECK (
         (from_car = FALSE AND first_cid IS NOT NULL AND start_offset IS NULL) OR
         (from_car = TRUE AND first_cid IS NULL AND start_offset IS NOT NULL)
