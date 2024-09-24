@@ -230,7 +230,16 @@ func ensureSchemaExists(connString, schema string) error {
 	if len(schema) < 5 || !schemaRE.MatchString(schema) {
 		return xerrors.New("schema must be of the form " + schemaREString + "\n Got: " + schema)
 	}
+
+	retryWait := InitialSerializationErrorRetryWait
+
+retry:
 	_, err = p.Exec(context.Background(), "CREATE SCHEMA IF NOT EXISTS "+schema)
+	if err != nil && IsErrSerialization(err) {
+		time.Sleep(retryWait)
+		retryWait *= 2
+		goto retry
+	}
 	if err != nil {
 		return xerrors.Errorf("cannot create schema: %w", err)
 	}
@@ -302,7 +311,7 @@ func (db *DB) upgrade() error {
 			}
 			megaSql += s + ";"
 		}
-		_, err = db.pgx.Exec(context.Background(), megaSql)
+		_, err = db.Exec(context.Background(), rawStringOnly(megaSql))
 		if err != nil {
 			msg := fmt.Sprintf("Could not upgrade! %s", err.Error())
 			logger.Error(msg)
