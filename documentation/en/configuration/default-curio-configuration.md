@@ -528,63 +528,6 @@ description: The default curio configuration
         # type: []string
         #NoAnnounceAddresses = []
 
-  [Market.HTTP]
-    # Enable the HTTP server on the node
-    #
-    # type: bool
-    #Enable = false
-
-    # DomainName specifies the domain name that the server uses to serve HTTP requests. DomainName cannot be empty and cannot be
-    # an IP address
-    #
-    # type: string
-    #DomainName = ""
-
-    # CertCacheDir path to the cache directory for storing SSL certificates needed for HTTPS.
-    #
-    # type: string
-    #CertCacheDir = ""
-
-    # ListenAddress is the address that the server listens for HTTP requests.
-    #
-    # type: string
-    #ListenAddress = "0.0.0.0:12310"
-
-    # ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
-    #
-    # type: time.Duration
-    #ReadTimeout = "10s"
-
-    # WriteTimeout is the maximum duration before timing out writes of the response to the client.
-    #
-    # type: time.Duration
-    #WriteTimeout = "10s"
-
-    # IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
-    #
-    # type: time.Duration
-    #IdleTimeout = "2m0s"
-
-    # ReadHeaderTimeout is amount of time allowed to read request headers
-    #
-    # type: time.Duration
-    #ReadHeaderTimeout = "5s"
-
-    # EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.
-    #
-    # type: bool
-    #EnableCORS = true
-
-    [Market.HTTP.CompressionLevels]
-      # type: int
-      #GzipLevel = 6
-
-      # type: int
-      #BrotliLevel = 4
-
-      # type: int
-      #DeflateLevel = 6
-
 
 [Ingest]
   # Maximum number of sectors that can be queued waiting for deals to start processing.
@@ -759,41 +702,41 @@ description: The default curio configuration
   # ListenAddress is the address that the server listens for HTTP requests.
   #
   # type: string
-  #ListenAddress = ""
+  #ListenAddress = "0.0.0.0:12310"
 
   # ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
   #
   # type: time.Duration
-  #ReadTimeout = "0s"
+  #ReadTimeout = "10s"
 
   # WriteTimeout is the maximum duration before timing out writes of the response to the client.
   #
   # type: time.Duration
-  #WriteTimeout = "0s"
+  #WriteTimeout = "10s"
 
   # IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
   #
   # type: time.Duration
-  #IdleTimeout = "0s"
+  #IdleTimeout = "2m0s"
 
   # ReadHeaderTimeout is amount of time allowed to read request headers
   #
   # type: time.Duration
-  #ReadHeaderTimeout = "0s"
+  #ReadHeaderTimeout = "5s"
 
   # EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.
   #
   # type: bool
-  #EnableCORS = false
+  #EnableCORS = true
 
   [HTTP.CompressionLevels]
     # type: int
-    #GzipLevel = 0
+    #GzipLevel = 6
 
     # type: int
-    #BrotliLevel = 0
+    #BrotliLevel = 4
 
     # type: int
-    #DeflateLevel = 0
+    #DeflateLevel = 6
 
 ```

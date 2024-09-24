@@ -8,7 +8,23 @@ import (
 )
 
 // Distribution
-var defaultMillisecondsDistribution = view.Distribution(0.01, 0.05, 0.1, 0.3, 0.6, 0.8, 1, 2, 3, 4, 5, 6, 8, 10, 13, 16, 20, 25, 30, 40, 50, 65, 80, 100, 130, 160, 200, 250, 300, 400, 500, 650, 800, 1000, 2000, 3000, 4000, 5000, 7500, 10000, 20000, 50000, 100000)
+var defaultMillisecondsDistribution = view.Distribution(
+	1,      // 1 millisecond
+	5,      // 5 milliseconds
+	10,     // 10 milliseconds
+	20,     // 20 milliseconds
+	50,     // 50 milliseconds
+	100,    // 100 milliseconds
+	200,    // 200 milliseconds
+	500,    // 500 milliseconds
+	1000,   // 1 second
+	2000,   // 2 seconds
+	5000,   // 5 seconds
+	10000,  // 10 seconds
+	20000,  // 20 seconds
+	50000,  // 50 seconds
+	100000, // 100 seconds
+)
 
 var (
 	RetrievalInfo = stats.Int64("retrieval_info", "Arbitrary counter to tag node info to", stats.UnitDimensionless)

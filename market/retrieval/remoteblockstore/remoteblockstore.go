@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -24,8 +25,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
-
-	"github.com/filecoin-project/lotus/lib/readerutil"
 )
 
 const MaxCachedReaders = 128
@@ -38,7 +37,6 @@ type idxAPI interface {
 }
 
 type pieceProviderAPI interface {
-	IsUnsealed(ctx context.Context, sector storiface.SectorRef, offset storiface.UnpaddedByteIndex, size abi.UnpaddedPieceSize) (bool, error)
 	ReadPiece(ctx context.Context, sector storiface.SectorRef, pieceOffset storiface.UnpaddedByteIndex, size abi.UnpaddedPieceSize, pieceCid cid.Cid) (storiface.Reader, error)
 }
 
@@ -148,7 +146,7 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 	for _, pieceCid := range pieces {
 		data, err := func() ([]byte, error) {
 			// Get a reader over the piece data
-			reader, err := ro.GetSharedPieceReader(ctx, pieceCid)
+			reader, _, err := ro.GetSharedPieceReader(ctx, pieceCid)
 			if err != nil {
 				return nil, fmt.Errorf("getting piece reader: %w", err)
 			}
@@ -163,13 +161,8 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 			}
 
 			// Seek to the section offset
-			readerAt := readerutil.NewReadSeekerFromReaderAt(reader, int64(offsetSize.Offset))
-			// Read the block data
-			bufferSize := 4096
-			if offsetSize.Size < 4096 {
-				bufferSize = int(offsetSize.Size)
-			}
-			readCid, data, err := util.ReadNode(bufio.NewReaderSize(readerAt, bufferSize))
+			readerAt := io.NewSectionReader(reader, int64(offsetSize.Offset), int64(offsetSize.Size))
+			readCid, data, err := util.ReadNode(bufio.NewReader(readerAt))
 			if err != nil {
 				return nil, fmt.Errorf("reading data for block %s from reader for piece %s: %w", c, pieceCid, err)
 			}

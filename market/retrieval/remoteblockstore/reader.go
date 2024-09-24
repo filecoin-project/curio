@@ -2,6 +2,7 @@ package remoteblockstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
+var NoDealErr = errors.New("no deals found")
+
 type SectionReader interface {
 	io.Reader
 	io.ReaderAt
@@ -22,8 +25,9 @@ type SectionReader interface {
 
 type cachedSectionReader struct {
 	SectionReader
-	ro       *RemoteBlockstore
-	pieceCid cid.Cid
+	ro        *RemoteBlockstore
+	pieceCid  cid.Cid
+	pieceSize abi.PaddedPieceSize
 	// Signals when the underlying piece reader is ready
 	ready chan struct{}
 	// err is non-nil if there's an error getting the underlying piece reader
@@ -49,14 +53,14 @@ func (r *cachedSectionReader) Close() error {
 	return nil
 }
 
-func (ro *RemoteBlockstore) getPieceReader(ctx context.Context, pieceCid cid.Cid) (SectionReader, error) {
+func (ro *RemoteBlockstore) getPieceReader(ctx context.Context, pieceCid cid.Cid) (SectionReader, abi.PaddedPieceSize, error) {
 	// Get all deals containing this piece
 
 	var deals []struct {
 		SpID   abi.ActorID             `db:"sp_id"`
 		Sector abi.SectorNumber        `db:"sector_num"`
-		Offset abi.UnpaddedPieceSize   `db:"piece_offset"`
-		Length abi.UnpaddedPieceSize   `db:"piece_length"`
+		Offset abi.PaddedPieceSize     `db:"piece_offset"`
+		Length abi.PaddedPieceSize     `db:"piece_length"`
 		Proof  abi.RegisteredSealProof `db:"reg_seal_proof"`
 	}
 
@@ -76,11 +80,11 @@ func (ro *RemoteBlockstore) getPieceReader(ctx context.Context, pieceCid cid.Cid
 											WHERE 
 												mpd.piece_cid = $1;`, pieceCid.String())
 	if err != nil {
-		return nil, fmt.Errorf("getting piece deals: %w", err)
+		return nil, 0, fmt.Errorf("getting piece deals: %w", err)
 	}
 
 	if len(deals) == 0 {
-		return nil, fmt.Errorf("no deals found for piece cid %s: %w", pieceCid, err)
+		return nil, 0, fmt.Errorf("piece cid %s: %w", pieceCid, NoDealErr)
 	}
 
 	// For each deal, try to read an unsealed copy of the data from the sector
@@ -94,29 +98,20 @@ func (ro *RemoteBlockstore) getPieceReader(ctx context.Context, pieceCid cid.Cid
 			},
 			ProofType: dl.Proof,
 		}
-		unsealed, err := ro.pp.IsUnsealed(ctx, sr, storiface.UnpaddedByteIndex(dl.Offset), dl.Length)
+
+		reader, err := ro.pp.ReadPiece(ctx, sr, storiface.UnpaddedByteIndex(dl.Offset.Unpadded()), dl.Length.Unpadded(), pieceCid)
 		if err != nil {
 			merr = multierror.Append(merr, err)
 			continue
 		}
 
-		if !unsealed {
-			continue
-		}
-
-		reader, err := ro.pp.ReadPiece(ctx, sr, storiface.UnpaddedByteIndex(dl.Offset), dl.Length, pieceCid)
-		if err != nil {
-			merr = multierror.Append(merr, err)
-			continue
-		}
-
-		return reader, nil
+		return reader, dl.Length, nil
 	}
 
-	return nil, merr
+	return nil, 0, merr
 }
 
-func (ro *RemoteBlockstore) GetSharedPieceReader(ctx context.Context, pieceCid cid.Cid) (SectionReader, error) {
+func (ro *RemoteBlockstore) GetSharedPieceReader(ctx context.Context, pieceCid cid.Cid) (SectionReader, abi.PaddedPieceSize, error) {
 
 	var r *cachedSectionReader
 
@@ -137,11 +132,12 @@ func (ro *RemoteBlockstore) GetSharedPieceReader(ctx context.Context, pieceCid c
 
 		// We just added a cached reader, so get its underlying piece reader
 		readerCtx, readerCtxCancel := context.WithCancel(context.Background())
-		sr, err := ro.getPieceReader(readerCtx, pieceCid)
+		sr, size, err := ro.getPieceReader(readerCtx, pieceCid)
 
 		r.SectionReader = sr
 		r.err = err
 		r.cancel = readerCtxCancel
+		r.pieceSize = size
 
 		// Inform any waiting threads that the cached reader is ready
 		close(r.ready)
@@ -158,7 +154,7 @@ func (ro *RemoteBlockstore) GetSharedPieceReader(ctx context.Context, pieceCid c
 			// The context timed out. Deference the cached piece reader and
 			// return an error.
 			_ = r.Close()
-			return nil, ctx.Err()
+			return nil, 0, ctx.Err()
 		case <-r.ready:
 		}
 	}
@@ -167,8 +163,8 @@ func (ro *RemoteBlockstore) GetSharedPieceReader(ctx context.Context, pieceCid c
 	// that the cached reader gets cleaned up
 	if r.err != nil {
 		_ = r.Close()
-		return nil, r.err
+		return nil, 0, r.err
 	}
 
-	return r, nil
+	return r, r.pieceSize, nil
 }

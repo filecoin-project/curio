@@ -7,7 +7,6 @@ require (
 	github.com/BurntSushi/toml v1.3.2
 	github.com/CAFxX/httpcompression v0.0.9
 	github.com/KarpelesLab/reflink v1.0.1
-	github.com/NYTimes/gziphandler v1.1.1
 	github.com/alecthomas/jsonschema v0.0.0-20200530073317-71f438968921
 	github.com/charmbracelet/lipgloss v0.10.0
 	github.com/codeskyblue/go-sh v0.0.0-20200712050446-30169cf553fe
@@ -111,6 +110,7 @@ require (
 	github.com/Jorropo/jsync v1.0.1 // indirect
 	github.com/Kubuxu/go-broadcast v0.0.0-20240621161059-1a8c90734cd6 // indirect
 	github.com/Kubuxu/imtui v0.0.0-20210401140320-41663d68d0fa // indirect
+	github.com/NYTimes/gziphandler v1.1.1 // indirect
 	github.com/PuerkitoBio/purell v1.1.1 // indirect
 	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 // indirect
 	github.com/StackExchange/wmi v1.2.1 // indirect

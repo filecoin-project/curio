@@ -97,19 +97,19 @@ func DefaultCurioConfig() *CurioConfig {
 					AnnounceAddresses:    []string{},
 				},
 			},
-			HTTP: HTTPConfig{
-				DomainName:        "",
-				ListenAddress:     "0.0.0.0:12310",
-				ReadTimeout:       time.Second * 10,
-				WriteTimeout:      time.Second * 10,
-				IdleTimeout:       time.Minute * 2,
-				ReadHeaderTimeout: time.Second * 5,
-				EnableCORS:        true,
-				CompressionLevels: CompressionConfig{
-					GzipLevel:    6,
-					BrotliLevel:  4,
-					DeflateLevel: 6,
-				},
+		},
+		HTTP: HTTPConfig{
+			DomainName:        "",
+			ListenAddress:     "0.0.0.0:12310",
+			ReadTimeout:       time.Second * 10,
+			WriteTimeout:      time.Second * 10,
+			IdleTimeout:       time.Minute * 2,
+			ReadHeaderTimeout: time.Second * 5,
+			EnableCORS:        true,
+			CompressionLevels: CompressionConfig{
+				GzipLevel:    6,
+				BrotliLevel:  4,
+				DeflateLevel: 6,
 			},
 		},
 	}
@@ -597,9 +597,6 @@ type ApisConfig struct {
 type MarketConfig struct {
 	// StorageMarketConfig houses all the deal related market configuration
 	StorageMarketConfig StorageMarketConfig
-
-	// HTTP configuration for market HTTP server
-	HTTP HTTPConfig
 }
 
 type StorageMarketConfig struct {

@@ -988,12 +988,6 @@ sector will need to be sent again`,
 
 			Comment: `StorageMarketConfig houses all the deal related market configuration`,
 		},
-		{
-			Name: "HTTP",
-			Type: "HTTPConfig",
-
-			Comment: `HTTP configuration for market HTTP server`,
-		},
 	},
 	"PagerDutyConfig": {
 		{

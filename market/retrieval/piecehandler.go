@@ -1,14 +1,16 @@
 package retrieval
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/NYTimes/gziphandler"
 	"github.com/ipfs/go-cid"
 	"go.opencensus.io/stats"
+
+	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
 )
@@ -42,10 +44,10 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get a reader over the piece
-	reader, err := rp.bs.GetSharedPieceReader(ctx, pieceCid)
+	reader, size, err := rp.bs.GetSharedPieceReader(ctx, pieceCid)
 	if err != nil {
 		log.Errorf("server error getting content for piece CID %s: %s", pieceCid, err)
-		if strings.Contains(strings.ToLower(err.Error()), "no deals found") {
+		if errors.Is(err, remoteblockstore.NoDealErr) {
 			w.WriteHeader(http.StatusNotFound)
 			stats.Record(ctx, remoteblockstore.HttpPieceByCid404ResponseCount.M(1))
 			return
@@ -56,35 +58,21 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setHeaders(w, pieceCid)
-	serveContent(w, r, reader)
+	serveContent(w, r, size, reader)
 
 	stats.Record(ctx, remoteblockstore.HttpPieceByCid200ResponseCount.M(1))
 	stats.Record(ctx, remoteblockstore.HttpPieceByCidRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
 }
 
-func isGzipped(res http.ResponseWriter) bool {
-	switch res.(type) {
-	case *gziphandler.GzipResponseWriter, gziphandler.GzipResponseWriterWithCloseNotify:
-		// there are conditions where we may have a GzipResponseWriter but the
-		// response will not be compressed, but they are related to very small
-		// response sizes so this shouldn't matter (much)
-		return true
-	}
-	return false
-}
-
 func setHeaders(w http.ResponseWriter, pieceCid cid.Cid) {
 	w.Header().Set("Vary", "Accept-Encoding")
-	etag := `"` + pieceCid.String() + `"` // must be quoted
-	if isGzipped(w) {
-		etag = etag[:len(etag)-1] + ".gz\""
-	}
+	etag := `"` + pieceCid.String() + `.gz"` // must be quoted
 	w.Header().Set("Etag", etag)
 	w.Header().Set("Content-Type", "application/piece")
 	w.Header().Set("Cache-Control", "public, max-age=29030400, immutable")
 }
 
-func serveContent(res http.ResponseWriter, req *http.Request, content io.ReadSeeker) {
+func serveContent(res http.ResponseWriter, req *http.Request, size abi.PaddedPieceSize, content io.ReadSeeker) {
 	// Note that the last modified time is a constant value because the data
 	// in a piece identified by a cid will never change.
 
@@ -95,5 +83,6 @@ func serveContent(res http.ResponseWriter, req *http.Request, content io.ReadSee
 	}
 
 	// Send the content
+	res.Header().Set("Content-Length", fmt.Sprintf("%d", size.Unpadded()))
 	http.ServeContent(res, req, "", lastModified, content)
 }
