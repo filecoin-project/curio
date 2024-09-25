@@ -1,6 +1,7 @@
 package ipni_provider
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -12,14 +13,11 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
-	carv2 "github.com/ipld/go-car/v2"
-	"github.com/ipld/go-car/v2/index"
 	"github.com/ipld/go-ipld-prime"
+	"github.com/ipld/go-ipld-prime/codec/dagcbor"
 	"github.com/ipld/go-ipld-prime/codec/dagjson"
-	"github.com/ipld/go-ipld-prime/datamodel"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipni/go-libipni/announce"
 	"github.com/ipni/go-libipni/announce/httpsender"
@@ -29,6 +27,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
+	"github.com/multiformats/go-multihash"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
@@ -38,6 +37,7 @@ import (
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/urltomultiaddr"
+	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 
@@ -47,6 +47,8 @@ import (
 const IPNIRoutePath = "/ipni-provider/"
 const IPNIPath = "/ipni/v1/ad/"
 const publishInterval = 10 * time.Minute
+
+var validate = true
 
 var (
 	log         = logging.Logger("ipni-provider")
@@ -63,13 +65,12 @@ type peerInfo struct {
 }
 
 type Provider struct {
-	api            ipniAPI
-	db             *harmonydb.DB
-	pieceProvider  *pieceprovider.PieceProvider
-	entriesChunker *chunker.Chunker
-	cache          *lru.Cache[ipld.Link, datamodel.Node]
-	httpPrefix     string
-	keys           map[string]*peerInfo // map[peerID String]Private_Key
+	api           ipniAPI
+	db            *harmonydb.DB
+	pieceProvider *pieceprovider.PieceProvider
+	indexStore    *indexstore.IndexStore
+	httpPrefix    string
+	keys          map[string]*peerInfo // map[peerID String]Private_Key
 	// announceURLs enables sending direct announcements via HTTP. This is
 	// the list of indexer URLs to send direct HTTP announce messages to.
 	announceURLs        []*url.URL
@@ -77,11 +78,6 @@ type Provider struct {
 }
 
 func NewProvider(d *deps.Deps) (*Provider, error) {
-	c, err := lru.New[ipld.Link, datamodel.Node](d.Cfg.Market.StorageMarketConfig.IPNI.EntriesCacheCapacity)
-	if err != nil {
-		return nil, xerrors.Errorf("creating new cache: %w", err)
-	}
-
 	ctx := context.Background()
 
 	keyMap := make(map[string]*peerInfo)
@@ -148,7 +144,7 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 		api:                 d.Chain,
 		db:                  d.DB,
 		pieceProvider:       d.PieceProvider,
-		cache:               c,
+		indexStore:          d.IndexStore,
 		keys:                keyMap,
 		announceURLs:        announceURLs,
 		httpServerAddresses: httpServerAddresses,
@@ -259,55 +255,83 @@ func (p *Provider) getHead(ctx context.Context, provider string) ([]byte, error)
 	return signedHead.Encode()
 }
 
-func (p *Provider) GetEntry(block cid.Cid, provider string) ([]byte, error) {
+func (p *Provider) getEntry(block cid.Cid, provider string) ([]byte, error) {
 	// We should use background context to avoid early exit
 	// while chunking as first attempt will always fail
 	ctx := context.Background()
 
-	// Check if cache has it
-	cacheKey := cidlink.Link{Cid: block}
-	if value, ok := p.cache.Get(cacheKey); ok {
-		b := new(bytes.Buffer)
-		err := dagjson.Encode(value, b)
-		if err != nil {
-			return nil, err
-		}
-		return b.Bytes(), nil
+	type ipniChunk struct {
+		PieceCID string `db:"piece_cid"`
+		FromCar  bool   `db:"from_car"`
+
+		FirstCID    *string `db:"first_cid"`
+		StartOffset *int64  `db:"start_offset"`
+		NumBlocks   int64   `db:"num_blocks"`
+
+		PrevCID *string `db:"prev_cid"`
 	}
 
-	// If cache does not have it then this must be Entry Head
-	// We should find the relevant ContextID(abi.PieceInfo) and chunk the piece again
-	// to generate all the required links
+	var ipniChunks []ipniChunk
 
-	var pis []abi.PieceInfo
-
-	rows, err := p.db.Query(ctx, `SELECT context_id FROM ipni WHERE entries = $1 AND provider = $2`, block.String(), provider)
+	err := p.db.Select(ctx, &ipniChunks, `SELECT 
+			current.piece_cid, 
+			current.from_car, 
+			current.first_cid, 
+			current.start_offset, 
+			current.num_blocks, 
+			prev.cid AS prev_cid
+		FROM 
+			ipni_chunks current
+		LEFT JOIN 
+			ipni_chunks prev 
+		ON 
+			current.piece_cid = prev.piece_cid AND
+			current.chunk_num = prev.chunk_num + 1
+		WHERE 
+			current.cid = $1
+		LIMIT 1;`, block.String())
 	if err != nil {
-		return nil, xerrors.Errorf("querying ads with entry link %s: %w", block, err)
+		return nil, xerrors.Errorf("querying chunks with entry link %s: %w", block, err)
 	}
 
-	defer rows.Close()
+	if len(ipniChunks) == 0 {
+		return nil, ErrNotFound
+	}
 
-	for rows.Next() && rows.Err() == nil {
-		var contextID []byte
-		err := rows.Scan(&contextID)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to scan the row: %w", err)
+	chunk := ipniChunks[0]
+
+	pieceCid, err := cid.Parse(chunk.PieceCID)
+	if err != nil {
+		return nil, xerrors.Errorf("parsing piece CID: %w", err)
+	}
+
+	if !chunk.FromCar {
+		if chunk.FirstCID == nil {
+			return nil, xerrors.Errorf("chunk does not have first CID")
 		}
 
-		var pi abi.PieceInfo
-		err = pi.UnmarshalCBOR(bytes.NewReader(contextID))
+		firstCid, err := cid.Parse(*chunk.FirstCID)
 		if err != nil {
-			return nil, xerrors.Errorf("unmarshaling piece info: %w", err)
+			return nil, xerrors.Errorf("parsing first CID: %w", err)
 		}
 
-		pis = append(pis, pi)
+		var next ipld.Link
+		if chunk.PrevCID != nil {
+			prevChunk, err := cid.Parse(*chunk.PrevCID)
+			if err != nil {
+				return nil, xerrors.Errorf("parsing previous CID: %w", err)
+			}
+
+			next = cidlink.Link{Cid: prevChunk}
+		}
+
+		return p.reconstructChunkFromDB(ctx, block, pieceCid, firstCid, next, chunk.NumBlocks)
 	}
 
-	if rows.Err() != nil {
-		return nil, err
-	}
+	return p.reconstructChunkFromCar(ctx, block, pieceCid, *chunk.StartOffset, nil, chunk.NumBlocks)
+}
 
+func (p *Provider) reconstructChunkFromCar(ctx context.Context, chunk, piece cid.Cid, startOff int64, next ipld.Link, numBlocks int64) ([]byte, error) {
 	type info struct {
 		SPID    int64                   `db:"sp_id"`
 		Sector  abi.SectorNumber        `db:"sector_num"`
@@ -317,121 +341,118 @@ func (p *Provider) GetEntry(block cid.Cid, provider string) ([]byte, error) {
 		Proof   abi.RegisteredSealProof `db:"reg_seal_proof"`
 	}
 
-	pieceMap := make(map[abi.PieceInfo][]info)
+	var infos []info
 
-	for _, pi := range pis {
-		if _, ok := pieceMap[pi]; ok {
+	err := p.db.Select(ctx, &infos, `SELECT
+			mpd.sp_id,
+			mpd.sector_num,
+			mpd.piece_offset,
+			mpd.piece_length,
+			mpd.raw_size,
+			sm.reg_seal_proof
+		FROM
+			market_piece_deal mpd
+		INNER JOIN
+			sectors_meta sm
+		ON
+			mpd.sp_id = sm.sp_id
+			AND mpd.sector_num = sm.sector_num
+		WHERE piece_cid = $1`, piece)
+	if err != nil {
+		return nil, xerrors.Errorf("getting deal info from database: %w", err)
+	}
+
+	for _, i := range infos {
+		sref := storiface.SectorRef{
+			ID: abi.SectorID{
+				Miner:  abi.ActorID(i.SPID),
+				Number: i.Sector,
+			},
+			ProofType: i.Proof,
+		}
+
+		reader, err := p.pieceProvider.ReadPiece(ctx, sref, storiface.UnpaddedByteIndex(i.Offset), abi.PaddedPieceSize(i.Length).Unpadded(), piece)
+		if err != nil {
+			log.Warnw("failed to read piece for ipni chunk reconstruction", "error", err, "sector", sref, "offset", i.Offset, "length", i.Length, "pieceCID", piece, "chunkCID", chunk)
 			continue
 		}
 
-		var infos []info
-
-		err := p.db.Select(ctx, &infos, `SELECT
-											mpd.sp_id,
-											mpd.sector_num,
-											mpd.piece_offset,
-											mpd.piece_length,
-											mpd.raw_size,
-											sm.reg_seal_proof
-										FROM
-											market_piece_deal mpd
-										INNER JOIN
-											sectors_meta sm
-										ON
-											mpd.sp_id = sm.sp_id
-											AND mpd.sector_num = sm.sector_num
-										WHERE piece_cid = $1`, pi.PieceCID.String())
-
+		_, err = reader.Seek(startOff, io.SeekStart)
 		if err != nil {
-			return nil, xerrors.Errorf("getting deal info from database: %w", err)
+			return nil, xerrors.Errorf("seeking to start offset: %w", err)
 		}
-		pieceMap[pi] = infos
-	}
 
-	// Chunk the piece and generate links
-	for pi, infos := range pieceMap {
-		for _, i := range infos {
-			unsealed, err := p.pieceProvider.IsUnsealed(ctx, storiface.SectorRef{
-				ID: abi.SectorID{
-					Miner:  abi.ActorID(i.SPID),
-					Number: i.Sector,
-				},
-				ProofType: i.Proof,
-			}, storiface.UnpaddedByteIndex(i.Offset), pi.Size.Unpadded())
+		br := bufio.NewReader(reader)
+
+		mhs := make([]multihash.Multihash, 0, numBlocks)
+		for i := int64(0); i < numBlocks; i++ {
+			bcid, err := ipniculib.SkipCarNode(br)
 			if err != nil {
-				return nil, xerrors.Errorf("checking if sector is unsealed :%w", err)
+				return nil, xerrors.Errorf("skipping car node: %w", err)
 			}
 
-			if !unsealed {
-				continue
-			}
+			mhs = append(mhs, bcid.Hash())
+		}
 
-			reader, err := p.pieceProvider.ReadPiece(ctx, storiface.SectorRef{
-				ID: abi.SectorID{
-					Miner:  abi.ActorID(i.SPID),
-					Number: i.Sector,
-				},
-				ProofType: i.Proof,
-			}, storiface.UnpaddedByteIndex(i.Offset), abi.UnpaddedPieceSize(pi.Size), pi.PieceCID)
+		// Create the chunk node
+		chunkNode, err := chunker.NewEntriesChunkNode(mhs, next)
+		if err != nil {
+			return nil, xerrors.Errorf("creating chunk node: %w", err)
+		}
+
+		if validate {
+			link, err := ipniculib.NodeToLink(chunkNode, ipniculib.EntryLinkproto)
 			if err != nil {
-				return nil, xerrors.Errorf("getting piece reader: %w", err)
+				return nil, err
 			}
 
-			var recs []index.Record
-			opts := []carv2.Option{carv2.ZeroLengthSectionAsEOF(true)}
-			blockReader, err := carv2.NewBlockReader(reader, opts...)
-			if err != nil {
-				return nil, fmt.Errorf("getting block reader over piece: %w", err)
-			}
-
-			blockMetadata, err := blockReader.SkipNext()
-			for err == nil {
-				recs = append(recs, index.Record{
-					Cid:    blockMetadata.Cid,
-					Offset: blockMetadata.Offset,
-				})
-				blockMetadata, err = blockReader.SkipNext()
-			}
-			if !errors.Is(err, io.EOF) {
-				return nil, fmt.Errorf("generating index for piece: %w", err)
-			}
-
-			mis := make(index.MultihashIndexSorted)
-			err = mis.Load(recs)
-			if err != nil {
-				return nil, xerrors.Errorf("failed to load indexed in multihash sorter: %w", err)
-			}
-
-			// To avoid - Cannot assert pinter to interface
-			idxF := func(sorted *index.MultihashIndexSorted) index.Index {
-				return sorted
-			}
-
-			idx := idxF(&mis)
-			iterableIndex := idx.(index.IterableIndex)
-
-			mhi, err := chunker.CarMultihashIterator(iterableIndex)
-			if err != nil {
-				return nil, xerrors.Errorf("getting CAR multihash iterator: %w", err)
-			}
-
-			_, err = p.entriesChunker.Chunk(*mhi)
-			if err != nil {
-				return nil, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
-			}
-
-			if value, ok := p.cache.Get(cacheKey); ok {
-				b := new(bytes.Buffer)
-				err := dagjson.Encode(value, b)
-				if err != nil {
-					return nil, err
-				}
-				return b.Bytes(), nil
+			if link.String() != chunk.String() {
+				return nil, xerrors.Errorf("chunk node does not match the expected chunk CID, got %s, expected %s", link.String(), chunk.String())
 			}
 		}
+
+		b := new(bytes.Buffer)
+		err = dagcbor.Encode(chunkNode, b)
+		if err != nil {
+			return nil, xerrors.Errorf("encoding chunk node: %w", err)
+		}
+
+		return b.Bytes(), nil
 	}
 
 	return nil, ErrNotFound
+}
+
+func (p *Provider) reconstructChunkFromDB(ctx context.Context, chunk, piece, firstCid cid.Cid, next ipld.Link, numBlocks int64) ([]byte, error) {
+	mhs, err := p.indexStore.GetPieceHashRange(ctx, piece, firstCid.Hash(), numBlocks)
+	if err != nil {
+		return nil, xerrors.Errorf("getting piece hash range: %w", err)
+	}
+
+	// Create the chunk node
+	chunkNode, err := chunker.NewEntriesChunkNode(mhs, next)
+	if err != nil {
+		return nil, xerrors.Errorf("creating chunk node: %w", err)
+	}
+
+	if validate {
+		link, err := ipniculib.NodeToLink(chunkNode, ipniculib.EntryLinkproto)
+		if err != nil {
+			return nil, err
+		}
+
+		if link.String() != chunk.String() {
+			return nil, xerrors.Errorf("chunk node does not match the expected chunk CID, got %s, expected %s", link.String(), chunk.String())
+		}
+	}
+
+	b := new(bytes.Buffer)
+	err = dagcbor.Encode(chunkNode, b)
+	if err != nil {
+		return nil, err
+	}
+
+	return b.Bytes(), nil
 }
 
 func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
@@ -474,7 +495,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				// Check if this is an entry CID
-				entry, err := p.GetEntry(b, providerID)
+				entry, err := p.getEntry(b, providerID)
 				if err != nil {
 					if errors.Is(err, ErrNotFound) {
 						log.Debugw("No Content Found", "CID", b.String())

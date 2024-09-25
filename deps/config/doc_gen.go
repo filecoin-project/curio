@@ -855,17 +855,6 @@ an IP address`,
 allow indexer nodes to process announcements. Default: False`,
 		},
 		{
-			Name: "EntriesCacheCapacity",
-			Type: "int",
-
-			Comment: `EntriesCacheCapacity sets the maximum capacity to use for caching the indexing advertisement
-entries. Defaults to 4096 if not specified. The cache is evicted using LRU policy. The
-maximum storage used by the cache is a factor of EntriesCacheCapacity, EntriesChunkSize(16384) and
-the length of multihashes being advertised. For example, advertising 128-bit long multihashes
-with the default EntriesCacheCapacity, and EntriesChunkSize(16384) means the cache size can grow to
-1GiB when full.`,
-		},
-		{
 			Name: "WebHost",
 			Type: "string",
 
