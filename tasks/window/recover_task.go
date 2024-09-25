@@ -266,45 +266,48 @@ func (w *WdPostRecoverDeclareTask) processHeadChange(ctx context.Context, revert
 			return nil // not proving anything yet
 		}
 
-		// declaring two deadlines ahead
-		declDeadline := (di.Index + 2) % di.WPoStPeriodDeadlines
+		// repeat checks for [2, 4, 6, 8, 10, 12, 14, 16, ... 38], the closer deadline is prioritized
+		for i := 1; i < 19; i++ {
+			// declaring 2*i deadlines ahead
+			declDeadline := (di.Index + uint64(2*i)) % di.WPoStPeriodDeadlines
 
-		pps := di.PeriodStart
-		if declDeadline != di.Index+2 {
-			pps = di.NextPeriodStart()
-		}
+			pps := di.PeriodStart
+			if declDeadline != di.Index+uint64(2*i) {
+				pps = di.NextPeriodStart()
+			}
 
-		partitions, err := w.api.StateMinerPartitions(ctx, maddr, declDeadline, apply.Key())
-		if err != nil {
-			return xerrors.Errorf("getting partitions: %w", err)
-		}
-
-		for pidx, partition := range partitions {
-			unrecovered, err := bitfield.SubtractBitField(partition.FaultySectors, partition.RecoveringSectors)
+			partitions, err := w.api.StateMinerPartitions(ctx, maddr, declDeadline, apply.Key())
 			if err != nil {
-				return xerrors.Errorf("subtracting recovered set from fault set: %w", err)
+				return xerrors.Errorf("getting partitions: %w", err)
 			}
 
-			uc, err := unrecovered.Count()
-			if err != nil {
-				return xerrors.Errorf("counting unrecovered sectors: %w", err)
-			}
+			for pidx, partition := range partitions {
+				unrecovered, err := bitfield.SubtractBitField(partition.FaultySectors, partition.RecoveringSectors)
+				if err != nil {
+					return xerrors.Errorf("subtracting recovered set from fault set: %w", err)
+				}
 
-			if uc == 0 {
-				log.Debugw("WdPostRecoverDeclareTask.processHeadChange() uc == 0, skipping", "maddr", maddr, "declDeadline", declDeadline, "pidx", pidx)
-				continue
-			}
+				uc, err := unrecovered.Count()
+				if err != nil {
+					return xerrors.Errorf("counting unrecovered sectors: %w", err)
+				}
 
-			tid := wdTaskIdentity{
-				SpID:               aid,
-				ProvingPeriodStart: pps,
-				DeadlineIndex:      declDeadline,
-				PartitionIndex:     uint64(pidx),
-			}
+				if uc == 0 {
+					log.Debugw("WdPostRecoverDeclareTask.processHeadChange() uc == 0, skipping", "maddr", maddr, "declDeadline", declDeadline, "pidx", pidx)
+					continue
+				}
 
-			tf(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
-				return w.addTaskToDB(id, tid, tx)
-			})
+				tid := wdTaskIdentity{
+					SpID:               aid,
+					ProvingPeriodStart: pps,
+					DeadlineIndex:      declDeadline,
+					PartitionIndex:     uint64(pidx),
+				}
+
+				tf(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
+					return w.addTaskToDB(id, tid, tx)
+				})
+			}
 		}
 	}
 
