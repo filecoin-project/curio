@@ -31,7 +31,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
-const disablePreChecks = false // todo config
+const disablePreChecks = true // todo config
 
 func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr address.Address, di *dline.Info, partIdx uint64, test bool) (out *miner2.SubmitWindowedPoStParams, err error) {
 	defer func() {
