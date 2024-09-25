@@ -41,7 +41,6 @@ package paths
  * ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-
 import (
 	"context"
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -107,6 +106,8 @@ func (b *Delegated) RemoveCopies(ctx context.Context, s abi.SectorID, types stor
 func (b *Delegated) MoveStorage(ctx context.Context, s storiface.SectorRef, types storiface.SectorFileType, opts ...storiface.AcquireOption) error {
 	//TODO implement me
 	panic("implement me")
+
+	// if targetting LTS, get a reader from parent and put in object storage
 }
 
 func (b *Delegated) FsStat(ctx context.Context, id storiface.ID) (fsutil.FsStat, error) {
@@ -136,11 +137,15 @@ func (b *Delegated) GenerateSingleVanillaProof(ctx context.Context, minerID abi.
 }
 
 func (b *Delegated) GeneratePoRepVanillaProof(ctx context.Context, sr storiface.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error) {
+	// sealing only
 	return b.parent.GeneratePoRepVanillaProof(ctx, sr, sealed, unsealed, ticket, seed)
 }
 
 func (b *Delegated) ReadSnapVanillaProof(ctx context.Context, sr storiface.SectorRef) ([]byte, error) {
+	// sealing only
 	return b.parent.ReadSnapVanillaProof(ctx, sr)
 }
+
+// TODO: Read* methods, add those to the Store interface
 
 var _ Store = &Delegated{}
