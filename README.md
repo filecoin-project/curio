@@ -97,7 +97,24 @@ Join our community discussions and seek support via:
 
 ## License
 
-Dual-licensed under [MIT](https://github.com/filecoin-project/curio/blob/master/LICENSE-MIT) + [Apache 2.0](https://github.com/filecoin-project/curio/blob/master/LICENSE-APACHE)
+The core of this project is dual-licensed under [MIT](https://github.com/filecoin-project/curio/blob/master/LICENSE-MIT) + [Apache 2.0](https://github.com/filecoin-project/curio/blob/master/LICENSE-APACHE)
+
+### Premium Features License
+
+Certain premium features within this project are licensed separately under the Premium Features License Agreement. These features are proprietary, and access is restricted to authorized users who have agreed to the terms of the premium license.
+Source Visibility
+
+The source code of the premium features is available for viewing and inspection purposes only. Users are permitted to read and review the code but are prohibited from modifying or using it without authorization.
+Redistribution of Premium Features
+
+Redistribution of the premium feature code in source and binary forms, without modification, is permitted under the following conditions:
+
+* Source Code Redistribution:
+  * Must retain the original header and all associated legal notices.
+* Binary Form Redistribution:
+  * Must reproduce the original header and all associated legal notices in the documentation and/or other materials provided with the distribution.
+* No Modification:
+  * The premium feature code must remain unmodified. Any modification is strictly prohibited.
 
 # Contributing
 
