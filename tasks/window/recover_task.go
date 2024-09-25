@@ -266,8 +266,8 @@ func (w *WdPostRecoverDeclareTask) processHeadChange(ctx context.Context, revert
 			return nil // not proving anything yet
 		}
 
-		// repeat checks for [2, 4, 6, 8, 10, 12], the closer deadline is prioritized
-		for i := 1; i < 7; i++ {
+		// repeat checks for [2, 4, 6, 8, 10, 12, 14, 16, ... 38], the closer deadline is prioritized
+		for i := 1; i < 20; i++ {
 			// declaring 2*i deadlines ahead
 			declDeadline := (di.Index + uint64(2*i)) % di.WPoStPeriodDeadlines
 
