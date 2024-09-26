@@ -58,8 +58,7 @@ type itask struct {
 	Proof       abi.RegisteredSealProof `db:"reg_seal_proof"`
 	PieceCid    string                  `db:"piece_cid"`
 	Size        abi.PaddedPieceSize     `db:"piece_size"`
-	Offset      int64                   `db:"piece_offset"`
-	ChainID     abi.DealID              `db:"chain_deal_id"`
+	Offset      int64                   `db:"sector_offset"`
 	RawSize     int64                   `db:"raw_size"`
 	ShouldIndex bool                    `db:"should_index"`
 	Announce    bool                    `db:"announce"`
@@ -77,9 +76,8 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 											sector_number, 
 											piece_cid, 
 											piece_size, 
-											piece_offset, 
+											sector_offset,
 											reg_seal_proof,
-											chain_deal_id,
 											raw_size,
 											should_index,
 											announce

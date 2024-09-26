@@ -332,6 +332,31 @@ CREATE TABLE market_legacy_deals (
     primary key (sp_id, piece_cid, signed_proposal_cid)
 );
 
+-- Table for DDO deals in Boost
+CREATE TABLE market_direct_deals (
+    uuid TEXT NOT NULL,
+    sp_id BIGINT NOT NULL,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
+
+    client TEXT NOT NULL,
+
+    offline BOOLEAN NOT NULL,
+    verified BOOLEAN NOT NULL,
+
+    start_epoch BIGINT NOT NULL,
+    end_epoch BIGINT NOT NULL,
+
+    allocation_id BIGINT NOT NULL,
+
+    piece_cid TEXT NOT NULL,
+    piece_size BIGINT NOT NULL,
+
+    fast_retrieval BOOLEAN NOT NULL,
+    announce_to_ipni BOOLEAN NOT NULL,
+
+    unique (uuid)
+);
 
 
 
