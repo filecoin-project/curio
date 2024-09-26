@@ -303,9 +303,8 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 											sector_number, 
 											piece_cid, 
 											piece_size, 
-											piece_offset, 
+											sector_offset,
 											reg_seal_proof,
-											chain_deal_id,
 											raw_size,
 											should_index,
 											announce
