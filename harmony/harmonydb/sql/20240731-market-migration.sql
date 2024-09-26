@@ -316,7 +316,6 @@ CREATE TABLE market_legacy_deals (
     piece_cid TEXT  NOT NULL,
     piece_size BIGINT  NOT NULL,
 
-    offline BOOLEAN  NOT NULL,
     verified BOOLEAN  NOT NULL,
 
     start_epoch BIGINT  NOT NULL,
