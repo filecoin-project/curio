@@ -66,7 +66,7 @@ type BlockMetrics struct {
 
 func NewRemoteBlockstore(api idxAPI, db *harmonydb.DB, pp pieceProviderAPI) *RemoteBlockstore {
 	prCache := ttlcache.NewCache()
-	_ = prCache.SetTTL(time.Minute)
+	_ = prCache.SetTTL(time.Minute * 5)
 	prCache.SetCacheSizeLimit(MaxCachedReaders)
 
 	httpBlockMetrics := &BlockMetrics{
