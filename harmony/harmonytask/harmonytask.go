@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/samber/lo"
-
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 
