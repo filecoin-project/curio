@@ -34,6 +34,7 @@ import (
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -167,25 +168,26 @@ func GetDeps(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 }
 
 type Deps struct {
-	Layers        []string
-	Cfg           *config.CurioConfig // values
-	DB            *harmonydb.DB       // has itest capability
-	Chain         api.Chain
-	Bstore        curiochain.CurioBlockstore
-	Verif         storiface.Verifier
-	As            *multictladdr.MultiAddressSelector
-	Maddrs        map[dtypes.MinerAddress]bool
-	ProofTypes    map[abi.RegisteredSealProof]bool
-	Stor          *paths.Remote
-	Al            *curioalerting.AlertingSystem
-	Si            paths.SectorIndex
-	LocalStore    *paths.Local
-	LocalPaths    *paths.BasicLocalStorage
-	ListenAddr    string
-	Name          string
-	Alert         *alertmanager.AlertNow
-	IndexStore    *indexstore.IndexStore
-	PieceProvider *pieceprovider.PieceProvider
+	Layers            []string
+	Cfg               *config.CurioConfig // values
+	DB                *harmonydb.DB       // has itest capability
+	Chain             api.Chain
+	Bstore            curiochain.CurioBlockstore
+	Verif             storiface.Verifier
+	As                *multictladdr.MultiAddressSelector
+	Maddrs            map[dtypes.MinerAddress]bool
+	ProofTypes        map[abi.RegisteredSealProof]bool
+	Stor              *paths.Remote
+	Al                *curioalerting.AlertingSystem
+	Si                paths.SectorIndex
+	LocalStore        *paths.Local
+	LocalPaths        *paths.BasicLocalStorage
+	ListenAddr        string
+	Name              string
+	Alert             *alertmanager.AlertNow
+	IndexStore        *indexstore.IndexStore
+	PieceProvider     *pieceprovider.PieceProvider
+	CachedPieceReader *cachedreader.CachedPieceReader
 }
 
 const (
@@ -361,6 +363,10 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 
 	if deps.PieceProvider == nil {
 		deps.PieceProvider = pieceprovider.NewPieceProvider(deps.Stor, deps.Si)
+	}
+
+	if deps.CachedPieceReader == nil {
+		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.PieceProvider)
 	}
 
 	return nil

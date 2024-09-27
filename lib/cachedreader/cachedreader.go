@@ -1,21 +1,76 @@
-package ipni_provider
+package cachedreader
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/ipfs/go-cid"
+	logging "github.com/ipfs/go-log/v2"
+	"github.com/jellydator/ttlcache/v2"
 
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
+var NoDealErr = errors.New("no deals found")
+
+var log = logging.Logger("cached-reader")
+
+const MaxCachedReaders = 128
+
+type CachedPieceReader struct {
+	db                 *harmonydb.DB
+	pp                 *pieceprovider.PieceProvider
+	pieceReaderCacheMu sync.Mutex
+	pieceReaderCache   *ttlcache.Cache
+}
+
+func NewCachedPieceReader(db *harmonydb.DB, pp *pieceprovider.PieceProvider) *CachedPieceReader {
+	prCache := ttlcache.NewCache()
+	_ = prCache.SetTTL(time.Minute * 10)
+	prCache.SetCacheSizeLimit(MaxCachedReaders)
+
+	cpr := &CachedPieceReader{
+		db:               db,
+		pp:               pp,
+		pieceReaderCache: prCache,
+	}
+
+	expireCallback := func(key string, reason ttlcache.EvictionReason, value interface{}) {
+		log.Debugw("expire callback", "piececid", key, "reason", reason)
+
+		r := value.(*cachedSectionReader)
+
+		cpr.pieceReaderCacheMu.Lock()
+		defer cpr.pieceReaderCacheMu.Unlock()
+
+		r.expired = true
+
+		if r.refs <= 0 {
+			r.cancel()
+			return
+		}
+
+		log.Debugw("expire callback with refs > 0", "refs", r.refs, "piececid", key, "reason", reason)
+	}
+
+	prCache.SetExpirationReasonCallback(expireCallback)
+
+	return cpr
+}
+
 type cachedSectionReader struct {
-	reader   storiface.Reader
-	ro       *Provider
-	pieceCid cid.Cid
+	reader    storiface.Reader
+	cpr       *CachedPieceReader
+	pieceCid  cid.Cid
+	pieceSize abi.PaddedPieceSize
 	// Signals when the underlying piece reader is ready
 	ready chan struct{}
 	// err is non-nil if there's an error getting the underlying piece reader
@@ -27,8 +82,8 @@ type cachedSectionReader struct {
 }
 
 func (r *cachedSectionReader) Close() error {
-	r.ro.pieceReaderCacheMu.Lock()
-	defer r.ro.pieceReaderCacheMu.Unlock()
+	r.cpr.pieceReaderCacheMu.Lock()
+	defer r.cpr.pieceReaderCacheMu.Unlock()
 
 	r.refs--
 
@@ -41,7 +96,7 @@ func (r *cachedSectionReader) Close() error {
 	return nil
 }
 
-func (p *Provider) getPieceReader(ctx context.Context, pieceCid cid.Cid) (storiface.Reader, error) {
+func (cpr *CachedPieceReader) getPieceReader(ctx context.Context, pieceCid cid.Cid) (storiface.Reader, abi.PaddedPieceSize, error) {
 	// Get all deals containing this piece
 
 	var deals []struct {
@@ -52,7 +107,7 @@ func (p *Provider) getPieceReader(ctx context.Context, pieceCid cid.Cid) (storif
 		Proof  abi.RegisteredSealProof `db:"reg_seal_proof"`
 	}
 
-	err := p.db.Select(ctx, &deals, `SELECT 
+	err := cpr.db.Select(ctx, &deals, `SELECT 
 												mpd.sp_id,
 												mpd.sector_num,
 												mpd.piece_offset,
@@ -68,11 +123,11 @@ func (p *Provider) getPieceReader(ctx context.Context, pieceCid cid.Cid) (storif
 											WHERE 
 												mpd.piece_cid = $1;`, pieceCid.String())
 	if err != nil {
-		return nil, fmt.Errorf("getting piece deals: %w", err)
+		return nil, 0, fmt.Errorf("getting piece deals: %w", err)
 	}
 
 	if len(deals) == 0 {
-		return nil, fmt.Errorf("piece cid %s: %w", pieceCid, ErrNotFound)
+		return nil, 0, fmt.Errorf("piece cid %s: %w", pieceCid, NoDealErr)
 	}
 
 	// For each deal, try to read an unsealed copy of the data from the sector
@@ -87,45 +142,45 @@ func (p *Provider) getPieceReader(ctx context.Context, pieceCid cid.Cid) (storif
 			ProofType: dl.Proof,
 		}
 
-		reader, err := p.pieceProvider.ReadPiece(ctx, sr, storiface.UnpaddedByteIndex(dl.Offset.Unpadded()), dl.Length.Unpadded(), pieceCid)
+		reader, err := cpr.pp.ReadPiece(ctx, sr, storiface.UnpaddedByteIndex(dl.Offset.Unpadded()), dl.Length.Unpadded(), pieceCid)
 		if err != nil {
-			log.Warnw("failed to read piece for ipni chunk reconstruction", "error", err, "sector", sr, "offset", dl.Offset.Unpadded(), "length", dl.Length, "pieceCID", pieceCid)
 			merr = multierror.Append(merr, err)
 			continue
 		}
 
-		return reader, nil
+		return reader, dl.Length, nil
 	}
 
-	return nil, merr
+	return nil, 0, merr
 }
 
-func (p *Provider) GetSharedPieceReader(ctx context.Context, pieceCid cid.Cid) (storiface.Reader, error) {
+func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid cid.Cid) (storiface.Reader, abi.PaddedPieceSize, error) {
 
 	var r *cachedSectionReader
 
 	// Check if there is already a piece reader in the cache
-	p.pieceReaderCacheMu.Lock()
-	rr, err := p.pieceReaderCache.Get(pieceCid.String())
+	cpr.pieceReaderCacheMu.Lock()
+	rr, err := cpr.pieceReaderCache.Get(pieceCid.String())
 	if err != nil {
 		// There is not yet a cached piece reader, create a new one and add it
 		// to the cache
 		r = &cachedSectionReader{
-			ro:       p,
+			cpr:      cpr,
 			pieceCid: pieceCid,
 			ready:    make(chan struct{}),
 			refs:     1,
 		}
-		_ = p.pieceReaderCache.Set(pieceCid.String(), r)
-		p.pieceReaderCacheMu.Unlock()
+		_ = cpr.pieceReaderCache.Set(pieceCid.String(), r)
+		cpr.pieceReaderCacheMu.Unlock()
 
 		// We just added a cached reader, so get its underlying piece reader
 		readerCtx, readerCtxCancel := context.WithCancel(context.Background())
-		sr, err := p.getPieceReader(readerCtx, pieceCid)
+		sr, size, err := cpr.getPieceReader(readerCtx, pieceCid)
 
 		r.reader = sr
 		r.err = err
 		r.cancel = readerCtxCancel
+		r.pieceSize = size
 
 		// Inform any waiting threads that the cached reader is ready
 		close(r.ready)
@@ -134,7 +189,7 @@ func (p *Provider) GetSharedPieceReader(ctx context.Context, pieceCid cid.Cid) (
 		r = rr.(*cachedSectionReader)
 		r.refs++
 
-		p.pieceReaderCacheMu.Unlock()
+		cpr.pieceReaderCacheMu.Unlock()
 
 		// We already had a cached reader, wait for it to be ready
 		select {
@@ -142,7 +197,7 @@ func (p *Provider) GetSharedPieceReader(ctx context.Context, pieceCid cid.Cid) (
 			// The context timed out. Deference the cached piece reader and
 			// return an error.
 			_ = r.Close()
-			return nil, ctx.Err()
+			return nil, 0, ctx.Err()
 		case <-r.ready:
 		}
 	}
@@ -151,8 +206,8 @@ func (p *Provider) GetSharedPieceReader(ctx context.Context, pieceCid cid.Cid) (
 	// that the cached reader gets cleaned up
 	if r.err != nil {
 		_ = r.Close()
-		return nil, r.err
+		return nil, 0, r.err
 	}
 
-	return r.reader, nil
+	return r.reader, r.pieceSize, nil
 }

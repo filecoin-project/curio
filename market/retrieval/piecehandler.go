@@ -12,6 +12,7 @@ import (
 
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
 )
 
@@ -44,10 +45,10 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get a reader over the piece
-	reader, size, err := rp.bs.GetSharedPieceReader(ctx, pieceCid)
+	reader, size, err := rp.cpr.GetSharedPieceReader(ctx, pieceCid)
 	if err != nil {
 		log.Errorf("server error getting content for piece CID %s: %s", pieceCid, err)
-		if errors.Is(err, remoteblockstore.NoDealErr) {
+		if errors.Is(err, cachedreader.NoDealErr) {
 			w.WriteHeader(http.StatusNotFound)
 			stats.Record(ctx, remoteblockstore.HttpPieceByCid404ResponseCount.M(1))
 			return

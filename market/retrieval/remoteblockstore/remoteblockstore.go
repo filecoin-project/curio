@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sync"
-	"time"
 
 	"github.com/hashicorp/go-multierror"
 	blocks "github.com/ipfs/go-block-format"
@@ -16,13 +14,11 @@ import (
 	format "github.com/ipfs/go-ipld-format"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/go-car/util"
-	"github.com/jellydator/ttlcache/v2"
 	"github.com/multiformats/go-multihash"
 	"go.opencensus.io/stats"
 
-	"github.com/filecoin-project/go-state-types/abi"
-
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 )
@@ -36,19 +32,12 @@ type idxAPI interface {
 	GetOffsetSize(ctx context.Context, pieceCid cid.Cid, hash multihash.Multihash) (*indexstore.OffsetSize, error)
 }
 
-type pieceProviderAPI interface {
-	ReadPiece(ctx context.Context, sector storiface.SectorRef, pieceOffset storiface.UnpaddedByteIndex, size abi.UnpaddedPieceSize, pieceCid cid.Cid) (storiface.Reader, error)
-}
-
 // RemoteBlockstore is a read-only blockstore over all cids across all pieces on a provider.
 type RemoteBlockstore struct {
 	idxApi       idxAPI
 	blockMetrics *BlockMetrics
 	db           *harmonydb.DB
-	pp           pieceProviderAPI
-
-	pieceReaderCacheMu sync.Mutex
-	pieceReaderCache   *ttlcache.Cache
+	cpr          *cachedreader.CachedPieceReader
 }
 
 type BlockMetrics struct {
@@ -64,11 +53,7 @@ type BlockMetrics struct {
 	GetSizeSuccessResponseCount *stats.Int64Measure
 }
 
-func NewRemoteBlockstore(api idxAPI, db *harmonydb.DB, pp pieceProviderAPI) *RemoteBlockstore {
-	prCache := ttlcache.NewCache()
-	_ = prCache.SetTTL(time.Minute * 5)
-	prCache.SetCacheSizeLimit(MaxCachedReaders)
-
+func NewRemoteBlockstore(api idxAPI, db *harmonydb.DB, cpr *cachedreader.CachedPieceReader) *RemoteBlockstore {
 	httpBlockMetrics := &BlockMetrics{
 		GetRequestCount:             HttpRblsGetRequestCount,
 		GetFailResponseCount:        HttpRblsGetFailResponseCount,
@@ -82,35 +67,12 @@ func NewRemoteBlockstore(api idxAPI, db *harmonydb.DB, pp pieceProviderAPI) *Rem
 		GetSizeSuccessResponseCount: HttpRblsGetSizeSuccessResponseCount,
 	}
 
-	ro := &RemoteBlockstore{
-		idxApi:           api,
-		blockMetrics:     httpBlockMetrics,
-		db:               db,
-		pp:               pp,
-		pieceReaderCache: prCache,
+	return &RemoteBlockstore{
+		idxApi:       api,
+		blockMetrics: httpBlockMetrics,
+		db:           db,
+		cpr:          cpr,
 	}
-
-	expireCallback := func(key string, reason ttlcache.EvictionReason, value interface{}) {
-		log.Debugw("expire callback", "piececid", key, "reason", reason)
-
-		r := value.(*cachedSectionReader)
-
-		ro.pieceReaderCacheMu.Lock()
-		defer ro.pieceReaderCacheMu.Unlock()
-
-		r.expired = true
-
-		if r.refs <= 0 {
-			r.cancel()
-			return
-		}
-
-		log.Debugw("expire callback with refs > 0", "refs", r.refs, "piececid", key, "reason", reason)
-	}
-
-	prCache.SetExpirationReasonCallback(expireCallback)
-
-	return ro
 }
 
 func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block, err error) {
@@ -146,11 +108,11 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 	for _, pieceCid := range pieces {
 		data, err := func() ([]byte, error) {
 			// Get a reader over the piece data
-			reader, _, err := ro.GetSharedPieceReader(ctx, pieceCid)
+			reader, _, err := ro.cpr.GetSharedPieceReader(ctx, pieceCid)
 			if err != nil {
 				return nil, fmt.Errorf("getting piece reader: %w", err)
 			}
-			defer func(reader SectionReader) {
+			defer func(reader storiface.Reader) {
 				_ = reader.Close()
 			}(reader)
 

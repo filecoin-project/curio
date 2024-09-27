@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -26,7 +25,6 @@ import (
 	"github.com/ipni/go-libipni/dagsync/ipnisync/head"
 	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/ipni/go-libipni/metadata"
-	"github.com/jellydator/ttlcache/v2"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
@@ -35,6 +33,7 @@ import (
 
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/urltomultiaddr"
 	"github.com/filecoin-project/curio/market/indexstore"
@@ -86,8 +85,7 @@ type Provider struct {
 	// the provider. This is created by converting announceURLs into a multiaddr and adding the following
 	// announceURLs(in multiaddr)+IPNIRoutePath(/ipni-provider/)+peerID
 	httpServerAddresses []multiaddr.Multiaddr
-	pieceReaderCacheMu  sync.Mutex
-	pieceReaderCache    *ttlcache.Cache
+	cpr                 *cachedreader.CachedPieceReader
 }
 
 // NewProvider initializes a new Provider using the provided dependencies.
@@ -159,10 +157,6 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 		httpServerAddresses[i] = addr
 	}
 
-	prCache := ttlcache.NewCache()
-	_ = prCache.SetTTL(time.Minute * 10)
-	prCache.SetCacheSizeLimit(MaxCachedReaders)
-
 	return &Provider{
 		db:                  d.DB,
 		pieceProvider:       d.PieceProvider,
@@ -170,7 +164,7 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 		keys:                keyMap,
 		announceURLs:        announceURLs,
 		httpServerAddresses: httpServerAddresses,
-		pieceReaderCache:    prCache,
+		cpr:                 d.CachedPieceReader,
 	}, nil
 }
 
@@ -364,7 +358,7 @@ func (p *Provider) getEntry(block cid.Cid) ([]byte, error) {
 // reconstructChunkFromCar reconstructs a chunk from a car file.
 func (p *Provider) reconstructChunkFromCar(ctx context.Context, chunk, piece cid.Cid, startOff int64, next ipld.Link, numBlocks int64) ([]byte, error) {
 
-	reader, err := p.GetSharedPieceReader(ctx, piece)
+	reader, _, err := p.cpr.GetSharedPieceReader(ctx, piece)
 
 	if err != nil {
 		return nil, xerrors.Errorf("failed to read piece %s for ipni chunk %s reconstruction: %w", piece, chunk, err)
