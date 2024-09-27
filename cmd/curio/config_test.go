@@ -373,8 +373,6 @@ var baseText = `
   ChainApiInfo = ["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBbGxvdyI6WyJyZWFkIiwid3JpdGUiLCJzaWduIiwiYWRtaW4iXX0.T_jmG4DTs9Zjd7rr78862lT7D2U63uz-zqcUKHwcqaU:/dns/localhost/tcp/1234/http"]
 
   # RPC Secret for the storage subsystem.
-  # If integrating with lotus-miner this must match the value from
-  # cat ~/.lotusminer/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU | jq -r .PrivateKey
   #
   # type: string
   StorageRPCSecret = "HxHe8YLHiY0LjHVw/WT/4XQkPGgRyCEYk+xiFi0Ob0o="
