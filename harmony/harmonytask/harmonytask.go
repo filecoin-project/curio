@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/samber/lo"
+
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 
@@ -36,6 +38,11 @@ type TaskTypeDetails struct {
 	// Max Failure count before the job is dropped.
 	// 0 = retry forever
 	MaxFailures uint
+
+	// RetryWait is the time to wait before retrying a failed task.
+	// It is called with the number of retries so far.
+	// If nil, it will retry immediately.
+	RetryWait func(retries int) time.Duration
 
 	// Follow another task's completion via this task's creation.
 	// The function should populate extraInfo from data
@@ -369,8 +376,14 @@ func (e *TaskEngine) pollerTryAllWork() bool {
 			log.Debugf("skipped scheduling %s type tasks on due to %s", v.Name, err.Error())
 			continue
 		}
-		var unownedTasks []TaskID
-		err := e.db.Select(e.ctx, &unownedTasks, `SELECT id 
+		type task struct {
+			ID         TaskID    `db:"id"`
+			UpdateTime time.Time `db:"update_time"`
+			Retries    int       `db:"retries"`
+		}
+
+		var allUnownedTasks []task
+		err := e.db.Select(e.ctx, &allUnownedTasks, `SELECT id, update_time, retries 
 			FROM harmony_task
 			WHERE owner_id IS NULL AND name=$1
 			ORDER BY update_time`, v.Name)
@@ -378,6 +391,19 @@ func (e *TaskEngine) pollerTryAllWork() bool {
 			log.Error("Unable to read work ", err)
 			continue
 		}
+
+		unownedTasks := lo.FlatMap(allUnownedTasks, func(t task, _ int) []TaskID {
+			if v.RetryWait == nil {
+				return []TaskID{t.ID}
+			}
+			if time.Since(t.UpdateTime) > v.RetryWait(t.Retries) {
+				return []TaskID{t.ID}
+			} else {
+				log.Debugf("Task %d is not ready to retry yet, retries %d, wait: %s", t.ID, t.Retries, v.RetryWait(t.Retries))
+				return nil
+			}
+		})
+
 		if len(unownedTasks) > 0 {
 			accepted := v.considerWork(WorkSourcePoller, unownedTasks)
 			if accepted {
