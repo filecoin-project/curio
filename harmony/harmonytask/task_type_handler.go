@@ -281,7 +281,7 @@ retryRecordCompletion:
 				result = "error: " + doErr.Error()
 			}
 			var deleteTask bool
-			if h.MaxFailures > 0 && retries >= h.MaxFailures {
+			if h.MaxFailures > 0 && retries >= h.MaxFailures-1 {
 				deleteTask = true
 			}
 			if deleteTask {
