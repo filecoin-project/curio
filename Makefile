@@ -71,7 +71,7 @@ OS := $(shell uname)
 ifeq ($(OS), Linux)
     $(eval CUDA_PATH := $(shell dirname $$(dirname $$(which nvcc))))
     $(eval CUDA_LIB_PATH := $(CUDA_PATH)/lib64)
-    export LIBRARY_PATH := $(LIBRARY_PATH):$(CUDA_LIB_PATH)  # Append to the existing LIBRARY_PATH
+    export LIBRARY_PATH := $(LIBRARY_PATH):$(CUDA_LIB_PATH)
 endif
 
 ## MAIN BINARIES
