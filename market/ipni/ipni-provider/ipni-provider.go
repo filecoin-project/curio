@@ -235,6 +235,27 @@ func (p *Provider) getAd(ctx context.Context, ad cid.Cid, provider string) (sche
 	}, nil
 }
 
+func (p *Provider) getAdBytes(ctx context.Context, ad cid.Cid, provider string) ([]byte, error) {
+	a, err := p.getAd(ctx, ad, provider)
+	if err != nil {
+		return nil, err
+	}
+
+	adn, err := a.ToNode()
+	if err != nil {
+		return nil, err
+	}
+
+	// Use local buffer for better error handing
+	resp := new(bytes.Buffer)
+	err = dagjson.Encode(adn, resp)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to encode ad %s for peer %s: %w", ad.String(), provider, err)
+	}
+
+	return resp.Bytes(), nil
+}
+
 // getHead retrieves the head of a provider from the database, generates a signed head, and returns it as encoded bytes.
 // If the head is not found or if there is an error, it returns an appropriate error.
 func (p *Provider) getHead(ctx context.Context, provider string) ([]byte, error) {
@@ -488,7 +509,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 
 		switch h {
 		case ipnisync.CidSchemaAdvertisement:
-			ad, err := p.getAd(r.Context(), b, providerID)
+			ad, err := p.getAdBytes(r.Context(), b, providerID)
 			if err != nil {
 				if errors.Is(err, ErrNotFound) {
 					http.Error(w, "", http.StatusNoContent)
@@ -498,22 +519,8 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "", http.StatusInternalServerError)
 				return
 			}
-			adn, err := ad.ToNode()
-			if err != nil {
-				log.Errorf("failed to convert ad %s for peer %s to IPLD node: %w", b.String(), providerID, err)
-				http.Error(w, "", http.StatusInternalServerError)
-				return
-			}
-			// Use local buffer for better error handing
-			resp := new(bytes.Buffer)
-			err = dagjson.Encode(adn, resp)
-			if err != nil {
-				log.Errorf("failed to encode ad %s for peer %s: %w", b.String(), providerID, err)
-				http.Error(w, "", http.StatusInternalServerError)
-				return
-			}
 			w.WriteHeader(http.StatusOK)
-			_, err = w.Write(resp.Bytes())
+			_, err = w.Write(ad)
 			if err != nil {
 				log.Errorw("failed to write HTTP response", "err", err)
 			}
@@ -538,7 +545,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 			return
 		default:
 			// In case IPNI did not provide the requested header
-			ad, err := p.getAd(r.Context(), b, providerID)
+			ad, err := p.getAdBytes(r.Context(), b, providerID)
 			if err != nil {
 				if errors.Is(err, ErrNotFound) {
 					// Check if this is an entry CID
@@ -564,22 +571,8 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "", http.StatusInternalServerError)
 				return
 			}
-			adn, err := ad.ToNode()
-			if err != nil {
-				log.Errorf("failed to convert ad %s for peer %s to IPLD node: %w", b.String(), providerID, err)
-				http.Error(w, "", http.StatusInternalServerError)
-				return
-			}
-			// Use local buffer for better error handing
-			resp := new(bytes.Buffer)
-			err = dagjson.Encode(adn, resp)
-			if err != nil {
-				log.Errorf("failed to encode ad %s for peer %s: %w", b.String(), providerID, err)
-				http.Error(w, "", http.StatusInternalServerError)
-				return
-			}
 			w.WriteHeader(http.StatusOK)
-			_, err = w.Write(resp.Bytes())
+			_, err = w.Write(ad)
 			if err != nil {
 				log.Errorw("failed to write HTTP response", "err", err)
 			}
