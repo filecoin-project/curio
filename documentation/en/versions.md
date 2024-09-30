@@ -6,6 +6,7 @@ This is the compatibility matrix for the latest free Curio releases.
 | ------------------ | ------------- | ------- | ---------- | ------------------ | ---------------- |
 | 1.22.1 / Automatic | v1.27.X       | MainNet | v2.3.0-rc2 | 2.20.X / Automatic | 0.19 / Automatic |
 | 1.23.0             | >v1.28.1      | MainNet | v2.3.0     | 2.20.X / Automatic | 0.19 / Automatic |
+| v1.23.1            | >v1.28.1      | MainNet | v2.3.0     | 2.20.x / Automatic | 0.19 / Automatic |
 
 No preference is denoted by "X".
 

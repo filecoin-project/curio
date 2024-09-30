@@ -494,8 +494,6 @@ var baseText = `
 
 [Apis]
   # RPC Secret for the storage subsystem.
-  # If integrating with lotus-miner this must match the value from
-  # cat ~/.lotusminer/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU | jq -r .PrivateKey
   #
   # type: string
   #StorageRPCSecret = ""

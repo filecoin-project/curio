@@ -1,13 +1,19 @@
 # curio
+
+TODO
+Translated desciptions in the help menus & here are coming soon. 
+帮助菜单和此处的翻译描述即将推出。
+
+
 ```
 NAME:
    curio - Filecoin decentralized storage network provider
 
 USAGE:
-   curio [global options] command [command options]
+   curio [global options] command [command options] [arguments...]
 
 VERSION:
-   1.23.1
+   1.23.0
 
 COMMANDS:
    cli           Execute cli commands
@@ -17,7 +23,6 @@ COMMANDS:
    web           Start Curio web interface
    guided-setup  Run the guided setup for migrating from lotus-miner to Curio or Creating a new Curio miner
    seal          Manage the sealing pipeline
-   unseal        Manage unsealed data
    market        
    fetch-params  Fetch proving parameters
    calc          Math Utils
@@ -42,7 +47,7 @@ NAME:
    curio cli - Execute cli commands
 
 USAGE:
-   curio cli command [command options]
+   curio cli command [command options] [arguments...]
 
 COMMANDS:
    storage   manage sector storage
@@ -62,7 +67,7 @@ NAME:
    curio cli storage - manage sector storage
 
 USAGE:
-   curio cli storage command [command options]
+   curio cli storage command [command options] [arguments...]
 
 DESCRIPTION:
    Sectors can be stored across many filesystem paths. These
@@ -140,7 +145,7 @@ NAME:
    curio cli storage list - list local storage paths
 
 USAGE:
-   curio cli storage list [command options]
+   curio cli storage list [command options] [arguments...]
 
 OPTIONS:
    --local     only list local storage paths (default: false)
@@ -165,7 +170,7 @@ NAME:
    curio cli log - Manage logging
 
 USAGE:
-   curio cli log command [command options]
+   curio cli log command [command options] [arguments...]
 
 COMMANDS:
    list       List log systems
@@ -182,7 +187,7 @@ NAME:
    curio cli log list - List log systems
 
 USAGE:
-   curio cli log list [command options]
+   curio cli log list [command options] [arguments...]
 
 OPTIONS:
    --help, -h  show help
@@ -227,7 +232,7 @@ NAME:
    curio cli wait-api - Wait for Curio api to come online
 
 USAGE:
-   curio cli wait-api [command options]
+   curio cli wait-api [command options] [arguments...]
 
 OPTIONS:
    --timeout value  duration to wait till fail (default: 30s)
@@ -240,7 +245,7 @@ NAME:
    curio cli stop - Stop a running Curio process
 
 USAGE:
-   curio cli stop [command options]
+   curio cli stop [command options] [arguments...]
 
 OPTIONS:
    --help, -h  show help
@@ -252,7 +257,7 @@ NAME:
    curio run - Start a Curio process
 
 USAGE:
-   curio run [command options]
+   curio run [command options] [arguments...]
 
 OPTIONS:
    --listen value                                                                       host address and port the worker api will listen on (default: "0.0.0.0:12300") [$CURIO_LISTEN]
@@ -269,7 +274,7 @@ NAME:
    curio config - Manage node config by layers. The layer 'base' will always be applied at Curio start-up.
 
 USAGE:
-   curio config command [command options]
+   curio config command [command options] [arguments...]
 
 COMMANDS:
    default, defaults                Print default node config
@@ -292,7 +297,7 @@ NAME:
    curio config default - Print default node config
 
 USAGE:
-   curio config default [command options]
+   curio config default [command options] [arguments...]
 
 OPTIONS:
    --no-comment  don't comment default values (default: false)
@@ -330,7 +335,7 @@ NAME:
    curio config list - List config layers present in the DB.
 
 USAGE:
-   curio config list [command options]
+   curio config list [command options] [arguments...]
 
 OPTIONS:
    --help, -h  show help
@@ -355,7 +360,7 @@ NAME:
    curio config remove - Remove a named config layer.
 
 USAGE:
-   curio config remove [command options]
+   curio config remove [command options] [arguments...]
 
 OPTIONS:
    --help, -h  show help
@@ -396,7 +401,7 @@ NAME:
    curio test - Utility functions for testing
 
 USAGE:
-   curio test command [command options]
+   curio test command [command options] [arguments...]
 
 COMMANDS:
    window-post, wd, windowpost, wdpost  Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.
@@ -412,7 +417,7 @@ NAME:
    curio test window-post - Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.
 
 USAGE:
-   curio test window-post command [command options]
+   curio test window-post command [command options] [arguments...]
 
 COMMANDS:
    here, cli                                       Compute WindowPoSt for performance and configuration testing.
@@ -449,7 +454,7 @@ NAME:
    curio test window-post task - Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.
 
 USAGE:
-   curio test window-post task [command options]
+   curio test window-post task [command options] [arguments...]
 
 OPTIONS:
    --deadline value                   deadline to compute WindowPoSt for  (default: 0)
@@ -463,7 +468,7 @@ NAME:
    curio web - Start Curio web interface
 
 USAGE:
-   curio web [command options]
+   curio web [command options] [arguments...]
 
 DESCRIPTION:
    Start an instance of Curio web interface. 
@@ -482,7 +487,7 @@ NAME:
    curio guided-setup - Run the guided setup for migrating from lotus-miner to Curio or Creating a new Curio miner
 
 USAGE:
-   curio guided-setup [command options]
+   curio guided-setup [command options] [arguments...]
 
 OPTIONS:
    --help, -h  show help
@@ -494,11 +499,10 @@ NAME:
    curio seal - Manage the sealing pipeline
 
 USAGE:
-   curio seal command [command options]
+   curio seal command [command options] [arguments...]
 
 COMMANDS:
    start    Start new sealing operations manually
-   events   List pipeline events
    help, h  Shows a list of commands or help for one command
 
 OPTIONS:
@@ -511,7 +515,7 @@ NAME:
    curio seal start - Start new sealing operations manually
 
 USAGE:
-   curio seal start [command options]
+   curio seal start [command options] [arguments...]
 
 OPTIONS:
    --actor value                      Specify actor address to start sealing sectors for
@@ -524,127 +528,34 @@ OPTIONS:
    --help, -h                         show help
 ```
 
-### curio seal events
-```
-NAME:
-   curio seal events - List pipeline events
-
-USAGE:
-   curio seal events [command options]
-
-OPTIONS:
-   --actor value   Filter events by actor address; lists all if not specified
-   --sector value  Filter events by sector number; requires --actor to be specified (default: 0)
-   --last value    Limit output to the last N events (default: 100)
-   --help, -h      show help
-```
-
-## curio unseal
-```
-NAME:
-   curio unseal - Manage unsealed data
-
-USAGE:
-   curio unseal command [command options]
-
-COMMANDS:
-   info              Get information about unsealed data
-   list-sectors      List data from the sectors_unseal_pipeline and sectors_meta tables
-   set-target-state  Set the target unseal state for a sector
-   check             Check data integrity in unsealed sector files
-   help, h           Shows a list of commands or help for one command
-
-OPTIONS:
-   --help, -h  show help
-```
-
-### curio unseal info
-```
-NAME:
-   curio unseal info - Get information about unsealed data
-
-USAGE:
-   curio unseal info [command options] [minerAddress] [sectorNumber]
-
-OPTIONS:
-   --help, -h  show help
-```
-
-### curio unseal list-sectors
-```
-NAME:
-   curio unseal list-sectors - List data from the sectors_unseal_pipeline and sectors_meta tables
-
-USAGE:
-   curio unseal list-sectors [command options]
-
-OPTIONS:
-   --sp-id value, -s value   Filter by storage provider ID (default: 0)
-   --output value, -o value  Output file path (default: stdout)
-   --help, -h                show help
-```
-
-### curio unseal set-target-state
-```
-NAME:
-   curio unseal set-target-state - Set the target unseal state for a sector
-
-USAGE:
-   curio unseal set-target-state [command options] <miner-id> <sector-number> <target-state>
-
-DESCRIPTION:
-   Set the target unseal state for a specific sector.
-      <miner-id>: The storage provider ID
-      <sector-number>: The sector number
-      <target-state>: The target state (true, false, or none)
-
-      The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.
-        If the target state is true, curio will ensure that the sector is unsealed.
-        If the target state is false, curio will ensure that there is no unsealed copy of the sector.
-        If the target state is none, curio will not change the current state of the sector.
-
-      Currently when the curio will only start new unseal processes when the target state changes from another state to true.
-
-      When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark
-      for the unsealed sector file. The file will only be removed after the removal mark is accepted.
-
-
-OPTIONS:
-   --help, -h  show help
-```
-
-### curio unseal check
-```
-NAME:
-   curio unseal check - Check data integrity in unsealed sector files
-
-USAGE:
-   curio unseal check [command options] <miner-id> <sector-number>
-
-DESCRIPTION:
-   Create a check task for a specific sector, wait for its completion, and output the result.
-      <miner-id>: The storage provider ID
-      <sector-number>: The sector number
-
-OPTIONS:
-   --help, -h  show help
-```
-
 ## curio market
 ```
 NAME:
    curio market
 
 USAGE:
-   curio market command [command options]
+   curio market command [command options] [arguments...]
 
 COMMANDS:
-   seal     start sealing a deal sector early
-   add-url  Add URL to fetch data for offline deals
-   help, h  Shows a list of commands or help for one command
+   rpc-info  
+   seal      start sealing a deal sector early
+   help, h   Shows a list of commands or help for one command
 
 OPTIONS:
    --help, -h  show help
+```
+
+### curio market rpc-info
+```
+NAME:
+   curio market rpc-info
+
+USAGE:
+   curio market rpc-info [command options] [arguments...]
+
+OPTIONS:
+   --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
+   --help, -h                         show help
 ```
 
 ### curio market seal
@@ -659,21 +570,6 @@ OPTIONS:
    --actor value  Specify actor address to start sealing sectors for
    --synthetic    Use synthetic PoRep (default: false)
    --help, -h     show help
-```
-
-### curio market add-url
-```
-NAME:
-   curio market add-url - Add URL to fetch data for offline deals
-
-USAGE:
-   curio market add-url [command options] <deal UUID> <raw size/car size>
-
-OPTIONS:
-   --file value                                               CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'"
-   --header HEADER, -H HEADER [ --header HEADER, -H HEADER ]  Custom HEADER to include in the HTTP request
-   --url URL, -u URL                                          URL to send the request to
-   --help, -h                                                 show help
 ```
 
 ## curio fetch-params
@@ -694,7 +590,7 @@ NAME:
    curio calc - Math Utils
 
 USAGE:
-   curio calc command [command options]
+   curio calc command [command options] [arguments...]
 
 COMMANDS:
    batch-cpu         Analyze and display the layout of batch sealer threads
@@ -712,7 +608,7 @@ NAME:
    curio calc batch-cpu - Analyze and display the layout of batch sealer threads
 
 USAGE:
-   curio calc batch-cpu [command options]
+   curio calc batch-cpu [command options] [arguments...]
 
 DESCRIPTION:
    Analyze and display the layout of batch sealer threads on your CPU.
@@ -731,7 +627,7 @@ NAME:
    curio calc supraseal-config - Generate a supra_seal configuration
 
 USAGE:
-   curio calc supraseal-config [command options]
+   curio calc supraseal-config [command options] [arguments...]
 
 DESCRIPTION:
    Generate a supra_seal configuration for a given batch size.

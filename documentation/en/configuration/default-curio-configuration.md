@@ -614,9 +614,7 @@ description: The default curio configuration
 
 
 [Apis]
-  # RPC Secret for the storage subsystem.
-  # If integrating with lotus-miner this must match the value from
-  # cat ~/.lotusminer/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU | jq -r .PrivateKey
+  # Chain API auth secret for the Curio nodes to use.
   #
   # type: string
   #StorageRPCSecret = ""

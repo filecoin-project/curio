@@ -1,13 +1,18 @@
 # sptool
-```
+
+TODO
+Translated desciptions in the help menus & here are coming soon. 
+帮助菜单和此处的翻译描述即将推出。
+
+```yaml
 NAME:
    sptool - Manage Filecoin Miner Actor
 
 USAGE:
-   sptool [global options] command [command options]
+   sptool [global options] command [command options] [arguments...]
 
 VERSION:
-   1.23.1
+   1.23.0
 
 COMMANDS:
    actor    Manage Filecoin Miner Actor Metadata
@@ -24,12 +29,12 @@ GLOBAL OPTIONS:
 ```
 
 ## sptool actor
-```
+```yaml
 NAME:
    sptool actor - Manage Filecoin Miner Actor Metadata
 
 USAGE:
-   sptool actor command [command options]
+   sptool actor command [command options] [arguments...]
 
 COMMANDS:
    set-addresses, set-addrs    set addresses that your miner can be publicly dialed on
@@ -51,7 +56,7 @@ OPTIONS:
 ```
 
 ### sptool actor set-addresses
-```
+```yaml
 NAME:
    sptool actor set-addresses - set addresses that your miner can be publicly dialed on
 
@@ -66,7 +71,7 @@ OPTIONS:
 ```
 
 ### sptool actor withdraw
-```
+```yaml
 NAME:
    sptool actor withdraw - withdraw available balance to beneficiary
 
@@ -80,7 +85,7 @@ OPTIONS:
 ```
 
 ### sptool actor repay-debt
-```
+```yaml
 NAME:
    sptool actor repay-debt - pay down a miner's debt
 
@@ -93,7 +98,7 @@ OPTIONS:
 ```
 
 ### sptool actor set-peer-id
-```
+```yaml
 NAME:
    sptool actor set-peer-id - set the peer id of your miner
 
@@ -106,7 +111,7 @@ OPTIONS:
 ```
 
 ### sptool actor set-owner
-```
+```yaml
 NAME:
    sptool actor set-owner - Set owner address (this command should be invoked twice, first with the old owner as the senderAddress, and then with the new owner)
 
@@ -119,12 +124,12 @@ OPTIONS:
 ```
 
 ### sptool actor control
-```
+```yaml
 NAME:
    sptool actor control - Manage control addresses
 
 USAGE:
-   sptool actor control command [command options]
+   sptool actor control command [command options] [arguments...]
 
 COMMANDS:
    list     Get currently set control addresses. Note: This excludes most roles as they are not known to the immediate chain state.
@@ -136,12 +141,12 @@ OPTIONS:
 ```
 
 #### sptool actor control list
-```
+```yaml
 NAME:
    sptool actor control list - Get currently set control addresses. Note: This excludes most roles as they are not known to the immediate chain state.
 
 USAGE:
-   sptool actor control list [command options]
+   sptool actor control list [command options] [arguments...]
 
 OPTIONS:
    --verbose   (default: false)
@@ -149,7 +154,7 @@ OPTIONS:
 ```
 
 #### sptool actor control set
-```
+```yaml
 NAME:
    sptool actor control set - Set control address(-es)
 
@@ -162,7 +167,7 @@ OPTIONS:
 ```
 
 ### sptool actor propose-change-worker
-```
+```yaml
 NAME:
    sptool actor propose-change-worker - Propose a worker address change
 
@@ -175,7 +180,7 @@ OPTIONS:
 ```
 
 ### sptool actor confirm-change-worker
-```
+```yaml
 NAME:
    sptool actor confirm-change-worker - Confirm a worker address change
 
@@ -188,12 +193,12 @@ OPTIONS:
 ```
 
 ### sptool actor compact-allocated
-```
+```yaml
 NAME:
    sptool actor compact-allocated - compact allocated sectors bitfield
 
 USAGE:
-   sptool actor compact-allocated [command options]
+   sptool actor compact-allocated [command options] [arguments...]
 
 OPTIONS:
    --mask-last-offset value  Mask sector IDs from 0 to 'highest_allocated - offset' (default: 0)
@@ -203,7 +208,7 @@ OPTIONS:
 ```
 
 ### sptool actor propose-change-beneficiary
-```
+```yaml
 NAME:
    sptool actor propose-change-beneficiary - Propose a beneficiary address change
 
@@ -218,7 +223,7 @@ OPTIONS:
 ```
 
 ### sptool actor confirm-change-beneficiary
-```
+```yaml
 NAME:
    sptool actor confirm-change-beneficiary - Confirm a beneficiary address change
 
@@ -233,12 +238,12 @@ OPTIONS:
 ```
 
 ### sptool actor new-miner
-```
+```yaml
 NAME:
    sptool actor new-miner - Initializes a new miner actor
 
 USAGE:
-   sptool actor new-miner [command options]
+   sptool actor new-miner [command options] [arguments...]
 
 OPTIONS:
    --worker value, -w value  worker key to use for new miner initialisation
@@ -250,24 +255,24 @@ OPTIONS:
 ```
 
 ## sptool info
-```
+```yaml
 NAME:
    sptool info - Print miner actor info
 
 USAGE:
-   sptool info [command options]
+   sptool info [command options] [arguments...]
 
 OPTIONS:
    --help, -h  show help
 ```
 
 ## sptool sectors
-```
+```yaml
 NAME:
    sptool sectors - interact with sector store
 
 USAGE:
-   sptool sectors command [command options]
+   sptool sectors command [command options] [arguments...]
 
 COMMANDS:
    status              Get the seal status of a sector by its number
@@ -285,7 +290,7 @@ OPTIONS:
 ```
 
 ### sptool sectors status
-```
+```yaml
 NAME:
    sptool sectors status - Get the seal status of a sector by its number
 
@@ -301,36 +306,36 @@ OPTIONS:
 ```
 
 ### sptool sectors list
-```
+```yaml
 NAME:
    sptool sectors list - List sectors
 
 USAGE:
-   sptool sectors list [command options]
+   sptool sectors list [command options] [arguments...]
 
 OPTIONS:
    --help, -h  show help
 ```
 
 ### sptool sectors precommits
-```
+```yaml
 NAME:
    sptool sectors precommits - Print on-chain precommit info
 
 USAGE:
-   sptool sectors precommits [command options]
+   sptool sectors precommits [command options] [arguments...]
 
 OPTIONS:
    --help, -h  show help
 ```
 
 ### sptool sectors check-expire
-```
+```yaml
 NAME:
    sptool sectors check-expire - Inspect expiring sectors
 
 USAGE:
-   sptool sectors check-expire [command options]
+   sptool sectors check-expire [command options] [arguments...]
 
 OPTIONS:
    --cutoff value  skip sectors whose current expiration is more than <cutoff> epochs from now, defaults to 60 days (default: 172800)
@@ -338,12 +343,12 @@ OPTIONS:
 ```
 
 ### sptool sectors expired
-```
+```yaml
 NAME:
    sptool sectors expired - Get or cleanup expired sectors
 
 USAGE:
-   sptool sectors expired [command options]
+   sptool sectors expired [command options] [arguments...]
 
 OPTIONS:
    --expired-epoch value  epoch at which to check sector expirations (default: WinningPoSt lookback epoch)
@@ -351,37 +356,21 @@ OPTIONS:
 ```
 
 ### sptool sectors extend
-```
+```yaml
 NAME:
    sptool sectors extend - Extend expiring sectors while not exceeding each sector's max life
 
 USAGE:
    sptool sectors extend [command options] <sectorNumbers...(optional)>
 
-DESCRIPTION:
-   NOTE: --new-expiration, --from and --to flags have multiple formats:
-     1. Absolute epoch number: <epoch>
-     2. Relative epoch number: +<delta>, e.g. +1000, means 1000 epochs from now
-     3. Relative day number: +<delta>d, e.g. +10d, means 10 days from now
-
-   The --extension flag has two formats:
-     1. Number of epochs to extend by: <epoch>
-     2. Number of days to extend by: <delta>d
-
-   Extensions will be clamped at either the maximum sector extension of 3.5 years/1278 days or the sector's maximum lifetime
-     which currently is 5 years.
-
-
-
 OPTIONS:
-   --from value            only consider sectors whose current expiration epoch is in the range of [from, to], <from> defaults to: now + 120 (1 hour) (default: "+120")
-   --to value              only consider sectors whose current expiration epoch is in the range of [from, to], <to> defaults to: now + 92160 (32 days) (default: "+92160")
+   --from value            only consider sectors whose current expiration epoch is in the range of [from, to], <from> defaults to: now + 120 (1 hour) (default: 0)
+   --to value              only consider sectors whose current expiration epoch is in the range of [from, to], <to> defaults to: now + 92160 (32 days) (default: 0)
    --sector-file value     provide a file containing one sector number in each line, ignoring above selecting criteria
    --exclude value         optionally provide a file containing excluding sectors
-   --extension value       try to extend selected sectors by this number of epochs, defaults to 540 days (default: "540d")
-   --new-expiration value  try to extend selected sectors to this epoch, ignoring extension
+   --extension value       try to extend selected sectors by this number of epochs, defaults to 540 days (default: 1555200)
+   --new-expiration value  try to extend selected sectors to this epoch, ignoring extension (default: 0)
    --only-cc               only extend CC sectors (useful for making sector ready for snap upgrade) (default: false)
-   --no-cc                 don't extend CC sectors (exclusive with --only-cc) (default: false)
    --drop-claims           drop claims for sectors that can be extended, but only by dropping some of their verified power claims (default: false)
    --tolerance value       don't try to extend sectors by fewer than this number of epochs, defaults to 7 days (default: 20160)
    --max-fee value         use up to this amount of FIL for one message. pass this flag to avoid message congestion. (default: "0")
@@ -391,7 +380,7 @@ OPTIONS:
 ```
 
 ### sptool sectors terminate
-```
+```yaml
 NAME:
    sptool sectors terminate - Forcefully terminate a sector (WARNING: This means losing power and pay a one-time termination penalty(including collateral) for the terminated sector)
 
@@ -406,12 +395,12 @@ OPTIONS:
 ```
 
 ### sptool sectors compact-partitions
-```
+```yaml
 NAME:
    sptool sectors compact-partitions - removes dead sectors from partitions and reduces the number of partitions used if possible
 
 USAGE:
-   sptool sectors compact-partitions [command options]
+   sptool sectors compact-partitions [command options] [arguments...]
 
 OPTIONS:
    --deadline value                           the deadline to compact the partitions in (default: 0)
@@ -421,12 +410,12 @@ OPTIONS:
 ```
 
 ## sptool proving
-```
+```yaml
 NAME:
    sptool proving - View proving information
 
 USAGE:
-   sptool proving command [command options]
+   sptool proving command [command options] [arguments...]
 
 COMMANDS:
    info       View current state information
@@ -440,24 +429,24 @@ OPTIONS:
 ```
 
 ### sptool proving info
-```
+```yaml
 NAME:
    sptool proving info - View current state information
 
 USAGE:
-   sptool proving info [command options]
+   sptool proving info [command options] [arguments...]
 
 OPTIONS:
    --help, -h  show help
 ```
 
 ### sptool proving deadlines
-```
+```yaml
 NAME:
    sptool proving deadlines - View the current proving period deadlines information
 
 USAGE:
-   sptool proving deadlines [command options]
+   sptool proving deadlines [command options] [arguments...]
 
 OPTIONS:
    --all, -a   Count all sectors (only live sectors are counted by default) (default: false)
@@ -465,7 +454,7 @@ OPTIONS:
 ```
 
 ### sptool proving deadline
-```
+```yaml
 NAME:
    sptool proving deadline - View the current proving period deadline information by its index
 
@@ -479,12 +468,12 @@ OPTIONS:
 ```
 
 ### sptool proving faults
-```
+```yaml
 NAME:
    sptool proving faults - View the currently known proving faulty sectors information
 
 USAGE:
-   sptool proving faults [command options]
+   sptool proving faults [command options] [arguments...]
 
 OPTIONS:
    --help, -h  show help
