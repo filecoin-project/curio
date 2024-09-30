@@ -65,10 +65,14 @@ build/.update-modules:
 
 # end git modules
 
-## CUDA Library Path
-$(eval CUDA_PATH := $(shell dirname $$(dirname $$(which nvcc))))
-$(eval CUDA_LIB_PATH := $(CUDA_PATH)/lib64)
-export LIBRARY_PATH=$(CUDA_LIB_PATH)
+# CUDA Library Path
+# Conditional execution block for Linux
+OS := $(shell uname)
+ifeq ($(OS), Linux)
+    $(eval CUDA_PATH := $(shell dirname $$(dirname $$(which nvcc))))
+    $(eval CUDA_LIB_PATH := $(CUDA_PATH)/lib64)
+    export LIBRARY_PATH := $(LIBRARY_PATH):$(CUDA_LIB_PATH)  # Append to the existing LIBRARY_PATH
+endif
 
 ## MAIN BINARIES
 

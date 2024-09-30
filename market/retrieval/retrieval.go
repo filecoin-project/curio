@@ -9,7 +9,7 @@ import (
 	"github.com/ipld/frisbii"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/pieceprovider"
+	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
 )
@@ -17,23 +17,25 @@ import (
 var log = logging.Logger("retrievals")
 
 type Provider struct {
-	db *harmonydb.DB
-	bs *remoteblockstore.RemoteBlockstore
-	fr *frisbii.HttpIpfs
+	db  *harmonydb.DB
+	bs  *remoteblockstore.RemoteBlockstore
+	fr  *frisbii.HttpIpfs
+	cpr *cachedreader.CachedPieceReader
 }
 
 const piecePrefix = "/piece/"
 const ipfsPrefix = "/ipfs/"
 
-func NewRetrievalProvider(ctx context.Context, db *harmonydb.DB, idxStore *indexstore.IndexStore, pp *pieceprovider.PieceProvider) *Provider {
-	bs := remoteblockstore.NewRemoteBlockstore(idxStore, db, pp)
+func NewRetrievalProvider(ctx context.Context, db *harmonydb.DB, idxStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader) *Provider {
+	bs := remoteblockstore.NewRemoteBlockstore(idxStore, db, cpr)
 	lsys := storeutil.LinkSystemForBlockstore(bs)
 	fr := frisbii.NewHttpIpfs(ctx, lsys)
 
 	return &Provider{
-		db: db,
-		bs: bs,
-		fr: fr,
+		db:  db,
+		bs:  bs,
+		fr:  fr,
+		cpr: cpr,
 	}
 }
 

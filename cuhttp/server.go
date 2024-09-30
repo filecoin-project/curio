@@ -194,7 +194,7 @@ var _ autocert.Cache = cache{}
 
 func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps) (*chi.Mux, error) {
 	// Attach retrievals
-	rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.PieceProvider)
+	rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader)
 	retrieval.Router(r, rp)
 
 	// Attach IPNI
