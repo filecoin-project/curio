@@ -402,6 +402,9 @@ func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *config.CurioCo
 		if curioConfigWithDefaults.Addresses[i].CommitControl == nil {
 			curioConfigWithDefaults.Addresses[i].CommitControl = []string{}
 		}
+		if curioConfigWithDefaults.Addresses[i].DealPublishControl == nil {
+			curioConfigWithDefaults.Addresses[i].DealPublishControl = []string{}
+		}
 		if curioConfigWithDefaults.Addresses[i].TerminateControl == nil {
 			curioConfigWithDefaults.Addresses[i].TerminateControl = []string{}
 		}
@@ -516,6 +519,7 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 		curioConfig.Addresses = append(curioConfig.Addresses, config.CurioAddresses{
 			PreCommitControl:      []string{},
 			CommitControl:         []string{},
+			DealPublishControl:    []string{},
 			TerminateControl:      []string{},
 			DisableOwnerFallback:  false,
 			DisableWorkerFallback: false,
