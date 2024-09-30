@@ -99,6 +99,7 @@ type CurioChainRPC interface {
 	StateMinerSectorCount(context.Context, address.Address, types.TipSetKey) (api.MinerSectors, error)
 	StateCirculatingSupply(context.Context, types.TipSetKey) (big.Int, error)
 	StateCall(context.Context, *types.Message, types.TipSetKey) (*api.InvocResult, error)
+	MarketAddBalance(ctx context.Context, wallet, addr address.Address, amt types.BigInt) (cid.Cid, error)
 }
 
 var _ CurioChainRPC = api.FullNode(nil)

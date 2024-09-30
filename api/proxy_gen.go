@@ -106,6 +106,8 @@ type CurioChainRPCMethods struct {
 
 	GasEstimateMessageGas func(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec, p3 types.TipSetKey) (*types.Message, error) ``
 
+	MarketAddBalance func(p0 context.Context, p1 address.Address, p2 address.Address, p3 types.BigInt) (cid.Cid, error) ``
+
 	MinerCreateBlock func(p0 context.Context, p1 *api.BlockTemplate) (*types.BlockMsg, error) ``
 
 	MinerGetBaseInfo func(p0 context.Context, p1 address.Address, p2 abi.ChainEpoch, p3 types.TipSetKey) (*api.MiningBaseInfo, error) ``
@@ -524,6 +526,17 @@ func (s *CurioChainRPCStruct) GasEstimateMessageGas(p0 context.Context, p1 *type
 
 func (s *CurioChainRPCStub) GasEstimateMessageGas(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec, p3 types.TipSetKey) (*types.Message, error) {
 	return nil, ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) MarketAddBalance(p0 context.Context, p1 address.Address, p2 address.Address, p3 types.BigInt) (cid.Cid, error) {
+	if s.Internal.MarketAddBalance == nil {
+		return *new(cid.Cid), ErrNotSupported
+	}
+	return s.Internal.MarketAddBalance(p0, p1, p2, p3)
+}
+
+func (s *CurioChainRPCStub) MarketAddBalance(p0 context.Context, p1 address.Address, p2 address.Address, p3 types.BigInt) (cid.Cid, error) {
+	return *new(cid.Cid), ErrNotSupported
 }
 
 func (s *CurioChainRPCStruct) MinerCreateBlock(p0 context.Context, p1 *api.BlockTemplate) (*types.BlockMsg, error) {
