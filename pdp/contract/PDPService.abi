@@ -1,0 +1,456 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "_challengeFinality",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "LEAF_SIZE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_ROOT_SIZE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "addRoots",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "rootData",
+        "type": "tuple[]",
+        "internalType": "struct PDPService.RootData[]",
+        "components": [
+          {
+            "name": "root",
+            "type": "tuple",
+            "internalType": "struct Cids.Cid",
+            "components": [
+              {
+                "name": "data",
+                "type": "bytes",
+                "internalType": "bytes"
+              }
+            ]
+          },
+          {
+            "name": "rawSize",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "claimProofSetOwnership",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "createProofSet",
+    "inputs": [
+      {
+        "name": "recordKeeper",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "deleteProofSet",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "findRootIds",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "leafIndexs",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct PDPService.RootIdAndOffset[]",
+        "components": [
+          {
+            "name": "rootId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "offset",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getChallengeFinality",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getNextChallengeEpoch",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getNextProofSetId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getNextRootId",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getProofSetLeafCount",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getProofSetOwner",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getRootCid",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "rootId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct Cids.Cid",
+        "components": [
+          {
+            "name": "data",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getRootLeafCount",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "rootId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "proofSetLive",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "proposeProofSetOwner",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "newOwner",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "provePossession",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "proofs",
+        "type": "tuple[]",
+        "internalType": "struct PDPService.Proof[]",
+        "components": [
+          {
+            "name": "leaf",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "proof",
+            "type": "bytes32[]",
+            "internalType": "bytes32[]"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "removeRoots",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "rootIds",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "rootLive",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "rootId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "error",
+    "name": "IndexedError",
+    "inputs": [
+      {
+        "name": "idx",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "msg",
+        "type": "string",
+        "internalType": "string"
+      }
+    ]
+  }
+]
