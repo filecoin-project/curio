@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"math/bits"
 	"math/rand"
 	"os"
@@ -29,6 +32,9 @@ import (
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 )
+
+// time abow which a warn log will be emitted for slow PoSt reads
+var SlowPoStCheckThreshold = 45 * time.Second
 
 type LocalStorage interface {
 	GetStorage() (storiface.StorageConfig, error)
@@ -959,6 +965,13 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 	if si.Update {
 		src, si, err := st.AcquireSector(ctx, sr, storiface.FTUpdate|storiface.FTUpdateCache, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
 		if err != nil {
+			// Record the error with tags
+			ctx, _ = tag.New(ctx,
+				tag.Upsert(updateTagKey, fmt.Sprintf("%t", si.Update)),
+				tag.Upsert(cacheIDTagKey, ""),
+				tag.Upsert(sealedIDTagKey, ""),
+			)
+			stats.Record(ctx, GenerateSingleVanillaProofErrors.M(1))
 			return nil, xerrors.Errorf("acquire sector: %w", err)
 		}
 		cache, sealed = src.UpdateCache, src.Update
@@ -966,6 +979,13 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 	} else {
 		src, si, err := st.AcquireSector(ctx, sr, storiface.FTSealed|storiface.FTCache, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
 		if err != nil {
+			// Record the error with tags
+			ctx, _ = tag.New(ctx,
+				tag.Upsert(updateTagKey, fmt.Sprintf("%t", si.Update)),
+				tag.Upsert(cacheIDTagKey, ""),
+				tag.Upsert(sealedIDTagKey, ""),
+			)
+			stats.Record(ctx, GenerateSingleVanillaProofErrors.M(1))
 			return nil, xerrors.Errorf("acquire sector: %w", err)
 		}
 		cache, sealed = src.Cache, src.Sealed
@@ -973,8 +993,28 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 	}
 
 	if sealed == "" || cache == "" {
+		// Record the error with tags
+		ctx, _ = tag.New(ctx,
+			tag.Upsert(updateTagKey, fmt.Sprintf("%t", si.Update)),
+			tag.Upsert(cacheIDTagKey, cacheID),
+			tag.Upsert(sealedIDTagKey, sealedID),
+		)
+		stats.Record(ctx, GenerateSingleVanillaProofErrors.M(1))
 		return nil, errPathNotFound
 	}
+
+	// Add metrics context with tags
+	ctx, err := tag.New(ctx,
+		tag.Upsert(updateTagKey, fmt.Sprintf("%t", si.Update)),
+		tag.Upsert(cacheIDTagKey, cacheID),
+		tag.Upsert(sealedIDTagKey, sealedID),
+	)
+	if err != nil {
+		log.Errorw("failed to create tagged context", "err", err)
+	}
+
+	// Record that the function was called
+	stats.Record(ctx, GenerateSingleVanillaProofCalls.M(1))
 
 	psi := ffi.PrivateSectorInfo{
 		SectorInfo: proof.SectorInfo{
@@ -996,11 +1036,23 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 
 	select {
 	case r := <-resCh:
+		// Record the duration upon successful completion
+		duration := time.Since(start).Milliseconds()
+		stats.Record(ctx, GenerateSingleVanillaProofDuration.M(duration))
+
+		if duration > SlowPoStCheckThreshold.Milliseconds() {
+			log.Warnw("slow GenerateSingleVanillaProof", "duration", duration, "cache-id", cacheID, "sealed-id", sealedID, "cache", cache, "sealed", sealed, "sector", si)
+		}
+
 		return r.Unwrap()
 	case <-ctx.Done():
-		log.Errorw("failed to generate valilla PoSt proof before context cancellation", "err", ctx.Err(), "duration", time.Since(start), "cache-id", cacheID, "sealed-id", sealedID, "cache", cache, "sealed", sealed)
+		// Record the duration and error if the context is canceled
+		duration := time.Since(start).Milliseconds()
+		stats.Record(ctx, GenerateSingleVanillaProofDuration.M(duration))
+		stats.Record(ctx, GenerateSingleVanillaProofErrors.M(1))
+		log.Errorw("failed to generate vanilla PoSt proof before context cancellation", "err", ctx.Err(), "duration", duration, "cache-id", cacheID, "sealed-id", sealedID, "cache", cache, "sealed", sealed)
 
-		// this will leave the GenerateSingleVanillaProof goroutine hanging, but that's still less bad than failing PoSt
+		// This will leave the GenerateSingleVanillaProof goroutine hanging, but that's still less bad than failing PoSt
 		return nil, xerrors.Errorf("failed to generate vanilla proof before context cancellation: %w", ctx.Err())
 	}
 }
