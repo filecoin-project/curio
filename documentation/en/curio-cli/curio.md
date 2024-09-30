@@ -639,9 +639,10 @@ USAGE:
    curio market command [command options]
 
 COMMANDS:
-   seal     start sealing a deal sector early
-   add-url  Add URL to fetch data for offline deals
-   help, h  Shows a list of commands or help for one command
+   seal            start sealing a deal sector early
+   add-url         Add URL to fetch data for offline deals
+   move-to-escrow  Moves funds from the deal collateral wallet into escrow with the storage market actor
+   help, h         Shows a list of commands or help for one command
 
 OPTIONS:
    --help, -h  show help
@@ -674,6 +675,19 @@ OPTIONS:
    --header HEADER, -H HEADER [ --header HEADER, -H HEADER ]  Custom HEADER to include in the HTTP request
    --url URL, -u URL                                          URL to send the request to
    --help, -h                                                 show help
+```
+
+### curio market move-to-escrow
+```
+NAME:
+   curio market move-to-escrow - Moves funds from the deal collateral wallet into escrow with the storage market actor
+
+USAGE:
+   curio market move-to-escrow [command options] <amount>
+
+OPTIONS:
+   --actor value  Specify actor address to start sealing sectors for
+   --help, -h     show help
 ```
 
 ## curio fetch-params

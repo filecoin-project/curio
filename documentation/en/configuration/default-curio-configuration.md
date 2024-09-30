@@ -304,6 +304,8 @@ description: The default curio configuration
 
   #CommitControl = []
 
+  #DealPublishControl = []
+
   #TerminateControl = []
 
   #DisableOwnerFallback = false

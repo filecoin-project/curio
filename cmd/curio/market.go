@@ -9,16 +9,20 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hashicorp/go-multierror"
 	"github.com/mitchellh/go-homedir"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/reqcontext"
 	"github.com/filecoin-project/curio/market/storageingest"
+
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 var marketCmd = &cli.Command{
@@ -26,6 +30,7 @@ var marketCmd = &cli.Command{
 	Subcommands: []*cli.Command{
 		marketSealCmd,
 		marketAddOfflineURLCmd,
+		marketMoveToEscrowCmd,
 	},
 }
 
@@ -225,5 +230,76 @@ var marketAddOfflineURLCmd = &cli.Command{
 		}
 
 		return nil
+	},
+}
+
+var marketMoveToEscrowCmd = &cli.Command{
+	Name:  "move-to-escrow",
+	Usage: "Moves funds from the deal collateral wallet into escrow with the storage market actor",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "actor",
+			Usage:    "Specify actor address to start sealing sectors for",
+			Required: true,
+		},
+	},
+	ArgsUsage: "<amount>",
+	Action: func(cctx *cli.Context) error {
+		if cctx.Args().Len() != 1 {
+			return xerrors.Errorf("incorrect number of agruments")
+		}
+		amount, err := types.ParseFIL(cctx.Args().First())
+		if err != nil {
+			return xerrors.Errorf("failed to parse the input amount: %w", err)
+		}
+
+		amt := abi.TokenAmount(amount)
+
+		if !cctx.IsSet("actor") {
+			return cli.ShowCommandHelp(cctx, "move-to-escrow")
+		}
+
+		act, err := address.NewFromString(cctx.String("actor"))
+		if err != nil {
+			return xerrors.Errorf("parsing --actor: %w", err)
+		}
+
+		ctx := reqcontext.ReqContext(cctx)
+		dep, err := deps.GetDepsCLI(ctx, cctx)
+		if err != nil {
+			return err
+		}
+
+		dcaddrs := dep.As.MinerMap[act].DealPublishControl
+
+		obal, err := dep.Chain.StateMarketBalance(ctx, act, types.EmptyTSK)
+		if err != nil {
+			return err
+		}
+
+		var merr error
+
+		for _, addr := range dcaddrs {
+			msgCid, err := dep.Chain.MarketAddBalance(ctx, addr, act, amt)
+			if err != nil {
+				merr = multierror.Append(merr, fmt.Errorf("moving %s to escrow wallet %s from %s: %w", amount.String(), act, addr.String(), err))
+			}
+			fmt.Printf("Funds moved to escrow in message %s\n", msgCid.String())
+			fmt.Println("Waiting for the message to be included in a block")
+			res, err := dep.Chain.StateWaitMsg(ctx, msgCid, 2, 2000, true)
+			if err != nil {
+				return err
+			}
+			if !res.Receipt.ExitCode.IsSuccess() {
+				return xerrors.Errorf("message execution failed with exit code: %d", res.Receipt.ExitCode)
+			}
+			fmt.Println("Message executed successfully")
+			nbal, err := dep.Chain.StateMarketBalance(ctx, act, types.EmptyTSK)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Previous available balance: %s\n New available Balance: %s\n", big.Sub(obal.Escrow, obal.Locked).String(), big.Sub(nbal.Escrow, nbal.Locked).String())
+		}
+		return merr
 	},
 }

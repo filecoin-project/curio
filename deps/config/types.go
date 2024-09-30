@@ -35,10 +35,11 @@ func DefaultCurioConfig() *CurioConfig {
 			DisableCollateralFallback:  false,
 		},
 		Addresses: []CurioAddresses{{
-			PreCommitControl: []string{},
-			CommitControl:    []string{},
-			TerminateControl: []string{},
-			MinerAddresses:   []string{},
+			PreCommitControl:   []string{},
+			CommitControl:      []string{},
+			DealPublishControl: []string{},
+			TerminateControl:   []string{},
+			MinerAddresses:     []string{},
 		}},
 		Proving: CurioProvingConfig{
 			ParallelCheckLimit:    32,
@@ -338,8 +339,10 @@ type CurioAddresses struct {
 	// Addresses to send PreCommit messages from
 	PreCommitControl []string
 	// Addresses to send Commit messages from
-	CommitControl    []string
-	TerminateControl []string
+	CommitControl []string
+	// Address to send the deal collateral from with PublishStorageDeal Message
+	DealPublishControl []string
+	TerminateControl   []string
 
 	// DisableOwnerFallback disables usage of the owner address for messages
 	// sent automatically

@@ -71,6 +71,12 @@ var Doc = map[string][]DocField{
 			Comment: `Addresses to send Commit messages from`,
 		},
 		{
+			Name: "DealPublishControl",
+			Type: "[]string",
+
+			Comment: `Address to send the deal collateral from with PublishStorageDeal Message`,
+		},
+		{
 			Name: "TerminateControl",
 			Type: "[]string",
 
