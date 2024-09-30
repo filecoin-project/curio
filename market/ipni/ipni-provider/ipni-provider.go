@@ -35,6 +35,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/urltomultiaddr"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
@@ -380,6 +381,9 @@ func (p *Provider) getEntry(block cid.Cid) ([]byte, error) {
 func (p *Provider) reconstructChunkFromCar(ctx context.Context, chunk, piece cid.Cid, startOff int64, next ipld.Link, numBlocks int64) ([]byte, error) {
 
 	reader, _, err := p.cpr.GetSharedPieceReader(ctx, piece)
+	defer func(reader storiface.Reader) {
+		_ = reader.Close()
+	}(reader)
 
 	if err != nil {
 		return nil, xerrors.Errorf("failed to read piece %s for ipni chunk %s reconstruction: %w", piece, chunk, err)
