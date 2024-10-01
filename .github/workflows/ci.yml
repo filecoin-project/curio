@@ -162,6 +162,46 @@ jobs:
         run: make forest-test
         shell: bash
 
+  # Start YugabyteDB in a separate job with random ports
+  setup-db:
+    runs-on: [ self-hosted, docker ]
+    env:
+      CONTAINER_NAME: yugabyte-${{ github.run_id }}
+    outputs:
+      postgres_port: ${{ steps.get-ports.outputs.postgres_port }}
+      ycql_port: ${{ steps.get-ports.outputs.ycql_port }}
+    steps:
+      - name: Start YugabyteDB with random ports
+        id: start-db
+        run: |
+          # Run YugabyteDB container with random ports for 5433 (Postgres) and 9042 (YCQL)
+          docker run --rm --name ${{ env.CONTAINER_NAME }} -d \
+            -p 0:5433 -p 0:9042 \
+            yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
+        shell: bash
+
+      - name: Get the random port bindings
+        id: get-ports
+        run: |
+          # Extract the dynamically assigned ports
+          POSTGRES_PORT=$(docker inspect ${{ env.CONTAINER_NAME }} --format='{{ (index (index .NetworkSettings.Ports "5433/tcp") 0).HostPort }}')
+          YCQL_PORT=$(docker inspect ${{ env.CONTAINER_NAME }} --format='{{ (index (index .NetworkSettings.Ports "9042/tcp") 0).HostPort }}')
+          echo "Postgres is mapped to port: $POSTGRES_PORT"
+          echo "YCQL is mapped to port: $YCQL_PORT"
+          # Use the new syntax to set output
+          echo "postgres_port=$POSTGRES_PORT" >> $GITHUB_OUTPUT
+          echo "ycql_port=$YCQL_PORT" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - run: |
+          while true; do
+            status=$(docker exec ${{ env.CONTAINER_NAME }} bin/yugabyted status);
+            echo $status;
+            echo $status | grep Running && break;
+            sleep 1;
+          done
+        shell: bash
+
   test:
     runs-on: [self-hosted, docker]
     needs: [setup-params]
@@ -174,7 +214,10 @@ jobs:
             target: "./itests/curio_test.go"
           - name: test-all
             target: "`go list ./... | grep -v curio/itests`"
-        
+          - name: test-itest-harmonyDB
+            target: "./itests/harmonydb_test.go"
+          - name: test-itest-alertnow
+            target: "./itests/alertnow_test.go"
     steps:
       - uses: actions/checkout@v4
 
@@ -193,54 +236,14 @@ jobs:
           make deps
         shell: bash
 
-      - name: Start YugabyteDB with random ports
-        id: start-db
-        run: |
-          # Run YugabyteDB container with random ports for 5433 (Postgres) and 9042 (YCQL)
-          docker run --rm --name ${{ env.CONTAINER_NAME }} -d \
-            -p 0:5433 -p 0:9042 \
-            yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
-        shell: bash
-
-      - name: Get the random port bindings
-        id: get-ports
-        run: |
-          # Extract the dynamically assigned ports
-          POSTGRES_PORT=$(docker inspect ${{ env.CONTAINER_NAME }} --format='{{ (index (index .NetworkSettings.Ports "5433/tcp") 0).HostPort }}')
-          YCQL_PORT=$(docker inspect ${{ env.CONTAINER_NAME }} --format='{{ (index (index .NetworkSettings.Ports "9042/tcp") 0).HostPort }}')
-          echo "Postgres is mapped to port: $POSTGRES_PORT"
-          echo "YCQL is mapped to port: $YCQL_PORT"
-          
-          # Use the new syntax to set output
-          echo "postgres_port=$POSTGRES_PORT" >> $GITHUB_OUTPUT
-          echo "ycql_port=$YCQL_PORT" >> $GITHUB_OUTPUT
-        shell: bash
-
-      - run: |
-          while true; do
-            status=$(docker exec ${{ env.CONTAINER_NAME }} bin/yugabyted status);
-            echo $status;
-            echo $status | grep Running && break;
-            sleep 1;
-          done
-        shell: bash
-
       - name: Run tests
         run: |
-          # Use the dynamically assigned ports for the tests
-          POSTGRES_PORT=${{ steps.get-ports.outputs.postgres_port }}
-          YCQL_PORT=${{ steps.get-ports.outputs.ycql_port }}
           echo "Using Postgres Port: $POSTGRES_PORT"
           echo "Using YCQL Port: $YCQL_PORT"
           # Pass these port numbers to the test environment or test runner
           export YB_POSTGRES_PORT=$POSTGRES_PORT
           export YB_YCQL_PORT=$YCQL_PORT
           go test -v --tags=debug -timeout 30m ${{ matrix.test-suite.target }}
-        shell: bash
-
-      - name: Clean up YugabyteDB
-        if: always()
-        run: docker stop ${{ env.CONTAINER_NAME }}
         shell: bash
 
   lint:
@@ -320,6 +323,13 @@ jobs:
         run: go install github.com/hannahhoward/cbor-gen-for
         shell: bash
 
+      - name: Install FFI
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          make deps
+        shell: bash
+
       - name: Generate Code
         run: make gen
         shell: bash
@@ -348,4 +358,16 @@ jobs:
 
       - name: Run mod tidy check
         run: go mod tidy -v
+        shell: bash
+
+  # Clean up YugabyteDB after all tests
+  cleanup-db:
+    runs-on: [ self-hosted, docker ]
+    needs: [ test ]  # Run cleanup after all tests are done
+    env:
+      CONTAINER_NAME: yugabyte-${{ github.run_id }}
+    if: always()  # Ensure cleanup runs even if tests fail
+    steps:
+      - name: Stop YugabyteDB
+        run: docker stop ${{ env.CONTAINER_NAME }}
         shell: bash

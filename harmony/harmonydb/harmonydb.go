@@ -71,7 +71,7 @@ func NewFromConfigWithITestID(t *testing.T, id ITestID) (*DB, error) {
 		"yugabyte",
 		"yugabyte",
 		"yugabyte",
-		"5433",
+		envElse("postgres_port", "5433"),
 		id,
 	)
 	if err != nil {
