@@ -98,7 +98,7 @@ commands:
           fi
 
 jobs:
-  build:
+  build-debug:
     executor: golang
     working_directory: ~/curio
     steps:
@@ -109,13 +109,43 @@ jobs:
       - install-ubuntu-deps
       - check-go-version
       - run: make deps debug
-      - run: make 2k
-      - run: make calibnet
-      - run: make build
       - persist_to_workspace:
           root: ~/
           paths:
             - "curio"
+  build-2k:
+    executor: golang
+    working_directory: ~/curio
+    steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
+      - install-ubuntu-deps
+      - check-go-version
+      - run: make deps 2k
+  build-mainnet:
+    executor: golang
+    working_directory: ~/curio
+    steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
+      - install-ubuntu-deps
+      - check-go-version
+      - run: make deps build
+  build-calibnet:
+    executor: golang
+    working_directory: ~/curio
+    steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
+      - install-ubuntu-deps
+      - check-go-version
+      - run: make deps calibnet
   mod-tidy-check:
     executor: golang
     working_directory: ~/curio
@@ -250,34 +280,23 @@ jobs:
 workflows:
   ci:
     jobs:
-      - build
-      - lint-all:
-          requires:
-            - build
-      - mod-tidy-check:
-          requires:
-            - build
-      - gofmt:
-          requires:
-            - build
-      - gen-check:
-          requires:
-            - build
-      - forest-check:
-          requires:
-            - build
+      - build-debug
+      - build-2k
+      - build-mainnet
+      - build-calibnet
+      - lint-all
+      - mod-tidy-check
+      - gofmt
+      - gen-check
+      - forest-check
       - test:
           name: test-itest-curio
-          requires:
-            - build
           suite: itest-curio
           target: "./itests/curio_test.go"
           get-params: true
           resource_class: 2xlarge
       - test:
           name: test-all
-          requires:
-            - build
           suite: test-all
           target: "`go list ./... | grep -v curio/itests`"
           get-params: true
