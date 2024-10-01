@@ -193,8 +193,25 @@ jobs:
           make deps
         shell: bash
 
-      - name: Start YugabyteDB
-        run: docker run --rm --name ${{ env.CONTAINER_NAME }} -d -p 5433:5433 yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
+      - name: Start YugabyteDB with random ports
+        id: start-db
+        run: |
+          # Run YugabyteDB container with random ports for 5433 (Postgres) and 9042 (YCQL)
+          docker run --rm --name ${{ env.CONTAINER_NAME }} -d \
+            -p 0:5433 -p 0:9042 \
+            yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
+        shell: bash
+
+      - name: Get the random port bindings
+        id: get-ports
+        run: |
+          # Extract the dynamically assigned ports
+          POSTGRES_PORT=$(docker inspect ${{ env.CONTAINER_NAME }} --format='{{ (index (index .NetworkSettings.Ports "5433/tcp") 0).HostPort }}')
+          YCQL_PORT=$(docker inspect ${{ env.CONTAINER_NAME }} --format='{{ (index (index .NetworkSettings.Ports "9042/tcp") 0).HostPort }}')
+          echo "Postgres is mapped to port: $POSTGRES_PORT"
+          echo "YCQL is mapped to port: $YCQL_PORT"
+          echo "::set-output name=postgres_port::$POSTGRES_PORT"
+          echo "::set-output name=ycql_port::$YCQL_PORT"
         shell: bash
 
       - run: |
@@ -208,6 +225,14 @@ jobs:
 
       - name: Run tests
         run: |
+          # Use the dynamically assigned ports for the tests
+          POSTGRES_PORT=${{ steps.get-ports.outputs.postgres_port }}
+          YCQL_PORT=${{ steps.get-ports.outputs.ycql_port }}
+          echo "Using Postgres Port: $POSTGRES_PORT"
+          echo "Using YCQL Port: $YCQL_PORT"
+          # Pass these port numbers to the test environment or test runner
+          export YB_POSTGRES_PORT=$POSTGRES_PORT
+          export YB_YCQL_PORT=$YCQL_PORT
           go test -v --tags=debug -timeout 30m ${{ matrix.test-suite.target }}
         shell: bash
 
