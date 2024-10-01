@@ -210,8 +210,10 @@ jobs:
           YCQL_PORT=$(docker inspect ${{ env.CONTAINER_NAME }} --format='{{ (index (index .NetworkSettings.Ports "9042/tcp") 0).HostPort }}')
           echo "Postgres is mapped to port: $POSTGRES_PORT"
           echo "YCQL is mapped to port: $YCQL_PORT"
-          echo "::set-output name=postgres_port::$POSTGRES_PORT"
-          echo "::set-output name=ycql_port::$YCQL_PORT"
+          
+          # Use the new syntax to set output
+          echo "postgres_port=$POSTGRES_PORT" >> $GITHUB_OUTPUT
+          echo "ycql_port=$YCQL_PORT" >> $GITHUB_OUTPUT
         shell: bash
 
       - run: |
