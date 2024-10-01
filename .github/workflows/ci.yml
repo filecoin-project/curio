@@ -166,7 +166,7 @@ jobs:
     runs-on: [self-hosted, docker]
     needs: [setup-params]
     env:
-      CONTAINER_NAME: yugabyte-${{ github.run_id }}
+      CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
     strategy:
       matrix:
         test-suite:
@@ -303,43 +303,6 @@ jobs:
 
       - name: Git diff quiet
         run: git --no-pager diff --quiet
-        shell: bash
-
-  lid-docker-compose:
-    runs-on: [self-hosted, docker]
-    needs: [setup-params]
-    env:
-      CONTAINER_NAME: yugabyte-${{ github.run_id }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Install Dependencies
-        uses: ./.github/actions/install-deps
-
-      - name: Start YugabyteDB
-        run: docker run --rm --name ${{ env.CONTAINER_NAME }} -d -p 5433:5433 yugabytedb/yugabyte:2.21.1.0-b271 bin/yugabyted start --daemon=false
-        shell: bash
-      - run: |
-          while true; do
-            status=$(docker exec ${{ env.CONTAINER_NAME }} bin/yugabyted status);
-            echo $status;
-            echo $status | grep Running && break;
-            sleep 1;
-          done
-        shell: bash
-
-      - run: |
-          cd extern/boostd-data
-          go test -v ./...
-
-      - name: Clean up YugabyteDB
-        if: always()
-        run: docker stop ${{ env.CONTAINER_NAME }}
         shell: bash
 
   mod-tidy-check:
