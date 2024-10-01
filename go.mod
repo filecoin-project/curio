@@ -4,7 +4,7 @@ go 1.22.3
 
 require (
 	contrib.go.opencensus.io/exporter/prometheus v0.4.2
-	github.com/BurntSushi/toml v1.3.2
+	github.com/BurntSushi/toml v1.4.0
 	github.com/KarpelesLab/reflink v1.0.1
 	github.com/alecthomas/jsonschema v0.0.0-20200530073317-71f438968921
 	github.com/charmbracelet/lipgloss v0.10.0
