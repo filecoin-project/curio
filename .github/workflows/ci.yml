@@ -206,8 +206,6 @@ jobs:
   test:
     runs-on: [self-hosted, docker]
     needs: [setup-params, setup-db]
-    env:
-      CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
     strategy:
       matrix:
         test-suite:
@@ -242,6 +240,7 @@ jobs:
           echo "Using Postgres Port: $POSTGRES_PORT"
           echo "Using YCQL Port: $YCQL_PORT"
           # Pass these port numbers to the test environment or test runner
+          export CURIO_HARMONYDB_HOSTS=${{ env.CONTAINER_NAME }}
           export CURIO_HARMONYDB_PORT=$POSTGRES_PORT
           export CURIO_INDEXDB_PORT=$YCQL_PORT
           go test -v --tags=debug -timeout 30m ${{ matrix.test-suite.target }}
