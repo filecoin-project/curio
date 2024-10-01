@@ -168,6 +168,7 @@ jobs:
     env:
       CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
     strategy:
+      fail-fast: false  # Continue running even if one test fails
       matrix:
         test-suite:
           - name: test-itest-curio
