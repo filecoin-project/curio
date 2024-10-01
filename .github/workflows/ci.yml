@@ -208,9 +208,7 @@ jobs:
     runs-on: [self-hosted, docker]
     needs: [setup-params, setup-db]
     env:
-      CURIO_HARMONYDB_HOSTS: ${{ needs.setup-db.outputs.container_name }}
-      CURIO_HARMONYDB_PORT: ${{ needs.setup-db.outputs.postgres_port }}
-      CURIO_INDEXDB_PORT: ${{ needs.setup-db.outputs.ycql_port }}
+      CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
     strategy:
       matrix:
         test-suite:
@@ -240,13 +238,40 @@ jobs:
           make deps
         shell: bash
 
-      - name: Run tests
+      - name: Start YugabyteDB container with dynamic ports
+        id: start-yugabyte
         run: |
-          echo CURIO_HARMONYDB_HOSTS
-          echo CURIO_HARMONYDB_PORT
-          echo CURIO_INDEXDB_PORT
+          # Start YugabyteDB container with dynamic port mapping for PostgreSQL and YCQL
+          docker run --rm --name $CONTAINER_NAME -d \
+            -p 0:5433 -p 0:9042 \
+            yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
+
+      - name: Get the dynamically assigned ports
+        id: get-ports
+        run: |
+          POSTGRES_PORT=$(docker inspect $CONTAINER_NAME --format='{{(index (index .NetworkSettings.Ports "5433/tcp") 0).HostPort}}')
+          YCQL_PORT=$(docker inspect $CONTAINER_NAME --format='{{(index (index .NetworkSettings.Ports "9042/tcp") 0).HostPort}}')
+          echo "Postgres is mapped to port: $POSTGRES_PORT"
+          echo "YCQL is mapped to port: $YCQL_PORT"
+          # Use the new method to set outputs
+          echo "postgres_port=$POSTGRES_PORT" >> $GITHUB_OUTPUT
+          echo "ycql_port=$YCQL_PORT" >> $GITHUB_OUTPUT
+
+      - name: Run tests
+        env:
+          CURIO_HARMONYDB_HOSTS: $CONTAINER_NAME  # Use the container's name for DB hosts
+          CURIO_HARMONYDB_PORT: ${{ steps.get-ports.outputs.postgres_port }}  # Use the dynamically allocated PostgreSQL port
+          CURIO_INDEXDB_PORT: ${{ steps.get-ports.outputs.ycql_port }}  # Use the dynamically allocated YCQL port
+        run: |
+          echo "Using YugabyteDB Container Name: $CURIO_HARMONYDB_HOSTS"
+          echo "Using Postgres Port: $CURIO_HARMONYDB_PORT"
+          echo "Using YCQL Port: $CURIO_INDEXDB_PORT"
+          # Run the tests using the YugabyteDB container
           go test -v --tags=debug -timeout 30m ${{ matrix.test-suite.target }}
-        shell: bash
+
+      - name: Stop YugabyteDB container
+        if: always()  # Ensure this runs even if the tests fail
+        run: docker stop $CONTAINER_NAME
 
   lint:
     runs-on: ubuntu-latest
@@ -360,16 +385,4 @@ jobs:
 
       - name: Run mod tidy check
         run: go mod tidy -v
-        shell: bash
-
-  # Clean up YugabyteDB after all tests
-  cleanup-db:
-    runs-on: [ self-hosted, docker ]
-    needs: [ test ]  # Run cleanup after all tests are done
-    env:
-      CONTAINER_NAME: yugabyte-${{ github.run_id }}
-    if: always()  # Ensure cleanup runs even if tests fail
-    steps:
-      - name: Stop YugabyteDB
-        run: docker stop ${{ env.CONTAINER_NAME }}
         shell: bash
