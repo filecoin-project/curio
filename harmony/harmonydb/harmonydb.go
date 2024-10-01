@@ -66,12 +66,13 @@ func envElse(env, els string) string {
 }
 
 func NewFromConfigWithITestID(t *testing.T, id ITestID) (*DB, error) {
+	fmt.Printf("CURIO_HARMONYDB_HOSTS: %s\n", os.Getenv("CURIO_HARMONYDB_HOSTS"))
 	db, err := New(
 		[]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")},
 		"yugabyte",
 		"yugabyte",
 		"yugabyte",
-		envElse("CURIO_HARMONYDB_PORT", "5433"),
+		"5433",
 		id,
 	)
 	if err != nil {
