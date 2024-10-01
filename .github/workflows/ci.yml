@@ -206,6 +206,10 @@ jobs:
   test:
     runs-on: [self-hosted, docker]
     needs: [setup-params, setup-db]
+    env:
+      CURIO_HARMONYDB_HOSTS: ${{ needs.setup-db.outputs.postgres_port }}
+      CURIO_HARMONYDB_PORT: ${{ needs.setup-db.outputs.postgres_port }}
+      CURIO_INDEXDB_PORT: ${{ needs.setup-db.outputs.ycql_port }}
     strategy:
       matrix:
         test-suite:
@@ -237,12 +241,9 @@ jobs:
 
       - name: Run tests
         run: |
-          echo "Using Postgres Port: $POSTGRES_PORT"
-          echo "Using YCQL Port: $YCQL_PORT"
-          # Pass these port numbers to the test environment or test runner
-          export CURIO_HARMONYDB_HOSTS=${{ env.CONTAINER_NAME }}
-          export CURIO_HARMONYDB_PORT=$POSTGRES_PORT
-          export CURIO_INDEXDB_PORT=$YCQL_PORT
+          echo CURIO_HARMONYDB_HOSTS
+          echo CURIO_HARMONYDB_PORT
+          echo CURIO_INDEXDB_PORT
           go test -v --tags=debug -timeout 30m ${{ matrix.test-suite.target }}
         shell: bash
 
