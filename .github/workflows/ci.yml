@@ -169,6 +169,7 @@ jobs:
     env:
       CONTAINER_NAME: yugabyte-${{ github.run_id }}
     outputs:
+      container_name: ${{ steps.get-ports.outputs.container_name }}
       postgres_port: ${{ steps.get-ports.outputs.postgres_port }}
       ycql_port: ${{ steps.get-ports.outputs.ycql_port }}
     steps:
@@ -189,7 +190,7 @@ jobs:
           YCQL_PORT=$(docker inspect ${{ env.CONTAINER_NAME }} --format='{{ (index (index .NetworkSettings.Ports "9042/tcp") 0).HostPort }}')
           echo "Postgres is mapped to port: $POSTGRES_PORT"
           echo "YCQL is mapped to port: $YCQL_PORT"
-          # Use the new syntax to set output
+          echo "container_name=${{ env.CONTAINER_NAME }}" >> $GITHUB_OUTPUT
           echo "postgres_port=$POSTGRES_PORT" >> $GITHUB_OUTPUT
           echo "ycql_port=$YCQL_PORT" >> $GITHUB_OUTPUT
         shell: bash
@@ -207,7 +208,7 @@ jobs:
     runs-on: [self-hosted, docker]
     needs: [setup-params, setup-db]
     env:
-      CURIO_HARMONYDB_HOSTS: ${{ needs.setup-db.outputs.postgres_port }}
+      CURIO_HARMONYDB_HOSTS: ${{ needs.setup-db.outputs.container_name }}
       CURIO_HARMONYDB_PORT: ${{ needs.setup-db.outputs.postgres_port }}
       CURIO_INDEXDB_PORT: ${{ needs.setup-db.outputs.ycql_port }}
     strategy:
