@@ -76,12 +76,6 @@ func Routes(r *chi.Mux, p *PDPService) {
 
 	// PUT /pdp/piece/upload/{pieceCID}
 	r.Put(path.Join(PDPRoutePath, "/piece/upload/{pieceCID}"), p.handlePieceUpload)
-
-	// GET /pdp/piece/{pieceCid}
-	r.Get(path.Join(PDPRoutePath, "/piece/{pieceCid}"), p.handleGetPiece)
-
-	// HEAD /pdp/piece/{pieceCid}
-	r.Head(path.Join(PDPRoutePath, "/piece/{pieceCid}"), p.handleHeadPiece)
 }
 
 // Handler functions
@@ -476,52 +470,6 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Respond with 204 No Content
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (p *PDPService) handleGetPiece(w http.ResponseWriter, r *http.Request) {
-	// Spec snippet:
-	// ### GET /piece/{piece cid v2}
-
-	pieceCID := chi.URLParam(r, "pieceCid")
-
-	// Retrieve the piece data from PieceStore
-	data, err := p.PieceStore.GetPiece(pieceCID)
-	if err != nil {
-		http.Error(w, "Piece not found", http.StatusNotFound)
-		return
-	}
-
-	// Serve the piece data with appropriate headers
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
-	w.WriteHeader(http.StatusOK)
-	_, err = w.Write(data)
-	if err != nil {
-		http.Error(w, "Failed to write response", http.StatusInternalServerError)
-		return
-	}
-}
-
-func (p *PDPService) handleHeadPiece(w http.ResponseWriter, r *http.Request) {
-	// Spec snippet:
-	// ### HEAD /piece/{piece cid v2}
-
-	pieceCID := chi.URLParam(r, "pieceCid")
-
-	// Check if the piece exists in PieceStore
-	exists, err := p.PieceStore.HasPiece(pieceCID)
-	if err != nil {
-		http.Error(w, "Failed to check piece existence", http.StatusInternalServerError)
-		return
-	}
-
-	if !exists {
-		http.Error(w, "Piece not found", http.StatusNotFound)
-		return
-	}
-
-	// Return headers indicating the piece exists
-	w.WriteHeader(http.StatusOK)
 }
 
 // Data models corresponding to the updated schema
