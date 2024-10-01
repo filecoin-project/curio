@@ -150,9 +150,9 @@ jobs:
     executor: golang
     working_directory: ~/curio
     steps:
+      - checkout
+      - git_fetch_all_tags
       - install-ubuntu-deps
-      - attach_workspace:
-          at: ~/
       - run: go mod tidy -v
       - run:
           name: Check git diff
@@ -196,12 +196,16 @@ jobs:
         name: yugabyte
     resource_class: << parameters.resource_class >>
     steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
       - install-ubuntu-deps
-      - attach_workspace:
-          at: ~/
+
       - when:
           condition: << parameters.get-params >>
           steps:
+            - run: make deps
             - download-params
       - run:
           name: go test
@@ -240,9 +244,12 @@ jobs:
       - image: cimg/go:1.21
     resource_class: medium+
     steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
       - install-ubuntu-deps
-      - attach_workspace:
-          at: ~/
+      - run: make deps
       - run:
           name: Lint
           command: |
@@ -254,6 +261,10 @@ jobs:
     executor: golang
     working_directory: ~/curio
     steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
       - run:
           command: "! go fmt ./... 2>&1 | read"
 
@@ -261,20 +272,24 @@ jobs:
     executor: golang-2xl
     working_directory: ~/curio
     steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
       - install-ubuntu-deps
-      - attach_workspace:
-          at: ~/
       - run: go install golang.org/x/tools/cmd/goimports
-      - run: make gen
+      - run: make deps gen
       - run: git --no-pager diff && git --no-pager diff --quiet
   
   forest-check:
     executor: golang
     working_directory: ~/curio
     steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
       - install-ubuntu-deps
-      - attach_workspace:
-          at: ~/
       - run: make forest-test
 
 workflows:
@@ -291,7 +306,7 @@ workflows:
       - forest-check
       - test:
           name: test-itest-curio
-          suite: itest-curio
+          suite: test-itest-curio
           target: "./itests/curio_test.go"
           get-params: true
           resource_class: 2xlarge
@@ -300,4 +315,14 @@ workflows:
           suite: test-all
           target: "`go list ./... | grep -v curio/itests`"
           get-params: true
+          resource_class: 2xlarge
+      - test:
+          name: test-itest-harmonyDB
+          suite: test-itest-harmonyDB
+          target: "./itests/harmonydb_test.go"
+          resource_class: 2xlarge
+      - test:
+          name: test-itest-alertnow
+          suite: test-itest-alertnow
+          target: "./itests/alertnow_test.go"
           resource_class: 2xlarge
