@@ -3,8 +3,8 @@ package pdp
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/go-chi/chi/v5"
-	"io"
 	"net/http"
 	"path"
 	"strconv"
@@ -23,6 +23,8 @@ const PDPRoutePath = "/pdp"
 
 // PDPService represents the service for managing proof sets and pieces
 type PDPService struct {
+	db *harmonydb.DB
+
 	ProofSetStore     ProofSetStore
 	PieceStore        PieceStore
 	OwnerAddressStore OwnerAddressStore
@@ -74,8 +76,8 @@ func Routes(r *chi.Mux, p *PDPService) {
 	// POST /pdp/piece
 	r.Post(path.Join(PDPRoutePath, "/piece"), p.handlePiecePost)
 
-	// PUT /pdp/piece/upload/{pieceCID}
-	r.Put(path.Join(PDPRoutePath, "/piece/upload/{pieceCID}"), p.handlePieceUpload)
+	// PUT /pdp/piece/upload/{uploadUUID}
+	r.Put(path.Join(PDPRoutePath, "/piece/upload/{uploadUUID}"), p.handlePieceUpload)
 }
 
 // Handler functions
@@ -362,116 +364,6 @@ func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
-	// Spec snippet:
-	// ### POST /piece
-	// Request Body:
-	// {
-	//   "pieceCid": "{piece cid v2}",
-	//   "refId": "{ref ID}",
-	//   "serviceId": {service ID},
-	//   "serviceTag": "optional service tag",
-	//   "clientTag": "optional client tag",
-	//   "notify": "optional http webhook to call once the data is uploaded"
-	// }
-
-	// Implement authorization (e.g., verify service identity)
-
-	// Parse request body
-	var req struct {
-		PieceCID   string `json:"pieceCid"`
-		RefID      string `json:"refId"`
-		ServiceID  int64  `json:"serviceId"`
-		ServiceTag string `json:"serviceTag,omitempty"`
-		ClientTag  string `json:"clientTag,omitempty"`
-		Notify     string `json:"notify,omitempty"`
-	}
-	err := json.NewDecoder(r.Body).Decode(&req)
-	if err != nil || req.PieceCID == "" || req.RefID == "" || req.ServiceID == 0 {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	// Check if piece is already stored
-	exists, err := p.PieceStore.HasPiece(req.PieceCID)
-	if err != nil {
-		http.Error(w, "Failed to check piece existence", http.StatusInternalServerError)
-		return
-	}
-
-	if exists {
-		// Return 204 No Content
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	// Create a location URL where the piece data can be uploaded via PUT
-	uploadURL := path.Join(PDPRoutePath, "/piece/upload", req.PieceCID)
-
-	// Store the piece reference
-	pieceRef := &PDPPieceRef{
-		ServiceID:  req.ServiceID,
-		PieceCID:   req.PieceCID,
-		RefID:      req.RefID,
-		ServiceTag: req.ServiceTag,
-		ClientTag:  req.ClientTag,
-		CreatedAt:  time.Now(),
-	}
-	err = p.PieceStore.CreatePieceRef(pieceRef)
-	if err != nil {
-		http.Error(w, "Failed to create piece reference", http.StatusInternalServerError)
-		return
-	}
-
-	// TODO: Store the notify URL associated with the pieceCID if provided
-
-	// Return 201 Created with Location header
-	w.Header().Set("Location", uploadURL)
-	w.WriteHeader(http.StatusCreated)
-}
-
-func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
-	// Handles the PUT request to upload the actual bytes of the piece
-
-	pieceCID := chi.URLParam(r, "pieceCID")
-
-	if r.Method != http.MethodPut {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Read the piece data from request body
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Failed to read piece data", http.StatusInternalServerError)
-		return
-	}
-
-	// Verify that the data hashes to the provided piece CID (using V2 Piece CID hashing)
-	verified, err := VerifyPieceData(pieceCID, data)
-	if err != nil {
-		http.Error(w, "Failed to verify piece data: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if !verified {
-		http.Error(w, "Piece data does not match the provided piece CID", http.StatusBadRequest)
-		return
-	}
-
-	// Store the piece data
-	err = p.PieceStore.StorePiece(pieceCID, data)
-	if err != nil {
-		http.Error(w, "Failed to store piece", http.StatusInternalServerError)
-		return
-	}
-
-	// Optionally, call the notify webhook if set
-	// TODO: Retrieve the notify URL associated with the pieceCID and send notification
-
-	// Respond with 204 No Content
-	w.WriteHeader(http.StatusNoContent)
-}
-
 // Data models corresponding to the updated schema
 
 // PDPOwnerAddress represents the owner address with its private key
@@ -541,7 +433,6 @@ type PieceStore interface {
 	HasPiece(pieceCID string) (bool, error)
 	StorePiece(pieceCID string, data []byte) error
 	GetPiece(pieceCID string) ([]byte, error)
-	CreatePieceRef(pieceRef *PDPPieceRef) error
 	GetPieceRefIDByPieceCID(pieceCID string) (int64, error)
 }
 
@@ -569,10 +460,4 @@ type PDPProofSetSubrootDetail struct {
 	SubrootCID    string `json:"subrootCid"`
 	SubrootOffset int64  `json:"subrootOffset"`
 	PieceCID      string `json:"pieceCid"`
-}
-
-// Helper function to verify piece data against its CID
-func VerifyPieceData(pieceCID string, data []byte) (bool, error) {
-	// TODO: Implement verification using the appropriate hashing function for Piece CID v2
-	return true, nil
 }
