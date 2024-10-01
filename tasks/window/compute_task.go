@@ -53,6 +53,7 @@ type WDPoStAPI interface {
 	StateGetRandomnessFromBeacon(ctx context.Context, personalization crypto.DomainSeparationTag, randEpoch abi.ChainEpoch, entropy []byte, tsk types.TipSetKey) (abi.Randomness, error)
 	StateNetworkVersion(context.Context, types.TipSetKey) (network.Version, error)
 	StateMinerSectors(context.Context, address.Address, *bitfield.BitField, types.TipSetKey) ([]*miner.SectorOnChainInfo, error)
+	StateGetNetworkParams(context.Context) (*api.NetworkParams, error)
 }
 
 type ProverPoSt interface {

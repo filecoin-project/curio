@@ -34,6 +34,7 @@ import (
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/chainstate"
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -356,7 +357,7 @@ func sealProofType(maddr dtypes.MinerAddress, fnapi api.Chain) (abi.RegisteredSe
 	if err != nil {
 		return 0, err
 	}
-	networkVersion, err := fnapi.StateNetworkVersion(context.TODO(), types.EmptyTSK)
+	networkVersion, err := chainstate.Version(context.Background(), fnapi)
 	if err != nil {
 		return 0, err
 	}

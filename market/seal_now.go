@@ -10,6 +10,7 @@ import (
 	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/chainstate"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -19,6 +20,7 @@ import (
 type SealNowNodeApi interface {
 	StateMinerInfo(ctx context.Context, addr address.Address, tsk types.TipSetKey) (api.MinerInfo, error)
 	StateNetworkVersion(ctx context.Context, tsk types.TipSetKey) (networkVersion network.Version, err error)
+	StateGetNetworkParams(context.Context) (*api.NetworkParams, error)
 }
 
 // SealNow is triggerred by the user to seal a sector immediately. Can be from the CLI or the web interface.
@@ -33,7 +35,7 @@ func SealNow(ctx context.Context, node SealNowNodeApi, db *harmonydb.DB, act add
 		return xerrors.Errorf("getting miner info: %w", err)
 	}
 
-	nv, err := node.StateNetworkVersion(ctx, types.EmptyTSK)
+	nv, err := chainstate.Version(ctx, node)
 	if err != nil {
 		return xerrors.Errorf("getting network version: %w", err)
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
 
+	"github.com/filecoin-project/curio/lib/chainstate"
 	"github.com/filecoin-project/curio/lib/reqcontext"
 
 	"github.com/filecoin-project/lotus/api"
@@ -75,7 +76,7 @@ var sectorsExpiredCmd = &cli.Command{
 
 		lbEpoch := abi.ChainEpoch(cctx.Int64("expired-epoch"))
 		if !cctx.IsSet("expired-epoch") {
-			nv, err := fullApi.StateNetworkVersion(ctx, head.Key())
+			nv, err := chainstate.Version(ctx, fullApi)
 			if err != nil {
 				return xerrors.Errorf("getting network version: %w", err)
 			}
@@ -491,6 +492,8 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 			return base + (numMult * abi.ChainEpoch(d)), nil
 		}
 
+		// FIXME Chain.StateNetworkVersion is not in the Filecoin public API.
+		//   use StateGetNetworkParams instead.
 		nv, err := fullApi.StateNetworkVersion(ctx, types.EmptyTSK)
 		if err != nil {
 			return err

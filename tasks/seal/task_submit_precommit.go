@@ -19,6 +19,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/chainstate"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/tasks/message"
 
@@ -35,6 +36,7 @@ type SubmitPrecommitTaskApi interface {
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
 	StateNetworkVersion(context.Context, types.TipSetKey) (network.Version, error)
 	StateMinerAvailableBalance(context.Context, address.Address, types.TipSetKey) (big.Int, error)
+	StateGetNetworkParams(context.Context) (*api.NetworkParams, error)
 	ctladdr.NodeApi
 }
 
@@ -196,8 +198,7 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 			}
 		}
 	}
-
-	nv, err := s.api.StateNetworkVersion(ctx, types.EmptyTSK)
+	nv, err := chainstate.Version(ctx, s.api)
 	if err != nil {
 		return false, xerrors.Errorf("getting network version: %w", err)
 	}

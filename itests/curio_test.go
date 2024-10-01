@@ -30,6 +30,7 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/chainstate"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/lmrpc"
@@ -177,7 +178,7 @@ func TestCurioHappyPath(t *testing.T) {
 	mi, err := full.StateMinerInfo(ctx, maddr, types.EmptyTSK)
 	require.NoError(t, err)
 
-	nv, err := full.StateNetworkVersion(ctx, types.EmptyTSK)
+	nv, err := chainstate.Version(ctx, full)
 	require.NoError(t, err)
 
 	wpt := mi.WindowPoStProofType

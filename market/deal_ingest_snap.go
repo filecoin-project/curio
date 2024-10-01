@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/chainstate"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/market"
@@ -686,7 +687,7 @@ func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx) ([]*openSector, err
 }
 
 func (p *PieceIngesterSnap) getUpgradeProofType() (abi.RegisteredUpdateProof, error) {
-	nv, err := p.api.StateNetworkVersion(p.ctx, types.EmptyTSK)
+	nv, err := chainstate.Version(p.ctx, p.api)
 	if err != nil {
 		return 0, xerrors.Errorf("getting network version: %w", err)
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/chainstate"
 	"github.com/filecoin-project/curio/tasks/seal"
 
 	"github.com/filecoin-project/lotus/api"
@@ -51,6 +52,7 @@ type PieceIngesterApi interface {
 	StateSectorPartition(ctx context.Context, maddr address.Address, sectorNumber abi.SectorNumber, tok types.TipSetKey) (*miner.SectorLocation, error)
 	StateMinerPartitions(ctx context.Context, m address.Address, dlIdx uint64, tsk types.TipSetKey) ([]api.Partition, error)
 	StateMinerProvingDeadline(context.Context, address.Address, types.TipSetKey) (*dline.Info, error)
+	StateGetNetworkParams(context.Context) (*api.NetworkParams, error)
 }
 
 type openSector struct {
@@ -552,7 +554,7 @@ func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx) ([]*openSector, error) 
 }
 
 func (p *PieceIngester) getSealProofType() (abi.RegisteredSealProof, error) {
-	nv, err := p.api.StateNetworkVersion(p.ctx, types.EmptyTSK)
+	nv, err := chainstate.Version(p.ctx, p.api)
 	if err != nil {
 		return 0, xerrors.Errorf("getting network version: %w", err)
 	}

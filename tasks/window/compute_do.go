@@ -24,6 +24,7 @@ import (
 	proof7 "github.com/filecoin-project/specs-actors/v7/actors/runtime/proof"
 
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/lib/chainstate"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/storiface"
 
@@ -150,7 +151,7 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 			return nil, err
 		}
 
-		nv, err := t.api.StateNetworkVersion(ctx, ts.Key())
+		nv, err := chainstate.Version(ctx, t.api)
 		if err != nil {
 			return nil, xerrors.Errorf("getting network version: %w", err)
 		}

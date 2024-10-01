@@ -8,6 +8,7 @@ import (
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/lib/chainstate"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
@@ -85,7 +86,7 @@ func CreateStorageMiner(ctx context.Context, chain CreateMinerChainAPI, owner, w
 	}
 
 	// Note: the correct thing to do would be to call SealProofTypeFromSectorSize if actors version is v3 or later, but this still works
-	nv, err := chain.StateNetworkVersion(ctx, types.EmptyTSK)
+	nv, err := chainstate.Version(ctx, chain)
 	if err != nil {
 		return address.Undef, xerrors.Errorf("failed to get network version: %w", err)
 	}

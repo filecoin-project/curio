@@ -450,6 +450,7 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	// submit block!!
 	{
 		log.Infow("WinPostTask submitting block", "tipset", types.LogCids(base.TipSet.Cids()), "miner", maddr, "round", round, "block", blockMsg.Header.Cid())
+		// FIXME #231 all api.Sync methods are excluded from Filecoin Common API
 		if err := t.api.SyncSubmitBlock(ctx, blockMsg); err != nil {
 			return false, xerrors.Errorf("failed to submit block: %w", err)
 		}

@@ -17,6 +17,7 @@ import (
 	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/chainstate"
 	"github.com/filecoin-project/curio/lib/reqcontext"
 	"github.com/filecoin-project/curio/tasks/seal"
 
@@ -118,7 +119,7 @@ var sealStartCmd = &cli.Command{
 			return xerrors.Errorf("getting miner info: %w", err)
 		}
 
-		nv, err := dep.Chain.StateNetworkVersion(ctx, types.EmptyTSK)
+		nv, err := chainstate.Version(ctx, dep.Chain)
 		if err != nil {
 			return xerrors.Errorf("getting network version: %w", err)
 		}
