@@ -246,6 +246,16 @@ jobs:
             -p 0:5433 -p 0:9042 \
             yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
 
+      - name: Wait for YugabyteDB to start
+        run: |
+          while true; do
+            status=$(docker exec ${{ env.CONTAINER_NAME }} bin/yugabyted status);
+            echo $status;
+            echo $status | grep Running && break;
+            sleep 1;
+          done
+        shell: bash
+
       - name: Get the dynamically assigned ports
         id: get-ports
         run: |
@@ -259,11 +269,11 @@ jobs:
 
       - name: Run tests
         env:
-          CURIO_HARMONYDB_HOSTS: ${{ env.CONTAINER_NAME }}  # Use the container's name for DB hosts
+          #CURIO_HARMONYDB_HOSTS: ${{ env.CONTAINER_NAME }}  # Use the container's name for DB hosts
           CURIO_HARMONYDB_PORT: ${{ steps.get-ports.outputs.postgres_port }}  # Use the dynamically allocated PostgreSQL port
           CURIO_INDEXDB_PORT: ${{ steps.get-ports.outputs.ycql_port }}  # Use the dynamically allocated YCQL port
         run: |
-          echo "Using YugabyteDB Container Name: $CURIO_HARMONYDB_HOSTS"
+          #echo "Using YugabyteDB Container Name: $CURIO_HARMONYDB_HOSTS"
           echo "Using Postgres Port: $CURIO_HARMONYDB_PORT"
           echo "Using YCQL Port: $CURIO_INDEXDB_PORT"
           # Run the tests using the YugabyteDB container
