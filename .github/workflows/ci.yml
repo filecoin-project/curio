@@ -162,51 +162,9 @@ jobs:
         run: make forest-test
         shell: bash
 
-  # Start YugabyteDB in a separate job with random ports
-  setup-db:
-    runs-on: [ self-hosted, docker ]
-    needs: [ ci-lint ]
-    env:
-      CONTAINER_NAME: yugabyte-${{ github.run_id }}
-    outputs:
-      container_name: ${{ steps.get-ports.outputs.container_name }}
-      postgres_port: ${{ steps.get-ports.outputs.postgres_port }}
-      ycql_port: ${{ steps.get-ports.outputs.ycql_port }}
-    steps:
-      - name: Start YugabyteDB with random ports
-        id: start-db
-        run: |
-          # Run YugabyteDB container with random ports for 5433 (Postgres) and 9042 (YCQL)
-          docker run --rm --name ${{ env.CONTAINER_NAME }} -d \
-            -p 0:5433 -p 0:9042 \
-            yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
-        shell: bash
-
-      - name: Get the random port bindings
-        id: get-ports
-        run: |
-          # Extract the dynamically assigned ports
-          POSTGRES_PORT=$(docker inspect ${{ env.CONTAINER_NAME }} --format='{{ (index (index .NetworkSettings.Ports "5433/tcp") 0).HostPort }}')
-          YCQL_PORT=$(docker inspect ${{ env.CONTAINER_NAME }} --format='{{ (index (index .NetworkSettings.Ports "9042/tcp") 0).HostPort }}')
-          echo "Postgres is mapped to port: $POSTGRES_PORT"
-          echo "YCQL is mapped to port: $YCQL_PORT"
-          echo "container_name=${{ env.CONTAINER_NAME }}" >> $GITHUB_OUTPUT
-          echo "postgres_port=$POSTGRES_PORT" >> $GITHUB_OUTPUT
-          echo "ycql_port=$YCQL_PORT" >> $GITHUB_OUTPUT
-        shell: bash
-
-      - run: |
-          while true; do
-            status=$(docker exec ${{ env.CONTAINER_NAME }} bin/yugabyted status);
-            echo $status;
-            echo $status | grep Running && break;
-            sleep 1;
-          done
-        shell: bash
-
   test:
     runs-on: [self-hosted, docker]
-    needs: [setup-params, setup-db]
+    needs: [setup-params]
     env:
       CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
     strategy:
@@ -242,9 +200,7 @@ jobs:
         id: start-yugabyte
         run: |
           # Start YugabyteDB container with dynamic port mapping for PostgreSQL and YCQL
-          docker run --rm --name ${{ env.CONTAINER_NAME }} -d \
-            -p 0:5433 -p 0:9042 \
-            yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
+          docker run --rm --name ${{ env.CONTAINER_NAME }} -d yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
 
       - name: Wait for YugabyteDB to start
         run: |
@@ -256,27 +212,18 @@ jobs:
           done
         shell: bash
 
-      - name: Get the dynamically assigned ports
-        id: get-ports
+      - name: Get YugabyteDB container IP
+        id: get-yb-ip
         run: |
-          POSTGRES_PORT=$(docker inspect $CONTAINER_NAME --format='{{(index (index .NetworkSettings.Ports "5433/tcp") 0).HostPort}}')
-          YCQL_PORT=$(docker inspect $CONTAINER_NAME --format='{{(index (index .NetworkSettings.Ports "9042/tcp") 0).HostPort}}')
-          echo "Postgres is mapped to port: $POSTGRES_PORT"
-          echo "YCQL is mapped to port: $YCQL_PORT"
-          # Use the new method to set outputs
-          echo "postgres_port=$POSTGRES_PORT" >> $GITHUB_OUTPUT
-          echo "ycql_port=$YCQL_PORT" >> $GITHUB_OUTPUT
+          # Retrieve internal bridge IP of YugabyteDB container
+          YB_IP=$(docker inspect $CONTAINER_NAME --format '{{ .NetworkSettings.Networks.bridge.IPAddress }}')
+          echo "yb_ip=$YB_IP" >> $GITHUB_OUTPUT
 
       - name: Run tests
         env:
-          #CURIO_HARMONYDB_HOSTS: ${{ env.CONTAINER_NAME }}  # Use the container's name for DB hosts
-          CURIO_HARMONYDB_PORT: ${{ steps.get-ports.outputs.postgres_port }}  # Use the dynamically allocated PostgreSQL port
-          CURIO_INDEXDB_PORT: ${{ steps.get-ports.outputs.ycql_port }}  # Use the dynamically allocated YCQL port
+          CURIO_HARMONYDB_HOSTS: ${{ steps.get-yb-ip.outputs.yb_ip }}  # Use internal IP for DB host
         run: |
-          #echo "Using YugabyteDB Container Name: $CURIO_HARMONYDB_HOSTS"
-          echo "Using Postgres Port: $CURIO_HARMONYDB_PORT"
-          echo "Using YCQL Port: $CURIO_INDEXDB_PORT"
-          # Run the tests using the YugabyteDB container
+          echo "Using YugabyteDB Container IP: ${{env.CURIO_HARMONYDB_HOSTS}}"
           go test -v --tags=debug -timeout 30m ${{ matrix.test-suite.target }}
 
       - name: Stop YugabyteDB container
