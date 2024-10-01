@@ -16,14 +16,22 @@ CREATE TABLE pdp_services (
     UNIQUE(pubkey)
 );
 
+CREATE TABLE pdp_piece_uploads (
+    id UUID PRIMARY KEY NOT NULL,
+    service_id BIGINT NOT NULL, -- pdp_services.id
+
+    piece_cid TEXT NOT NULL, -- piece cid v2
+    notify_url TEXT NOT NULL, -- URL to notify when piece is ready
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- PDP piece references, this table tells Curio which pieces in storage are managed by PDP
 CREATE TABLE pdp_piecerefs (
     id BIGSERIAL PRIMARY KEY,
     service_id BIGINT NOT NULL, -- pdp_services.id
     piece_cid TEXT NOT NULL, -- piece cid v2
     ref_id TEXT NOT NULL, -- parked_piece_refs.ref_id
-    service_tag VARCHAR(64), -- service tag, pulled from the JWT
-    client_tag VARCHAR(64), -- client tag, client-specified
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 
     UNIQUE(ref_id),
