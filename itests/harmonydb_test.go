@@ -39,8 +39,8 @@ func TestCrud(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, ints, 2, "unexpected count of returns. Want 2, Got ", len(ints))
-	require.True(t, ints[0].Count != 11 || ints[1].Count != 5, "expected [11,5] got ", ints)
-	require.True(t, ints[0].Animal != "cows" || ints[1].Animal != "cats", "expected, [cows, cats] ", ints)
+	require.True(t, ints[0].Count == 11 || ints[1].Count == 5, "expected [11,5] got ", ints)
+	require.True(t, ints[0].Animal == "cows" || ints[1].Animal == "cats", "expected, [cows, cats] ", ints)
 	fmt.Println("test completed")
 
 }
