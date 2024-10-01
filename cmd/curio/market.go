@@ -22,6 +22,9 @@ import (
 	"github.com/filecoin-project/curio/lib/reqcontext"
 	"github.com/filecoin-project/curio/market/storageingest"
 
+	lapi "github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/actors"
+	"github.com/filecoin-project/lotus/chain/actors/builtin/market"
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
@@ -242,6 +245,12 @@ var marketMoveToEscrowCmd = &cli.Command{
 			Usage:    "Specify actor address to start sealing sectors for",
 			Required: true,
 		},
+		&cli.StringFlag{
+			Name:     "max-fee",
+			Usage:    "maximum fee in FIL user is willing to pay for this message",
+			Required: false,
+			Value:    "2",
+		},
 	},
 	ArgsUsage: "<amount>",
 	Action: func(cctx *cli.Context) error {
@@ -279,14 +288,37 @@ var marketMoveToEscrowCmd = &cli.Command{
 
 		var merr error
 
+		params, err := actors.SerializeParams(&act)
+		if err != nil {
+			return xerrors.Errorf("failed to serialize the parameters: %w", err)
+		}
+
+		maxfee, err := types.ParseFIL(cctx.String("max-fee") + " FIL")
+		if err != nil {
+			return xerrors.Errorf("failed to parse the maximum fee: %w", err)
+		}
+
+		msp := &lapi.MessageSendSpec{
+			MaxFee: abi.TokenAmount(maxfee),
+		}
+
 		for _, addr := range dcaddrs {
-			msgCid, err := dep.Chain.MarketAddBalance(ctx, addr, act, amt)
+			msg := &types.Message{
+				To:     market.Address,
+				From:   addr,
+				Value:  amt,
+				Method: market.Methods.AddBalance,
+				Params: params,
+			}
+
+			smsg, err := dep.Chain.MpoolPushMessage(ctx, msg, msp)
 			if err != nil {
 				merr = multierror.Append(merr, fmt.Errorf("moving %s to escrow wallet %s from %s: %w", amount.String(), act, addr.String(), err))
 			}
-			fmt.Printf("Funds moved to escrow in message %s\n", msgCid.String())
+
+			fmt.Printf("Funds moved to escrow in message %s\n", smsg.Cid().String())
 			fmt.Println("Waiting for the message to be included in a block")
-			res, err := dep.Chain.StateWaitMsg(ctx, msgCid, 2, 2000, true)
+			res, err := dep.Chain.StateWaitMsg(ctx, smsg.Cid(), 2, 2000, true)
 			if err != nil {
 				return err
 			}
