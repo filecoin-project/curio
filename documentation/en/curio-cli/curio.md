@@ -686,8 +686,9 @@ USAGE:
    curio market move-to-escrow [command options] <amount>
 
 OPTIONS:
-   --actor value  Specify actor address to start sealing sectors for
-   --help, -h     show help
+   --actor value    Specify actor address to start sealing sectors for
+   --max-fee value  maximum fee in FIL user is willing to pay for this message (default: "2")
+   --help, -h       show help
 ```
 
 ## curio fetch-params
