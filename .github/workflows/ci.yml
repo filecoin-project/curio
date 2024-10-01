@@ -165,6 +165,7 @@ jobs:
   # Start YugabyteDB in a separate job with random ports
   setup-db:
     runs-on: [ self-hosted, docker ]
+    needs: [ ci-lint ]
     env:
       CONTAINER_NAME: yugabyte-${{ github.run_id }}
     outputs:
@@ -204,7 +205,7 @@ jobs:
 
   test:
     runs-on: [self-hosted, docker]
-    needs: [setup-params]
+    needs: [setup-params, setup-db]
     env:
       CONTAINER_NAME: yugabyte-${{ github.run_id }}-${{ matrix.test-suite.name }}
     strategy:
@@ -241,8 +242,8 @@ jobs:
           echo "Using Postgres Port: $POSTGRES_PORT"
           echo "Using YCQL Port: $YCQL_PORT"
           # Pass these port numbers to the test environment or test runner
-          export YB_POSTGRES_PORT=$POSTGRES_PORT
-          export YB_YCQL_PORT=$YCQL_PORT
+          export CURIO_HARMONYDB_PORT=$POSTGRES_PORT
+          export CURIO_INDEXDB_PORT=$YCQL_PORT
           go test -v --tags=debug -timeout 30m ${{ matrix.test-suite.target }}
         shell: bash
 

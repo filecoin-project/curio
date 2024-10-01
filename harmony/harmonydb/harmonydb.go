@@ -71,7 +71,7 @@ func NewFromConfigWithITestID(t *testing.T, id ITestID) (*DB, error) {
 		"yugabyte",
 		"yugabyte",
 		"yugabyte",
-		envElse("postgres_port", "5433"),
+		envElse("CURIO_HARMONYDB_PORT", "5433"),
 		id,
 	)
 	if err != nil {
