@@ -153,6 +153,8 @@ jobs:
       - checkout
       - git_fetch_all_tags
       - install-ubuntu-deps
+      - run: git submodule sync
+      - run: git submodule update --init
       - run: go mod tidy -v
       - run:
           name: Check git diff
@@ -201,11 +203,12 @@ jobs:
       - run: git submodule sync
       - run: git submodule update --init
       - install-ubuntu-deps
+      - run: make deps
 
       - when:
           condition: << parameters.get-params >>
           steps:
-            - run: make deps
+            - run: make debug
             - download-params
       - run:
           name: go test
@@ -314,7 +317,6 @@ workflows:
           name: test-all
           suite: test-all
           target: "`go list ./... | grep -v curio/itests`"
-          get-params: true
           resource_class: 2xlarge
       - test:
           name: test-itest-harmonyDB
