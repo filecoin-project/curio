@@ -242,7 +242,7 @@ jobs:
         id: start-yugabyte
         run: |
           # Start YugabyteDB container with dynamic port mapping for PostgreSQL and YCQL
-          docker run --rm --name $CONTAINER_NAME -d \
+          docker run --rm --name ${{ env.CONTAINER_NAME }} -d \
             -p 0:5433 -p 0:9042 \
             yugabytedb/yugabyte:2024.1.2.0-b77 bin/yugabyted start --daemon=false
 
@@ -259,7 +259,7 @@ jobs:
 
       - name: Run tests
         env:
-          CURIO_HARMONYDB_HOSTS: $CONTAINER_NAME  # Use the container's name for DB hosts
+          CURIO_HARMONYDB_HOSTS: ${{ env.CONTAINER_NAME }}  # Use the container's name for DB hosts
           CURIO_HARMONYDB_PORT: ${{ steps.get-ports.outputs.postgres_port }}  # Use the dynamically allocated PostgreSQL port
           CURIO_INDEXDB_PORT: ${{ steps.get-ports.outputs.ycql_port }}  # Use the dynamically allocated YCQL port
         run: |
@@ -271,7 +271,7 @@ jobs:
 
       - name: Stop YugabyteDB container
         if: always()  # Ensure this runs even if the tests fail
-        run: docker stop $CONTAINER_NAME
+        run: docker stop ${{ env.CONTAINER_NAME }}
 
   lint:
     runs-on: ubuntu-latest
