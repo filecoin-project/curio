@@ -3,6 +3,7 @@ package paths
 import (
 	"context"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -14,7 +15,6 @@ const StashDirName = "stash"
 
 func (st *Local) StashCreate(ctx context.Context, maxSize int64, writeFunc func(f *os.File) error) (uuid.UUID, error) {
 	st.localLk.RLock()
-	defer st.localLk.RUnlock()
 
 	var selectedPath *path
 	var maxAvailable int64
@@ -40,6 +40,8 @@ func (st *Local) StashCreate(ctx context.Context, maxSize int64, writeFunc func(
 			selectedPath = p
 		}
 	}
+
+	st.localLk.RUnlock()
 
 	if selectedPath == nil {
 		return uuid.Nil, xerrors.Errorf("no sealing paths have enough space (%d bytes)", maxSize)
@@ -68,9 +70,18 @@ func (st *Local) StashCreate(ctx context.Context, maxSize int64, writeFunc func(
 	return fileUUID, nil
 }
 
+func (st *Local) StashURL(id uuid.UUID) (url.URL, error) {
+	u, err := url.Parse(st.url)
+	if err != nil {
+		return url.URL{}, xerrors.Errorf("parsing url %s: %w", st.url, err)
+	}
+
+	u.Path = filepath.Join(u.Path, "stash", id.String())
+	return *u, nil
+}
+
 func (st *Local) StashRemove(ctx context.Context, id uuid.UUID) error {
 	st.localLk.RLock()
-	defer st.localLk.RUnlock()
 
 	fileName := id.String() + ".tmp"
 
@@ -78,6 +89,8 @@ func (st *Local) StashRemove(ctx context.Context, id uuid.UUID) error {
 		if !p.canSeal {
 			continue
 		}
+
+		st.localLk.RUnlock()
 
 		stashDir := filepath.Join(p.local, StashDirName)
 		stashFilePath := filepath.Join(stashDir, fileName)
@@ -91,12 +104,13 @@ func (st *Local) StashRemove(ctx context.Context, id uuid.UUID) error {
 		}
 	}
 
+	st.localLk.RUnlock()
+
 	return xerrors.Errorf("stash file %s not found", fileName)
 }
 
 func (st *Local) ServeAndRemove(ctx context.Context, id uuid.UUID) (io.ReadCloser, error) {
 	st.localLk.RLock()
-	defer st.localLk.RUnlock()
 
 	fileName := id.String() + ".tmp"
 
@@ -104,6 +118,8 @@ func (st *Local) ServeAndRemove(ctx context.Context, id uuid.UUID) (io.ReadClose
 		if !p.canSeal {
 			continue
 		}
+
+		st.localLk.RUnlock()
 
 		stashDir := filepath.Join(p.local, StashDirName)
 		stashFilePath := filepath.Join(stashDir, fileName)
@@ -119,6 +135,8 @@ func (st *Local) ServeAndRemove(ctx context.Context, id uuid.UUID) (io.ReadClose
 			return nil, xerrors.Errorf("opening stash file %s: %w", stashFilePath, err)
 		}
 	}
+
+	st.localLk.RUnlock()
 
 	return nil, xerrors.Errorf("stash file %s not found", fileName)
 }
