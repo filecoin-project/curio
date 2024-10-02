@@ -185,6 +185,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			if err != nil {
 				return nil, err
 			}
+
 			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
 			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask)
 		}
@@ -366,7 +367,18 @@ func addSealingTasks(
 	if cfg.Subsystems.EnableMoveStorage {
 		moveStorageTask := seal.NewMoveStorageTask(sp, slr, db, cfg.Subsystems.MoveStorageMaxTasks)
 		moveStorageSnapTask := snap.NewMoveStorageTask(slr, db, cfg.Subsystems.MoveStorageMaxTasks)
-		activeTasks = append(activeTasks, moveStorageTask, moveStorageSnapTask)
+
+		storePieceTask, err := piece2.NewStorePieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.MoveStorageMaxTasks)
+		if err != nil {
+			return nil, err
+		}
+
+		activeTasks = append(activeTasks, moveStorageTask, moveStorageSnapTask, storePieceTask)
+		if !cfg.Subsystems.EnableParkPiece {
+			// add cleanup if it's not added above with park piece
+			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
+			activeTasks = append(activeTasks, cleanupPieceTask)
+		}
 
 		if !cfg.Subsystems.NoUnsealedDecode {
 			unsealTask := unseal.NewTaskUnsealDecode(slr, db, cfg.Subsystems.MoveStorageMaxTasks, full)
