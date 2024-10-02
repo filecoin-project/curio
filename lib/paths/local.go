@@ -78,6 +78,8 @@ type path struct {
 
 	reserved     int64
 	reservations map[sectorFile]int64
+
+	canSeal bool
 }
 
 // statExistingSectorForReservation is optional parameter for stat method
@@ -258,6 +260,20 @@ func (st *Local) OpenPath(ctx context.Context, p string) error {
 		maxStorage:   meta.MaxStorage,
 		reserved:     0,
 		reservations: map[sectorFile]int64{},
+		canSeal:      meta.CanSeal,
+	}
+
+	// Remove all stashes on startup
+	if meta.CanSeal {
+		stashDir := filepath.Join(p, StashDirName)
+		err := os.RemoveAll(stashDir)
+		if err != nil && !os.IsNotExist(err) {
+			return xerrors.Errorf("removing stash directory %s: %w", stashDir, err)
+		}
+		// Re-create stash directory
+		if err := os.MkdirAll(stashDir, 0755); err != nil {
+			return xerrors.Errorf("creating stash directory %s: %w", stashDir, err)
+		}
 	}
 
 	fst, _, err := out.stat(st.localStorage)

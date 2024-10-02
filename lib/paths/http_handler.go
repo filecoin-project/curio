@@ -3,6 +3,7 @@ package paths
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/google/uuid"
 	"io"
 	"net/http"
 	"os"
@@ -46,7 +47,10 @@ func (d *DefaultPartialFileHandler) Close(pf *partialfile.PartialFile) error {
 }
 
 type FetchHandler struct {
-	Local     Store
+	Local interface {
+		Store
+		StashStore
+	}
 	PfHandler PartialFileHandler
 }
 
@@ -57,6 +61,7 @@ func (handler *FetchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	mux.HandleFunc("/remote/vanilla/single", handler.generateSingleVanillaProof).Methods("POST")
 	mux.HandleFunc("/remote/vanilla/porep", handler.generatePoRepVanillaProof).Methods("POST")
 	mux.HandleFunc("/remote/vanilla/snap", handler.readSnapVanillaProof).Methods("POST")
+	mux.HandleFunc("/remote/stash/{id}", handler.remoteGetStash).Methods("GET")
 	mux.HandleFunc("/remote/{type}/{id}/{spt}/allocated/{offset}/{size}", handler.remoteGetAllocated).Methods("GET")
 	mux.HandleFunc("/remote/{type}/{id}", handler.remoteGetSector).Methods("GET")
 	mux.HandleFunc("/remote/{type}/{id}", handler.remoteDeleteSector).Methods("DELETE")
@@ -294,6 +299,36 @@ func (handler *FetchHandler) remoteGetAllocated(w http.ResponseWriter, r *http.R
 
 	log.Debugf("returning StatusRequestedRangeNotSatisfiable: worker does NOT have unsealed file with unsealed piece, sector:%+v, offset:%d, size:%d", id, offi, szi)
 	w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+}
+
+func (handler *FetchHandler) remoteGetStash(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	idStr := vars["id"]
+
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		http.Error(w, "invalid UUID", http.StatusBadRequest)
+		return
+	}
+
+	readCloser, err := handler.Local.ServeAndRemove(r.Context(), id)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "stash not found", http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), 500)
+		}
+		return
+	}
+	defer readCloser.Close()
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	_, err = io.Copy(w, readCloser)
+	if err != nil {
+		log.Errorf("error copying stash data: %+v", err)
+		// If the read was incomplete, ServeAndRemove won't remove the file
+		return
+	}
 }
 
 type SingleVanillaParams struct {
