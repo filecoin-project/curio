@@ -1,15 +1,16 @@
 package pdp
 
 import (
-	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
 	"io"
 	"net/http"
+	"os"
 	"path"
 
 	"github.com/go-chi/chi/v5"
@@ -75,7 +76,6 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 }
 
 // handlePieceUpload handles the PUT request to upload the actual bytes of the piece
-// handlePieceUpload handles the PUT request to upload the actual bytes of the piece
 func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -92,11 +92,12 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Lookup the expected pieceCID and notify_url from the database using uploadUUID
+	// Lookup the expected pieceCID, notify_url, and piece_ref from the database using uploadUUID
 	var pieceCIDStr, notifyURL string
+	var pieceRef sql.NullInt64
 	err = p.db.QueryRow(ctx, `
-        SELECT piece_cid, notify_url FROM pdp_piece_uploads WHERE id = $1
-    `, uploadUUID.String()).Scan(&pieceCIDStr, &notifyURL)
+        SELECT piece_cid, notify_url, piece_ref FROM pdp_piece_uploads WHERE id = $1
+    `, uploadUUID.String()).Scan(&pieceCIDStr, &notifyURL, &pieceRef)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(w, "Upload UUID not found", http.StatusNotFound)
@@ -106,51 +107,58 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check that piece_ref is null; non-null means data was already uploaded
+	if pieceRef.Valid {
+		http.Error(w, "Data has already been uploaded", http.StatusConflict)
+		return
+	}
+
 	// Limit the size of the piece data
 	maxPieceSize := int64(PieceSizeLimit)
-	limitedReader := io.LimitReader(r.Body, maxPieceSize+1) // +1 to detect if it exceeds limit
 
 	// Create a commp.Calc instance for calculating commP
 	cp := &commp.Calc{}
+	readSize := int64(0)
 
-	// Create an in-memory buffer to store the piece data
-	var pieceBuffer bytes.Buffer
+	// Function to write data into StashStore and calculate commP
+	writeFunc := func(f *os.File) error {
+		defer f.Close()
 
-	// Use io.TeeReader to read from the limitedReader and write to both cp and pieceBuffer
-	teeReader := io.TeeReader(limitedReader, &pieceBuffer)
+		limitedReader := io.LimitReader(r.Body, maxPieceSize+1) // +1 to detect exceeding the limit
+		multiWriter := io.MultiWriter(cp, f)
 
-	// Read data from teeReader and write to cp
-	// We'll read in chunks to control memory usage
-	buf := make([]byte, 32*1024) // 32 KiB buffer
-	totalRead := int64(0)
+		// Copy data from limitedReader to multiWriter
+		n, err := io.Copy(multiWriter, limitedReader)
+		if err != nil {
+			return fmt.Errorf("failed to read and write piece data: %w", err)
+		}
 
-	for {
-		n, err := teeReader.Read(buf)
-		if err != nil && err != io.EOF {
-			http.Error(w, "Failed to read piece data", http.StatusInternalServerError)
+		if n > maxPieceSize {
+			return fmt.Errorf("piece data exceeds the maximum allowed size")
+		}
+
+		readSize = n
+
+		return nil
+	}
+
+	// Upload into StashStore
+	stashID, err := p.storage.StashCreate(ctx, maxPieceSize, writeFunc)
+	if err != nil {
+		if err.Error() == "piece data exceeds the maximum allowed size" {
+			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
 			return
-		}
-		if n > 0 {
-			// Write to commp.Calc
-			_, err = cp.Write(buf[:n])
-			if err != nil {
-				http.Error(w, "Failed to calculate commP", http.StatusInternalServerError)
-				return
-			}
-			totalRead += int64(n)
-			if totalRead > maxPieceSize {
-				http.Error(w, "Piece data exceeds the maximum allowed size", http.StatusRequestEntityTooLarge)
-				return
-			}
-		}
-		if err == io.EOF {
-			break
+		} else {
+			http.Error(w, "Failed to store piece data", http.StatusInternalServerError)
+			return
 		}
 	}
 
 	// Finalize the commP calculation
-	digest, _, err := cp.Digest()
+	digest, paddedPieceSize, err := cp.Digest()
 	if err != nil {
+		// Remove the stash file as the data is invalid
+		_ = p.storage.StashRemove(ctx, stashID)
 		http.Error(w, "Failed to finalize commP calculation", http.StatusInternalServerError)
 		return
 	}
@@ -158,26 +166,73 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 	// Convert commP digest into a piece CID
 	pieceCIDComputed, err := commcid.DataCommitmentV1ToCID(digest)
 	if err != nil {
+		// Remove the stash file as the data is invalid
+		_ = p.storage.StashRemove(ctx, stashID)
 		http.Error(w, "Failed to convert commP to CID", http.StatusInternalServerError)
 		return
 	}
 
 	// Compare the computed piece CID with the expected one from the database
 	if pieceCIDComputed.String() != pieceCIDStr {
+		// Remove the stash file as the data is invalid
+		_ = p.storage.StashRemove(ctx, stashID)
 		http.Error(w, "Computed piece CID does not match expected piece CID", http.StatusBadRequest)
 		return
 	}
 
-	// Store the piece data using PieceStore
-	// Assuming PieceStore has a method StorePieceFromReader that accepts an io.Reader
-	err = p.PieceStore.StorePieceFromReader(pieceCIDStr, &pieceBuffer)
-	if err != nil {
-		http.Error(w, "Failed to store piece", http.StatusInternalServerError)
+	didCommit, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+
+		// 1. Create a long-term parked piece entry
+		var parkedPieceID int64
+		err := tx.QueryRow(`
+            INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+            VALUES ($1, $2, $3, TRUE) RETURNING id
+        `, pieceCIDComputed.String(), paddedPieceSize, readSize).Scan(&parkedPieceID)
+		if err != nil {
+			return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
+		}
+
+		// 2. Create a piece ref with data_url being "stashstore://<stash-url>"
+		// Get StashURL
+		stashURL, err := p.storage.StashURL(stashID)
+		if err != nil {
+			return false, fmt.Errorf("failed to get stash URL: %w", err)
+		}
+
+		// Change scheme to "stashstore"
+		stashURL.Scheme = "stashstore"
+		dataURL := stashURL.String()
+
+		var pieceRefID int64
+		err = tx.QueryRow(`
+            INSERT INTO parked_piece_refs (piece_id, data_url, long_term)
+            VALUES ($1, $2, TRUE) RETURNING ref_id
+        `, parkedPieceID, dataURL).Scan(&pieceRefID)
+		if err != nil {
+			return false, fmt.Errorf("failed to create parked_piece_refs entry: %w", err)
+		}
+
+		// 3. Update the pdp_piece_uploads entry to contain the created piece_ref
+		_, err = tx.Exec(`
+            UPDATE pdp_piece_uploads SET piece_ref = $1 WHERE id = $2
+        `, pieceRefID, uploadUUID.String())
+		if err != nil {
+			return false, fmt.Errorf("failed to update pdp_piece_uploads: %w", err)
+		}
+
+		return true, nil // Commit the transaction
+	})
+
+	if err != nil || !didCommit {
+		// Remove the stash file as the transaction failed
+		_ = p.storage.StashRemove(ctx, stashID)
+		http.Error(w, "Failed to process piece upload", http.StatusInternalServerError)
 		return
 	}
 
 	// Optionally send a notification to the notify_url
-	if notifyURL != "" {
+	// TODO notify is called in
+	/*if notifyURL != "" {
 		// Prepare notification payload
 		notificationPayload := map[string]string{
 			"pieceCid": pieceCIDStr,
@@ -210,16 +265,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 				}
 			}()
 		}
-	}
-
-	// Remove the upload record from pdp_piece_uploads as it's no longer needed
-	_, err = p.db.Exec(ctx, `
-        DELETE FROM pdp_piece_uploads WHERE id = $1
-    `, uploadUUID.String())
-	if err != nil {
-		// Log the error but proceed
-		fmt.Println("Failed to delete upload record:", err)
-	}
+	}*/
 
 	// Respond with 204 No Content
 	w.WriteHeader(http.StatusNoContent)
