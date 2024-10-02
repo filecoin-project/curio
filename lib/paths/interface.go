@@ -3,7 +3,9 @@ package paths
 import (
 	"context"
 	"io"
+	"os"
 
+	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 
 	"github.com/filecoin-project/go-state-types/abi"
@@ -53,4 +55,10 @@ type Store interface {
 	GenerateSingleVanillaProof(ctx context.Context, minerID abi.ActorID, si storiface.PostSectorChallenge, ppt abi.RegisteredPoStProof) ([]byte, error)
 	GeneratePoRepVanillaProof(ctx context.Context, sr storiface.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error)
 	ReadSnapVanillaProof(ctx context.Context, sr storiface.SectorRef) ([]byte, error)
+}
+
+type StashStore interface {
+	StashCreate(ctx context.Context, maxSize int64, writeFunc func(f *os.File) error) (uuid.UUID, error)
+	ServeAndRemove(ctx context.Context, id uuid.UUID) (io.ReadCloser, error)
+	StashRemove(ctx context.Context, id uuid.UUID) error
 }
