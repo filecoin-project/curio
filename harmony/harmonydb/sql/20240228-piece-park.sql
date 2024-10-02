@@ -2,7 +2,7 @@ create table parked_pieces (
     id bigserial primary key,
     created_at timestamp default current_timestamp,
 
-    piece_cid text not null,
+    piece_cid text not null, -- v1
     piece_padded_size bigint not null,
     piece_raw_size bigint not null,
 
@@ -11,11 +11,14 @@ create table parked_pieces (
 
     cleanup_task_id bigint default null,
 
+    -- long_term boolean not null default false, -- Added in 20240930-pdp.sql
+
     -- NOTE: Following keys were dropped in 20240507-sdr-pipeline-fk-drop.sql
     foreign key (task_id) references harmony_task (id) on delete set null, -- dropped
     foreign key (cleanup_task_id) references harmony_task (id) on delete set null, -- dropped
 
-    unique (piece_cid)
+    unique (piece_cid) -- dropped in 20240930-pdp.sql
+    -- unique (piece_cid, piece_padded_size, long_term, cleanup_task_id) -- Added in 20240930-pdp.sql
 );
 
 /*
@@ -33,6 +36,7 @@ create table parked_piece_refs (
     data_url text,
     data_headers jsonb not null default '{}',
 
-    foreign key (piece_id) references parked_pieces(id) on delete cascade -- dropped
-    -- unique (piece_cid, cleanup_task_id) -- Added in 20240827-piecepark-uniq-cleanup.sql
+    -- long_term boolean not null default false, -- Added in 20240930-pdp.sql
+
+    foreign key (piece_id) references parked_pieces(id) on delete cascade
 );
