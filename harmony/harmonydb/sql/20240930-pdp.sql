@@ -36,7 +36,10 @@ CREATE TABLE pdp_piece_uploads (
 
     piece_ref BIGINT, -- packed_piece_refs.ref_id
 
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (service_id) REFERENCES pdp_services(id) ON DELETE CASCADE,
+    FOREIGN KEY (piece_ref) REFERENCES parked_piece_refs(ref_id) ON DELETE SET NULL
 );
 
 -- PDP piece references, this table tells Curio which pieces in storage are managed by PDP

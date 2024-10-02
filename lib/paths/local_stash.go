@@ -61,10 +61,20 @@ func (st *Local) StashCreate(ctx context.Context, maxSize int64, writeFunc func(
 	if err != nil {
 		return uuid.Nil, xerrors.Errorf("creating stash file %s: %w", stashFilePath, err)
 	}
-	defer f.Close()
 
-	if err := writeFunc(f); err != nil {
-		return uuid.Nil, xerrors.Errorf("writing to stash file %s: %w", stashFilePath, err)
+	writeErr := writeFunc(f)
+	closeErr := f.Close()
+
+	if writeErr != nil {
+		// Remove the stash file since writing failed
+		if removeErr := os.Remove(stashFilePath); removeErr != nil {
+			log.Errorf("failed to remove stash file %s after write error: %v", stashFilePath, removeErr)
+		}
+		return uuid.Nil, xerrors.Errorf("writing to stash file %s: %w", stashFilePath, writeErr)
+	}
+
+	if closeErr != nil {
+		return uuid.Nil, xerrors.Errorf("closing stash file %s: %w", stashFilePath, closeErr)
 	}
 
 	return fileUUID, nil
