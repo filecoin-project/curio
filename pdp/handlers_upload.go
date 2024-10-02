@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/dealdata"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -199,8 +200,8 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 			return false, fmt.Errorf("failed to get stash URL: %w", err)
 		}
 
-		// Change scheme to "stashstore"
-		stashURL.Scheme = "stashstore"
+		// Change scheme to "custore"
+		stashURL.Scheme = dealdata.CustoreScheme
 		dataURL := stashURL.String()
 
 		var pieceRefID int64
