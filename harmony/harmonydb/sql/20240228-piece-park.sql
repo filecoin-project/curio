@@ -33,5 +33,6 @@ create table parked_piece_refs (
     data_url text,
     data_headers jsonb not null default '{}',
 
-    foreign key (piece_id) references parked_pieces(id) on delete cascade
+    foreign key (piece_id) references parked_pieces(id) on delete cascade -- dropped
+    -- unique (piece_cid, cleanup_task_id) -- Added in 20240827-piecepark-uniq-cleanup.sql
 );

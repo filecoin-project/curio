@@ -23,6 +23,8 @@ CREATE TABLE pdp_piece_uploads (
     piece_cid TEXT NOT NULL, -- piece cid v2
     notify_url TEXT NOT NULL, -- URL to notify when piece is ready
 
+    piece_ref BIGINT, -- packed_piece_refs.ref_id
+
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -31,12 +33,14 @@ CREATE TABLE pdp_piecerefs (
     id BIGSERIAL PRIMARY KEY,
     service_id BIGINT NOT NULL, -- pdp_services.id
     piece_cid TEXT NOT NULL, -- piece cid v2
-    ref_id TEXT NOT NULL, -- parked_piece_refs.ref_id
+    piece_ref TEXT NOT NULL, -- parked_piece_refs.ref_id
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 
-    UNIQUE(ref_id),
+    proofset_refcount BIGINT NOT NULL DEFAULT 0, -- maintained by triggers
+
+    UNIQUE(piece_ref),
     FOREIGN KEY (service_id) REFERENCES pdp_services(id) ON DELETE CASCADE,
-    FOREIGN KEY (ref_id) REFERENCES parked_piece_refs(ref_id) ON DELETE CASCADE
+    FOREIGN KEY (piece_ref) REFERENCES parked_piece_refs(ref_id) ON DELETE CASCADE
 );
 
 -- PDP proofsets we maintain
@@ -77,4 +81,63 @@ CREATE TABLE pdp_prove_tasks (
 
     FOREIGN KEY (proofset) REFERENCES pdp_proof_sets(id) ON DELETE CASCADE,
     CONSTRAINT pdp_prove_tasks_pk PRIMARY KEY (proofset, challenge_epoch)
-)
+);
+
+-- proofset_refcount tracking
+CREATE OR REPLACE FUNCTION increment_proofset_refcount()
+    RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE pdp_piecerefs
+    SET proofset_refcount = proofset_refcount + 1
+    WHERE id = NEW.pdp_pieceref;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER pdp_proofset_root_insert
+    AFTER INSERT ON pdp_proofset_roots
+    FOR EACH ROW
+    WHEN (NEW.pdp_pieceref IS NOT NULL)
+EXECUTE FUNCTION increment_proofset_refcount();
+
+CREATE OR REPLACE FUNCTION decrement_proofset_refcount()
+    RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE pdp_piecerefs
+    SET proofset_refcount = proofset_refcount - 1
+    WHERE id = OLD.pdp_pieceref;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER pdp_proofset_root_delete
+    AFTER DELETE ON pdp_proofset_roots
+    FOR EACH ROW
+    WHEN (OLD.pdp_pieceref IS NOT NULL)
+EXECUTE FUNCTION decrement_proofset_refcount();
+
+CREATE OR REPLACE FUNCTION adjust_proofset_refcount_on_update()
+    RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.pdp_pieceref IS DISTINCT FROM NEW.pdp_pieceref THEN
+        -- Decrement count for old reference if not null
+        IF OLD.pdp_pieceref IS NOT NULL THEN
+            UPDATE pdp_piecerefs
+            SET proofset_refcount = proofset_refcount - 1
+            WHERE id = OLD.pdp_pieceref;
+        END IF;
+        -- Increment count for new reference if not null
+        IF NEW.pdp_pieceref IS NOT NULL THEN
+            UPDATE pdp_piecerefs
+            SET proofset_refcount = proofset_refcount + 1
+            WHERE id = NEW.pdp_pieceref;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER pdp_proofset_root_update
+    AFTER UPDATE ON pdp_proofset_roots
+    FOR EACH ROW
+EXECUTE FUNCTION adjust_proofset_refcount_on_update();
