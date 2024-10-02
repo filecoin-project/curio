@@ -464,7 +464,7 @@ func (r *Remote) StatUrl(ctx context.Context, urlStr string, id storiface.ID) (f
 	return fsutil.FsStat{}, xerrors.Errorf("endpoint failed %s: %d %s", rl.String(), resp.StatusCode, string(b))
 }
 
-func (r *Remote) readRemote(ctx context.Context, url string, offset, size abi.PaddedPieceSize) (io.ReadCloser, error) {
+func (r *Remote) ReadRemote(ctx context.Context, url string, offset, size abi.PaddedPieceSize) (io.ReadCloser, error) {
 	if len(r.limit) >= cap(r.limit) {
 		log.Infof("Throttling remote read, %d already running", len(r.limit))
 	}
@@ -758,9 +758,9 @@ func (r *Remote) Reader(ctx context.Context, s storiface.SectorRef, offset, size
 			}
 
 			return func(startOffsetAligned, endOffsetAligned storiface.PaddedByteIndex) (io.ReadCloser, error) {
-				// readRemote fetches a reader that we can use to read the unsealed piece from the remote worker.
+				// ReadRemote fetches a reader that we can use to read the unsealed piece from the remote worker.
 				// It uses a ranged HTTP query to ensure we ONLY read the unsealed piece and not the entire unsealed file.
-				rd, err := r.readRemote(ctx, url, offset+abi.PaddedPieceSize(startOffsetAligned), offset+abi.PaddedPieceSize(endOffsetAligned))
+				rd, err := r.ReadRemote(ctx, url, offset+abi.PaddedPieceSize(startOffsetAligned), offset+abi.PaddedPieceSize(endOffsetAligned))
 				if err != nil {
 					log.Warnw("reading from remote", "url", url, "error", err)
 					return nil, err
@@ -806,7 +806,7 @@ func (r *Remote) ReaderSeq(ctx context.Context, s storiface.SectorRef, ft storif
 
 	for _, info := range si {
 		for _, url := range info.URLs {
-			rd, err := r.readRemote(ctx, url, 0, 0)
+			rd, err := r.ReadRemote(ctx, url, 0, 0)
 			if err != nil {
 				log.Warnw("reading from remote", "url", url, "error", err)
 				continue
