@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/go-chi/chi/v5"
 	"net/http"
 	"path"
@@ -23,7 +24,8 @@ const PDPRoutePath = "/pdp"
 
 // PDPService represents the service for managing proof sets and pieces
 type PDPService struct {
-	db *harmonydb.DB
+	db      *harmonydb.DB
+	storage paths.StashStore
 
 	ProofSetStore     ProofSetStore
 	PieceStore        PieceStore
