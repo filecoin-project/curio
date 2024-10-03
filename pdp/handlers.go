@@ -33,11 +33,10 @@ type PDPService struct {
 }
 
 // NewPDPService creates a new instance of PDPService with the provided stores
-func NewPDPService(proofSetStore ProofSetStore, pieceStore PieceStore, ownerAddressStore OwnerAddressStore) *PDPService {
+func NewPDPService(db *harmonydb.DB, stor paths.StashStore) *PDPService {
 	return &PDPService{
-		ProofSetStore:     proofSetStore,
-		PieceStore:        pieceStore,
-		OwnerAddressStore: ownerAddressStore,
+		db:      db,
+		storage: stor,
 	}
 }
 
@@ -305,34 +304,34 @@ func (p *PDPService) handleGetProofSetRoot(w http.ResponseWriter, r *http.Reques
 	//   ]
 	// }
 
-	proofSetIDStr := chi.URLParam(r, "proofSetID")
-	proofSetID, err := strconv.ParseInt(proofSetIDStr, 10, 64)
-	if err != nil {
-		http.Error(w, "Invalid proof set ID", http.StatusBadRequest)
-		return
-	}
+	/*	proofSetIDStr := chi.URLParam(r, "proofSetID")
+		proofSetID, err := strconv.ParseInt(proofSetIDStr, 10, 64)
+		if err != nil {
+			http.Error(w, "Invalid proof set ID", http.StatusBadRequest)
+			return
+		}
 
-	rootIDStr := chi.URLParam(r, "rootID")
-	rootID, err := strconv.ParseInt(rootIDStr, 10, 64)
-	if err != nil {
-		http.Error(w, "Invalid root ID", http.StatusBadRequest)
-		return
-	}
+		rootIDStr := chi.URLParam(r, "rootID")
+		rootID, err := strconv.ParseInt(rootIDStr, 10, 64)
+		if err != nil {
+			http.Error(w, "Invalid root ID", http.StatusBadRequest)
+			return
+		}*/
 
 	// Retrieve root from proof set in store
-	rootDetails, err := p.ProofSetStore.GetProofSetRoot(proofSetID, rootID)
+	/*rootDetails, err := p.ProofSetStore.GetProofSetRoot(proofSetID, rootID)
 	if err != nil {
 		http.Error(w, "Root not found", http.StatusNotFound)
 		return
-	}
+	}*/
 
 	// Respond with root details
 	w.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(w).Encode(rootDetails)
+	/*err = json.NewEncoder(w).Encode(rootDetails)
 	if err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		return
-	}
+	}*/
 }
 
 func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Request) {
@@ -426,7 +425,6 @@ type ProofSetStore interface {
 	GetProofSet(proofSetID int64) (*PDPProofSetDetails, error)
 	DeleteProofSet(proofSetID int64) error
 	AddProofSetRoot(proofSetRoot *PDPProofSetRoot) error
-	GetProofSetRoot(proofSetID int64, rootID int64) (*PDPProofSetRootDetails, error)
 	DeleteProofSetRoot(proofSetID int64, rootID int64) error
 }
 

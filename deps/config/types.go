@@ -702,9 +702,6 @@ type HTTPConfig struct {
 	// an IP address
 	DomainName string
 
-	// CertCacheDir path to the cache directory for storing SSL certificates needed for HTTPS.
-	CertCacheDir string
-
 	// ListenAddress is the address that the server listens for HTTP requests.
 	ListenAddress string
 

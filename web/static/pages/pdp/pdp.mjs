@@ -1,4 +1,4 @@
-import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@2/all/lit-all.min.js';
+import { LitElement, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 
 customElements.define('pdp-info', class PDPElement extends LitElement {
@@ -80,19 +80,21 @@ customElements.define('pdp-info', class PDPElement extends LitElement {
     render() {
         return html`
             <!-- Include Bootstrap CSS -->
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+            <link
+                href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+                rel="stylesheet">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
 
-            <div class="container">
+            <div class="container-fluid" style="min-width: 70em">
                 <h2>PDP Services</h2>
                 ${this.services.length > 0 ? html`
-                    <table class="table table-dark table-striped">
+                    <table class="table table-dark table-striped w-100">
                         <thead>
                             <tr>
-                                <th>ID</th>
-                                <th>Name</th>
-                                <th>Public Key</th>
-                                <th>Action</th>
+                                <th style="width: 5%;">ID</th>
+                                <th style="width: 20%;">Name</th>
+                                <th style="width: 65%;">Public Key</th>
+                                <th style="width: 10%;">Action</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -100,7 +102,9 @@ customElements.define('pdp-info', class PDPElement extends LitElement {
                                 <tr>
                                     <td>${service.id}</td>
                                     <td>${service.name}</td>
-                                    <td><textarea readonly rows="3" class="form-control">${service.pubkey}</textarea></td>
+                                    <td style="word-wrap: break-word;">
+                                        <textarea readonly rows="4" class="form-control w-100" style="overflow-x: auto;">${service.pubkey}</textarea>
+                                    </td>
                                     <td>
                                         <button class="btn btn-danger btn-sm" @click="${() => this.removeService(service.id, service.name)}">
                                             Remove
