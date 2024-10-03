@@ -2,8 +2,9 @@ package cuhttp
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
+	"github.com/filecoin-project/curio/pdp"
+	"github.com/yugabyte/pgx/v5"
 	"net/http"
 	"time"
 
@@ -163,9 +164,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
 		WriteTimeout:      cfg.WriteTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
-		TLSConfig: &tls.Config{
-			GetCertificate: certManager.GetCertificate,
-		},
+		TLSConfig:         certManager.TLSConfig(),
 	}
 
 	// We don't need to run an HTTP server. Any HTTP request should simply be handled as HTTPS.
@@ -214,6 +213,7 @@ func (c cache) Put(ctx context.Context, key string, data []byte) error {
 	_, err := c.db.Exec(ctx, `INSERT INTO autocert_cache (k, v) VALUES ($1, $2) 
 						ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v`, key, data)
 	if err != nil {
+		log.Warnf("failed to inset key value pair in DB: %s", err)
 		return xerrors.Errorf("failed to inset key value pair in DB: %w", err)
 	}
 	return nil
@@ -222,6 +222,7 @@ func (c cache) Put(ctx context.Context, key string, data []byte) error {
 func (c cache) Delete(ctx context.Context, key string) error {
 	_, err := c.db.Exec(ctx, `DELETE FROM autocert_cache WHERE k = $1`, key)
 	if err != nil {
+		log.Warnf("failed to delete key value pair from DB: %s", err)
 		return xerrors.Errorf("failed to delete key value pair from DB: %w", err)
 	}
 	return nil
@@ -246,6 +247,9 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps) (*chi.Mux, err
 	// Attach LibP2P redirector
 	rd := libp2p.NewRedirector(d.DB)
 	libp2p.Router(r, rd)
+
+	pdsvc := pdp.NewPDPService(d.DB, d.LocalStore)
+	pdp.Routes(r, pdsvc)
 
 	return r, nil
 }
