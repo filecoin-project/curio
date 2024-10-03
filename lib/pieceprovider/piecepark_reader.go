@@ -10,19 +10,19 @@ import (
 	"io"
 )
 
-type PiecePark struct {
+type PieceParkReader struct {
 	storage *paths.Remote
 	index   paths.SectorIndex
 }
 
-func NewPiecePark(storage *paths.Remote, index paths.SectorIndex) *PiecePark {
-	return &PiecePark{
+func NewPieceParkReader(storage *paths.Remote, index paths.SectorIndex) *PieceParkReader {
+	return &PieceParkReader{
 		storage: storage,
 		index:   index,
 	}
 }
 
-func (p *PiecePark) ReadPiece(ctx context.Context, pieceParkID storiface.PieceNumber, pieceSize int64, pc cid.Cid) (storiface.Reader, error) {
+func (p *PieceParkReader) ReadPiece(ctx context.Context, pieceParkID storiface.PieceNumber, pieceSize int64, pc cid.Cid) (storiface.Reader, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	// Reader returns a reader getter for an unsealed piece at the given offset in the given sector.
