@@ -30,6 +30,8 @@ func main() {
 			authCreateServiceSecretCmd, // generates pdpservice.json, outputs pubkey
 			authCreateJWTTokenCmd,      // generates jwt token from a secret
 
+			pingCmd,
+
 			piecePrepareCmd, // hash a piece to get a piece cid
 			pieceUploadCmd,  // upload a piece to a pdp service
 		},
@@ -97,63 +99,24 @@ var authCreateServiceSecretCmd = &cli.Command{
 var authCreateJWTTokenCmd = &cli.Command{
 	Name:      "create-jwt-token",
 	Usage:     "Generate a JWT token using the service secret",
-	ArgsUsage: "[service_id]",
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:     "service-id",
-			Aliases:  []string{"serviceId"},
-			Usage:    "Service ID to include in the JWT token",
-			Required: true,
-		},
-	},
+	ArgsUsage: "[service_name]",
 	Action: func(cctx *cli.Context) error {
 		// Read the private key from pdpservice.json
-		file, err := os.Open("pdpservice.json")
+		privKey, err := loadPrivateKey()
 		if err != nil {
-			return fmt.Errorf("failed to open pdpservice.json: %v", err)
-		}
-		defer file.Close()
-		var serviceSecret map[string]string
-		decoder := json.NewDecoder(file)
-		if err := decoder.Decode(&serviceSecret); err != nil {
-			return fmt.Errorf("failed to read pdpservice.json: %v", err)
+			return err
 		}
 
-		privPEM := serviceSecret["private_key"]
-		block, _ := pem.Decode([]byte(privPEM))
-		if block == nil {
-			return fmt.Errorf("failed to parse private key PEM")
+		// Get the service name
+		serviceName := cctx.Args().First()
+		if serviceName == "" {
+			return fmt.Errorf("service_name argument is required")
 		}
 
-		// Parse the private key
-		privKey, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+		// Create JWT token using the common function
+		tokenString, err := createJWTToken(serviceName, privKey)
 		if err != nil {
-			return fmt.Errorf("failed to parse private key: %v", err)
-		}
-		ecdsaPrivKey, ok := privKey.(*ecdsa.PrivateKey)
-		if !ok {
-			return fmt.Errorf("private key is not ECDSA")
-		}
-
-		// Get the service ID
-		serviceID := cctx.String("service-id")
-		if serviceID == "" {
-			return fmt.Errorf("service-id is required")
-		}
-
-		// Create JWT claims
-		claims := jwt.MapClaims{
-			"service_id": serviceID,
-			"exp":        time.Now().Add(time.Hour * 24).Unix(),
-		}
-
-		// Create the token
-		token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
-
-		// Sign the token
-		tokenString, err := token.SignedString(ecdsaPrivKey)
-		if err != nil {
-			return fmt.Errorf("failed to sign token: %v", err)
+			return err
 		}
 
 		// Output the token
@@ -161,6 +124,117 @@ var authCreateJWTTokenCmd = &cli.Command{
 
 		return nil
 	},
+}
+
+var pingCmd = &cli.Command{
+	Name:  "ping",
+	Usage: "Ping the /pdp/ping endpoint of a PDP service",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "service-url",
+			Usage:    "URL of the PDP service",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:  "service-name",
+			Usage: "Service Name to include in the JWT token",
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		serviceURL := cctx.String("service-url")
+		serviceName := cctx.String("service-name")
+
+		if serviceName == "" {
+			return fmt.Errorf("either --jwt-token or --service-name must be provided")
+		}
+		privKey, err := loadPrivateKey()
+		if err != nil {
+			return err
+		}
+		var errCreateToken error
+		jwtToken, errCreateToken := createJWTToken(serviceName, privKey)
+		if errCreateToken != nil {
+			return errCreateToken
+		}
+
+		// Append /pdp/ping to the service URL
+		pingURL := serviceURL + "/pdp/ping"
+
+		// Create the GET request
+		req, err := http.NewRequest("GET", pingURL, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create request: %v", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+
+		// Send the request
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to send request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// Check the response
+		if resp.StatusCode == http.StatusOK {
+			fmt.Println("Ping successful: Service is reachable and JWT token is valid.")
+		} else {
+			body, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("ping failed with status code %d: %s", resp.StatusCode, string(body))
+		}
+
+		return nil
+	},
+}
+
+func createJWTToken(serviceName string, privateKey *ecdsa.PrivateKey) (string, error) {
+	// Create JWT claims
+	claims := jwt.MapClaims{
+		"service_name": serviceName,
+		"exp":          time.Now().Add(time.Hour * 24).Unix(),
+	}
+
+	// Create the token
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+
+	// Sign the token
+	tokenString, err := token.SignedString(privateKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign token: %v", err)
+	}
+
+	return tokenString, nil
+}
+
+func loadPrivateKey() (*ecdsa.PrivateKey, error) {
+	file, err := os.Open("pdpservice.json")
+	if err != nil {
+		return nil, fmt.Errorf("failed to open pdpservice.json: %v", err)
+	}
+	defer file.Close()
+	var serviceSecret map[string]string
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&serviceSecret); err != nil {
+		return nil, fmt.Errorf("failed to read pdpservice.json: %v", err)
+	}
+
+	privPEM := serviceSecret["private_key"]
+	block, _ := pem.Decode([]byte(privPEM))
+	if block == nil {
+		return nil, fmt.Errorf("failed to parse private key PEM")
+	}
+
+	// Parse the private key
+	privKey, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse private key: %v", err)
+	}
+	ecdsaPrivKey, ok := privKey.(*ecdsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("private key is not ECDSA")
+	}
+
+	return ecdsaPrivKey, nil
 }
 
 var piecePrepareCmd = &cli.Command{
