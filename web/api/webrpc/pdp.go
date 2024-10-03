@@ -91,3 +91,29 @@ func (a *WebRPC) AddPDPService(ctx context.Context, name string, pubKey string) 
 
 	return nil
 }
+
+// RemovePDPService removes a PDP service from the database
+func (a *WebRPC) RemovePDPService(ctx context.Context, id int64) error {
+	// Optional: Authentication and Authorization checks
+	// For example, check if the user is an admin
+
+	// Check if the service exists
+	var existingID int64
+	err := a.deps.DB.QueryRow(ctx, `SELECT id FROM pdp_services WHERE id = $1`, id).Scan(&existingID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("service with ID %d does not exist", id)
+		}
+		log.Errorf("RemovePDPService: failed to check existing service: %v", err)
+		return fmt.Errorf("failed to remove service")
+	}
+
+	// Delete the service
+	_, err = a.deps.DB.Exec(ctx, `DELETE FROM pdp_services WHERE id = $1`, id)
+	if err != nil {
+		log.Errorf("RemovePDPService: failed to delete service: %v", err)
+		return fmt.Errorf("failed to remove service")
+	}
+
+	return nil
+}
