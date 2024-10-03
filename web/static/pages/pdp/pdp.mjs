@@ -1,4 +1,4 @@
-import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
+import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@2/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 
 customElements.define('pdp-info', class PDPElement extends LitElement {
@@ -17,7 +17,6 @@ customElements.define('pdp-info', class PDPElement extends LitElement {
     async loadServices() {
         try {
             this.services = await RPCCall('PDPServices', []);
-            this.requestUpdate();
         } catch (error) {
             console.error('Failed to load PDP services:', error);
         }
@@ -56,27 +55,44 @@ customElements.define('pdp-info', class PDPElement extends LitElement {
             this.showAddServiceForm = false;
         } catch (error) {
             console.error('Failed to add PDP service:', error);
-            alert('Failed to add PDP service: ' + error.message);
+            alert('Failed to add PDP service: ' + (error.message || error));
+        }
+    }
+
+    async removeService(serviceId, serviceName) {
+        const confirmed = confirm(`Are you sure you want to remove the service "${serviceName}"?`);
+        if (!confirmed) {
+            return;
+        }
+
+        try {
+            // Call the RPC method to remove the PDP service
+            await RPCCall('RemovePDPService', [serviceId]);
+
+            // Reload the services
+            await this.loadServices();
+        } catch (error) {
+            console.error('Failed to remove PDP service:', error);
+            alert('Failed to remove PDP service: ' + (error.message || error));
         }
     }
 
     render() {
         return html`
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" 
-                  rel="stylesheet" 
-                  integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" 
-                  crossorigin="anonymous">
+            <!-- Include Bootstrap CSS -->
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
 
             <div class="container">
                 <h2>PDP Services</h2>
                 ${this.services.length > 0 ? html`
-                    <table class="table table-dark">
+                    <table class="table table-dark table-striped">
                         <thead>
                             <tr>
                                 <th>ID</th>
                                 <th>Name</th>
                                 <th>Public Key</th>
+                                <th>Action</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -85,6 +101,11 @@ customElements.define('pdp-info', class PDPElement extends LitElement {
                                     <td>${service.id}</td>
                                     <td>${service.name}</td>
                                     <td><textarea readonly rows="3" class="form-control">${service.pubkey}</textarea></td>
+                                    <td>
+                                        <button class="btn btn-danger btn-sm" @click="${() => this.removeService(service.id, service.name)}">
+                                            Remove
+                                        </button>
+                                    </td>
                                 </tr>
                             `)}
                         </tbody>
