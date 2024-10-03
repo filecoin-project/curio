@@ -42,13 +42,15 @@ func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	}
 
 	// Perform HTTP GET request to the notify URL
-	resp, err := http.Get(upload.NotifyURL)
-	if err != nil {
-		log.Errorf("HTTP GET request to notify_url %s failed for upload ID %s: %v", upload.NotifyURL, upload.ID, err)
-	} else {
-		defer resp.Body.Close()
-		// Not reading the body as per requirement
-		log.Infof("HTTP GET request to notify_url %s succeeded for upload ID %s", upload.NotifyURL, upload.ID)
+	if upload.NotifyURL != "" {
+		resp, err := http.Get(upload.NotifyURL)
+		if err != nil {
+			log.Errorw("HTTP GET request to notify_url failed", "notify_url", upload.NotifyURL, "upload_id", upload.ID, "error", err)
+		} else {
+			defer resp.Body.Close()
+			// Not reading the body as per requirement
+			log.Infow("HTTP GET request to notify_url succeeded", "notify_url", upload.NotifyURL, "upload_id", upload.ID)
+		}
 	}
 
 	// Move the entry from pdp_piece_uploads to pdp_piecerefs

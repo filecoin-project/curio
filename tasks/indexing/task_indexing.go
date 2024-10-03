@@ -31,14 +31,14 @@ var log = logging.Logger("indexing")
 type IndexingTask struct {
 	db                *harmonydb.DB
 	indexStore        *indexstore.IndexStore
-	pieceProvider     *pieceprovider.PieceProvider
+	pieceProvider     *pieceprovider.SectorReader
 	sc                *ffi.SealCalls
 	cfg               *config.CurioConfig
 	insertConcurrency int
 	insertBatchSize   int
 }
 
-func NewIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.PieceProvider, cfg *config.CurioConfig) *IndexingTask {
+func NewIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.SectorReader, cfg *config.CurioConfig) *IndexingTask {
 
 	return &IndexingTask{
 		db:                db,
