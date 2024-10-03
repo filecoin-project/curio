@@ -49,7 +49,7 @@ CREATE TABLE pdp_piecerefs (
     id BIGSERIAL PRIMARY KEY,
     service_id BIGINT NOT NULL, -- pdp_services.id
     piece_cid TEXT NOT NULL, -- piece cid v2
-    piece_ref TEXT NOT NULL, -- parked_piece_refs.ref_id
+    piece_ref BIGINT NOT NULL, -- parked_piece_refs.ref_id
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 
     proofset_refcount BIGINT NOT NULL DEFAULT 0, -- maintained by triggers
