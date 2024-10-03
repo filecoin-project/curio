@@ -158,6 +158,10 @@ class CurioUX extends LitElement {
           <symbol id="table" viewBox="0 0 16 16">
             <path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm15 2h-4v3h4V4zm0 4h-4v3h4V8zm0 4h-4v3h3a1 1 0 0 0 1-1v-2zm-5 3v-3H6v3h4zm-5 0v-3H1v2a1 1 0 0 0 1 1h3zm-4-4h4V8H1v3zm0-4h4V4H1v3zm5-3v3h4V4H6zm4 4H6v3h4V8z"></path>
           </symbol>
+          <symbol id="hdd" viewBox="0 0 16 16">
+              <path d="M4.5 11a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1M3 10.5a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0"/>
+              <path d="M16 11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V9.51c0-.418.105-.83.305-1.197l2.472-4.531A1.5 1.5 0 0 1 4.094 3h7.812a1.5 1.5 0 0 1 1.317.782l2.472 4.53c.2.368.305.78.305 1.198zM3.655 4.26 1.592 8.043Q1.79 8 2 8h12q.21 0 .408.042L12.345 4.26a.5.5 0 0 0-.439-.26H4.094a.5.5 0 0 0-.44.26zM1 10v1a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1a1 1 0 0 0-1-1H2a1 1 0 0 0-1 1"/>
+          </symbol>
         </svg>
         <div class="d-flex flex-column flex-shrink-0 p-3 text-white" style="width: 240px; min-height:100vh; margin-right: 1rem; background-color: #2a2a2e;">
           <a href="/" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-white text-decoration-none">
@@ -231,6 +235,12 @@ class CurioUX extends LitElement {
                   </svg>
                   <span>IPNI</span>
               </a>
+            </li>
+            <li>
+              <a href="/pages/pdp/" class="nav-link text-white ${active=='/pages/pdp/'? 'active':''}">
+                  <svg class="bi me-2" width="16" height="16"><use xlink:href="#hdd"></use></svg>
+                  <span>PDP</span>
+                </a>
             </li>
             <li>
               <a href="https://docs.curiostorage.org/" target="_blank" class="nav-link text-white">
