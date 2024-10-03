@@ -73,6 +73,8 @@ func Routes(r *chi.Mux, p *PDPService) {
 		})
 	})
 
+	r.Get(path.Join(PDPRoutePath, "/ping"), p.handlePing)
+
 	// Routes for piece storage and retrieval
 	// POST /pdp/piece
 	r.Post(path.Join(PDPRoutePath, "/piece"), p.handlePiecePost)
@@ -82,6 +84,20 @@ func Routes(r *chi.Mux, p *PDPService) {
 }
 
 // Handler functions
+
+func (p *PDPService) handlePing(w http.ResponseWriter, r *http.Request) {
+	// Verify that the request is authorized using ECDSA JWT
+	_, err := p.verifyJWTToken(r)
+	if err != nil {
+		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	// Return 200 OK
+	w.WriteHeader(http.StatusOK)
+}
+
+// TODO STUFF BELOW IS JUST A SKELETON
 
 func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request) {
 	// Spec snippet:
