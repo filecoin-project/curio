@@ -45,17 +45,16 @@ func (p *PDPService) verifyJWTToken(r *http.Request) (int64, error) {
 		}
 
 		// Extract service_id from claims
-		serviceIDFloat, ok := claims["service_id"].(float64)
+		serviceID, ok := claims["service_name"]
 		if !ok {
-			return nil, fmt.Errorf("service_id not found in token claims")
+			return nil, fmt.Errorf("missing service_name claim")
 		}
-		serviceID = int64(serviceIDFloat)
 
 		// Query the database for the public key using serviceID
 		var pubKeyBytes []byte
 		ctx := r.Context()
 		err := p.db.QueryRow(ctx, `
-            SELECT pubkey FROM pdp_services WHERE id=?
+            SELECT pubkey FROM pdp_services WHERE service_label=$1
         `, serviceID).Scan(&pubKeyBytes)
 		if err != nil {
 			return nil, fmt.Errorf("failed to retrieve public key for service_id %d: %v", serviceID, err)
