@@ -366,7 +366,8 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 	}
 
 	if deps.CachedPieceReader == nil {
-		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.SectorReader)
+		ppr := pieceprovider.NewPieceParkReader(deps.Stor, deps.Si)
+		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.SectorReader, ppr)
 	}
 
 	return nil
