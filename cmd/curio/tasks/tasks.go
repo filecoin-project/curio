@@ -97,7 +97,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	bstore := dependencies.Bstore
 	machine := dependencies.ListenAddr
 	iStore := dependencies.IndexStore
-	pp := dependencies.PieceProvider
+	pp := dependencies.SectorReader
 
 	var activeTasks []harmonytask.TaskInterface
 

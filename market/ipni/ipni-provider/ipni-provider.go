@@ -78,7 +78,7 @@ type peerInfo struct {
 // Provider represents a provider for IPNI.
 type Provider struct {
 	db            *harmonydb.DB
-	pieceProvider *pieceprovider.PieceProvider
+	pieceProvider *pieceprovider.SectorReader
 	indexStore    *indexstore.IndexStore
 	keys          map[string]*peerInfo // map[peerID String]Private_Key
 	// announceURLs enables sending direct announcements via HTTP. This is
@@ -165,7 +165,7 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 
 	return &Provider{
 		db:                  d.DB,
-		pieceProvider:       d.PieceProvider,
+		pieceProvider:       d.SectorReader,
 		indexStore:          d.IndexStore,
 		keys:                keyMap,
 		announceURLs:        announceURLs,

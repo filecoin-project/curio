@@ -186,7 +186,7 @@ type Deps struct {
 	Name              string
 	Alert             *alertmanager.AlertNow
 	IndexStore        *indexstore.IndexStore
-	PieceProvider     *pieceprovider.PieceProvider
+	SectorReader      *pieceprovider.SectorReader
 	CachedPieceReader *cachedreader.CachedPieceReader
 }
 
@@ -361,12 +361,12 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 		}
 	}
 
-	if deps.PieceProvider == nil {
-		deps.PieceProvider = pieceprovider.NewPieceProvider(deps.Stor, deps.Si)
+	if deps.SectorReader == nil {
+		deps.SectorReader = pieceprovider.NewSectorReader(deps.Stor, deps.Si)
 	}
 
 	if deps.CachedPieceReader == nil {
-		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.PieceProvider)
+		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.SectorReader)
 	}
 
 	return nil

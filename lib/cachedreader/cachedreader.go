@@ -28,12 +28,12 @@ const MaxCachedReaders = 128
 
 type CachedPieceReader struct {
 	db                 *harmonydb.DB
-	pp                 *pieceprovider.PieceProvider
+	pp                 *pieceprovider.SectorReader
 	pieceReaderCacheMu sync.Mutex
 	pieceReaderCache   *ttlcache.Cache
 }
 
-func NewCachedPieceReader(db *harmonydb.DB, pp *pieceprovider.PieceProvider) *CachedPieceReader {
+func NewCachedPieceReader(db *harmonydb.DB, pp *pieceprovider.SectorReader) *CachedPieceReader {
 	prCache := ttlcache.NewCache()
 	_ = prCache.SetTTL(time.Minute * 10)
 	prCache.SetCacheSizeLimit(MaxCachedReaders)
