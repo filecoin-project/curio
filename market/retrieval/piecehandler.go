@@ -73,7 +73,7 @@ func setHeaders(w http.ResponseWriter, pieceCid cid.Cid) {
 	w.Header().Set("Cache-Control", "public, max-age=29030400, immutable")
 }
 
-func serveContent(res http.ResponseWriter, req *http.Request, size abi.PaddedPieceSize, content io.ReadSeeker) {
+func serveContent(res http.ResponseWriter, req *http.Request, size abi.UnpaddedPieceSize, content io.ReadSeeker) {
 	// Note that the last modified time is a constant value because the data
 	// in a piece identified by a cid will never change.
 
@@ -84,6 +84,6 @@ func serveContent(res http.ResponseWriter, req *http.Request, size abi.PaddedPie
 	}
 
 	// Send the content
-	res.Header().Set("Content-Length", fmt.Sprintf("%d", size.Unpadded()))
+	res.Header().Set("Content-Length", fmt.Sprintf("%d", size))
 	http.ServeContent(res, req, "", lastModified, content)
 }

@@ -59,6 +59,8 @@ CREATE TABLE pdp_piecerefs (
     FOREIGN KEY (piece_ref) REFERENCES parked_piece_refs(ref_id) ON DELETE CASCADE
 );
 
+CREATE INDEX pdp_piecerefs_piece_cid_idx ON pdp_piecerefs(piece_cid);
+
 -- PDP proofsets we maintain
 CREATE TABLE pdp_proof_sets (
     id BIGINT PRIMARY KEY, -- on-chain proofset id
