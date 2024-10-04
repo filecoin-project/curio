@@ -59,10 +59,8 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 		closers = append(closers, closer)
 	}
 
-	// When running in cluster mode and trying to establish connections to multiple nodes, fail
-	// if less than 2 lotus nodes are actually running
-	if len(httpHeads) > 1 && len(fullNodes) < 2 {
-		return nil, nil, xerrors.Errorf("Not able to establish connection to more than a single node")
+	if len(fullNodes) == 0 {
+		return nil, nil, xerrors.Errorf("failed to establish connection with all nodes")
 	}
 
 	finalCloser := func() {
