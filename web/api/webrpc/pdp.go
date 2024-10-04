@@ -5,8 +5,9 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"github.com/yugabyte/pgx/v5"
 	"strings"
+
+	"github.com/yugabyte/pgx/v5"
 )
 
 // PDPService represents a PDP service

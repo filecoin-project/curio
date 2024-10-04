@@ -2,6 +2,7 @@ package contract
 
 import (
 	"github.com/ethereum/go-ethereum/ethclient"
+
 	"github.com/filecoin-project/curio/build"
 )
 
