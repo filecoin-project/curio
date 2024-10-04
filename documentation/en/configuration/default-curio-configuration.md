@@ -325,7 +325,7 @@ description: The default curio configuration
   # to late submission.
   # 
   # After changing this option, confirm that the new value works in your setup by invoking
-  # 'lotus-miner proving compute window-post 0'
+  # 'curio test wd task 0'
   #
   # type: int
   #ParallelCheckLimit = 32
@@ -350,67 +350,6 @@ description: The default curio configuration
   #
   # type: Duration
   #PartitionCheckTimeout = "20m0s"
-
-  # Disable WindowPoSt provable sector readability checks.
-  # 
-  # In normal operation, when preparing to compute WindowPoSt, lotus-miner will perform a round of reading challenges
-  # from all sectors to confirm that those sectors can be proven. Challenges read in this process are discarded, as
-  # we're only interested in checking that sector data can be read.
-  # 
-  # When using builtin proof computation (no PoSt workers, and DisableBuiltinWindowPoSt is set to false), this process
-  # can save a lot of time and compute resources in the case that some sectors are not readable - this is caused by
-  # the builtin logic not skipping snark computation when some sectors need to be skipped.
-  # 
-  # When using PoSt workers, this process is mostly redundant, with PoSt workers challenges will be read once, and
-  # if challenges for some sectors aren't readable, those sectors will just get skipped.
-  # 
-  # Disabling sector pre-checks will slightly reduce IO load when proving sectors, possibly resulting in shorter
-  # time to produce window PoSt. In setups with good IO capabilities the effect of this option on proving time should
-  # be negligible.
-  # 
-  # NOTE: It likely is a bad idea to disable sector pre-checks in setups with no PoSt workers.
-  # 
-  # NOTE: Even when this option is enabled, recovering sectors will be checked before recovery declaration message is
-  # sent to the chain
-  # 
-  # After changing this option, confirm that the new value works in your setup by invoking
-  # 'lotus-miner proving compute window-post 0'
-  #
-  # type: bool
-  #DisableWDPoStPreChecks = false
-
-  # Maximum number of partitions to prove in a single SubmitWindowPoSt messace. 0 = network limit (3 in nv21)
-  # 
-  # A single partition may contain up to 2349 32GiB sectors, or 2300 64GiB sectors.
-  # //
-  # Note that setting this value lower may result in less efficient gas use - more messages will be sent,
-  # to prove each deadline, resulting in more total gas use (but each message will have lower gas limit)
-  # 
-  # Setting this value above the network limit has no effect
-  #
-  # type: int
-  #MaxPartitionsPerPoStMessage = 0
-
-  # In some cases when submitting DeclareFaultsRecovered messages,
-  # there may be too many recoveries to fit in a BlockGasLimit.
-  # In those cases it may be necessary to set this value to something low (eg 1);
-  # Note that setting this value lower may result in less efficient gas use - more messages will be sent than needed,
-  # resulting in more total gas use (but each message will have lower gas limit)
-  #
-  # type: int
-  #MaxPartitionsPerRecoveryMessage = 0
-
-  # Enable single partition per PoSt Message for partitions containing recovery sectors
-  # 
-  # In cases when submitting PoSt messages which contain recovering sectors, the default network limit may still be
-  # too high to fit in the block gas limit. In those cases, it becomes useful to only house the single partition
-  # with recovering sectors in the post message
-  # 
-  # Note that setting this value lower may result in less efficient gas use - more messages will be sent,
-  # to prove each deadline, resulting in more total gas use (but each message will have lower gas limit)
-  #
-  # type: bool
-  #SingleRecoveringPartitionPerPostMessage = false
 
 
 [Ingest]
