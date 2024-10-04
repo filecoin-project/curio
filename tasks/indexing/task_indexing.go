@@ -54,7 +54,7 @@ func NewIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore
 type itask struct {
 	UUID        string                  `db:"uuid"`
 	SpID        int64                   `db:"sp_id"`
-	Sector      abi.SectorNumber        `db:"sector_number"`
+	Sector      abi.SectorNumber        `db:"sector"`
 	Proof       abi.RegisteredSealProof `db:"reg_seal_proof"`
 	PieceCid    string                  `db:"piece_cid"`
 	Size        abi.PaddedPieceSize     `db:"piece_size"`
@@ -73,7 +73,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	err = i.db.Select(ctx, &tasks, `SELECT 
 											uuid, 
 											sp_id, 
-											sector_number, 
+											sector,
 											piece_cid, 
 											piece_size, 
 											sector_offset,
