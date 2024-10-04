@@ -4,6 +4,27 @@ import (
 	"sync/atomic"
 )
 
+type Limiter interface {
+	// Active returns the number of tasks of this type that are currently running
+	// in this limiter / limiter group.
+	Active() int
+
+	// ActiveThis returns the number of tasks of this type that are currently running
+	// in this limiter (e.g. per-task-type count).
+	ActiveThis() int
+
+	// AtMax returns whether this limiter permits more tasks to run.
+	AtMax() bool
+
+	// Add increments / decrements the active task counters by delta. This call
+	// is atomic
+	Add(delta int)
+
+	// Instance spawns a sub-instance of this limiter. This is called by harmonytask on startup for each task
+	// using this limiter. Each sub-instance has it's own individual "This" counter, but can share a common counter.
+	Instance() Limiter
+}
+
 type MaxCounter struct {
 	// maximum number of tasks of this type that can be run
 	N int
@@ -35,6 +56,10 @@ func (m *MaxCounter) ActiveThis() int {
 func (m *MaxCounter) Add(n int) {
 	m.current.Add(int32(n))
 	m.currentThis.Add(int32(n))
+}
+
+func (m *MaxCounter) Instance() Limiter {
+	return &MaxCounter{N: m.N, current: m.current, currentThis: new(atomic.Int32)}
 }
 
 func Max(n int) *MaxCounter {

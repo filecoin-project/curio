@@ -26,7 +26,7 @@ type TaskTypeDetails struct {
 	// Max returns how many tasks this machine can run of this type.
 	// Nil (default)/Zero or less means unrestricted.
 	// Counters can either be independent when created with Max, or shared between tasks with SharedMax.Make()
-	Max Limiter
+	Max taskhelp.Limiter
 
 	// Name is the task name to be added to the task list.
 	Name string
@@ -105,23 +105,6 @@ type TaskInterface interface {
 	Adder(AddTaskFunc)
 }
 
-type Limiter interface {
-	// Active returns the number of tasks of this type that are currently running
-	// in this limiter / limiter group.
-	Active() int
-
-	// ActiveThis returns the number of tasks of this type that are currently running
-	// in this limiter (e.g. per-task-type count).
-	ActiveThis() int
-
-	// AtMax returns whether this limiter permits more tasks to run.
-	AtMax() bool
-
-	// Add increments / decrements the active task counters by delta. This call
-	// is atomic
-	Add(delta int)
-}
-
 // AddTaskFunc is responsible for adding a task's details "extra info" to the DB.
 // It should return true if the task should be added, false if it was already there.
 // This is typically accomplished with a "unique" index on your detals table that
@@ -188,6 +171,7 @@ func New(
 		if h.Max == nil {
 			h.Max = taskhelp.Max(0)
 		}
+		h.Max = h.Max.Instance()
 
 		if Registry[h.TaskTypeDetails.Name] == nil {
 			return nil, fmt.Errorf("task %s not registered: var _ = harmonytask.Reg(t TaskInterface)", h.TaskTypeDetails.Name)
