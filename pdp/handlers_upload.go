@@ -9,6 +9,8 @@ import (
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
+	logger "github.com/ipfs/go-log/v2"
+	"github.com/yugabyte/pgx/v5"
 	"io"
 	"net/http"
 	"os"
@@ -17,6 +19,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
+
+var log = logger.Logger("pdp")
 
 // PieceSizeLimit in bytes
 var PieceSizeLimit = abi.PaddedPieceSize(256 << 20).Unpadded()
@@ -32,48 +36,92 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	// Parse request body
 	var req struct {
 		PieceCID string `json:"pieceCid"`
-		RefID    string `json:"refId"`
 		Notify   string `json:"notify,omitempty"`
 	}
 	err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil || req.PieceCID == "" || req.RefID == "" {
+	if err != nil || req.PieceCID == "" {
 		http.Error(w, "Invalid request body: missing pieceCid or refId", http.StatusBadRequest)
 		return
 	}
 
-	// Check if the piece is already stored
-	exists, err := p.PieceStore.HasPiece(req.PieceCID)
+	ctx := r.Context()
+
+	// Variables to hold information outside the transaction
+	var uploadUUID uuid.UUID
+	var uploadURL string
+	var responseStatus int
+
+	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// Check if a 'parked_pieces' entry exists for the given 'piece_cid'
+		var parkedPieceID int64
+		err := tx.QueryRow(`
+            SELECT id FROM parked_pieces WHERE piece_cid = $1 AND long_term = TRUE AND complete = TRUE
+        `, req.PieceCID).Scan(&parkedPieceID)
+		if err != nil && err != pgx.ErrNoRows {
+			return false, fmt.Errorf("failed to query parked_pieces: %w", err)
+		}
+
+		if err == nil {
+			// Piece is already stored
+			// Create a new 'parked_piece_refs' entry
+			var parkedPieceRefID int64
+			err = tx.QueryRow(`
+                INSERT INTO parked_piece_refs (piece_id, long_term)
+                VALUES ($1, TRUE) RETURNING ref_id
+            `, parkedPieceID).Scan(&parkedPieceRefID)
+			if err != nil {
+				return false, fmt.Errorf("failed to insert into parked_piece_refs: %w", err)
+			}
+
+			// Create a new 'pdp_piece_uploads' entry pointing to the 'pdp_piecerefs' entry
+			uploadUUID = uuid.New()
+			_, err = tx.Exec(`
+                INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url, piece_ref)
+                VALUES ($1, $2, $3, $4, $5)
+            `, uploadUUID.String(), serviceID, req.PieceCID, req.Notify, parkedPieceRefID)
+			if err != nil {
+				return false, fmt.Errorf("failed to insert into pdp_piece_uploads: %w", err)
+			}
+
+			responseStatus = http.StatusNoContent
+			return true, nil // Commit the transaction
+		}
+
+		// Piece does not exist, proceed to create a new upload request
+		uploadUUID = uuid.New()
+
+		// Store the upload request in the database
+		_, err = tx.Exec(`
+            INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url) 
+            VALUES ($1, $2, $3, $4)
+        `, uploadUUID.String(), serviceID, req.PieceCID, req.Notify)
+		if err != nil {
+			return false, fmt.Errorf("Failed to store upload request in database: %w", err)
+		}
+
+		// Create a location URL where the piece data can be uploaded via PUT
+		uploadURL = path.Join(PDPRoutePath, "/piece/upload", uploadUUID.String())
+		responseStatus = http.StatusCreated
+
+		return true, nil // Commit the transaction
+	}, harmonydb.OptionRetry())
+
 	if err != nil {
-		http.Error(w, "Failed to check piece existence", http.StatusInternalServerError)
+		http.Error(w, "Failed to process request: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if exists {
+	if responseStatus == http.StatusCreated {
+		// Return 201 Created with Location header
+		w.Header().Set("Location", uploadURL)
+		w.WriteHeader(http.StatusCreated)
+	} else if responseStatus == http.StatusNoContent {
 		// Return 204 No Content
 		w.WriteHeader(http.StatusNoContent)
-		return
+	} else {
+		// Should not reach here
+		http.Error(w, "Unexpected error", http.StatusInternalServerError)
 	}
-
-	// Create an upload UUID
-	uploadUUID := uuid.New()
-
-	// Store the upload request in the database
-	ctx := r.Context()
-	_, err = p.db.Exec(ctx, `
-        INSERT INTO pdp_piece_uploads (id, service_id, piece_cid, notify_url) 
-        VALUES (?, ?, ?, ?)
-    `, uploadUUID.String(), serviceID, req.PieceCID, req.Notify)
-	if err != nil {
-		http.Error(w, "Failed to store upload request in database", http.StatusInternalServerError)
-		return
-	}
-
-	// Create a location URL where the piece data can be uploaded via PUT
-	uploadURL := path.Join(PDPRoutePath, "/piece/upload", uploadUUID.String())
-
-	// Return 201 Created with Location header
-	w.Header().Set("Location", uploadURL)
-	w.WriteHeader(http.StatusCreated)
 }
 
 // handlePieceUpload handles the PUT request to upload the actual bytes of the piece
@@ -123,8 +171,6 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Function to write data into StashStore and calculate commP
 	writeFunc := func(f *os.File) error {
-		defer f.Close()
-
 		limitedReader := io.LimitReader(r.Body, maxPieceSize+1) // +1 to detect exceeding the limit
 		multiWriter := io.MultiWriter(cp, f)
 
@@ -150,6 +196,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
 			return
 		} else {
+			log.Errorw("Failed to store piece data in StashStore", "error", err)
 			http.Error(w, "Failed to store piece data", http.StatusInternalServerError)
 			return
 		}
@@ -222,7 +269,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		}
 
 		return true, nil // Commit the transaction
-	})
+	}, harmonydb.OptionRetry())
 
 	if err != nil || !didCommit {
 		// Remove the stash file as the transaction failed
@@ -230,43 +277,6 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to process piece upload", http.StatusInternalServerError)
 		return
 	}
-
-	// Optionally send a notification to the notify_url
-	// TODO notify is called in
-	/*if notifyURL != "" {
-		// Prepare notification payload
-		notificationPayload := map[string]string{
-			"pieceCid": pieceCIDStr,
-		}
-		notificationData, err := json.Marshal(notificationPayload)
-		if err != nil {
-			// Log the error but proceed
-			fmt.Println("Failed to marshal notification payload:", err)
-		} else {
-			// Send the notification (best effort)
-			go func() {
-				req, err := http.NewRequest("POST", notifyURL, bytes.NewReader(notificationData))
-				if err != nil {
-					// Log error
-					fmt.Println("Failed to create notification request:", err)
-					return
-				}
-				req.Header.Set("Content-Type", "application/json")
-
-				resp, err := http.DefaultClient.Do(req)
-				if err != nil {
-					// Log error
-					fmt.Println("Failed to send notification:", err)
-					return
-				}
-				defer resp.Body.Close()
-				if resp.StatusCode >= 300 {
-					// Log non-2xx responses
-					fmt.Printf("Notification response status: %s\n", resp.Status)
-				}
-			}()
-		}
-	}*/
 
 	// Respond with 204 No Content
 	w.WriteHeader(http.StatusNoContent)

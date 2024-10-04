@@ -14,7 +14,6 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/urfave/cli/v2"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"os"
@@ -287,7 +286,7 @@ var piecePrepareCmd = &cli.Command{
 		// Output the piece CID and size
 		fmt.Printf("Piece CID: %s\n", pieceCIDComputed)
 		fmt.Printf("Padded Piece Size: %d bytes\n", paddedPieceSize)
-		fmt.Printf("Unpadded Piece Size: %d bytes\n", pieceSize)
+		fmt.Printf("Raw Piece Size: %d bytes\n", pieceSize)
 
 		return nil
 	},
@@ -304,14 +303,12 @@ var pieceUploadCmd = &cli.Command{
 			Required: true,
 		},
 		&cli.StringFlag{
-			Name:     "jwt-token",
-			Usage:    "JWT token for authentication",
-			Required: true,
+			Name:  "jwt-token",
+			Usage: "JWT token for authentication (optional if --service-name is provided)",
 		},
 		&cli.StringFlag{
-			Name:     "ref-id",
-			Usage:    "Reference ID",
-			Required: true,
+			Name:  "service-name",
+			Usage: "Service Name to include in the JWT token (used if --jwt-token is not provided)",
 		},
 		&cli.StringFlag{
 			Name:     "notify-url",
@@ -327,8 +324,23 @@ var pieceUploadCmd = &cli.Command{
 
 		serviceURL := cctx.String("service-url")
 		jwtToken := cctx.String("jwt-token")
-		refID := cctx.String("ref-id")
 		notifyURL := cctx.String("notify-url")
+		serviceName := cctx.String("service-name")
+
+		if jwtToken == "" {
+			if serviceName == "" {
+				return fmt.Errorf("either --jwt-token or --service-name must be provided")
+			}
+			privKey, err := loadPrivateKey()
+			if err != nil {
+				return err
+			}
+			var errCreateToken error
+			jwtToken, errCreateToken = createJWTToken(serviceName, privKey)
+			if errCreateToken != nil {
+				return errCreateToken
+			}
+		}
 
 		// First, compute the PieceCID
 		// Open input file
@@ -336,6 +348,7 @@ var pieceUploadCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to open input file: %v", err)
 		}
+		defer file.Close()
 
 		cp := &commp.Calc{}
 
@@ -357,13 +370,9 @@ var pieceUploadCmd = &cli.Command{
 			return fmt.Errorf("failed to compute piece CID: %v", err)
 		}
 
-		// Close the file
-		file.Close()
-
 		// Send POST /pdp/piece to the PDP service
 		reqData := map[string]interface{}{
 			"pieceCid": pieceCIDComputed.String(),
-			"refId":    refID,
 		}
 		if notifyURL != "" {
 			reqData["notify"] = notifyURL
@@ -403,12 +412,10 @@ var pieceUploadCmd = &cli.Command{
 		}
 
 		// Upload the piece data via PUT
-		file, err = os.Open(inputFile)
+		_, err = file.Seek(0, io.SeekStart) // Reset file pointer to the beginning
 		if err != nil {
-			return fmt.Errorf("failed to open input file for upload: %v", err)
+			return fmt.Errorf("failed to seek file: %v", err)
 		}
-		defer file.Close()
-
 		uploadReq, err := http.NewRequest("PUT", serviceURL+uploadURL, file)
 		if err != nil {
 			return fmt.Errorf("failed to create upload request: %v", err)
@@ -421,7 +428,7 @@ var pieceUploadCmd = &cli.Command{
 		defer uploadResp.Body.Close()
 
 		if uploadResp.StatusCode != http.StatusNoContent {
-			body, _ := ioutil.ReadAll(uploadResp.Body)
+			body, _ := io.ReadAll(uploadResp.Body)
 			return fmt.Errorf("upload failed with status code %d: %s", uploadResp.StatusCode, string(body))
 		}
 
