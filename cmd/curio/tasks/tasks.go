@@ -3,7 +3,6 @@ package tasks
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/tasks/pdp"
 	"sort"
 	"strings"
 	"sync"
@@ -39,6 +38,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/indexing"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/metadata"
+	"github.com/filecoin-project/curio/tasks/pdp"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/scrub"
 	"github.com/filecoin-project/curio/tasks/seal"

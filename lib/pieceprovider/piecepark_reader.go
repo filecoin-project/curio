@@ -2,12 +2,15 @@ package pieceprovider
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/lib/paths"
-	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/go-state-types/abi"
+	"io"
+
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
-	"io"
+
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
 
 type PieceParkReader struct {

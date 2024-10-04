@@ -3,8 +3,6 @@ package cuhttp
 import (
 	"context"
 	"fmt"
-	"github.com/filecoin-project/curio/pdp"
-	"github.com/yugabyte/pgx/v5"
 	"net/http"
 	"time"
 
@@ -13,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/handlers"
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/xerrors"
 
@@ -21,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/market/retrieval"
+	"github.com/filecoin-project/curio/pdp"
 )
 
 var log = logging.Logger("cu-http")

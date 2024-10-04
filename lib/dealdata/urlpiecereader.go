@@ -2,13 +2,14 @@ package dealdata
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/lib/paths"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/lib/paths"
 )
 
 // CustoreScheme is a special url scheme indicating that a data URL is an http url withing the curio storage system
