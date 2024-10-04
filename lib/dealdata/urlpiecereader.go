@@ -18,18 +18,20 @@ type UrlPieceReader struct {
 	Headers http.Header
 	RawSize int64 // the exact number of bytes read, if we read more or less that's an error
 
-	RemoteEndpointReader paths.Remote // Only used for .ReadRemote which issues http requests for internal /remote endpoints
+	RemoteEndpointReader *paths.Remote // Only used for .ReadRemote which issues http requests for internal /remote endpoints
 
 	readSoFar int64
 	closed    bool
 	active    io.ReadCloser // auto-closed on EOF
 }
 
-func NewUrlReader(p string, h http.Header, rs int64) *UrlPieceReader {
+func NewUrlReader(rmt *paths.Remote, p string, h http.Header, rs int64) *UrlPieceReader {
 	return &UrlPieceReader{
 		Url:     p,
 		RawSize: rs,
 		Headers: h,
+
+		RemoteEndpointReader: rmt,
 	}
 }
 
@@ -40,6 +42,10 @@ func (u *UrlPieceReader) initiateRequest() error {
 	}
 
 	if goUrl.Scheme == CustoreScheme {
+		if u.RemoteEndpointReader == nil {
+			return xerrors.New("RemoteEndpoint is nil")
+		}
+
 		goUrl.Scheme = "http"
 		u.active, err = u.RemoteEndpointReader.ReadRemote(context.Background(), goUrl.String(), 0, 0)
 		if err != nil {
