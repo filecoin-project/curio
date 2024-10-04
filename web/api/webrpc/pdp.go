@@ -2,9 +2,14 @@ package webrpc
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	xerrors "golang.org/x/xerrors"
 	"strings"
 
 	"github.com/yugabyte/pgx/v5"
@@ -114,6 +119,114 @@ func (a *WebRPC) RemovePDPService(ctx context.Context, id int64) error {
 	if err != nil {
 		log.Errorf("RemovePDPService: failed to delete service: %v", err)
 		return fmt.Errorf("failed to remove service")
+	}
+
+	return nil
+}
+
+// PDPOwnerAddress represents an owner address entry in the pdp_owner_addresses table
+type PDPOwnerAddress struct {
+	OwnerAddress string `db:"owner_address" json:"owner_address"`
+}
+
+// ImportPDPKey imports an Ethereum private key into the pdp_owner_addresses table.
+// It accepts the key in hex format, writes it to the table with the corresponding
+// owner_address, and returns the address string.
+func (a *WebRPC) ImportPDPKey(ctx context.Context, hexPrivateKey string) (string, error) {
+	hexPrivateKey = strings.TrimSpace(hexPrivateKey)
+	if hexPrivateKey == "" {
+		return "", fmt.Errorf("private key cannot be empty")
+	}
+
+	// Remove any leading '0x' from the hex string
+	hexPrivateKey = strings.TrimPrefix(hexPrivateKey, "0x")
+	hexPrivateKey = strings.TrimPrefix(hexPrivateKey, "0X")
+
+	// Decode the hex private key
+	privateKeyBytes, err := hex.DecodeString(hexPrivateKey)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode private key: %v", err)
+	}
+
+	// Parse the private key
+	privateKey, err := crypto.ToECDSA(privateKeyBytes)
+	if err != nil {
+		return "", fmt.Errorf("invalid private key: %v", err)
+	}
+
+	// Get the public key
+	publicKey := privateKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return "", xerrors.New("error casting public key to ECDSA")
+	}
+
+	// Derive the address
+	address := crypto.PubkeyToAddress(*publicKeyECDSA).Hex()
+
+	// Insert into the database within a transaction
+	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// Check if the owner_address already exists
+		var existingAddress string
+		err := tx.QueryRow(`SELECT owner_address FROM pdp_owner_addresses WHERE owner_address = $1`, address).Scan(&existingAddress)
+		if err == nil {
+			return false, fmt.Errorf("owner address %s already exists", address)
+		} else if err != pgx.ErrNoRows {
+			return false, fmt.Errorf("failed to check existing owner address: %v", err)
+		}
+
+		// Insert the new owner address and private key
+		_, err = tx.Exec(`INSERT INTO pdp_owner_addresses (owner_address, private_key) VALUES ($1, $2)`, address, privateKeyBytes)
+		if err != nil {
+			return false, fmt.Errorf("failed to insert owner address: %v", err)
+		}
+		return true, nil
+	})
+	if err != nil {
+		log.Errorf("ImportPDPKey: failed to import key: %v", err)
+		return "", fmt.Errorf("failed to import key")
+	}
+
+	return address, nil
+}
+
+// ListPDPKeys retrieves the list of owner addresses from the pdp_owner_addresses table
+func (a *WebRPC) ListPDPKeys(ctx context.Context) ([]string, error) {
+	addresses := []string{}
+
+	// Use a.deps.DB.Select to retrieve the owner addresses
+	err := a.deps.DB.Select(ctx, &addresses, `SELECT owner_address FROM pdp_owner_addresses ORDER BY owner_address ASC`)
+	if err != nil {
+		log.Errorf("ListPDPKeys: failed to select addresses: %v", err)
+		return nil, fmt.Errorf("failed to retrieve addresses")
+	}
+
+	return addresses, nil
+}
+
+// RemovePDPKey removes an owner address and its associated private key from the pdp_owner_addresses table
+func (a *WebRPC) RemovePDPKey(ctx context.Context, ownerAddress string) error {
+	ownerAddress = strings.TrimSpace(ownerAddress)
+	if ownerAddress == "" {
+		return fmt.Errorf("owner address cannot be empty")
+	}
+
+	// Check if the owner address exists
+	var existingAddress string
+	err := a.deps.DB.QueryRow(ctx, `SELECT owner_address FROM pdp_owner_addresses WHERE owner_address = $1`, ownerAddress).Scan(&existingAddress)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return fmt.Errorf("owner address %s does not exist", ownerAddress)
+		}
+		log.Errorf("RemovePDPKey: failed to check existing owner address: %v", err)
+		return fmt.Errorf("failed to remove key")
+	}
+
+	// Delete the key
+	_, err = a.deps.DB.Exec(ctx, `DELETE FROM pdp_owner_addresses WHERE owner_address = $1`, ownerAddress)
+	if err != nil {
+		log.Errorf("RemovePDPKey: failed to delete key: %v", err)
+		return fmt.Errorf("failed to remove key")
 	}
 
 	return nil
