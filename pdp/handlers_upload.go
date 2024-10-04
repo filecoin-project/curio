@@ -4,13 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/dealdata"
-	commcid "github.com/filecoin-project/go-fil-commcid"
-	commp "github.com/filecoin-project/go-fil-commp-hashhash"
-	"github.com/filecoin-project/go-state-types/abi"
-	logger "github.com/ipfs/go-log/v2"
-	"github.com/yugabyte/pgx/v5"
 	"io"
 	"net/http"
 	"os"
@@ -18,6 +11,15 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	logger "github.com/ipfs/go-log/v2"
+	"github.com/yugabyte/pgx/v5"
+
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	commp "github.com/filecoin-project/go-fil-commp-hashhash"
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/dealdata"
 )
 
 var log = logger.Logger("pdp")

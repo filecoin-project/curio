@@ -3,13 +3,13 @@ package paths
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/google/uuid"
 	"io"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
