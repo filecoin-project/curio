@@ -24,12 +24,13 @@ CREATE TABLE pdp_services (
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 
-    UNIQUE(pubkey)
+    UNIQUE(pubkey),
+    UNIQUE(service_label)
 );
 
 CREATE TABLE pdp_piece_uploads (
     id UUID PRIMARY KEY NOT NULL,
-    service_id BIGINT NOT NULL, -- pdp_services.id
+    service TEXT NOT NULL, -- pdp_services.id
 
     piece_cid TEXT NOT NULL, -- piece cid v2
     notify_url TEXT NOT NULL, -- URL to notify when piece is ready
@@ -40,14 +41,14 @@ CREATE TABLE pdp_piece_uploads (
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 
-    FOREIGN KEY (service_id) REFERENCES pdp_services(id) ON DELETE CASCADE,
+    FOREIGN KEY (service) REFERENCES pdp_services(service_label) ON DELETE CASCADE,
     FOREIGN KEY (piece_ref) REFERENCES parked_piece_refs(ref_id) ON DELETE SET NULL
 );
 
 -- PDP piece references, this table tells Curio which pieces in storage are managed by PDP
 CREATE TABLE pdp_piecerefs (
     id BIGSERIAL PRIMARY KEY,
-    service_id BIGINT NOT NULL, -- pdp_services.id
+    service TEXT NOT NULL, -- pdp_services.id
     piece_cid TEXT NOT NULL, -- piece cid v2
     piece_ref BIGINT NOT NULL, -- parked_piece_refs.ref_id
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -55,7 +56,7 @@ CREATE TABLE pdp_piecerefs (
     proofset_refcount BIGINT NOT NULL DEFAULT 0, -- maintained by triggers
 
     UNIQUE(piece_ref),
-    FOREIGN KEY (service_id) REFERENCES pdp_services(id) ON DELETE CASCADE,
+    FOREIGN KEY (service) REFERENCES pdp_services(service_label) ON DELETE CASCADE,
     FOREIGN KEY (piece_ref) REFERENCES parked_piece_refs(ref_id) ON DELETE CASCADE
 );
 

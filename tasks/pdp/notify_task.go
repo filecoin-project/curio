@@ -26,17 +26,17 @@ func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	// Fetch the pdp_piece_uploads entry associated with the taskID
 	var upload struct {
 		ID           string `db:"id"`
-		ServiceID    int64  `db:"service_id"`
+		Service      string `db:"service"`
 		PieceCID     string `db:"piece_cid"`
 		NotifyURL    string `db:"notify_url"`
 		PieceRef     int64  `db:"piece_ref"`
 		NotifyTaskID int64  `db:"notify_task_id"`
 	}
 	err = t.db.QueryRow(ctx, `
-        SELECT id, service_id, piece_cid, notify_url, piece_ref, notify_task_id 
+        SELECT id, service, piece_cid, notify_url, piece_ref, notify_task_id 
         FROM pdp_piece_uploads 
         WHERE notify_task_id = $1`, taskID).Scan(
-		&upload.ID, &upload.ServiceID, &upload.PieceCID, &upload.NotifyURL, &upload.PieceRef, &upload.NotifyTaskID)
+		&upload.ID, &upload.Service, &upload.PieceCID, &upload.NotifyURL, &upload.PieceRef, &upload.NotifyTaskID)
 	if err != nil {
 		return false, fmt.Errorf("failed to query pdp_piece_uploads for task %d: %w", taskID, err)
 	}
@@ -56,9 +56,9 @@ func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	// Move the entry from pdp_piece_uploads to pdp_piecerefs
 	// Insert into pdp_piecerefs
 	_, err = t.db.Exec(ctx, `
-        INSERT INTO pdp_piecerefs (service_id, piece_cid, piece_ref, created_at) 
+        INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at) 
         VALUES ($1, $2, $3, NOW())`,
-		upload.ServiceID, upload.PieceCID, upload.PieceRef)
+		upload.Service, upload.PieceCID, upload.PieceRef)
 	if err != nil {
 		return false, fmt.Errorf("failed to insert into pdp_piecerefs: %w", err)
 	}
