@@ -300,7 +300,7 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 			err := I.db.Select(ctx, &pendings, `SELECT
     										uuid, 
 											sp_id, 
-											sector_number, 
+											sector,
 											piece_cid, 
 											piece_size, 
 											sector_offset,
