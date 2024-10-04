@@ -129,12 +129,12 @@ func (st *Local) ServeAndRemove(ctx context.Context, id uuid.UUID) (io.ReadClose
 			continue
 		}
 
-		st.localLk.RUnlock()
-
 		stashDir := filepath.Join(p.local, StashDirName)
 		stashFilePath := filepath.Join(stashDir, fileName)
 		f, err := os.Open(stashFilePath)
 		if err == nil {
+			st.localLk.RUnlock()
+
 			// Wrap the file in a custom ReadCloser
 			return &stashFileReadCloser{
 				File:       f,

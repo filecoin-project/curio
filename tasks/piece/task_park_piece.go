@@ -27,8 +27,9 @@ var PieceParkPollInterval = time.Second * 15
 // ParkPieceTask gets a piece from some origin, and parks it in storage
 // Pieces are always f00, piece ID is mapped to pieceCID in the DB
 type ParkPieceTask struct {
-	db *harmonydb.DB
-	sc *ffi2.SealCalls
+	db     *harmonydb.DB
+	sc     *ffi2.SealCalls
+	remote *paths.Remote
 
 	TF promise.Promise[harmonytask.AddTaskFunc]
 
@@ -38,17 +39,18 @@ type ParkPieceTask struct {
 }
 
 func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, max int) (*ParkPieceTask, error) {
-	return newPieceTask(db, sc, max, false)
+	return newPieceTask(db, sc, nil, max, false)
 }
 
-func NewStorePieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, max int) (*ParkPieceTask, error) {
-	return newPieceTask(db, sc, max, true)
+func NewStorePieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int) (*ParkPieceTask, error) {
+	return newPieceTask(db, sc, remote, max, true)
 }
 
-func newPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, max int, longTerm bool) (*ParkPieceTask, error) {
+func newPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int, longTerm bool) (*ParkPieceTask, error) {
 	pt := &ParkPieceTask{
 		db:       db,
 		sc:       sc,
+		remote:   remote,
 		max:      max,
 		longTerm: longTerm,
 	}
@@ -165,7 +167,7 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			if err != nil {
 				return false, xerrors.Errorf("unmarshaling reference data headers: %w", err)
 			}
-			upr := dealdata.NewUrlReader(refData[i].DataURL, hdrs, pieceData.PieceRawSize)
+			upr := dealdata.NewUrlReader(p.remote, refData[i].DataURL, hdrs, pieceData.PieceRawSize)
 
 			defer func() {
 				_ = upr.Close()

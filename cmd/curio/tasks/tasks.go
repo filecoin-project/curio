@@ -3,6 +3,7 @@ package tasks
 
 import (
 	"context"
+	"github.com/filecoin-project/curio/tasks/pdp"
 	"sort"
 	"strings"
 	"sync"
@@ -242,6 +243,11 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			}
 		}
 
+		if cfg.Subsystems.EnablePDP {
+			pdpNotifTask := pdp.NewPDPNotifyTask(db)
+			activeTasks = append(activeTasks, pdpNotifTask)
+		}
+
 		indexingTask := indexing.NewIndexingTask(db, sc, iStore, pp, cfg)
 		ipniTask := indexing.NewIPNITask(db, sc, iStore, pp, cfg)
 		activeTasks = append(activeTasks, indexingTask, ipniTask)
@@ -361,7 +367,7 @@ func addSealingTasks(
 		moveStorageTask := seal.NewMoveStorageTask(sp, slr, db, cfg.Subsystems.MoveStorageMaxTasks)
 		moveStorageSnapTask := snap.NewMoveStorageTask(slr, db, cfg.Subsystems.MoveStorageMaxTasks)
 
-		storePieceTask, err := piece2.NewStorePieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.MoveStorageMaxTasks)
+		storePieceTask, err := piece2.NewStorePieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.MoveStorageMaxTasks)
 		if err != nil {
 			return nil, err
 		}
