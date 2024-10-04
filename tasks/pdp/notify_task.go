@@ -20,6 +20,10 @@ type PDPNotifyTask struct {
 	db *harmonydb.DB
 }
 
+func NewPDPNotifyTask(db *harmonydb.DB) *PDPNotifyTask {
+	return &PDPNotifyTask{db: db}
+}
+
 func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 
