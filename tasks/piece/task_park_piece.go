@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/url"
 	"strconv"
 	"time"
 
@@ -47,20 +46,12 @@ func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, max int) (*ParkPiece
 
 	ctx := context.Background()
 
-	// We should delete all incomplete pieces that do not have a file URL scheme before we start
+	// We should delete all incomplete pieces before we start
 	// as we would have lost reader for these. The RPC caller will get an error
 	// when Curio shuts down before parking a piece. They can always retry.
 	// Leaving these pieces we utilise unnecessary resources in the form of ParkPieceTask
 
-	_, err := db.Exec(ctx, `DELETE FROM parked_pieces pp
-								WHERE complete = FALSE 
-								  AND task_id IS NULL
-								  AND NOT EXISTS (
-									SELECT 1 
-									FROM parked_piece_refs ppr
-									WHERE ppr.piece_id = pp.id
-									  AND ppr.data_url LIKE 'file:///%'
-								  );`)
+	_, err := db.Exec(ctx, `DELETE FROM parked_pieces WHERE complete = FALSE AND task_id IS NULL`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to delete incomplete parked pieces: %w", err)
 	}
@@ -150,8 +141,7 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	err = p.db.Select(ctx, &refData, `
         SELECT data_url, data_headers
         FROM parked_piece_refs
-        WHERE piece_id = $1 AND data_url IS NOT NULL 
-        ORDER BY CASE WHEN data_url LIKE 'file:///%' THEN 0 ELSE 1 END`, pieceData.PieceID)
+        WHERE piece_id = $1 AND data_url IS NOT NULL`, pieceData.PieceID)
 	if err != nil {
 		return false, xerrors.Errorf("fetching reference data: %w", err)
 	}
@@ -203,38 +193,8 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 }
 
 func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	var pieces []struct {
-		Tid  int64  `db:"task_id"`
-		URL  string `db:"data_url"`
-		Host string `db:"host"`
-	}
-	err := p.db.Select(context.Background(), &pieces, `SELECT pp.task_id, ppr.host, ppr.data_url
-									FROM parked_pieces pp
-									JOIN parked_piece_refs ppr ON pp.id = ppr.piece_id
-									WHERE pp.task_id = ANY($1)
-									ORDER BY pp.task_id, 
-											 CASE WHEN ppr.data_url LIKE 'file:///%' THEN 0 ELSE 1 END;`, ids)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to get pending task details from DB: %w", err)
-	}
-
-	for _, p := range pieces {
-		ret := harmonytask.TaskID(int(p.Tid))
-		goUrl, err := url.Parse(p.URL)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to parse the URL: %w", err)
-		}
-		if goUrl.Scheme == "file" {
-			if p.Host == engine.Host() {
-
-				return &ret, nil
-			}
-			continue
-		}
-		return &ret, nil
-	}
-
-	return nil, xerrors.Errorf("Host %s is not sutiable for pending PiecePark tasks", engine.Host())
+	id := ids[0]
+	return &id, nil
 }
 
 func (p *ParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
