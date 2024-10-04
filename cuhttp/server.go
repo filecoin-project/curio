@@ -3,8 +3,6 @@ package cuhttp
 import (
 	"context"
 	"fmt"
-	"github.com/filecoin-project/curio/pdp"
-	"github.com/yugabyte/pgx/v5"
 	"net/http"
 	"time"
 
@@ -23,6 +21,7 @@ import (
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/market/retrieval"
+	"github.com/filecoin-project/curio/pdp"
 )
 
 var log = logging.Logger("cu-http")

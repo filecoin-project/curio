@@ -681,6 +681,14 @@ also be bounded by resources available on the machine.`,
 			Comment: `EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured.`,
 		},
 		{
+			Name: "EnablePDP",
+			Type: "bool",
+
+			Comment: `Enable handling for PDP (proof-of-data possession) deals / proving on this node.
+PDP deals allow the node to directly store and prove unsealed data with "PDP Services" like Storacha.
+This feature is BETA and should only be enabled on nodes which are part of a PDP network.`,
+		},
+		{
 			Name: "EnableCommP",
 			Type: "bool",
 

@@ -8,16 +8,19 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	curiobuild "github.com/filecoin-project/curio/build"
-	commcid "github.com/filecoin-project/go-fil-commcid"
-	commp "github.com/filecoin-project/go-fil-commp-hashhash"
-	"github.com/golang-jwt/jwt/v4"
-	"github.com/urfave/cli/v2"
 	"io"
 	"math/rand"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/golang-jwt/jwt/v4"
+	"github.com/urfave/cli/v2"
+
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	commp "github.com/filecoin-project/go-fil-commp-hashhash"
+
+	curiobuild "github.com/filecoin-project/curio/build"
 )
 
 func main() {
