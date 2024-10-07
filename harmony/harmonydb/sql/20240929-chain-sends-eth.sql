@@ -1,4 +1,8 @@
--- SQL Schema for message_sends_eth and message_send_eth_locks tables
+CREATE TABLE eth_keys (
+    address TEXT NOT NULL PRIMARY KEY,
+    private_key BYTEA NOT NULL,
+    role TEXT NOT NULL
+);
 
 CREATE TABLE message_sends_eth
 (
