@@ -66,6 +66,10 @@ customElements.define('pipeline-porep-sectors',class PipelinePorepSectors extend
 
         .pipeline-failed {
             background-color: #603030;
+        }
+        
+        .pipeline-waiting {
+            background-color: #d0d0d0;
         }`
     properties = {
         sector: Object,
@@ -105,7 +109,7 @@ customElements.define('pipeline-porep-sectors',class PipelinePorepSectors extend
             <table class="porep-state">
                 <tbody>
                     <tr>
-                        ${this.renderSectorState('SDR', 1, sector, sector.TaskSDR, sector.AfterSDR)}
+                        ${this.renderSectorState('SDR', 1, sector, sector.TaskSDR, sector.AfterSDR, sector.StartedSDR)}
                         ${this.renderSectorState('TreeC', 1, sector, sector.TaskTreeC, sector.AfterTreeC)}
                         ${this.renderSectorState('Synthetic', 2, sector, sector.TaskSynthetic, sector.AfterSynthetic)}
                         ${this.renderSectorState('PComm Msg', 2, sector, sector.TaskPrecommitMsg, sector.AfterPrecommitMsg)}
@@ -149,14 +153,14 @@ customElements.define('pipeline-porep-sectors',class PipelinePorepSectors extend
             </td>
         `;
     }
-    renderSectorState(name, rowspan, sector, task, after) {
+    renderSectorState(name, rowspan, sector, task, after, started) {
         if(task) {
             // sector.MissingTasks is a list of tasks
             // sector.MissingTasks.includes(task) is true if task is missing
             let missing = sector.MissingTasks && sector.MissingTasks.includes(task);
 
             return html`
-                <td rowspan="${rowspan}" class="${missing ? 'pipeline-failed' : 'pipeline-active'}">
+                <td rowspan="${rowspan}" class="${missing ? 'pipeline-failed' : (started ? 'pipeline-active' : 'pipeline-waiting')}">
                     <div>${name}</div>
                     <div>T:${task}</div>
                     ${missing ? html`<div><b>FAILED</b></div>` : ''}
