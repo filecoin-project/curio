@@ -153,7 +153,7 @@ customElements.define('pdp-info', class PDPElement extends LitElement {
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
 
             <div class="container-fluid" style="min-width: 70em">
-                <h2>PDP Services</h2>
+                <h2>Services</h2>
                 ${this.services.length > 0 ? html`
                     <table class="table table-dark table-striped w-100">
                         <thead>
@@ -205,7 +205,7 @@ customElements.define('pdp-info', class PDPElement extends LitElement {
 
                 <hr>
 
-                <h2>PDP Owner Addresses</h2>
+                <h2>Owner Addresses</h2>
                 ${this.keys.length > 0 ? html`
                     <table class="table table-dark table-striped w-100">
                         <thead>
