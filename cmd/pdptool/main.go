@@ -14,6 +14,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/fatih/color"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/urfave/cli/v2"
 
@@ -36,6 +37,8 @@ func main() {
 
 			piecePrepareCmd, // hash a piece to get a piece cid
 			pieceUploadCmd,  // upload a piece to a pdp service
+
+			createProofSetCmd, // create a new proof set on the PDP service
 		},
 	}
 	app.Setup()
@@ -179,7 +182,7 @@ var pingCmd = &cli.Command{
 
 		// Check the response
 		if resp.StatusCode == http.StatusOK {
-			fmt.Println("Ping successful: Service is reachable and JWT token is valid.")
+			color.Green("Ping successful: Service is reachable and JWT token is valid.")
 		} else {
 			body, _ := io.ReadAll(resp.Body)
 			return fmt.Errorf("ping failed with status code %d: %s", resp.StatusCode, string(body))
@@ -436,6 +439,91 @@ var pieceUploadCmd = &cli.Command{
 		}
 
 		fmt.Println("Piece uploaded successfully.")
+
+		return nil
+	},
+}
+
+var createProofSetCmd = &cli.Command{
+	Name:  "create-proof-set",
+	Usage: "Create a new proof set on the PDP service",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "service-url",
+			Usage:    "URL of the PDP service",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "recordkeeper",
+			Usage:    "Address of the record keeper contract",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "service-name",
+			Usage:    "Service Name to include in the JWT token",
+			Required: true,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		serviceURL := cctx.String("service-url")
+		serviceName := cctx.String("service-name")
+		recordKeeper := cctx.String("recordkeeper")
+
+		// Load the private key (implement `loadPrivateKey` according to your setup)
+		privKey, err := loadPrivateKey()
+		if err != nil {
+			return fmt.Errorf("failed to load private key: %v", err)
+		}
+
+		// Create the JWT token (implement `createJWTToken` according to your setup)
+		jwtToken, err := createJWTToken(serviceName, privKey)
+		if err != nil {
+			return fmt.Errorf("failed to create JWT token: %v", err)
+		}
+
+		// Construct the request payload
+		requestBody := map[string]string{
+			"recordKeeper": recordKeeper,
+		}
+		requestBodyBytes, err := json.Marshal(requestBody)
+		if err != nil {
+			return fmt.Errorf("failed to marshal request body: %v", err)
+		}
+
+		// Append /pdp/proof-sets to the service URL
+		postURL := serviceURL + "/pdp/proof-sets"
+
+		// Create the POST request
+		req, err := http.NewRequest("POST", postURL, bytes.NewBuffer(requestBodyBytes))
+		if err != nil {
+			return fmt.Errorf("failed to create request: %v", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		req.Header.Set("Content-Type", "application/json")
+
+		// Send the request
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to send request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// Read and display the response
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read response body: %v", err)
+		}
+		bodyString := string(bodyBytes)
+
+		if resp.StatusCode == http.StatusCreated {
+			location := resp.Header.Get("Location")
+			fmt.Printf("Proof set creation initiated successfully.\n")
+			fmt.Printf("Location: %s\n", location)
+			fmt.Printf("Response: %s\n", bodyString)
+		} else {
+			return fmt.Errorf("failed to create proof set, status code %d: %s", resp.StatusCode, bodyString)
+		}
 
 		return nil
 	},
