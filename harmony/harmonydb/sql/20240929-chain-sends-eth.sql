@@ -65,5 +65,6 @@ CREATE TABLE message_waits_eth (
     confirmed_tx_data JSONB,
 
     tx_status TEXT, -- 'pending', 'confirmed', 'failed'
-    tx_receipt JSONB
+    tx_receipt JSONB,
+    tx_success BOOLEAN
 );

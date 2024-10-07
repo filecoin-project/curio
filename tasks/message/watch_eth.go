@@ -3,12 +3,15 @@ package message
 import (
 	"context"
 	"encoding/json"
-	types2 "github.com/filecoin-project/lotus/chain/types"
+	"errors"
 	"math/big"
 	"sync/atomic"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+
+	types2 "github.com/filecoin-project/lotus/chain/types"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -69,7 +72,7 @@ func (mw *MessageWatcherEth) update() {
 
 	machineID := mw.ht.ResourcesAvailable().MachineID
 
-	// Assign pending messages with null owner to ourselves
+	// Assign pending transactions with null owner to ourselves
 	{
 		n, err := mw.db.Exec(ctx, `UPDATE message_waits_eth SET waiter_machine_id = $1 WHERE waiter_machine_id IS NULL AND tx_status = 'pending'`, machineID)
 		if err != nil {
@@ -98,18 +101,15 @@ func (mw *MessageWatcherEth) update() {
 
 		receipt, err := mw.api.TransactionReceipt(ctx, txHash)
 		if err != nil {
-			if err.Error() == "not found" {
+			if errors.Is(err, ethereum.NotFound) {
 				// Transaction is still pending
 				continue
 			}
-			log.Errorf("failed to get transaction receipt: %+v", err)
+			log.Errorf("failed to get transaction receipt for hash %s: %+v", txHash.Hex(), err)
 			return
 		}
 
-		if receipt == nil {
-			// Transaction is still pending
-			continue
-		}
+		// Transaction receipt found
 
 		// Check if the transaction has enough confirmations
 		confirmations := new(big.Int).Sub(bestBlockNumber, receipt.BlockNumber)
@@ -121,40 +121,49 @@ func (mw *MessageWatcherEth) update() {
 		// Get the transaction data
 		txData, _, err := mw.api.TransactionByHash(ctx, txHash)
 		if err != nil {
-			log.Errorf("failed to get transaction by hash: %+v", err)
+			if errors.Is(err, ethereum.NotFound) {
+				log.Errorf("transaction data not found for txHash: %s", txHash.Hex())
+				continue
+			}
+			log.Errorf("failed to get transaction by hash %s: %+v", txHash.Hex(), err)
 			return
 		}
 
 		txDataJSON, err := json.Marshal(txData)
 		if err != nil {
-			log.Errorf("failed to marshal transaction data: %+v", err)
+			log.Errorf("failed to marshal transaction data for hash %s: %+v", txHash.Hex(), err)
 			return
 		}
 
 		receiptJSON, err := json.Marshal(receipt)
 		if err != nil {
-			log.Errorf("failed to marshal receipt data: %+v", err)
+			log.Errorf("failed to marshal receipt data for hash %s: %+v", txHash.Hex(), err)
 			return
 		}
 
+		txStatus := "confirmed"
+		txSuccess := receipt.Status == 1
+
 		// Update the database
 		_, err = mw.db.Exec(ctx, `UPDATE message_waits_eth SET
-            waiter_machine_id = NULL,
-            confirmed_block_number = $1,
-            confirmed_tx_hash = $2,
-            confirmed_tx_data = $3,
-            tx_status = $4,
-            tx_receipt = $5
-            WHERE signed_tx_hash = $6`,
+                waiter_machine_id = NULL,
+                confirmed_block_number = $1,
+                confirmed_tx_hash = $2,
+                confirmed_tx_data = $3,
+                tx_status = $4,
+                tx_receipt = $5,
+                tx_success = $6
+                WHERE signed_tx_hash = $7`,
 			receipt.BlockNumber.Int64(),
 			receipt.TxHash.Hex(),
 			txDataJSON,
-			"confirmed",
+			txStatus,
 			receiptJSON,
+			txSuccess,
 			tx.TxHash,
 		)
 		if err != nil {
-			log.Errorf("failed to update message wait: %+v", err)
+			log.Errorf("failed to update message wait for hash %s: %+v", txHash.Hex(), err)
 			return
 		}
 	}
@@ -167,7 +176,6 @@ func (mw *MessageWatcherEth) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-
 	return nil
 }
 
