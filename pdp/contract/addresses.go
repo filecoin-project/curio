@@ -1,29 +1,48 @@
 package contract
 
 import (
+	"context"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/build"
 )
 
 type PDPContracts struct {
-	PDPService      string
-	PDPRecordKeeper string
+	PDPService      common.Address
+	PDPRecordKeeper common.Address
 }
 
 func ContractAddresses() PDPContracts {
 	switch build.BuildType {
 	case build.BuildCalibnet:
 		return PDPContracts{
-			PDPService:      "0x3971B35597849701F6535300e537745bfdfc67b1",
-			PDPRecordKeeper: "0x32fb106CF8F1C6DD2FD177e5c06523104b28B8EA",
+			PDPService:      common.HexToAddress("0x3971B35597849701F6535300e537745bfdfc67b1"),
+			PDPRecordKeeper: common.HexToAddress("0x32fb106CF8F1C6DD2FD177e5c06523104b28B8EA"),
 		}
 	default:
 		panic("pdp contracts unknown for this network")
 	}
 }
 
-func SetupContractAccess() {
-	// todo: create loopback go-jsonrpc server into the lotus API with DialIO + something
-	ethclient.Dial("https://api.calibration.node.glif.io/rpc/v1")
+func SetupContractAccess() error {
+	ec, err := ethclient.Dial("https://api.calibration.node.glif.io/rpc/v1")
+	if err != nil {
+		return xerrors.Errorf("connecting to eth client: %w", err)
+	}
+
+	chainID, err := ec.NetworkID(context.Background())
+	if err != nil {
+		return xerrors.Errorf("getting chain ID: %w", err)
+	}
+
+	ca := ContractAddresses()
+
+	pdpService, err := NewPDPService(ca.PDPService, ec)
+	if err != nil {
+		return xerrors.Errorf("creating PDP service: %w", err)
+	}
+
+	pdpService.CreatePofSet()
 }
