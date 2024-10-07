@@ -1,8 +1,17 @@
 package pdp
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/filecoin-project/curio/tasks/message"
+	"io"
 	"net/http"
 	"path"
 	"strconv"
@@ -14,13 +23,6 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 )
 
-///////////////////////////////////////
-//////////////////////////////////////
-/////// NOTE NOTE NOTE NOTE NOTE ////
-//// This is an empty skeleton created
-//// by AI with no proof-read. Please
-//// do not think this is close to anything final at all
-
 // PDPRoutePath is the base path for PDP routes
 const PDPRoutePath = "/pdp"
 
@@ -28,6 +30,9 @@ const PDPRoutePath = "/pdp"
 type PDPService struct {
 	db      *harmonydb.DB
 	storage paths.StashStore
+
+	sender    *message.SenderETH
+	ethClient *ethclient.Client
 
 	ProofSetStore     ProofSetStore
 	PieceStore        PieceStore
@@ -101,57 +106,106 @@ func (p *PDPService) handlePing(w http.ResponseWriter, r *http.Request) {
 
 // TODO STUFF BELOW IS JUST A SKELETON
 
+// handleCreateProofSet handles the creation of a new proof set
 func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request) {
-	// Spec snippet:
-	// ### POST /proof-sets
-	// Create a new proof set
-	// Request Body:
-	// {
-	//     "ownerAddress": "f3..."
-	// }
-	// Response:
-	// Code: 201
-	// Location header: "/proof-sets/{set-id}"
+	ctx := r.Context()
 
-	// Parse request body
-	var req struct {
-		OwnerAddress string `json:"ownerAddress"`
-	}
-	err := json.NewDecoder(r.Body).Decode(&req)
-	if err != nil || req.OwnerAddress == "" {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	// Implement authorization
-	ownerExists, err := p.OwnerAddressStore.HasOwnerAddress(req.OwnerAddress)
+	// Step 1: Verify that the request is authorized using ECDSA JWT
+	serviceLabel, err := p.verifyJWTToken(r)
 	if err != nil {
-		http.Error(w, "Failed to check owner address", http.StatusInternalServerError)
-		return
-	}
-	if !ownerExists {
-		http.Error(w, "Owner address not recognized", http.StatusUnauthorized)
+		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
 	}
 
-	// Create the proof set
-	proofSet := &PDPProofSet{
-		// ID will be assigned by the store (on-chain proof set ID)
-		NextChallengeEpoch: 0, // Initial value; will be updated upon proving
+	// Step 2: Parse the request body to get the 'recordKeeper' address
+	type RequestBody struct {
+		RecordKeeper string `json:"recordKeeper"`
 	}
 
-	// Create the proof set in the store
-	proofSetID, err := p.ProofSetStore.CreateProofSet(proofSet)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "Failed to create proof set", http.StatusInternalServerError)
+		http.Error(w, "Failed to read request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	var reqBody RequestBody
+	if err := json.Unmarshal(body, &reqBody); err != nil {
+		http.Error(w, "Invalid JSON in request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Set Location header
-	w.Header().Set("Location", path.Join(PDPRoutePath, "/proof-sets", fmt.Sprintf("%d", proofSetID)))
+	if reqBody.RecordKeeper == "" {
+		http.Error(w, "recordKeeper address is required", http.StatusBadRequest)
+		return
+	}
 
-	// Set status code to 201 Created
+	recordKeeperAddr := common.HexToAddress(reqBody.RecordKeeper)
+	if recordKeeperAddr == (common.Address{}) {
+		http.Error(w, "Invalid recordKeeper address", http.StatusBadRequest)
+		return
+	}
+
+	// Step 3: Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
+	fromAddress, err := p.getSenderAddress(ctx)
+	if err != nil {
+		http.Error(w, "Failed to get sender address: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Step 4: Prepare the transaction to call 'createProofSet' method
+	contracts := contract.ContractAddresses()
+	pdpServiceAddr := contracts.PDPService
+
+	// Create a bound contract instance
+	pdpServiceContract, err := contract.NewPDPService(pdpServiceAddr, p.ethClient)
+	if err != nil {
+		http.Error(w, "Failed to bind PDPService contract: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Create a transactor with zero nonce (nonce will be assigned during send task)
+	transactor := &bind.TransactOpts{
+		From: fromAddress,
+		// Context is required by some Ethereum clients
+		Context: ctx,
+		// We leave the Signer as nil because SenderETH handles signing
+		NoSend: true, // We don't send the transaction immediately
+	}
+
+	// Prepare the transaction (but do not send it)
+	tx, err := pdpServiceContract.CreateProofSet(transactor, recordKeeperAddr)
+	if err != nil {
+		http.Error(w, "Failed to create transaction: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Step 5: Send the transaction using SenderETH
+	reason := "pdp-mkproofset"
+	txHash, err := p.sender.Send(ctx, fromAddress, tx, reason)
+	if err != nil {
+		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to send transaction: %+v", err)
+		return
+	}
+
+	// Step 6: Respond with 201 Created and Location header
+	w.Header().Set("Location", path.Join("/pdp/proof-sets/created", txHash.Hex()))
 	w.WriteHeader(http.StatusCreated)
+}
+
+// getSenderAddress retrieves the sender address from the database where role = 'pdp' limit 1
+func (p *PDPService) getSenderAddress(ctx context.Context) (common.Address, error) {
+	var addressStr string
+	err := p.db.QueryRow(ctx, `SELECT address FROM eth_keys WHERE role = 'pdp' LIMIT 1`).Scan(&addressStr)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return common.Address{}, errors.New("no sender address with role 'pdp' found")
+		}
+		return common.Address{}, err
+	}
+	address := common.HexToAddress(addressStr)
+	return address, nil
 }
 
 func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
