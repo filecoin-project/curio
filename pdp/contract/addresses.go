@@ -3,7 +3,6 @@ package contract
 import (
 	"context"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/build"
@@ -27,10 +26,6 @@ func ContractAddresses() PDPContracts {
 }
 
 func SetupContractAccess() error {
-	ec, err := ethclient.Dial("https://api.calibration.node.glif.io/rpc/v1")
-	if err != nil {
-		return xerrors.Errorf("connecting to eth client: %w", err)
-	}
 
 	chainID, err := ec.NetworkID(context.Background())
 	if err != nil {

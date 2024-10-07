@@ -124,14 +124,10 @@ func (a *WebRPC) RemovePDPService(ctx context.Context, id int64) error {
 	return nil
 }
 
-// PDPOwnerAddress represents an owner address entry in the pdp_owner_addresses table
 type PDPOwnerAddress struct {
-	OwnerAddress string `db:"owner_address" json:"owner_address"`
+	Address string `db:"address" json:"address"`
 }
 
-// ImportPDPKey imports an Ethereum private key into the pdp_owner_addresses table.
-// It accepts the key in hex format, writes it to the table with the corresponding
-// owner_address, and returns the address string.
 func (a *WebRPC) ImportPDPKey(ctx context.Context, hexPrivateKey string) (string, error) {
 	hexPrivateKey = strings.TrimSpace(hexPrivateKey)
 	if hexPrivateKey == "" {
@@ -168,7 +164,7 @@ func (a *WebRPC) ImportPDPKey(ctx context.Context, hexPrivateKey string) (string
 	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// Check if the owner_address already exists
 		var existingAddress string
-		err := tx.QueryRow(`SELECT owner_address FROM pdp_owner_addresses WHERE owner_address = $1`, address).Scan(&existingAddress)
+		err := tx.QueryRow(`SELECT address FROM eth_keys WHERE address = $1 AND role = 'pdp'`, address).Scan(&existingAddress)
 		if err == nil {
 			return false, fmt.Errorf("owner address %s already exists", address)
 		} else if err != pgx.ErrNoRows {
@@ -176,7 +172,7 @@ func (a *WebRPC) ImportPDPKey(ctx context.Context, hexPrivateKey string) (string
 		}
 
 		// Insert the new owner address and private key
-		_, err = tx.Exec(`INSERT INTO pdp_owner_addresses (owner_address, private_key) VALUES ($1, $2)`, address, privateKeyBytes)
+		_, err = tx.Exec(`INSERT INTO eth_keys (address, private_key, role) VALUES ($1, $2, 'pdp')`, address, privateKeyBytes)
 		if err != nil {
 			return false, fmt.Errorf("failed to insert owner address: %v", err)
 		}
@@ -190,12 +186,11 @@ func (a *WebRPC) ImportPDPKey(ctx context.Context, hexPrivateKey string) (string
 	return address, nil
 }
 
-// ListPDPKeys retrieves the list of owner addresses from the pdp_owner_addresses table
 func (a *WebRPC) ListPDPKeys(ctx context.Context) ([]string, error) {
 	addresses := []string{}
 
 	// Use a.deps.DB.Select to retrieve the owner addresses
-	err := a.deps.DB.Select(ctx, &addresses, `SELECT owner_address FROM pdp_owner_addresses ORDER BY owner_address ASC`)
+	err := a.deps.DB.Select(ctx, &addresses, `SELECT address FROM eth_keys WHERE role = 'pdp' ORDER BY address ASC`)
 	if err != nil {
 		log.Errorf("ListPDPKeys: failed to select addresses: %v", err)
 		return nil, fmt.Errorf("failed to retrieve addresses")
@@ -204,7 +199,6 @@ func (a *WebRPC) ListPDPKeys(ctx context.Context) ([]string, error) {
 	return addresses, nil
 }
 
-// RemovePDPKey removes an owner address and its associated private key from the pdp_owner_addresses table
 func (a *WebRPC) RemovePDPKey(ctx context.Context, ownerAddress string) error {
 	ownerAddress = strings.TrimSpace(ownerAddress)
 	if ownerAddress == "" {
@@ -213,7 +207,7 @@ func (a *WebRPC) RemovePDPKey(ctx context.Context, ownerAddress string) error {
 
 	// Check if the owner address exists
 	var existingAddress string
-	err := a.deps.DB.QueryRow(ctx, `SELECT owner_address FROM pdp_owner_addresses WHERE owner_address = $1`, ownerAddress).Scan(&existingAddress)
+	err := a.deps.DB.QueryRow(ctx, `SELECT address FROM eth_keys WHERE address = $1 AND role = 'pdp'`, ownerAddress).Scan(&existingAddress)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return fmt.Errorf("owner address %s does not exist", ownerAddress)
@@ -223,7 +217,7 @@ func (a *WebRPC) RemovePDPKey(ctx context.Context, ownerAddress string) error {
 	}
 
 	// Delete the key
-	_, err = a.deps.DB.Exec(ctx, `DELETE FROM pdp_owner_addresses WHERE owner_address = $1`, ownerAddress)
+	_, err = a.deps.DB.Exec(ctx, `DELETE FROM eth_keys WHERE address = $1 AND role = 'pdp'`, ownerAddress)
 	if err != nil {
 		log.Errorf("RemovePDPKey: failed to delete key: %v", err)
 		return fmt.Errorf("failed to remove key")

@@ -8,12 +8,6 @@ ALTER TABLE parked_pieces ADD CONSTRAINT parked_pieces_piece_cid_cleanup_task_id
 ALTER TABLE parked_piece_refs ADD COLUMN long_term BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- PDP tables
-
-CREATE TABLE pdp_owner_addresses (
-    owner_address TEXT NOT NULL PRIMARY KEY,
-    private_key BYTEA NOT NULL
-);
-
 -- PDP services authenticate with ecdsa-sha256 keys; Allowed services here
 CREATE TABLE pdp_services (
     id BIGSERIAL PRIMARY KEY,
