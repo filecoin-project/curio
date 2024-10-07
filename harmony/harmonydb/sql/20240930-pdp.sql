@@ -64,6 +64,15 @@ CREATE TABLE pdp_proof_sets (
     next_challenge_epoch BIGINT -- next challenge epoch
 );
 
+-- proofset creation requests
+CREATE TABLE pdp_proofset_creates (
+    create_message_hash TEXT PRIMARY KEY REFERENCES message_waits_eth(signed_tx_hash) ON DELETE CASCADE,
+    ok BOOLEAN DEFAULT NULL, -- NULL if not yet processed, TRUE if processed and successful, FALSE if processed and failed
+
+    service TEXT NOT NULL REFERENCES pdp_services(service_label) ON DELETE CASCADE, -- service that requested the proofset
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- proofset roots
 CREATE TABLE pdp_proofset_roots (
     proofset BIGINT NOT NULL, -- pdp_proof_sets.id
