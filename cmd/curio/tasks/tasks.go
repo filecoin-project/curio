@@ -266,8 +266,11 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			}
 		}
 
+		var sdeps cuhttp.ServiceDeps
+
 		if cfg.Subsystems.EnablePDP {
-			_ = getSenderEth
+			es := getSenderEth()
+			sdeps.EthSender = es
 
 			pdpNotifTask := pdp.NewPDPNotifyTask(db)
 			activeTasks = append(activeTasks, pdpNotifTask)
@@ -280,7 +283,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		activeTasks = append(activeTasks, indexingTask, ipniTask)
 
 		if cfg.HTTP.Enable {
-			err = cuhttp.StartHTTPServer(ctx, dependencies)
+			err = cuhttp.StartHTTPServer(ctx, dependencies, &sdeps)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to start the HTTP server: %w", err)
 			}
