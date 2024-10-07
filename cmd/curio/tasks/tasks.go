@@ -139,6 +139,24 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		}
 	}
 
+	// eth message sender as needed
+	var senderEth *message.SenderETH
+	var senderEthOnce sync.Once
+	var getSenderEth = func() *message.SenderETH {
+		senderEthOnce.Do(func() {
+			ec, err := dependencies.EthClient.Val()
+			if err != nil {
+				log.Errorw("failed to get eth client", "error", err)
+				return
+			}
+
+			var ethSenderTask *message.SendTaskETH
+			senderEth, ethSenderTask = message.NewSenderETH(ec, db)
+			activeTasks = append(activeTasks, ethSenderTask)
+		})
+		return senderEth
+	}
+
 	///////////////////////////////////////////////////////////////////////
 	///// Task Selection
 	///////////////////////////////////////////////////////////////////////
@@ -249,6 +267,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		}
 
 		if cfg.Subsystems.EnablePDP {
+			_ = getSenderEth
+
 			pdpNotifTask := pdp.NewPDPNotifyTask(db)
 			activeTasks = append(activeTasks, pdpNotifTask)
 		}

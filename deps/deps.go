@@ -8,6 +8,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/filecoin-project/lotus/lib/lazy"
 	"io"
 	"net"
 	"net/http"
@@ -188,6 +190,7 @@ type Deps struct {
 	IndexStore        *indexstore.IndexStore
 	SectorReader      *pieceprovider.SectorReader
 	CachedPieceReader *cachedreader.CachedPieceReader
+	EthClient         *lazy.Lazy[*ethclient.Client]
 }
 
 const (
@@ -270,6 +273,13 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 			<-ctx.Done()
 			fullCloser()
 		}()
+	}
+
+	if deps.EthClient == nil {
+		deps.EthClient = lazy.MakeLazy[*ethclient.Client](func() (*ethclient.Client, error) {
+			// todo: this is a hack, just use the lotus chain api client above
+			return ethclient.Dial("https://api.calibration.node.glif.io/rpc/v1")
+		})
 	}
 
 	if deps.Bstore == nil {
