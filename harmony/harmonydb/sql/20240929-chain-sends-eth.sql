@@ -55,3 +55,15 @@ CREATE TABLE message_send_eth_locks
     CONSTRAINT message_send_eth_locks_pk
         PRIMARY KEY (from_address)
 );
+
+CREATE TABLE message_waits_eth (
+    signed_tx_hash TEXT PRIMARY KEY,
+    waiter_machine_id INT REFERENCES harmony_machines (id) ON DELETE SET NULL,
+
+    confirmed_block_number BIGINT,
+    confirmed_tx_hash TEXT,
+    confirmed_tx_data JSONB,
+
+    tx_status TEXT, -- 'pending', 'confirmed', 'failed'
+    tx_receipt JSONB
+);
