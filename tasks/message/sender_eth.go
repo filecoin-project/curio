@@ -19,16 +19,19 @@ import (
 )
 
 type SenderETH struct {
-	client   *ethclient.Client
+	client *ethclient.Client
+
 	sendTask *SendTaskETH
-	db       *harmonydb.DB
+
+	db *harmonydb.DB
 }
 
 type SendTaskETH struct {
 	sendTF promise.Promise[harmonytask.AddTaskFunc]
 
 	client *ethclient.Client
-	db     *harmonydb.DB
+
+	db *harmonydb.DB
 }
 
 func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
@@ -56,7 +59,7 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	}
 
 	// Deserialize the unsigned transaction
-	var tx *types.Transaction
+	tx := new(types.Transaction)
 	err = tx.UnmarshalBinary(dbTx.UnsignedTx)
 	if err != nil {
 		return false, xerrors.Errorf("unmarshaling unsigned transaction: %w", err)
@@ -127,7 +130,7 @@ func (s *SendTaskETH) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		}
 
 		// Update the transaction with the assigned nonce
-		tx = types.NewTransaction(assignedNonce, tx.To(), tx.Value(), tx.Gas(), tx.GasPrice(), tx.Data())
+		tx = types.NewTransaction(assignedNonce, *tx.To(), tx.Value(), tx.Gas(), tx.GasPrice(), tx.Data())
 
 		// Sign the transaction
 		signedTx, err = s.signTransaction(ctx, fromAddress, tx)
@@ -187,7 +190,7 @@ func (s *SendTaskETH) signTransaction(ctx context.Context, fromAddress common.Ad
 	// Fetch the private key from the database
 	var privateKeyData []byte
 	err := s.db.QueryRow(ctx,
-		`SELECT private_key FROM eth_keys WHERE owner = $1`, fromAddress.Hex()).Scan(&privateKeyData)
+		`SELECT private_key FROM eth_keys WHERE address = $1`, fromAddress.Hex()).Scan(&privateKeyData)
 	if err != nil {
 		return nil, xerrors.Errorf("fetching private key from db: %w", err)
 	}
@@ -204,7 +207,8 @@ func (s *SendTaskETH) signTransaction(ctx context.Context, fromAddress common.Ad
 	}
 
 	// Sign the transaction
-	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(chainID), privateKey)
+	signer := types.LatestSignerForChainID(chainID)
+	signedTx, err := types.SignTx(tx, signer, privateKey)
 	if err != nil {
 		return nil, xerrors.Errorf("signing transaction: %w", err)
 	}
@@ -257,12 +261,7 @@ func NewSenderETH(client *ethclient.Client, db *harmonydb.DB) (*SenderETH, *Send
 }
 
 // Send sends an Ethereum transaction, coordinating nonce assignment, signing, and broadcasting.
-func (s *SenderETH) Send(ctx context.Context, tx *types.Transaction, reason string) (common.Hash, error) {
-	fromAddress := tx.From()
-	if fromAddress == nil {
-		return common.Hash{}, xerrors.Errorf("transaction does not have a from address")
-	}
-
+func (s *SenderETH) Send(ctx context.Context, fromAddress common.Address, tx *types.Transaction, reason string) (common.Hash, error) {
 	// Ensure the transaction has zero nonce; it will be assigned during send task
 	if tx.Nonce() != 0 {
 		return common.Hash{}, xerrors.Errorf("Send expects transaction nonce to be 0, was %d", tx.Nonce())
