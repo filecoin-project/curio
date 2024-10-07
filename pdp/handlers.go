@@ -40,10 +40,13 @@ type PDPService struct {
 }
 
 // NewPDPService creates a new instance of PDPService with the provided stores
-func NewPDPService(db *harmonydb.DB, stor paths.StashStore) *PDPService {
+func NewPDPService(db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client, sn *message.SenderETH) *PDPService {
 	return &PDPService{
 		db:      db,
 		storage: stor,
+
+		sender:    sn,
+		ethClient: ec,
 	}
 }
 
@@ -164,13 +167,12 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Create a transactor with zero nonce (nonce will be assigned during send task)
+	// Create TransactOpts without a Signer to prevent automatic signing and sending
 	transactor := &bind.TransactOpts{
-		From: fromAddress,
-		// Context is required by some Ethereum clients
+		From:    fromAddress,
 		Context: ctx,
-		// We leave the Signer as nil because SenderETH handles signing
-		NoSend: true, // We don't send the transaction immediately
+		Signer:  nil,  // We leave the Signer as nil because SenderETH handles signing
+		NoSend:  true, // Do not send the transaction immediately
 	}
 
 	// Prepare the transaction (but do not send it)
@@ -189,7 +191,15 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Step 6: Respond with 201 Created and Location header
+	// Step 6: Insert into message_waits_eth and pdp_proofset_creates
+	err = p.insertMessageWaitsAndProofsetCreate(ctx, txHash.Hex(), serviceLabel)
+	if err != nil {
+		log.Errorf("Failed to insert into message_waits_eth and pdp_proofset_creates: %+v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Step 7: Respond with 201 Created and Location header
 	w.Header().Set("Location", path.Join("/pdp/proof-sets/created", txHash.Hex()))
 	w.WriteHeader(http.StatusCreated)
 }
@@ -206,6 +216,37 @@ func (p *PDPService) getSenderAddress(ctx context.Context) (common.Address, erro
 	}
 	address := common.HexToAddress(addressStr)
 	return address, nil
+}
+
+// insertMessageWaitsAndProofsetCreate inserts records into message_waits_eth and pdp_proofset_creates
+func (p *PDPService) insertMessageWaitsAndProofsetCreate(ctx context.Context, txHashHex string, serviceLabel string) error {
+	// Begin a database transaction
+	_, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// Insert into message_waits_eth
+		_, err := tx.Exec(`
+            INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
+            VALUES ($1, $2)
+        `, txHashHex, "pending")
+		if err != nil {
+			return false, err // Return false to rollback the transaction
+		}
+
+		// Insert into pdp_proofset_creates
+		_, err = tx.Exec(`
+            INSERT INTO pdp_proofset_creates (create_message_hash, service)
+            VALUES ($1, $2)
+        `, txHashHex, serviceLabel)
+		if err != nil {
+			return false, err // Return false to rollback the transaction
+		}
+
+		// Return true to commit the transaction
+		return true, nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {

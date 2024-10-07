@@ -3,6 +3,8 @@ package cuhttp
 import (
 	"context"
 	"fmt"
+	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/snadrus/must"
 	"net/http"
 	"time"
 
@@ -101,7 +103,11 @@ func isWebSocketUpgrade(r *http.Request) bool {
 	return true
 }
 
-func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
+type ServiceDeps struct {
+	EthSender *message.SenderETH
+}
+
+func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 	ch := cache{db: d.DB}
 	cfg := d.Cfg.HTTP
 
@@ -150,7 +156,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
 		fmt.Fprintf(w, "Service is up and running")
 	})
 
-	chiRouter, err = attachRouters(ctx, chiRouter, d)
+	chiRouter, err = attachRouters(ctx, chiRouter, d, sd)
 	if err != nil {
 		return xerrors.Errorf("failed to attach routers: %w", err)
 	}
@@ -229,7 +235,7 @@ func (c cache) Delete(ctx context.Context, key string) error {
 
 var _ autocert.Cache = cache{}
 
-func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps) (*chi.Mux, error) {
+func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDeps) (*chi.Mux, error) {
 	// Attach retrievals
 	rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader)
 	retrieval.Router(r, rp)
@@ -247,8 +253,10 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps) (*chi.Mux, err
 	rd := libp2p.NewRedirector(d.DB)
 	libp2p.Router(r, rd)
 
-	pdsvc := pdp.NewPDPService(d.DB, d.LocalStore)
-	pdp.Routes(r, pdsvc)
+	if sd.EthSender != nil {
+		pdsvc := pdp.NewPDPService(d.DB, d.LocalStore, must.One(d.EthClient.Get()), sd.EthSender)
+		pdp.Routes(r, pdsvc)
+	}
 
 	return r, nil
 }
