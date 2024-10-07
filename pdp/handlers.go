@@ -6,12 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
 	"io"
+	"math/big"
 	"net/http"
 	"path"
 	"strconv"
@@ -156,31 +157,30 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Step 4: Prepare the transaction to call 'createProofSet' method
-	contracts := contract.ContractAddresses()
-	pdpServiceAddr := contracts.PDPService
-
-	// Create a bound contract instance
-	pdpServiceContract, err := contract.NewPDPService(pdpServiceAddr, p.ethClient)
+	// Step 4: Manually create the transaction without requiring a Signer
+	// Obtain the ABI of the PDPService contract
+	abiData, err := contract.PDPServiceMetaData.GetAbi()
 	if err != nil {
-		http.Error(w, "Failed to bind PDPService contract: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to get contract ABI: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Create TransactOpts without a Signer to prevent automatic signing and sending
-	transactor := &bind.TransactOpts{
-		From:    fromAddress,
-		Context: ctx,
-		Signer:  nil,  // We leave the Signer as nil because SenderETH handles signing
-		NoSend:  true, // Do not send the transaction immediately
-	}
-
-	// Prepare the transaction (but do not send it)
-	tx, err := pdpServiceContract.CreateProofSet(transactor, recordKeeperAddr)
+	// Pack the method call data
+	data, err := abiData.Pack("createProofSet", recordKeeperAddr)
 	if err != nil {
-		http.Error(w, "Failed to create transaction: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Prepare the transaction (nonce will be set to 0, SenderETH will assign it)
+	tx := types.NewTransaction(
+		0,
+		contract.ContractAddresses().PDPService,
+		big.NewInt(0),
+		0,
+		nil,
+		data,
+	)
 
 	// Step 5: Send the transaction using SenderETH
 	reason := "pdp-mkproofset"
@@ -242,7 +242,7 @@ func (p *PDPService) insertMessageWaitsAndProofsetCreate(ctx context.Context, tx
 
 		// Return true to commit the transaction
 		return true, nil
-	})
+	}, harmonydb.OptionRetry())
 	if err != nil {
 		return err
 	}
