@@ -1,10 +1,7 @@
 package contract
 
 import (
-	"context"
 	"github.com/ethereum/go-ethereum/common"
-	"golang.org/x/xerrors"
-
 	"github.com/filecoin-project/curio/build"
 )
 
@@ -23,21 +20,4 @@ func ContractAddresses() PDPContracts {
 	default:
 		panic("pdp contracts unknown for this network")
 	}
-}
-
-func SetupContractAccess() error {
-
-	chainID, err := ec.NetworkID(context.Background())
-	if err != nil {
-		return xerrors.Errorf("getting chain ID: %w", err)
-	}
-
-	ca := ContractAddresses()
-
-	pdpService, err := NewPDPService(ca.PDPService, ec)
-	if err != nil {
-		return xerrors.Errorf("creating PDP service: %w", err)
-	}
-
-	pdpService.CreatePofSet()
 }
