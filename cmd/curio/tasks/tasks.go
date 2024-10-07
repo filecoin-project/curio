@@ -312,6 +312,15 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		_ = watcher
 	}
 
+	if senderEth != nil {
+		watcherEth, err := message.NewMessageWatcherEth(db, ht, chainSched, must.One(dependencies.EthClient.Val()))
+		if err != nil {
+			return nil, err
+		}
+		_ = watcherEth
+
+	}
+
 	if cfg.Subsystems.EnableWindowPost || hasAnySealingTask {
 		go chainSched.Run(ctx)
 	}
