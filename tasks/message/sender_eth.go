@@ -2,6 +2,9 @@ package message
 
 import (
 	"context"
+	"fmt"
+	"github.com/ethereum/go-ethereum"
+	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -265,6 +268,57 @@ func (s *SenderETH) Send(ctx context.Context, fromAddress common.Address, tx *ty
 	// Ensure the transaction has zero nonce; it will be assigned during send task
 	if tx.Nonce() != 0 {
 		return common.Hash{}, xerrors.Errorf("Send expects transaction nonce to be 0, was %d", tx.Nonce())
+	}
+
+	if tx.Gas() == 0 {
+		// Estimate gas limit
+		msg := ethereum.CallMsg{
+			From:  fromAddress,
+			To:    tx.To(),
+			Value: tx.Value(),
+			Data:  tx.Data(),
+		}
+
+		gasLimit, err := s.client.EstimateGas(ctx, msg)
+		if err != nil {
+			return common.Hash{}, fmt.Errorf("failed to estimate gas: %w", err)
+		}
+		if gasLimit == 0 {
+			return common.Hash{}, fmt.Errorf("estimated gas limit is zero")
+		}
+
+		// Fetch current base fee
+		header, err := s.client.HeaderByNumber(ctx, nil)
+		if err != nil {
+			return common.Hash{}, fmt.Errorf("failed to get latest block header: %w", err)
+		}
+
+		baseFee := header.BaseFee
+		if baseFee == nil {
+			return common.Hash{}, fmt.Errorf("base fee not available; network might not support EIP-1559")
+		}
+
+		// Set GasTipCap (maxPriorityFeePerGas)
+		gasTipCap := big.NewInt(1e9) // 1 nanoFIL or 1 Gwei
+		// Calculate GasFeeCap (maxFeePerGas)
+		gasFeeCap := new(big.Int).Add(baseFee, gasTipCap)
+
+		chainID, err := s.client.NetworkID(ctx)
+		if err != nil {
+			return common.Hash{}, xerrors.Errorf("getting network ID: %w", err)
+		}
+
+		// Create a new transaction with estimated gas limit and fee caps
+		tx = types.NewTx(&types.DynamicFeeTx{
+			ChainID:   chainID,
+			Nonce:     0, // nonce will be set later
+			GasFeeCap: gasFeeCap,
+			GasTipCap: gasTipCap,
+			Gas:       gasLimit,
+			To:        tx.To(),
+			Value:     tx.Value(),
+			Data:      tx.Data(),
+		})
 	}
 
 	// Serialize the unsigned transaction
