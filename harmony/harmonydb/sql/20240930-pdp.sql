@@ -61,13 +61,21 @@ CREATE TABLE pdp_proof_sets (
     id BIGINT PRIMARY KEY, -- on-chain proofset id
 
     -- cached chain values
-    next_challenge_epoch BIGINT -- next challenge epoch
+    next_challenge_epoch BIGINT, -- next challenge epoch
+
+    create_message_hash TEXT NOT NULL,
+    service TEXT NOT NULL REFERENCES pdp_services(service_label) ON DELETE RESTRICT
 );
 
 -- proofset creation requests
 CREATE TABLE pdp_proofset_creates (
     create_message_hash TEXT PRIMARY KEY REFERENCES message_waits_eth(signed_tx_hash) ON DELETE CASCADE,
-    ok BOOLEAN DEFAULT NULL, -- NULL if not yet processed, TRUE if processed and successful, FALSE if processed and failed
+
+    -- NULL if not yet processed, TRUE if processed and successful, FALSE if processed and failed
+    -- NOTE: ok is maintained by a trigger below
+    ok BOOLEAN DEFAULT NULL,
+
+    proofset_created BOOLEAN NOT NULL DEFAULT FALSE, -- set to true when the proofset is created
 
     service TEXT NOT NULL REFERENCES pdp_services(service_label) ON DELETE CASCADE, -- service that requested the proofset
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -163,3 +171,26 @@ CREATE TRIGGER pdp_proofset_root_update
     AFTER UPDATE ON pdp_proofset_roots
     FOR EACH ROW
 EXECUTE FUNCTION adjust_proofset_refcount_on_update();
+
+-- proofset creation request trigger
+CREATE OR REPLACE FUNCTION update_pdp_proofset_creates()
+    RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.tx_status = 'pending' AND (NEW.tx_status = 'confirmed' OR NEW.tx_status = 'failed') THEN
+        -- Update the ok field in pdp_proofset_creates if a matching entry exists
+        UPDATE pdp_proofset_creates
+        SET ok = CASE
+                     WHEN NEW.tx_status = 'failed' OR NEW.tx_success = FALSE THEN FALSE
+                     WHEN NEW.tx_status = 'confirmed' AND NEW.tx_success = TRUE THEN TRUE
+                     ELSE ok
+            END
+        WHERE create_message_hash = NEW.signed_tx_hash AND proofset_created = FALSE;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER pdp_proofset_create_message_status_change
+    AFTER UPDATE OF tx_status, tx_success ON message_waits_eth
+    FOR EACH ROW
+EXECUTE PROCEDURE update_pdp_proofset_creates();
