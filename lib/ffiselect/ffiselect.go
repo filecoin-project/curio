@@ -3,6 +3,7 @@ package ffiselect
 import (
 	"bytes"
 	"context"
+	"github.com/filecoin-project/curio/harmony/resources"
 	"io"
 	"os"
 	"os/exec"
@@ -45,9 +46,11 @@ func init() {
 		ch = make(chan string, 1)
 		ch <- "0"
 	} else {
-		ch = make(chan string, len(devices))
-		for i := 0; i < len(devices); i++ {
-			ch <- strconv.Itoa(i)
+		nSlots := len(devices) * resources.GpuOverprovisionFactor
+
+		ch = make(chan string, nSlots)
+		for i := 0; i < nSlots; i++ {
+			ch <- strconv.Itoa(i / resources.GpuOverprovisionFactor)
 		}
 	}
 }
