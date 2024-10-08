@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,6 +42,7 @@ func main() {
 
 			createProofSetCmd,    // create a new proof set on the PDP service
 			getProofSetStatusCmd, // get the status of a proof set creation on the PDP service
+			getProofSetCmd,       // retrieve the details of a proof set from the PDP service
 		},
 	}
 	app.Setup()
@@ -628,6 +630,110 @@ var getProofSetStatusCmd = &cli.Command{
 			}
 		} else {
 			return fmt.Errorf("failed to get proof set status, status code %d: %s", resp.StatusCode, string(bodyBytes))
+		}
+
+		return nil
+	},
+}
+
+var getProofSetCmd = &cli.Command{
+	Name:      "get-proof-set",
+	Usage:     "Retrieve the details of a proof set from the PDP service",
+	ArgsUsage: "<set-id>",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "service-url",
+			Usage:    "URL of the PDP service",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "service-name",
+			Usage:    "Service Name to include in the JWT token",
+			Required: true,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		// Parse arguments
+		setIDStr := cctx.Args().Get(0)
+		if setIDStr == "" {
+			return fmt.Errorf("set-id argument is required")
+		}
+
+		// Parse setID to uint64
+		setID, err := strconv.ParseUint(setIDStr, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid set-id format: %v", err)
+		}
+
+		serviceURL := cctx.String("service-url")
+		serviceName := cctx.String("service-name")
+
+		// Load the private key
+		privKey, err := loadPrivateKey()
+		if err != nil {
+			return fmt.Errorf("failed to load private key: %v", err)
+		}
+
+		// Create the JWT token
+		jwtToken, err := createJWTToken(serviceName, privKey)
+		if err != nil {
+			return fmt.Errorf("failed to create JWT token: %v", err)
+		}
+
+		// Construct the request URL
+		getURL := fmt.Sprintf("%s/pdp/proof-sets/%d", serviceURL, setID)
+
+		// Create the GET request
+		req, err := http.NewRequest("GET", getURL, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create request: %v", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+
+		// Send the request
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to send request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// Read and process the response
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read response body: %v", err)
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			// Decode the JSON response
+			var response struct {
+				ID                 uint64 `json:"id"`
+				NextChallengeEpoch int64  `json:"nextChallengeEpoch"`
+				Roots              []struct {
+					RootID        uint64 `json:"rootId"`
+					RootCID       string `json:"rootCid"`
+					SubrootCID    string `json:"subrootCid"`
+					SubrootOffset int64  `json:"subrootOffset"`
+				} `json:"roots"`
+			}
+			err = json.Unmarshal(bodyBytes, &response)
+			if err != nil {
+				return fmt.Errorf("failed to parse JSON response: %v", err)
+			}
+
+			// Display the proof set details
+			fmt.Printf("Proof Set ID: %d\n", response.ID)
+			fmt.Printf("Next Challenge Epoch: %d\n", response.NextChallengeEpoch)
+			fmt.Printf("Roots:\n")
+			for _, root := range response.Roots {
+				fmt.Printf("  - Root ID: %d\n", root.RootID)
+				fmt.Printf("    Root CID: %s\n", root.RootCID)
+				fmt.Printf("    Subroot CID: %s\n", root.SubrootCID)
+				fmt.Printf("    Subroot Offset: %d\n", root.SubrootOffset)
+				fmt.Println()
+			}
+		} else {
+			return fmt.Errorf("failed to get proof set, status code %d: %s", resp.StatusCode, string(bodyBytes))
 		}
 
 		return nil
