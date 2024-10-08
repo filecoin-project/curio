@@ -377,43 +377,112 @@ func (p *PDPService) handleGetProofSetCreationStatus(w http.ResponseWriter, r *h
 	}
 }
 
+// handleGetProofSet handles the GET request to retrieve the details of a proof set
 func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
-	// Spec snippet:
-	// ### GET /proof-sets/{set-id}
-	// Response:
-	// Code: 200
-	// Body:
-	// {
-	//   "id": "{set-id}",
-	//   "nextChallengeEpoch": 15,
-	//   "roots": [
-	//     // Root details
-	//   ]
-	// }
+	ctx := r.Context()
 
-	proofSetIDStr := chi.URLParam(r, "proofSetID")
-	proofSetID, err := strconv.ParseInt(proofSetIDStr, 10, 64)
+	// Step 1: Verify that the request is authorized using ECDSA JWT
+	serviceLabel, err := p.verifyJWTToken(r)
 	if err != nil {
-		http.Error(w, "Invalid proof set ID", http.StatusBadRequest)
+		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
 	}
 
-	// Retrieve proof set from store
-	proofSetDetails, err := p.ProofSetStore.GetProofSet(proofSetID)
-	if err != nil {
-		http.Error(w, "Proof set not found", http.StatusNotFound)
+	// Step 2: Extract proofSetId from the URL
+	proofSetIdStr := chi.URLParam(r, "proofSetID")
+	if proofSetIdStr == "" {
+		http.Error(w, "Missing proof set ID in URL", http.StatusBadRequest)
 		return
 	}
 
-	// Implement authorization if necessary
+	// Convert proofSetId to uint64
+	proofSetId, err := strconv.ParseUint(proofSetIdStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid proof set ID format", http.StatusBadRequest)
+		return
+	}
 
-	// Respond with proof set details
+	// Step 3: Retrieve the proof set from the database
+	var proofSet struct {
+		ID                 uint64 `db:"id"`
+		NextChallengeEpoch *int64 `db:"next_challenge_epoch"`
+		Service            string `db:"service"`
+	}
+
+	err = p.db.QueryRow(ctx, `
+        SELECT id, next_challenge_epoch, service
+        FROM pdp_proof_sets
+        WHERE id = $1
+    `, proofSetId).Scan(&proofSet.ID, &proofSet.NextChallengeEpoch, &proofSet.Service)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Proof set not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Failed to retrieve proof set: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Step 4: Check that the proof set belongs to the requesting service
+	if proofSet.Service != serviceLabel {
+		http.Error(w, "Unauthorized: proof set does not belong to your service", http.StatusUnauthorized)
+		return
+	}
+
+	// Step 5: Retrieve the roots associated with the proof set
+	var roots []struct {
+		RootID        uint64 `db:"root_id"`
+		RootCID       string `db:"root"`
+		SubrootCID    string `db:"subroot"`
+		SubrootOffset int64  `db:"subroot_offset"`
+	}
+
+	err = p.db.Select(ctx, &roots, `
+        SELECT root_id, root, subroot, subroot_offset
+        FROM pdp_proofset_roots
+        WHERE proofset = $1
+        ORDER BY root_id, subroot_offset
+    `, proofSetId)
+	if err != nil {
+		http.Error(w, "Failed to retrieve proof set roots: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Step 6: Prepare the response
+	response := struct {
+		ID                 uint64      `json:"id"`
+		NextChallengeEpoch *int64      `json:"nextChallengeEpoch"`
+		Roots              []RootEntry `json:"roots"`
+	}{
+		ID:                 proofSet.ID,
+		NextChallengeEpoch: proofSet.NextChallengeEpoch,
+	}
+
+	// Convert roots to the desired JSON format
+	for _, root := range roots {
+		response.Roots = append(response.Roots, RootEntry{
+			RootID:        root.RootID,
+			RootCID:       root.RootCID,
+			SubrootCID:    root.SubrootCID,
+			SubrootOffset: root.SubrootOffset,
+		})
+	}
+
+	// Step 7: Return the response as JSON
 	w.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(w).Encode(proofSetDetails)
+	err = json.NewEncoder(w).Encode(response)
 	if err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		http.Error(w, "Failed to write response: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+}
+
+// RootEntry represents a root in the proof set for JSON serialization
+type RootEntry struct {
+	RootID        uint64 `json:"rootId"`
+	RootCID       string `json:"rootCid"`
+	SubrootCID    string `json:"subrootCid"`
+	SubrootOffset int64  `json:"subrootOffset"`
 }
 
 func (p *PDPService) handleDeleteProofSet(w http.ResponseWriter, r *http.Request) {
