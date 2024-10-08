@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/fatih/color"
@@ -38,7 +39,8 @@ func main() {
 			piecePrepareCmd, // hash a piece to get a piece cid
 			pieceUploadCmd,  // upload a piece to a pdp service
 
-			createProofSetCmd, // create a new proof set on the PDP service
+			createProofSetCmd,    // create a new proof set on the PDP service
+			getProofSetStatusCmd, // get the status of a proof set creation on the PDP service
 		},
 	}
 	app.Setup()
@@ -523,6 +525,109 @@ var createProofSetCmd = &cli.Command{
 			fmt.Printf("Response: %s\n", bodyString)
 		} else {
 			return fmt.Errorf("failed to create proof set, status code %d: %s", resp.StatusCode, bodyString)
+		}
+
+		return nil
+	},
+}
+
+var getProofSetStatusCmd = &cli.Command{
+	Name:  "get-proof-set-create-status",
+	Usage: "Get the status of a proof set creation on the PDP service",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "service-url",
+			Usage:    "URL of the PDP service",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "tx-hash",
+			Usage:    "Transaction hash of the proof set creation",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "service-name",
+			Usage:    "Service Name to include in the JWT token",
+			Required: true,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		serviceURL := cctx.String("service-url")
+		serviceName := cctx.String("service-name")
+		txHash := cctx.String("tx-hash")
+
+		// Load the private key
+		privKey, err := loadPrivateKey()
+		if err != nil {
+			return fmt.Errorf("failed to load private key: %v", err)
+		}
+
+		// Create the JWT token
+		jwtToken, err := createJWTToken(serviceName, privKey)
+		if err != nil {
+			return fmt.Errorf("failed to create JWT token: %v", err)
+		}
+
+		// Ensure txHash starts with '0x'
+		if !strings.HasPrefix(txHash, "0x") {
+			txHash = "0x" + txHash
+		}
+		txHash = strings.ToLower(txHash) // Ensure txHash is in lowercase
+
+		// Construct the request URL
+		getURL := fmt.Sprintf("%s/pdp/proof-sets/created/%s", serviceURL, txHash)
+
+		// Create the GET request
+		req, err := http.NewRequest("GET", getURL, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create request: %v", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+
+		// Send the request
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to send request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// Read and process the response
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read response body: %v", err)
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			// Decode the JSON response
+			var response struct {
+				CreateMessageHash string  `json:"createMessageHash"`
+				ProofsetCreated   bool    `json:"proofsetCreated"`
+				Service           string  `json:"service"`
+				TxStatus          string  `json:"txStatus"`
+				OK                *bool   `json:"ok"`
+				ProofSetId        *uint64 `json:"proofSetId,omitempty"`
+			}
+			err = json.Unmarshal(bodyBytes, &response)
+			if err != nil {
+				return fmt.Errorf("failed to parse JSON response: %v", err)
+			}
+
+			// Display the status
+			fmt.Printf("Proof Set Creation Status:\n")
+			fmt.Printf("Transaction Hash: %s\n", response.CreateMessageHash)
+			fmt.Printf("Transaction Status: %s\n", response.TxStatus)
+			if response.OK != nil {
+				fmt.Printf("Transaction Successful: %v\n", *response.OK)
+			} else {
+				fmt.Printf("Transaction Successful: Pending\n")
+			}
+			fmt.Printf("Proofset Created: %v\n", response.ProofsetCreated)
+			if response.ProofSetId != nil {
+				fmt.Printf("ProofSet ID: %d\n", *response.ProofSetId)
+			}
+		} else {
+			return fmt.Errorf("failed to get proof set status, status code %d: %s", resp.StatusCode, string(bodyBytes))
 		}
 
 		return nil
