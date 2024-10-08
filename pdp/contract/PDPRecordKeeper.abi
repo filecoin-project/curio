@@ -1,0 +1,209 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "_pdpServiceAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "addRecord",
+    "inputs": [
+      {
+        "name": "proofSetId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "operationType",
+        "type": "uint8",
+        "internalType": "enum PDPRecordKeeper.OperationType"
+      },
+      {
+        "name": "extraData",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "getEvent",
+    "inputs": [
+      {
+        "name": "proofSetId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "eventIndex",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct PDPRecordKeeper.EventRecord",
+        "components": [
+          {
+            "name": "epoch",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "operationType",
+            "type": "uint8",
+            "internalType": "enum PDPRecordKeeper.OperationType"
+          },
+          {
+            "name": "extraData",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getEventCount",
+    "inputs": [
+      {
+        "name": "proofSetId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "listEvents",
+    "inputs": [
+      {
+        "name": "proofSetId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct PDPRecordKeeper.EventRecord[]",
+        "components": [
+          {
+            "name": "epoch",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "operationType",
+            "type": "uint8",
+            "internalType": "enum PDPRecordKeeper.OperationType"
+          },
+          {
+            "name": "extraData",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pdpServiceAddress",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "proofSetEvents",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "operationType",
+        "type": "uint8",
+        "internalType": "enum PDPRecordKeeper.OperationType"
+      },
+      {
+        "name": "extraData",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "RecordAdded",
+    "inputs": [
+      {
+        "name": "proofSetId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "operationType",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "enum PDPRecordKeeper.OperationType"
+      }
+    ],
+    "anonymous": false
+  }
+]
