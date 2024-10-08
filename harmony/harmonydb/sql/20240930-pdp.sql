@@ -92,7 +92,7 @@ CREATE TABLE pdp_proofset_roots (
     subroot_offset BIGINT NOT NULL, -- offset of the subroot in the root
     -- note: size contained in subroot piececid v2
 
-    pdp_pieceref BIGINT NOT NULL, -- pdp_piecerefs.id
+    pdppieceref BIGINT NOT NULL, -- pdp_piecerefs.id
 
     CONSTRAINT pdp_proofset_roots_pk PRIMARY KEY (proofset, root_id, subroot_offset),
 
