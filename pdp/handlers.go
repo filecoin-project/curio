@@ -3,6 +3,7 @@ package pdp
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"net/http"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -58,6 +60,9 @@ func Routes(r *chi.Mux, p *PDPService) {
 	r.Route(path.Join(PDPRoutePath, "/proof-sets"), func(r chi.Router) {
 		// POST /pdp/proof-sets - Create a new proof set
 		r.Post("/", p.handleCreateProofSet)
+
+		// GET /pdp/proof-sets/created/{txHash} - Get the status of a proof set creation
+		r.Get("/created/{txHash}", p.handleGetProofSetCreationStatus)
 
 		// Individual proof set routes
 		r.Route("/{proofSetID}", func(r chi.Router) {
@@ -107,8 +112,6 @@ func (p *PDPService) handlePing(w http.ResponseWriter, r *http.Request) {
 	// Return 200 OK
 	w.WriteHeader(http.StatusOK)
 }
-
-// TODO STUFF BELOW IS JUST A SKELETON
 
 // handleCreateProofSet handles the creation of a new proof set
 func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request) {
@@ -247,6 +250,131 @@ func (p *PDPService) insertMessageWaitsAndProofsetCreate(ctx context.Context, tx
 		return err
 	}
 	return nil
+}
+
+// handleGetProofSetCreationStatus handles the GET request to retrieve the status of a proof set creation
+func (p *PDPService) handleGetProofSetCreationStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Step 1: Verify that the request is authorized using ECDSA JWT
+	serviceLabel, err := p.verifyJWTToken(r)
+	if err != nil {
+		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	// Step 2: Extract txHash from the URL
+	txHash := chi.URLParam(r, "txHash")
+	if txHash == "" {
+		http.Error(w, "Missing txHash in URL", http.StatusBadRequest)
+		return
+	}
+
+	// Clean txHash (ensure it starts with '0x' and is lowercase)
+	if !strings.HasPrefix(txHash, "0x") {
+		txHash = "0x" + txHash
+	}
+	txHash = strings.ToLower(txHash)
+
+	// Validate txHash is a valid hash
+	if len(txHash) != 66 { // '0x' + 64 hex chars
+		http.Error(w, "Invalid txHash length", http.StatusBadRequest)
+		return
+	}
+	if _, err := hex.DecodeString(txHash[2:]); err != nil {
+		http.Error(w, "Invalid txHash format", http.StatusBadRequest)
+		return
+	}
+
+	// Step 3: Lookup pdp_proofset_creates by create_message_hash (which is txHash)
+	var proofSetCreate struct {
+		CreateMessageHash string `db:"create_message_hash"`
+		OK                *bool  `db:"ok"` // Pointer to handle NULL
+		ProofSetCreated   bool   `db:"proofset_created"`
+		Service           string `db:"service"`
+	}
+
+	err = p.db.QueryRow(ctx, `
+        SELECT create_message_hash, ok, proofset_created, service
+        FROM pdp_proofset_creates
+        WHERE create_message_hash = $1
+    `, txHash).Scan(&proofSetCreate.CreateMessageHash, &proofSetCreate.OK, &proofSetCreate.ProofSetCreated, &proofSetCreate.Service)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Proof set creation not found for given txHash", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Failed to query proof set creation: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Step 4: Check that the service matches the requesting service
+	if proofSetCreate.Service != serviceLabel {
+		http.Error(w, "Unauthorized: service label mismatch", http.StatusUnauthorized)
+		return
+	}
+
+	// Step 5: Prepare the response
+	response := struct {
+		CreateMessageHash string  `json:"createMessageHash"`
+		ProofsetCreated   bool    `json:"proofsetCreated"`
+		Service           string  `json:"service"`
+		TxStatus          string  `json:"txStatus"`
+		OK                *bool   `json:"ok"`
+		ProofSetId        *uint64 `json:"proofSetId,omitempty"`
+	}{
+		CreateMessageHash: proofSetCreate.CreateMessageHash,
+		ProofsetCreated:   proofSetCreate.ProofSetCreated,
+		Service:           proofSetCreate.Service,
+		OK:                proofSetCreate.OK,
+	}
+
+	// Now get the tx_status from message_waits_eth
+	var txStatus string
+	err = p.db.QueryRow(ctx, `
+        SELECT tx_status
+        FROM message_waits_eth
+        WHERE signed_tx_hash = $1
+    `, txHash).Scan(&txStatus)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			// This should not happen as per foreign key constraints
+			http.Error(w, "Message status not found for given txHash", http.StatusInternalServerError)
+			return
+		}
+		http.Error(w, "Failed to query message status: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	response.TxStatus = txStatus
+
+	if proofSetCreate.ProofSetCreated {
+		// The proof set has been created, get the proofSetId from pdp_proof_sets
+		var proofSetId uint64
+		err = p.db.QueryRow(ctx, `
+            SELECT id
+            FROM pdp_proof_sets
+            WHERE create_message_hash = $1
+        `, txHash).Scan(&proofSetId)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				// Should not happen, but handle gracefully
+				http.Error(w, "Proof set not found despite proofset_created = true", http.StatusInternalServerError)
+				return
+			}
+			http.Error(w, "Failed to query proof set: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		response.ProofSetId = &proofSetId
+	}
+
+	// Step 6: Return the response as JSON
+	w.Header().Set("Content-Type", "application/json")
+	err = json.NewEncoder(w).Encode(response)
+	if err != nil {
+		http.Error(w, "Failed to write response: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
