@@ -43,6 +43,8 @@ func main() {
 			createProofSetCmd,    // create a new proof set on the PDP service
 			getProofSetStatusCmd, // get the status of a proof set creation on the PDP service
 			getProofSetCmd,       // retrieve the details of a proof set from the PDP service
+
+			addRootsCmd,
 		},
 	}
 	app.Setup()
@@ -734,6 +736,129 @@ var getProofSetCmd = &cli.Command{
 			}
 		} else {
 			return fmt.Errorf("failed to get proof set, status code %d: %s", resp.StatusCode, string(bodyBytes))
+		}
+
+		return nil
+	},
+}
+
+var addRootsCmd = &cli.Command{
+	Name:  "add-roots",
+	Usage: "Add roots to a proof set on the PDP service",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "service-url",
+			Usage:    "URL of the PDP service",
+			Required: true,
+		},
+		&cli.Uint64Flag{
+			Name:     "proof-set-id",
+			Usage:    "ID of the proof set to which roots will be added",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "service-name",
+			Usage:    "Service Name to include in the JWT token",
+			Required: true,
+		},
+		&cli.StringSliceFlag{
+			Name:     "root",
+			Usage:    "Root CID and its subroots. Format: rootCID:subrootCID1,subrootCID2,...",
+			Required: true,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		serviceURL := cctx.String("service-url")
+		serviceName := cctx.String("service-name")
+		proofSetID := cctx.Uint64("proof-set-id")
+		rootInputs := cctx.StringSlice("root")
+
+		// Load the private key (implement `loadPrivateKey` according to your setup)
+		privKey, err := loadPrivateKey()
+		if err != nil {
+			return fmt.Errorf("failed to load private key: %v", err)
+		}
+
+		// Create the JWT token (implement `createJWTToken` according to your setup)
+		jwtToken, err := createJWTToken(serviceName, privKey)
+		if err != nil {
+			return fmt.Errorf("failed to create JWT token: %v", err)
+		}
+
+		// Parse the root inputs to construct the request payload
+		type SubrootEntry struct {
+			SubrootCID string `json:"subrootCid"`
+		}
+
+		type AddRootRequest struct {
+			RootCID  string         `json:"rootCid"`
+			Subroots []SubrootEntry `json:"subroots"`
+		}
+
+		var addRootRequests []AddRootRequest
+
+		for _, rootInput := range rootInputs {
+			// Expected format: rootCID:subrootCID1,subrootCID2,...
+			parts := strings.SplitN(rootInput, ":", 2)
+			if len(parts) != 2 {
+				return fmt.Errorf("invalid root input format: %s", rootInput)
+			}
+			rootCID := parts[0]
+			subrootsStr := parts[1]
+			subrootCIDStrs := strings.Split(subrootsStr, ",")
+
+			if rootCID == "" || len(subrootCIDStrs) == 0 {
+				return fmt.Errorf("rootCID and at least one subrootCID are required")
+			}
+
+			var subroots []SubrootEntry
+			for _, subrootCID := range subrootCIDStrs {
+				subroots = append(subroots, SubrootEntry{SubrootCID: subrootCID})
+			}
+
+			addRootRequests = append(addRootRequests, AddRootRequest{
+				RootCID:  rootCID,
+				Subroots: subroots,
+			})
+		}
+
+		// Construct the request payload
+		requestBodyBytes, err := json.Marshal(addRootRequests)
+		if err != nil {
+			return fmt.Errorf("failed to marshal request body: %v", err)
+		}
+
+		// Construct the POST URL
+		postURL := fmt.Sprintf("%s/pdp/proof-sets/%d/roots", serviceURL, proofSetID)
+
+		// Create the POST request
+		req, err := http.NewRequest("POST", postURL, bytes.NewBuffer(requestBodyBytes))
+		if err != nil {
+			return fmt.Errorf("failed to create request: %v", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		req.Header.Set("Content-Type", "application/json")
+
+		// Send the request
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to send request: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// Read and display the response
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read response body: %v", err)
+		}
+		bodyString := string(bodyBytes)
+
+		if resp.StatusCode == http.StatusCreated {
+			fmt.Printf("Roots added to proof set ID %d successfully.\n", proofSetID)
+			fmt.Printf("Response: %s\n", bodyString)
+		} else {
+			return fmt.Errorf("failed to add roots, status code %d: %s", resp.StatusCode, bodyString)
 		}
 
 		return nil
