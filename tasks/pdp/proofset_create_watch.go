@@ -105,59 +105,28 @@ func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCr
 }
 
 func extractProofSetIdFromReceipt(receipt *types.Receipt) (uint64, error) {
-	// Load the ABI of the PDPRecordKeeper contract
-	recordKeeperABI, err := contract.PDPRecordKeeperMetaData.GetAbi()
+	pdpABI, err := contract.PDPServiceMetaData.GetAbi()
 	if err != nil {
-		return 0, xerrors.Errorf("failed to get PDPRecordKeeper ABI: %w", err)
+		return 0, xerrors.Errorf("failed to get PDP ABI: %w", err)
 	}
 
-	// Define the event we're interested in
-	eventName := "RecordAdded"
-	event, exists := recordKeeperABI.Events[eventName]
+	event, exists := pdpABI.Events["ProofSetCreated"]
 	if !exists {
-		return 0, xerrors.Errorf("event %s not found in PDPRecordKeeper ABI", eventName)
+		return 0, xerrors.Errorf("ProofSetCreated event not found in ABI")
 	}
 
-	// Iterate over the logs to find the event
 	for _, vLog := range receipt.Logs {
-		if len(vLog.Topics) == 0 {
-			continue
-		}
-		if vLog.Topics[0] != event.ID {
-			continue
-		}
+		if len(vLog.Topics) > 0 && vLog.Topics[0] == event.ID {
+			if len(vLog.Topics) < 2 {
+				return 0, xerrors.Errorf("log does not contain setId topic")
+			}
 
-		// Parse the event log to get ProofSetId, Epoch, OperationType
-		var eventData struct {
-			Epoch         uint64
-			OperationType uint8
-			ExtraData     []byte
+			setIdBigInt := new(big.Int).SetBytes(vLog.Topics[1].Bytes())
+			return setIdBigInt.Uint64(), nil
 		}
-
-		// Unpack non-indexed event data
-		err := recordKeeperABI.UnpackIntoInterface(&eventData, eventName, vLog.Data)
-		if err != nil {
-			return 0, xerrors.Errorf("failed to unpack event data: %w", err)
-		}
-
-		// Extract the indexed ProofSetId from vLog.Topics[1]
-		if len(vLog.Topics) < 2 {
-			return 0, xerrors.Errorf("missing indexed ProofSetId in event log")
-		}
-		proofSetIdBig := new(big.Int).SetBytes(vLog.Topics[1].Bytes())
-		proofSetId := proofSetIdBig.Uint64()
-
-		const OperationTypeCreate = 1
-
-		if eventData.OperationType != OperationTypeCreate {
-			continue // Not a CREATE operation
-		}
-
-		// Return the proofSetId
-		return proofSetId, nil
 	}
 
-	return 0, xerrors.Errorf("RecordAdded event with OperationType.CREATE not found in receipt logs")
+	return 0, xerrors.Errorf("ProofSetCreated event not found in receipt")
 }
 
 func insertProofSet(ctx context.Context, db *harmonydb.DB, createMsg string, proofSetId uint64, service string) error {
