@@ -12,6 +12,9 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/go-commp-utils/nonffi"
+	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/ipfs/go-cid"
 	"io"
 	"math/big"
 	"net/http"
@@ -36,10 +39,6 @@ type PDPService struct {
 
 	sender    *message.SenderETH
 	ethClient *ethclient.Client
-
-	ProofSetStore     ProofSetStore
-	PieceStore        PieceStore
-	OwnerAddressStore OwnerAddressStore
 }
 
 // NewPDPService creates a new instance of PDPService with the provided stores
@@ -486,114 +485,335 @@ type RootEntry struct {
 }
 
 func (p *PDPService) handleDeleteProofSet(w http.ResponseWriter, r *http.Request) {
-	// Spec snippet:
 	// ### DEL /proof-sets/{set id}
 	// Remove the specified proof set entirely
 
-	proofSetIDStr := chi.URLParam(r, "proofSetID")
-	proofSetID, err := strconv.ParseInt(proofSetIDStr, 10, 64)
-	if err != nil {
-		http.Error(w, "Invalid proof set ID", http.StatusBadRequest)
-		return
-	}
-
-	// Implement authorization (e.g., only the owner can delete)
-
-	err = p.ProofSetStore.DeleteProofSet(proofSetID)
-	if err != nil {
-		http.Error(w, "Failed to delete proof set", http.StatusInternalServerError)
-		return
-	}
-
-	// Respond with 204 No Content
-	w.WriteHeader(http.StatusNoContent)
+	http.Error(w, "todo", http.StatusBadRequest)
 }
 
 func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Request) {
-	// Spec snippet:
-	// ### POST /proof-sets/{set-id}/roots
-	// Append a root to the proof set
-	// Request Body:
-	// {
-	//   "rootId": {root ID},
-	//   "rootCid": "bafy....root",
-	//   "subroots": [
-	//     {
-	//       "subrootCid": "bafy...subroot",
-	//       "subrootOffset": 0,
-	//       "pieceCid": "bafy...piece1"
-	//     },
-	//     //...
-	//   ]
-	// }
+	ctx := r.Context()
 
-	proofSetIDStr := chi.URLParam(r, "proofSetID")
-	proofSetID, err := strconv.ParseInt(proofSetIDStr, 10, 64)
+	// Step 1: Verify that the request is authorized using ECDSA JWT
+	serviceLabel, err := p.verifyJWTToken(r)
 	if err != nil {
-		http.Error(w, "Invalid proof set ID", http.StatusBadRequest)
+		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
 	}
 
-	// Parse request body
-	var req struct {
-		RootID   int64  `json:"rootId"`
-		RootCID  string `json:"rootCid"`
-		Subroots []struct {
-			SubrootCID    string `json:"subrootCid"`
-			SubrootOffset int64  `json:"subrootOffset"`
-			PieceCID      string `json:"pieceCid"`
-		} `json:"subroots"`
+	// Step 2: Extract proofSetID from the URL
+	proofSetIDStr := chi.URLParam(r, "proofSetID")
+	if proofSetIDStr == "" {
+		http.Error(w, "Missing proof set ID in URL", http.StatusBadRequest)
+		return
 	}
+
+	// Convert proofSetID to uint64
+	proofSetID, err := strconv.ParseUint(proofSetIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid proof set ID format", http.StatusBadRequest)
+		return
+	}
+
+	// Step 3: Parse the request body
+	type SubrootEntry struct {
+		SubrootCID string `json:"subrootCid"`
+	}
+
+	type AddRootRequest struct {
+		RootCID  string         `json:"rootCid"`
+		Subroots []SubrootEntry `json:"subroots"`
+	}
+
+	var req []AddRootRequest // array because we can add multiple roots in one request
 	err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil || req.RootCID == "" || len(req.Subroots) == 0 {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err != nil {
+		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if len(req) == 0 {
+		http.Error(w, "At least one root must be provided", http.StatusBadRequest)
 		return
 	}
 
-	// Implement authorization (e.g., only owner can add roots)
-
-	// For each subroot, check that the piece exists and get the pdp_pieceref ID
-	for _, subroot := range req.Subroots {
-		// Check if piece exists
-		exists, err := p.PieceStore.HasPiece(subroot.PieceCID)
-		if err != nil {
-			http.Error(w, "Error checking piece existence", http.StatusInternalServerError)
-			return
-		}
-		if !exists {
-			http.Error(w, "Piece not found: "+subroot.PieceCID, http.StatusBadRequest)
+	// Collect all subrootCIDs to fetch their info in a batch
+	subrootCIDsSet := make(map[string]struct{})
+	for _, addRootReq := range req {
+		if addRootReq.RootCID == "" {
+			http.Error(w, "RootCID is required for each root", http.StatusBadRequest)
 			return
 		}
 
-		// Get the pdp_pieceref ID for this piece
-		pieceRefID, err := p.PieceStore.GetPieceRefIDByPieceCID(subroot.PieceCID)
-		if err != nil {
-			http.Error(w, "Failed to get piece reference for "+subroot.PieceCID, http.StatusInternalServerError)
+		if len(addRootReq.Subroots) == 0 {
+			http.Error(w, "At least one subroot is required per root", http.StatusBadRequest)
 			return
 		}
 
-		// Create the proof set root entry
-		proofSetRoot := &PDPProofSetRoot{
-			ProofSetID:    proofSetID,
-			RootID:        req.RootID,
-			Root:          req.RootCID,
-			Subroot:       subroot.SubrootCID,
-			SubrootOffset: subroot.SubrootOffset,
-			PDPPieceRefID: pieceRefID,
-		}
-
-		// Add to proof set store
-		err = p.ProofSetStore.AddProofSetRoot(proofSetRoot)
-		if err != nil {
-			http.Error(w, "Failed to add root to proof set", http.StatusInternalServerError)
-			return
+		for _, subrootEntry := range addRootReq.Subroots {
+			if subrootEntry.SubrootCID == "" {
+				http.Error(w, "subrootCid is required for each subroot", http.StatusBadRequest)
+				return
+			}
+			subrootCIDsSet[subrootEntry.SubrootCID] = struct{}{}
 		}
 	}
 
-	// Set Location header
-	w.Header().Set("Location", path.Join(PDPRoutePath, "/proof-sets", fmt.Sprintf("%d", proofSetID), "roots", fmt.Sprintf("%d", req.RootID)))
+	// Convert set to slice
+	subrootCIDsList := make([]string, 0, len(subrootCIDsSet))
+	for cidStr := range subrootCIDsSet {
+		subrootCIDsList = append(subrootCIDsList, cidStr)
+	}
 
-	// Set status code to 201 Created
+	// Map to store subrootCID -> [pieceInfo, pdp_pieceref.id, subrootOffset]
+	type SubrootInfo struct {
+		PieceInfo     abi.PieceInfo
+		PDPPieceRefID int64
+		SubrootOffset uint64
+	}
+
+	subrootInfoMap := make(map[string]*SubrootInfo)
+
+	// Start a DB transaction
+	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// Step 4: Get pdp_piecerefs matching all subroot cids (make sure those refs belong to serviceLabel)
+		rows, err := tx.Query(`
+            SELECT ppr.piece_cid, ppr.id AS pdp_pieceref_id, ppr.piece_ref,
+                   pp.piece_padded_size
+            FROM pdp_piecerefs ppr
+            JOIN parked_piece_refs pprf ON pprf.ref_id = ppr.piece_ref
+            JOIN parked_pieces pp ON pp.id = pprf.piece_id
+            WHERE ppr.service = $1 AND ppr.piece_cid = ANY($2)
+        `, serviceLabel, subrootCIDsList)
+		if err != nil {
+			return false, err
+		}
+		defer rows.Close()
+
+		foundSubroots := make(map[string]struct{})
+		for rows.Next() {
+			var pieceCIDStr string
+			var pdpPieceRefID, pieceRefID int64
+			var piecePaddedSize uint64
+
+			err := rows.Scan(&pieceCIDStr, &pdpPieceRefID, &pieceRefID, &piecePaddedSize)
+			if err != nil {
+				return false, err
+			}
+
+			// Parse the piece CID
+			pieceCID, err := cid.Decode(pieceCIDStr)
+			if err != nil {
+				return false, fmt.Errorf("invalid piece CID in database: %s", pieceCIDStr)
+			}
+
+			// Create PieceInfo
+			pieceInfo := abi.PieceInfo{
+				Size:     abi.PaddedPieceSize(piecePaddedSize),
+				PieceCID: pieceCID,
+			}
+
+			subrootInfoMap[pieceCIDStr] = &SubrootInfo{
+				PieceInfo:     pieceInfo,
+				PDPPieceRefID: pdpPieceRefID,
+				SubrootOffset: 0, // Will compute offset later
+			}
+
+			foundSubroots[pieceCIDStr] = struct{}{}
+		}
+
+		// Check if all subroot CIDs were found
+		for _, cidStr := range subrootCIDsList {
+			if _, found := foundSubroots[cidStr]; !found {
+				return false, fmt.Errorf("subroot CID %s not found or does not belong to service %s", cidStr, serviceLabel)
+			}
+		}
+
+		// Now, for each AddRootRequest, validate RootCID and prepare data for ETH transaction
+		for _, addRootReq := range req {
+			// Collect pieceInfos for subroots
+			pieceInfos := make([]abi.PieceInfo, len(addRootReq.Subroots))
+
+			var totalOffset uint64 = 0
+			for i, subrootEntry := range addRootReq.Subroots {
+				subrootInfo, exists := subrootInfoMap[subrootEntry.SubrootCID]
+				if !exists {
+					return false, fmt.Errorf("subroot CID %s not found in subroot info map", subrootEntry.SubrootCID)
+				}
+
+				// Update SubrootOffset
+				subrootInfo.SubrootOffset = totalOffset
+				subrootInfoMap[subrootEntry.SubrootCID] = subrootInfo // Update the map
+
+				pieceInfos[i] = subrootInfo.PieceInfo
+
+				totalOffset += uint64(subrootInfo.PieceInfo.Size.Unpadded())
+			}
+
+			// Use GenerateUnsealedCID to generate RootCID from subroots
+			proofType := abi.RegisteredSealProof_StackedDrg64GiBV1_1 // Proof type sets max piece size, nothing else
+			generatedRootCID, err := nonffi.GenerateUnsealedCID(proofType, pieceInfos)
+			if err != nil {
+				return false, fmt.Errorf("failed to generate RootCID: %v", err)
+			}
+
+			// Compare generated RootCID with provided RootCID
+			providedRootCID, err := cid.Decode(addRootReq.RootCID)
+			if err != nil {
+				return false, fmt.Errorf("invalid provided RootCID: %v", err)
+			}
+
+			if !providedRootCID.Equals(generatedRootCID) {
+				return false, fmt.Errorf("provided RootCID does not match generated RootCID")
+			}
+
+			// Attach the generated RootCID to the request for later use
+			addRootReq.RootCID = generatedRootCID.String()
+		}
+
+		// All validations passed, commit the transaction
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		http.Error(w, "Failed to validate subroots: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Step 5: Prepare the Ethereum transaction data outside the DB transaction
+	// Obtain the ABI of the PDPService contract
+	abiData, err := contract.PDPServiceMetaData.GetAbi()
+	if err != nil {
+		http.Error(w, "Failed to get contract ABI: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Prepare RootData array for Ethereum transaction
+	type RootData struct {
+		Root    []byte
+		RawSize *big.Int
+	}
+
+	var rootDataArray []RootData
+
+	for _, addRootReq := range req {
+		// Convert RootCID to bytes
+		rootCID, err := cid.Decode(addRootReq.RootCID)
+		if err != nil {
+			http.Error(w, "Invalid RootCID: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Get raw size by summing up the sizes of subroots
+		var totalSize abi.UnpaddedPieceSize = 0
+		for _, subrootEntry := range addRootReq.Subroots {
+			subrootInfo := subrootInfoMap[subrootEntry.SubrootCID]
+			totalSize += subrootInfo.PieceInfo.Size.Unpadded()
+		}
+
+		// Prepare RootData for Ethereum transaction
+		rootData := RootData{
+			Root:    rootCID.Bytes(),
+			RawSize: big.NewInt(int64(totalSize)),
+		}
+
+		rootDataArray = append(rootDataArray, rootData)
+	}
+
+	// Step 6: Prepare the Ethereum transaction
+	// Pack the method call data
+	data, err := abiData.Pack("addRoots", proofSetID, rootDataArray)
+	if err != nil {
+		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Step 7: Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
+	fromAddress, err := p.getSenderAddress(ctx)
+	if err != nil {
+		http.Error(w, "Failed to get sender address: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Prepare the transaction (nonce will be set to 0, SenderETH will assign it)
+	txEth := types.NewTransaction(
+		0,
+		contract.ContractAddresses().PDPService,
+		big.NewInt(0),
+		0,
+		nil,
+		data,
+	)
+
+	// Step 8: Send the transaction using SenderETH
+	reason := "pdp-addroots"
+	txHash, err := p.sender.Send(ctx, fromAddress, txEth, reason)
+	if err != nil {
+		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to send transaction: %+v", err)
+		return
+	}
+
+	// Step 9: Insert into message_waits_eth and pdp_proofset_roots
+	_, err = p.db.BeginTransaction(ctx, func(txdb *harmonydb.Tx) (bool, error) {
+		// Insert into message_waits_eth
+		_, err := txdb.Exec(`
+            INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
+            VALUES ($1, $2)
+        `, txHash.Hex(), "pending")
+		if err != nil {
+			return false, err // Return false to rollback the transaction
+		}
+
+		// Insert into pdp_proofset_roots
+		addMessageIndex := int64(0) // Assuming single message per transaction, adjust as needed
+		rootID := int64(0)          // On-chain index of the root, need to retrieve after transaction confirmation
+
+		for _, addRootReq := range req {
+			for _, subrootEntry := range addRootReq.Subroots {
+				subrootInfo := subrootInfoMap[subrootEntry.SubrootCID]
+
+				// Insert into pdp_proofset_roots
+				_, err = txdb.Exec(`
+                    INSERT INTO pdp_proofset_roots (
+                        proofset,
+                        root,
+                        add_message_hash,
+                        add_message_ok,
+                        add_message_index,
+                        root_id,
+                        subroot,
+                        subroot_offset,
+                        pdp_pieceref
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                `,
+					proofSetID,
+					addRootReq.RootCID,
+					txHash.Hex(),
+					false, // add_message_ok will be updated by trigger
+					addMessageIndex,
+					rootID, // Will be updated later
+					subrootEntry.SubrootCID,
+					subrootInfo.SubrootOffset,
+					subrootInfo.PDPPieceRefID,
+				)
+				if err != nil {
+					return false, err
+				}
+			}
+		}
+
+		// Return true to commit the transaction
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		log.Errorf("Failed to insert into database: %+v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Step 10: Respond with 201 Created
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -662,14 +882,8 @@ func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Implement authorization (e.g., only owner can delete roots)
-
-	// Delete root from proof set in store
-	err = p.ProofSetStore.DeleteProofSetRoot(proofSetID, rootID)
-	if err != nil {
-		http.Error(w, "Failed to delete root", http.StatusInternalServerError)
-		return
-	}
+	_ = proofSetID
+	_ = rootID
 
 	// Respond with 204 No Content
 	w.WriteHeader(http.StatusNoContent)

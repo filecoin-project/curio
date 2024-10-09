@@ -147,8 +147,7 @@ func extractProofSetIdFromReceipt(receipt *types.Receipt) (uint64, error) {
 		proofSetIdBig := new(big.Int).SetBytes(vLog.Topics[1].Bytes())
 		proofSetId := proofSetIdBig.Uint64()
 
-		// Check if the OperationType corresponds to CREATE (assuming CREATE = 1)
-		const OperationTypeCreate = 1 // Adjust based on your enum definition
+		const OperationTypeCreate = 1
 
 		if eventData.OperationType != OperationTypeCreate {
 			continue // Not a CREATE operation
