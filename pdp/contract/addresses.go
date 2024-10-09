@@ -14,8 +14,8 @@ func ContractAddresses() PDPContracts {
 	switch build.BuildType {
 	case build.BuildCalibnet:
 		return PDPContracts{
-			PDPService:      common.HexToAddress("0x3971B35597849701F6535300e537745bfdfc67b1"),
-			PDPRecordKeeper: common.HexToAddress("0x32fb106CF8F1C6DD2FD177e5c06523104b28B8EA"),
+			PDPService:      common.HexToAddress("0xD4830739a0B262A55Fa6747AA6e8B149756bbA36"),
+			PDPRecordKeeper: common.HexToAddress("0xE4561Db8404Ed91bD6804Fad610ac1cC721bF7C1"),
 		}
 	default:
 		panic("pdp contracts unknown for this network")
