@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"go.opencensus.io/stats"
-	"go.opencensus.io/tag"
 	"math/bits"
 	"math/rand"
 	"os"
@@ -18,6 +16,8 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
