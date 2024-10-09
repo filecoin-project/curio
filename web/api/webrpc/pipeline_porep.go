@@ -2,6 +2,7 @@ package webrpc
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/snadrus/must"
@@ -407,10 +408,10 @@ func (a *WebRPC) GetFirstNotNullPipelineTask(ctx context.Context, p *PipelineTas
 }
 
 func (a *WebRPC) getOwner(ctx context.Context, id int64) (bool, error) {
-	var owner int64
+	var owner sql.NullInt64
 	err := a.deps.DB.QueryRow(ctx, `SELECT owner_id FROM harmony_task WHERE id = $1`, id).Scan(&owner)
 	if err != nil {
 		return false, xerrors.Errorf("failed to fetch owner ID: %w", err)
 	}
-	return owner > 0, nil
+	return owner.Valid && owner.Int64 > 0, nil
 }
