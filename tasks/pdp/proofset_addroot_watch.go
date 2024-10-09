@@ -3,9 +3,7 @@ package pdp
 import (
 	"context"
 	"encoding/json"
-	"math/big"
-
-	"github.com/ethereum/go-ethereum/accounts/abi"
+	"fmt"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -13,6 +11,7 @@ import (
 	"github.com/filecoin-project/curio/pdp/contract"
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 	"golang.org/x/xerrors"
+	"math/big"
 )
 
 // Structures to represent database records
@@ -108,154 +107,97 @@ func processProofSetRootAdd(ctx context.Context, db *harmonydb.DB, ethClient *et
 }
 
 func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, receipt *types.Receipt, rootAdd ProofSetRootAdd) error {
-	// Load the ABI of the PDPService contract
-	pdpServiceABI, err := contract.PDPRecordKeeperMetaData.GetAbi()
+	// Get the ABI from the contract metadata
+	pdpABI, err := contract.PDPServiceMetaData.GetAbi()
 	if err != nil {
-		return xerrors.Errorf("failed to get PDPService ABI: %w", err)
+		return fmt.Errorf("failed to get PDP ABI: %w", err)
 	}
 
-	// Define the event we're interested in
-	eventName := "RecordAdded"
-	event, exists := pdpServiceABI.Events[eventName]
+	// Get the event definition
+	event, exists := pdpABI.Events["RootsAdded"]
 	if !exists {
-		return xerrors.Errorf("event %s not found in PDPService ABI", eventName)
+		return fmt.Errorf("RootsAdded event not found in ABI")
 	}
 
-	// Iterate over the logs to find the event
+	var firstAdded *big.Int
+	eventFound := false
+
+	// Iterate over the logs in the receipt
 	for _, vLog := range receipt.Logs {
-		if len(vLog.Topics) == 0 {
-			continue
-		}
-		if vLog.Topics[0] != event.ID {
-			continue
-		}
+		// Check if the log corresponds to the RootsAdded event
+		if len(vLog.Topics) > 0 && vLog.Topics[0] == event.ID {
+			// Since 'firstAdded' is an indexed parameter, it's in Topics[1]
+			if len(vLog.Topics) < 2 {
+				return fmt.Errorf("log does not contain firstAdded topic")
+			}
 
-		// Parse the event log to get ProofSetId, Epoch, OperationType, ExtraData
-		var eventData struct {
-			Epoch         uint64
-			OperationType uint8
-			ExtraData     []byte
+			// Convert the topic to a big.Int
+			firstAdded = new(big.Int).SetBytes(vLog.Topics[1].Bytes())
+			eventFound = true
+			// We found the event, so we can break the loop
+			break
 		}
+	}
 
-		// Set ProofSetId from indexed topic
-		proofSetIdBigInt := new(big.Int).SetBytes(vLog.Topics[1].Bytes())
-		proofSetId := proofSetIdBigInt.Uint64()
+	if !eventFound {
+		return fmt.Errorf("RootsAdded event not found in receipt")
+	}
 
-		// Unpack non-indexed event data
-		err := pdpServiceABI.UnpackIntoInterface(&eventData, eventName, vLog.Data)
+	// Now we have the firstAdded rootId, proceed with database operations
+
+	// Begin a database transaction
+	_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// Fetch the entries from pdp_proofset_root_adds
+		var rootAddEntries []RootAddEntry
+		err := tx.Select(&rootAddEntries, `
+            SELECT proofset, root, add_message_hash, add_message_index, subroot, subroot_offset, pdp_pieceref
+            FROM pdp_proofset_root_adds
+            WHERE proofset = $1 AND add_message_hash = $2
+            ORDER BY add_message_index ASC, subroot_offset ASC
+        `, rootAdd.ProofSet, rootAdd.AddMessageHash)
 		if err != nil {
-			return xerrors.Errorf("failed to unpack event data: %w", err)
+			return false, fmt.Errorf("failed to select from pdp_proofset_root_adds: %w", err)
 		}
 
-		const OperationTypeAdd = 2
+		// For each entry, calculate root_id and insert into pdp_proofset_roots
+		for _, entry := range rootAddEntries {
+			rootId := firstAdded.Uint64() + entry.AddMessageIndex
 
-		if eventData.OperationType != OperationTypeAdd {
-			continue // Not an ADD operation
-		}
-
-		// We expect the ProofSetId to match
-		if proofSetId != rootAdd.ProofSet {
-			continue // Not matching proofset
-		}
-
-		// Decode FirstAdded from ExtraData
-		firstAdded, err := decodeAddRootsExtraData(eventData.ExtraData)
-		if err != nil {
-			return xerrors.Errorf("failed to decode FirstAdded from ExtraData: %w", err)
-		}
-
-		// Now we have the firstAdded rootId
-
-		// Begin a database transaction
-		_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-			// Fetch the entries from pdp_proofset_root_adds
-			var rootAddEntries []RootAddEntry
-			err := tx.Select(&rootAddEntries, `
-                SELECT proofset, root, add_message_hash, add_message_index, subroot, subroot_offset, pdp_pieceref
-                FROM pdp_proofset_root_adds
-                WHERE proofset = $1 AND add_message_hash = $2
-                ORDER BY add_message_index ASC, subroot_offset ASC
-            `, rootAdd.ProofSet, rootAdd.AddMessageHash)
+			// Insert into pdp_proofset_roots
+			_, err := tx.Exec(`
+                INSERT INTO pdp_proofset_roots (
+                    proofset,
+                    root,
+                    root_id,
+                    subroot,
+                    subroot_offset,
+                    pdp_pieceref,
+                    add_message_hash,
+                    add_message_index
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8
+                )
+            `, entry.ProofSet, entry.Root, rootId, entry.Subroot, entry.SubrootOffset, entry.PDPPieceRefID, entry.AddMessageHash, entry.AddMessageIndex)
 			if err != nil {
-				return false, xerrors.Errorf("failed to select from pdp_proofset_root_adds: %w", err)
+				return false, fmt.Errorf("failed to insert into pdp_proofset_roots: %w", err)
 			}
-
-			// For each entry, calculate root_id and insert into pdp_proofset_roots
-			for _, entry := range rootAddEntries {
-				rootId := firstAdded.Uint64() + entry.AddMessageIndex
-
-				// Insert into pdp_proofset_roots
-				_, err := tx.Exec(`
-                    INSERT INTO pdp_proofset_roots (
-                        proofset,
-                        root,
-                        root_id,
-                        subroot,
-                        subroot_offset,
-                        pdp_pieceref,
-                        add_message_hash,
-                        add_message_index
-                    ) VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8
-                    )
-                `, entry.ProofSet, entry.Root, rootId, entry.Subroot, entry.SubrootOffset, entry.PDPPieceRefID, entry.AddMessageHash, entry.AddMessageIndex)
-				if err != nil {
-					return false, xerrors.Errorf("failed to insert into pdp_proofset_roots: %w", err)
-				}
-			}
-
-			// Delete from pdp_proofset_root_adds
-			_, err = tx.Exec(`
-                DELETE FROM pdp_proofset_root_adds
-                WHERE proofset = $1 AND add_message_hash = $2
-            `, rootAdd.ProofSet, rootAdd.AddMessageHash)
-			if err != nil {
-				return false, xerrors.Errorf("failed to delete from pdp_proofset_root_adds: %w", err)
-			}
-
-			return true, nil
-		})
-		if err != nil {
-			return xerrors.Errorf("failed to process root additions in DB: %w", err)
 		}
 
-		// Only process the first matching event
-		break
+		// Delete from pdp_proofset_root_adds
+		_, err = tx.Exec(`
+            DELETE FROM pdp_proofset_root_adds
+            WHERE proofset = $1 AND add_message_hash = $2
+        `, rootAdd.ProofSet, rootAdd.AddMessageHash)
+		if err != nil {
+			return false, fmt.Errorf("failed to delete from pdp_proofset_root_adds: %w", err)
+		}
+
+		return true, nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to process root additions in DB: %w", err)
 	}
 
 	return nil
-}
-
-func decodeAddRootsExtraData(data []byte) (*big.Int, error) {
-	// Define the ABI for the extraData
-	// extraData is expected to be an encoded (uint256)
-	firstAddedType, err := abi.NewType("uint256", "", nil)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to create ABI type for firstAdded: %w", err)
-	}
-
-	extraDataArguments := abi.Arguments{
-		{
-			Name: "firstAdded",
-			Type: firstAddedType,
-		},
-	}
-
-	// Unpack the extraData
-	extraDecodedValues, err := extraDataArguments.Unpack(data)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to unpack extra data: %w", err)
-	}
-
-	if len(extraDecodedValues) != 1 {
-		return nil, xerrors.Errorf("unexpected number of decoded values: got %d, want 1", len(extraDecodedValues))
-	}
-
-	// Extract FirstAdded
-	firstAdded, ok := extraDecodedValues[0].(*big.Int)
-	if !ok {
-		return nil, xerrors.Errorf("expected firstAdded to be *big.Int, got %T", extraDecodedValues[0])
-	}
-
-	return firstAdded, nil
 }

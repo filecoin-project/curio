@@ -54,7 +54,7 @@ type PDPServiceRootIdAndOffset struct {
 
 // PDPServiceMetaData contains all meta data concerning the PDPService contract.
 var PDPServiceMetaData = &bind.MetaData{
-	ABI: "[{\"type\":\"constructor\",\"inputs\":[{\"name\":\"_challengeFinality\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"LEAF_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_ROOT_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"addRoots\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootData\",\"type\":\"tuple[]\",\"internalType\":\"structPDPService.RootData[]\",\"components\":[{\"name\":\"root\",\"type\":\"tuple\",\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]},{\"name\":\"rawSize\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"claimProofSetOwnership\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"createProofSet\",\"inputs\":[{\"name\":\"recordKeeper\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"deleteProofSet\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"findRootIds\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"leafIndexs\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple[]\",\"internalType\":\"structPDPService.RootIdAndOffset[]\",\"components\":[{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengeFinality\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextChallengeEpoch\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextProofSetId\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextRootId\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetOwner\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRootCid\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple\",\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRootLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"proofSetLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"proposeProofSetOwner\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"provePossession\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"proofs\",\"type\":\"tuple[]\",\"internalType\":\"structPDPService.Proof[]\",\"components\":[{\"name\":\"leaf\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"proof\",\"type\":\"bytes32[]\",\"internalType\":\"bytes32[]\"}]}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"removeRoots\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"rootLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"error\",\"name\":\"IndexedError\",\"inputs\":[{\"name\":\"idx\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"msg\",\"type\":\"string\",\"internalType\":\"string\"}]}]",
+	ABI: "[{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_challengeFinality\",\"type\":\"uint256\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"idx\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"msg\",\"type\":\"string\"}],\"name\":\"IndexedError\",\"type\":\"error\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"ProofSetCreated\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"firstAdded\",\"type\":\"uint256\"}],\"name\":\"RootsAdded\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"totalDelta\",\"type\":\"uint256\"}],\"name\":\"RootsRemoved\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"LEAF_SIZE\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"MAX_ROOT_SIZE\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"components\":[{\"components\":[{\"internalType\":\"bytes\",\"name\":\"data\",\"type\":\"bytes\"}],\"internalType\":\"structCids.Cid\",\"name\":\"root\",\"type\":\"tuple\"},{\"internalType\":\"uint256\",\"name\":\"rawSize\",\"type\":\"uint256\"}],\"internalType\":\"structPDPService.RootData[]\",\"name\":\"rootData\",\"type\":\"tuple[]\"}],\"name\":\"addRoots\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"claimProofSetOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"recordKeeper\",\"type\":\"address\"}],\"name\":\"createProofSet\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"deleteProofSet\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"uint256[]\",\"name\":\"leafIndexs\",\"type\":\"uint256[]\"}],\"name\":\"findRootIds\",\"outputs\":[{\"components\":[{\"internalType\":\"uint256\",\"name\":\"rootId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"offset\",\"type\":\"uint256\"}],\"internalType\":\"structPDPService.RootIdAndOffset[]\",\"name\":\"\",\"type\":\"tuple[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getChallengeFinality\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"getNextChallengeEpoch\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getNextProofSetId\",\"outputs\":[{\"internalType\":\"uint64\",\"name\":\"\",\"type\":\"uint64\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"getNextRootId\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"getProofSetLeafCount\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"getProofSetOwner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"},{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"rootId\",\"type\":\"uint256\"}],\"name\":\"getRootCid\",\"outputs\":[{\"components\":[{\"internalType\":\"bytes\",\"name\":\"data\",\"type\":\"bytes\"}],\"internalType\":\"structCids.Cid\",\"name\":\"\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"rootId\",\"type\":\"uint256\"}],\"name\":\"getRootLeafCount\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"proofSetLive\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"proposeProofSetOwner\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"components\":[{\"internalType\":\"bytes32\",\"name\":\"leaf\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32[]\",\"name\":\"proof\",\"type\":\"bytes32[]\"}],\"internalType\":\"structPDPService.Proof[]\",\"name\":\"proofs\",\"type\":\"tuple[]\"}],\"name\":\"provePossession\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"uint256[]\",\"name\":\"rootIds\",\"type\":\"uint256[]\"}],\"name\":\"removeRoots\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"rootId\",\"type\":\"uint256\"}],\"name\":\"rootLive\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"}]",
 }
 
 // PDPServiceABI is the input ABI used to generate the binding from.
@@ -752,4 +752,436 @@ func (_PDPService *PDPServiceSession) RemoveRoots(setId *big.Int, rootIds []*big
 // Solidity: function removeRoots(uint256 setId, uint256[] rootIds) returns(uint256)
 func (_PDPService *PDPServiceTransactorSession) RemoveRoots(setId *big.Int, rootIds []*big.Int) (*types.Transaction, error) {
 	return _PDPService.Contract.RemoveRoots(&_PDPService.TransactOpts, setId, rootIds)
+}
+
+// PDPServiceProofSetCreatedIterator is returned from FilterProofSetCreated and is used to iterate over the raw logs and unpacked data for ProofSetCreated events raised by the PDPService contract.
+type PDPServiceProofSetCreatedIterator struct {
+	Event *PDPServiceProofSetCreated // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *PDPServiceProofSetCreatedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(PDPServiceProofSetCreated)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(PDPServiceProofSetCreated)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *PDPServiceProofSetCreatedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *PDPServiceProofSetCreatedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// PDPServiceProofSetCreated represents a ProofSetCreated event raised by the PDPService contract.
+type PDPServiceProofSetCreated struct {
+	SetId *big.Int
+	Raw   types.Log // Blockchain specific contextual infos
+}
+
+// FilterProofSetCreated is a free log retrieval operation binding the contract event 0x5979d495e336598dba8459e44f8eb2a1c957ce30fcc10cabea4bb0ffe969df6a.
+//
+// Solidity: event ProofSetCreated(uint256 indexed setId)
+func (_PDPService *PDPServiceFilterer) FilterProofSetCreated(opts *bind.FilterOpts, setId []*big.Int) (*PDPServiceProofSetCreatedIterator, error) {
+
+	var setIdRule []interface{}
+	for _, setIdItem := range setId {
+		setIdRule = append(setIdRule, setIdItem)
+	}
+
+	logs, sub, err := _PDPService.contract.FilterLogs(opts, "ProofSetCreated", setIdRule)
+	if err != nil {
+		return nil, err
+	}
+	return &PDPServiceProofSetCreatedIterator{contract: _PDPService.contract, event: "ProofSetCreated", logs: logs, sub: sub}, nil
+}
+
+// WatchProofSetCreated is a free log subscription operation binding the contract event 0x5979d495e336598dba8459e44f8eb2a1c957ce30fcc10cabea4bb0ffe969df6a.
+//
+// Solidity: event ProofSetCreated(uint256 indexed setId)
+func (_PDPService *PDPServiceFilterer) WatchProofSetCreated(opts *bind.WatchOpts, sink chan<- *PDPServiceProofSetCreated, setId []*big.Int) (event.Subscription, error) {
+
+	var setIdRule []interface{}
+	for _, setIdItem := range setId {
+		setIdRule = append(setIdRule, setIdItem)
+	}
+
+	logs, sub, err := _PDPService.contract.WatchLogs(opts, "ProofSetCreated", setIdRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(PDPServiceProofSetCreated)
+				if err := _PDPService.contract.UnpackLog(event, "ProofSetCreated", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseProofSetCreated is a log parse operation binding the contract event 0x5979d495e336598dba8459e44f8eb2a1c957ce30fcc10cabea4bb0ffe969df6a.
+//
+// Solidity: event ProofSetCreated(uint256 indexed setId)
+func (_PDPService *PDPServiceFilterer) ParseProofSetCreated(log types.Log) (*PDPServiceProofSetCreated, error) {
+	event := new(PDPServiceProofSetCreated)
+	if err := _PDPService.contract.UnpackLog(event, "ProofSetCreated", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
+// PDPServiceRootsAddedIterator is returned from FilterRootsAdded and is used to iterate over the raw logs and unpacked data for RootsAdded events raised by the PDPService contract.
+type PDPServiceRootsAddedIterator struct {
+	Event *PDPServiceRootsAdded // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *PDPServiceRootsAddedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(PDPServiceRootsAdded)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(PDPServiceRootsAdded)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *PDPServiceRootsAddedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *PDPServiceRootsAddedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// PDPServiceRootsAdded represents a RootsAdded event raised by the PDPService contract.
+type PDPServiceRootsAdded struct {
+	FirstAdded *big.Int
+	Raw        types.Log // Blockchain specific contextual infos
+}
+
+// FilterRootsAdded is a free log retrieval operation binding the contract event 0xde16f8a35fc44238b21a493b7267f7a5064f2bc1b3a1af51deeb4b5a47281d47.
+//
+// Solidity: event RootsAdded(uint256 indexed firstAdded)
+func (_PDPService *PDPServiceFilterer) FilterRootsAdded(opts *bind.FilterOpts, firstAdded []*big.Int) (*PDPServiceRootsAddedIterator, error) {
+
+	var firstAddedRule []interface{}
+	for _, firstAddedItem := range firstAdded {
+		firstAddedRule = append(firstAddedRule, firstAddedItem)
+	}
+
+	logs, sub, err := _PDPService.contract.FilterLogs(opts, "RootsAdded", firstAddedRule)
+	if err != nil {
+		return nil, err
+	}
+	return &PDPServiceRootsAddedIterator{contract: _PDPService.contract, event: "RootsAdded", logs: logs, sub: sub}, nil
+}
+
+// WatchRootsAdded is a free log subscription operation binding the contract event 0xde16f8a35fc44238b21a493b7267f7a5064f2bc1b3a1af51deeb4b5a47281d47.
+//
+// Solidity: event RootsAdded(uint256 indexed firstAdded)
+func (_PDPService *PDPServiceFilterer) WatchRootsAdded(opts *bind.WatchOpts, sink chan<- *PDPServiceRootsAdded, firstAdded []*big.Int) (event.Subscription, error) {
+
+	var firstAddedRule []interface{}
+	for _, firstAddedItem := range firstAdded {
+		firstAddedRule = append(firstAddedRule, firstAddedItem)
+	}
+
+	logs, sub, err := _PDPService.contract.WatchLogs(opts, "RootsAdded", firstAddedRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(PDPServiceRootsAdded)
+				if err := _PDPService.contract.UnpackLog(event, "RootsAdded", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseRootsAdded is a log parse operation binding the contract event 0xde16f8a35fc44238b21a493b7267f7a5064f2bc1b3a1af51deeb4b5a47281d47.
+//
+// Solidity: event RootsAdded(uint256 indexed firstAdded)
+func (_PDPService *PDPServiceFilterer) ParseRootsAdded(log types.Log) (*PDPServiceRootsAdded, error) {
+	event := new(PDPServiceRootsAdded)
+	if err := _PDPService.contract.UnpackLog(event, "RootsAdded", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
+// PDPServiceRootsRemovedIterator is returned from FilterRootsRemoved and is used to iterate over the raw logs and unpacked data for RootsRemoved events raised by the PDPService contract.
+type PDPServiceRootsRemovedIterator struct {
+	Event *PDPServiceRootsRemoved // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *PDPServiceRootsRemovedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(PDPServiceRootsRemoved)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(PDPServiceRootsRemoved)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *PDPServiceRootsRemovedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *PDPServiceRootsRemovedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// PDPServiceRootsRemoved represents a RootsRemoved event raised by the PDPService contract.
+type PDPServiceRootsRemoved struct {
+	TotalDelta *big.Int
+	Raw        types.Log // Blockchain specific contextual infos
+}
+
+// FilterRootsRemoved is a free log retrieval operation binding the contract event 0xc104a368a3d37b85a4936902c8de9d9efc075994124c76c0173e370bc244cda1.
+//
+// Solidity: event RootsRemoved(uint256 indexed totalDelta)
+func (_PDPService *PDPServiceFilterer) FilterRootsRemoved(opts *bind.FilterOpts, totalDelta []*big.Int) (*PDPServiceRootsRemovedIterator, error) {
+
+	var totalDeltaRule []interface{}
+	for _, totalDeltaItem := range totalDelta {
+		totalDeltaRule = append(totalDeltaRule, totalDeltaItem)
+	}
+
+	logs, sub, err := _PDPService.contract.FilterLogs(opts, "RootsRemoved", totalDeltaRule)
+	if err != nil {
+		return nil, err
+	}
+	return &PDPServiceRootsRemovedIterator{contract: _PDPService.contract, event: "RootsRemoved", logs: logs, sub: sub}, nil
+}
+
+// WatchRootsRemoved is a free log subscription operation binding the contract event 0xc104a368a3d37b85a4936902c8de9d9efc075994124c76c0173e370bc244cda1.
+//
+// Solidity: event RootsRemoved(uint256 indexed totalDelta)
+func (_PDPService *PDPServiceFilterer) WatchRootsRemoved(opts *bind.WatchOpts, sink chan<- *PDPServiceRootsRemoved, totalDelta []*big.Int) (event.Subscription, error) {
+
+	var totalDeltaRule []interface{}
+	for _, totalDeltaItem := range totalDelta {
+		totalDeltaRule = append(totalDeltaRule, totalDeltaItem)
+	}
+
+	logs, sub, err := _PDPService.contract.WatchLogs(opts, "RootsRemoved", totalDeltaRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(PDPServiceRootsRemoved)
+				if err := _PDPService.contract.UnpackLog(event, "RootsRemoved", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseRootsRemoved is a log parse operation binding the contract event 0xc104a368a3d37b85a4936902c8de9d9efc075994124c76c0173e370bc244cda1.
+//
+// Solidity: event RootsRemoved(uint256 indexed totalDelta)
+func (_PDPService *PDPServiceFilterer) ParseRootsRemoved(log types.Log) (*PDPServiceRootsRemoved, error) {
+	event := new(PDPServiceRootsRemoved)
+	if err := _PDPService.contract.UnpackLog(event, "RootsRemoved", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
 }
