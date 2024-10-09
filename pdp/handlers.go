@@ -509,11 +509,14 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Convert proofSetID to uint64
-	proofSetID, err := strconv.ParseUint(proofSetIDStr, 10, 64)
+	proofSetIDUint64, err := strconv.ParseUint(proofSetIDStr, 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid proof set ID format", http.StatusBadRequest)
 		return
 	}
+
+	// Convert proofSetID to *big.Int
+	proofSetID := new(big.Int).SetUint64(proofSetIDUint64)
 
 	// Step 3: Parse the request body
 	type SubrootEntry struct {
@@ -577,7 +580,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 
 	// Start a DB transaction
 	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// Step 4: Get pdp_piecerefs matching all subroot cids (make sure those refs belong to serviceLabel)
+		// Step 4: Get pdp_piecerefs matching all subroot cids + make sure those refs belong to serviceLabel
 		rows, err := tx.Query(`
             SELECT ppr.piece_cid, ppr.id AS pdp_pieceref_id, ppr.piece_ref,
                    pp.piece_padded_size
@@ -667,9 +670,6 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 			if !providedRootCID.Equals(generatedRootCID) {
 				return false, fmt.Errorf("provided RootCID does not match generated RootCID")
 			}
-
-			// Attach the generated RootCID to the request for later use
-			addRootReq.RootCID = generatedRootCID.String()
 		}
 
 		// All validations passed, commit the transaction
@@ -689,8 +689,9 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Prepare RootData array for Ethereum transaction
+	// Define a Struct that matches the Solidity RootData struct
 	type RootData struct {
-		Root    []byte
+		Root    struct{ Data []byte }
 		RawSize *big.Int
 	}
 
@@ -705,16 +706,16 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		}
 
 		// Get raw size by summing up the sizes of subroots
-		var totalSize abi.UnpaddedPieceSize = 0
+		var totalSize uint64 = 0
 		for _, subrootEntry := range addRootReq.Subroots {
 			subrootInfo := subrootInfoMap[subrootEntry.SubrootCID]
-			totalSize += subrootInfo.PieceInfo.Size.Unpadded()
+			totalSize += uint64(subrootInfo.PieceInfo.Size.Unpadded())
 		}
 
 		// Prepare RootData for Ethereum transaction
 		rootData := RootData{
-			Root:    rootCID.Bytes(),
-			RawSize: big.NewInt(int64(totalSize)),
+			Root:    struct{ Data []byte }{Data: rootCID.Bytes()},
+			RawSize: new(big.Int).SetUint64(totalSize),
 		}
 
 		rootDataArray = append(rootDataArray, rootData)
@@ -784,7 +785,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
                     )
                     VALUES ($1, $2, $3, $4, $5, $6, $7)
                 `,
-					proofSetID,
+					proofSetIDUint64,
 					addRootReq.RootCID,
 					txHash.Hex(),
 					addMessageIndex,
