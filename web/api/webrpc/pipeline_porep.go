@@ -412,5 +412,5 @@ func (a *WebRPC) getOwner(ctx context.Context, id int64) (bool, error) {
 	if err != nil {
 		return false, xerrors.Errorf("failed to fetch owner ID: %w", err)
 	}
-	return &owner != nil, nil
+	return owner > 0, nil
 }

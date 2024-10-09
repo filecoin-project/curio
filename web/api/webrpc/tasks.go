@@ -26,7 +26,8 @@ func (a *WebRPC) ClusterTaskSummary(ctx context.Context) ([]TaskSummary, error) 
 	err := a.deps.DB.Select(ctx, &ts, `SELECT 
 		t.id as id, t.name as name, t.update_time as since_posted, t.owner_id as owner_id, hm.host_and_port as owner
 	FROM harmony_task t LEFT JOIN harmony_machines hm ON hm.id = t.owner_id 
-	ORDER BY t.update_time ASC, t.owner_id`)
+	ORDER BY
+	    CASE WHEN t.owner_id IS NULL THEN 1 ELSE 0 END, t.update_time ASC`)
 	if err != nil {
 		return nil, err // Handle error
 	}

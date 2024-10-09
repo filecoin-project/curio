@@ -69,7 +69,7 @@ customElements.define('pipeline-porep-sectors',class PipelinePorepSectors extend
         }
         
         .pipeline-waiting {
-            background-color: #d0d0d0;
+            background-color: #808080;
         }`
     properties = {
         sector: Object,
