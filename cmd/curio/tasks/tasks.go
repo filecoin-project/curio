@@ -272,7 +272,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			es := getSenderEth()
 			sdeps.EthSender = es
 
-			pdp.NewWatcher(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdp.NewWatcherCreate(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdp.NewWatcherRootAdd(db, must.One(dependencies.EthClient.Val()), chainSched)
 
 			pdpNotifTask := pdp.NewPDPNotifyTask(db)
 			activeTasks = append(activeTasks, pdpNotifTask)
