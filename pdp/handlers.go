@@ -766,34 +766,28 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		}
 
 		// Insert into pdp_proofset_roots
-		addMessageIndex := int64(0) // Assuming single message per transaction, adjust as needed
-		rootID := int64(0)          // On-chain index of the root, need to retrieve after transaction confirmation
 
-		for _, addRootReq := range req {
+		for addMessageIndex, addRootReq := range req {
 			for _, subrootEntry := range addRootReq.Subroots {
 				subrootInfo := subrootInfoMap[subrootEntry.SubrootCID]
 
 				// Insert into pdp_proofset_roots
 				_, err = txdb.Exec(`
-                    INSERT INTO pdp_proofset_roots (
+                    INSERT INTO pdp_proofset_root_adds (
                         proofset,
                         root,
                         add_message_hash,
-                        add_message_ok,
                         add_message_index,
-                        root_id,
                         subroot,
                         subroot_offset,
                         pdp_pieceref
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
                 `,
 					proofSetID,
 					addRootReq.RootCID,
 					txHash.Hex(),
-					false, // add_message_ok will be updated by trigger
 					addMessageIndex,
-					rootID, // Will be updated later
 					subrootEntry.SubrootCID,
 					subrootInfo.SubrootOffset,
 					subrootInfo.PDPPieceRefID,

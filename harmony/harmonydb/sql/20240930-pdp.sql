@@ -87,10 +87,9 @@ CREATE TABLE pdp_proofset_roots (
     root TEXT NOT NULL, -- root cid (piececid v2)
 
     add_message_hash TEXT NOT NULL REFERENCES message_waits_eth(signed_tx_hash) ON DELETE CASCADE,
-    add_message_ok BOOLEAN NOT NULL DEFAULT FALSE, -- set to true when the add message is processed
     add_message_index BIGINT NOT NULL, -- index of root in the add message
 
-    root_id BIGINT, -- on-chain index of the root in the rootCids sub-array
+    root_id BIGINT NOT NULL, -- on-chain index of the root in the rootCids sub-array
 
     -- aggregation roots (aggregated like pieces in filecoin sectors)
     subroot TEXT NOT NULL, -- subroot cid (piececid v2), with no aggregation this == root
@@ -99,7 +98,29 @@ CREATE TABLE pdp_proofset_roots (
 
     pdp_pieceref BIGINT NOT NULL, -- pdp_piecerefs.id
 
-    CONSTRAINT pdp_proofset_roots_pk PRIMARY KEY (proofset, root_id, subroot_offset),
+    CONSTRAINT pdp_proofset_roots_root_id_unique PRIMARY KEY (proofset, root_id, subroot_offset),
+
+    FOREIGN KEY (proofset) REFERENCES pdp_proof_sets(id) ON DELETE CASCADE, -- cascade, if we drop a proofset, we no longer care about the roots
+    FOREIGN KEY (pdp_pieceref) REFERENCES pdp_piecerefs(id) ON DELETE SET NULL -- sets null on delete so that it's easy to notice and clean up
+);
+
+-- proofset root adds - tracking add-root messages which didn't land yet, so don't have a known root_id
+CREATE TABLE pdp_proofset_root_adds (
+    proofset BIGINT NOT NULL, -- pdp_proof_sets.id
+    root TEXT NOT NULL, -- root cid (piececid v2)
+
+    add_message_hash TEXT NOT NULL REFERENCES message_waits_eth(signed_tx_hash) ON DELETE CASCADE,
+    add_message_ok BOOLEAN, -- set to true when the add message is processed
+    add_message_index BIGINT NOT NULL, -- index of root in the add message
+
+    -- aggregation roots (aggregated like pieces in filecoin sectors)
+    subroot TEXT NOT NULL, -- subroot cid (piececid v2), with no aggregation this == root
+    subroot_offset BIGINT NOT NULL, -- offset of the subroot in the root
+    -- note: size contained in subroot piececid v2
+
+    pdp_pieceref BIGINT NOT NULL, -- pdp_piecerefs.id
+
+    CONSTRAINT pdp_proofset_root_adds_root_id_unique PRIMARY KEY (proofset, add_message_hash, subroot_offset),
 
     FOREIGN KEY (proofset) REFERENCES pdp_proof_sets(id) ON DELETE CASCADE, -- cascade, if we drop a proofset, we no longer care about the roots
     FOREIGN KEY (pdp_pieceref) REFERENCES pdp_piecerefs(id) ON DELETE SET NULL -- sets null on delete so that it's easy to notice and clean up
@@ -206,7 +227,7 @@ CREATE OR REPLACE FUNCTION update_pdp_proofset_roots()
 BEGIN
     IF OLD.tx_status = 'pending' AND (NEW.tx_status = 'confirmed' OR NEW.tx_status = 'failed') THEN
         -- Update the add_message_ok field in pdp_proofset_roots if a matching entry exists
-        UPDATE pdp_proofset_roots
+        UPDATE pdp_proofset_root_adds
         SET add_message_ok = CASE
                                 WHEN NEW.tx_status = 'failed' OR NEW.tx_success = FALSE THEN FALSE
                                 WHEN NEW.tx_status = 'confirmed' AND NEW.tx_success = TRUE THEN TRUE
