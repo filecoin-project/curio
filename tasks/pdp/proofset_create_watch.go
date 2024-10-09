@@ -18,7 +18,7 @@ type ProofSetCreate struct {
 	Service           string `db:"service"`
 }
 
-func NewWatcher(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
+func NewWatcherCreate(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		err := processPendingProofSetCreates(ctx, db, ethClient)
 		if err != nil {
