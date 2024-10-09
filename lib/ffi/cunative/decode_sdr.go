@@ -1,3 +1,5 @@
+//go:build cunative
+
 package cunative
 
 /*

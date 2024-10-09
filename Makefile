@@ -80,6 +80,7 @@ deps: $(BUILD_DEPS)
 
 ## ldflags -s -w strips binary
 
+curio: GOFLAGS+=-tags=cunative
 curio: $(BUILD_DEPS)
 	rm -f curio
 	GOAMD64=v3 CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -o curio -ldflags " -s -w \
