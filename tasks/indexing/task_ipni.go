@@ -323,7 +323,9 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 
 			p := pendings[0]
 
-			if !p.Announce {
+			// Skip IPNI if deal says not to announce or not to index (fast retrievals). If we announce without
+			// indexing, it will cause issue with retrievals.
+			if !p.Announce || !p.ShouldIndex {
 				n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1`, p.UUID)
 				if err != nil {
 					return false, xerrors.Errorf("store IPNI success: updating pipeline: %w", err)
