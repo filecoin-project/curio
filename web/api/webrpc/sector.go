@@ -11,6 +11,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -30,6 +31,7 @@ type SectorInfo struct {
 	TaskHistory []TaskHistory
 
 	Resumable bool
+	Restart   bool
 }
 
 type SectorInfoTaskSummary struct {
@@ -118,6 +120,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
        task_id_tree_d, after_tree_d,
        task_id_tree_c, after_tree_c,
        task_id_tree_r, after_tree_r,
+       task_id_synth, after_synth,
        task_id_precommit_msg, after_precommit_msg,
        after_precommit_msg_success, seed_epoch,
        task_id_porep, porep_proof, after_porep,
@@ -407,6 +410,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		TaskHistory: th,
 
 		Resumable: hasAnyStuckTask,
+		Restart:   hasAnyStuckTask && !sle.AfterSynthetic, // Should be stuck and not be past SyntheticProofs
 	}, nil
 }
 
@@ -436,5 +440,28 @@ func (a *WebRPC) SectorRemove(ctx context.Context, spid, id int64) error {
 		return xerrors.Errorf("failed to mark sector for removal: %w", err)
 	}
 
+	return nil
+}
+
+func (a *WebRPC) SectorRestart(ctx context.Context, spid, id int64) error {
+	_, err := a.deps.DB.Exec(ctx, `UPDATE sectors_sdr_pipeline SET after_sdr = false, after_tree_d = false, after_tree_c = false,
+                                after_tree_r = false WHERE sp_id = $1 AND sector_number = $2`, spid, id)
+	if err != nil {
+		return xerrors.Errorf("failed to reset sector state: %w", err)
+	}
+
+	err = a.deps.Stor.Remove(ctx, abi.SectorID{Miner: abi.ActorID(spid), Number: abi.SectorNumber(id)}, storiface.FTCache, true, nil)
+	if err != nil {
+		return xerrors.Errorf("failed to remove cache file: %w", err)
+	}
+	err = a.deps.Stor.Remove(ctx, abi.SectorID{Miner: abi.ActorID(spid), Number: abi.SectorNumber(id)}, storiface.FTSealed, true, nil)
+	if err != nil {
+		return xerrors.Errorf("failed to remove sealed file: %w", err)
+	}
+
+	_, err = a.deps.DB.Exec(ctx, `SELECT unset_task_id($1, $2)`, spid, id)
+	if err != nil {
+		return xerrors.Errorf("failed to resume sector: %w", err)
+	}
 	return nil
 }

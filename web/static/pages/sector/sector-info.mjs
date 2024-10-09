@@ -20,6 +20,10 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
         await RPCCall('SectorResume', [this.data.SpID, this.data.SectorNumber]);
         window.location.reload();
     }
+    async restartSector() {
+        await RPCCall('SectorRestart', [this.data.SpID, this.data.SectorNumber]);
+        window.location.reload();
+    }
 
     render() {
         if (!this.data) {
@@ -29,14 +33,22 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
         return html`
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
-
-            <h2>Sector ${this.data.SectorNumber}</h2>
-            <div>
-                <details>
-                    <summary class="btn btn-warning">Remove ${!this.data.PipelinePoRep?.Failed ? '(THIS SECTOR IS NOT FAILED!)' : ''}</summary>
-                    <button class="btn btn-danger" @click="${() => this.removeSector()}">Confirm Remove</button>
-                </details>
-                ${this.data.Resumable ? html`<button class="btn btn-primary" @click="${() => this.resumeSector()}">Resume</button>` : ''}
+            <div class="row" style="margin-bottom: 20px;">
+                <h2 style="text-align: center; margin-top: 20px;">Sector ${this.data.SectorNumber}</h2>
+                <div class="col-md-auto">
+                    <details>
+                        <summary class="btn btn-warning">Remove ${!this.data.PipelinePoRep?.Failed ? '(THIS SECTOR IS NOT FAILED!)' : ''}</summary>
+                        <button class="btn btn-danger" @click="${() => this.removeSector()}">Confirm Remove</button>
+                    </details>
+                </div>
+                <div class="col-md-auto">
+                    ${this.data.Restart ? html`<details>
+                        <summary class="btn btn-warning">Restart (THIS WILL RESTART SECTOR FROM SDR!)</summary>
+                        <button class="btn btn-danger" @click="${() => this.restartSector()}"> Confirm Restart</button></details>` : ''}
+                </div>
+                <div class="col-md-auto">
+                    ${this.data.Resumable ? html`<button class="btn btn-primary" @click="${() => this.resumeSector()}">Resume</button>` : ''}
+                </div>
             </div>
             <div>
                 <h3>PoRep Pipeline</h3>
