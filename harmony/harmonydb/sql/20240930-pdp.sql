@@ -84,15 +84,20 @@ CREATE TABLE pdp_proofset_creates (
 -- proofset roots
 CREATE TABLE pdp_proofset_roots (
     proofset BIGINT NOT NULL, -- pdp_proof_sets.id
-    root_id BIGINT NOT NULL, -- on-chain index of the root in the rootCids sub-array
     root TEXT NOT NULL, -- root cid (piececid v2)
+
+    add_message_hash TEXT NOT NULL REFERENCES message_waits_eth(signed_tx_hash) ON DELETE CASCADE,
+    add_message_ok BOOLEAN NOT NULL DEFAULT FALSE, -- set to true when the add message is processed
+    add_message_index BIGINT NOT NULL, -- index of root in the add message
+
+    root_id BIGINT, -- on-chain index of the root in the rootCids sub-array
 
     -- aggregation roots (aggregated like pieces in filecoin sectors)
     subroot TEXT NOT NULL, -- subroot cid (piececid v2), with no aggregation this == root
     subroot_offset BIGINT NOT NULL, -- offset of the subroot in the root
     -- note: size contained in subroot piececid v2
 
-    pdppieceref BIGINT NOT NULL, -- pdp_piecerefs.id
+    pdp_pieceref BIGINT NOT NULL, -- pdp_piecerefs.id
 
     CONSTRAINT pdp_proofset_roots_pk PRIMARY KEY (proofset, root_id, subroot_offset),
 
@@ -194,3 +199,26 @@ CREATE TRIGGER pdp_proofset_create_message_status_change
     AFTER UPDATE OF tx_status, tx_success ON message_waits_eth
     FOR EACH ROW
 EXECUTE PROCEDURE update_pdp_proofset_creates();
+
+-- add message trigger
+CREATE OR REPLACE FUNCTION update_pdp_proofset_roots()
+    RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.tx_status = 'pending' AND (NEW.tx_status = 'confirmed' OR NEW.tx_status = 'failed') THEN
+        -- Update the add_message_ok field in pdp_proofset_roots if a matching entry exists
+        UPDATE pdp_proofset_roots
+        SET add_message_ok = CASE
+                                WHEN NEW.tx_status = 'failed' OR NEW.tx_success = FALSE THEN FALSE
+                                WHEN NEW.tx_status = 'confirmed' AND NEW.tx_success = TRUE THEN TRUE
+                                ELSE add_message_ok
+                            END
+        WHERE add_message_hash = NEW.signed_tx_hash;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER pdp_proofset_add_message_status_change
+    AFTER UPDATE OF tx_status, tx_success ON message_waits_eth
+    FOR EACH ROW
+EXECUTE PROCEDURE update_pdp_proofset_roots();
