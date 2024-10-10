@@ -427,16 +427,24 @@ var libp2pGenerateCmd = &cli.Command{
 			return err
 		}
 
-		_, err = dep.DB.Exec(ctx, `INSERT INTO libp2p (sp_id, priv_key) VALUES ($1, $2) ON CONFLICT(sp_id) DO NOTHING`, mid, pk)
+		n, err := dep.DB.Exec(ctx, `INSERT INTO libp2p (sp_id, priv_key) VALUES ($1, $2) ON CONFLICT(sp_id) DO NOTHING`, mid, pk)
 		if err != nil {
 			return xerrors.Errorf("failed to to insert the key into DB: %w", err)
+		}
+
+		if n == 0 {
+			return xerrors.Errorf("No new was created. Check if key already exists")
+		}
+
+		if n > 1 {
+			return xerrors.Errorf("%d rows affected in DB when 1 was expected", n)
 		}
 
 		fmt.Println("New Key created for the miner", act)
 
 		id, err := peer.IDFromPublicKey(pk.GetPublic())
 		if err != nil {
-			return fmt.Errorf("getting peer ID: %w", err)
+			return xerrors.Errorf("getting peer ID: %w", err)
 		}
 
 		fmt.Println("PeerID for Miner", act.String(), id.String())
