@@ -72,7 +72,7 @@ func BuildTreeD(data io.Reader, unpaddedData bool, outPath string, size abi.Padd
 		}
 	}()
 
-	outSize := treeSize(size)
+	outSize := binTreeSize(size)
 
 	// allocate space for the tree
 	err = out.Truncate(int64(outSize))
@@ -268,15 +268,9 @@ func BuildTreeD(data io.Reader, unpaddedData bool, outPath string, size abi.Padd
 	return commCid, nil
 }
 
-func treeSize(data abi.PaddedPieceSize) uint64 {
-	bytesToAlloc := uint64(data)
-
-	// append bytes until we get to nodeSize
-	for todo := bytesToAlloc; todo > nodeSize; todo /= 2 {
-		bytesToAlloc += todo / 2
-	}
-
-	return bytesToAlloc
+func binTreeSize(data abi.PaddedPieceSize) uint64 {
+	nodes, _ := computeTotalNodes(int64(data)/NODE_SIZE, 2)
+	return uint64(nodes) * NODE_SIZE
 }
 
 func layerOffset(size uint64, layer int) uint64 {
