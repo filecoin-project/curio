@@ -159,6 +159,11 @@ git checkout <release version>
        export CGO_CFLAGS="-D__BLST_PORTABLE__"
        ```
 
+    3. Also for old processors, if Curio cannot start because the processor generation is too old, add the variable:\
+
+        ```shell
+        export GOENVS=GOAMD64=v1
+        ```
 
    3.  By default, a ‘multicore-sdr’ option is used in the proofs library. This feature is also used in FFI unless explicitly disabled. To disable building with the ‘multicore-sdr’ dependency, set `FFI_USE_MULTICORE_SDR` to `0`:\
 
