@@ -3,29 +3,41 @@ package pdp
 import (
 	"context"
 	"database/sql"
-	"log"
-
+	"errors"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/promise"
+	"github.com/filecoin-project/curio/lib/proof"
+	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/filecoin-project/curio/tasks/message"
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
+	"math/big"
 )
+
+const LeafSize = proof.NODE_SIZE
 
 type ProveTask struct {
 	db        *harmonydb.DB
 	ethClient *ethclient.Client
+	sender    *message.SenderETH
 
 	addFunc promise.Promise[harmonytask.AddTaskFunc]
 }
 
-func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethClient *ethclient.Client) *ProveTask {
+func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethClient *ethclient.Client, sender *message.SenderETH) *ProveTask {
 	pt := &ProveTask{
 		db:        db,
 		ethClient: ethClient,
+		sender:    sender,
 	}
 
 	err := chainSched.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
@@ -127,25 +139,69 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to get task details: %w", err)
 	}
 
-	// (Stub) Query the contract and generate the proof
-	// TODO: Implement actual contract interactions and proof generation
-	log.Printf("Generating proof for proof set %d at challenge epoch %d", proofSetID, challengeEpoch)
+	pdpContracts := contract.ContractAddresses()
+	pdpServiceAddress := pdpContracts.PDPService
 
-	// Simulate proof generation delay
-	// time.Sleep(time.Second * 5)
+	pdpService, err := contract.NewPDPService(pdpServiceAddress, p.ethClient)
+	if err != nil {
+		return false, xerrors.Errorf("failed to instantiate PDPService contract at %s: %w", pdpServiceAddress.Hex(), err)
+	}
 
-	// After proof is generated, update the database
+	// Proof parameters
+	seed := big.NewInt(challengeEpoch)
+
+	// Number of challenges to generate
+	numChallenges := 20 // Application / pdp will specify this later
+
+	proofs, err := p.GenerateProofs(ctx, pdpService, proofSetID, seed, numChallenges)
+	if err != nil {
+		return false, xerrors.Errorf("failed to generate proofs: %w", err)
+	}
+
+	abiData, err := contract.PDPServiceMetaData.GetAbi()
+	if err != nil {
+		return false, xerrors.Errorf("failed to get PDPService ABI: %w", err)
+	}
+
+	data, err := abiData.Pack("provePossession", big.NewInt(proofSetID), proofs)
+	if err != nil {
+		return false, xerrors.Errorf("failed to pack data: %w", err)
+	}
+
+	// Prepare the transaction (nonce will be set to 0, SenderETH will assign it)
+	txEth := types.NewTransaction(
+		0,
+		contract.ContractAddresses().PDPService,
+		big.NewInt(0),
+		0,
+		nil,
+		data,
+	)
+
+	if !stillOwned() {
+		// Task was abandoned, don't send the proofs
+		return false, nil
+	}
+
+	fromAddress, err := p.getSenderAddress(ctx)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get sender address: %w", err)
+	}
+
+	reason := "pdp-prove"
+	txHash, err := p.sender.Send(ctx, fromAddress, txEth, reason)
+	if err != nil {
+		return false, xerrors.Errorf("failed to send transaction: %w", err)
+	}
 
 	// Start a transaction
 	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// Remove the task from pdp_prove_tasks
+		// Update pdp_prove_tasks with the transaction hash
 		_, err := tx.Exec(`
-            DELETE FROM pdp_prove_tasks
-            WHERE task_id = $1
-        `, taskID)
-		if err != nil {
-			return false, xerrors.Errorf("failed to delete task: %w", err)
-		}
+					UPDATE pdp_prove_tasks
+					SET message_eth_hash = $1
+					WHERE task_id = $2
+				`, txHash.Hex(), taskID)
 
 		// Optionally, update pdp_proof_sets.next_challenge_epoch = NULL and next_challenge_possible = FALSE
 		_, err = tx.Exec(`
@@ -166,6 +222,116 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	// Task completed successfully
 	return true, nil
+}
+
+func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDPService, proofSetID int64, seed *big.Int, numChallenges int) ([]contract.PDPServiceProof, error) {
+	proofs := make([]contract.PDPServiceProof, numChallenges)
+
+	callOpts := &bind.CallOpts{
+		Context: ctx,
+	}
+
+	totalLeafCount, err := pdpService.GetProofSetLeafCount(callOpts, big.NewInt(proofSetID))
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get proof set leaf count: %w", err)
+	}
+	totalLeaves := totalLeafCount.Uint64()
+
+	challenges := lo.Times(numChallenges, func(i int) int64 {
+		return generateChallengeIndex(seed, proofSetID, i, totalLeaves)
+	})
+
+	rootId, err := pdpService.FindRootIds(callOpts, big.NewInt(proofSetID), lo.Map(challenges, func(i int64, _ int) *big.Int { return big.NewInt(i) }))
+	if err != nil {
+		return nil, xerrors.Errorf("failed to find root IDs: %w", err)
+	}
+
+	for i := 0; i < numChallenges; i++ {
+		root := rootId[i]
+
+		proof, err := p.proveRoot(proofSetID, root.RootId.Int64(), root.Offset.Int64())
+		if err != nil {
+			return nil, xerrors.Errorf("failed to prove root (%d, %d, %d): %w", proofSetID, root.RootId.Int64(), root.Offset.Int64(), err)
+		}
+
+		proofs[i] = proof
+	}
+
+	return proofs, nil
+}
+
+func generateChallengeIndex(seed *big.Int, proofSetID int64, proofIndex int, totalLeaves uint64) int64 {
+	// Hash the seed, proofSetID, and proofIndex to get a deterministic challenge index
+	data := append(seed.Bytes(), big.NewInt(proofSetID).Bytes()...)
+	data = append(data, big.NewInt(int64(proofIndex)).Bytes()...)
+	hash := crypto.Keccak256Hash(data)
+
+	hashInt := new(big.Int).SetBytes(hash.Bytes())
+	totalLeavesBigInt := new(big.Int).SetUint64(totalLeaves)
+	challengeIndex := new(big.Int).Mod(hashInt, totalLeavesBigInt)
+
+	return challengeIndex.Int64()
+}
+
+func (p *ProveTask) proveRoot(proofSetID int64, rootId int64, challengedLeaf int64) (contract.PDPServiceProof, error) {
+	/*
+		CREATE TABLE pdp_proofset_roots (
+		    proofset BIGINT NOT NULL, -- pdp_proof_sets.id
+		    root TEXT NOT NULL, -- root cid (piececid v2)
+
+		    add_message_hash TEXT NOT NULL REFERENCES message_waits_eth(signed_tx_hash) ON DELETE CASCADE,
+		    add_message_index BIGINT NOT NULL, -- index of root in the add message
+
+		    root_id BIGINT NOT NULL, -- on-chain index of the root in the rootCids sub-array
+
+		    -- aggregation roots (aggregated like pieces in filecoin sectors)
+		    subroot TEXT NOT NULL, -- subroot cid (piececid v2), with no aggregation this == root
+		    subroot_offset BIGINT NOT NULL, -- offset of the subroot in the root
+		    -- note: size contained in subroot piececid v2
+
+		    pdp_pieceref BIGINT NOT NULL, -- pdp_piecerefs.id
+
+		    CONSTRAINT pdp_proofset_roots_root_id_unique PRIMARY KEY (proofset, root_id, subroot_offset),
+
+		    FOREIGN KEY (proofset) REFERENCES pdp_proof_sets(id) ON DELETE CASCADE, -- cascade, if we drop a proofset, we no longer care about the roots
+		    FOREIGN KEY (pdp_pieceref) REFERENCES pdp_piecerefs(id) ON DELETE SET NULL -- sets null on delete so that it's easy to notice and clean up
+		);
+
+	*/
+
+	rootChallengeOffset := challengedLeaf * LeafSize
+
+	// Retrieve the root and subroot
+	var rootCid, subrootCid string
+	var subrootOffset int64
+
+	err := p.db.QueryRow(context.Background(), `
+			SELECT root, subroot, subroot_offset
+			FROM pdp_proofset_roots
+			WHERE proofset = $1 AND root_id = $2 AND subroot_offset >= $3
+			ORDER BY subroot_offset ASC
+			LIMIT 1
+		`, proofSetID, rootId, rootChallengeOffset).Scan(&rootCid, &subrootCid, &subrootOffset)
+	if err != nil {
+		return contract.PDPServiceProof{}, xerrors.Errorf("failed to get root and subroot: %w", err)
+	}
+
+	panic("todo")
+}
+
+func (p *ProveTask) getSenderAddress(ctx context.Context) (common.Address, error) {
+	// todo do based on proofset
+
+	var addressStr string
+	err := p.db.QueryRow(ctx, `SELECT address FROM eth_keys WHERE role = 'pdp' LIMIT 1`).Scan(&addressStr)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return common.Address{}, errors.New("no sender address with role 'pdp' found")
+		}
+		return common.Address{}, err
+	}
+	address := common.HexToAddress(addressStr)
+	return address, nil
 }
 
 func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
