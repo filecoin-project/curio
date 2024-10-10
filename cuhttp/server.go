@@ -2,8 +2,9 @@ package cuhttp
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
+	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/snadrus/must"
 	"net/http"
 	"time"
 
@@ -12,8 +13,8 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/handlers"
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/crypto/acme/autocert"
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/deps"
@@ -21,6 +22,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/market/retrieval"
+	"github.com/filecoin-project/curio/pdp"
 )
 
 var log = logging.Logger("cu-http")
@@ -68,7 +70,11 @@ func compressionMiddleware(config *config.CompressionConfig) (func(http.Handler)
 	return adapter, nil
 }
 
-func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
+type ServiceDeps struct {
+	EthSender *message.SenderETH
+}
+
+func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 	ch := cache{db: d.DB}
 	cfg := d.Cfg.HTTP
 
@@ -108,7 +114,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
 	// Root path handler (simpler routes handled by http.ServeMux)
 	chiRouter.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "Hello, World!\n -Curio")
+		fmt.Fprintf(w, "Hello, World!\n -Curio\n")
 	})
 
 	// Status endpoint to check the health of the service
@@ -117,7 +123,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
 		fmt.Fprintf(w, "Service is up and running")
 	})
 
-	chiRouter, err = attachRouters(ctx, chiRouter, d)
+	chiRouter, err = attachRouters(ctx, chiRouter, d, sd)
 	if err != nil {
 		return xerrors.Errorf("failed to attach routers: %w", err)
 	}
@@ -130,23 +136,21 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
 		WriteTimeout:      cfg.WriteTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
-		TLSConfig: &tls.Config{
-			GetCertificate: certManager.GetCertificate,
-		},
+		TLSConfig:         certManager.TLSConfig(),
 	}
 
 	// We don't need to run an HTTP server. Any HTTP request should simply be handled as HTTPS.
 
 	// Start the server with TLS
-	eg := errgroup.Group{}
-	eg.Go(func() error {
+	go func() {
 		log.Infof("Starting HTTPS server for https://%s on %s", cfg.DomainName, cfg.ListenAddress)
 		serr := server.ListenAndServeTLS("", "")
 		if serr != nil {
-			return xerrors.Errorf("failed to start listening: %w", serr)
+			log.Errorf("Failed to start HTTPS server: %s", serr)
+			panic(serr)
 		}
-		return nil
-	})
+		return
+	}()
 
 	go func() {
 		<-ctx.Done()
@@ -157,7 +161,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
 		log.Warn("HTTP Server graceful shutdown successful")
 	}()
 
-	return eg.Wait()
+	return nil
 }
 
 type cache struct {
@@ -168,6 +172,11 @@ func (c cache) Get(ctx context.Context, key string) ([]byte, error) {
 	var ret []byte
 	err := c.db.QueryRow(ctx, `SELECT v FROM autocert_cache WHERE k = $1`, key).Scan(&ret)
 	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, autocert.ErrCacheMiss
+		}
+
+		log.Warnf("failed to get the value from DB for key %s: %s", key, err)
 		return nil, xerrors.Errorf("failed to get the value from DB for key %s: %w", key, err)
 	}
 	return ret, nil
@@ -177,6 +186,7 @@ func (c cache) Put(ctx context.Context, key string, data []byte) error {
 	_, err := c.db.Exec(ctx, `INSERT INTO autocert_cache (k, v) VALUES ($1, $2) 
 						ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v`, key, data)
 	if err != nil {
+		log.Warnf("failed to inset key value pair in DB: %s", err)
 		return xerrors.Errorf("failed to inset key value pair in DB: %w", err)
 	}
 	return nil
@@ -185,6 +195,7 @@ func (c cache) Put(ctx context.Context, key string, data []byte) error {
 func (c cache) Delete(ctx context.Context, key string) error {
 	_, err := c.db.Exec(ctx, `DELETE FROM autocert_cache WHERE k = $1`, key)
 	if err != nil {
+		log.Warnf("failed to delete key value pair from DB: %s", err)
 		return xerrors.Errorf("failed to delete key value pair from DB: %w", err)
 	}
 	return nil
@@ -192,7 +203,7 @@ func (c cache) Delete(ctx context.Context, key string) error {
 
 var _ autocert.Cache = cache{}
 
-func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps) (*chi.Mux, error) {
+func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDeps) (*chi.Mux, error) {
 	// Attach retrievals
 	rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader)
 	retrieval.Router(r, rp)
@@ -203,6 +214,11 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps) (*chi.Mux, err
 		return nil, xerrors.Errorf("failed to create new ipni provider: %w", err)
 	}
 	ipni_provider.Routes(r, ipp)
+
+	if sd.EthSender != nil {
+		pdsvc := pdp.NewPDPService(d.DB, d.LocalStore, must.One(d.EthClient.Get()), sd.EthSender)
+		pdp.Routes(r, pdsvc)
+	}
 
 	return r, nil
 }

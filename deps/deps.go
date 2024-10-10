@@ -8,6 +8,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/filecoin-project/lotus/lib/lazy"
 	"io"
 	"net"
 	"net/http"
@@ -186,8 +188,9 @@ type Deps struct {
 	Name              string
 	Alert             *alertmanager.AlertNow
 	IndexStore        *indexstore.IndexStore
-	PieceProvider     *pieceprovider.PieceProvider
+	SectorReader      *pieceprovider.SectorReader
 	CachedPieceReader *cachedreader.CachedPieceReader
+	EthClient         *lazy.Lazy[*ethclient.Client]
 }
 
 const (
@@ -272,6 +275,13 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		}()
 	}
 
+	if deps.EthClient == nil {
+		deps.EthClient = lazy.MakeLazy[*ethclient.Client](func() (*ethclient.Client, error) {
+			// todo: this is a hack, just use the lotus chain api client above
+			return ethclient.Dial("https://api.calibration.node.glif.io/rpc/v1")
+		})
+	}
+
 	if deps.Bstore == nil {
 		deps.Bstore = curiochain.NewChainBlockstore(deps.Chain)
 	}
@@ -305,7 +315,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		deps.Cfg.Subsystems.GuiAddress = cctx.String("gui-listen")
 	}
 	if deps.LocalStore == nil {
-		deps.LocalStore, err = paths.NewLocal(ctx, deps.LocalPaths, deps.Si, []string{"http://" + deps.ListenAddr + "/remote"})
+		deps.LocalStore, err = paths.NewLocal(ctx, deps.LocalPaths, deps.Si, "http://"+deps.ListenAddr+"/remote")
 		if err != nil {
 			return err
 		}
@@ -361,12 +371,13 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 		}
 	}
 
-	if deps.PieceProvider == nil {
-		deps.PieceProvider = pieceprovider.NewPieceProvider(deps.Stor, deps.Si)
+	if deps.SectorReader == nil {
+		deps.SectorReader = pieceprovider.NewSectorReader(deps.Stor, deps.Si)
 	}
 
 	if deps.CachedPieceReader == nil {
-		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.PieceProvider)
+		ppr := pieceprovider.NewPieceParkReader(deps.Stor, deps.Si)
+		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.SectorReader, ppr)
 	}
 
 	return nil

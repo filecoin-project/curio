@@ -39,12 +39,12 @@ var ilog = logging.Logger("ipni")
 type IPNITask struct {
 	db            *harmonydb.DB
 	indexStore    *indexstore.IndexStore
-	pieceProvider *pieceprovider.PieceProvider
+	pieceProvider *pieceprovider.SectorReader
 	sc            *ffi.SealCalls
 	cfg           *config.CurioConfig
 }
 
-func NewIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.PieceProvider, cfg *config.CurioConfig) *IPNITask {
+func NewIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.SectorReader, cfg *config.CurioConfig) *IPNITask {
 
 	return &IPNITask{
 		db:            db,
