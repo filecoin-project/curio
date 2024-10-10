@@ -61,7 +61,18 @@ CREATE TABLE pdp_proof_sets (
     id BIGINT PRIMARY KEY, -- on-chain proofset id
 
     -- cached chain values
-    next_challenge_epoch BIGINT, -- next challenge epoch
+
+    -- next challenge epoch:
+    -- - NULL if not yet indexed
+    --   - Set to null when a prove message or proofset modification message lands
+    -- - When null, a poller will check in the contract the next challenge epoch
+    -- - When set to an epoch, and the epoch is in the past a prove task will be created
+    next_challenge_epoch BIGINT,
+
+    -- next challenge possible:
+    -- Set to true when next_challenge_epoch is set to a new non-null value
+    -- Set to false when a prove task is created
+    next_challenge_possible BOOLEAN NOT NULL DEFAULT FALSE,
 
     create_message_hash TEXT NOT NULL,
     service TEXT NOT NULL REFERENCES pdp_services(service_label) ON DELETE RESTRICT
@@ -221,12 +232,12 @@ CREATE TRIGGER pdp_proofset_create_message_status_change
     FOR EACH ROW
 EXECUTE PROCEDURE update_pdp_proofset_creates();
 
--- add message trigger
+-- add proofset add message trigger
 CREATE OR REPLACE FUNCTION update_pdp_proofset_roots()
     RETURNS TRIGGER AS $$
 BEGIN
     IF OLD.tx_status = 'pending' AND (NEW.tx_status = 'confirmed' OR NEW.tx_status = 'failed') THEN
-        -- Update the add_message_ok field in pdp_proofset_roots if a matching entry exists
+        -- Update the add_message_ok field in pdp_proofset_root_adds if a matching entry exists
         UPDATE pdp_proofset_root_adds
         SET add_message_ok = CASE
                                 WHEN NEW.tx_status = 'failed' OR NEW.tx_success = FALSE THEN FALSE
@@ -234,6 +245,13 @@ BEGIN
                                 ELSE add_message_ok
                             END
         WHERE add_message_hash = NEW.signed_tx_hash;
+
+        -- Update the next_challenge_epoch to NULL for related proofsets (will trigger next challenge epoch refresh)
+        UPDATE pdp_proof_sets
+        SET next_challenge_epoch = NULL
+        WHERE id IN (
+            SELECT DISTINCT proofset FROM pdp_proofset_root_adds WHERE add_message_hash = NEW.signed_tx_hash
+        );
     END IF;
     RETURN NEW;
 END;
