@@ -6,6 +6,7 @@
 package guidedsetup
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -17,7 +18,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"os/user"
 	"path"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -26,7 +29,6 @@ import (
 	"github.com/manifoldco/promptui"
 	"github.com/mitchellh/go-homedir"
 	"github.com/samber/lo"
-	"github.com/snadrus/must"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
@@ -244,41 +246,127 @@ func complete(d *MigrationData) {
 	stepCompleted(d, d.T("Lotus-Miner to Curio Migration."))
 }
 
-var EnvFiles = []string{"/etc/curio.env", "./curio/curio.env", "~/config/curio.env"}
-
 func afterRan(d *MigrationData) {
-	// Write curio.env file.
-	// Inform users they need to copy this to /etc/curio.env or ~/.config/curio.env to run Curio.
-	places := append([]string{"/tmp/curio.env",
-		must.One(os.Getwd()) + "/curio.env",
-		must.One(os.UserHomeDir()) + "/curio.env"}, EnvFiles...)
-saveConfigFile:
-	_, where, err := (&promptui.Select{
-		Label:     d.T("Where should we save your database config file?"),
-		Items:     places,
-		Templates: d.selectTemplates,
-	}).Run()
-	if err != nil {
-		d.say(notice, "Aborting migration.", err.Error())
+	// Determine the current user's shell
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		fmt.Println("Unable to determine the user's shell.")
+		return
+	}
+
+	var rcFile string
+	if strings.Contains(shell, "bash") {
+		rcFile = ".bashrc"
+	} else if strings.Contains(shell, "zsh") {
+		rcFile = ".zshrc"
+	} else {
+		d.say(notice, "Not adding DB variables to RC file as shell %s is not BASH or ZSH.", shell)
 		os.Exit(1)
 	}
 
-	args := []string{fmt.Sprintf("CURIO_DB=postgres://%s:%s@%s:%s/%s",
-		d.HarmonyCfg.Username,
-		d.HarmonyCfg.Password,
-		d.HarmonyCfg.Hosts[0],
-		d.HarmonyCfg.Port,
-		d.HarmonyCfg.Database)}
-
-	// Write the file
-	err = os.WriteFile(where, []byte(strings.Join(args, "\n")), 0644)
+	// Get the current user's home directory
+	usr, err := user.Current()
 	if err != nil {
-		d.say(notice, "Error writing file: %s", err.Error())
-		goto saveConfigFile
+		d.say(notice, "Error getting user home directory:", err)
+		os.Exit(1)
+	}
+	rcFilePath := filepath.Join(usr.HomeDir, rcFile)
+
+	// Read the existing rc file content
+	file, err := os.OpenFile(rcFilePath, os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		d.say(notice, "Error opening %s file: %s", rcFile, err)
+		os.Exit(1)
+	}
+	defer func(file *os.File) {
+		_ = file.Close()
+	}(file)
+
+	// Variables to be added or updated
+	exportLines := map[string]string{
+		"CURIO_DB_HOST":     fmt.Sprintf("export CURIO_DB_HOST=%s", strings.Join(d.HarmonyCfg.Hosts, ",")),
+		"CURIO_DB_PORT":     fmt.Sprintf("export CURIO_DB_PORT=%s", d.HarmonyCfg.Port),
+		"CURIO_DB_NAME":     fmt.Sprintf("export CURIO_DB_HOST=%s", d.HarmonyCfg.Database),
+		"CURIO_DB_USER":     fmt.Sprintf("export CURIO_DB_HOST=%s", d.HarmonyCfg.Username),
+		"CURIO_DB_PASSWORD": fmt.Sprintf("export CURIO_DB_HOST=%s", d.HarmonyCfg.Password),
+	}
+
+	// Flags to track whether we need to append these lines
+	existingVars := map[string]bool{
+		"CURIO_DB_HOST":     false,
+		"CURIO_DB_PORT":     false,
+		"CURIO_DB_NAME":     false,
+		"CURIO_DB_USER":     false,
+		"CURIO_DB_PASSWORD": false,
+	}
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		modified := false
+
+		// Check each export line to see if it exists and is not commented out
+		for key, newValue := range exportLines {
+			if strings.HasPrefix(line, "export "+key+"=") && !strings.HasPrefix(strings.TrimSpace(line), "#") {
+				lines = append(lines, newValue)
+				existingVars[key] = true
+				modified = true
+				break
+			}
+		}
+
+		// If no modifications were made, retain the original line
+		if !modified {
+			lines = append(lines, line)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		d.say(notice, "Error reading %s file: %s", rcFile, err)
+		os.Exit(1)
+	}
+
+	// Append missing export lines
+	for key, added := range existingVars {
+		if !added {
+			lines = append(lines, exportLines[key])
+		}
+	}
+
+	// Reopen the file in write mode to overwrite with updated content
+	file, err = os.OpenFile(rcFilePath, os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		d.say(notice, "Error opening %s file in write mode:", rcFile, err)
+		return
+	}
+	defer func(file *os.File) {
+		_ = file.Close()
+	}(file)
+
+	// Write all lines back to the rc file
+	writer := bufio.NewWriter(file)
+	for _, line := range lines {
+		if _, err := writer.WriteString(line + "\n"); err != nil {
+			d.say(notice, "Error writing to %s file: %s", rcFile, err)
+			return
+		}
+	}
+
+	for i := 1; i < 6; i++ {
+		err := writer.Flush()
+		if err != nil {
+			d.say(notice, "Failed to flush thw writes to file %s: %s", rcFile, err)
+			d.say(notice, "Retrying.......(%d/5)", i)
+			continue
+		}
+		d.say(notice, "Failed to flush thw writes to file %s: %s", rcFile, err)
+		os.Exit(1)
 	}
 
 	d.say(plain, "Try the web interface with %s ", code.Render("curio run --layers=gui"))
-	d.say(plain, "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.")
+	d.say(plain, "Execute 'curio service-setup' to setup the Curio service on this node and proceed to do the same on the other nodes")
 	d.say(plain, "You can now migrate your market node (%s), if applicable.", "Boost")
 	d.say(plain, "Additional info is at http://docs.curiostorage.org")
 }

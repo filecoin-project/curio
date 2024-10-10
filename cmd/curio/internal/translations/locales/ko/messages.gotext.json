@@ -1131,90 +1131,270 @@
             "translation": "데이터베이스 구성 파일을 어디에 저장해야 하나요?",
             "message": "Where should we save your database config file?",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "Error writing file: {Error}",
             "translation": "파일 쓰기 오류: {Error}",
             "message": "Error writing file: {Error}",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "Try the web interface with {Rendercurio_run___layersgui}",
             "translation": "{Rendercurio_run___layersgui}와 함께 웹 인터페이스를 시도해보세요",
             "message": "Try the web interface with {Rendercurio_run___layersgui}",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "For more servers, copy curio.env to /etc/curio.env and add the CURIO_LAYERS env to assign purposes.",
             "translation": "더 많은 서버를 위해 curio.env를 /etc/curio.env로 복사하고 목적을 할당하기 위해 CURIO_LAYERS 환경 변수를 추가하세요.",
             "message": "For more servers, copy curio.env to /etc/curio.env and add the CURIO_LAYERS env to assign purposes.",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "Owner Wallet: {String}",
             "translation": "소유자 지갑: {String}",
             "message": "Owner Wallet: {String}",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "Worker Wallet: {String}",
             "translation": "작업자 지갑: {String}",
             "message": "Worker Wallet: {String}",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "Sender Wallet: {String}",
             "translation": "발송자 지갑: {String}",
             "message": "Sender Wallet: {String}",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "Select the Sector Size",
             "translation": "섹터 크기 선택",
             "message": "Select the Sector Size",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "64 GiB",
             "translation": "64 GiB",
             "message": "64 GiB",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "32 GiB",
             "translation": "32 GiB",
             "message": "32 GiB",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "8 MiB",
             "translation": "8 MiB",
             "message": "8 MiB",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "2 KiB",
             "translation": "2 KiB",
             "message": "2 KiB",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "Sector selection failed: {Error}",
             "translation": "섹터 선택 실패: {Error}",
             "message": "Sector selection failed: {Error}",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.",
             "translation": "더 많은 서버를 위해 /etc/curio.env 파일을 curio.env 데이터베이스 환경으로 만들고 목적을 할당하기 위해 CURIO_LAYERS 환경 변수를 추가하세요.",
             "message": "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "Additional info is at http://docs.curiostorage.org",
             "translation": "추가 정보는 http://docs.curiostorage.org 에 있습니다.",
             "message": "Additional info is at http://docs.curiostorage.org",
             "placeholder": null
-          }
+        },
+        {
+            "id": "Not adding DB variables to RC file as shell {Shell} is not BASH or ZSH.",
+            "translation": "셸 {Shell}이 BASH 또는 ZSH가 아니므로 RC 파일에 DB 변수를 추가하지 않습니다.",
+            "message": "Not adding DB variables to RC file as shell {Shell} is not BASH or ZSH.",
+            "placeholder": null
+        },
+        {
+            "id": "Error getting user home directory:",
+            "translation": "사용자 홈 디렉토리를 가져오는 중 오류 발생:",
+            "message": "Error getting user home directory:",
+            "placeholder": null
+        },
+        {
+            "id": "Error opening {RcFile} file: {Err}",
+            "translation": "{RcFile} 파일을 여는 중 오류 발생: {Err}",
+            "message": "Error opening {RcFile} file: {Err}",
+            "placeholder": null
+        },
+        {
+            "id": "Error reading {RcFile} file: {Err}",
+            "translation": "{RcFile} 파일을 읽는 중 오류 발생: {Err}",
+            "message": "Error reading {RcFile} file: {Err}",
+            "placeholder": null
+        },
+        {
+            "id": "Error opening {RcFile} file in write mode:",
+            "translation": "{RcFile} 파일을 쓰기 모드로 여는 중 오류 발생:",
+            "message": "Error opening {RcFile} file in write mode:",
+            "placeholder": null
+        },
+        {
+            "id": "Error writing to {RcFile} file: {Err}",
+            "translation": "{RcFile} 파일에 쓰는 중 오류 발생: {Err}",
+            "message": "Error writing to {RcFile} file: {Err}",
+            "placeholder": null
+        },
+        {
+            "id": "Failed to flush thw writes to file {RcFile}: {Err}",
+            "translation": "{RcFile} 파일에 쓰기 내용을 플러시하는 데 실패했습니다: {Err}",
+            "message": "Failed to flush thw writes to file {RcFile}: {Err}",
+            "placeholder": null
+        },
+        {
+            "id": "Retrying.......({I}/5)",
+            "translation": "다시 시도 중.......({I}/5)",
+            "message": "Retrying.......({I}/5)",
+            "placeholder": null
+        },
+        {
+            "id": "Execute 'curio service-setup' to setup the Curio service on this node and proceed to do the same on the other nodes",
+            "translation": "이 노드에서 Curio 서비스를 설정하려면 'curio service-setup'을 실행하고 다른 노드에서도 동일하게 진행하십시오.",
+            "message": "Execute 'curio service-setup' to setup the Curio service on this node and proceed to do the same on the other nodes",
+            "placeholder": null
+        },
+        {
+            "id": "This interactive tool creates/replace Curio service file and creates the basic env file for it.",
+            "translation": "이 대화형 도구는 Curio 서비스 파일을 생성/교체하고 기본 env 파일을 생성합니다.",
+            "message": "This interactive tool creates/replace Curio service file and creates the basic env file for it.",
+            "placeholder": null
+        },
+        {
+            "id": "This process is idempotent.",
+            "translation": "이 과정은 멱등적입니다.",
+            "message": "This process is idempotent.",
+            "placeholder": null
+        },
+        {
+            "id": "Service file {ServiceName} already exists at {ServicePath}, no changes made.",
+            "translation": "서비스 파일 {ServiceName}이 {ServicePath}에 이미 존재합니다. 변경 사항 없음.",
+            "message": "Service file {ServiceName} already exists at {ServicePath}, no changes made.",
+            "placeholder": null
+        },
+        {
+            "id": "Error checking for service file at {ServicePath}: {Err}",
+            "translation": "{ServicePath}에서 서비스 파일을 확인하는 중 오류 발생: {Err}",
+            "message": "Error checking for service file at {ServicePath}: {Err}",
+            "placeholder": null
+        },
+        {
+            "id": "Error writing service file: {Err}",
+            "translation": "서비스 파일을 쓰는 중 오류 발생: {Err}",
+            "message": "Error writing service file: {Err}",
+            "placeholder": null
+        },
+        {
+            "id": "Service file {ServiceName} created successfully at {TargetServicePath}",
+            "translation": "서비스 파일 {ServiceName}이 {TargetServicePath}에 성공적으로 생성되었습니다.",
+            "message": "Service file {ServiceName} created successfully at {TargetServicePath}",
+            "placeholder": null
+        },
+        {
+            "id": "Error reloading systemd: {Err}",
+            "translation": "systemd를 다시 로드하는 중 오류 발생: {Err}",
+            "message": "Error reloading systemd: {Err}",
+            "placeholder": null
+        },
+        {
+            "id": "Error enabling service: {Err}",
+            "translation": "서비스를 활성화하는 중 오류 발생: {Err}",
+            "message": "Error enabling service: {Err}",
+            "placeholder": null
+        },
+        {
+            "id": "Service {ServiceName} enabled.",
+            "translation": "서비스 {ServiceName}이 활성화되었습니다.",
+            "message": "Service {ServiceName} enabled.",
+            "placeholder": null
+        },
+        {
+            "id": "Enter the info to configure your Curio node",
+            "translation": "Curio 노드를 구성할 정보를 입력하십시오",
+            "message": "Enter the info to configure your Curio node",
+            "placeholder": null
+        },
+        {
+            "id": "CURIO_LAYERS: {}",
+            "translation": "CURIO_LAYERS: {}",
+            "message": "CURIO_LAYERS: {}",
+            "placeholder": null
+        },
+        {
+            "id": "CURIO_REPO_PATH: {Curio}",
+            "translation": "CURIO_REPO_PATH: {Curio}",
+            "message": "CURIO_REPO_PATH: {Curio}",
+            "placeholder": null
+        },
+        {
+            "id": "CURIO_NODE_NAME: {}",
+            "translation": "CURIO_NODE_NAME: {}",
+            "message": "CURIO_NODE_NAME: {}",
+            "placeholder": null
+        },
+        {
+            "id": "Continue update the env file.",
+            "translation": "env 파일 업데이트를 계속하십시오.",
+            "message": "Continue update the env file.",
+            "placeholder": null
+        },
+        {
+            "id": "Env config error occurred, abandoning: {Error}",
+            "translation": "환경 설정 오류 발생, 중단 중: {Error}",
+            "message": "Env config error occurred, abandoning: {Error}",
+            "placeholder": null
+        },
+        {
+            "id": "Enter the config layer name to use for this node. Base is already included by default",
+            "translation": "이 노드에 사용할 구성 레이어 이름을 입력하십시오. 기본값으로 Base가 이미 포함되어 있습니다",
+            "message": "Enter the config layer name to use for this node. Base is already included by default",
+            "placeholder": null
+        },
+        {
+            "id": "No layer provided",
+            "translation": "레이어가 제공되지 않았습니다",
+            "message": "No layer provided",
+            "placeholder": null
+        },
+        {
+            "id": "Enter the {Stringrepo_path_node_namei_1}",
+            "translation": "{Stringrepo_path_node_namei_1}을(를) 입력하십시오",
+            "message": "Enter the {Stringrepo_path_node_namei_1}",
+            "placeholder": null
+        },
+        {
+            "id": "Error opening or creating file {EnvFilePath}: {Err}",
+            "translation": "파일 {EnvFilePath}을(를) 열거나 생성하는 중 오류 발생: {Err}",
+            "message": "Error opening or creating file {EnvFilePath}: {Err}",
+            "placeholder": null
+        },
+        {
+            "id": "Error writing to file {EnvFilePath}: {Err}",
+            "translation": "파일 {EnvFilePath}에 쓰는 중 오류 발생: {Err}",
+            "message": "Error writing to file {EnvFilePath}: {Err}",
+            "placeholder": null
+        },
+        {
+            "id": "Service env file /etc/curio.env created successfully.",
+            "translation": "서비스 환경 파일 /etc/curio.env이(가) 성공적으로 생성되었습니다.",
+            "message": "Service env file /etc/curio.env created successfully.",
+            "placeholder": null
+        }
     ]
 }
