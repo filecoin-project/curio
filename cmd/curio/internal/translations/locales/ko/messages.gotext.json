@@ -1131,90 +1131,120 @@
             "translation": "데이터베이스 구성 파일을 어디에 저장해야 하나요?",
             "message": "Where should we save your database config file?",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "Error writing file: {Error}",
             "translation": "파일 쓰기 오류: {Error}",
             "message": "Error writing file: {Error}",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "Try the web interface with {Rendercurio_run___layersgui}",
             "translation": "{Rendercurio_run___layersgui}와 함께 웹 인터페이스를 시도해보세요",
             "message": "Try the web interface with {Rendercurio_run___layersgui}",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "For more servers, copy curio.env to /etc/curio.env and add the CURIO_LAYERS env to assign purposes.",
             "translation": "더 많은 서버를 위해 curio.env를 /etc/curio.env로 복사하고 목적을 할당하기 위해 CURIO_LAYERS 환경 변수를 추가하세요.",
             "message": "For more servers, copy curio.env to /etc/curio.env and add the CURIO_LAYERS env to assign purposes.",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "Owner Wallet: {String}",
             "translation": "소유자 지갑: {String}",
             "message": "Owner Wallet: {String}",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "Worker Wallet: {String}",
             "translation": "작업자 지갑: {String}",
             "message": "Worker Wallet: {String}",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "Sender Wallet: {String}",
             "translation": "발송자 지갑: {String}",
             "message": "Sender Wallet: {String}",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "Select the Sector Size",
             "translation": "섹터 크기 선택",
             "message": "Select the Sector Size",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "64 GiB",
             "translation": "64 GiB",
             "message": "64 GiB",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "32 GiB",
             "translation": "32 GiB",
             "message": "32 GiB",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "8 MiB",
             "translation": "8 MiB",
             "message": "8 MiB",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "2 KiB",
             "translation": "2 KiB",
             "message": "2 KiB",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "Sector selection failed: {Error}",
             "translation": "섹터 선택 실패: {Error}",
             "message": "Sector selection failed: {Error}",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.",
             "translation": "더 많은 서버를 위해 /etc/curio.env 파일을 curio.env 데이터베이스 환경으로 만들고 목적을 할당하기 위해 CURIO_LAYERS 환경 변수를 추가하세요.",
             "message": "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.",
             "placeholder": null
-          },
-          {
+        },
+        {
             "id": "Additional info is at http://docs.curiostorage.org",
             "translation": "추가 정보는 http://docs.curiostorage.org 에 있습니다.",
             "message": "Additional info is at http://docs.curiostorage.org",
             "placeholder": null
-          }
+        },
+        {
+            "id": "Failed to generate the libp2p private key.",
+            "translation": "libp2p 개인 키 생성 실패.",
+            "message": "Failed to generate the libp2p private key.",
+            "placeholder": null
+        },
+        {
+            "id": "Failed to generate miner ID from address.",
+            "translation": "주소에서 마이너 ID 생성 실패.",
+            "message": "Failed to generate miner ID from address.",
+            "placeholder": null
+        },
+        {
+            "id": "Failed to insert libp2p private key into database. Please run 'curio market libp2p generate-key minerID' to complete the migration.",
+            "translation": "libp2p 개인 키를 데이터베이스에 삽입하지 못했습니다. 마이그레이션을 완료하려면 'curio market libp2p generate-key minerID'를 실행하십시오.",
+            "message": "Failed to insert libp2p private key into database. Please run 'curio market libp2p generate-key minerID' to complete the migration.",
+            "placeholder": null
+        },
+        {
+            "id": "New libp2p key was not created",
+            "translation": "새 libp2p 키가 생성되지 않았습니다.",
+            "message": "New libp2p key was not created",
+            "placeholder": null
+        },
+        {
+            "id": "More than 1 row was affected in the 'libp2p' table when creating new libp2p key.",
+            "translation": "'libp2p' 테이블에서 새 libp2p 키를 생성할 때 1개 이상의 행이 영향을 받았습니다.",
+            "message": "More than 1 row was affected in the 'libp2p' table when creating new libp2p key.",
+            "placeholder": null
+        }
     ]
 }
