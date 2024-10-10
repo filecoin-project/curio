@@ -10,6 +10,9 @@ import (
 	"github.com/BurntSushi/toml"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-jsonrpc"
+
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
 
 	cliutil "github.com/filecoin-project/lotus/cli/util"
@@ -123,13 +126,30 @@ func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
 				defer infosLk.Unlock()
 				infos[ai.Addr] = myinfo
 			}()
-			ver, err := a.deps.Chain.Version(ctx)
+
+			addr, err := ai.DialArgs("v1")
+			if err != nil {
+				log.Warnf("could not get DialArgs: %w", err)
+			}
+
+			var res api.ChainStruct
+			closer, err := jsonrpc.NewMergeClient(ctx, addr, "Filecoin",
+				api.GetInternalStructs(&res), ai.AuthHeader(), []jsonrpc.Option{jsonrpc.WithErrors(jsonrpc.NewErrors())}...)
+			if err != nil {
+				log.Warnf("error creating jsonrpc client: %v", err)
+				return
+			}
+			defer closer()
+
+			full := &res
+
+			ver, err := full.Version(ctx)
 			if err != nil {
 				log.Warnw("Version", "error", err)
 				return
 			}
 
-			head, err := a.deps.Chain.ChainHead(ctx)
+			head, err := full.ChainHead(ctx)
 			if err != nil {
 				log.Warnw("ChainHead", "error", err)
 				return
