@@ -65,7 +65,7 @@ require (
 	github.com/prometheus/client_golang v1.19.1
 	github.com/puzpuzpuz/xsync/v2 v2.4.0
 	github.com/raulk/clock v1.1.0
-	github.com/samber/lo v1.39.0
+	github.com/samber/lo v1.47.0
 	github.com/sirupsen/logrus v1.9.2
 	github.com/snadrus/must v0.0.0-20240605044437-98cedd57f8eb
 	github.com/stretchr/testify v1.9.0
