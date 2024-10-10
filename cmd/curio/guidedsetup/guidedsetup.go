@@ -298,9 +298,18 @@ func completeInit(d *MigrationData) {
 		os.Exit(1)
 	}
 
-	_, err = d.DB.Exec(d.ctx, `INSERT INTO libp2p (sp_id, priv_key) VALUES ($1, $2) ON CONFLICT(sp_id) DO NOTHING`, mid, pk)
+	n, err := d.DB.Exec(d.ctx, `INSERT INTO libp2p (sp_id, priv_key) VALUES ($1, $2) ON CONFLICT(sp_id) DO NOTHING`, mid, pk)
 	if err != nil {
 		d.say(notice, "Failed to insert libp2p private key into database. Please run 'curio market libp2p generate-key minerID' to complete the migration.", err.Error())
+		os.Exit(1)
+	}
+
+	if n == 0 {
+		d.say(plain, "New libp2p key was not created")
+	}
+
+	if n > 1 {
+		d.say(notice, "More than 1 row was affected in the 'libp2p' table when creating new libp2p key.")
 		os.Exit(1)
 	}
 

@@ -1233,6 +1233,18 @@
             "translation": "libp2p 개인 키를 데이터베이스에 삽입하지 못했습니다. 마이그레이션을 완료하려면 'curio market libp2p generate-key minerID'를 실행하십시오.",
             "message": "Failed to insert libp2p private key into database. Please run 'curio market libp2p generate-key minerID' to complete the migration.",
             "placeholder": null
+        },
+        {
+            "id": "New libp2p key was not created",
+            "translation": "새 libp2p 키가 생성되지 않았습니다.",
+            "message": "New libp2p key was not created",
+            "placeholder": null
+        },
+        {
+            "id": "More than 1 row was affected in the 'libp2p' table when creating new libp2p key.",
+            "translation": "'libp2p' 테이블에서 새 libp2p 키를 생성할 때 1개 이상의 행이 영향을 받았습니다.",
+            "message": "More than 1 row was affected in the 'libp2p' table when creating new libp2p key.",
+            "placeholder": null
         }
     ]
 }

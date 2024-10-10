@@ -229,6 +229,20 @@
             "fuzzy": true
         },
         {
+            "id": "New libp2p key was not created",
+            "message": "New libp2p key was not created",
+            "translation": "New libp2p key was not created",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "More than 1 row was affected in the 'libp2p' table when creating new libp2p key.",
+            "message": "More than 1 row was affected in the 'libp2p' table when creating new libp2p key.",
+            "translation": "More than 1 row was affected in the 'libp2p' table when creating new libp2p key.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "New Miner initialization complete.",
             "message": "New Miner initialization complete.",
             "translation": "New Miner initialization complete.",
