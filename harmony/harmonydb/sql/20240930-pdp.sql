@@ -143,7 +143,6 @@ CREATE TABLE pdp_prove_tasks (
 
     task_id BIGINT NOT NULL, -- harmonytask task ID
 
-    message_cid          text,
     message_eth_hash     text,
 
     FOREIGN KEY (proofset) REFERENCES pdp_proof_sets(id) ON DELETE CASCADE,
