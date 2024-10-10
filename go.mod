@@ -9,7 +9,7 @@ require (
 	github.com/alecthomas/jsonschema v0.0.0-20200530073317-71f438968921
 	github.com/charmbracelet/lipgloss v0.10.0
 	github.com/codeskyblue/go-sh v0.0.0-20200712050446-30169cf553fe
-	github.com/consensys/gnark-crypto v0.12.1
+	github.com/consensys/gnark-crypto v0.14.0
 	github.com/detailyang/go-fallocate v0.0.0-20180908115635-432fa640bd2e
 	github.com/docker/go-units v0.5.0
 	github.com/dustin/go-humanize v1.0.1
@@ -78,9 +78,9 @@ require (
 	go.uber.org/zap v1.27.0
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842
 	golang.org/x/net v0.26.0
-	golang.org/x/sync v0.7.0
-	golang.org/x/sys v0.23.0
-	golang.org/x/text v0.16.0
+	golang.org/x/sync v0.8.0
+	golang.org/x/sys v0.24.0
+	golang.org/x/text v0.17.0
 	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d
 	golang.org/x/xerrors v0.0.0-20240716161551-93cc26a95ae9
 )
@@ -101,13 +101,14 @@ require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/bits-and-blooms/bitset v1.13.0 // indirect
+	github.com/bits-and-blooms/bitset v1.14.2 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/chzyer/readline v1.5.1 // indirect
 	github.com/cilium/ebpf v0.9.1 // indirect
 	github.com/codegangsta/inject v0.0.0-20150114235600-33e0aa1cb7c0 // indirect
+	github.com/consensys/bavard v0.1.13 // indirect
 	github.com/containerd/cgroups v1.1.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
@@ -236,6 +237,7 @@ require (
 	github.com/miekg/dns v1.1.59 // indirect
 	github.com/mikioh/tcpinfo v0.0.0-20190314235526-30a79bb1804b // indirect
 	github.com/mikioh/tcpopt v0.0.0-20190314235656-172688c1accc // indirect
+	github.com/mmcloughlin/addchain v0.4.0 // indirect
 	github.com/mr-tron/base58 v1.2.0 // indirect
 	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/muesli/termenv v0.15.2 // indirect
@@ -314,9 +316,9 @@ require (
 	go.uber.org/fx v1.22.1 // indirect
 	go.uber.org/mock v0.4.0 // indirect
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
-	golang.org/x/crypto v0.25.0 // indirect
+	golang.org/x/crypto v0.26.0 // indirect
 	golang.org/x/mod v0.17.0 // indirect
-	golang.org/x/term v0.22.0 // indirect
+	golang.org/x/term v0.23.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	gonum.org/v1/gonum v0.15.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240515191416-fc5f0ca64291 // indirect
@@ -327,6 +329,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	howett.net/plist v0.0.0-20181124034731-591f970eefbb // indirect
 	lukechampine.com/blake3 v1.3.0 // indirect
+	rsc.io/tmplfunc v0.0.3 // indirect
 )
 
 replace github.com/filecoin-project/filecoin-ffi => ./extern/filecoin-ffi
