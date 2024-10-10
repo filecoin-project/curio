@@ -274,6 +274,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 
 			pdp.NewWatcherCreate(db, must.One(dependencies.EthClient.Val()), chainSched)
 			pdp.NewWatcherRootAdd(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdp.NewWatcherNextChallengeEpoch(db, must.One(dependencies.EthClient.Val()), chainSched)
 
 			pdpNotifTask := pdp.NewPDPNotifyTask(db)
 			activeTasks = append(activeTasks, pdpNotifTask)
