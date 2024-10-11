@@ -15,6 +15,7 @@ import (
 	"github.com/filecoin-project/go-commp-utils/nonffi"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/ipfs/go-cid"
+	"github.com/yugabyte/pgx/v5"
 	"io"
 	"math/big"
 	"net/http"
@@ -515,6 +516,28 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// check if the proofset belongs to the service in pdp_proof_sets
+	var proofSetService string
+	err = p.db.QueryRow(ctx, `
+			SELECT service
+			FROM pdp_proof_sets
+			WHERE id = $1
+		`, proofSetIDUint64).Scan(&proofSetService)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			http.Error(w, "Proof set not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Failed to retrieve proof set: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if proofSetService != serviceLabel {
+		// same as when actually not found to avoid leaking information in obvious ways
+		http.Error(w, "Proof set not found", http.StatusNotFound)
+		return
+	}
+
 	// Convert proofSetID to *big.Int
 	proofSetID := new(big.Int).SetUint64(proofSetIDUint64)
 
@@ -559,6 +582,11 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 				http.Error(w, "subrootCid is required for each subroot", http.StatusBadRequest)
 				return
 			}
+			if _, exists := subrootCIDsSet[subrootEntry.SubrootCID]; exists {
+				http.Error(w, "duplicate subrootCid in request", http.StatusBadRequest)
+				return
+			}
+
 			subrootCIDsSet[subrootEntry.SubrootCID] = struct{}{}
 		}
 	}
@@ -668,7 +696,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 			}
 
 			if !providedRootCID.Equals(generatedRootCID) {
-				return false, fmt.Errorf("provided RootCID does not match generated RootCID")
+				return false, fmt.Errorf("provided RootCID does not match generated RootCID: %s != %s", providedRootCID, generatedRootCID)
 			}
 		}
 
@@ -707,8 +735,16 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 
 		// Get raw size by summing up the sizes of subroots
 		var totalSize uint64 = 0
-		for _, subrootEntry := range addRootReq.Subroots {
+		var prevSubrootSize = subrootInfoMap[addRootReq.Subroots[0].SubrootCID].PieceInfo.Size
+		for i, subrootEntry := range addRootReq.Subroots {
 			subrootInfo := subrootInfoMap[subrootEntry.SubrootCID]
+			if subrootInfo.PieceInfo.Size > prevSubrootSize {
+				msg := fmt.Sprintf("Subroots must be in descending order of size, root %d %s is larger than prev subroot %s", i, subrootEntry.SubrootCID, addRootReq.Subroots[i-1].SubrootCID)
+				http.Error(w, msg, http.StatusBadRequest)
+				return
+			}
+
+			prevSubrootSize = subrootInfo.PieceInfo.Size
 			totalSize += uint64(subrootInfo.PieceInfo.Size.Unpadded())
 		}
 
@@ -803,7 +839,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		log.Errorf("Failed to insert into database: %+v", err)
+		log.Errorw("Failed to insert into database", "error", err, "txHash", txHash.Hex(), "subroots", subrootInfoMap)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
