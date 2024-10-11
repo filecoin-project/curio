@@ -16,7 +16,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 
@@ -35,8 +34,8 @@ func main() {
 		return
 	}
 
-	xmlBytes := must.One(ioutil.ReadFile(os.Args[1]))
-	jsonFile := must.One(ioutil.ReadFile(os.Args[2]))
+	xmlBytes := must.One(os.ReadFile(os.Args[1]))
+	jsonFile := must.One(os.ReadFile(os.Args[2]))
 
 	// Parse the JSON file into a struct
 	var translations struct {
@@ -52,7 +51,7 @@ func main() {
 
 	// Save the modified XML to a file
 	ext := path.Ext(os.Args[1])
-	err := ioutil.WriteFile(os.Args[1][:len(ext)-1]+"_translated."+ext, xmlBytes, 0644)
+	err := os.WriteFile(os.Args[1][:len(ext)-1]+"_translated."+ext, xmlBytes, 0644)
 	if err != nil {
 		fmt.Println("Error writing output XML:", err)
 		return
