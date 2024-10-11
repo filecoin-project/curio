@@ -28,6 +28,7 @@ type RootAddEntry struct {
 	AddMessageIndex uint64 `db:"add_message_index"`
 	Subroot         string `db:"subroot"`
 	SubrootOffset   int64  `db:"subroot_offset"`
+	SubrootSize     int64  `db:"subroot_size"`
 	PDPPieceRefID   int64  `db:"pdp_pieceref"`
 	AddMessageOK    *bool  `db:"add_message_ok"`
 	PDPProofSetID   uint64 `db:"proofset"`
@@ -150,7 +151,7 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
 		// Fetch the entries from pdp_proofset_root_adds
 		var rootAddEntries []RootAddEntry
 		err := tx.Select(&rootAddEntries, `
-            SELECT proofset, root, add_message_hash, add_message_index, subroot, subroot_offset, pdp_pieceref
+            SELECT proofset, root, add_message_hash, add_message_index, subroot, subroot_offset, subroot_size, pdp_pieceref
             FROM pdp_proofset_root_adds
             WHERE proofset = $1 AND add_message_hash = $2
             ORDER BY add_message_index ASC, subroot_offset ASC
@@ -171,13 +172,14 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
                     root_id,
                     subroot,
                     subroot_offset,
+					subroot_size,
                     pdp_pieceref,
                     add_message_hash,
                     add_message_index
                 ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9
                 )
-            `, entry.ProofSet, entry.Root, rootId, entry.Subroot, entry.SubrootOffset, entry.PDPPieceRefID, entry.AddMessageHash, entry.AddMessageIndex)
+            `, entry.ProofSet, entry.Root, rootId, entry.Subroot, entry.SubrootOffset, entry.SubrootSize, entry.PDPPieceRefID, entry.AddMessageHash, entry.AddMessageIndex)
 			if err != nil {
 				return false, fmt.Errorf("failed to insert into pdp_proofset_roots: %w", err)
 			}
