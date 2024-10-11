@@ -9,12 +9,12 @@ import (
 	"io"
 )
 
-const maxMemtreeSize = 128 << 20
+const MaxMemtreeSize = 128 << 20
 
 // BuildSha254Memtree builds a sha256 memtree from the input data
 // Returned slice should be released to the pool after use
 func BuildSha254Memtree(rawIn io.Reader, size abi.UnpaddedPieceSize) ([]byte, error) {
-	if size.Padded() > maxMemtreeSize {
+	if size.Padded() > MaxMemtreeSize {
 		return nil, xerrors.Errorf("piece too large for memtree: %d", size)
 	}
 
@@ -62,4 +62,10 @@ func BuildSha254Memtree(rawIn io.Reader, size abi.UnpaddedPieceSize) ([]byte, er
 	}
 
 	return memtreeBuf, nil
+}
+
+func ComputeBinShaParent(left, right [NODE_SIZE]byte) [NODE_SIZE]byte {
+	out := sha256.Sum256(append(left[:], right[:]...))
+	out[NODE_SIZE-1] &= 0x3F
+	return out
 }

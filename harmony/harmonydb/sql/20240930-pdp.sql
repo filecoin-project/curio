@@ -105,7 +105,7 @@ CREATE TABLE pdp_proofset_roots (
     -- aggregation roots (aggregated like pieces in filecoin sectors)
     subroot TEXT NOT NULL, -- subroot cid (piececid v2), with no aggregation this == root
     subroot_offset BIGINT NOT NULL, -- offset of the subroot in the root
-    -- note: size contained in subroot piececid v2
+    subroot_size BIGINT NOT NULL, -- size of the subroot (padded piece size)
 
     pdp_pieceref BIGINT NOT NULL, -- pdp_piecerefs.id
 
@@ -126,8 +126,8 @@ CREATE TABLE pdp_proofset_root_adds (
 
     -- aggregation roots (aggregated like pieces in filecoin sectors)
     subroot TEXT NOT NULL, -- subroot cid (piececid v2), with no aggregation this == root
-    subroot_offset BIGINT NOT NULL, -- offset of the subroot in the root
-    -- note: size contained in subroot piececid v2
+    subroot_offset BIGINT NOT NULL, -- offset of the subroot in the root (padded byte offset)
+    subroot_size BIGINT NOT NULL, -- size of the subroot (padded piece size)
 
     pdp_pieceref BIGINT NOT NULL, -- pdp_piecerefs.id
 

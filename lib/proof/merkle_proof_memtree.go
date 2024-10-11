@@ -5,6 +5,7 @@ import "golang.org/x/xerrors"
 type RawMerkleProof struct {
 	Leaf  [32]byte
 	Proof [][32]byte
+	Root  [32]byte
 }
 
 // MemtreeProof generates a Merkle proof for the given leaf index from the memtree.
@@ -50,7 +51,7 @@ func MemtreeProof(memtree []byte, leafIndex int64) (*RawMerkleProof, error) {
 
 	// Validate the leaf index
 	if leafIndex < 0 || leafIndex >= levelSizes[0] {
-		return nil, xerrors.New("invalid leaf index")
+		return nil, xerrors.Errorf("invalid leaf index %d for %d leaves", leafIndex, levelSizes[0])
 	}
 
 	// Initialize the proof structure
@@ -75,6 +76,10 @@ func MemtreeProof(memtree []byte, leafIndex int64) (*RawMerkleProof, error) {
 		// Move up to the parent index
 		index /= int64(arity)
 	}
+
+	// Extract the root hash from the memtree
+	rootOffset := levelStarts[len(levelSizes)-1]
+	copy(proof.Root[:], memtree[rootOffset:rootOffset+NODE_SIZE])
 
 	return proof, nil
 }

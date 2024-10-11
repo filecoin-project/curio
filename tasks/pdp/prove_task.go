@@ -12,15 +12,26 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
+	"github.com/filecoin-project/go-commp-utils/zerocomm"
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-state-types/abi"
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/storage/pipeline/lib/nullreader"
+	"github.com/ipfs/go-cid"
+	pool "github.com/libp2p/go-buffer-pool"
+	"github.com/minio/sha256-simd"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
+	"io"
 	"math/big"
+	"math/bits"
+	"sort"
 )
 
 const LeafSize = proof.NODE_SIZE
@@ -29,15 +40,17 @@ type ProveTask struct {
 	db        *harmonydb.DB
 	ethClient *ethclient.Client
 	sender    *message.SenderETH
+	cpr       *cachedreader.CachedPieceReader
 
 	addFunc promise.Promise[harmonytask.AddTaskFunc]
 }
 
-func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethClient *ethclient.Client, sender *message.SenderETH) *ProveTask {
+func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethClient *ethclient.Client, sender *message.SenderETH, cpr *cachedreader.CachedPieceReader) *ProveTask {
 	pt := &ProveTask{
 		db:        db,
 		ethClient: ethClient,
 		sender:    sender,
+		cpr:       cpr,
 	}
 
 	err := chainSched.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
@@ -151,7 +164,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	seed := big.NewInt(challengeEpoch)
 
 	// Number of challenges to generate
-	numChallenges := 20 // Application / pdp will specify this later
+	numChallenges := 3 // Application / pdp will specify this later
 
 	proofs, err := p.GenerateProofs(ctx, pdpService, proofSetID, seed, numChallenges)
 	if err != nil {
@@ -249,9 +262,9 @@ func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDP
 	for i := 0; i < numChallenges; i++ {
 		root := rootId[i]
 
-		proof, err := p.proveRoot(proofSetID, root.RootId.Int64(), root.Offset.Int64())
+		proof, err := p.proveRoot(ctx, proofSetID, root.RootId.Int64(), root.Offset.Int64())
 		if err != nil {
-			return nil, xerrors.Errorf("failed to prove root (%d, %d, %d): %w", proofSetID, root.RootId.Int64(), root.Offset.Int64(), err)
+			return nil, xerrors.Errorf("failed to prove root %d (%d, %d, %d): %w", i, proofSetID, root.RootId.Int64(), root.Offset.Int64(), err)
 		}
 
 		proofs[i] = proof
@@ -273,31 +286,37 @@ func generateChallengeIndex(seed *big.Int, proofSetID int64, proofIndex int, tot
 	return challengeIndex.Int64()
 }
 
-func (p *ProveTask) proveRoot(proofSetID int64, rootId int64, challengedLeaf int64) (contract.PDPServiceProof, error) {
-	/*
-		CREATE TABLE pdp_proofset_roots (
-		    proofset BIGINT NOT NULL, -- pdp_proof_sets.id
-		    root TEXT NOT NULL, -- root cid (piececid v2)
+func (p *ProveTask) genSubrootMemtree(ctx context.Context, subrootCid string, subrootSize abi.PaddedPieceSize) ([]byte, error) {
+	subrootCidObj, err := cid.Parse(subrootCid)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to parse subroot CID: %w", err)
+	}
 
-		    add_message_hash TEXT NOT NULL REFERENCES message_waits_eth(signed_tx_hash) ON DELETE CASCADE,
-		    add_message_index BIGINT NOT NULL, -- index of root in the add message
+	if subrootSize > proof.MaxMemtreeSize {
+		return nil, xerrors.Errorf("subroot size exceeds maximum: %d", subrootSize)
+	}
 
-		    root_id BIGINT NOT NULL, -- on-chain index of the root in the rootCids sub-array
+	subrootReader, unssize, err := p.cpr.GetSharedPieceReader(ctx, subrootCidObj)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get subroot reader: %w", err)
+	}
 
-		    -- aggregation roots (aggregated like pieces in filecoin sectors)
-		    subroot TEXT NOT NULL, -- subroot cid (piececid v2), with no aggregation this == root
-		    subroot_offset BIGINT NOT NULL, -- offset of the subroot in the root
-		    -- note: size contained in subroot piececid v2
+	var r io.Reader = subrootReader
 
-		    pdp_pieceref BIGINT NOT NULL, -- pdp_piecerefs.id
+	if unssize.Padded() > subrootSize {
+		return nil, xerrors.Errorf("subroot size mismatch: %d > %d", unssize.Padded(), subrootSize)
+	} else if unssize.Padded() < subrootSize {
+		// pad with zeros
+		r = io.MultiReader(r, nullreader.NewNullReader(abi.UnpaddedPieceSize(subrootSize-unssize.Padded())))
+	}
 
-		    CONSTRAINT pdp_proofset_roots_root_id_unique PRIMARY KEY (proofset, root_id, subroot_offset),
+	defer subrootReader.Close()
 
-		    FOREIGN KEY (proofset) REFERENCES pdp_proof_sets(id) ON DELETE CASCADE, -- cascade, if we drop a proofset, we no longer care about the roots
-		    FOREIGN KEY (pdp_pieceref) REFERENCES pdp_piecerefs(id) ON DELETE SET NULL -- sets null on delete so that it's easy to notice and clean up
-		);
+	return proof.BuildSha254Memtree(r, subrootSize.Unpadded())
+}
 
-	*/
+func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int64, challengedLeaf int64) (contract.PDPServiceProof, error) {
+	const arity = 2
 
 	rootChallengeOffset := challengedLeaf * LeafSize
 
@@ -305,33 +324,216 @@ func (p *ProveTask) proveRoot(proofSetID int64, rootId int64, challengedLeaf int
 	type subrootMeta struct {
 		Root          string `db:"root"`
 		Subroot       string `db:"subroot"`
-		SubrootOffset int64  `db:"subroot_offset"`
+		SubrootOffset int64  `db:"subroot_offset"` // padded offset
+		SubrootSize   int64  `db:"subroot_size"`   // padded piece size
 	}
 
 	var subroots []subrootMeta
 
 	err := p.db.Select(context.Background(), &subroots, `
-			SELECT root, subroot, subroot_offset
+			SELECT root, subroot, subroot_offset, subroot_size
 			FROM pdp_proofset_roots
 			WHERE proofset = $1 AND root_id = $2
 			ORDER BY subroot_offset ASC
-		`, proofSetID, rootId, rootChallengeOffset)
+		`, proofSetID, rootId)
 	if err != nil {
 		return contract.PDPServiceProof{}, xerrors.Errorf("failed to get root and subroot: %w", err)
 	}
 
 	// find first subroot with subroot_offset >= rootChallengeOffset
-	challRoot, challIdx, ok := lo.FindIndexOf(subroots, func(subroot subrootMeta) bool {
-		return subroot.SubrootOffset >= rootChallengeOffset
+	challSubRoot, challSubrootIdx, ok := lo.FindLastIndexOf(subroots, func(subroot subrootMeta) bool {
+		return subroot.SubrootOffset < rootChallengeOffset
 	})
 	if !ok {
 		return contract.PDPServiceProof{}, xerrors.New("no subroot found")
 	}
 
-	_ = challIdx
-	_ = challRoot
+	// build subroot memtree
+	memtree, err := p.genSubrootMemtree(ctx, challSubRoot.Subroot, abi.PaddedPieceSize(challSubRoot.SubrootSize))
+	if err != nil {
+		return contract.PDPServiceProof{}, xerrors.Errorf("failed to generate subroot memtree: %w", err)
+	}
 
-	panic("implement me")
+	subrootChallengedLeaf := challengedLeaf - (challSubRoot.SubrootOffset / LeafSize)
+	log.Infow("subrootChallengedLeaf", "subrootChallengedLeaf", subrootChallengedLeaf, "challengedLeaf", challengedLeaf, "subrootOffsetLs", challSubRoot.SubrootOffset/LeafSize)
+
+	/*
+		type RawMerkleProof struct {
+			Leaf  [32]byte
+			Proof [][32]byte
+			Root  [32]byte
+		}
+	*/
+	subrootProof, err := proof.MemtreeProof(memtree, subrootChallengedLeaf)
+	pool.Put(memtree)
+	if err != nil {
+		return contract.PDPServiceProof{}, xerrors.Errorf("failed to generate subroot proof: %w", err)
+	}
+	log.Infow("subrootProof", "subrootProof", subrootProof)
+
+	// build partial top-tree
+	type treeElem struct {
+		Level int // 1 == leaf, NODE_SIZE
+		Hash  [LeafSize]byte
+	}
+	type elemIndex struct {
+		Level      int
+		ElemOffset int64 // offset in terms of nodes at the current level
+	}
+
+	partialTree := map[elemIndex]treeElem{}
+	var subrootsSize abi.PaddedPieceSize
+
+	// 1. prefill the partial tree
+	for _, subroot := range subroots {
+		subrootsSize += abi.PaddedPieceSize(subroot.SubrootSize)
+
+		unsCid, err := cid.Parse(subroot.Subroot)
+		if err != nil {
+			return contract.PDPServiceProof{}, xerrors.Errorf("failed to parse subroot CID: %w", err)
+		}
+
+		commp, err := commcid.CIDToPieceCommitmentV1(unsCid)
+		if err != nil {
+			return contract.PDPServiceProof{}, xerrors.Errorf("failed to convert CID to piece commitment: %w", err)
+		}
+
+		var comm [LeafSize]byte
+		copy(comm[:], commp)
+
+		level := proof.NodeLevel(subroot.SubrootSize/LeafSize, arity)
+		offset := (subroot.SubrootOffset / LeafSize) >> uint(level-1)
+		partialTree[elemIndex{Level: level, ElemOffset: offset}] = treeElem{
+			Level: level,
+			Hash:  comm,
+		}
+	}
+
+	rootSize := nextPowerOfTwo(subrootsSize)
+	rootLevel := proof.NodeLevel(int64(rootSize/LeafSize), arity)
+
+	// 2. build the partial tree
+	// we do the build from the right side of the tree - elements are sorted by size, so only elements on the right side can have missing siblings
+
+	isRight := func(offset int64) bool {
+		return offset&1 == 1
+	}
+
+	for i := len(subroots) - 1; i >= 0; i-- {
+		subroot := subroots[i]
+		level := proof.NodeLevel(subroot.SubrootSize/LeafSize, arity)
+		offset := (subroot.SubrootOffset / LeafSize) >> uint(level-1)
+		firstSubroot := i == 0
+
+		curElem := partialTree[elemIndex{Level: level, ElemOffset: offset}]
+
+		log.Infow("processing partialtree subroot", "curElem", curElem, "level", level, "offset", offset, "subroot", subroot.SubrootOffset, "subrootSz", subroot.SubrootSize)
+
+		for !isRight(offset) {
+			// find the rightSibling
+			siblingIndex := elemIndex{Level: level, ElemOffset: offset + 1}
+			rightSibling, ok := partialTree[siblingIndex]
+			if !ok {
+				// if we're processing the first subroot branch, AND we've ran out of right siblings, we're done
+				if firstSubroot {
+					break
+				}
+
+				// create a zero rightSibling
+				rightSibling = treeElem{
+					Level: level,
+					Hash:  zerocomm.PieceComms[level-zerocomm.Skip-1],
+				}
+				log.Infow("rightSibling zero", "rightSibling", rightSibling, "siblingIndex", siblingIndex, "level", level, "offset", offset)
+				partialTree[siblingIndex] = rightSibling
+			}
+
+			// compute the parent
+			parent := proof.ComputeBinShaParent(curElem.Hash, rightSibling.Hash)
+			parentLevel := level + 1
+			parentOffset := offset / arity
+
+			partialTree[elemIndex{Level: parentLevel, ElemOffset: parentOffset}] = treeElem{
+				Level: parentLevel,
+				Hash:  parent,
+			}
+
+			// move to the parent
+			level = parentLevel
+			offset = parentOffset
+		}
+	}
+
+	{
+		var partialTreeList []elemIndex
+		for k := range partialTree {
+			partialTreeList = append(partialTreeList, k)
+		}
+		sort.Slice(partialTreeList, func(i, j int) bool {
+			if partialTreeList[i].Level != partialTreeList[j].Level {
+				return partialTreeList[i].Level < partialTreeList[j].Level
+			}
+			return partialTreeList[i].ElemOffset < partialTreeList[j].ElemOffset
+		})
+		log.Infow("partialTree", "partialTree", partialTreeList)
+	}
+
+	challLevel := proof.NodeLevel(challSubRoot.SubrootSize/LeafSize, arity)
+	challOffset := (challSubRoot.SubrootOffset / LeafSize) >> uint(challLevel-1)
+
+	log.Infow("challSubRoot", "challSubRoot", challSubrootIdx, "challLevel", challLevel, "challOffset", challOffset)
+
+	challSubtreeLeaf := partialTree[elemIndex{Level: challLevel, ElemOffset: challOffset}]
+	if challSubtreeLeaf.Hash != subrootProof.Root {
+		return contract.PDPServiceProof{}, xerrors.Errorf("subtree root doesn't match partial tree leaf, %x != %x", challSubtreeLeaf.Hash, subrootProof.Root)
+	}
+
+	var out contract.PDPServiceProof
+	copy(out.Leaf[:], subrootProof.Leaf[:])
+	out.Proof = append(out.Proof, subrootProof.Proof...)
+
+	currentLevel := challLevel
+	currentOffset := challOffset
+
+	for currentLevel < rootLevel {
+		siblingOffset := currentOffset ^ 1
+
+		// Retrieve sibling hash from partialTree or use zero hash
+		siblingIndex := elemIndex{Level: currentLevel, ElemOffset: siblingOffset}
+		siblingElem, ok := partialTree[siblingIndex]
+		if !ok {
+			return contract.PDPServiceProof{}, xerrors.Errorf("missing sibling at level %d, offset %d", currentLevel, siblingOffset)
+		}
+
+		log.Infow("siblingElem", "siblingElem", siblingElem, "siblingIndex", siblingIndex, "currentLevel", currentLevel, "currentOffset", currentOffset, "siblingOffset", siblingOffset)
+
+		// Append the sibling's hash to the proof
+		out.Proof = append(out.Proof, siblingElem.Hash)
+
+		// Move up to the parent node
+		currentOffset = currentOffset / arity
+		currentLevel++
+	}
+
+	log.Infow("proof complete", "proof", out)
+
+	rootCid, err := cid.Parse(subroots[0].Root)
+	if err != nil {
+		return contract.PDPServiceProof{}, xerrors.Errorf("failed to parse root CID: %w", err)
+	}
+	commRoot, err := commcid.CIDToPieceCommitmentV1(rootCid)
+	if err != nil {
+		return contract.PDPServiceProof{}, xerrors.Errorf("failed to convert CID to piece commitment: %w", err)
+	}
+	var cr [LeafSize]byte
+	copy(cr[:], commRoot)
+
+	if !Verify(out, cr, uint64(challengedLeaf)) {
+		return contract.PDPServiceProof{}, xerrors.Errorf("proof verification failed")
+	}
+
+	// Return the completed proof
+	return out, nil
 }
 
 func (p *ProveTask) getSenderAddress(ctx context.Context) (common.Address, error) {
@@ -365,12 +567,40 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Gpu: 0,
 			Ram: 128 << 20, // 128 MB
 		},
-		MaxFailures: 5,
+		MaxFailures: 50,
 	}
 }
 
 func (p *ProveTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	p.addFunc.Set(taskFunc)
+}
+
+func nextPowerOfTwo(n abi.PaddedPieceSize) abi.PaddedPieceSize {
+	lz := bits.LeadingZeros64(uint64(n - 1))
+	return 1 << (64 - lz)
+}
+
+func Verify(proof contract.PDPServiceProof, root [32]byte, position uint64) bool {
+	computedHash := proof.Leaf
+
+	for i := 0; i < len(proof.Proof); i++ {
+		sibling := proof.Proof[i]
+
+		if position%2 == 0 {
+			// If position is even, current node is on the left
+			computedHash = sha256.Sum256(append(computedHash[:], sibling[:]...))
+		} else {
+			// If position is odd, current node is on the right
+			computedHash = sha256.Sum256(append(sibling[:], computedHash[:]...))
+		}
+		computedHash[31] &= 0x3F // set top bits to 00
+
+		// Move up to the parent node
+		position /= 2
+	}
+
+	// Compare the reconstructed root with the expected root
+	return computedHash == root
 }
 
 var _ = harmonytask.Reg(&ProveTask{})

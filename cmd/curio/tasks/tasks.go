@@ -271,8 +271,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			pdp.NewWatcherRootAdd(db, must.One(dependencies.EthClient.Val()), chainSched)
 			pdp.NewWatcherNextChallengeEpoch(db, must.One(dependencies.EthClient.Val()), chainSched)
 
+			pdpProveTask := pdp.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), es, dependencies.CachedPieceReader)
 			pdpNotifTask := pdp.NewPDPNotifyTask(db)
-			activeTasks = append(activeTasks, pdpNotifTask)
+			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask)
 		}
 
 		indexingTask := indexing.NewIndexingTask(db, sc, iStore, pp, cfg)
