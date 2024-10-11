@@ -247,122 +247,138 @@ func complete(d *MigrationData) {
 }
 
 func afterRan(d *MigrationData) {
-	// Determine the current user's shell
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		fmt.Println("Unable to determine the user's shell.")
-		return
-	}
-
-	var rcFile string
-	if strings.Contains(shell, "bash") {
-		rcFile = ".bashrc"
-	} else if strings.Contains(shell, "zsh") {
-		rcFile = ".zshrc"
-	} else {
-		d.say(notice, "Not adding DB variables to RC file as shell %s is not BASH or ZSH.", shell)
-		os.Exit(1)
-	}
-
-	// Get the current user's home directory
-	usr, err := user.Current()
+	i, _, err := (&promptui.Select{
+		Label: d.T("Do you wish to add Harmony DB credentials to your ~/.bashrc or ~/.zshrc file?"),
+		Items: []string{
+			d.T("Yes"),
+			d.T("No")},
+		Templates: d.selectTemplates,
+	}).Run()
 	if err != nil {
-		d.say(notice, "Error getting user home directory:", err)
+		d.say(notice, "Aborting remaining steps.", err.Error())
 		os.Exit(1)
 	}
-	rcFilePath := filepath.Join(usr.HomeDir, rcFile)
+	if i == 0 {
+		// Determine the current user's shell
+		shell := os.Getenv("SHELL")
+		if shell == "" {
+			fmt.Println("Unable to determine the user's shell.")
+			return
+		}
 
-	// Read the existing rc file content
-	file, err := os.OpenFile(rcFilePath, os.O_RDWR|os.O_CREATE, 0644)
-	if err != nil {
-		d.say(notice, "Error opening %s file: %s", rcFile, err)
-		os.Exit(1)
-	}
-	defer func(file *os.File) {
-		_ = file.Close()
-	}(file)
+		var rcFile string
+		if strings.Contains(shell, "bash") {
+			rcFile = ".bashrc"
+		} else if strings.Contains(shell, "zsh") {
+			rcFile = ".zshrc"
+		} else {
+			d.say(notice, "Not adding DB variables to RC file as shell %s is not BASH or ZSH.", shell)
+			os.Exit(1)
+		}
 
-	// Variables to be added or updated
-	exportLines := map[string]string{
-		"CURIO_DB_HOST":     fmt.Sprintf("export CURIO_DB_HOST=%s", strings.Join(d.HarmonyCfg.Hosts, ",")),
-		"CURIO_DB_PORT":     fmt.Sprintf("export CURIO_DB_PORT=%s", d.HarmonyCfg.Port),
-		"CURIO_DB_NAME":     fmt.Sprintf("export CURIO_DB_HOST=%s", d.HarmonyCfg.Database),
-		"CURIO_DB_USER":     fmt.Sprintf("export CURIO_DB_HOST=%s", d.HarmonyCfg.Username),
-		"CURIO_DB_PASSWORD": fmt.Sprintf("export CURIO_DB_HOST=%s", d.HarmonyCfg.Password),
-	}
+		// Get the current user's home directory
+		usr, err := user.Current()
+		if err != nil {
+			d.say(notice, "Error getting user home directory:", err)
+			os.Exit(1)
+		}
+		rcFilePath := filepath.Join(usr.HomeDir, rcFile)
 
-	// Flags to track whether we need to append these lines
-	existingVars := map[string]bool{
-		"CURIO_DB_HOST":     false,
-		"CURIO_DB_PORT":     false,
-		"CURIO_DB_NAME":     false,
-		"CURIO_DB_USER":     false,
-		"CURIO_DB_PASSWORD": false,
-	}
+		// Read the existing rc file content
+		file, err := os.OpenFile(rcFilePath, os.O_RDWR|os.O_CREATE, 0644)
+		if err != nil {
+			d.say(notice, "Error opening %s file: %s", rcFile, err)
+			os.Exit(1)
+		}
 
-	var lines []string
-	scanner := bufio.NewScanner(file)
+		// Variables to be added or updated
+		exportLines := map[string]string{
+			"CURIO_DB_HOST":     fmt.Sprintf("export CURIO_DB_HOST=%s", strings.Join(d.HarmonyCfg.Hosts, ",")),
+			"CURIO_DB_PORT":     fmt.Sprintf("export CURIO_DB_PORT=%s", d.HarmonyCfg.Port),
+			"CURIO_DB_NAME":     fmt.Sprintf("export CURIO_DB_HOST=%s", d.HarmonyCfg.Database),
+			"CURIO_DB_USER":     fmt.Sprintf("export CURIO_DB_HOST=%s", d.HarmonyCfg.Username),
+			"CURIO_DB_PASSWORD": fmt.Sprintf("export CURIO_DB_HOST=%s", d.HarmonyCfg.Password),
+		}
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		modified := false
+		// Flags to track whether we need to append these lines
+		existingVars := map[string]bool{
+			"CURIO_DB_HOST":     false,
+			"CURIO_DB_PORT":     false,
+			"CURIO_DB_NAME":     false,
+			"CURIO_DB_USER":     false,
+			"CURIO_DB_PASSWORD": false,
+		}
 
-		// Check each export line to see if it exists and is not commented out
-		for key, newValue := range exportLines {
-			if strings.HasPrefix(line, "export "+key+"=") && !strings.HasPrefix(strings.TrimSpace(line), "#") {
-				lines = append(lines, newValue)
-				existingVars[key] = true
-				modified = true
-				break
+		var lines []string
+		scanner := bufio.NewScanner(file)
+
+		for scanner.Scan() {
+			line := scanner.Text()
+			modified := false
+
+			// Check each export line to see if it exists and is not commented out
+			for key, newValue := range exportLines {
+				if strings.HasPrefix(line, "export "+key+"=") && !strings.HasPrefix(strings.TrimSpace(line), "#") {
+					lines = append(lines, newValue)
+					existingVars[key] = true
+					modified = true
+					break
+				}
+			}
+
+			// If no modifications were made, retain the original line
+			if !modified {
+				lines = append(lines, line)
 			}
 		}
 
-		// If no modifications were made, retain the original line
-		if !modified {
-			lines = append(lines, line)
+		if err := scanner.Err(); err != nil {
+			d.say(notice, "Error reading %s file: %s", rcFile, err)
+			os.Exit(1)
 		}
-	}
 
-	if err := scanner.Err(); err != nil {
-		d.say(notice, "Error reading %s file: %s", rcFile, err)
-		os.Exit(1)
-	}
-
-	// Append missing export lines
-	for key, added := range existingVars {
-		if !added {
-			lines = append(lines, exportLines[key])
+		// Append missing export lines
+		for key, added := range existingVars {
+			if !added {
+				lines = append(lines, exportLines[key])
+			}
 		}
-	}
 
-	// Reopen the file in write mode to overwrite with updated content
-	file, err = os.OpenFile(rcFilePath, os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		d.say(notice, "Error opening %s file in write mode:", rcFile, err)
-		return
-	}
-	defer func(file *os.File) {
-		_ = file.Close()
-	}(file)
+		err = file.Close()
+		if err != nil {
+			d.say(notice, "Error closing %s file: %s", rcFile, err)
+			os.Exit(1)
+		}
 
-	// Write all lines back to the rc file
-	writer := bufio.NewWriter(file)
-	for _, line := range lines {
-		if _, err := writer.WriteString(line + "\n"); err != nil {
-			d.say(notice, "Error writing to %s file: %s", rcFile, err)
+		// Reopen the file in write mode to overwrite with updated content
+		file, err = os.OpenFile(rcFilePath, os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			d.say(notice, "Error opening %s file in write mode:", rcFile, err)
 			return
 		}
-	}
+		defer func(file *os.File) {
+			_ = file.Close()
+		}(file)
 
-	for i := 1; i < 6; i++ {
-		err := writer.Flush()
-		if err != nil {
-			d.say(notice, "Failed to flush thw writes to file %s: %s", rcFile, err)
-			d.say(notice, "Retrying.......(%d/5)", i)
-			continue
+		// Write all lines back to the rc file
+		writer := bufio.NewWriter(file)
+		for _, line := range lines {
+			if _, err := writer.WriteString(line + "\n"); err != nil {
+				d.say(notice, "Error writing to %s file: %s", rcFile, err)
+				return
+			}
 		}
-		d.say(notice, "Failed to flush thw writes to file %s: %s", rcFile, err)
-		os.Exit(1)
+
+		for i := 1; i < 6; i++ {
+			err := writer.Flush()
+			if err != nil {
+				d.say(notice, "Failed to flush thw writes to file %s: %s", rcFile, err)
+				d.say(notice, "Retrying.......(%d/5)", i)
+				continue
+			}
+			d.say(notice, "Failed to flush thw writes to file %s: %s", rcFile, err)
+			os.Exit(1)
+		}
 	}
 
 	d.say(plain, "Try the web interface with %s ", code.Render("curio run --layers=gui"))

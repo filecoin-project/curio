@@ -1365,6 +1365,66 @@
       "translation": "服务环境文件 /etc/curio.env 已成功创建。",
       "message": "Service env file /etc/curio.env created successfully.",
       "placeholder": null
+    },
+    {
+      "id": "Do you wish to add Harmony DB credentials to your ~/.bashrc or ~/.zshrc file?",
+      "translation": "您是否希望将 Harmony DB 凭据添加到 ~/.bashrc 或 ~/.zshrc 文件中？",
+      "message": "Do you wish to add Harmony DB credentials to your ~/.bashrc or ~/.zshrc file?",
+      "placeholder": null
+    },
+    {
+      "id": "Yes",
+      "translation": "是",
+      "message": "Yes",
+      "placeholder": null
+    },
+    {
+      "id": "No",
+      "translation": "否",
+      "message": "No",
+      "placeholder": null
+    },
+    {
+      "id": "Error closing {RcFile} file: {Err}",
+      "translation": "关闭 {RcFile} 文件时出错: {Err}",
+      "message": "Error closing {RcFile} file: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE.",
+      "translation": "添加 FIL_PROOFS_PARAMETER_CACHE 等其他变量。",
+      "message": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE.",
+      "placeholder": null
+    },
+    {
+      "id": "Do you want to add additional variables like FIL_PROOFS_PARAMETER_CACHE? (y/n)",
+      "translation": "您是否希望添加 FIL_PROOFS_PARAMETER_CACHE 等其他变量？(y/n)",
+      "message": "Do you want to add additional variables like FIL_PROOFS_PARAMETER_CACHE? (y/n)",
+      "placeholder": null
+    },
+    {
+      "id": "No additional variables added",
+      "translation": "未添加其他变量",
+      "message": "No additional variables added",
+      "placeholder": null
+    },
+    {
+      "id": "Error reading input: {Err}",
+      "translation": "读取输入时出错: {Err}",
+      "message": "Error reading input: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Skipping invalid input: {EnvVar}",
+      "translation": "跳过无效输入: {EnvVar}",
+      "message": "Skipping invalid input: {EnvVar}",
+      "placeholder": null
+    },
+    {
+      "id": "Start typing your additional environment variables one variable per line. Use Ctrl+D to finish:",
+      "translation": "开始输入您的附加环境变量，每行一个变量。使用 Ctrl+D 完成输入:",
+      "message": "Start typing your additional environment variables one variable per line. Use Ctrl+D to finish:",
+      "placeholder": null
     }
   ]
 }

@@ -1395,6 +1395,66 @@
             "translation": "서비스 환경 파일 /etc/curio.env이(가) 성공적으로 생성되었습니다.",
             "message": "Service env file /etc/curio.env created successfully.",
             "placeholder": null
+        },
+        {
+            "id": "Do you wish to add Harmony DB credentials to your ~/.bashrc or ~/.zshrc file?",
+            "translation": "Harmony DB 자격 증명을 ~/.bashrc 또는 ~/.zshrc 파일에 추가하시겠습니까?",
+            "message": "Do you wish to add Harmony DB credentials to your ~/.bashrc or ~/.zshrc file?",
+            "placeholder": null
+        },
+        {
+            "id": "Yes",
+            "translation": "예",
+            "message": "Yes",
+            "placeholder": null
+        },
+        {
+            "id": "No",
+            "translation": "아니요",
+            "message": "No",
+            "placeholder": null
+        },
+        {
+            "id": "Error closing {RcFile} file: {Err}",
+            "translation": "{RcFile} 파일을 닫는 중 오류 발생: {Err}",
+            "message": "Error closing {RcFile} file: {Err}",
+            "placeholder": null
+        },
+        {
+            "id": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE.",
+            "translation": "FIL_PROOFS_PARAMETER_CACHE와 같은 추가 변수를 추가하세요.",
+            "message": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE.",
+            "placeholder": null
+        },
+        {
+            "id": "Do you want to add additional variables like FIL_PROOFS_PARAMETER_CACHE? (y/n)",
+            "translation": "FIL_PROOFS_PARAMETER_CACHE와 같은 추가 변수를 추가하시겠습니까? (y/n)",
+            "message": "Do you want to add additional variables like FIL_PROOFS_PARAMETER_CACHE? (y/n)",
+            "placeholder": null
+        },
+        {
+            "id": "No additional variables added",
+            "translation": "추가 변수가 추가되지 않았습니다",
+            "message": "No additional variables added",
+            "placeholder": null
+        },
+        {
+            "id": "Error reading input: {Err}",
+            "translation": "입력을 읽는 중 오류 발생: {Err}",
+            "message": "Error reading input: {Err}",
+            "placeholder": null
+        },
+        {
+            "id": "Skipping invalid input: {EnvVar}",
+            "translation": "잘못된 입력 건너뜀: {EnvVar}",
+            "message": "Skipping invalid input: {EnvVar}",
+            "placeholder": null
+        },
+        {
+            "id": "Start typing your additional environment variables one variable per line. Use Ctrl+D to finish:",
+            "translation": "추가 환경 변수를 한 줄에 하나씩 입력하세요. 완료하려면 Ctrl+D를 사용하세요:",
+            "message": "Start typing your additional environment variables one variable per line. Use Ctrl+D to finish:",
+            "placeholder": null
         }
     ]
 }

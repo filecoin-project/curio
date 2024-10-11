@@ -1,7 +1,10 @@
 package guidedsetup
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -119,6 +122,8 @@ func createEnvFile(d *MigrationData) {
 	var layers []string
 	var repoPath, nodeName string
 
+	envVars := map[string]string{}
+
 	// Take user input to remaining env vars
 	for {
 		i, _, err := (&promptui.Select{
@@ -127,6 +132,7 @@ func createEnvFile(d *MigrationData) {
 				d.T("CURIO_LAYERS: %s", ""),
 				d.T("CURIO_REPO_PATH: %s", "~/.curio"),
 				d.T("CURIO_NODE_NAME: %s", ""),
+				d.T("Add additional variables like FIL_PROOFS_PARAMETER_CACHE."),
 				d.T("Continue update the env file.")},
 			Size:      6,
 			Templates: d.selectTemplates,
@@ -161,8 +167,53 @@ func createEnvFile(d *MigrationData) {
 			}
 			continue
 		case 3:
+			// Ask if the user wants to add additional variables
+			additionalVars, err := (&promptui.Prompt{
+				Label: d.T("Do you want to add additional variables like FIL_PROOFS_PARAMETER_CACHE? (y/n)"),
+				Validate: func(input string) error {
+					if strings.EqualFold(input, "y") || strings.EqualFold(input, "yes") {
+						return nil
+					}
+					if strings.EqualFold(input, "n") || strings.EqualFold(input, "no") {
+						return nil
+					}
+					return errors.New("incorrect input")
+				},
+			}).Run()
+			if err != nil || strings.Contains(strings.ToLower(additionalVars), "n") {
+				d.say(notice, "No additional variables added")
+				continue
+			}
+
+			// Capture multiline input for additional variables
+			d.say(plain, "Start typing your additional environment variables one variable per line. Use Ctrl+D to finish:")
+			reader := bufio.NewReader(os.Stdin)
+
+			var additionalEnvVars []string
+			for {
+				text, err := reader.ReadString('\n')
+				if err != nil {
+					if err == io.EOF {
+						break // End of input when Ctrl+D is pressed
+					}
+					d.say(notice, "Error reading input: %s", err)
+					os.Exit(1)
+				}
+				additionalEnvVars = append(additionalEnvVars, text)
+			}
+
+			for _, envVar := range additionalEnvVars {
+				parts := strings.SplitN(envVar, "=", 2)
+				if len(parts) == 2 {
+					envVars[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+				} else {
+					d.say(notice, "Skipping invalid input: %s", envVar)
+				}
+			}
+			continue
+		case 4:
 			// Define the environment variables to be added or updated
-			envVars := map[string]string{
+			defenvVars := map[string]string{
 				"CURIO_LAYERS": fmt.Sprintf("export CURIO_LAYERS=%s", strings.Join(layers, ",")),
 				"CURIO_ALL_REMAINING_FIELDS_ARE_OPTIONAL": "true",
 				"CURIO_DB_HOST":                fmt.Sprintf("export CURIO_DB_HOST=%s", strings.Join(d.HarmonyCfg.Hosts, ",")),
@@ -174,6 +225,9 @@ func createEnvFile(d *MigrationData) {
 				"CURIO_NODE_NAME":              nodeName,
 				"FIL_PROOFS_USE_MULTICORE_SDR": "1",
 			}
+			for s, s2 := range defenvVars {
+				envVars[s] = s2
+			}
 
 			// Open the file with truncation (this clears the file if it exists)
 			file, err := os.OpenFile(envFilePath, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0644)
@@ -181,9 +235,9 @@ func createEnvFile(d *MigrationData) {
 				d.say(notice, "Error opening or creating file %s: %s", envFilePath, err)
 				os.Exit(1)
 			}
-			defer func() {
+			defer func(file *os.File) {
 				_ = file.Close()
-			}()
+			}(file)
 
 			// Write the new environment variables to the file
 			for key, value := range envVars {

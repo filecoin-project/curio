@@ -89,6 +89,27 @@
             "fuzzy": true
         },
         {
+            "id": "Do you wish to add Harmony DB credentials to your ~/.bashrc or ~/.zshrc file?",
+            "message": "Do you wish to add Harmony DB credentials to your ~/.bashrc or ~/.zshrc file?",
+            "translation": "Do you wish to add Harmony DB credentials to your ~/.bashrc or ~/.zshrc file?",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Yes",
+            "message": "Yes",
+            "translation": "Yes",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "No",
+            "message": "No",
+            "translation": "No",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Not adding DB variables to RC file as shell {Shell} is not BASH or ZSH.",
             "message": "Not adding DB variables to RC file as shell {Shell} is not BASH or ZSH.",
             "translation": "Not adding DB variables to RC file as shell {Shell} is not BASH or ZSH.",
@@ -151,6 +172,31 @@
             "id": "Error reading {RcFile} file: {Err}",
             "message": "Error reading {RcFile} file: {Err}",
             "translation": "Error reading {RcFile} file: {Err}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "RcFile",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "rcFile"
+                },
+                {
+                    "id": "Err",
+                    "string": "%[2]s",
+                    "type": "error",
+                    "underlyingType": "interface{Error() string}",
+                    "argNum": 2,
+                    "expr": "err"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Error closing {RcFile} file: {Err}",
+            "message": "Error closing {RcFile} file: {Err}",
+            "translation": "Error closing {RcFile} file: {Err}",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
@@ -1677,6 +1723,13 @@
             "fuzzy": true
         },
         {
+            "id": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE.",
+            "message": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE.",
+            "translation": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Continue update the env file.",
             "message": "Continue update the env file.",
             "translation": "Continue update the env file.",
@@ -1727,6 +1780,61 @@
                     "underlyingType": "string",
                     "argNum": 1,
                     "expr": "[]string{\"repo path\", \"node name\"}[i-1]"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Do you want to add additional variables like FIL_PROOFS_PARAMETER_CACHE? (y/n)",
+            "message": "Do you want to add additional variables like FIL_PROOFS_PARAMETER_CACHE? (y/n)",
+            "translation": "Do you want to add additional variables like FIL_PROOFS_PARAMETER_CACHE? (y/n)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "No additional variables added",
+            "message": "No additional variables added",
+            "translation": "No additional variables added",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Start typing your additional environment variables one variable per line. Use Ctrl+D to finish:",
+            "message": "Start typing your additional environment variables one variable per line. Use Ctrl+D to finish:",
+            "translation": "Start typing your additional environment variables one variable per line. Use Ctrl+D to finish:",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Error reading input: {Err}",
+            "message": "Error reading input: {Err}",
+            "translation": "Error reading input: {Err}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Err",
+                    "string": "%[1]s",
+                    "type": "error",
+                    "underlyingType": "interface{Error() string}",
+                    "argNum": 1,
+                    "expr": "err"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Skipping invalid input: {EnvVar}",
+            "message": "Skipping invalid input: {EnvVar}",
+            "translation": "Skipping invalid input: {EnvVar}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "EnvVar",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "envVar"
                 }
             ],
             "fuzzy": true
