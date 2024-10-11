@@ -11,6 +11,9 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/dustin/go-humanize"
+	"github.com/filecoin-project/curio/api"
+	"github.com/filecoin-project/go-jsonrpc"
+	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
@@ -609,6 +612,100 @@ func wnPostCheck(al *alerts) {
 	for _, wn := range wnDetails {
 		if !wn.Included {
 			al.alertMap[Name].alertString += fmt.Sprintf("Epoch %d: does not contain our block %s", wn.Epoch, wn.Block)
+		}
+	}
+}
+
+func chainSyncCheck(al *alerts) {
+	Name := "ChainSync"
+	al.alertMap[Name] = &alertOut{}
+
+	type minimalApiInfo struct {
+		Apis struct {
+			ChainApiInfo []string
+		}
+	}
+
+	rpcInfos := map[string]minimalApiInfo{} // config name -> api info
+	confNameToAddr := map[string]string{}   // config name -> api address
+
+	// Get all config from DB
+	rows, err := al.db.Query(al.ctx, `SELECT title, config FROM harmony_config`)
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("getting db configs: %w", err)
+		return
+	}
+
+	configs := make(map[string]string)
+	for rows.Next() {
+		var title, cfg string
+		if err := rows.Scan(&title, &cfg); err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("scanning db configs: %w", err)
+			return
+		}
+		configs[title] = cfg
+	}
+
+	// Parse all configs minimal to get API
+	for name, tomlStr := range configs {
+		var info minimalApiInfo
+		if err := toml.Unmarshal([]byte(tomlStr), &info); err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("unmarshaling %s config: %w", name, err)
+			continue
+		}
+
+		if len(info.Apis.ChainApiInfo) == 0 {
+			continue
+		}
+
+		rpcInfos[name] = info
+
+		for _, addr := range info.Apis.ChainApiInfo {
+			ai := cliutil.ParseApiInfo(addr)
+			confNameToAddr[name] = ai.Addr
+		}
+	}
+
+	dedup := map[string]bool{} // for dedup by address
+
+	// For each unique API (chain), check if in sync
+	for _, info := range rpcInfos {
+		ai := cliutil.ParseApiInfo(info.Apis.ChainApiInfo[0])
+		if dedup[ai.Addr] {
+			continue
+		}
+		dedup[ai.Addr] = true
+
+		addr, err := ai.DialArgs("v1")
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("could not get DialArgs: %w", err)
+			continue
+		}
+
+		var res api.ChainStruct
+		closer, err := jsonrpc.NewMergeClient(al.ctx, addr, "Filecoin",
+			api.GetInternalStructs(&res), ai.AuthHeader(), []jsonrpc.Option{jsonrpc.WithErrors(jsonrpc.NewErrors())}...)
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("error creating jsonrpc client: %v", err)
+			continue
+		}
+		defer closer()
+
+		full := &res
+
+		head, err := full.ChainHead(al.ctx)
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("ChainHead: %w", err)
+			continue
+		}
+
+		switch {
+		case time.Now().Unix()-int64(head.MinTimestamp()) < int64(build.BlockDelaySecs*3/2): // within 1.5 epochs
+			continue
+		case time.Now().Unix()-int64(head.MinTimestamp()) < int64(build.BlockDelaySecs*5): // within 5 epochs
+			al.alertMap[Name].alertString += fmt.Sprintf("slow (%s behind)", time.Since(time.Unix(int64(head.MinTimestamp()), 0)).Truncate(time.Second))
+		default:
+			al.alertMap[Name].alertString += fmt.Sprintf("behind (%s behind)", time.Since(time.Unix(int64(head.MinTimestamp()), 0)).Truncate(time.Second))
 		}
 	}
 }
