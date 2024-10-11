@@ -302,21 +302,36 @@ func (p *ProveTask) proveRoot(proofSetID int64, rootId int64, challengedLeaf int
 	rootChallengeOffset := challengedLeaf * LeafSize
 
 	// Retrieve the root and subroot
-	var rootCid, subrootCid string
-	var subrootOffset int64
+	type subrootMeta struct {
+		Root          string `db:"root"`
+		Subroot       string `db:"subroot"`
+		SubrootOffset int64  `db:"subroot_offset"`
+	}
 
-	err := p.db.QueryRow(context.Background(), `
+	var subroots []subrootMeta
+
+	err := p.db.Select(context.Background(), &subroots, `
 			SELECT root, subroot, subroot_offset
 			FROM pdp_proofset_roots
-			WHERE proofset = $1 AND root_id = $2 AND subroot_offset >= $3
+			WHERE proofset = $1 AND root_id = $2
 			ORDER BY subroot_offset ASC
-			LIMIT 1
-		`, proofSetID, rootId, rootChallengeOffset).Scan(&rootCid, &subrootCid, &subrootOffset)
+		`, proofSetID, rootId, rootChallengeOffset)
 	if err != nil {
 		return contract.PDPServiceProof{}, xerrors.Errorf("failed to get root and subroot: %w", err)
 	}
 
-	panic("todo")
+	// find first subroot with subroot_offset >= rootChallengeOffset
+	challRoot, challIdx, ok := lo.FindIndexOf(subroots, func(subroot subrootMeta) bool {
+		return subroot.SubrootOffset >= rootChallengeOffset
+	})
+	if !ok {
+		return contract.PDPServiceProof{}, xerrors.New("no subroot found")
+	}
+
+	_ = challIdx
+	_ = challRoot
+
+	panic("implement me")
 }
 
 func (p *ProveTask) getSenderAddress(ctx context.Context) (common.Address, error) {
