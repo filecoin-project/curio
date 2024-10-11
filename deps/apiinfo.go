@@ -100,7 +100,7 @@ func newChainNodeRPCV1(ctx context.Context, addr string, requestHeader http.Head
 
 const initialBackoff = time.Second
 const maxRetryAttempts = 5
-const maxBehinhBestHealthy = 1
+const maxBehindBestHealthy = 1
 
 var errorsToRetry = []error{&jsonrpc.RPCConnectionError{}, &jsonrpc.ErrClient{}}
 
@@ -168,7 +168,7 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 
 					if bestKnownTipset != nil {
 						// if we're behind the best tipset, mark as unhealthy
-						unhealthyProviders[i] = ch.Height() < bestKnownTipset.Height()-maxBehinhBestHealthy
+						unhealthyProviders[i] = ch.Height() < bestKnownTipset.Height()-maxBehindBestHealthy
 						if unhealthyProviders[i] {
 							log.Errorw("rpc check chain head call failed", "fail_type", "behind_best", "provider", i, "height", ch.Height(), "best_height", bestKnownTipset.Height())
 						}
