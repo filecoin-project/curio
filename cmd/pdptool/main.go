@@ -763,7 +763,7 @@ var addRootsCmd = &cli.Command{
 		},
 		&cli.StringSliceFlag{
 			Name:     "root",
-			Usage:    "Root CID and its subroots. Format: rootCID:subrootCID1,subrootCID2,...",
+			Usage:    "Root CID and its subroots. Format: rootCID:subrootCID1+subrootCID2,...",
 			Required: true,
 		},
 	},
@@ -801,11 +801,11 @@ var addRootsCmd = &cli.Command{
 			// Expected format: rootCID:subrootCID1,subrootCID2,...
 			parts := strings.SplitN(rootInput, ":", 2)
 			if len(parts) != 2 {
-				return fmt.Errorf("invalid root input format: %s", rootInput)
+				return fmt.Errorf("invalid root input format: %s (%d)", rootInput, len(parts))
 			}
 			rootCID := parts[0]
 			subrootsStr := parts[1]
-			subrootCIDStrs := strings.Split(subrootsStr, ",")
+			subrootCIDStrs := strings.Split(subrootsStr, "+")
 
 			if rootCID == "" || len(subrootCIDStrs) == 0 {
 				return fmt.Errorf("rootCID and at least one subrootCID are required")
