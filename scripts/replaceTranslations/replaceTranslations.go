@@ -1,3 +1,15 @@
+// b/c GPT4o & Claude are too dumb to just translate value="" fields.
+//  (it'll get better and this will be useless then.)
+
+// This replaces specific fields in an XML file with translations.
+// I used it to modify only the parts of the .drawio files for zh
+// by using an xml tool to extract fields needing translation,
+// formatting them as JS with simple CLI tools, using GPT tranlation,
+// Then using this to modify only the value="" fields with their translation.
+//
+// Note, this was manual. The first portion should be wrapped-up in a script
+// if we want to do this on a regular basis.
+
 package main
 
 import (
