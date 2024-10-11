@@ -93,8 +93,6 @@ func updateNextChallengeEpoch(
 
 	// Check if nextChallengeEpoch is 0, which might indicate that it's uninitialized
 	if nextChallengeEpochBigInt.Cmp(big.NewInt(0)) == 0 {
-		// Optionally, you can decide whether to set next_challenge_epoch to NULL or keep it unchanged
-		log.Infof("Proof set %d has nextChallengeEpoch = 0 on chain. Skipping update.", ps.ID)
 		return nil
 	}
 

@@ -27,3 +27,15 @@ func computeTotalLevels(nLeaves, arity int64) int64 {
 	}
 	return levels
 }
+
+func NodeLevel(leaves, arity int64) int {
+	if leaves == 0 {
+		return 0
+	}
+	level := 0
+	for leaves > 1 {
+		leaves = (leaves + arity - 1) / arity
+		level++
+	}
+	return level + 1
+}

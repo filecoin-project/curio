@@ -679,7 +679,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 
 				pieceInfos[i] = subrootInfo.PieceInfo
 
-				totalOffset += uint64(subrootInfo.PieceInfo.Size.Unpadded())
+				totalOffset += uint64(subrootInfo.PieceInfo.Size)
 			}
 
 			// Use GenerateUnsealedCID to generate RootCID from subroots
@@ -817,9 +817,10 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
                         add_message_index,
                         subroot,
                         subroot_offset,
+						subroot_size,
                         pdp_pieceref
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 `,
 					proofSetIDUint64,
 					addRootReq.RootCID,
@@ -827,6 +828,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 					addMessageIndex,
 					subrootEntry.SubrootCID,
 					subrootInfo.SubrootOffset,
+					subrootInfo.PieceInfo.Size,
 					subrootInfo.PDPPieceRefID,
 				)
 				if err != nil {
