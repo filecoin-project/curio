@@ -64,15 +64,14 @@ CREATE TABLE pdp_proof_sets (
 
     -- next challenge epoch:
     -- - NULL if not yet indexed
-    --   - Set to null when a prove message or proofset modification message lands
-    -- - When null, a poller will check in the contract the next challenge epoch
-    -- - When set to an epoch, and the epoch is in the past a prove task will be created
     next_challenge_epoch BIGINT,
 
     -- next challenge possible:
     -- Set to true when next_challenge_epoch is set to a new non-null value
     -- Set to false when a prove task is created
     next_challenge_possible BOOLEAN NOT NULL DEFAULT FALSE,
+
+    prev_challenge_epoch BIGINT, -- previous challenge epoch
 
     create_message_hash TEXT NOT NULL,
     service TEXT NOT NULL REFERENCES pdp_services(service_label) ON DELETE RESTRICT
