@@ -3,6 +3,7 @@ package pdp
 import (
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -142,13 +143,12 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	// Retrieve proof set and challenge epoch for the task
 	var proofSetID int64
-	var challengeEpoch int64
 
 	err = p.db.QueryRow(context.Background(), `
-        SELECT proofset, challenge_epoch
+        SELECT proofset
         FROM pdp_prove_tasks
         WHERE task_id = $1
-    `, taskID).Scan(&proofSetID, &challengeEpoch)
+    `, taskID).Scan(&proofSetID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get task details: %w", err)
 	}
@@ -161,13 +161,20 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to instantiate PDPService contract at %s: %w", pdpServiceAddress.Hex(), err)
 	}
 
+	callOpts := &bind.CallOpts{
+		Context: ctx,
+	}
+
 	// Proof parameters
-	seed := big.NewInt(challengeEpoch)
+	challengeEpoch, err := pdpService.GetNextChallengeEpoch(callOpts, big.NewInt(proofSetID))
+	if err != nil {
+		return false, xerrors.Errorf("failed to get next challenge epoch: %w", err)
+	}
 
 	// Number of challenges to generate
 	numChallenges := 1 // Application / pdp will specify this later
 
-	proofs, err := p.GenerateProofs(ctx, pdpService, proofSetID, seed, numChallenges)
+	proofs, err := p.GenerateProofs(ctx, pdpService, proofSetID, challengeEpoch, numChallenges)
 	if err != nil {
 		return false, xerrors.Errorf("failed to generate proofs: %w", err)
 	}
@@ -243,9 +250,9 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		// Optionally, update pdp_proof_sets.next_challenge_epoch = NULL and next_challenge_possible = FALSE
 		_, err = tx.Exec(`
             UPDATE pdp_proof_sets
-            SET next_challenge_epoch = NULL, next_challenge_possible = FALSE
+            SET prev_challenge_epoch = $2, next_challenge_possible = FALSE
             WHERE id = $1
-        `, proofSetID)
+        `, proofSetID, challengeEpoch)
 		if err != nil {
 			return false, xerrors.Errorf("failed to update pdp_proof_sets: %w", err)
 		}
@@ -310,9 +317,9 @@ func generateChallengeIndex(seed *big.Int, proofSetID int64, proofIndex int, tot
 	proofSetIDBytes := padTo32Bytes(proofSetIDBigInt.Bytes())
 	data = append(data, proofSetIDBytes...)
 
-	// Convert proofIndex to 32-byte big-endian representation
-	proofIndexBigInt := big.NewInt(int64(proofIndex))
-	proofIndexBytes := padTo32Bytes(proofIndexBigInt.Bytes())
+	// Convert proofIndex to 8-byte big-endian representation
+	proofIndexBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(proofIndexBytes, uint64(proofIndex))
 	data = append(data, proofIndexBytes...)
 
 	// Compute the Keccak-256 hash
@@ -333,7 +340,8 @@ func generateChallengeIndex(seed *big.Int, proofSetID int64, proofIndex int, tot
 		"proofSetID", proofSetID,
 		"proofIndex", proofIndex,
 		"totalLeaves", totalLeaves,
-		"hash", hashBytes,
+		"data", hex.EncodeToString(data),
+		"hash", hex.EncodeToString(hashBytes),
 		"hashInt", hashInt,
 		"totalLeavesBigInt", totalLeavesBigInt,
 		"challengeIndex", challengeIndex,
