@@ -115,7 +115,7 @@ func updateNextChallengeEpoch(
 	_, err = db.Exec(ctx, `
         UPDATE pdp_proof_sets
         SET next_challenge_epoch = $1, next_challenge_possible = TRUE
-        WHERE id = $2 AND next_challenge_epoch IS NULL
+        WHERE id = $2 AND next_challenge_possible = FALSE
     `, nextChallengeEpochBigInt.Int64(), ps.ID)
 	if err != nil {
 		return xerrors.Errorf("failed to update next_challenge_epoch for proof set %d: %w", ps.ID, err)

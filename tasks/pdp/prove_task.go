@@ -172,7 +172,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	// Number of challenges to generate
-	numChallenges := 1 // Application / pdp will specify this later
+	numChallenges := 5 // Application / pdp will specify this later
 
 	proofs, err := p.GenerateProofs(ctx, pdpService, proofSetID, challengeEpoch, numChallenges)
 	if err != nil {
