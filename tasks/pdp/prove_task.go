@@ -3,11 +3,11 @@ package pdp
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -27,6 +27,7 @@ import (
 	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/minio/sha256-simd"
 	"github.com/samber/lo"
+	"golang.org/x/crypto/sha3"
 	"golang.org/x/xerrors"
 	"io"
 	"math/big"
@@ -164,7 +165,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	seed := big.NewInt(challengeEpoch)
 
 	// Number of challenges to generate
-	numChallenges := 3 // Application / pdp will specify this later
+	numChallenges := 1 // Application / pdp will specify this later
 
 	proofs, err := p.GenerateProofs(ctx, pdpService, proofSetID, seed, numChallenges)
 	if err != nil {
@@ -180,6 +181,29 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	if err != nil {
 		return false, xerrors.Errorf("failed to pack data: %w", err)
 	}
+
+	// [ ["0x559e581f022bb4e4ec6e719e563bf0e026ad6de42e56c18714a2c692b1b88d7e", ["0x559e581f022bb4e4ec6e719e563bf0e026ad6de42e56c18714a2c692b1b88d7e"]] ]
+
+	{
+		// format proofs for logging
+		var proofStr string = "[ [\"0x"
+		proofStr += hex.EncodeToString(proofs[0].Leaf[:])
+		proofStr += "\", ["
+		for i, proof := range proofs[0].Proof {
+			if i > 0 {
+				proofStr += ", "
+			}
+			proofStr += "\"0x"
+			proofStr += hex.EncodeToString(proof[:])
+			proofStr += "\""
+		}
+
+		proofStr += "] ] ]"
+
+		log.Infof("PDP Prove Task: proofSetID: %d, taskID: %d, proofs: %s", proofSetID, taskID, proofStr)
+	}
+
+	log.Infow("PDP Prove Task", "proofSetID", proofSetID, "taskID", taskID, "proofs", proofs, "data", hex.EncodeToString(data))
 
 	// Prepare the transaction (nonce will be set to 0, SenderETH will assign it)
 	txEth := types.NewTransaction(
@@ -274,16 +298,55 @@ func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDP
 }
 
 func generateChallengeIndex(seed *big.Int, proofSetID int64, proofIndex int, totalLeaves uint64) int64 {
-	// Hash the seed, proofSetID, and proofIndex to get a deterministic challenge index
-	data := append(seed.Bytes(), big.NewInt(proofSetID).Bytes()...)
-	data = append(data, big.NewInt(int64(proofIndex)).Bytes()...)
-	hash := crypto.Keccak256Hash(data)
+	// Create a buffer to hold the concatenated data (96 bytes: 32 bytes * 3)
+	data := make([]byte, 0, 96)
 
-	hashInt := new(big.Int).SetBytes(hash.Bytes())
+	// Convert seed to 32-byte big-endian representation
+	seedBytes := padTo32Bytes(seed.Bytes())
+	data = append(data, seedBytes...)
+
+	// Convert proofSetID to 32-byte big-endian representation
+	proofSetIDBigInt := big.NewInt(proofSetID)
+	proofSetIDBytes := padTo32Bytes(proofSetIDBigInt.Bytes())
+	data = append(data, proofSetIDBytes...)
+
+	// Convert proofIndex to 32-byte big-endian representation
+	proofIndexBigInt := big.NewInt(int64(proofIndex))
+	proofIndexBytes := padTo32Bytes(proofIndexBigInt.Bytes())
+	data = append(data, proofIndexBytes...)
+
+	// Compute the Keccak-256 hash
+	hash := sha3.NewLegacyKeccak256()
+	hash.Write(data)
+	hashBytes := hash.Sum(nil)
+
+	// Convert hash to big.Int
+	hashInt := new(big.Int).SetBytes(hashBytes)
+
+	// Compute challenge index
 	totalLeavesBigInt := new(big.Int).SetUint64(totalLeaves)
 	challengeIndex := new(big.Int).Mod(hashInt, totalLeavesBigInt)
 
+	// Log for debugging
+	log.Infow("generateChallengeIndex",
+		"seed", seed,
+		"proofSetID", proofSetID,
+		"proofIndex", proofIndex,
+		"totalLeaves", totalLeaves,
+		"hash", hashBytes,
+		"hashInt", hashInt,
+		"totalLeavesBigInt", totalLeavesBigInt,
+		"challengeIndex", challengeIndex,
+	)
+
 	return challengeIndex.Int64()
+}
+
+// padTo32Bytes pads the input byte slice to 32 bytes with leading zeros
+func padTo32Bytes(b []byte) []byte {
+	padded := make([]byte, 32)
+	copy(padded[32-len(b):], b)
+	return padded
 }
 
 func (p *ProveTask) genSubrootMemtree(ctx context.Context, subrootCid string, subrootSize abi.PaddedPieceSize) ([]byte, error) {
@@ -567,7 +630,7 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Gpu: 0,
 			Ram: 128 << 20, // 128 MB
 		},
-		MaxFailures: 50,
+		MaxFailures: 500,
 	}
 }
 
@@ -587,9 +650,11 @@ func Verify(proof contract.PDPServiceProof, root [32]byte, position uint64) bool
 		sibling := proof.Proof[i]
 
 		if position%2 == 0 {
+			log.Infow("Verify", "position", position, "left-c", hex.EncodeToString(computedHash[:]), "right-s", hex.EncodeToString(sibling[:]), "ouh", hex.EncodeToString(shabytes(append(computedHash[:], sibling[:]...))[:]))
 			// If position is even, current node is on the left
 			computedHash = sha256.Sum256(append(computedHash[:], sibling[:]...))
 		} else {
+			log.Infow("Verify", "position", position, "left-s", hex.EncodeToString(sibling[:]), "right-c", hex.EncodeToString(computedHash[:]), "ouh", hex.EncodeToString(shabytes(append(sibling[:], computedHash[:]...))[:]))
 			// If position is odd, current node is on the right
 			computedHash = sha256.Sum256(append(sibling[:], computedHash[:]...))
 		}
@@ -601,6 +666,11 @@ func Verify(proof contract.PDPServiceProof, root [32]byte, position uint64) bool
 
 	// Compare the reconstructed root with the expected root
 	return computedHash == root
+}
+
+func shabytes(in []byte) []byte {
+	out := sha256.Sum256(in)
+	return out[:]
 }
 
 var _ = harmonytask.Reg(&ProveTask{})
