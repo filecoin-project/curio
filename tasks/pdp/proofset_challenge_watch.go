@@ -7,6 +7,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/pdp/contract"
+	"github.com/filecoin-project/go-state-types/abi"
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 	"golang.org/x/xerrors"
 	"math/big"
@@ -22,27 +23,41 @@ func NewWatcherNextChallengeEpoch(
 	db *harmonydb.DB,
 	ethClient *ethclient.Client,
 	pcs *chainsched.CurioChainSched,
-) {
-	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
-		err := processNullNextChallengeEpochs(ctx, db, ethClient)
+) error {
+	callOpts := &bind.CallOpts{
+		Context: context.Background(),
+	}
+	pdpServiceAddress := contract.ContractAddresses().PDPService
+	pdpService, err := contract.NewPDPService(pdpServiceAddress, ethClient)
+	if err != nil {
+		return xerrors.Errorf("failed to instantiate PDPService contract at %s: %w", pdpServiceAddress.Hex(), err)
+	}
+	cf, err := pdpService.GetChallengeFinality(callOpts)
+	if err != nil {
+		return xerrors.Errorf("failed to get challenge finality: %w", err)
+	}
+	challengeFinality := abi.ChainEpoch(cf.Uint64())
+
+	return pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
+		minInterestingPrevChallengeEpoch := apply.Height() - challengeFinality
+		err := processNullNextChallengeEpochs(ctx, minInterestingPrevChallengeEpoch, db, ethClient)
 		if err != nil {
 			log.Warnf("Failed to process null next_challenge_epochs: %v", err)
 		}
 		return nil
-	}); err != nil {
-		panic(err)
-	}
+	})
 }
 
-func processNullNextChallengeEpochs(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
+func processNullNextChallengeEpochs(ctx context.Context, minHeight abi.ChainEpoch, db *harmonydb.DB, ethClient *ethclient.Client) error {
 	// Query for pdp_proof_sets entries where next_challenge_epoch IS NULL
 	var proofSets []ProofSet
 
 	err := db.Select(ctx, &proofSets, `
         SELECT id
         FROM pdp_proof_sets
-        WHERE next_challenge_epoch IS NULL
-    `)
+        WHERE next_challenge_possible = FALSE
+          AND (prev_challenge_epoch IS NULL OR prev_challenge_epoch < $1)
+    `, minHeight)
 	if err != nil {
 		return xerrors.Errorf("failed to select proof sets with null next_challenge_epoch: %w", err)
 	}

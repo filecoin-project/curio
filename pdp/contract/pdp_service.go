@@ -34,12 +34,6 @@ type CidsCid struct {
 	Data []byte
 }
 
-// PDPServiceProof is an auto generated low-level Go binding around an user-defined struct.
-type PDPServiceProof struct {
-	Leaf  [32]byte
-	Proof [][32]byte
-}
-
 // PDPServiceRootData is an auto generated low-level Go binding around an user-defined struct.
 type PDPServiceRootData struct {
 	Root    CidsCid
@@ -52,9 +46,17 @@ type PDPServiceRootIdAndOffset struct {
 	Offset *big.Int
 }
 
+// Proof is an auto generated low-level Go binding around an user-defined struct.
+type Proof struct {
+	Leaf  [32]byte
+	Proof [][32]byte
+}
+
+type PDPServiceProof = Proof
+
 // PDPServiceMetaData contains all meta data concerning the PDPService contract.
 var PDPServiceMetaData = &bind.MetaData{
-	ABI: "[{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_challengeFinality\",\"type\":\"uint256\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"idx\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"msg\",\"type\":\"string\"}],\"name\":\"IndexedError\",\"type\":\"error\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"ProofSetCreated\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"firstAdded\",\"type\":\"uint256\"}],\"name\":\"RootsAdded\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"totalDelta\",\"type\":\"uint256\"}],\"name\":\"RootsRemoved\",\"type\":\"event\"},{\"inputs\":[],\"name\":\"LEAF_SIZE\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"MAX_ROOT_SIZE\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"components\":[{\"components\":[{\"internalType\":\"bytes\",\"name\":\"data\",\"type\":\"bytes\"}],\"internalType\":\"structCids.Cid\",\"name\":\"root\",\"type\":\"tuple\"},{\"internalType\":\"uint256\",\"name\":\"rawSize\",\"type\":\"uint256\"}],\"internalType\":\"structPDPService.RootData[]\",\"name\":\"rootData\",\"type\":\"tuple[]\"}],\"name\":\"addRoots\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"claimProofSetOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"recordKeeper\",\"type\":\"address\"}],\"name\":\"createProofSet\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"deleteProofSet\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"uint256[]\",\"name\":\"leafIndexs\",\"type\":\"uint256[]\"}],\"name\":\"findRootIds\",\"outputs\":[{\"components\":[{\"internalType\":\"uint256\",\"name\":\"rootId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"offset\",\"type\":\"uint256\"}],\"internalType\":\"structPDPService.RootIdAndOffset[]\",\"name\":\"\",\"type\":\"tuple[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getChallengeFinality\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"getNextChallengeEpoch\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getNextProofSetId\",\"outputs\":[{\"internalType\":\"uint64\",\"name\":\"\",\"type\":\"uint64\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"getNextRootId\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"getProofSetLeafCount\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"getProofSetOwner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"},{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"rootId\",\"type\":\"uint256\"}],\"name\":\"getRootCid\",\"outputs\":[{\"components\":[{\"internalType\":\"bytes\",\"name\":\"data\",\"type\":\"bytes\"}],\"internalType\":\"structCids.Cid\",\"name\":\"\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"rootId\",\"type\":\"uint256\"}],\"name\":\"getRootLeafCount\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"proofSetLive\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"proposeProofSetOwner\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"components\":[{\"internalType\":\"bytes32\",\"name\":\"leaf\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32[]\",\"name\":\"proof\",\"type\":\"bytes32[]\"}],\"internalType\":\"structPDPService.Proof[]\",\"name\":\"proofs\",\"type\":\"tuple[]\"}],\"name\":\"provePossession\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"uint256[]\",\"name\":\"rootIds\",\"type\":\"uint256[]\"}],\"name\":\"removeRoots\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"rootId\",\"type\":\"uint256\"}],\"name\":\"rootLive\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"}]",
+	ABI: "[{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"idx\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"msg\",\"type\":\"string\"}],\"name\":\"IndexedError\",\"type\":\"error\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"string\",\"name\":\"messageType\",\"type\":\"string\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"index\",\"type\":\"uint256\"},{\"indexed\":false,\"internalType\":\"bytes\",\"name\":\"data\",\"type\":\"bytes\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"value\",\"type\":\"uint256\"}],\"name\":\"DebugData\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"string\",\"name\":\"message\",\"type\":\"string\"}],\"name\":\"DebugEvent\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"proofIndex\",\"type\":\"uint256\"},{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"stepIndex\",\"type\":\"uint256\"},{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"prevComputedHash\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"sibling\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"bytes32\",\"name\":\"newComputedHash\",\"type\":\"bytes32\"},{\"indexed\":false,\"internalType\":\"bool\",\"name\":\"isLeft\",\"type\":\"bool\"}],\"name\":\"DebugProofStep\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"internalType\":\"uint256\",\"name\":\"proofIndex\",\"type\":\"uint256\"},{\"indexed\":false,\"internalType\":\"bool\",\"name\":\"success\",\"type\":\"bool\"}],\"name\":\"DebugProofVerification\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"ProofSetCreated\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"firstAdded\",\"type\":\"uint256\"}],\"name\":\"RootsAdded\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":true,\"internalType\":\"uint256\",\"name\":\"totalDelta\",\"type\":\"uint256\"}],\"name\":\"RootsRemoved\",\"type\":\"event\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"components\":[{\"components\":[{\"internalType\":\"bytes\",\"name\":\"data\",\"type\":\"bytes\"}],\"internalType\":\"structCids.Cid\",\"name\":\"root\",\"type\":\"tuple\"},{\"internalType\":\"uint256\",\"name\":\"rawSize\",\"type\":\"uint256\"}],\"internalType\":\"structPDPService.RootData[]\",\"name\":\"rootData\",\"type\":\"tuple[]\"}],\"name\":\"addRoots\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"claimProofSetOwnership\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"recordKeeper\",\"type\":\"address\"}],\"name\":\"createProofSet\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"deleteProofSet\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"newOwner\",\"type\":\"address\"}],\"name\":\"proposeProofSetOwner\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"components\":[{\"internalType\":\"bytes32\",\"name\":\"leaf\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32[]\",\"name\":\"proof\",\"type\":\"bytes32[]\"}],\"internalType\":\"structProof[]\",\"name\":\"proofs\",\"type\":\"tuple[]\"}],\"name\":\"provePossession\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"components\":[{\"internalType\":\"bytes32\",\"name\":\"leaf\",\"type\":\"bytes32\"},{\"internalType\":\"bytes32[]\",\"name\":\"proof\",\"type\":\"bytes32[]\"}],\"internalType\":\"structProof[]\",\"name\":\"proofs\",\"type\":\"tuple[]\"}],\"name\":\"provePossessionTest\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"uint256[]\",\"name\":\"rootIds\",\"type\":\"uint256[]\"}],\"name\":\"removeRoots\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"_challengeFinality\",\"type\":\"uint256\"}],\"stateMutability\":\"nonpayable\",\"type\":\"constructor\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"uint256[]\",\"name\":\"leafIndexs\",\"type\":\"uint256[]\"}],\"name\":\"findRootIds\",\"outputs\":[{\"components\":[{\"internalType\":\"uint256\",\"name\":\"rootId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"offset\",\"type\":\"uint256\"}],\"internalType\":\"structPDPService.RootIdAndOffset[]\",\"name\":\"\",\"type\":\"tuple[]\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getChallengeFinality\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"getNextChallengeEpoch\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getNextProofSetId\",\"outputs\":[{\"internalType\":\"uint64\",\"name\":\"\",\"type\":\"uint64\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"getNextRootId\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"getProofSetLeafCount\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"getProofSetOwner\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"},{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"rootId\",\"type\":\"uint256\"}],\"name\":\"getRootCid\",\"outputs\":[{\"components\":[{\"internalType\":\"bytes\",\"name\":\"data\",\"type\":\"bytes\"}],\"internalType\":\"structCids.Cid\",\"name\":\"\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"rootId\",\"type\":\"uint256\"}],\"name\":\"getRootLeafCount\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"LEAF_SIZE\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"MAX_ROOT_SIZE\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"}],\"name\":\"proofSetLive\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"setId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"rootId\",\"type\":\"uint256\"}],\"name\":\"rootLive\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"}]",
 }
 
 // PDPServiceABI is the input ABI used to generate the binding from.
@@ -715,22 +717,43 @@ func (_PDPService *PDPServiceTransactorSession) ProposeProofSetOwner(setId *big.
 // ProvePossession is a paid mutator transaction binding the contract method 0xf58f952b.
 //
 // Solidity: function provePossession(uint256 setId, (bytes32,bytes32[])[] proofs) returns()
-func (_PDPService *PDPServiceTransactor) ProvePossession(opts *bind.TransactOpts, setId *big.Int, proofs []PDPServiceProof) (*types.Transaction, error) {
+func (_PDPService *PDPServiceTransactor) ProvePossession(opts *bind.TransactOpts, setId *big.Int, proofs []Proof) (*types.Transaction, error) {
 	return _PDPService.contract.Transact(opts, "provePossession", setId, proofs)
 }
 
 // ProvePossession is a paid mutator transaction binding the contract method 0xf58f952b.
 //
 // Solidity: function provePossession(uint256 setId, (bytes32,bytes32[])[] proofs) returns()
-func (_PDPService *PDPServiceSession) ProvePossession(setId *big.Int, proofs []PDPServiceProof) (*types.Transaction, error) {
+func (_PDPService *PDPServiceSession) ProvePossession(setId *big.Int, proofs []Proof) (*types.Transaction, error) {
 	return _PDPService.Contract.ProvePossession(&_PDPService.TransactOpts, setId, proofs)
 }
 
 // ProvePossession is a paid mutator transaction binding the contract method 0xf58f952b.
 //
 // Solidity: function provePossession(uint256 setId, (bytes32,bytes32[])[] proofs) returns()
-func (_PDPService *PDPServiceTransactorSession) ProvePossession(setId *big.Int, proofs []PDPServiceProof) (*types.Transaction, error) {
+func (_PDPService *PDPServiceTransactorSession) ProvePossession(setId *big.Int, proofs []Proof) (*types.Transaction, error) {
 	return _PDPService.Contract.ProvePossession(&_PDPService.TransactOpts, setId, proofs)
+}
+
+// ProvePossessionTest is a paid mutator transaction binding the contract method 0xa5e5f197.
+//
+// Solidity: function provePossessionTest(uint256 setId, (bytes32,bytes32[])[] proofs) returns()
+func (_PDPService *PDPServiceTransactor) ProvePossessionTest(opts *bind.TransactOpts, setId *big.Int, proofs []Proof) (*types.Transaction, error) {
+	return _PDPService.contract.Transact(opts, "provePossessionTest", setId, proofs)
+}
+
+// ProvePossessionTest is a paid mutator transaction binding the contract method 0xa5e5f197.
+//
+// Solidity: function provePossessionTest(uint256 setId, (bytes32,bytes32[])[] proofs) returns()
+func (_PDPService *PDPServiceSession) ProvePossessionTest(setId *big.Int, proofs []Proof) (*types.Transaction, error) {
+	return _PDPService.Contract.ProvePossessionTest(&_PDPService.TransactOpts, setId, proofs)
+}
+
+// ProvePossessionTest is a paid mutator transaction binding the contract method 0xa5e5f197.
+//
+// Solidity: function provePossessionTest(uint256 setId, (bytes32,bytes32[])[] proofs) returns()
+func (_PDPService *PDPServiceTransactorSession) ProvePossessionTest(setId *big.Int, proofs []Proof) (*types.Transaction, error) {
+	return _PDPService.Contract.ProvePossessionTest(&_PDPService.TransactOpts, setId, proofs)
 }
 
 // RemoveRoots is a paid mutator transaction binding the contract method 0x316bf10e.
@@ -752,6 +775,551 @@ func (_PDPService *PDPServiceSession) RemoveRoots(setId *big.Int, rootIds []*big
 // Solidity: function removeRoots(uint256 setId, uint256[] rootIds) returns(uint256)
 func (_PDPService *PDPServiceTransactorSession) RemoveRoots(setId *big.Int, rootIds []*big.Int) (*types.Transaction, error) {
 	return _PDPService.Contract.RemoveRoots(&_PDPService.TransactOpts, setId, rootIds)
+}
+
+// PDPServiceDebugDataIterator is returned from FilterDebugData and is used to iterate over the raw logs and unpacked data for DebugData events raised by the PDPService contract.
+type PDPServiceDebugDataIterator struct {
+	Event *PDPServiceDebugData // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *PDPServiceDebugDataIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(PDPServiceDebugData)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(PDPServiceDebugData)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *PDPServiceDebugDataIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *PDPServiceDebugDataIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// PDPServiceDebugData represents a DebugData event raised by the PDPService contract.
+type PDPServiceDebugData struct {
+	MessageType string
+	Index       *big.Int
+	Data        []byte
+	Value       *big.Int
+	Raw         types.Log // Blockchain specific contextual infos
+}
+
+// FilterDebugData is a free log retrieval operation binding the contract event 0x1c4b346828498ed500984a195f6a621c08978f4e92627349ec4d5a596b383255.
+//
+// Solidity: event DebugData(string messageType, uint256 index, bytes data, uint256 value)
+func (_PDPService *PDPServiceFilterer) FilterDebugData(opts *bind.FilterOpts) (*PDPServiceDebugDataIterator, error) {
+
+	logs, sub, err := _PDPService.contract.FilterLogs(opts, "DebugData")
+	if err != nil {
+		return nil, err
+	}
+	return &PDPServiceDebugDataIterator{contract: _PDPService.contract, event: "DebugData", logs: logs, sub: sub}, nil
+}
+
+// WatchDebugData is a free log subscription operation binding the contract event 0x1c4b346828498ed500984a195f6a621c08978f4e92627349ec4d5a596b383255.
+//
+// Solidity: event DebugData(string messageType, uint256 index, bytes data, uint256 value)
+func (_PDPService *PDPServiceFilterer) WatchDebugData(opts *bind.WatchOpts, sink chan<- *PDPServiceDebugData) (event.Subscription, error) {
+
+	logs, sub, err := _PDPService.contract.WatchLogs(opts, "DebugData")
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(PDPServiceDebugData)
+				if err := _PDPService.contract.UnpackLog(event, "DebugData", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseDebugData is a log parse operation binding the contract event 0x1c4b346828498ed500984a195f6a621c08978f4e92627349ec4d5a596b383255.
+//
+// Solidity: event DebugData(string messageType, uint256 index, bytes data, uint256 value)
+func (_PDPService *PDPServiceFilterer) ParseDebugData(log types.Log) (*PDPServiceDebugData, error) {
+	event := new(PDPServiceDebugData)
+	if err := _PDPService.contract.UnpackLog(event, "DebugData", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
+// PDPServiceDebugEventIterator is returned from FilterDebugEvent and is used to iterate over the raw logs and unpacked data for DebugEvent events raised by the PDPService contract.
+type PDPServiceDebugEventIterator struct {
+	Event *PDPServiceDebugEvent // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *PDPServiceDebugEventIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(PDPServiceDebugEvent)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(PDPServiceDebugEvent)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *PDPServiceDebugEventIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *PDPServiceDebugEventIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// PDPServiceDebugEvent represents a DebugEvent event raised by the PDPService contract.
+type PDPServiceDebugEvent struct {
+	Message string
+	Raw     types.Log // Blockchain specific contextual infos
+}
+
+// FilterDebugEvent is a free log retrieval operation binding the contract event 0x56f074d292557f2e3c567d982816e0fb5b72100ff196892f8fbd23b8a9073679.
+//
+// Solidity: event DebugEvent(string message)
+func (_PDPService *PDPServiceFilterer) FilterDebugEvent(opts *bind.FilterOpts) (*PDPServiceDebugEventIterator, error) {
+
+	logs, sub, err := _PDPService.contract.FilterLogs(opts, "DebugEvent")
+	if err != nil {
+		return nil, err
+	}
+	return &PDPServiceDebugEventIterator{contract: _PDPService.contract, event: "DebugEvent", logs: logs, sub: sub}, nil
+}
+
+// WatchDebugEvent is a free log subscription operation binding the contract event 0x56f074d292557f2e3c567d982816e0fb5b72100ff196892f8fbd23b8a9073679.
+//
+// Solidity: event DebugEvent(string message)
+func (_PDPService *PDPServiceFilterer) WatchDebugEvent(opts *bind.WatchOpts, sink chan<- *PDPServiceDebugEvent) (event.Subscription, error) {
+
+	logs, sub, err := _PDPService.contract.WatchLogs(opts, "DebugEvent")
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(PDPServiceDebugEvent)
+				if err := _PDPService.contract.UnpackLog(event, "DebugEvent", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseDebugEvent is a log parse operation binding the contract event 0x56f074d292557f2e3c567d982816e0fb5b72100ff196892f8fbd23b8a9073679.
+//
+// Solidity: event DebugEvent(string message)
+func (_PDPService *PDPServiceFilterer) ParseDebugEvent(log types.Log) (*PDPServiceDebugEvent, error) {
+	event := new(PDPServiceDebugEvent)
+	if err := _PDPService.contract.UnpackLog(event, "DebugEvent", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
+// PDPServiceDebugProofStepIterator is returned from FilterDebugProofStep and is used to iterate over the raw logs and unpacked data for DebugProofStep events raised by the PDPService contract.
+type PDPServiceDebugProofStepIterator struct {
+	Event *PDPServiceDebugProofStep // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *PDPServiceDebugProofStepIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(PDPServiceDebugProofStep)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(PDPServiceDebugProofStep)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *PDPServiceDebugProofStepIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *PDPServiceDebugProofStepIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// PDPServiceDebugProofStep represents a DebugProofStep event raised by the PDPService contract.
+type PDPServiceDebugProofStep struct {
+	ProofIndex       *big.Int
+	StepIndex        *big.Int
+	PrevComputedHash [32]byte
+	Sibling          [32]byte
+	NewComputedHash  [32]byte
+	IsLeft           bool
+	Raw              types.Log // Blockchain specific contextual infos
+}
+
+// FilterDebugProofStep is a free log retrieval operation binding the contract event 0x512f333b515809ef23759253994bec683f443f49567564c4b220da69b770da59.
+//
+// Solidity: event DebugProofStep(uint256 proofIndex, uint256 stepIndex, bytes32 prevComputedHash, bytes32 sibling, bytes32 newComputedHash, bool isLeft)
+func (_PDPService *PDPServiceFilterer) FilterDebugProofStep(opts *bind.FilterOpts) (*PDPServiceDebugProofStepIterator, error) {
+
+	logs, sub, err := _PDPService.contract.FilterLogs(opts, "DebugProofStep")
+	if err != nil {
+		return nil, err
+	}
+	return &PDPServiceDebugProofStepIterator{contract: _PDPService.contract, event: "DebugProofStep", logs: logs, sub: sub}, nil
+}
+
+// WatchDebugProofStep is a free log subscription operation binding the contract event 0x512f333b515809ef23759253994bec683f443f49567564c4b220da69b770da59.
+//
+// Solidity: event DebugProofStep(uint256 proofIndex, uint256 stepIndex, bytes32 prevComputedHash, bytes32 sibling, bytes32 newComputedHash, bool isLeft)
+func (_PDPService *PDPServiceFilterer) WatchDebugProofStep(opts *bind.WatchOpts, sink chan<- *PDPServiceDebugProofStep) (event.Subscription, error) {
+
+	logs, sub, err := _PDPService.contract.WatchLogs(opts, "DebugProofStep")
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(PDPServiceDebugProofStep)
+				if err := _PDPService.contract.UnpackLog(event, "DebugProofStep", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseDebugProofStep is a log parse operation binding the contract event 0x512f333b515809ef23759253994bec683f443f49567564c4b220da69b770da59.
+//
+// Solidity: event DebugProofStep(uint256 proofIndex, uint256 stepIndex, bytes32 prevComputedHash, bytes32 sibling, bytes32 newComputedHash, bool isLeft)
+func (_PDPService *PDPServiceFilterer) ParseDebugProofStep(log types.Log) (*PDPServiceDebugProofStep, error) {
+	event := new(PDPServiceDebugProofStep)
+	if err := _PDPService.contract.UnpackLog(event, "DebugProofStep", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
+// PDPServiceDebugProofVerificationIterator is returned from FilterDebugProofVerification and is used to iterate over the raw logs and unpacked data for DebugProofVerification events raised by the PDPService contract.
+type PDPServiceDebugProofVerificationIterator struct {
+	Event *PDPServiceDebugProofVerification // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *PDPServiceDebugProofVerificationIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(PDPServiceDebugProofVerification)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(PDPServiceDebugProofVerification)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *PDPServiceDebugProofVerificationIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *PDPServiceDebugProofVerificationIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// PDPServiceDebugProofVerification represents a DebugProofVerification event raised by the PDPService contract.
+type PDPServiceDebugProofVerification struct {
+	ProofIndex *big.Int
+	Success    bool
+	Raw        types.Log // Blockchain specific contextual infos
+}
+
+// FilterDebugProofVerification is a free log retrieval operation binding the contract event 0x6cf0132a73e77a7c5f1a48f30b7947bba952b1389f64510d63406b40be031fdc.
+//
+// Solidity: event DebugProofVerification(uint256 proofIndex, bool success)
+func (_PDPService *PDPServiceFilterer) FilterDebugProofVerification(opts *bind.FilterOpts) (*PDPServiceDebugProofVerificationIterator, error) {
+
+	logs, sub, err := _PDPService.contract.FilterLogs(opts, "DebugProofVerification")
+	if err != nil {
+		return nil, err
+	}
+	return &PDPServiceDebugProofVerificationIterator{contract: _PDPService.contract, event: "DebugProofVerification", logs: logs, sub: sub}, nil
+}
+
+// WatchDebugProofVerification is a free log subscription operation binding the contract event 0x6cf0132a73e77a7c5f1a48f30b7947bba952b1389f64510d63406b40be031fdc.
+//
+// Solidity: event DebugProofVerification(uint256 proofIndex, bool success)
+func (_PDPService *PDPServiceFilterer) WatchDebugProofVerification(opts *bind.WatchOpts, sink chan<- *PDPServiceDebugProofVerification) (event.Subscription, error) {
+
+	logs, sub, err := _PDPService.contract.WatchLogs(opts, "DebugProofVerification")
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(PDPServiceDebugProofVerification)
+				if err := _PDPService.contract.UnpackLog(event, "DebugProofVerification", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseDebugProofVerification is a log parse operation binding the contract event 0x6cf0132a73e77a7c5f1a48f30b7947bba952b1389f64510d63406b40be031fdc.
+//
+// Solidity: event DebugProofVerification(uint256 proofIndex, bool success)
+func (_PDPService *PDPServiceFilterer) ParseDebugProofVerification(log types.Log) (*PDPServiceDebugProofVerification, error) {
+	event := new(PDPServiceDebugProofVerification)
+	if err := _PDPService.contract.UnpackLog(event, "DebugProofVerification", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
 }
 
 // PDPServiceProofSetCreatedIterator is returned from FilterProofSetCreated and is used to iterate over the raw logs and unpacked data for ProofSetCreated events raised by the PDPService contract.
