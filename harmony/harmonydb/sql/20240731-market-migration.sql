@@ -148,7 +148,7 @@ CREATE TABLE market_mk12_deal_pipeline (
     started BOOLEAN DEFAULT FALSE,
 
     piece_cid TEXT NOT NULL,
-    piece_size BIGINT NOT NULL,
+    piece_size BIGINT NOT NULL, -- padded size
     raw_size BIGINT DEFAULT NULL,
 
     offline BOOLEAN NOT NULL,
@@ -169,7 +169,7 @@ CREATE TABLE market_mk12_deal_pipeline (
 
     sector BIGINT DEFAULT NULL,
     reg_seal_proof INT DEFAULT NULL,
-    sector_offset BIGINT DEFAULT NULL,
+    sector_offset BIGINT DEFAULT NULL, -- padded offset
 
     sealed BOOLEAN DEFAULT FALSE,
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"io"
 	"time"
 
@@ -97,7 +98,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 
 	// Check if piece is already indexed
 	var indexed bool
-	err = i.db.Select(ctx, &indexed, `SELECT indexed FROM market_piece_metadata WHERE piece_cid = $1`, task.PieceCid)
+	err = i.db.QueryRow(ctx, `SELECT indexed FROM market_piece_metadata WHERE piece_cid = $1`, task.PieceCid).Scan(&indexed)
 	if err != nil {
 		return false, xerrors.Errorf("checking if piece is already indexed: %w", err)
 	}
@@ -137,7 +138,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 			Number: task.Sector,
 		},
 		ProofType: task.Proof,
-	}, storiface.UnpaddedByteIndex(task.Offset), abi.UnpaddedPieceSize(task.Size), pieceCid)
+	}, storiface.UnpaddedByteIndex(abi.PaddedPieceSize(task.Offset).Unpadded()), task.Size.Unpadded(), pieceCid)
 
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
@@ -193,7 +194,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return false, xerrors.Errorf("adding index to DB: %w", err)
 	}
 
-	log.Infof("Indexing deal %s took %d seconds", task.UUID, time.Since(startTime).Seconds())
+	log.Infof("Indexing deal %s took %0.3f seconds", task.UUID, time.Since(startTime).Seconds())
 
 	err = i.recordCompletion(ctx, task, taskID, true)
 	if err != nil {
@@ -236,7 +237,7 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 
 func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
 	var tasks []struct {
-		TaskID       harmonytask.TaskID `db:"task_id"`
+		TaskID       harmonytask.TaskID `db:"indexing_task_id"`
 		SpID         int64              `db:"sp_id"`
 		SectorNumber int64              `db:"sector"`
 		StorageID    string             `db:"storage_id"`
@@ -298,6 +299,7 @@ func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu: 1,
 			Ram: uint64(i.insertBatchSize * i.insertConcurrency * 56 * 2),
 		},
+		Max:         taskhelp.Max(4),
 		MaxFailures: 3,
 		IAmBored: passcall.Every(10*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
 			return i.schedule(context.Background(), taskFunc)

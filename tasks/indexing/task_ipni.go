@@ -102,7 +102,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 			Number: task.Sector,
 		},
 		ProofType: task.Proof,
-	}, storiface.UnpaddedByteIndex(task.Offset), abi.UnpaddedPieceSize(pi.Size), pi.PieceCID)
+	}, storiface.UnpaddedByteIndex(abi.PaddedPieceSize(task.Offset).Unpadded()), pi.Size.Unpadded(), pi.PieceCID)
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
@@ -233,9 +233,9 @@ func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 	}
 
 	err := I.db.Select(ctx, &tasks, `
-		SELECT dp.indexing_task_id, dp.sp_id, dp.sector, l.storage_id FROM market_mk12_deal_pipeline dp
+		SELECT dp.task_id, dp.sp_id, dp.sector, l.storage_id FROM ipni_task dp
 			INNER JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
-			WHERE dp.indexing_task_id = ANY ($1) AND l.sector_filetype = 1
+			WHERE dp.task_id = ANY ($1) AND l.sector_filetype = 1
 `, indIDs)
 	if err != nil {
 		return nil, xerrors.Errorf("getting tasks: %w", err)
@@ -292,12 +292,14 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 	// schedule submits
 	var stop bool
 	for !stop {
+		var markComplete *string
+
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
 
 			var pendings []itask
 
-			err := I.db.Select(ctx, &pendings, `SELECT
+			err := tx.Select(&pendings, `SELECT
     										uuid, 
 											sp_id, 
 											sector,
@@ -312,7 +314,8 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 											WHERE sealed = TRUE
 											AND indexed = TRUE 
 											AND complete = FALSE
-											ORDER BY indexing_created_at ASC;`)
+											ORDER BY indexing_created_at ASC
+											LIMIT 1;`)
 			if err != nil {
 				return false, xerrors.Errorf("getting pending IPNI announcing tasks: %w", err)
 			}
@@ -328,7 +331,7 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 			if !p.Announce || !p.ShouldIndex {
 				n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1`, p.UUID)
 				if err != nil {
-					return false, xerrors.Errorf("store IPNI success: updating pipeline: %w", err)
+					return false, xerrors.Errorf("store IPNI success: updating pipeline (1): %w", err)
 				}
 				if n != 1 {
 					return false, xerrors.Errorf("store IPNI success: updated %d rows", n)
@@ -376,30 +379,16 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 				if harmonydb.IsErrUniqueContraint(err) {
 					ilog.Infof("Another IPNI announce task already present for piece %s in deal %s", p.PieceCid, p.UUID)
 					// SET "complete" status to true for this deal, so it is not considered next time
-					n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1`, p.UUID)
-					if err != nil {
-						return false, xerrors.Errorf("store IPNI success: updating pipeline: %w", err)
-					}
-					if n != 1 {
-						return false, xerrors.Errorf("store IPNI success: updated %d rows", n)
-					}
-					// We should commit this transaction to set the value
-					stop = false // we found a task to schedule, keep going
+					markComplete = &p.UUID
+					stop = false // we found a sector to work on, keep going
 					return true, nil
 				}
 				if strings.Contains(err.Error(), "already published") {
 					ilog.Infof("Piece %s in deal %s is already published", p.PieceCid, p.UUID)
 					// SET "complete" status to true for this deal, so it is not considered next time
-					n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1`, p.UUID)
-					if err != nil {
-						return false, xerrors.Errorf("store IPNI success: updating pipeline: %w", err)
-					}
-					if n != 1 {
-						return false, xerrors.Errorf("store IPNI success: updated %d rows", n)
-					}
-					// We should commit this transaction to set the value
-					stop = false // we found a task to schedule, keep going
-					return true, nil
+					markComplete = &p.UUID
+					stop = false // we found a sector to work on, keep going
+					return false, nil
 				}
 				return false, xerrors.Errorf("updating IPNI announcing task id: %w", err)
 			}
@@ -407,6 +396,16 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 			stop = false // we found a task to schedule, keep going
 			return true, nil
 		})
+
+		if markComplete != nil {
+			n, err := I.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1 AND complete = FALSE`, *markComplete)
+			if err != nil {
+				log.Errorf("store IPNI success: updating pipeline (2): %s", err)
+			}
+			if n != 1 {
+				log.Errorf("store IPNI success: updated %d rows", n)
+			}
+		}
 	}
 
 	return nil

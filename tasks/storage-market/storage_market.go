@@ -81,7 +81,7 @@ type MK12Pipeline struct {
 	FindDealTaskID *int64          `db:"find_deal_task_id"`
 	AfterFindDeal  bool            `db:"after_find_deal"`
 	Sector         *int64          `db:"sector"`
-	Offset         *int64          `Db:"sector_offset"`
+	Offset         *int64          `db:"sector_offset"`
 }
 
 func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, sc *ffi.SealCalls, mapi storageMarketAPI) *CurioStorageDealMarket {
