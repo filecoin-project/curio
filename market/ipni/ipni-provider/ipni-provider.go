@@ -34,7 +34,6 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
-	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/urltomultiaddr"
 	"github.com/filecoin-project/curio/market/indexstore"
@@ -75,10 +74,9 @@ type peerInfo struct {
 
 // Provider represents a provider for IPNI.
 type Provider struct {
-	db            *harmonydb.DB
-	pieceProvider *pieceprovider.PieceProvider
-	indexStore    *indexstore.IndexStore
-	keys          map[string]*peerInfo // map[peerID String]Private_Key
+	db         *harmonydb.DB
+	indexStore *indexstore.IndexStore
+	keys       map[string]*peerInfo // map[peerID String]Private_Key
 	// announceURLs enables sending direct announcements via HTTP. This is
 	// the list of indexer URLs to send direct HTTP announce messages to.
 	announceURLs []*url.URL
@@ -134,7 +132,7 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 		return nil, err
 	}
 
-	announceURLs := make([]*url.URL, 0, len(d.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs))
+	announceURLs := make([]*url.URL, len(d.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs))
 
 	for i, us := range d.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs {
 		u, err := url.Parse(us)
@@ -160,7 +158,6 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 
 	return &Provider{
 		db:                  d.DB,
-		pieceProvider:       d.PieceProvider,
 		indexStore:          d.IndexStore,
 		keys:                keyMap,
 		announceURLs:        announceURLs,

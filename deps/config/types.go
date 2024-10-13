@@ -304,6 +304,11 @@ type CurioSubsystemsConfig struct {
 	// EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured.
 	EnableDealMarket bool
 
+	// Enable handling for PDP (proof-of-data possession) deals / proving on this node.
+	// PDP deals allow the node to directly store and prove unsealed data with "PDP Services" like Storacha.
+	// This feature is BETA and should only be enabled on nodes which are part of a PDP network.
+	EnablePDP bool
+
 	// EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
 	// Must have EnableDealMarket = True
 	EnableCommP bool
@@ -701,9 +706,6 @@ type HTTPConfig struct {
 	// DomainName specifies the domain name that the server uses to serve HTTP requests. DomainName cannot be empty and cannot be
 	// an IP address
 	DomainName string
-
-	// CertCacheDir path to the cache directory for storing SSL certificates needed for HTTPS.
-	CertCacheDir string
 
 	// ListenAddress is the address that the server listens for HTTP requests.
 	ListenAddress string
