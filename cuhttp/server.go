@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/yugabyte/pgx/v5"
 	"net/http"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/handlers"
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/xerrors"
 

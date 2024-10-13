@@ -1,10 +1,11 @@
 package dealdata
 
 import (
-	"golang.org/x/xerrors"
 	"io"
 	"net/http"
 	"net/url"
+
+	"golang.org/x/xerrors"
 )
 
 type UrlPieceReader struct {
