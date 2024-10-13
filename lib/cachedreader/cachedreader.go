@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"time"
 
@@ -209,5 +210,17 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 		return nil, 0, r.err
 	}
 
-	return r.reader, r.pieceSize, nil
+	rs := io.NewSectionReader(r.reader, 0, int64(r.pieceSize))
+
+	return struct {
+		io.Closer
+		io.Reader
+		io.ReaderAt
+		io.Seeker
+	}{
+		Closer:   r,
+		Reader:   rs,
+		Seeker:   rs,
+		ReaderAt: r.reader,
+	}, r.pieceSize, nil
 }
