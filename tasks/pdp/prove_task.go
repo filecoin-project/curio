@@ -172,7 +172,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	// Number of challenges to generate
-	numChallenges := 5 // Application / pdp will specify this later
+	numChallenges := 20 // Application / pdp will specify this later
 
 	proofs, err := p.GenerateProofs(ctx, pdpService, proofSetID, challengeEpoch, numChallenges)
 	if err != nil {
@@ -636,9 +636,9 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,
-			Ram: 128 << 20, // 128 MB
+			Ram: 256 << 20, // 128 MB
 		},
-		MaxFailures: 500,
+		MaxFailures: 5,
 	}
 }
 
