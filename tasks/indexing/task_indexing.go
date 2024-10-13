@@ -238,7 +238,7 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 	var tasks []struct {
 		TaskID       harmonytask.TaskID `db:"task_id"`
 		SpID         int64              `db:"sp_id"`
-		SectorNumber int64              `db:"sector_number"`
+		SectorNumber int64              `db:"sector"`
 		StorageID    string             `db:"storage_id"`
 	}
 
@@ -254,8 +254,8 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 	}
 
 	err := i.db.Select(ctx, &tasks, `
-		SELECT dp.indexing_task_id, dp.sp_id, dp.sector_number, l.storage_id FROM market_mk12_deal_pipeline dp
-			INNER JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector_number = l.sector_num
+		SELECT dp.indexing_task_id, dp.sp_id, dp.sector, l.storage_id FROM market_mk12_deal_pipeline dp
+			INNER JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
 			WHERE dp.indexing_task_id = ANY ($1) AND l.sector_filetype = 1
 `, indIDs)
 	if err != nil {
