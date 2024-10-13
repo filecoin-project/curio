@@ -234,8 +234,8 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 					}
 				} else {
 					rdw := big.Add(st.DealWeight, st.VerifiedDealWeight)
-					dw = float64(big.Div(rdw, big.NewInt(int64(st.Expiration-st.Activation))).Uint64())
-					vp = float64(big.Div(big.Mul(st.VerifiedDealWeight, big.NewInt(verifiedPowerGainMul)), big.NewInt(int64(st.Expiration-st.Activation))).Uint64())
+					dw = float64(big.Div(rdw, big.NewInt(int64(st.Expiration-st.PowerBaseEpoch))).Uint64())
+					vp = float64(big.Div(big.Mul(st.VerifiedDealWeight, big.NewInt(verifiedPowerGainMul)), big.NewInt(int64(st.Expiration-st.PowerBaseEpoch))).Uint64())
 					// DDO sectors don't have deal info on chain
 					for _, p := range pi {
 						if p.Manifest != nil {
