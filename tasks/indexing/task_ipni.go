@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/yugabyte/pgx/v5"
 	"io"
 	"strings"
 	"time"
@@ -127,21 +128,26 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, xerrors.Errorf("reading block: %w", err)
 	}
 
+	// make sure we still own the task before writing to the database
+	if !stillOwned() {
+		return false, nil
+	}
+
 	lnk, err := chk.Finish(ctx, I.db, pi.PieceCID)
 	if err != nil {
 		return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
 	}
 
+	// make sure we still own the task before writing ad chains
+	if !stillOwned() {
+		return false, nil
+	}
+
 	_, err = I.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		var prev string
 		err = tx.QueryRow(`SELECT head FROM ipni_head WHERE provider = $1`, task.Prov).Scan(&prev)
-		if err != nil {
+		if err != nil && err != pgx.ErrNoRows {
 			return false, xerrors.Errorf("querying previous head: %w", err)
-		}
-
-		prevCID, err := cid.Parse(prev)
-		if err != nil {
-			return false, xerrors.Errorf("parsing previous CID: %w", err)
 		}
 
 		mds := metadata.IpfsGatewayHttp{}
@@ -162,13 +168,25 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		}
 
 		adv := schema.Advertisement{
-			PreviousID: cidlink.Link{Cid: prevCID},
-			Provider:   task.Prov,
-			Addresses:  make([]string, 0),
-			Entries:    lnk,
-			ContextID:  task.CtxID,
-			Metadata:   md,
-			IsRm:       task.Rm,
+			Provider:  task.Prov,
+			Addresses: make([]string, 0),
+			Entries:   lnk,
+			ContextID: task.CtxID,
+			Metadata:  md,
+			IsRm:      task.Rm,
+		}
+
+		if len(adv.Addresses) > 1 {
+			return false, xerrors.Errorf("too many addresses: %d", len(adv.Addresses))
+		}
+
+		if prev != "" {
+			prevCID, err := cid.Parse(prev)
+			if err != nil {
+				return false, xerrors.Errorf("parsing previous CID: %w", err)
+			}
+
+			adv.PreviousID = cidlink.Link{Cid: prevCID}
 		}
 
 		err = adv.Sign(pkey)
@@ -192,7 +210,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		}
 
 		n, err := I.db.Exec(ctx, `SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7)`,
-			ad.(cidlink.Link).Cid.String(), adv.ContextID, adv.IsRm, adv.Provider, adv.Addresses,
+			ad.(cidlink.Link).Cid.String(), adv.ContextID, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
 			adv.Signature, adv.Entries.String())
 
 		if err != nil {
