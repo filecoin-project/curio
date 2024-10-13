@@ -1,12 +1,10 @@
 package dealdata
 
 import (
+	"golang.org/x/xerrors"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-
-	"golang.org/x/xerrors"
 )
 
 type UrlPieceReader struct {
@@ -27,6 +25,40 @@ func NewUrlReader(p string, h http.Header, rs int64) *UrlPieceReader {
 	}
 }
 
+func (u *UrlPieceReader) initiateRequest() error {
+	goUrl, err := url.Parse(u.Url)
+	if err != nil {
+		return xerrors.Errorf("failed to parse the URL: %w", err)
+	}
+
+	if goUrl.Scheme != "https" && goUrl.Scheme != "http" {
+		return xerrors.Errorf("URL scheme %s not supported", goUrl.Scheme)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, goUrl.String(), nil)
+	if err != nil {
+		return xerrors.Errorf("error creating request: %w", err)
+	}
+
+	// Add custom headers for security and authentication
+	req.Header = u.Headers
+
+	// Create a client and make the request
+	client := &http.Client{}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return xerrors.Errorf("error making GET request: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		return xerrors.Errorf("a non 200 response code: %s", resp.Status)
+	}
+
+	// Set 'active' to the response body
+	u.active = resp.Body
+	return nil
+}
+
 func (u *UrlPieceReader) Read(p []byte) (n int, err error) {
 	// Check if we have already read the required amount of data
 	if u.readSoFar >= u.RawSize {
@@ -35,60 +67,9 @@ func (u *UrlPieceReader) Read(p []byte) (n int, err error) {
 
 	// If 'active' is nil, initiate the HTTP request
 	if u.active == nil {
-		goUrl, err := url.Parse(u.Url)
+		err := u.initiateRequest()
 		if err != nil {
-			return 0, xerrors.Errorf("failed to parse the URL: %w", err)
-		}
-
-		if goUrl.Scheme != "https" && goUrl.Scheme != "http" {
-			return 0, xerrors.Errorf("URL scheme %s not supported", goUrl.Scheme)
-		}
-
-		req, err := http.NewRequest(http.MethodGet, goUrl.String(), nil)
-		if err != nil {
-			return 0, xerrors.Errorf("error creating request: %w", err)
-		}
-
-		// Add custom headers for security and authentication
-		req.Header = u.Headers
-
-		// Create a client and make the request
-		client := &http.Client{}
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return 0, xerrors.Errorf("error making GET request: %w", err)
-		}
-		if resp.StatusCode != 200 {
-			return 0, xerrors.Errorf("a non 200 response code: %s", resp.Status)
-		}
-
-		if goUrl.Scheme == "file" {
-			fileUrl := goUrl.Path
-			file, err := os.Open(fileUrl)
-			if err != nil {
-				return 0, xerrors.Errorf("error opening file: %w", err)
-			}
-			u.active = file
-		} else {
-			req, err := http.NewRequest(http.MethodGet, u.Url, nil)
-			if err != nil {
-				return 0, xerrors.Errorf("error creating request: %w", err)
-			}
-			// Add custom headers for security and authentication
-			req.Header = u.Headers
-			// Create a client and make the request
-			client := &http.Client{}
-			resp, err := client.Do(req)
-			if err != nil {
-				return 0, xerrors.Errorf("error making GET request: %w", err)
-			}
-			if resp.StatusCode != 200 {
-				return 0, xerrors.Errorf("a non 200 response code: %s", resp.Status)
-			}
-
-			// Set 'active' to the response body
-			u.active = resp.Body
+			return 0, err
 		}
 	}
 
@@ -129,6 +110,9 @@ func (u *UrlPieceReader) Read(p []byte) (n int, err error) {
 func (u *UrlPieceReader) Close() error {
 	if !u.closed {
 		u.closed = true
+		if u.active == nil {
+			return nil
+		}
 		return u.active.Close()
 	}
 
