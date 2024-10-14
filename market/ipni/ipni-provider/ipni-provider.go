@@ -694,13 +694,6 @@ func (p *Provider) getHTTPAddressForPeer(peer string) ([]multiaddr.Multiaddr, er
 			return nil, xerrors.Errorf("converting URL to multiaddr: %w", err)
 		}
 
-		p2p, err := multiaddr.NewComponent("p2p", peer)
-		if err != nil {
-			return nil, xerrors.Errorf("creating p2p component: %w", err)
-		}
-
-		ma = ma.Encapsulate(p2p)
-
 		ret = append(ret, ma)
 	}
 
