@@ -703,7 +703,7 @@ func chainSyncCheck(al *alerts) {
 		case time.Now().Unix()-int64(head.MinTimestamp()) < int64(build.BlockDelaySecs*3/2): // within 1.5 epochs
 			continue
 		case time.Now().Unix()-int64(head.MinTimestamp()) < int64(build.BlockDelaySecs*5): // within 5 epochs
-			al.alertMap[Name].alertString += fmt.Sprintf("slow (%s behind)", time.Since(time.Unix(int64(head.MinTimestamp()), 0)).Truncate(time.Second))
+			log.Debugf("Chain Sync status: %s: slow (%s behind)", addr, time.Since(time.Unix(int64(head.MinTimestamp()), 0)).Truncate(time.Second))
 		default:
 			al.alertMap[Name].alertString += fmt.Sprintf("behind (%s behind)", time.Since(time.Unix(int64(head.MinTimestamp()), 0)).Truncate(time.Second))
 		}
