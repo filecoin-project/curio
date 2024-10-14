@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/ipni/go-libipni/maurl"
@@ -370,10 +371,12 @@ func (p *Provider) getEntry(block cid.Cid) ([]byte, error) {
 			return nil, xerrors.Errorf("chunk does not have first CID")
 		}
 
-		firstCid, err := cid.Parse(*chunk.FirstCID)
+		cb, err := hex.DecodeString(*chunk.FirstCID)
 		if err != nil {
-			return nil, xerrors.Errorf("parsing first CID: %w", err)
+			return nil, xerrors.Errorf("decoding first CID: %w", err)
 		}
+
+		firstHash := multihash.Multihash(cb)
 
 		var next ipld.Link
 		if chunk.PrevCID != nil {
@@ -385,7 +388,7 @@ func (p *Provider) getEntry(block cid.Cid) ([]byte, error) {
 			next = cidlink.Link{Cid: prevChunk}
 		}
 
-		return p.reconstructChunkFromDB(ctx, block, pieceCid, firstCid, next, chunk.NumBlocks)
+		return p.reconstructChunkFromDB(ctx, block, pieceCid, firstHash, next, chunk.NumBlocks)
 	}
 
 	return p.reconstructChunkFromCar(ctx, block, pieceCid, *chunk.StartOffset, nil, chunk.NumBlocks)
@@ -447,8 +450,8 @@ func (p *Provider) reconstructChunkFromCar(ctx context.Context, chunk, piece cid
 }
 
 // ReconstructChunkFromDB reconstructs a chunk from the database.
-func (p *Provider) reconstructChunkFromDB(ctx context.Context, chunk, piece, firstCid cid.Cid, next ipld.Link, numBlocks int64) ([]byte, error) {
-	mhs, err := p.indexStore.GetPieceHashRange(ctx, piece, firstCid.Hash(), numBlocks)
+func (p *Provider) reconstructChunkFromDB(ctx context.Context, chunk, piece cid.Cid, firstHash multihash.Multihash, next ipld.Link, numBlocks int64) ([]byte, error) {
+	mhs, err := p.indexStore.GetPieceHashRange(ctx, piece, firstHash, numBlocks)
 	if err != nil {
 		return nil, xerrors.Errorf("getting piece hash range: %w", err)
 	}
