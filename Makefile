@@ -312,7 +312,7 @@ docker/curio:
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/curio
 
-docker/devnet: $(lotus_build_cmd) docker/curio-all-in-one docker/lotus docker/lotus-miner docker/curio docker/yugabyte
+docker/devnet: $(lotus_build_cmd) docker/curio-all-in-one docker/lotus docker/lotus-miner docker/curio
 .PHONY: docker/devnet
 
 devnet/up:
