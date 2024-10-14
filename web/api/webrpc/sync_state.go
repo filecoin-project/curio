@@ -73,19 +73,18 @@ func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
 		}
 	}
 
-	rpcInfos := map[string]minimalApiInfo{} // config name -> api info
-	confNameToAddr := map[string]string{}   // config name -> api address
+	rpcInfos := make(map[string]string)         // config name -> api info
+	confNameToAddr := make(map[string][]string) // config name -> api addresses
 
 	err := forEachConfig[minimalApiInfo](a, func(name string, info minimalApiInfo) error {
 		if len(info.Apis.ChainApiInfo) == 0 {
 			return nil
 		}
 
-		rpcInfos[name] = info
-
 		for _, addr := range info.Apis.ChainApiInfo {
+			rpcInfos[name] = addr
 			ai := cliutil.ParseApiInfo(addr)
-			confNameToAddr[name] = ai.Addr
+			confNameToAddr[name] = append(confNameToAddr[name], ai.Addr)
 		}
 
 		return nil
@@ -101,7 +100,7 @@ func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
 
 	var wg sync.WaitGroup
 	for _, info := range rpcInfos {
-		ai := cliutil.ParseApiInfo(info.Apis.ChainApiInfo[0])
+		ai := cliutil.ParseApiInfo(info)
 		if dedup[ai.Addr] {
 			continue
 		}
@@ -110,9 +109,11 @@ func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
 		go func() {
 			defer wg.Done()
 			var clayers []string
-			for layer, a := range confNameToAddr {
-				if a == ai.Addr {
-					clayers = append(clayers, layer)
+			for layer, adrs := range confNameToAddr {
+				for _, adr := range adrs {
+					if adr == ai.Addr {
+						clayers = append(clayers, layer)
+					}
 				}
 			}
 

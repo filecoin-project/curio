@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
@@ -21,6 +22,8 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
+
+var clog = logging.Logger("curio/chain")
 
 func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, jsonrpc.ClientCloser, error) {
 	if tn, ok := ctx.App.Metadata["testnode-full"]; ok {
@@ -52,7 +55,7 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 	for _, head := range httpHeads {
 		v1api, closer, err := newChainNodeRPCV1(ctx.Context, head.addr, head.header)
 		if err != nil {
-			log.Warnf("Not able to establish connection to node with addr: %s, Reason: %s", head.addr, err.Error())
+			clog.Warnf("Not able to establish connection to node with addr: %s, Reason: %s", head.addr, err.Error())
 			continue
 		}
 		fullNodes = append(fullNodes, v1api)
@@ -156,7 +159,7 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 						unhealthyProviders[i] = true
 						healthyLk.Unlock()
 
-						log.Errorw("rpc check chain head call failed", "fail_type", "rpc_error", "provider", i, "error", err)
+						clog.Debugw("rpc check chain head call failed", "fail_type", "rpc_error", "provider", i, "error", err)
 						return
 					}
 
@@ -170,7 +173,7 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 						// if we're behind the best tipset, mark as unhealthy
 						unhealthyProviders[i] = ch.Height() < bestKnownTipset.Height()-maxBehindBestHealthy
 						if unhealthyProviders[i] {
-							log.Errorw("rpc check chain head call failed", "fail_type", "behind_best", "provider", i, "height", ch.Height(), "best_height", bestKnownTipset.Height())
+							clog.Debugw("rpc check chain head call failed", "fail_type", "behind_best", "provider", i, "height", ch.Height(), "best_height", bestKnownTipset.Height())
 						}
 					}
 					healthyLk.Unlock()
@@ -259,7 +262,7 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 func Retry[T any](ctx context.Context, attempts int, initialBackoff time.Duration, errorTypes []error, f func(isRetry bool) (T, error)) (result T, err error) {
 	for i := 0; i < attempts; i++ {
 		if i > 0 {
-			log.Info("Retrying after error:", err)
+			clog.Debugw("Retrying after error:", err)
 			time.Sleep(initialBackoff)
 			initialBackoff *= 2
 		}
@@ -271,7 +274,7 @@ func Retry[T any](ctx context.Context, attempts int, initialBackoff time.Duratio
 			return result, ctx.Err()
 		}
 	}
-	log.Errorf("Failed after %d attempts, last error: %s", attempts, err)
+	clog.Errorf("Failed after %d attempts, last error: %s", attempts, err)
 	return result, err
 }
 
