@@ -183,7 +183,7 @@ func (c *InitialChunker) finishDB(ctx context.Context, db *harmonydb.DB, pieceCi
 			// Prepare the insert statement
 			batch.Queue(`
                 INSERT INTO ipni_chunks (cid, piece_cid, chunk_num, first_cid, start_offset, num_blocks, from_car)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING
             `, link.String(), pieceCid.String(), i, firstCID.HexString(), startOffset, numBlocks, false)
 		}
 
@@ -235,7 +235,7 @@ func (c *InitialChunker) finishCAR(ctx context.Context, db *harmonydb.DB, pieceC
 			// Prepare the insert statement
 			batch.Queue(`
                 INSERT INTO ipni_chunks (cid, piece_cid, chunk_num, first_cid, start_offset, num_blocks, from_car)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING
             `, link.String(), pieceCid.String(), i, nil, startOffset, numBlocks, true)
 		}
 

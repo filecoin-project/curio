@@ -422,12 +422,17 @@ var libp2pGenerateCmd = &cli.Command{
 			return xerrors.Errorf("failed to generate a new key: %w", err)
 		}
 
+		kbytes, err := crypto.MarshalPrivateKey(pk)
+		if err != nil {
+			return xerrors.Errorf("failed to marshal the private key: %w", err)
+		}
+
 		mid, err := address.IDFromAddress(act)
 		if err != nil {
 			return err
 		}
 
-		n, err := dep.DB.Exec(ctx, `INSERT INTO libp2p (sp_id, priv_key) VALUES ($1, $2) ON CONFLICT(sp_id) DO NOTHING`, mid, pk)
+		n, err := dep.DB.Exec(ctx, `INSERT INTO libp2p (sp_id, priv_key) VALUES ($1, $2) ON CONFLICT(sp_id) DO NOTHING`, mid, kbytes)
 		if err != nil {
 			return xerrors.Errorf("failed to to insert the key into DB: %w", err)
 		}

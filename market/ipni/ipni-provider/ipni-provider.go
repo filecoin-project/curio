@@ -134,7 +134,7 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 		return nil, err
 	}
 
-	announceURLs := make([]*url.URL, 0, len(d.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs))
+	announceURLs := make([]*url.URL, len(d.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs))
 
 	for i, us := range d.Cfg.Market.StorageMarketConfig.IPNI.DirectAnnounceURLs {
 		u, err := url.Parse(us)

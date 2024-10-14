@@ -17,6 +17,7 @@ import (
 	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
@@ -102,7 +103,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 			Number: task.Sector,
 		},
 		ProofType: task.Proof,
-	}, storiface.UnpaddedByteIndex(task.Offset), abi.UnpaddedPieceSize(pi.Size), pi.PieceCID)
+	}, storiface.UnpaddedByteIndex(abi.PaddedPieceSize(task.Offset).Unpadded()), pi.Size.Unpadded(), pi.PieceCID)
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
@@ -127,21 +128,26 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, xerrors.Errorf("reading block: %w", err)
 	}
 
+	// make sure we still own the task before writing to the database
+	if !stillOwned() {
+		return false, nil
+	}
+
 	lnk, err := chk.Finish(ctx, I.db, pi.PieceCID)
 	if err != nil {
 		return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
 	}
 
+	// make sure we still own the task before writing ad chains
+	if !stillOwned() {
+		return false, nil
+	}
+
 	_, err = I.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		var prev string
 		err = tx.QueryRow(`SELECT head FROM ipni_head WHERE provider = $1`, task.Prov).Scan(&prev)
-		if err != nil {
+		if err != nil && err != pgx.ErrNoRows {
 			return false, xerrors.Errorf("querying previous head: %w", err)
-		}
-
-		prevCID, err := cid.Parse(prev)
-		if err != nil {
-			return false, xerrors.Errorf("parsing previous CID: %w", err)
 		}
 
 		mds := metadata.IpfsGatewayHttp{}
@@ -162,13 +168,25 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		}
 
 		adv := schema.Advertisement{
-			PreviousID: cidlink.Link{Cid: prevCID},
-			Provider:   task.Prov,
-			Addresses:  make([]string, 0),
-			Entries:    lnk,
-			ContextID:  task.CtxID,
-			Metadata:   md,
-			IsRm:       task.Rm,
+			Provider:  task.Prov,
+			Addresses: make([]string, 0),
+			Entries:   lnk,
+			ContextID: task.CtxID,
+			Metadata:  md,
+			IsRm:      task.Rm,
+		}
+
+		if len(adv.Addresses) > 1 {
+			return false, xerrors.Errorf("too many addresses: %d", len(adv.Addresses))
+		}
+
+		if prev != "" {
+			prevCID, err := cid.Parse(prev)
+			if err != nil {
+				return false, xerrors.Errorf("parsing previous CID: %w", err)
+			}
+
+			adv.PreviousID = cidlink.Link{Cid: prevCID}
 		}
 
 		err = adv.Sign(pkey)
@@ -192,7 +210,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		}
 
 		n, err := I.db.Exec(ctx, `SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7)`,
-			ad.(cidlink.Link).Cid.String(), adv.ContextID, adv.IsRm, adv.Provider, adv.Addresses,
+			ad.(cidlink.Link).Cid.String(), adv.ContextID, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
 			adv.Signature, adv.Entries.String())
 
 		if err != nil {
@@ -217,7 +235,7 @@ func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 	var tasks []struct {
 		TaskID       harmonytask.TaskID `db:"task_id"`
 		SpID         int64              `db:"sp_id"`
-		SectorNumber int64              `db:"sector_number"`
+		SectorNumber int64              `db:"sector"`
 		StorageID    string             `db:"storage_id"`
 	}
 
@@ -233,9 +251,9 @@ func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskE
 	}
 
 	err := I.db.Select(ctx, &tasks, `
-		SELECT dp.indexing_task_id, dp.sp_id, dp.sector_number, l.storage_id FROM market_mk12_deal_pipeline dp
-			INNER JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector_number = l.sector_num
-			WHERE dp.indexing_task_id = ANY ($1) AND l.sector_filetype = 1
+		SELECT dp.task_id, dp.sp_id, dp.sector, l.storage_id FROM ipni_task dp
+			INNER JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
+			WHERE dp.task_id = ANY ($1) AND l.sector_filetype = 1
 `, indIDs)
 	if err != nil {
 		return nil, xerrors.Errorf("getting tasks: %w", err)
@@ -292,12 +310,14 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 	// schedule submits
 	var stop bool
 	for !stop {
+		var markComplete *string
+
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
 
 			var pendings []itask
 
-			err := I.db.Select(ctx, &pendings, `SELECT
+			err := tx.Select(&pendings, `SELECT
     										uuid, 
 											sp_id, 
 											sector,
@@ -312,7 +332,8 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 											WHERE sealed = TRUE
 											AND indexed = TRUE 
 											AND complete = FALSE
-											ORDER BY indexing_created_at ASC;`)
+											ORDER BY indexing_created_at ASC
+											LIMIT 1;`)
 			if err != nil {
 				return false, xerrors.Errorf("getting pending IPNI announcing tasks: %w", err)
 			}
@@ -328,7 +349,7 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 			if !p.Announce || !p.ShouldIndex {
 				n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1`, p.UUID)
 				if err != nil {
-					return false, xerrors.Errorf("store IPNI success: updating pipeline: %w", err)
+					return false, xerrors.Errorf("store IPNI success: updating pipeline (1): %w", err)
 				}
 				if n != 1 {
 					return false, xerrors.Errorf("store IPNI success: updated %d rows", n)
@@ -376,30 +397,16 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 				if harmonydb.IsErrUniqueContraint(err) {
 					ilog.Infof("Another IPNI announce task already present for piece %s in deal %s", p.PieceCid, p.UUID)
 					// SET "complete" status to true for this deal, so it is not considered next time
-					n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1`, p.UUID)
-					if err != nil {
-						return false, xerrors.Errorf("store IPNI success: updating pipeline: %w", err)
-					}
-					if n != 1 {
-						return false, xerrors.Errorf("store IPNI success: updated %d rows", n)
-					}
-					// We should commit this transaction to set the value
-					stop = false // we found a task to schedule, keep going
+					markComplete = &p.UUID
+					stop = false // we found a sector to work on, keep going
 					return true, nil
 				}
 				if strings.Contains(err.Error(), "already published") {
 					ilog.Infof("Piece %s in deal %s is already published", p.PieceCid, p.UUID)
 					// SET "complete" status to true for this deal, so it is not considered next time
-					n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1`, p.UUID)
-					if err != nil {
-						return false, xerrors.Errorf("store IPNI success: updating pipeline: %w", err)
-					}
-					if n != 1 {
-						return false, xerrors.Errorf("store IPNI success: updated %d rows", n)
-					}
-					// We should commit this transaction to set the value
-					stop = false // we found a task to schedule, keep going
-					return true, nil
+					markComplete = &p.UUID
+					stop = false // we found a sector to work on, keep going
+					return false, nil
 				}
 				return false, xerrors.Errorf("updating IPNI announcing task id: %w", err)
 			}
@@ -407,6 +414,16 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 			stop = false // we found a task to schedule, keep going
 			return true, nil
 		})
+
+		if markComplete != nil {
+			n, err := I.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1 AND complete = FALSE`, *markComplete)
+			if err != nil {
+				log.Errorf("store IPNI success: updating pipeline (2): %s", err)
+			}
+			if n != 1 {
+				log.Errorf("store IPNI success: updated %d rows", n)
+			}
+		}
 	}
 
 	return nil

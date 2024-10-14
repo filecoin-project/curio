@@ -12,8 +12,8 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/handlers"
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/crypto/acme/autocert"
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/deps"
@@ -108,7 +108,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
 	// Root path handler (simpler routes handled by http.ServeMux)
 	chiRouter.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "Hello, World!\n -Curio")
+		fmt.Fprintf(w, "Hello, World!\n -Curio\n")
 	})
 
 	// Status endpoint to check the health of the service
@@ -138,15 +138,14 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
 	// We don't need to run an HTTP server. Any HTTP request should simply be handled as HTTPS.
 
 	// Start the server with TLS
-	eg := errgroup.Group{}
-	eg.Go(func() error {
+	go func() {
 		log.Infof("Starting HTTPS server for https://%s on %s", cfg.DomainName, cfg.ListenAddress)
 		serr := server.ListenAndServeTLS("", "")
 		if serr != nil {
-			return xerrors.Errorf("failed to start listening: %w", serr)
+			log.Errorf("Failed to start HTTPS server: %s", serr)
+			panic(serr)
 		}
-		return nil
-	})
+	}()
 
 	go func() {
 		<-ctx.Done()
@@ -157,7 +156,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
 		log.Warn("HTTP Server graceful shutdown successful")
 	}()
 
-	return eg.Wait()
+	return nil
 }
 
 type cache struct {
@@ -168,6 +167,11 @@ func (c cache) Get(ctx context.Context, key string) ([]byte, error) {
 	var ret []byte
 	err := c.db.QueryRow(ctx, `SELECT v FROM autocert_cache WHERE k = $1`, key).Scan(&ret)
 	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, autocert.ErrCacheMiss
+		}
+
+		log.Warnf("failed to get the value from DB for key %s: %s", key, err)
 		return nil, xerrors.Errorf("failed to get the value from DB for key %s: %w", key, err)
 	}
 	return ret, nil
