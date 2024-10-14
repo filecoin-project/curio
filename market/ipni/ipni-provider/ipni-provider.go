@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ipni/go-libipni/maurl"
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -36,7 +38,6 @@ import (
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/lib/urltomultiaddr"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
@@ -84,7 +85,7 @@ type Provider struct {
 	announceURLs []*url.URL
 	// httpServerAddresses has a list of all the addresses where IPNI can reach to sync with
 	// the provider. This is created by converting announceURLs into a multiaddr and adding the following
-	// announceURLs(in multiaddr)+IPNIRoutePath(/ipni-provider/)+peerID
+	// Curio HTTP URL(in multiaddr)+IPNIRoutePath(/ipni-provider/)+peerID
 	httpServerAddresses []multiaddr.Multiaddr
 	cpr                 *cachedreader.CachedPieceReader
 }
@@ -146,16 +147,19 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 
 	httpServerAddresses := make([]multiaddr.Multiaddr, 0, len(d.Cfg.Market.StorageMarketConfig.IPNI.AnnounceAddresses))
 
-	for i, a := range d.Cfg.Market.StorageMarketConfig.IPNI.AnnounceAddresses {
-		addr, err := urltomultiaddr.UrlToMultiaddr(a)
+	for _, a := range d.Cfg.Market.StorageMarketConfig.IPNI.AnnounceAddresses {
+		u, err := url.Parse(strings.TrimSpace(a))
 		if err != nil {
-			return nil, err
+			return nil, xerrors.Errorf("parsing announce address: %w", err)
 		}
-		addr, err = multiaddr.NewMultiaddr(addr.String() + IPNIRoutePath)
+		u.Path = path.Join(u.Path, IPNIRoutePath)
+		addr, err := maurl.FromURL(u)
 		if err != nil {
-			return nil, err
+			return nil, xerrors.Errorf("converting URL to multiaddr: %w", err)
 		}
-		httpServerAddresses[i] = addr
+		httpServerAddresses = append(httpServerAddresses, addr)
+
+		log.Infow("Announce address", "address", addr.String(), "url", u.String())
 	}
 
 	return &Provider{
@@ -173,13 +177,13 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 // It returns the advertisement and an error, if any.
 func (p *Provider) getAd(ctx context.Context, ad cid.Cid, provider string) (schema.Advertisement, error) {
 	var ads []struct {
-		PreviousID string
-		Provider   string
-		Addresses  string
-		Signature  []byte
-		Entries    string
-		ContextID  []byte
-		IsRm       bool
+		ContextID []byte
+		IsRm      bool
+		Previous  *string
+		Provider  string
+		Addresses string
+		Signature []byte
+		Entries   string
 	}
 
 	err := p.db.Select(ctx, &ads, `SELECT 
@@ -208,11 +212,6 @@ func (p *Provider) getAd(ctx context.Context, ad cid.Cid, provider string) (sche
 
 	a := ads[0]
 
-	prev, err := cid.Parse(a.PreviousID)
-	if err != nil {
-		return schema.Advertisement{}, xerrors.Errorf("parsing previous CID: %w", err)
-	}
-
 	e, err := cid.Parse(a.Entries)
 	if err != nil {
 		return schema.Advertisement{}, xerrors.Errorf("parsing entry CID: %w", err)
@@ -224,16 +223,42 @@ func (p *Provider) getAd(ctx context.Context, ad cid.Cid, provider string) (sche
 		return schema.Advertisement{}, xerrors.Errorf("marshalling metadata: %w", err)
 	}
 
-	return schema.Advertisement{
-		PreviousID: cidlink.Link{Cid: prev},
-		Provider:   a.Provider,
-		Addresses:  strings.Split(a.Addresses, ","),
-		Signature:  a.Signature,
-		Entries:    cidlink.Link{Cid: e},
-		ContextID:  a.ContextID,
-		IsRm:       a.IsRm,
-		Metadata:   md,
-	}, nil
+	adv := schema.Advertisement{
+		Provider:  a.Provider,
+		Addresses: strings.Split(a.Addresses, ","),
+		Signature: a.Signature,
+		Entries:   cidlink.Link{Cid: e},
+		ContextID: a.ContextID,
+		IsRm:      a.IsRm,
+		Metadata:  md,
+	}
+
+	if a.Previous != nil {
+		prev, err := cid.Parse(a.Previous)
+		if err != nil {
+			return schema.Advertisement{}, xerrors.Errorf("parsing previous CID: %w", err)
+		}
+
+		adv.PreviousID = cidlink.Link{Cid: prev}
+	}
+
+	{
+		nd, err := adv.ToNode()
+		if err != nil {
+			return schema.Advertisement{}, xerrors.Errorf("converting advertisement to node: %w", err)
+		}
+
+		al, err := ipniculib.NodeToLink(nd, schema.Linkproto)
+		if err != nil {
+			return schema.Advertisement{}, xerrors.Errorf("converting node to link: %w", err)
+		}
+
+		if al.String() != ad.String() {
+			return schema.Advertisement{}, xerrors.Errorf("advertisement node does not match the expected advertisement CID, got %s, expected %s", al.String(), ad.String())
+		}
+	}
+
+	return adv, nil
 }
 
 func (p *Provider) getAdBytes(ctx context.Context, ad cid.Cid, provider string) ([]byte, error) {
@@ -272,25 +297,10 @@ func (p *Provider) getHead(ctx context.Context, provider string) ([]byte, error)
 
 	ad, err := cid.Parse(headStr)
 	if err != nil {
-		return nil, err
+		return nil, xerrors.Errorf("parsing head CID: %w", err)
 	}
 
-	h, err := p.getAd(ctx, ad, provider)
-	if err != nil {
-		return nil, err
-	}
-
-	hn, err := h.ToNode()
-	if err != nil {
-		return nil, err
-	}
-
-	lnk, err := ipniculib.NodeToLink(hn, schema.Linkproto)
-	if err != nil {
-		return nil, err
-	}
-
-	signedHead, err := head.NewSignedHead(lnk.(cidlink.Link).Cid, "", p.keys[provider].Key)
+	signedHead, err := head.NewSignedHead(ad, "", p.keys[provider].Key)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to generate signed head for peer %s: %w", provider, err)
 	}
@@ -465,124 +475,116 @@ func (p *Provider) reconstructChunkFromDB(ctx context.Context, chunk, piece, fir
 	return b.Bytes(), nil
 }
 
+func (p *Provider) handleGetHead(w http.ResponseWriter, r *http.Request) {
+	log.Infow("Received IPNI request", "path", r.URL.Path)
+
+	providerID := chi.URLParam(r, "providerId")
+	sh, err := p.getHead(r.Context(), providerID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			http.Error(w, "", http.StatusNoContent)
+			return
+		}
+		log.Errorf("failed to get signed head for peer %s: %v", providerID, err)
+		http.Error(w, "", http.StatusInternalServerError)
+	}
+	w.WriteHeader(http.StatusOK)
+	_, err = w.Write(sh)
+	if err != nil {
+		log.Errorw("failed to write HTTP response", "err", err)
+	}
+}
+
 // handleGet handles GET requests.
 func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	providerID := chi.URLParam(r, "providerId")
+	reqCid := chi.URLParam(r, "cid")
+
+	log.Infow("Received IPNI request", "path", r.URL.Path, "cid", reqCid, "providerId", providerID)
+
+	b, err := cid.Parse(reqCid)
+	if err != nil {
+		log.Debugw("invalid CID as path parameter while getting content", "request", reqCid, "err", err)
+		http.Error(w, "invalid CID: "+reqCid, http.StatusBadRequest)
 		return
 	}
 
-	pp := r.URL.RawPath
+	h := r.Header.Get(ipnisync.CidSchemaHeader)
 
-	// Remove prefix by trying to remove all possible addresses, only one of them would be correct prefix
-	for i := range p.httpServerAddresses {
-		pp = strings.TrimPrefix(r.URL.RawPath, p.httpServerAddresses[i].String())
-	}
-
-	pps := strings.Split(pp, "/")
-	providerID := pps[0]
-
-	req := strings.TrimPrefix(pp, IPNIPath)
-	switch req {
-	case "head":
-		sh, err := p.getHead(r.Context(), providerID)
+	switch h {
+	case ipnisync.CidSchemaAdvertisement:
+		ad, err := p.getAdBytes(r.Context(), b, providerID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				http.Error(w, "", http.StatusNoContent)
 				return
 			}
-			log.Errorf("failed to get signed head for peer %s: %w", providerID, err)
+			log.Errorf("failed to get advertisement %s for peer %s: %v", b.String(), providerID, err)
 			http.Error(w, "", http.StatusInternalServerError)
+			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, err = w.Write(sh)
+		_, err = w.Write(ad)
 		if err != nil {
 			log.Errorw("failed to write HTTP response", "err", err)
 		}
-	default:
-		b, err := cid.Parse(req)
+		return
+	case ipnisync.CidSchemaEntryChunk:
+		entry, err := p.getEntry(b)
 		if err != nil {
-			log.Debugw("invalid CID as path parameter while getting content", "request", req, "err", err)
-			http.Error(w, "invalid CID: "+req, http.StatusBadRequest)
+			if errors.Is(err, ErrNotFound) {
+				log.Debugw("No Content Found", "CID", b.String())
+				http.Error(w, "", http.StatusNotFound)
+				return
+			}
+			log.Errorf("failed to get entry %s for peer %s: %v", b.String(), providerID, err)
+			http.Error(w, "", http.StatusInternalServerError)
 			return
 		}
-
-		h := r.Header.Get(ipnisync.CidSchemaHeader)
-
-		switch h {
-		case ipnisync.CidSchemaAdvertisement:
-			ad, err := p.getAdBytes(r.Context(), b, providerID)
-			if err != nil {
-				if errors.Is(err, ErrNotFound) {
-					http.Error(w, "", http.StatusNoContent)
-					return
-				}
-				log.Errorf("failed to get advertisement %s for peer %s: %w", b.String(), providerID, err)
-				http.Error(w, "", http.StatusInternalServerError)
-				return
-			}
-			w.WriteHeader(http.StatusOK)
-			_, err = w.Write(ad)
-			if err != nil {
-				log.Errorw("failed to write HTTP response", "err", err)
-			}
-			return
-		case ipnisync.CidSchemaEntryChunk:
-			entry, err := p.getEntry(b)
-			if err != nil {
-				if errors.Is(err, ErrNotFound) {
-					log.Debugw("No Content Found", "CID", b.String())
-					http.Error(w, "", http.StatusNotFound)
-					return
-				}
-				log.Errorf("failed to get entry %s for peer %s: %w", b.String(), providerID, err)
-				http.Error(w, "", http.StatusInternalServerError)
-				return
-			}
-			w.WriteHeader(http.StatusOK)
-			_, err = w.Write(entry)
-			if err != nil {
-				log.Errorw("failed to write HTTP response", "err", err)
-			}
-			return
-		default:
-			// In case IPNI did not provide the requested header
-			ad, err := p.getAdBytes(r.Context(), b, providerID)
-			if err != nil {
-				if errors.Is(err, ErrNotFound) {
-					// Check if this is an entry CID
-					entry, err := p.getEntry(b)
-					if err != nil {
-						if errors.Is(err, ErrNotFound) {
-							log.Debugw("No Content Found", "CID", b.String())
-							http.Error(w, "", http.StatusNotFound)
-							return
-						}
-						log.Errorf("failed to get entry %s for peer %s: %w", b.String(), providerID, err)
-						http.Error(w, "", http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/cbor")
+		w.WriteHeader(http.StatusOK)
+		_, err = w.Write(entry)
+		if err != nil {
+			log.Errorw("failed to write HTTP response", "err", err)
+		}
+		return
+	default:
+		// In case IPNI did not provide the requested header
+		ad, err := p.getAdBytes(r.Context(), b, providerID)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				// Check if this is an entry CID
+				entry, err := p.getEntry(b)
+				if err != nil {
+					if errors.Is(err, ErrNotFound) {
+						log.Debugw("No Content Found", "CID", b.String())
+						http.Error(w, "", http.StatusNotFound)
 						return
 					}
-					w.WriteHeader(http.StatusOK)
-					_, err = w.Write(entry)
-					if err != nil {
-						log.Errorw("failed to write HTTP response", "err", err)
-					}
+					log.Errorf("failed to get entry %s for peer %s: %v", b.String(), providerID, err)
+					http.Error(w, "", http.StatusInternalServerError)
 					return
 				}
-				log.Errorf("failed to get ad %s for peer %s: %w", b.String(), providerID, err)
-				http.Error(w, "", http.StatusInternalServerError)
+				w.WriteHeader(http.StatusOK)
+				w.Header().Set("Content-Type", "application/cbor")
+				_, err = w.Write(entry)
+				if err != nil {
+					log.Errorw("failed to write HTTP response", "err", err)
+				}
 				return
 			}
-			w.WriteHeader(http.StatusOK)
-			_, err = w.Write(ad)
-			if err != nil {
-				log.Errorw("failed to write HTTP response", "err", err)
-			}
+			log.Errorf("failed to get ad %s for peer %s: %v", b.String(), providerID, err)
+			http.Error(w, "", http.StatusInternalServerError)
 			return
 		}
-
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, err = w.Write(ad)
+		if err != nil {
+			log.Errorw("failed to write HTTP response", "err", err)
+		}
+		return
 	}
 }
 
@@ -590,7 +592,11 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 // It registers a handler function for the GET request at the IPNIRoutePath.
 // The handler function is provided by the Provider struct.
 func Routes(r *chi.Mux, p *Provider) {
-	r.Get(IPNIRoutePath, p.handleGet)
+	// /ipni-provider/{providerId}/ipni/v1/ad/head
+	r.Get(IPNIRoutePath+"{providerId}"+IPNIPath+"head", p.handleGetHead)
+
+	// /ipni-provider/{providerId}/ipni/v1/ad/{cid}
+	r.Get(IPNIRoutePath+"{providerId}"+IPNIPath+"{cid}", p.handleGet)
 }
 
 // StartPublishing starts a poller which publishes the head for each provider every 10 minutes.
@@ -669,12 +675,22 @@ func (p *Provider) publishhttp(ctx context.Context, adCid cid.Cid, peer string) 
 func (p *Provider) getHTTPAddressForPeer(peer string) ([]multiaddr.Multiaddr, error) {
 	var ret []multiaddr.Multiaddr
 	for _, addr := range p.httpServerAddresses {
-		a, err := multiaddr.NewMultiaddr(addr.String() + peer)
+		u, err := maurl.ToURL(addr)
 		if err != nil {
 			return nil, err
 		}
-		ret = append(ret, a)
+
+		u.Path = path.Join(u.Path, peer)
+
+		ma, err := maurl.FromURL(u)
+		if err != nil {
+			return nil, xerrors.Errorf("converting URL to multiaddr: %w", err)
+		}
+
+		ret = append(ret, ma)
 	}
+
+	log.Infow("HTTP addresses for peer", "peer", peer, "addresses", ret)
 
 	return ret, nil
 }
