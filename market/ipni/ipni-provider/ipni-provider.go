@@ -225,12 +225,15 @@ func (p *Provider) getAd(ctx context.Context, ad cid.Cid, provider string) (sche
 
 	adv := schema.Advertisement{
 		Provider:  a.Provider,
-		Addresses: strings.Split(a.Addresses, ","),
 		Signature: a.Signature,
 		Entries:   cidlink.Link{Cid: e},
 		ContextID: a.ContextID,
 		IsRm:      a.IsRm,
 		Metadata:  md,
+	}
+
+	if a.Addresses != "" {
+		strings.Split(a.Addresses, "|")
 	}
 
 	if a.Previous != nil {
@@ -254,6 +257,7 @@ func (p *Provider) getAd(ctx context.Context, ad cid.Cid, provider string) (sche
 		}
 
 		if al.String() != ad.String() {
+			log.Errorw("advertisement node does not match the expected advertisement CID", "got", al.String(), "expected", ad.String(), "adv", adv)
 			return schema.Advertisement{}, xerrors.Errorf("advertisement node does not match the expected advertisement CID, got %s, expected %s", al.String(), ad.String())
 		}
 	}
