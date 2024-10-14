@@ -144,81 +144,6 @@
             "fuzzy": true
         },
         {
-            "id": "Error opening {RcFile} file: {Err}",
-            "message": "Error opening {RcFile} file: {Err}",
-            "translation": "Error opening {RcFile} file: {Err}",
-            "translatorComment": "Copied from source.",
-            "placeholders": [
-                {
-                    "id": "RcFile",
-                    "string": "%[1]s",
-                    "type": "string",
-                    "underlyingType": "string",
-                    "argNum": 1,
-                    "expr": "rcFile"
-                },
-                {
-                    "id": "Err",
-                    "string": "%[2]s",
-                    "type": "error",
-                    "underlyingType": "interface{Error() string}",
-                    "argNum": 2,
-                    "expr": "err"
-                }
-            ],
-            "fuzzy": true
-        },
-        {
-            "id": "Error reading {RcFile} file: {Err}",
-            "message": "Error reading {RcFile} file: {Err}",
-            "translation": "Error reading {RcFile} file: {Err}",
-            "translatorComment": "Copied from source.",
-            "placeholders": [
-                {
-                    "id": "RcFile",
-                    "string": "%[1]s",
-                    "type": "string",
-                    "underlyingType": "string",
-                    "argNum": 1,
-                    "expr": "rcFile"
-                },
-                {
-                    "id": "Err",
-                    "string": "%[2]s",
-                    "type": "error",
-                    "underlyingType": "interface{Error() string}",
-                    "argNum": 2,
-                    "expr": "err"
-                }
-            ],
-            "fuzzy": true
-        },
-        {
-            "id": "Error closing {RcFile} file: {Err}",
-            "message": "Error closing {RcFile} file: {Err}",
-            "translation": "Error closing {RcFile} file: {Err}",
-            "translatorComment": "Copied from source.",
-            "placeholders": [
-                {
-                    "id": "RcFile",
-                    "string": "%[1]s",
-                    "type": "string",
-                    "underlyingType": "string",
-                    "argNum": 1,
-                    "expr": "rcFile"
-                },
-                {
-                    "id": "Err",
-                    "string": "%[2]s",
-                    "type": "error",
-                    "underlyingType": "interface{Error() string}",
-                    "argNum": 2,
-                    "expr": "err"
-                }
-            ],
-            "fuzzy": true
-        },
-        {
             "id": "Error opening {RcFile} file in write mode:",
             "message": "Error opening {RcFile} file in write mode:",
             "translation": "Error opening {RcFile} file in write mode:",
@@ -269,9 +194,9 @@
             "fuzzy": true
         },
         {
-            "id": "Failed to flush thw writes to file {RcFile}: {Err}",
-            "message": "Failed to flush thw writes to file {RcFile}: {Err}",
-            "translation": "Failed to flush thw writes to file {RcFile}: {Err}",
+            "id": "Failed to flush the writes to file {RcFile}: {Err}",
+            "message": "Failed to flush the writes to file {RcFile}: {Err}",
+            "translation": "Failed to flush the writes to file {RcFile}: {Err}",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
@@ -306,6 +231,23 @@
                     "underlyingType": "int",
                     "argNum": 1,
                     "expr": "i"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Finished updating the {RcFile} file",
+            "message": "Finished updating the {RcFile} file",
+            "translation": "Finished updating the {RcFile} file",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "RcFile",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "rcFile"
                 }
             ],
             "fuzzy": true
@@ -1672,61 +1614,71 @@
             "fuzzy": true
         },
         {
-            "id": "CURIO_LAYERS: {}",
-            "message": "CURIO_LAYERS: {}",
-            "translation": "CURIO_LAYERS: {}",
+            "id": "CURIO_LAYERS: {Layers}",
+            "message": "CURIO_LAYERS: {Layers}",
+            "translation": "CURIO_LAYERS: {Layers}",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
-                    "id": "",
+                    "id": "Layers",
                     "string": "%[1]s",
-                    "type": "string",
-                    "underlyingType": "string",
+                    "type": "[]string",
+                    "underlyingType": "[]string",
                     "argNum": 1,
-                    "expr": "\"\""
+                    "expr": "layers"
                 }
             ],
             "fuzzy": true
         },
         {
-            "id": "CURIO_REPO_PATH: {Curio}",
-            "message": "CURIO_REPO_PATH: {Curio}",
-            "translation": "CURIO_REPO_PATH: {Curio}",
+            "id": "CURIO_REPO_PATH: {RepoPath}",
+            "message": "CURIO_REPO_PATH: {RepoPath}",
+            "translation": "CURIO_REPO_PATH: {RepoPath}",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
-                    "id": "Curio",
+                    "id": "RepoPath",
                     "string": "%[1]s",
                     "type": "string",
                     "underlyingType": "string",
                     "argNum": 1,
-                    "expr": "\"~/.curio\""
+                    "expr": "repoPath"
                 }
             ],
             "fuzzy": true
         },
         {
-            "id": "CURIO_NODE_NAME: {}",
-            "message": "CURIO_NODE_NAME: {}",
-            "translation": "CURIO_NODE_NAME: {}",
+            "id": "CURIO_NODE_NAME: {NodeName}",
+            "message": "CURIO_NODE_NAME: {NodeName}",
+            "translation": "CURIO_NODE_NAME: {NodeName}",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
-                    "id": "",
+                    "id": "NodeName",
                     "string": "%[1]s",
                     "type": "string",
                     "underlyingType": "string",
                     "argNum": 1,
-                    "expr": "\"\""
+                    "expr": "nodeName"
                 }
             ],
             "fuzzy": true
         },
         {
-            "id": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE.",
-            "message": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE.",
-            "translation": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE.",
+            "id": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE: {EnvVars}",
+            "message": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE: {EnvVars}",
+            "translation": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE: {EnvVars}",
             "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "EnvVars",
+                    "string": "%[1]s",
+                    "type": "[]string",
+                    "underlyingType": "[]string",
+                    "argNum": 1,
+                    "expr": "envVars"
+                }
+            ],
             "fuzzy": true
         },
         {
@@ -1835,31 +1787,6 @@
                     "underlyingType": "string",
                     "argNum": 1,
                     "expr": "envVar"
-                }
-            ],
-            "fuzzy": true
-        },
-        {
-            "id": "Error opening or creating file {EnvFilePath}: {Err}",
-            "message": "Error opening or creating file {EnvFilePath}: {Err}",
-            "translation": "Error opening or creating file {EnvFilePath}: {Err}",
-            "translatorComment": "Copied from source.",
-            "placeholders": [
-                {
-                    "id": "EnvFilePath",
-                    "string": "%[1]s",
-                    "type": "string",
-                    "underlyingType": "string",
-                    "argNum": 1,
-                    "expr": "envFilePath"
-                },
-                {
-                    "id": "Err",
-                    "string": "%[2]s",
-                    "type": "error",
-                    "underlyingType": "interface{Error() string}",
-                    "argNum": 2,
-                    "expr": "err"
                 }
             ],
             "fuzzy": true

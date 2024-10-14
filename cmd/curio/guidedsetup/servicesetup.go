@@ -119,20 +119,20 @@ func createEnvFile(d *MigrationData) {
 	// Define the path to the environment file
 	envFilePath := "/etc/curio.env"
 
-	var layers []string
-	var repoPath, nodeName string
+	var layers, additionalEnvVars, envVars []string
 
-	envVars := map[string]string{}
+	repoPath := "~/.curio"
+	nodeName := "ChangeME"
 
 	// Take user input to remaining env vars
 	for {
 		i, _, err := (&promptui.Select{
 			Label: d.T("Enter the info to configure your Curio node"),
 			Items: []string{
-				d.T("CURIO_LAYERS: %s", ""),
-				d.T("CURIO_REPO_PATH: %s", "~/.curio"),
-				d.T("CURIO_NODE_NAME: %s", ""),
-				d.T("Add additional variables like FIL_PROOFS_PARAMETER_CACHE."),
+				d.T("CURIO_LAYERS: %s", layers),
+				d.T("CURIO_REPO_PATH: %s", repoPath),
+				d.T("CURIO_NODE_NAME: %s", nodeName),
+				d.T("Add additional variables like FIL_PROOFS_PARAMETER_CACHE: %s", envVars),
 				d.T("Continue update the env file.")},
 			Size:      6,
 			Templates: d.selectTemplates,
@@ -189,7 +189,6 @@ func createEnvFile(d *MigrationData) {
 			d.say(plain, "Start typing your additional environment variables one variable per line. Use Ctrl+D to finish:")
 			reader := bufio.NewReader(os.Stdin)
 
-			var additionalEnvVars []string
 			for {
 				text, err := reader.ReadString('\n')
 				if err != nil {
@@ -205,7 +204,7 @@ func createEnvFile(d *MigrationData) {
 			for _, envVar := range additionalEnvVars {
 				parts := strings.SplitN(envVar, "=", 2)
 				if len(parts) == 2 {
-					envVars[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+					envVars = append(envVars, fmt.Sprintf("%s=%s", strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])))
 				} else {
 					d.say(notice, "Skipping invalid input: %s", envVar)
 				}
@@ -213,39 +212,31 @@ func createEnvFile(d *MigrationData) {
 			continue
 		case 4:
 			// Define the environment variables to be added or updated
-			defenvVars := map[string]string{
-				"CURIO_LAYERS": fmt.Sprintf("export CURIO_LAYERS=%s", strings.Join(layers, ",")),
-				"CURIO_ALL_REMAINING_FIELDS_ARE_OPTIONAL": "true",
-				"CURIO_DB_HOST":                fmt.Sprintf("export CURIO_DB_HOST=%s", strings.Join(d.HarmonyCfg.Hosts, ",")),
-				"CURIO_DB_PORT":                fmt.Sprintf("export CURIO_DB_PORT=%s", d.HarmonyCfg.Port),
-				"CURIO_DB_NAME":                fmt.Sprintf("export CURIO_DB_HOST=%s", d.HarmonyCfg.Database),
-				"CURIO_DB_USER":                fmt.Sprintf("export CURIO_DB_HOST=%s", d.HarmonyCfg.Username),
-				"CURIO_DB_PASSWORD":            fmt.Sprintf("export CURIO_DB_HOST=%s", d.HarmonyCfg.Password),
-				"CURIO_REPO_PATH":              repoPath,
-				"CURIO_NODE_NAME":              nodeName,
-				"FIL_PROOFS_USE_MULTICORE_SDR": "1",
+			defenvVars := []string{
+				fmt.Sprintf("CURIO_LAYERS=%s", strings.Join(layers, ",")),
+				"CURIO_ALL_REMAINING_FIELDS_ARE_OPTIONAL=true",
+				fmt.Sprintf("CURIO_DB_HOST=%s", strings.Join(d.HarmonyCfg.Hosts, ",")),
+				fmt.Sprintf("CURIO_DB_USER=%s", d.HarmonyCfg.Username),
+				fmt.Sprintf("CURIO_DB_PASSWORD=%s", d.HarmonyCfg.Password),
+				fmt.Sprintf("CURIO_DB_PORT=%s", d.HarmonyCfg.Port),
+				fmt.Sprintf("CURIO_DB_NAME=%s", d.HarmonyCfg.Database),
+				fmt.Sprintf("CURIO_REPO_PATH=%s", repoPath),
+				fmt.Sprintf("CURIO_NODE_NAME=%s", nodeName),
+				"FIL_PROOFS_USE_MULTICORE_SDR=1",
 			}
-			for s, s2 := range defenvVars {
-				envVars[s] = s2
+			var w string
+			for _, s := range defenvVars {
+				w += fmt.Sprintf("%s\n", s)
 			}
-
-			// Open the file with truncation (this clears the file if it exists)
-			file, err := os.OpenFile(envFilePath, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0644)
-			if err != nil {
-				d.say(notice, "Error opening or creating file %s: %s", envFilePath, err)
-				os.Exit(1)
+			for _, s := range envVars {
+				w += fmt.Sprintf("%s\n", s)
 			}
-			defer func(file *os.File) {
-				_ = file.Close()
-			}(file)
 
 			// Write the new environment variables to the file
-			for key, value := range envVars {
-				line := fmt.Sprintf("%s=%s\n", key, value)
-				if _, err := file.WriteString(line); err != nil {
-					d.say(notice, "Error writing to file %s: %s", envFilePath, err)
-					os.Exit(1)
-				}
+			err = os.WriteFile(envFilePath, []byte(w), 0644)
+			if err != nil {
+				d.say(notice, "Error writing to file %s: %s", envFilePath, err)
+				os.Exit(1)
 			}
 			d.say(notice, "Service env file /etc/curio.env created successfully.")
 			return

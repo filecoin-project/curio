@@ -1455,6 +1455,42 @@
             "translation": "추가 환경 변수를 한 줄에 하나씩 입력하세요. 완료하려면 Ctrl+D를 사용하세요:",
             "message": "Start typing your additional environment variables one variable per line. Use Ctrl+D to finish:",
             "placeholder": null
+        },
+        {
+            "id": "Failed to flush the writes to file {RcFile}: {Err}",
+            "translation": "파일 {RcFile}에 쓰기를 플러시하지 못했습니다: {Err}",
+            "message": "Failed to flush the writes to file {RcFile}: {Err}",
+            "placeholder": null
+        },
+        {
+            "id": "Finished updating the {RcFile} file",
+            "translation": "{RcFile} 파일 업데이트를 완료했습니다",
+            "message": "Finished updating the {RcFile} file",
+            "placeholder": null
+        },
+        {
+            "id": "CURIO_LAYERS: {Layers}",
+            "translation": "CURIO_LAYERS: {Layers}",
+            "message": "CURIO_LAYERS: {Layers}",
+            "placeholder": null
+        },
+        {
+            "id": "CURIO_REPO_PATH: {RepoPath}",
+            "translation": "CURIO_REPO_PATH: {RepoPath}",
+            "message": "CURIO_REPO_PATH: {RepoPath}",
+            "placeholder": null
+        },
+        {
+            "id": "CURIO_NODE_NAME: {NodeName}",
+            "translation": "CURIO_NODE_NAME: {NodeName}",
+            "message": "CURIO_NODE_NAME: {NodeName}",
+            "placeholder": null
+        },
+        {
+            "id": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE: {EnvVars}",
+            "translation": "FIL_PROOFS_PARAMETER_CACHE와 같은 추가 변수를 추가하세요: {EnvVars}",
+            "message": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE: {EnvVars}",
+            "placeholder": null
         }
     ]
 }

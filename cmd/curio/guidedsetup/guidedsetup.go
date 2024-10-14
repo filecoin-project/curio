@@ -284,74 +284,16 @@ func afterRan(d *MigrationData) {
 		}
 		rcFilePath := filepath.Join(usr.HomeDir, rcFile)
 
-		// Read the existing rc file content
-		file, err := os.OpenFile(rcFilePath, os.O_RDWR|os.O_CREATE, 0644)
-		if err != nil {
-			d.say(notice, "Error opening %s file: %s", rcFile, err)
-			os.Exit(1)
-		}
-
-		// Variables to be added or updated
-		exportLines := map[string]string{
-			"CURIO_DB_HOST":     fmt.Sprintf("export CURIO_DB_HOST=%s", strings.Join(d.HarmonyCfg.Hosts, ",")),
-			"CURIO_DB_PORT":     fmt.Sprintf("export CURIO_DB_PORT=%s", d.HarmonyCfg.Port),
-			"CURIO_DB_NAME":     fmt.Sprintf("export CURIO_DB_HOST=%s", d.HarmonyCfg.Database),
-			"CURIO_DB_USER":     fmt.Sprintf("export CURIO_DB_HOST=%s", d.HarmonyCfg.Username),
-			"CURIO_DB_PASSWORD": fmt.Sprintf("export CURIO_DB_HOST=%s", d.HarmonyCfg.Password),
-		}
-
-		// Flags to track whether we need to append these lines
-		existingVars := map[string]bool{
-			"CURIO_DB_HOST":     false,
-			"CURIO_DB_PORT":     false,
-			"CURIO_DB_NAME":     false,
-			"CURIO_DB_USER":     false,
-			"CURIO_DB_PASSWORD": false,
-		}
-
-		var lines []string
-		scanner := bufio.NewScanner(file)
-
-		for scanner.Scan() {
-			line := scanner.Text()
-			modified := false
-
-			// Check each export line to see if it exists and is not commented out
-			for key, newValue := range exportLines {
-				if strings.HasPrefix(line, "export "+key+"=") && !strings.HasPrefix(strings.TrimSpace(line), "#") {
-					lines = append(lines, newValue)
-					existingVars[key] = true
-					modified = true
-					break
-				}
-			}
-
-			// If no modifications were made, retain the original line
-			if !modified {
-				lines = append(lines, line)
-			}
-		}
-
-		if err := scanner.Err(); err != nil {
-			d.say(notice, "Error reading %s file: %s", rcFile, err)
-			os.Exit(1)
-		}
-
-		// Append missing export lines
-		for key, added := range existingVars {
-			if !added {
-				lines = append(lines, exportLines[key])
-			}
-		}
-
-		err = file.Close()
-		if err != nil {
-			d.say(notice, "Error closing %s file: %s", rcFile, err)
-			os.Exit(1)
+		lines := []string{
+			fmt.Sprintf("export CURIO_DB_HOST=%s", strings.Join(d.HarmonyCfg.Hosts, ",")),
+			fmt.Sprintf("export CURIO_DB_USER=%s", d.HarmonyCfg.Username),
+			fmt.Sprintf("export CURIO_DB_PASSWORD=%s", d.HarmonyCfg.Password),
+			fmt.Sprintf("export CURIO_DB_PORT=%s", d.HarmonyCfg.Port),
+			fmt.Sprintf("export CURIO_DB_NAME=%s", d.HarmonyCfg.Database),
 		}
 
 		// Reopen the file in write mode to overwrite with updated content
-		file, err = os.OpenFile(rcFilePath, os.O_WRONLY|os.O_APPEND, 0644)
+		file, err := os.OpenFile(rcFilePath, os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			d.say(notice, "Error opening %s file in write mode:", rcFile, err)
 			return
@@ -372,12 +314,12 @@ func afterRan(d *MigrationData) {
 		for i := 1; i < 6; i++ {
 			err := writer.Flush()
 			if err != nil {
-				d.say(notice, "Failed to flush thw writes to file %s: %s", rcFile, err)
+				d.say(notice, "Failed to flush the writes to file %s: %s", rcFile, err)
 				d.say(notice, "Retrying.......(%d/5)", i)
 				continue
 			}
-			d.say(notice, "Failed to flush thw writes to file %s: %s", rcFile, err)
-			os.Exit(1)
+			d.say(notice, "Finished updating the %s file", rcFile)
+			break
 		}
 	}
 

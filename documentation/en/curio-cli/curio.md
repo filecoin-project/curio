@@ -10,18 +10,18 @@ VERSION:
    1.23.1
 
 COMMANDS:
-   cli           Execute cli commands
-   run           Start a Curio process
-   config        Manage node config by layers. The layer 'base' will always be applied at Curio start-up.
-   test          Utility functions for testing
-   web           Start Curio web interface
-   guided-setup  Run the guided setup for migrating from lotus-miner to Curio or Creating a new Curio miner
-   seal          Manage the sealing pipeline
-   unseal        Manage unsealed data
-   market        
-   fetch-params  Fetch proving parameters
-   calc          Math Utils
-   help, h       Shows a list of commands or help for one command
+   cli            Execute cli commands
+   run            Start a Curio process
+   config         Manage node config by layers. The layer 'base' will always be applied at Curio start-up.
+   test           Utility functions for testing
+   web            Start Curio web interface
+   guided-setup   Run the guided setup for migrating from lotus-miner to Curio or Creating a new Curio miner
+   service-setup  Run the service setup for a new Curio node. This command will take input from user and create/modify the service files
+   seal           Manage the sealing pipeline
+   market         
+   fetch-params   Fetch proving parameters
+   calc           Math Utils
+   help, h        Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
    --color              use color in display output (default: depends on output being a TTY)
@@ -483,6 +483,18 @@ NAME:
 
 USAGE:
    curio guided-setup [command options] [arguments...]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+## curio service-setup
+```
+NAME:
+   curio service-setup - Run the service setup for a new Curio node. This command will take input from user and create/modify the service files
+
+USAGE:
+   curio service-setup [command options] [arguments...]
 
 OPTIONS:
    --help, -h  show help

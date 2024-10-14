@@ -1425,6 +1425,42 @@
       "translation": "开始输入您的附加环境变量，每行一个变量。使用 Ctrl+D 完成输入:",
       "message": "Start typing your additional environment variables one variable per line. Use Ctrl+D to finish:",
       "placeholder": null
+    },
+    {
+      "id": "Failed to flush the writes to file {RcFile}: {Err}",
+      "translation": "未能将写入数据刷新到文件 {RcFile}：{Err}",
+      "message": "Failed to flush the writes to file {RcFile}: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Finished updating the {RcFile} file",
+      "translation": "已完成 {RcFile} 文件的更新",
+      "message": "Finished updating the {RcFile} file",
+      "placeholder": null
+    },
+    {
+      "id": "CURIO_LAYERS: {Layers}",
+      "translation": "CURIO_LAYERS: {Layers}",
+      "message": "CURIO_LAYERS: {Layers}",
+      "placeholder": null
+    },
+    {
+      "id": "CURIO_REPO_PATH: {RepoPath}",
+      "translation": "CURIO_REPO_PATH: {RepoPath}",
+      "message": "CURIO_REPO_PATH: {RepoPath}",
+      "placeholder": null
+    },
+    {
+      "id": "CURIO_NODE_NAME: {NodeName}",
+      "translation": "CURIO_NODE_NAME: {NodeName}",
+      "message": "CURIO_NODE_NAME: {NodeName}",
+      "placeholder": null
+    },
+    {
+      "id": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE: {EnvVars}",
+      "translation": "添加其他变量，例如 FIL_PROOFS_PARAMETER_CACHE: {EnvVars}",
+      "message": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE: {EnvVars}",
+      "placeholder": null
     }
   ]
 }
