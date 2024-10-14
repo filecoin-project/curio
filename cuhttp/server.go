@@ -208,5 +208,7 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps) (*chi.Mux, err
 	}
 	ipni_provider.Routes(r, ipp)
 
+	go ipp.StartPublishing(ctx)
+
 	return r, nil
 }
