@@ -316,8 +316,6 @@ workflows:
           resource_class: 2xlarge
       - test:
           name: test-all
-          requires:
-            - build
           target: "`go list ./... | grep -v curio/itests | grep -v market/indexstore`"
           suite: test-all
           resource_class: 2xlarge
@@ -333,8 +331,6 @@ workflows:
           resource_class: 2xlarge
       - test:
           name: test-idxStore
-          requires:
-            - build
           suite: test-idxStore
           target: "./market/indexstore"
           get-params: true
