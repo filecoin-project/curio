@@ -18,6 +18,7 @@ COMMANDS:
    guided-setup   Run the guided setup for migrating from lotus-miner to Curio or Creating a new Curio miner
    service-setup  Run the service setup for a new Curio node. This command will take input from user and create/modify the service files
    seal           Manage the sealing pipeline
+   unseal         Manage unsealed data
    market         
    fetch-params   Fetch proving parameters
    calc           Math Utils
