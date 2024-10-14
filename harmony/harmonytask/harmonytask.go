@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	logging "github.com/ipfs/go-log/v2"
+	"github.com/samber/lo"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 
@@ -25,7 +27,7 @@ type TaskTypeDetails struct {
 	// Max returns how many tasks this machine can run of this type.
 	// Nil (default)/Zero or less means unrestricted.
 	// Counters can either be independent when created with Max, or shared between tasks with SharedMax.Make()
-	Max Limiter
+	Max taskhelp.Limiter
 
 	// Name is the task name to be added to the task list.
 	Name string
@@ -36,6 +38,11 @@ type TaskTypeDetails struct {
 	// Max Failure count before the job is dropped.
 	// 0 = retry forever
 	MaxFailures uint
+
+	// RetryWait is the time to wait before retrying a failed task.
+	// It is called with the number of retries so far.
+	// If nil, it will retry immediately.
+	RetryWait func(retries int) time.Duration
 
 	// Follow another task's completion via this task's creation.
 	// The function should populate extraInfo from data
@@ -97,23 +104,6 @@ type TaskInterface interface {
 	//	  }
 	// }
 	Adder(AddTaskFunc)
-}
-
-type Limiter interface {
-	// Active returns the number of tasks of this type that are currently running
-	// in this limiter / limiter group.
-	Active() int
-
-	// ActiveThis returns the number of tasks of this type that are currently running
-	// in this limiter (e.g. per-task-type count).
-	ActiveThis() int
-
-	// AtMax returns whether this limiter permits more tasks to run.
-	AtMax() bool
-
-	// Add increments / decrements the active task counters by delta. This call
-	// is atomic
-	Add(delta int)
 }
 
 // AddTaskFunc is responsible for adding a task's details "extra info" to the DB.
@@ -182,6 +172,7 @@ func New(
 		if h.Max == nil {
 			h.Max = taskhelp.Max(0)
 		}
+		h.Max = h.Max.Instance()
 
 		if Registry[h.TaskTypeDetails.Name] == nil {
 			return nil, fmt.Errorf("task %s not registered: var _ = harmonytask.Reg(t TaskInterface)", h.TaskTypeDetails.Name)
@@ -369,8 +360,14 @@ func (e *TaskEngine) pollerTryAllWork() bool {
 			log.Debugf("skipped scheduling %s type tasks on due to %s", v.Name, err.Error())
 			continue
 		}
-		var unownedTasks []TaskID
-		err := e.db.Select(e.ctx, &unownedTasks, `SELECT id 
+		type task struct {
+			ID         TaskID    `db:"id"`
+			UpdateTime time.Time `db:"update_time"`
+			Retries    int       `db:"retries"`
+		}
+
+		var allUnownedTasks []task
+		err := e.db.Select(e.ctx, &allUnownedTasks, `SELECT id, update_time, retries 
 			FROM harmony_task
 			WHERE owner_id IS NULL AND name=$1
 			ORDER BY update_time`, v.Name)
@@ -378,6 +375,19 @@ func (e *TaskEngine) pollerTryAllWork() bool {
 			log.Error("Unable to read work ", err)
 			continue
 		}
+
+		unownedTasks := lo.FlatMap(allUnownedTasks, func(t task, _ int) []TaskID {
+			if v.RetryWait == nil {
+				return []TaskID{t.ID}
+			}
+			if time.Since(t.UpdateTime) > v.RetryWait(t.Retries) {
+				return []TaskID{t.ID}
+			} else {
+				log.Debugf("Task %d is not ready to retry yet, retries %d, wait: %s", t.ID, t.Retries, v.RetryWait(t.Retries))
+				return nil
+			}
+		})
+
 		if len(unownedTasks) > 0 {
 			accepted := v.considerWork(WorkSourcePoller, unownedTasks)
 			if accepted {
@@ -416,6 +426,8 @@ func (e *TaskEngine) pollerTryAllWork() bool {
 	return false
 }
 
+var rlog = logging.Logger("harmony-res")
+
 // ResourcesAvailable determines what resources are still unassigned.
 func (e *TaskEngine) ResourcesAvailable() resources.Resources {
 	tmp := e.reg.Resources
@@ -424,7 +436,9 @@ func (e *TaskEngine) ResourcesAvailable() resources.Resources {
 		tmp.Cpu -= ct * t.Cost.Cpu
 		tmp.Gpu -= float64(ct) * t.Cost.Gpu
 		tmp.Ram -= uint64(ct) * t.Cost.Ram
+		rlog.Debugw("Per task type", "Name", t.Name, "Count", ct, "CPU", ct*t.Cost.Cpu, "RAM", uint64(ct)*t.Cost.Ram, "GPU", float64(ct)*t.Cost.Gpu)
 	}
+	rlog.Debugw("Total", "CPU", tmp.Cpu, "RAM", tmp.Ram, "GPU", tmp.Gpu)
 	return tmp
 }
 

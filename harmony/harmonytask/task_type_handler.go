@@ -11,6 +11,7 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
 
@@ -259,7 +260,8 @@ func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, w
 retryRecordCompletion:
 	cm, err := h.TaskEngine.db.BeginTransaction(h.TaskEngine.ctx, func(tx *harmonydb.Tx) (bool, error) {
 		var postedTime time.Time
-		err := tx.QueryRow(`SELECT posted_time FROM harmony_task WHERE id=$1`, tID).Scan(&postedTime)
+		var retries uint
+		err := tx.QueryRow(`SELECT posted_time, retries FROM harmony_task WHERE id=$1`, tID).Scan(&postedTime, &retries)
 
 		if err != nil {
 			return false, fmt.Errorf("could not log completion: %w ", err)
@@ -280,16 +282,8 @@ retryRecordCompletion:
 				result = "error: " + doErr.Error()
 			}
 			var deleteTask bool
-			if h.MaxFailures > 0 {
-				ct := uint(0)
-				err = tx.QueryRow(`SELECT count(*) FROM harmony_task_history 
-				WHERE task_id=$1 AND result=FALSE`, tID).Scan(&ct)
-				if err != nil {
-					return false, fmt.Errorf("could not read task history: %w", err)
-				}
-				if ct >= h.MaxFailures {
-					deleteTask = true
-				}
+			if h.MaxFailures > 0 && retries >= h.MaxFailures-1 {
+				deleteTask = true
 			}
 			if deleteTask {
 				_, err = tx.Exec("DELETE FROM harmony_task WHERE id=$1", tID)
@@ -298,7 +292,7 @@ retryRecordCompletion:
 				}
 				// Note: Extra Info is left laying around for later review & clean-up
 			} else {
-				_, err := tx.Exec(`UPDATE harmony_task SET owner_id=NULL WHERE id=$1`, tID)
+				_, err := tx.Exec(`UPDATE harmony_task SET owner_id=NULL, retries=$1, update_time=CURRENT_TIMESTAMP  WHERE id=$2`, retries+1, tID)
 				if err != nil {
 					return false, fmt.Errorf("could not disown failed task: %v %v", tID, err)
 				}
@@ -343,13 +337,13 @@ func (h *taskTypeHandler) AssertMachineHasCapacity() error {
 	}
 
 	if r.Cpu-h.Cost.Cpu < 0 {
-		return errors.New("Did not accept " + h.Name + " task: out of cpu")
+		return xerrors.Errorf("Did not accept %s task: out of cpu: required %d available %d)", h.Name, h.Cost.Cpu, r.Cpu)
 	}
 	if h.Cost.Ram > r.Ram {
-		return errors.New("Did not accept " + h.Name + " task: out of RAM")
+		return xerrors.Errorf("Did not accept %s task: out of RAM: required %d available %d)", h.Name, h.Cost.Ram, r.Ram)
 	}
 	if r.Gpu-h.Cost.Gpu < 0 {
-		return errors.New("Did not accept " + h.Name + " task: out of available GPU")
+		return xerrors.Errorf("Did not accept %s task: out of available GPU: required %f available %f)", h.Name, h.Cost.Gpu, r.Gpu)
 	}
 
 	if h.TaskTypeDetails.Cost.Storage != nil {

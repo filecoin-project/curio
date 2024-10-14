@@ -15,15 +15,18 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
+	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
 
 type AlertNow struct {
@@ -74,7 +77,6 @@ func NowCheck(al *alerts) {
 		}
 	}()
 	if len(nowAlerts) > 0 {
-		fmt.Println("ALERTMANAGER: NOW ALERTS")
 		al.alertMap[Name].alertString = strings.Join(lo.Map(nowAlerts, func(n NowType, _ int) string {
 			return fmt.Sprintf("Machine %s: %s", n.Name, n.Message)
 		}), " ")
@@ -420,12 +422,11 @@ func wdPostCheck(al *alerts) {
 		return
 	}
 
+	// Calculate from epoch for last AlertMangerInterval
 	from := head.Height() - abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(build.BlockDelaySecs))) - 1
 	if from < 0 {
 		from = 0
 	}
-
-	log.Infof("ALERTMANAGER: FROM: %d", from)
 
 	_, miners, err := al.getAddresses()
 	if err != nil {
@@ -435,13 +436,10 @@ func wdPostCheck(al *alerts) {
 
 	h := head
 
-	type partSent struct {
-		sent  bool
-		parts int
-	}
+	// Map[Miner Address]Map[DeadlineIdx][]Partitions
+	msgCheck := make(map[address.Address]map[uint64][]bool)
 
-	msgCheck := make(map[address.Address]map[uint64]*partSent)
-
+	// Walk back all tipset from current height to from height and find all deadlines and their partitions
 	for h.Height() >= from {
 		for _, maddr := range miners {
 			deadlineInfo, err := al.api.StateMinerProvingDeadline(al.ctx, maddr, h.Key())
@@ -455,13 +453,11 @@ func wdPostCheck(al *alerts) {
 				return
 			}
 			if _, ok := msgCheck[maddr]; !ok {
-				msgCheck[maddr] = make(map[uint64]*partSent)
+				msgCheck[maddr] = make(map[uint64][]bool)
 			}
 			if _, ok := msgCheck[maddr][deadlineInfo.Index]; !ok {
-				msgCheck[maddr][deadlineInfo.Index] = &partSent{
-					sent:  false,
-					parts: len(partitions),
-				}
+				ps := make([]bool, len(partitions))
+				msgCheck[maddr][deadlineInfo.Index] = ps
 			}
 		}
 		h, err = al.api.ChainGetTipSet(al.ctx, h.Parents())
@@ -471,12 +467,7 @@ func wdPostCheck(al *alerts) {
 		}
 	}
 
-	for maddr, deadlines := range msgCheck {
-		for deadlineIndex, ps := range deadlines {
-			log.Infof("ALERTMANAGER: Address: %s, DEADLINE: %d, Partitions: %d", maddr.String(), deadlineIndex, ps.parts)
-		}
-	}
-
+	// Get all wdPost tasks from DB between from and head
 	var wdDetails []struct {
 		Miner     int64          `db:"sp_id"`
 		Deadline  int64          `db:"deadline"`
@@ -498,6 +489,7 @@ func wdPostCheck(al *alerts) {
 		return
 	}
 
+	// For all tasks between from and head, match how many we posted successfully
 	for _, detail := range wdDetails {
 		addr, err := address.NewIDAddress(uint64(detail.Miner))
 		if err != nil {
@@ -508,8 +500,11 @@ func wdPostCheck(al *alerts) {
 			al.alertMap[Name].alertString += fmt.Sprintf("unknown WindowPost jobs for miner %s deadline %d partition %d found. ", addr.String(), detail.Deadline, detail.Partition)
 			continue
 		}
-		msgCheck[addr][uint64(detail.Deadline)].sent = true
 
+		// If entry for a partition is found we should mark it as processed
+		msgCheck[addr][uint64(detail.Deadline)][detail.Partition] = true
+
+		// Check if we skipped any sectors
 		var postOut miner.SubmitWindowedPoStParams
 		err = postOut.UnmarshalCBOR(bytes.NewReader(detail.Proof))
 		if err != nil {
@@ -529,10 +524,13 @@ func wdPostCheck(al *alerts) {
 		}
 	}
 
+	// Check if we missed any deadline/partitions
 	for maddr, deadlines := range msgCheck {
 		for deadlineIndex, ps := range deadlines {
-			if !ps.sent {
-				al.alertMap[Name].alertString += fmt.Sprintf("No WindowPost jobs found for miner %s deadline %d. ", maddr.String(), deadlineIndex)
+			for idx := range ps {
+				if !ps[idx] {
+					al.alertMap[Name].alertString += fmt.Sprintf("No WindowPost jobs found for miner %s deadline %d paritions %d. ", maddr.String(), deadlineIndex, idx)
+				}
 			}
 		}
 	}
@@ -547,17 +545,20 @@ func wnPostCheck(al *alerts) {
 		return
 	}
 
+	// Calculate from epoch for last AlertMangerInterval
 	from := head.Height() - abi.ChainEpoch(math.Ceil(AlertMangerInterval.Seconds()/float64(build.BlockDelaySecs))) - 1
 	if from < 0 {
 		from = 0
 	}
 
 	var wnDetails []struct {
-		Miner int64          `db:"sp_id"`
-		Block string         `db:"mined_cid"`
-		Epoch abi.ChainEpoch `db:"epoch"`
+		Miner    int64          `db:"sp_id"`
+		Block    string         `db:"mined_cid"`
+		Epoch    abi.ChainEpoch `db:"epoch"`
+		Included bool           `db:"included"`
 	}
 
+	// Get all DB entries where we won the election in last AlertMangerInterval
 	err = al.db.Select(al.ctx, &wnDetails, `
 			SELECT sp_id, mined_cid, epoch 
 			FROM mining_tasks 
@@ -568,75 +569,143 @@ func wnPostCheck(al *alerts) {
 		return
 	}
 
-	var count []int64
-	err = al.db.Select(al.ctx, &count, `
+	// Get count of all mining tasks in DB in last AlertMangerInterval
+	var count int64
+	err = al.db.QueryRow(al.ctx, `
 			SELECT COUNT(*)
 			FROM mining_tasks 
-			WHERE epoch > $1;`, from)
+			WHERE epoch > $1;`, from).Scan(&count)
 	if err != nil {
 		al.alertMap[Name].err = xerrors.Errorf("getting winningPost count details from database: %w", err)
 		return
 	}
 
-	if count[0] == 0 {
+	// If we have no task created for any miner ID, this is a serious issue
+	if count == 0 {
 		al.alertMap[Name].alertString += "No winningPost tasks found in the last " + humanize.Time(time.Now().Add(-AlertMangerInterval))
 		return
 	}
 
+	// Calculate how many tasks should be in DB for AlertMangerInterval (epochs) as each epoch should have 1 task
 	epochs := int64(math.Ceil(AlertMangerInterval.Seconds() / float64(build.BlockDelaySecs)))
 	if (head.Height() - abi.ChainEpoch(epochs)) < 0 {
 		epochs = int64(head.Height())
 	}
 
-	if epochs != count[0]+1 && epochs != count[0]-1 && epochs != count[0] {
-		al.alertMap[Name].alertString += fmt.Sprintf("Expected %d WinningPost task and found %d in DB ", epochs, count[0])
+	_, miners, err := al.getAddresses()
+	if err != nil {
+		al.alertMap[Name].err = err
+		return
+	}
+
+	epochs = epochs * int64(len(miners)) // Multiply epochs by number of miner IDs
+
+	if epochs != count+1 && epochs != count-1 && epochs != count {
+		al.alertMap[Name].alertString += fmt.Sprintf("Expected %d WinningPost task and found %d in DB ", epochs, count)
 	}
 
 	if len(wnDetails) < 1 {
 		return
 	}
 
-	to := wnDetails[len(wnDetails)-1].Epoch
-
-	epochMap := make(map[abi.ChainEpoch]string)
-
-	for head.Height() >= to {
-		epochMap[head.Height()] = head.String()
-		head, err = al.api.ChainGetTipSet(al.ctx, head.Parents())
-		if err != nil {
-			al.alertMap[Name].err = xerrors.Errorf("getting tipset: %w", err)
+	// Repost any block which we submitted but was not included in the chain
+	for _, wn := range wnDetails {
+		if !wn.Included {
+			al.alertMap[Name].alertString += fmt.Sprintf("Epoch %d: does not contain our block %s", wn.Epoch, wn.Block)
 		}
-		if head == nil {
-			al.alertMap[Name].err = xerrors.Errorf("tipset is nil")
+	}
+}
+
+func chainSyncCheck(al *alerts) {
+	Name := "ChainSync"
+	al.alertMap[Name] = &alertOut{}
+
+	type minimalApiInfo struct {
+		Apis struct {
+			ChainApiInfo []string
+		}
+	}
+
+	rpcInfos := map[string]minimalApiInfo{} // config name -> api info
+	confNameToAddr := map[string]string{}   // config name -> api address
+
+	// Get all config from DB
+	rows, err := al.db.Query(al.ctx, `SELECT title, config FROM harmony_config`)
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("getting db configs: %w", err)
+		return
+	}
+
+	configs := make(map[string]string)
+	for rows.Next() {
+		var title, cfg string
+		if err := rows.Scan(&title, &cfg); err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("scanning db configs: %w", err)
 			return
 		}
-		if head.Height() == 0 {
-			break
-		}
+		configs[title] = cfg
 	}
 
-	winMap := make(map[abi.ChainEpoch]struct {
-		won bool
-		cid string
-	})
-
-	for _, wn := range wnDetails {
-		if strings.Contains(epochMap[wn.Epoch], wn.Block) {
-			winMap[wn.Epoch] = struct {
-				won bool
-				cid string
-			}{won: true, cid: wn.Block}
+	// Parse all configs minimal to get API
+	for name, tomlStr := range configs {
+		var info minimalApiInfo
+		if err := toml.Unmarshal([]byte(tomlStr), &info); err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("unmarshaling %s config: %w", name, err)
 			continue
 		}
-		winMap[wn.Epoch] = struct {
-			won bool
-			cid string
-		}{won: false, cid: wn.Block}
+
+		if len(info.Apis.ChainApiInfo) == 0 {
+			continue
+		}
+
+		rpcInfos[name] = info
+
+		for _, addr := range info.Apis.ChainApiInfo {
+			ai := cliutil.ParseApiInfo(addr)
+			confNameToAddr[name] = ai.Addr
+		}
 	}
 
-	for epoch, st := range winMap {
-		if !st.won {
-			al.alertMap[Name].alertString += fmt.Sprintf("Epoch %d: does not contain our block %s", epoch, st.cid)
+	dedup := map[string]bool{} // for dedup by address
+
+	// For each unique API (chain), check if in sync
+	for _, info := range rpcInfos {
+		ai := cliutil.ParseApiInfo(info.Apis.ChainApiInfo[0])
+		if dedup[ai.Addr] {
+			continue
+		}
+		dedup[ai.Addr] = true
+
+		addr, err := ai.DialArgs("v1")
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("could not get DialArgs: %w", err)
+			continue
+		}
+
+		var res api.ChainStruct
+		closer, err := jsonrpc.NewMergeClient(al.ctx, addr, "Filecoin",
+			api.GetInternalStructs(&res), ai.AuthHeader(), []jsonrpc.Option{jsonrpc.WithErrors(jsonrpc.NewErrors())}...)
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("error creating jsonrpc client: %v", err)
+			continue
+		}
+		defer closer()
+
+		full := &res
+
+		head, err := full.ChainHead(al.ctx)
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("ChainHead: %w", err)
+			continue
+		}
+
+		switch {
+		case time.Now().Unix()-int64(head.MinTimestamp()) < int64(build.BlockDelaySecs*3/2): // within 1.5 epochs
+			continue
+		case time.Now().Unix()-int64(head.MinTimestamp()) < int64(build.BlockDelaySecs*5): // within 5 epochs
+			log.Debugf("Chain Sync status: %s: slow (%s behind)", addr, time.Since(time.Unix(int64(head.MinTimestamp()), 0)).Truncate(time.Second))
+		default:
+			al.alertMap[Name].alertString += fmt.Sprintf("behind (%s behind)", time.Since(time.Unix(int64(head.MinTimestamp()), 0)).Truncate(time.Second))
 		}
 	}
 }

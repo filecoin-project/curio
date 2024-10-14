@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -30,14 +31,14 @@ type UnsealSDRApi interface {
 }
 
 type TaskUnsealSdr struct {
-	max harmonytask.Limiter
+	max taskhelp.Limiter
 
 	sc  *ffi.SealCalls
 	db  *harmonydb.DB
 	api UnsealSDRApi
 }
 
-func NewTaskUnsealSDR(sc *ffi.SealCalls, db *harmonydb.DB, max harmonytask.Limiter, api UnsealSDRApi) *TaskUnsealSdr {
+func NewTaskUnsealSDR(sc *ffi.SealCalls, db *harmonydb.DB, max taskhelp.Limiter, api UnsealSDRApi) *TaskUnsealSdr {
 	return &TaskUnsealSdr{
 		max: max,
 		sc:  sc,

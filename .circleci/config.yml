@@ -98,7 +98,7 @@ commands:
           fi
 
 jobs:
-  build:
+  build-debug:
     executor: golang
     working_directory: ~/curio
     steps:
@@ -109,20 +109,52 @@ jobs:
       - install-ubuntu-deps
       - check-go-version
       - run: make deps debug
-      - run: make 2k
-      - run: make calibnet
-      - run: make build
       - persist_to_workspace:
           root: ~/
           paths:
             - "curio"
+  build-2k:
+    executor: golang
+    working_directory: ~/curio
+    steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
+      - install-ubuntu-deps
+      - check-go-version
+      - run: make deps 2k
+  build-mainnet:
+    executor: golang
+    working_directory: ~/curio
+    steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
+      - install-ubuntu-deps
+      - check-go-version
+      - run: make deps build
+  build-calibnet:
+    executor: golang
+    working_directory: ~/curio
+    steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
+      - install-ubuntu-deps
+      - check-go-version
+      - run: make deps calibnet
   mod-tidy-check:
     executor: golang
     working_directory: ~/curio
     steps:
+      - checkout
+      - git_fetch_all_tags
       - install-ubuntu-deps
-      - attach_workspace:
-          at: ~/
+      - run: git submodule sync
+      - run: git submodule update --init
       - run: go mod tidy -v
       - run:
           name: Check git diff
@@ -166,12 +198,17 @@ jobs:
         name: yugabyte
     resource_class: << parameters.resource_class >>
     steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
       - install-ubuntu-deps
-      - attach_workspace:
-          at: ~/
+      - run: make deps
+
       - when:
           condition: << parameters.get-params >>
           steps:
+            - run: make debug
             - download-params
       - run:
           name: go test
@@ -210,9 +247,12 @@ jobs:
       - image: cimg/go:1.21
     resource_class: medium+
     steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
       - install-ubuntu-deps
-      - attach_workspace:
-          at: ~/
+      - run: make deps
       - run:
           name: Lint
           command: |
@@ -224,6 +264,10 @@ jobs:
     executor: golang
     working_directory: ~/curio
     steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
       - run:
           command: "! go fmt ./... 2>&1 | read"
 
@@ -231,47 +275,42 @@ jobs:
     executor: golang-2xl
     working_directory: ~/curio
     steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
       - install-ubuntu-deps
-      - attach_workspace:
-          at: ~/
       - run: go install golang.org/x/tools/cmd/goimports
       - run: go install github.com/hannahhoward/cbor-gen-for
-      - run: make gen
+      - run: make deps gen
       - run: git --no-pager diff && git --no-pager diff --quiet
   
   forest-check:
     executor: golang
     working_directory: ~/curio
     steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
       - install-ubuntu-deps
-      - attach_workspace:
-          at: ~/
       - run: make forest-test
 
 workflows:
   ci:
     jobs:
-      - build
-      - lint-all:
-          requires:
-            - build
-      - mod-tidy-check:
-          requires:
-            - build
-      - gofmt:
-          requires:
-            - build
-      - gen-check:
-          requires:
-            - build
-      - forest-check:
-          requires:
-            - build
+      - build-debug
+      - build-2k
+      - build-mainnet
+      - build-calibnet
+      - lint-all
+      - mod-tidy-check
+      - gofmt
+      - gen-check
+      - forest-check
       - test:
           name: test-itest-curio
-          requires:
-            - build
-          suite: itest-curio
+          suite: test-itest-curio
           target: "./itests/curio_test.go"
           get-params: true
           resource_class: 2xlarge
@@ -281,7 +320,16 @@ workflows:
             - build
           target: "`go list ./... | grep -v curio/itests | grep -v market/indexstore`"
           suite: test-all
-          get-params: true
+          resource_class: 2xlarge
+      - test:
+          name: test-itest-harmonyDB
+          suite: test-itest-harmonyDB
+          target: "./itests/harmonydb_test.go"
+          resource_class: 2xlarge
+      - test:
+          name: test-itest-alertnow
+          suite: test-itest-alertnow
+          target: "./itests/alertnow_test.go"
           resource_class: 2xlarge
       - test:
           name: test-idxStore

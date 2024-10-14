@@ -163,7 +163,7 @@ func (t *TaskUnsealDecode) TypeDetails() harmonytask.TaskTypeDetails {
 		ssize = abi.SectorSize(2 << 20)
 	}
 
-	return harmonytask.TaskTypeDetails{
+	res := harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(t.max),
 		Name: "UnsealDecode",
 		Cost: resources.Resources{
@@ -177,6 +177,12 @@ func (t *TaskUnsealDecode) TypeDetails() harmonytask.TaskTypeDetails {
 			return t.schedule(context.Background(), taskFunc)
 		}),
 	}
+
+	if isDevnet {
+		res.Cost.Ram = 1 << 30
+	}
+
+	return res
 }
 
 func (t *TaskUnsealDecode) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {

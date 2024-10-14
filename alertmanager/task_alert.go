@@ -69,6 +69,7 @@ var AlertFuncs = []AlertFunc{
 	wdPostCheck,
 	wnPostCheck,
 	NowCheck,
+	chainSyncCheck,
 }
 
 func NewAlertTask(

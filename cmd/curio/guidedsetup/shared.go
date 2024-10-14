@@ -240,7 +240,13 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 			return minerAddress, xerrors.Errorf("Cannot delete existing layer: %w", err)
 		}
 
-		_, err = db.Exec(ctx, "INSERT INTO harmony_config (title, config) VALUES ($1, $2)", layerName, configTOML.String())
+		// Express as new toml to avoid adding StorageRPCSecret in more than 1 layer
+		ct := &bytes.Buffer{}
+		if err = toml.NewEncoder(ct).Encode(curioCfg); err != nil {
+			return minerAddress, err
+		}
+
+		_, err = db.Exec(ctx, "INSERT INTO harmony_config (title, config) VALUES ($1, $2)", layerName, ct.String())
 		if err != nil {
 			return minerAddress, xerrors.Errorf("Cannot insert layer after layer created message: %w", err)
 		}

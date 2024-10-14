@@ -246,6 +246,12 @@ func (s *SendTask) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		MaxFailures: 1000,
 		Follows:     nil,
+		RetryWait: func(retries int) time.Duration {
+			if retries < 10 {
+				return time.Second * time.Duration(retries)
+			}
+			return time.Second * 10
+		},
 	}
 }
 
