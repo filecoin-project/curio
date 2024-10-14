@@ -794,23 +794,24 @@ an IP address`,
 allow indexer nodes to process announcements. Default: False`,
 		},
 		{
-			Name: "WebHost",
+			Name: "ServiceURL",
 			Type: "string",
 
-			Comment: `The network indexer host that the web UI should link to for published announcements
-TODO: should we use this for checking published heas before publishing? Later commit`,
+			Comment: `The network indexer web UI URL for viewing published announcements
+TODO: should we use this for checking published heads before publishing? Later commit`,
 		},
 		{
 			Name: "DirectAnnounceURLs",
 			Type: "[]string",
 
-			Comment: `The list of URLs of indexing nodes to announce to.`,
+			Comment: `The list of URLs of indexing nodes to announce to. This is a list of hosts we talk TO to tell them about new
+heads.`,
 		},
 		{
 			Name: "AnnounceAddresses",
 			Type: "[]string",
 
-			Comment: `AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
+			Comment: `AnnounceAddresses is a list of addresses indexer clients can use to reach to the HTTP market node.
 Curio allows running more than one node for HTTP server and thus all addressed can be announced
 simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]`,
 		},
