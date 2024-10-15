@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	carv2 "github.com/ipld/go-car/v2"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipni/go-libipni/ingest/schema"
+	"github.com/ipni/go-libipni/maurl"
 	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -169,15 +171,22 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 
 		adv := schema.Advertisement{
 			Provider:  task.Prov,
-			Addresses: make([]string, 0),
 			Entries:   lnk,
 			ContextID: task.CtxID,
 			Metadata:  md,
 			IsRm:      task.Rm,
 		}
 
-		if len(adv.Addresses) > 1 {
-			return false, xerrors.Errorf("too many addresses: %d", len(adv.Addresses))
+		for _, a := range I.cfg.Market.StorageMarketConfig.IPNI.AnnounceAddresses {
+			u, err := url.Parse(strings.TrimSpace(a))
+			if err != nil {
+				return false, xerrors.Errorf("parsing announce address: %w", err)
+			}
+			addr, err := maurl.FromURL(u)
+			if err != nil {
+				return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
+			}
+			adv.Addresses = append(adv.Addresses, addr.String())
 		}
 
 		if prev != "" {

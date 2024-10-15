@@ -92,7 +92,7 @@ func DefaultCurioConfig() *CurioConfig {
 					ExpectedSnapSealDuration:  Duration(2 * time.Hour),
 				},
 				IPNI: IPNIConfig{
-					WebHost:            "https://cid.contact",
+					ServiceURL:         "https://cid.contact",
 					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce"},
 					AnnounceAddresses:  []string{},
 				},
@@ -625,14 +625,15 @@ type IPNIConfig struct {
 	// allow indexer nodes to process announcements. Default: False
 	Disable bool
 
-	// The network indexer host that the web UI should link to for published announcements
-	// TODO: should we use this for checking published heas before publishing? Later commit
-	WebHost string
+	// The network indexer web UI URL for viewing published announcements
+	// TODO: should we use this for checking published heads before publishing? Later commit
+	ServiceURL string
 
-	// The list of URLs of indexing nodes to announce to.
+	// The list of URLs of indexing nodes to announce to. This is a list of hosts we talk TO to tell them about new
+	// heads.
 	DirectAnnounceURLs []string
 
-	// AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
+	// AnnounceAddresses is a list of addresses indexer clients can use to reach to the HTTP market node.
 	// Curio allows running more than one node for HTTP server and thus all addressed can be announced
 	// simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
 	AnnounceAddresses []string

@@ -379,18 +379,19 @@ description: The default curio configuration
       # type: bool
       #Disable = false
 
-      # The network indexer host that the web UI should link to for published announcements
-      # TODO: should we use this for checking published heas before publishing? Later commit
+      # The network indexer web UI URL for viewing published announcements
+      # TODO: should we use this for checking published heads before publishing? Later commit
       #
       # type: string
-      #WebHost = "https://cid.contact"
+      #ServiceURL = "https://cid.contact"
 
-      # The list of URLs of indexing nodes to announce to.
+      # The list of URLs of indexing nodes to announce to. This is a list of hosts we talk TO to tell them about new
+      # heads.
       #
       # type: []string
       #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
 
-      # AnnounceAddresses is a list of addresses clients can use to reach to the HTTP market node.
+      # AnnounceAddresses is a list of addresses indexer clients can use to reach to the HTTP market node.
       # Curio allows running more than one node for HTTP server and thus all addressed can be announced
       # simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
       #
