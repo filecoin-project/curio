@@ -103,7 +103,8 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 		}
 
 		postPartition = miner2.PoStPartition{
-			Index: partIdx,
+			Index:   partIdx,
+			Skipped: bitfield.New(),
 		}
 
 		log.Infow("running window post",
