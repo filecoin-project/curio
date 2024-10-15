@@ -73,7 +73,7 @@ func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
 		}
 	}
 
-	rpcInfos := make(map[string]string)         // config name -> api info
+	var rpcInfos []string
 	confNameToAddr := make(map[string][]string) // config name -> api addresses
 
 	err := forEachConfig[minimalApiInfo](a, func(name string, info minimalApiInfo) error {
@@ -82,7 +82,7 @@ func (a *WebRPC) SyncerState(ctx context.Context) ([]RpcInfo, error) {
 		}
 
 		for _, addr := range info.Apis.ChainApiInfo {
-			rpcInfos[name] = addr
+			rpcInfos = append(rpcInfos, addr)
 			ai := cliutil.ParseApiInfo(addr)
 			confNameToAddr[name] = append(confNameToAddr[name], ai.Addr)
 		}
