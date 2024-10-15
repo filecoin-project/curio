@@ -123,12 +123,12 @@ type CurioConfig struct {
 	// Addresses of wallets per MinerAddress (one of the fields).
 	Addresses []CurioAddresses
 	Proving   CurioProvingConfig
+	HTTP      HTTPConfig
 	Market    MarketConfig
 	Ingest    CurioIngestConfig
 	Seal      CurioSealConfig
 	Apis      ApisConfig
 	Alerting  CurioAlertingConfig
-	HTTP      HTTPConfig
 }
 
 func DefaultDefaultMaxFee() types.FIL {
@@ -545,21 +545,21 @@ type MarketConfig struct {
 }
 
 type StorageMarketConfig struct {
+	// MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)
+	MK12 MK12Config
+
+	// IPNI configuration for ipni-provider
+	IPNI IPNIConfig
+
+	// Indexing configuration for deal indexing
+	Indexing IndexingConfig
+
 	// PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
 	// User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
 	// The server must have 2 endpoints
 	// 	1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
 	//  2. /data?id=pieceCID must provide a reader for the requested piece
 	PieceLocator []PieceLocatorConfig
-
-	// Indexing configuration for deal indexing
-	Indexing IndexingConfig
-
-	// IPNI configuration for ipni-provider
-	IPNI IPNIConfig
-
-	// MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)
-	MK12 MK12Config
 }
 
 type MK12Config struct {
@@ -605,9 +605,6 @@ type IndexingConfig struct {
 }
 
 type Libp2pConfig struct {
-	// Miners ID for which MK12 deals (boosts) should be disabled
-	DisabledMiners []string
-
 	// Binding address for the libp2p host - 0 means random port.
 	// Format: multiaddress; see https://multiformats.io/multiaddr/
 	ListenAddresses []string
@@ -647,9 +644,6 @@ type HTTPConfig struct {
 	// DomainName specifies the domain name that the server uses to serve HTTP requests. DomainName cannot be empty and cannot be
 	// an IP address
 	DomainName string
-
-	// CertCacheDir path to the cache directory for storing SSL certificates needed for HTTPS.
-	CertCacheDir string
 
 	// ListenAddress is the address that the server listens for HTTP requests.
 	ListenAddress string

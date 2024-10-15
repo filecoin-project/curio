@@ -64,24 +64,25 @@ type CurioStorageDealMarket struct {
 }
 
 type MK12Pipeline struct {
-	UUID           string          `db:"uuid"`
-	SpID           int64           `db:"sp_id"`
-	Started        bool            `db:"started"`
-	PieceCid       string          `db:"piece_cid"`
-	Offline        bool            `db:"offline"`
-	Downloaded     bool            `db:"downloaded"`
-	RawSize        int64           `db:"raw_size"`
-	URL            string          `db:"url"`
-	Headers        json.RawMessage `db:"headers"`
-	CommTaskID     *int64          `db:"commp_task_id"`
-	AfterCommp     bool            `db:"after_commp"`
-	PSDWaitTime    time.Time       `db:"psd_wait_time"`
-	PSDTaskID      *int64          `db:"psd_task_id"`
-	AfterPSD       bool            `db:"after_psd"`
-	FindDealTaskID *int64          `db:"find_deal_task_id"`
-	AfterFindDeal  bool            `db:"after_find_deal"`
-	Sector         *int64          `db:"sector"`
-	Offset         *int64          `db:"sector_offset"`
+	UUID       string          `db:"uuid"`
+	SpID       int64           `db:"sp_id"`
+	Started    bool            `db:"started"`
+	PieceCid   string          `db:"piece_cid"`
+	Offline    bool            `db:"offline"`
+	Downloaded bool            `db:"downloaded"`
+	RawSize    int64           `db:"raw_size"`
+	URL        string          `db:"url"`
+	Headers    json.RawMessage `db:"headers"`
+
+	CommTaskID     *int64    `db:"commp_task_id"`
+	AfterCommp     bool      `db:"after_commp"`
+	PSDWaitTime    time.Time `db:"psd_wait_time"`
+	PSDTaskID      *int64    `db:"psd_task_id"`
+	AfterPSD       bool      `db:"after_psd"`
+	FindDealTaskID *int64    `db:"find_deal_task_id"`
+	AfterFindDeal  bool      `db:"after_find_deal"`
+	Sector         *int64    `db:"sector"`
+	Offset         *int64    `db:"sector_offset"`
 }
 
 func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, sc *ffi.SealCalls, mapi storageMarketAPI) *CurioStorageDealMarket {
@@ -195,18 +196,19 @@ func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
 									p.sp_id as sp_id,
 									p.started as started,
 									p.piece_cid as piece_cid,
-									p.offline as offline,
 									p.raw_size as raw_size,
+									
+									p.offline as offline,
 									p.url as url,
 									p.headers as headers,
+									
 									p.commp_task_id as commp_task_id,
 									p.after_commp as after_commp,
 									p.psd_task_id as psd_task_id,
 									p.after_psd as after_psd,
 									p.find_deal_task_id as find_deal_task_id,
 									p.after_find_deal as after_find_deal,
-									p.psd_wait_time as psd_wait_time,
-									b.start_epoch as start_epoch
+									p.psd_wait_time as psd_wait_time
 								FROM 
 									market_mk12_deal_pipeline p
 								LEFT JOIN 

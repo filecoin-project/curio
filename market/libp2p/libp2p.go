@@ -138,12 +138,6 @@ type libp2pCfg struct {
 }
 
 func getCfg(ctx context.Context, db *harmonydb.DB, cfg config.Libp2pConfig, machine string) (*libp2pCfg, error) {
-	// Try to acquire the lock in DB
-	_, err := db.Exec(ctx, `SELECT update_libp2p_node ($1)`, machine)
-	if err != nil {
-		return nil, xerrors.Errorf("acquiring libp2p locks from DB: %w", err)
-	}
-
 	var ret libp2pCfg
 
 	for _, l := range cfg.ListenAddresses {
@@ -170,8 +164,13 @@ func getCfg(ctx context.Context, db *harmonydb.DB, cfg config.Libp2pConfig, mach
 		ret.NoAnnounceAddr = append(ret.NoAnnounceAddr, noAnnounceAddr)
 	}
 
-	var privKey []byte
+	// Try to acquire the lock in DB
+	_, err := db.Exec(ctx, `SELECT update_libp2p_node ($1)`, machine)
+	if err != nil {
+		return nil, xerrors.Errorf("acquiring libp2p locks from DB: %w", err)
+	}
 
+	var privKey []byte
 	err = db.QueryRow(ctx, `SELECT priv_key FROM libp2p`).Scan(&privKey)
 	if err != nil {
 		return nil, xerrors.Errorf("getting private key from DB: %w", err)
@@ -282,7 +281,7 @@ func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioCon
 		disabledMiners: disabledMiners,
 	}
 
-	p.Start(ctx, h)
+	go p.Start(ctx, h)
 
 	return nil
 }

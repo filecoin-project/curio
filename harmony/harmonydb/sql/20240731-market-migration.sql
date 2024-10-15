@@ -281,7 +281,7 @@ BEGIN
         LIMIT 1;
 
     -- If running_on is already set
-    IF current_running_on IS NOT NULL THEN
+    IF current_running_on IS NOT NULL AND current_running_on != _running_on THEN
             -- Check if updated_at is more than 5 minutes old
             IF last_updated < NOW() - INTERVAL '5 minutes' THEN
                 -- Update running_on and updated_at
