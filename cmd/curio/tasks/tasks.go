@@ -202,11 +202,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		activeTasks = append(activeTasks, sealingTasks...)
 	}
 
-	minerAddresses := make([]string, 0, len(maddrs))
 	miners := make([]address.Address, 0, len(maddrs))
 	for k := range maddrs {
 		miners = append(miners, address.Address(k))
-		minerAddresses = append(minerAddresses, address.Address(k).String())
 	}
 
 	{
@@ -235,7 +233,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			activeTasks = append(activeTasks, psdTask, dealFindTask)
 
 			// Start libp2p hosts and handle streams
-			err = libp2p.NewDealProvider(ctx, db, cfg, dm.MK12Handler, full, machine)
+			err = libp2p.NewDealProvider(ctx, db, cfg, dm.MK12Handler, full, sender, miners, machine)
 			if err != nil {
 				return nil, err
 			}
@@ -257,7 +255,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	activeTasks = append(activeTasks, amTask)
 
 	log.Infow("This Curio instance handles",
-		"miner_addresses", minerAddresses,
+		"miner_addresses", miners,
 		"tasks", lo.Map(activeTasks, func(t harmonytask.TaskInterface, _ int) string { return t.TypeDetails().Name }))
 
 	// harmony treats the first task as highest priority, so reverse the order
