@@ -115,7 +115,7 @@ var precommitStuckCmd = &cli.Command{
 		for _, msg := range msgs {
 			fmt.Println(msg)
 		}
-		// x := []string{"bafy2bzacedehedwzrygquxxhu4ws2nyfmdv5k3ylx76ywngp2xkfszwvbpn3s", "bafy2bzaceaa57zjswk4iaco2wg5f47egtcxu3m7crbwpz3ooc4hlczzwwb64e", "bafy2bzacedzt6c2egc264vob4e76llgdhvfb4awfqqpii44r3canihhcjyywk", "bafy2bzacecfew4ke47l7hdqcews46xw4enhsawbtkewnu7aomob5275bdpe4q", "bafy2bzacecbzyyokd2hxtpdophhiy5aown6yybkmhnnta7n5wo5u6p55k5zry", "bafy2bzaceasvkpeltvbuqrd4y5em235fbxvihtzb5ijbkfwpr53oufyitrcaq"}
+		// x := []string{}
 		// var tskey []cid.Cid
 		// for _, s := range x {
 		// 	bcid, err := cid.Parse(s)
