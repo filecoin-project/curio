@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/filecoin-project/curio/market/libp2p"
 	"net/http"
 	"time"
 
@@ -68,6 +69,38 @@ func compressionMiddleware(config *config.CompressionConfig) (func(http.Handler)
 	return adapter, nil
 }
 
+// libp2pConnMiddleware intercepts WebSocket upgrade requests to "/" and rewrites the path to "/libp2p"
+func libp2pConnMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check if the request path is "/"
+		if r.URL.Path == "/" {
+			// Check if the request is a WebSocket upgrade request
+			if isWebSocketUpgrade(r) {
+				// Rewrite the path to "/libp2p"
+				r.URL.Path = "/libp2p"
+				// Update RequestURI in case downstream handlers use it
+				r.RequestURI = "/libp2p"
+			}
+		}
+		// Call the next handler in the chain
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isWebSocketUpgrade checks if the request is a WebSocket upgrade request
+func isWebSocketUpgrade(r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	if r.Header.Get("Upgrade") != "websocket" {
+		return false
+	}
+	if r.Header.Get("Connection") != "Upgrade" {
+		return false
+	}
+	return true
+}
+
 func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
 	ch := cache{db: d.DB}
 	cfg := d.Cfg.HTTP
@@ -106,7 +139,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
 	})
 
 	// Root path handler (simpler routes handled by http.ServeMux)
-	chiRouter.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	chiRouter.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "Hello, World!\n -Curio\n")
 	})
@@ -125,7 +158,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
 	// Set up the HTTP server with proper timeouts
 	server := &http.Server{
 		Addr:              cfg.ListenAddress,
-		Handler:           loggingMiddleware(compressionMw(chiRouter)), // Attach middlewares
+		Handler:           libp2pConnMiddleware(loggingMiddleware(compressionMw(chiRouter))), // Attach middlewares
 		ReadTimeout:       cfg.ReadTimeout,
 		WriteTimeout:      cfg.WriteTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
@@ -209,6 +242,10 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps) (*chi.Mux, err
 	ipni_provider.Routes(r, ipp)
 
 	go ipp.StartPublishing(ctx)
+
+	// Attach LibP2P redirector
+	rd := libp2p.NewRedirector(d.DB)
+	libp2p.Router(r, rd)
 
 	return r, nil
 }

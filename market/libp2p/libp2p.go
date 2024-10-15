@@ -68,7 +68,7 @@ func NewLibp2pHost(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfi
 		return nil, fmt.Errorf("adding public key to peerstore: %w", err)
 	}
 
-	addrFactory, err := MakeAddrsFactory(lcfg.AnnounceAddr)
+	addrFactory, err := MakeAddrsFactory([]multiaddr.Multiaddr{lcfg.AnnounceAddr})
 	if err != nil {
 		return nil, fmt.Errorf("creating address factory: %w", err)
 	}
@@ -83,6 +83,7 @@ func NewLibp2pHost(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfi
 		libp2p.Ping(true),
 		libp2p.EnableNATService(),
 		libp2p.BandwidthReporter(metrics.NewBandwidthCounter()),
+		libp2p.Identity(lcfg.priv),
 	}
 
 	h, err := libp2p.New(opts...)
@@ -96,6 +97,7 @@ func NewLibp2pHost(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfi
 	}
 
 	log.Infof("Libp2p started listening on %s/p2p/%s", listenAddress, h.ID())
+	log.Infof("Libp2p announcing %s/p2p/%s", lcfg.AnnounceAddr, h.ID())
 
 	// Update the database local_listen
 	_, err = db.Exec(ctx, `UPDATE libp2p SET local_listen = $1 WHERE running_on = $2`, listenAddress.String(), machine)
@@ -181,7 +183,7 @@ func getMatchingLocalListenAddress(h host.Host, machine string) (multiaddr.Multi
 type libp2pCfg struct {
 	priv         crypto.PrivKey
 	ListenAddr   []multiaddr.Multiaddr
-	AnnounceAddr []multiaddr.Multiaddr
+	AnnounceAddr multiaddr.Multiaddr
 }
 
 func getCfg(ctx context.Context, db *harmonydb.DB, httpConf config.HTTPConfig, machine string) (*libp2pCfg, error) {
@@ -201,7 +203,7 @@ func getCfg(ctx context.Context, db *harmonydb.DB, httpConf config.HTTPConfig, m
 		return nil, xerrors.Errorf("creating public address: %w", err)
 	}
 
-	ret.AnnounceAddr = append(ret.AnnounceAddr, publicAddr)
+	ret.AnnounceAddr = publicAddr
 
 	// Generate possible initial key values (really only used on first cluster startup, but cheap enough to just propose to the function)
 	initialPriv, initialPub, err := crypto.GenerateEd25519Key(rand.Reader)
