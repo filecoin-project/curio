@@ -2,13 +2,15 @@ package libp2p
 
 import (
 	"fmt"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"net/http"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
-	"net/http"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
 // Redirector struct with a database connection

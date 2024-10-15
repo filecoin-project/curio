@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/filecoin-project/curio/market/libp2p"
 	"net/http"
 	"time"
 
@@ -21,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
+	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/market/retrieval"
 )
 

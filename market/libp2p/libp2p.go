@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"github.com/snadrus/must"
 	"net"
 	"runtime/debug"
 	"time"
@@ -23,6 +22,7 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/host/peerstore/pstoremem"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/samber/lo"
+	"github.com/snadrus/must"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 
