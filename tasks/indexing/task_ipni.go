@@ -3,6 +3,7 @@ package indexing
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -159,9 +160,9 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		}
 
 		var privKey []byte
-		err = tx.QueryRow(`SELECT priv_key FROM libp2p WHERE sp_id = $1`, task.SPID).Scan(&privKey)
+		err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, task.SPID).Scan(&privKey)
 		if err != nil {
-			return false, xerrors.Errorf("failed to get private libp2p key for miner %d: %w", task.SPID, err)
+			return false, xerrors.Errorf("failed to get private ipni-libp2p key for miner %d: %w", task.SPID, err)
 		}
 
 		pkey, err := crypto.UnmarshalPrivateKey(privKey)
@@ -368,9 +369,36 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 			}
 
 			var privKey []byte
-			err = tx.QueryRow(`SELECT priv_key FROM libp2p WHERE sp_id = $1`, p.SpID).Scan(&privKey)
+			err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, p.SpID).Scan(&privKey)
 			if err != nil {
-				return false, xerrors.Errorf("failed to get private libp2p key for miner %d: %w", p.SpID, err)
+				if err != pgx.ErrNoRows {
+					return false, xerrors.Errorf("failed to get private libp2p key for miner %d: %w", p.SpID, err)
+				}
+
+				// generate the ipni provider key
+				pk, _, err := crypto.GenerateEd25519Key(rand.Reader)
+				if err != nil {
+					return false, xerrors.Errorf("failed to generate a new key: %w", err)
+				}
+
+				privKey, err = crypto.MarshalPrivateKey(pk)
+				if err != nil {
+					return false, xerrors.Errorf("failed to marshal the private key: %w", err)
+				}
+
+				pid, err := peer.IDFromPublicKey(pk.GetPublic())
+				if err != nil {
+					return false, xerrors.Errorf("getting peer ID: %w", err)
+				}
+
+				n, err := tx.Exec(`INSERT INTO ipni_peerid (sp_id, priv_key, peer_id) VALUES ($1, $2, $3) ON CONFLICT(sp_id) DO NOTHING `, p.SpID, privKey, pid.String())
+				if err != nil {
+					return false, xerrors.Errorf("failed to to insert the key into DB: %w", err)
+				}
+
+				if n == 0 {
+					return false, xerrors.Errorf("failed to insert the key into db")
+				}
 			}
 
 			pkey, err := crypto.UnmarshalPrivateKey(privKey)
@@ -378,8 +406,7 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 				return false, xerrors.Errorf("unmarshaling private key: %w", err)
 			}
 
-			pubK := pkey.GetPublic()
-			pid, err := peer.IDFromPublicKey(pubK)
+			pid, err := peer.IDFromPublicKey(pkey.GetPublic())
 			if err != nil {
 				return false, fmt.Errorf("getting peer ID: %w", err)
 			}

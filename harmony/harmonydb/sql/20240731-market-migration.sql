@@ -261,8 +261,8 @@ CREATE TABLE market_offline_urls (
 
 -- This table is used for coordinating libp2p nodes
 CREATE TABLE libp2p (
-    sp_id BIGINT NOT NULL PRIMARY KEY,
-    priv_key BYTEA NOT NULL,
+    priv_key BYTEA NOT NULL PRIMARY KEY,
+    peer_id TEXT NOT NULL UNIQUE,
     running_on TEXT DEFAULT NULL,
     updated_at TIMESTAMPTZ DEFAULT NULL
 );

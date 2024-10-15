@@ -79,12 +79,6 @@ func DefaultCurioConfig() *CurioConfig {
 					InsertBatchSize:   15000,
 				},
 				MK12: MK12Config{
-					Libp2p: Libp2pConfig{
-						DisabledMiners:      []string{},
-						ListenAddresses:     []string{"/ip4/0.0.0.0/tcp/12200", "/ip4/0.0.0.0/udp/12280/quic-v1/webtransport"},
-						AnnounceAddresses:   []string{},
-						NoAnnounceAddresses: []string{},
-					},
 					PublishMsgPeriod:          Duration(5 * time.Minute),
 					MaxDealsPerPublishMsg:     8,
 					MaxPublishDealFee:         types.MustParseFIL("0.5 FIL"),
@@ -563,9 +557,6 @@ type StorageMarketConfig struct {
 }
 
 type MK12Config struct {
-	// Libp2p is a list of libp2p config for all miner IDs.
-	Libp2p Libp2pConfig
-
 	// When a deal is ready to publish, the amount of time to wait for more
 	// deals to be ready to publish before publishing them all as a batch
 	PublishMsgPeriod Duration
@@ -602,19 +593,6 @@ type IndexingConfig struct {
 
 	// Number of concurrent inserts to split AddIndex calls to
 	InsertConcurrency int
-}
-
-type Libp2pConfig struct {
-	// Binding address for the libp2p host - 0 means random port.
-	// Format: multiaddress; see https://multiformats.io/multiaddr/
-	ListenAddresses []string
-	// Addresses to explicitally announce to other peers. If not specified,
-	// all interface addresses are announced
-	// Format: multiaddress
-	AnnounceAddresses []string
-	// Addresses to not announce
-	// Format: multiaddress
-	NoAnnounceAddresses []string
 }
 
 type IPNIConfig struct {

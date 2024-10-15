@@ -102,7 +102,7 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 
 	keyMap := make(map[string]*peerInfo)
 
-	rows, err := d.DB.Query(ctx, `SELECT priv_key FROM libp2p`)
+	rows, err := d.DB.Query(ctx, `SELECT priv_key FROM ipni_peerid`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get private libp2p keys from DB: %w", err)
 	}
