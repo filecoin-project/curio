@@ -580,6 +580,9 @@ type MK12Config struct {
 	// Warning: If this check is skipped and there is a commP mismatch, all deals in the
 	// sector will need to be sent again
 	SkipCommP bool
+
+	// DisabledMiners is a list of miner addresses that should be excluded from online deal making protocols
+	DisabledMiners []string
 }
 
 type PieceLocatorConfig struct {
