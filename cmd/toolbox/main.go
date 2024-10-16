@@ -163,6 +163,10 @@ var precommitStuckCmd = &cli.Command{
 					tcid, ffmsg.Height, msg, execMsg,
 					0, ffmsg.Receipt.Return, ffmsg.Receipt.GasUsed,
 					*msg.PrecommitMsgCID)
+				if err != nil {
+					log.Error(err)
+					return err
+				}
 			}
 
 		}
