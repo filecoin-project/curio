@@ -92,9 +92,9 @@ var precommitStuckCmd = &cli.Command{
 
 		// retrieve messages from curio.message_waits which does not have a executed_tsk_cid
 		var msgs []struct {
-			SignedMsgCID    string  `db:"signed_message_cid"`
-			PrecommitMsgCID *string `db:"precommit_msg_cid"`
-			CommitMsgCID    *string `db:"commit_msg_cid"`
+			SignedMsgCID    string `db:"signed_message_cid"`
+			PrecommitMsgCID string `db:"precommit_msg_cid"`
+			CommitMsgCID    string `db:"commit_msg_cid"`
 
 			ExecutedTskCID   string `db:"executed_tsk_cid"`
 			ExecutedTskEpoch int64  `db:"executed_tsk_epoch"`
