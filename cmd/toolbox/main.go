@@ -9,10 +9,12 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/urfave/cli/v2"
 
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/lotus/chain/types"
 
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
@@ -117,33 +119,33 @@ var precommitStuckCmd = &cli.Command{
 		}
 
 		// check if cid is associated with a precommit msg onchain via filfox api
-		var ffmsgs []FilfoxMsg
+		var pcmsgs []string
 		for _, msg := range msgs {
 			ffmsg, err := filfoxMessage(*msg.PrecommitMsgCID)
 			if err != nil {
 				return err
 			}
-			fmt.Println(ffmsg)
-			ffmsgs = append(ffmsgs, ffmsg)
+			if ffmsg.MethodNumber == 28 {
+				pcmsgs = append(pcmsgs, *msg.PrecommitMsgCID)
+			}
 		}
 
-		// x := []string{}
-		// var tskey []cid.Cid
-		// for _, s := range x {
-		// 	bcid, err := cid.Parse(s)
-		// 	if err != nil {
-		// 		return err
-		// 	}
-		// 	tskey = append(tskey, bcid)
-		// }
+		var tskey []cid.Cid
+		for _, s := range pcmsgs {
+			bcid, err := cid.Parse(s)
+			if err != nil {
+				return err
+			}
+			tskey = append(tskey, bcid)
+		}
 
-		// tsk := types.NewTipSetKey(tskey...)
+		tsk := types.NewTipSetKey(tskey...)
 
-		// tcid, err := tsk.Cid()
-		// if err != nil {
-		// 	return err
-		// }
-		// fmt.Println(tcid.String())
+		tcid, err := tsk.Cid()
+		if err != nil {
+			return err
+		}
+		fmt.Println(tcid.String())
 		return nil
 	},
 }
