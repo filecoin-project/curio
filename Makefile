@@ -97,7 +97,7 @@ BINS+=sptool
 
 toolbox: $(BUILD_DEPS)
 	rm -f toolbox
-    $(GOCC) build $(GOFLAGS) -o toolbox ./cmd/toolbox
+	$(GOCC) build $(GOFLAGS) -o toolbox ./cmd/toolbox
 .PHONY: toolbox
 BINS+=toolbox
 
