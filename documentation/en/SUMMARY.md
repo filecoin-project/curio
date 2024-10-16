@@ -26,3 +26,5 @@
   * [Curio](curio-cli/curio.md)
   * [Sptool](curio-cli/sptool.md)
 * [API](api.md)
+* [Experimental Features](experimental-features/README.md)
+  * [GPU Over Provisioning](experimental-features/gpu-over-provisioning.md)
