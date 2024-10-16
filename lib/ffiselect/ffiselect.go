@@ -3,7 +3,6 @@ package ffiselect
 import (
 	"bytes"
 	"context"
-	"github.com/filecoin-project/curio/harmony/resources"
 	"io"
 	"os"
 	"os/exec"
@@ -20,6 +19,7 @@ import (
 	"github.com/filecoin-project/go-state-types/proof"
 
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
