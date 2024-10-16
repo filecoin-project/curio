@@ -1,4 +1,10 @@
 -- Table for storing IPNI ads
+CREATE TABLE ipni_peerid (
+    priv_key BYTEA NOT NULL PRIMARY KEY,
+    peer_id TEXT NOT NULL UNIQUE,
+    sp_id BIGINT NOT NULL
+);
+
 CREATE TABLE ipni (
     order_number BIGSERIAL PRIMARY KEY, -- Unique increasing order number
     ad_cid TEXT NOT NULL,

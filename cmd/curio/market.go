@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,8 +10,6 @@ import (
 	"strings"
 
 	"github.com/hashicorp/go-multierror"
-	"github.com/libp2p/go-libp2p/core/crypto"
-	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/mitchellh/go-homedir"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
@@ -37,7 +34,6 @@ var marketCmd = &cli.Command{
 		marketSealCmd,
 		marketAddOfflineURLCmd,
 		marketMoveToEscrowCmd,
-		marketLibp2pCmd,
 	},
 }
 
@@ -337,123 +333,5 @@ var marketMoveToEscrowCmd = &cli.Command{
 			fmt.Printf("Previous available balance: %s\n New available Balance: %s\n", big.Sub(obal.Escrow, obal.Locked).String(), big.Sub(nbal.Escrow, nbal.Locked).String())
 		}
 		return merr
-	},
-}
-
-var marketLibp2pCmd = &cli.Command{
-	Name:  "libp2p",
-	Usage: "Libp2p key operations",
-	Subcommands: []*cli.Command{
-		libp2pShowCmd,
-		libp2pGenerateCmd,
-	},
-}
-
-var libp2pShowCmd = &cli.Command{
-	Name:      "peerID",
-	Usage:     "Show Libp2p peer id for the provided miner actor",
-	ArgsUsage: "<Miner ID>",
-	Action: func(cctx *cli.Context) error {
-		if cctx.Args().Len() != 1 {
-			return xerrors.Errorf("incorrect number of agruments")
-		}
-
-		act, err := address.NewFromString(cctx.Args().First())
-		if err != nil {
-			return xerrors.Errorf("parsing miner ID: %w", err)
-		}
-
-		ctx := cctx.Context
-		dep, err := deps.GetDepsCLI(ctx, cctx)
-		if err != nil {
-			return err
-		}
-
-		mid, err := address.IDFromAddress(act)
-		if err != nil {
-			return err
-		}
-
-		var pb []byte
-		err = dep.DB.QueryRow(ctx, `SELECT priv_key FROM libp2p where sp_id = $1`, mid).Scan(&pb)
-		if err != nil {
-			return xerrors.Errorf("failed to get the private key from db: %w", err)
-		}
-
-		pkey, err := crypto.UnmarshalPrivateKey(pb)
-		if err != nil {
-			return fmt.Errorf("failed to unmarshal private key: %w", err)
-		}
-
-		id, err := peer.IDFromPublicKey(pkey.GetPublic())
-		if err != nil {
-			return fmt.Errorf("getting peer ID: %w", err)
-		}
-
-		fmt.Println("PeerID for Miner", act.String(), id.String())
-
-		return nil
-
-	},
-}
-
-var libp2pGenerateCmd = &cli.Command{
-	Name:      "generate-key",
-	Usage:     "Generates a new Libp2p key for the miner ID",
-	ArgsUsage: "<Miner ID>",
-	Action: func(cctx *cli.Context) error {
-		if cctx.Args().Len() != 1 {
-			return xerrors.Errorf("incorrect number of agruments")
-		}
-
-		act, err := address.NewFromString(cctx.Args().First())
-		if err != nil {
-			return xerrors.Errorf("parsing miner ID: %w", err)
-		}
-
-		ctx := cctx.Context
-		dep, err := deps.GetDepsCLI(ctx, cctx)
-		if err != nil {
-			return err
-		}
-
-		pk, _, err := crypto.GenerateEd25519Key(rand.Reader)
-		if err != nil {
-			return xerrors.Errorf("failed to generate a new key: %w", err)
-		}
-
-		kbytes, err := crypto.MarshalPrivateKey(pk)
-		if err != nil {
-			return xerrors.Errorf("failed to marshal the private key: %w", err)
-		}
-
-		mid, err := address.IDFromAddress(act)
-		if err != nil {
-			return err
-		}
-
-		n, err := dep.DB.Exec(ctx, `INSERT INTO libp2p (sp_id, priv_key) VALUES ($1, $2) ON CONFLICT(sp_id) DO NOTHING`, mid, kbytes)
-		if err != nil {
-			return xerrors.Errorf("failed to to insert the key into DB: %w", err)
-		}
-
-		if n == 0 {
-			return xerrors.Errorf("No new was created. Check if key already exists")
-		}
-
-		if n > 1 {
-			return xerrors.Errorf("%d rows affected in DB when 1 was expected", n)
-		}
-
-		fmt.Println("New Key created for the miner", act)
-
-		id, err := peer.IDFromPublicKey(pk.GetPublic())
-		if err != nil {
-			return xerrors.Errorf("getting peer ID: %w", err)
-		}
-
-		fmt.Println("PeerID for Miner", act.String(), id.String())
-
-		return nil
 	},
 }

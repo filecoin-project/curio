@@ -79,12 +79,6 @@ func DefaultCurioConfig() *CurioConfig {
 					InsertBatchSize:   15000,
 				},
 				MK12: MK12Config{
-					Libp2p: Libp2pConfig{
-						DisabledMiners:      []string{},
-						ListenAddresses:     []string{"/ip4/0.0.0.0/tcp/12200", "/ip4/0.0.0.0/udp/12280/quic-v1/webtransport"},
-						AnnounceAddresses:   []string{},
-						NoAnnounceAddresses: []string{},
-					},
 					PublishMsgPeriod:          Duration(5 * time.Minute),
 					MaxDealsPerPublishMsg:     8,
 					MaxPublishDealFee:         types.MustParseFIL("0.5 FIL"),
@@ -123,12 +117,12 @@ type CurioConfig struct {
 	// Addresses of wallets per MinerAddress (one of the fields).
 	Addresses []CurioAddresses
 	Proving   CurioProvingConfig
+	HTTP      HTTPConfig
 	Market    MarketConfig
 	Ingest    CurioIngestConfig
 	Seal      CurioSealConfig
 	Apis      ApisConfig
 	Alerting  CurioAlertingConfig
-	HTTP      HTTPConfig
 }
 
 func DefaultDefaultMaxFee() types.FIL {
@@ -545,27 +539,24 @@ type MarketConfig struct {
 }
 
 type StorageMarketConfig struct {
+	// MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)
+	MK12 MK12Config
+
+	// IPNI configuration for ipni-provider
+	IPNI IPNIConfig
+
+	// Indexing configuration for deal indexing
+	Indexing IndexingConfig
+
 	// PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
 	// User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
 	// The server must have 2 endpoints
 	// 	1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
 	//  2. /data?id=pieceCID must provide a reader for the requested piece
 	PieceLocator []PieceLocatorConfig
-
-	// Indexing configuration for deal indexing
-	Indexing IndexingConfig
-
-	// IPNI configuration for ipni-provider
-	IPNI IPNIConfig
-
-	// MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)
-	MK12 MK12Config
 }
 
 type MK12Config struct {
-	// Libp2p is a list of libp2p config for all miner IDs.
-	Libp2p Libp2pConfig
-
 	// When a deal is ready to publish, the amount of time to wait for more
 	// deals to be ready to publish before publishing them all as a batch
 	PublishMsgPeriod Duration
@@ -589,6 +580,9 @@ type MK12Config struct {
 	// Warning: If this check is skipped and there is a commP mismatch, all deals in the
 	// sector will need to be sent again
 	SkipCommP bool
+
+	// DisabledMiners is a list of miner addresses that should be excluded from online deal making protocols
+	DisabledMiners []string
 }
 
 type PieceLocatorConfig struct {
@@ -602,22 +596,6 @@ type IndexingConfig struct {
 
 	// Number of concurrent inserts to split AddIndex calls to
 	InsertConcurrency int
-}
-
-type Libp2pConfig struct {
-	// Miners ID for which MK12 deals (boosts) should be disabled
-	DisabledMiners []string
-
-	// Binding address for the libp2p host - 0 means random port.
-	// Format: multiaddress; see https://multiformats.io/multiaddr/
-	ListenAddresses []string
-	// Addresses to explicitally announce to other peers. If not specified,
-	// all interface addresses are announced
-	// Format: multiaddress
-	AnnounceAddresses []string
-	// Addresses to not announce
-	// Format: multiaddress
-	NoAnnounceAddresses []string
 }
 
 type IPNIConfig struct {
@@ -647,9 +625,6 @@ type HTTPConfig struct {
 	// DomainName specifies the domain name that the server uses to serve HTTP requests. DomainName cannot be empty and cannot be
 	// an IP address
 	DomainName string
-
-	// CertCacheDir path to the cache directory for storing SSL certificates needed for HTTPS.
-	CertCacheDir string
 
 	// ListenAddress is the address that the server listens for HTTP requests.
 	ListenAddress string

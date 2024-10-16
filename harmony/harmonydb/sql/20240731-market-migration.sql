@@ -261,44 +261,61 @@ CREATE TABLE market_offline_urls (
 
 -- This table is used for coordinating libp2p nodes
 CREATE TABLE libp2p (
-    sp_id BIGINT NOT NULL PRIMARY KEY,
-    priv_key BYTEA NOT NULL,
-    running_on TEXT DEFAULT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NULL
+    priv_key BYTEA NOT NULL PRIMARY KEY,
+    peer_id TEXT NOT NULL UNIQUE,
+    running_on TEXT DEFAULT NULL, -- harmonymachines machine id (host:port)
+    local_listen TEXT DEFAULT NULL, -- libp2p listen address within the local network (ip should be the same as running_on)
+    updated_at TIMESTAMPTZ DEFAULT NULL,
+    singleton BOOLEAN DEFAULT TRUE CHECK ( singleton = TRUE ) UNIQUE -- Allows one row in the table
 );
 
 -- -- Function used to update the libp2p table
-CREATE OR REPLACE FUNCTION update_libp2p_node(_running_on TEXT)
-RETURNS VOID AS $$
+CREATE OR REPLACE FUNCTION update_libp2p_node(
+    _running_on TEXT,
+    _maybe_priv_key BYTEA, -- Possible initial values
+    _maybe_peerid TEXT
+)
+    RETURNS BYTEA AS $$
 DECLARE
-current_running_on TEXT;
+    current_running_on TEXT;
     last_updated TIMESTAMPTZ;
+    existing_priv_key BYTEA;
+    existing_peer_id TEXT;
 BEGIN
-    -- Fetch the current values of running_on and updated_at
-    SELECT running_on, updated_at INTO current_running_on, last_updated
+    -- Attempt to fetch the existing row
+    SELECT priv_key, peer_id, running_on, updated_at
+    INTO existing_priv_key, existing_peer_id, current_running_on, last_updated
     FROM libp2p
-    WHERE running_on IS NOT NULL
-        LIMIT 1;
+    LIMIT 1;
 
-    -- If running_on is already set
-    IF current_running_on IS NOT NULL THEN
-            -- Check if updated_at is more than 5 minutes old
+    IF existing_priv_key IS NULL THEN
+        -- No existing row; insert a new one
+        INSERT INTO libp2p (priv_key, peer_id, running_on, updated_at)
+        VALUES (_maybe_priv_key, _maybe_peerid, _running_on, NOW() AT TIME ZONE 'UTC');
+        RETURN _maybe_priv_key;
+    ELSE
+        -- Existing row found; proceed with update logic
+        IF current_running_on IS NOT NULL AND current_running_on != _running_on THEN
+            -- Check if the last update was more than 5 minutes ago
             IF last_updated < NOW() - INTERVAL '5 minutes' THEN
                 -- Update running_on and updated_at
                 UPDATE libp2p
                 SET running_on = _running_on,
                     updated_at = NOW() AT TIME ZONE 'UTC'
-                WHERE running_on = current_running_on;
+                WHERE priv_key = existing_priv_key;
             ELSE
                 -- Raise an exception if the node was updated within the last 5 minutes
                 RAISE EXCEPTION 'Libp2p node already running on "%"', current_running_on;
             END IF;
-    ELSE
-            -- If running_on is NULL, set it and update the timestamp
+        ELSE
+            -- Update running_on and updated_at if running_on is NULL or unchanged
             UPDATE libp2p
             SET running_on = _running_on,
                 updated_at = NOW() AT TIME ZONE 'UTC'
-            WHERE running_on IS NULL;
+            WHERE priv_key = existing_priv_key;
+        END IF;
+        -- Return the existing priv_key
+        RETURN existing_priv_key;
     END IF;
 END;
 $$ LANGUAGE plpgsql;

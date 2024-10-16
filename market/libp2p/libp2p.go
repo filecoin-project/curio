@@ -2,8 +2,10 @@ package libp2p
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"net"
 	"runtime/debug"
 	"time"
 
@@ -20,13 +22,16 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/host/peerstore/pstoremem"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/samber/lo"
-	mamask "github.com/whyrusleeping/multiaddr-filter"
+	"github.com/snadrus/must"
 	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	cborutil "github.com/filecoin-project/go-cbor-util"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/big"
+	"github.com/filecoin-project/go-state-types/builtin"
+	"github.com/filecoin-project/go-state-types/builtin/v13/miner"
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 
 	"github.com/filecoin-project/curio/build"
@@ -34,45 +39,52 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/market/mk12"
 	"github.com/filecoin-project/curio/market/mk12/legacytypes"
+	"github.com/filecoin-project/curio/tasks/message"
 
+	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/actors"
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
 var log = logging.Logger("curio-libp2p")
 
-func NewLibp2pHost(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, machine string) (host.Host, error) {
-	lcfg, err := getCfg(ctx, db, cfg.Market.StorageMarketConfig.MK12.Libp2p, machine)
+// typically 6M gas per message. 0.02 FIL should suffice even at close to 5nFIL basefee, but provides a reasonable upper bound
+var maintenanceMsgMaxFee = must.One(types.ParseFIL("0.02"))
+
+func NewLibp2pHost(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, machine string) (host.Host, multiaddr.Multiaddr, error) {
+	lcfg, err := getCfg(ctx, db, cfg.HTTP, machine)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	pstore, err := pstoremem.NewPeerstore()
 	if err != nil {
-		return nil, fmt.Errorf("creating peer store: %w", err)
+		return nil, nil, fmt.Errorf("creating peer store: %w", err)
 	}
 
 	pubK := lcfg.priv.GetPublic()
 	id, err := peer.IDFromPublicKey(pubK)
 	if err != nil {
-		return nil, fmt.Errorf("getting peer ID: %w", err)
+		return nil, nil, fmt.Errorf("getting peer ID: %w", err)
 	}
 
 	err = pstore.AddPrivKey(id, lcfg.priv)
 	if err != nil {
-		return nil, fmt.Errorf("adding private key to peerstore: %w", err)
+		return nil, nil, fmt.Errorf("adding private key to peerstore: %w", err)
 	}
 	err = pstore.AddPubKey(id, pubK)
 	if err != nil {
-		return nil, fmt.Errorf("adding public key to peerstore: %w", err)
+		return nil, nil, fmt.Errorf("adding public key to peerstore: %w", err)
 	}
 
-	addrFactory, err := MakeAddrsFactory(lcfg.AnnounceAddr, lcfg.NoAnnounceAddr)
+	addrFactory, err := MakeAddrsFactory([]multiaddr.Multiaddr{lcfg.AnnounceAddr})
 	if err != nil {
-		return nil, fmt.Errorf("creating address factory: %w", err)
+		return nil, nil, fmt.Errorf("creating address factory: %w", err)
 	}
 
 	opts := []libp2p.Option{
 		libp2p.DefaultTransports,
+		libp2p.NoListenAddrs,
 		libp2p.ListenAddrs(lcfg.ListenAddr...),
 		libp2p.AddrsFactory(addrFactory),
 		libp2p.Peerstore(pstore),
@@ -80,20 +92,27 @@ func NewLibp2pHost(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfi
 		libp2p.Ping(true),
 		libp2p.EnableNATService(),
 		libp2p.BandwidthReporter(metrics.NewBandwidthCounter()),
+		libp2p.Identity(lcfg.priv),
 	}
 
 	h, err := libp2p.New(opts...)
 	if err != nil {
-		return nil, xerrors.Errorf("creating libp2p host: %w", err)
+		return nil, nil, xerrors.Errorf("creating libp2p host: %w", err)
 	}
 
-	// Start listening
-	err = h.Network().Listen(lcfg.ListenAddr...)
+	listenAddress, err := getMatchingLocalListenAddress(h, machine)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to listen on addresses: %w", err)
+		return nil, nil, xerrors.Errorf("failed to get matching local listen address: %w", err)
 	}
 
-	log.Infof("Libp2p started listening")
+	log.Infof("Libp2p started listening on %s/p2p/%s", listenAddress, h.ID())
+	log.Infof("Libp2p announcing %s/p2p/%s", lcfg.AnnounceAddr, h.ID())
+
+	// Update the database local_listen
+	_, err = db.Exec(ctx, `UPDATE libp2p SET local_listen = $1 WHERE running_on = $2`, listenAddress.String(), machine)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("failed to update local_listen in DB: %w", err)
+	}
 
 	// Start a goroutine to update updated_at colum of libp2p table and release lock at node shutdown
 	go func() {
@@ -126,53 +145,93 @@ func NewLibp2pHost(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfi
 		}
 	}()
 
-	return h, err
+	return h, lcfg.AnnounceAddr, err
+}
 
+func getMatchingLocalListenAddress(h host.Host, machine string) (multiaddr.Multiaddr, error) {
+	// 'machine' is in the format "host:port"
+	hostStr, _, err := net.SplitHostPort(machine)
+	if err != nil {
+		return nil, xerrors.Errorf("invalid machine address: %v", err)
+	}
+
+	// Parse the host to get the IP
+	ip := net.ParseIP(hostStr)
+	if ip == nil {
+		return nil, xerrors.Errorf("invalid IP address in machine: %s", hostStr)
+	}
+
+	// Determine IP version
+	var ipVersion int
+	if ip.To4() != nil {
+		ipVersion = 4
+	} else if ip.To16() != nil {
+		ipVersion = 6
+	} else {
+		return nil, xerrors.Errorf("unknown IP version for IP: %s", ip.String())
+	}
+
+	la := h.Network().ListenAddresses()
+	if len(la) != 1 {
+		return nil, xerrors.Errorf("expected exactly one listen address, but got %d", len(la))
+	}
+
+	port, err := la[0].ValueForProtocol(multiaddr.P_TCP)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get port from listen address: %w", err)
+	}
+
+	localListen, err := multiaddr.NewMultiaddr(fmt.Sprintf("/ip%d/%s/tcp/%s/ws", ipVersion, ip.String(), port))
+	if err != nil {
+		return nil, xerrors.Errorf("creating local listen address: %w", err)
+	}
+
+	return localListen, nil
 }
 
 type libp2pCfg struct {
-	priv           crypto.PrivKey
-	ListenAddr     []multiaddr.Multiaddr
-	AnnounceAddr   []multiaddr.Multiaddr
-	NoAnnounceAddr []multiaddr.Multiaddr
+	priv         crypto.PrivKey
+	ListenAddr   []multiaddr.Multiaddr
+	AnnounceAddr multiaddr.Multiaddr
 }
 
-func getCfg(ctx context.Context, db *harmonydb.DB, cfg config.Libp2pConfig, machine string) (*libp2pCfg, error) {
-	// Try to acquire the lock in DB
-	_, err := db.Exec(ctx, `SELECT update_libp2p_node ($1)`, machine)
-	if err != nil {
-		return nil, xerrors.Errorf("acquiring libp2p locks from DB: %w", err)
+func getCfg(ctx context.Context, db *harmonydb.DB, httpConf config.HTTPConfig, machine string) (*libp2pCfg, error) {
+	if !httpConf.Enable {
+		return nil, xerrors.New("libp2p requires the HTTP server to be enabled")
+	}
+	if httpConf.DomainName == "" {
+		return nil, xerrors.New("libp2p requires the domain name to be set")
 	}
 
 	var ret libp2pCfg
 
-	for _, l := range cfg.ListenAddresses {
-		listenAddr, err := multiaddr.NewMultiaddr(l)
-		if err != nil {
-			return nil, xerrors.Errorf("parsing listen address: %w", err)
-		}
-		ret.ListenAddr = append(ret.ListenAddr, listenAddr)
+	ret.ListenAddr = append(ret.ListenAddr, must.One(multiaddr.NewMultiaddr("/ip4/0.0.0.0/tcp/0/ws")))
+
+	publicAddr, err := multiaddr.NewMultiaddr(fmt.Sprintf("/dns/%s/tcp/%d/wss", httpConf.DomainName, 443))
+	if err != nil {
+		return nil, xerrors.Errorf("creating public address: %w", err)
 	}
 
-	for _, a := range cfg.AnnounceAddresses {
-		announceAddr, err := multiaddr.NewMultiaddr(a)
-		if err != nil {
-			return nil, xerrors.Errorf("parsing announce address: %w", err)
-		}
-		ret.AnnounceAddr = append(ret.AnnounceAddr, announceAddr)
+	ret.AnnounceAddr = publicAddr
+
+	// Generate possible initial key values (really only used on first cluster startup, but cheap enough to just propose to the function)
+	initialPriv, initialPub, err := crypto.GenerateEd25519Key(rand.Reader)
+	if err != nil {
+		return nil, xerrors.Errorf("generating private key: %w", err)
 	}
 
-	for _, na := range cfg.NoAnnounceAddresses {
-		noAnnounceAddr, err := multiaddr.NewMultiaddr(na)
-		if err != nil {
-			return nil, xerrors.Errorf("parsing no announce address: %w", err)
-		}
-		ret.NoAnnounceAddr = append(ret.NoAnnounceAddr, noAnnounceAddr)
+	initialPeerID, err := peer.IDFromPublicKey(initialPub)
+	if err != nil {
+		return nil, xerrors.Errorf("getting peer ID: %w", err)
+	}
+
+	initialPrivBytes, err := crypto.MarshalPrivateKey(initialPriv)
+	if err != nil {
+		return nil, xerrors.Errorf("marshaling private key: %w", err)
 	}
 
 	var privKey []byte
-
-	err = db.QueryRow(ctx, `SELECT priv_key FROM libp2p`).Scan(&privKey)
+	err = db.QueryRow(ctx, `SELECT update_libp2p_node ($1, $2, $3)`, machine, initialPrivBytes, initialPeerID).Scan(&privKey)
 	if err != nil {
 		return nil, xerrors.Errorf("getting private key from DB: %w", err)
 	}
@@ -187,36 +246,9 @@ func getCfg(ctx context.Context, db *harmonydb.DB, cfg config.Libp2pConfig, mach
 	return &ret, nil
 }
 
-func MakeAddrsFactory(announceAddrs, noAnnounce []multiaddr.Multiaddr) (basichost.AddrsFactory, error) {
-	filters := multiaddr.NewFilters()
-	noAnnAddrs := map[string]bool{}
-	for _, addr := range noAnnounce {
-		f, err := mamask.NewMask(addr.String())
-		if err == nil {
-			filters.AddFilter(*f, multiaddr.ActionDeny)
-			continue
-		}
-		noAnnAddrs[string(addr.Bytes())] = true
-	}
-
-	return func(allAddrs []multiaddr.Multiaddr) []multiaddr.Multiaddr {
-		var addrs []multiaddr.Multiaddr
-		if len(announceAddrs) > 0 {
-			addrs = announceAddrs
-		} else {
-			addrs = allAddrs
-		}
-
-		var out []multiaddr.Multiaddr
-		for _, maddr := range addrs {
-			// check for exact matches
-			ok := noAnnAddrs[string(maddr.Bytes())]
-			// check for /ipcidr matches
-			if !ok && !filters.AddrBlocked(maddr) {
-				out = append(out, maddr)
-			}
-		}
-		return out
+func MakeAddrsFactory(announceAddrs []multiaddr.Multiaddr) (basichost.AddrsFactory, error) {
+	return func(_ []multiaddr.Multiaddr) []multiaddr.Multiaddr {
+		return announceAddrs
 	}, nil
 }
 
@@ -255,17 +287,18 @@ type DealProvider struct {
 
 type mk12libp2pAPI interface {
 	StateAccountKey(context.Context, address.Address, types.TipSetKey) (address.Address, error)
+	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (minerInfo api.MinerInfo, err error)
 }
 
-func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, prov *mk12.MK12, api mk12libp2pAPI, machine string) error {
-	h, err := NewLibp2pHost(ctx, db, cfg, machine)
+func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, prov *mk12.MK12, api mk12libp2pAPI, sender *message.Sender, miners []address.Address, machine string) error {
+	h, announceAddr, err := NewLibp2pHost(ctx, db, cfg, machine)
 	if err != nil {
 		return xerrors.Errorf("failed to start libp2p nodes: %w", err)
 	}
 
 	var disabledMiners []address.Address
 
-	for _, m := range cfg.Market.StorageMarketConfig.MK12.Libp2p.DisabledMiners {
+	for _, m := range cfg.Market.StorageMarketConfig.MK12.DisabledMiners {
 		maddr, err := address.NewFromString(m)
 		if err != nil {
 			return err
@@ -282,9 +315,87 @@ func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioCon
 		disabledMiners: disabledMiners,
 	}
 
-	p.Start(ctx, h)
+	go p.Start(ctx, h)
+
+	nonDisabledMiners := lo.Filter(miners, func(addr address.Address, _ int) bool {
+		return !lo.Contains(disabledMiners, addr)
+	})
+
+	go p.checkMinerInfos(ctx, sender, announceAddr, nonDisabledMiners)
 
 	return nil
+}
+
+func (p *DealProvider) checkMinerInfos(ctx context.Context, sender *message.Sender, announceAddr multiaddr.Multiaddr, miners []address.Address) {
+	for _, m := range miners {
+		mi, err := p.api.StateMinerInfo(ctx, m, types.EmptyTSK)
+		if err != nil {
+			log.Errorw("failed to get miner info", "miner", m, "error", err)
+			continue
+		}
+
+		if mi.PeerId == nil || mi.PeerId.String() != p.host.ID().String() {
+			// update the peerid
+
+			params, aerr := actors.SerializeParams(&miner.ChangePeerIDParams{NewID: abi.PeerID(p.host.ID())})
+			if aerr != nil {
+				log.Errorw("failed to serialize params", "miner", m, "error", aerr)
+				continue
+			}
+
+			msg := &types.Message{
+				To:     m,
+				From:   mi.Worker,
+				Value:  big.Zero(),
+				Method: builtin.MethodsMiner.ChangePeerID,
+				Params: params,
+			}
+
+			smsg, err := sender.Send(ctx, msg, &api.MessageSendSpec{MaxFee: abi.TokenAmount(maintenanceMsgMaxFee)}, "libp2p-peerid")
+			if err != nil {
+				log.Errorw("failed to send message", "miner", m, "error", err)
+				continue
+			}
+
+			log.Warnw("sent message to update miner peerid", "miner", m, "cid", smsg.String())
+		}
+
+		var chainma multiaddr.Multiaddr
+		if mi.Multiaddrs != nil && len(mi.Multiaddrs) == 1 { // == 1 because if it's not then we really have no reason to check further
+			chainma, err = multiaddr.NewMultiaddrBytes(mi.Multiaddrs[0])
+			if err != nil {
+				log.Errorw("failed to parse miner multiaddr", "miner", m, "error", err)
+				// continue anyways, might be messed up on-chain data
+			}
+		}
+
+		if chainma != nil && chainma.Equal(announceAddr) {
+			continue
+		}
+
+		// update the multiaddr
+		params, aerr := actors.SerializeParams(&miner.ChangeMultiaddrsParams{NewMultiaddrs: []abi.Multiaddrs{announceAddr.Bytes()}})
+		if aerr != nil {
+			log.Errorw("failed to serialize params", "miner", m, "error", aerr)
+			continue
+		}
+
+		msg := &types.Message{
+			To:     m,
+			From:   mi.Worker,
+			Value:  big.Zero(),
+			Method: builtin.MethodsMiner.ChangeMultiaddrs,
+			Params: params,
+		}
+
+		smsg, err := sender.Send(ctx, msg, &api.MessageSendSpec{MaxFee: abi.TokenAmount(maintenanceMsgMaxFee)}, "libp2p-multiaddr")
+		if err != nil {
+			log.Errorw("failed to send message", "miner", m, "error", err)
+			continue
+		}
+
+		log.Warnw("sent message to update miner multiaddr", "miner", m, "cid", smsg.String())
+	}
 }
 
 func (p *DealProvider) Start(ctx context.Context, host host.Host) {

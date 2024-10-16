@@ -350,6 +350,59 @@ description: The default curio configuration
   #PartitionCheckTimeout = "20m0s"
 
 
+[HTTP]
+  # Enable the HTTP server on the node
+  #
+  # type: bool
+  #Enable = false
+
+  # DomainName specifies the domain name that the server uses to serve HTTP requests. DomainName cannot be empty and cannot be
+  # an IP address
+  #
+  # type: string
+  #DomainName = ""
+
+  # ListenAddress is the address that the server listens for HTTP requests.
+  #
+  # type: string
+  #ListenAddress = "0.0.0.0:12310"
+
+  # ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
+  #
+  # type: time.Duration
+  #ReadTimeout = "10s"
+
+  # WriteTimeout is the maximum duration before timing out writes of the response to the client.
+  #
+  # type: time.Duration
+  #WriteTimeout = "10s"
+
+  # IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
+  #
+  # type: time.Duration
+  #IdleTimeout = "2m0s"
+
+  # ReadHeaderTimeout is amount of time allowed to read request headers
+  #
+  # type: time.Duration
+  #ReadHeaderTimeout = "5s"
+
+  # EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.
+  #
+  # type: bool
+  #EnableCORS = true
+
+  [HTTP.CompressionLevels]
+    # type: int
+    #GzipLevel = 6
+
+    # type: int
+    #BrotliLevel = 4
+
+    # type: int
+    #DeflateLevel = 6
+
+
 [Market]
   [Market.StorageMarketConfig]
     # PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
@@ -360,43 +413,6 @@ description: The default curio configuration
     #
     # type: []PieceLocatorConfig
     #PieceLocator = []
-
-    [Market.StorageMarketConfig.Indexing]
-      # Number of records per insert batch
-      #
-      # type: int
-      #InsertBatchSize = 15000
-
-      # Number of concurrent inserts to split AddIndex calls to
-      #
-      # type: int
-      #InsertConcurrency = 8
-
-    [Market.StorageMarketConfig.IPNI]
-      # Disable set whether to disable indexing announcement to the network and expose endpoints that
-      # allow indexer nodes to process announcements. Default: False
-      #
-      # type: bool
-      #Disable = false
-
-      # The network indexer web UI URL for viewing published announcements
-      # TODO: should we use this for checking published heads before publishing? Later commit
-      #
-      # type: string
-      #ServiceURL = "https://cid.contact"
-
-      # The list of URLs of indexing nodes to announce to. This is a list of hosts we talk TO to tell them about new
-      # heads.
-      #
-      # type: []string
-      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
-
-      # AnnounceAddresses is a list of addresses indexer clients can use to reach to the HTTP market node.
-      # Curio allows running more than one node for HTTP server and thus all addressed can be announced
-      # simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
-      #
-      # type: []string
-      #AnnounceAddresses = []
 
     [Market.StorageMarketConfig.MK12]
       # When a deal is ready to publish, the amount of time to wait for more
@@ -435,30 +451,42 @@ description: The default curio configuration
       # type: bool
       #SkipCommP = false
 
-      [Market.StorageMarketConfig.MK12.Libp2p]
-        # Miners ID for which MK12 deals (boosts) should be disabled
-        #
-        # type: []string
-        #DisabledMiners = []
+    [Market.StorageMarketConfig.IPNI]
+      # Disable set whether to disable indexing announcement to the network and expose endpoints that
+      # allow indexer nodes to process announcements. Default: False
+      #
+      # type: bool
+      #Disable = false
 
-        # Binding address for the libp2p host - 0 means random port.
-        # Format: multiaddress; see https://multiformats.io/multiaddr/
-        #
-        # type: []string
-        #ListenAddresses = ["/ip4/0.0.0.0/tcp/12200", "/ip4/0.0.0.0/udp/12280/quic-v1/webtransport"]
+      # The network indexer web UI URL for viewing published announcements
+      # TODO: should we use this for checking published heads before publishing? Later commit
+      #
+      # type: string
+      #ServiceURL = "https://cid.contact"
 
-        # Addresses to explicitally announce to other peers. If not specified,
-        # all interface addresses are announced
-        # Format: multiaddress
-        #
-        # type: []string
-        #AnnounceAddresses = []
+      # The list of URLs of indexing nodes to announce to. This is a list of hosts we talk TO to tell them about new
+      # heads.
+      #
+      # type: []string
+      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
 
-        # Addresses to not announce
-        # Format: multiaddress
-        #
-        # type: []string
-        #NoAnnounceAddresses = []
+      # AnnounceAddresses is a list of addresses indexer clients can use to reach to the HTTP market node.
+      # Curio allows running more than one node for HTTP server and thus all addressed can be announced
+      # simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
+      #
+      # type: []string
+      #AnnounceAddresses = []
+
+    [Market.StorageMarketConfig.Indexing]
+      # Number of records per insert batch
+      #
+      # type: int
+      #InsertBatchSize = 15000
+
+      # Number of concurrent inserts to split AddIndex calls to
+      #
+      # type: int
+      #InsertConcurrency = 8
 
 
 [Ingest]
@@ -610,63 +638,5 @@ description: The default curio configuration
     #
     # type: string
     #WebHookURL = ""
-
-
-[HTTP]
-  # Enable the HTTP server on the node
-  #
-  # type: bool
-  #Enable = false
-
-  # DomainName specifies the domain name that the server uses to serve HTTP requests. DomainName cannot be empty and cannot be
-  # an IP address
-  #
-  # type: string
-  #DomainName = ""
-
-  # CertCacheDir path to the cache directory for storing SSL certificates needed for HTTPS.
-  #
-  # type: string
-  #CertCacheDir = ""
-
-  # ListenAddress is the address that the server listens for HTTP requests.
-  #
-  # type: string
-  #ListenAddress = "0.0.0.0:12310"
-
-  # ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
-  #
-  # type: time.Duration
-  #ReadTimeout = "10s"
-
-  # WriteTimeout is the maximum duration before timing out writes of the response to the client.
-  #
-  # type: time.Duration
-  #WriteTimeout = "10s"
-
-  # IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
-  #
-  # type: time.Duration
-  #IdleTimeout = "2m0s"
-
-  # ReadHeaderTimeout is amount of time allowed to read request headers
-  #
-  # type: time.Duration
-  #ReadHeaderTimeout = "5s"
-
-  # EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.
-  #
-  # type: bool
-  #EnableCORS = true
-
-  [HTTP.CompressionLevels]
-    # type: int
-    #GzipLevel = 6
-
-    # type: int
-    #BrotliLevel = 4
-
-    # type: int
-    #DeflateLevel = 6
 
 ```

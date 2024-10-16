@@ -642,7 +642,6 @@ COMMANDS:
    seal            start sealing a deal sector early
    add-url         Add URL to fetch data for offline deals
    move-to-escrow  Moves funds from the deal collateral wallet into escrow with the storage market actor
-   libp2p          Libp2p key operations
    help, h         Shows a list of commands or help for one command
 
 OPTIONS:
@@ -690,47 +689,6 @@ OPTIONS:
    --actor value    Specify actor address to start sealing sectors for
    --max-fee value  maximum fee in FIL user is willing to pay for this message (default: "2")
    --help, -h       show help
-```
-
-### curio market libp2p
-```
-NAME:
-   curio market libp2p - Libp2p key operations
-
-USAGE:
-   curio market libp2p command [command options]
-
-COMMANDS:
-   peerID        Show Libp2p peer id for the provided miner actor
-   generate-key  Generates a new Libp2p key for the miner ID
-   help, h       Shows a list of commands or help for one command
-
-OPTIONS:
-   --help, -h  show help
-```
-
-#### curio market libp2p peerID
-```
-NAME:
-   curio market libp2p peerID - Show Libp2p peer id for the provided miner actor
-
-USAGE:
-   curio market libp2p peerID [command options] <Miner ID>
-
-OPTIONS:
-   --help, -h  show help
-```
-
-#### curio market libp2p generate-key
-```
-NAME:
-   curio market libp2p generate-key - Generates a new Libp2p key for the miner ID
-
-USAGE:
-   curio market libp2p generate-key [command options] <Miner ID>
-
-OPTIONS:
-   --help, -h  show help
 ```
 
 ## curio fetch-params

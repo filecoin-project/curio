@@ -158,6 +158,12 @@ alerts will be triggered for the wallet`,
 			Comment: ``,
 		},
 		{
+			Name: "HTTP",
+			Type: "HTTPConfig",
+
+			Comment: ``,
+		},
+		{
 			Name: "Market",
 			Type: "MarketConfig",
 
@@ -184,12 +190,6 @@ alerts will be triggered for the wallet`,
 		{
 			Name: "Alerting",
 			Type: "CurioAlertingConfig",
-
-			Comment: ``,
-		},
-		{
-			Name: "HTTP",
-			Type: "HTTPConfig",
 
 			Comment: ``,
 		},
@@ -737,12 +737,6 @@ on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
 an IP address`,
 		},
 		{
-			Name: "CertCacheDir",
-			Type: "string",
-
-			Comment: `CertCacheDir path to the cache directory for storing SSL certificates needed for HTTPS.`,
-		},
-		{
 			Name: "ListenAddress",
 			Type: "string",
 
@@ -830,43 +824,7 @@ simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCuri
 			Comment: `Number of concurrent inserts to split AddIndex calls to`,
 		},
 	},
-	"Libp2pConfig": {
-		{
-			Name: "DisabledMiners",
-			Type: "[]string",
-
-			Comment: `Miners ID for which MK12 deals (boosts) should be disabled`,
-		},
-		{
-			Name: "ListenAddresses",
-			Type: "[]string",
-
-			Comment: `Binding address for the libp2p host - 0 means random port.
-Format: multiaddress; see https://multiformats.io/multiaddr/`,
-		},
-		{
-			Name: "AnnounceAddresses",
-			Type: "[]string",
-
-			Comment: `Addresses to explicitally announce to other peers. If not specified,
-all interface addresses are announced
-Format: multiaddress`,
-		},
-		{
-			Name: "NoAnnounceAddresses",
-			Type: "[]string",
-
-			Comment: `Addresses to not announce
-Format: multiaddress`,
-		},
-	},
 	"MK12Config": {
-		{
-			Name: "Libp2p",
-			Type: "Libp2pConfig",
-
-			Comment: `Libp2p is a list of libp2p config for all miner IDs.`,
-		},
 		{
 			Name: "PublishMsgPeriod",
 			Type: "Duration",
@@ -908,6 +866,12 @@ This will be used to fail the deals which cannot be sealed on time.`,
 			Comment: `SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
 Warning: If this check is skipped and there is a commP mismatch, all deals in the
 sector will need to be sent again`,
+		},
+		{
+			Name: "DisabledMiners",
+			Type: "[]string",
+
+			Comment: `DisabledMiners is a list of miner addresses that should be excluded from online deal making protocols`,
 		},
 	},
 	"MarketConfig": {
@@ -986,20 +950,10 @@ Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXX
 	},
 	"StorageMarketConfig": {
 		{
-			Name: "PieceLocator",
-			Type: "[]PieceLocatorConfig",
+			Name: "MK12",
+			Type: "MK12Config",
 
-			Comment: `PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
-User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
-The server must have 2 endpoints
-1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
-2. /data?id=pieceCID must provide a reader for the requested piece`,
-		},
-		{
-			Name: "Indexing",
-			Type: "IndexingConfig",
-
-			Comment: `Indexing configuration for deal indexing`,
+			Comment: `MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)`,
 		},
 		{
 			Name: "IPNI",
@@ -1008,10 +962,20 @@ The server must have 2 endpoints
 			Comment: `IPNI configuration for ipni-provider`,
 		},
 		{
-			Name: "MK12",
-			Type: "MK12Config",
+			Name: "Indexing",
+			Type: "IndexingConfig",
 
-			Comment: `MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)`,
+			Comment: `Indexing configuration for deal indexing`,
+		},
+		{
+			Name: "PieceLocator",
+			Type: "[]PieceLocatorConfig",
+
+			Comment: `PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
+User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
+The server must have 2 endpoints
+1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
+2. /data?id=pieceCID must provide a reader for the requested piece`,
 		},
 	},
 }
