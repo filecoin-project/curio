@@ -120,6 +120,7 @@ var precommitStuckCmd = &cli.Command{
 
 		// check if cid is associated with a precommit msg onchain via filfox api
 		var pcmsgs []string
+		var ffmsgs []FilfoxMsg
 		for _, msg := range msgs {
 			ffmsg, err := filfoxMessage(*msg.PrecommitMsgCID)
 			if err != nil {
@@ -127,6 +128,7 @@ var precommitStuckCmd = &cli.Command{
 			}
 			if ffmsg.MethodNumber == 28 {
 				pcmsgs = append(pcmsgs, *msg.PrecommitMsgCID)
+				ffmsgs = append(ffmsgs, ffmsg)
 			}
 		}
 
