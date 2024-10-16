@@ -160,7 +160,7 @@ var precommitStuckCmd = &cli.Command{
 				executed_msg_cid = $3, executed_msg_data = $4,
 				executed_rcpt_exitcode = $5, executed_rcpt_return = $6, executed_rcpt_gas_used = $7
 				               WHERE signed_message_cid = $8`,
-					tcid, ffmsg.Height, msg, execMsg,
+					tcid, ffmsg.Height, ffmsg.Cid, execMsg,
 					0, ffmsg.Receipt.Return, ffmsg.Receipt.GasUsed,
 					*msg.PrecommitMsgCID)
 				if err != nil {
