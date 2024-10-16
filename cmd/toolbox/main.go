@@ -8,12 +8,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/urfave/cli/v2"
 
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/lotus/chain/types"
 
 	"github.com/filecoin-project/curio/build"
@@ -119,35 +121,52 @@ var precommitStuckCmd = &cli.Command{
 		}
 
 		// check if cid is associated with a precommit msg onchain via filfox api
-		var pcmsgs []string
-		var ffmsgs []FilfoxMsg
 		for _, msg := range msgs {
 			ffmsg, err := filfoxMessage(*msg.PrecommitMsgCID)
 			if err != nil {
 				return err
 			}
 			if ffmsg.MethodNumber == 28 {
-				pcmsgs = append(pcmsgs, *msg.PrecommitMsgCID)
-				ffmsgs = append(ffmsgs, ffmsg)
+				var tskey []cid.Cid
+				for _, s := range ffmsg.Blocks {
+					bcid, err := cid.Parse(s)
+					if err != nil {
+						return err
+					}
+					tskey = append(tskey, bcid)
+				}
+
+				tsk := types.NewTipSetKey(tskey...)
+
+				tcid, err := tsk.Cid()
+				if err != nil {
+					return err
+				}
+				fmt.Println(tcid.String())
+
+				emsg, err := ffMsg2Message(ffmsg)
+				if err != nil {
+					return err
+				}
+				execMsg, err := json.Marshal(emsg)
+				if err != nil {
+					return err
+				}
+
+				// once all the variables are gathered call the following for each msg
+				_, err = db.Exec(cctx.Context, `UPDATE message_waits SET
+				waiter_machine_id = NULL,
+				executed_tsk_cid = $1, executed_tsk_epoch = $2,
+				executed_msg_cid = $3, executed_msg_data = $4,
+				executed_rcpt_exitcode = $5, executed_rcpt_return = $6, executed_rcpt_gas_used = $7
+				               WHERE signed_message_cid = $8`,
+					tcid, ffmsg.Height, msg, execMsg,
+					0, ffmsg.Receipt.Return, ffmsg.Receipt.GasUsed,
+					*msg.PrecommitMsgCID)
 			}
+
 		}
 
-		var tskey []cid.Cid
-		for _, s := range pcmsgs {
-			bcid, err := cid.Parse(s)
-			if err != nil {
-				return err
-			}
-			tskey = append(tskey, bcid)
-		}
-
-		tsk := types.NewTipSetKey(tskey...)
-
-		tcid, err := tsk.Cid()
-		if err != nil {
-			return err
-		}
-		fmt.Println(tcid.String())
 		return nil
 	},
 }
@@ -235,4 +254,40 @@ func filfoxMessage(cid string) (FilfoxMsg, error) {
 		return FilfoxMsg{}, err
 	}
 	return resp, nil
+}
+
+func ffMsg2Message(ffmsg FilfoxMsg) (types.Message, error) {
+	to, err := address.NewFromString(ffmsg.To)
+	if err != nil {
+		return types.Message{}, err
+	}
+	from, err := address.NewFromString(ffmsg.From)
+	if err != nil {
+		return types.Message{}, err
+	}
+	value, err := strconv.Atoi(ffmsg.Value)
+	if err != nil {
+		return types.Message{}, err
+	}
+	gasfee, err := strconv.Atoi(ffmsg.GasFeeCap)
+	if err != nil {
+		return types.Message{}, err
+	}
+	gasprem, err := strconv.Atoi(ffmsg.GasPremium)
+	if err != nil {
+		return types.Message{}, err
+	}
+
+	return types.Message{
+		Version:    uint64(ffmsg.Version),
+		To:         to,
+		From:       from,
+		Nonce:      uint64(ffmsg.Nonce),
+		Value:      abi.NewTokenAmount(int64(value)),
+		GasLimit:   int64(ffmsg.GasLimit),
+		GasFeeCap:  abi.NewTokenAmount(int64(gasfee)),
+		GasPremium: abi.NewTokenAmount(int64(gasprem)),
+		Method:     abi.MethodNum(ffmsg.MethodNumber),
+		Params:     []byte(ffmsg.Params),
+	}, nil
 }
