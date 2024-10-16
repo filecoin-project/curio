@@ -11,3 +11,9 @@ It is **not** recommended to run experimental features in production environment
 Once the new features have been tested and vetted, they may be released as part of a stable Curio release and all documentation concerning those features will be moved to an appropriate section of this site.
 
 Current experimental features are listed below.
+
+
+
+{% content-ref url="gpu-over-provisioning.md" %}
+[gpu-over-provisioning.md](gpu-over-provisioning.md)
+{% endcontent-ref %}
