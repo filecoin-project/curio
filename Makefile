@@ -95,6 +95,12 @@ sptool: $(BUILD_DEPS)
 .PHONY: sptool
 BINS+=sptool
 
+toolbox: $(BUILD_DEPS)
+         rm -f toolbox
+         $(GOCC) build $(GOFLAGS) -o toolbox ./cmd/toolbox
+.PHONY: toolbox
+BINS+=toolbox
+
 ifeq ($(shell uname),Linux)
 
 batchdep: build/.supraseal-install
@@ -130,7 +136,7 @@ debug: build
 2k: GOFLAGS+=-tags=2k
 2k: build
 
-all: build 
+all: build
 .PHONY: all
 
 build: curio sptool
@@ -218,7 +224,7 @@ docsgen-openrpc: docsgen-openrpc-curio
 	@echo "FixImports will run only from the 'make gen' target"
 .PHONY: docsgen-openrpc
 
-docsgen-openrpc-bin: api-gen 
+docsgen-openrpc-bin: api-gen
 	$(GOCC) build $(GOFLAGS) -o docgen-openrpc ./api/docgen-openrpc/cmd
 
 docsgen-openrpc-curio: docsgen-openrpc-bin

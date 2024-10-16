@@ -107,9 +107,10 @@ var precommitStuckCmd = &cli.Command{
 		err = db.Select(cctx.Context, &msgs, `SELECT spipeline.precommit_msg_cid, spipeline.commit_msg_cid, executed_tsk_cid, executed_tsk_epoch, executed_msg_cid, executed_rcpt_exitcode, executed_rcpt_gas_used
 					FROM sectors_sdr_pipeline spipeline
 					JOIN message_waits ON spipeline.precommit_msg_cid = message_waits.signed_message_cid
-					WHERE executed_tsk_cid IS NOT NULL`)
+					WHERE executed_tsk_cid IS NULL`)
 		if err != nil {
 			log.Errorw("failed to query message_waits", "error", err)
+			return err
 		}
 
 		for _, msg := range msgs {
