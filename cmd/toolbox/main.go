@@ -97,7 +97,7 @@ var precommitStuckCmd = &cli.Command{
 			CommitMsgCID    *string `db:"commit_msg_cid"`
 
 			ExecutedTskCID   *string `db:"executed_tsk_cid"`
-			ExecutedTskEpoch int64   `db:"executed_tsk_epoch"`
+			ExecutedTskEpoch *int64  `db:"executed_tsk_epoch"`
 			ExecutedMsgCID   *string `db:"executed_msg_cid"`
 
 			ExecutedRcptExitCode *int64 `db:"executed_rcpt_exitcode"`
