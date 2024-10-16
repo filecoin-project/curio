@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/signal"
 
@@ -113,9 +116,17 @@ var precommitStuckCmd = &cli.Command{
 			return err
 		}
 
+		// check if cid is associated with a precommit msg onchain via filfox api
+		var ffmsgs []FilfoxMsg
 		for _, msg := range msgs {
-			fmt.Println(msg)
+			ffmsg, err := filfoxMessage(*msg.PrecommitMsgCID)
+			if err != nil {
+				return err
+			}
+			fmt.Println(ffmsg)
+			ffmsgs = append(ffmsgs, ffmsg)
 		}
+
 		// x := []string{}
 		// var tskey []cid.Cid
 		// for _, s := range x {
@@ -135,4 +146,89 @@ var precommitStuckCmd = &cli.Command{
 		// fmt.Println(tcid.String())
 		return nil
 	},
+}
+
+func req(url string) ([]byte, error) {
+	method := "GET"
+	client := &http.Client{}
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
+type FilfoxMsg struct {
+	Cid           string   `json:"cid,omitempty"`
+	Height        int      `json:"height,omitempty"`
+	Timestamp     int      `json:"timestamp,omitempty"`
+	Confirmations int      `json:"confirmations,omitempty"`
+	Blocks        []string `json:"blocks,omitempty"`
+	Version       int      `json:"version,omitempty"`
+	From          string   `json:"from,omitempty"`
+	FromID        string   `json:"fromId,omitempty"`
+	FromActor     string   `json:"fromActor,omitempty"`
+	To            string   `json:"to,omitempty"`
+	ToID          string   `json:"toId,omitempty"`
+	ToActor       string   `json:"toActor,omitempty"`
+	Nonce         int      `json:"nonce,omitempty"`
+	Value         string   `json:"value,omitempty"`
+	GasLimit      int      `json:"gasLimit,omitempty"`
+	GasFeeCap     string   `json:"gasFeeCap,omitempty"`
+	GasPremium    string   `json:"gasPremium,omitempty"`
+	Method        string   `json:"method,omitempty"`
+	MethodNumber  int      `json:"methodNumber,omitempty"`
+	EvmMethod     string   `json:"evmMethod,omitempty"`
+	Params        string   `json:"params,omitempty"`
+	Receipt       struct {
+		ExitCode int    `json:"exitCode,omitempty"`
+		Return   string `json:"return,omitempty"`
+		GasUsed  int    `json:"gasUsed,omitempty"`
+	} `json:"receipt,omitempty"`
+	Size    int    `json:"size,omitempty"`
+	Error   string `json:"error,omitempty"`
+	BaseFee string `json:"baseFee,omitempty"`
+	Fee     struct {
+		BaseFeeBurn        string `json:"baseFeeBurn,omitempty"`
+		OverEstimationBurn string `json:"overEstimationBurn,omitempty"`
+		MinerPenalty       string `json:"minerPenalty,omitempty"`
+		MinerTip           string `json:"minerTip,omitempty"`
+		Refund             string `json:"refund,omitempty"`
+	} `json:"fee,omitempty"`
+	Transfers []struct {
+		From   string `json:"from,omitempty"`
+		FromID string `json:"fromId,omitempty"`
+		To     string `json:"to,omitempty"`
+		ToID   string `json:"toId,omitempty"`
+		Value  string `json:"value,omitempty"`
+		Type   string `json:"type,omitempty"`
+	} `json:"transfers,omitempty"`
+	EthTransactionHash string `json:"ethTransactionHash,omitempty"`
+	EventLogCount      int    `json:"eventLogCount,omitempty"`
+	SubcallCount       int    `json:"subcallCount,omitempty"`
+	TokenTransfers     []any  `json:"tokenTransfers,omitempty"`
+}
+
+func filfoxMessage(cid string) (FilfoxMsg, error) {
+	url := fmt.Sprintf("https://filfox.info/api/v1/message/%s", cid)
+	body, err := req(url)
+	if err != nil {
+		return FilfoxMsg{}, err
+	}
+	var resp FilfoxMsg
+	err = json.Unmarshal(body, &resp)
+	if err != nil {
+		return FilfoxMsg{}, err
+	}
+	return resp, nil
 }
