@@ -1,95 +1,33 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"os/signal"
 	"strconv"
 
 	"github.com/ipfs/go-cid"
-	logging "github.com/ipfs/go-log/v2"
 	"github.com/urfave/cli/v2"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/lotus/chain/types"
 
-	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
+
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
-var log = logging.Logger("toolbox")
-
-func main() {
-	local := []*cli.Command{
-		precommitStuckCmd,
-	}
-
-	app := &cli.App{
-		Name:                 "toolbox",
-		Usage:                "Some tools to fix some problems",
-		Version:              build.UserVersion(),
-		EnableBashCompletion: true,
-		Commands:             local,
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:    "repo",
-				EnvVars: []string{"LOTUS_PATH"},
-				Hidden:  true,
-				Value:   "~/.lotus", // TODO: Consider XDG_DATA_HOME
-			},
-			&cli.StringFlag{
-				Name:  "log-level",
-				Value: "info",
-			},
-			&cli.StringFlag{
-				Name:     "actor",
-				Required: os.Getenv("LOTUS_DOCS_GENERATION") != "1",
-				Usage:    "miner actor to manage",
-				EnvVars:  []string{"SP_ADDRESS"},
-			},
-		},
-		Before: func(cctx *cli.Context) error {
-			return logging.SetLogLevel("toolbox", cctx.String("toolbox"))
-		},
-	}
-
-	// terminate early on ctrl+c
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		<-c
-		cancel()
-		fmt.Println("Received interrupt, shutting down... Press CTRL+C again to force shutdown")
-		<-c
-		fmt.Println("Forcing stop")
-		os.Exit(1)
-	}()
-
-	if err := app.RunContext(ctx, os.Args); err != nil {
-		log.Errorf("%+v", err)
-		os.Exit(1)
-		return
-	}
-
+var toolboxCmd = &cli.Command{
+	Name:  "toolbox",
+	Usage: "some tools to fix some problems",
+	Subcommands: []*cli.Command{
+		msgFinderCmd,
+	},
 }
-
-func SPTActorGetter(cctx *cli.Context) (address.Address, error) {
-	addr, err := address.NewFromString(cctx.String("actor"))
-	if err != nil {
-		return address.Undef, fmt.Errorf("parsing address: %w", err)
-	}
-	return addr, nil
-}
-
-var precommitStuckCmd = &cli.Command{
-	Name:  "precommit-stuck",
-	Usage: "Perform db operations to fix issues with precommit messages getting stuck",
+var msgFinderCmd = &cli.Command{
+	Name:  "msg-finder",
+	Usage: "Perform db operations to fix issues with messages getting stuck",
 	Action: func(cctx *cli.Context) error {
 		db, err := deps.MakeDB(cctx)
 		if err != nil {
