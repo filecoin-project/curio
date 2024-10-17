@@ -117,7 +117,7 @@ func balanceCheck(al *alerts) {
 		}
 
 		if !has {
-			ret += fmt.Sprintf("Wallet %s was not found in chain node. ", addr)
+			ret += fmt.Sprintf("Wallet %s was not found in chain node. ", keyAddr)
 		}
 
 		balance, err := al.api.WalletBalance(al.ctx, addr)
@@ -587,9 +587,9 @@ func wnPostCheck(al *alerts) {
 	}
 
 	// Calculate how many tasks should be in DB for AlertMangerInterval (epochs) as each epoch should have 1 task
-	epochs := int64(math.Ceil(AlertMangerInterval.Seconds() / float64(build.BlockDelaySecs)))
-	if (head.Height() - abi.ChainEpoch(epochs)) < 0 {
-		epochs = int64(head.Height())
+	expected := int64(math.Ceil(AlertMangerInterval.Seconds() / float64(build.BlockDelaySecs)))
+	if (head.Height() - abi.ChainEpoch(expected)) < 0 {
+		expected = int64(head.Height())
 	}
 
 	_, miners, err := al.getAddresses()
@@ -598,10 +598,12 @@ func wnPostCheck(al *alerts) {
 		return
 	}
 
-	epochs = epochs * int64(len(miners)) // Multiply epochs by number of miner IDs
+	expected = expected * int64(len(miners)) // Multiply epochs by number of miner IDs
 
-	if epochs != count+1 && epochs != count-1 && epochs != count {
-		al.alertMap[Name].alertString += fmt.Sprintf("Expected %d WinningPost task and found %d in DB ", epochs, count)
+	// If expected + 3*no of miner >= count >= expected - 3*no of miner i.e. count is off by 3 entries per miner then not a problem
+	// Example: (120 epochs * 3 miners) + 3 * (3 miners) i.e. 369 < 366 < (120 epochs * 3 miners) - 3 * (3 miners) i.e. 351
+	if expected+int64(3*len(miners)) >= count || count >= expected-int64(3*len(miners)) {
+		al.alertMap[Name].alertString += fmt.Sprintf("Expected %d WinningPost task and found %d in DB. ", expected, count)
 	}
 
 	if len(wnDetails) < 1 {
@@ -611,7 +613,7 @@ func wnPostCheck(al *alerts) {
 	// Repost any block which we submitted but was not included in the chain
 	for _, wn := range wnDetails {
 		if !wn.Included {
-			al.alertMap[Name].alertString += fmt.Sprintf("Epoch %d: does not contain our block %s", wn.Epoch, wn.Block)
+			al.alertMap[Name].alertString += fmt.Sprintf("Epoch %d: does not contain our block %s. ", wn.Epoch, wn.Block)
 		}
 	}
 }

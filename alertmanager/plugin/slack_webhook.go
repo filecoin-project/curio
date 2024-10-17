@@ -110,7 +110,7 @@ func (s *SlackWebhook) SendAlert(data *AlertPayload) error {
 			defer func() { _ = resp.Body.Close() }()
 
 			switch resp.StatusCode {
-			case 202:
+			case 200:
 				log.Debug("Accepted: The event has been accepted by Slack Webhook.")
 				return nil
 			case 400:
