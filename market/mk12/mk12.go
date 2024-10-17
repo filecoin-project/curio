@@ -427,7 +427,7 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 
 			_, err = tx.Exec(`INSERT INTO market_mk12_deal_pipeline (uuid, sp_id, piece_cid, piece_size, offline, url, raw_size, should_index, announce)
 								VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (uuid) DO NOTHING`,
-				deal.DealUuid.String(), mid, prop.PieceCID.String(), prop.PieceSize, deal.IsOffline, pieceIDUrl, deal.Transfer.Size,
+				deal.DealUuid.String(), mid, prop.PieceCID.String(), prop.PieceSize, deal.IsOffline, pieceIDUrl.String(), deal.Transfer.Size,
 				deal.FastRetrieval, deal.AnnounceToIPNI)
 			if err != nil {
 				return false, xerrors.Errorf("inserting deal into deal pipeline: %w", err)

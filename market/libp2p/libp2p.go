@@ -269,7 +269,7 @@ func SafeHandle(h network.StreamHandler) network.StreamHandler {
 	return func(stream network.Stream) {
 		defer func() {
 			if r := recover(); r != nil {
-				netlog.Error("panic occurred", "stack", debug.Stack())
+				netlog.Error("panic occurred\n", string(debug.Stack()))
 			}
 		}()
 
@@ -458,7 +458,7 @@ func (p *DealProvider) handleNewDealStream(s network.Stream) {
 	reqLog.Infow("received deal proposal")
 	startExec := time.Now()
 
-	var res *mk12.ProviderDealRejectionInfo
+	var res mk12.ProviderDealRejectionInfo
 
 	if lo.Contains(p.disabledMiners, proposal.ClientDealProposal.Proposal.Provider) {
 		reqLog.Infow("Deal rejected as libp2p is disabled for provider", "deal", proposal.DealUUID, "provider", proposal.ClientDealProposal.Proposal.Provider)
@@ -468,11 +468,13 @@ func (p *DealProvider) handleNewDealStream(s network.Stream) {
 		// Start executing the deal.
 		// Note: This method just waits for the deal to be accepted, it doesn't
 		// wait for deal execution to complete.
-		res, err := p.prov.ExecuteDeal(context.Background(), &proposal, s.Conn().RemotePeer())
+		eres, err := p.prov.ExecuteDeal(context.Background(), &proposal, s.Conn().RemotePeer())
 		reqLog.Debugw("processed deal proposal accept")
 		if err != nil {
 			reqLog.Warnw("deal proposal failed", "err", err, "reason", res.Reason)
 		}
+
+		res = *eres
 	}
 
 	// Log the response

@@ -182,6 +182,8 @@ CREATE TABLE market_mk12_deal_pipeline (
 
     complete BOOLEAN NOT NULL DEFAULT FALSE,
 
+    created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
+
     constraint market_mk12_deal_pipeline_identity_key unique (uuid)
 );
 
@@ -236,8 +238,6 @@ FOR pms IN EXECUTE query USING task_id
 
 EXCEPTION
     WHEN OTHERS THEN
-        -- Rollback the transaction and raise the exception for Go to catch
-        ROLLBACK;
         RAISE EXCEPTION 'Failed to create indexing task: %', SQLERRM;
 END;
 $$ LANGUAGE plpgsql;
