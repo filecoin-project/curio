@@ -266,13 +266,15 @@ const providerReadDeadline = 10 * time.Second
 const providerWriteDeadline = 10 * time.Second
 
 func SafeHandle(h network.StreamHandler) network.StreamHandler {
-	defer func() {
-		if r := recover(); r != nil {
-			netlog.Error("panic occurred", "stack", debug.Stack())
-		}
-	}()
+	return func(stream network.Stream) {
+		defer func() {
+			if r := recover(); r != nil {
+				netlog.Error("panic occurred", "stack", debug.Stack())
+			}
+		}()
 
-	return h
+		h(stream)
+	}
 }
 
 // DealProvider listens for incoming deal proposals over libp2p
