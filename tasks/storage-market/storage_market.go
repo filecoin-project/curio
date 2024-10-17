@@ -64,25 +64,33 @@ type CurioStorageDealMarket struct {
 }
 
 type MK12Pipeline struct {
-	UUID       string          `db:"uuid"`
-	SpID       int64           `db:"sp_id"`
-	Started    bool            `db:"started"`
-	PieceCid   string          `db:"piece_cid"`
-	Offline    bool            `db:"offline"`
-	Downloaded bool            `db:"downloaded"`
-	RawSize    int64           `db:"raw_size"`
-	URL        string          `db:"url"`
-	Headers    json.RawMessage `db:"headers"`
+	UUID string `db:"uuid"`
+	SpID int64  `db:"sp_id"`
 
-	CommTaskID     *int64    `db:"commp_task_id"`
-	AfterCommp     bool      `db:"after_commp"`
-	PSDWaitTime    time.Time `db:"psd_wait_time"`
-	PSDTaskID      *int64    `db:"psd_task_id"`
-	AfterPSD       bool      `db:"after_psd"`
-	FindDealTaskID *int64    `db:"find_deal_task_id"`
-	AfterFindDeal  bool      `db:"after_find_deal"`
-	Sector         *int64    `db:"sector"`
-	Offset         *int64    `db:"sector_offset"`
+	// started after data download
+	Started  bool            `db:"started"`
+	PieceCid string          `db:"piece_cid"`
+	Offline  bool            `db:"offline"` // data is not downloaded before starting the deal
+	RawSize  int64           `db:"raw_size"`
+	URL      *string         `db:"url"`
+	Headers  json.RawMessage `db:"headers"`
+
+	// commP task
+	CommTaskID *int64 `db:"commp_task_id"`
+	AfterCommp bool   `db:"after_commp"`
+
+	// PSD task
+	PSDWaitTime *time.Time `db:"psd_wait_time"` // set in commp to now
+	PSDTaskID   *int64     `db:"psd_task_id"`
+	AfterPSD    bool       `db:"after_psd"`
+
+	// Find Deal task (just looks at the chain for the deal ID)
+	FindDealTaskID *int64 `db:"find_deal_task_id"`
+	AfterFindDeal  bool   `db:"after_find_deal"`
+
+	// Sector the deal was assigned into
+	Sector *int64 `db:"sector"`
+	Offset *int64 `db:"sector_offset"`
 }
 
 func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, sc *ffi.SealCalls, mapi storageMarketAPI) *CurioStorageDealMarket {
@@ -208,12 +216,14 @@ func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
 									p.after_psd as after_psd,
 									p.find_deal_task_id as find_deal_task_id,
 									p.after_find_deal as after_find_deal,
-									p.psd_wait_time as psd_wait_time
+									p.psd_wait_time as psd_wait_time,
+									
+									p.sector as sector,
+									p.sector_offset as sector_offset
 								FROM 
 									market_mk12_deal_pipeline p
 								LEFT JOIN 
 									market_mk12_deals b ON p.uuid = b.uuid
-								WHERE p.started = TRUE
 								ORDER BY b.start_epoch ASC;`)
 
 	if err != nil {
@@ -232,7 +242,7 @@ func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
 		deal := deal
 		err := d.processMk12Deal(ctx, deal)
 		if err != nil {
-			log.Errorf("%w", err)
+			log.Errorf("process deal: %s", err)
 		}
 	}
 }
@@ -242,8 +252,8 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 	// Try to mark the deal as started
 	if !deal.Started {
 		// Check if download is finished and update the deal state in DB
-		if deal.URL != "" {
-			goUrl, err := url.Parse(deal.URL)
+		if deal.URL != nil && *deal.URL != "" {
+			goUrl, err := url.Parse(*deal.URL)
 			if err != nil {
 				return xerrors.Errorf("UUID: %s parsing data URL: %w", deal.UUID, err)
 			}
@@ -271,7 +281,6 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 						return xerrors.Errorf("failed to mark deal %s as started: %w", deal.UUID, err)
 					}
 					log.Infof("UUID: %s deal started successfully", deal.UUID)
-					return nil
 				}
 			}
 		} else {
@@ -317,6 +326,17 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 
 	// Create Find Deal task
 	if deal.Started && deal.AfterCommp && deal.AfterPSD && !deal.AfterFindDeal && deal.FindDealTaskID == nil {
+		var executed bool
+		err := d.db.QueryRow(ctx, `SELECT EXISTS(SELECT TRUE FROM market_mk12_deals d
+                          INNER JOIN message_waits mw ON mw.signed_message_cid = d.publish_cid
+                          WHERE mw.executed_tsk_cid IS NOT NULL AND d.uuid = $1)`, deal.UUID).Scan(&executed)
+		if err != nil {
+			return xerrors.Errorf("UUID: %s: checking if the message is executed: %w", deal.UUID, err)
+		}
+		if !executed {
+			return nil
+		}
+
 		d.adders[pollerFindDeal].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
 			// update
 			n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET find_deal_task_id = $1 
@@ -337,7 +357,7 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 	if deal.AfterFindDeal && deal.Sector == nil && deal.Offset == nil {
 		err := d.ingestDeal(ctx, deal)
 		if err != nil {
-			return err
+			return xerrors.Errorf("ingest deal: %w", err)
 		}
 	}
 	return nil
@@ -361,7 +381,7 @@ type MarketMK12Deal struct {
 	PublishCid        string    `db:"publish_cid"`
 	FastRetrieval     bool      `db:"fast_retrieval"`
 	AnnounceToIpni    bool      `db:"announce_to_ipni"`
-	Error             string    `db:"error"`
+	Error             *string   `db:"error"`
 }
 
 func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, deal string, pcid string) error {
@@ -461,7 +481,7 @@ func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context, deals []MK12Pip
 	dm := make(map[int64]queue)
 
 	for _, deal := range deals {
-		if deal.Started && deal.AfterCommp && !deal.AfterPSD && deal.PSDTaskID == nil {
+		if deal.Started && deal.AfterCommp && deal.PSDWaitTime != nil && !deal.AfterPSD && deal.PSDTaskID == nil {
 			// Check if the spID is already in the map
 			if q, exists := dm[deal.SpID]; exists {
 				// Append the UUID to the deals list
@@ -469,7 +489,7 @@ func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context, deals []MK12Pip
 
 				// Update the time if the current deal's time is older
 				if deal.PSDWaitTime.Before(q.t) {
-					q.t = deal.PSDWaitTime
+					q.t = *deal.PSDWaitTime
 				}
 
 				// Update the map with the new queue
@@ -478,7 +498,7 @@ func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context, deals []MK12Pip
 				// Add a new entry to the map if spID is not present
 				dm[deal.SpID] = queue{
 					deals: []string{deal.UUID},
-					t:     deal.PSDWaitTime,
+					t:     *deal.PSDWaitTime,
 				}
 			}
 		}
@@ -488,19 +508,29 @@ func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context, deals []MK12Pip
 	maxDeals := d.cfg.Market.StorageMarketConfig.MK12.MaxDealsPerPublishMsg
 
 	for _, q := range dm {
-		if q.t.Add(time.Duration(publishPeriod)).After(time.Now()) || uint64(len(q.deals)) > maxDeals {
+		if q.t.Add(time.Duration(publishPeriod)).Before(time.Now()) || uint64(len(q.deals)) > maxDeals {
 			d.adders[pollerPSD].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
 				// update
-				n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET psd_task_id = $1 
-                                 WHERE uuid = ANY($2) AND started = TRUE AND after_commp = TRUE 
-                                   AND psd_task_id IS NULL`, id, q.deals)
-				if err != nil {
-					return false, xerrors.Errorf("updating deal pipeline: %w", err)
+				var n int
+				for _, deal := range q.deals {
+					u, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET psd_task_id = $1 
+								 WHERE uuid = $2 AND started = TRUE AND after_commp = TRUE 
+								   AND psd_task_id IS NULL`, id, deal)
+					if err != nil {
+						return false, xerrors.Errorf("updating deal pipeline: %w", err)
+					}
+					n += u
 				}
+
+				if n > 0 {
+					log.Infof("PSD task created for %d deals %s", n, q.deals)
+				}
+
 				return n > 0, nil
 			})
+		} else {
+			log.Infow("PSD task not created as the time is not yet reached", "time", q.t.Add(time.Duration(publishPeriod)), "deals", q.deals)
 		}
-		log.Infof("PSD task created successfully for deals %s", q.deals)
 	}
 	return nil
 }
@@ -530,13 +560,11 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 										publish_cid,
 										fast_retrieval,
 										announce_to_ipni,
-										url,
-										url_headers,
 										error
 									FROM market_mk12_deals
 									WHERE uuid = $1;`, deal.UUID)
 		if err != nil {
-			return false, xerrors.Errorf("failed to get MK12 deals from DB")
+			return false, xerrors.Errorf("failed to get MK12 deals from DB: %w", err)
 		}
 
 		if len(dbdeals) != 1 {
@@ -573,7 +601,7 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 			KeepUnsealed:            true,
 		}
 
-		dealUrl, err := url.Parse(deal.URL)
+		dealUrl, err := url.Parse(*deal.URL)
 		if err != nil {
 			return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
 		}

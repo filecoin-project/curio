@@ -78,7 +78,7 @@ func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 									FROM 
 										market_mk12_deal_pipeline p
 									JOIN 
-										market_12_deals b ON p.uuid = b.uuid
+										market_mk12_deals b ON p.uuid = b.uuid
 									WHERE 
 										p.psd_task_id = $1;`, taskID)
 
@@ -102,7 +102,7 @@ func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 			return false, xerrors.Errorf("unmarshal proposal: %w", err)
 		}
 
-		var sig *crypto.Signature
+		var sig crypto.Signature
 		err = sig.UnmarshalBinary(d.Sig)
 		if err != nil {
 			return false, xerrors.Errorf("unmarshal signature: %w", err)
@@ -112,7 +112,7 @@ func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 			uuid: d.UUID,
 			sprop: market.ClientDealProposal{
 				Proposal:        prop,
-				ClientSignature: *sig,
+				ClientSignature: sig,
 			},
 		})
 	}

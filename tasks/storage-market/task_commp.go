@@ -55,10 +55,10 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		UUID    string          `db:"uuid"`
 		URL     *string         `db:"url"`
 		Headers json.RawMessage `db:"headers"`
-		Size    *int64          `db:"raw_size"`
+		RawSize int64           `db:"raw_size"`
 	}
 
-	err = c.db.Select(ctx, &pieces, `SELECT uuid, url, headers, raw_size, piece_cid  
+	err = c.db.Select(ctx, &pieces, `SELECT uuid, url, headers, raw_size, piece_cid, piece_size
 								FROM market_mk12_deal_pipeline WHERE commp_task_id = $1`, taskID)
 
 	if err != nil {
@@ -152,7 +152,7 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			reader = resp.Body
 		}
 
-		pReader, _ := padreader.New(reader, uint64(*piece.Size))
+		pReader, pSz := padreader.New(reader, uint64(piece.RawSize))
 
 		defer func() {
 			_ = closer.Close()
@@ -164,8 +164,8 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			return false, xerrors.Errorf("copy into commp writer: %w", err)
 		}
 
-		if written != *piece.Size {
-			return false, xerrors.Errorf("number of bytes written to CommP writer %d not equal to the file size %d", written, piece.Size)
+		if written != int64(pSz) {
+			return false, xerrors.Errorf("number of bytes written to CommP writer %d not equal to the file size %d", written, pSz)
 		}
 
 		calculatedCommp, err := w.Sum()
@@ -222,6 +222,12 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 	// 2. Using remote HTTP reader
 	// ParkPiece should be scheduled on same node which has the piece
 	// Remote HTTP ones can be scheduled on any node
+
+	if true {
+		// TODO make this a setting
+		id := ids[0]
+		return &id, nil
+	}
 
 	ctx := context.Background()
 
