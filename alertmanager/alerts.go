@@ -602,7 +602,7 @@ func wnPostCheck(al *alerts) {
 
 	// If expected + 3*no of miner >= count >= expected - 3*no of miner i.e. count is off by 3 entries per miner then not a problem
 	// Example: (120 epochs * 3 miners) + 3 * (3 miners) i.e. 369 < 366 < (120 epochs * 3 miners) - 3 * (3 miners) i.e. 351
-	if expected+int64(3*len(miners)) >= count || count >= expected-int64(3*len(miners)) {
+	if expected+int64(3*len(miners)) >= count && count >= expected-int64(3*len(miners)) {
 		al.alertMap[Name].alertString += fmt.Sprintf("Expected %d WinningPost task and found %d in DB. ", expected, count)
 	}
 
