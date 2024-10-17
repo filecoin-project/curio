@@ -80,10 +80,13 @@ deps: $(BUILD_DEPS)
 
 ## ldflags -s -w strips binary
 
-curio: GOFLAGS+=-tags=cunative
+CURIO_TAGS := cunative
+
 curio: $(BUILD_DEPS)
 	rm -f curio
-	GOAMD64=v3 CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -o curio -ldflags " -s -w \
+	GOAMD64=v3 CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) \
+	-tags "$(CURIO_TAGS)" \
+	-o curio -ldflags " -s -w \
 	-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
 	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
 	./cmd/curio
@@ -102,12 +105,14 @@ batchdep: build/.supraseal-install
 batchdep: $(BUILD_DEPS)
 ,PHONY: batchdep
 
-batch: GOFLAGS+=-tags=supraseal
+batch: CURIO_TAGS+= supraseal
 batch: CGO_LDFLAGS_ALLOW='.*'
 batch: batchdep build
 .PHONY: batch
 
-batch-calibnet: GOFLAGS+=-tags=calibnet,supraseal
+
+batch-calibnet: CURIO_TAGS+= supraseal
+batch-calibnet: CURIO_TAGS+= calibnet
 batch-calibnet: CGO_LDFLAGS_ALLOW='.*'
 batch-calibnet: batchdep build
 .PHONY: batch-calibnet
@@ -122,13 +127,13 @@ batch-calibnet:
 	@exit 1
 endif
 
-calibnet: GOFLAGS+=-tags=calibnet
+calibnet: CURIO_TAGS+= calibnet
 calibnet: build
 
-debug: GOFLAGS+=-tags=debug
+debug: CURIO_TAGS+= debug
 debug: build
 
-2k: GOFLAGS+=-tags=2k
+2k: CURIO_TAGS+= 2k
 2k: build
 
 all: build 
