@@ -34,11 +34,6 @@ func (s *PipelineGC) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	if err := s.cleanupMK12DealPipeline(); err != nil {
 		return false, xerrors.Errorf("cleanupMK12DealPipeline: %w", err)
 	}
-
-	if err := s.cleanupMK12DealPipeline(); err != nil {
-		return false, xerrors.Errorf("cleanupMK12DealPipeline: %w", err)
-	}
-
 	if err := s.cleanupUnseal(); err != nil {
 		return false, xerrors.Errorf("cleanupUnseal: %w", err)
 
@@ -171,6 +166,11 @@ func (s *PipelineGC) cleanupMK12DealPipeline() error {
 	_, err := s.db.Exec(ctx, `DELETE FROM market_mk12_deal_pipeline WHERE complete = TRUE;`)
 	if err != nil {
 		return xerrors.Errorf("failed to clean up sealed deals: %w", err)
+	}
+
+	_, err = s.db.Exec(ctx, `DELETE FROM ipni_task WHERE complete = TRUE;`)
+	if err != nil {
+		return xerrors.Errorf("failed to clean up indexing tasks: %w", err)
 	}
 
 	return nil

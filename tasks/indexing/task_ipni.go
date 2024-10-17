@@ -29,6 +29,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
@@ -63,13 +64,14 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	ctx := context.Background()
 
 	var tasks []struct {
-		SPID   int64                   `db:"sp_id"`
-		Sector abi.SectorNumber        `db:"sector"`
-		Proof  abi.RegisteredSealProof `db:"reg_seal_proof"`
-		Offset int64                   `db:"sector_offset"`
-		CtxID  []byte                  `db:"context_id"`
-		Rm     bool                    `db:"is_rm"`
-		Prov   string                  `db:"provider"`
+		SPID     int64                   `db:"sp_id"`
+		Sector   abi.SectorNumber        `db:"sector"`
+		Proof    abi.RegisteredSealProof `db:"reg_seal_proof"`
+		Offset   int64                   `db:"sector_offset"`
+		CtxID    []byte                  `db:"context_id"`
+		Rm       bool                    `db:"is_rm"`
+		Prov     string                  `db:"provider"`
+		Complete bool                    `db:"complete"`
 	}
 
 	err = I.db.Select(ctx, &tasks, `SELECT 
@@ -79,7 +81,8 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 											sector_offset,
 											context_id,
 											is_rm,
-											provider	
+											provider,
+											complete
 										FROM 
 											ipni_task
 										WHERE 
@@ -93,6 +96,10 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	}
 
 	task := tasks[0]
+
+	if task.Complete {
+		return true, nil
+	}
 
 	var pi abi.PieceInfo
 	err = pi.UnmarshalCBOR(bytes.NewReader(task.CtxID))
@@ -306,6 +313,7 @@ func (I *IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 		IAmBored: passcall.Every(5*time.Minute, func(taskFunc harmonytask.AddTaskFunc) error {
 			return I.schedule(context.Background(), taskFunc)
 		}),
+		Max: taskhelp.Max(6),
 	}
 }
 
