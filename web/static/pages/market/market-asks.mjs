@@ -9,6 +9,7 @@ class MarketAsks extends LitElement {
         spAsks: { type: Map },
         updatingSpID: { type: Number },
         newAsk: { type: Object },
+        sizeOptions: { type: Array },
     };
 
     constructor() {
@@ -17,7 +18,40 @@ class MarketAsks extends LitElement {
         this.spAsks = new Map();
         this.updatingSpID = null;
         this.newAsk = {};
+        this.sizeOptions = this.generateSizeOptions();
         this.loadData();
+    }
+
+    // Generate size options from 64 GiB down to 128 bytes
+    generateSizeOptions() {
+        const sizes = [];
+        let sizeInBytes = 64 * 1024 ** 3; // Start with 64 GiB
+        const minSizeInBytes = 128; // Minimum size is 128 bytes
+
+        while (sizeInBytes >= minSizeInBytes) {
+            sizes.push({
+                value: sizeInBytes,
+                label: this.formatBytes(sizeInBytes),
+            });
+            sizeInBytes = sizeInBytes / 2; // Halve the size each time
+        }
+        return sizes;
+    }
+
+    // Format bytes into human-readable format
+    formatBytes(bytes) {
+        const units = ['Bytes', 'KiB', 'MiB', 'GiB', 'TiB'];
+        let i = 0;
+        let size = bytes;
+        while (size >= 1024 && i < units.length - 1) {
+            size /= 1024;
+            i++;
+        }
+        if (i === 0) {
+            return `${size} ${units[i]} (${bytes} bytes)`;
+        } else {
+            return `${size.toFixed(2)} ${units[i]} (${bytes} bytes)`;
+        }
     }
 
     async loadData() {
@@ -50,10 +84,10 @@ class MarketAsks extends LitElement {
             SpID: spID,
             Price: existingAsk.Price || '',
             VerifiedPrice: existingAsk.VerifiedPrice || '',
-            MinSize: existingAsk.MinSize || '',
-            MaxSize: existingAsk.MaxSize || '',
-            PriceFIL: '',
-            VerifiedPriceFIL: '',
+            MinSize: existingAsk.MinSize || 4 * 1024 ** 3, // Default to 4 GiB
+            MaxSize: existingAsk.MaxSize || 32 * 1024 ** 3, // Default to 32 GiB
+            PriceFIL: '1',
+            VerifiedPriceFIL: '0',
             CreatedAt: '',
             Expiry: '',
         };
@@ -77,8 +111,8 @@ class MarketAsks extends LitElement {
         // Set CreatedAt and Expiry
         const now = Math.floor(Date.now() / 1000); // Unix timestamp in seconds
         this.newAsk.CreatedAt = now;
-        // Set expiry to 30 days from now
-        this.newAsk.Expiry = now + 30 * 24 * 60 * 60; // 30 days in seconds
+        // Set expiry to 365 days from now
+        this.newAsk.Expiry = now + 365 * 24 * 60 * 60; // 365 days in seconds
 
         // Prepare the ask object to send to the server
         const askToSend = {
@@ -145,8 +179,8 @@ class MarketAsks extends LitElement {
               <th>Price (attoFIL/GiB/Epoch)</th>
               <th>Verified Price (FIL/TiB/Month)</th>
               <th>Verified Price (attoFIL/GiB/Epoch)</th>
-              <th>Min Size (bytes)</th>
-              <th>Max Size (bytes)</th>
+              <th>Min Size</th>
+              <th>Max Size</th>
               <th>Sequence</th>
               <th>Actions</th>
             </tr>
@@ -161,8 +195,8 @@ class MarketAsks extends LitElement {
                   <td>${ask ? ask.Price : '-'}</td>
                   <td>${ask ? this.attoFilToFilPerTiBPerMonth(ask.VerifiedPrice) : '-'}</td>
                   <td>${ask ? ask.VerifiedPrice : '-'}</td>
-                  <td>${ask ? ask.MinSize : '-'}</td>
-                  <td>${ask ? ask.MaxSize : '-'}</td>
+                  <td>${ask ? this.formatBytes(ask.MinSize) : '-'}</td>
+                  <td>${ask ? this.formatBytes(ask.MaxSize) : '-'}</td>
                   <td>${ask ? ask.Sequence : '-'}</td>
                   <td>
                     <button class="btn btn-primary" @click="${() => this.updateAsk(spID)}">
@@ -219,30 +253,46 @@ class MarketAsks extends LitElement {
                   </div>
                 </div>
                 <div class="mb-3">
-                  <label class="form-label">Min Piece Size (bytes)</label>
-                  <input
-                    type="number"
-                    class="form-control"
-                    .value="${this.newAsk.MinSize}"
-                    @input="${(e) => {
+                  <label class="form-label">Min Piece Size</label>
+                  <select
+                    class="form-select"
+                    @change="${(e) => {
             this.newAsk.MinSize = e.target.value;
             this.requestUpdate();
         }}"
-                    required
-                  />
+                  >
+                    ${this.sizeOptions.map(
+            (option) => html`
+                        <option
+                          value="${option.value}"
+                          ?selected="${Number(this.newAsk.MinSize) === option.value}"
+                        >
+                          ${option.label}
+                        </option>
+                      `
+        )}
+                  </select>
                 </div>
                 <div class="mb-3">
-                  <label class="form-label">Max Piece Size (bytes)</label>
-                  <input
-                    type="number"
-                    class="form-control"
-                    .value="${this.newAsk.MaxSize}"
-                    @input="${(e) => {
+                  <label class="form-label">Max Piece Size</label>
+                  <select
+                    class="form-select"
+                    @change="${(e) => {
             this.newAsk.MaxSize = e.target.value;
             this.requestUpdate();
         }}"
-                    required
-                  />
+                  >
+                    ${this.sizeOptions.map(
+            (option) => html`
+                        <option
+                          value="${option.value}"
+                          ?selected="${Number(this.newAsk.MaxSize) === option.value}"
+                        >
+                          ${option.label}
+                        </option>
+                      `
+        )}
+                  </select>
                 </div>
               </div>
               <div class="modal-footer">
@@ -338,7 +388,8 @@ class MarketAsks extends LitElement {
       color: var(--color-text-primary, #FFF);
     }
 
-    .form-control {
+    .form-control,
+    .form-select {
       display: block;
       width: 100%;
       padding: 0.375rem 0.75rem;
@@ -352,7 +403,8 @@ class MarketAsks extends LitElement {
       transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
     }
 
-    .form-control:focus {
+    .form-control:focus,
+    .form-select:focus {
       color: var(--color-text-primary, #FFF);
       background-color: var(--color-form-group-1, #484848);
       border-color: var(--color-primary-light, #8BEFE0);

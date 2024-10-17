@@ -6,14 +6,14 @@ import (
 )
 
 type StorageAsk struct {
-	SpID          int64 `db:"sp_id" json:"sp_id"`
-	Price         int64 `db:"price" json:"price"`
-	VerifiedPrice int64 `db:"verified_price" json:"verified_price"`
-	MinSize       int64 `db:"min_size" json:"min_size"`
-	MaxSize       int64 `db:"max_size" json:"max_size"`
-	CreatedAt     int64 `db:"created_at" json:"created_at"`
-	Expiry        int64 `db:"expiry" json:"expiry"`
-	Sequence      int64 `db:"sequence" json:"sequence"`
+	SpID          int64 `db:"sp_id"`
+	Price         int64 `db:"price"`
+	VerifiedPrice int64 `db:"verified_price"`
+	MinSize       int64 `db:"min_size"`
+	MaxSize       int64 `db:"max_size"`
+	CreatedAt     int64 `db:"created_at"`
+	Expiry        int64 `db:"expiry"`
+	Sequence      int64 `db:"sequence"`
 }
 
 func (a *WebRPC) GetStorageAsk(ctx context.Context, spID int64) (*StorageAsk, error) {
