@@ -47,9 +47,10 @@ type IPNITask struct {
 	pieceProvider *pieceprovider.PieceProvider
 	sc            *ffi.SealCalls
 	cfg           *config.CurioConfig
+	max           taskhelp.Limiter
 }
 
-func NewIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.PieceProvider, cfg *config.CurioConfig) *IPNITask {
+func NewIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.PieceProvider, cfg *config.CurioConfig, max taskhelp.Limiter) *IPNITask {
 
 	return &IPNITask{
 		db:            db,
@@ -57,6 +58,7 @@ func NewIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.Ind
 		pieceProvider: pieceProvider,
 		sc:            sc,
 		cfg:           cfg,
+		max:           max,
 	}
 }
 
@@ -226,7 +228,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 			return false, xerrors.Errorf("converting advertisement to link: %w", err)
 		}
 
-		n, err := I.db.Exec(ctx, `SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7)`,
+		_, err = tx.Exec(`SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7)`,
 			ad.(cidlink.Link).Cid.String(), adv.ContextID, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
 			adv.Signature, adv.Entries.String())
 
@@ -234,6 +236,10 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 			return false, xerrors.Errorf("adding advertisement to the database: %w", err)
 		}
 
+		n, err := tx.Exec(`UPDATE ipni_task SET complete = true WHERE task_id = $1`, taskID)
+		if err != nil {
+			return false, xerrors.Errorf("failed to mark IPNI task complete: %w", err)
+		}
 		if n != 1 {
 			return false, xerrors.Errorf("updated %d rows", n)
 		}
@@ -313,7 +319,7 @@ func (I *IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 		IAmBored: passcall.Every(5*time.Minute, func(taskFunc harmonytask.AddTaskFunc) error {
 			return I.schedule(context.Background(), taskFunc)
 		}),
-		Max: taskhelp.Max(6),
+		Max: I.max,
 	}
 }
 

@@ -239,8 +239,10 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			}
 		}
 
-		indexingTask := indexing.NewIndexingTask(db, sc, iStore, pp, cfg)
-		ipniTask := indexing.NewIPNITask(db, sc, iStore, pp, cfg)
+		idxMax := taskhelp.Max(8)
+
+		indexingTask := indexing.NewIndexingTask(db, sc, iStore, pp, cfg, idxMax)
+		ipniTask := indexing.NewIPNITask(db, sc, iStore, pp, cfg, idxMax)
 		activeTasks = append(activeTasks, indexingTask, ipniTask)
 
 		if cfg.HTTP.Enable {
