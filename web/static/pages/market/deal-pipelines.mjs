@@ -127,7 +127,7 @@ class DealPipelines extends LitElement {
         } else if (deal.sector) {
             return 'Sealed';
         } else if (deal.after_find_deal) {
-            return 'Deal Found';
+            return 'On Chain';
         } else if (deal.after_psd) {
             return 'Piece Added';
         } else if (deal.after_commp) {
