@@ -120,7 +120,7 @@ func (f *FindDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	err = f.db.Select(ctx, &execResult, `SELECT executed_tsk_cid, executed_tsk_epoch, executed_msg_cid, 
        					executed_rcpt_exitcode, executed_rcpt_gas_used
 						FROM message_waits
-						WHERE signed_message_cid AND executed_tsk_epoch IS NOT NULL`, bd.PublishCid)
+						WHERE signed_message_cid = $1 AND executed_tsk_epoch IS NOT NULL`, bd.PublishCid)
 	if err != nil {
 		fdLog.Errorw("failed to query message_waits", "error", err)
 	}

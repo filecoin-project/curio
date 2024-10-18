@@ -182,6 +182,8 @@ CREATE TABLE market_mk12_deal_pipeline (
 
     complete BOOLEAN NOT NULL DEFAULT FALSE,
 
+    created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
+
     constraint market_mk12_deal_pipeline_identity_key unique (uuid)
 );
 
@@ -201,7 +203,7 @@ BEGIN
             FROM
                 %I ssp
             JOIN
-                market_mk12_deal_pipeline dp ON ssp.sp_id = dp.sp_id AND ssp.sector_num = dp.sector
+                market_mk12_deal_pipeline dp ON ssp.sp_id = dp.sp_id AND ssp.sector_number = dp.sector
             WHERE
                 ssp.task_id_move_storage = $1', sealing_table);
     ELSIF sealing_table = 'sectors_snap_pipeline' THEN
@@ -236,8 +238,6 @@ FOR pms IN EXECUTE query USING task_id
 
 EXCEPTION
     WHEN OTHERS THEN
-        -- Rollback the transaction and raise the exception for Go to catch
-        ROLLBACK;
         RAISE EXCEPTION 'Failed to create indexing task: %', SQLERRM;
 END;
 $$ LANGUAGE plpgsql;

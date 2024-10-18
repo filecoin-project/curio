@@ -33,6 +33,7 @@ import (
 )
 
 const IdealEndEpochBuffer = 2 * builtin.EpochsInDay
+const MaxEndEpochBufferUnverified = 180 * builtin.EpochsInDay
 
 // assuming that snap takes up to 20min to get to submitting the message we want to avoid sectors from deadlines which will
 // become immutable in the next 20min (40 epochs)
@@ -297,6 +298,8 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 		vd.tmax = alloc.TermMax
 
 		maxExpiration = int64(head.Height() + alloc.TermMax)
+	} else {
+		maxExpiration = int64(piece.DealSchedule.EndEpoch) + MaxEndEpochBufferUnverified
 	}
 	propJson, err = json.Marshal(piece.PieceActivationManifest)
 	if err != nil {

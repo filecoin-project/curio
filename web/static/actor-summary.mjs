@@ -203,16 +203,6 @@ class ActorSummary extends LitElement {
         }, 30000);
     }
 
-    renderWins(win1, win7, win30) {
-        return html`
-            <table>
-                <tr><td>1day:&nbsp; ${win1}</td></tr>
-                <tr><td>7day:&nbsp; ${win7}</td></tr>
-                <tr><td>30day: ${win30}</td></tr>
-            </table>
-        `;
-    }
-
     renderDeadlines(deadlines) {
         return html`
             <div class="deadline-box">
@@ -242,7 +232,7 @@ class ActorSummary extends LitElement {
                     <th>Balance</th>
                     <th>Available</th>
                     <th>Worker</th>
-                    <th style="min-width: 100px">Wins</th>
+                    <th style="min-width: 100px">Wins 1d/7d/30d</th>
                     <th>Expirations</th>
                 </tr>
                 </thead>
@@ -258,7 +248,7 @@ class ActorSummary extends LitElement {
                         <td>${entry.ActorBalance}</td>
                         <td>${entry.ActorAvailable}</td>
                         <td>${entry.WorkerBalance}</td>
-                        <td>${this.renderWins(entry.Win1, entry.Win7, entry.Win30)}</td>
+                        <td>${entry.Win1}/${entry.Win7}/${entry.Win30}</td>
                         <td><sector-expirations address="${entry.Address}"></sector-expirations></td>
                     </tr>
                 `)}
