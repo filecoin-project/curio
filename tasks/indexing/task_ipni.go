@@ -29,6 +29,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
@@ -46,9 +47,10 @@ type IPNITask struct {
 	pieceProvider *pieceprovider.PieceProvider
 	sc            *ffi.SealCalls
 	cfg           *config.CurioConfig
+	max           taskhelp.Limiter
 }
 
-func NewIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.PieceProvider, cfg *config.CurioConfig) *IPNITask {
+func NewIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.PieceProvider, cfg *config.CurioConfig, max taskhelp.Limiter) *IPNITask {
 
 	return &IPNITask{
 		db:            db,
@@ -56,6 +58,7 @@ func NewIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.Ind
 		pieceProvider: pieceProvider,
 		sc:            sc,
 		cfg:           cfg,
+		max:           max,
 	}
 }
 
@@ -63,13 +66,14 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	ctx := context.Background()
 
 	var tasks []struct {
-		SPID   int64                   `db:"sp_id"`
-		Sector abi.SectorNumber        `db:"sector"`
-		Proof  abi.RegisteredSealProof `db:"reg_seal_proof"`
-		Offset int64                   `db:"sector_offset"`
-		CtxID  []byte                  `db:"context_id"`
-		Rm     bool                    `db:"is_rm"`
-		Prov   string                  `db:"provider"`
+		SPID     int64                   `db:"sp_id"`
+		Sector   abi.SectorNumber        `db:"sector"`
+		Proof    abi.RegisteredSealProof `db:"reg_seal_proof"`
+		Offset   int64                   `db:"sector_offset"`
+		CtxID    []byte                  `db:"context_id"`
+		Rm       bool                    `db:"is_rm"`
+		Prov     string                  `db:"provider"`
+		Complete bool                    `db:"complete"`
 	}
 
 	err = I.db.Select(ctx, &tasks, `SELECT 
@@ -79,7 +83,8 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 											sector_offset,
 											context_id,
 											is_rm,
-											provider	
+											provider,
+											complete
 										FROM 
 											ipni_task
 										WHERE 
@@ -93,6 +98,10 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	}
 
 	task := tasks[0]
+
+	if task.Complete {
+		return true, nil
+	}
 
 	var pi abi.PieceInfo
 	err = pi.UnmarshalCBOR(bytes.NewReader(task.CtxID))
@@ -219,7 +228,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 			return false, xerrors.Errorf("converting advertisement to link: %w", err)
 		}
 
-		n, err := I.db.Exec(ctx, `SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7)`,
+		_, err = tx.Exec(`SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7)`,
 			ad.(cidlink.Link).Cid.String(), adv.ContextID, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
 			adv.Signature, adv.Entries.String())
 
@@ -227,6 +236,10 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 			return false, xerrors.Errorf("adding advertisement to the database: %w", err)
 		}
 
+		n, err := tx.Exec(`UPDATE ipni_task SET complete = true WHERE task_id = $1`, taskID)
+		if err != nil {
+			return false, xerrors.Errorf("failed to mark IPNI task complete: %w", err)
+		}
 		if n != 1 {
 			return false, xerrors.Errorf("updated %d rows", n)
 		}
@@ -306,6 +319,7 @@ func (I *IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 		IAmBored: passcall.Every(5*time.Minute, func(taskFunc harmonytask.AddTaskFunc) error {
 			return I.schedule(context.Background(), taskFunc)
 		}),
+		Max: I.max,
 	}
 }
 

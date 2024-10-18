@@ -160,24 +160,23 @@ func (d *CurioStorageDealMarket) runPoller(ctx context.Context) {
 
 func (d *CurioStorageDealMarket) poll(ctx context.Context) {
 
+	d.createIndexingTaskForMigratedDeals(ctx)
 	/*
 		FULL DEAL FLOW:
 			Online:
 			1. Make an entry for each online deal in market_mk12_deal_pipeline
 			2. For online deals - keep checking if piecePark is complete
 			4. Create commP task for online deal
-			5. Once commP is complete, add the deal using pieceIngest
+			5. Once commP is complete, send PSD and find the allocated deal ID
+			6. Add the deal using pieceIngest
 
 			Offline:
 			1. Make an entry for each online deal in market_mk12_deal_pipeline
-			2. Offline deal would not be started. It will have 2 triggers
-				A. We find a pieceCID <> URL binding
-				B. User manually imports the data using a file (will need piecePark)
-			3. Check if piece is parked for offline deal triggered manually
-			4. Create commP task for offline deals
-				A. If we have piecePark then do local commP
-				B. Do streaming commP if we have URL
-			5. Once commP is complete, add the deal using pieceIngest
+			2. Offline deal would not be started till we find a pieceCID <> URL binding
+			3. Create commP task for offline deals
+				A. Do streaming commP
+			5. Once commP is complete, send PSD and find the allocated deal ID
+			6. Add the deal using pieceIngest
 	*/
 	for module, miners := range d.miners {
 		if module == mk12Str {
@@ -652,4 +651,15 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 
 	log.Infof("Added deal %s to sector %d at %d", deal.UUID, info.Sector, info.Offset)
 	return nil
+}
+
+func (d *CurioStorageDealMarket) createIndexingTaskForMigratedDeals(ctx context.Context) {
+	// Call the migration function and get the number of rows moved
+	var rowsMoved int
+	err := d.db.QueryRow(ctx, "SELECT migrate_deal_pipeline_entries()").Scan(&rowsMoved)
+	if err != nil {
+		log.Errorf("Error creating indexing tasks for migrated deals: %w", err)
+		return
+	}
+	log.Debugf("Successfully created indexing tasks for %d migrated deals", rowsMoved)
 }

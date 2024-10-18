@@ -37,9 +37,10 @@ type IndexingTask struct {
 	cfg               *config.CurioConfig
 	insertConcurrency int
 	insertBatchSize   int
+	max               taskhelp.Limiter
 }
 
-func NewIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.PieceProvider, cfg *config.CurioConfig) *IndexingTask {
+func NewIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.PieceProvider, cfg *config.CurioConfig, max taskhelp.Limiter) *IndexingTask {
 
 	return &IndexingTask{
 		db:                db,
@@ -49,6 +50,7 @@ func NewIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore
 		cfg:               cfg,
 		insertConcurrency: cfg.Market.StorageMarketConfig.Indexing.InsertConcurrency,
 		insertBatchSize:   cfg.Market.StorageMarketConfig.Indexing.InsertBatchSize,
+		max:               max,
 	}
 }
 
