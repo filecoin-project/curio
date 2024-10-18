@@ -3,7 +3,14 @@ package webrpc
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/ipfs/go-cid"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-address"
 )
 
 type StorageAsk struct {
@@ -77,7 +84,10 @@ type MK12Pipeline struct {
 	Sector         *int64     `db:"sector" json:"sector"`
 	Offset         *int64     `db:"sector_offset" json:"sector_offset"`
 	CreatedAt      time.Time  `db:"created_at" json:"created_at"`
+	Indexed        bool       `db:"indexed" json:"indexed"`
+	Announce       bool       `db:"announce" json:"announce"`
 	Complete       bool       `db:"complete" json:"complete"`
+	Miner          string     `json:"miner"`
 }
 
 func (a *WebRPC) GetDealPipelines(ctx context.Context, limit int, offset int) ([]MK12Pipeline, error) {
@@ -113,6 +123,8 @@ func (a *WebRPC) GetDealPipelines(ctx context.Context, limit int, offset int) ([
             sector,
             sector_offset,
             created_at,
+            indexed,
+            announce,
             complete
         FROM market_mk12_deal_pipeline
         ORDER BY created_at DESC
@@ -122,5 +134,231 @@ func (a *WebRPC) GetDealPipelines(ctx context.Context, limit int, offset int) ([
 		return nil, fmt.Errorf("failed to fetch deal pipelines: %w", err)
 	}
 
+	minerMap := make(map[int64]address.Address)
+	for _, s := range pipelines {
+		if addr, ok := minerMap[s.SpID]; ok {
+			s.Miner = addr.String()
+			continue
+		}
+
+		addr, err := address.NewIDAddress(uint64(s.SpID))
+		if err != nil {
+			return nil, xerrors.Errorf("failed to parse the miner ID: %w", err)
+		}
+		s.Miner = addr.String()
+	}
+
 	return pipelines, nil
+}
+
+type StorageDealSummary struct {
+	ID                string      `db:"uuid" json:"id"`
+	MinerID           int64       `db:"sp_id" json:"sp_id"`
+	Sector            int64       `db:"sector_num" json:"sector"`
+	CreatedAt         time.Time   `db:"created_at" json:"created_at"`
+	SignedProposalCid string      `db:"signed_proposal_cid" json:"signed_proposal_cid"`
+	Offline           bool        `db:"offline" json:"offline"`
+	Verified          bool        `db:"verified" json:"verified"`
+	StartEpoch        int64       `db:"start_epoch" json:"start_epoch"`
+	EndEpoch          int64       `db:"end_epoch" json:"end_epoch"`
+	ClientPeerId      string      `db:"client_peer_id" json:"client_peer_id"`
+	ChainDealId       int64       `db:"chain_deal_id" json:"chain_deal_id"`
+	PublishCid        string      `db:"publish_cid" json:"publish_cid"`
+	PieceCid          string      `db:"piece_cid" json:"piece_cid"`
+	PieceSize         int64       `db:"piece_size" json:"piece_size"`
+	FastRetrieval     bool        `db:"fast_retrieval" json:"fast_retrieval"`
+	AnnounceToIpni    bool        `db:"announce_to_ipni" json:"announce_to_ipni"`
+	Url               string      `db:"url" json:"url"`
+	UrlHeaders        http.Header `db:"url_headers" json:"url_headers"`
+	Error             string      `db:"error" json:"error"`
+	Miner             string      `json:"miner"`
+	IsLegacy          bool        `json:"is_legacy"`
+	Indexed           bool        `db:"indexed" json:"indexed"`
+}
+
+func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDealSummary, error) {
+
+	var isLegacy bool
+	var pcid cid.Cid
+
+	id, err := uuid.Parse(deal)
+	if err != nil {
+		p, perr := cid.Parse(deal)
+		if perr != nil {
+			return &StorageDealSummary{}, xerrors.Errorf("failed to parse the deal ID: %w and %w", err, perr)
+		}
+		isLegacy = true
+		pcid = p
+	}
+
+	if !isLegacy {
+		var summaries []StorageDealSummary
+		err = a.deps.DB.Select(ctx, &summaries, `SELECT 
+									md.uuid,
+									md.sp_id,
+									md.created_at,
+									md.signed_proposal_cid,
+									md.offline,
+									md.verified,
+									md.start_epoch,
+									md.end_epoch,
+									md.client_peer_id,
+									md.chain_deal_id,
+									md.publish_cid,
+									md.piece_cid,
+									md.piece_size,
+									md.fast_retrieval,
+									md.announce_to_ipni,
+									md.url,
+									md.url_headers,
+									md.error,
+									mid.sector_num,
+									mpm.indexed
+									FROM market_mk12_deals md 
+										LEFT JOIN market_piece_deal mpd ON mpd.id = md.uuid AND mpd.sp_id = md.sp_id
+										LEFT JOIN market_piece_metadata mpm ON mpm.piece_cid = md.piece_cid
+									WHERE md.uuid = $1 AND mpd.boost_deal = TRUE AND mpd.legacy_deal = FALSE;`, id.String())
+
+		if err != nil {
+			return &StorageDealSummary{}, err
+		}
+
+		if len(summaries) == 0 {
+			return nil, xerrors.Errorf("No such deal found in database: %s", id.String())
+		}
+
+		d := summaries[0]
+		d.IsLegacy = isLegacy
+
+		addr, err := address.NewIDAddress(uint64(d.MinerID))
+		if err != nil {
+			return &StorageDealSummary{}, err
+		}
+
+		d.Miner = addr.String()
+
+		return &d, nil
+	}
+
+	var summaries []StorageDealSummary
+	err = a.deps.DB.Select(ctx, &summaries, `SELECT 
+									'' AS uuid,
+									sp_id,
+									created_at,
+									signed_proposal_cid,
+									offline,
+									verified,
+									start_epoch,
+									end_epoch,
+									client_peer_id,
+									chain_deal_id,
+									publish_cid,
+									piece_cid,
+									piece_size,
+									fast_retrieval,
+									FALSE AS announce_to_ipni,
+									'' AS url,
+									'{}' AS url_headers,
+									'' AS error,
+									sector_num,
+									FALSE AS indexed
+									FROM market_legacy_deals
+									WHERE signed_proposal_cid = $1`, pcid.String())
+
+	if err != nil {
+		return &StorageDealSummary{}, err
+	}
+
+	if len(summaries) == 0 {
+		return nil, xerrors.Errorf("No such deal found in database :%s", pcid.String())
+	}
+
+	d := summaries[0]
+	d.IsLegacy = isLegacy
+
+	addr, err := address.NewIDAddress(uint64(d.MinerID))
+	if err != nil {
+		return &StorageDealSummary{}, err
+	}
+
+	d.Miner = addr.String()
+
+	return &d, nil
+}
+
+type StorageDealList struct {
+	ID          string    `db:"uuid" json:"id"`
+	MinerID     int64     `db:"sp_id" json:"sp_id"`
+	CreatedAt   time.Time `db:"created_at" json:"created_at"`
+	ChainDealId int64     `db:"chain_deal_id" json:"chain_deal_id"`
+	Sector      int64     `db:"sector_num" json:"sector"`
+	Miner       string    `json:"miner"`
+}
+
+func (a *WebRPC) MK12StorageDealList(ctx context.Context, limit int, offset int) ([]StorageDealList, error) {
+	var mk12Summaries []StorageDealList
+
+	err := a.deps.DB.Select(ctx, &mk12Summaries, `SELECT 
+									md.uuid,
+									md.sp_id,
+									md.created_at,
+									md.chain_deal_id,
+									mid.sector_num
+									FROM market_mk12_deals md 
+										LEFT JOIN market_piece_deal mpd ON mpd.id = md.uuid AND mpd.sp_id = md.sp_id 
+									WHERE mpd.boost_deal = TRUE AND mpd.legacy_deal = FALSE
+									ORDER BY md.created_at DESC
+											LIMIT $1 OFFSET $2;`, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch deal list: %w", err)
+	}
+
+	minerMap := make(map[int64]address.Address)
+	for _, s := range mk12Summaries {
+		if addr, ok := minerMap[s.MinerID]; ok {
+			s.Miner = addr.String()
+			continue
+		}
+
+		addr, err := address.NewIDAddress(uint64(s.MinerID))
+		if err != nil {
+			return nil, err
+		}
+		s.Miner = addr.String()
+	}
+
+	return mk12Summaries, nil
+
+}
+
+func (a *WebRPC) LegacyStorageDealList(ctx context.Context, limit int, offset int) ([]StorageDealList, error) {
+	var mk12Summaries []StorageDealList
+
+	err := a.deps.DB.Select(ctx, &mk12Summaries, `SELECT 
+									signed_proposal_cid AS uuid,
+									sp_id,
+									created_at,
+									chain_deal_id,
+									sector_num, 
+									FROM market_legacy_deals
+									ORDER BY created_at DESC
+									LIMIT $1 OFFSET $2;`, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch deal list: %w", err)
+	}
+
+	minerMap := make(map[int64]address.Address)
+	for _, s := range mk12Summaries {
+		if addr, ok := minerMap[s.MinerID]; ok {
+			s.Miner = addr.String()
+			continue
+		}
+
+		addr, err := address.NewIDAddress(uint64(s.MinerID))
+		if err != nil {
+			return nil, err
+		}
+		s.Miner = addr.String()
+	}
+	return mk12Summaries, nil
 }
