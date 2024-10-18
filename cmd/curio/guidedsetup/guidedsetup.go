@@ -28,7 +28,6 @@ import (
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
 	"github.com/urfave/cli/v2"
-	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 
 	"github.com/filecoin-project/go-address"
@@ -37,6 +36,7 @@ import (
 
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	_ "github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
@@ -64,7 +64,7 @@ var GuidedsetupCmd = &cli.Command{
 		},
 	},
 	Action: func(cctx *cli.Context) (err error) {
-		T, say := SetupLanguage()
+		T, say := translations.SetupLanguage()
 		setupCtrlC(say)
 
 		// Run the migration steps
@@ -143,42 +143,6 @@ var (
 		Foreground(lipgloss.Color("#00FF00")).
 		Background(lipgloss.Color("#f8f9fa"))
 )
-
-func SetupLanguage() (func(key message.Reference, a ...interface{}) string, func(style lipgloss.Style, key message.Reference, a ...interface{})) {
-	langText := "en"
-	problem := false
-	if len(os.Getenv("LANG")) > 1 {
-		langText = os.Getenv("LANG")[:2]
-	} else {
-		problem = true
-	}
-
-	lang, err := language.Parse(langText)
-	if err != nil {
-		lang = language.English
-		problem = true
-		fmt.Println("Error parsing language")
-	}
-
-	langs := message.DefaultCatalog.Languages()
-	have := lo.SliceToMap(langs, func(t language.Tag) (string, bool) { return t.String(), true })
-	if _, ok := have[lang.String()]; !ok {
-		lang = language.English
-		problem = true
-	}
-	if problem {
-		_ = os.Setenv("LANG", "en-US") // for later users of this function
-		notice.Copy().AlignHorizontal(lipgloss.Right).
-			Render("$LANG=" + langText + " unsupported. Available: " + strings.Join(lo.Keys(have), ", "))
-		fmt.Println("Defaulting to English. Please reach out to the Curio team if you would like to have additional language support.")
-	}
-	return func(key message.Reference, a ...interface{}) string {
-			return message.NewPrinter(lang).Sprintf(key, a...)
-		}, func(sty lipgloss.Style, key message.Reference, a ...interface{}) {
-			msg := message.NewPrinter(lang).Sprintf(key, a...)
-			fmt.Println(sty.Render(msg))
-		}
-}
 
 func newOrMigrate(d *MigrationData) {
 	i, _, err := (&promptui.Select{
