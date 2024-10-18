@@ -8,7 +8,6 @@ import (
 	"math/rand/v2"
 
 	"github.com/ipfs/go-cid"
-	cbor "github.com/ipfs/go-ipld-cbor"
 	logging "github.com/ipfs/go-log/v2"
 	"go.uber.org/multierr"
 	"golang.org/x/xerrors"
@@ -33,18 +32,11 @@ import (
 	"github.com/filecoin-project/curio/tasks/seal"
 
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/chain/actors/adt"
-	builtin2 "github.com/filecoin-project/lotus/chain/actors/builtin"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
-	"github.com/filecoin-project/lotus/chain/actors/builtin/power"
-	"github.com/filecoin-project/lotus/chain/actors/builtin/reward"
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
 var log = logging.Logger("update")
-
-var initialPledgeNum = types.NewInt(110)
-var initialPledgeDen = types.NewInt(100)
 
 var ImmutableSubmitGate = abi.ChainEpoch(2) // don't submit more than 2 minutes before the deadline becomes immutable
 
@@ -61,6 +53,7 @@ type SubmitTaskNodeAPI interface {
 
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
 	StateMinerAvailableBalance(context.Context, address.Address, types.TipSetKey) (big.Int, error)
+	StateMinerInitialPledgeForSector(ctx context.Context, sectorDuration abi.ChainEpoch, sectorSize abi.SectorSize, verifiedSize uint64, tsk types.TipSetKey) (types.BigInt, error)
 	StateGetActor(ctx context.Context, actor address.Address, tsk types.TipSetKey) (*types.Actor, error)
 	StateVMCirculatingSupplyInternal(ctx context.Context, tsk types.TipSetKey) (api.CirculatingSupply, error)
 
@@ -220,8 +213,8 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 
 	// Process pieces, prepare PAMs
 	var pams []miner.PieceActivationManifest
-	var weight, weightVerif = big.Zero(), big.Zero()
 	var minStart abi.ChainEpoch
+	var verifiedSize int64
 	for _, piece := range pieces {
 		var pam *miner.PieceActivationManifest
 		err = json.Unmarshal(piece.Manifest, &pam)
@@ -243,12 +236,8 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 			return false, err
 		}
 
-		pieceWeight := big.Mul(abi.NewStoragePower(piece.Size), big.NewInt(int64(onChainInfo.Expiration-ts.Height())))
-
 		if pam.VerifiedAllocationKey != nil {
-			weightVerif = big.Add(weightVerif, pieceWeight)
-		} else {
-			weight = big.Add(weight, pieceWeight)
+			verifiedSize += piece.Size
 		}
 
 		if minStart == 0 || abi.ChainEpoch(piece.Start) < minStart {
@@ -302,9 +291,8 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	}
 
 	duration := onChainInfo.Expiration - ts.Height()
-	weightUpdate := builtin2.QAPowerForWeight(ssize, duration, weight, weightVerif)
 
-	collateral, err := s.pledgeForPower(ctx, weightUpdate)
+	collateral, err := s.api.StateMinerInitialPledgeForSector(ctx, duration, ssize, uint64(verifiedSize), ts.Key())
 	if err != nil {
 		return false, xerrors.Errorf("calculating pledge: %w", err)
 	}
@@ -603,58 +591,6 @@ func (s *SubmitTask) updateLanded(ctx context.Context, spId, sectorNum int64) er
 }
 
 func (s *SubmitTask) Adder(taskFunc harmonytask.AddTaskFunc) {
-}
-
-func (s *SubmitTask) pledgeForPower(ctx context.Context, addedPower abi.StoragePower) (abi.TokenAmount, error) {
-	store := adt.WrapStore(ctx, cbor.NewCborStore(s.bstore))
-
-	// load power actor
-	var (
-		powerSmoothed    builtin2.FilterEstimate
-		pledgeCollateral abi.TokenAmount
-	)
-	if act, err := s.api.StateGetActor(ctx, power.Address, types.EmptyTSK); err != nil {
-		return types.EmptyInt, xerrors.Errorf("loading power actor: %w", err)
-	} else if s, err := power.Load(store, act); err != nil {
-		return types.EmptyInt, xerrors.Errorf("loading power actor state: %w", err)
-	} else if p, err := s.TotalPowerSmoothed(); err != nil {
-		return types.EmptyInt, xerrors.Errorf("failed to determine total power: %w", err)
-	} else if c, err := s.TotalLocked(); err != nil {
-		return types.EmptyInt, xerrors.Errorf("failed to determine pledge collateral: %w", err)
-	} else {
-		powerSmoothed = p
-		pledgeCollateral = c
-	}
-
-	// load reward actor
-	rewardActor, err := s.api.StateGetActor(ctx, reward.Address, types.EmptyTSK)
-	if err != nil {
-		return types.EmptyInt, xerrors.Errorf("loading reward actor: %w", err)
-	}
-
-	rewardState, err := reward.Load(store, rewardActor)
-	if err != nil {
-		return types.EmptyInt, xerrors.Errorf("loading reward actor state: %w", err)
-	}
-
-	// get circulating supply
-	circSupply, err := s.api.StateVMCirculatingSupplyInternal(ctx, types.EmptyTSK)
-	if err != nil {
-		return big.Zero(), xerrors.Errorf("getting circulating supply: %w", err)
-	}
-
-	// do the calculation
-	initialPledge, err := rewardState.InitialPledgeForPower(
-		addedPower,
-		pledgeCollateral,
-		&powerSmoothed,
-		circSupply.FilCirculating,
-	)
-	if err != nil {
-		return big.Zero(), xerrors.Errorf("calculating initial pledge: %w", err)
-	}
-
-	return types.BigDiv(types.BigMul(initialPledge, initialPledgeNum), initialPledgeDen), nil
 }
 
 func (s *SubmitTask) GetSpid(db *harmonydb.DB, taskID int64) string {

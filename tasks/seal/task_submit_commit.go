@@ -35,7 +35,7 @@ import (
 type SubmitCommitAPI interface {
 	ChainHead(context.Context) (*types.TipSet, error)
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
-	StateMinerInitialPledgeCollateral(context.Context, address.Address, miner.SectorPreCommitInfo, types.TipSetKey) (big.Int, error)
+	StateMinerInitialPledgeForSector(ctx context.Context, sectorDuration abi.ChainEpoch, sectorSize abi.SectorSize, verifiedSize uint64, tsk types.TipSetKey) (types.BigInt, error)
 	StateSectorPreCommitInfo(context.Context, address.Address, abi.SectorNumber, types.TipSetKey) (*miner.SectorPreCommitOnChainInfo, error)
 	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifregtypes9.AllocationId, tsk types.TipSetKey) (*verifregtypes9.Allocation, error)
 	StateGetAllocationIdForPendingDeal(ctx context.Context, dealId abi.DealID, tsk types.TipSetKey) (verifregtypes9.AllocationId, error)
@@ -171,6 +171,8 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("getting miner info: %w", err)
 	}
 
+	var verifiedSize int64
+
 	params := miner.ProveCommitSectors3Params{
 		RequireActivationSuccess:   s.cfg.RequireActivationSuccess,
 		RequireNotificationSuccess: s.cfg.RequireNotificationSuccess,
@@ -205,6 +207,7 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 					Client: abi.ActorID(clientId),
 					ID:     verifreg13.AllocationId(alloc),
 				}
+				verifiedSize += piece.PieceSize
 			}
 
 			payload, err := cborutil.Dump(piece.DealID)
@@ -248,7 +251,12 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("could not serialize commit params: %w", err)
 	}
 
-	collateral, err := s.api.StateMinerInitialPledgeCollateral(ctx, maddr, pci.Info, ts.Key())
+	ssize, err := pci.Info.SealProof.SectorSize()
+	if err != nil {
+		return false, xerrors.Errorf("could not get sector size: %w", err)
+	}
+
+	collateral, err := s.api.StateMinerInitialPledgeForSector(ctx, pci.Info.Expiration-ts.Height(), ssize, uint64(verifiedSize), ts.Key())
 	if err != nil {
 		return false, xerrors.Errorf("getting initial pledge collateral: %w", err)
 	}

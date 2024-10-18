@@ -31,7 +31,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ffiselect"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/lmrpc"
 	"github.com/filecoin-project/curio/tasks/seal"
 
@@ -51,7 +51,6 @@ func TestCurioNewActor(t *testing.T) {
 	full, miner, ensemble := kit.EnsembleMinimal(t,
 		kit.LatestActorsAt(-1),
 		kit.MockProofs(),
-		kit.WithSectorIndexDB(),
 	)
 
 	ensemble.Start()
@@ -101,7 +100,6 @@ func TestCurioHappyPath(t *testing.T) {
 
 	full, miner, esemble := kit.EnsembleMinimal(t,
 		kit.LatestActorsAt(-1),
-		kit.WithSectorIndexDB(),
 		kit.PresealSectors(32),
 		kit.ThroughRPC(),
 	)
