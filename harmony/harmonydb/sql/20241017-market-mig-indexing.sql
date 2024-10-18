@@ -26,7 +26,7 @@ DECLARE
     moved_rows RECORD;
 BEGIN
     -- Step 1: Check if the migration table has entries
-    SELECT COUNT(*) INTO cnt FROM market_mk12_deal_pipeline_migration;
+    SELECT COUNT(*) INTO cnt FROM market_mk12_deal_pipeline_migration LIMIT 16;
     IF cnt = 0 THEN
             RETURN;
     END IF;
@@ -34,12 +34,12 @@ BEGIN
     -- Step 2: Count entries ready for indexing in the pipeline table
     SELECT COUNT(*) INTO num_entries_ready_for_indexing
     FROM market_mk12_deal_pipeline
-    WHERE sealed = TRUE AND should_index = TRUE AND indexed = FALSE;
+    WHERE sealed = TRUE AND should_index = TRUE AND indexed = FALSE LIMIT 16;
 
     -- Step 3: Count pending IPNI tasks
     SELECT COUNT(*) INTO num_pending_ipni_tasks
     FROM harmony_task
-    WHERE name = 'IPNI' AND owner_id IS NULL;
+    WHERE name = 'IPNI' AND owner_id IS NULL LIMIT 16;
 
     -- Step 4: Calculate how many entries we need to reach 16
     num_entries_needed := 16 - num_entries_ready_for_indexing;
@@ -53,7 +53,7 @@ BEGIN
     num_entries_to_move := LEAST(num_entries_needed, 16 - num_pending_ipni_tasks);
 
     -- Limit by the number of entries available in the migration table
-    SELECT COUNT(*) INTO cnt FROM market_mk12_deal_pipeline_migration;
+    SELECT COUNT(*) INTO cnt FROM market_mk12_deal_pipeline_migration LIMIT 16;
     num_entries_to_move := LEAST(num_entries_to_move, cnt);
 
     -- If no entries to move after calculations, exit
