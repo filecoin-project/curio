@@ -203,7 +203,7 @@ BEGIN
             FROM
                 %I ssp
             JOIN
-                market_mk12_deal_pipeline dp ON ssp.sp_id = dp.sp_id AND ssp.sector_num = dp.sector
+                market_mk12_deal_pipeline dp ON ssp.sp_id = dp.sp_id AND ssp.sector_number = dp.sector
             WHERE
                 ssp.task_id_move_storage = $1', sealing_table);
     ELSIF sealing_table = 'sectors_snap_pipeline' THEN
