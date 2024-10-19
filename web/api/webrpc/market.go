@@ -212,7 +212,7 @@ func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDeal
 									md.url,
 									md.url_headers,
 									md.error,
-									mid.sector_num,
+									mpd.sector_num,
 									mpm.indexed
 									FROM market_mk12_deals md 
 										LEFT JOIN market_piece_deal mpd ON mpd.id = md.uuid AND mpd.sp_id = md.sp_id
@@ -303,7 +303,7 @@ func (a *WebRPC) MK12StorageDealList(ctx context.Context, limit int, offset int)
 									md.sp_id,
 									md.created_at,
 									md.chain_deal_id,
-									mid.sector_num
+									mpd.sector_num
 									FROM market_mk12_deals md 
 										LEFT JOIN market_piece_deal mpd ON mpd.id = md.uuid AND mpd.sp_id = md.sp_id 
 									WHERE mpd.boost_deal = TRUE AND mpd.legacy_deal = FALSE
@@ -339,7 +339,7 @@ func (a *WebRPC) LegacyStorageDealList(ctx context.Context, limit int, offset in
 									sp_id,
 									created_at,
 									chain_deal_id,
-									sector_num, 
+									sector_num 
 									FROM market_legacy_deals
 									ORDER BY created_at DESC
 									LIMIT $1 OFFSET $2;`, limit, offset)
