@@ -17,3 +17,14 @@ func SliceIfFound[T any](slice []T, f func(T) bool) ([]T, bool) {
 	}
 	return slice[:ct], true
 }
+
+// BackgroundTask are tasks that:
+// * Always run in the background
+// * Never finish "successfully"
+func BackgroundTask(name string) string {
+	return "bg:" + name
+}
+
+func IsBackgroundTask(name string) bool {
+	return len(name) > 3 && name[:3] == "bg:"
+}
