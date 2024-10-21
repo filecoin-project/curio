@@ -255,8 +255,14 @@ func (f *F3Task) TypeDetails() harmonytask.TaskTypeDetails {
 
 func (f *F3Task) Adder(taskFunc harmonytask.AddTaskFunc) {
 	for minerAddress := range f.actors {
+		mid, err := address.IDFromAddress(address.Address(minerAddress))
+		if err != nil {
+			log.Errorw("failed to parse miner address", "miner", minerAddress, "error", err)
+			continue
+		}
+
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			n, err := tx.Exec("INSERT INTO f3_tasks (sp_id, task_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", minerAddress, id)
+			n, err := tx.Exec("INSERT INTO f3_tasks (sp_id, task_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", mid, id)
 			if err != nil {
 				return false, err
 			}

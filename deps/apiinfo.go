@@ -19,6 +19,7 @@ import (
 
 	"github.com/filecoin-project/curio/api"
 
+	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
@@ -96,7 +97,7 @@ var RPCErrors = jsonrpc.NewErrors()
 func newChainNodeRPCV1(ctx context.Context, addr string, requestHeader http.Header, opts ...jsonrpc.Option) (api.Chain, jsonrpc.ClientCloser, error) {
 	var res api.ChainStruct
 	closer, err := jsonrpc.NewMergeClient(ctx, addr, "Filecoin",
-		api.GetInternalStructs(&res), requestHeader, append([]jsonrpc.Option{jsonrpc.WithErrors(RPCErrors)}, opts...)...)
+		api.GetInternalStructs(&res), requestHeader, append([]jsonrpc.Option{jsonrpc.WithErrors(lapi.RPCErrors)}, opts...)...)
 
 	return &res, closer, err
 }
