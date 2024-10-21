@@ -8,15 +8,21 @@ class DealDetails extends LitElement {
     }
 
     async loadData() {
-        const params = new URLSearchParams(window.location.search);
-        this.data = await RPCCall('StorageDealInfo', [params.get('id')]);
-        setTimeout(() => this.loadData(), 5000);
-        this.requestUpdate();
+        try {
+            const params = new URLSearchParams(window.location.search);
+            this.data = await RPCCall('StorageDealInfo', [params.get('id')]);
+            setTimeout(() => this.loadData(), 10000);
+            this.requestUpdate();
+        } catch (error) {
+            console.error('Failed to load deal details:', error);
+        }
     }
 
     render() {
         return html`
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet"
+                  integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3"
+                  crossorigin="anonymous">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
             <table class="table table-dark">
                 <thead>
@@ -34,6 +40,7 @@ class DealDetails extends LitElement {
                     {property: 'Signed Proposal Cid', value: entry.SignedProposalCid},
                     {property: 'Offline', value: entry.Offline},
                     {property: 'Verified', value: entry.Verified},
+                    {property: 'Is Legacy', value: entry.IsLegacy},    
                     {property: 'Start Epoch', value: entry.StartEpoch},
                     {property: 'End Epoch', value: entry.EndEpoch},
                     {property: 'Client Peer ID', value: entry.ClientPeerId},

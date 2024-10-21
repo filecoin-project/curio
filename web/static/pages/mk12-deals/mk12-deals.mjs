@@ -1,9 +1,7 @@
-// deal-pipelines.mjs
-
-import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
+import {css, html, LitElement} from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 
-class DealPipelines extends LitElement {
+class MK12DealList extends LitElement {
     static properties = {
         deals: { type: Array },
         limit: { type: Number },
@@ -23,17 +21,10 @@ class DealPipelines extends LitElement {
     async loadData() {
         try {
             const params = [this.limit, this.offset];
-            const deals = await RPCCall('GetDealPipelines', params);
-            this.deals = deals;
-
-            // Optionally, get the total count of deals for pagination (if your API supports it)
-            // For this example, we'll assume we have a way to get the total count
-            // this.totalCount = await RPCCall('GetDealPipelinesCount', []);
-
-            // If total count is not available, we can infer whether there are more pages based on the number of deals fetched
+            this.deals = await RPCCall('MK12StorageDealList', params);
             this.requestUpdate();
         } catch (error) {
-            console.error('Failed to load deal pipelines:', error);
+            console.error('Failed to load mk12 deals:', error);
         }
     }
 
@@ -61,16 +52,15 @@ class DealPipelines extends LitElement {
       <link rel="stylesheet" href="/ux/main.css" />
 
       <div>
-        <h2>Deal Pipelines</h2>
+        <h2>MK12 Deal List</h2>
         <table class="table table-dark table-striped table-sm">
           <thead>
             <tr>
-              <th>UUID</th>
-              <th>SP ID</th>
+              <th>ID</th>
+              <th>Provider</th>
               <th>Piece CID</th>
               <th>Piece Size</th>
               <th>Created At</th>
-              <th>Status</th>
               <!-- Add more columns as needed -->
             </tr>
           </thead>
@@ -78,12 +68,11 @@ class DealPipelines extends LitElement {
             ${this.deals.map(
             (deal) => html`
                 <tr>
-                  <td>${deal.uuid}</td>
+                  <td><a href="/pages/mk12-deal/?id=${deal.id}">${deal.id}</a></td>
                   <td>${deal.miner}</td>
                   <td>${deal.piece_cid}</td>
                   <td>${this.formatBytes(deal.piece_size)}</td>
                   <td>${new Date(deal.created_at).toLocaleString()}</td>
-                  <td>${this.getDealStatus(deal)}</td>
                 </tr>
               `
         )}
@@ -121,28 +110,6 @@ class DealPipelines extends LitElement {
         }
     }
 
-    getDealStatus(deal) {
-        if (deal.complete) {
-            return 'Complete';
-        } else if (deal.indexed && deal.announce && !deal.complete) {
-            return 'Announcing';
-        } else if (deal.indexed) {
-            return 'Indexed';
-        } else if (deal.sector) {
-            return 'Sealed';
-        } else if (deal.after_find_deal) {
-            return 'On Chain';
-        } else if (deal.after_psd) {
-            return 'Piece Added';
-        } else if (deal.after_commp) {
-            return 'CommP Calculated';
-        } else if (deal.started) {
-            return 'Started';
-        } else {
-            return 'Pending';
-        }
-    }
-
     static styles = css`
     .pagination-controls {
       display: flex;
@@ -153,4 +120,4 @@ class DealPipelines extends LitElement {
   `;
 }
 
-customElements.define('deal-pipelines', DealPipelines);
+customElements.define('mk12-deal-list', MK12DealList);
