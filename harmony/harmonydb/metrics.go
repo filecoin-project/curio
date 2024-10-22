@@ -5,8 +5,6 @@ import (
 	"go.opencensus.io/stats"
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
-
-	"github.com/filecoin-project/lotus/metrics"
 )
 
 var (
@@ -43,7 +41,7 @@ var DBMeasures = struct {
 
 // CacheViews groups all cache-related default views.
 func init() {
-	metrics.RegisterViews(
+	err := view.Register(
 		&view.View{
 			Measure:     DBMeasures.Hits,
 			Aggregation: view.Sum(),
@@ -65,7 +63,10 @@ func init() {
 			TagKeys:     []tag.Key{dbTag},
 		},
 	)
-	err := prometheus.Register(DBMeasures.Waits)
+	if err != nil {
+		panic(err)
+	}
+	err = prometheus.Register(DBMeasures.Waits)
 	if err != nil {
 		panic(err)
 	}
