@@ -3,6 +3,7 @@ package tasks
 
 import (
 	"context"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -151,8 +152,12 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			store := dependencies.Stor
 			winPoStTask := winning.NewWinPostTask(cfg.Subsystems.WinningPostMaxTasks, db, store, verif, asyncParams(), full, maddrs)
 			inclCkTask := winning.NewInclusionCheckTask(db, full)
-			f3Task := f3.NewF3Task(db, full, maddrs)
-			activeTasks = append(activeTasks, winPoStTask, inclCkTask, f3Task)
+			activeTasks = append(activeTasks, winPoStTask, inclCkTask)
+
+			if os.Getenv("CURIO_DISABLE_F3") != "1" {
+				f3Task := f3.NewF3Task(db, full, maddrs)
+				activeTasks = append(activeTasks, f3Task)
+			}
 
 			// Warn if also running a sealing task
 			if cfg.Subsystems.EnableSealSDR || cfg.Subsystems.EnableSealSDRTrees || cfg.Subsystems.EnableSendPrecommitMsg || cfg.Subsystems.EnablePoRepProof || cfg.Subsystems.EnableMoveStorage || cfg.Subsystems.EnableSendCommitMsg || cfg.Subsystems.EnableUpdateEncode || cfg.Subsystems.EnableUpdateProve || cfg.Subsystems.EnableUpdateSubmit {
