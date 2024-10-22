@@ -68,7 +68,8 @@ func NewF3Task(db *harmonydb.DB, api F3ParticipationAPI, actors map[dtypes.Miner
 }
 
 func (f *F3Task) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+	// Ensure that all chain calls are made on the same node (the first call will determine the node)
+	ctx := deps.OnSingleNode(context.Background())
 
 	var spID int64
 	err = f.db.QueryRow(ctx, "SELECT sp_id FROM f3_tasks WHERE task_id = $1", taskID).Scan(&spID)
@@ -82,15 +83,11 @@ func (f *F3Task) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done boo
 	}
 
 	for stillOwned() {
-
 		var previousTicket []byte
 		err = f.db.QueryRow(ctx, "SELECT previous_ticket FROM f3_tasks WHERE task_id = $1", taskID).Scan(&previousTicket)
 		if err != nil {
 			return false, xerrors.Errorf("failed to get previous ticket: %w", err)
 		}
-
-		// Ensure that calls are made on the same node (the first call will determine the node)
-		ctx := deps.OnSingleNode(ctx)
 
 		ticket, err := f.tryGetF3ParticipationTicket(ctx, stillOwned, maddr, previousTicket)
 		if err != nil {
