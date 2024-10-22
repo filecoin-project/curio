@@ -461,10 +461,10 @@ description: The default curio configuration
       # The network indexer web UI URL for viewing published announcements
       # TODO: should we use this for checking published heads before publishing? Later commit
       #
-      # type: string
-      #ServiceURL = "https://cid.contact"
+      # type: []string
+      #ServiceURL = ["https://cid.contact"]
 
-      # The list of URLs of indexing nodes to announce to. This is a list of hosts we talk TO to tell them about new
+      # The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
       # heads.
       #
       # type: []string

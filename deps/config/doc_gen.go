@@ -789,7 +789,7 @@ allow indexer nodes to process announcements. Default: False`,
 		},
 		{
 			Name: "ServiceURL",
-			Type: "string",
+			Type: "[]string",
 
 			Comment: `The network indexer web UI URL for viewing published announcements
 TODO: should we use this for checking published heads before publishing? Later commit`,
@@ -798,7 +798,7 @@ TODO: should we use this for checking published heads before publishing? Later c
 			Name: "DirectAnnounceURLs",
 			Type: "[]string",
 
-			Comment: `The list of URLs of indexing nodes to announce to. This is a list of hosts we talk TO to tell them about new
+			Comment: `The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
 heads.`,
 		},
 		{

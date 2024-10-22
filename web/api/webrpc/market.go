@@ -2,6 +2,8 @@ package webrpc
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -152,28 +154,31 @@ func (a *WebRPC) GetDealPipelines(ctx context.Context, limit int, offset int) ([
 }
 
 type StorageDealSummary struct {
-	ID                string      `db:"uuid" json:"id"`
-	MinerID           int64       `db:"sp_id" json:"sp_id"`
-	Sector            int64       `db:"sector_num" json:"sector"`
-	CreatedAt         time.Time   `db:"created_at" json:"created_at"`
-	SignedProposalCid string      `db:"signed_proposal_cid" json:"signed_proposal_cid"`
-	Offline           bool        `db:"offline" json:"offline"`
-	Verified          bool        `db:"verified" json:"verified"`
-	StartEpoch        int64       `db:"start_epoch" json:"start_epoch"`
-	EndEpoch          int64       `db:"end_epoch" json:"end_epoch"`
-	ClientPeerId      string      `db:"client_peer_id" json:"client_peer_id"`
-	ChainDealId       int64       `db:"chain_deal_id" json:"chain_deal_id"`
-	PublishCid        string      `db:"publish_cid" json:"publish_cid"`
-	PieceCid          string      `db:"piece_cid" json:"piece_cid"`
-	PieceSize         int64       `db:"piece_size" json:"piece_size"`
-	FastRetrieval     bool        `db:"fast_retrieval" json:"fast_retrieval"`
-	AnnounceToIpni    bool        `db:"announce_to_ipni" json:"announce_to_ipni"`
-	Url               string      `db:"url" json:"url"`
-	UrlHeaders        http.Header `db:"url_headers" json:"url_headers"`
-	Error             string      `db:"error" json:"error"`
-	Miner             string      `json:"miner"`
-	IsLegacy          bool        `json:"is_legacy"`
-	Indexed           bool        `db:"indexed" json:"indexed"`
+	ID                string         `db:"uuid" json:"id"`
+	MinerID           int64          `db:"sp_id" json:"sp_id"`
+	Sector            int64          `db:"sector_num" json:"sector"`
+	CreatedAt         time.Time      `db:"created_at" json:"created_at"`
+	SignedProposalCid string         `db:"signed_proposal_cid" json:"signed_proposal_cid"`
+	Offline           bool           `db:"offline" json:"offline"`
+	Verified          bool           `db:"verified" json:"verified"`
+	StartEpoch        int64          `db:"start_epoch" json:"start_epoch"`
+	EndEpoch          int64          `db:"end_epoch" json:"end_epoch"`
+	ClientPeerId      string         `db:"client_peer_id" json:"client_peer_id"`
+	ChainDealId       int64          `db:"chain_deal_id" json:"chain_deal_id"`
+	PublishCid        string         `db:"publish_cid" json:"publish_cid"`
+	PieceCid          string         `db:"piece_cid" json:"piece_cid"`
+	PieceSize         int64          `db:"piece_size" json:"piece_size"`
+	FastRetrieval     bool           `db:"fast_retrieval" json:"fast_retrieval"`
+	AnnounceToIpni    bool           `db:"announce_to_ipni" json:"announce_to_ipni"`
+	Url               sql.NullString `db:"url"`
+	URLS              string         `json:"url"`
+	Header            []byte         `db:"url_headers"`
+	UrlHeaders        http.Header    `json:"url_headers"`
+	DBError           sql.NullString `db:"error"`
+	Error             string         `json:"error"`
+	Miner             string         `json:"miner"`
+	IsLegacy          bool           `json:"is_legacy"`
+	Indexed           bool           `db:"indexed" json:"indexed"`
 }
 
 func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDealSummary, error) {
@@ -233,6 +238,27 @@ func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDeal
 		addr, err := address.NewIDAddress(uint64(d.MinerID))
 		if err != nil {
 			return &StorageDealSummary{}, err
+		}
+
+		if d.Header != nil {
+			var h http.Header
+			err = json.Unmarshal(d.Header, &h)
+			if err != nil {
+				return &StorageDealSummary{}, err
+			}
+			d.UrlHeaders = h
+		}
+
+		if !d.Url.Valid {
+			d.URLS = ""
+		} else {
+			d.URLS = d.Url.String
+		}
+
+		if !d.DBError.Valid {
+			d.Error = ""
+		} else {
+			d.Error = d.DBError.String
 		}
 
 		d.Miner = addr.String()

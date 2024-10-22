@@ -19,49 +19,56 @@ class DealDetails extends LitElement {
     }
 
     render() {
-        return html`
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet"
-                  integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3"
-                  crossorigin="anonymous">
-            <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
-            <table class="table table-dark">
-                <thead>
-                <tr>
-                    <th>Property</th>
-                    <th>Value</th>
-                </tr>
-                </thead>
-                <tbody>
-                ${this.data.flatMap(entry => [
-                    {property: 'ID', value: entry.UUID},
-                    {property: 'Provider', value: entry.Miner},
-                    {property: 'Sector Number', value: entry.Sector},
-                    {property: 'Created At', value: entry.CreatedAt},
-                    {property: 'Signed Proposal Cid', value: entry.SignedProposalCid},
-                    {property: 'Offline', value: entry.Offline},
-                    {property: 'Verified', value: entry.Verified},
-                    {property: 'Is Legacy', value: entry.IsLegacy},    
-                    {property: 'Start Epoch', value: entry.StartEpoch},
-                    {property: 'End Epoch', value: entry.EndEpoch},
-                    {property: 'Client Peer ID', value: entry.ClientPeerId},
-                    {property: 'Chain Deal ID', value: entry.ChainDealId},
-                    {property: 'Publish CID', value: entry.PublishCid},
-                    {property: 'Piece CID', value: entry.PieceCid},
-                    {property: 'Piece Size', value: entry.PieceSize},
-                    {property: 'Fast Retrieval', value: entry.FastRetrieval},
-                    {property: 'Announce To IPNI', value: entry.AnnounceToIpni},
-                    {property: 'Url', value: entry.Url},
-                    {property: 'Url Headers', value: JSON.stringify(entry.UrlHeaders, null, 2)},
-                    {property: 'Error', value: entry.Error},
-                ]).map(item => html`
-                    <tr>
-                        <td>${item.property}</td>
-                        <td>${item.value}</td>
-                    </tr>
-                `)}
-                </tbody>
-            </table>
-        `;
+        if (this.data) {
+            const entry = this.data;
+            console.log(entry)
+            const items = [
+                {property: 'ID', value: entry.id},
+                {property: 'Provider', value: entry.miner},
+                {property: 'Sector Number', value: entry.sector},
+                {property: 'Created At', value: entry.created_at},
+                {property: 'Signed Proposal Cid', value: entry.signed_proposal_cid},
+                {property: 'Offline', value: entry.offline},
+                {property: 'Verified', value: entry.verified},
+                {property: 'Is Legacy', value: entry.is_legacy},
+                {property: 'Start Epoch', value: entry.start_epoch},
+                {property: 'End Epoch', value: entry.end_epoch},
+                {property: 'Client Peer ID', value: entry.client_peer_id},
+                {property: 'Chain Deal ID', value: entry.chain_deal_id},
+                {property: 'Publish CID', value: entry.publish_cid},
+                {property: 'Piece CID', value: entry.piece_cid},
+                {property: 'Piece Size', value: entry.piece_size},
+                {property: 'Fast Retrieval', value: entry.fast_retrieval},
+                {property: 'Announce To IPNI', value: entry.announce_to_ipni},
+                {property: 'Url', value: entry.url},
+                {property: 'Url Headers', value: JSON.stringify(entry.url_headers, null, 2)},
+                {property: 'Error', value: entry.error},
+            ];
+            return html`
+          <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet"
+              integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3"
+              crossorigin="anonymous">
+          <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
+          <h2>Deal Details</h2>
+          <table class="table table-dark">
+              <thead>
+              <tr>
+                  <th>Property</th>
+                  <th>Value</th>
+              </tr>
+              </thead>
+              <tbody>
+              ${items.map(item => html`
+                  <tr>
+                    <td>${item.property}</td>
+                    <td>${item.value}</td>
+                  </tr>
+              `)}
+              </tbody>
+          </table>
+      `;
+        }
+        return html`<p>Data is not available</p>`
     }
 }
 customElements.define('deal-details', DealDetails);

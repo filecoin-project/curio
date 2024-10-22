@@ -86,7 +86,7 @@ func DefaultCurioConfig() *CurioConfig {
 					ExpectedSnapSealDuration:  Duration(2 * time.Hour),
 				},
 				IPNI: IPNIConfig{
-					ServiceURL:         "https://cid.contact",
+					ServiceURL:         []string{"https://cid.contact"},
 					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce"},
 					AnnounceAddresses:  []string{},
 				},
@@ -605,9 +605,9 @@ type IPNIConfig struct {
 
 	// The network indexer web UI URL for viewing published announcements
 	// TODO: should we use this for checking published heads before publishing? Later commit
-	ServiceURL string
+	ServiceURL []string
 
-	// The list of URLs of indexing nodes to announce to. This is a list of hosts we talk TO to tell them about new
+	// The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
 	// heads.
 	DirectAnnounceURLs []string
 
