@@ -42,6 +42,7 @@ import (
 )
 
 const LeafSize = proof.NODE_SIZE
+const ChallengeLookback = 8
 
 type ProveTask struct {
 	db        *harmonydb.DB
@@ -86,7 +87,7 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
                       AND next_challenge_epoch <= $1
                       AND next_challenge_possible = TRUE
                     LIMIT 2
-                `, apply.Height())
+                `, apply.Height()-ChallengeLookback)
 				if err != nil {
 					return false, xerrors.Errorf("failed to select proof sets: %w", err)
 				}
