@@ -3,14 +3,17 @@ package pdp
 import (
 	"context"
 	"encoding/json"
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/pdp/contract"
+
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
-	"golang.org/x/xerrors"
-	"math/big"
 )
 
 type ProofSetCreate struct {

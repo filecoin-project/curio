@@ -7,12 +7,13 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	xerrors "golang.org/x/xerrors"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/yugabyte/pgx/v5"
+	xerrors "golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
 // PDPService represents a PDP service

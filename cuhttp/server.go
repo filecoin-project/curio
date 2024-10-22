@@ -3,8 +3,6 @@ package cuhttp
 import (
 	"context"
 	"fmt"
-	"github.com/filecoin-project/curio/tasks/message"
-	"github.com/snadrus/must"
 	"net/http"
 	"time"
 
@@ -13,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/handlers"
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/snadrus/must"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/xerrors"
@@ -24,6 +23,7 @@ import (
 	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/market/retrieval"
 	"github.com/filecoin-project/curio/pdp"
+	"github.com/filecoin-project/curio/tasks/message"
 )
 
 var log = logging.Logger("cu-http")

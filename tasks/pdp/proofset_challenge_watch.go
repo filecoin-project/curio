@@ -2,15 +2,19 @@ package pdp
 
 import (
 	"context"
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/pdp/contract"
-	"github.com/filecoin-project/go-state-types/abi"
+
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
-	"golang.org/x/xerrors"
-	"math/big"
 )
 
 // ProofSet represents a record from pdp_proof_sets table
