@@ -10,6 +10,7 @@ import (
 	"math/big"
 	"math/bits"
 	"sort"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -48,6 +49,8 @@ type ProveTask struct {
 	sender    *message.SenderETH
 	cpr       *cachedreader.CachedPieceReader
 
+	head atomic.Pointer[chainTypes.TipSet]
+
 	addFunc promise.Promise[harmonytask.AddTaskFunc]
 }
 
@@ -63,6 +66,8 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 		if apply == nil {
 			return nil
 		}
+
+		pt.head.Store(apply)
 
 		for {
 			more := false
@@ -175,10 +180,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to get next challenge epoch: %w", err)
 	}
 
-	// Number of challenges to generate
-	numChallenges := 20 // Application / pdp will specify this later
-
-	proofs, err := p.GenerateProofs(ctx, pdpService, proofSetID, challengeEpoch, numChallenges)
+	proofs, err := p.GenerateProofs(ctx, pdpService, proofSetID, challengeEpoch, contract.NumChallenges)
 	if err != nil {
 		return false, xerrors.Errorf("failed to generate proofs: %w", err)
 	}
@@ -220,7 +222,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	txEth := types.NewTransaction(
 		0,
 		contract.ContractAddresses().PDPVerifier,
-		big.NewInt(0),
+		contract.ProofFee(p.head.Load()),
 		0,
 		nil,
 		data,
