@@ -161,8 +161,8 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 	}
 
 	// Step 4: Manually create the transaction without requiring a Signer
-	// Obtain the ABI of the PDPService contract
-	abiData, err := contract.PDPServiceMetaData.GetAbi()
+	// Obtain the ABI of the PDPVerifier contract
+	abiData, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
 		http.Error(w, "Failed to get contract ABI: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -178,7 +178,7 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 	// Prepare the transaction (nonce will be set to 0, SenderETH will assign it)
 	tx := types.NewTransaction(
 		0,
-		contract.ContractAddresses().PDPService,
+		contract.ContractAddresses().PDPVerifier,
 		big.NewInt(0),
 		0,
 		nil,
@@ -709,8 +709,8 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Step 5: Prepare the Ethereum transaction data outside the DB transaction
-	// Obtain the ABI of the PDPService contract
-	abiData, err := contract.PDPServiceMetaData.GetAbi()
+	// Obtain the ABI of the PDPVerifier contract
+	abiData, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
 		http.Error(w, "Failed to get contract ABI: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -775,7 +775,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 	// Prepare the transaction (nonce will be set to 0, SenderETH will assign it)
 	txEth := types.NewTransaction(
 		0,
-		contract.ContractAddresses().PDPService,
+		contract.ContractAddresses().PDPVerifier,
 		big.NewInt(0),
 		0,
 		nil,

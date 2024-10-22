@@ -105,7 +105,7 @@ func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCr
 }
 
 func extractProofSetIdFromReceipt(receipt *types.Receipt) (uint64, error) {
-	pdpABI, err := contract.PDPServiceMetaData.GetAbi()
+	pdpABI, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
 		return 0, xerrors.Errorf("failed to get PDP ABI: %w", err)
 	}

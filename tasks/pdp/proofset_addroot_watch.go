@@ -109,7 +109,7 @@ func processProofSetRootAdd(ctx context.Context, db *harmonydb.DB, ethClient *et
 
 func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, receipt *types.Receipt, rootAdd ProofSetRootAdd) error {
 	// Get the ABI from the contract metadata
-	pdpABI, err := contract.PDPServiceMetaData.GetAbi()
+	pdpABI, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
 		return fmt.Errorf("failed to get PDP ABI: %w", err)
 	}

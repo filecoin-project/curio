@@ -27,10 +27,10 @@ func NewWatcherNextChallengeEpoch(
 	callOpts := &bind.CallOpts{
 		Context: context.Background(),
 	}
-	pdpServiceAddress := contract.ContractAddresses().PDPService
-	pdpService, err := contract.NewPDPService(pdpServiceAddress, ethClient)
+	pdpServiceAddress := contract.ContractAddresses().PDPVerifier
+	pdpService, err := contract.NewPDPVerifier(pdpServiceAddress, ethClient)
 	if err != nil {
-		return xerrors.Errorf("failed to instantiate PDPService contract at %s: %w", pdpServiceAddress.Hex(), err)
+		return xerrors.Errorf("failed to instantiate PDPVerifier contract at %s: %w", pdpServiceAddress.Hex(), err)
 	}
 	cf, err := pdpService.GetChallengeFinality(callOpts)
 	if err != nil {
@@ -67,13 +67,13 @@ func processNullNextChallengeEpochs(ctx context.Context, minHeight abi.ChainEpoc
 		return nil
 	}
 
-	// Instantiate the PDPService contract instance
+	// Instantiate the PDPVerifier contract instance
 	pdpContracts := contract.ContractAddresses()
-	pdpServiceAddress := pdpContracts.PDPService
+	pdpServiceAddress := pdpContracts.PDPVerifier
 
-	pdpService, err := contract.NewPDPService(pdpServiceAddress, ethClient)
+	pdpService, err := contract.NewPDPVerifier(pdpServiceAddress, ethClient)
 	if err != nil {
-		return xerrors.Errorf("failed to instantiate PDPService contract at %s: %w", pdpServiceAddress.Hex(), err)
+		return xerrors.Errorf("failed to instantiate PDPVerifier contract at %s: %w", pdpServiceAddress.Hex(), err)
 	}
 
 	// Prepare call options (use latest block)
@@ -96,11 +96,11 @@ func processNullNextChallengeEpochs(ctx context.Context, minHeight abi.ChainEpoc
 func updateNextChallengeEpoch(
 	ctx context.Context,
 	db *harmonydb.DB,
-	pdpService *contract.PDPService,
+	pdpService *contract.PDPVerifier,
 	callOpts *bind.CallOpts,
 	ps ProofSet,
 ) error {
-	// Call getNextChallengeEpoch(setID) on the PDPService contract
+	// Call getNextChallengeEpoch(setID) on the PDPVerifier contract
 	nextChallengeEpochBigInt, err := pdpService.GetNextChallengeEpoch(callOpts, big.NewInt(ps.ID))
 	if err != nil {
 		return xerrors.Errorf("failed to get nextChallengeEpoch for proof set %d: %w", ps.ID, err)
