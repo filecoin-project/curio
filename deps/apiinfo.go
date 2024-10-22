@@ -81,9 +81,13 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 
 type contextKey string
 
+var retryNodeKey = contextKey("retry-node")
+
+// OnSingleNode returns a new context that will try to perform all calls on the same node.
+// If the backing node fails, the calls will be retried on a different node, and further calls will be made on that node.
 // Not thread safe
 func OnSingleNode(ctx context.Context) context.Context {
-	return context.WithValue(ctx, contextKey("retry-node"), new(*int))
+	return context.WithValue(ctx, retryNodeKey, new(*int))
 }
 
 type httpHead struct {
@@ -229,12 +233,11 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 
 				// for calls that need to be performed on the same node
 				// primarily for miner when calling create block and submit block subsequently
-				key := contextKey("retry-node")
-				if ctx.Value(key) != nil {
-					if (*ctx.Value(key).(**int)) == nil {
-						*ctx.Value(key).(**int) = preferredProvider
+				if ctx.Value(retryNodeKey) != nil {
+					if (*ctx.Value(retryNodeKey).(**int)) == nil {
+						*ctx.Value(retryNodeKey).(**int) = preferredProvider
 					} else {
-						preferredProvider = *ctx.Value(key).(**int)
+						preferredProvider = *ctx.Value(retryNodeKey).(**int)
 					}
 				}
 
