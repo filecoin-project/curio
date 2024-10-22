@@ -81,10 +81,7 @@ func (f *F3Task) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done boo
 		return false, xerrors.Errorf("failed to parse miner address: %w", err)
 	}
 
-	for {
-		if !stillOwned() {
-			return false, nil
-		}
+	for stillOwned() {
 
 		var previousTicket []byte
 		err = f.db.QueryRow(ctx, "SELECT previous_ticket FROM f3_tasks WHERE task_id = $1", taskID).Scan(&previousTicket)
@@ -113,17 +110,13 @@ func (f *F3Task) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done boo
 			return false, xerrors.Errorf("failed to update previous ticket: %w", err)
 		}
 
-		bo := &backoff.Backoff{
-			Min:    1 * time.Second,
-			Max:    1 * time.Minute,
-			Factor: 1.5,
-		}
-
-		err = f.awaitLeaseExpiry(stillOwned, ctx, lease, bo)
+		err = f.awaitLeaseExpiry(ctx, stillOwned, lease)
 		if err != nil {
 			return false, xerrors.Errorf("failed to await lease expiry: %w", err)
 		}
 	}
+
+	return false, xerrors.Errorf("f3 task is background task")
 }
 
 func (f *F3Task) tryGetF3ParticipationTicket(ctx context.Context, stillOwned func() bool, participant address.Address, previousTicket []byte) (api.F3ParticipationTicket, error) {
@@ -187,7 +180,13 @@ func (f *F3Task) tryF3Participate(ctx context.Context, stillOwned func() bool, t
 	return api.F3ParticipationLease{}, false, ctx.Err()
 }
 
-func (f *F3Task) awaitLeaseExpiry(stillOwned func() bool, ctx context.Context, lease api.F3ParticipationLease, backoff *backoff.Backoff) error {
+func (f *F3Task) awaitLeaseExpiry(ctx context.Context, stillOwned func() bool, lease api.F3ParticipationLease) error {
+	backoff := &backoff.Backoff{
+		Min:    1 * time.Second,
+		Max:    1 * time.Minute,
+		Factor: 1.5,
+	}
+
 	renewLeaseWithin := f.leaseTerm / 2
 	for stillOwned() {
 		manifest, err := f.api.F3GetManifest(ctx)
@@ -254,15 +253,15 @@ func (f *F3Task) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 func (f *F3Task) Adder(taskFunc harmonytask.AddTaskFunc) {
-	for minerAddress := range f.actors {
-		mid, err := address.IDFromAddress(address.Address(minerAddress))
+	for a := range f.actors {
+		spid, err := address.IDFromAddress(address.Address(a))
 		if err != nil {
-			log.Errorw("failed to parse miner address", "miner", minerAddress, "error", err)
+			log.Errorw("failed to parse miner address", "miner", a, "error", err)
 			continue
 		}
 
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			n, err := tx.Exec("INSERT INTO f3_tasks (sp_id, task_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", mid, id)
+			n, err := tx.Exec("INSERT INTO f3_tasks (sp_id, task_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", spid, id)
 			if err != nil {
 				return false, err
 			}
