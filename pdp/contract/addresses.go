@@ -2,6 +2,7 @@ package contract
 
 import (
 	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/filecoin-project/curio/build"
 )
 

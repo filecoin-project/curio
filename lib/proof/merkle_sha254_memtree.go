@@ -1,15 +1,18 @@
 package proof
 
 import (
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/lotus/storage/sealer/fr32"
+	"io"
+
 	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/minio/sha256-simd"
 	"golang.org/x/xerrors"
-	"io"
+
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/lotus/storage/sealer/fr32"
 )
 
-const MaxMemtreeSize = 128 << 20
+const MaxMemtreeSize = 256 << 20
 
 // BuildSha254Memtree builds a sha256 memtree from the input data
 // Returned slice should be released to the pool after use

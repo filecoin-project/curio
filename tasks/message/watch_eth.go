@@ -11,11 +11,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 
-	types2 "github.com/filecoin-project/lotus/chain/types"
-
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
+
+	types2 "github.com/filecoin-project/lotus/chain/types"
 )
 
 type MessageWatcherEth struct {

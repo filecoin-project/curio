@@ -20,12 +20,13 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/dealdata"
+	"github.com/filecoin-project/curio/lib/proof"
 )
 
 var log = logger.Logger("pdp")
 
 // PieceSizeLimit in bytes
-var PieceSizeLimit = abi.PaddedPieceSize(256 << 20).Unpadded()
+var PieceSizeLimit = abi.PaddedPieceSize(proof.MaxMemtreeSize).Unpadded()
 
 func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	// Verify that the request is authorized using ECDSA JWT
