@@ -42,7 +42,6 @@ import (
 )
 
 const LeafSize = proof.NODE_SIZE
-const ChallengeLookback = 8
 
 type ProveTask struct {
 	db        *harmonydb.DB
@@ -63,6 +62,9 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 		cpr:       cpr,
 	}
 
+	// ProveTasks are created on pdp_proof_sets entries where
+	// challenge_request_msg_hash is not null (=not yet landed)
+
 	err := chainSched.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		if apply == nil {
 			return nil
@@ -76,18 +78,16 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 			pt.addFunc.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 				// Select proof sets ready for proving
 				var proofSets []struct {
-					ID                 int64         `db:"id"`
-					NextChallengeEpoch sql.NullInt64 `db:"next_challenge_epoch"`
+					ID int64 `db:"id"`
 				}
 
 				err := tx.Select(&proofSets, `
-                    SELECT id, next_challenge_epoch
-                    FROM pdp_proof_sets
-                    WHERE next_challenge_epoch IS NOT NULL
-                      AND next_challenge_epoch <= $1
-                      AND next_challenge_possible = TRUE
+                    SELECT p.id
+                    FROM pdp_proof_sets p
+                    INNER JOIN message_waits_eth mw on mw.signed_tx_hash = p.challenge_request_msg_hash
+                    WHERE p.challenge_request_msg_hash IS NOT NULL AND mw.tx_success = TRUE
                     LIMIT 2
-                `, apply.Height()-ChallengeLookback)
+                `)
 				if err != nil {
 					return false, xerrors.Errorf("failed to select proof sets: %w", err)
 				}
@@ -105,22 +105,21 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 
 				// Insert a new task into pdp_prove_tasks
 				affected, err := tx.Exec(`
-                    INSERT INTO pdp_prove_tasks (proofset, challenge_epoch, task_id)
-                    VALUES ($1, $2, $3) ON CONFLICT DO NOTHING
-                `, todo.ID, todo.NextChallengeEpoch.Int64, id)
+                    INSERT INTO pdp_prove_tasks (proofset, task_id)
+                    VALUES ($1, $2) ON CONFLICT DO NOTHING
+                `, todo.ID, id)
 				if err != nil {
 					return false, xerrors.Errorf("failed to insert into pdp_prove_tasks: %w", err)
 				}
 				if affected == 0 {
-					more = false
 					return false, nil
 				}
 
 				// Update pdp_proof_sets to set next_challenge_possible = FALSE
 				affected, err = tx.Exec(`
                     UPDATE pdp_proof_sets
-                    SET next_challenge_possible = FALSE
-                    WHERE id = $1 AND next_challenge_possible = TRUE
+                    SET challenge_request_msg_hash = NULL
+                    WHERE id = $1 AND challenge_request_msg_hash IS NOT NULL
                 `, todo.ID)
 				if err != nil {
 					return false, xerrors.Errorf("failed to update pdp_proof_sets: %w", err)
@@ -245,31 +244,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to send transaction: %w", err)
 	}
 
-	// Start a transaction
-	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// Update pdp_prove_tasks with the transaction hash
-		_, err := tx.Exec(`
-					UPDATE pdp_prove_tasks
-					SET message_eth_hash = $1
-					WHERE task_id = $2
-				`, txHash.Hex(), taskID)
-
-		// Optionally, update pdp_proof_sets.next_challenge_epoch = NULL and next_challenge_possible = FALSE
-		_, err = tx.Exec(`
-            UPDATE pdp_proof_sets
-            SET prev_challenge_epoch = $2, next_challenge_possible = FALSE
-            WHERE id = $1
-        `, proofSetID, challengeEpoch)
-		if err != nil {
-			return false, xerrors.Errorf("failed to update pdp_proof_sets: %w", err)
-		}
-
-		return true, nil
-	}, harmonydb.OptionRetry())
-
-	if err != nil {
-		return false, err
-	}
+	log.Infow("PDP Prove Task: transaction sent", "txHash", txHash, "proofSetID", proofSetID, "taskID", taskID)
 
 	// Task completed successfully
 	return true, nil
@@ -643,7 +618,7 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,
-			Ram: 256 << 20, // 128 MB
+			Ram: 256 << 20, // 256 MB
 		},
 		MaxFailures: 5,
 	}
