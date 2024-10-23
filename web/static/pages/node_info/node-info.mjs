@@ -111,7 +111,7 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                         <td>${task.ID}</td>
                         <td>${task.Task}</td>
                         <td>${task.Posted}</td>
-                        <td>${task.PoRepSector ? html`<a href="/pages/sector/?sp=f0${task.PoRepSectorSP}&id=${task.PoRepSector}">f0${task.PoRepSectorSP}:${task.PoRepSector}</a>` : ''}</td>
+                        <td>${task.PoRepSector ? html`<a href="/pages/sector/?sp=${task.PoRepSectorMiner}&id=${task.PoRepSector}">${task.PoRepSectorMiner}:${task.PoRepSector}</a>` : ''}</td>
                     </tr>
                 `)}
             </table>

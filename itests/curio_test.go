@@ -51,7 +51,6 @@ func TestCurioNewActor(t *testing.T) {
 	full, miner, ensemble := kit.EnsembleMinimal(t,
 		kit.LatestActorsAt(-1),
 		kit.MockProofs(),
-		kit.WithSectorIndexDB(),
 	)
 
 	ensemble.Start()
@@ -101,7 +100,6 @@ func TestCurioHappyPath(t *testing.T) {
 
 	full, miner, esemble := kit.EnsembleMinimal(t,
 		kit.LatestActorsAt(-1),
-		kit.WithSectorIndexDB(),
 		kit.PresealSectors(32),
 		kit.ThroughRPC(),
 	)

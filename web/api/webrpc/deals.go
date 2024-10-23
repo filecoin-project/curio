@@ -22,6 +22,8 @@ type OpenDealInfo struct {
 
 	PieceSizeStr string `db:"-"`
 	CreatedAtStr string `db:"-"`
+
+	Miner string
 }
 
 func (a *WebRPC) DealsPending(ctx context.Context) ([]OpenDealInfo, error) {
@@ -34,6 +36,11 @@ func (a *WebRPC) DealsPending(ctx context.Context) ([]OpenDealInfo, error) {
 	for i, deal := range deals {
 		deals[i].PieceSizeStr = types.SizeStr(types.NewInt(deal.PieceSize))
 		deals[i].CreatedAtStr = deal.CreatedAt.Format("2006-01-02 15:04:05")
+		maddr, err := address.NewIDAddress(uint64(deals[i].Actor))
+		if err != nil {
+			return nil, err
+		}
+		deals[i].Miner = maddr.String()
 	}
 
 	return deals, nil

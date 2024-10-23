@@ -442,6 +442,15 @@ func (s *SupraSeal) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
+	if s.slots.Available() == 0 {
+		return nil
+	}
+
+	if err := hugepageutil.CheckHugePages(36); err != nil {
+		log.Warnw("huge pages check failed, try 'sudo sysctl -w vm.nr_hugepages=36' and make sure your system uses 1G huge pages", "err", err)
+		return nil
+	}
+
 	taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 		// claim [sectors] pipeline entries
 		var sectors []struct {

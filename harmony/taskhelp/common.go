@@ -1,5 +1,7 @@
 package taskhelp
 
+import "strings"
+
 // SubsetIf returns a subset of the slice for which the predicate is true.
 // It does not allocate memory, but rearranges the list in place.
 // A non-zero list input will always return a non-zero list.
@@ -16,4 +18,15 @@ func SliceIfFound[T any](slice []T, f func(T) bool) ([]T, bool) {
 		return slice, false
 	}
 	return slice[:ct], true
+}
+
+// BackgroundTask are tasks that:
+// * Always run in the background
+// * Never finish "successfully"
+func BackgroundTask(name string) string {
+	return "bg:" + name
+}
+
+func IsBackgroundTask(name string) bool {
+	return strings.HasPrefix(name, "bg:")
 }

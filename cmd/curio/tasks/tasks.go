@@ -3,6 +3,7 @@ package tasks
 
 import (
 	"context"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -34,6 +35,7 @@ import (
 	"github.com/filecoin-project/curio/lib/slotmgr"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/libp2p"
+	"github.com/filecoin-project/curio/tasks/f3"
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/indexing"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -158,6 +160,11 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			winPoStTask := winning.NewWinPostTask(cfg.Subsystems.WinningPostMaxTasks, db, store, verif, asyncParams(), full, maddrs)
 			inclCkTask := winning.NewInclusionCheckTask(db, full)
 			activeTasks = append(activeTasks, winPoStTask, inclCkTask)
+
+			if os.Getenv("CURIO_DISABLE_F3") != "1" {
+				f3Task := f3.NewF3Task(db, full, maddrs)
+				activeTasks = append(activeTasks, f3Task)
+			}
 
 			// Warn if also running a sealing task
 			if cfg.Subsystems.EnableSealSDR || cfg.Subsystems.EnableSealSDRTrees || cfg.Subsystems.EnableSendPrecommitMsg || cfg.Subsystems.EnablePoRepProof || cfg.Subsystems.EnableMoveStorage || cfg.Subsystems.EnableSendCommitMsg || cfg.Subsystems.EnableUpdateEncode || cfg.Subsystems.EnableUpdateProve || cfg.Subsystems.EnableUpdateSubmit {

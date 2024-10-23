@@ -26,3 +26,6 @@
   * [Curio](curio-cli/curio.md)
   * [Sptool](curio-cli/sptool.md)
 * [API](api.md)
+* [Docker Devnet](docker-devnet.md)
+* [Experimental Features](experimental-features/README.md)
+  * [GPU Over Provisioning](experimental-features/gpu-over-provisioning.md)

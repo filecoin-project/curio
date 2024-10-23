@@ -42,7 +42,7 @@ class PendingDeals extends LitElement {
                 <tbody>
                 ${this.data.map(entry => html`
                     <tr>
-                        <td>f0${entry.Actor}</td>
+                        <td>${entry.Miner}</td>
                         <td>${entry.SectorNumber}</td>
                         <td>${entry.PieceCID}</td>
                         <td>${entry.PieceSizeStr}</td>

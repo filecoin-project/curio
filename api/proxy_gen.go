@@ -168,7 +168,7 @@ type CurioChainRPCMethods struct {
 
 	StateMinerInfo func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (api.MinerInfo, error) ``
 
-	StateMinerInitialPledgeCollateral func(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) ``
+	StateMinerInitialPledgeForSector func(p0 context.Context, p1 abi.ChainEpoch, p2 abi.SectorSize, p3 uint64, p4 types.TipSetKey) (types.BigInt, error) ``
 
 	StateMinerPartitions func(p0 context.Context, p1 address.Address, p2 uint64, p3 types.TipSetKey) ([]api.Partition, error) ``
 
@@ -869,15 +869,15 @@ func (s *CurioChainRPCStub) StateMinerInfo(p0 context.Context, p1 address.Addres
 	return *new(api.MinerInfo), ErrNotSupported
 }
 
-func (s *CurioChainRPCStruct) StateMinerInitialPledgeCollateral(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) {
-	if s.Internal.StateMinerInitialPledgeCollateral == nil {
-		return *new(big.Int), ErrNotSupported
+func (s *CurioChainRPCStruct) StateMinerInitialPledgeForSector(p0 context.Context, p1 abi.ChainEpoch, p2 abi.SectorSize, p3 uint64, p4 types.TipSetKey) (types.BigInt, error) {
+	if s.Internal.StateMinerInitialPledgeForSector == nil {
+		return *new(types.BigInt), ErrNotSupported
 	}
-	return s.Internal.StateMinerInitialPledgeCollateral(p0, p1, p2, p3)
+	return s.Internal.StateMinerInitialPledgeForSector(p0, p1, p2, p3, p4)
 }
 
-func (s *CurioChainRPCStub) StateMinerInitialPledgeCollateral(p0 context.Context, p1 address.Address, p2 miner.SectorPreCommitInfo, p3 types.TipSetKey) (big.Int, error) {
-	return *new(big.Int), ErrNotSupported
+func (s *CurioChainRPCStub) StateMinerInitialPledgeForSector(p0 context.Context, p1 abi.ChainEpoch, p2 abi.SectorSize, p3 uint64, p4 types.TipSetKey) (types.BigInt, error) {
+	return *new(types.BigInt), ErrNotSupported
 }
 
 func (s *CurioChainRPCStruct) StateMinerPartitions(p0 context.Context, p1 address.Address, p2 uint64, p3 types.TipSetKey) ([]api.Partition, error) {
