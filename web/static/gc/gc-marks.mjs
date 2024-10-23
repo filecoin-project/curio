@@ -41,7 +41,7 @@ class StorageGCStats extends LitElement {
                 <tbody>
                 ${this.data.map(entry => html`
                     <tr>
-                        <td>f0${entry.Actor}</td>
+                        <td>${entry.Miner}</td>
                         <td>${entry.SectorNum}</td>
                         <td>
                             <div>

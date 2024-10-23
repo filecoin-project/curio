@@ -7,6 +7,8 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-address"
 )
 
 type MachineSummary struct {
@@ -172,6 +174,7 @@ type MachineInfo struct {
 		Posted string
 
 		PoRepSector, PoRepSectorSP *int64
+		PoRepSectorMiner           string
 	}
 
 	FinishedTasks []struct {
@@ -286,8 +289,9 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 			Task   string
 			Posted string
 
-			PoRepSector   *int64
-			PoRepSectorSP *int64
+			PoRepSector      *int64
+			PoRepSectorSP    *int64
+			PoRepSectorMiner string
 		}
 
 		var posted time.Time
@@ -300,15 +304,15 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 			// try to find in the porep pipeline
 			rows4, err := a.deps.DB.Query(ctx, `SELECT sp_id, sector_number FROM sectors_sdr_pipeline 
             	WHERE task_id_sdr=$1
-								OR task_id_tree_d=$1
-								OR task_id_tree_c=$1
-								OR task_id_tree_r=$1
-								OR task_id_precommit_msg=$1
-								OR task_id_porep=$1	
-								OR task_id_commit_msg=$1
-								OR task_id_finalize=$1
-								OR task_id_move_storage=$1
-            	    `, t.ID)
+				OR task_id_tree_d=$1
+				OR task_id_tree_c=$1
+				OR task_id_tree_r=$1
+				OR task_id_synth=$1 
+				OR task_id_precommit_msg=$1
+				OR task_id_porep=$1	
+				OR task_id_commit_msg=$1
+				OR task_id_finalize=$1
+				OR task_id_move_storage=$1`, t.ID)
 			if err != nil {
 				return nil, err
 			}
@@ -321,6 +325,11 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 				}
 				t.PoRepSector = &sector
 				t.PoRepSectorSP = &spid
+				maddr, err := address.NewIDAddress(uint64(spid))
+				if err != nil {
+					return nil, err
+				}
+				t.PoRepSectorMiner = maddr.String()
 			}
 
 			rows4.Close()

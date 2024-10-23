@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/filecoin-project/go-address"
 )
 
 type WinStats struct {
@@ -21,6 +23,8 @@ type WinStats struct {
 	TaskSuccess    string `db:"-"`
 	IncludedStr    string `db:"-"`
 	ComputeTime    string `db:"-"`
+
+	Miner string
 }
 
 func (a *WebRPC) WinStats(ctx context.Context) ([]WinStats, error) {
@@ -74,6 +78,11 @@ func (a *WebRPC) WinStats(ctx context.Context) ([]WinStats, error) {
 		if success > 0 {
 			marks[i].TaskSuccess += "Success"
 		}
+		maddr, err := address.NewIDAddress(uint64(marks[i].Actor))
+		if err != nil {
+			return nil, err
+		}
+		marks[i].Miner = maddr.String()
 	}
 
 	return marks, nil
