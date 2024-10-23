@@ -241,18 +241,39 @@ func ensureSchemaExists(connString, schema string) error {
 //go:embed sql
 var fs embed.FS
 
-func (db *DB) upgrade() error {
+func (db *DB) upgrade() (err error) {
 	// Does the version table exist? if not, make it.
 	// NOTE: This cannot change except via the next sql file.
-	_, err := db.Exec(context.Background(), `CREATE TABLE IF NOT EXISTS base (
+	_, err = db.Exec(context.Background(), `CREATE TABLE IF NOT EXISTS base (
 		id SERIAL PRIMARY KEY,
 		entry CHAR(12),
 		applied TIMESTAMP DEFAULT current_timestamp
-	)`)
+		)`)
 	if err != nil {
 		logger.Error("Upgrade failed.")
 		return xerrors.Errorf("Cannot create base table %w", err)
 	}
+	done := make(chan struct{})
+	txErr := make(chan error)
+	go func() {
+		_, err = db.BeginTransaction(context.Background(), func(tx *Tx) (commit bool, err error) {
+			_, err = tx.Exec(`LOCK TABLE base`)
+			if err != nil {
+				logger.Error("Upgrade failed: could not lock.")
+				return false, xerrors.Errorf("Cannot create base table %w", err)
+			}
+			<-done
+			return true, nil
+		})
+		txErr <- err
+	}()
+	defer func() {
+		close(done)
+		err2 := <-txErr
+		if err == nil {
+			err = err2
+		}
+	}()
 
 	// __Run scripts in order.__
 
@@ -317,7 +338,8 @@ func (db *DB) upgrade() error {
 			return xerrors.Errorf("cannot insert into base: %w", err)
 		}
 	}
-	return nil
+
+	return err
 }
 
 func parseSQLStatements(sqlContent string) []string {
