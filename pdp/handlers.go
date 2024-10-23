@@ -412,16 +412,15 @@ func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
 
 	// Step 3: Retrieve the proof set from the database
 	var proofSet struct {
-		ID                 uint64 `db:"id"`
-		NextChallengeEpoch *int64 `db:"next_challenge_epoch"`
-		Service            string `db:"service"`
+		ID      uint64 `db:"id"`
+		Service string `db:"service"`
 	}
 
 	err = p.db.QueryRow(ctx, `
-        SELECT id, next_challenge_epoch, service
+        SELECT id, service
         FROM pdp_proof_sets
         WHERE id = $1
-    `, proofSetId).Scan(&proofSet.ID, &proofSet.NextChallengeEpoch, &proofSet.Service)
+    `, proofSetId).Scan(&proofSet.ID, &proofSet.Service)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(w, "Proof set not found", http.StatusNotFound)
@@ -458,12 +457,10 @@ func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
 
 	// Step 6: Prepare the response
 	response := struct {
-		ID                 uint64      `json:"id"`
-		NextChallengeEpoch *int64      `json:"nextChallengeEpoch"`
-		Roots              []RootEntry `json:"roots"`
+		ID    uint64      `json:"id"`
+		Roots []RootEntry `json:"roots"`
 	}{
-		ID:                 proofSet.ID,
-		NextChallengeEpoch: proofSet.NextChallengeEpoch,
+		ID: proofSet.ID,
 	}
 
 	// Convert roots to the desired JSON format
