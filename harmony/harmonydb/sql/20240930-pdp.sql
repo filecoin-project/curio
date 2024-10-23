@@ -60,21 +60,28 @@ CREATE INDEX pdp_piecerefs_piece_cid_idx ON pdp_piecerefs(piece_cid);
 CREATE TABLE pdp_proof_sets (
     id BIGINT PRIMARY KEY, -- on-chain proofset id
 
-    -- cached chain values
+    -- updated when a challenge is requested (either by first proofset add or by invokes of nextProvingPeriod)
+    -- initially NULL on fresh proofsets.
+    prev_challenge_request_epoch BIGINT,
 
-    -- next challenge epoch:
-    -- - NULL if not yet indexed
-    next_challenge_epoch BIGINT,
+    -- task invoking nextProvingPeriod, the task should be spawned any time prev_challenge_request_epoch+provingPeriod is in the past
+    challenge_request_task_id BIGINT REFERENCES harmony_task(id) ON DELETE SET NULL,
 
-    -- next challenge possible:
-    -- Set to true when next_challenge_epoch is set to a new non-null value
-    -- Set to false when a prove task is created
-    next_challenge_possible BOOLEAN NOT NULL DEFAULT FALSE,
-
-    prev_challenge_epoch BIGINT, -- previous challenge epoch
+    -- first proofset add or nextProvingPeriod message hash, when the message lands prove_task_id will be spawned and
+    -- this value will be set to NULL
+    challenge_request_msg_hash TEXT,
 
     create_message_hash TEXT NOT NULL,
     service TEXT NOT NULL REFERENCES pdp_services(service_label) ON DELETE RESTRICT
+);
+
+CREATE TABLE pdp_prove_tasks (
+    proofset BIGINT NOT NULL, -- pdp_proof_sets.id
+    task_id BIGINT NOT NULL, -- harmonytask task ID
+
+    PRIMARY KEY (proofset, task_id),
+    FOREIGN KEY (proofset) REFERENCES pdp_proof_sets(id) ON DELETE CASCADE,
+    FOREIGN KEY (task_id) REFERENCES harmony_task(id) ON DELETE CASCADE
 );
 
 -- proofset creation requests
@@ -134,18 +141,6 @@ CREATE TABLE pdp_proofset_root_adds (
 
     FOREIGN KEY (proofset) REFERENCES pdp_proof_sets(id) ON DELETE CASCADE, -- cascade, if we drop a proofset, we no longer care about the roots
     FOREIGN KEY (pdp_pieceref) REFERENCES pdp_piecerefs(id) ON DELETE SET NULL -- sets null on delete so that it's easy to notice and clean up
-);
-
-CREATE TABLE pdp_prove_tasks (
-    proofset BIGINT NOT NULL, -- pdp_proof_sets.id
-    challenge_epoch BIGINT NOT NULL, -- challenge epoch
-
-    task_id BIGINT NOT NULL, -- harmonytask task ID
-
-    message_eth_hash     text,
-
-    FOREIGN KEY (proofset) REFERENCES pdp_proof_sets(id) ON DELETE CASCADE,
-    CONSTRAINT pdp_prove_tasks_pk PRIMARY KEY (proofset, challenge_epoch)
 );
 
 -- proofset_refcount tracking

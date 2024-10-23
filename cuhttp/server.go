@@ -254,7 +254,7 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDep
 	libp2p.Router(r, rd)
 
 	if sd.EthSender != nil {
-		pdsvc := pdp.NewPDPService(d.DB, d.LocalStore, must.One(d.EthClient.Get()), sd.EthSender)
+		pdsvc := pdp.NewPDPService(d.DB, d.LocalStore, must.One(d.EthClient.Get()), d.Chain, sd.EthSender)
 		pdp.Routes(r, pdsvc)
 	}
 

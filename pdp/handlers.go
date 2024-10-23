@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	types2 "github.com/filecoin-project/lotus/chain/types"
 	"io"
 	"math/big"
 	"net/http"
@@ -41,16 +42,22 @@ type PDPService struct {
 
 	sender    *message.SenderETH
 	ethClient *ethclient.Client
+	filClient PDPServiceNodeApi
+}
+
+type PDPServiceNodeApi interface {
+	ChainHead(ctx context.Context) (*types2.TipSet, error)
 }
 
 // NewPDPService creates a new instance of PDPService with the provided stores
-func NewPDPService(db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client, sn *message.SenderETH) *PDPService {
+func NewPDPService(db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client, fc PDPServiceNodeApi, sn *message.SenderETH) *PDPService {
 	return &PDPService{
 		db:      db,
 		storage: stor,
 
 		sender:    sn,
 		ethClient: ec,
+		filClient: fc,
 	}
 }
 
@@ -709,6 +716,12 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	ts, err := p.filClient.ChainHead(ctx)
+	if err != nil {
+		http.Error(w, "Failed to get chain head: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	// Step 5: Prepare the Ethereum transaction data outside the DB transaction
 	// Obtain the ABI of the PDPVerifier contract
 	abiData, err := contract.PDPVerifierMetaData.GetAbi()
@@ -802,6 +815,11 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		if err != nil {
 			return false, err // Return false to rollback the transaction
 		}
+
+		_, err = txdb.Exec(`
+			UPDATE pdp_proof_sets SET prev_challenge_request_epoch = $1, challenge_request_msg_hash = $2
+			WHERE id = $3 AND prev_challenge_request_epoch IS NULL AND challenge_request_msg_hash IS NULL
+			`, ts.Height(), txHash.Hex(), proofSetIDUint64)
 
 		// Insert into pdp_proofset_roots
 
