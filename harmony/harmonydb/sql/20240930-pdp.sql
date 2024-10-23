@@ -238,13 +238,6 @@ BEGIN
                                 ELSE add_message_ok
                             END
         WHERE add_message_hash = NEW.signed_tx_hash;
-
-        -- Update the next_challenge_epoch to NULL for related proofsets (will trigger next challenge epoch refresh)
-        UPDATE pdp_proof_sets
-        SET next_challenge_epoch = NULL
-        WHERE id IN (
-            SELECT DISTINCT proofset FROM pdp_proofset_root_adds WHERE add_message_hash = NEW.signed_tx_hash
-        );
     END IF;
     RETURN NEW;
 END;
