@@ -26,7 +26,7 @@ customElements.define('storage-gc-stats',class StorageGCStats extends LitElement
                 <tbody>
                 ${this.data.map(entry => html`
                     <tr>
-                        <td>f0${entry.Actor}</td>
+                        <td>${entry.Miner}</td>
                         <td>${entry.Count} files</td>
                     </tr>
                     `)}

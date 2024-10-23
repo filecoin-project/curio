@@ -2,9 +2,12 @@ package webrpc
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/samber/lo"
+
+	"github.com/filecoin-project/go-address"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -19,6 +22,8 @@ type TaskSummary struct {
 
 	// db ignored
 	SincePostedStr string `db:"-"`
+
+	Miner string
 }
 
 func (a *WebRPC) ClusterTaskSummary(ctx context.Context) ([]TaskSummary, error) {
@@ -38,6 +43,23 @@ func (a *WebRPC) ClusterTaskSummary(ctx context.Context) ([]TaskSummary, error) 
 
 		if v, ok := a.taskSPIDs[ts[i].Name]; ok {
 			ts[i].SpID = v.GetSpid(a.deps.DB, ts[i].ID)
+		}
+
+		if ts[i].SpID != "" {
+			spid, err := strconv.ParseInt(ts[i].SpID, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+
+			if spid > 0 {
+				maddr, err := address.NewIDAddress(uint64(spid))
+				if err != nil {
+					return nil, err
+				}
+				ts[i].Miner = maddr.String()
+			} else {
+				ts[i].Miner = ""
+			}
 		}
 	}
 

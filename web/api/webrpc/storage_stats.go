@@ -9,6 +9,8 @@ import (
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
 
+	"github.com/filecoin-project/go-address"
+
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 
@@ -18,6 +20,7 @@ import (
 type StorageGCStats struct {
 	Actor int64 `db:"sp_id"`
 	Count int   `db:"count"`
+	Miner string
 }
 
 func (a *WebRPC) StorageGCStats(ctx context.Context) ([]StorageGCStats, error) {
@@ -26,6 +29,15 @@ func (a *WebRPC) StorageGCStats(ctx context.Context) ([]StorageGCStats, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	for _, s := range stats {
+		maddr, err := address.NewIDAddress(uint64(s.Actor))
+		if err != nil {
+			return nil, err
+		}
+		s.Miner = maddr.String()
+	}
+
 	return stats, nil
 }
 
@@ -86,6 +98,8 @@ type StorageGCMarks struct {
 	// db ignored
 	TypeName string `db:"-"`
 	PathType string `db:"-"`
+
+	Miner string
 }
 
 func (a *WebRPC) StorageGCMarks(ctx context.Context) ([]StorageGCMarks, error) {
@@ -115,6 +129,11 @@ func (a *WebRPC) StorageGCMarks(ctx context.Context) ([]StorageGCMarks, error) {
 			return must.One(url.Parse(u)).Host
 		})
 		marks[i].Urls = strings.Join(us, ", ")
+		maddr, err := address.NewIDAddress(uint64(marks[i].Actor))
+		if err != nil {
+			return nil, err
+		}
+		marks[i].Miner = maddr.String()
 	}
 
 	return marks, nil

@@ -69,7 +69,7 @@ customElements.define('cluster-tasks', class ClusterTasks extends LitElement {
             .map(
                 (entry) => html`
                 <tr>
-                  <td>${entry.SpID ? 'f0' + entry.SpID : 'n/a'}</td>
+                  <td>${entry.SpID ? entry.Miner : 'n/a'}</td>
                   <td>${entry.Name}</td>
                   <td>${entry.ID}</td>
                   <td>${entry.SincePostedStr}</td>
