@@ -96,8 +96,6 @@ class CurioUX extends LitElement {
 
     // how Bootstrap & DataTables expect dark mode declared.
     document.documentElement.classList.add('dark');
-
-    this.messsage = this.getCookieMessage();
     
     var s = document.body.style;
     s.padding = 0;
@@ -208,20 +206,6 @@ class CurioUX extends LitElement {
         ${this.message ? html`<div class="alert alert-primary" role="alert">${this.message}</div>` : html``}
         <slot class="curio-slot"></slot>
     `;
-  }
-
-  getCookieMessage() {
-    const name = 'message';
-    const cookies = document.cookie.split(';');
-    for (let i = 0; i < cookies.length; i++) {
-      const cookie = cookies[i].trim();
-      if (cookie.startsWith(name + '=')) {
-        var val = cookie.substring(name.length + 1);
-        document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-        return val;
-      }
-    }
-    return null;
   }
 
 };
