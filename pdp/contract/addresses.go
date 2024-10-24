@@ -1,12 +1,14 @@
 package contract
 
 import (
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/snadrus/must"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/snadrus/must"
+
 	"github.com/filecoin-project/curio/build"
+
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 type PDPContracts struct {

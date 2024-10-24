@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	types2 "github.com/filecoin-project/lotus/chain/types"
 	"io"
 	"math/big"
 	"net/http"
@@ -30,6 +29,8 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
+
+	types2 "github.com/filecoin-project/lotus/chain/types"
 )
 
 // PDPRoutePath is the base path for PDP routes

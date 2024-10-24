@@ -1,9 +1,13 @@
 package pdp
 
 import (
+	"bytes"
+	"context"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"os"
@@ -11,7 +15,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/ipfs/go-cid"
 	logger "github.com/ipfs/go-log/v2"
+	"github.com/multiformats/go-multihash"
+	mhreg "github.com/multiformats/go-multihash/core"
+	"github.com/snadrus/must"
 	"github.com/yugabyte/pgx/v5"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
@@ -28,6 +36,80 @@ var log = logger.Logger("pdp")
 // PieceSizeLimit in bytes
 var PieceSizeLimit = abi.PaddedPieceSize(proof.MaxMemtreeSize).Unpadded()
 
+type PieceHash struct {
+	// Name of the hash function used
+	// sha2-256-trunc254-padded - CommP
+	// sha2-256 - Blob sha256
+	Name string `json:"name"`
+
+	// hex encoded hash
+	Hash string `json:"hash"`
+
+	// Size of the piece in bytes
+	Size int64 `json:"size"`
+}
+
+func (ph *PieceHash) Set() bool {
+	return ph.Name != "" && ph.Hash != "" && ph.Size > 0
+}
+
+func (ph *PieceHash) mh() (multihash.Multihash, error) {
+	_, ok := multihash.Names[ph.Name]
+	if !ok {
+		return nil, fmt.Errorf("hash function name not recognized: %s", ph.Name)
+	}
+
+	hashBytes, err := hex.DecodeString(ph.Hash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode hash: %w", err)
+	}
+
+	return multihash.EncodeName(hashBytes, ph.Name)
+}
+
+func (ph *PieceHash) commp(ctx context.Context, db *harmonydb.DB) (cid.Cid, bool, error) {
+	// commp, known, error
+	mh, err := ph.mh()
+	if err != nil {
+		return cid.Undef, false, fmt.Errorf("failed to decode hash: %w", err)
+	}
+
+	if ph.Name == multihash.Codes[multihash.SHA2_256_TRUNC254_PADDED] {
+		return cid.NewCidV1(cid.FilCommitmentUnsealed, mh), true, nil
+	}
+
+	var commpStr string
+	err = db.QueryRow(ctx, `
+		SELECT commp FROM pdp_piece_mh_to_commp WHERE mhash = $1 AND size = $2
+	`, mh, ph.Size).Scan(&commpStr)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return cid.Undef, false, nil
+		}
+		return cid.Undef, false, fmt.Errorf("failed to query pdp_piece_mh_to_commp: %w", err)
+	}
+
+	commpCid, err := cid.Parse(commpStr)
+	if err != nil {
+		return cid.Undef, false, fmt.Errorf("failed to parse commp CID: %w", err)
+	}
+
+	return commpCid, true, nil
+}
+
+func (ph *PieceHash) maybeStaticCommp() (cid.Cid, bool) {
+	mh, err := ph.mh()
+	if err != nil {
+		return cid.Undef, false
+	}
+
+	if ph.Name == multihash.Codes[multihash.SHA2_256_TRUNC254_PADDED] {
+		return cid.NewCidV1(cid.FilCommitmentUnsealed, mh), true
+	}
+
+	return cid.Undef, false
+}
+
 func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	// Verify that the request is authorized using ECDSA JWT
 	serviceID, err := p.verifyJWTToken(r)
@@ -38,16 +120,27 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 
 	// Parse request body
 	var req struct {
-		PieceCID string `json:"pieceCid"`
-		Notify   string `json:"notify,omitempty"`
+		Check  PieceHash `json:"check"`
+		Notify string    `json:"notify,omitempty"`
 	}
 	err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil || req.PieceCID == "" {
+	if err != nil || !req.Check.Set() {
 		http.Error(w, "Invalid request body: missing pieceCid or refId", http.StatusBadRequest)
 		return
 	}
 
+	if abi.UnpaddedPieceSize(req.Check.Size) > PieceSizeLimit {
+		http.Error(w, "Piece size exceeds the maximum allowed size", http.StatusBadRequest)
+		return
+	}
+
 	ctx := r.Context()
+
+	pieceCid, havePieceCid, err := req.Check.commp(ctx, p.db)
+	if err != nil {
+		http.Error(w, "Failed to process request: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	// Variables to hold information outside the transaction
 	var uploadUUID uuid.UUID
@@ -55,49 +148,57 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	var responseStatus int
 
 	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// Check if a 'parked_pieces' entry exists for the given 'piece_cid'
-		var parkedPieceID int64
-		err := tx.QueryRow(`
+		if havePieceCid {
+			// Check if a 'parked_pieces' entry exists for the given 'piece_cid'
+			var parkedPieceID int64
+			err := tx.QueryRow(`
             SELECT id FROM parked_pieces WHERE piece_cid = $1 AND long_term = TRUE AND complete = TRUE
-        `, req.PieceCID).Scan(&parkedPieceID)
-		if err != nil && err != pgx.ErrNoRows {
-			return false, fmt.Errorf("failed to query parked_pieces: %w", err)
-		}
+        `, pieceCid).Scan(&parkedPieceID)
+			if err != nil && err != pgx.ErrNoRows {
+				return false, fmt.Errorf("failed to query parked_pieces: %w", err)
+			}
 
-		if err == nil {
-			// Piece is already stored
-			// Create a new 'parked_piece_refs' entry
-			var parkedPieceRefID int64
-			err = tx.QueryRow(`
+			if err == nil {
+				// Piece is already stored
+				// Create a new 'parked_piece_refs' entry
+				var parkedPieceRefID int64
+				err = tx.QueryRow(`
                 INSERT INTO parked_piece_refs (piece_id, long_term)
                 VALUES ($1, TRUE) RETURNING ref_id
             `, parkedPieceID).Scan(&parkedPieceRefID)
-			if err != nil {
-				return false, fmt.Errorf("failed to insert into parked_piece_refs: %w", err)
-			}
+				if err != nil {
+					return false, fmt.Errorf("failed to insert into parked_piece_refs: %w", err)
+				}
 
-			// Create a new 'pdp_piece_uploads' entry pointing to the 'pdp_piecerefs' entry
-			uploadUUID = uuid.New()
-			_, err = tx.Exec(`
-                INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url, piece_ref)
-                VALUES ($1, $2, $3, $4, $5)
-            `, uploadUUID.String(), serviceID, req.PieceCID, req.Notify, parkedPieceRefID)
-			if err != nil {
-				return false, fmt.Errorf("failed to insert into pdp_piece_uploads: %w", err)
-			}
+				// Create a new 'pdp_piece_uploads' entry pointing to the 'pdp_piecerefs' entry
+				uploadUUID = uuid.New()
+				_, err = tx.Exec(`
+                INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url, piece_ref, check_hash_codec, check_hash, check_size)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            `, uploadUUID.String(), serviceID, pieceCid, req.Notify, parkedPieceRefID, req.Check.Name, must.One(hex.DecodeString(req.Check.Hash)), req.Check.Size)
+				if err != nil {
+					return false, fmt.Errorf("failed to insert into pdp_piece_uploads: %w", err)
+				}
 
-			responseStatus = http.StatusNoContent
-			return true, nil // Commit the transaction
+				responseStatus = http.StatusOK
+				return true, nil // Commit the transaction
+			}
 		}
 
 		// Piece does not exist, proceed to create a new upload request
 		uploadUUID = uuid.New()
 
 		// Store the upload request in the database
+		var pieceCidStr *string
+		if p, ok := req.Check.maybeStaticCommp(); ok {
+			ps := p.String()
+			pieceCidStr = &ps
+		}
+
 		_, err = tx.Exec(`
-            INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url) 
-            VALUES ($1, $2, $3, $4)
-        `, uploadUUID.String(), serviceID, req.PieceCID, req.Notify)
+            INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url, check_hash_codec, check_hash, check_size)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `, uploadUUID.String(), serviceID, pieceCidStr, req.Notify, req.Check.Name, must.One(hex.DecodeString(req.Check.Hash)), req.Check.Size)
 		if err != nil {
 			return false, fmt.Errorf("Failed to store upload request in database: %w", err)
 		}
@@ -118,9 +219,11 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		// Return 201 Created with Location header
 		w.Header().Set("Location", uploadURL)
 		w.WriteHeader(http.StatusCreated)
-	} else if responseStatus == http.StatusNoContent {
-		// Return 204 No Content
-		w.WriteHeader(http.StatusNoContent)
+	} else if responseStatus == http.StatusOK {
+		// Return 200 OK with the pieceCID
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"pieceCID": pieceCid.String()})
 	} else {
 		// Should not reach here
 		http.Error(w, "Unexpected error", http.StatusInternalServerError)
@@ -145,11 +248,15 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Lookup the expected pieceCID, notify_url, and piece_ref from the database using uploadUUID
-	var pieceCIDStr, notifyURL string
+	var pieceCIDStr *string
+	var notifyURL, checkHashName string
+	var checkHash []byte
+	var checkSize int64
+
 	var pieceRef sql.NullInt64
 	err = p.db.QueryRow(ctx, `
-        SELECT piece_cid, notify_url, piece_ref FROM pdp_piece_uploads WHERE id = $1
-    `, uploadUUID.String()).Scan(&pieceCIDStr, &notifyURL, &pieceRef)
+        SELECT piece_cid, notify_url, piece_ref, check_hash_codec, check_hash, check_size FROM pdp_piece_uploads WHERE id = $1
+    `, uploadUUID.String()).Scan(&pieceCIDStr, &notifyURL, &pieceRef, &checkHashName, &checkHash, &checkSize)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(w, "Upload UUID not found", http.StatusNotFound)
@@ -165,17 +272,41 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ph := PieceHash{
+		Name: checkHashName,
+		Hash: hex.EncodeToString(checkHash),
+		Size: checkSize,
+	}
+	phMh, err := ph.mh()
+	if err != nil {
+		http.Error(w, "Failed to decode hash: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	// Limit the size of the piece data
-	maxPieceSize := int64(PieceSizeLimit)
+	maxPieceSize := checkSize
 
 	// Create a commp.Calc instance for calculating commP
 	cp := &commp.Calc{}
 	readSize := int64(0)
 
+	var vhash hash.Hash
+	if checkHashName != multihash.Codes[multihash.SHA2_256_TRUNC254_PADDED] {
+		hasher, err := mhreg.GetVariableHasher(multihash.Names[checkHashName], -1)
+		if err != nil {
+			http.Error(w, "Failed to get hasher", http.StatusInternalServerError)
+			return
+		}
+		vhash = hasher
+	}
+
 	// Function to write data into StashStore and calculate commP
 	writeFunc := func(f *os.File) error {
 		limitedReader := io.LimitReader(r.Body, maxPieceSize+1) // +1 to detect exceeding the limit
 		multiWriter := io.MultiWriter(cp, f)
+		if vhash != nil {
+			multiWriter = io.MultiWriter(vhash, multiWriter)
+		}
 
 		// Copy data from limitedReader to multiWriter
 		n, err := io.Copy(multiWriter, limitedReader)
@@ -214,6 +345,24 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if readSize != checkSize {
+		_ = p.storage.StashRemove(ctx, stashID)
+		http.Error(w, "Piece size does not match the expected size", http.StatusBadRequest)
+		return
+	}
+
+	var outHash = digest
+	if vhash != nil {
+		outHash = vhash.Sum(nil)
+	}
+
+	if !bytes.Equal(outHash, checkHash) {
+		// Remove the stash file as the data is invalid
+		_ = p.storage.StashRemove(ctx, stashID)
+		http.Error(w, "Computed hash does not match expected hash", http.StatusBadRequest)
+		return
+	}
+
 	// Convert commP digest into a piece CID
 	pieceCIDComputed, err := commcid.DataCommitmentV1ToCID(digest)
 	if err != nil {
@@ -224,7 +373,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Compare the computed piece CID with the expected one from the database
-	if pieceCIDComputed.String() != pieceCIDStr {
+	if pieceCIDStr != nil && pieceCIDComputed.String() != *pieceCIDStr {
 		// Remove the stash file as the data is invalid
 		_ = p.storage.StashRemove(ctx, stashID)
 		http.Error(w, "Computed piece CID does not match expected piece CID", http.StatusBadRequest)
@@ -265,10 +414,19 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 
 		// 3. Update the pdp_piece_uploads entry to contain the created piece_ref
 		_, err = tx.Exec(`
-            UPDATE pdp_piece_uploads SET piece_ref = $1 WHERE id = $2
-        `, pieceRefID, uploadUUID.String())
+            UPDATE pdp_piece_uploads SET piece_ref = $1, piece_cid = $2 WHERE id = $3
+        `, pieceRefID, pieceCIDComputed.String(), uploadUUID.String())
 		if err != nil {
 			return false, fmt.Errorf("failed to update pdp_piece_uploads: %w", err)
+		}
+
+		if checkHashName != multihash.Codes[multihash.SHA2_256_TRUNC254_PADDED] {
+			_, err = tx.Exec(`
+				INSERT INTO pdp_piece_mh_to_commp (mhash, size, commp) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING
+			`, phMh, checkSize, pieceCIDComputed.String())
+			if err != nil {
+				return false, fmt.Errorf("failed to insert into pdp_piece_mh_to_commp: %w", err)
+			}
 		}
 
 		return true, nil // Commit the transaction

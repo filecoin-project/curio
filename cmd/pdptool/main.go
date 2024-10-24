@@ -5,11 +5,13 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -18,6 +20,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/golang-jwt/jwt/v4"
+	"github.com/minio/sha256-simd"
 	"github.com/urfave/cli/v2"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
@@ -295,8 +298,24 @@ var piecePrepareCmd = &cli.Command{
 			return fmt.Errorf("failed to compute piece CID: %v", err)
 		}
 
+		// now compute sha256
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return fmt.Errorf("failed to seek file: %v", err)
+		}
+
+		// Create commp calculator
+		h := sha256.New()
+		_, err = io.Copy(h, file)
+		if err != nil {
+			return fmt.Errorf("failed to read input file: %v", err)
+		}
+
+		// Finalize digest
+		shadigest := h.Sum(nil)
+
 		// Output the piece CID and size
 		fmt.Printf("Piece CID: %s\n", pieceCIDComputed)
+		fmt.Printf("SHA256: %x\n", shadigest)
 		fmt.Printf("Padded Piece Size: %d bytes\n", paddedPieceSize)
 		fmt.Printf("Raw Piece Size: %d bytes\n", pieceSize)
 
@@ -327,6 +346,15 @@ var pieceUploadCmd = &cli.Command{
 			Usage:    "Notification URL",
 			Required: false,
 		},
+		&cli.StringFlag{
+			Name:  "hash-type",
+			Usage: "Hash type to use for verification (sha256 or commp)",
+			Value: "sha256",
+		},
+		&cli.BoolFlag{
+			Name:  "local-notif-wait",
+			Usage: "Wait for server notification by spawning a temporary local HTTP server",
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 		inputFile := cctx.Args().Get(0)
@@ -338,6 +366,8 @@ var pieceUploadCmd = &cli.Command{
 		jwtToken := cctx.String("jwt-token")
 		notifyURL := cctx.String("notify-url")
 		serviceName := cctx.String("service-name")
+		hashType := cctx.String("hash-type")
+		localNotifWait := cctx.Bool("local-notif-wait")
 
 		if jwtToken == "" {
 			if serviceName == "" {
@@ -354,7 +384,57 @@ var pieceUploadCmd = &cli.Command{
 			}
 		}
 
-		// First, compute the PieceCID
+		if hashType != "sha256" && hashType != "commp" {
+			return fmt.Errorf("invalid hash type: %s", hashType)
+		}
+
+		if localNotifWait && notifyURL != "" {
+			return fmt.Errorf("cannot specify both --notify-url and --local-notif-wait")
+		}
+
+		var notifyReceived chan struct{}
+		var server *http.Server
+		var ln net.Listener
+
+		if localNotifWait {
+			notifyReceived = make(chan struct{})
+			var err error
+			ln, err = net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				return fmt.Errorf("failed to start local HTTP server: %v", err)
+			}
+			serverAddr := fmt.Sprintf("http://%s/notify", ln.Addr().String())
+			notifyURL = serverAddr
+
+			mux := http.NewServeMux()
+			mux.HandleFunc("/notify", func(w http.ResponseWriter, r *http.Request) {
+				fmt.Println("Received notification from server.")
+				b, err := io.ReadAll(r.Body)
+				if err != nil {
+					fmt.Printf("Failed to read notification body: %v\n", err)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				fmt.Printf("Notification body: %s\n", string(b))
+				w.WriteHeader(http.StatusOK)
+				// Signal that notification was received
+				close(notifyReceived)
+			})
+
+			server = &http.Server{Handler: mux}
+
+			go func() {
+				if err := server.Serve(ln); err != nil && err != http.ErrServerClosed {
+					fmt.Printf("HTTP server error: %v\n", err)
+				}
+			}()
+
+			defer func() {
+				server.Close()
+				ln.Close()
+			}()
+		}
+
 		// Open input file
 		file, err := os.Open(inputFile)
 		if err != nil {
@@ -362,29 +442,62 @@ var pieceUploadCmd = &cli.Command{
 		}
 		defer file.Close()
 
-		cp := &commp.Calc{}
+		// Get the piece size
+		fi, err := file.Stat()
+		if err != nil {
+			return fmt.Errorf("failed to stat input file: %v", err)
+		}
+		pieceSize := fi.Size()
 
-		// Copy data into commp calculator
+		// Compute CommP (PieceCID)
+		cp := &commp.Calc{}
 		_, err = io.Copy(cp, file)
 		if err != nil {
 			return fmt.Errorf("failed to read input file: %v", err)
 		}
 
-		// Finalize digest
-		digest, _, err := cp.Digest()
+		commpDigest, _, err := cp.Digest()
 		if err != nil {
 			return fmt.Errorf("failed to compute digest: %v", err)
 		}
 
-		// Convert digest to CID
-		pieceCIDComputed, err := commcid.DataCommitmentV1ToCID(digest)
-		if err != nil {
-			return fmt.Errorf("failed to compute piece CID: %v", err)
+		// Compute SHA256
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return fmt.Errorf("failed to seek file: %v", err)
 		}
 
-		// Send POST /pdp/piece to the PDP service
+		h := sha256.New()
+		_, err = io.Copy(h, file)
+		if err != nil {
+			return fmt.Errorf("failed to read input file: %v", err)
+		}
+
+		shadigest := h.Sum(nil)
+
+		// Prepare the check data
+		var checkData map[string]interface{}
+
+		switch hashType {
+		case "sha256":
+			checkData = map[string]interface{}{
+				"name": "sha2-256",
+				"hash": hex.EncodeToString(shadigest),
+				"size": pieceSize,
+			}
+		case "commp":
+			hashHex := hex.EncodeToString(commpDigest)
+			checkData = map[string]interface{}{
+				"name": "sha2-256-trunc254-padded",
+				"hash": hashHex,
+				"size": pieceSize,
+			}
+		default:
+			return fmt.Errorf("unsupported hash type: %s", hashType)
+		}
+
+		// Prepare the request data
 		reqData := map[string]interface{}{
-			"pieceCid": pieceCIDComputed.String(),
+			"check": checkData,
 		}
 		if notifyURL != "" {
 			reqData["notify"] = notifyURL
@@ -409,44 +522,59 @@ var pieceUploadCmd = &cli.Command{
 		}
 		defer resp.Body.Close()
 
-		if resp.StatusCode == http.StatusNoContent {
-			fmt.Println("Piece already exists on the server.")
+		if resp.StatusCode == http.StatusOK {
+			// Piece already exists, get the pieceCID from the response
+			var respData map[string]string
+			err = json.NewDecoder(resp.Body).Decode(&respData)
+			if err != nil {
+				return fmt.Errorf("failed to parse response: %v", err)
+			}
+			pieceCID := respData["pieceCID"]
+			fmt.Printf("Piece already exists on the server. Piece CID: %s\n", pieceCID)
 			return nil
-		} else if resp.StatusCode != http.StatusCreated {
+		} else if resp.StatusCode == http.StatusCreated {
+			// Get the upload URL from the Location header
+			uploadURL := resp.Header.Get("Location")
+			if uploadURL == "" {
+				return fmt.Errorf("server did not provide upload URL in Location header")
+			}
+
+			// Upload the piece data via PUT
+			if _, err := file.Seek(0, io.SeekStart); err != nil {
+				return fmt.Errorf("failed to seek file: %v", err)
+			}
+			uploadReq, err := http.NewRequest("PUT", serviceURL+uploadURL, file)
+			if err != nil {
+				return fmt.Errorf("failed to create upload request: %v", err)
+			}
+			// Set the Content-Length header
+			uploadReq.ContentLength = pieceSize
+			// Set the Content-Type header
+			uploadReq.Header.Set("Content-Type", "application/octet-stream")
+
+			uploadResp, err := client.Do(uploadReq)
+			if err != nil {
+				return fmt.Errorf("failed to upload piece data: %v", err)
+			}
+			defer uploadResp.Body.Close()
+
+			if uploadResp.StatusCode != http.StatusNoContent {
+				body, _ := io.ReadAll(uploadResp.Body)
+				return fmt.Errorf("upload failed with status code %d: %s", uploadResp.StatusCode, string(body))
+			}
+
+			fmt.Println("Piece uploaded successfully.")
+
+			if localNotifWait {
+				fmt.Println("Waiting for server notification...")
+				<-notifyReceived
+			}
+
+			return nil
+		} else {
 			body, _ := io.ReadAll(resp.Body)
 			return fmt.Errorf("server returned status code %d: %s", resp.StatusCode, string(body))
 		}
-
-		// Get the upload URL from the Location header
-		uploadURL := resp.Header.Get("Location")
-		if uploadURL == "" {
-			return fmt.Errorf("server did not provide upload URL in Location header")
-		}
-
-		// Upload the piece data via PUT
-		_, err = file.Seek(0, io.SeekStart) // Reset file pointer to the beginning
-		if err != nil {
-			return fmt.Errorf("failed to seek file: %v", err)
-		}
-		uploadReq, err := http.NewRequest("PUT", serviceURL+uploadURL, file)
-		if err != nil {
-			return fmt.Errorf("failed to create upload request: %v", err)
-		}
-
-		uploadResp, err := client.Do(uploadReq)
-		if err != nil {
-			return fmt.Errorf("failed to upload piece data: %v", err)
-		}
-		defer uploadResp.Body.Close()
-
-		if uploadResp.StatusCode != http.StatusNoContent {
-			body, _ := io.ReadAll(uploadResp.Body)
-			return fmt.Errorf("upload failed with status code %d: %s", uploadResp.StatusCode, string(body))
-		}
-
-		fmt.Println("Piece uploaded successfully.")
-
-		return nil
 	},
 }
 

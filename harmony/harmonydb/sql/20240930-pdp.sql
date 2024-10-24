@@ -26,7 +26,11 @@ CREATE TABLE pdp_piece_uploads (
     id UUID PRIMARY KEY NOT NULL,
     service TEXT NOT NULL, -- pdp_services.id
 
-    piece_cid TEXT NOT NULL, -- piece cid v2
+    check_hash_codec TEXT NOT NULL, -- hash multicodec used for checking the piece
+    check_hash BYTEA NOT NULL, -- hash of the piece
+    check_size BIGINT NOT NULL, -- size of the piece
+
+    piece_cid TEXT, -- piece cid v2
     notify_url TEXT NOT NULL, -- URL to notify when piece is ready
 
     notify_task_id BIGINT, -- harmonytask task ID, moves to pdp_piecerefs and calls notify_url when piece is ready
@@ -52,6 +56,13 @@ CREATE TABLE pdp_piecerefs (
     UNIQUE(piece_ref),
     FOREIGN KEY (service) REFERENCES pdp_services(service_label) ON DELETE CASCADE,
     FOREIGN KEY (piece_ref) REFERENCES parked_piece_refs(ref_id) ON DELETE CASCADE
+);
+
+-- PDP hash to piece cid mapping
+CREATE TABLE pdp_piece_mh_to_commp (
+    mhash BYTEA PRIMARY KEY,
+    size BIGINT NOT NULL,
+    commp TEXT NOT NULL
 );
 
 CREATE INDEX pdp_piecerefs_piece_cid_idx ON pdp_piecerefs(piece_cid);
