@@ -87,9 +87,9 @@ func TestMoveShared(t *testing.T) {
 	hs1 := httptest.NewServer(mux1)
 	hs2 := httptest.NewServer(mux2)
 
-	ls1, err := paths.NewLocal(ctx, lr1, index, []string{hs1.URL + "/remote"})
+	ls1, err := paths.NewLocal(ctx, lr1, index, hs1.URL+"/remote")
 	require.NoError(t, err)
-	ls2, err := paths.NewLocal(ctx, lr2, index, []string{hs2.URL + "/remote"})
+	ls2, err := paths.NewLocal(ctx, lr2, index, hs2.URL+"/remote")
 	require.NoError(t, err)
 
 	dirStor := filepath.Join(dir, "stor")
