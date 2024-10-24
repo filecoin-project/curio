@@ -16,7 +16,7 @@ import (
 	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
 
 type SyntheticProofTask struct {
@@ -71,6 +71,12 @@ func (s *SyntheticProofTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 		return true, nil
 	}
 
+	var keepUnsealed bool
+
+	if err := s.db.QueryRow(ctx, `SELECT COALESCE(BOOL_OR(NOT data_delete_on_finalize), FALSE) FROM sectors_sdr_initial_pieces WHERE sp_id = $1 AND sector_number = $2`, sectorParams.SpID, sectorParams.SectorNumber).Scan(&keepUnsealed); err != nil {
+		return false, err
+	}
+
 	sealed, err := cid.Parse(sectorParams.SealedCID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to parse sealed cid: %w", err)
@@ -94,7 +100,7 @@ func (s *SyntheticProofTask) Do(taskID harmonytask.TaskID, stillOwned func() boo
 		return false, xerrors.Errorf("getting deal data: %w", err)
 	}
 
-	err = s.sc.SyntheticProofs(ctx, &taskID, sref, sealed, unsealed, sectorParams.TicketValue, dealData.PieceInfos)
+	err = s.sc.SyntheticProofs(ctx, &taskID, sref, sealed, unsealed, sectorParams.TicketValue, dealData.PieceInfos, keepUnsealed)
 	if err != nil {
 		serr := resetSectorSealingState(ctx, sectorParams.SpID, sectorParams.SectorNumber, err, s.db, s.TypeDetails().Name)
 		if serr != nil {
