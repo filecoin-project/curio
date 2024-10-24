@@ -207,7 +207,12 @@ func TestRemoteGetAllocated(t *testing.T) {
 			pfhandler := mocks.NewMockPartialFileHandler(mockCtrl)
 
 			handler := &paths.FetchHandler{
-				Local:     lstore,
+				Local: struct {
+					paths.Store
+					paths.StashStore
+				}{
+					Store: lstore,
+				},
 				PfHandler: pfhandler,
 			}
 
@@ -406,7 +411,12 @@ func TestRemoteGetSector(t *testing.T) {
 			}
 
 			handler := &paths.FetchHandler{
-				lstore,
+				struct {
+					paths.Store
+					paths.StashStore
+				}{
+					Store: lstore,
+				},
 				pfhandler,
 			}
 

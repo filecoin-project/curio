@@ -20,10 +20,10 @@ import (
 )
 
 func TestTreeSize(t *testing.T) {
-	require.Equal(t, uint64(32), treeSize(abi.PaddedPieceSize(32)))
-	require.Equal(t, uint64(64+32), treeSize(abi.PaddedPieceSize(64)))
-	require.Equal(t, uint64(128+64+32), treeSize(abi.PaddedPieceSize(128)))
-	require.Equal(t, uint64(256+128+64+32), treeSize(abi.PaddedPieceSize(256)))
+	require.Equal(t, uint64(32), binTreeSize(abi.PaddedPieceSize(32)))
+	require.Equal(t, uint64(64+32), binTreeSize(abi.PaddedPieceSize(64)))
+	require.Equal(t, uint64(128+64+32), binTreeSize(abi.PaddedPieceSize(128)))
+	require.Equal(t, uint64(256+128+64+32), binTreeSize(abi.PaddedPieceSize(256)))
 }
 
 func TestTreeLayerOffset(t *testing.T) {

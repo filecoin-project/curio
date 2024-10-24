@@ -218,7 +218,7 @@ func getDealMetadata(ctx context.Context, db *harmonydb.DB, sc *ffi.SealCalls, s
 						reader, _ := padreader.New(pr, uint64(*p.DataRawSize))
 						pieceReaders = append(pieceReaders, reader)
 					} else {
-						reader, _ := padreader.New(NewUrlReader(dataUrl, hdrs, *p.DataRawSize), uint64(*p.DataRawSize))
+						reader, _ := padreader.New(NewUrlReader(nil, dataUrl, hdrs, *p.DataRawSize), uint64(*p.DataRawSize))
 						pieceReaders = append(pieceReaders, reader)
 					}
 
