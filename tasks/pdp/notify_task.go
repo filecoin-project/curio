@@ -1,7 +1,9 @@
 package pdp
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/passcall"
 )
 
@@ -30,27 +33,36 @@ func (t *PDPNotifyTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 	// Fetch the pdp_piece_uploads entry associated with the taskID
 	var upload struct {
-		ID           string `db:"id"`
-		Service      string `db:"service"`
-		PieceCID     string `db:"piece_cid"`
-		NotifyURL    string `db:"notify_url"`
-		PieceRef     int64  `db:"piece_ref"`
-		NotifyTaskID int64  `db:"notify_task_id"`
+		ID             string  `db:"id" json:"id"`
+		Service        string  `db:"service" json:"service"`
+		PieceCID       *string `db:"piece_cid" json:"piece_cid"`
+		NotifyURL      string  `db:"notify_url" json:"notify_url"`
+		PieceRef       int64   `db:"piece_ref" json:"piece_ref"`
+		CheckHashCodec string  `db:"check_hash_codec" json:"check_hash_codec"`
+		CheckHash      []byte  `db:"check_hash" json:"check_hash"`
 	}
 	err = t.db.QueryRow(ctx, `
-        SELECT id, service, piece_cid, notify_url, piece_ref, notify_task_id 
+        SELECT id, service, piece_cid, notify_url, piece_ref, check_hash_codec, check_hash 
         FROM pdp_piece_uploads 
         WHERE notify_task_id = $1`, taskID).Scan(
-		&upload.ID, &upload.Service, &upload.PieceCID, &upload.NotifyURL, &upload.PieceRef, &upload.NotifyTaskID)
+		&upload.ID, &upload.Service, &upload.PieceCID, &upload.NotifyURL, &upload.PieceRef, &upload.CheckHashCodec, &upload.CheckHash)
 	if err != nil {
 		return false, fmt.Errorf("failed to query pdp_piece_uploads for task %d: %w", taskID, err)
 	}
 
-	// Perform HTTP GET request to the notify URL
+	// Perform HTTP Post request to the notify URL
+	upJson, err := json.Marshal(upload)
+	if err != nil {
+		return false, fmt.Errorf("failed to marshal upload to JSON: %w", err)
+	}
+
+	log.Infow("PDP notify", "upload", upload, "task_id", taskID)
+
 	if upload.NotifyURL != "" {
-		resp, err := http.Get(upload.NotifyURL)
+
+		resp, err := http.Post(upload.NotifyURL, "application/json", bytes.NewReader(upJson))
 		if err != nil {
-			log.Errorw("HTTP GET request to notify_url failed", "notify_url", upload.NotifyURL, "upload_id", upload.ID, "error", err)
+			log.Errorw("HTTP POST request to notify_url failed", "notify_url", upload.NotifyURL, "upload_id", upload.ID, "error", err)
 		} else {
 			defer resp.Body.Close()
 			// Not reading the body as per requirement
@@ -94,7 +106,8 @@ func (t *PDPNotifyTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu: 1,
 			Ram: 128 << 20, // 128MB
 		},
-		MaxFailures: 3,
+		MaxFailures: 14,
+		RetryWait:   taskhelp.RetryWaitExp(5*time.Second, 2),
 		IAmBored: passcall.Every(1*time.Minute, func(taskFunc harmonytask.AddTaskFunc) error {
 			return t.schedule(context.Background(), taskFunc)
 		}),

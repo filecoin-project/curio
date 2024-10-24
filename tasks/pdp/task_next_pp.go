@@ -3,22 +3,21 @@ package pdp
 import (
 	"context"
 	"database/sql"
+	"math/big"
+
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/promise"
+	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
-	"math/big"
-
-	"github.com/ethereum/go-ethereum/core/types"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
-	"golang.org/x/xerrors"
-
-	"github.com/filecoin-project/curio/pdp/contract"
-
-	"github.com/ethereum/go-ethereum/ethclient"
 )
 
 const ProvingPeriod = 15 // todo query from contracts

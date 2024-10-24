@@ -658,7 +658,7 @@ func (d *CurioStorageDealMarket) createIndexingTaskForMigratedDeals(ctx context.
 	var rowsMoved int
 	err := d.db.QueryRow(ctx, "SELECT migrate_deal_pipeline_entries()").Scan(&rowsMoved)
 	if err != nil {
-		log.Errorf("Error creating indexing tasks for migrated deals: %w", err)
+		log.Errorf("Error creating indexing tasks for migrated deals: %s", err)
 		return
 	}
 	log.Debugf("Successfully created indexing tasks for %d migrated deals", rowsMoved)
