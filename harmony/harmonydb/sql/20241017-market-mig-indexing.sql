@@ -13,7 +13,7 @@ CREATE TABLE market_mk12_deal_pipeline_migration (
 );
 
 CREATE OR REPLACE FUNCTION migrate_deal_pipeline_entries()
-RETURNS VOID
+RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
 DECLARE
@@ -24,11 +24,12 @@ DECLARE
     num_entries_to_move INTEGER;
     cnt INTEGER;
     moved_rows RECORD;
+    total_moved INTEGER := 0;  -- Initialize total moved count
 BEGIN
     -- Step 1: Check if the migration table has entries
     SELECT COUNT(*) INTO cnt FROM market_mk12_deal_pipeline_migration LIMIT 16;
     IF cnt = 0 THEN
-            RETURN;
+            RETURN 0; -- Return 0 if no entries to migrate
     END IF;
 
     -- Step 2: Count entries ready for indexing in the pipeline table
@@ -46,7 +47,7 @@ BEGIN
 
     -- If we already have 16 or more entries ready, no need to move more
     IF num_entries_needed <= 0 THEN
-        RETURN;
+        RETURN 0;
     END IF;
 
     -- Step 5: Calculate how many entries we can move without exceeding 16 pending IPNI tasks
@@ -58,7 +59,7 @@ BEGIN
 
     -- If no entries to move after calculations, exit
     IF num_entries_to_move <= 0 THEN
-        RETURN;
+        RETURN 0;
     END IF;
 
     -- Move entries from the migration table to the pipeline table
@@ -77,12 +78,15 @@ BEGIN
             TRUE, TRUE, TRUE, moved_rows.sector, moved_rows.reg_seal_proof, moved_rows.sector_offset,
             TRUE, TRUE, NOW() AT TIME ZONE 'UTC', moved_rows.should_announce
             ) ON CONFLICT (uuid) DO NOTHING;
+
         -- Remove the entry from the migration table
         DELETE FROM market_mk12_deal_pipeline_migration WHERE uuid = moved_rows.uuid;
+
+        -- Increment the total moved count
+        total_moved := total_moved + 1;
     END LOOP;
 
-    RAISE NOTICE 'Moved % entries to the pipeline table.', num_entries_to_move;
+    -- Return the number of moved rows
+    RETURN total_moved;
 END;
 $$;
-
-
