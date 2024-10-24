@@ -198,6 +198,7 @@ func (f *F3Task) awaitLeaseExpiry(ctx context.Context, stillOwned func() bool, l
 			}
 			log.Errorw("Failed to check F3 progress while awaiting lease expiry. Retrying after backoff.", "attempts", backoff.Attempt(), "backoff", backoff.Duration(), "err", err)
 			time.Sleep(backoff.Duration())
+			continue
 		case manifest == nil || manifest.NetworkName != lease.Network:
 			// If we got an unexpected manifest, or no manifest, go back to the
 			// beginning and try to get another ticket. Switching from having a manifest
