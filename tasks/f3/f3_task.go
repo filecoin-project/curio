@@ -131,7 +131,6 @@ func (f *F3Task) tryGetF3ParticipationTicket(ctx context.Context, stillOwned fun
 func (f *F3Task) participateLoop(ctx context.Context, stillOwned func() bool, ticket api.F3ParticipationTicket) error {
 	renewLeaseWithin := f.leaseTerm / 2
 	var (
-		manifest  *manifest.Manifest
 		haveLease bool
 	)
 	for stillOwned() {
@@ -177,48 +176,10 @@ func (f *F3Task) participateLoop(ctx context.Context, stillOwned func() bool, ti
 			}
 		}
 
-		// Fetch the manifest if necessary
-		if manifest == nil || lease.Network != manifest.NetworkName {
-			manifest, err = f.getManifest(ctx)
-			if err != nil {
-				return err
-			}
-			if manifest.NetworkName != lease.Network {
-				log.Warnf("Got a manifest for network %q while expecting network %q. Getting another ticket.", manifest.NetworkName, lease.Network)
-				return nil // Return to get a new ticket
-			}
-		}
-
-		// Wait until we think we may need to renew the lease
-		waitTime := time.Duration(lease.ValidityTerm-renewLeaseWithin) * manifest.CatchUpAlignment
-		if waitTime <= 0 {
-			waitTime = 100 * time.Millisecond
-		}
-		log.Debugf("F3 participation lease is valid for further %d instances. Re-checking after %s.", lease.ValidityTerm, waitTime)
-		time.Sleep(waitTime)
+		log.Debugf("F3 participation lease is valid for further %d instances.", lease.ValidityTerm)
+		time.Sleep(time.Second * 5)
 	}
 	return ctx.Err()
-}
-
-func (f *F3Task) getManifest(ctx context.Context) (*manifest.Manifest, error) {
-	for {
-		manifest, err := f.api.F3GetManifest(ctx)
-		switch {
-		case errors.Is(err, api.ErrF3Disabled):
-			log.Errorw("Cannot get F3 manifest as F3 is disabled.", "err", err)
-			return nil, xerrors.Errorf("getting F3 manifest: %w", err)
-		case err != nil:
-			log.Errorw("Failed to get F3 manifest. Retrying.", "err", err)
-			time.Sleep(1 * time.Second)
-			continue
-		case manifest == nil:
-			log.Warnw("Received no F3 manifest from lotus. Retrying.", "err", err)
-			time.Sleep(1 * time.Second)
-			continue
-		default:
-			return manifest, nil
-		}
-	}
 }
 
 func (f *F3Task) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
