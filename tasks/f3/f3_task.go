@@ -163,6 +163,8 @@ func (f *F3Task) participateLoop(ctx context.Context, stillOwned func() bool, ti
 		case err != nil:
 			log.Errorw("Unexpected error while attempting F3 participation. Retrying after backoff", "err", err)
 			return xerrors.Errorf("attempting F3 participation with ticket: %w", err)
+		case lease.ValidityTerm <= renewLeaseWithin:
+			return nil // Return to get a new ticket
 		default:
 			// Successfully participated
 			if !haveLease {
