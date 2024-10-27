@@ -104,9 +104,6 @@ func Routes(r *chi.Mux, p *PDPService) {
 	// POST /pdp/piece
 	r.Post(path.Join(PDPRoutePath, "/piece"), p.handlePiecePost)
 
-	// GET /pdp/piece/
-	r.Get(path.Join(PDPRoutePath, "/piece/"), p.handleFindPiece)
-
 	// PUT /pdp/piece/upload/{uploadUUID}
 	r.Put(path.Join(PDPRoutePath, "/piece/upload/{uploadUUID}"), p.handlePieceUpload)
 }

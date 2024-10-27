@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -159,25 +158,39 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 			if err == nil {
 				// Piece is already stored
 
-				// Create a new 'parked_piece_refs' entry
-				var parkedPieceRefID int64
-				err = tx.QueryRow(`
+				// Query to see if there is an associated pdp piece ref for this service
+				var count int
+				err = p.db.QueryRow(ctx, `
+					SELECT COUNT(*)
+					FROM pdp_piecerefs ppr
+          JOIN parked_piece_refs pprf ON pprf.ref_id = ppr.piece_ref
+        	WHERE ppr.service = $1 AND ppr.piece_id = $2
+				`, serviceID, parkedPieceID).Scan(&count)
+				if err != nil {
+					return false, fmt.Errorf("failed to query pdp piece refs: %w", err)
+				}
+
+				// Only create a new ref if it's not already created
+				if count == 0 {
+					// Create a new 'parked_piece_refs' entry
+					var parkedPieceRefID int64
+					err = tx.QueryRow(`
                 INSERT INTO parked_piece_refs (piece_id, long_term)
                 VALUES ($1, TRUE) RETURNING ref_id
             `, parkedPieceID).Scan(&parkedPieceRefID)
-				if err != nil {
-					return false, fmt.Errorf("failed to insert into parked_piece_refs: %w", err)
-				}
+					if err != nil {
+						return false, fmt.Errorf("failed to insert into parked_piece_refs: %w", err)
+					}
 
-				// Create a new 'pdp_piece_uploads' entry pointing to the 'pdp_piece_refs' entry
-				_, err = p.db.Exec(ctx, `
+					// Create a new 'pdp_piecerefs' entry pointing to the 'parked_piece_refs' entry
+					_, err = p.db.Exec(ctx, `
         	INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at) 
         	VALUES ($1, $2, $3, NOW())`,
-					serviceID, pieceCid.String(), parkedPieceRefID)
-				if err != nil {
-					return false, fmt.Errorf("failed to insert into pdp_piece_uploads: %w", err)
+						serviceID, pieceCid.String(), parkedPieceRefID)
+					if err != nil {
+						return false, fmt.Errorf("failed to insert into pdp_piece_uploads: %w", err)
+					}
 				}
-
 				responseStatus = http.StatusOK
 				return true, nil // Commit the transaction
 			}
@@ -447,73 +460,4 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Respond with 204 No Content
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// handle find piece allows one to look up a pdp piece by its original post data as
-// query parameters
-func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
-	// Verify that the request is authorized using ECDSA JWT
-	serviceID, err := p.verifyJWTToken(r)
-	if err != nil {
-		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
-		return
-	}
-
-	// Parse query parameters
-
-	sizeString := r.URL.Query().Get("size")
-	size, err := strconv.ParseInt(sizeString, 10, 64)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("errors parsing size: %s", err.Error()), 400)
-		return
-	}
-	req := PieceHash{
-		Name: r.URL.Query().Get("name"),
-		Hash: r.URL.Query().Get("hash"),
-		Size: size,
-	}
-
-	ctx := r.Context()
-
-	pieceCid, havePieceCid, err := req.commp(ctx, p.db)
-	if err != nil {
-		http.Error(w, "Failed to process request: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// upload either not complete or does not exist
-	if !havePieceCid {
-		http.NotFound(w, r)
-		return
-	}
-
-	// verify a PDP piece ref exists for the service identified in the JWT token
-	var count int
-	err = p.db.QueryRow(ctx, `
-		SELECT COUNT(*)
-		FROM pdp_piecerefs ppr
-		WHERE ppr.service = $1 AND ppr.piece_cid = ANY($2)
-	`, serviceID, pieceCid.String()).Scan(&count)
-	if err != nil {
-		http.Error(w, "Database error", http.StatusInternalServerError)
-		return
-	}
-	if count == 0 {
-		http.Error(w, "Piece ref not found", http.StatusNotFound)
-		return
-	}
-
-	response := struct {
-		PieceCID string `json:"piece_cid"`
-	}{
-		PieceCID: pieceCid.String(),
-	}
-
-	// encode response
-	w.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(w).Encode(response)
-	if err != nil {
-		http.Error(w, "Failed to write response: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
 }
