@@ -31,9 +31,6 @@ CREATE TABLE pdp_piece_uploads (
     check_size BIGINT NOT NULL, -- size of the piece
 
     piece_cid TEXT, -- piece cid v2
-    notify_url TEXT NOT NULL, -- URL to notify when piece is ready
-
-    notify_task_id BIGINT, -- harmonytask task ID, moves to pdp_piecerefs and calls notify_url when piece is ready
 
     piece_ref BIGINT, -- packed_piece_refs.ref_id
 

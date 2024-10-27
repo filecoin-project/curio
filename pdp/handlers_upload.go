@@ -120,24 +120,21 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse request body
-	var req struct {
-		Check  PieceHash `json:"check"`
-		Notify string    `json:"notify,omitempty"`
-	}
+	var req PieceHash
 	err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil || !req.Check.Set() {
+	if err != nil || !req.Set() {
 		http.Error(w, "Invalid request body: missing pieceCid or refId", http.StatusBadRequest)
 		return
 	}
 
-	if abi.UnpaddedPieceSize(req.Check.Size) > PieceSizeLimit {
+	if abi.UnpaddedPieceSize(req.Size) > PieceSizeLimit {
 		http.Error(w, "Piece size exceeds the maximum allowed size", http.StatusBadRequest)
 		return
 	}
 
 	ctx := r.Context()
 
-	pieceCid, havePieceCid, err := req.Check.commp(ctx, p.db)
+	pieceCid, havePieceCid, err := req.commp(ctx, p.db)
 	if err != nil {
 		http.Error(w, "Failed to process request: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -161,6 +158,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 
 			if err == nil {
 				// Piece is already stored
+
 				// Create a new 'parked_piece_refs' entry
 				var parkedPieceRefID int64
 				err = tx.QueryRow(`
@@ -171,12 +169,11 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 					return false, fmt.Errorf("failed to insert into parked_piece_refs: %w", err)
 				}
 
-				// Create a new 'pdp_piece_uploads' entry pointing to the 'parked_piece_refs' entry
-				uploadUUID = uuid.New()
-				_, err = tx.Exec(`
-                INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url, piece_ref, check_hash_codec, check_hash, check_size)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            `, uploadUUID.String(), serviceID, pieceCid, req.Notify, parkedPieceRefID, req.Check.Name, must.One(hex.DecodeString(req.Check.Hash)), req.Check.Size)
+				// Create a new 'pdp_piece_uploads' entry pointing to the 'pdp_piece_refs' entry
+				_, err = p.db.Exec(ctx, `
+        	INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at) 
+        	VALUES ($1, $2, $3, NOW())`,
+					serviceID, pieceCid.String(), parkedPieceRefID)
 				if err != nil {
 					return false, fmt.Errorf("failed to insert into pdp_piece_uploads: %w", err)
 				}
@@ -191,15 +188,15 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 
 		// Store the upload request in the database
 		var pieceCidStr *string
-		if p, ok := req.Check.maybeStaticCommp(); ok {
+		if p, ok := req.maybeStaticCommp(); ok {
 			ps := p.String()
 			pieceCidStr = &ps
 		}
 
 		_, err = tx.Exec(`
-            INSERT INTO pdp_piece_uploads (id, service, piece_cid, notify_url, check_hash_codec, check_hash, check_size)
+            INSERT INTO pdp_piece_uploads (id, service, piece_cid, check_hash_codec, check_hash, check_size)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
-        `, uploadUUID.String(), serviceID, pieceCidStr, req.Notify, req.Check.Name, must.One(hex.DecodeString(req.Check.Hash)), req.Check.Size)
+        `, uploadUUID.String(), serviceID, pieceCidStr, req.Name, must.One(hex.DecodeString(req.Hash)), req.Size)
 		if err != nil {
 			return false, fmt.Errorf("Failed to store upload request in database: %w", err)
 		}
@@ -248,16 +245,17 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Lookup the expected pieceCID, notify_url, and piece_ref from the database using uploadUUID
+	// Lookup the expected pieceCID,  and piece_ref from the database using uploadUUID
 	var pieceCIDStr *string
-	var notifyURL, checkHashName string
+	var checkHashName string
 	var checkHash []byte
 	var checkSize int64
+	var serviceID string
 
 	var pieceRef sql.NullInt64
 	err = p.db.QueryRow(ctx, `
-        SELECT piece_cid, notify_url, piece_ref, check_hash_codec, check_hash, check_size FROM pdp_piece_uploads WHERE id = $1
-    `, uploadUUID.String()).Scan(&pieceCIDStr, &notifyURL, &pieceRef, &checkHashName, &checkHash, &checkSize)
+        SELECT piece_cid, service, piece_ref, check_hash_codec, check_hash, check_size FROM pdp_piece_uploads WHERE id = $1
+    `, uploadUUID.String()).Scan(&pieceCIDStr, &serviceID, &pieceRef, &checkHashName, &checkHash, &checkSize)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			http.Error(w, "Upload UUID not found", http.StatusNotFound)
@@ -330,11 +328,10 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		if err.Error() == "piece data exceeds the maximum allowed size" {
 			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
 			return
-		} else {
-			log.Errorw("Failed to store piece data in StashStore", "error", err)
-			http.Error(w, "Failed to store piece data", http.StatusInternalServerError)
-			return
 		}
+		log.Errorw("Failed to store piece data in StashStore", "error", err)
+		http.Error(w, "Failed to store piece data", http.StatusInternalServerError)
+		return
 	}
 
 	// Finalize the commP calculation
@@ -413,12 +410,20 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 			return false, fmt.Errorf("failed to create parked_piece_refs entry: %w", err)
 		}
 
-		// 3. Update the pdp_piece_uploads entry to contain the created piece_ref
-		_, err = tx.Exec(`
-            UPDATE pdp_piece_uploads SET piece_ref = $1, piece_cid = $2 WHERE id = $3
-        `, pieceRefID, pieceCIDComputed.String(), uploadUUID.String())
+		// 3. Move the entry from pdp_piece_uploads to pdp_piecerefs
+		// Insert into pdp_piecerefs
+		_, err = p.db.Exec(ctx, `
+			INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, created_at) 
+			VALUES ($1, $2, $3, NOW())`,
+			serviceID, pieceCIDComputed.String(), pieceRefID)
 		if err != nil {
-			return false, fmt.Errorf("failed to update pdp_piece_uploads: %w", err)
+			return false, fmt.Errorf("failed to insert into pdp_piecerefs: %w", err)
+		}
+
+		// Delete the entry from pdp_piece_uploads
+		_, err = p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1`, uploadUUID.String())
+		if err != nil {
+			return false, fmt.Errorf("failed to delete upload ID %s from pdp_piece_uploads: %w", uploadUUID.String(), err)
 		}
 
 		if checkHashName != multihash.Codes[multihash.SHA2_256_TRUNC254_PADDED] {
@@ -481,11 +486,26 @@ func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+
+	// verify a PDP piece ref exists for the service identified in the JWT token
+	var count int
+	err = p.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM pdp_piecerefs ppr
+		WHERE ppr.service = $1 AND ppr.piece_cid = ANY($2)
+	`, serviceID, pieceCid.String()).Scan(&count)
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	if count == 0 {
+		http.Error(w, "Piece ref not found", http.StatusNotFound)
+		return
+	}
+
 	response := struct {
-		Service  string `json:"service"`
 		PieceCID string `json:"piece_cid"`
 	}{
-		Service:  serviceID,
 		PieceCID: pieceCid.String(),
 	}
 

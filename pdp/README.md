@@ -100,47 +100,36 @@ All endpoints are rooted at `/pdp`.
 
 ---
 
-### 3. Notifications
+### 3. Retrieve PieceCID
 
-When you initiate an upload with the `notify` field specified, the PDP Service will send a notification to the provided URL once the piece has been successfully processed and stored.
-
-#### 3.1. Notification Request
-
-- **Method:** `POST`
-- **URL:** The `notify` URL provided during the upload initiation (`POST /pdp/piece`).
+- **Endpoint:** `GET /pdp/piece/`
+- **Description:** Upload the actual bytes of the piece to the server using the provided `uploadUUID`.
+- **URL Query Parameters:**
+    - `hash`: hex encoded hash of the piece
+    - `name`: hash algorithm for attached hash
+    - `size`: size of the piece
 - **Headers:**
-    - `Content-Type`: `application/json`
-- **Request Body:**
+    - `Content-Length`: The size of the piece.
+    - `Content-Type`: `application/octet-stream`.
+
+#### Response
+
+- **Status Code:** `200 OK`
+- **Response Body:**
 
 ```json
 {
-  "id": "<upload-ID>",
-  "service": "<service-name>",
-  "pieceCID": "<piece-CID or null>",
-  "notify_url": "<original-notify-URL>",
-  "check_hash_codec": "<hash-function-name>",
-  "check_hash": "<byte-array-of-hash>"
+  "pieceCID": "<pieceCID>",
 }
 ```
 
 - **Fields:**
-    - `id`: The upload ID.
-    - `service`: The service name.
-    - `pieceCID`: The Piece CID of the stored piece (may be `null` if not applicable).
-    - `notify_url`: The original notification URL provided.
-    - `check_hash_codec`: The hash function used (e.g., `"sha2-256"` or `"sha2-256-trunc254-padded"`).
-    - `check_hash`: The byte array of the original hash provided in the upload initiation.
+  - `pieceCID`: PieceCID of the associated piece
 
-#### 3.2. Expected Response from Your Server
-
-- **Status Code:** `200 OK` to acknowledge receipt.
-- **Response Body:** (Optional) Can be empty or contain a message.
-
-#### 3.3. Notes
-
-- The PDP Service may retry the notification if it fails.
-- Ensure that your server is accessible from the PDP Service and can handle incoming POST requests.
-- The notification does not include the piece data; it confirms that the piece has been successfully stored.
+#### Errors
+- `401 Unauthorized`: Missing or invalid JWT token.
+- `404 Not Found`: No associated pieceCID found for the given parameters
+- `500 Internal Server Error`: Failed to process the request.
 
 ---
 
@@ -618,31 +607,26 @@ Error responses typically include an error message in the response body.
    HTTP/1.1 204 No Content
    ```
 
-3. **Receive Notification (if `notify` was provided):**
+3. **Query piece status:**
 
-   **Server's Notification Request:**
+   **Request:**
 
    ```http
-   POST /notify HTTP/1.1
+   GET /pdp/piece/?name=sha2-256,hash=<hex-encoded-sha256-hash>,size=12345 HTTP/1.1
+   Authorization: Bearer <JWT-token>
    Host: example.com
-   Content-Type: application/json
-
-   {
-     "id": "<upload-ID>",
-     "service": "<service-name>",
-     "pieceCID": "<piece-CID>",
-     "notify_url": "https://example.com/notify",
-     "check_hash_codec": "sha2-256",
-     "check_hash": "<b64-byte-array-of-hash>"
-   }
    ```
 
-   **Your Response:**
+   **Response:**
 
    ```http
    HTTP/1.1 200 OK
+   Content-Type: application/json
+ 
+   {
+    "pieceCID": "<piece-CID>",
+   }
    ```
-
 ### Creating a Proof Set
 
 **Request:**
