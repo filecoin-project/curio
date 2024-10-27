@@ -448,7 +448,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 // query parameters
 func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
 	// Verify that the request is authorized using ECDSA JWT
-	serviceID, err := p.verifyJWTToken(r)
+	_, err := p.verifyJWTToken(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
@@ -481,11 +481,24 @@ func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+
+	// Verify that a 'parked_pieces' entry exists for the given 'piece_cid'
+	var count int
+	err = p.db.QueryRow(ctx, `
+    SELECT count(*) FROM parked_pieces WHERE piece_cid = $1 AND long_term = TRUE AND complete = TRUE
+  `, pieceCid.String()).Scan(&count)
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	if count == 0 {
+		http.NotFound(w, r)
+		return
+	}
+
 	response := struct {
-		Service  string `json:"service"`
 		PieceCID string `json:"piece_cid"`
 	}{
-		Service:  serviceID,
 		PieceCID: pieceCid.String(),
 	}
 
