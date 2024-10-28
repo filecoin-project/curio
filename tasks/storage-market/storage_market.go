@@ -122,7 +122,7 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 				// Do not start the poller if no minerID present
 				return nil
 			}
-			d.MK12Handler, err = mk12.NewMK12Handler(miners, d.db, d.sc, d.api)
+			d.MK12Handler, err = mk12.NewMK12Handler(miners, d.db, d.sc, d.api, d.cfg)
 			if err != nil {
 				return err
 			}

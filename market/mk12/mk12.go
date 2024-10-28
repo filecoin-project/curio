@@ -11,7 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/samber/lo"
 	"github.com/yugabyte/pgx/v5"
@@ -25,6 +27,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 	"github.com/filecoin-project/go-state-types/crypto"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/market/mk12/legacytypes"
@@ -33,6 +36,8 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 	ctypes "github.com/filecoin-project/lotus/chain/types"
 )
+
+var log = logging.Logger("mk12")
 
 type MK12API interface {
 	ChainHead(context.Context) (*types.TipSet, error)
@@ -50,6 +55,8 @@ type MK12 struct {
 	db     *harmonydb.DB
 	api    MK12API
 	sc     *ffi.SealCalls
+	cfg    *config.CurioConfig
+	sm     map[address.Address]abi.SectorSize
 }
 
 type validationError struct {
@@ -58,12 +65,28 @@ type validationError struct {
 	reason string
 }
 
-func NewMK12Handler(miners []address.Address, db *harmonydb.DB, sc *ffi.SealCalls, mapi MK12API) (*MK12, error) {
+func NewMK12Handler(miners []address.Address, db *harmonydb.DB, sc *ffi.SealCalls, mapi MK12API, cfg *config.CurioConfig) (*MK12, error) {
+	ctx := context.Background()
+
+	sm := make(map[address.Address]abi.SectorSize)
+
+	for _, m := range miners {
+		info, err := mapi.StateMinerInfo(ctx, m, types.EmptyTSK)
+		if err != nil {
+			return nil, xerrors.Errorf("getting miner info: %w", err)
+		}
+		if _, ok := sm[m]; !ok {
+			sm[m] = info.SectorSize
+		}
+	}
+
 	return &MK12{
 		miners: miners,
 		db:     db,
 		api:    mapi,
 		sc:     sc,
+		sm:     sm,
+		cfg:    cfg,
 	}, nil
 }
 
@@ -106,6 +129,23 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 		}, nil
 	}
 
+	// Apply backpressure
+	wait, err := m.maybeApplyBackpressure(ctx, ds.ClientDealProposal.Proposal.Provider)
+	if err != nil {
+		log.Errorf("applying backpressure: %w", err)
+		return &ProviderDealRejectionInfo{
+			Reason: "internal server error: failed to apply backpressure",
+		}, nil
+	}
+	if wait {
+		log.Infof("Rejected deal %s due to backpressure", ds.DealUuid.String())
+		return &ProviderDealRejectionInfo{
+			Reason: "deal rejected due to backpressure. Please retry in some time.",
+		}, nil
+	}
+
+	// TODO: Add deal filters
+
 	return m.processDeal(ctx, ds)
 }
 
@@ -117,7 +157,7 @@ func (m *MK12) validateDealProposal(ctx context.Context, deal *ProviderDealState
 	if err != nil {
 		return &validationError{
 			reason: "server error: getting chain head",
-			error:  fmt.Errorf("node error getting most recent state id: %w", err),
+			error:  xerrors.Errorf("node error getting most recent state id: %w", err),
 		}
 	}
 
@@ -129,50 +169,50 @@ func (m *MK12) validateDealProposal(ctx context.Context, deal *ProviderDealState
 	// deal proposal to check the signature
 	proposal := deal.ClientDealProposal.Proposal
 	if !proposal.PieceCID.Defined() {
-		return &validationError{error: fmt.Errorf("proposal PieceCID undefined")}
+		return &validationError{error: xerrors.Errorf("proposal PieceCID undefined")}
 	}
 
 	if ok, err := m.validateClientSignature(ctx, deal); err != nil || !ok {
 		if err != nil {
 			return &validationError{
 				reason: "server error: validating signature",
-				error:  fmt.Errorf("validateSignature failed: %w", err),
+				error:  xerrors.Errorf("validateSignature failed: %w", err),
 			}
 		}
 		return &validationError{
 			reason: "invalid signature",
-			error:  fmt.Errorf("invalid signature"),
+			error:  xerrors.Errorf("invalid signature"),
 		}
 	}
 
 	// validate deal proposal
 	if !lo.Contains(m.miners, proposal.Provider) {
-		err := fmt.Errorf("incorrect provider for deal; proposal.Provider: %s; provider.Address: %s", proposal.Provider, m.miners)
+		err := xerrors.Errorf("incorrect provider for deal; proposal.Provider: %s; provider.Address: %s", proposal.Provider, m.miners)
 		return &validationError{error: err}
 	}
 
 	if proposal.Label.Length() > DealMaxLabelSize {
-		err := fmt.Errorf("deal label can be at most %d bytes, is %d", DealMaxLabelSize, proposal.Label.Length())
+		err := xerrors.Errorf("deal label can be at most %d bytes, is %d", DealMaxLabelSize, proposal.Label.Length())
 		return &validationError{error: err}
 	}
 
 	if err := proposal.PieceSize.Validate(); err != nil {
-		err := fmt.Errorf("proposal piece size is invalid: %w", err)
+		err := xerrors.Errorf("proposal piece size is invalid: %w", err)
 		return &validationError{error: err}
 	}
 
 	if proposal.PieceCID.Prefix() != market.PieceCIDPrefix {
-		err := fmt.Errorf("proposal PieceCID had wrong prefix")
+		err := xerrors.Errorf("proposal PieceCID had wrong prefix")
 		return &validationError{error: err}
 	}
 
 	if proposal.EndEpoch <= proposal.StartEpoch {
-		err := fmt.Errorf("proposal end %d before proposal start %d", proposal.EndEpoch, proposal.StartEpoch)
+		err := xerrors.Errorf("proposal end %d before proposal start %d", proposal.EndEpoch, proposal.StartEpoch)
 		return &validationError{error: err}
 	}
 
 	if curEpoch > proposal.StartEpoch {
-		err := fmt.Errorf("deal start epoch %d has already elapsed (current epoch: %d)", proposal.StartEpoch, curEpoch)
+		err := xerrors.Errorf("deal start epoch %d has already elapsed (current epoch: %d)", proposal.StartEpoch, curEpoch)
 		return &validationError{error: err}
 	}
 
@@ -180,14 +220,14 @@ func (m *MK12) validateDealProposal(ctx context.Context, deal *ProviderDealState
 	// duration) is within acceptable bounds
 	minDuration, maxDuration := market.DealDurationBounds(proposal.PieceSize)
 	if proposal.Duration() < minDuration || proposal.Duration() > maxDuration {
-		err := fmt.Errorf("deal duration out of bounds (min, max, provided): %d, %d, %d", minDuration, maxDuration, proposal.Duration())
+		err := xerrors.Errorf("deal duration out of bounds (min, max, provided): %d, %d, %d", minDuration, maxDuration, proposal.Duration())
 		return &validationError{error: err}
 	}
 
 	// Check that the proposed end epoch isn't too far beyond the current epoch
 	maxEndEpoch := curEpoch + miner.MaxSectorExpirationExtension
 	if proposal.EndEpoch > maxEndEpoch {
-		err := fmt.Errorf("invalid deal end epoch %d: cannot be more than %d past current epoch %d", proposal.EndEpoch, miner.MaxSectorExpirationExtension, curEpoch)
+		err := xerrors.Errorf("invalid deal end epoch %d: cannot be more than %d past current epoch %d", proposal.EndEpoch, miner.MaxSectorExpirationExtension, curEpoch)
 		return &validationError{error: err}
 	}
 
@@ -195,7 +235,7 @@ func (m *MK12) validateDealProposal(ctx context.Context, deal *ProviderDealState
 	if err != nil {
 		return &validationError{
 			reason: "server error: getting collateral bounds",
-			error:  fmt.Errorf("node error getting collateral bounds: %w", err),
+			error:  xerrors.Errorf("node error getting collateral bounds: %w", err),
 		}
 	}
 
@@ -207,12 +247,12 @@ func (m *MK12) validateDealProposal(ctx context.Context, deal *ProviderDealState
 	pcMax := maxC
 
 	if proposal.ProviderCollateral.LessThan(pcMin) {
-		err := fmt.Errorf("proposed provider collateral %s below minimum %s", proposal.ProviderCollateral, pcMin)
+		err := xerrors.Errorf("proposed provider collateral %s below minimum %s", proposal.ProviderCollateral, pcMin)
 		return &validationError{error: err}
 	}
 
 	if proposal.ProviderCollateral.GreaterThan(pcMax) {
-		err := fmt.Errorf("proposed provider collateral %s above maximum %s", proposal.ProviderCollateral, pcMax)
+		err := xerrors.Errorf("proposed provider collateral %s above maximum %s", proposal.ProviderCollateral, pcMax)
 		return &validationError{error: err}
 	}
 
@@ -232,7 +272,7 @@ func (m *MK12) validateDealProposal(ctx context.Context, deal *ProviderDealState
 	if err != nil {
 		return &validationError{
 			reason: "server error: getting market balance",
-			error:  fmt.Errorf("node error getting client market balance failed: %w", err),
+			error:  xerrors.Errorf("node error getting client market balance failed: %w", err),
 		}
 	}
 
@@ -241,7 +281,7 @@ func (m *MK12) validateDealProposal(ctx context.Context, deal *ProviderDealState
 	// This doesn't guarantee that the client won't withdraw / lock those funds
 	// but it's a decent first filter
 	if clientMarketBalance.Available.LessThan(proposal.ClientBalanceRequirement()) {
-		err := fmt.Errorf("client available funds in escrow %d not enough to meet storage cost for deal %d", clientMarketBalance.Available, proposal.ClientBalanceRequirement())
+		err := xerrors.Errorf("client available funds in escrow %d not enough to meet storage cost for deal %d", clientMarketBalance.Available, proposal.ClientBalanceRequirement())
 		return &validationError{error: err}
 	}
 
@@ -252,7 +292,7 @@ func (m *MK12) validateDealProposal(ctx context.Context, deal *ProviderDealState
 		if err != nil {
 			return &validationError{
 				reason: "server error: getting verified datacap",
-				error:  fmt.Errorf("node error fetching verified data cap: %w", err),
+				error:  xerrors.Errorf("node error fetching verified data cap: %w", err),
 			}
 		}
 
@@ -265,7 +305,7 @@ func (m *MK12) validateDealProposal(ctx context.Context, deal *ProviderDealState
 
 		pieceSize := big.NewIntUnsigned(uint64(proposal.PieceSize))
 		if dataCap.LessThan(pieceSize) {
-			err := fmt.Errorf("verified deal DataCap %d too small for proposed piece size %d", dataCap, pieceSize)
+			err := xerrors.Errorf("verified deal DataCap %d too small for proposed piece size %d", dataCap, pieceSize)
 			return &validationError{error: err}
 		}
 	}
@@ -289,15 +329,15 @@ func (m *MK12) validateAsk(ctx context.Context, deal *ProviderDealState) error {
 	proposal := deal.ClientDealProposal.Proposal
 	minPrice := big.Div(big.Mul(askPrice, abi.NewTokenAmount(int64(proposal.PieceSize))), abi.NewTokenAmount(1<<30))
 	if proposal.StoragePricePerEpoch.LessThan(minPrice) {
-		return fmt.Errorf("storage price per epoch less than asking price: %s < %s", proposal.StoragePricePerEpoch, minPrice)
+		return xerrors.Errorf("storage price per epoch less than asking price: %s < %s", proposal.StoragePricePerEpoch, minPrice)
 	}
 
 	if proposal.PieceSize < ask.MinPieceSize {
-		return fmt.Errorf("piece size less than minimum required size: %d < %d", proposal.PieceSize, ask.MinPieceSize)
+		return xerrors.Errorf("piece size less than minimum required size: %d < %d", proposal.PieceSize, ask.MinPieceSize)
 	}
 
 	if proposal.PieceSize > ask.MaxPieceSize {
-		return fmt.Errorf("piece size more than maximum allowed size: %d > %d", proposal.PieceSize, ask.MaxPieceSize)
+		return xerrors.Errorf("piece size more than maximum allowed size: %d > %d", proposal.PieceSize, ask.MaxPieceSize)
 	}
 
 	return nil
@@ -324,8 +364,6 @@ func (m *MK12) validateClientSignature(ctx context.Context, deal *ProviderDealSt
 }
 
 func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*ProviderDealRejectionInfo, error) {
-	// TODO: Add deal filters and Backpressure
-
 	if deal.Transfer.Type == Libp2pScheme {
 		return &ProviderDealRejectionInfo{
 			Reason: "libp2p URLs are not supported by this provider",
@@ -460,4 +498,145 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 	return &ProviderDealRejectionInfo{
 		Accepted: true,
 	}, nil
+}
+
+func (m *MK12) maybeApplyBackpressure(ctx context.Context, maddr address.Address) (wait bool, err error) {
+	var pieceSizes []abi.PaddedPieceSize
+
+	err = m.db.Select(ctx, &pieceSizes, `SELECT piece_padded_size FROM parked_pieces WHERE complete = false;`)
+	if err != nil {
+		return false, xerrors.Errorf("getting in-process pieces: %w", err)
+	}
+
+	ssize := m.sm[maddr]
+
+	sectors := sectorCount(pieceSizes, abi.PaddedPieceSize(ssize))
+
+	cfg := m.cfg.Ingest
+
+	if cfg.DoSnap {
+		var bufferedEncode, bufferedProve, waitDealSectors int
+		err = m.db.QueryRow(ctx, `
+		WITH BufferedEncode AS (
+			SELECT COUNT(p.task_id_encode) - COUNT(t.owner_id) AS buffered_encode
+			FROM sectors_snap_pipeline p
+					 LEFT JOIN harmony_task t ON p.task_id_encode = t.id
+			WHERE p.after_encode = false
+		),
+		 BufferedProve AS (
+			 SELECT COUNT(p.task_id_prove) - COUNT(t.owner_id) AS buffered_prove
+			 FROM sectors_snap_pipeline p
+					  LEFT JOIN harmony_task t ON p.task_id_prove = t.id
+			 WHERE p.after_prove = true AND p.after_move_storage = false
+		 ),
+		 WaitDealSectors AS (
+			 SELECT COUNT(DISTINCT sip.sector_number) AS wait_deal_sectors_count
+			 FROM sectors_snap_initial_pieces sip
+					  LEFT JOIN curio.sectors_snap_pipeline sp ON sip.sp_id = sp.sp_id AND sip.sector_number = sp.sector_number
+			 WHERE sp.sector_number IS NULL
+		 )
+		SELECT
+			(SELECT buffered_encode FROM BufferedEncode) AS total_encode,
+			(SELECT buffered_prove FROM BufferedProve) AS buffered_prove,
+			(SELECT wait_deal_sectors_count FROM WaitDealSectors) AS wait_deal_sectors_count
+		`).Scan(&bufferedEncode, &bufferedProve, &waitDealSectors)
+		if err != nil {
+			return false, xerrors.Errorf("counting buffered sectors: %w", err)
+		}
+
+		if cfg.MaxQueueDealSector != 0 && waitDealSectors+sectors > cfg.MaxQueueDealSector {
+			log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "parking-sectors", sectors, "parking-pieces", len(pieceSizes), "max", cfg.MaxQueueDealSector)
+			return true, nil
+		}
+
+		if cfg.MaxQueueSnapEncode != 0 && bufferedEncode > cfg.MaxQueueSnapEncode {
+			log.Infow("backpressure", "reason", "too many encode tasks", "buffered", bufferedEncode, "max", cfg.MaxQueueSnapEncode)
+			return true, nil
+		}
+
+		if cfg.MaxQueueSnapProve != 0 && bufferedProve > cfg.MaxQueueSnapProve {
+			log.Infow("backpressure", "reason", "too many prove tasks", "buffered", bufferedProve, "max", cfg.MaxQueueSnapProve)
+			return
+		}
+	} else {
+		var bufferedSDR, bufferedTrees, bufferedPoRep, waitDealSectors int
+		err = m.db.QueryRow(ctx, `
+		WITH BufferedSDR AS (
+			SELECT COUNT(p.task_id_sdr) - COUNT(t.owner_id) AS buffered_sdr_count
+			FROM sectors_sdr_pipeline p
+			LEFT JOIN harmony_task t ON p.task_id_sdr = t.id
+			WHERE p.after_sdr = false
+		),
+		BufferedTrees AS (
+			SELECT COUNT(p.task_id_tree_r) - COUNT(t.owner_id) AS buffered_trees_count
+			FROM sectors_sdr_pipeline p
+			LEFT JOIN harmony_task t ON p.task_id_tree_r = t.id
+			WHERE p.after_sdr = true AND p.after_tree_r = false
+		),
+		BufferedPoRep AS (
+			SELECT COUNT(p.task_id_porep) - COUNT(t.owner_id) AS buffered_porep_count
+			FROM sectors_sdr_pipeline p
+			LEFT JOIN harmony_task t ON p.task_id_porep = t.id
+			WHERE p.after_tree_r = true AND p.after_porep = false
+		),
+		WaitDealSectors AS (
+			SELECT COUNT(DISTINCT sip.sector_number) AS wait_deal_sectors_count
+			FROM sectors_sdr_initial_pieces sip
+			LEFT JOIN sectors_sdr_pipeline sp ON sip.sp_id = sp.sp_id AND sip.sector_number = sp.sector_number
+			WHERE sp.sector_number IS NULL
+		)
+		SELECT
+			(SELECT buffered_sdr_count FROM BufferedSDR) AS total_buffered_sdr,
+			(SELECT buffered_trees_count FROM BufferedTrees) AS buffered_trees_count,
+			(SELECT buffered_porep_count FROM BufferedPoRep) AS buffered_porep_count,
+			(SELECT wait_deal_sectors_count FROM WaitDealSectors) AS wait_deal_sectors_count
+		`).Scan(&bufferedSDR, &bufferedTrees, &bufferedPoRep, &waitDealSectors)
+		if err != nil {
+			return false, xerrors.Errorf("counting buffered sectors: %w", err)
+		}
+
+		if cfg.MaxQueueDealSector != 0 && waitDealSectors+sectors > cfg.MaxQueueDealSector {
+			log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "max", cfg.MaxQueueDealSector)
+			return true, nil
+		}
+
+		if bufferedSDR > cfg.MaxQueueSDR {
+			log.Infow("backpressure", "reason", "too many SDR tasks", "buffered", bufferedSDR, "max", cfg.MaxQueueSDR)
+			return true, nil
+		}
+		if cfg.MaxQueueTrees != 0 && bufferedTrees > cfg.MaxQueueTrees {
+			log.Infow("backpressure", "reason", "too many tree tasks", "buffered", bufferedTrees, "max", cfg.MaxQueueTrees)
+			return true, nil
+		}
+		if cfg.MaxQueuePoRep != 0 && bufferedPoRep > cfg.MaxQueuePoRep {
+			log.Infow("backpressure", "reason", "too many PoRep tasks", "buffered", bufferedPoRep, "max", cfg.MaxQueuePoRep)
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func sectorCount(sizes []abi.PaddedPieceSize, targetSize abi.PaddedPieceSize) int {
+	sort.Slice(sizes, func(i, j int) bool {
+		return sizes[i] > sizes[j]
+	})
+
+	sectors := make([]abi.PaddedPieceSize, 0)
+
+	for _, size := range sizes {
+		placed := false
+		for i := range sectors {
+			if sectors[i]+size <= targetSize {
+				sectors[i] += size
+				placed = true
+				break
+			}
+		}
+		if !placed {
+			sectors = append(sectors, size)
+		}
+	}
+
+	return len(sectors)
 }
