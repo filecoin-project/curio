@@ -687,7 +687,8 @@ USAGE:
 
 OPTIONS:
    --actor value    Specify actor address to start sealing sectors for
-   --max-fee value  maximum fee in FIL user is willing to pay for this message (default: "2")
+   --max-fee value  maximum fee in FIL user is willing to pay for this message (default: "0.5")
+   --wallet value   Specify wallet address to send the funds from
    --help, -h       show help
 ```
 
