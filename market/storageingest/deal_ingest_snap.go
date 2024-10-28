@@ -48,12 +48,11 @@ type PieceIngesterSnap struct {
 	idToAddr             map[abi.ActorID]address.Address
 	minerDetails         map[int64]*mdetails
 	sectorSize           abi.SectorSize
-	sealRightNow         bool // Should be true only for CurioAPI AllocatePieceToSector method
 	maxWaitTime          time.Duration
 	expectedSnapDuration abi.ChainEpoch
 }
 
-func NewPieceIngesterSnap(ctx context.Context, db *harmonydb.DB, api PieceIngesterApi, miners []address.Address, sealRightNow bool, cfg *config.CurioConfig) (*PieceIngesterSnap, error) {
+func NewPieceIngesterSnap(ctx context.Context, db *harmonydb.DB, api PieceIngesterApi, miners []address.Address, cfg *config.CurioConfig) (*PieceIngesterSnap, error) {
 	if len(miners) == 0 {
 		return nil, xerrors.Errorf("no miners provided")
 	}
@@ -104,7 +103,6 @@ func NewPieceIngesterSnap(ctx context.Context, db *harmonydb.DB, api PieceIngest
 		ctx:                  ctx,
 		db:                   db,
 		api:                  api,
-		sealRightNow:         sealRightNow,
 		maxWaitTime:          time.Duration(cfg.Ingest.MaxDealWaitTime),
 		addToID:              addToID,
 		minerDetails:         minerDetails,
@@ -203,7 +201,7 @@ func (p *PieceIngesterSnap) Seal() error {
 	return nil
 }
 
-func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmonydb.Tx, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (api.SectorOffset, error) {
+func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmonydb.Tx, maddr address.Address, piece lpiece.PieceDealInfo, rawSize int64, source url.URL, header http.Header) (IngestReturn, error) {
 	var psize abi.PaddedPieceSize
 
 	if piece.PieceActivationManifest != nil {
@@ -214,14 +212,14 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 
 	// check raw size
 	if psize != padreader.PaddedSize(uint64(rawSize)).Padded() {
-		return api.SectorOffset{}, xerrors.Errorf("raw size doesn't match padded piece size")
+		return IngestReturn{}, xerrors.Errorf("raw size doesn't match padded piece size")
 	}
 
 	var propJson []byte
 
 	dataHdrJson, err := json.Marshal(header)
 	if err != nil {
-		return api.SectorOffset{}, xerrors.Errorf("json.Marshal(header): %w", err)
+		return IngestReturn{}, xerrors.Errorf("json.Marshal(header): %w", err)
 	}
 
 	vd := verifiedDeal{
@@ -233,16 +231,16 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 
 		alloc, err := p.api.StateGetAllocationIdForPendingDeal(ctx, piece.DealID, types.EmptyTSK)
 		if err != nil {
-			return api.SectorOffset{}, xerrors.Errorf("getting allocation for deal %d: %w", piece.DealID, err)
+			return IngestReturn{}, xerrors.Errorf("getting allocation for deal %d: %w", piece.DealID, err)
 		}
 		clid, err := p.api.StateLookupID(ctx, piece.DealProposal.Client, types.EmptyTSK)
 		if err != nil {
-			return api.SectorOffset{}, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
+			return IngestReturn{}, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
 		}
 
 		clientId, err := address.IDFromAddress(clid)
 		if err != nil {
-			return api.SectorOffset{}, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
+			return IngestReturn{}, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
 		}
 
 		var vac *miner2.VerifiedAllocationKey
@@ -255,7 +253,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 
 		payload, err := cborutil.Dump(piece.DealID)
 		if err != nil {
-			return api.SectorOffset{}, xerrors.Errorf("serializing deal id: %w", err)
+			return IngestReturn{}, xerrors.Errorf("serializing deal id: %w", err)
 		}
 
 		piece.PieceActivationManifest = &miner.PieceActivationManifest{
@@ -277,7 +275,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 
 	head, err := p.api.ChainHead(ctx)
 	if err != nil {
-		return api.SectorOffset{}, xerrors.Errorf("getting chain head: %w", err)
+		return IngestReturn{}, xerrors.Errorf("getting chain head: %w", err)
 	}
 
 	var maxExpiration int64
@@ -285,14 +283,14 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 	if vd.isVerified {
 		client, err := address.NewIDAddress(uint64(piece.PieceActivationManifest.VerifiedAllocationKey.Client))
 		if err != nil {
-			return api.SectorOffset{}, xerrors.Errorf("getting client address from actor ID: %w", err)
+			return IngestReturn{}, xerrors.Errorf("getting client address from actor ID: %w", err)
 		}
 		alloc, err := p.api.StateGetAllocation(ctx, client, verifregtypes.AllocationId(piece.PieceActivationManifest.VerifiedAllocationKey.ID), types.EmptyTSK)
 		if err != nil {
-			return api.SectorOffset{}, xerrors.Errorf("getting allocation details for %d: %w", piece.PieceActivationManifest.VerifiedAllocationKey.ID, err)
+			return IngestReturn{}, xerrors.Errorf("getting allocation details for %d: %w", piece.PieceActivationManifest.VerifiedAllocationKey.ID, err)
 		}
 		if alloc == nil {
-			return api.SectorOffset{}, xerrors.Errorf("no allocation found for ID %d: %w", piece.PieceActivationManifest.VerifiedAllocationKey.ID, err)
+			return IngestReturn{}, xerrors.Errorf("no allocation found for ID %d: %w", piece.PieceActivationManifest.VerifiedAllocationKey.ID, err)
 		}
 		vd.tmin = alloc.TermMin
 		vd.tmax = alloc.TermMax
@@ -303,25 +301,23 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 	}
 	propJson, err = json.Marshal(piece.PieceActivationManifest)
 	if err != nil {
-		return api.SectorOffset{}, xerrors.Errorf("json.Marshal(piece.PieceActivationManifest): %w", err)
+		return IngestReturn{}, xerrors.Errorf("json.Marshal(piece.PieceActivationManifest): %w", err)
 	}
 
-	if !p.sealRightNow {
-		// Try to allocate the piece to an open sector
-		allocated, ret, err := p.allocateToExisting(ctx, tx, maddr, piece, psize, rawSize, source, dataHdrJson, propJson, vd)
-		if err != nil {
-			return api.SectorOffset{}, err
-		}
-		if allocated {
-			return ret, nil
-		}
+	// Try to allocate the piece to an open sector
+	allocated, ret, err := p.allocateToExisting(ctx, tx, maddr, piece, psize, rawSize, source, dataHdrJson, propJson, vd)
+	if err != nil {
+		return IngestReturn{}, err
+	}
+	if allocated {
+		return ret, nil
 	}
 
 	// non-mutable deadline is the current deadline and the next one. Doesn't matter if the current one was proven or not.
 
 	curDeadline, err := p.api.StateMinerProvingDeadline(ctx, maddr, types.EmptyTSK)
 	if err != nil {
-		return api.SectorOffset{}, xerrors.Errorf("getting proving deadline: %w", err)
+		return IngestReturn{}, xerrors.Errorf("getting proving deadline: %w", err)
 	}
 
 	dlIdxImmutableCur := curDeadline.Index
@@ -372,7 +368,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 			ORDER BY ABS(sm.expiration_epoch - ($1 + $3))
 		`, int64(piece.DealSchedule.EndEpoch), maxExpiration, IdealEndEpochBuffer, p.addToID[maddr], dlIdxImmutableCur, dlIdxImmutableNext, dlIdxImmutableNextNext)
 	if err != nil {
-		return api.SectorOffset{}, xerrors.Errorf("allocating sector numbers: %w", err)
+		return IngestReturn{}, xerrors.Errorf("allocating sector numbers: %w", err)
 	}
 	defer rows.Close()
 
@@ -384,19 +380,19 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 		var candidate CandidateSector
 		err := rows.Scan(&candidate.Sector, &candidate.Expiration)
 		if err != nil {
-			return api.SectorOffset{}, xerrors.Errorf("scanning row: %w", err)
+			return IngestReturn{}, xerrors.Errorf("scanning row: %w", err)
 		}
 		tried++
 
 		sloc, err := p.api.StateSectorPartition(ctx, maddr, abi.SectorNumber(candidate.Sector), types.EmptyTSK)
 		if err != nil {
-			return api.SectorOffset{}, xerrors.Errorf("getting sector locations: %w", err)
+			return IngestReturn{}, xerrors.Errorf("getting sector locations: %w", err)
 		}
 
 		if _, ok := deadlineCache[sloc.Deadline]; !ok {
 			dls, err := p.api.StateMinerPartitions(ctx, maddr, sloc.Deadline, types.EmptyTSK)
 			if err != nil {
-				return api.SectorOffset{}, xerrors.Errorf("getting partitions: %w", err)
+				return IngestReturn{}, xerrors.Errorf("getting partitions: %w", err)
 			}
 
 			deadlineCache[sloc.Deadline] = dls
@@ -404,20 +400,20 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 
 		dl := deadlineCache[sloc.Deadline]
 		if len(dl) <= int(sloc.Partition) {
-			return api.SectorOffset{}, xerrors.Errorf("partition %d not found in deadline %d", sloc.Partition, sloc.Deadline)
+			return IngestReturn{}, xerrors.Errorf("partition %d not found in deadline %d", sloc.Partition, sloc.Deadline)
 		}
 		part := dl[sloc.Partition]
 
 		active, err := part.ActiveSectors.IsSet(uint64(candidate.Sector))
 		if err != nil {
-			return api.SectorOffset{}, xerrors.Errorf("checking active sectors: %w", err)
+			return IngestReturn{}, xerrors.Errorf("checking active sectors: %w", err)
 		}
 		if !active {
 			live, err1 := part.LiveSectors.IsSet(uint64(candidate.Sector))
 			faulty, err2 := part.FaultySectors.IsSet(uint64(candidate.Sector))
 			recovering, err3 := part.RecoveringSectors.IsSet(uint64(candidate.Sector))
 			if err1 != nil || err2 != nil || err3 != nil {
-				return api.SectorOffset{}, xerrors.Errorf("checking sector status: %w, %w, %w", err1, err2, err3)
+				return IngestReturn{}, xerrors.Errorf("checking sector status: %w, %w, %w", err1, err2, err3)
 			}
 
 			log.Debugw("sector not active, skipping", "sector", candidate.Sector, "live", live, "faulty", faulty, "recovering", recovering)
@@ -429,7 +425,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 	}
 
 	if err := rows.Err(); err != nil {
-		return api.SectorOffset{}, xerrors.Errorf("iterating rows: %w", err)
+		return IngestReturn{}, xerrors.Errorf("iterating rows: %w", err)
 	}
 
 	rows.Close()
@@ -441,25 +437,25 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 		minEpochDays := (minEpoch - head.Height()) / builtin.EpochsInDay
 		maxEpochDays := (maxEpoch - head.Height()) / builtin.EpochsInDay
 
-		return api.SectorOffset{}, xerrors.Errorf("no suitable sectors found, minEpoch: %d, maxEpoch: %d, minExpirationDays: %d, maxExpirationDays: %d (avoiding deadlines %d,%d,%d)", minEpoch, maxEpoch, minEpochDays, maxEpochDays, dlIdxImmutableCur, dlIdxImmutableNext, dlIdxImmutableNextNext)
+		return IngestReturn{}, xerrors.Errorf("no suitable sectors found, minEpoch: %d, maxEpoch: %d, minExpirationDays: %d, maxExpirationDays: %d (avoiding deadlines %d,%d,%d)", minEpoch, maxEpoch, minEpochDays, maxEpochDays, dlIdxImmutableCur, dlIdxImmutableNext, dlIdxImmutableNextNext)
 	}
 
 	candidate := *bestCandidate
 
 	si, err := p.api.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(candidate.Sector), types.EmptyTSK)
 	if err != nil {
-		return api.SectorOffset{}, xerrors.Errorf("getting sector info: %w", err)
+		return IngestReturn{}, xerrors.Errorf("getting sector info: %w", err)
 	}
 
 	sectorLifeTime := si.Expiration - head.Height()
 	if sectorLifeTime < 0 {
-		return api.SectorOffset{}, xerrors.Errorf("sector lifetime is negative!?")
+		return IngestReturn{}, xerrors.Errorf("sector lifetime is negative!?")
 	}
 	if piece.DealSchedule.EndEpoch > si.Expiration {
-		return api.SectorOffset{}, xerrors.Errorf("sector expiration is too soon: %d < %d", si.Expiration, piece.DealSchedule.EndEpoch)
+		return IngestReturn{}, xerrors.Errorf("sector expiration is too soon: %d < %d", si.Expiration, piece.DealSchedule.EndEpoch)
 	}
 	if maxExpiration != 0 && si.Expiration > abi.ChainEpoch(maxExpiration) {
-		return api.SectorOffset{}, xerrors.Errorf("sector expiration is too late: %d > %d", si.Expiration, maxExpiration)
+		return IngestReturn{}, xerrors.Errorf("sector expiration is too late: %d > %d", si.Expiration, maxExpiration)
 	}
 
 	// info log detailing EVERYTHING including all the epoch bounds
@@ -479,37 +475,30 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 		source.String(), dataHdrJson, rawSize, !piece.KeepUnsealed,
 		piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch, propJson)
 	if err != nil {
-		return api.SectorOffset{}, xerrors.Errorf("adding deal to sector: %w", err)
+		return IngestReturn{}, xerrors.Errorf("adding deal to sector: %w", err)
 	}
 
 	num = &candidate.Sector
 
-	if p.sealRightNow {
-		err = p.SectorStartSealing(ctx, maddr, abi.SectorNumber(*num))
-		if err != nil {
-			return api.SectorOffset{}, xerrors.Errorf("SectorStartSealing: %w", err)
-		}
-	}
-
-	return api.SectorOffset{
+	return IngestReturn{
 		Sector: abi.SectorNumber(*num),
-		Offset: 0,
+		Index:  0,
 	}, nil
 }
 
-func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, tx *harmonydb.Tx, maddr address.Address, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte, vd verifiedDeal) (bool, api.SectorOffset, error) {
-	var ret api.SectorOffset
+func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, tx *harmonydb.Tx, maddr address.Address, piece lpiece.PieceDealInfo, psize abi.PaddedPieceSize, rawSize int64, source url.URL, dataHdrJson, propJson []byte, vd verifiedDeal) (bool, IngestReturn, error) {
+	var ret IngestReturn
 	var allocated bool
 	var rerr error
 
 	openSectors, err := p.getOpenSectors(tx, p.addToID[maddr])
 	if err != nil {
-		return false, api.SectorOffset{}, err
+		return false, IngestReturn{}, err
 	}
 
 	head, err := p.api.ChainHead(ctx)
 	if err != nil {
-		return false, api.SectorOffset{}, err
+		return false, IngestReturn{}, err
 	}
 
 	for _, sec := range openSectors {
@@ -536,7 +525,7 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, tx *harmonyd
 			}
 
 			ret.Sector = sec.number
-			ret.Offset = sec.currentSize
+			ret.Index = sec.index + 1
 
 			// Insert DDO deal to DB for the sector
 			cn, err := tx.Exec(`SELECT insert_snap_ddo_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
@@ -546,11 +535,11 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, tx *harmonyd
 				piece.DealSchedule.StartEpoch, piece.DealSchedule.EndEpoch, propJson)
 
 			if err != nil {
-				return false, api.SectorOffset{}, fmt.Errorf("adding deal to sector: %v", err)
+				return false, IngestReturn{}, fmt.Errorf("adding deal to sector: %v", err)
 			}
 
 			if cn != 1 {
-				return false, api.SectorOffset{}, xerrors.Errorf("expected one piece")
+				return false, IngestReturn{}, xerrors.Errorf("expected one piece")
 			}
 
 			allocated = true

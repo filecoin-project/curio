@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -26,7 +28,7 @@ import (
 	"github.com/filecoin-project/curio/market/mk12"
 	"github.com/filecoin-project/curio/market/storageingest"
 
-	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/proofs"
 	"github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
 
@@ -129,9 +131,9 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 			}
 
 			if d.cfg.Ingest.DoSnap {
-				d.pin, err = storageingest.NewPieceIngesterSnap(ctx, d.db, d.api, miners, false, d.cfg)
+				d.pin, err = storageingest.NewPieceIngesterSnap(ctx, d.db, d.api, miners, d.cfg)
 			} else {
-				d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, miners, false, d.cfg)
+				d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, miners, d.cfg)
 			}
 		}
 	}
@@ -354,12 +356,71 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 	}
 
 	// If on chain deal ID is present, we should add the deal to a sector
-	if deal.AfterFindDeal && deal.Sector == nil && deal.Offset == nil {
+	if deal.AfterFindDeal && deal.Sector == nil {
 		err := d.ingestDeal(ctx, deal)
 		if err != nil {
 			return xerrors.Errorf("ingest deal: %w", err)
 		}
 	}
+
+	// Get the deal offset if sector has started sealing
+	if deal.AfterFindDeal && deal.Sector != nil {
+		var newIndex int64
+		err := d.db.QueryRow(ctx, `SELECT new_index from deal_index_tracker where uuid = $1 AND new_index IS NOT NULL`, deal.UUID).Scan(&newIndex)
+		if err != nil {
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return xerrors.Errorf("UUID: %s: getting deal's new index: %w", deal.UUID, err)
+			}
+			// Exit if new_index is not yet present as sector has not yet started sealing
+			return nil
+		}
+
+		type pieces struct {
+			Size  abi.PaddedPieceSize `db:"piece_size"`
+			Index int64               `db:"piece_index"`
+		}
+
+		var pieceList []pieces
+		err = d.db.Select(ctx, &pieceList, `SELECT piece_size, piece_index
+												FROM sectors_sdr_initial_pieces
+												WHERE sp_id = $1 AND sector_number = $2
+												
+												UNION ALL
+												
+												SELECT piece_size, piece_index
+												FROM sectors_snap_initial_pieces
+												WHERE sp_id = $1 AND sector_number = $2
+												
+												ORDER BY piece_index ASC;`, deal.SpID, deal.Sector)
+		if err != nil {
+			return xerrors.Errorf("UUID: %s: getting pieces for sector: %w", deal.UUID, err)
+		}
+
+		if len(pieceList) == 0 {
+			return xerrors.Errorf("UUID: %s: no pieces found for the sector %d", deal.UUID, deal.Sector)
+		}
+
+		var offset abi.UnpaddedPieceSize
+
+		for _, p := range pieceList {
+			_, padLength := proofs.GetRequiredPadding(offset.Padded(), p.Size)
+			offset += padLength.Unpadded()
+			if p.Index == newIndex {
+				n, err := d.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET sector_offset = $1 WHERE uuid = $2 AND sector = $3`, offset.Padded(), deal.UUID, deal.Sector)
+				if err != nil {
+					return xerrors.Errorf("UUID: %s: updating deal pipeline with sector offset: %w", deal.UUID, err)
+				}
+				if n != 1 {
+					if err != nil {
+						return xerrors.Errorf("UUID: %s: expected 1 row for sector offset update in DB but found %d", deal.UUID, n)
+					}
+				}
+				return nil
+			}
+			offset += p.Size.Unpadded()
+		}
+	}
+
 	return nil
 }
 
@@ -537,7 +598,7 @@ func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context, deals []MK12Pip
 }
 
 func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeline) error {
-	var info api.SectorOffset
+	var info storageingest.IngestReturn
 
 	comm, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		// Prepare a variable to hold the result
@@ -641,16 +702,27 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 			return false, xerrors.Errorf("UUID: %s: failed to add deal to a sector: %w", deal.UUID, err)
 		}
 
-		n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET sector = $1, sector_offset = $2 
-                                 WHERE uuid = $3 AND sector = NULL AND sector_offset = NULL`, info.Sector, info.Offset, deal.UUID)
+		n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET sector = $1 WHERE uuid = $2 AND sector = NULL`, info.Sector, deal.UUID)
 		if err != nil {
-			return false, xerrors.Errorf("UUID: %s: failed to add sector %d and offset %d details to DB: %w", deal.UUID, info.Sector, info.Offset, err)
+			return false, xerrors.Errorf("UUID: %s: failed to add sector %d details to DB: %w", deal.UUID, info.Sector, err)
 		}
 		if n != 1 {
 			if err != nil {
-				return false, xerrors.Errorf("UUID: %s: expected 1 deal update for add sector %d and offset %d details to DB but found %d", deal.UUID, info.Sector, info.Offset, n)
+				return false, xerrors.Errorf("UUID: %s: expected 1 deal update for add sector %d details to DB but found %d", deal.UUID, info.Sector, n)
 			}
 		}
+
+		n, err = tx.Exec(`INSERT INTO deal_index_tracker (uuid, sp_id, sector_number, old_index) VALUES ($1, $2, $3, $4)`,
+			deal.UUID, dbdeal.SpID, info.Sector, info.Index)
+		if err != nil {
+			return false, xerrors.Errorf("UUID: %s: failed to add sector %d and index %d details to DB: %w", deal.UUID, info.Sector, info.Index, err)
+		}
+		if n != 1 {
+			if err != nil {
+				return false, xerrors.Errorf("UUID: %s: expected 1 deal update for add sector %d and index %d details to DB but found %d", deal.UUID, info.Sector, info.Index, n)
+			}
+		}
+
 		return true, nil
 	}, harmonydb.OptionRetry())
 
@@ -662,7 +734,7 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 		return xerrors.Errorf("UUID: %s: failed to commit transaction: %w", deal.UUID, err)
 	}
 
-	log.Infof("Added deal %s to sector %d at %d", deal.UUID, info.Sector, info.Offset)
+	log.Infof("Added deal %s to sector %d at index %d", deal.UUID, info.Sector, info.Index)
 	return nil
 }
 
