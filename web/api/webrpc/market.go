@@ -13,6 +13,13 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/big"
+
+	lapi "github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/actors"
+	"github.com/filecoin-project/lotus/chain/actors/builtin/market"
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 type StorageAsk struct {
@@ -387,4 +394,124 @@ func (a *WebRPC) LegacyStorageDealList(ctx context.Context, limit int, offset in
 		s.Miner = addr.String()
 	}
 	return mk12Summaries, nil
+}
+
+type WalletBalances struct {
+	Address string `json:"address"`
+	Balance string `json:"balance"`
+}
+
+type MarketBalanceStatus struct {
+	Miner         string           `json:"miner"`
+	MarketBalance string           `json:"market_balance"`
+	Balances      []WalletBalances `json:"balances"`
+}
+
+func (a *WebRPC) MarketBalance(ctx context.Context) ([]MarketBalanceStatus, error) {
+	var ret []MarketBalanceStatus
+
+	var miners []address.Address
+
+	err := forEachConfig(a, func(name string, info minimalActorInfo) error {
+		for _, aset := range info.Addresses {
+			for _, addr := range aset.MinerAddresses {
+				maddr, err := address.NewFromString(addr)
+				if err != nil {
+					return xerrors.Errorf("parsing address: %w", err)
+				}
+				miners = append(miners, maddr)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, m := range miners {
+		balance, err := a.deps.Chain.StateMarketBalance(ctx, m, types.EmptyTSK)
+		if err != nil {
+			return nil, err
+		}
+		avail := types.FIL(big.Sub(balance.Escrow, balance.Locked))
+
+		mb := MarketBalanceStatus{
+			Miner:         m.String(),
+			MarketBalance: avail.String(),
+		}
+
+		for _, w := range a.deps.As.MinerMap[m].DealPublishControl {
+			ac, err := a.deps.Chain.StateGetActor(ctx, w, types.EmptyTSK)
+			if err != nil {
+				return nil, err
+			}
+			mb.Balances = append(mb.Balances, WalletBalances{
+				Address: w.String(),
+				Balance: types.FIL(ac.Balance).String(),
+			})
+		}
+
+		ret = append(ret, mb)
+	}
+
+	return ret, nil
+}
+
+func (a *WebRPC) MoveBalanceToEscrow(ctx context.Context, miner string, amount string, wallet string) (string, error) {
+	maddr, err := address.NewFromString(miner)
+	if err != nil {
+		return "", xerrors.Errorf("failed parse the miner address :%w", err)
+	}
+
+	addr, err := address.NewFromString(wallet)
+	if err != nil {
+		return "", xerrors.Errorf("parsing wallet address: %w", err)
+	}
+
+	amts, err := types.ParseFIL(amount)
+	if err != nil {
+		return "", xerrors.Errorf("failed to parse the input amount: %w", err)
+	}
+
+	amt := abi.TokenAmount(amts)
+
+	params, err := actors.SerializeParams(&maddr)
+	if err != nil {
+		return "", xerrors.Errorf("failed to serialize the parameters: %w", err)
+	}
+
+	maxfee, err := types.ParseFIL("0.5 FIL")
+	if err != nil {
+		return "", xerrors.Errorf("failed to parse the maximum fee: %w", err)
+	}
+
+	msp := &lapi.MessageSendSpec{
+		MaxFee: abi.TokenAmount(maxfee),
+	}
+
+	w, err := a.deps.Chain.StateGetActor(ctx, addr, types.EmptyTSK)
+	if err != nil {
+		return "", err
+	}
+	if w.Balance.LessThan(amt) {
+		return "", xerrors.Errorf("Wallet balance %s is lower than specified amount %s", w.Balance.String(), amt.String())
+
+	}
+
+	msg := &types.Message{
+		To:     market.Address,
+		From:   addr,
+		Value:  amt,
+		Method: market.Methods.AddBalance,
+		Params: params,
+	}
+
+	smsg, err := a.deps.Chain.MpoolPushMessage(ctx, msg, msp)
+	if err != nil {
+		return "", xerrors.Errorf("moving %s to escrow wallet %s from %s: %w", amt.String(), maddr.String(), addr.String(), err)
+	}
+
+	log.Infof("Funds moved to escrow in message %s", smsg.Cid().String())
+	return smsg.Cid().String(), nil
+
 }
