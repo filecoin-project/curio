@@ -25,6 +25,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/builtin/market"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	verifregtypes "github.com/filecoin-project/lotus/chain/actors/builtin/verifreg"
+	"github.com/filecoin-project/lotus/chain/proofs"
 	"github.com/filecoin-project/lotus/chain/types"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
@@ -110,7 +111,7 @@ func (p *PieceIngesterSnap) Seal() error {
 		// 1. If sector is full
 		// 2. We have been waiting for MaxWaitDuration
 		// 3. StartEpoch is less than 8 hours // todo: make this config?
-		if sector.currentSize == abi.PaddedPieceSize(p.sectorSize) {
+		if sector.offset.Padded() == abi.PaddedPieceSize(p.sectorSize) {
 			log.Debugf("start sealing sector %d of miner %d: %s", sector.number, p.miner.String(), "sector full")
 			return true
 		}
@@ -493,7 +494,10 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, piece lpiece
 
 		for _, sec := range openSectors {
 			sec := sec
-			if sec.currentSize+psize <= abi.PaddedPieceSize(p.sectorSize) {
+			offset := sec.offset
+			// Account for inter-piece padding
+			_, padLength := proofs.GetRequiredPadding(offset.Padded(), psize)
+			if offset.Padded()+padLength+psize < abi.PaddedPieceSize(p.sectorSize) {
 				if vd.isVerified {
 					si, err := p.api.StateSectorGetInfo(ctx, p.miner, sec.number, types.EmptyTSK)
 					if err != nil {
@@ -515,7 +519,7 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, piece lpiece
 				}
 
 				ret.Sector = sec.number
-				ret.Offset = sec.currentSize
+				ret.Offset = offset.Padded()
 
 				// Insert DDO deal to DB for the sector
 				cn, err := tx.Exec(`SELECT insert_snap_ddo_piece($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
@@ -659,23 +663,31 @@ func (p *PieceIngesterSnap) getOpenSectors(tx *harmonydb.Tx) ([]*openSector, err
 		pi := pi
 		sector, ok := sectorMap[pi.Sector]
 		if !ok {
+			// Consider padding
+			var offset abi.UnpaddedPieceSize
+			_, padLength := proofs.GetRequiredPadding(offset.Padded(), pi.Size)
+			offset += padLength.Unpadded()
+			offset += pi.Size.Unpadded()
 			sectorMap[pi.Sector] = &openSector{
 				number:             pi.Sector,
-				currentSize:        pi.Size,
 				earliestStartEpoch: getStartEpoch(pi.StartEpoch, 0),
 				index:              pi.Index,
 				openedAt:           pi.CreatedAt,
 				latestEndEpoch:     getEndEpoch(pi.EndEpoch, 0),
+				offset:             offset,
 			}
 			continue
 		}
-		sector.currentSize += pi.Size
 		sector.earliestStartEpoch = getStartEpoch(pi.StartEpoch, sector.earliestStartEpoch)
 		sector.latestEndEpoch = getEndEpoch(pi.EndEpoch, sector.earliestStartEpoch)
 		if sector.index < pi.Index {
 			sector.index = pi.Index
 		}
 		sector.openedAt = getOpenedAt(pi, sector.openedAt)
+		// Consider padding
+		_, padLength := proofs.GetRequiredPadding(sector.offset.Padded(), pi.Size)
+		sector.offset += padLength.Unpadded()
+		sector.offset += pi.Size.Unpadded()
 	}
 
 	var os []*openSector
