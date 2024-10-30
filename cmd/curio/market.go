@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hashicorp/go-multierror"
 	"github.com/mitchellh/go-homedir"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
@@ -249,7 +248,12 @@ var marketMoveToEscrowCmd = &cli.Command{
 			Name:     "max-fee",
 			Usage:    "maximum fee in FIL user is willing to pay for this message",
 			Required: false,
-			Value:    "2",
+			Value:    "0.5",
+		},
+		&cli.StringFlag{
+			Name:     "wallet",
+			Usage:    "Specify wallet address to send the funds from",
+			Required: true,
 		},
 	},
 	ArgsUsage: "<amount>",
@@ -267,6 +271,14 @@ var marketMoveToEscrowCmd = &cli.Command{
 		if !cctx.IsSet("actor") {
 			return cli.ShowCommandHelp(cctx, "move-to-escrow")
 		}
+		if !cctx.IsSet("wallet") {
+			return cli.ShowCommandHelp(cctx, "move-to-escrow")
+		}
+
+		wallet, err := address.NewFromString(cctx.String("wallet"))
+		if err != nil {
+			return xerrors.Errorf("parsing wallet address: %w", err)
+		}
 
 		act, err := address.NewFromString(cctx.String("actor"))
 		if err != nil {
@@ -279,14 +291,10 @@ var marketMoveToEscrowCmd = &cli.Command{
 			return err
 		}
 
-		dcaddrs := dep.As.MinerMap[act].DealPublishControl
-
 		obal, err := dep.Chain.StateMarketBalance(ctx, act, types.EmptyTSK)
 		if err != nil {
 			return err
 		}
-
-		var merr error
 
 		params, err := actors.SerializeParams(&act)
 		if err != nil {
@@ -302,36 +310,42 @@ var marketMoveToEscrowCmd = &cli.Command{
 			MaxFee: abi.TokenAmount(maxfee),
 		}
 
-		for _, addr := range dcaddrs {
-			msg := &types.Message{
-				To:     market.Address,
-				From:   addr,
-				Value:  amt,
-				Method: market.Methods.AddBalance,
-				Params: params,
-			}
-
-			smsg, err := dep.Chain.MpoolPushMessage(ctx, msg, msp)
-			if err != nil {
-				merr = multierror.Append(merr, fmt.Errorf("moving %s to escrow wallet %s from %s: %w", amount.String(), act, addr.String(), err))
-			}
-
-			fmt.Printf("Funds moved to escrow in message %s\n", smsg.Cid().String())
-			fmt.Println("Waiting for the message to be included in a block")
-			res, err := dep.Chain.StateWaitMsg(ctx, smsg.Cid(), 2, 2000, true)
-			if err != nil {
-				return err
-			}
-			if !res.Receipt.ExitCode.IsSuccess() {
-				return xerrors.Errorf("message execution failed with exit code: %d", res.Receipt.ExitCode)
-			}
-			fmt.Println("Message executed successfully")
-			nbal, err := dep.Chain.StateMarketBalance(ctx, act, types.EmptyTSK)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("Previous available balance: %s\n New available Balance: %s\n", big.Sub(obal.Escrow, obal.Locked).String(), big.Sub(nbal.Escrow, nbal.Locked).String())
+		w, err := dep.Chain.StateGetActor(ctx, wallet, types.EmptyTSK)
+		if err != nil {
+			return err
 		}
-		return merr
+		if w.Balance.LessThan(amt) {
+			return xerrors.Errorf("Wallet balance %s is lower than specified amount %s", w.Balance.String(), amt.String())
+		}
+
+		msg := &types.Message{
+			To:     market.Address,
+			From:   wallet,
+			Value:  amt,
+			Method: market.Methods.AddBalance,
+			Params: params,
+		}
+
+		smsg, err := dep.Chain.MpoolPushMessage(ctx, msg, msp)
+		if err != nil {
+			return xerrors.Errorf("moving %s to escrow wallet %s from %s: %w", amount.String(), act, wallet.String(), err)
+		}
+
+		fmt.Printf("Funds moved to escrow in message %s\n", smsg.Cid().String())
+		fmt.Println("Waiting for the message to be included in a block")
+		res, err := dep.Chain.StateWaitMsg(ctx, smsg.Cid(), 2, 2000, true)
+		if err != nil {
+			return err
+		}
+		if !res.Receipt.ExitCode.IsSuccess() {
+			return xerrors.Errorf("message execution failed with exit code: %d", res.Receipt.ExitCode)
+		}
+		fmt.Println("Message executed successfully")
+		nbal, err := dep.Chain.StateMarketBalance(ctx, act, types.EmptyTSK)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Previous available balance: %s\n New available Balance: %s\n", big.Sub(obal.Escrow, obal.Locked).String(), big.Sub(nbal.Escrow, nbal.Locked).String())
+		return nil
 	},
 }
