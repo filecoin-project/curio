@@ -1245,6 +1245,12 @@
             "translation": "'libp2p' 테이블에서 새 libp2p 키를 생성할 때 1개 이상의 행이 영향을 받았습니다.",
             "message": "More than 1 row was affected in the 'libp2p' table when creating new libp2p key.",
             "placeholder": null
+        },
+        {
+            "id": "Failed to marshal libp2p private key.",
+            "translation": "libp2p 개인 키 마샬링에 실패했습니다.",
+            "message": "Failed to marshal libp2p private key.",
+            "placeholder": null
         }
     ]
 }

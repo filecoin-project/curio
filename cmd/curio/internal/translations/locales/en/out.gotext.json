@@ -212,6 +212,23 @@
             "fuzzy": true
         },
         {
+            "id": "Failed to marshal libp2p private key.",
+            "message": "Failed to marshal libp2p private key.",
+            "translation": "Failed to marshal libp2p private key.",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]v",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
             "id": "Failed to insert libp2p private key into database. Please run 'curio market libp2p generate-key minerID' to complete the migration.",
             "message": "Failed to insert libp2p private key into database. Please run 'curio market libp2p generate-key minerID' to complete the migration.",
             "translation": "Failed to insert libp2p private key into database. Please run 'curio market libp2p generate-key minerID' to complete the migration.",

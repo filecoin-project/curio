@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"sort"
 
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -500,17 +499,23 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 	}, nil
 }
 
+// maybeApplyBackpressure applies backpressure to the deal processing pipeline if certain conditions are met
+// Check if ConcurrentDealSize > MaxConcurrentDealSize
+// Check if WaitDealSectors > MaxQueueDealSector
+// Check for buffered sector at each state of pipeline to their respective Max
 func (m *MK12) maybeApplyBackpressure(ctx context.Context, maddr address.Address) (wait bool, err error) {
-	var pieceSizes []abi.PaddedPieceSize
-
-	err = m.db.Select(ctx, &pieceSizes, `SELECT piece_padded_size FROM parked_pieces WHERE complete = false;`)
+	var totalSize int64
+	err = m.db.QueryRow(ctx, `SELECT COALESCE(SUM(piece_size), 0) AS total_piece_size
+							FROM market_mk12_deal_pipeline
+							WHERE sector IS NULL`).Scan(&totalSize)
 	if err != nil {
-		return false, xerrors.Errorf("getting in-process pieces: %w", err)
+		return false, xerrors.Errorf("failed to get cumulative deal size in process from DB: %w", err)
 	}
 
-	ssize := m.sm[maddr]
-
-	sectors := sectorCount(pieceSizes, abi.PaddedPieceSize(ssize))
+	if totalSize > m.cfg.Market.StorageMarketConfig.MK12.MaxConcurrentDealSize {
+		log.Infow("backpressure", "reason", "too many deals in process", "ConcurrentDealSize", totalSize, "max", m.cfg.Market.StorageMarketConfig.MK12.MaxConcurrentDealSize)
+		return true, nil
+	}
 
 	cfg := m.cfg.Ingest
 
@@ -530,11 +535,12 @@ func (m *MK12) maybeApplyBackpressure(ctx context.Context, maddr address.Address
 			 WHERE p.after_prove = true AND p.after_move_storage = false
 		 ),
 		 WaitDealSectors AS (
-			 SELECT COUNT(DISTINCT sip.sector_number) AS wait_deal_sectors_count
-			 FROM sectors_snap_initial_pieces sip
-					  LEFT JOIN curio.sectors_snap_pipeline sp ON sip.sp_id = sp.sp_id AND sip.sector_number = sp.sector_number
-			 WHERE sp.sector_number IS NULL
-		 )
+			SELECT COUNT(DISTINCT osp.sector_number) AS wait_deal_sectors_count
+			FROM open_sector_pieces osp
+				 LEFT JOIN sectors_snap_initial_pieces sip 
+				 ON osp.sector_number = sip.sector_number
+			WHERE sip.sector_number IS NULL
+		)
 		SELECT
 			(SELECT buffered_encode FROM BufferedEncode) AS total_encode,
 			(SELECT buffered_prove FROM BufferedProve) AS buffered_prove,
@@ -544,8 +550,8 @@ func (m *MK12) maybeApplyBackpressure(ctx context.Context, maddr address.Address
 			return false, xerrors.Errorf("counting buffered sectors: %w", err)
 		}
 
-		if cfg.MaxQueueDealSector != 0 && waitDealSectors+sectors > cfg.MaxQueueDealSector {
-			log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "parking-sectors", sectors, "parking-pieces", len(pieceSizes), "max", cfg.MaxQueueDealSector)
+		if cfg.MaxQueueDealSector != 0 && waitDealSectors > cfg.MaxQueueDealSector {
+			log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "max", cfg.MaxQueueDealSector)
 			return true, nil
 		}
 
@@ -580,10 +586,11 @@ func (m *MK12) maybeApplyBackpressure(ctx context.Context, maddr address.Address
 			WHERE p.after_tree_r = true AND p.after_porep = false
 		),
 		WaitDealSectors AS (
-			SELECT COUNT(DISTINCT sip.sector_number) AS wait_deal_sectors_count
-			FROM sectors_sdr_initial_pieces sip
-			LEFT JOIN sectors_sdr_pipeline sp ON sip.sp_id = sp.sp_id AND sip.sector_number = sp.sector_number
-			WHERE sp.sector_number IS NULL
+			SELECT COUNT(DISTINCT osp.sector_number) AS wait_deal_sectors_count
+			FROM open_sector_pieces osp
+				 LEFT JOIN sectors_sdr_initial_pieces sip 
+				 ON osp.sector_number = sip.sector_number
+			WHERE sip.sector_number IS NULL
 		)
 		SELECT
 			(SELECT buffered_sdr_count FROM BufferedSDR) AS total_buffered_sdr,
@@ -595,7 +602,7 @@ func (m *MK12) maybeApplyBackpressure(ctx context.Context, maddr address.Address
 			return false, xerrors.Errorf("counting buffered sectors: %w", err)
 		}
 
-		if cfg.MaxQueueDealSector != 0 && waitDealSectors+sectors > cfg.MaxQueueDealSector {
+		if cfg.MaxQueueDealSector != 0 && waitDealSectors > cfg.MaxQueueDealSector {
 			log.Infow("backpressure", "reason", "too many wait deal sectors", "wait_deal_sectors", waitDealSectors, "max", cfg.MaxQueueDealSector)
 			return true, nil
 		}
@@ -615,28 +622,4 @@ func (m *MK12) maybeApplyBackpressure(ctx context.Context, maddr address.Address
 	}
 
 	return false, nil
-}
-
-func sectorCount(sizes []abi.PaddedPieceSize, targetSize abi.PaddedPieceSize) int {
-	sort.Slice(sizes, func(i, j int) bool {
-		return sizes[i] > sizes[j]
-	})
-
-	sectors := make([]abi.PaddedPieceSize, 0)
-
-	for _, size := range sizes {
-		placed := false
-		for i := range sectors {
-			if sectors[i]+size <= targetSize {
-				sectors[i] += size
-				placed = true
-				break
-			}
-		}
-		if !placed {
-			sectors = append(sectors, size)
-		}
-	}
-
-	return len(sectors)
 }

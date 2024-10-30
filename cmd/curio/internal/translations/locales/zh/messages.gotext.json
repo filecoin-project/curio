@@ -1215,6 +1215,12 @@
       "translation": "在创建新的 libp2p 密钥时，'libp2p' 表中有多于 1 行受到了影响。",
       "message": "More than 1 row was affected in the 'libp2p' table when creating new libp2p key.",
       "placeholder": null
+    },
+    {
+      "id": "Failed to marshal libp2p private key.",
+      "translation": "libp2p私钥编组失败。",
+      "message": "Failed to marshal libp2p private key.",
+      "placeholder": null
     }
   ]
 }
