@@ -1,15 +1,18 @@
 package webrpc
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -320,46 +323,37 @@ func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDeal
 }
 
 type StorageDealList struct {
-	ID          string    `db:"uuid" json:"id"`
-	MinerID     int64     `db:"sp_id" json:"sp_id"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	ChainDealId int64     `db:"chain_deal_id" json:"chain_deal_id"`
-	Sector      int64     `db:"sector_num" json:"sector"`
-	Miner       string    `json:"miner"`
+	ID        string    `db:"uuid" json:"id"`
+	MinerID   int64     `db:"sp_id" json:"sp_id"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	PieceCid  string    `db:"piece_cid" json:"piece_cid"`
+	PieceSize int64     `db:"piece_size" json:"piece_size"`
+	Miner     string    `json:"miner"`
 }
 
 func (a *WebRPC) MK12StorageDealList(ctx context.Context, limit int, offset int) ([]StorageDealList, error) {
 	var mk12Summaries []StorageDealList
 
 	err := a.deps.DB.Select(ctx, &mk12Summaries, `SELECT 
-									md.uuid,
-									md.sp_id,
-									md.created_at,
-									md.chain_deal_id,
-									mpd.sector_num
+									uuid,
+									sp_id,
+									created_at,
+									piece_cid,
+									piece_size
 									FROM market_mk12_deals md 
-										LEFT JOIN market_piece_deal mpd ON mpd.id = md.uuid AND mpd.sp_id = md.sp_id 
-									WHERE mpd.boost_deal = TRUE AND mpd.legacy_deal = FALSE
-									ORDER BY md.created_at DESC
+									ORDER BY created_at DESC
 											LIMIT $1 OFFSET $2;`, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch deal list: %w", err)
 	}
 
-	minerMap := make(map[int64]address.Address)
-	for _, s := range mk12Summaries {
-		if addr, ok := minerMap[s.MinerID]; ok {
-			s.Miner = addr.String()
-			continue
-		}
-
-		addr, err := address.NewIDAddress(uint64(s.MinerID))
+	for i := range mk12Summaries {
+		addr, err := address.NewIDAddress(uint64(mk12Summaries[i].MinerID))
 		if err != nil {
 			return nil, err
 		}
-		s.Miner = addr.String()
+		mk12Summaries[i].Miner = addr.String()
 	}
-
 	return mk12Summaries, nil
 
 }
@@ -371,8 +365,8 @@ func (a *WebRPC) LegacyStorageDealList(ctx context.Context, limit int, offset in
 									signed_proposal_cid AS uuid,
 									sp_id,
 									created_at,
-									chain_deal_id,
-									sector_num 
+									piece_cid,
+									piece_size 
 									FROM market_legacy_deals
 									ORDER BY created_at DESC
 									LIMIT $1 OFFSET $2;`, limit, offset)
@@ -380,18 +374,12 @@ func (a *WebRPC) LegacyStorageDealList(ctx context.Context, limit int, offset in
 		return nil, fmt.Errorf("failed to fetch deal list: %w", err)
 	}
 
-	minerMap := make(map[int64]address.Address)
-	for _, s := range mk12Summaries {
-		if addr, ok := minerMap[s.MinerID]; ok {
-			s.Miner = addr.String()
-			continue
-		}
-
-		addr, err := address.NewIDAddress(uint64(s.MinerID))
+	for i := range mk12Summaries {
+		addr, err := address.NewIDAddress(uint64(mk12Summaries[i].MinerID))
 		if err != nil {
 			return nil, err
 		}
-		s.Miner = addr.String()
+		mk12Summaries[i].Miner = addr.String()
 	}
 	return mk12Summaries, nil
 }
@@ -514,4 +502,97 @@ func (a *WebRPC) MoveBalanceToEscrow(ctx context.Context, miner string, amount s
 	log.Infof("Funds moved to escrow in message %s", smsg.Cid().String())
 	return smsg.Cid().String(), nil
 
+}
+
+type PieceDeal struct {
+	ID          string `db:"id" json:"id"`
+	BoostDeal   bool   `db:"boost_deal" json:"boost_deal"`
+	LegacyDeal  bool   `db:"legacy_deal" json:"legacy_deal"`
+	SpId        int64  `db:"sp_id" json:"sp_id"`
+	ChainDealId int64  `db:"chain_deal_id" json:"chain_deal_id"`
+	Sector      int64  `db:"sector_num" json:"sector"`
+	Offset      int64  `db:"piece_offset" json:"offset"`
+	Length      int64  `db:"piece_length" json:"length"`
+	RawSize     int64  `db:"raw_size" json:"raw_size"`
+	Miner       string `json:"miner"`
+}
+
+type PieceInfo struct {
+	PieceCid  string      `json:"piece_cid"`
+	Size      int64       `json:"size"`
+	CreatedAt time.Time   `json:"created_at"`
+	Indexed   bool        `json:"indexed"`
+	IndexedAT time.Time   `json:"indexed_at"`
+	IPNIAd    string      `json:"ipni_ad"`
+	Deals     []PieceDeal `json:"deals"`
+}
+
+func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, error) {
+	piece, err := cid.Parse(pieceCid)
+	if err != nil {
+		return nil, err
+	}
+
+	ret := &PieceInfo{}
+
+	err = a.deps.DB.QueryRow(ctx, `SELECT created_at, indexed, indexed_at FROM market_piece_metadata WHERE piece_cid = $1`, piece.String()).Scan(&ret.CreatedAt, &ret.Indexed, &ret.IndexedAT)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get piece metadata: %w", err)
+	}
+
+	var pieceDeals []PieceDeal
+
+	err = a.deps.DB.Select(ctx, &pieceDeals, `SELECT 
+														id, 
+														boost_deal, 
+														legacy_deal, 
+														chain_deal_id, 
+														sp_id, 
+														sector_num, 
+														piece_offset, 
+														piece_length, 
+														raw_size 
+													FROM market_piece_deal
+													WHERE piece_cid = $1`, piece.String())
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get piece deals: %w", err)
+	}
+	if len(pieceDeals) == 0 {
+		return nil, xerrors.Errorf("Piece %s has not deals. It should not exist in Database", piece.String())
+	}
+
+	for i := range pieceDeals {
+		addr, err := address.NewIDAddress(uint64(pieceDeals[i].SpId))
+		if err != nil {
+			return nil, err
+		}
+		pieceDeals[i].Miner = addr.String()
+	}
+	ret.Deals = pieceDeals
+	ret.PieceCid = piece.String()
+	ret.Size = pieceDeals[0].Length
+
+	pi := abi.PieceInfo{
+		PieceCID: piece,
+		Size:     abi.PaddedPieceSize(ret.Size),
+	}
+
+	b := new(bytes.Buffer)
+
+	err = pi.MarshalCBOR(b)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to marshal piece info: %w", err)
+	}
+
+	var ipniAd string
+	err = a.deps.DB.QueryRow(ctx, `SELECT ad_cid FROM ipni WHERE context_id = $1`, b.Bytes()).Scan(&ipniAd)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ret, err
+		}
+		return nil, xerrors.Errorf("failed to get deal ID by piece CID: %w", err)
+	}
+
+	ret.IPNIAd = ipniAd
+	return ret, err
 }

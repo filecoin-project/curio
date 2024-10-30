@@ -6,6 +6,7 @@
     <script type="module" src="market-balance.mjs"></script>
     <script type="module" src="market-asks.mjs"></script>
     <script type="module" src="deal-pipelines.mjs"></script>
+    <script type="module" src="pending-deals.mjs"></script>
 </head>
 <body style="visibility:hidden; background:rgb(11, 22, 34)" data-bs-theme="dark">
 <curio-ux>
@@ -24,6 +25,13 @@
         <div class="row">
             <div class="col-md-auto" style="max-width: 95%">
                 <market-asks></market-asks>
+            </div>
+        </div>
+    </section>
+    <section class="section">
+        <div class="row">
+            <div class="col-md-auto" style="max-width: 95%">
+                <pending-deals></pending-deals>
             </div>
         </div>
     </section>
