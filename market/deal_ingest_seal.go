@@ -24,6 +24,7 @@ import (
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+	"github.com/filecoin-project/lotus/chain/proofs"
 	"github.com/filecoin-project/lotus/chain/types"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
@@ -55,7 +56,7 @@ type PieceIngesterApi interface {
 
 type openSector struct {
 	number             abi.SectorNumber
-	currentSize        abi.PaddedPieceSize
+	offset             abi.UnpaddedPieceSize
 	earliestStartEpoch abi.ChainEpoch
 	index              uint64
 	openedAt           *time.Time
@@ -143,7 +144,7 @@ func (p *PieceIngester) Seal() error {
 		// 1. If sector is full
 		// 2. We have been waiting for MaxWaitDuration
 		// 3. StartEpoch is less than 8 hours // todo: make this config?
-		if sector.currentSize == abi.PaddedPieceSize(p.sectorSize) {
+		if sector.offset.Padded() == abi.PaddedPieceSize(p.sectorSize) {
 			log.Debugf("start sealing sector %d of miner %d: %s", sector.number, p.miner.String(), "sector full")
 			return true
 		}
@@ -341,7 +342,12 @@ func (p *PieceIngester) allocateToExisting(ctx context.Context, piece lpiece.Pie
 
 		for _, sec := range openSectors {
 			sec := sec
-			if sec.currentSize+psize <= abi.PaddedPieceSize(p.sectorSize) {
+			offset := sec.offset
+			// Account for inter-piece padding
+			_, padLength := proofs.GetRequiredPadding(offset.Padded(), psize)
+			if offset.Padded()+padLength+psize < abi.PaddedPieceSize(p.sectorSize) {
+				offset += padLength.Unpadded()
+
 				if vd.isVerified {
 					sectorLifeTime := sec.latestEndEpoch - sec.earliestStartEpoch
 					// Allocation's TMin must fit in sector and TMax should be at least sector lifetime or more
@@ -352,7 +358,7 @@ func (p *PieceIngester) allocateToExisting(ctx context.Context, piece lpiece.Pie
 				}
 
 				ret.Sector = sec.number
-				ret.Offset = sec.currentSize
+				ret.Offset = offset.Padded()
 
 				// Insert market deal to DB for the sector
 				if piece.DealProposal != nil {
@@ -522,23 +528,31 @@ func (p *PieceIngester) getOpenSectors(tx *harmonydb.Tx) ([]*openSector, error) 
 		pi := pi
 		sector, ok := sectorMap[pi.Sector]
 		if !ok {
+			// Consider padding
+			var offset abi.UnpaddedPieceSize
+			_, padLength := proofs.GetRequiredPadding(offset.Padded(), pi.Size)
+			offset += padLength.Unpadded()
+			offset += pi.Size.Unpadded()
 			sectorMap[pi.Sector] = &openSector{
 				number:             pi.Sector,
-				currentSize:        pi.Size,
 				earliestStartEpoch: getStartEpoch(pi.StartEpoch, 0),
 				index:              pi.Index,
 				openedAt:           pi.CreatedAt,
 				latestEndEpoch:     getEndEpoch(pi.EndEpoch, 0),
+				offset:             offset,
 			}
 			continue
 		}
-		sector.currentSize += pi.Size
 		sector.earliestStartEpoch = getStartEpoch(pi.StartEpoch, sector.earliestStartEpoch)
 		sector.latestEndEpoch = getEndEpoch(pi.EndEpoch, sector.earliestStartEpoch)
 		if sector.index < pi.Index {
 			sector.index = pi.Index
 		}
 		sector.openedAt = getOpenedAt(pi, sector.openedAt)
+		// Consider padding
+		_, padLength := proofs.GetRequiredPadding(sector.offset.Padded(), pi.Size)
+		sector.offset += padLength.Unpadded()
+		sector.offset += pi.Size.Unpadded()
 	}
 
 	var os []*openSector
