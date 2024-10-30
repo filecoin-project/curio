@@ -1,6 +1,7 @@
 package storage_market
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -66,15 +67,17 @@ func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 	ctx := context.Background()
 
 	var bdeals []struct {
-		Prop json.RawMessage `db:"proposal"`
-		Sig  []byte          `db:"proposal_signature"`
-		UUID string          `db:"uuid"`
+		Prop  json.RawMessage `db:"proposal"`
+		Sig   []byte          `db:"proposal_signature"`
+		UUID  string          `db:"uuid"`
+		Label []byte          `db:"label"`
 	}
 
 	err = p.db.Select(ctx, &bdeals, `SELECT 
 										p.uuid,
 										b.proposal,
-										b.proposal_signature
+										b.proposal_signature,
+										b.label
 									FROM 
 										market_mk12_deal_pipeline p
 									JOIN 
@@ -107,6 +110,16 @@ func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 		if err != nil {
 			return false, xerrors.Errorf("unmarshal signature: %w", err)
 		}
+
+		// Unmarshal Label from cbor and replace in proposal. This fixes the problem where non-string
+		// labels are saved as "" in json in DB
+		var l market.DealLabel
+		lr := bytes.NewReader(d.Label)
+		err = l.UnmarshalCBOR(lr)
+		if err != nil {
+			return false, xerrors.Errorf("unmarshal label: %w", err)
+		}
+		prop.Label = l
 
 		deals = append(deals, deal{
 			uuid: d.UUID,

@@ -1,6 +1,7 @@
 package storage_market
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -381,6 +382,7 @@ type MarketMK12Deal struct {
 	FastRetrieval     bool      `db:"fast_retrieval"`
 	AnnounceToIpni    bool      `db:"announce_to_ipni"`
 	Error             *string   `db:"error"`
+	Label             []byte    `db:"label"`
 }
 
 func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, deal string, pcid string) error {
@@ -559,7 +561,8 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 										publish_cid,
 										fast_retrieval,
 										announce_to_ipni,
-										error
+										error,
+										label
 									FROM market_mk12_deals
 									WHERE uuid = $1;`, deal.UUID)
 		if err != nil {
@@ -582,6 +585,16 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 		if err != nil {
 			return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
 		}
+
+		// Unmarshal Label from cbor and replace in proposal. This fixes the problem where non-string
+		// labels are saved as "" in json in DB
+		var l market.DealLabel
+		lr := bytes.NewReader(dbdeal.Label)
+		err = l.UnmarshalCBOR(lr)
+		if err != nil {
+			return false, xerrors.Errorf("unmarshal label: %w", err)
+		}
+		prop.Label = l
 
 		pcid, err := cid.Parse(dbdeal.PublishCid)
 		if err != nil {

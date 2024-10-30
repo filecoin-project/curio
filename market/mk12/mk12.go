@@ -6,6 +6,7 @@ the mk1.2 deals.
 package mk12
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -332,6 +333,8 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 		}, nil
 	}
 
+	prop := deal.ClientDealProposal.Proposal
+
 	propJson, err := json.Marshal(deal.ClientDealProposal.Proposal)
 	if err != nil {
 		return &ProviderDealRejectionInfo{
@@ -345,8 +348,6 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 			Reason: fmt.Sprintf("marshal client signature: %s", err),
 		}, nil
 	}
-
-	prop := deal.ClientDealProposal.Proposal
 
 	mid, err := address.IDFromAddress(prop.Provider)
 	if err != nil {
@@ -370,16 +371,26 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 		}, nil
 	}
 
+	// Cbor marshal the Deal Label manually as non-string label will result in "" with JSON marshal
+	label := prop.Label
+	b := new(bytes.Buffer)
+	err = label.MarshalCBOR(b)
+	if err != nil {
+		return &ProviderDealRejectionInfo{
+			Reason: fmt.Sprintf("cbor marshal label: %s", err),
+		}, nil
+	}
+
 	comm, err := m.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		n, err := tx.Exec(`INSERT INTO market_mk12_deals (uuid, signed_proposal_cid, 
                                 proposal_signature, proposal, piece_cid, 
                                 piece_size, offline, verified, sp_id, start_epoch, end_epoch, 
-                                client_peer_id, fast_retrieval, announce_to_ipni, url, url_headers) 
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                                client_peer_id, fast_retrieval, announce_to_ipni, url, url_headers, label) 
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 				ON CONFLICT (uuid) DO NOTHING`,
 			deal.DealUuid.String(), deal.SignedProposalCID.String(), sigByte, propJson, prop.PieceCID.String(),
 			prop.PieceSize, deal.IsOffline, prop.VerifiedDeal, mid, prop.StartEpoch, prop.EndEpoch, deal.ClientPeerID.String(),
-			deal.FastRetrieval, deal.AnnounceToIPNI, tInfo.URL, headers)
+			deal.FastRetrieval, deal.AnnounceToIPNI, tInfo.URL, headers, b.Bytes())
 
 		if err != nil {
 			return false, xerrors.Errorf("store deal success: %w", err)

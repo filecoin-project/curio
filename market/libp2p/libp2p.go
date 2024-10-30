@@ -1,6 +1,7 @@
 package libp2p
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -666,12 +667,14 @@ func (p *DealProvider) getSealedDealStatus(ctx context.Context, id string, onCha
 		Error             string          `db:"error"`
 		Proposal          json.RawMessage `db:"proposal"`
 		SignedProposalCID string          `db:"signed_proposal_cid"`
+		Label             []byte          `db:"label"`
 	}
 	err := p.db.Select(ctx, &dealInfos, `SELECT
     										offline,
 											error,
 											proposal,
-											signed_proposal_cid
+											signed_proposal_cid,
+											label
 										FROM 
 											market_mk12_deals
 										WHERE 
@@ -692,6 +695,16 @@ func (p *DealProvider) getSealedDealStatus(ctx context.Context, id string, onCha
 	if err != nil {
 		return dealInfo{}, xerrors.Errorf("failed to unmarshal deal proposal: %w", err)
 	}
+
+	// Unmarshal Label from cbor and replace in proposal. This fixes the problem where non-string
+	// labels are saved as "" in json in DB
+	var l market.DealLabel
+	lr := bytes.NewReader(di.Label)
+	err = l.UnmarshalCBOR(lr)
+	if err != nil {
+		return dealInfo{}, xerrors.Errorf("unmarshal label: %w", err)
+	}
+	prop.Label = l
 
 	spc, err := cid.Parse(di.SignedProposalCID)
 	if err != nil {
