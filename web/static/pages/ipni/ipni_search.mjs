@@ -15,12 +15,25 @@ class IpniSearch extends LitElement {
         this.errorMessage = '';
     }
 
+    connectedCallback() {
+        super.connectedCallback();
+        // Get the search term from the URL parameter (if available)
+        const urlParams = new URLSearchParams(window.location.search);
+        const adCid = urlParams.get('ad_cid');
+        if (adCid) {
+            this.searchTerm = adCid;
+            this.handleSearch();
+        }
+    }
+
     handleInput(event) {
         this.searchTerm = event.target.value;
     }
 
     async handleSearch() {
         if (this.searchTerm.trim() !== '') {
+            // Update the URL with the search term
+            window.history.pushState({}, '', `?ad_cid=${encodeURIComponent(this.searchTerm.trim())}`);
             try {
                 const params = [this.searchTerm.trim()];
                 this.adData = await RPCCall('GetAd', params);
@@ -46,12 +59,12 @@ class IpniSearch extends LitElement {
       />
 
       <div>
-        <h2>IPNI Ad Search</h2>
+        <h2>Ad Search</h2>
         <div class="search-container">
           <input
             type="text"
-            class="form-control"
             placeholder="Enter Ad CID"
+            .value="${this.searchTerm}"
             @input="${this.handleInput}"
           />
           <button class="btn btn-primary" @click="${this.handleSearch}">
@@ -108,15 +121,24 @@ class IpniSearch extends LitElement {
 
     static styles = css`
     .search-container {
-      display: flex;
-      align-items: center;
+      display: grid;
+      grid-template-columns: 1fr max-content;
+      grid-column-gap: 0.75rem;
       margin-bottom: 1rem;
     }
+    
+    .btn {
+    padding: 0.4rem 1rem;
+    border: none;
+    border-radius: 0;
+    background-color: var(--color-form-default);
+    color: var(--color-text-primary);
 
-    .search-container input {
-      flex: 1;
-      margin-right: 0.5rem;
+    &:hover, &:focus, &:focus-visible {
+        background-color: var(--color-form-default-pressed);
+        color: var(--color-text-secondary);
     }
+  }
   `;
 }
 

@@ -80,7 +80,7 @@ class IpniStatus extends LitElement {
       </style>
 
       <div>
-        <h2 style="white-space: nowrap">IPNI Provider Status</h2>
+        <h2 style="white-space: nowrap">Provider Status</h2>
         ${this.errorMessage
             ? html`<div class="alert alert-danger">${this.errorMessage}</div>`
             : html`

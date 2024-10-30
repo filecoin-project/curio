@@ -43,6 +43,11 @@ class LegacyDealList extends LitElement {
     }
 
     render() {
+        // Check if there's an error or if the deals array is empty
+        if (!this.deals || this.deals.length === 0) {
+            return html``; // Return an empty template if there's no data to render
+        }
+
         return html`
       <link
         href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
