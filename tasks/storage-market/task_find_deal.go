@@ -67,12 +67,14 @@ func (f *FindDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		UUID       string          `db:"uuid"`
 		PublishCid string          `db:"publish_cid"`
 		Proposal   json.RawMessage `db:"proposal"`
+		Label      []byte          `db:"label"`
 	}
 
 	err = f.db.Select(ctx, &bdeals, `SELECT 
 										p.uuid,
 										b.publish_cid,
-										b.proposal
+										b.proposal,
+										b.label
 									FROM 
 										market_mk12_deal_pipeline p
 									JOIN 
@@ -107,6 +109,16 @@ func (f *FindDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	if err != nil {
 		return false, xerrors.Errorf("unmarshalling proposal: %w", err)
 	}
+
+	// Unmarshal Label from cbor and replace in proposal. This fixes the problem where non-string
+	// labels are saved as "" in json in DB
+	var l market.DealLabel
+	lr := bytes.NewReader(bd.Label)
+	err = l.UnmarshalCBOR(lr)
+	if err != nil {
+		return false, xerrors.Errorf("unmarshal label: %w", err)
+	}
+	prop.Label = l
 
 	var execResult []struct {
 		ExecutedTskCID   string `db:"executed_tsk_cid"`
