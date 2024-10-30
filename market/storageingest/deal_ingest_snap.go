@@ -179,7 +179,7 @@ func (p *PieceIngesterSnap) Seal() error {
 						return false, xerrors.Errorf("adding sector to pipeline: incorrect number of rows returned")
 					}
 
-					_, err = tx.Exec("SELECT transfer_and_delete_open_piece_snap($1, $2)", mid, sector.number)
+					_, err = tx.Exec("SELECT transfer_and_delete_sorted_open_piece_snap($1, $2)", mid, sector.number)
 					if err != nil {
 						return false, xerrors.Errorf("adding sector to pipeline: %w", err)
 					}

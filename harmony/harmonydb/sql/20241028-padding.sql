@@ -89,7 +89,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 
-CREATE OR REPLACE FUNCTION transfer_and_delete_open_piece_snap(v_sp_id bigint, v_sector_number bigint)
+CREATE OR REPLACE FUNCTION transfer_and_delete_sorted_open_piece_snap(v_sp_id bigint, v_sector_number bigint)
 RETURNS void AS $$
 DECLARE
 sorted_pieces RECORD;
