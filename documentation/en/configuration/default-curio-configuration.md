@@ -451,6 +451,13 @@ description: The default curio configuration
       # type: bool
       #SkipCommP = false
 
+      # MaxConcurrentDealSize is a sum of all size of all deals which are waiting to be added to a sector
+      # When the cumulative size of all deals in process reaches this number, new deals will be rejected.
+      # (Default: 0 = unlimited)
+      #
+      # type: int64
+      #MaxConcurrentDealSize = 0
+
     [Market.StorageMarketConfig.IPNI]
       # Disable set whether to disable indexing announcement to the network and expose endpoints that
       # allow indexer nodes to process announcements. Default: False
@@ -493,8 +500,7 @@ description: The default curio configuration
   # Maximum number of sectors that can be queued waiting for deals to start processing.
   # 0 = unlimited
   # Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
-  # The DealSector queue includes deals which are ready to enter the sealing pipeline but are not yet part of it -
-  # size of this queue will also impact the maximum number of ParkPiece tasks which can run concurrently.
+  # The DealSector queue includes deals which are ready to enter the sealing pipeline but are not yet part of it.
   # DealSector queue is the first queue in the sealing pipeline, meaning that it should be used as the primary backpressure mechanism.
   #
   # type: int
