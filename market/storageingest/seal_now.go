@@ -88,7 +88,7 @@ func SealNow(ctx context.Context, node SealNowNodeApi, db *harmonydb.DB, act add
 				return false, xerrors.Errorf("incorrect number of rows returned")
 			}
 
-			_, err = tx.Exec("SELECT transfer_and_delete_open_piece_snap($1, $2)", mid, sector)
+			_, err = tx.Exec("SELECT transfer_and_delete_sorted_open_piece_snap($1, $2)", mid, sector)
 			if err != nil {
 				return false, xerrors.Errorf("adding sector to pipeline: %w", err)
 			}
@@ -106,7 +106,7 @@ func SealNow(ctx context.Context, node SealNowNodeApi, db *harmonydb.DB, act add
 			return false, xerrors.Errorf("incorrect number of rows returned")
 		}
 
-		_, err = tx.Exec("SELECT transfer_and_delete_open_piece($1, $2)", mid, sector)
+		_, err = tx.Exec("SELECT transfer_and_delete_sorted_open_piece($1, $2)", mid, sector)
 		if err != nil {
 			return false, xerrors.Errorf("adding sector to pipeline: %w", err)
 		}

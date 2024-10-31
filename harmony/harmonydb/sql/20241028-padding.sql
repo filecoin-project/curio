@@ -1,11 +1,3 @@
-CREATE TABLE deal_index_tracker (
-    uuid TEXT NOT NULL PRIMARY KEY,
-    sp_id BIGINT NOT NULL,
-    sector_number BIGINT NOT NULL,
-    old_index BIGINT NOT NULL,
-    new_index BIGINT DEFAULT NULL
-);
-
 CREATE OR REPLACE FUNCTION transfer_and_delete_sorted_open_piece(v_sp_id bigint, v_sector_number bigint)
 RETURNS void AS $$
 DECLARE
