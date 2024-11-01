@@ -587,6 +587,10 @@ type MK12Config struct {
 	// When the cumulative size of all deals in process reaches this number, new deals will be rejected.
 	// (Default: 0 = unlimited)
 	MaxConcurrentDealSize int64
+
+	// DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
+	// If True then all deals coming from unknown clients will be rejected.
+	DenyUnknownClients bool
 }
 
 type PieceLocatorConfig struct {

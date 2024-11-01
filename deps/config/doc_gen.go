@@ -880,6 +880,13 @@ sector will need to be sent again`,
 When the cumulative size of all deals in process reaches this number, new deals will be rejected.
 (Default: 0 = unlimited)`,
 		},
+		{
+			Name: "DenyUnknownClients",
+			Type: "bool",
+
+			Comment: `DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
+If True then all deals coming from unknown clients will be rejected.`,
+		},
 	},
 	"MarketConfig": {
 		{
