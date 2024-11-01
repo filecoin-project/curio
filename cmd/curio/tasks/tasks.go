@@ -329,7 +329,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 
 	}
 
-	if cfg.Subsystems.EnableWindowPost || hasAnySealingTask {
+	if cfg.Subsystems.EnableWindowPost || hasAnySealingTask || senderEth != nil {
 		go chainSched.Run(ctx)
 	}
 
