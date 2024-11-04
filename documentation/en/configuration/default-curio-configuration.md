@@ -458,6 +458,12 @@ description: The default curio configuration
       # type: int64
       #MaxConcurrentDealSize = 0
 
+      # DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
+      # If True then all deals coming from unknown clients will be rejected.
+      #
+      # type: bool
+      #DenyUnknownClients = false
+
     [Market.StorageMarketConfig.IPNI]
       # Disable set whether to disable indexing announcement to the network and expose endpoints that
       # allow indexer nodes to process announcements. Default: False
