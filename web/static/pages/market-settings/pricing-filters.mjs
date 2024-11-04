@@ -37,7 +37,7 @@ class PricingFilters extends LitElement {
     // Pricing Filters Handlers
     addPricingFilter() {
         this.editingPricingFilter = {
-            number: null,
+            name: '',
             min_dur: 180,
             max_dur: 1278,
             min_size: 256,
@@ -59,7 +59,7 @@ class PricingFilters extends LitElement {
             return;
         }
         try {
-            await RPCCall('RemovePricingFilter', [filter.number]);
+            await RPCCall('RemovePricingFilter', [filter.name]);
             await this.loadData();
         } catch (error) {
             console.error('Failed to remove pricing filter:', error);
@@ -69,27 +69,21 @@ class PricingFilters extends LitElement {
 
     async savePricingFilter() {
         try {
-            if (this.editingPricingFilter.number != null) {
+            const params = [
+                this.editingPricingFilter.name,
+                this.editingPricingFilter.min_dur,
+                this.editingPricingFilter.max_dur,
+                this.editingPricingFilter.min_size,
+                this.editingPricingFilter.max_size,
+                this.editingPricingFilter.price,
+                this.editingPricingFilter.verified,
+            ]
+            if (this.pricingFilters.find((f) => f.name === this.editingPricingFilter.name)) {
                 // Update existing filter using SetPriceFilters
-                await RPCCall('SetPriceFilters', [
-                    this.editingPricingFilter.number,
-                    this.editingPricingFilter.min_dur,
-                    this.editingPricingFilter.max_dur,
-                    this.editingPricingFilter.min_size,
-                    this.editingPricingFilter.max_size,
-                    this.editingPricingFilter.price,
-                    this.editingPricingFilter.verified,
-                ]);
+                await RPCCall('SetPriceFilters', params);
             } else {
                 // Add new filter using AddPriceFilters
-                await RPCCall('AddPriceFilters', [
-                    this.editingPricingFilter.min_dur,
-                    this.editingPricingFilter.max_dur,
-                    this.editingPricingFilter.min_size,
-                    this.editingPricingFilter.max_size,
-                    this.editingPricingFilter.price,
-                    this.editingPricingFilter.verified,
-                ]);
+                await RPCCall('AddPriceFilters', params);
             }
             await this.loadData();
             this.editingPricingFilter = null;
@@ -113,7 +107,18 @@ class PricingFilters extends LitElement {
                 crossorigin="anonymous"
             />
             <div class="container">
-                <h2>Pricing Filters</h2>
+                <h2>Pricing Filters
+                    <button class="info-btn">
+                        <!-- Inline SVG icon for the info button -->
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle" viewBox="0 0 16 16">
+                            <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/>
+                            <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0"/>
+                        </svg>
+                        <span class="tooltip-text">
+                          New deal proposals are accepted if they match the first applicable rule; otherwise, default ask is applied, or the proposal is rejected.
+                        </span>
+                    </button>
+                </h2>
                 <button class="btn btn-primary mb-2" @click="${this.addPricingFilter}">Add Pricing Filter</button>
                 ${this.renderPricingFiltersTable()}
                 ${this.editingPricingFilter ? this.renderPricingFilterForm() : ''}
@@ -126,7 +131,7 @@ class PricingFilters extends LitElement {
             <table class="table table-dark table-striped">
                 <thead>
                     <tr>
-                        <th>Number</th>
+                        <th>Name</th>
                         <th>Min Duration (Days)</th>
                         <th>Max Duration (Days)</th>
                         <th>Min Size</th>
@@ -140,7 +145,7 @@ class PricingFilters extends LitElement {
                     ${this.pricingFilters.map(
             (filter) => html`
                             <tr>
-                                <td>${filter.number}</td>
+                                <td>${filter.name}</td>
                                 <td>${filter.min_dur}</td>
                                 <td>${filter.max_dur}</td>
                                 <td>${this.formatBytes(filter.min_size)}</td>
@@ -177,7 +182,7 @@ class PricingFilters extends LitElement {
                         <form @submit="${this.handlePricingFilterSubmit}">
                             <div class="modal-header">
                                 <h5 class="modal-title">
-                                    ${this.editingPricingFilter.number != null ? 'Edit' : 'Add'} Pricing Filter
+                                    ${this.editingPricingFilter.name ? 'Edit' : 'Add'} Pricing Filter
                                 </h5>
                                 <button
                                     type="button"
@@ -190,6 +195,17 @@ class PricingFilters extends LitElement {
                                         ? html`<div class="alert alert-danger">${this.errorMessage}</div>`
                                         : ''}
                                 <!-- Form fields for pricing filter -->
+                                <div class="mb-3">
+                                    <label class="form-label">Name</label>
+                                    <input
+                                            type="text"
+                                            class="form-control"
+                                            .value="${this.editingPricingFilter.name}"
+                                            @input="${(e) => (this.editingPricingFilter.name = e.target.value)}"
+                                            required
+                                            ?readonly="${!!this.editingPricingFilter.name}"
+                                    />
+                                </div>
                                 <div class="mb-3">
                                     <label class="form-label">Min Duration (Days)</label>
                                     <input
@@ -277,7 +293,7 @@ class PricingFilters extends LitElement {
                                     Cancel
                                 </button>
                                 <button type="submit" class="btn btn-primary">
-                                    ${this.editingPricingFilter.number != null ? 'Update' : 'Add'}
+                                    ${this.editingPricingFilter.name ? 'Update' : 'Add'}
                                 </button>
                             </div>
                         </form>
@@ -371,6 +387,38 @@ class PricingFilters extends LitElement {
             height: 100vh;
             background-color: var(--color-text-secondary, #171717);
             opacity: 0.5;
+        }
+        
+        .info-btn {
+            position: relative;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            color: #17a2b8;
+            font-size: 1em;
+            margin-left: 8px;
+        }
+    
+        .tooltip-text {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 120%; /* Position the tooltip to the right of the button */
+            transform: translateY(-50%); /* Center the tooltip vertically */
+            min-width: 440px;
+            max-width: 600px;
+            background-color: #333;
+            color: #fff;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            text-align: left;
+            white-space: normal;
+            z-index: 10;
+        }
+    
+        .info-btn:hover .tooltip-text {
+            display: block;
         }
     `;
 }

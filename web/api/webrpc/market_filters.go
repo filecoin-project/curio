@@ -13,7 +13,7 @@ import (
 )
 
 type PriceFilter struct {
-	Number int64 `db:"number" json:"number"`
+	Name string `db:"name" json:"name"`
 
 	MinDur int `db:"min_duration_days" json:"min_dur"`
 	MaxDur int `db:"max_duration_days" json:"max_dur"`
@@ -32,7 +32,7 @@ type ClientFilter struct {
 	Wallets []string `db:"wallets" json:"wallets"`
 	Peers   []string `db:"peer_ids" json:"peers"`
 
-	PricingFilters []int64 `db:"pricing_filters" json:"pricing_filters"`
+	PricingFilters []string `db:"pricing_filters" json:"pricing_filters"`
 
 	MaxDealsPerHour    int64 `db:"max_deals_per_hour" json:"max_deals_per_hour"`
 	MaxDealSizePerHour int64 `db:"max_deal_size_per_hour" json:"max_deal_size_per_hour"`
@@ -66,14 +66,14 @@ func (a *WebRPC) GetClientFilters(ctx context.Context) ([]ClientFilter, error) {
 func (a *WebRPC) GetPriceFilters(ctx context.Context) ([]PriceFilter, error) {
 	var filters []PriceFilter
 	err := a.deps.DB.Select(ctx, &filters, `SELECT 
-											number, 
+											name, 
 											min_duration_days, 
 											max_duration_days, 
 											min_size, 
 											max_size, 
 											price, 
 											verified
-										FROM market_mk12_pricing_filters ORDER BY number`)
+										FROM market_mk12_pricing_filters ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func (a *WebRPC) GetAllowDenyList(ctx context.Context) ([]AllowDeny, error) {
 	return adList, nil
 }
 
-func (a *WebRPC) SetClientFilters(ctx context.Context, name string, active bool, wallets, peers []string, filters []int64, maxDealPerHour, maxDealSizePerHour int64) error {
+func (a *WebRPC) SetClientFilters(ctx context.Context, name string, active bool, wallets, peers []string, filters []string, maxDealPerHour, maxDealSizePerHour int64, info string) error {
 	for i := range wallets {
 		if wallets[i] == "" {
 			return xerrors.Errorf("wallet address cannot be empty")
@@ -129,8 +129,16 @@ func (a *WebRPC) SetClientFilters(ctx context.Context, name string, active bool,
 		return xerrors.Errorf("either wallets or peers must be provided")
 	}
 
+	if len(name) > 64 {
+		return xerrors.Errorf("name length exceeds maximum limit of 64 characters")
+	}
+
+	if len(info) > 256 {
+		return xerrors.Errorf("info length exceeds maximum limit of 256 characters")
+	}
+
 	var all int
-	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk12_pricing_filters WHERE number = ANY($1)`, filters).Scan(&all)
+	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk12_pricing_filters WHERE name = ANY($1)`, filters).Scan(&all)
 	if err != nil {
 		return xerrors.Errorf("failed to check existing pricing filters: %w", err)
 	}
@@ -138,8 +146,8 @@ func (a *WebRPC) SetClientFilters(ctx context.Context, name string, active bool,
 		return xerrors.Errorf("not all pricing filters exist")
 	}
 	n, err := a.deps.DB.Exec(ctx, `UPDATE market_mk12_client_filters SET active = $2, wallets = $3, peer_ids = $4, pricing_filters = $5, 
-                                      max_deals_per_hour = $6, max_deal_size_per_hour = $7 WHERE name = $1`, name,
-		active, wallets, peers, filters, maxDealPerHour, maxDealSizePerHour)
+                                      max_deals_per_hour = $6, max_deal_size_per_hour = $7, additional_info = $8 WHERE name = $1`, name,
+		active, wallets, peers, filters, maxDealPerHour, maxDealSizePerHour, info)
 	if err != nil {
 		return xerrors.Errorf("updating client filter: %w", err)
 	}
@@ -149,7 +157,7 @@ func (a *WebRPC) SetClientFilters(ctx context.Context, name string, active bool,
 	return nil
 }
 
-func (a *WebRPC) SetPriceFilters(ctx context.Context, number int64, minDur, maxDur int, minSize, maxSize int64, price int64, verified bool) error {
+func (a *WebRPC) SetPriceFilters(ctx context.Context, name string, minDur, maxDur int, minSize, maxSize int64, price int64, verified bool) error {
 	if abi.ChainEpoch(minDur*builtin.EpochsInDay) < market.DealMinDuration {
 		return xerrors.Errorf("minimum duration must be greater than or equal to %d days", market.DealMinDuration/builtin.EpochsInDay)
 	}
@@ -174,9 +182,13 @@ func (a *WebRPC) SetPriceFilters(ctx context.Context, number int64, minDur, maxD
 		return xerrors.Errorf("minimum size and maximum size cannot be negative")
 	}
 
+	if len(name) > 64 {
+		return xerrors.Errorf("name length exceeds maximum limit of 64 characters")
+	}
+
 	n, err := a.deps.DB.Exec(ctx, `UPDATE market_mk12_pricing_filters SET min_duration_days = $2, max_duration_days = $3, 
-                                       min_size = $4, max_size = $5, price= $6, verified = $7 WHERE number = $1`,
-		number, minDur, maxDur, minSize, maxSize, price, verified)
+                                       min_size = $4, max_size = $5, price= $6, verified = $7 WHERE name = $1`,
+		name, minDur, maxDur, minSize, maxSize, price, verified)
 	if err != nil {
 		return xerrors.Errorf("updating price filter: %w", err)
 	}
@@ -202,7 +214,7 @@ func (a *WebRPC) SetAllowDenyList(ctx context.Context, wallet string, status boo
 	return nil
 }
 
-func (a *WebRPC) AddClientFilters(ctx context.Context, name string, active bool, wallets, peers []string, filters []int64, maxDealPerHour, maxDealSizePerHour int64) error {
+func (a *WebRPC) AddClientFilters(ctx context.Context, name string, active bool, wallets, peers []string, filters []string, maxDealPerHour, maxDealSizePerHour int64, info string) error {
 	for i := range wallets {
 		if wallets[i] == "" {
 			return xerrors.Errorf("wallet address cannot be empty")
@@ -239,8 +251,16 @@ func (a *WebRPC) AddClientFilters(ctx context.Context, name string, active bool,
 		return xerrors.Errorf("either wallets or peers must be provided")
 	}
 
+	if len(name) > 64 {
+		return xerrors.Errorf("name length exceeds maximum limit of 64 characters")
+	}
+
+	if len(info) > 256 {
+		return xerrors.Errorf("info length exceeds maximum limit of 256 characters")
+	}
+
 	var all int
-	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk12_pricing_filters WHERE number = ANY($1)`, filters).Scan(&all)
+	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk12_pricing_filters WHERE name = ANY($1)`, filters).Scan(&all)
 	if err != nil {
 		return xerrors.Errorf("failed to check existing pricing filters: %w", err)
 	}
@@ -248,8 +268,10 @@ func (a *WebRPC) AddClientFilters(ctx context.Context, name string, active bool,
 		return xerrors.Errorf("not all pricing filters exist")
 	}
 
-	n, err := a.deps.DB.Exec(ctx, `INSERT INTO market_mk12_client_filters (name, active, wallets, peer_ids, pricing_filters, max_deals_per_hour, max_deal_size_per_hour) 
-										VALUES ($1, $2, $3, $4, $5, $6, $7)`, name, active, wallets, peers, filters, maxDealPerHour, maxDealSizePerHour)
+	n, err := a.deps.DB.Exec(ctx, `INSERT INTO market_mk12_client_filters (name, active, wallets, 
+                                        peer_ids, pricing_filters, max_deals_per_hour, max_deal_size_per_hour, additional_info) 
+										VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		name, active, wallets, peers, filters, maxDealPerHour, maxDealSizePerHour, info)
 	if err != nil {
 		return xerrors.Errorf("failed to add client filters: %w", err)
 	}
@@ -259,7 +281,7 @@ func (a *WebRPC) AddClientFilters(ctx context.Context, name string, active bool,
 	return nil
 }
 
-func (a *WebRPC) AddPriceFilters(ctx context.Context, minDur, maxDur int, minSize, maxSize int64, price int64, verified bool) error {
+func (a *WebRPC) AddPriceFilters(ctx context.Context, name string, minDur, maxDur int, minSize, maxSize int64, price int64, verified bool) error {
 	if abi.ChainEpoch(minDur*builtin.EpochsInDay) < market.DealMinDuration {
 		return xerrors.Errorf("minimum duration must be greater than or equal to %d days", market.DealMinDuration/builtin.EpochsInDay)
 	}
@@ -284,7 +306,14 @@ func (a *WebRPC) AddPriceFilters(ctx context.Context, minDur, maxDur int, minSiz
 		return xerrors.Errorf("minimum size and maximum size cannot be negative")
 	}
 
-	n, err := a.deps.DB.Exec(ctx, `INSERT INTO market_mk12_pricing_filters (min_duration_days, max_duration_days, min_size, max_size, price, verified) VALUES ($1, $2, $3, $4, $5, $6)`, minDur, maxDur, minSize, maxSize, price, verified)
+	if len(name) > 64 {
+		return xerrors.Errorf("name length exceeds maximum limit of 64 characters")
+	}
+
+	n, err := a.deps.DB.Exec(ctx, `INSERT INTO market_mk12_pricing_filters (name, 
+                                         min_duration_days, max_duration_days, min_size, max_size, price, 
+                                         verified) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		name, minDur, maxDur, minSize, maxSize, price, verified)
 	if err != nil {
 		return xerrors.Errorf("failed to add price filters: %w", err)
 	}
@@ -310,8 +339,8 @@ func (a *WebRPC) AddAllowDenyList(ctx context.Context, wallet string, status boo
 	return nil
 }
 
-func (a *WebRPC) RemovePricingFilter(ctx context.Context, number int64) error {
-	_, err := a.deps.DB.Exec(ctx, `SELECT remove_pricing_filter($1)`, number)
+func (a *WebRPC) RemovePricingFilter(ctx context.Context, name string) error {
+	_, err := a.deps.DB.Exec(ctx, `SELECT remove_pricing_filter($1)`, name)
 	if err != nil {
 		return err
 	}

@@ -77,6 +77,7 @@ class ClientFilters extends LitElement {
                 this.editingClientFilter.pricing_filters,
                 this.editingClientFilter.max_deals_per_hour,
                 this.editingClientFilter.max_deal_size_per_hour,
+                this.editingClientFilter.info,
             ];
 
             if (this.clientFilters.find((f) => f.name === this.editingClientFilter.name)) {
@@ -108,7 +109,18 @@ class ClientFilters extends LitElement {
                 crossorigin="anonymous"
             />
             <div class="container">
-                <h2>Client Filters</h2>
+                <h2>Client Filters
+                    <button class="info-btn">
+                        <!-- Inline SVG icon for the info button -->
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle" viewBox="0 0 16 16">
+                            <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/>
+                            <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0"/>
+                        </svg>
+                        <span class="tooltip-text">
+                          When creating a client rule you must select to apply a specific pricing rule to that client.
+                        </span>
+                    </button>
+                </h2>
                 <button class="btn btn-primary mb-2" @click="${this.addClientFilter}">Add Client Filter</button>
                 ${this.renderClientFiltersTable()}
                 ${this.editingClientFilter ? this.renderClientFilterForm() : ''}
@@ -233,7 +245,7 @@ class ClientFilters extends LitElement {
                                     />
                                 </div>
                                 <div class="mb-3">
-                                    <label class="form-label">Pricing Filters (Numbers, comma-separated)</label>
+                                    <label class="form-label">Pricing Filters (Names, comma-separated)</label>
                                     <input
                                         type="text"
                                         class="form-control"
@@ -241,7 +253,7 @@ class ClientFilters extends LitElement {
                                         @input="${(e) =>
             (this.editingClientFilter.pricing_filters = e.target.value
                 .split(',')
-                .map((p) => parseInt(p.trim())))}"
+                .map((p) => p.trim()))}"
                                     />
                                 </div>
                                 <div class="mb-3">
@@ -258,15 +270,15 @@ class ClientFilters extends LitElement {
                                     />
                                 </div>
                                 <div class="mb-3">
-                                    <label class="form-label">Max Deal Size per Hour (Bytes)</label>
+                                    <label class="form-label">Max Deal Size per Hour (GiB)</label>
                                     <input
                                         type="number"
                                         class="form-control"
-                                        .value="${this.editingClientFilter.max_deal_size_per_hour}"
+                                        .value="${this.bytesToGiB(this.editingClientFilter.max_deal_size_per_hour)}"
                                         @input="${(e) =>
-            (this.editingClientFilter.max_deal_size_per_hour = parseInt(
-                e.target.value
-            ))}"
+                                                (this.editingClientFilter.max_deal_size_per_hour = this.gibToBytes(
+                                                        parseInt(e.target.value)
+                                                ))}"
                                         required
                                     />
                                     <div class="form-text">
@@ -317,6 +329,14 @@ ${this.editingClientFilter.info}</textarea
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
+    bytesToGiB(bytes) {
+        return (bytes / (1024 ** 3)).toFixed(); // Convert bytes to GiB and limit to 2 decimal places
+    }
+
+    gibToBytes(gib) {
+        return gib * (1024 ** 3); // Convert GiB to bytes
+    }
+
     static styles = css`
         /* Styles for the modal and form */
         :host {
@@ -364,6 +384,38 @@ ${this.editingClientFilter.info}</textarea
             height: 100vh;
             background-color: var(--color-text-secondary, #171717);
             opacity: 0.5;
+        }
+        
+        .info-btn {
+            position: relative;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            color: #17a2b8;
+            font-size: 1em;
+            margin-left: 8px;
+        }
+    
+        .tooltip-text {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 120%; /* Position the tooltip to the right of the button */
+            transform: translateY(-50%); /* Center the tooltip vertically */
+            min-width: 440px;
+            max-width: 600px;
+            background-color: #333;
+            color: #fff;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            text-align: left;
+            white-space: normal;
+            z-index: 10;
+        }
+    
+        .info-btn:hover .tooltip-text {
+            display: block;
         }
     `;
 }
