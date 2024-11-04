@@ -65,6 +65,7 @@ type itask struct {
 	RawSize     int64                   `db:"raw_size"`
 	ShouldIndex bool                    `db:"should_index"`
 	Announce    bool                    `db:"announce"`
+	ChainDealId abi.DealID              `db:"chain_deal_id"`
 }
 
 func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
@@ -74,20 +75,23 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	ctx := context.Background()
 
 	err = i.db.Select(ctx, &tasks, `SELECT 
-											uuid, 
-											sp_id, 
-											sector,
-											piece_cid, 
-											piece_size, 
-											sector_offset,
-											reg_seal_proof,
-											raw_size,
-											should_index,
-											announce
+											p.uuid, 
+											p.sp_id, 
+											p.sector,
+											p.piece_cid, 
+											p.piece_size, 
+											p.sector_offset,
+											p.reg_seal_proof,
+											p.raw_size,
+											p.should_index,
+											p.announce,
+											d.chain_deal_id
 										FROM 
-											market_mk12_deal_pipeline
+											market_mk12_deal_pipeline p
+										LEFT JOIN 
+											market_mk12_deals d ON p.uuid = d.uuid AND p.sp_id = d.sp_id
 										WHERE 
-											indexing_task_id = $1;`, taskID)
+											p.indexing_task_id = $1;`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting indexing params: %w", err)
 	}
@@ -209,15 +213,16 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 // recordCompletion add the piece metadata and piece deal to the DB and
 // records the completion of an indexing task in the database
 func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID harmonytask.TaskID, indexed bool) error {
-	_, err := i.db.Exec(ctx, `SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		task.UUID, task.PieceCid, true, task.SpID, task.Sector, task.Offset, task.Size, task.RawSize, indexed)
+	_, err := i.db.Exec(ctx, `SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		task.UUID, task.PieceCid, true, task.SpID, task.Sector, task.Offset, task.Size, task.RawSize, indexed, false, task.ChainDealId)
 	if err != nil {
 		return xerrors.Errorf("failed to update piece metadata and piece deal for deal %s: %w", task.UUID, err)
 	}
 
 	// If IPNI is disabled then mark deal as complete otherwise just mark as indexed
 	if i.cfg.Market.StorageMarketConfig.IPNI.Disable {
-		n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE, complete = TRUE WHERE uuid = $1`, task.UUID)
+		n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE, indexing_task_id = NULL, 
+                                     complete = TRUE WHERE uuid = $1 AND indexing_task_id = $2`, task.UUID, taskID)
 		if err != nil {
 			return xerrors.Errorf("store indexing success: updating pipeline: %w", err)
 		}
@@ -225,7 +230,8 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 			return xerrors.Errorf("store indexing success: updated %d rows", n)
 		}
 	} else {
-		n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE WHERE uuid = $1`, task.UUID)
+		n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE, indexing_task_id = NULL 
+                                 WHERE uuid = $1 AND indexing_task_id = $2`, task.UUID, taskID)
 		if err != nil {
 			return xerrors.Errorf("store indexing success: updating pipeline: %w", err)
 		}

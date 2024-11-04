@@ -134,7 +134,7 @@ CREATE TRIGGER unique_pricing_filters_trigger
 CREATE OR REPLACE FUNCTION enforce_name_naming_convention()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- Check if the "name" column value matches the pattern [a-z0-9_-]
+    -- Check if the "name" column value matches the pattern [A-Za-z0-9_-]
     IF NEW.name !~ '^[A-Za-z0-9_-]+$' THEN
         RAISE EXCEPTION 'Invalid value for name: "%". Only letters, numbers, underscores, and hyphens are allowed.', NEW.name;
 END IF;
@@ -145,12 +145,12 @@ $$ LANGUAGE plpgsql;
 
 -- Trigger for the market_mk12_client_filters table to enforce the naming convention on "name" column
 CREATE TRIGGER enforce_name_convention_market_mk12_client_filters
-    BEFORE INSERT OR UPDATE ON market_mk12_client_filters  -- Replace with your first table name
+    BEFORE INSERT OR UPDATE ON market_mk12_client_filters
                          FOR EACH ROW
                          EXECUTE FUNCTION enforce_name_naming_convention();
 
 -- Trigger for the market_mk12_pricing_filters table to enforce the naming convention on "name" column
 CREATE TRIGGER enforce_name_convention_market_mk12_pricing_filters
-    BEFORE INSERT OR UPDATE ON market_mk12_pricing_filters  -- Replace with your second table name
+    BEFORE INSERT OR UPDATE ON market_mk12_pricing_filters
                          FOR EACH ROW
                          EXECUTE FUNCTION enforce_name_naming_convention();

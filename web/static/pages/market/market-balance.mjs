@@ -116,7 +116,7 @@ class MarketBalance extends LitElement {
         </table>
 
         <!-- Form to Move Balance to Escrow -->
-        <h3>Move Balance to Escrow</h3>
+        <h4>Move Balance to Escrow</h4>
         <form @submit="${this.handleSubmit}" style="padding-bottom: 20px">
           <div class="search-container">
             <label for="minerSelect" class="form-label">Select Miner</label>
@@ -163,6 +163,16 @@ class MarketBalance extends LitElement {
     }
 
     static styles = css`
+    h2 {
+            text-align: center;
+            margin-bottom: 20px;
+    }
+    
+    h4 {
+            text-align: center;
+            margin-bottom: 20px;
+    }
+        
     .search-container {
       display: grid;
       grid-template-columns: 1fr max-content;

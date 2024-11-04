@@ -45,6 +45,7 @@ CREATE TABLE market_mk12_deals (
 -- Cleanup for this table will be created in a later stage.
 CREATE TABLE market_piece_metadata (
     piece_cid TEXT NOT NULL PRIMARY KEY,
+    piece_size BIGINT NOT NULL,
 
     version INT NOT NULL DEFAULT 2, -- Boost stored in version 1. This is version 2.
 
@@ -54,7 +55,7 @@ CREATE TABLE market_piece_metadata (
     indexed_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
 
     constraint market_piece_meta_identity_key
-        unique (piece_cid)
+        unique (piece_cid, piece_size)
 );
 
 -- This table binds the piece metadata to specific deals (piece indexing). Entries are added by task_indexing.
@@ -100,8 +101,8 @@ CREATE OR REPLACE FUNCTION process_piece_deal(
 RETURNS VOID AS $$
 BEGIN
     -- Insert or update the market_piece_metadata table
-INSERT INTO market_piece_metadata (piece_cid, indexed)
-VALUES (_piece_cid, _indexed)
+INSERT INTO market_piece_metadata (piece_cid, piece_size, indexed)
+VALUES (_piece_cid, _piece_length, _indexed)
     ON CONFLICT (piece_cid) DO UPDATE SET
     indexed = CASE
                 WHEN market_piece_metadata.indexed = FALSE THEN EXCLUDED.indexed
