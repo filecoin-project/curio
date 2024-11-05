@@ -55,7 +55,7 @@ func NewSlotMgr(db *harmonydb.DB, machineHostAndPort string, slotOffs []uint64) 
 		PipelineSlot uint64 `db:"pipeline_slot"`
 	}
 
-	err := db.Select(context.Background(), &slotRefs, `SELECT sp_id, sector_number, pipeline_slot as count FROM batch_sector_refs WHERE machine_host_and_port = $2`, machineHostAndPort)
+	err := db.Select(context.Background(), &slotRefs, `SELECT sp_id, sector_number, pipeline_slot as count FROM batch_sector_refs WHERE machine_host_and_port = $1`, machineHostAndPort)
 	if err != nil {
 		return nil, xerrors.Errorf("getting slot refs: %w", err)
 	}
