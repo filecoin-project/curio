@@ -20,6 +20,9 @@ CREATE TABLE ipni (
     signature BYTEA NOT NULL,
     entries TEXT NOT NULL, -- CID of first link in entry chain
 
+    piece_cid TEXT NOT NULL, -- For easy look up
+    piece_size BIGINT NOT NULL, -- For easy look up
+
     unique (ad_cid)
 );
 
@@ -64,6 +67,8 @@ CREATE TABLE ipni_chunks (
 CREATE OR REPLACE FUNCTION insert_ad_and_update_head(
     _ad_cid TEXT,
     _context_id BYTEA,
+    _piece_cid TEXT,
+    _piece_size BIGINT,
     _is_rm BOOLEAN,
     _provider TEXT,
     _addresses TEXT,
@@ -79,8 +84,8 @@ BEGIN
     WHERE provider = _provider;
 
     -- Insert the new ad into the ipni table with an automatically assigned order_number
-    INSERT INTO ipni (ad_cid, context_id, is_rm, previous, provider, addresses, signature, entries)
-    VALUES (_ad_cid, _context_id, _is_rm, _previous, _provider, _addresses, _signature, _entries);
+    INSERT INTO ipni (ad_cid, context_id, is_rm, previous, provider, addresses, signature, entries, piece_cid, piece_size)
+    VALUES (_ad_cid, _context_id, _is_rm, _previous, _provider, _addresses, _signature, _entries, _piece_cid, _piece_size);
 
     -- Update the ipni_head table to set the new ad as the head of the chain
     INSERT INTO ipni_head (provider, head)

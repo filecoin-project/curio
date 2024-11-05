@@ -584,8 +584,9 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 		return nil, xerrors.Errorf("failed to marshal piece info: %w", err)
 	}
 
+	// Get only the latest Ad
 	var ipniAd string
-	err = a.deps.DB.QueryRow(ctx, `SELECT ad_cid FROM ipni WHERE context_id = $1`, b.Bytes()).Scan(&ipniAd)
+	err = a.deps.DB.QueryRow(ctx, `SELECT ad_cid FROM ipni WHERE context_id = $1 ORDER BY order_number DESC LIMIT 1`, b.Bytes()).Scan(&ipniAd)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ret, err
@@ -595,4 +596,20 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 
 	ret.IPNIAd = ipniAd
 	return ret, err
+}
+
+type PieceSummary struct {
+	Total       int64     `db:"total" json:"total"`
+	Indexed     int64     `db:"indexed" json:"indexed"`
+	Announced   int64     `db:"announced" json:"announced"`
+	LastUpdated time.Time `db:"last_updated" json:"last_updated"`
+}
+
+func (a *WebRPC) PieceSummary(ctx context.Context) (*PieceSummary, error) {
+	s := PieceSummary{}
+	err := a.deps.DB.QueryRow(ctx, `SELECT total, indexed, announced, last_updated FROM piece_summary`).Scan(&s.Total, &s.Indexed, &s.Announced, &s.LastUpdated)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query piece summary: %w", err)
+	}
+	return &s, nil
 }
