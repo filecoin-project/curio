@@ -328,7 +328,8 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 
 			err := i.db.Select(ctx, &pendings, `SELECT uuid FROM market_mk12_deal_pipeline 
             										WHERE sealed = TRUE
-            										AND indexing_task_id IS NULL 
+            										AND indexing_task_id IS NULL
+            										AND indexed = FALSE
 													ORDER BY indexing_created_at ASC;`)
 			if err != nil {
 				return false, xerrors.Errorf("getting pending indexing tasks: %w", err)
