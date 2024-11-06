@@ -1,28 +1,38 @@
 package dealdata
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/url"
 
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/lib/paths"
 )
+
+// CustoreScheme is a special url scheme indicating that a data URL is an http url withing the curio storage system
+const CustoreScheme = "custore"
 
 type UrlPieceReader struct {
 	Url     string
 	Headers http.Header
 	RawSize int64 // the exact number of bytes read, if we read more or less that's an error
 
+	RemoteEndpointReader *paths.Remote // Only used for .ReadRemote which issues http requests for internal /remote endpoints
+
 	readSoFar int64
 	closed    bool
 	active    io.ReadCloser // auto-closed on EOF
 }
 
-func NewUrlReader(p string, h http.Header, rs int64) *UrlPieceReader {
+func NewUrlReader(rmt *paths.Remote, p string, h http.Header, rs int64) *UrlPieceReader {
 	return &UrlPieceReader{
 		Url:     p,
 		RawSize: rs,
 		Headers: h,
+
+		RemoteEndpointReader: rmt,
 	}
 }
 
@@ -30,6 +40,19 @@ func (u *UrlPieceReader) initiateRequest() error {
 	goUrl, err := url.Parse(u.Url)
 	if err != nil {
 		return xerrors.Errorf("failed to parse the URL: %w", err)
+	}
+
+	if goUrl.Scheme == CustoreScheme {
+		if u.RemoteEndpointReader == nil {
+			return xerrors.New("RemoteEndpoint is nil")
+		}
+
+		goUrl.Scheme = "http"
+		u.active, err = u.RemoteEndpointReader.ReadRemote(context.Background(), goUrl.String(), 0, 0)
+		if err != nil {
+			return xerrors.Errorf("error reading remote (%s): %w", goUrl.String(), err)
+		}
+		return nil
 	}
 
 	if goUrl.Scheme != "https" && goUrl.Scheme != "http" {

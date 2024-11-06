@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/gbrlsnchs/jwt/v3"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
@@ -46,6 +47,7 @@ import (
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	lrepo "github.com/filecoin-project/lotus/node/repo"
 	"github.com/filecoin-project/lotus/storage/sealer"
@@ -186,8 +188,9 @@ type Deps struct {
 	Name              string
 	Alert             *alertmanager.AlertNow
 	IndexStore        *indexstore.IndexStore
-	PieceProvider     *pieceprovider.PieceProvider
+	SectorReader      *pieceprovider.SectorReader
 	CachedPieceReader *cachedreader.CachedPieceReader
+	EthClient         *lazy.Lazy[*ethclient.Client]
 }
 
 const (
@@ -272,6 +275,13 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		}()
 	}
 
+	if deps.EthClient == nil {
+		deps.EthClient = lazy.MakeLazy[*ethclient.Client](func() (*ethclient.Client, error) {
+			// todo: this is a hack, just use the lotus chain api client above
+			return ethclient.Dial("https://api.calibration.node.glif.io/rpc/v1")
+		})
+	}
+
 	if deps.Bstore == nil {
 		deps.Bstore = curiochain.NewChainBlockstore(deps.Chain)
 	}
@@ -305,7 +315,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		deps.Cfg.Subsystems.GuiAddress = cctx.String("gui-listen")
 	}
 	if deps.LocalStore == nil {
-		deps.LocalStore, err = paths.NewLocal(ctx, deps.LocalPaths, deps.Si, []string{"http://" + deps.ListenAddr + "/remote"})
+		deps.LocalStore, err = paths.NewLocal(ctx, deps.LocalPaths, deps.Si, "http://"+deps.ListenAddr+"/remote")
 		if err != nil {
 			return err
 		}
@@ -361,12 +371,13 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 		}
 	}
 
-	if deps.PieceProvider == nil {
-		deps.PieceProvider = pieceprovider.NewPieceProvider(deps.Stor, deps.Si)
+	if deps.SectorReader == nil {
+		deps.SectorReader = pieceprovider.NewSectorReader(deps.Stor, deps.Si)
 	}
 
 	if deps.CachedPieceReader == nil {
-		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.PieceProvider)
+		ppr := pieceprovider.NewPieceParkReader(deps.Stor, deps.Si)
+		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.SectorReader, ppr)
 	}
 
 	return nil
