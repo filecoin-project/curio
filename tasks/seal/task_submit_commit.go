@@ -287,8 +287,6 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("getting address for precommit: %w", err)
 	}
 
-	log.Errorf("THE FAILED COMMIT MESSAGE PARAMS ARE %x", enc)
-
 	msg := &types.Message{
 		To:     maddr,
 		From:   a,
