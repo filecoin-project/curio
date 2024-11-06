@@ -13,6 +13,7 @@ func DefaultCurioConfig() *CurioConfig {
 			GuiAddress:                 "0.0.0.0:4701",
 			RequireActivationSuccess:   true,
 			RequireNotificationSuccess: true,
+			IndexingMaxTasks:           8,
 		},
 		Fees: CurioFees{
 			DefaultMaxFee:      DefaultDefaultMaxFee(),
@@ -309,6 +310,10 @@ type CurioSubsystemsConfig struct {
 	// EnableLibp2p enabled the libp2p module for the market. Must have EnableDealMarket set to true and must only be enabled
 	// on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
 	EnableLibp2p bool
+
+	// The maximum amount of indexing and IPNI tasks that can run simultaneously. Note that the maximum number of tasks will
+	// also be bounded by resources available on the machine.
+	IndexingMaxTasks int
 }
 type CurioFees struct {
 	DefaultMaxFee      types.FIL

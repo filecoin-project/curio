@@ -246,7 +246,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			}
 		}
 
-		idxMax := taskhelp.Max(8)
+		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 
 		indexingTask := indexing.NewIndexingTask(db, sc, iStore, pp, cfg, idxMax)
 		ipniTask := indexing.NewIPNITask(db, sc, iStore, pp, cfg, idxMax)

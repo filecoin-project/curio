@@ -23,7 +23,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/docker/go-units"
-	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/manifoldco/promptui"
 	"github.com/mitchellh/go-homedir"
 	"github.com/samber/lo"
@@ -285,40 +284,6 @@ saveConfigFile:
 }
 
 func completeInit(d *MigrationData) {
-	// Add libp2p key
-	pk, _, err := crypto.GenerateEd25519Key(rand.Reader)
-	if err != nil {
-		d.say(notice, "Failed to generate the libp2p private key.", err.Error())
-		os.Exit(1)
-	}
-
-	mid, err := address.IDFromAddress(d.MinerID)
-	if err != nil {
-		d.say(notice, "Failed to generate miner ID from address.", err.Error())
-		os.Exit(1)
-	}
-
-	kbytes, err := crypto.MarshalPrivateKey(pk)
-	if err != nil {
-		d.say(notice, "Failed to marshal libp2p private key.", err.Error())
-		os.Exit(1)
-	}
-
-	n, err := d.DB.Exec(d.ctx, `INSERT INTO libp2p (sp_id, priv_key) VALUES ($1, $2) ON CONFLICT(sp_id) DO NOTHING`, mid, kbytes)
-	if err != nil {
-		d.say(notice, "Failed to insert libp2p private key into database. Please run 'curio market libp2p generate-key minerID' to complete the migration.", err.Error())
-		os.Exit(1)
-	}
-
-	if n == 0 {
-		d.say(plain, "New libp2p key was not created")
-	}
-
-	if n > 1 {
-		d.say(notice, "More than 1 row was affected in the 'libp2p' table when creating new libp2p key.")
-		os.Exit(1)
-	}
-
 	stepCompleted(d, d.T("New Miner initialization complete."))
 }
 
