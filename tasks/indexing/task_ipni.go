@@ -100,6 +100,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	task := tasks[0]
 
 	if task.Complete {
+		log.Infow("IPNI task already complete", "task_id", taskID, "sector", task.Sector, "proof", task.Proof, "offset", task.Offset)
 		return true, nil
 	}
 
@@ -250,6 +251,8 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	if err != nil {
 		return false, xerrors.Errorf("store IPNI success: %w", err)
 	}
+
+	log.Infow("IPNI task complete", "task_id", taskID, "sector", task.Sector, "proof", task.Proof, "offset", task.Offset)
 
 	return true, nil
 }

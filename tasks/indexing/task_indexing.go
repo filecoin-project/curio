@@ -115,6 +115,8 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		if err != nil {
 			return false, err
 		}
+		log.Infow("Piece already indexed or should not be indexed", "piece_cid", task.PieceCid, "indexed", indexed, "should_index", task.ShouldIndex, "uuid", task.UUID, "sp_id", task.SpID, "sector", task.Sector)
+
 		return true, nil
 	}
 
@@ -206,6 +208,8 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	if err != nil {
 		return false, err
 	}
+
+	log.Infow("Piece indexed", "piece_cid", task.PieceCid, "uuid", task.UUID, "sp_id", task.SpID, "sector", task.Sector)
 
 	return true, nil
 }
@@ -307,7 +311,7 @@ func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu: 1,
 			Ram: uint64(i.insertBatchSize * i.insertConcurrency * 56 * 2),
 		},
-		Max:         taskhelp.Max(4),
+		Max:         i.max,
 		MaxFailures: 3,
 		IAmBored: passcall.Every(10*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
 			return i.schedule(context.Background(), taskFunc)
@@ -330,7 +334,7 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
             										WHERE sealed = TRUE
             										AND indexing_task_id IS NULL
             										AND indexed = FALSE
-													ORDER BY indexing_created_at ASC;`)
+													ORDER BY indexing_created_at ASC LIMIT 1;`)
 			if err != nil {
 				return false, xerrors.Errorf("getting pending indexing tasks: %w", err)
 			}
