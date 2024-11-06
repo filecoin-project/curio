@@ -2,7 +2,7 @@
 CREATE TABLE ipni_peerid (
     priv_key BYTEA NOT NULL PRIMARY KEY,
     peer_id TEXT NOT NULL UNIQUE,
-    sp_id BIGINT NOT NULL
+    sp_id BIGINT NOT NULL -- 20241106-market-fixes.sql UNIQUE
 );
 
 CREATE TABLE ipni (
