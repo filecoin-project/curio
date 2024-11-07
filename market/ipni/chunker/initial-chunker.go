@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/ipfs/go-cid"
 	"github.com/ipld/go-ipld-prime"
@@ -38,6 +39,8 @@ type InitialChunker struct {
 	carChunkStart *int64
 
 	prevChunks []carChunkMeta
+
+	start time.Time
 }
 
 type carChunkMeta struct {
@@ -49,6 +52,8 @@ type carChunkMeta struct {
 func NewInitialChunker() *InitialChunker {
 	return &InitialChunker{
 		chunkSize: entriesChunkSize,
+
+		start: time.Now(),
 	}
 }
 
@@ -112,6 +117,12 @@ func (c *InitialChunker) processCarPending() error {
 }
 
 func (c *InitialChunker) Finish(ctx context.Context, db *harmonydb.DB, pieceCid cid.Cid) (ipld.Link, error) {
+	defer func() {
+		took := time.Since(c.start)
+		ingestedPerSec := float64(c.ingestedSoFar) / took.Seconds()
+		log.Infow("Finished initial chunking", "ingested", c.ingestedSoFar, "took", took, "ingestedPerSec", ingestedPerSec)
+	}()
+
 	// note: <= because we're not inserting anything here
 	if c.ingestedSoFar <= longChainThreshold {
 		// db-order ingest
