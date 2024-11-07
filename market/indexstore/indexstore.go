@@ -193,7 +193,7 @@ func (i *IndexStore) AddIndex(ctx context.Context, pieceCid cid.Cid, recordsChan
 						return nil
 					}()
 					if err != nil {
-						return err
+						return xerrors.Errorf("execute batch: %w", err)
 					}
 					batch = nil
 				}
@@ -203,7 +203,7 @@ func (i *IndexStore) AddIndex(ctx context.Context, pieceCid cid.Cid, recordsChan
 
 	err := eg.Wait()
 	if err != nil {
-		return err
+		return xerrors.Errorf("addindex wait: %w", err)
 	}
 
 	return nil

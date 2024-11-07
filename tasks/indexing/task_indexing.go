@@ -169,8 +169,12 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	}
 
 	var eg errgroup.Group
+	addFail := make(chan struct{})
+	var interrupted bool
 
 	eg.Go(func() error {
+		defer close(addFail)
+
 		serr := i.indexStore.AddIndex(ctx, pieceCid, recs)
 		if serr != nil {
 			return xerrors.Errorf("adding index to DB: %w", err)
@@ -179,13 +183,19 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	})
 
 	blockMetadata, err := blockReader.SkipNext()
+loop:
 	for err == nil {
-		recs <- indexstore.Record{
+		select {
+		case recs <- indexstore.Record{
 			Cid: blockMetadata.Cid,
 			OffsetSize: indexstore.OffsetSize{
 				Offset: blockMetadata.SourceOffset,
 				Size:   blockMetadata.Size,
 			},
+		}:
+		case _, _ = <-addFail:
+			interrupted = true
+			break loop
 		}
 		blockMetadata, err = blockReader.SkipNext()
 	}
@@ -199,7 +209,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	// Wait till AddIndex is finished
 	err = eg.Wait()
 	if err != nil {
-		return false, xerrors.Errorf("adding index to DB: %w", err)
+		return false, xerrors.Errorf("adding index to DB (interrupted %t): %w", interrupted, err)
 	}
 
 	log.Infof("Indexing deal %s took %0.3f seconds", task.UUID, time.Since(startTime).Seconds())
