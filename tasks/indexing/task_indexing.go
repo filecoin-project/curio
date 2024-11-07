@@ -199,7 +199,7 @@ loop:
 		}
 		blockMetadata, err = blockReader.SkipNext()
 	}
-	if !errors.Is(err, io.EOF) {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return false, fmt.Errorf("generating index for piece: %w", err)
 	}
 
