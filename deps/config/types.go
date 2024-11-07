@@ -76,8 +76,8 @@ func DefaultCurioConfig() *CurioConfig {
 			StorageMarketConfig: StorageMarketConfig{
 				PieceLocator: []PieceLocatorConfig{},
 				Indexing: IndexingConfig{
-					InsertConcurrency: 8,
-					InsertBatchSize:   15000,
+					InsertConcurrency: 10,
+					InsertBatchSize:   1000,
 				},
 				MK12: MK12Config{
 					PublishMsgPeriod:          Duration(5 * time.Minute),

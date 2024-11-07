@@ -171,6 +171,8 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	var eg errgroup.Group
 	addFail := make(chan struct{})
 	var interrupted bool
+	var blocks int64
+	start := time.Now()
 
 	eg.Go(func() error {
 		defer close(addFail)
@@ -185,6 +187,8 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	blockMetadata, err := blockReader.SkipNext()
 loop:
 	for err == nil {
+		blocks++
+
 		select {
 		case recs <- indexstore.Record{
 			Cid: blockMetadata.Cid,
@@ -219,7 +223,8 @@ loop:
 		return false, err
 	}
 
-	log.Infow("Piece indexed", "piece_cid", task.PieceCid, "uuid", task.UUID, "sp_id", task.SpID, "sector", task.Sector)
+	blocksPerSecond := float64(blocks) / time.Since(start).Seconds()
+	log.Infow("Piece indexed", "piece_cid", task.PieceCid, "uuid", task.UUID, "sp_id", task.SpID, "sector", task.Sector, "blocks", blocks, "blocks_per_second", blocksPerSecond)
 
 	return true, nil
 }
