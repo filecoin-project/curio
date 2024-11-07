@@ -204,7 +204,7 @@ func (i *IndexStore) executeBatchWithRetry(ctx context.Context, batch *gocql.Bat
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		start := time.Now()
 		err = i.session.ExecuteBatch(batch)
-		if time.Since(start) > 10*time.Second {
+		if time.Since(start) > 30*time.Second {
 			log.Warnw("addIndex Batch Insert", "took", time.Since(start), "entries", len(batch.Entries))
 		} else {
 			log.Debugw("addIndex Batch Insert", "took", time.Since(start), "entries", len(batch.Entries))
