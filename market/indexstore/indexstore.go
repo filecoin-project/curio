@@ -85,6 +85,8 @@ func NewIndexStore(hosts []string, cfg *config.CurioConfig) (*IndexStore, error)
 
 	cluster := gocql.NewCluster(hosts...)
 	cluster.Timeout = 5 * time.Minute
+	cluster.Consistency = gocql.LocalOne
+	cluster.NumConns = cfg.Market.StorageMarketConfig.Indexing.InsertConcurrency * 8
 
 	store := &IndexStore{
 		cluster: cluster,
