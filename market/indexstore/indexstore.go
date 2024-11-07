@@ -1,10 +1,12 @@
 package indexstore
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -202,6 +204,11 @@ func (i *IndexStore) executeBatchWithRetry(ctx context.Context, batch *gocql.Bat
 	maxRetries := 20
 	backoff := 20 * time.Second
 	maxBackoff := 180 * time.Second
+
+	// sort batch by second param
+	sort.Slice(batch.Entries, func(i, j int) bool {
+		return bytes.Compare(batch.Entries[i].Args[1].([]byte), batch.Entries[j].Args[1].([]byte)) < 0
+	})
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		start := time.Now()
