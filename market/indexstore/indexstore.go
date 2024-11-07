@@ -27,9 +27,9 @@ var log = logging.Logger("indexstore")
 
 type settings struct {
 	// Number of records per insert batch
-	InsertBatchSize int
+	InsertBatchSize int // default 15000
 	// Number of concurrent inserts to split AddIndex/DeleteIndex calls to
-	InsertConcurrency int
+	InsertConcurrency int // default 8
 }
 
 type IndexStore struct {
@@ -84,7 +84,7 @@ func NewIndexStore(hosts []string, cfg *config.CurioConfig) (*IndexStore, error)
 	}
 
 	cluster := gocql.NewCluster(hosts...)
-	cluster.Timeout = time.Minute
+	cluster.Timeout = 5 * time.Minute
 
 	store := &IndexStore{
 		cluster: cluster,
@@ -150,12 +150,9 @@ func (i *IndexStore) AddIndex(ctx context.Context, pieceCid cid.Cid, recordsChan
 	var eg errgroup.Group
 
 	// Start worker threads based on InsertConcurrency value
-	// These workers will be further batch based on InsertBatchSize in the
-	// goroutines for each BatchInsert operation
 	for worker := 0; worker < i.settings.InsertConcurrency; worker++ {
 		eg.Go(func() error {
 			var batch *gocql.Batch
-			// Running a loop on all instead of creating batches require less memory
 			for {
 				if batch == nil {
 					batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
@@ -166,9 +163,8 @@ func (i *IndexStore) AddIndex(ctx context.Context, pieceCid cid.Cid, recordsChan
 
 				if !ok {
 					if len(batch.Entries) > 0 {
-						err := i.session.ExecuteBatch(batch)
-						if err != nil {
-							return fmt.Errorf("executing batch insert for piece %s: %w", pieceCid, err)
+						if err := i.executeBatchWithRetry(ctx, batch, pieceCid); err != nil {
+							return err
 						}
 					}
 					return nil
@@ -181,19 +177,8 @@ func (i *IndexStore) AddIndex(ctx context.Context, pieceCid cid.Cid, recordsChan
 				})
 
 				if len(batch.Entries) == i.settings.InsertBatchSize {
-					err := func() error {
-						defer func(start time.Time) {
-							log.Debugw("addIndex Batch Insert", "took", time.Since(start), "entries", len(batch.Entries))
-						}(time.Now())
-
-						err := i.session.ExecuteBatch(batch)
-						if err != nil {
-							return fmt.Errorf("executing batch insert for piece %s: %w", pieceCid, err)
-						}
-						return nil
-					}()
-					if err != nil {
-						return xerrors.Errorf("execute batch: %w", err)
+					if err := i.executeBatchWithRetry(ctx, batch, pieceCid); err != nil {
+						return err
 					}
 					batch = nil
 				}
@@ -204,6 +189,55 @@ func (i *IndexStore) AddIndex(ctx context.Context, pieceCid cid.Cid, recordsChan
 	err := eg.Wait()
 	if err != nil {
 		return xerrors.Errorf("addindex wait: %w", err)
+	}
+
+	return nil
+}
+
+// executeBatchWithRetry executes a batch with retry logic and exponential backoff
+func (i *IndexStore) executeBatchWithRetry(ctx context.Context, batch *gocql.Batch, pieceCid cid.Cid) error {
+	var err error
+	maxRetries := 20
+	backoff := 20 * time.Second
+	maxBackoff := 180 * time.Second
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		start := time.Now()
+		err = i.session.ExecuteBatch(batch)
+		if time.Since(start) > 10*time.Second {
+			log.Warnw("addIndex Batch Insert", "took", time.Since(start), "entries", len(batch.Entries))
+		} else {
+			log.Debugw("addIndex Batch Insert", "took", time.Since(start), "entries", len(batch.Entries))
+		}
+
+		if err == nil {
+			return nil
+		}
+
+		// If context is done, exit immediately
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		log.Warnf("Batch insert attempt %d failed for piece %s: %v", attempt+1, pieceCid, err)
+
+		// If max retries reached, return error
+		if attempt == maxRetries {
+			return xerrors.Errorf("execute batch: executing batch insert for piece %s: %w", pieceCid, err)
+		}
+
+		// Sleep for backoff duration before retrying
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+
+		// Exponential backoff
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
 	}
 
 	return nil
