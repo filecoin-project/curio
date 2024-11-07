@@ -373,6 +373,12 @@ description: The default curio configuration
   # type: string
   #ListenAddress = "0.0.0.0:12310"
 
+  # DelegateTLS allows the server to delegate TLS to a reverse proxy. When enabled the listen address will serve
+  # HTTP and the reverse proxy will handle TLS termination.
+  #
+  # type: bool
+  #DelegateTLS = false
+
   # ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
   #
   # type: time.Duration

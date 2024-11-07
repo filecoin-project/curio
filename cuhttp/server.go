@@ -102,15 +102,7 @@ func isWebSocketUpgrade(r *http.Request) bool {
 }
 
 func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
-	ch := cache{db: d.DB}
 	cfg := d.Cfg.HTTP
-
-	// Set up the autocert manager for Let's Encrypt
-	certManager := autocert.Manager{
-		Cache:      ch,
-		Prompt:     autocert.AcceptTOS, // Automatically accept the Terms of Service
-		HostPolicy: autocert.HostWhitelist(cfg.DomainName),
-	}
 
 	// Setup the Chi router for more complex routing (if needed in the future)
 	chiRouter := chi.NewRouter()
@@ -163,9 +155,19 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
 		WriteTimeout:      cfg.WriteTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
-		TLSConfig: &tls.Config{
+	}
+
+	if !cfg.DelegateTLS {
+		// Set up the autocert manager for Let's Encrypt
+		certManager := autocert.Manager{
+			Cache:      cache{db: d.DB},
+			Prompt:     autocert.AcceptTOS, // Automatically accept the Terms of Service
+			HostPolicy: autocert.HostWhitelist(cfg.DomainName),
+		}
+
+		server.TLSConfig = &tls.Config{
 			GetCertificate: certManager.GetCertificate,
-		},
+		}
 	}
 
 	// We don't need to run an HTTP server. Any HTTP request should simply be handled as HTTPS.
@@ -173,7 +175,12 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
 	// Start the server with TLS
 	go func() {
 		log.Infof("Starting HTTPS server for https://%s on %s", cfg.DomainName, cfg.ListenAddress)
-		serr := server.ListenAndServeTLS("", "")
+		var serr error
+		if !cfg.DelegateTLS {
+			serr = server.ListenAndServeTLS("", "")
+		} else {
+			serr = server.ListenAndServe()
+		}
 		if serr != nil {
 			log.Errorf("Failed to start HTTPS server: %s", serr)
 			panic(serr)

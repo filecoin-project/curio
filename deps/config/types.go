@@ -642,6 +642,10 @@ type HTTPConfig struct {
 	// ListenAddress is the address that the server listens for HTTP requests.
 	ListenAddress string
 
+	// DelegateTLS allows the server to delegate TLS to a reverse proxy. When enabled the listen address will serve
+	// HTTP and the reverse proxy will handle TLS termination.
+	DelegateTLS bool
+
 	// ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
 	ReadTimeout time.Duration
 

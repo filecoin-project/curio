@@ -749,6 +749,13 @@ an IP address`,
 			Comment: `ListenAddress is the address that the server listens for HTTP requests.`,
 		},
 		{
+			Name: "DelegateTLS",
+			Type: "bool",
+
+			Comment: `DelegateTLS allows the server to delegate TLS to a reverse proxy. When enabled the listen address will serve
+HTTP and the reverse proxy will handle TLS termination.`,
+		},
+		{
 			Name: "ReadTimeout",
 			Type: "time.Duration",
 
