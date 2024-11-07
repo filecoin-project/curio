@@ -177,7 +177,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 
 		serr := i.indexStore.AddIndex(ctx, pieceCid, recs)
 		if serr != nil {
-			return xerrors.Errorf("adding index to DB: %w", err)
+			return xerrors.Errorf("adding index to DB: %w", serr)
 		}
 		return nil
 	})
