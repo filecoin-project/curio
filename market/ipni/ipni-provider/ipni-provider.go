@@ -398,6 +398,7 @@ func (p *Provider) getEntry(block cid.Cid) ([]byte, error) {
 
 // reconstructChunkFromCar reconstructs a chunk from a car file.
 func (p *Provider) reconstructChunkFromCar(ctx context.Context, chunk, piece cid.Cid, startOff int64, next ipld.Link, numBlocks int64) ([]byte, error) {
+	log.Infow("Reconstructing chunk from car", "chunk", chunk, "piece", piece, "startOffset", startOff, "numBlocks", numBlocks)
 
 	reader, _, err := p.cpr.GetSharedPieceReader(ctx, piece)
 	defer func(reader storiface.Reader) {
@@ -415,6 +416,8 @@ func (p *Provider) reconstructChunkFromCar(ctx context.Context, chunk, piece cid
 
 	br := bufio.NewReader(reader)
 
+	log.Infow("starting to read blocks", "numBlocks", numBlocks)
+
 	mhs := make([]multihash.Multihash, 0, numBlocks)
 	for i := int64(0); i < numBlocks; i++ {
 		bcid, err := ipniculib.SkipCarNode(br)
@@ -424,6 +427,8 @@ func (p *Provider) reconstructChunkFromCar(ctx context.Context, chunk, piece cid
 
 		mhs = append(mhs, bcid.Hash())
 	}
+
+	log.Infow("finished reading blocks", "numBlocks", numBlocks)
 
 	// Create the chunk node
 	chunkNode, err := chunker.NewEntriesChunkNode(mhs, next)
