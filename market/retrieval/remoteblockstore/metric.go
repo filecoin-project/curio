@@ -5,6 +5,7 @@ import (
 	"go.opencensus.io/stats/view"
 
 	"github.com/filecoin-project/lotus/metrics"
+	lotusmetrics "github.com/filecoin-project/lotus/metrics"
 )
 
 // Distribution
@@ -135,5 +136,14 @@ func init() {
 		HttpRblsHasSuccessResponseCountView,
 		HttpRblsHasFailResponseCountView,
 		HttpRblsBytesSentCountView,
+
+		lotusmetrics.DagStorePRBytesDiscardedView,
+		lotusmetrics.DagStorePRBytesRequestedView,
+		lotusmetrics.DagStorePRDiscardCountView,
+		lotusmetrics.DagStorePRInitCountView,
+		lotusmetrics.DagStorePRSeekBackBytesView,
+		lotusmetrics.DagStorePRSeekBackCountView,
+		lotusmetrics.DagStorePRSeekForwardBytesView,
+		lotusmetrics.DagStorePRSeekForwardCountView,
 	)
 }
