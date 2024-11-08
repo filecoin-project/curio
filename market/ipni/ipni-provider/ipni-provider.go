@@ -491,6 +491,7 @@ func (p *Provider) handleGetHead(w http.ResponseWriter, r *http.Request) {
 	sh, err := p.getHead(r.Context(), providerID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
+			log.Warnw("No Content Found", "providerId", providerID)
 			http.Error(w, "", http.StatusNoContent)
 			return
 		}
@@ -513,7 +514,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 
 	b, err := cid.Parse(reqCid)
 	if err != nil {
-		log.Debugw("invalid CID as path parameter while getting content", "request", reqCid, "err", err)
+		log.Warnw("invalid CID as path parameter while getting content", "request", reqCid, "err", err)
 		http.Error(w, "invalid CID: "+reqCid, http.StatusBadRequest)
 		return
 	}
@@ -525,6 +526,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		ad, err := p.getAdBytes(r.Context(), b, providerID)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
+				log.Warnw("No Content Found", "CID", b.String())
 				http.Error(w, "", http.StatusNoContent)
 				return
 			}
@@ -567,7 +569,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 				entry, err := p.getEntry(b)
 				if err != nil {
 					if errors.Is(err, ErrNotFound) {
-						log.Debugw("No Content Found", "CID", b.String())
+						log.Warnw("No Content Found", "CID", b.String())
 						http.Error(w, "", http.StatusNotFound)
 						return
 					}
