@@ -130,6 +130,8 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 			Key: pkey,
 			ID:  id,
 		}
+
+		log.Infow("ipni peer ID", "peerID", id.String())
 	}
 
 	if rows.Err() != nil {
@@ -238,7 +240,7 @@ func (p *Provider) getAd(ctx context.Context, ad cid.Cid, provider string) (sche
 	}
 
 	if a.Previous != nil {
-		prev, err := cid.Parse(a.Previous)
+		prev, err := cid.Parse(*a.Previous)
 		if err != nil {
 			return schema.Advertisement{}, xerrors.Errorf("parsing previous CID: %w", err)
 		}
