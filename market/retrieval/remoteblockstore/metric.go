@@ -144,6 +144,12 @@ func init() {
 		lotusmetrics.DagStorePRSeekBackCountView,
 		lotusmetrics.DagStorePRSeekForwardBytesView,
 		lotusmetrics.DagStorePRSeekForwardCountView,
+
+		lotusmetrics.DagStorePRAtHitBytesView,
+		lotusmetrics.DagStorePRAtHitCountView,
+		lotusmetrics.DagStorePRAtCacheFillCountView,
+		lotusmetrics.DagStorePRAtReadBytesView,
+		lotusmetrics.DagStorePRAtReadCountView,
 	)
 	if err != nil {
 		panic(err)
