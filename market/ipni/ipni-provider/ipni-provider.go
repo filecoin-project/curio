@@ -236,7 +236,7 @@ func (p *Provider) getAd(ctx context.Context, ad cid.Cid, provider string) (sche
 	}
 
 	if a.Addresses != "" {
-		strings.Split(a.Addresses, "|")
+		adv.Addresses = strings.Split(a.Addresses, "|")
 	}
 
 	if a.Previous != nil {
