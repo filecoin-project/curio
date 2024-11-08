@@ -4,7 +4,6 @@ import (
 	"go.opencensus.io/stats"
 	"go.opencensus.io/stats/view"
 
-	"github.com/filecoin-project/lotus/metrics"
 	lotusmetrics "github.com/filecoin-project/lotus/metrics"
 )
 
@@ -119,7 +118,7 @@ var (
 
 // CacheViews groups all cache-related default views.
 func init() {
-	metrics.RegisterViews(
+	err := view.Register(
 		HttpPieceByCidRequestCountView,
 		HttpPieceByCidRequestDurationView,
 		HttpPieceByCid200ResponseCountView,
@@ -146,4 +145,7 @@ func init() {
 		lotusmetrics.DagStorePRSeekForwardBytesView,
 		lotusmetrics.DagStorePRSeekForwardCountView,
 	)
+	if err != nil {
+		panic(err)
+	}
 }
