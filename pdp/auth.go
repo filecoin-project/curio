@@ -2,6 +2,7 @@ package pdp
 
 import (
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/x509"
 	"fmt"
 	"net/http"
@@ -33,9 +34,13 @@ func (p *PDPService) verifyJWTToken(r *http.Request) (string, error) {
 
 	// Parse and verify the JWT token
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		// Ensure the signing method is ECDSA
+		var isEd25519 bool
+		// Ensure the signing method is ECDSA or EDDSA
 		if _, ok := token.Method.(*jwt.SigningMethodECDSA); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			if _, ok := token.Method.(*jwt.SigningMethodEd25519); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			isEd25519 = true
 		}
 
 		// Extract the service ID from the token claims
@@ -70,6 +75,17 @@ func (p *PDPService) verifyJWTToken(r *http.Request) (string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse public key: %v", err)
 		}
+
+		if isEd25519 {
+			pubKey, ok := pubKeyInterface.(*ed25519.PublicKey)
+			if !ok {
+				return nil, fmt.Errorf("public key is not ED25519")
+			}
+
+			// Return the public key for signature verification
+			return pubKey, nil
+		}
+
 		pubKey, ok := pubKeyInterface.(*ecdsa.PublicKey)
 		if !ok {
 			return nil, fmt.Errorf("public key is not ECDSA")
