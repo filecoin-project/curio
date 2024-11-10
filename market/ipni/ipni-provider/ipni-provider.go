@@ -368,6 +368,16 @@ func (p *Provider) getEntry(block cid.Cid) ([]byte, error) {
 		return nil, xerrors.Errorf("parsing piece CID: %w", err)
 	}
 
+	var next ipld.Link
+	if chunk.PrevCID != nil {
+		prevChunk, err := cid.Parse(*chunk.PrevCID)
+		if err != nil {
+			return nil, xerrors.Errorf("parsing previous CID: %w", err)
+		}
+
+		next = cidlink.Link{Cid: prevChunk}
+	}
+
 	if !chunk.FromCar {
 		if chunk.FirstCID == nil {
 			return nil, xerrors.Errorf("chunk does not have first CID")
@@ -380,20 +390,10 @@ func (p *Provider) getEntry(block cid.Cid) ([]byte, error) {
 
 		firstHash := multihash.Multihash(cb)
 
-		var next ipld.Link
-		if chunk.PrevCID != nil {
-			prevChunk, err := cid.Parse(*chunk.PrevCID)
-			if err != nil {
-				return nil, xerrors.Errorf("parsing previous CID: %w", err)
-			}
-
-			next = cidlink.Link{Cid: prevChunk}
-		}
-
 		return p.reconstructChunkFromDB(ctx, block, pieceCid, firstHash, next, chunk.NumBlocks)
 	}
 
-	return p.reconstructChunkFromCar(ctx, block, pieceCid, *chunk.StartOffset, nil, chunk.NumBlocks)
+	return p.reconstructChunkFromCar(ctx, block, pieceCid, *chunk.StartOffset, next, chunk.NumBlocks)
 }
 
 // reconstructChunkFromCar reconstructs a chunk from a car file.
