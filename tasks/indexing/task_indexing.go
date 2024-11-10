@@ -191,11 +191,9 @@ loop:
 
 		select {
 		case recs <- indexstore.Record{
-			Cid: blockMetadata.Cid,
-			OffsetSize: indexstore.OffsetSize{
-				Offset: blockMetadata.SourceOffset,
-				Size:   blockMetadata.Size,
-			},
+			Cid:    blockMetadata.Cid,
+			Offset: blockMetadata.Offset,
+			Size:   blockMetadata.Size,
 		}:
 		case _, _ = <-addFail:
 			interrupted = true

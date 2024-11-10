@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/filecoin-project/curio/market/indexstore"
 	"io"
 
 	"github.com/hashicorp/go-multierror"
@@ -20,7 +21,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/market/indexstore"
 )
 
 const MaxCachedReaders = 128
@@ -28,8 +28,8 @@ const MaxCachedReaders = 128
 var log = logging.Logger("remote-blockstore")
 
 type idxAPI interface {
-	PiecesContainingMultihash(ctx context.Context, m multihash.Multihash) ([]cid.Cid, error)
-	GetOffsetSize(ctx context.Context, pieceCid cid.Cid, hash multihash.Multihash) (*indexstore.OffsetSize, error)
+	PiecesContainingMultihash(ctx context.Context, m multihash.Multihash) ([]indexstore.PieceInfo, error)
+	GetOffset(ctx context.Context, pieceCid cid.Cid, hash multihash.Multihash) (uint64, error)
 }
 
 // RemoteBlockstore is a read-only blockstore over all cids across all pieces on a provider.
@@ -105,10 +105,10 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 
 	// Get a reader over one of the pieces and extract the block data
 	var merr error
-	for _, pieceCid := range pieces {
+	for _, piece := range pieces {
 		data, err := func() ([]byte, error) {
 			// Get a reader over the piece data
-			reader, _, err := ro.cpr.GetSharedPieceReader(ctx, pieceCid)
+			reader, _, err := ro.cpr.GetSharedPieceReader(ctx, piece.PieceCid)
 			if err != nil {
 				return nil, fmt.Errorf("getting piece reader: %w", err)
 			}
@@ -117,19 +117,19 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 			}(reader)
 
 			// Get the offset of the block within the piece (CAR file)
-			offsetSize, err := ro.idxApi.GetOffsetSize(ctx, pieceCid, c.Hash())
+			offset, err := ro.idxApi.GetOffset(ctx, piece.PieceCid, c.Hash())
 			if err != nil {
-				return nil, fmt.Errorf("getting offset/size for cid %s in piece %s: %w", c, pieceCid, err)
+				return nil, fmt.Errorf("getting offset/size for cid %s in piece %s: %w", c, piece.PieceCid, err)
 			}
 
 			// Seek to the section offset
-			readerAt := io.NewSectionReader(reader, int64(offsetSize.Offset), int64(offsetSize.Size))
+			readerAt := io.NewSectionReader(reader, int64(offset), int64(piece.BlockSize))
 			readCid, data, err := util.ReadNode(bufio.NewReader(readerAt))
 			if err != nil {
-				return nil, fmt.Errorf("reading data for block %s from reader for piece %s: %w", c, pieceCid, err)
+				return nil, fmt.Errorf("reading data for block %s from reader for piece %s: %w", c, piece.PieceCid, err)
 			}
 			if !bytes.Equal(readCid.Hash(), c.Hash()) {
-				return nil, fmt.Errorf("read block %s from reader for piece %s, but expected block %s", readCid, pieceCid, c)
+				return nil, fmt.Errorf("read block %s from reader for piece %s, but expected block %s", readCid, piece.PieceCid, c)
 			}
 			return data, nil
 		}()
@@ -215,17 +215,7 @@ func (ro *RemoteBlockstore) blockstoreGetSize(ctx context.Context, c cid.Cid) (i
 	// Iterate over all pieces in case the sector containing the first piece with the Block
 	// is not unsealed
 	for _, p := range pieces {
-		// Get the size of the block from the piece (should be the same for
-		// all pieces)
-		offsetSize, err := ro.idxApi.GetOffsetSize(ctx, p, c.Hash())
-		if err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("getting size of cid %s in piece %s: %w", c, p, err))
-			continue
-		}
-
-		if offsetSize.Size > 0 {
-			return int(offsetSize.Size), nil
-		}
+		return int(p.BlockSize), nil
 	}
 
 	return 0, merr
