@@ -9,6 +9,27 @@ package supraffi
    #include <stdbool.h>
    #include "supra_seal.h"
    #include <stdlib.h>
+
+   typedef struct nvme_health_info {
+	uint8_t  critical_warning;
+	int16_t  temperature;
+	uint8_t  available_spare;
+	uint8_t  available_spare_threshold;
+	uint8_t  percentage_used;
+	uint64_t data_units_read;
+	uint64_t data_units_written;
+	uint64_t host_read_commands;
+	uint64_t host_write_commands;
+	uint64_t controller_busy_time;
+	uint64_t power_cycles;
+	uint64_t power_on_hours;
+	uint64_t unsafe_shutdowns;
+	uint64_t media_errors;
+	uint64_t num_error_info_log_entries;
+	uint32_t warning_temp_time;
+	uint32_t critical_temp_time;
+	int16_t  temp_sensors[8];
+  } nvme_health_info_t;
 */
 import "C"
 import (
@@ -135,6 +156,21 @@ func SupraSealInit(sectorSize uint64, configFile string) {
 	cConfigFile := C.CString(configFile)
 	defer C.free(unsafe.Pointer(cConfigFile))
 	C.supra_seal_init(C.size_t(sectorSize), cConfigFile)
+}
+
+type NVMeHealthInfo C.nvme_health_info_t
+
+func GetNVMeHealthInfo() []NVMeHealthInfo {
+	// Allocate space for up to 64 controllers (adjust as needed)
+	const maxControllers = 64
+	healthInfos := make([]NVMeHealthInfo, maxControllers)
+
+	count := C.get_nvme_health_info(
+		(*C.nvme_health_info_t)(unsafe.Pointer(&healthInfos[0])),
+		C.size_t(maxControllers),
+	)
+
+	return healthInfos[:count]
 }
 
 // Pc1 performs the pc1 operation.
