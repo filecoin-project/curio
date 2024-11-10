@@ -77,7 +77,7 @@ func (p *PDPService) verifyJWTToken(r *http.Request) (string, error) {
 		}
 
 		if isEd25519 {
-			pubKey, ok := pubKeyInterface.(*ed25519.PublicKey)
+			pubKey, ok := pubKeyInterface.(ed25519.PublicKey)
 			if !ok {
 				return nil, fmt.Errorf("public key is not ED25519")
 			}
