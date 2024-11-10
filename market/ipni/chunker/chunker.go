@@ -26,7 +26,7 @@ func NewEntriesChunkNode(mhs []multihash.Multihash, next ipld.Link) (datamodel.N
 		chunk.Next = next
 	}
 
-	{
+	if os.Getenv("IPNI_CHUNKER_DEBUG") == "1" {
 		n, err := chunk.ToNode()
 		if err != nil {
 			return nil, err
