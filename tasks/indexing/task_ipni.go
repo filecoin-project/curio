@@ -1,6 +1,7 @@
 package indexing
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -122,7 +123,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	}
 
 	opts := []carv2.Option{carv2.ZeroLengthSectionAsEOF(true)}
-	blockReader, err := carv2.NewBlockReader(reader, opts...)
+	blockReader, err := carv2.NewBlockReader(bufio.NewReaderSize(reader, 4<<20), opts...)
 	if err != nil {
 		return false, fmt.Errorf("getting block reader over piece: %w", err)
 	}

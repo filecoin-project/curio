@@ -1,6 +1,7 @@
 package indexing
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -163,7 +164,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 
 	//recs := make([]indexstore.Record, 0, chanSize)
 	opts := []carv2.Option{carv2.ZeroLengthSectionAsEOF(true)}
-	blockReader, err := carv2.NewBlockReader(reader, opts...)
+	blockReader, err := carv2.NewBlockReader(bufio.NewReaderSize(reader, 4<<20), opts...)
 	if err != nil {
 		return false, fmt.Errorf("getting block reader over piece: %w", err)
 	}
