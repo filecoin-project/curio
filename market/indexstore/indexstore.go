@@ -380,6 +380,9 @@ func (i *IndexStore) GetPieceHashRange(ctx context.Context, piece cid.Cid, start
 	if err := iter.Close(); err != nil {
 		return nil, xerrors.Errorf("iterating piece hash range (P:0x%02x, H:0x%02x, n:%d): %w", piece.Bytes(), []byte(start), num, err)
 	}
+	if len(hashes) != int(num) {
+		return nil, xerrors.Errorf("expected %d hashes, got %d (possibly missing indexes)", num, len(hashes))
+	}
 
 	return hashes, nil
 }
