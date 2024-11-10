@@ -104,6 +104,31 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 	supraffi.SupraSealInit(uint64(ssize), configFile)
 	log.Infow("supraseal init done")
 
+	{
+		hp, err := supraffi.GetHealthInfo()
+		if err != nil {
+			return nil, xerrors.Errorf("get health page: %w", err)
+		}
+
+		log.Infow("nvme health page", "hp", hp)
+	}
+
+	go func() {
+		// TODO: put this into prometheus metrics instead of printing
+
+		for {
+			time.Sleep(30 * time.Second)
+
+			hp, err := supraffi.GetHealthInfo()
+			if err != nil {
+				log.Errorw("health page get error", "error", err)
+				continue
+			}
+
+			log.Infow("nvme health page", "hp", hp)
+		}
+	}()
+
 	// Get maximum block offset (essentially the number of pages in the smallest nvme device)
 	space := supraffi.GetMaxBlockOffset(uint64(ssize))
 

@@ -10,31 +10,36 @@ package supraffi
    #include "supra_seal.h"
    #include <stdlib.h>
 
-   typedef struct nvme_health_info {
-	uint8_t  critical_warning;
-	int16_t  temperature;
-	uint8_t  available_spare;
-	uint8_t  available_spare_threshold;
-	uint8_t  percentage_used;
-	uint64_t data_units_read;
-	uint64_t data_units_written;
-	uint64_t host_read_commands;
-	uint64_t host_write_commands;
-	uint64_t controller_busy_time;
-	uint64_t power_cycles;
-	uint64_t power_on_hours;
-	uint64_t unsafe_shutdowns;
-	uint64_t media_errors;
-	uint64_t num_error_info_log_entries;
-	uint32_t warning_temp_time;
-	uint32_t critical_temp_time;
-	int16_t  temp_sensors[8];
+typedef struct nvme_health_info {
+        uint8_t  critical_warning;
+        int16_t  temperature;
+        uint8_t  available_spare;
+        uint8_t  available_spare_threshold;
+        uint8_t  percentage_used;
+        uint64_t data_units_read;
+        uint64_t data_units_written;
+        uint64_t host_read_commands;
+        uint64_t host_write_commands;
+        uint64_t controller_busy_time;
+        uint64_t power_cycles;
+        uint64_t power_on_hours;
+        uint64_t unsafe_shutdowns;
+        uint64_t media_errors;
+        uint64_t num_error_info_log_entries;
+        uint32_t warning_temp_time;
+        uint32_t critical_temp_time;
+        int16_t  temp_sensors[8];
   } nvme_health_info_t;
+
+size_t get_nvme_health_info(nvme_health_info_t* health_infos, size_t max_controllers);
+
 */
 import "C"
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
+	"time"
 	"unsafe"
 )
 
@@ -158,19 +163,59 @@ func SupraSealInit(sectorSize uint64, configFile string) {
 	C.supra_seal_init(C.size_t(sectorSize), cConfigFile)
 }
 
-type NVMeHealthInfo C.nvme_health_info_t
-
-func GetNVMeHealthInfo() []NVMeHealthInfo {
-	// Allocate space for up to 64 controllers (adjust as needed)
+// GetHealthInfo retrieves health information for all NVMe devices
+func GetHealthInfo() ([]HealthInfo, error) {
+	// Allocate space for raw C struct
 	const maxControllers = 64
-	healthInfos := make([]NVMeHealthInfo, maxControllers)
+	rawInfos := make([]C.nvme_health_info_t, maxControllers)
 
+	// Get health info from C
 	count := C.get_nvme_health_info(
-		(*C.nvme_health_info_t)(unsafe.Pointer(&healthInfos[0])),
+		(*C.nvme_health_info_t)(unsafe.Pointer(&rawInfos[0])),
 		C.size_t(maxControllers),
 	)
 
-	return healthInfos[:count]
+	if count == 0 {
+		return nil, fmt.Errorf("no NVMe controllers found")
+	}
+
+	// Convert C structs to Go structs
+	healthInfos := make([]HealthInfo, count)
+	for i := 0; i < int(count); i++ {
+		raw := &rawInfos[i]
+
+		// Convert temperature sensors, filtering out unused ones
+		sensors := make([]float64, 0, 8)
+		for _, temp := range raw.temp_sensors {
+			if temp != 0 {
+				sensors = append(sensors, float64(temp))
+			}
+		}
+
+		// todo likely not entirely correct
+		healthInfos[i] = HealthInfo{
+			CriticalWarning:         byte(raw.critical_warning),
+			Temperature:             float64(raw.temperature), // celsius??
+			TemperatureSensors:      sensors,
+			WarningTempTime:         time.Duration(raw.warning_temp_time) * time.Minute,
+			CriticalTempTime:        time.Duration(raw.critical_temp_time) * time.Minute,
+			AvailableSpare:          uint8(raw.available_spare),
+			AvailableSpareThreshold: uint8(raw.available_spare_threshold),
+			PercentageUsed:          uint8(raw.percentage_used),
+			DataUnitsRead:           uint64(raw.data_units_read),
+			DataUnitsWritten:        uint64(raw.data_units_written),
+			HostReadCommands:        uint64(raw.host_read_commands),
+			HostWriteCommands:       uint64(raw.host_write_commands),
+			ControllerBusyTime:      time.Duration(raw.controller_busy_time) * time.Minute,
+			PowerCycles:             uint64(raw.power_cycles),
+			PowerOnHours:            time.Duration(raw.power_on_hours) * time.Hour,
+			UnsafeShutdowns:         uint64(raw.unsafe_shutdowns),
+			MediaErrors:             uint64(raw.media_errors),
+			ErrorLogEntries:         uint64(raw.num_error_info_log_entries),
+		}
+	}
+
+	return healthInfos, nil
 }
 
 // Pc1 performs the pc1 operation.
