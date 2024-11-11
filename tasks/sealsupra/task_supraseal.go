@@ -5,14 +5,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"go.opencensus.io/stats"
-	"go.opencensus.io/tag"
 	"os"
 	"path/filepath"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/snadrus/must"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
