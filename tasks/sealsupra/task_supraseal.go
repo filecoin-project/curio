@@ -159,8 +159,8 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 
 				// For counters, compute difference from previous values
 				if prevHealthInfos[i].DataUnitsRead != 0 {
-					dataUnitsReadBytes := int64((hi.DataUnitsRead - prevHealthInfos[i].DataUnitsRead) * 512)
-					dataUnitsWrittenBytes := int64((hi.DataUnitsWritten - prevHealthInfos[i].DataUnitsWritten) * 512)
+					dataUnitsReadBytes := int64((hi.DataUnitsRead - prevHealthInfos[i].DataUnitsRead) * 512_000)
+					dataUnitsWrittenBytes := int64((hi.DataUnitsWritten - prevHealthInfos[i].DataUnitsWritten) * 512_000)
 					hostReadCommands := int64(hi.HostReadCommands - prevHealthInfos[i].HostReadCommands)
 					hostWriteCommands := int64(hi.HostWriteCommands - prevHealthInfos[i].HostWriteCommands)
 
