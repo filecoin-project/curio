@@ -309,7 +309,7 @@ func fetchWithAria2c(ctx context.Context, out, url string) error {
 		return xerrors.New("aria2c not found in PATH")
 	}
 
-	cmd := exec.CommandContext(ctx, aria2cPath, "--continue", "-x16", "-s16", "--dir", filepath.Dir(out), "-o", filepath.Base(out), url)
+	cmd := exec.CommandContext(ctx, aria2cPath, "--lowest-speed-limit", "16K", "-m100", "--retry-wait", "10", "--continue", "-x16", "-s16", "--dir", filepath.Dir(out), "-o", filepath.Base(out), url)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
