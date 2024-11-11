@@ -7,7 +7,7 @@ type HealthInfo struct {
 	// Critical warning flags
 	CriticalWarning byte
 
-	// Temperature information in celsius
+	// Temperature information in Celsius
 	Temperature        float64
 	TemperatureSensors []float64
 	WarningTempTime    time.Duration

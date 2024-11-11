@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"os"
 	"path/filepath"
 	"time"
@@ -113,19 +115,65 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 		log.Infow("nvme health page", "hp", hp)
 	}
 
+	// Initialize previous health infos slice
+	prevHealthInfos := make([]supraffi.HealthInfo, len(nvmeDevices))
+
 	go func() {
-		// TODO: put this into prometheus metrics instead of printing
+		const intervalSeconds = 30
+		ticker := time.NewTicker(time.Duration(intervalSeconds) * time.Second)
+		defer ticker.Stop()
 
-		for {
-			time.Sleep(30 * time.Second)
-
-			hp, err := supraffi.GetHealthInfo()
+		for range ticker.C {
+			healthInfos, err := supraffi.GetHealthInfo()
 			if err != nil {
 				log.Errorw("health page get error", "error", err)
 				continue
 			}
 
-			log.Infow("nvme health page", "hp", hp)
+			for i, hi := range healthInfos {
+				if i >= len(nvmeDevices) {
+					log.Warnw("More health info entries than nvme devices", "index", i)
+					break
+				}
+				deviceName := nvmeDevices[i]
+
+				ctx, err := tag.New(
+					context.Background(),
+					tag.Insert(nvmeDeviceKey, deviceName),
+				)
+				if err != nil {
+					log.Errorw("Failed to create context with tags", "error", err)
+					continue
+				}
+
+				// Record the metrics
+				stats.Record(ctx, SupraSealMeasures.NVMeTemperature.M(hi.Temperature))
+				stats.Record(ctx, SupraSealMeasures.NVMeAvailableSpare.M(int64(hi.AvailableSpare)))
+				stats.Record(ctx, SupraSealMeasures.NVMePercentageUsed.M(int64(hi.PercentageUsed)))
+				stats.Record(ctx, SupraSealMeasures.NVMePowerCycles.M(int64(hi.PowerCycles)))
+				stats.Record(ctx, SupraSealMeasures.NVMePowerOnHours.M(hi.PowerOnHours.Hours()))
+				stats.Record(ctx, SupraSealMeasures.NVMeUnsafeShutdowns.M(int64(hi.UnsafeShutdowns)))
+				stats.Record(ctx, SupraSealMeasures.NVMeMediaErrors.M(int64(hi.MediaErrors)))
+				stats.Record(ctx, SupraSealMeasures.NVMeErrorLogEntries.M(int64(hi.ErrorLogEntries)))
+				stats.Record(ctx, SupraSealMeasures.NVMeCriticalWarning.M(int64(hi.CriticalWarning)))
+
+				// For counters, compute difference from previous values
+				if prevHealthInfos[i].DataUnitsRead != 0 {
+					dataUnitsReadBytes := int64((hi.DataUnitsRead - prevHealthInfos[i].DataUnitsRead) * 512)
+					dataUnitsWrittenBytes := int64((hi.DataUnitsWritten - prevHealthInfos[i].DataUnitsWritten) * 512)
+					hostReadCommands := int64(hi.HostReadCommands - prevHealthInfos[i].HostReadCommands)
+					hostWriteCommands := int64(hi.HostWriteCommands - prevHealthInfos[i].HostWriteCommands)
+
+					// Record the diffs and computed metrics
+					stats.Record(ctx, SupraSealMeasures.NVMeBytesRead.M(dataUnitsReadBytes))
+					stats.Record(ctx, SupraSealMeasures.NVMeBytesWritten.M(dataUnitsWrittenBytes))
+					stats.Record(ctx, SupraSealMeasures.NVMeReadIO.M(hostReadCommands))
+					stats.Record(ctx, SupraSealMeasures.NVMeWriteIO.M(hostWriteCommands))
+				}
+
+				// Update previous health info
+				prevHealthInfos[i] = hi
+			}
 		}
 	}()
 
