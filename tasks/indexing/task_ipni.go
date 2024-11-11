@@ -117,7 +117,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 			Number: task.Sector,
 		},
 		ProofType: task.Proof,
-	}, storiface.UnpaddedByteIndex(abi.PaddedPieceSize(task.Offset).Unpadded()), pi.Size.Unpadded(), pi.PieceCID)
+	}, storiface.PaddedByteIndex(task.Offset).Unpadded(), pi.Size.Unpadded(), pi.PieceCID)
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}

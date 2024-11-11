@@ -121,21 +121,6 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return true, nil
 	}
 
-	unsealed, err := i.pieceProvider.IsUnsealed(ctx, storiface.SectorRef{
-		ID: abi.SectorID{
-			Miner:  abi.ActorID(task.SpID),
-			Number: task.Sector,
-		},
-		ProofType: task.Proof,
-	}, storiface.UnpaddedByteIndex(task.Offset), task.Size.Unpadded())
-	if err != nil {
-		return false, xerrors.Errorf("checking if sector is unsealed :%w", err)
-	}
-
-	if !unsealed {
-		return false, xerrors.Errorf("sector %d for miner %d is not unsealed", task.Sector, task.SpID)
-	}
-
 	pieceCid, err := cid.Parse(task.PieceCid)
 	if err != nil {
 		return false, xerrors.Errorf("parsing piece CID: %w", err)
@@ -147,7 +132,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 			Number: task.Sector,
 		},
 		ProofType: task.Proof,
-	}, storiface.UnpaddedByteIndex(abi.PaddedPieceSize(task.Offset).Unpadded()), task.Size.Unpadded(), pieceCid)
+	}, storiface.PaddedByteIndex(task.Offset).Unpadded(), task.Size.Unpadded(), pieceCid)
 
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
