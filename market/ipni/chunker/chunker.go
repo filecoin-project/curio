@@ -3,7 +3,8 @@ package chunker
 import (
 	"bytes"
 	"fmt"
-	"github.com/filecoin-project/curio/market/ipni/ipniculib"
+	"os"
+
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/go-ipld-prime"
 	"github.com/ipld/go-ipld-prime/codec/dagcbor"
@@ -11,7 +12,8 @@ import (
 	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/multiformats/go-multihash"
 	"golang.org/x/xerrors"
-	"os"
+
+	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 )
 
 var log = logging.Logger("chunker")

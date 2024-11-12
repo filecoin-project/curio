@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"io"
 	"net/url"
 	"path"
@@ -39,6 +38,7 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
+	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 )
 

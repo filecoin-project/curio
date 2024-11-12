@@ -814,14 +814,6 @@ TODO: should we use this for checking published heads before publishing? Later c
 			Comment: `The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
 heads.`,
 		},
-		{
-			Name: "AnnounceAddresses",
-			Type: "[]string",
-
-			Comment: `AnnounceAddresses is a list of addresses indexer clients can use to reach to the HTTP market node.
-Curio allows running more than one node for HTTP server and thus all addressed can be announced
-simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]`,
-		},
 	},
 	"IndexingConfig": {
 		{

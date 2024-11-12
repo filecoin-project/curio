@@ -495,23 +495,16 @@ description: The default curio configuration
       # type: []string
       #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
 
-      # AnnounceAddresses is a list of addresses indexer clients can use to reach to the HTTP market node.
-      # Curio allows running more than one node for HTTP server and thus all addressed can be announced
-      # simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
-      #
-      # type: []string
-      #AnnounceAddresses = []
-
     [Market.StorageMarketConfig.Indexing]
       # Number of records per insert batch
       #
       # type: int
-      #InsertBatchSize = 15000
+      #InsertBatchSize = 1000
 
       # Number of concurrent inserts to split AddIndex calls to
       #
       # type: int
-      #InsertConcurrency = 8
+      #InsertConcurrency = 10
 
 
 [Ingest]

@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/filecoin-project/curio/market/indexstore"
 	"io"
 
 	"github.com/hashicorp/go-multierror"
@@ -21,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/market/indexstore"
 )
 
 const MaxCachedReaders = 128
