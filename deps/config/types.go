@@ -89,7 +89,6 @@ func DefaultCurioConfig() *CurioConfig {
 				IPNI: IPNIConfig{
 					ServiceURL:         []string{"https://cid.contact"},
 					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce"},
-					AnnounceAddresses:  []string{},
 				},
 			},
 		},
@@ -623,11 +622,6 @@ type IPNIConfig struct {
 	// The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
 	// heads.
 	DirectAnnounceURLs []string
-
-	// AnnounceAddresses is a list of addresses indexer clients can use to reach to the HTTP market node.
-	// Curio allows running more than one node for HTTP server and thus all addressed can be announced
-	// simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
-	AnnounceAddresses []string
 }
 
 // HTTPConfig represents the configuration for an HTTP server.

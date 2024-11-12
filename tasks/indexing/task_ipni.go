@@ -7,8 +7,10 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"io"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -189,15 +191,18 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 			IsRm:      task.Rm,
 		}
 
-		for _, a := range I.cfg.Market.StorageMarketConfig.IPNI.AnnounceAddresses {
-			u, err := url.Parse(strings.TrimSpace(a))
+		{
+			u, err := url.Parse(fmt.Sprintf("https://%s", I.cfg.HTTP.DomainName))
 			if err != nil {
-				return false, xerrors.Errorf("parsing announce address: %w", err)
+				return false, xerrors.Errorf("parsing announce address domain: %w", err)
 			}
+			u.Path = path.Join(u.Path, ipni_provider.IPNIRoutePath, task.Prov)
+
 			addr, err := maurl.FromURL(u)
 			if err != nil {
 				return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
 			}
+
 			adv.Addresses = append(adv.Addresses, addr.String())
 		}
 

@@ -87,7 +87,7 @@ type Provider struct {
 	// httpServerAddresses has a list of all the addresses where IPNI can reach to sync with
 	// the provider. This is created by converting announceURLs into a multiaddr and adding the following
 	// Curio HTTP URL(in multiaddr)+IPNIRoutePath(/ipni-provider/)+peerID
-	httpServerAddresses []multiaddr.Multiaddr
+	httpServerAddresses map[string]multiaddr.Multiaddr // map[peerID String]Multiaddr
 	cpr                 *cachedreader.CachedPieceReader
 }
 
@@ -148,21 +148,27 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 		announceURLs[i] = u
 	}
 
-	httpServerAddresses := make([]multiaddr.Multiaddr, 0, len(d.Cfg.Market.StorageMarketConfig.IPNI.AnnounceAddresses))
+	httpServerAddresses := map[string]multiaddr.Multiaddr{}
 
-	for _, a := range d.Cfg.Market.StorageMarketConfig.IPNI.AnnounceAddresses {
-		u, err := url.Parse(strings.TrimSpace(a))
+	{
+		u, err := url.Parse(fmt.Sprintf("https://%s", d.Cfg.HTTP.DomainName))
 		if err != nil {
-			return nil, xerrors.Errorf("parsing announce address: %w", err)
+			return nil, xerrors.Errorf("parsing announce address domain: %w", err)
 		}
 		u.Path = path.Join(u.Path, IPNIRoutePath)
-		addr, err := maurl.FromURL(u)
-		if err != nil {
-			return nil, xerrors.Errorf("converting URL to multiaddr: %w", err)
-		}
-		httpServerAddresses = append(httpServerAddresses, addr)
 
-		log.Infow("Announce address", "address", addr.String(), "url", u.String())
+		for pid := range keyMap {
+			u := *u
+			u.Path = path.Join(u.Path, pid)
+			addr, err := maurl.FromURL(&u)
+			if err != nil {
+				return nil, xerrors.Errorf("converting URL to multiaddr: %w", err)
+			}
+
+			httpServerAddresses[pid] = addr
+
+			log.Infow("Announce address", "address", addr.String(), "pid", pid, "url", u.String())
+		}
 	}
 
 	return &Provider{
@@ -690,21 +696,14 @@ func (p *Provider) publishhttp(ctx context.Context, adCid cid.Cid, peer string) 
 // getHTTPAddressForPeer returns the HTTP addresses for a given peer.
 func (p *Provider) getHTTPAddressForPeer(peer string) ([]multiaddr.Multiaddr, error) {
 	var ret []multiaddr.Multiaddr
-	for _, addr := range p.httpServerAddresses {
-		u, err := maurl.ToURL(addr)
-		if err != nil {
-			return nil, err
-		}
 
-		u.Path = path.Join(u.Path, peer)
-
-		ma, err := maurl.FromURL(u)
-		if err != nil {
-			return nil, xerrors.Errorf("converting URL to multiaddr: %w", err)
-		}
-
-		ret = append(ret, ma)
+	r, ok := p.httpServerAddresses[peer]
+	if !ok {
+		log.Errorw("no HTTP address for peer", "peer", peer)
+		return nil, fmt.Errorf("no HTTP address for peer %s", peer)
 	}
+
+	ret = append(ret, r)
 
 	log.Infow("HTTP addresses for peer", "peer", peer, "addresses", ret)
 
