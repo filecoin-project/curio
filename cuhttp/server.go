@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/CAFxX/httpcompression"
@@ -73,7 +74,7 @@ func compressionMiddleware(config *config.CompressionConfig) (func(http.Handler)
 func libp2pConnMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if the request path is "/"
-		if r.URL.Path == "/" {
+		if r.URL.Path == "/" || r.URL.Path == "" {
 			// Check if the request is a WebSocket upgrade request
 			if isWebSocketUpgrade(r) {
 				// Rewrite the path to "/libp2p"
@@ -92,10 +93,10 @@ func isWebSocketUpgrade(r *http.Request) bool {
 	if r.Method != http.MethodGet {
 		return false
 	}
-	if r.Header.Get("Upgrade") != "websocket" {
+	if strings.ToLower(r.Header.Get("Upgrade")) != "websocket" {
 		return false
 	}
-	if r.Header.Get("Connection") != "Upgrade" {
+	if strings.ToLower(r.Header.Get("Connection")) != "upgrade" {
 		return false
 	}
 	return true
