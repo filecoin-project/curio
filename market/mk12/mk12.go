@@ -160,13 +160,13 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 	}
 
 	valid := m.applyFilters(ctx, ds)
-	if valid.error != nil {
+	if valid != nil && valid.error != nil {
 		log.Errorf("failed to apply filetrs: %w", valid.error)
 		return &ProviderDealRejectionInfo{
 			Reason: "internal server error: failed to apply filters",
 		}, nil
 	}
-	if valid.reason != "" {
+	if valid != nil && valid.reason != "" {
 		return &ProviderDealRejectionInfo{
 			Reason: valid.reason,
 		}, nil
@@ -665,14 +665,14 @@ func (m *MK12) applyFilters(ctx context.Context, deal *ProviderDealState) *valid
 	var clientRules []struct {
 		Wallets            []string `db:"wallets"`
 		PeerIDs            []string `db:"peer_id"`
-		PricingFilters     []int64  `db:"pricing_filters"`
+		PricingFilters     []string `db:"pricing_filters"`
 		MaxDealsPerHour    int64    `db:"max_deals_per_hour"`
 		MaxDealSizePerHour int64    `db:"max_deal_size_per_hour"`
 	}
 
 	err := m.db.Select(ctx, &clientRules, `SELECT 
 													wallets, 
-													peer_id, 
+													peer_ids, 
 													pricing_filters, 
 													max_deals_per_hour, 
 													max_deal_size_per_hour 
@@ -736,7 +736,7 @@ func (m *MK12) applyFilters(ctx context.Context, deal *ProviderDealState) *valid
 																price, 
 																verified 
 															FROM market_mk12_pricing_filters
-															WHERE number = ANY($1)`, clientRules[i].PricingFilters)
+															WHERE name = ANY($1)`, clientRules[i].PricingFilters)
 				if err != nil {
 					return &validationError{error: xerrors.Errorf("failed to query the price filters from DB: %w", err)}
 				}
