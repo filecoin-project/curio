@@ -119,6 +119,7 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 	// Apply the Allow/Deny list
 	allowed, err := m.applyAllowList(ctx, ds)
 	if err != nil {
+		log.Errorw("failed to apply allow list", "error", err)
 		return &ProviderDealRejectionInfo{
 			Reason: "internal server error: validating deal against allow list",
 		}, nil
@@ -787,12 +788,12 @@ func (m *MK12) applyFilters(ctx context.Context, deal *ProviderDealState) *valid
 // based on the market_mk12_allow_list table in the database
 func (m *MK12) applyAllowList(ctx context.Context, deal *ProviderDealState) (bool, error) {
 	var allowed bool
-	err := m.db.QueryRow(ctx, `SELECT status FROM market_mk12_allow_list WHERE wallet = $1`, deal.ClientDealProposal.Proposal.Client.String()).Scan(&allowed)
+	err := m.db.QueryRow(ctx, `SELECT status FROM market_allow_list WHERE wallet = $1`, deal.ClientDealProposal.Proposal.Client.String()).Scan(&allowed)
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return false, xerrors.Errorf("failed to query the allow list status from DB: %w", err)
 		}
-		return m.cfg.Market.StorageMarketConfig.MK12.DenyUnknownClients, nil
+		return !m.cfg.Market.StorageMarketConfig.MK12.DenyUnknownClients, nil
 	}
 	return allowed, nil
 }

@@ -362,6 +362,6 @@ func (a *WebRPC) RemoveAllowFilter(ctx context.Context, wallet string) error {
 }
 
 func (a *WebRPC) DefaultAllowBehaviour(ctx context.Context) *bool {
-	ret := a.deps.Cfg.Market.StorageMarketConfig.MK12.DenyUnknownClients
+	ret := !a.deps.Cfg.Market.StorageMarketConfig.MK12.DenyUnknownClients
 	return &ret
 }

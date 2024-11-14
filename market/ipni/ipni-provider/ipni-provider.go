@@ -434,7 +434,12 @@ func (p *Provider) reconstructChunkFromCar(ctx context.Context, chunk, piece cid
 		mhs = append(mhs, bcid.Hash())
 	}
 
-	log.Infow("finished reading blocks", "numBlocks", numBlocks)
+	curOff, err := reader.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, xerrors.Errorf("getting current offset: %w", err)
+	}
+
+	log.Infow("finished reading blocks", "numBlocks", numBlocks, "readMiB", float64(curOff-startOff)/1024/1024)
 
 	// Create the chunk node
 	chunkNode, err := chunker.NewEntriesChunkNode(mhs, next)
