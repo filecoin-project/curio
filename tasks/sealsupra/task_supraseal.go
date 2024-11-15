@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/curio/lib/ffi"
 	"os"
 	"path/filepath"
 	"time"
@@ -50,6 +51,7 @@ type SupraSeal struct {
 	api     SupraSealNodeAPI
 	storage *paths.Remote
 	sindex  paths.SectorIndex
+	sc      *ffi.SealCalls
 
 	pipelines int // 1 or 2
 	sectors   int // sectors in a batch
@@ -269,6 +271,11 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	outPathIDs := make([]storiface.SectorPaths, len(sectors))
 	alloc := storiface.FTSealed | storiface.FTCache
 
+	releaseStorage := func() {}
+	defer func() {
+		releaseStorage()
+	}()
+
 	for i, t := range sectors {
 		sid := abi.SectorID{
 			Miner:  abi.ActorID(t.SpID),
@@ -310,9 +317,14 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 		ctx := context.WithValue(ctx, paths.SpaceUseKey, paths.SpaceUseFunc(SupraSpaceUse))
 
-		ps, pathIDs, err := s.storage.AcquireSector(ctx, sref, storiface.FTNone, alloc, storiface.PathSealing, storiface.AcquireMove)
+		ps, pathIDs, release, err := s.sc.Sectors.AcquireSector(ctx, &taskID, sref, storiface.FTNone, alloc, storiface.PathSealing)
 		if err != nil {
 			return false, xerrors.Errorf("acquiring sector storage: %w", err)
+		}
+		prevReleaseStorage := releaseStorage
+		releaseStorage = func() {
+			release()
+			prevReleaseStorage()
 		}
 
 		outPaths[i] = supraffi.Path{
@@ -498,13 +510,19 @@ var ssizeToName = map[abi.SectorSize]string{
 }
 
 func (s *SupraSeal) TypeDetails() harmonytask.TaskTypeDetails {
+	ssize := abi.SectorSize(32 << 30) // todo task details needs taskID to get correct sector size
+	if seal.IsDevnet {
+		ssize = abi.SectorSize(2 << 20)
+	}
+
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(s.pipelines),
 		Name: fmt.Sprintf("Batch%d-%s", s.sectors, ssizeToName[must.One(s.spt.SectorSize())]),
 		Cost: resources.Resources{
-			Cpu: 1,
-			Gpu: 0,
-			Ram: 16 << 30,
+			Cpu:     1,
+			Gpu:     0,
+			Ram:     16 << 30,
+			Storage: s.sc.StorageMulti(s.taskToSectors, storiface.FTCache|storiface.FTSealed, storiface.FTNone, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 4,
 		IAmBored:    passcall.Every(30*time.Second, s.schedule),
@@ -567,6 +585,17 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 	})
 
 	return nil
+}
+
+func (s *SupraSeal) taskToSectors(id harmonytask.TaskID) ([]ffi.SectorRef, error) {
+	var sectors []ffi.SectorRef
+
+	err := s.db.Select(context.Background(), &sectors, `SELECT sp_id, sector_number, reg_seal_proof FROM sectors_sdr_pipeline WHERE task_id_sdr = $1 AND task_id_tree_r = $1 AND task_id_tree_c = $1 AND task_id_tree_d = $1`, id)
+	if err != nil {
+		return nil, xerrors.Errorf("getting sector params: %w", err)
+	}
+
+	return sectors, nil
 }
 
 var FSOverheadSupra = map[storiface.SectorFileType]int{ // 10x overheads
