@@ -47,6 +47,10 @@ func GenerateMultiString(paths []Path) (string, error) {
 	return buffer.String(), nil
 }
 
+func GetHealthInfo() ([]HealthInfo, error) {
+	panic("GetHealthInfo: supraseal build tag not enabled")
+}
+
 // Pc2 performs the pc2 operation.
 func Pc2(blockOffset uint64, numSectors int, outputDir string, sectorSize uint64) int {
 	panic("Pc2: supraseal build tag not enabled")
