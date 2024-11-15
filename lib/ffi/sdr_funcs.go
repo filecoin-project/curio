@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
-	"github.com/samber/lo"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/puzpuzpuz/xsync/v2"
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -75,8 +75,8 @@ func (l *storageProvider) AcquireSector(ctx context.Context, taskID *harmonytask
 	var ok bool
 	var resv *StorageReservation
 	if taskID != nil {
-		resvs, ok := l.storageReservations.Load(*taskID)
-		if ok {
+		resvs, rok := l.storageReservations.Load(*taskID)
+		if rok {
 			resv, ok = lo.Find(resvs, func(res *StorageReservation) bool {
 				return res.SectorRef.ID() == sector.ID
 			})

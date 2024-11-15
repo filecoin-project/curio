@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/filecoin-project/curio/lib/ffi"
 	"os"
 	"path/filepath"
 	"time"
@@ -26,6 +25,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/hugepageutil"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -64,7 +64,7 @@ type SupraSeal struct {
 }
 
 func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool, nvmeDevices []string, machineHostAndPort string,
-	slots *slotmgr.SlotMgr, db *harmonydb.DB, api SupraSealNodeAPI, storage *paths.Remote, sindex paths.SectorIndex) (*SupraSeal, error) {
+	slots *slotmgr.SlotMgr, db *harmonydb.DB, api SupraSealNodeAPI, storage *paths.Remote, sindex paths.SectorIndex, sc *ffi.SealCalls) (*SupraSeal, error) {
 	var spt abi.RegisteredSealProof
 	switch sectorSize {
 	case "32GiB":
@@ -222,6 +222,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 		api:     api,
 		storage: storage,
 		sindex:  sindex,
+		sc:      sc,
 
 		spt:       spt,
 		pipelines: pipelines,
