@@ -46,6 +46,8 @@ type TaskStorage struct {
 
 	// Minimum free storage percentage cutoff for reservation rejection
 	MinFreeStoragePercentage float64
+
+	Overheads map[storiface.SectorFileType]int
 }
 
 type ReleaseStorageFunc func() // free storage reservation
@@ -67,10 +69,10 @@ func (sb *SealCalls) Storage(taskToSectorRef func(taskID harmonytask.TaskID) (Se
 		}
 
 		return []SectorRef{sr}, nil
-	}, alloc, existing, ssize, pathType, MinFreeStoragePercentage)
+	}, alloc, existing, ssize, pathType, MinFreeStoragePercentage, storiface.FSOverheadSeal)
 }
 
-func (sb *SealCalls) StorageMulti(taskToSectorRef func(taskID harmonytask.TaskID) ([]SectorRef, error), alloc, existing storiface.SectorFileType, ssize abi.SectorSize, pathType storiface.PathType, MinFreeStoragePercentage float64) *TaskStorage {
+func (sb *SealCalls) StorageMulti(taskToSectorRef func(taskID harmonytask.TaskID) ([]SectorRef, error), alloc, existing storiface.SectorFileType, ssize abi.SectorSize, pathType storiface.PathType, MinFreeStoragePercentage float64, ohs map[storiface.SectorFileType]int) *TaskStorage {
 	return &TaskStorage{
 		sc:                       sb,
 		alloc:                    alloc,
@@ -79,6 +81,7 @@ func (sb *SealCalls) StorageMulti(taskToSectorRef func(taskID harmonytask.TaskID
 		pathType:                 pathType,
 		taskToSectorRef:          taskToSectorRef,
 		MinFreeStoragePercentage: MinFreeStoragePercentage,
+		Overheads:                ohs,
 	}
 }
 
@@ -192,7 +195,7 @@ func (t *TaskStorage) Claim(taskID int) (func() error, error) {
 		}
 
 		// reserve the space
-		release, err := t.sc.Sectors.localStore.Reserve(ctx, sectorRef.Ref(), requestedTypes, pathIDs, storiface.FSOverheadSeal, t.MinFreeStoragePercentage)
+		release, err := t.sc.Sectors.localStore.Reserve(ctx, sectorRef.Ref(), requestedTypes, pathIDs, t.Overheads, t.MinFreeStoragePercentage)
 		if err != nil {
 			return nil, err
 		}

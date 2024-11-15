@@ -523,7 +523,7 @@ func (s *SupraSeal) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu:     1,
 			Gpu:     0,
 			Ram:     16 << 30,
-			Storage: s.sc.StorageMulti(s.taskToSectors, storiface.FTCache|storiface.FTSealed, storiface.FTNone, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage),
+			Storage: s.sc.StorageMulti(s.taskToSectors, storiface.FTCache|storiface.FTSealed, storiface.FTNone, ssize, storiface.PathSealing, paths.MinFreeStoragePercentage, FSOverheadSupra),
 		},
 		MaxFailures: 4,
 		IAmBored:    passcall.Every(30*time.Second, s.schedule),
