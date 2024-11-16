@@ -539,7 +539,7 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 }
 
 // maybeApplyBackpressure applies backpressure to the deal processing pipeline if certain conditions are met
-// Check if ConcurrentDealSize > MaxConcurrentDealSize
+// Check if ConcurrentDealSize > MaxConcurrentDealSizeGiB
 // Check if WaitDealSectors > MaxQueueDealSector
 // Check for buffered sector at each state of pipeline to their respective Max
 func (m *MK12) maybeApplyBackpressure(ctx context.Context, maddr address.Address) (wait bool, err error) {
@@ -551,8 +551,9 @@ func (m *MK12) maybeApplyBackpressure(ctx context.Context, maddr address.Address
 		return false, xerrors.Errorf("failed to get cumulative deal size in process from DB: %w", err)
 	}
 
-	if totalSize > m.cfg.Market.StorageMarketConfig.MK12.MaxConcurrentDealSize {
-		log.Infow("backpressure", "reason", "too many deals in process", "ConcurrentDealSize", totalSize, "max", m.cfg.Market.StorageMarketConfig.MK12.MaxConcurrentDealSize)
+	maxDsz := m.cfg.Market.StorageMarketConfig.MK12.MaxConcurrentDealSizeGiB >> 30
+	if maxDsz != 0 && totalSize > maxDsz {
+		log.Infow("backpressure", "reason", "too many deals in process", "ConcurrentDealSize", totalSize, "max", m.cfg.Market.StorageMarketConfig.MK12.MaxConcurrentDealSizeGiB)
 		return true, nil
 	}
 

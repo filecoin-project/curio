@@ -879,10 +879,10 @@ sector will need to be sent again`,
 			Comment: `DisabledMiners is a list of miner addresses that should be excluded from online deal making protocols`,
 		},
 		{
-			Name: "MaxConcurrentDealSize",
+			Name: "MaxConcurrentDealSizeGiB",
 			Type: "int64",
 
-			Comment: `MaxConcurrentDealSize is a sum of all size of all deals which are waiting to be added to a sector
+			Comment: `MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector
 When the cumulative size of all deals in process reaches this number, new deals will be rejected.
 (Default: 0 = unlimited)`,
 		},
