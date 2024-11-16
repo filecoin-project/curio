@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -423,7 +424,12 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 		}, nil
 	}
 
-	headers, err := json.Marshal(tInfo.Headers)
+	goheaders := http.Header{}
+	for k, v := range tInfo.Headers {
+		goheaders.Set(k, v)
+	}
+
+	headers, err := json.Marshal(goheaders)
 	if err != nil {
 		return &ProviderDealRejectionInfo{
 			Reason: fmt.Sprintf("failed to marshal headers: %s", err),
