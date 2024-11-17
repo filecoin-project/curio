@@ -51,8 +51,8 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                 </div>
             </div>
             <div>
-                <h3>PoRep Pipeline</h3>
             ${this.data.PipelinePoRep ? html`
+                <h3>PoRep Pipeline</h3>
                 <sector-porep-state .data=${this.data.PipelinePoRep}></sector-porep-state>
             ` : ''}
             </div>
