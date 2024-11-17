@@ -275,7 +275,7 @@ func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDeal
 									sp_id,
 									created_at,
 									signed_proposal_cid,
-									offline,
+									FALSE as offline,
 									verified,
 									start_epoch,
 									end_epoch,
@@ -656,9 +656,15 @@ type MK12DealPipeline struct {
 	CreatedAt         time.Time       `db:"created_at" json:"created_at"`
 }
 
-func (a *WebRPC) MK12DealDetail(ctx context.Context, pieceCid string) (map[string]interface{}, error) {
-	var mk12Deal []MK12Deal
-	err := a.deps.DB.Select(ctx, &mk12Deal, `
+// MK12DealDetailEntry combines a deal and its pipeline
+type MK12DealDetailEntry struct {
+	Deal     MK12Deal          `json:"deal"`
+	Pipeline *MK12DealPipeline `json:"pipeline,omitempty"`
+}
+
+func (a *WebRPC) MK12DealDetail(ctx context.Context, pieceCid string) ([]MK12DealDetailEntry, error) {
+	var mk12Deals []MK12Deal
+	err := a.deps.DB.Select(ctx, &mk12Deals, `
         SELECT
             uuid,
             sp_id,
@@ -687,50 +693,73 @@ func (a *WebRPC) MK12DealDetail(ctx context.Context, pieceCid string) (map[strin
 		return nil, err
 	}
 
-	var pipeline []MK12DealPipeline
-	err = a.deps.DB.Select(ctx, &pipeline, `
-        SELECT
-            uuid,
-            sp_id,
-            started,
-            piece_cid,
-            piece_size,
-            raw_size,
-            offline,
-            url,
-            headers,
-            commp_task_id,
-            after_commp,
-            psd_task_id,
-            after_psd,
-            psd_wait_time,
-            find_deal_task_id,
-            after_find_deal,
-            sector,
-            reg_seal_proof,
-            sector_offset,
-            sealed,
-            should_index,
-            indexing_created_at,
-            indexing_task_id,
-            indexed,
-            announce,
-            complete,
-            created_at
-        FROM market_mk12_deal_pipeline
-        WHERE piece_cid = $1
-    `, pieceCid)
-	if err != nil {
-		return nil, err
+	// Collect UUIDs from deals
+	uuids := make([]string, len(mk12Deals))
+	for i, deal := range mk12Deals {
+		uuids[i] = deal.UUID
 	}
 
-	// Combine both deal and pipeline data
-	result := map[string]interface{}{
-		"deal":     firstOrZero(mk12Deal),
-		"pipeline": firstOrZero(pipeline),
+	// Fetch pipelines matching the UUIDs
+	var pipelines []MK12DealPipeline
+	if len(uuids) > 0 {
+		err = a.deps.DB.Select(ctx, &pipelines, `
+            SELECT
+                uuid,
+                sp_id,
+                started,
+                piece_cid,
+                piece_size,
+                raw_size,
+                offline,
+                url,
+                headers,
+                commp_task_id,
+                after_commp,
+                psd_task_id,
+                after_psd,
+                psd_wait_time,
+                find_deal_task_id,
+                after_find_deal,
+                sector,
+                reg_seal_proof,
+                sector_offset,
+                sealed,
+                should_index,
+                indexing_created_at,
+                indexing_task_id,
+                indexed,
+                announce,
+                complete,
+                created_at
+            FROM market_mk12_deal_pipeline
+            WHERE uuid = ANY($1)
+        `, uuids)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return result, nil
+	// Create a map from UUID to pipeline for quick lookup
+	pipelineMap := make(map[string]MK12DealPipeline)
+	for _, pipeline := range pipelines {
+		pipelineMap[pipeline.UUID] = pipeline
+	}
+
+	// Combine deals with their corresponding pipelines
+	var entries []MK12DealDetailEntry
+	for _, deal := range mk12Deals {
+		entry := MK12DealDetailEntry{
+			Deal: deal,
+		}
+		if pipeline, exists := pipelineMap[deal.UUID]; exists {
+			entry.Pipeline = &pipeline
+		} else {
+			entry.Pipeline = nil // Pipeline may not exist for processed and active deals
+		}
+		entries = append(entries, entry)
+	}
+
+	return entries, nil
 }
 
 func firstOrZero[T any](a []T) T {
