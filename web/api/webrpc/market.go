@@ -600,3 +600,142 @@ func (a *WebRPC) PieceSummary(ctx context.Context) (*PieceSummary, error) {
 	}
 	return &s, nil
 }
+
+// MK12Deal represents a record from market_mk12_deals table
+type MK12Deal struct {
+	UUID              string          `db:"uuid" json:"uuid"`
+	SpId              int64           `db:"sp_id" json:"sp_id"`
+	CreatedAt         time.Time       `db:"created_at" json:"created_at"`
+	SignedProposalCid string          `db:"signed_proposal_cid" json:"signed_proposal_cid"`
+	ProposalSignature []byte          `db:"proposal_signature" json:"proposal_signature"`
+	Proposal          json.RawMessage `db:"proposal" json:"proposal"`
+	Offline           bool            `db:"offline" json:"offline"`
+	Verified          bool            `db:"verified" json:"verified"`
+	StartEpoch        int64           `db:"start_epoch" json:"start_epoch"`
+	EndEpoch          int64           `db:"end_epoch" json:"end_epoch"`
+	ClientPeerId      string          `db:"client_peer_id" json:"client_peer_id"`
+	ChainDealId       sql.NullInt64   `db:"chain_deal_id" json:"chain_deal_id"`
+	PublishCid        sql.NullString  `db:"publish_cid" json:"publish_cid"`
+	PieceCid          string          `db:"piece_cid" json:"piece_cid"`
+	PieceSize         int64           `db:"piece_size" json:"piece_size"`
+	FastRetrieval     bool            `db:"fast_retrieval" json:"fast_retrieval"`
+	AnnounceToIPNI    bool            `db:"announce_to_ipni" json:"announce_to_ipni"`
+	URL               sql.NullString  `db:"url" json:"url"`
+	URLHeaders        json.RawMessage `db:"url_headers" json:"url_headers"`
+	Error             sql.NullString  `db:"error" json:"error"`
+}
+
+// MK12DealPipeline represents a record from market_mk12_deal_pipeline table
+type MK12DealPipeline struct {
+	UUID              string          `db:"uuid" json:"uuid"`
+	SpId              int64           `db:"sp_id" json:"sp_id"`
+	Started           sql.NullBool    `db:"started" json:"started"`
+	PieceCid          string          `db:"piece_cid" json:"piece_cid"`
+	PieceSize         int64           `db:"piece_size" json:"piece_size"`
+	RawSize           sql.NullInt64   `db:"raw_size" json:"raw_size"`
+	Offline           bool            `db:"offline" json:"offline"`
+	URL               sql.NullString  `db:"url" json:"url"`
+	Headers           json.RawMessage `db:"headers" json:"headers"`
+	CommpTaskId       sql.NullInt64   `db:"commp_task_id" json:"commp_task_id"`
+	AfterCommp        sql.NullBool    `db:"after_commp" json:"after_commp"`
+	PsdTaskId         sql.NullInt64   `db:"psd_task_id" json:"psd_task_id"`
+	AfterPsd          sql.NullBool    `db:"after_psd" json:"after_psd"`
+	PsdWaitTime       sql.NullTime    `db:"psd_wait_time" json:"psd_wait_time"`
+	FindDealTaskId    sql.NullInt64   `db:"find_deal_task_id" json:"find_deal_task_id"`
+	AfterFindDeal     sql.NullBool    `db:"after_find_deal" json:"after_find_deal"`
+	Sector            sql.NullInt64   `db:"sector" json:"sector"`
+	RegSealProof      sql.NullInt64   `db:"reg_seal_proof" json:"reg_seal_proof"`
+	SectorOffset      sql.NullInt64   `db:"sector_offset" json:"sector_offset"`
+	Sealed            sql.NullBool    `db:"sealed" json:"sealed"`
+	ShouldIndex       sql.NullBool    `db:"should_index" json:"should_index"`
+	IndexingCreatedAt sql.NullTime    `db:"indexing_created_at" json:"indexing_created_at"`
+	IndexingTaskId    sql.NullInt64   `db:"indexing_task_id" json:"indexing_task_id"`
+	Indexed           sql.NullBool    `db:"indexed" json:"indexed"`
+	Announce          sql.NullBool    `db:"announce" json:"announce"`
+	Complete          bool            `db:"complete" json:"complete"`
+	CreatedAt         time.Time       `db:"created_at" json:"created_at"`
+}
+
+func (a *WebRPC) MK12DealDetail(ctx context.Context, pieceCid string) (map[string]interface{}, error) {
+	var mk12Deal []MK12Deal
+	err := a.deps.DB.Select(ctx, &mk12Deal, `
+        SELECT
+            uuid,
+            sp_id,
+            created_at,
+            signed_proposal_cid,
+            proposal_signature,
+            proposal,
+            offline,
+            verified,
+            start_epoch,
+            end_epoch,
+            client_peer_id,
+            chain_deal_id,
+            publish_cid,
+            piece_cid,
+            piece_size,
+            fast_retrieval,
+            announce_to_ipni,
+            url,
+            url_headers,
+            error
+        FROM market_mk12_deals
+        WHERE piece_cid = $1
+    `, pieceCid)
+	if err != nil {
+		return nil, err
+	}
+
+	var pipeline []MK12DealPipeline
+	err = a.deps.DB.Select(ctx, &pipeline, `
+        SELECT
+            uuid,
+            sp_id,
+            started,
+            piece_cid,
+            piece_size,
+            raw_size,
+            offline,
+            url,
+            headers,
+            commp_task_id,
+            after_commp,
+            psd_task_id,
+            after_psd,
+            psd_wait_time,
+            find_deal_task_id,
+            after_find_deal,
+            sector,
+            reg_seal_proof,
+            sector_offset,
+            sealed,
+            should_index,
+            indexing_created_at,
+            indexing_task_id,
+            indexed,
+            announce,
+            complete,
+            created_at
+        FROM market_mk12_deal_pipeline
+        WHERE piece_cid = $1
+    `, pieceCid)
+	if err != nil {
+		return nil, err
+	}
+
+	// Combine both deal and pipeline data
+	result := map[string]interface{}{
+		"deal":     firstOrZero(mk12Deal),
+		"pipeline": firstOrZero(pipeline),
+	}
+
+	return result, nil
+}
+
+func firstOrZero[T any](a []T) T {
+	if len(a) == 0 {
+		return *new(T)
+	}
+	return a[0]
+}

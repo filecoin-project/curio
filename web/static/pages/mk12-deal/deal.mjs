@@ -36,7 +36,7 @@ class DealDetails extends LitElement {
                 {property: 'Client Peer ID', value: entry.client_peer_id},
                 {property: 'Chain Deal ID', value: entry.chain_deal_id},
                 {property: 'Publish CID', value: entry.publish_cid},
-                {property: 'Piece CID', value: entry.piece_cid},
+                {property: 'Piece CID', value: html`<a href="/pages/piece/?id=${entry.piece_cid}">${entry.piece_cid}</a>`},
                 {property: 'Piece Size', value: entry.piece_size},
                 {property: 'Fast Retrieval', value: entry.fast_retrieval},
                 {property: 'Announce To IPNI', value: entry.announce_to_ipni},
