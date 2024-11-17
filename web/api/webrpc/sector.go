@@ -350,25 +350,25 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	}
 
 	// Task history
-	/*
-		WITH task_ids AS (
-		    SELECT unnest(get_sdr_pipeline_tasks(116147, 1)) AS task_id
-		)
-		SELECT ti.task_id pipeline_task_id, ht.id harmony_task_id, ht.name, ht.completed_by_host_and_port, ht.result, ht.err, ht.work_start, ht.work_end
-		FROM task_ids ti
-		         INNER JOIN harmony_task_history ht ON ti.task_id = ht.task_id
-	*/
-
-	var th []TaskHistory
-	err = a.deps.DB.Select(ctx, &th, `
-		WITH task_ids AS (
-				SELECT unnest(get_sdr_pipeline_tasks($1, $2)) AS task_id
-		)
-		SELECT ti.task_id pipeline_task_id, ht.name, ht.completed_by_host_and_port, ht.result, ht.err, ht.work_start, ht.work_end
-		FROM task_ids ti
-						INNER JOIN harmony_task_history ht ON ti.task_id = ht.task_id`, spid, intid)
+	var taskIDs []struct {
+		TaskID int64 `db:"task_id"`
+	}
+	err = a.deps.DB.Select(ctx, &taskIDs, `SELECT unnest(get_sdr_pipeline_tasks($1, $2)) AS task_id`, spid, intid)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch task history: %w", err)
+	}
+
+	var th []TaskHistory
+	for _, taskID := range taskIDs {
+		var taskHistories []TaskHistory
+		err = a.deps.DB.Select(ctx, &taskHistories, `
+			SELECT ht.id harmony_task_id, ht.name, ht.completed_by_host_and_port, ht.result, ht.err, ht.work_start, ht.work_end
+			FROM harmony_task_history ht
+			WHERE ht.task_id = $1`, taskID.TaskID)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to fetch task history: %w", err)
+		}
+		th = append(th, taskHistories...)
 	}
 
 	for i := range th {
