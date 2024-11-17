@@ -740,7 +740,7 @@ func (p *DealProvider) getSealedDealStatus(ctx context.Context, id string, onCha
 		ChainDealID int64  `db:"chain_deal_id"`
 		PublishCID  string `db:"publish_cid"`
 	}
-	err = p.db.Select(ctx, &dealInfos, `SELECT 
+	err = p.db.Select(ctx, &cInfos, `SELECT 
 											chain_deal_id,
 											publish_cid
 										FROM 

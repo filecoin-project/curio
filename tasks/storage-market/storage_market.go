@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -193,7 +194,10 @@ func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
 	// Catch any panics if encountered as we are working with user provided data
 	defer func() {
 		if r := recover(); r != nil {
-			log.Errorf("panic occurred: %v", r)
+			trace := make([]byte, 1<<16)
+			n := runtime.Stack(trace, false)
+
+			log.Errorf("panic occurred: %v\n%s", r, trace[:n])
 		}
 	}()
 

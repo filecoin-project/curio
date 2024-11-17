@@ -502,7 +502,7 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, tx *harmonyd
 		// Check that each sector has unique pieces
 		var nextSector bool
 		for i := range sec.pieces {
-			if sec.pieces[i].cid == piece.DealProposal.PieceCID.String() && sec.pieces[i].size == piece.DealProposal.PieceSize {
+			if sec.pieces[i].cid == piece.PieceCID().String() && sec.pieces[i].size == piece.Size() {
 				nextSector = true
 				break
 			}
