@@ -17,21 +17,21 @@ require (
 	github.com/elastic/go-sysinfo v1.7.0
 	github.com/etclabscore/go-openrpc-reflect v0.0.36
 	github.com/fatih/color v1.16.0
-	github.com/filecoin-project/filecoin-ffi v1.28.0-rc2
+	github.com/filecoin-project/filecoin-ffi v1.30.0
 	github.com/filecoin-project/go-address v1.2.0
 	github.com/filecoin-project/go-bitfield v0.2.4
 	github.com/filecoin-project/go-cbor-util v0.0.1
 	github.com/filecoin-project/go-commp-utils v0.1.4
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20240802040721-2a04ffc8ffe8
 	github.com/filecoin-project/go-commp-utils/v2 v2.1.0
-	github.com/filecoin-project/go-f3 v0.7.1
+	github.com/filecoin-project/go-f3 v0.7.2
 	github.com/filecoin-project/go-fil-commcid v0.2.0
 	github.com/filecoin-project/go-fil-commp-hashhash v0.2.0
 	github.com/filecoin-project/go-jsonrpc v0.6.1-0.20240820160949-2cfe810e5d2f
 	github.com/filecoin-project/go-padreader v0.0.1
-	github.com/filecoin-project/go-state-types v0.15.0-rc1
+	github.com/filecoin-project/go-state-types v0.15.0
 	github.com/filecoin-project/go-statestore v0.2.0
-	github.com/filecoin-project/lotus v1.30.0-rc3
+	github.com/filecoin-project/lotus v1.30.0
 	github.com/filecoin-project/specs-actors/v2 v2.3.6
 	github.com/filecoin-project/specs-actors/v5 v5.0.6
 	github.com/filecoin-project/specs-actors/v6 v6.0.2
@@ -89,18 +89,18 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/triplewz/poseidon v0.0.2-0.20240407130934-5265fab9d889
 	github.com/urfave/cli/v2 v2.27.4
-	github.com/whyrusleeping/cbor-gen v0.1.2
+	github.com/whyrusleeping/cbor-gen v0.2.0
 	github.com/yugabyte/gocql v1.6.0-yb-1
 	github.com/yugabyte/pgx/v5 v5.5.3-yb-2
 	go.opencensus.io v0.24.0
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/crypto v0.27.0
+	golang.org/x/crypto v0.28.0
 	golang.org/x/exp v0.0.0-20240904232852-e7e105dedf7e
 	golang.org/x/net v0.29.0
 	golang.org/x/sync v0.8.0
-	golang.org/x/sys v0.25.0
-	golang.org/x/text v0.18.0
+	golang.org/x/sys v0.26.0
+	golang.org/x/text v0.19.0
 	golang.org/x/tools v0.24.0
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da
 )
@@ -343,7 +343,7 @@ require (
 	go.uber.org/mock v0.4.0 // indirect
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
 	golang.org/x/mod v0.20.0 // indirect
-	golang.org/x/term v0.24.0 // indirect
+	golang.org/x/term v0.25.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	gonum.org/v1/gonum v0.15.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240617180043-68d350f18fd4 // indirect

@@ -98,10 +98,13 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 ### Go&#x20;
 
-To build Curio, you need a working installation of [Go 1.21.7 or higher](https://golang.org/dl/):
+To build Curio, you need a working installation of [Go](https://golang.org/dl/):
+It needs to be at-least [the version specified here](https://github.com/filecoin-project/curio/blob/main/GO_VERSION_MIN).
+
+Example of an OLD version's CLI download:
 
 ```shell
-wget -c https://golang.org/dl/go1.21.7.linux-amd64.tar.gz -O - | sudo tar -xz -C /usr/local
+wget -c https://golang.org/dl/go1.22.3.linux-amd64.tar.gz -O - | sudo tar -xz -C /usr/local
 ```
 
 {% hint style="info" %}
