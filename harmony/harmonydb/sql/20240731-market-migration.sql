@@ -293,11 +293,11 @@ BEGIN
         query := format(
                 'SELECT
                     dp.uuid,
-                    (SELECT reg_seal_proof FROM sectors_meta WHERE sp_id = ssp.sp_id AND sector_num = ssp.sector_num) AS reg_seal_proof
+                    (SELECT reg_seal_proof FROM sectors_meta WHERE sp_id = ssp.sp_id AND sector_num = ssp.sector_number) AS reg_seal_proof
                 FROM
                     %I ssp
                 JOIN
-                    market_mk12_deal_pipeline dp ON ssp.sp_id = dp.sp_id AND ssp.sector_num = dp.sector
+                    market_mk12_deal_pipeline dp ON ssp.sp_id = dp.sp_id AND ssp.sector_number = dp.sector
                 WHERE
                     ssp.task_id_move_storage = $1', sealing_table);
     ELSE
