@@ -463,12 +463,12 @@ description: The default curio configuration
       # type: bool
       #SkipCommP = false
 
-      # MaxConcurrentDealSize is a sum of all size of all deals which are waiting to be added to a sector
+      # MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector
       # When the cumulative size of all deals in process reaches this number, new deals will be rejected.
       # (Default: 0 = unlimited)
       #
       # type: int64
-      #MaxConcurrentDealSize = 0
+      #MaxConcurrentDealSizeGiB = 0
 
       # DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
       # If True then all deals coming from unknown clients will be rejected.

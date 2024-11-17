@@ -1,10 +1,11 @@
 package cachedreader
 
 import (
-	pool "github.com/libp2p/go-buffer-pool"
 	"io"
 	"sync/atomic"
 	"time"
+
+	pool "github.com/libp2p/go-buffer-pool"
 )
 
 const (
