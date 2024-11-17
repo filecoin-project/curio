@@ -82,3 +82,64 @@ func (a *WebRPC) HarmonyTaskHistory(ctx context.Context, taskName string, fails 
 	}
 	return stats, nil
 }
+
+// HarmonyTask represents the current state of a task.
+type HarmonyTask struct {
+	ID         int64     `db:"id"`
+	Name       string    `db:"name"`
+	UpdateTime time.Time `db:"update_time"`
+	PostedTime time.Time `db:"posted_time"`
+	OwnerID    *int64    `db:"owner_id"`
+	OwnerAddr  *string   `db:"owner_addr"`
+	OwnerName  *string   `db:"owner_name"`
+}
+
+// HarmonyTaskDetails returns the current state of a task by ID.
+func (a *WebRPC) HarmonyTaskDetails(ctx context.Context, taskID int64) (*HarmonyTask, error) {
+	var task []*HarmonyTask
+	err := a.deps.DB.Select(ctx, &task, `
+        SELECT
+            t.id,
+            t.name,
+            t.update_time,
+            t.posted_time,
+            t.owner_id,
+            hm.host_and_port AS owner_addr,
+            hmd.machine_name AS owner_name
+        FROM harmony_task t
+		LEFT JOIN harmony_machines hm ON t.owner_id = hm.id
+        LEFT JOIN harmony_machine_details hmd ON t.owner_id = hmd.machine_id
+        WHERE t.id = $1
+    `, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return firstOrZero(task), nil
+}
+
+// HarmonyTaskHistoryById returns the history of a task by task ID.
+func (a *WebRPC) HarmonyTaskHistoryById(ctx context.Context, taskID int64) ([]HarmonyTaskHistory, error) {
+	var history []HarmonyTaskHistory
+	err := a.deps.DB.Select(ctx, &history, `
+        SELECT
+            hist.task_id,
+            hist.name,
+            hist.work_start,
+            hist.work_end,
+            hist.posted,
+            hist.result,
+            hist.err,
+            hist.completed_by_host_and_port AS completed_by_host_and_port,
+            mach.id AS completed_by_machine,
+            hmd.machine_name AS completed_by_machine_name
+        FROM harmony_task_history hist
+        LEFT JOIN harmony_machines mach ON hist.completed_by_host_and_port = mach.host_and_port
+        LEFT JOIN harmony_machine_details hmd ON mach.id = hmd.machine_id
+        WHERE hist.task_id = $1
+        ORDER BY hist.work_end DESC
+    `, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return history, nil
+}

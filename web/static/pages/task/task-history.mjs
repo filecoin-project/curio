@@ -46,7 +46,7 @@ class HarmonyTaskHistoryTable extends LitElement {
                 <tbody>
                     ${this.history.map(task => html`
                         <tr>
-                            <td>${task.TaskID}</td>
+                            <td><a href="/pages/task/id/?id=${task.TaskID}">${task.TaskID}</a></td>
                             <td>${task.Name}</td>
                             <td>${new Date(task.WorkStart).toLocaleString()}</td>
                             <td>${new Date(task.WorkEnd).toLocaleString()}</td>

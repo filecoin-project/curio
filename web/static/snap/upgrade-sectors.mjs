@@ -55,10 +55,10 @@ class UpgradeSectors extends LitElement {
                         <td>${entry.Miner}</td>
                         <td>${entry.SectorNum}</td>
 
-                        <td>${entry.AfterEncode ? 'Done' : entry.TaskIDEncode === null ? 'Not Started' : entry.TaskIDEncode}</td>
-                        <td>${entry.AfterProve ? 'Done' : entry.TaskIDProve === null ? 'Not Started' : entry.TaskIDProve}</td>
-                        <td>${entry.AfterSubmit ? 'Done' : entry.TaskIDSubmit === null ? 'Not Started' : entry.TaskIDSubmit}</td>
-                        <td>${entry.AfterMoveStorage ? 'Done' : entry.TaskIDMoveStorage === null ? 'Not Started' : entry.TaskIDMoveStorage}</td>
+                        <td>${entry.AfterEncode ? 'Done' : entry.TaskIDEncode === null ? 'Not Started' : html`<a href="/pages/task/id/?id=${entry.TaskIDEncode}">${entry.TaskIDEncode}</a>`}</td>
+                        <td>${entry.AfterProve ? 'Done' : entry.TaskIDProve === null ? 'Not Started' : html`<a href="/pages/task/id/?id=${entry.TaskIDProve}">${entry.TaskIDProve}</a>`}</td>
+                        <td>${entry.AfterSubmit ? 'Done' : entry.TaskIDSubmit === null ? 'Not Started' : html`<a href="/pages/task/id/?id=${entry.TaskIDSubmit}">${entry.TaskIDSubmit}</a>`}</td>
+                        <td>${entry.AfterMoveStorage ? 'Done' : entry.TaskIDMoveStorage === null ? 'Not Started' : html`<a href="/pages/task/id/?id=${entry.TaskIDMoveStorage}">${entry.TaskIDMoveStorage}</a>`}</td>
                         <td>${entry.AfterProveSuccess ? 'Done' : entry.AfterSubmit ? 'Waiting' : 'Not Sent'}</td>
                         <td>${entry.Failed ? html`<abbr title=${entry.FailedMsg}><p>FAILED</p><p>${entry.FailedReason}</p></abbr>` : 'Healthy'}</td>
                         

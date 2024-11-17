@@ -83,7 +83,7 @@ class ClusterTasks extends LitElement {
                 <tr>
                   <td>${entry.SpID ? entry.Miner : 'n/a'}</td>
                   <td>${entry.Name}</td>
-                  <td>${entry.ID}</td>
+                  <td><a href="/pages/task/id/?id=${entry.ID}">${entry.ID}</a></td>
                   <td>${entry.SincePostedStr}</td>
                   <td>
                     ${entry.OwnerID
