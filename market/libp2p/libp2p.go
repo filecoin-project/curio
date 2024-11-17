@@ -591,7 +591,7 @@ func (p *DealProvider) getDealStatus(req mk12.DealStatusRequest, reqLog *zap.Sug
 					SealingStatus:     "Sealed",
 					Proposal:          st.Proposal,
 					SignedProposalCid: st.SignedProposalCID,
-					PublishCid:        &st.PublishCID,
+					PublishCid:        cidOrNil(st.PublishCID),
 					ChainDealID:       st.ChainDealID,
 				},
 				IsOffline:      st.Offline,
@@ -619,7 +619,7 @@ func (p *DealProvider) getDealStatus(req mk12.DealStatusRequest, reqLog *zap.Sug
 				SealingStatus:     "Not assigned to sector",
 				Proposal:          st.Proposal,
 				SignedProposalCid: st.SignedProposalCID,
-				PublishCid:        &st.PublishCID,
+				PublishCid:        cidOrNil(st.PublishCID),
 				ChainDealID:       st.ChainDealID,
 			},
 			IsOffline:      st.Offline,
@@ -643,7 +643,7 @@ func (p *DealProvider) getDealStatus(req mk12.DealStatusRequest, reqLog *zap.Sug
 			SealingStatus:     "Sealed and Indexed",
 			Proposal:          st.Proposal,
 			SignedProposalCid: st.SignedProposalCID,
-			PublishCid:        &st.PublishCID,
+			PublishCid:        cidOrNil(st.PublishCID),
 			ChainDealID:       st.ChainDealID,
 		},
 		IsOffline:      st.Offline,
@@ -659,6 +659,14 @@ type dealInfo struct {
 	SignedProposalCID cid.Cid
 	ChainDealID       abi.DealID
 	PublishCID        cid.Cid
+}
+
+func cidOrNil(c cid.Cid) *cid.Cid {
+	if c == cid.Undef {
+		return nil
+	}
+
+	return &c
 }
 
 func (p *DealProvider) getSealedDealStatus(ctx context.Context, id string, onChain bool) (dealInfo, error) {

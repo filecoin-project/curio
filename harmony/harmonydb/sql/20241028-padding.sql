@@ -61,11 +61,6 @@ BEGIN
        sorted_pieces.created_at
    );
 
-    -- Update new_index in deal_index_tracker where old_index matches
-    UPDATE deal_index_tracker
-    SET new_index = new_index
-    WHERE old_index = sorted_pieces.old_index;
-
     new_index := new_index + 1;
     END LOOP;
 
@@ -141,11 +136,6 @@ BEGIN
        sorted_pieces.direct_piece_activation_manifest,
        sorted_pieces.created_at
     );
-
-    -- Update new_index in deal_index_tracker where old_index matches
-    UPDATE deal_index_tracker
-    SET new_index = new_index
-    WHERE old_index = sorted_pieces.old_index;
 
     new_index := new_index + 1;
     END LOOP;
