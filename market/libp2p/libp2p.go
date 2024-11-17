@@ -664,7 +664,7 @@ type dealInfo struct {
 func (p *DealProvider) getSealedDealStatus(ctx context.Context, id string, onChain bool) (dealInfo, error) {
 	var dealInfos []struct {
 		Offline           bool            `db:"offline"`
-		Error             string          `db:"error"`
+		Error             *string         `db:"error"`
 		Proposal          json.RawMessage `db:"proposal"`
 		SignedProposalCID string          `db:"signed_proposal_cid"`
 		Label             []byte          `db:"label"`
@@ -711,9 +711,13 @@ func (p *DealProvider) getSealedDealStatus(ctx context.Context, id string, onCha
 		return dealInfo{}, xerrors.Errorf("failed to parse signed proposal CID: %w", err)
 	}
 
+	if di.Error == nil {
+		di.Error = new(string)
+	}
+
 	ret := dealInfo{
 		Offline:           di.Offline,
-		Error:             di.Error,
+		Error:             *di.Error,
 		Proposal:          prop,
 		SignedProposalCID: spc,
 		ChainDealID:       abi.DealID(0),
