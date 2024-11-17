@@ -90,9 +90,9 @@ class DealPipelines extends LitElement {
             ${this.deals.map(
             (deal) => html`
                 <tr>
-                  <td>${deal.uuid}</td>
+                  <td><a href="/pages/mk12-deal/?id=${deal.uuid}">${deal.uuid}</a></td>
                   <td>${deal.miner}</td>
-                  <td>${deal.piece_cid}</td>
+                  <td><a href="/pages/piece/?id=${deal.piece_cid}">${deal.piece_cid}</a></td>
                   <td>${this.formatBytes(deal.piece_size)}</td>
                   <td>${new Date(deal.created_at).toLocaleString()}</td>
                   <td>${this.getDealStatus(deal)}</td>

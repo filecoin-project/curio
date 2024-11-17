@@ -83,44 +83,6 @@ CREATE TABLE market_piece_deal (
         unique (sp_id, id)
 );
 
--- This function is used to insert piece metadata and piece deal (piece indexing)
--- This makes it easy to keep the logic of how table is updated and fast (in DB).
-CREATE OR REPLACE FUNCTION process_piece_deal(
-    _id TEXT,
-    _piece_cid TEXT,
-    _boost_deal BOOLEAN,
-    _sp_id BIGINT,
-    _sector_num BIGINT,
-    _piece_offset BIGINT,
-    _piece_length BIGINT, -- padded length
-    _raw_size BIGINT,
-    _indexed BOOLEAN,
-    _legacy_deal BOOLEAN DEFAULT FALSE,
-    _chain_deal_id BIGINT DEFAULT 0
-)
-RETURNS VOID AS $$
-BEGIN
-    -- Insert or update the market_piece_metadata table
-INSERT INTO market_piece_metadata (piece_cid, piece_size, indexed)
-VALUES (_piece_cid, _piece_length, _indexed)
-    ON CONFLICT (piece_cid) DO UPDATE SET
-    indexed = CASE
-                WHEN market_piece_metadata.indexed = FALSE THEN EXCLUDED.indexed
-                ELSE market_piece_metadata.indexed
-END;
-
-    -- Insert into the market_piece_deal table
-INSERT INTO market_piece_deal (
-    id, piece_cid, boost_deal, legacy_deal, chain_deal_id,
-    sp_id, sector_num, piece_offset, piece_length, raw_size
-    ) VALUES (
-             _id, _piece_cid, _boost_deal, _legacy_deal, _chain_deal_id,
-             _sp_id, _sector_num, _piece_offset, _piece_length, _raw_size
-    ) ON CONFLICT (sp_id, piece_cid, id) DO NOTHING;
-
-END;
-$$ LANGUAGE plpgsql;
-
 -- Storage Ask for ask protocol over libp2p
 -- Entries for each MinerID must be present. These are updated by SetAsk method in mk12.
 CREATE TABLE market_mk12_storage_ask (
@@ -140,7 +102,7 @@ CREATE TABLE market_mk12_storage_ask (
 );
 
 -- Used for processing Mk12 deals. This tables tracks the deal
--- throughout their lifetime. Entries are added ad the same time as market_mk12_deals.
+-- throughout their lifetime. Entries are added at the same time as market_mk12_deals.
 -- Cleanup is done for complete deals by GC task.
 CREATE TABLE market_mk12_deal_pipeline (
     uuid TEXT NOT NULL,
@@ -188,61 +150,6 @@ CREATE TABLE market_mk12_deal_pipeline (
     constraint market_mk12_deal_pipeline_identity_key unique (uuid)
 );
 
--- This function creates indexing task based from move_storage tasks
-CREATE OR REPLACE FUNCTION create_indexing_task(task_id BIGINT, sealing_table TEXT)
-RETURNS VOID AS $$
-DECLARE
-query TEXT;   -- Holds the dynamic SQL query
-    pms RECORD;   -- Holds each row returned by the query in the loop
-BEGIN
-    -- Construct the dynamic SQL query based on the sealing_table
-    IF sealing_table = 'sectors_sdr_pipeline' THEN
-        query := format(
-            'SELECT
-                dp.uuid,
-                ssp.reg_seal_proof
-            FROM
-                %I ssp
-            JOIN
-                market_mk12_deal_pipeline dp ON ssp.sp_id = dp.sp_id AND ssp.sector_number = dp.sector
-            WHERE
-                ssp.task_id_move_storage = $1', sealing_table);
-    ELSIF sealing_table = 'sectors_snap_pipeline' THEN
-        query := format(
-            'SELECT
-                dp.uuid,
-                (SELECT reg_seal_proof FROM sectors_meta WHERE sp_id = ssp.sp_id AND sector_num = ssp.sector_num) AS reg_seal_proof
-            FROM
-                %I ssp
-            JOIN
-                market_mk12_deal_pipeline dp ON ssp.sp_id = dp.sp_id AND ssp.sector_num = dp.sector
-            WHERE
-                ssp.task_id_move_storage = $1', sealing_table);
-    ELSE
-        RAISE EXCEPTION 'Invalid sealing_table name: %', sealing_table;
-    END IF;
-
-    -- Execute the dynamic SQL query with the task_id parameter
-FOR pms IN EXECUTE query USING task_id
-    LOOP
-        -- Update the market_mk12_deal_pipeline table with the reg_seal_proof and indexing_created_at values
-    UPDATE market_mk12_deal_pipeline
-    SET
-        reg_seal_proof = pms.reg_seal_proof,
-        indexing_created_at = NOW() AT TIME ZONE 'UTC'
-    WHERE
-        uuid = pms.uuid;
-    END LOOP;
-
-    -- If everything is successful, simply exit
-    RETURN;
-
-EXCEPTION
-    WHEN OTHERS THEN
-        RAISE EXCEPTION 'Failed to create indexing task: %', SQLERRM;
-END;
-$$ LANGUAGE plpgsql;
-
 -- This table can be used to track remote piece for offline deals
 -- The entries must be created by users. Entry is removed when deal is
 -- removed from market_mk12_deal_pipeline table using a key constraint
@@ -269,58 +176,6 @@ CREATE TABLE libp2p (
     updated_at TIMESTAMPTZ DEFAULT NULL,
     singleton BOOLEAN DEFAULT TRUE CHECK ( singleton = TRUE ) UNIQUE -- Allows one row in the table
 );
-
--- -- Function used to update the libp2p table
-CREATE OR REPLACE FUNCTION update_libp2p_node(
-    _running_on TEXT,
-    _maybe_priv_key BYTEA, -- Possible initial values
-    _maybe_peerid TEXT
-)
-    RETURNS BYTEA AS $$
-DECLARE
-    current_running_on TEXT;
-    last_updated TIMESTAMPTZ;
-    existing_priv_key BYTEA;
-    existing_peer_id TEXT;
-BEGIN
-    -- Attempt to fetch the existing row
-    SELECT priv_key, peer_id, running_on, updated_at
-    INTO existing_priv_key, existing_peer_id, current_running_on, last_updated
-    FROM libp2p
-    LIMIT 1;
-
-    IF existing_priv_key IS NULL THEN
-        -- No existing row; insert a new one
-        INSERT INTO libp2p (priv_key, peer_id, running_on, updated_at)
-        VALUES (_maybe_priv_key, _maybe_peerid, _running_on, NOW() AT TIME ZONE 'UTC');
-        RETURN _maybe_priv_key;
-    ELSE
-        -- Existing row found; proceed with update logic
-        IF current_running_on IS NOT NULL AND current_running_on != _running_on THEN
-            -- Check if the last update was more than 5 minutes ago
-            IF last_updated < NOW() - INTERVAL '5 minutes' THEN
-                -- Update running_on and updated_at
-                UPDATE libp2p
-                SET running_on = _running_on,
-                    updated_at = NOW() AT TIME ZONE 'UTC'
-                WHERE priv_key = existing_priv_key;
-            ELSE
-                -- Raise an exception if the node was updated within the last 5 minutes
-                RAISE EXCEPTION 'Libp2p node already running on "%"', current_running_on;
-            END IF;
-        ELSE
-            -- Update running_on and updated_at if running_on is NULL or unchanged
-            UPDATE libp2p
-            SET running_on = _running_on,
-                updated_at = NOW() AT TIME ZONE 'UTC'
-            WHERE priv_key = existing_priv_key;
-        END IF;
-        -- Return the existing priv_key
-        RETURN existing_priv_key;
-    END IF;
-END;
-$$ LANGUAGE plpgsql;
-
 
 -- Table for old lotus market deals. This is just for deal
 -- which are still alive. It should not be used for any processing
@@ -377,5 +232,146 @@ CREATE TABLE market_direct_deals (
     unique (uuid)
 );
 
+-- This function is used to insert piece metadata and piece deal (piece indexing)
+-- This makes it easy to keep the logic of how table is updated and fast (in DB).
+CREATE OR REPLACE FUNCTION process_piece_deal(
+    _id TEXT,
+    _piece_cid TEXT,
+    _boost_deal BOOLEAN,
+    _sp_id BIGINT,
+    _sector_num BIGINT,
+    _piece_offset BIGINT,
+    _piece_length BIGINT, -- padded length
+    _raw_size BIGINT,
+    _indexed BOOLEAN,
+    _legacy_deal BOOLEAN DEFAULT FALSE,
+    _chain_deal_id BIGINT DEFAULT 0
+)
+    RETURNS VOID AS $$
+BEGIN
+    -- Insert or update the market_piece_metadata table
+    INSERT INTO market_piece_metadata (piece_cid, piece_size, indexed)
+    VALUES (_piece_cid, _piece_length, _indexed)
+    ON CONFLICT (piece_cid) DO UPDATE SET
+        indexed = CASE
+                      WHEN market_piece_metadata.indexed = FALSE THEN EXCLUDED.indexed
+                      ELSE market_piece_metadata.indexed
+            END;
 
+    -- Insert into the market_piece_deal table
+    INSERT INTO market_piece_deal (
+        id, piece_cid, boost_deal, legacy_deal, chain_deal_id,
+        sp_id, sector_num, piece_offset, piece_length, raw_size
+    ) VALUES (
+                 _id, _piece_cid, _boost_deal, _legacy_deal, _chain_deal_id,
+                 _sp_id, _sector_num, _piece_offset, _piece_length, _raw_size
+             ) ON CONFLICT (sp_id, piece_cid, id) DO NOTHING;
 
+END;
+$$ LANGUAGE plpgsql;
+
+-- This function creates indexing task based from move_storage tasks
+CREATE OR REPLACE FUNCTION create_indexing_task(task_id BIGINT, sealing_table TEXT)
+    RETURNS VOID AS $$
+DECLARE
+    query TEXT;   -- Holds the dynamic SQL query
+    pms RECORD;   -- Holds each row returned by the query in the loop
+BEGIN
+    -- Construct the dynamic SQL query based on the sealing_table
+    IF sealing_table = 'sectors_sdr_pipeline' THEN
+        query := format(
+                'SELECT
+                    dp.uuid,
+                    ssp.reg_seal_proof
+                FROM
+                    %I ssp
+                JOIN
+                    market_mk12_deal_pipeline dp ON ssp.sp_id = dp.sp_id AND ssp.sector_number = dp.sector
+                WHERE
+                    ssp.task_id_move_storage = $1', sealing_table);
+    ELSIF sealing_table = 'sectors_snap_pipeline' THEN
+        query := format(
+                'SELECT
+                    dp.uuid,
+                    (SELECT reg_seal_proof FROM sectors_meta WHERE sp_id = ssp.sp_id AND sector_num = ssp.sector_num) AS reg_seal_proof
+                FROM
+                    %I ssp
+                JOIN
+                    market_mk12_deal_pipeline dp ON ssp.sp_id = dp.sp_id AND ssp.sector_num = dp.sector
+                WHERE
+                    ssp.task_id_move_storage = $1', sealing_table);
+    ELSE
+        RAISE EXCEPTION 'Invalid sealing_table name: %', sealing_table;
+    END IF;
+
+    -- Execute the dynamic SQL query with the task_id parameter
+    FOR pms IN EXECUTE query USING task_id
+        LOOP
+            -- Update the market_mk12_deal_pipeline table with the reg_seal_proof and indexing_created_at values
+            UPDATE market_mk12_deal_pipeline
+            SET
+                reg_seal_proof = pms.reg_seal_proof,
+                indexing_created_at = NOW() AT TIME ZONE 'UTC'
+            WHERE
+                uuid = pms.uuid;
+        END LOOP;
+
+    -- If everything is successful, simply exit
+    RETURN;
+
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE EXCEPTION 'Failed to create indexing task: %', SQLERRM;
+END;
+$$ LANGUAGE plpgsql;
+
+-- -- Function used to update the libp2p table
+CREATE OR REPLACE FUNCTION update_libp2p_node(
+    _running_on TEXT,
+    _maybe_priv_key BYTEA, -- Possible initial values
+    _maybe_peerid TEXT
+)
+    RETURNS BYTEA AS $$
+DECLARE
+    current_running_on TEXT;
+    last_updated TIMESTAMPTZ;
+    existing_priv_key BYTEA;
+    existing_peer_id TEXT;
+BEGIN
+    -- Attempt to fetch the existing row
+    SELECT priv_key, peer_id, running_on, updated_at
+    INTO existing_priv_key, existing_peer_id, current_running_on, last_updated
+    FROM libp2p
+    LIMIT 1;
+
+    IF existing_priv_key IS NULL THEN
+        -- No existing row; insert a new one
+        INSERT INTO libp2p (priv_key, peer_id, running_on, updated_at)
+        VALUES (_maybe_priv_key, _maybe_peerid, _running_on, NOW() AT TIME ZONE 'UTC');
+        RETURN _maybe_priv_key;
+    ELSE
+        -- Existing row found; proceed with update logic
+        IF current_running_on IS NOT NULL AND current_running_on != _running_on THEN
+            -- Check if the last update was more than 5 minutes ago
+            IF last_updated < NOW() - INTERVAL '5 minutes' THEN
+                -- Update running_on and updated_at
+                UPDATE libp2p
+                SET running_on = _running_on,
+                    updated_at = NOW() AT TIME ZONE 'UTC'
+                WHERE priv_key = existing_priv_key;
+            ELSE
+                -- Raise an exception if the node was updated within the last 5 minutes
+                RAISE EXCEPTION 'Libp2p node already running on "%"', current_running_on;
+            END IF;
+        ELSE
+            -- Update running_on and updated_at if running_on is NULL or unchanged
+            UPDATE libp2p
+            SET running_on = _running_on,
+                updated_at = NOW() AT TIME ZONE 'UTC'
+            WHERE priv_key = existing_priv_key;
+        END IF;
+        -- Return the existing priv_key
+        RETURN existing_priv_key;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;

@@ -57,7 +57,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 	}
 
 	if len(ads) == 0 {
-		return nil, xerrors.Errorf("No such deal found in database: %s", adCid.String())
+		return nil, nil
 	}
 
 	details := ads[0]

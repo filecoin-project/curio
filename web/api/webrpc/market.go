@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -102,7 +101,7 @@ type MK12Pipeline struct {
 	Miner          string     `json:"miner"`
 }
 
-func (a *WebRPC) GetDealPipelines(ctx context.Context, limit int, offset int) ([]MK12Pipeline, error) {
+func (a *WebRPC) GetDealPipelines(ctx context.Context, limit int, offset int) ([]*MK12Pipeline, error) {
 	if limit <= 0 {
 		limit = 25
 	}
@@ -113,7 +112,7 @@ func (a *WebRPC) GetDealPipelines(ctx context.Context, limit int, offset int) ([
 		offset = 0
 	}
 
-	var pipelines []MK12Pipeline
+	var pipelines []*MK12Pipeline
 	err := a.deps.DB.Select(ctx, &pipelines, `
         SELECT
             uuid,
@@ -146,13 +145,7 @@ func (a *WebRPC) GetDealPipelines(ctx context.Context, limit int, offset int) ([
 		return nil, fmt.Errorf("failed to fetch deal pipelines: %w", err)
 	}
 
-	minerMap := make(map[int64]address.Address)
 	for _, s := range pipelines {
-		if addr, ok := minerMap[s.SpID]; ok {
-			s.Miner = addr.String()
-			continue
-		}
-
 		addr, err := address.NewIDAddress(uint64(s.SpID))
 		if err != nil {
 			return nil, xerrors.Errorf("failed to parse the miner ID: %w", err)
@@ -166,7 +159,7 @@ func (a *WebRPC) GetDealPipelines(ctx context.Context, limit int, offset int) ([
 type StorageDealSummary struct {
 	ID                string         `db:"uuid" json:"id"`
 	MinerID           int64          `db:"sp_id" json:"sp_id"`
-	Sector            int64          `db:"sector_num" json:"sector"`
+	Sector            *int64         `db:"sector_num" json:"sector"`
 	CreatedAt         time.Time      `db:"created_at" json:"created_at"`
 	SignedProposalCid string         `db:"signed_proposal_cid" json:"signed_proposal_cid"`
 	Offline           bool           `db:"offline" json:"offline"`
@@ -188,7 +181,7 @@ type StorageDealSummary struct {
 	Error             string         `json:"error"`
 	Miner             string         `json:"miner"`
 	IsLegacy          bool           `json:"is_legacy"`
-	Indexed           bool           `db:"indexed" json:"indexed"`
+	Indexed           *bool          `db:"indexed" json:"indexed"`
 }
 
 func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDealSummary, error) {
@@ -232,10 +225,10 @@ func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDeal
 									FROM market_mk12_deals md 
 										LEFT JOIN market_piece_deal mpd ON mpd.id = md.uuid AND mpd.sp_id = md.sp_id
 										LEFT JOIN market_piece_metadata mpm ON mpm.piece_cid = md.piece_cid
-									WHERE md.uuid = $1 AND mpd.boost_deal = TRUE AND mpd.legacy_deal = FALSE;`, id.String())
+									WHERE md.uuid = $1`, id.String())
 
 		if err != nil {
-			return &StorageDealSummary{}, err
+			return &StorageDealSummary{}, xerrors.Errorf("select deal summary: %w", err)
 		}
 
 		if len(summaries) == 0 {
@@ -331,8 +324,8 @@ type StorageDealList struct {
 	Miner     string    `json:"miner"`
 }
 
-func (a *WebRPC) MK12StorageDealList(ctx context.Context, limit int, offset int) ([]StorageDealList, error) {
-	var mk12Summaries []StorageDealList
+func (a *WebRPC) MK12StorageDealList(ctx context.Context, limit int, offset int) ([]*StorageDealList, error) {
+	var mk12Summaries []*StorageDealList
 
 	err := a.deps.DB.Select(ctx, &mk12Summaries, `SELECT 
 									uuid,
@@ -518,13 +511,13 @@ type PieceDeal struct {
 }
 
 type PieceInfo struct {
-	PieceCid  string      `json:"piece_cid"`
-	Size      int64       `json:"size"`
-	CreatedAt time.Time   `json:"created_at"`
-	Indexed   bool        `json:"indexed"`
-	IndexedAT time.Time   `json:"indexed_at"`
-	IPNIAd    string      `json:"ipni_ad"`
-	Deals     []PieceDeal `json:"deals"`
+	PieceCid  string       `json:"piece_cid"`
+	Size      int64        `json:"size"`
+	CreatedAt time.Time    `json:"created_at"`
+	Indexed   bool         `json:"indexed"`
+	IndexedAT time.Time    `json:"indexed_at"`
+	IPNIAd    string       `json:"ipni_ad"`
+	Deals     []*PieceDeal `json:"deals"`
 }
 
 func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, error) {
@@ -536,11 +529,11 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 	ret := &PieceInfo{}
 
 	err = a.deps.DB.QueryRow(ctx, `SELECT created_at, indexed, indexed_at FROM market_piece_metadata WHERE piece_cid = $1`, piece.String()).Scan(&ret.CreatedAt, &ret.Indexed, &ret.IndexedAT)
-	if err != nil {
+	if err != nil && err != pgx.ErrNoRows {
 		return nil, xerrors.Errorf("failed to get piece metadata: %w", err)
 	}
 
-	var pieceDeals []PieceDeal
+	pieceDeals := []*PieceDeal{}
 
 	err = a.deps.DB.Select(ctx, &pieceDeals, `SELECT 
 														id, 
@@ -557,9 +550,6 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get piece deals: %w", err)
 	}
-	if len(pieceDeals) == 0 {
-		return nil, xerrors.Errorf("Piece %s has not deals. It should not exist in Database", piece.String())
-	}
 
 	for i := range pieceDeals {
 		addr, err := address.NewIDAddress(uint64(pieceDeals[i].SpId))
@@ -567,10 +557,10 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 			return nil, err
 		}
 		pieceDeals[i].Miner = addr.String()
+		ret.Size = pieceDeals[i].Length
 	}
 	ret.Deals = pieceDeals
 	ret.PieceCid = piece.String()
-	ret.Size = pieceDeals[0].Length
 
 	pi := abi.PieceInfo{
 		PieceCID: piece,
@@ -587,15 +577,12 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 	// Get only the latest Ad
 	var ipniAd string
 	err = a.deps.DB.QueryRow(ctx, `SELECT ad_cid FROM ipni WHERE context_id = $1 ORDER BY order_number DESC LIMIT 1`, b.Bytes()).Scan(&ipniAd)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ret, err
-		}
+	if err != nil && err != pgx.ErrNoRows {
 		return nil, xerrors.Errorf("failed to get deal ID by piece CID: %w", err)
 	}
 
 	ret.IPNIAd = ipniAd
-	return ret, err
+	return ret, nil
 }
 
 type PieceSummary struct {
