@@ -697,14 +697,12 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 			return false, xerrors.Errorf("UUID: %s: failed to add deal to a sector: %w", deal.UUID, err)
 		}
 
-		n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET sector = $1 WHERE uuid = $2 AND sector = NULL`, *sector, deal.UUID)
+		n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET sector = $1 WHERE uuid = $2 AND sector IS NULL`, *sector, deal.UUID)
 		if err != nil {
 			return false, xerrors.Errorf("UUID: %s: failed to add sector %d details to DB: %w", deal.UUID, *sector, err)
 		}
 		if n != 1 {
-			if err != nil {
-				return false, xerrors.Errorf("UUID: %s: expected 1 deal update for add sector %d details to DB but found %d", deal.UUID, *sector, n)
-			}
+			return false, xerrors.Errorf("UUID: %s: expected 1 deal update for add sector %d details to DB but found %d", deal.UUID, *sector, n)
 		}
 
 		return true, nil
