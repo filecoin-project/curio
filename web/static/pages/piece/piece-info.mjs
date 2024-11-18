@@ -92,7 +92,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                         <td>${item.boost_deal ? 'Boost' : (item.legacy_deal ? 'Legacy' : 'DDO')}</td>
                         <td>${item.miner}</td>
                         <td>${item.chain_deal_id}</td>
-                        <td>${item.sector}</td>
+                        <td><a href="/pages/sector/?sp=${item.miner}&id=${item.sector}">${item.sector}</a></td>
                         <td>${item.offset}</td>
                         <td>${this.toHumanBytes(item.length)}</td>
                         <td>${this.toHumanBytes(item.raw_size)}</td>
@@ -143,7 +143,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                                 <tr><th>PSD Wait Time</th><td>${entry.pipeline.psd_wait_time.Valid ? new Date(entry.pipeline.psd_wait_time.Time).toLocaleString() : 'N/A'}</td></tr>
                                 <tr><th>Find Deal Task ID</th><td>${entry.pipeline.find_deal_task_id.Valid ? entry.pipeline.find_deal_task_id.Int64 : 'N/A'}</td></tr>
                                 <tr><th>After Find Deal</th><td>${this.renderNullableDoneNotDone(entry.pipeline.after_find_deal)}</td></tr>
-                                <tr><th>Sector</th><td>${entry.pipeline.sector.Valid ? entry.pipeline.sector.Int64 : 'N/A'}</td></tr>
+                                <tr><th>Sector</th><td>${entry.pipeline.sector.Valid ? html`<a href="/pages/sector/?sp=f0${entry.deal.sp_id}&id=${entry.pipeline.sector.Int64}">${entry.pipeline.sector.Int64}</a>` : 'N/A'}</td></tr>
                                 <tr><th>Reg Seal Proof</th><td>${entry.pipeline.reg_seal_proof.Valid ? entry.pipeline.reg_seal_proof.Int64 : 'N/A'}</td></tr>
                                 <tr><th>Sector Offset</th><td>${entry.pipeline.sector_offset.Valid ? entry.pipeline.sector_offset.Int64 : 'N/A'}</td></tr>
                                 <tr><th>Sealed</th><td>${this.renderNullableDoneNotDone(entry.pipeline.sealed)}</td></tr>

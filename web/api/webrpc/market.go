@@ -167,8 +167,8 @@ type StorageDealSummary struct {
 	StartEpoch        int64          `db:"start_epoch" json:"start_epoch"`
 	EndEpoch          int64          `db:"end_epoch" json:"end_epoch"`
 	ClientPeerId      string         `db:"client_peer_id" json:"client_peer_id"`
-	ChainDealId       int64          `db:"chain_deal_id" json:"chain_deal_id"`
-	PublishCid        string         `db:"publish_cid" json:"publish_cid"`
+	ChainDealId       *int64         `db:"chain_deal_id" json:"chain_deal_id"`
+	PublishCid        *string        `db:"publish_cid" json:"publish_cid"`
 	PieceCid          string         `db:"piece_cid" json:"piece_cid"`
 	PieceSize         int64          `db:"piece_size" json:"piece_size"`
 	FastRetrieval     bool           `db:"fast_retrieval" json:"fast_retrieval"`
