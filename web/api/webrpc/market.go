@@ -739,13 +739,12 @@ func (a *WebRPC) MK12DealDetail(ctx context.Context, pieceCid string) ([]MK12Dea
 		}
 	}
 
-	// Create a map from UUID to pipeline for quick lookup
 	pipelineMap := make(map[string]MK12DealPipeline)
 	for _, pipeline := range pipelines {
+		pipeline := pipeline
 		pipelineMap[pipeline.UUID] = pipeline
 	}
 
-	// Combine deals with their corresponding pipelines
 	var entries []MK12DealDetailEntry
 	for _, deal := range mk12Deals {
 		entry := MK12DealDetailEntry{

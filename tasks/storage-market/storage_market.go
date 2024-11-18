@@ -406,9 +406,7 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 					return xerrors.Errorf("UUID: %s: updating deal pipeline with sector offset: %w", deal.UUID, err)
 				}
 				if n != 1 {
-					if err != nil {
-						return xerrors.Errorf("UUID: %s: expected 1 row for sector offset update in DB but found %d", deal.UUID, n)
-					}
+					return xerrors.Errorf("UUID: %s: expected 1 row for sector offset update in DB but found %d", deal.UUID, n)
 				}
 				return nil
 			}

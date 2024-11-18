@@ -210,17 +210,17 @@ class DealPipelines extends LitElement {
         } else if (deal.indexed) {
             return '(#######..) Indexed';
         } else if (deal.sector) {
-            return '(######...) Sealed';
+            return '(######...) Sealing And Indexing';
         } else if (deal.after_find_deal) {
-            return '(#####....) On Chain';
+            return '(#####....) Assigning Sector';
         } else if (deal.after_psd) {
-            return '(####.....) Piece Added';
+            return '(####.....) Waiting for DealID';
         } else if (deal.after_commp) {
-            return '(###......) CommP Calculated';
+            return '(###......) Publishing Chain Deal';
         } else if (deal.started) {
-            return '(##.......) Started';
+            return '(##.......) Checking Data';
         } else {
-            return '(#........) Pending';
+            return '(#........) Downloading';
         }
     }
 

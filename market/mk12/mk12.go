@@ -519,6 +519,8 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 			}
 		}
 
+		// Pipeline execution continues in tasks/storage-market/storage_market.go
+
 		return true, nil
 	}, harmonydb.OptionRetry())
 

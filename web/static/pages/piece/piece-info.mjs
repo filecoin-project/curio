@@ -129,7 +129,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                             <tr><th>Error</th><td>${entry.deal.error.Valid ? entry.deal.error.String : 'N/A'}</td></tr>
                             ${entry.pipeline ? html`
                                 <tr><th colspan="2"><b>PIPELINE ACTIVE</b></th></tr>
-                                <tr><th>Started</th><td>${this.renderNullableYesNo(entry.pipeline.started)}</td></tr>
+                                <tr><th>Started</th><td>${this.renderNullableYesNo(entry.pipeline.started.Bool)}</td></tr>
                                 <tr><th>Piece CID</th><td>${entry.pipeline.piece_cid}</td></tr>
                                 <tr><th>Piece Size</th><td>${this.toHumanBytes(entry.pipeline.piece_size)}</td></tr>
                                 <tr><th>Raw Size</th><td>${entry.pipeline.raw_size.Valid ? this.toHumanBytes(entry.pipeline.raw_size.Int64) : 'N/A'}</td></tr>
@@ -137,21 +137,21 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                                 <tr><th>URL</th><td>${entry.pipeline.url.Valid ? entry.pipeline.url.String : 'N/A'}</td></tr>
                                 <tr><th>Headers</th><td><pre>${JSON.stringify(entry.pipeline.headers, null, 2)}</pre></td></tr>
                                 <tr><th>Commp Task ID</th><td>${entry.pipeline.commp_task_id.Valid ? entry.pipeline.commp_task_id.Int64 : 'N/A'}</td></tr>
-                                <tr><th>After Commp</th><td>${this.renderNullableDoneNotDone(entry.pipeline.after_commp)}</td></tr>
+                                <tr><th>After Commp</th><td>${this.renderNullableDoneNotDone(entry.pipeline.after_commp.Bool)}</td></tr>
                                 <tr><th>PSD Task ID</th><td>${entry.pipeline.psd_task_id.Valid ? entry.pipeline.psd_task_id.Int64 : 'N/A'}</td></tr>
-                                <tr><th>After PSD</th><td>${this.renderNullableDoneNotDone(entry.pipeline.after_psd)}</td></tr>
+                                <tr><th>After PSD</th><td>${this.renderNullableDoneNotDone(entry.pipeline.after_psd.Bool)}</td></tr>
                                 <tr><th>PSD Wait Time</th><td>${entry.pipeline.psd_wait_time.Valid ? new Date(entry.pipeline.psd_wait_time.Time).toLocaleString() : 'N/A'}</td></tr>
                                 <tr><th>Find Deal Task ID</th><td>${entry.pipeline.find_deal_task_id.Valid ? entry.pipeline.find_deal_task_id.Int64 : 'N/A'}</td></tr>
-                                <tr><th>After Find Deal</th><td>${this.renderNullableDoneNotDone(entry.pipeline.after_find_deal)}</td></tr>
+                                <tr><th>After Find Deal</th><td>${this.renderNullableDoneNotDone(entry.pipeline.after_find_deal.Bool)}</td></tr>
                                 <tr><th>Sector</th><td>${entry.pipeline.sector.Valid ? html`<a href="/pages/sector/?sp=f0${entry.deal.sp_id}&id=${entry.pipeline.sector.Int64}">${entry.pipeline.sector.Int64}</a>` : 'N/A'}</td></tr>
                                 <tr><th>Reg Seal Proof</th><td>${entry.pipeline.reg_seal_proof.Valid ? entry.pipeline.reg_seal_proof.Int64 : 'N/A'}</td></tr>
                                 <tr><th>Sector Offset</th><td>${entry.pipeline.sector_offset.Valid ? entry.pipeline.sector_offset.Int64 : 'N/A'}</td></tr>
-                                <tr><th>Sealed</th><td>${this.renderNullableDoneNotDone(entry.pipeline.sealed)}</td></tr>
-                                <tr><th>Should Index</th><td>${this.renderNullableYesNo(entry.pipeline.should_index)}</td></tr>
+                                <tr><th>Sealed</th><td>${this.renderNullableDoneNotDone(entry.pipeline.sealed.Bool)}</td></tr>
+                                <tr><th>Should Index</th><td>${this.renderNullableYesNo(entry.pipeline.should_index.Bool)}</td></tr>
                                 <tr><th>Indexing Created At</th><td>${entry.pipeline.indexing_created_at.Valid ? new Date(entry.pipeline.indexing_created_at.Time).toLocaleString() : 'N/A'}</td></tr>
                                 <tr><th>Indexing Task ID</th><td>${entry.pipeline.indexing_task_id.Valid ? entry.pipeline.indexing_task_id.Int64 : 'N/A'}</td></tr>
-                                <tr><th>Indexed</th><td>${this.renderNullableDoneNotDone(entry.pipeline.indexed)}</td></tr>
-                                <tr><th>Announce</th><td>${this.renderNullableDoneNotDone(entry.pipeline.announce)}</td></tr>
+                                <tr><th>Indexed</th><td>${this.renderNullableDoneNotDone(entry.pipeline.indexed.Bool)}</td></tr>
+                                <tr><th>Announce</th><td>${this.renderNullableDoneNotDone(entry.pipeline.announce.Bool)}</td></tr>
                                 <tr><th>Complete</th><td><yes-no .value=${entry.pipeline.complete}></yes-no></td></tr>
                                 <tr><th>Created At</th><td>${new Date(entry.pipeline.created_at).toLocaleString()}</td></tr>
                         ` : html`
