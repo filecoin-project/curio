@@ -24,6 +24,8 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
             this.data = await RPCCall('PieceInfo', [pieceCid]);
             this.mk12DealData = await RPCCall('MK12DealDetail', [pieceCid]);
 
+            // TODO SNAP/POREP pipelines
+
             setTimeout(() => this.loadData(), 10000);
             this.requestUpdate();
         } catch (error) {

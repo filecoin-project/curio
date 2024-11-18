@@ -2,6 +2,7 @@ package webrpc
 
 import (
 	"context"
+	"github.com/filecoin-project/go-address"
 	"time"
 )
 
@@ -52,7 +53,15 @@ func (a *WebRPC) HarmonyTaskMachines(ctx context.Context, taskName string) ([]Ha
 	return stats, nil
 }
 
+type SectorEvent struct {
+	SpID         uint64 `db:"sp_id"`
+	SectorNumber uint64 `db:"sector_number"`
+
+	Addr address.Address `db:"-"`
+}
+
 type HarmonyTaskHistory struct {
+	ID     int64  `db:"id"`
 	TaskID int64  `db:"task_id"`
 	Name   string `db:"name"`
 
@@ -66,6 +75,8 @@ type HarmonyTaskHistory struct {
 	CompletedBy     string  `db:"completed_by_host_and_port"`
 	CompletedById   *int64  `db:"completed_by_machine"`
 	CompletedByName *string `db:"completed_by_machine_name"`
+
+	Events []*SectorEvent `db:"-"`
 }
 
 func (a *WebRPC) HarmonyTaskHistory(ctx context.Context, taskName string, fails bool) ([]HarmonyTaskHistory, error) {
@@ -118,10 +129,11 @@ func (a *WebRPC) HarmonyTaskDetails(ctx context.Context, taskID int64) (*Harmony
 }
 
 // HarmonyTaskHistoryById returns the history of a task by task ID.
-func (a *WebRPC) HarmonyTaskHistoryById(ctx context.Context, taskID int64) ([]HarmonyTaskHistory, error) {
-	var history []HarmonyTaskHistory
+func (a *WebRPC) HarmonyTaskHistoryById(ctx context.Context, taskID int64) ([]*HarmonyTaskHistory, error) {
+	var history []*HarmonyTaskHistory
 	err := a.deps.DB.Select(ctx, &history, `
         SELECT
+            hist.id,
             hist.task_id,
             hist.name,
             hist.work_start,
@@ -141,5 +153,27 @@ func (a *WebRPC) HarmonyTaskHistoryById(ctx context.Context, taskID int64) ([]Ha
 	if err != nil {
 		return nil, err
 	}
+
+	for _, h := range history {
+		var events []*SectorEvent
+		err := a.deps.DB.Select(ctx, &events, `
+			SELECT sp_id, sector_number
+			FROM sectors_pipeline_events
+			WHERE task_history_id = $1
+		`, h.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, event := range events {
+			event.Addr, err = address.NewIDAddress(event.SpID)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		h.Events = events
+	}
+
 	return history, nil
 }

@@ -43,6 +43,7 @@ class HarmonyTaskHistoryTable extends LitElement {
                         <th>Work End</th>
                         <th>Posted</th>
                         <th>Completed By</th>
+                        <th>Related</th>
                         <th>Result</th>
                         <th>Error</th>
                     </tr>
@@ -56,6 +57,11 @@ class HarmonyTaskHistoryTable extends LitElement {
                             <td>${new Date(task.WorkEnd).toLocaleString()}</td>
                             <td>${new Date(task.Posted).toLocaleString()}</td>
                             <td>${task.CompletedById ? html`<a href="/pages/node_info/?id=${task.CompletedById}">${task.CompletedByName} (${task.CompletedBy})</a>` : task.CompletedBy}</td>
+                            <td>${task.Events ? task.Events.map(event => html`
+                                <p>
+                                    <abbr title="Sector">S:</abbr><a href="/pages/sector/?sp=${event.Addr}&id=${event.SectorNumber}">${event.Addr}:${event.SectorNumber}</a>
+                                </p>
+                            `): ''}</td>
                             <td class="${task.Result ? '' : 'error'}">${task.Result ? 'Success' : 'Failed'}</td>
                             <td>${task.Err}</td>
                         </tr>
