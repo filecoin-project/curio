@@ -71,7 +71,7 @@ func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	}
 
 	_, err = m.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		// Create a indexing task
+		// Create an indexing task
 		_, err = tx.Exec(`SELECT create_indexing_task($1, $2)`, taskID, "sectors_snap_pipeline")
 		if err != nil {
 			return false, fmt.Errorf("error creating indexing task: %w", err)
