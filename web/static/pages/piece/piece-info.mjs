@@ -5,13 +5,15 @@ import '/ux/yesno.mjs';
 customElements.define('piece-info', class PieceInfoElement extends LitElement {
     static properties = {
         data: { type: Object },
-        mk12DealData: { type: Array }, // Updated to be an array
+        mk12DealData: { type: Array },
+        pieceParkStates: { type: Object },
     };
 
     constructor() {
         super();
         this.data = null;
-        this.mk12DealData = []; // Initialize as an empty array
+        this.mk12DealData = [];
+        this.pieceParkStates = null;
         this.loadData();
     }
 
@@ -23,6 +25,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
             // Fetch piece info
             this.data = await RPCCall('PieceInfo', [pieceCid]);
             this.mk12DealData = await RPCCall('MK12DealDetail', [pieceCid]);
+            this.pieceParkStates = await RPCCall('PieceParkStates', [pieceCid]);
 
             // TODO SNAP/POREP pipelines
 
@@ -71,7 +74,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                 </tr>
             </table>
 
-            <h2>Piece Deals</h2>
+            <h2>Active Piece Deals</h2>
             <table class="table table-dark table-striped table-sm">
                 <thead>
                 <tr>
@@ -98,6 +101,63 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                         <td>${this.toHumanBytes(item.raw_size)}</td>
                     </tr>
                 `)}
+                </tbody>
+            </table>
+            
+            <h2>Staged Piece States</h2>
+            <table class="table table-dark table-striped table-sm">
+                <tr>
+                    <th>ID</th>
+                    <td>${this.pieceParkStates.id}</td>
+                </tr>
+                <tr>
+                    <th>Piece CID</th>
+                    <td>${this.pieceParkStates.piece_cid}</td>
+                </tr>
+                <tr>
+                    <th>Padded Size</th>
+                    <td>${this.toHumanBytes(this.pieceParkStates.piece_padded_size)}</td>
+                </tr>
+                <tr>
+                    <th>Raw Size</th>
+                    <td>${this.toHumanBytes(this.pieceParkStates.piece_raw_size)}</td>
+                </tr>
+                <tr>
+                    <th>Complete</th>
+                    <td>${this.renderNullableDoneNotDone(this.pieceParkStates.complete)}</td>
+                </tr>
+                <tr>
+                    <th>Created At</th>
+                    <td>${new Date(this.pieceParkStates.created_at).toLocaleString()}</td>
+                </tr>
+                <tr>
+                    <th>Task ID</th>
+                    <td>${this.pieceParkStates.task_id.Valid  ? html`<a href="/pages/task/id/?id=${this.pieceParkStates.task_id.Int64}">${this.pieceParkStates.task_id.Int64}</a>` : 'N/A'}</td>
+                </tr>
+                <tr>
+                    <th>Cleanup Task ID</th>
+                    <td>${this.pieceParkStates.cleanup_task_id.Valid ?  html`<a href="/pages/task/id/?id=${this.pieceParkStates.cleanup_task_id.Int64}">${this.pieceParkStates.cleanup_task_id.Int64}</a>` : 'N/A'}</td>
+                </tr>
+            </table>
+
+            <h3>Staged Piece References</h3>
+            <table class="table table-dark table-striped table-sm">
+                <thead>
+                    <tr>
+                        <th>Ref ID</th>
+                        <th>Data URL</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${this.pieceParkStates.refs.map((ref) => html`
+                        <tr>
+                            <td>${ref.ref_id}</td>
+                            <td>
+                                <p>${ref.data_url.Valid && ref.data_url.String || 'N/A'}</p>
+                                <p><pre>${JSON.stringify(ref.data_headers, null, 2)}</pre></p>
+                            </td>
+                        </tr>
+                    `)}
                 </tbody>
             </table>
 

@@ -585,6 +585,71 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 	return ret, nil
 }
 
+type ParkedPieceState struct {
+	ID              int64            `db:"id" json:"id"`
+	PieceCID        string           `db:"piece_cid" json:"piece_cid"`
+	PiecePaddedSize int64            `db:"piece_padded_size" json:"piece_padded_size"`
+	PieceRawSize    int64            `db:"piece_raw_size" json:"piece_raw_size"`
+	Complete        bool             `db:"complete" json:"complete"`
+	CreatedAt       time.Time        `db:"created_at" json:"created_at"`
+	TaskID          sql.NullInt64    `db:"task_id" json:"task_id"`
+	CleanupTaskID   sql.NullInt64    `db:"cleanup_task_id" json:"cleanup_task_id"`
+	Refs            []ParkedPieceRef `json:"refs"`
+}
+
+type ParkedPieceRef struct {
+	RefID       int64           `db:"ref_id" json:"ref_id"`
+	PieceID     int64           `db:"piece_id" json:"piece_id"`
+	DataURL     sql.NullString  `db:"data_url" json:"data_url"`
+	DataHeaders json.RawMessage `db:"data_headers" json:"data_headers"`
+}
+
+// PieceParkStates retrieves the park states for a given piece CID
+func (a *WebRPC) PieceParkStates(ctx context.Context, pieceCID string) (*ParkedPieceState, error) {
+	var pps ParkedPieceState
+
+	// Query the parked_pieces table
+	err := a.deps.DB.QueryRow(ctx, `
+        SELECT id, created_at, piece_cid, piece_padded_size, piece_raw_size, complete, task_id, cleanup_task_id
+        FROM parked_pieces WHERE piece_cid = $1
+    `, pieceCID).Scan(
+		&pps.ID, &pps.CreatedAt, &pps.PieceCID, &pps.PiecePaddedSize, &pps.PieceRawSize,
+		&pps.Complete, &pps.TaskID, &pps.CleanupTaskID,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to query parked piece: %w", err)
+	}
+
+	// Query the parked_piece_refs table for references
+	rows, err := a.deps.DB.Query(ctx, `
+        SELECT ref_id, piece_id, data_url, data_headers
+        FROM parked_piece_refs WHERE piece_id = $1
+    `, pps.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query parked piece refs: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var ref ParkedPieceRef
+		var dataHeaders []byte
+		err := rows.Scan(&ref.RefID, &ref.PieceID, &ref.DataURL, &dataHeaders)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan parked piece ref: %w", err)
+		}
+		ref.DataHeaders = json.RawMessage(dataHeaders)
+		pps.Refs = append(pps.Refs, ref)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating over parked piece refs: %w", err)
+	}
+
+	return &pps, nil
+}
+
 type PieceSummary struct {
 	Total       int64     `db:"total" json:"total"`
 	Indexed     int64     `db:"indexed" json:"indexed"`
