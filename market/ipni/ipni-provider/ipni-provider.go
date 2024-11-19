@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/snadrus/must"
 	"io"
 	"net/http"
 	"net/url"
@@ -56,6 +58,10 @@ const publishInterval = 10 * time.Minute
 
 const MaxCachedReaders = 50
 
+// Entries are 0.5MiB in size, so we do ~5MiB of caching here
+// This cache is only useful in the edge case when entry reads are very slow and time out - this makes retried reads faster
+const EntryCacheSize = 10
+
 // validate is a boolean variable that determines whether to validate the reconstructed chunk node against the expected chunk CID.
 // If validate is true, the chunk node is validated against the expected chunk CID.
 // If the chunk node does not match the expected chunk CID, an error is returned.
@@ -89,6 +95,8 @@ type Provider struct {
 	// Curio HTTP URL(in multiaddr)+IPNIRoutePath(/ipni-provider/)+peerID
 	httpServerAddresses map[string]multiaddr.Multiaddr // map[peerID String]Multiaddr
 	cpr                 *cachedreader.CachedPieceReader
+
+	entryCache *lru.Cache[cid.Cid, []byte]
 }
 
 // NewProvider initializes a new Provider using the provided dependencies.
@@ -179,6 +187,8 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 		announceURLs:        announceURLs,
 		httpServerAddresses: httpServerAddresses,
 		cpr:                 d.CachedPieceReader,
+
+		entryCache: must.One(lru.New[cid.Cid, []byte](EntryCacheSize)),
 	}, nil
 }
 
@@ -324,7 +334,18 @@ func (p *Provider) getHead(ctx context.Context, provider string) ([]byte, error)
 // getEntry retrieves an entry from the provider's database based on the given block CID and provider ID.
 // It returns the entry data as a byte slice, or an error if the entry is not found or an error occurs during retrieval.
 // If the entry is stored as a CAR file, it reconstructs the chunk from the CAR file.
-func (p *Provider) getEntry(block cid.Cid) ([]byte, error) {
+func (p *Provider) getEntry(block cid.Cid) (b []byte, err error) {
+	if b, ok := p.entryCache.Get(block); ok {
+		log.Infow("Serving entry from cache", "block", block)
+		return b, nil
+	}
+
+	defer func() {
+		if err == nil {
+			p.entryCache.Add(block, b)
+		}
+	}()
+
 	// We should use background context to avoid early exit
 	// while chunking as first attempt will always fail
 	ctx := context.Background()
@@ -342,7 +363,7 @@ func (p *Provider) getEntry(block cid.Cid) ([]byte, error) {
 
 	var ipniChunks []ipniChunk
 
-	err := p.db.Select(ctx, &ipniChunks, `SELECT 
+	err = p.db.Select(ctx, &ipniChunks, `SELECT 
 			current.piece_cid, 
 			current.from_car, 
 			current.first_cid, 
