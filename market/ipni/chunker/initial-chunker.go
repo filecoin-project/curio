@@ -19,6 +19,9 @@ import (
 
 const longChainThreshold = 500_000
 
+// maxCarChunkSize is maximum entry size for car-order ingested entries.
+const maxCarChunkSize = 512 << 20
+
 // InitialChunker is used for initial entry chain creation.
 // It employs a dual strategy, where it tracks the number of entries, and:
 // For chains with less than longChainThreshold entries, it accumulates entries in memory.
@@ -35,8 +38,9 @@ type InitialChunker struct {
 	dbMultihashes []multihash.Multihash
 
 	// car-order ingest, after longChainThreshold
-	carPending    []multihash.Multihash
-	carChunkStart *int64
+	carPending      []multihash.Multihash
+	carPendingBytes uint64
+	carChunkStart   *int64
 
 	prevChunks []carChunkMeta
 
@@ -57,7 +61,7 @@ func NewInitialChunker() *InitialChunker {
 	}
 }
 
-func (c *InitialChunker) Accept(mh multihash.Multihash, startOff int64) error {
+func (c *InitialChunker) Accept(mh multihash.Multihash, startOff int64, entryLen uint64) error {
 	if c.ingestedSoFar < longChainThreshold {
 		// db-order ingest
 		c.dbMultihashes = append(c.dbMultihashes, mh)
@@ -74,11 +78,12 @@ func (c *InitialChunker) Accept(mh multihash.Multihash, startOff int64) error {
 
 	// append to car-order ingest
 	c.carPending = append(c.carPending, mh)
+	c.carPendingBytes += entryLen
 	if c.carChunkStart == nil {
 		c.carChunkStart = &startOff
 	}
 
-	if len(c.carPending) >= c.chunkSize {
+	if len(c.carPending) >= c.chunkSize || c.carPendingBytes >= maxCarChunkSize {
 		if err := c.processCarPending(); err != nil {
 			return xerrors.Errorf("process car pending: %w", err)
 		}
@@ -111,6 +116,7 @@ func (c *InitialChunker) processCarPending() error {
 	})
 
 	c.carPending = c.carPending[:0]
+	c.carPendingBytes = 0
 	c.carChunkStart = nil
 
 	return nil
