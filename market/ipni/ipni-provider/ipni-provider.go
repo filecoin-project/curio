@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/filecoin-project/curio/lib/promise"
+	"github.com/filecoin-project/lotus/lib/result"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/snadrus/must"
 	"io"
@@ -81,6 +83,11 @@ type peerInfo struct {
 	Key crypto.PrivKey
 }
 
+type ipniEntry struct {
+	Data []byte
+	Prev cid.Cid
+}
+
 // Provider represents a provider for IPNI.
 type Provider struct {
 	db            *harmonydb.DB
@@ -96,7 +103,7 @@ type Provider struct {
 	httpServerAddresses map[string]multiaddr.Multiaddr // map[peerID String]Multiaddr
 	cpr                 *cachedreader.CachedPieceReader
 
-	entryCache *lru.Cache[cid.Cid, []byte]
+	entryCache *lru.Cache[cid.Cid, *promise.Promise[result.Result[ipniEntry]]]
 }
 
 // NewProvider initializes a new Provider using the provided dependencies.
@@ -188,7 +195,7 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 		httpServerAddresses: httpServerAddresses,
 		cpr:                 d.CachedPieceReader,
 
-		entryCache: must.One(lru.New[cid.Cid, []byte](EntryCacheSize)),
+		entryCache: must.One(lru.New[cid.Cid, *promise.Promise[result.Result[ipniEntry]]](EntryCacheSize)),
 	}, nil
 }
 
@@ -334,16 +341,37 @@ func (p *Provider) getHead(ctx context.Context, provider string) ([]byte, error)
 // getEntry retrieves an entry from the provider's database based on the given block CID and provider ID.
 // It returns the entry data as a byte slice, or an error if the entry is not found or an error occurs during retrieval.
 // If the entry is stored as a CAR file, it reconstructs the chunk from the CAR file.
-func (p *Provider) getEntry(block cid.Cid) (b []byte, err error) {
-	if b, ok := p.entryCache.Get(block); ok {
-		log.Infow("Serving entry from cache", "block", block)
-		return b, nil
-	}
+func (p *Provider) getEntry(rctx context.Context, block cid.Cid, speculated bool) (b []byte, err error) {
+	var prevChunk cid.Cid
 
 	defer func() {
-		if err == nil {
-			p.entryCache.Add(block, b)
+		if !speculated && err == nil && prevChunk != cid.Undef {
+			go func() {
+				_, err := p.getEntry(context.Background(), prevChunk, true)
+				if err != nil {
+					log.Errorw("failed to speculatively get previous entry", "block", block, "prev", prevChunk, "err", err)
+				}
+			}()
 		}
+	}()
+
+	if b, ok := p.entryCache.Get(block); ok {
+		log.Infow("Serving entry from cache", "block", block)
+		v := b.Val(rctx)
+		if v.Error == nil {
+			prevChunk = v.Value.Prev
+			return v.Value.Data, nil
+		}
+		log.Errorw("Error in cached promise", "block", block, "error", v.Error)
+	}
+
+	prom := &promise.Promise[result.Result[ipniEntry]]{}
+	p.entryCache.Add(block, prom)
+	defer func() {
+		prom.Set(result.Result[ipniEntry]{Value: ipniEntry{
+			Data: b,
+			Prev: prevChunk,
+		}, Error: err})
 	}()
 
 	// We should use background context to avoid early exit
@@ -397,7 +425,7 @@ func (p *Provider) getEntry(block cid.Cid) (b []byte, err error) {
 
 	var next ipld.Link
 	if chunk.PrevCID != nil {
-		prevChunk, err := cid.Parse(*chunk.PrevCID)
+		prevChunk, err = cid.Parse(*chunk.PrevCID)
 		if err != nil {
 			return nil, xerrors.Errorf("parsing previous CID: %w", err)
 		}
@@ -417,15 +445,15 @@ func (p *Provider) getEntry(block cid.Cid) (b []byte, err error) {
 
 		firstHash := multihash.Multihash(cb)
 
-		return p.reconstructChunkFromDB(ctx, block, pieceCid, firstHash, next, chunk.NumBlocks)
+		return p.reconstructChunkFromDB(ctx, block, pieceCid, firstHash, next, chunk.NumBlocks, speculated)
 	}
 
-	return p.reconstructChunkFromCar(ctx, block, pieceCid, *chunk.StartOffset, next, chunk.NumBlocks)
+	return p.reconstructChunkFromCar(ctx, block, pieceCid, *chunk.StartOffset, next, chunk.NumBlocks, speculated)
 }
 
 // reconstructChunkFromCar reconstructs a chunk from a car file.
-func (p *Provider) reconstructChunkFromCar(ctx context.Context, chunk, piece cid.Cid, startOff int64, next ipld.Link, numBlocks int64) ([]byte, error) {
-	log.Infow("Reconstructing chunk from car", "chunk", chunk, "piece", piece, "startOffset", startOff, "numBlocks", numBlocks)
+func (p *Provider) reconstructChunkFromCar(ctx context.Context, chunk, piece cid.Cid, startOff int64, next ipld.Link, numBlocks int64, speculate bool) ([]byte, error) {
+	log.Infow("Reconstructing chunk from car", "chunk", chunk, "piece", piece, "startOffset", startOff, "numBlocks", numBlocks, "speculated", speculate)
 
 	reader, _, err := p.cpr.GetSharedPieceReader(ctx, piece)
 	defer func(reader storiface.Reader) {
@@ -442,8 +470,6 @@ func (p *Provider) reconstructChunkFromCar(ctx context.Context, chunk, piece cid
 	}
 
 	br := bufio.NewReader(reader)
-
-	log.Infow("starting to read blocks", "numBlocks", numBlocks)
 
 	mhs := make([]multihash.Multihash, 0, numBlocks)
 	for i := int64(0); i < numBlocks; i++ {
@@ -489,7 +515,8 @@ func (p *Provider) reconstructChunkFromCar(ctx context.Context, chunk, piece cid
 }
 
 // ReconstructChunkFromDB reconstructs a chunk from the database.
-func (p *Provider) reconstructChunkFromDB(ctx context.Context, chunk, piece cid.Cid, firstHash multihash.Multihash, next ipld.Link, numBlocks int64) ([]byte, error) {
+func (p *Provider) reconstructChunkFromDB(ctx context.Context, chunk, piece cid.Cid, firstHash multihash.Multihash, next ipld.Link, numBlocks int64, speculate bool) ([]byte, error) {
+	log.Infow("Reconstructing chunk from DB", "chunk", chunk, "piece", piece, "firstHash", firstHash, "numBlocks", numBlocks, "speculated", speculate)
 	mhs, err := p.indexStore.GetPieceHashRange(ctx, piece, firstHash, numBlocks)
 	if err != nil {
 		return nil, xerrors.Errorf("getting piece hash range: %w", err)
@@ -579,7 +606,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	case ipnisync.CidSchemaEntryChunk:
-		entry, err := p.getEntry(b)
+		entry, err := p.getEntry(r.Context(), b, false)
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				log.Debugw("No Content Found", "CID", b.String())
@@ -603,7 +630,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			if errors.Is(err, ErrNotFound) {
 				// Check if this is an entry CID
-				entry, err := p.getEntry(b)
+				entry, err := p.getEntry(r.Context(), b, false)
 				if err != nil {
 					if errors.Is(err, ErrNotFound) {
 						log.Warnw("No Content Found", "CID", b.String())
