@@ -105,70 +105,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                 </tbody>
             </table>
 
-            <h2>Staged Piece States</h2>
-            <table class="table table-dark table-striped table-sm">
-                <tr>
-                    <th>ID</th>
-                    <td>${this.pieceParkStates.id}</td>
-                </tr>
-                <tr>
-                    <th>Piece CID</th>
-                    <td>${this.pieceParkStates.piece_cid}</td>
-                </tr>
-                <tr>
-                    <th>Padded Size</th>
-                    <td>${this.toHumanBytes(this.pieceParkStates.piece_padded_size)}</td>
-                </tr>
-                <tr>
-                    <th>Raw Size</th>
-                    <td>${this.toHumanBytes(this.pieceParkStates.piece_raw_size)}</td>
-                </tr>
-                <tr>
-                    <th>Complete</th>
-                    <td>${this.renderNullableDoneNotDone(this.pieceParkStates.complete)}</td>
-                </tr>
-                <tr>
-                    <th>Created At</th>
-                    <td>${new Date(this.pieceParkStates.created_at).toLocaleString()}</td>
-                </tr>
-                <tr>
-                    <th>Download Task</th>
-                    <td>
-                        ${this.pieceParkStates.task_id.Valid
-                                ? html`<task-status .taskId=${this.pieceParkStates.task_id.Int64}></task-status>`
-                                : 'N/A'}
-                    </td>
-                </tr>
-                <tr>
-                    <th>Cleanup Task</th>
-                    <td>
-                        ${this.pieceParkStates.cleanup_task_id.Valid
-                                ? html`<task-status .taskId=${this.pieceParkStates.cleanup_task_id.Int64}></task-status>`
-                                : 'N/A'}
-                    </td>
-                </tr>
-            </table>
-
-            <h3>Staged Piece References</h3>
-            <table class="table table-dark table-striped table-sm">
-                <thead>
-                    <tr>
-                        <th>Ref ID</th>
-                        <th>Data URL</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${this.pieceParkStates.refs.map((ref) => html`
-                        <tr>
-                            <td>${ref.ref_id}</td>
-                            <td>
-                                <p>${ref.data_url.Valid && ref.data_url.String || 'N/A'}</p>
-                                <p><pre>${JSON.stringify(ref.data_headers, null, 2)}</pre></p>
-                            </td>
-                        </tr>
-                    `)}
-                </tbody>
-            </table>
+            ${this.pieceParkStates ? this.renderPieceParkStates() : ''}
 
             ${this.mk12DealData && this.mk12DealData.length > 0 ? html`
                 <h2>MK12 Deal Details</h2>
@@ -274,6 +211,75 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                 `)}
             ` : ''}
         `;
+    }
+
+    renderPieceParkStates() {
+        return html`
+        <h2>Staged Piece States</h2>
+            <table class="table table-dark table-striped table-sm">
+                <tr>
+                    <th>ID</th>
+                    <td>${this.pieceParkStates.id}</td>
+                </tr>
+                <tr>
+                    <th>Piece CID</th>
+                    <td>${this.pieceParkStates.piece_cid}</td>
+                </tr>
+                <tr>
+                    <th>Padded Size</th>
+                    <td>${this.toHumanBytes(this.pieceParkStates.piece_padded_size)}</td>
+                </tr>
+                <tr>
+                    <th>Raw Size</th>
+                    <td>${this.toHumanBytes(this.pieceParkStates.piece_raw_size)}</td>
+                </tr>
+                <tr>
+                    <th>Complete</th>
+                    <td>${this.renderNullableDoneNotDone(this.pieceParkStates.complete)}</td>
+                </tr>
+                <tr>
+                    <th>Created At</th>
+                    <td>${new Date(this.pieceParkStates.created_at).toLocaleString()}</td>
+                </tr>
+                <tr>
+                    <th>Download Task</th>
+                    <td>
+                        ${this.pieceParkStates.task_id.Valid
+                            ? html`<task-status .taskId=${this.pieceParkStates.task_id.Int64}></task-status>`
+                            : 'N/A'}
+                    </td>
+                </tr>
+                <tr>
+                    <th>Cleanup Task</th>
+                    <td>
+                        ${this.pieceParkStates.cleanup_task_id.Valid
+                            ? html`<task-status .taskId=${this.pieceParkStates.cleanup_task_id.Int64}></task-status>`
+                            : 'N/A'}
+                    </td>
+                </tr>
+            </table>
+
+            <h3>Staged Piece References</h3>
+            <table class="table table-dark table-striped table-sm">
+                <thead>
+                    <tr>
+                        <th>Ref ID</th>
+                        <th>Data URL</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${this.pieceParkStates.refs.map((ref) => html`
+                        <tr>
+                            <td>${ref.ref_id}</td>
+                            <td>
+                                <p>${ref.data_url.Valid && ref.data_url.String || 'N/A'}</p>
+                                <p><pre>${JSON.stringify(ref.data_headers, null, 2)}</pre></p>
+                            </td>
+                        </tr>
+                    `)}
+                </tbody>
+            </table>
+        `
     }
 
 
