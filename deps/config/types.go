@@ -96,7 +96,7 @@ func DefaultCurioConfig() *CurioConfig {
 			DomainName:        "",
 			ListenAddress:     "0.0.0.0:12310",
 			ReadTimeout:       time.Second * 10,
-			WriteTimeout:      time.Second * 10,
+			WriteTimeout:      time.Second * 100,
 			IdleTimeout:       time.Minute * 2,
 			ReadHeaderTimeout: time.Second * 5,
 			EnableCORS:        true,

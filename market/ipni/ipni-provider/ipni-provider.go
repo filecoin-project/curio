@@ -58,9 +58,9 @@ const publishInterval = 10 * time.Minute
 
 const MaxCachedReaders = 50
 
-// Entries are 0.5MiB in size, so we do ~5MiB of caching here
+// Entries are 0.5MiB in size, so we do ~10MiB of caching here
 // This cache is only useful in the edge case when entry reads are very slow and time out - this makes retried reads faster
-const EntryCacheSize = 10
+const EntryCacheSize = 20
 
 // validate is a boolean variable that determines whether to validate the reconstructed chunk node against the expected chunk CID.
 // If validate is true, the chunk node is validated against the expected chunk CID.
