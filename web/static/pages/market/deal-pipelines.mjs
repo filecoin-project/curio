@@ -18,6 +18,18 @@ class DealPipelines extends LitElement {
         this.loadData();
     }
 
+    connectedCallback() {
+        super.connectedCallback();
+        // Set up an interval to update data every 5 seconds
+        this.intervalId = setInterval(() => this.loadData(), 5000);
+    }
+
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        // Clear the interval when the element is disconnected
+        clearInterval(this.intervalId);
+    }
+
     async loadData() {
         try {
             const params = [this.limit, this.offset];
@@ -177,14 +189,6 @@ class DealPipelines extends LitElement {
         const start = pieceCid.substring(0, 16);
         const end = pieceCid.substring(pieceCid.length - 8);
         return `${start}...${end}`;
-    }
-
-    copyToClipboard(text) {
-        navigator.clipboard.writeText(text).then(() => {
-            // Optional: Show a message or toast to the user indicating the text was copied
-        }).catch(err => {
-            console.error('Failed to copy text: ', err);
-        });
     }
 
     formatBytes(bytes) {

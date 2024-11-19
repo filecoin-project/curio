@@ -68,13 +68,13 @@ class TaskStatusElement extends LitElement {
                 statusLabel = html`<span style="color: gray;">pending</span>`;
                 break;
             case 'running':
-                statusLabel = html`<span style="color: blue;">running</span>`;
+                statusLabel = html`<span style="color: var(--color-info-main);">running</span>`;
                 break;
             case 'done':
-                statusLabel = html`<span style="color: green;">done</span>`;
+                statusLabel = html`<span style="color: var(--color-success-main);">done</span>`;
                 break;
             case 'failed':
-                statusLabel = html`<span style="color: red;">failed</span>`;
+                statusLabel = html`<span style="color: var(--color-danger-main);">failed</span>`;
                 break;
             default:
                 statusLabel = this.status.status;

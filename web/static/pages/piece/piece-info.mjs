@@ -132,7 +132,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                     <td>${new Date(this.pieceParkStates.created_at).toLocaleString()}</td>
                 </tr>
                 <tr>
-                    <th>Task ID</th>
+                    <th>Download Task</th>
                     <td>
                         ${this.pieceParkStates.task_id.Valid
                                 ? html`<task-status .taskId=${this.pieceParkStates.task_id.Int64}></task-status>`
@@ -140,7 +140,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                     </td>
                 </tr>
                 <tr>
-                    <th>Cleanup Task ID</th>
+                    <th>Cleanup Task</th>
                     <td>
                         ${this.pieceParkStates.cleanup_task_id.Valid
                                 ? html`<task-status .taskId=${this.pieceParkStates.cleanup_task_id.Int64}></task-status>`
