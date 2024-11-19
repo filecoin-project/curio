@@ -11,6 +11,7 @@ import (
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	carv2 "github.com/ipld/go-car/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
@@ -106,8 +107,8 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	// Check if piece is already indexed
 	var indexed bool
 	err = i.db.QueryRow(ctx, `SELECT indexed FROM market_piece_metadata WHERE piece_cid = $1`, task.PieceCid).Scan(&indexed)
-	if err != nil {
-		return false, xerrors.Errorf("checking if piece is already indexed: %w", err)
+	if err != nil && err != pgx.ErrNoRows {
+		return false, xerrors.Errorf("checking if piece %s is already indexed: %w", task.PieceCid, err)
 	}
 
 	// Return early if already indexed or should not be indexed
