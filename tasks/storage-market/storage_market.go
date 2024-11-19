@@ -368,7 +368,7 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 	}
 
 	// Get the deal offset if sector has started sealing
-	if deal.AfterFindDeal && deal.Sector != nil {
+	if deal.AfterFindDeal && deal.Sector != nil && deal.Offset == nil {
 		type pieces struct {
 			Cid   string              `db:"piece_cid"`
 			Size  abi.PaddedPieceSize `db:"piece_size"`
@@ -392,7 +392,7 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 		}
 
 		if len(pieceList) == 0 {
-			return xerrors.Errorf("UUID: %s: no pieces found for the sector %d", deal.UUID, deal.Sector)
+			return xerrors.Errorf("UUID: %s: no pieces found for the sector %d", deal.UUID, *deal.Sector)
 		}
 
 		var offset abi.UnpaddedPieceSize
@@ -401,7 +401,7 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 			_, padLength := proofs.GetRequiredPadding(offset.Padded(), p.Size)
 			offset += padLength.Unpadded()
 			if p.Cid == deal.PieceCid && p.Size == deal.PieceSize {
-				n, err := d.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET sector_offset = $1 WHERE uuid = $2 AND sector = $3`, offset.Padded(), deal.UUID, deal.Sector)
+				n, err := d.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET sector_offset = $1 WHERE uuid = $2 AND sector = $3 AND sector_offset IS NULL`, offset.Padded(), deal.UUID, deal.Sector)
 				if err != nil {
 					return xerrors.Errorf("UUID: %s: updating deal pipeline with sector offset: %w", deal.UUID, err)
 				}
