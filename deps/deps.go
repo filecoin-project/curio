@@ -184,6 +184,7 @@ type Deps struct {
 	LocalPaths        *paths.BasicLocalStorage
 	ListenAddr        string
 	Name              string
+	MachineID         *int64
 	Alert             *alertmanager.AlertNow
 	IndexStore        *indexstore.IndexStore
 	PieceProvider     *pieceprovider.PieceProvider
@@ -352,6 +353,11 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 
 	if deps.Name == "" {
 		deps.Name = cctx.String("name")
+	}
+
+	if deps.MachineID == nil {
+		deps.MachineID = new(int64)
+		*deps.MachineID = -1
 	}
 
 	if deps.IndexStore == nil {

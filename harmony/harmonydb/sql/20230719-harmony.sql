@@ -18,6 +18,7 @@ CREATE TABLE harmony_task (
     added_by INTEGER NOT NULL,
     previous_task INTEGER,
     name varchar(16) NOT NULL
+    -- retries INTEGER NOT NULL DEFAULT 0 -- added later
 );
 COMMENT ON COLUMN harmony_task.initiated_by IS 'The task ID whose completion occasioned this task.';
 COMMENT ON COLUMN harmony_task.owner_id IS 'The foreign key to harmony_machines.';

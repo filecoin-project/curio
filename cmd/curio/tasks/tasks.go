@@ -278,6 +278,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	}
 	go machineDetails(dependencies, activeTasks, ht.ResourcesAvailable().MachineID, dependencies.Name)
 
+	*dependencies.MachineID = int64(ht.ResourcesAvailable().MachineID)
+
 	if hasAnySealingTask {
 		watcher, err := message.NewMessageWatcher(db, ht, chainSched, full)
 		if err != nil {
