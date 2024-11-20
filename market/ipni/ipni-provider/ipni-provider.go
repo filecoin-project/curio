@@ -356,7 +356,6 @@ func (p *Provider) getEntry(rctx context.Context, block cid.Cid, speculated bool
 	}()
 
 	if b, ok := p.entryCache.Get(block); ok {
-		log.Infow("Serving entry from cache", "block", block)
 		v := b.Val(rctx)
 		if v.Error == nil {
 			prevChunk = v.Value.Prev
@@ -453,7 +452,7 @@ func (p *Provider) getEntry(rctx context.Context, block cid.Cid, speculated bool
 
 // reconstructChunkFromCar reconstructs a chunk from a car file.
 func (p *Provider) reconstructChunkFromCar(ctx context.Context, chunk, piece cid.Cid, startOff int64, next ipld.Link, numBlocks int64, speculate bool) ([]byte, error) {
-	log.Infow("Reconstructing chunk from car", "chunk", chunk, "piece", piece, "startOffset", startOff, "numBlocks", numBlocks, "speculated", speculate)
+	start := time.Now()
 
 	reader, _, err := p.cpr.GetSharedPieceReader(ctx, piece)
 	defer func(reader storiface.Reader) {
@@ -486,7 +485,7 @@ func (p *Provider) reconstructChunkFromCar(ctx context.Context, chunk, piece cid
 		return nil, xerrors.Errorf("getting current offset: %w", err)
 	}
 
-	log.Infow("finished reading blocks", "numBlocks", numBlocks, "readMiB", float64(curOff-startOff)/1024/1024)
+	read := time.Now()
 
 	// Create the chunk node
 	chunkNode, err := chunker.NewEntriesChunkNode(mhs, next)
@@ -511,12 +510,15 @@ func (p *Provider) reconstructChunkFromCar(ctx context.Context, chunk, piece cid
 		return nil, xerrors.Errorf("encoding chunk node: %w", err)
 	}
 
+	log.Infow("Reconstructing chunk from car", "chunk", chunk, "piece", piece, "startOffset", startOff, "numBlocks", numBlocks, "speculated", speculate, "readMiB", float64(curOff-startOff)/1024/1024, "recomputeTime", time.Since(read), "totalTime", time.Since(start), "ents/s", float64(numBlocks)/time.Since(start).Seconds(), "MiB/s", float64(curOff-startOff)/1024/1024/time.Since(start).Seconds())
+
 	return b.Bytes(), nil
 }
 
 // ReconstructChunkFromDB reconstructs a chunk from the database.
 func (p *Provider) reconstructChunkFromDB(ctx context.Context, chunk, piece cid.Cid, firstHash multihash.Multihash, next ipld.Link, numBlocks int64, speculate bool) ([]byte, error) {
-	log.Infow("Reconstructing chunk from DB", "chunk", chunk, "piece", piece, "firstHash", firstHash, "numBlocks", numBlocks, "speculated", speculate)
+	start := time.Now()
+
 	mhs, err := p.indexStore.GetPieceHashRange(ctx, piece, firstHash, numBlocks)
 	if err != nil {
 		return nil, xerrors.Errorf("getting piece hash range: %w", err)
@@ -544,6 +546,8 @@ func (p *Provider) reconstructChunkFromDB(ctx context.Context, chunk, piece cid.
 	if err != nil {
 		return nil, err
 	}
+
+	log.Infow("Reconstructing chunk from DB", "chunk", chunk, "piece", piece, "firstHash", firstHash, "numBlocks", numBlocks, "speculated", speculate, "totalTime", time.Since(start), "ents/s", float64(numBlocks)/time.Since(start).Seconds())
 
 	return b.Bytes(), nil
 }
@@ -574,7 +578,11 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 	providerID := chi.URLParam(r, "providerId")
 	reqCid := chi.URLParam(r, "cid")
 
-	log.Infow("Received IPNI request", "path", r.URL.Path, "cid", reqCid, "providerId", providerID)
+	start := time.Now()
+
+	defer func() {
+		log.Infow("Served IPNI request", "path", r.URL.Path, "cid", reqCid, "providerId", providerID, "took", time.Since(start))
+	}()
 
 	b, err := cid.Parse(reqCid)
 	if err != nil {
