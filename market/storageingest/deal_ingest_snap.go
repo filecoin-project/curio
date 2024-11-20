@@ -378,7 +378,7 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 
 	for rows.Next() {
 		var candidate CandidateSector
-		err := rows.Scan(&candidate.Sector, &candidate.Expiration)
+		err := rows.Scan(&candidate.Sector, &candidate.RegSealProof, &candidate.Expiration)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("scanning row: %w", err)
 		}
