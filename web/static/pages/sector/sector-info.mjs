@@ -13,6 +13,12 @@ customElements.define('sector-snap-state', class SectorSnapState extends LitElem
         }
 
         return html`
+            ${this.data.Failed ? html`
+                <p style="color: var(--color-danger-main)">
+                   ${this.data.FailedReason}: ${this.data.FailedReasonMsg}
+                </p>
+            `: ''}
+            
             <table class="table table-dark">
                 <tr>
                     <th>Stage</th>
