@@ -690,12 +690,13 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 			return false, xerrors.Errorf("deal %s already added to sector by another process", deal.UUID)
 		}
 
-		sector, err = d.pin.AllocatePieceToSector(ctx, tx, maddr, pi, deal.RawSize, *dealUrl, headers)
+		var sp *abi.RegisteredSealProof
+		sector, sp, err = d.pin.AllocatePieceToSector(ctx, tx, maddr, pi, deal.RawSize, *dealUrl, headers)
 		if err != nil {
 			return false, xerrors.Errorf("UUID: %s: failed to add deal to a sector: %w", deal.UUID, err)
 		}
 
-		n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET sector = $1 WHERE uuid = $2 AND sector IS NULL`, *sector, deal.UUID)
+		n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET sector = $1, reg_seal_proof = $2 WHERE uuid = $3 AND sector IS NULL`, *sector, *sp, deal.UUID)
 		if err != nil {
 			return false, xerrors.Errorf("UUID: %s: failed to add sector %d details to DB: %w", deal.UUID, *sector, err)
 		}
