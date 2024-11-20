@@ -3,6 +3,7 @@ package piece
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -210,6 +211,19 @@ func (p *ParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Storage: p.sc.Storage(p.taskToRef, storiface.FTPiece, storiface.FTNone, maxSizePiece, storiface.PathSealing, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 10,
+		RetryWait: func(retries int) time.Duration {
+			baseWait, maxWait := 5*time.Second, time.Minute
+			mul := 1.5
+
+			// Use math.Pow for exponential backoff
+			wait := time.Duration(float64(baseWait) * math.Pow(mul, float64(retries)))
+
+			// Ensure the wait time doesn't exceed maxWait
+			if wait > maxWait {
+				return maxWait
+			}
+			return wait
+		},
 	}
 }
 
