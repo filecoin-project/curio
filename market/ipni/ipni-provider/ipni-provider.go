@@ -7,10 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/filecoin-project/curio/lib/promise"
-	"github.com/filecoin-project/lotus/lib/result"
-	lru "github.com/hashicorp/golang-lru/v2"
-	"github.com/snadrus/must"
 	"io"
 	"net/http"
 	"net/url"
@@ -19,6 +15,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/go-ipld-prime"
@@ -36,16 +33,20 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/multiformats/go-multihash"
+	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
+	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
+
+	"github.com/filecoin-project/lotus/lib/result"
 )
 
 // IPNIRoutePath is a constant representing the route path for IPNI provider.

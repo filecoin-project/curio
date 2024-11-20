@@ -4,11 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/yugabyte/pgx/v5"
 	"strconv"
 	"time"
 
 	"github.com/samber/lo"
+	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/go-address"
 
