@@ -50,7 +50,8 @@ customElements.define('cluster-tasks', class ClusterTasks extends LitElement {
         Show background tasks
       </label>
 
-      <table class="table table-dark">
+<!--      todo: workaround for the jumping width; fix should introduce constraints for all of the columns -->
+      <table class="table table-dark" style="min-width: 520px">
         <thead>
           <tr>
             <th>SpID</th>

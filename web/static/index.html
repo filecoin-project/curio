@@ -17,6 +17,7 @@
     <script type="module" src="pipeline-porep.mjs"></script>
     <script type="module" src="actor-summary.mjs"></script>
     <script type="module" src="/ux/curio-ux.mjs"></script>
+    <script type="module" src="/ux/components/drawer/drawerBase.mjs"></script>
     <style>
         .logo {
             display: inline-block;
@@ -109,8 +110,10 @@
             <div class="row">
                 <div class="col-md-auto" style="max-width: 1000px">
                     <div class="info-block">
-                        <h2>Cluster Tasks</h2>
-                        <cluster-tasks></cluster-tasks>
+                        <ui-drawer-base>
+                            <h2>Cluster Tasks</h2>
+                            <cluster-tasks></cluster-tasks>
+                        </ui-drawer-base>
                     </div>
                 </div>
                 <div class="col-md-auto">
