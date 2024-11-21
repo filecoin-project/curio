@@ -1,5 +1,6 @@
 import {css, html, LitElement} from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { formatDate } from '/lib/dateutil.mjs';
 
 class LegacyDealList extends LitElement {
     static properties = {
@@ -61,23 +62,22 @@ class LegacyDealList extends LitElement {
         <table class="table table-dark table-striped table-sm">
           <thead>
             <tr>
+              <th>Created At</th>
               <th>ID</th>
               <th>Provider</th>
               <th>Piece CID</th>
               <th>Piece Size</th>
-              <th>Created At</th>
-              <!-- Add more columns as needed -->
             </tr>
           </thead>
           <tbody>
             ${this.deals.map(
             (deal) => html`
                 <tr>
-                    <td><a href="/pages/mk12-deal/?id=${deal.id}">${deal.id}</a></td>
+                  <td>${formatDate(deal.created_at)}</td>
+                  <td><a href="/pages/mk12-deal/?id=${deal.id}">${deal.id}</a></td>
                   <td>${deal.miner}</td>
                   <td>${deal.piece_cid}</td>
                   <td>${this.formatBytes(deal.piece_size)}</td>
-                  <td>${new Date(deal.created_at).toLocaleString()}</td>
                 </tr>
               `
         )}

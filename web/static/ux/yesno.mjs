@@ -7,10 +7,10 @@ class YesNo extends LitElement {
 
     static styles = css`
     .yes {
-      color: green;
+      color: var(--color-success-main);
     }
     .no {
-      color: red;
+      color: var(--color-danger-main);
     }
   `;
 
@@ -31,10 +31,10 @@ class FailOk extends LitElement {
 
     static styles = css`
     .success {
-      color: green;
+      color: var(--color-success-main);
     }
     .failed {
-      color: red;
+      color: var(--color-danger-main);
     }
   `;
 
@@ -55,10 +55,10 @@ class DoneNotDone extends LitElement {
 
     static styles = css`
     .done {
-      color: green;
+      color: var(--color-success-main);
     }
     .not-done {
-      color: #FFD700; /* Gold color for better readability on white background */
+      color: var(--color-warning-main);
     }
   `;
 

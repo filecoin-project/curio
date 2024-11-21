@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { formatDate } from '/lib/dateutil.mjs';
 
 class DealDetails extends LitElement {
     constructor() {
@@ -26,7 +27,7 @@ class DealDetails extends LitElement {
                 {property: 'ID', value: entry.id},
                 {property: 'Provider', value: entry.miner},
                 {property: 'Sector Number', value: entry.sector},
-                {property: 'Created At', value: entry.created_at},
+                {property: 'Created At', value: formatDate(entry.created_at)},
                 {property: 'Signed Proposal Cid', value: entry.signed_proposal_cid},
                 {property: 'Offline', value: entry.offline},
                 {property: 'Verified', value: entry.verified},

@@ -321,6 +321,7 @@ type StorageDealList struct {
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	PieceCid  string    `db:"piece_cid" json:"piece_cid"`
 	PieceSize int64     `db:"piece_size" json:"piece_size"`
+	Complete  bool      `db:"complete" json:"complete"`
 	Miner     string    `json:"miner"`
 }
 
@@ -328,12 +329,14 @@ func (a *WebRPC) MK12StorageDealList(ctx context.Context, limit int, offset int)
 	var mk12Summaries []*StorageDealList
 
 	err := a.deps.DB.Select(ctx, &mk12Summaries, `SELECT 
-									uuid,
-									sp_id,
-									created_at,
-									piece_cid,
-									piece_size
-									FROM market_mk12_deals md 
+									md.uuid,
+									md.sp_id,
+									md.created_at,
+									md.piece_cid,
+									md.piece_size,
+									coalesce(mm12dp.complete, true) as complete
+									FROM market_mk12_deals md
+									LEFT JOIN market_mk12_deal_pipeline mm12dp ON md.uuid = mm12dp.uuid
 									ORDER BY created_at DESC
 											LIMIT $1 OFFSET $2;`, limit, offset)
 	if err != nil {

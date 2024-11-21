@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { formatDate } from '/lib/dateutil.mjs';
 
 class DealPipelines extends LitElement {
     static properties = {
@@ -110,7 +111,7 @@ class DealPipelines extends LitElement {
                     ${this.deals.map(
                         (deal) => html`
                             <tr>
-                                <td>${this.formatDate(deal.created_at)}</td>
+                                <td>${formatDate(deal.created_at)}</td>
                                 <td>
                                     <a href="/pages/mk12-deal/?id=${deal.uuid}">${deal.uuid}</a>
                                 </td>
@@ -144,42 +145,6 @@ class DealPipelines extends LitElement {
                 </div>
             </div>
         `;
-    }
-
-    formatDate(dateString) {
-        const date = new Date(dateString);
-        const formattedDate = date.getFullYear() + '-' +
-            String(date.getMonth() + 1).padStart(2, '0') + '-' +
-            String(date.getDate()).padStart(2, '0') + ' ' +
-            String(date.getHours()).padStart(2, '0') + ':' +
-            String(date.getMinutes()).padStart(2, '0');
-
-        const timeAgo = this.timeSince(date);
-
-        return `${formattedDate} (${timeAgo} ago)`;
-    }
-
-    timeSince(date) {
-        const now = new Date();
-        const seconds = Math.floor((now - date) / 1000);
-
-        let interval = Math.floor(seconds / 86400); // days
-        const days = interval;
-        interval = seconds % 86400;
-
-        let hours = Math.floor(interval / 3600);
-        interval = interval % 3600;
-
-        let minutes = Math.floor(interval / 60);
-
-        let result = '';
-        if (days > 0) result += `${days}d `;
-        if (hours > 0) result += `${hours}h `;
-        if (minutes > 0) result += `${minutes}m`;
-
-        if (result === '') result = 'just now';
-
-        return result.trim();
     }
 
     formatPieceCid(pieceCid) {
