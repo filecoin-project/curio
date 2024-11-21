@@ -238,7 +238,10 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			// PSD and Deal find task do not require many resources. They can run on all machines
 			psdTask := storage_market.NewPSDTask(dm, db, sender, as, &cfg.Market.StorageMarketConfig.MK12, full)
 			dealFindTask := storage_market.NewFindDealTask(dm, db, full, &cfg.Market.StorageMarketConfig.MK12)
-			activeTasks = append(activeTasks, psdTask, dealFindTask)
+
+			checkIndexesTask := indexing.NewCheckIndexesTask(db, iStore)
+
+			activeTasks = append(activeTasks, psdTask, dealFindTask, checkIndexesTask)
 
 			// Start libp2p hosts and handle streams
 			err = libp2p.NewDealProvider(ctx, db, cfg, dm.MK12Handler, full, sender, miners, machine)

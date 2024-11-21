@@ -386,3 +386,23 @@ func (i *IndexStore) GetPieceHashRange(ctx context.Context, piece cid.Cid, start
 
 	return hashes, nil
 }
+
+func (i *IndexStore) CheckHasPiece(ctx context.Context, piece cid.Cid) (bool, error) {
+	qry := "SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash >= ? ORDER BY PayloadMultihash ASC LIMIT ?"
+	iter := i.session.Query(qry, piece.Bytes(), []byte{0}, 1).WithContext(ctx).Iter()
+
+	var hashes []multihash.Multihash
+	var r []byte
+	for iter.Scan(&r) {
+		m := multihash.Multihash(r)
+		hashes = append(hashes, m)
+
+		// Allocate new r, preallocating the typical size of a multihash (36 bytes)
+		r = make([]byte, 0, 36)
+	}
+	if err := iter.Close(); err != nil {
+		return false, xerrors.Errorf("iterating piece hash range (P:0x%02x, n:%d): %w", piece.Bytes(), err)
+	}
+
+	return len(hashes) > 0, nil
+}
