@@ -25,6 +25,8 @@ import (
 
 const MaxCachedReaders = 128
 
+const MaxCarBlockPrefixSize = 128 // car entry len varint + cid len
+
 var log = logging.Logger("remote-blockstore")
 
 type idxAPI interface {
@@ -80,7 +82,13 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 		stats.Record(ctx, ro.blockMetrics.GetRequestCount.M(1))
 	}
 
-	log.Debugw("Get", "cid", c)
+	defer func() {
+		var nb int
+		if b != nil {
+			nb = len(b.RawData())
+		}
+		log.Debugw("Get", "cid", c, "err", err, "bytes", nb, "bnil", b == nil)
+	}()
 
 	// Get the pieces that contain the cid
 	pieces, err := ro.idxApi.PiecesContainingMultihash(ctx, c.Hash())
@@ -123,7 +131,7 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 			}
 
 			// Seek to the section offset
-			readerAt := io.NewSectionReader(reader, int64(offset), int64(piece.BlockSize))
+			readerAt := io.NewSectionReader(reader, int64(offset), int64(piece.BlockSize+MaxCarBlockPrefixSize))
 			readCid, data, err := util.ReadNode(bufio.NewReader(readerAt))
 			if err != nil {
 				return nil, fmt.Errorf("reading data for block %s from reader for piece %s: %w", c, piece.PieceCid, err)
@@ -140,7 +148,11 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 		return blocks.NewBlockWithCid(data, c)
 	}
 
-	return nil, err
+	if merr == nil {
+		merr = fmt.Errorf("no block with cid %s found", c)
+	}
+
+	return nil, merr
 }
 
 func (ro *RemoteBlockstore) Has(ctx context.Context, c cid.Cid) (bool, error) {
