@@ -15,9 +15,9 @@ import (
 	"github.com/filecoin-project/curio/market/indexstore"
 )
 
-const CheckIndexInterval = 20 * time.Minute
+const CheckIndexInterval = 9 * time.Minute
 
-var MaxOngoingIndexingTasks = 1
+var MaxOngoingIndexingTasks = 20
 
 type CheckIndexesTask struct {
 	db         *harmonydb.DB
@@ -224,11 +224,11 @@ func (c *CheckIndexesTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 			INSERT INTO market_mk12_deal_pipeline (
 				uuid, sp_id, piece_cid, piece_size, raw_size, offline, url, headers, created_at,
 				sector, sector_offset, reg_seal_proof,
-				started, after_psd, after_commp, after_find_deal, sealed,
+				started, after_psd, after_commp, after_find_deal, sealed, complete,
 				indexed, indexing_created_at, indexing_task_id, should_index
 			)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-			        true, true, true, true, true,
+			        true, true, true, true, true, true,
 			        false, NOW(), NULL, true)
 			ON CONFLICT (uuid) DO NOTHING
 		`, deal.UUID, deal.SPID, deal.PieceCID, deal.PieceSize, rawSize, deal.Offline, deal.URL, deal.Headers, deal.CreatedAt,
