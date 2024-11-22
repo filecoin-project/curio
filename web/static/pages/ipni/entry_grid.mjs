@@ -9,6 +9,7 @@ class EntryGrid extends LitElement {
         currentEntry: { type: Object },
         selectedEntry: { type: Object },
         scanningIndex: { type: Number },
+        selectedIndex: { type: Number },
         blink: { type: Boolean },
     };
 
@@ -20,6 +21,7 @@ class EntryGrid extends LitElement {
         this.currentEntry = null;
         this.selectedEntry = null;
         this.scanningIndex = 0;
+        this.selectedIndex = null;
         this.blink = false;
         this._blinkInterval = null;
     }
@@ -74,7 +76,7 @@ class EntryGrid extends LitElement {
         while (this.scanningIndex < this.entryCount && currentCid) {
             // Update the currentEntry
             try {
-                const entryInfo = await RPCCall('IPNIEntry', [{"/": currentCid}]);
+                const entryInfo = await RPCCall('IPNIEntry', [{ "/": currentCid }]);
 
                 // Update the entries array
                 this.entries[this.scanningIndex] = {
@@ -126,97 +128,107 @@ class EntryGrid extends LitElement {
         const entry = this.entries[index];
         if (entry && (entry.status === 'scanned' || entry.status === 'error')) {
             this.selectedEntry = entry.details;
+            this.selectedIndex = index;
         }
     }
 
     render() {
         return html`
-      <div class="entry-details">
-        <h3>Current Entry</h3>
-        ${this.currentEntry
-            ? html`<pre>${JSON.stringify(this.currentEntry, null, 2)}</pre>`
-            : html`<p>No entry is being scanned currently.</p>`}
-      </div>
-
-      ${this.selectedEntry
-            ? html`
-            <div class="selected-entry-details">
-              <h3>Selected Entry</h3>
-              <pre>${JSON.stringify(this.selectedEntry, null, 2)}</pre>
+            <div class="entry-details">
+                <h3>Current Entry</h3>
+                ${this.currentEntry
+                        ? html`<pre>${JSON.stringify(this.currentEntry, null, 2)}</pre>`
+                        : html`<p>No entry is being scanned currently.</p>`}
             </div>
-          `
-            : ''}
 
-      <div class="grid-container">
-        ${this.entries.map((entry, index) => {
-            let className = 'grid-item ';
-            if (index === this.scanningIndex) {
-                className += this.blink ? 'scanning' : 'scanning2';
-            } else {
-                if (entry.status === 'unscanned') {
-                    className += 'unscanned';
-                } else if (entry.status === 'scanned') {
-                    className += 'scanned';
-                } else if (entry.status === 'error') {
-                    className += 'error';
-                }
-            }
+            ${this.selectedEntry
+                    ? html`
+                        <div class="selected-entry-details">
+                            <h3>Selected Entry</h3>
+                            <pre>${JSON.stringify(this.selectedEntry, null, 2)}</pre>
+                        </div>
+                    `
+                    : ''}
 
-            return html`
-            <div
-              class="${className}"
-              @click="${() => this.handleSquareClick(index)}"
-              title="Entry ${index + 1}"
-            ></div>
-          `;
-        })}
-      </div>
-    `;
+            <div class="grid-container">
+                ${this.entries.map((entry, index) => {
+                    let className = 'grid-item ';
+                    if (index === this.scanningIndex) {
+                        className += this.blink ? 'scanning' : 'scanning2';
+                    } else {
+                        if (entry.status === 'unscanned') {
+                            className += 'unscanned';
+                        } else if (entry.status === 'scanned') {
+                            className += 'scanned';
+                        } else if (entry.status === 'error') {
+                            className += 'error';
+                        }
+                    }
+
+                    if (index === this.selectedIndex) {
+                        className += ' selected'; // Add 'selected' class
+                    }
+
+                    return html`
+                        <div
+                                class="${className}"
+                                @click="${() => this.handleSquareClick(index)}"
+                                title="Entry ${index + 1}"
+                        ></div>
+                    `;
+                })}
+            </div>
+        `;
     }
 
     static styles = css`
-    .entry-details,
-    .selected-entry-details {
-      margin-bottom: 1rem;
-    }
+        .entry-details,
+        .selected-entry-details {
+          margin-bottom: 1rem;
+        }
 
-    .grid-container {
-      display: grid;
-      grid-template-columns: repeat(64, 10px);
-      grid-gap: 2px;
-    }
+        .grid-container {
+          display: grid;
+          grid-template-columns: repeat(64, 10px);
+          grid-gap: 2px;
+        }
 
-    .grid-item {
-      width: 10px;
-      height: 10px;
-      background-color: gray;
-      cursor: pointer;
-    }
+        .grid-item {
+          width: 10px;
+          height: 10px;
+          background-color: gray;
+          cursor: pointer;
+          box-sizing: border-box; /* Ensure padding and border are included in total size */
+        }
 
-    .grid-item.unscanned {
-      background-color: gray;
-    }
+        .grid-item.unscanned {
+          background-color: gray;
+        }
 
-    .grid-item.scanned {
-      background-color: green;
-    }
+        .grid-item.scanned {
+          background-color: green;
+        }
 
-    .grid-item.error {
-      background-color: red;
-    }
+        .grid-item.error {
+          background-color: red;
+        }
 
-    .grid-item.scanning {
-      background-color: blue;
-    }
-    
-    .grid-item.scanning2 {
-      background-color: cyan;
-    }
+        .grid-item.scanning {
+          background-color: blue;
+        }
+        
+        .grid-item.scanning2 {
+          background-color: cyan;
+        }
 
-    pre {
-      padding: 1rem;
-    }
-  `;
+        .grid-item.selected {
+          outline: 2px solid cyan; /* Use outline to avoid affecting layout */
+        }
+
+        pre {
+          padding: 1rem;
+        }
+    `;
 }
 
 customElements.define('entry-grid', EntryGrid);
