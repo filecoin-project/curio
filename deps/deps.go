@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"io"
 	"net"
 	"net/http"
@@ -189,6 +190,7 @@ type Deps struct {
 	IndexStore        *indexstore.IndexStore
 	PieceProvider     *pieceprovider.PieceProvider
 	CachedPieceReader *cachedreader.CachedPieceReader
+	ServeChunker      *chunker.ServeChunker
 }
 
 const (
@@ -373,6 +375,10 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 
 	if deps.CachedPieceReader == nil {
 		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.PieceProvider)
+	}
+
+	if deps.ServeChunker == nil {
+		deps.ServeChunker = chunker.NewServeChunker(deps.DB, deps.PieceProvider, deps.IndexStore, deps.CachedPieceReader)
 	}
 
 	return nil

@@ -2,16 +2,17 @@ package indexing
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/go-state-types/abi"
 	"time"
 
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 )
 

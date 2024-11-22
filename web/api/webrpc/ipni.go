@@ -31,6 +31,9 @@ type IpniAd struct {
 	PieceCid        string         `json:"piece_cid"`
 	PieceSize       int64          `json:"piece_size"`
 	Miner           string         `json:"miner"`
+
+	EntryCount int64 `json:"entry_count"`
+	CIDCount   int64 `json:"cid_count"`
 }
 
 func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
@@ -88,6 +91,21 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 		details.AddressesString = ""
 	} else {
 		details.AddressesString = details.Addresses.String
+	}
+
+	var adEntryInfo []struct {
+		EntryCount int64 `db:"entry_count"`
+		CIDCount   int64 `db:"cid_count"`
+	}
+
+	err = a.deps.DB.Select(ctx, &adEntryInfo, `SELECT count(1) as entry_count, sum(num_blocks) as cid_count from ipni_chunks where piece_cid=$1`, details.PieceCid)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to fetch the ad entry count from DB: %w", err)
+	}
+
+	if adEntryInfo[0].EntryCount > 0 {
+		details.EntryCount = adEntryInfo[0].EntryCount
+		details.CIDCount = adEntryInfo[0].CIDCount
 	}
 
 	return &details, nil
@@ -224,4 +242,59 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]IPNI, error) {
 		}
 	}
 	return summary, nil
+}
+
+type EntryInfo struct {
+	PieceCID string `db:"piece_cid"`
+	FromCar  bool   `db:"from_car"`
+
+	FirstCID    *string `db:"first_cid"`
+	StartOffset *int64  `db:"start_offset"`
+	NumBlocks   int64   `db:"num_blocks"`
+
+	PrevCID *string `db:"prev_cid"`
+
+	Err  *string
+	Size int64
+}
+
+func (a *WebRPC) IPNIEntry(ctx context.Context, block cid.Cid) (*EntryInfo, error) {
+	var ipniChunks []EntryInfo
+
+	err := a.deps.DB.Select(ctx, &ipniChunks, `SELECT 
+			current.piece_cid, 
+			current.from_car, 
+			current.first_cid, 
+			current.start_offset, 
+			current.num_blocks, 
+			prev.cid AS prev_cid
+		FROM 
+			ipni_chunks current
+		LEFT JOIN 
+			ipni_chunks prev 
+		ON 
+			current.piece_cid = prev.piece_cid AND
+			current.chunk_num = prev.chunk_num + 1
+		WHERE 
+			current.cid = $1
+		LIMIT 1;`, block.String())
+	if err != nil {
+		return nil, xerrors.Errorf("querying chunks with entry link %s: %w", block, err)
+	}
+
+	if len(ipniChunks) == 0 {
+		return nil, xerrors.Errorf("no entry found for %s", block)
+	}
+
+	entry := ipniChunks[0]
+
+	b, err := a.deps.ServeChunker.GetEntry(ctx, block)
+	if err != nil {
+		estr := err.Error()
+		entry.Err = &estr
+	} else {
+		entry.Size = int64(len(b))
+	}
+
+	return &entry, nil
 }

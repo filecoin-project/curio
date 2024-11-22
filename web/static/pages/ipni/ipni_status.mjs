@@ -44,6 +44,8 @@ class IpniStatus extends LitElement {
         rel="stylesheet"
         crossorigin="anonymous"
       />
+      <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
+      
       <style>
         .provider-row {
           cursor: pointer;
@@ -107,7 +109,7 @@ class IpniStatus extends LitElement {
                       >
                         <div class="accordion-body">
                           <p><strong>PeerID:</strong> ${provider.peer_id}</p>
-                          <p><strong>Head:</strong> ${provider.head}</p>
+                          <p><strong>Head:</strong> <a href="/pages/ipni/?ad_cid=${provider.head}">${provider.head}</a></p>
                           ${provider.sync_status && provider.sync_status.length > 0 ? provider.sync_status.map((status) => html`
                                   <div class="sync-status">
                                     <p><strong>Service:</strong> ${status.service}</p>
