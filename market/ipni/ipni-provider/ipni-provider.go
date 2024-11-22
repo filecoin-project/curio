@@ -413,6 +413,7 @@ func (p *Provider) getEntry(rctx context.Context, block cid.Cid, speculated bool
 	}
 
 	if len(ipniChunks) == 0 {
+		log.Warnw("No chunk found for entry", "block", block)
 		return nil, ErrNotFound
 	}
 
@@ -501,7 +502,7 @@ func (p *Provider) reconstructChunkFromCar(ctx context.Context, chunk, piece cid
 		}
 
 		if link.String() != chunk.String() {
-			return nil, xerrors.Errorf("chunk node does not match the expected chunk CID, got %s, expected %s", link.String(), chunk.String())
+			return nil, xerrors.Errorf("car chunk node does not match the expected chunk CID, got %s, expected %s", link.String(), chunk.String())
 		}
 	}
 
@@ -538,7 +539,7 @@ func (p *Provider) reconstructChunkFromDB(ctx context.Context, chunk, piece cid.
 		}
 
 		if link.String() != chunk.String() {
-			return nil, xerrors.Errorf("chunk node does not match the expected chunk CID, got %s, expected %s", link.String(), chunk.String())
+			return nil, xerrors.Errorf("db chunk node does not match the expected chunk CID, got %s, expected %s, mhs %d/%d, first %s, nextL %s", link.String(), chunk.String(), len(mhs), numBlocks, firstHash.HexString(), next.String())
 		}
 	}
 
