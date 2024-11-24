@@ -67,3 +67,15 @@ type AskRequest struct {
 type AskResponse struct {
 	Ask *SignedStorageAsk
 }
+
+type Protocol struct {
+	// The name of the transport protocol eg "libp2p" or "http"
+	Name string
+	// The address of the endpoint in multiaddr format
+	Addresses [][]byte
+}
+
+// QueryResponse is a response to a Transport protocol query
+type QueryResponse struct {
+	Protocols []Protocol
+}
