@@ -17,7 +17,7 @@ import (
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 )
 
-const longChainThreshold = 500_000
+const longChainThreshold = 50_000_000
 
 // maxCarChunkSize is maximum entry size for car-order ingested entries.
 const maxCarChunkSize = 512 << 20
@@ -152,9 +152,29 @@ func (c *InitialChunker) finishDB(ctx context.Context, db *harmonydb.DB, pieceCi
 		return bytes.Compare(c.dbMultihashes[i], c.dbMultihashes[j]) < 0
 	})
 
-	totalMhCount := len(c.dbMultihashes)
+	// Drop duplicates
+	var n int
+	var prev multihash.Multihash
+	for i := range c.dbMultihashes {
+		if i > 0 {
+			if string(c.dbMultihashes[i]) == string(prev) {
+				continue
+			}
+		}
+
+		c.dbMultihashes[n] = c.dbMultihashes[i]
+		prev = c.dbMultihashes[i]
+		n++
+	}
+
+	if len(c.dbMultihashes) != n {
+		log.Warnw("duplicates while indexing piece", "piece", pieceCid, "num", len(c.dbMultihashes)-n, "pieceOrigCount", len(c.dbMultihashes))
+		c.dbMultihashes = c.dbMultihashes[:n]
+	}
 
 	// Partition multihashes into chunks
+	totalMhCount := len(c.dbMultihashes)
+
 	var chunks [][]multihash.Multihash
 	for i := 0; i < len(c.dbMultihashes); i += c.chunkSize {
 		end := i + c.chunkSize

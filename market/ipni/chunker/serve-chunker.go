@@ -80,6 +80,13 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 	var prevChunk cid.Cid
 
 	defer func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Errorw("panic while getting entry", "r", r)
+				err = xerrors.Errorf("panic while getting entry: %v", r)
+			}
+		}()
+
 		if !speculated && err == nil && prevChunk != cid.Undef {
 			go func() {
 				_, err := p.getEntry(context.Background(), prevChunk, true)
