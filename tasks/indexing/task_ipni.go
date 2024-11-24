@@ -54,7 +54,6 @@ type IPNITask struct {
 }
 
 func NewIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.PieceProvider, cfg *config.CurioConfig, max taskhelp.Limiter) *IPNITask {
-
 	return &IPNITask{
 		db:            db,
 		indexStore:    indexStore,

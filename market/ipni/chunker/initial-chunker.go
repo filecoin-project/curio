@@ -187,6 +187,15 @@ func (c *InitialChunker) finishDB(ctx context.Context, db *harmonydb.DB, pieceCi
 		chunkLinks[i] = link
 	}
 
+	if db == nil {
+		// dry run mode, just log chunk hashes
+		for i, link := range chunkLinks {
+			fmt.Printf("%d. %s\n", i, link)
+		}
+
+		return nil, nil
+	}
+
 	commit, err := db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (bool, error) {
 		batch := &pgx.Batch{}
 
@@ -240,6 +249,16 @@ func (c *InitialChunker) finishCAR(ctx context.Context, db *harmonydb.DB, pieceC
 	}
 
 	totalChunks := len(c.prevChunks)
+
+	if db == nil {
+		// dry run mode, just log chunk hashes
+		for i, link := range c.prevChunks {
+			fmt.Printf("%d. %s\n", i, link)
+		}
+
+		return nil, nil
+	}
+
 	commit, err := db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (bool, error) {
 		batch := &pgx.Batch{}
 

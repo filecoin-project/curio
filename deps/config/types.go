@@ -96,7 +96,6 @@ func DefaultCurioConfig() *CurioConfig {
 			DomainName:        "",
 			ListenAddress:     "0.0.0.0:12310",
 			ReadTimeout:       time.Second * 10,
-			WriteTimeout:      time.Second * 100,
 			IdleTimeout:       time.Minute * 2,
 			ReadHeaderTimeout: time.Second * 5,
 			EnableCORS:        true,
@@ -642,9 +641,6 @@ type HTTPConfig struct {
 
 	// ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
 	ReadTimeout time.Duration
-
-	// WriteTimeout is the maximum duration before timing out writes of the response to the client.
-	WriteTimeout time.Duration
 
 	// IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
 	IdleTimeout time.Duration

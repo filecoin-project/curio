@@ -153,7 +153,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
 		Addr:              cfg.ListenAddress,
 		Handler:           libp2pConnMiddleware(loggingMiddleware(compressionMw(chiRouter))), // Attach middlewares
 		ReadTimeout:       cfg.ReadTimeout,
-		WriteTimeout:      cfg.WriteTimeout,
+		WriteTimeout:      time.Hour * 2,
 		IdleTimeout:       cfg.IdleTimeout,
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 	}
