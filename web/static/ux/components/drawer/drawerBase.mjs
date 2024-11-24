@@ -59,7 +59,9 @@ class DrawerBase extends StyledLitElement {
                 </svg>
             </button>
           </div>
-          <slot name="content"></slot>
+          <div class="dialog-content">
+            <slot name="content"></slot>
+          </div>
         </dialog>
       </div>
     `;
@@ -71,20 +73,29 @@ DrawerBase.styles = [
   css`
     dialog {
       position: fixed;
-      left: auto;
-      right: 0;
       top: 0;
+      bottom: 0;
+      right: 0;
+      left: auto;
       width: 40rem; // todo
       min-height: 100vh;
+      max-height: 100vh;
       padding: 1rem;
       border: 0;
       background-color: #2e2e33;
       color: var(--color-text-primary);
       box-shadow: -8px 0 20px 4px #242428;
+
+      overflow-y: auto;
     }
 
     .dialog-header {
       display: flex;
+    }
+    
+    .dialog-content {
+      //max-height: 100%;
+      //overflow-y: auto;
     }
     
     *::slotted([name="header"]) {
@@ -96,11 +107,12 @@ DrawerBase.styles = [
 
     ::slotted([name="content"]) {
       border: 2px solid red;
-      overflow: scroll;
+      //overflow: scroll;
     }
     
     .open-btn {
-      position: absolute;
+      position: fixed;
+      top: 0;
       right: 0;
       transform-origin: bottom right;
       transform: rotate(-90deg);
