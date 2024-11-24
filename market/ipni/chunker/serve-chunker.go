@@ -6,14 +6,9 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/cachedreader"
-	"github.com/filecoin-project/curio/lib/pieceprovider"
-	"github.com/filecoin-project/curio/lib/promise"
-	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/market/indexstore"
-	"github.com/filecoin-project/curio/market/ipni/ipniculib"
-	"github.com/filecoin-project/lotus/lib/result"
+	"io"
+	"time"
+
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/ipfs/go-cid"
 	"github.com/ipld/go-ipld-prime"
@@ -22,8 +17,16 @@ import (
 	"github.com/multiformats/go-multihash"
 	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
-	"io"
-	"time"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/cachedreader"
+	"github.com/filecoin-project/curio/lib/pieceprovider"
+	"github.com/filecoin-project/curio/lib/promise"
+	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/market/indexstore"
+	"github.com/filecoin-project/curio/market/ipni/ipniculib"
+
+	"github.com/filecoin-project/lotus/lib/result"
 )
 
 var (

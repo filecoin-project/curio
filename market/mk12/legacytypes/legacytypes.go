@@ -6,7 +6,7 @@ import (
 	"github.com/filecoin-project/go-state-types/crypto"
 )
 
-//go:generate cbor-gen-for --map-encoding SignedStorageAsk StorageAsk Balance AskRequest AskResponse
+//go:generate cbor-gen-for --map-encoding SignedStorageAsk StorageAsk Balance AskRequest AskResponse Protocol QueryResponse
 
 // AskProtocolID is the ID for the libp2p protocol for querying miners for their current StorageAsk.
 const AskProtocolID = "/fil/storage/ask/1.1.0"

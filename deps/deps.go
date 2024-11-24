@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"io"
 	"net"
 	"net/http"
@@ -43,6 +42,7 @@ import (
 	"github.com/filecoin-project/curio/lib/repo"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
+	"github.com/filecoin-project/curio/market/ipni/chunker"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"

@@ -4,13 +4,15 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"github.com/filecoin-project/curio/market/ipni/chunker"
+	"io"
+	"os"
+
 	"github.com/ipfs/go-cid"
 	carv2 "github.com/ipld/go-car/v2"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
-	"io"
-	"os"
+
+	"github.com/filecoin-project/curio/market/ipni/chunker"
 )
 
 var testDebugIpniChunks = &cli.Command{

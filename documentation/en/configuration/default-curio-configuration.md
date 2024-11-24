@@ -384,11 +384,6 @@ description: The default curio configuration
   # type: time.Duration
   #ReadTimeout = "10s"
 
-  # WriteTimeout is the maximum duration before timing out writes of the response to the client.
-  #
-  # type: time.Duration
-  #WriteTimeout = "1m40s"
-
   # IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
   #
   # type: time.Duration

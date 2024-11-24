@@ -762,12 +762,6 @@ HTTP and the reverse proxy will handle TLS termination.`,
 			Comment: `ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.`,
 		},
 		{
-			Name: "WriteTimeout",
-			Type: "time.Duration",
-
-			Comment: `WriteTimeout is the maximum duration before timing out writes of the response to the client.`,
-		},
-		{
 			Name: "IdleTimeout",
 			Type: "time.Duration",
 
