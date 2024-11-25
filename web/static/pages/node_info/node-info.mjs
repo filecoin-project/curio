@@ -43,6 +43,7 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                     <td>
                         <a href="http://${this.data.Info.Host}/debug/pprof">[pprof]</a>
                         <a href="http://${this.data.Info.Host}/debug/metrics">[metrics]</a>
+                        <a href="http://${this.data.Info.Host}/debug/vars">[vars]</a>
                     </td>
                 </tr>
             </table>
