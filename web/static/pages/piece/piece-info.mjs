@@ -119,6 +119,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                         <tr><th>Signed Proposal CID</th><td>${entry.deal.signed_proposal_cid}</td></tr>
                         <tr><th>Proposal Signature</th><td><pre>${entry.deal.proposal_signature}</pre></td></tr>
                         <tr><th>Proposal</th><td><pre>${JSON.stringify(entry.deal.proposal, null, 2)}</pre></td></tr>
+                        <tr><th>Proposal CID</th><td>${entry.deal.proposal_cid}</td></tr>
                         <tr><th>Offline</th><td><yes-no .value=${entry.deal.offline}></yes-no></td></tr>
                         <tr><th>Verified</th><td><yes-no .value=${entry.deal.verified}></yes-no></td></tr>
                         <tr><th>Start Epoch</th><td>${entry.deal.start_epoch}</td></tr>

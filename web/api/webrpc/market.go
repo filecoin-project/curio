@@ -677,6 +677,7 @@ type MK12Deal struct {
 	SignedProposalCid string          `db:"signed_proposal_cid" json:"signed_proposal_cid"`
 	ProposalSignature []byte          `db:"proposal_signature" json:"proposal_signature"`
 	Proposal          json.RawMessage `db:"proposal" json:"proposal"`
+	ProposalCid       string          `db:"proposal_cid" json:"proposal_cid"`
 	Offline           bool            `db:"offline" json:"offline"`
 	Verified          bool            `db:"verified" json:"verified"`
 	StartEpoch        int64           `db:"start_epoch" json:"start_epoch"`
@@ -740,6 +741,7 @@ func (a *WebRPC) MK12DealDetail(ctx context.Context, pieceCid string) ([]MK12Dea
             signed_proposal_cid,
             proposal_signature,
             proposal,
+            proposal_cid,
             offline,
             verified,
             start_epoch,
