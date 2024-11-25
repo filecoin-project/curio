@@ -5,3 +5,9 @@ CREATE UNIQUE INDEX sectors_pipeline_events_task_history_id_uindex
 
 CREATE UNIQUE INDEX market_piece_deal_piece_cid_id_uindex
     ON market_piece_deal (piece_cid, id);
+
+alter table market_mk12_deals
+    add proposal_cid text not null;
+
+CREATE INDEX market_mk12_deals_proposal_cid_index
+    ON market_mk12_deals (proposal_cid);

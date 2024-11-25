@@ -402,6 +402,13 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 		}, nil
 	}
 
+	propCid, err := deal.ClientDealProposal.Proposal.Cid()
+	if err != nil {
+		return &ProviderDealRejectionInfo{
+			Reason: fmt.Sprintf("get proposal CID: %s", err),
+		}, nil
+	}
+
 	sigByte, err := deal.ClientDealProposal.ClientSignature.MarshalBinary()
 	if err != nil {
 		return &ProviderDealRejectionInfo{
@@ -447,13 +454,24 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 	}
 
 	comm, err := m.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		// First check if we already have deals with the proposal CID (duplicates can happen from boost deals)
+		var exist int
+		err = tx.QueryRow(`SELECT COUNT(1) as exists FROM market_mk12_deals WHERE proposal_cid=$1`, propCid).Scan(&exist)
+		if err != nil {
+			return false, xerrors.Errorf("failed to query market_mk12_deals propcid count: %w", err)
+		}
+		if exist > 0 {
+			return false, xerrors.Errorf("market deal with the same proposalCID %s already exists: %d", propCid, exist)
+		}
+
+		// Store the deal
 		n, err := tx.Exec(`INSERT INTO market_mk12_deals (uuid, signed_proposal_cid, 
-                                proposal_signature, proposal, piece_cid, 
+                                proposal_signature, proposal, proposal_cid, piece_cid, 
                                 piece_size, offline, verified, sp_id, start_epoch, end_epoch, 
                                 client_peer_id, fast_retrieval, announce_to_ipni, url, url_headers, label) 
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 				ON CONFLICT (uuid) DO NOTHING`,
-			deal.DealUuid.String(), deal.SignedProposalCID.String(), sigByte, propJson, prop.PieceCID.String(),
+			deal.DealUuid.String(), deal.SignedProposalCID.String(), sigByte, propJson, propCid, prop.PieceCID.String(),
 			prop.PieceSize, deal.IsOffline, prop.VerifiedDeal, mid, prop.StartEpoch, prop.EndEpoch, deal.ClientPeerID.String(),
 			deal.FastRetrieval, deal.AnnounceToIPNI, tInfo.URL, headers, b.Bytes())
 

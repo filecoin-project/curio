@@ -204,6 +204,10 @@ func (p *PSDTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bo
 		return false, xerrors.Errorf("serializing PublishStorageDeals params failed: %w", err)
 	}
 
+	if len(vdeals) == 0 {
+		return false, xerrors.Errorf("publish deals did not find any valid deals")
+	}
+
 	addr, _, err := p.as.AddressFor(ctx, p.api, vdeals[0].Proposal.Provider, mi, api.DealPublishAddr, big.Zero(), big.Zero())
 	if err != nil {
 		return false, xerrors.Errorf("selecting address for publishing deals: %w", err)
