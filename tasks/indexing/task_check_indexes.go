@@ -19,7 +19,7 @@ import (
 
 const CheckIndexInterval = 9 * time.Minute
 
-var MaxOngoingIndexingTasks = 20
+var MaxOngoingIndexingTasks = 40
 
 type CheckIndexesTask struct {
 	db         *harmonydb.DB

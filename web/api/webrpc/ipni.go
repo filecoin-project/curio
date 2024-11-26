@@ -240,7 +240,7 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 				if err != nil {
 					return nil, fmt.Errorf("failed to fetch the being count: %w", err)
 				}
-				sync.RemoteAd = sync.RemoteAd + fmt.Sprintf(" (%d beind)", diff)
+				sync.RemoteAd = sync.RemoteAd + fmt.Sprintf(" (%d behind)", diff)
 			}
 			d.SyncStatus = append(d.SyncStatus, sync)
 		}
