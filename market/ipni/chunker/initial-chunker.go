@@ -17,7 +17,7 @@ import (
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 )
 
-const longChainThreshold = 50_000_000
+const longChainThreshold = 500_000_000
 
 // maxCarChunkSize is maximum entry size for car-order ingested entries.
 const maxCarChunkSize = 512 << 20
