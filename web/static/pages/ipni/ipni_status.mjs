@@ -63,13 +63,12 @@ class IpniStatus extends LitElement {
           margin-right: 5px;
         }
         .accordion-button {
-            background-color: grey;
+            background-color: var(--color-nav-button);
+            color: var(--color-text-primary);
         }
         .accordion-button:not(.collapsed) {
-            background-color: grey;
-        }
-        .accordion-button-text {
-            background-color: white;
+            background-color: var(--color-nav-button);
+            color: var(--color-text-primary);
         }
         .accordion-item {
             background-color: transparent;
@@ -92,7 +91,7 @@ class IpniStatus extends LitElement {
                     <div class="accordion-item">
                       <h2 class="accordion-header" id="heading${index}">
                         <button
-                          class="accordion-button ${this.expandedProviders[provider.miner] ? '' : 'collapsed'}"
+                          class="accordion-button ${!this.expandedProviders[provider.miner] ? '' : 'collapsed'}"
                           type="button"
                           @click="${() => this.toggleProvider(provider.miner)}"
                         >
@@ -103,7 +102,7 @@ class IpniStatus extends LitElement {
                       </h2>
                       <div
                         id="collapse${index}"
-                        class="accordion-collapse collapse ${this.expandedProviders[provider.miner] ? 'show' : ''}"
+                        class="accordion-collapse collapse ${!this.expandedProviders[provider.miner] ? 'show' : ''}"
                         aria-labelledby="heading${index}"
                         data-bs-parent="#ipniStatusAccordion"
                       >

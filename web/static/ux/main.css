@@ -34,6 +34,9 @@
     --color-form-group-2: #71512B;
     --color-form-group-3: #2A5D6A;
     --color-form-group-4: #662671;
+
+    --color-nav-button: #2A2A2E;
+    --color-nav-button-hover: var(--color-secondary-dark);
 }
 
 html {

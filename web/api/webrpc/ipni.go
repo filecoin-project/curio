@@ -147,8 +147,8 @@ type ParsedResponse struct {
 	LastError             string         `json:"LastError"`
 }
 
-func (a *WebRPC) IPNISummary(ctx context.Context) ([]IPNI, error) {
-	var summary []IPNI
+func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
+	var summary []*IPNI
 
 	err := a.deps.DB.Select(ctx, &summary, `SELECT 
 												ipp.sp_id,
@@ -169,21 +169,25 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]IPNI, error) {
 	}
 
 	type minimalIpniInfo struct {
-		IPNIConfig struct {
-			ServiceURL []string
+		Market struct {
+			StorageMarketConfig struct {
+				IPNI struct {
+					ServiceURL []string
+				}
+			}
 		}
 	}
 
 	var services []string
 
 	err = forEachConfig[minimalIpniInfo](a, func(name string, info minimalIpniInfo) error {
-		if len(info.IPNIConfig.ServiceURL) == 0 {
-			return nil
-		}
-
-		services = append(services, info.IPNIConfig.ServiceURL...)
+		services = append(services, info.Market.StorageMarketConfig.IPNI.ServiceURL...)
 		return nil
 	})
+
+	if len(services) == 0 {
+		services = append(services, "https://cid.contact")
+	}
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch IPNI configuration: %w", err)
