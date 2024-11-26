@@ -70,6 +70,8 @@ type HarmonyTaskHistory struct {
 	WorkEnd   time.Time `db:"work_end"`
 	Posted    time.Time `db:"posted"`
 
+	Took string `db:"-"`
+
 	Result bool   `db:"result"`
 	Err    string `db:"err"`
 
@@ -80,8 +82,8 @@ type HarmonyTaskHistory struct {
 	Events []*SectorEvent `db:"-"`
 }
 
-func (a *WebRPC) HarmonyTaskHistory(ctx context.Context, taskName string, fails bool) ([]HarmonyTaskHistory, error) {
-	var stats []HarmonyTaskHistory
+func (a *WebRPC) HarmonyTaskHistory(ctx context.Context, taskName string, fails bool) ([]*HarmonyTaskHistory, error) {
+	var stats []*HarmonyTaskHistory
 	err := a.deps.DB.Select(ctx, &stats, `SELECT
 	hist.task_id, hist.name, hist.work_start, hist.work_end, hist.posted, hist.result, hist.err,
 	hist.completed_by_host_and_port, mach.id as completed_by_machine, hmd.machine_name as completed_by_machine_name
@@ -92,6 +94,11 @@ func (a *WebRPC) HarmonyTaskHistory(ctx context.Context, taskName string, fails 
 	if err != nil {
 		return nil, err
 	}
+
+	for _, stat := range stats {
+		stat.Took = stat.WorkEnd.Sub(stat.WorkStart).Truncate(100 * time.Millisecond).String()
+	}
+
 	return stats, nil
 }
 
