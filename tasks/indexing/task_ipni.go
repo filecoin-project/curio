@@ -324,7 +324,7 @@ func (I *IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 1 << 30,
 		},
 		MaxFailures: 3,
-		IAmBored: passcall.Every(5*time.Minute, func(taskFunc harmonytask.AddTaskFunc) error {
+		IAmBored: passcall.Every(30*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
 			return I.schedule(context.Background(), taskFunc)
 		}),
 		Max: I.max,

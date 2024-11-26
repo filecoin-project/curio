@@ -313,7 +313,7 @@ func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		Max:         i.max,
 		MaxFailures: 3,
-		IAmBored: passcall.Every(10*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
+		IAmBored: passcall.Every(30*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
 			return i.schedule(context.Background(), taskFunc)
 		}),
 	}
