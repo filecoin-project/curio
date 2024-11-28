@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -16,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ipfs/go-cid"
 	fslock "github.com/ipfs/go-fs-lock"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/minio/blake2b-simd"
@@ -25,7 +27,6 @@ import (
 
 var log = logging.Logger("paramfetch")
 
-// const gateway = "http://198.211.99.118/ipfs/"
 const gateway = "https://proofs.filecoin.io/ipfs/"
 const paramdir = "/var/tmp/filecoin-proof-parameters"
 const dirEnv = "FIL_PROOFS_PARAMETER_CACHE"
@@ -49,6 +50,8 @@ type fetch struct {
 	fsLockRelease func()
 	fsLockOnce    sync.Once
 	lockFail      bool // true if we failed to acquire the lock at least once, meaning that is was claimed by another process
+
+	ps *ParamServe
 }
 
 func getParamDir() string {
@@ -58,7 +61,7 @@ func getParamDir() string {
 	return os.Getenv(dirEnv)
 }
 
-func GetParams(ctx context.Context, paramBytes []byte, srsBytes []byte, storageSize uint64) error {
+func GetParams(ctx context.Context, ps *ParamServe, paramBytes []byte, srsBytes []byte, storageSize uint64) error {
 	if err := os.Mkdir(getParamDir(), 0755); err != nil && !os.IsExist(err) {
 		return err
 	}
@@ -69,7 +72,9 @@ func GetParams(ctx context.Context, paramBytes []byte, srsBytes []byte, storageS
 		return err
 	}
 
-	ft := &fetch{}
+	ft := &fetch{
+		ps: ps,
+	}
 
 	defer func() {
 		if ft.fsLockRelease != nil {
@@ -152,7 +157,7 @@ func (ft *fetch) maybeFetchAsync(ctx context.Context, name string, info paramFil
 			return
 		}
 
-		if err := doFetch(ctx, path, info); err != nil {
+		if err := ft.doFetch(ctx, path, info); err != nil {
 			ft.errs = append(ft.errs, xerrors.Errorf("fetching file %s failed: %w", path, err))
 			return
 		}
@@ -166,7 +171,7 @@ func (ft *fetch) maybeFetchAsync(ctx context.Context, name string, info paramFil
 				return
 			}
 
-			if err := doFetch(ctx, path, info); err != nil {
+			if err := ft.doFetch(ctx, path, info); err != nil {
 				ft.errs = append(ft.errs, xerrors.Errorf("fetching file %s failed: %w", path, err))
 				return
 			}
@@ -226,6 +231,16 @@ func (ft *fetch) checkFile(path string, info paramFile) error {
 		checked[path] = struct{}{}
 		checkedLk.Unlock()
 
+		// Call ps.allowCid
+		if ft.ps != nil {
+			c, err := cid.Parse(info.Cid)
+			if err != nil {
+				log.Errorf("Invalid CID %s: %v", info.Cid, err)
+			} else {
+				ft.ps.allowCid(context.Background(), c, path)
+			}
+		}
+
 		return nil
 	}
 
@@ -250,55 +265,58 @@ func (ft *fetch) wait(ctx context.Context) error {
 	return multierr.Combine(ft.errs...)
 }
 
-func doFetch(ctx context.Context, out string, info paramFile) error {
+func (ft *fetch) doFetch(ctx context.Context, out string, info paramFile) error {
+	c, err := cid.Parse(info.Cid)
+	if err != nil {
+		return err
+	}
+
+	var urls []string
+
+	if ft.ps != nil {
+		// Get URLs from paramserve
+		u, err := ft.ps.urlsForCid(ctx, c)
+		if err != nil {
+			log.Warnf("Failed to get URLs for CID %s: %v", c.String(), err)
+		} else {
+			for _, hostAndPort := range u {
+				// Build URL
+				urlStr := fmt.Sprintf("http://%s/params/ipfs/%s", hostAndPort, info.Cid)
+				urls = append(urls, urlStr)
+			}
+		}
+	}
+
+	// Append the default gateway at the end
 	gw := os.Getenv("IPFS_GATEWAY")
 	if gw == "" {
 		gw = gateway
 	}
-	log.Infof("Fetching %s from %s", out, gw)
+	urls = append(urls, gw+info.Cid)
 
-	url, err := url.Parse(gw + info.Cid)
-	if err != nil {
-		return err
+	for _, urlStr := range urls {
+		log.Infof("Fetching %s from %s", out, urlStr)
+		u, err := url.Parse(urlStr)
+		if err != nil {
+			log.Warnf("Invalid URL %s: %v", urlStr, err)
+			continue
+		}
+		// Try aria2c first
+		if err := fetchWithAria2c(ctx, out, u.String()); err == nil {
+			return nil
+		} else {
+			log.Warnf("aria2c fetch failed: %s", err)
+		}
+
+		// Try HTTP client
+		if err := fetchWithHTTPClient(ctx, out, u); err == nil {
+			return nil
+		} else {
+			log.Warnf("HTTP fetch failed: %s", err)
+		}
 	}
-	log.Infof("GET %s", url)
 
-	// Try aria2c first
-	if err := fetchWithAria2c(ctx, out, url.String()); err == nil {
-		return nil
-	} else {
-		log.Warnf("aria2c fetch failed: %s", err)
-	}
-
-	outf, err := os.OpenFile(out, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		return err
-	}
-	defer outf.Close()
-
-	fStat, err := outf.Stat()
-	if err != nil {
-		return err
-	}
-	header := http.Header{}
-	header.Set("Range", "bytes="+strconv.FormatInt(fStat.Size(), 10)+"-")
-
-	req, err := http.NewRequestWithContext(ctx, "GET", url.String(), nil)
-	if err != nil {
-		return err
-	}
-	req.Close = true
-	req.Header = header
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	_, err = io.Copy(outf, resp.Body)
-
-	return err
+	return xerrors.Errorf("failed to fetch %s from any source", info.Cid)
 }
 
 func fetchWithAria2c(ctx context.Context, out, url string) error {
@@ -316,4 +334,44 @@ func fetchWithAria2c(ctx context.Context, out, url string) error {
 	}
 
 	return nil
+}
+
+func fetchWithHTTPClient(ctx context.Context, out string, u *url.URL) error {
+	outf, err := os.OpenFile(out, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		return err
+	}
+	defer outf.Close()
+
+	fStat, err := outf.Stat()
+	if err != nil {
+		return err
+	}
+	header := http.Header{}
+	header.Set("Range", "bytes="+strconv.FormatInt(fStat.Size(), 10)+"-")
+
+	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
+	if err != nil {
+		return err
+	}
+	req.Close = true
+	req.Header = header
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return xerrors.New("file not found on server")
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		return xerrors.Errorf("unexpected HTTP status: %s", resp.Status)
+	}
+
+	_, err = io.Copy(outf, resp.Body)
+
+	return err
 }
