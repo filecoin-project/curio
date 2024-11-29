@@ -3,6 +3,7 @@ import RPCCall from '/lib/jsonrpc.mjs';
 import '/ux/yesno.mjs';
 import '/ux/task.mjs';
 import '/ux/message.mjs';
+import '/ux/epoch.mjs';
 import { formatDate } from '/lib/dateutil.mjs';
 
 customElements.define('piece-info', class PieceInfoElement extends LitElement {
@@ -128,8 +129,8 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                         <tr><th colspan="2"><h5>Deal Parameters ⚙️</h5></th></tr>
                         <tr><td>Piece CID</td><td>${entry.deal.piece_cid}</td></tr>
                         <tr><td>Piece Size</td><td>${this.toHumanBytes(entry.deal.piece_size)}</td></tr>
-                        <tr><td>Start Epoch</td><td>${entry.deal.start_epoch}</td></tr>
-                        <tr><td>End Epoch</td><td>${entry.deal.end_epoch}</td></tr>
+                        <tr><td>Start Epoch</td><td><pretty-epoch .epoch=${entry.deal.start_epoch}></pretty-epoch></td></tr>
+                        <tr><td>End Epoch</td><td><pretty-epoch .epoch=${entry.deal.end_epoch}></pretty-epoch></td></tr>
                         <tr><td>Verified</td><td><yes-no .value=${entry.deal.verified}></yes-no></td></tr>
                         <tr><td>Fast Retrieval</td><td><yes-no .value=${entry.deal.fast_retrieval}></yes-no></td></tr>
                         <tr><td>Announce to IPNI</td><td><yes-no .value=${entry.deal.announce_to_ipni}></yes-no></td></tr>

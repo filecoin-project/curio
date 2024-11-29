@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 import { formatDate } from '/lib/dateutil.mjs';
+import '/ux/epoch.mjs';
 
 class DealDetails extends LitElement {
     constructor() {
@@ -32,8 +33,8 @@ class DealDetails extends LitElement {
                 {property: 'Offline', value: entry.offline},
                 {property: 'Verified', value: entry.verified},
                 {property: 'Is Legacy', value: entry.is_legacy},
-                {property: 'Start Epoch', value: entry.start_epoch},
-                {property: 'End Epoch', value: entry.end_epoch},
+                {property: 'Start Epoch', value: html`<pretty-epoch .epoch=${entry.start_epoch}></pretty-epoch>`},
+                {property: 'End Epoch', value: html`<pretty-epoch .epoch=${entry.end_epoch}></pretty-epoch>`},
                 {property: 'Client Peer ID', value: entry.client_peer_id},
                 {property: 'Chain Deal ID', value: entry.chain_deal_id},
                 {property: 'Publish CID', value: entry.publish_cid},
