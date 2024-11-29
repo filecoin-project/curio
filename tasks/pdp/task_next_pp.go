@@ -123,7 +123,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, xerrors.Errorf("failed to get PDPVerifier ABI: %w", err)
 	}
 
-	data, err := abiData.Pack("nextProvingPeriod", big.NewInt(proofSetID))
+	data, err := abiData.Pack("nextProvingPeriod", big.NewInt(proofSetID), []byte{})
 	if err != nil {
 		return false, xerrors.Errorf("failed to pack data: %w", err)
 	}

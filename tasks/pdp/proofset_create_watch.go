@@ -19,6 +19,7 @@ import (
 type ProofSetCreate struct {
 	CreateMessageHash string `db:"create_message_hash"`
 	Service           string `db:"service"`
+	ProofsetListener  string `db:"proofset_listener"`
 }
 
 func NewWatcherCreate(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
@@ -38,7 +39,7 @@ func processPendingProofSetCreates(ctx context.Context, db *harmonydb.DB, ethCli
 	var proofSetCreates []ProofSetCreate
 
 	err := db.Select(ctx, &proofSetCreates, `
-        SELECT create_message_hash, service
+        SELECT create_message_hash, service, proofset_listener
         FROM pdp_proofset_creates
         WHERE ok = TRUE AND proofset_created = FALSE
     `)
@@ -89,7 +90,7 @@ func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCr
 	}
 
 	// Insert a new entry into pdp_proof_sets
-	err = insertProofSet(ctx, db, psc.CreateMessageHash, proofSetId, psc.Service)
+	err = insertProofSet(ctx, db, psc.CreateMessageHash, proofSetId, psc.Service, psc.ProofsetListener)
 	if err != nil {
 		return xerrors.Errorf("failed to insert proof set %d for tx %+v: %w", proofSetId, psc, err)
 	}
@@ -132,12 +133,12 @@ func extractProofSetIdFromReceipt(receipt *types.Receipt) (uint64, error) {
 	return 0, xerrors.Errorf("ProofSetCreated event not found in receipt")
 }
 
-func insertProofSet(ctx context.Context, db *harmonydb.DB, createMsg string, proofSetId uint64, service string) error {
+func insertProofSet(ctx context.Context, db *harmonydb.DB, createMsg string, proofSetId uint64, service string, listenerAddr string) error {
 	// Implement the insertion into pdp_proof_sets table
 	// Adjust the SQL statement based on your table schema
 	_, err := db.Exec(ctx, `
-        INSERT INTO pdp_proof_sets (id, create_message_hash, service)
-        VALUES ($1, $2, $3)
-    `, proofSetId, createMsg, service)
+        INSERT INTO pdp_proof_sets (id, create_message_hash, service, proofset_listener)
+        VALUES ($1, $2, $3, $4)
+    `, proofSetId, createMsg, service, listenerAddr)
 	return err
 }
