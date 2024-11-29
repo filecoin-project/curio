@@ -42,7 +42,12 @@ class DealDetails extends LitElement {
                 {property: 'Fast Retrieval', value: entry.fast_retrieval},
                 {property: 'Announce To IPNI', value: entry.announce_to_ipni},
                 {property: 'Url', value: entry.url},
-                {property: 'Url Headers', value: JSON.stringify(entry.url_headers, null, 2)},
+                {property: 'Url Headers', value: html`
+                        <details>
+                            <summary>[SHOW]</summary>
+                            <pre>${JSON.stringify(entry.url_headers, null, 2)}</pre>
+                        </details>
+                    `},
                 {property: 'Error', value: entry.error},
             ];
             return html`

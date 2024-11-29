@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import RPCCall from '/lib/jsonrpc.mjs';
 import '/ux/yesno.mjs';
 import '/ux/task.mjs';
+import { formatDate } from '/lib/dateutil.mjs';
 
 customElements.define('piece-info', class PieceInfoElement extends LitElement {
     static properties = {
@@ -48,27 +49,27 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
             <h2>Piece Information</h2>
             <table class="table table-dark table-striped table-sm">
                 <tr>
-                    <th>Piece CID</th>
+                    <td>Piece CID</td>
                     <td>${this.data.piece_cid}</td>
                 </tr>
                 <tr>
-                    <th>Size</th>
+                    <td>Size</td>
                     <td>${this.toHumanBytes(this.data.size)}</td>
                 </tr>
                 <tr>
-                    <th>Created At</th>
-                    <td>${new Date(this.data.created_at).toLocaleString()}</td>
+                    <td>Created At</td>
+                    <td>${formatDate(this.data.created_at)}</td>
                 </tr>
                 <tr>
-                    <th>Indexed</th>
+                    <td>Indexed</td>
                     <td><done-not-done .value=${this.data.indexed}></done-not-done></td>
                 </tr>
                 <tr>
-                    <th>Indexed At</th>
-                    <td>${new Date(this.data.indexed_at).toLocaleString()}</td>
+                    <td>Indexed At</td>
+                    <td>${formatDate(this.data.indexed_at)}</td>
                 </tr>
                 <tr>
-                    <th>IPNI AD</th>
+                    <td>IPNI AD</td>
                     <td>
                         ${this.data.ipni_ad ? html`<a href="/pages/ipni/?ad_cid=${this.data.ipni_ad}">${this.data.ipni_ad}</a>` : 'No Ad Found'}
                     </td>
@@ -108,43 +109,132 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
             ${this.pieceParkStates ? this.renderPieceParkStates() : ''}
 
             ${this.mk12DealData && this.mk12DealData.length > 0 ? html`
-                <h2>MK12 Deal Details</h2>
+                <h2>Related Deals</h2>
                 ${this.mk12DealData.map((entry) => html`
-                    <h3>Deal Information (UUID: ${entry.deal.uuid})</h3>
+                    <h3>Deal ${entry.deal.uuid}</h3>
                     <table class="table table-dark table-striped table-sm">
-                        <tbody>
-                        <tr><th>UUID</th><td><a href="/pages/mk12-deal/?id=${entry.deal.uuid}">${entry.deal.uuid}</a></td></tr>
-                        <tr><th>Provider (sp_id)</th><td>${entry.deal.sp_id}</td></tr>
-                        <tr><th>Created At</th><td>${new Date(entry.deal.created_at).toLocaleString()}</td></tr>
-                        <tr><th>Signed Proposal CID</th><td>${entry.deal.signed_proposal_cid}</td></tr>
-                        <tr><th>Proposal Signature</th><td><pre>${entry.deal.proposal_signature}</pre></td></tr>
-                        <tr><th>Proposal</th><td><pre>${JSON.stringify(entry.deal.proposal, null, 2)}</pre></td></tr>
-                        <tr><th>Proposal CID</th><td>${entry.deal.proposal_cid}</td></tr>
-                        <tr><th>Offline</th><td><yes-no .value=${entry.deal.offline}></yes-no></td></tr>
-                        <tr><th>Verified</th><td><yes-no .value=${entry.deal.verified}></yes-no></td></tr>
-                        <tr><th>Start Epoch</th><td>${entry.deal.start_epoch}</td></tr>
-                        <tr><th>End Epoch</th><td>${entry.deal.end_epoch}</td></tr>
-                        <tr><th>Client Peer ID</th><td>${entry.deal.client_peer_id}</td></tr>
-                        <tr><th>Chain Deal ID</th><td>${entry.deal.chain_deal_id.Valid ? entry.deal.chain_deal_id.Int64 : 'N/A'}</td></tr>
-                        <tr><th>Publish CID</th><td>${entry.deal.publish_cid.Valid ? entry.deal.publish_cid.String : 'N/A'}</td></tr>
-                        <tr><th>Piece CID</th><td>${entry.deal.piece_cid}</td></tr>
-                        <tr><th>Piece Size</th><td>${this.toHumanBytes(entry.deal.piece_size)}</td></tr>
-                        <tr><th>Fast Retrieval</th><td><yes-no .value=${entry.deal.fast_retrieval}></yes-no></td></tr>
-                        <tr><th>Announce to IPNI</th><td><yes-no .value=${entry.deal.announce_to_ipni}></yes-no></td></tr>
-                        <tr><th>URL</th><td>${entry.deal.url.Valid ? entry.deal.url.String : 'N/A'}</td></tr>
-                        <tr><th>URL Headers</th><td><pre>${JSON.stringify(entry.deal.url_headers, null, 2)}</pre></td></tr>
-                        <tr><th>Error</th><td>${entry.deal.error.Valid ? entry.deal.error.String : 'N/A'}</td></tr>
+                        <tr><th colspan="2"><h5>Top Level Info 📋</h5></th></tr>
+                        <tr><td>Created At</td><td>${formatDate(entry.deal.created_at)}</td></tr>
+                        <tr><td>UUID</td><td><a href="/pages/mk12-deal/?id=${entry.deal.uuid}">${entry.deal.uuid}</a></td></tr>
+                        <tr><td>Provider (sp_id)</td><td>f0${entry.deal.sp_id}</td></tr>
+                        <tr><td>Signed Proposal CID</td><td>${entry.deal.signed_proposal_cid}</td></tr>
+                        <tr><td>Proposal CID</td><td>${entry.deal.proposal_cid}</td></tr>
+
+                        <tr><th colspan="2"><h5>Proposal 📝</h5></th></tr>
+                        <tr><td>Proposal</td><td><pre>${JSON.stringify(entry.deal.proposal, null, 2)}</pre></td></tr>
+                        <tr><td>Proposal Signature</td><td><pre>${entry.deal.proposal_signature}</pre></td></tr>
+
+                        <tr><th colspan="2"><h5>Deal Parameters ⚙️</h5></th></tr>
+                        <tr><td>Piece CID</td><td>${entry.deal.piece_cid}</td></tr>
+                        <tr><td>Piece Size</td><td>${this.toHumanBytes(entry.deal.piece_size)}</td></tr>
+                        <tr><td>Start Epoch</td><td>${entry.deal.start_epoch}</td></tr>
+                        <tr><td>End Epoch</td><td>${entry.deal.end_epoch}</td></tr>
+                        <tr><td>Verified</td><td><yes-no .value=${entry.deal.verified}></yes-no></td></tr>
+                        <tr><td>Fast Retrieval</td><td><yes-no .value=${entry.deal.fast_retrieval}></yes-no></td></tr>
+                        <tr><td>Announce to IPNI</td><td><yes-no .value=${entry.deal.announce_to_ipni}></yes-no></td></tr>
+
+                        <tr><th colspan="2"><h5>Data Source 📥️</h5></th></tr>
+                        <tr><td>Client Peer ID</td><td>${entry.deal.client_peer_id}</td></tr>
+                        <tr><td>Offline</td><td><yes-no .value=${entry.deal.offline}></yes-no></td></tr>
+                        <tr><td>URL</td><td>${entry.deal.url.Valid ? entry.deal.url.String : 'N/A'}</td></tr>
+                        <tr>
+                            <td>URL Headers</td>
+                            <td>
+                                <details>
+                                    <summary>[SHOW]</summary>
+                                    <pre>${JSON.stringify(entry.deal.url_headers, null, 2)}</pre>
+                                </details>
+                            </td>
+                        </tr>
+
+                        <tr><th colspan="2"><h5>Status 🟢️🔴</h5></th></tr>
+                        <tr><td>Publish CID</td><td>${entry.deal.publish_cid.Valid ? entry.deal.publish_cid.String : 'N/A'}</td></tr>
+                        <tr><td>Chain Deal ID</td><td>${entry.deal.chain_deal_id.Valid ? entry.deal.chain_deal_id.Int64 : 'N/A'}</td></tr>
+                        <tr><td>Error</td><td>${entry.deal.error.Valid ? entry.deal.error.String : 'N/A'}</td></tr>
+                        ${(() => {
+                            const matchingPieceDeals = this.data.deals.filter(deal => deal.id === entry.deal.uuid);
+                            if (matchingPieceDeals.length > 0) {
+                                return html`
+                                <tr><th colspan="2"><h5>Associated Piece Deals 🔗️</h5></th></tr>
+                                <tr><td colspan="2" style="padding-left: 32px">
+                                <table class="table table-dark table-striped table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>ID</th>
+                                                <th>Miner</th>
+                                                <th>Chain Deal ID</th>
+                                                <th>Sector</th>
+                                                <th>Offset</th>
+                                                <th>Length</th>
+                                                <th>Raw Size</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${matchingPieceDeals.map((item) => html`
+                                                <tr>
+                                                    <td><a href="/pages/mk12-deal/?id=${item.id}">${item.id}</a></td>
+                                                    <td>${item.miner}</td>
+                                                    <td>${item.chain_deal_id}</td>
+                                                    <td><a href="/pages/sector/?sp=${item.miner}&id=${item.sector}">${item.sector}</a></td>
+                                                    <td>${item.offset}</td>
+                                                    <td>${this.toHumanBytes(item.length)}</td>
+                                                    <td>${this.toHumanBytes(item.raw_size)}</td>
+                                                </tr>
+                                            `)}
+                                        </tbody>
+                                    </table>
+                                </td></tr>
+                            `;
+                            }
+                        })()}
                         ${entry.pipeline ? html`
-                            <tr><th colspan="2"><b>PIPELINE ACTIVE</b></th></tr>
-                            <tr><th>Started</th><td>${this.renderNullableYesNo(entry.pipeline.started.Bool)}</td></tr>
-                            <tr><th>Piece CID</th><td>${entry.pipeline.piece_cid}</td></tr>
-                            <tr><th>Piece Size</th><td>${this.toHumanBytes(entry.pipeline.piece_size)}</td></tr>
-                            <tr><th>Raw Size</th><td>${entry.pipeline.raw_size.Valid ? this.toHumanBytes(entry.pipeline.raw_size.Int64) : 'N/A'}</td></tr>
-                            <tr><th>Offline</th><td><yes-no .value=${entry.pipeline.offline}></yes-no></td></tr>
-                            <tr><th>URL</th><td>${entry.pipeline.url.Valid ? entry.pipeline.url.String : 'N/A'}</td></tr>
-                            <tr><th>Headers</th><td><pre>${JSON.stringify(entry.pipeline.headers, null, 2)}</pre></td></tr>
+                            <tr><th colspan="2"><h5 style="color: var(--color-warning-main)">PIPELINE ACTIVE</h5></th></tr>
+                            <tr><td>Created At</td><td>${formatDate(entry.pipeline.created_at)}</td></tr>
+                            <tr><td>Piece CID</td><td>${entry.pipeline.piece_cid}</td></tr>
+                            <tr><td>Piece Size</td><td>${this.toHumanBytes(entry.pipeline.piece_size)}</td></tr>
+                            <tr><td>Raw Size</td><td>${entry.pipeline.raw_size.Valid ? this.toHumanBytes(entry.pipeline.raw_size.Int64) : 'N/A'}</td></tr>
+                            <tr><td>Offline</td><td><yes-no .value=${entry.pipeline.offline}></yes-no></td></tr>
+                            <tr><td>URL</td><td>${entry.pipeline.url.Valid ? entry.pipeline.url.String : 'N/A'}</td></tr>
+                            <tr><td>Headers</td><td><pre>${JSON.stringify(entry.pipeline.headers, null, 2)}</pre></td></tr>
+                            <tr><td>Should Index</td><td>${this.renderNullableYesNo(entry.pipeline.should_index.Bool)}</td></tr>
                             <tr>
-                                <th>Commp Task ID</th>
+                                <td>Announce</td>
+                                <td>${this.renderNullableYesNo(entry.pipeline.announce.Bool)}</td>
+                            </tr>
+
+                            <tr><th colspan="2"><h5>Progress 🛠️</h5></th></tr>
+                            <tr>
+                                <td>Data Fetched</td>
+                                <td>${this.renderNullableDoneNotDone(entry.pipeline.started.Bool)}</td>
+                            </tr>
+                            <tr>
+                                <td>After Commp</td>
+                                <td>${this.renderNullableDoneNotDone(entry.pipeline.after_commp.Bool)}</td>
+                            </tr>
+                            <tr>
+                                <td>After PSD</td>
+                                <td>${this.renderNullableDoneNotDone(entry.pipeline.after_psd.Bool)}</td>
+                            </tr>
+                            <tr>
+                                <td>After Find Deal</td>
+                                <td>${this.renderNullableDoneNotDone(entry.pipeline.after_find_deal.Bool)}</td>
+                            </tr>
+                            <tr>
+                                <td>Sealed</td>
+                                <td>${this.renderNullableDoneNotDone(entry.pipeline.sealed.Bool)}</td>
+                            </tr>
+                            <tr>
+                                <td>Indexed</td>
+                                <td>${this.renderNullableDoneNotDone(entry.pipeline.indexed.Bool)}</td>
+                            </tr>
+                            <tr>
+                                <td>Announced</td>
+                                <td><done-not-done .value=${entry.pipeline.complete}></done-not-done></td>
+                            </tr>
+                            
+                            <tr><th colspan="2"><h5>Early States 🌿</h5></th></tr>
+                            <tr>
+                                <td>Commp Task ID</td>
                                 <td>
                                     ${entry.pipeline.commp_task_id.Valid
                                             ? html`<task-status .taskId=${entry.pipeline.commp_task_id.Int64}></task-status>`
@@ -152,60 +242,40 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                                 </td>
                             </tr>
                             <tr>
-                                <th>After Commp</th>
-                                <td>${this.renderNullableDoneNotDone(entry.pipeline.after_commp.Bool)}</td>
-                            </tr>
-                            <tr>
-                                <th>PSD Task ID</th>
+                                <td>PSD Task ID</td>
                                 <td>
                                     ${entry.pipeline.psd_task_id.Valid
                                             ? html`<task-status .taskId=${entry.pipeline.psd_task_id.Int64}></task-status>`
                                             : 'N/A'}
                                 </td>
                             </tr>
+                            <tr><td>PSD Wait Time</td><td>${entry.pipeline.psd_wait_time.Valid ? formatDate(entry.pipeline.psd_wait_time.Time) : 'N/A'}</td></tr>
                             <tr>
-                                <th>After PSD</th>
-                                <td>${this.renderNullableDoneNotDone(entry.pipeline.after_psd.Bool)}</td>
-                            </tr>
-                            <tr><th>PSD Wait Time</th><td>${entry.pipeline.psd_wait_time.Valid ? new Date(entry.pipeline.psd_wait_time.Time).toLocaleString() : 'N/A'}</td></tr>
-                            <tr>
-                                <th>Find Deal Task ID</th>
+                                <td>Find Deal Task ID</td>
                                 <td>
                                     ${entry.pipeline.find_deal_task_id.Valid
                                             ? html`<task-status .taskId=${entry.pipeline.find_deal_task_id.Int64}></task-status>`
                                             : 'N/A'}
                                 </td>
                             </tr>
+
+                            <tr><th colspan="2"><h5>Sealing 📦</h5></th></tr>
+                            <tr><td>Sector</td><td>${entry.pipeline.sector.Valid ? html`<a href="/pages/sector/?sp=f0${entry.deal.sp_id}&id=${entry.pipeline.sector.Int64}">${entry.pipeline.sector.Int64}</a>` : 'N/A'}</td></tr>
+                            <tr><td>Reg Seal Proof</td><td>${entry.pipeline.reg_seal_proof.Valid ? entry.pipeline.reg_seal_proof.Int64 : 'N/A'}</td></tr>
+                            <tr><td>Sector Offset</td><td>${entry.pipeline.sector_offset.Valid ? entry.pipeline.sector_offset.Int64 : 'N/A'}</td></tr>
+                            
+                            <tr><th colspan="2"><h5>Indexing 🔍</h5></th></tr>
+                            <tr><td>Indexing Created At</td><td>${entry.pipeline.indexing_created_at.Valid ? formatDate(entry.pipeline.indexing_created_at.Time) : 'N/A'}</td></tr>
                             <tr>
-                                <th>After Find Deal</th>
-                                <td>${this.renderNullableDoneNotDone(entry.pipeline.after_find_deal.Bool)}</td>
-                            </tr>
-                            <tr><th>Sector</th><td>${entry.pipeline.sector.Valid ? html`<a href="/pages/sector/?sp=f0${entry.deal.sp_id}&id=${entry.pipeline.sector.Int64}">${entry.pipeline.sector.Int64}</a>` : 'N/A'}</td></tr>
-                            <tr><th>Reg Seal Proof</th><td>${entry.pipeline.reg_seal_proof.Valid ? entry.pipeline.reg_seal_proof.Int64 : 'N/A'}</td></tr>
-                            <tr><th>Sector Offset</th><td>${entry.pipeline.sector_offset.Valid ? entry.pipeline.sector_offset.Int64 : 'N/A'}</td></tr>
-                            <tr><th>Sealed</th><td>${this.renderNullableDoneNotDone(entry.pipeline.sealed.Bool)}</td></tr>
-                            <tr><th>Should Index</th><td>${this.renderNullableYesNo(entry.pipeline.should_index.Bool)}</td></tr>
-                            <tr><th>Indexing Created At</th><td>${entry.pipeline.indexing_created_at.Valid ? new Date(entry.pipeline.indexing_created_at.Time).toLocaleString() : 'N/A'}</td></tr>
-                            <tr>
-                                <th>Indexing Task ID</th>
+                                <td>Indexing Task ID</td>
                                 <td>
                                     ${entry.pipeline.indexing_task_id.Valid
                                             ? html`<task-status .taskId=${entry.pipeline.indexing_task_id.Int64}></task-status>`
                                             : 'N/A'}
                                 </td>
                             </tr>
-                            <tr>
-                                <th>Indexed</th>
-                                <td>${this.renderNullableDoneNotDone(entry.pipeline.indexed.Bool)}</td>
-                            </tr>
-                            <tr>
-                                <th>Announce</th>
-                                <td>${this.renderNullableDoneNotDone(entry.pipeline.announce.Bool)}</td>
-                            </tr>
-                            <tr><th>Complete</th><td><yes-no .value=${entry.pipeline.complete}></yes-no></td></tr>
-                            <tr><th>Created At</th><td>${new Date(entry.pipeline.created_at).toLocaleString()}</td></tr>
                         ` : html`
-                            <tr><th>No Pipeline Data</th><td></td></tr>
+                            <tr><td>No Pipeline Data</td><td></td></tr>
                         `}
                         </tbody>
                     </table>
@@ -219,31 +289,31 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
         <h2>Staged Piece States</h2>
             <table class="table table-dark table-striped table-sm">
                 <tr>
-                    <th>ID</th>
+                    <td>ID</td>
                     <td>${this.pieceParkStates.id}</td>
                 </tr>
                 <tr>
-                    <th>Piece CID</th>
+                    <td>Piece CID</td>
                     <td>${this.pieceParkStates.piece_cid}</td>
                 </tr>
                 <tr>
-                    <th>Padded Size</th>
+                    <td>Padded Size</td>
                     <td>${this.toHumanBytes(this.pieceParkStates.piece_padded_size)}</td>
                 </tr>
                 <tr>
-                    <th>Raw Size</th>
+                    <td>Raw Size</td>
                     <td>${this.toHumanBytes(this.pieceParkStates.piece_raw_size)}</td>
                 </tr>
                 <tr>
-                    <th>Complete</th>
+                    <td>Complete</td>
                     <td>${this.renderNullableDoneNotDone(this.pieceParkStates.complete)}</td>
                 </tr>
                 <tr>
-                    <th>Created At</th>
+                    <td>Created At</td>
                     <td>${new Date(this.pieceParkStates.created_at).toLocaleString()}</td>
                 </tr>
                 <tr>
-                    <th>Download Task</th>
+                    <td>Download Task</td>
                     <td>
                         ${this.pieceParkStates.task_id.Valid
                             ? html`<task-status .taskId=${this.pieceParkStates.task_id.Int64}></task-status>`
@@ -251,7 +321,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                     </td>
                 </tr>
                 <tr>
-                    <th>Cleanup Task</th>
+                    <td>Cleanup Task</td>
                     <td>
                         ${this.pieceParkStates.cleanup_task_id.Valid
                             ? html`<task-status .taskId=${this.pieceParkStates.cleanup_task_id.Int64}></task-status>`
@@ -264,8 +334,8 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
             <table class="table table-dark table-striped table-sm">
                 <thead>
                     <tr>
-                        <th>Ref ID</th>
-                        <th>Data URL</th>
+                        <td>Ref ID</td>
+                        <td>Data URL</td>
                     </tr>
                 </thead>
                 <tbody>
@@ -274,7 +344,10 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                             <td>${ref.ref_id}</td>
                             <td>
                                 <p>${ref.data_url.Valid && ref.data_url.String || 'N/A'}</p>
-                                <p><pre>${JSON.stringify(ref.data_headers, null, 2)}</pre></p>
+                                <details>
+                                    <summary>[SHOW HEADERS]</summary>
+                                    <p><pre>${JSON.stringify(ref.data_headers, null, 2)}</pre></p>
+                                </details>
                             </td>
                         </tr>
                     `)}
@@ -315,7 +388,12 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
             background-color: #343a40;
         }
         .table-dark th, .table-dark td {
-            color: #fff;
+            color: var(--color-text-dense);
+        }
+        .table-dark th {
+            padding-top: 20px;
+            border-bottom: dashed 1px #aaaa44;
+            text-align: center;
         }
         h2 {
             margin-top: 20px;
