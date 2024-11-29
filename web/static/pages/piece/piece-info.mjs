@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import RPCCall from '/lib/jsonrpc.mjs';
 import '/ux/yesno.mjs';
 import '/ux/task.mjs';
+import '/ux/message.mjs';
 import { formatDate } from '/lib/dateutil.mjs';
 
 customElements.define('piece-info', class PieceInfoElement extends LitElement {
@@ -148,7 +149,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                         </tr>
 
                         <tr><th colspan="2"><h5>Status 🟢️🔴</h5></th></tr>
-                        <tr><td>Publish CID</td><td>${entry.deal.publish_cid.Valid ? entry.deal.publish_cid.String : 'N/A'}</td></tr>
+                        <tr><td>Publish CID</td><td>${entry.deal.publish_cid.Valid ? html`<fil-message .cid=${entry.deal.publish_cid.String}></fil-message>` : 'N/A'}</td></tr>
                         <tr><td>Chain Deal ID</td><td>${entry.deal.chain_deal_id.Valid ? entry.deal.chain_deal_id.Int64 : 'N/A'}</td></tr>
                         <tr><td>Error</td><td>${entry.deal.error.Valid ? entry.deal.error.String : 'N/A'}</td></tr>
                         ${(() => {
