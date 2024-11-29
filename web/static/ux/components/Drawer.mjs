@@ -1,9 +1,23 @@
 import { html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import { StyledLitElement } from '/ux/StyledLitElement.mjs';
 
+/**
+ * A Drawer component that displays content in an overlay scrollable panel.
+ *
+ * @slot title - Content to be placed in the drawer's heading.
+ * @slot content - Main content of the drawer.
+ *
+ * @example
+ * <ui-drawer label="Menu">
+ *   <h2 slot="title">Menu</h2>
+ *   <div slot="content">
+ *     ...
+ *   </div>
+ * </ui-drawer>
+ */
 class Drawer extends StyledLitElement {
   static properties = {
-    anchor: { type: 'left' | 'right' | 'top' | 'bottom', reflect: true },
+    anchor: { type: String, reflect: true },
     isOpen: { type: Boolean, reflect: true },
     label: { type: String },
     onClose: { type: Function, attribute: false },
@@ -15,16 +29,28 @@ class Drawer extends StyledLitElement {
     this.isOpen = true;
     this.label = 'Drawer';
     this.onClose = null;
+    this.dialog = null;
+  }
+
+  set anchor(value) {
+    const validAnchors = ['left', 'right', 'top', 'bottom'];
+    this._anchor = validAnchors.includes(value) ? value : 'right';
+  }
+
+  get anchor() {
+    return this._anchor;
+  }
+
+  firstUpdated() {
+    this.dialog = this.shadowRoot.querySelector('dialog');
   }
 
   updated(changedProperties) {
-    if (changedProperties.has('isOpen')) {
-      const dialog = this.shadowRoot.querySelector('dialog');
-
+    if (changedProperties.has('isOpen') && this.dialog) {
       if (this.isOpen) {
-        dialog.show();
+        this.dialog.show();
       } else {
-        dialog.close();
+        this.dialog.close();
       }
     }
   }
@@ -49,18 +75,19 @@ class Drawer extends StyledLitElement {
         <dialog
           class="dialog"
           aria-label=${this.label}
+          anchor="${this.anchor}"
           @close=${this.handleClose}
           @cancel=${this.handleClose}
         >
-          <div class="dialog-header">
-            <slot name="header"></slot>
+          <div class="dialog-heading">
+            <slot name="title"></slot>
             <button class="close-btn" @click=${this.handleClose}>
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-x-lg" viewBox="0 0 16 16">
                 <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z"/>
               </svg>
             </button>
           </div>
-          <div class="dialog-content">
+          <div>
             <slot name="content"></slot>
           </div>
         </dialog>
@@ -69,15 +96,10 @@ class Drawer extends StyledLitElement {
   }
 }
 
-// todo: fix the jumping width issue
 Drawer.styles = [
   css`
     :host([isOpen]) .open-btn {
       visibility: hidden;
-    }
-    
-    :host([anchor]) .dialog {
-      // todo
     }
     
     .open-btn {
@@ -99,21 +121,59 @@ Drawer.styles = [
     
     dialog {
       position: fixed;
-      top: 0;
-      bottom: 0;
-      right: 0;
-      left: auto;
-      width: 40rem;
-      min-height: 100vh;
-      max-height: 100vh;
       padding: 1rem;
       border: 0;
       background-color: var(--color-fg);
       color: var(--color-text-primary);
-      box-shadow: -8px 0 20px 4px var(--color-shadow-main);
       overflow-y: auto;
 
-      .dialog-header {
+      &[anchor="right"] {
+        top: 0;
+        bottom: 0;
+        right: 0;
+        left: auto;
+        width: 40rem;
+        min-height: 100vh;
+        max-height: 100vh;
+        box-shadow: -8px 0 20px 4px var(--color-shadow-main);
+      }
+      
+      &[anchor="left"] {
+        top: 0;
+        bottom: 0;
+        right: auto;
+        left: 0;
+        width: 40rem;
+        min-height: 100vh;
+        max-height: 100vh;
+        box-shadow: 8px 0 20px 4px var(--color-shadow-main);
+      }
+
+      &[anchor="top"] {
+        top: 0;
+        bottom: auto;
+        right: 0;
+        left: 0;
+        min-width: 100vw;
+        max-width: 100vw;
+        min-height: 10rem;
+        max-height: 50vh;
+        box-shadow: 0 8px 20px 4px var(--color-shadow-main);
+      }
+      
+      &[anchor="bottom"] {
+        top: auto;
+        bottom: 0;
+        right: 0;
+        left: 0;
+        min-width: 100vw;
+        max-width: 100vw;
+        min-height: 10rem;
+        max-height: 50vh;
+        box-shadow: 0 -8px 20px 4px var(--color-shadow-main);
+      }
+
+      .dialog-heading {
         display: flex;
         justify-content: space-between;
         align-items: start;
@@ -137,11 +197,6 @@ Drawer.styles = [
             opacity: 0.8;
           }
         }
-      }
-
-      .dialog-content {
-        //max-height: 100%;
-        //overflow-y: auto;
       }
     }
   `
