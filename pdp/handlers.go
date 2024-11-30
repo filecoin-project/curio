@@ -838,6 +838,9 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 			UPDATE pdp_proof_sets SET prev_challenge_request_epoch = $1, challenge_request_msg_hash = $2, prove_at_epoch = $3
 			WHERE id = $4 AND prev_challenge_request_epoch IS NULL AND challenge_request_msg_hash IS NULL AND prove_at_epoch IS NULL
 			`, ts.Height(), txHash.Hex(), next_prove_at, proofSetIDUint64)
+		if err != nil {
+			return false, err
+		}
 
 		// Insert into pdp_proofset_roots
 

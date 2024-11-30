@@ -68,11 +68,7 @@ CREATE TABLE pdp_piece_mh_to_commp (
 CREATE INDEX pdp_piecerefs_piece_cid_idx ON pdp_piecerefs(piece_cid);
 
 -- PDP proofsets we maintain
-ALTER TABLE pdp_proof_sets 
-ADD COLUMN proofset_listener TEXT NOT NULL; -- the listener is assumed to be a PDP Service with proving window informational methods
-ADD COLUMN proving_period BIGINT NOT NULL; -- the proving period for this proofset
-ADD COLUMN challenge_window BIGINT NOT NULL; -- the challenge window for this proofset
-ADD COLUMN prove_at_epoch BIGINT; -- the epoch at which the next challenge window starts and proofs can be submitted
+
 CREATE TABLE pdp_proof_sets (
     id BIGINT PRIMARY KEY, -- on-chain proofset id
 
@@ -90,6 +86,11 @@ CREATE TABLE pdp_proof_sets (
     create_message_hash TEXT NOT NULL,
     service TEXT NOT NULL REFERENCES pdp_services(service_label) ON DELETE RESTRICT
 );
+ALTER TABLE pdp_proof_sets 
+ADD COLUMN proofset_listener TEXT NOT NULL, -- the listener is assumed to be a PDP Service with proving window informational methods
+ADD COLUMN proving_period BIGINT NOT NULL, -- the proving period for this proofset
+ADD COLUMN challenge_window BIGINT NOT NULL, -- the challenge window for this proofset
+ADD COLUMN prove_at_epoch BIGINT; -- the epoch at which the next challenge window starts and proofs can be submitted
 
 CREATE TABLE pdp_prove_tasks (
     proofset BIGINT NOT NULL, -- pdp_proof_sets.id
@@ -101,9 +102,6 @@ CREATE TABLE pdp_prove_tasks (
 );
 
 -- proofset creation requests
-ALTER TABLE pdp_proofset_creates
-ADD COLUMN proofset_listener TEXT NOT NULL; -- the listener address of the proofset
-
 CREATE TABLE pdp_proofset_creates (
     create_message_hash TEXT PRIMARY KEY REFERENCES message_waits_eth(signed_tx_hash) ON DELETE CASCADE,
 
@@ -116,6 +114,8 @@ CREATE TABLE pdp_proofset_creates (
     service TEXT NOT NULL REFERENCES pdp_services(service_label) ON DELETE CASCADE, -- service that requested the proofset
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+ALTER TABLE pdp_proofset_creates
+ADD COLUMN proofset_listener TEXT NOT NULL; -- the listener address of the proofset
 
 -- proofset roots
 CREATE TABLE pdp_proofset_roots (
