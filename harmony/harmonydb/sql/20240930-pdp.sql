@@ -83,14 +83,19 @@ CREATE TABLE pdp_proof_sets (
     -- this value will be set to NULL
     challenge_request_msg_hash TEXT,
 
+    -- the listener is assumed to be a PDP Service with proving window informational methods
+    proofset_listener TEXT NOT NULL,
+
+    -- the proving period for this proofset and the challenge window duration
+    proving_period BIGINT NOT NULL,
+    challenge_window BIGINT NOT NULL,
+
+    -- the epoch at which the next challenge window starts and proofs can be submitted
+    prove_at_epoch BIGINT,
+
     create_message_hash TEXT NOT NULL,
     service TEXT NOT NULL REFERENCES pdp_services(service_label) ON DELETE RESTRICT
 );
-ALTER TABLE pdp_proof_sets 
-ADD COLUMN proofset_listener TEXT NOT NULL, -- the listener is assumed to be a PDP Service with proving window informational methods
-ADD COLUMN proving_period BIGINT NOT NULL, -- the proving period for this proofset
-ADD COLUMN challenge_window BIGINT NOT NULL, -- the challenge window for this proofset
-ADD COLUMN prove_at_epoch BIGINT; -- the epoch at which the next challenge window starts and proofs can be submitted
 
 CREATE TABLE pdp_prove_tasks (
     proofset BIGINT NOT NULL, -- pdp_proof_sets.id
@@ -112,10 +117,9 @@ CREATE TABLE pdp_proofset_creates (
     proofset_created BOOLEAN NOT NULL DEFAULT FALSE, -- set to true when the proofset is created
 
     service TEXT NOT NULL REFERENCES pdp_services(service_label) ON DELETE CASCADE, -- service that requested the proofset
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    proofset_listener TEXT NOT NULL
 );
-ALTER TABLE pdp_proofset_creates
-ADD COLUMN proofset_listener TEXT NOT NULL; -- the listener address of the proofset
 
 -- proofset roots
 CREATE TABLE pdp_proofset_roots (
