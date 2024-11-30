@@ -70,6 +70,9 @@ CREATE INDEX pdp_piecerefs_piece_cid_idx ON pdp_piecerefs(piece_cid);
 -- PDP proofsets we maintain
 ALTER TABLE pdp_proof_sets 
 ADD COLUMN proofset_listener TEXT NOT NULL; -- the listener is assumed to be a PDP Service with proving window informational methods
+ADD COLUMN proving_period BIGINT NOT NULL; -- the proving period for this proofset
+ADD COLUMN challenge_window BIGINT NOT NULL; -- the challenge window for this proofset
+ADD COLUMN prove_at_epoch BIGINT; -- the epoch at which the next challenge window starts and proofs can be submitted
 CREATE TABLE pdp_proof_sets (
     id BIGINT PRIMARY KEY, -- on-chain proofset id
 
@@ -77,7 +80,7 @@ CREATE TABLE pdp_proof_sets (
     -- initially NULL on fresh proofsets.
     prev_challenge_request_epoch BIGINT,
 
-    -- task invoking nextProvingPeriod, the task should be spawned any time prev_challenge_request_epoch+provingPeriod is in the past
+    -- task invoking nextProvingPeriod, the task should be spawned any time prove_at_epoch+challenge_window is in the past
     challenge_request_task_id BIGINT REFERENCES harmony_task(id) ON DELETE SET NULL,
 
     -- first proofset add or nextProvingPeriod message hash, when the message lands prove_task_id will be spawned and
