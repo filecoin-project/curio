@@ -19,4 +19,13 @@ export default css `
     a {
         text-decoration: none;
     }
+
+    button {
+      all: unset;
+      display: inline-block;
+    }
+  
+    button:focus {
+      outline: revert;
+    }
 `;

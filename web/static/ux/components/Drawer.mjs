@@ -2,7 +2,14 @@ import { html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.mi
 import { StyledLitElement } from '/ux/StyledLitElement.mjs';
 
 /**
- * A Drawer component that displays content in an overlay scrollable panel.
+ * A Drawer component that displays content in a scrollable panel.
+ *
+ * @element ui-drawer
+ *
+ * @property {String} anchor - The side from which the drawer appears. Valid values: `left`, `right`, `top`, `bottom`. Default is `right`.
+ * @property {Boolean} isOpen - Indicates whether the drawer is open. Default is `true`.
+ * @property {String} label - The label for the drawer's open button.
+ * @property {Function} onClose - Callback function invoked when the drawer is closed.
  *
  * @slot title - Content to be placed in the drawer's heading.
  * @slot content - Main content of the drawer.
@@ -75,13 +82,13 @@ class Drawer extends StyledLitElement {
         <dialog
           class="dialog"
           aria-label=${this.label}
-          anchor="${this.anchor}"
+          anchor=${this.anchor}
           @close=${this.handleClose}
           @cancel=${this.handleClose}
         >
           <div class="dialog-heading">
             <slot name="title"></slot>
-            <button class="close-btn" @click=${this.handleClose}>
+            <button class="close-btn" @click=${this.handleClose} aria-label="Close">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-x-lg" viewBox="0 0 16 16">
                 <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z"/>
               </svg>
@@ -112,6 +119,7 @@ Drawer.styles = [
       background-color: var(--color-secondary-light);
       border-radius: 8px 8px 0 0;
       padding: 0.75rem 1.2rem;
+      font-size: 0.9rem;
 
       &:hover, &:active {
         cursor: pointer;
@@ -159,6 +167,7 @@ Drawer.styles = [
         min-height: 10rem;
         max-height: 50vh;
         box-shadow: 0 8px 20px 4px var(--color-shadow-main);
+        padding: 1rem 2rem;
       }
       
       &[anchor="bottom"] {
@@ -171,12 +180,13 @@ Drawer.styles = [
         min-height: 10rem;
         max-height: 50vh;
         box-shadow: 0 -8px 20px 4px var(--color-shadow-main);
+        padding: 1rem 2rem;
       }
 
       .dialog-heading {
         display: flex;
         justify-content: space-between;
-        align-items: start;
+        align-items: baseline;
         max-width: inherit;
 
         ::slotted(*) {
@@ -186,11 +196,13 @@ Drawer.styles = [
         }
 
         .close-btn {
-          all: unset;
+          width: 1.5rem;
+          height: 1.5rem;
           margin-left: 1.5rem;
+          text-align: center;
           background: transparent;
           color: var(--color-text-primary);
-
+          
           &:hover, &:active {
             cursor: pointer;
             color: var(--color-text-primary);
