@@ -284,7 +284,7 @@ func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piece 
 				log.Infow("db chunk node mh", "mh", mh, "i", i)
 			}
 
-			return nil, xerrors.Errorf("db chunk node does not match the expected chunk CID, got %s, expected %s, mhs %d/%d, first %s, nextL %s", link.String(), chunk.String(), len(mhs), numBlocks, firstHash.HexString(), next.String())
+			return nil, xerrors.Errorf("db chunk node does not match the expected chunk CID, got %s, expected %s, mhs %d/%d, first %s, nextL %s", link.String(), chunk.String(), len(mhs), numBlocks, firstHash.HexString(), next)
 		}
 	}
 
