@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"github.com/yugabyte/pgx/v5"
 	"io"
 	"time"
 
@@ -33,6 +34,8 @@ var (
 	ErrNotFound = errors.New("not found")
 )
 
+const NoSkipCacheTTL = 3 * time.Minute
+
 type ipniEntry struct {
 	Data []byte
 	Prev cid.Cid
@@ -45,6 +48,9 @@ type ServeChunker struct {
 	cpr           *cachedreader.CachedPieceReader
 
 	entryCache *lru.Cache[cid.Cid, *promise.Promise[result.Result[ipniEntry]]]
+
+	// small cache keeping track of which piece CIDs shouldn't be skipped. Entries expire after NoSkipCacheTTL
+	noSkipCache *lru.Cache[cid.Cid, time.Time]
 }
 
 // Entries are 0.5MiB in size, so we do ~10MiB of caching here
@@ -52,14 +58,14 @@ type ServeChunker struct {
 const EntryCacheSize = 20
 
 func NewServeChunker(db *harmonydb.DB, pieceProvider *pieceprovider.PieceProvider, indexStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader) *ServeChunker {
-	entryCache := must.One(lru.New[cid.Cid, *promise.Promise[result.Result[ipniEntry]]](EntryCacheSize))
-
 	return &ServeChunker{
 		db:            db,
 		pieceProvider: pieceProvider,
 		indexStore:    indexStore,
 		cpr:           cpr,
-		entryCache:    entryCache,
+
+		entryCache:  must.One(lru.New[cid.Cid, *promise.Promise[result.Result[ipniEntry]]](EntryCacheSize)),
+		noSkipCache: must.One(lru.New[cid.Cid, time.Time](EntryCacheSize)),
 	}
 }
 
@@ -102,6 +108,9 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 		if v.Error == nil {
 			prevChunk = v.Value.Prev
 			return v.Value.Data, nil
+		} else if v.Error == ErrNotFound {
+			log.Errorw("Cached promise skip", "block", block, "prev", prevChunk, "err", err)
+			return v.Value.Data, v.Error
 		}
 		log.Errorw("Error in cached promise", "block", block, "error", v.Error)
 	}
@@ -159,11 +168,23 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 	}
 
 	chunk := ipniChunks[0]
-
 	pieceCid, err := cid.Parse(chunk.PieceCID)
 	if err != nil {
 		return nil, xerrors.Errorf("parsing piece CID: %w", err)
 	}
+
+	if leave, ok := p.noSkipCache.Get(pieceCid); !ok || time.Now().After(leave) {
+		skip, err := p.checkIsEntrySkip(ctx, block)
+		if err != nil {
+			return nil, xerrors.Errorf("checking entry skipped for block %s: %w", block, err)
+		}
+		if skip {
+			log.Warnw("Skipped entry skipped for block", "block", block)
+			return nil, ErrNotFound
+		}
+	}
+
+	p.noSkipCache.Add(pieceCid, time.Now().Add(NoSkipCacheTTL))
 
 	var next ipld.Link
 	if chunk.PrevCID != nil {
@@ -297,4 +318,18 @@ func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piece 
 	log.Infow("Reconstructing chunk from DB", "chunk", chunk, "piece", piece, "firstHash", firstHash, "numBlocks", numBlocks, "speculated", speculate, "totalTime", time.Since(start), "ents/s", float64(numBlocks)/time.Since(start).Seconds())
 
 	return b.Bytes(), nil
+}
+
+func (p *ServeChunker) checkIsEntrySkip(ctx context.Context, entry cid.Cid) (bool, error) {
+	// CREATE INDEX ipni_entries_skip ON ipni(entries, is_skip, piece_cid);
+	var isSkip bool
+	err := p.db.QueryRow(ctx, `SELECT is_skip FROM ipni WHERE entries = $1`, entry).Scan(&isSkip)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return isSkip, nil
 }

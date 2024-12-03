@@ -12,6 +12,9 @@ CREATE TABLE ipni (
     -- metadata column in not required as Curio only supports one type of metadata(HTTP)
     is_rm BOOLEAN NOT NULL,
 
+    -- skip added in 20241106-market-fixes.sql
+    -- is_skip BOOLEAN NOT NULL DEFAULT FALSE, -- set to true means return 404 for related entries
+
     previous TEXT, -- previous ad will only be null for first ad in chain
 
     provider TEXT NOT NULL, -- peerID from libp2p, this is main identifier on IPNI side
@@ -33,7 +36,10 @@ CREATE INDEX ipni_provider_order_number ON ipni(provider, order_number);
 CREATE UNIQUE INDEX ipni_ad_cid ON ipni(ad_cid);
 
 -- This index will speed up lookups based on the ad_cid, which is frequently used to identify specific ads
-CREATE UNIQUE INDEX ipni_context_id ON ipni(context_id, ad_cid, is_rm);
+CREATE UNIQUE INDEX ipni_context_id ON ipni(context_id, ad_cid, is_rm); -- dropped in 20241106-market-fixes.sql
+-- 20241106-market-fixes.sql:
+-- CREATE INDEX ipni_context_id ON ipni(context_id, ad_cid, is_rm, is_skip) -- non-unique to allow multiple skips
+-- CREATE INDEX ipni_entries_skip ON ipni(entries, is_skip, piece_cid);
 
 -- Since the get_ad_chain function relies on both provider and ad_cid to find the order_number, this index will optimize that query:
 CREATE INDEX ipni_provider_ad_cid ON ipni(provider, ad_cid);

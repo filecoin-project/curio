@@ -55,6 +55,17 @@ class IpniSearch extends LitElement {
         }
     }
 
+    async handleSetSkip(ad, skipValue) {
+        try {
+            await RPCCall('IPNISetSkip', [{"/": ad}, skipValue]);
+            await this.handleSearch(); // Reload data after setting skip
+            this.errorMessage = '';
+        } catch (error) {
+            console.error('Error setting skip:', error);
+            this.errorMessage = 'Failed to set skip value.';
+        }
+    }
+
     handleScanClick() {
         this.showEntryGrid = true;
     }
@@ -73,7 +84,7 @@ class IpniSearch extends LitElement {
         <div class="search-container">
           <input
             type="text"
-            placeholder="Enter Ad CID"
+            placeholder="Enter Ad/Entry CID"
             .value="${this.searchTerm}"
             @input="${this.handleInput}"
           />
@@ -102,6 +113,32 @@ class IpniSearch extends LitElement {
                       <tr>
                         <th>Is Remove</th>
                         <td>${this.adData.is_rm}</td>
+                      </tr>
+                      <tr>
+                          <th>Should Skip</th>
+                          <td>
+                              <span>${this.adData.is_skip}</span>
+                              <details style="display: inline-block">
+                                  <summary style="display: inline-block" class="btn btn-secondary btn-sm">Set</summary>
+                                  ${this.adData.is_skip
+                                          ? html`
+                                              <button
+                                                      class="btn btn-secondary btn-sm"
+                                                      @click="${() => this.handleSetSkip(this.adData.ad_cid, false)}"
+                                              >
+                                                  Disable Skip
+                                              </button>
+                                          `
+                                          : html`
+                                              <button
+                                                      class="btn btn-danger btn-sm"
+                                                      @click="${() => this.handleSetSkip(this.adData.ad_cid, true)}"
+                                              >
+                                                  Enable Skip
+                                              </button>
+                                          `}
+                              </details>
+                          </td>
                       </tr>
                       <tr>
                         <th>Previous</th>
@@ -167,6 +204,10 @@ class IpniSearch extends LitElement {
           border-radius: 0;
           background-color: var(--color-form-default);
           color: var(--color-text-primary);
+        }
+        
+        .btn-danger {
+          background-color: var(--color-danger-main);
         }
     
         .btn:hover,

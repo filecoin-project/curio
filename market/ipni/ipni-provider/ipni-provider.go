@@ -367,7 +367,7 @@ func (p *Provider) handleGet(w http.ResponseWriter, r *http.Request) {
 		entry, err := p.sc.GetEntry(r.Context(), b)
 		if err != nil {
 			if errors.Is(err, chunker.ErrNotFound) {
-				log.Debugw("No Content Found", "CID", b.String())
+				log.Warnw("No Content Found", "CID", b.String())
 				http.Error(w, "", http.StatusNotFound)
 				return
 			}

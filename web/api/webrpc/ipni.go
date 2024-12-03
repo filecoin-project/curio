@@ -22,6 +22,7 @@ type IpniAd struct {
 	AdCid           string         `db:"ad_cid" json:"ad_cid"`
 	ContextID       []byte         `db:"context_id" json:"context_id"`
 	IsRM            bool           `db:"is_rm" json:"is_rm"`
+	IsSkip          bool           `db:"is_skip" json:"is_skip"`
 	PreviousAd      sql.NullString `db:"previous"`
 	Previous        string         `json:"previous"`
 	SpID            int64          `db:"sp_id" json:"sp_id"`
@@ -50,6 +51,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 									ip.ad_cid, 
 									ip.context_id, 
 									ip.is_rm,
+									ip.is_skip,
 									ip.previous,
 									ipp.sp_id,
 									ip.addresses,
@@ -68,6 +70,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 											ip.ad_cid,
 											ip.context_id,
 											ip.is_rm,
+											ip.is_skip,
 											ip.previous,
 											ipp.sp_id,
 											ip.addresses,
@@ -327,4 +330,17 @@ func (a *WebRPC) IPNIEntry(ctx context.Context, block cid.Cid) (*EntryInfo, erro
 	}
 
 	return &entry, nil
+}
+
+func (a *WebRPC) IPNISetSkip(ctx context.Context, adCid cid.Cid, skip bool) error {
+	n, err := a.deps.DB.Exec(ctx, `UPDATE ipni SET is_skip = $1 WHERE ad_cid = $2`, skip, adCid.String())
+	if err != nil {
+		return xerrors.Errorf("updating ipni set: %w", err)
+	}
+
+	if n == 0 {
+		return xerrors.Errorf("ipni set is zero")
+	}
+
+	return nil
 }
