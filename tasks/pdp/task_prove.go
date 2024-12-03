@@ -85,9 +85,9 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
                     SELECT p.id
                     FROM pdp_proof_sets p
                     INNER JOIN message_waits_eth mw on mw.signed_tx_hash = p.challenge_request_msg_hash
-                    WHERE p.challenge_request_msg_hash IS NOT NULL AND mw.tx_success = TRUE
+                    WHERE p.challenge_request_msg_hash IS NOT NULL AND mw.tx_success = TRUE AND p.prove_at_epoch < $1 
                     LIMIT 2
-                `)
+                `, apply.Height())
 				if err != nil {
 					return false, xerrors.Errorf("failed to select proof sets: %w", err)
 				}
