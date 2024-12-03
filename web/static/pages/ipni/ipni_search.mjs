@@ -91,7 +91,9 @@ class IpniSearch extends LitElement {
                     <table class="table table-dark table-striped table-sm">
                       <tr>
                         <th>Ad CID</th>
-                        <td>${this.adData.ad_cid}</td>
+                        <td>${this.adData.ad_cids.map(c => html`
+                            <div>${c}</div>
+                        `)}</td>
                       </tr>
                       <tr>
                         <th>Miner</th>

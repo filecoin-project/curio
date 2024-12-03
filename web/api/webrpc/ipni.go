@@ -34,6 +34,8 @@ type IpniAd struct {
 
 	EntryCount int64 `json:"entry_count"`
 	CIDCount   int64 `json:"cid_count"`
+
+	AdCids []string `db:"-" json:"ad_cids"`
 }
 
 func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
@@ -60,7 +62,27 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 	}
 
 	if len(ads) == 0 {
-		return nil, nil
+		// try to get as entry
+
+		err = a.deps.DB.Select(ctx, &ads, `SELECT
+											ip.ad_cid,
+											ip.context_id,
+											ip.is_rm,
+											ip.previous,
+											ipp.sp_id,
+											ip.addresses,
+											ip.entries
+										FROM ipni_chunks ipc
+											LEFT JOIN ipni ip ON ip.piece_cid = ipc.piece_cid
+											LEFT JOIN ipni_peerid ipp ON ip.provider = ipp.peer_id
+										WHERE ipc.cid = $1`, adCid.String())
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch the ad details from DB: %w", err)
+		}
+
+		if len(ads) == 0 {
+			return nil, xerrors.Errorf("no ad found for ad cid: %s", adCid)
+		}
 	}
 
 	details := ads[0]
@@ -106,6 +128,10 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 	if adEntryInfo[0].EntryCount > 0 {
 		details.EntryCount = adEntryInfo[0].EntryCount
 		details.CIDCount = adEntryInfo[0].CIDCount
+	}
+
+	for _, ipniAd := range ads {
+		details.AdCids = append(details.AdCids, ipniAd.AdCid)
 	}
 
 	return &details, nil
