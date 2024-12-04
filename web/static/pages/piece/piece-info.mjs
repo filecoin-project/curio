@@ -11,6 +11,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
         data: { type: Object },
         mk12DealData: { type: Array },
         pieceParkStates: { type: Object },
+        refDetails: { type: Object }
     };
 
     constructor() {
@@ -18,6 +19,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
         this.data = null;
         this.mk12DealData = [];
         this.pieceParkStates = null;
+        this.refDetails = {};
         this.loadData();
     }
 
@@ -51,6 +53,17 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                     console.error('Failed to remove deal pipeline:', error);
                     alert('Failed to remove deal pipeline: ' + error.message);
                 });
+        }
+    }
+
+    async findRefDetails(ref) {
+        try {
+            const entries = await RPCCall('FindEntriesByDataURL', [`pieceref:${ref.ref_id}`]);
+            this.refDetails[ref.ref_id] = entries;
+            this.requestUpdate();
+        } catch (error) {
+            console.error('Failed to fetch details:', error);
+            alert('Failed to fetch details: ' + error.message);
         }
     }
 
@@ -358,6 +371,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                     <tr>
                         <td>Ref ID</td>
                         <td>Data URL</td>
+                        <td>Details</td>
                     </tr>
                 </thead>
                 <tbody>
@@ -371,6 +385,9 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                                     <p><pre>${JSON.stringify(ref.data_headers, null, 2)}</pre></p>
                                 </details>
                             </td>
+                            <td>
+                                ${this.renderRefDetails(ref)}
+                            </td>
                         </tr>
                     `)}
                 </tbody>
@@ -378,6 +395,41 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
         `
     }
 
+    renderRefDetails(ref) {
+        const details = this.refDetails[ref.ref_id];
+        if (details) {
+            // Details have been fetched, display them in a table
+            return html`
+                <table class="table table-dark table-striped table-sm">
+                    <thead>
+                        <tr>
+                            <th>Table</th>
+                            <th>SP ID</th>
+                            <th>Sector</th>
+                            <th>Piece Index</th>
+                            <th>Deal UUID</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${details.map(entry => html`
+                            <tr>
+                                <td>${entry.table_name}</td>
+                                <td>${entry.addr}</td>
+                                <td>${entry.sector_number !== null ? entry.sector_number : 'N/A'}</td>
+                                <td>${entry.piece_index !== null ? entry.piece_index : 'N/A'}</td>
+                                <td>${entry.deal_uuid !== null ? entry.deal_uuid : 'N/A'}</td>
+                            </tr>
+                        `)}
+                    </tbody>
+                </table>
+            `;
+        } else {
+            // Details not fetched yet, display the "FIND" button
+            return html`
+                <button class="btn btn-info btn-sm" @click=${() => this.findRefDetails(ref)}>FIND</button>
+            `;
+        }
+    }
 
     toHumanBytes(bytes) {
         if (typeof bytes !== 'number') {
