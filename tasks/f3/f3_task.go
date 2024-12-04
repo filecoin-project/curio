@@ -2,7 +2,6 @@ package f3
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"github.com/yugabyte/pgx/v5"
 	"time"
