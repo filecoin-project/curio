@@ -6,7 +6,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -836,4 +839,84 @@ func firstOrZero[T any](a []T) T {
 		return *new(T)
 	}
 	return a[0]
+}
+
+func (a *WebRPC) MK12DealPipelineRemove(ctx context.Context, uuid string) error {
+	_, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		// First, get deal_pipeline.url, task_ids, and sector values
+		var (
+			url    string
+			sector sql.NullInt64
+
+			commpTaskID    sql.NullInt64
+			psdTaskID      sql.NullInt64
+			findDealTaskID sql.NullInt64
+			indexingTaskID sql.NullInt64
+		)
+
+		err = tx.QueryRow(`SELECT url, sector, commp_task_id, psd_task_id, find_deal_task_id, indexing_task_id
+			FROM market_mk12_deal_pipeline WHERE uuid = $1`, uuid).Scan(
+			&url, &sector, &commpTaskID, &psdTaskID, &findDealTaskID, &indexingTaskID,
+		)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return false, fmt.Errorf("no deal pipeline found with uuid %s", uuid)
+			}
+			return false, err
+		}
+
+		// Collect non-null task IDs
+		var taskIDs []int64
+		if commpTaskID.Valid {
+			taskIDs = append(taskIDs, commpTaskID.Int64)
+		}
+		if psdTaskID.Valid {
+			taskIDs = append(taskIDs, psdTaskID.Int64)
+		}
+		if findDealTaskID.Valid {
+			taskIDs = append(taskIDs, findDealTaskID.Int64)
+		}
+		if indexingTaskID.Valid {
+			taskIDs = append(taskIDs, indexingTaskID.Int64)
+		}
+
+		// Check if any tasks are still running
+		if len(taskIDs) > 0 {
+			var runningTasks int
+			err = tx.QueryRow(`SELECT COUNT(*) FROM harmony_task WHERE id = ANY($1)`, taskIDs).Scan(&runningTasks)
+			if err != nil {
+				return false, err
+			}
+			if runningTasks > 0 {
+				return false, fmt.Errorf("cannot remove deal pipeline %s: tasks are still running", uuid)
+			}
+		}
+
+		// Remove market_mk12_deal_pipeline entry
+		_, err = tx.Exec(`DELETE FROM market_mk12_deal_pipeline WHERE uuid = $1`, uuid)
+		if err != nil {
+			return false, err
+		}
+
+		// If sector is null, remove related pieceref
+		if !sector.Valid {
+			// Extract refID from deal_pipeline.url (format: "pieceref:[refid]")
+			const prefix = "pieceref:"
+			if strings.HasPrefix(url, prefix) {
+				refIDStr := url[len(prefix):]
+				refID, err := strconv.ParseInt(refIDStr, 10, 64)
+				if err != nil {
+					return false, fmt.Errorf("invalid refID in URL: %v", err)
+				}
+				// Remove from parked_piece_refs where ref_id = refID
+				_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, refID)
+				if err != nil {
+					return false, err
+				}
+			}
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+	return err
 }

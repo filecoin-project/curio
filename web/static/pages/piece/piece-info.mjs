@@ -40,6 +40,20 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
         }
     }
 
+    handleRemove(uuid) {
+        if (confirm('Are you sure you want to remove the deal pipeline?')) {
+            RPCCall('MK12DealPipelineRemove', [uuid])
+                .then(() => {
+                    alert('Deal pipeline removed successfully.');
+                    this.loadData(); // Refresh data
+                })
+                .catch(error => {
+                    console.error('Failed to remove deal pipeline:', error);
+                    alert('Failed to remove deal pipeline: ' + error.message);
+                });
+        }
+    }
+
     render() {
         if (!this.data) {
             return html`<div>Loading...</div>`;
@@ -191,6 +205,12 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                         })()}
                         ${entry.pipeline ? html`
                             <tr><th colspan="2"><h5 style="color: var(--color-warning-main)">PIPELINE ACTIVE</h5></th></tr>
+                            <tr>
+                                <td>Controls</td>
+                                <td>
+                                    <button class="btn btn-warning btn-sm" @click=${() => this.handleRemove(entry.deal.uuid)}>REMOVE</button>
+                                </td>
+                            </tr>
                             <tr><td>Created At</td><td>${formatDate(entry.pipeline.created_at)}</td></tr>
                             <tr><td>Piece CID</td><td>${entry.pipeline.piece_cid}</td></tr>
                             <tr><td>Piece Size</td><td>${this.toHumanBytes(entry.pipeline.piece_size)}</td></tr>
