@@ -19,6 +19,12 @@
     --color-text-primary: #FFF;
     --color-text-secondary: #171717;
 
+    /* Areas */
+    --color-fg: #2A2A2E;
+    --color-bg: #1D1D21;
+
+    --color-shadow-main: #1e1d1f;
+
     /* Forms */
     --color-form-default: #808080; /* buttons, field outlines */
     --color-form-default-pressed: #A1A1A1;

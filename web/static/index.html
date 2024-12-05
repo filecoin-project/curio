@@ -17,21 +17,24 @@
     <script type="module" src="pipeline-porep.mjs"></script>
     <script type="module" src="actor-summary.mjs"></script>
     <script type="module" src="/ux/curio-ux.mjs"></script>
+    <script type="module" src="/ux/components/Drawer.mjs"></script>
     <style>
-        .logo {
-            display: inline-block;
+        .drawer {
+          display: block;
         }
 
-        .dash-tile {
-            display: flex;
-            flex-direction: column;
-            padding: 0.75rem;
-            background: #3f3f3f;
+        .wide-content {
+          display: none;
+        }
 
-            & b {
-                padding-bottom: 0.5rem;
-                color: deeppink;
-            }
+        @media (min-width: 2210px) {
+          .drawer {
+            display: none;
+          }
+
+          .wide-content {
+            display: block;
+          }
         }
     </style>
 </head>
@@ -109,8 +112,15 @@
             <div class="row">
                 <div class="col-md-auto" style="max-width: 1000px">
                     <div class="info-block">
-                        <h2>Cluster Tasks</h2>
-                        <cluster-tasks></cluster-tasks>
+                        <div class="wide-content">
+                            <h2>Cluster Tasks</h2>
+                            <cluster-tasks></cluster-tasks>
+                        </div>
+
+                        <ui-drawer class="drawer" label="Cluster Tasks">
+                            <h2 slot="title">Cluster Tasks</h2>
+                            <cluster-tasks slot="content"></cluster-tasks>
+                        </ui-drawer>
                     </div>
                 </div>
                 <div class="col-md-auto">
