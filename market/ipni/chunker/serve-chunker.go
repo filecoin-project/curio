@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"github.com/yugabyte/pgx/v5"
 	"io"
 	"time"
 
@@ -17,6 +16,7 @@ import (
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/multiformats/go-multihash"
 	"github.com/snadrus/must"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"

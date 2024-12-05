@@ -3,8 +3,9 @@ package webrpc
 import (
 	"context"
 	"encoding/json"
-	"github.com/filecoin-project/lotus/chain/types"
 	"time"
+
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 type MessageDetail struct {

@@ -400,6 +400,7 @@ USAGE:
 
 COMMANDS:
    window-post, wd, windowpost, wdpost  Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.
+   debug                                Collection of debugging utilities
    help, h                              Shows a list of commands or help for one command
 
 OPTIONS:
@@ -455,6 +456,47 @@ OPTIONS:
    --deadline value                   deadline to compute WindowPoSt for  (default: 0)
    --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
    --help, -h                         show help
+```
+
+### curio test debug
+```
+NAME:
+   curio test debug - Collection of debugging utilities
+
+USAGE:
+   curio test debug command [command options]
+
+COMMANDS:
+   ipni-piece-chunks  generate ipni chunks from a file
+   mig-pcid           
+   help, h            Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+#### curio test debug ipni-piece-chunks
+```
+NAME:
+   curio test debug ipni-piece-chunks - generate ipni chunks from a file
+
+USAGE:
+   curio test debug ipni-piece-chunks [command options]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+#### curio test debug mig-pcid
+```
+NAME:
+   curio test debug mig-pcid
+
+USAGE:
+   curio test debug mig-pcid [command options]
+
+OPTIONS:
+   --help, -h  show help
 ```
 
 ## curio web

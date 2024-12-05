@@ -3,11 +3,14 @@ package webrpc
 import (
 	"context"
 	"fmt"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/lotus/build/buildconstants"
+	"time"
+
 	"github.com/hako/durafmt"
 	"golang.org/x/xerrors"
-	"time"
+
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/lotus/build/buildconstants"
 )
 
 func (a *WebRPC) EpochPretty(ctx context.Context, e abi.ChainEpoch) (string, error) {

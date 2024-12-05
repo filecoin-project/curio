@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"expvar"
 	"fmt"
-	"github.com/snadrus/must"
 	"math/bits"
 	"math/rand"
 	"os"
@@ -19,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
+	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"

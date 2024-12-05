@@ -3,12 +3,15 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/urfave/cli/v2"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-state-types/builtin/v9/market"
+
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/reqcontext"
-	"github.com/filecoin-project/go-state-types/builtin/v9/market"
-	"github.com/urfave/cli/v2"
-	"golang.org/x/xerrors"
 )
 
 var testDebugCmd = &cli.Command{
