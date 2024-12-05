@@ -47,7 +47,6 @@ type PieceIngesterSnap struct {
 	addToID              map[address.Address]int64
 	idToAddr             map[abi.ActorID]address.Address
 	minerDetails         map[int64]*mdetails
-	sectorSize           abi.SectorSize
 	maxWaitTime          time.Duration
 	expectedSnapDuration abi.ChainEpoch
 }
@@ -143,7 +142,7 @@ func (p *PieceIngesterSnap) Seal() error {
 		// 1. If sector is full
 		// 2. We have been waiting for MaxWaitDuration
 		// 3. StartEpoch is currentEpoch + expectedSealDuration
-		if sector.currentSize == abi.PaddedPieceSize(p.sectorSize) {
+		if sector.currentSize == abi.PaddedPieceSize(p.minerDetails[int64(sector.miner)].sectorSize) {
 			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "sector full")
 			return true
 		}
@@ -155,6 +154,8 @@ func (p *PieceIngesterSnap) Seal() error {
 			log.Debugf("start sealing sector %d of miner %s: %s", sector.number, p.idToAddr[sector.miner].String(), "earliest start epoch")
 			return true
 		}
+
+		log.Debugw("not starting to seal sector", "sector", sector.number, "miner", p.idToAddr[sector.miner].String(), "csize", sector.currentSize, "open", time.Since(*sector.openedAt), "toStart", sector.earliestStartEpoch-(head.Height()+p.expectedSnapDuration))
 		return false
 	}
 
@@ -513,7 +514,7 @@ func (p *PieceIngesterSnap) allocateToExisting(ctx context.Context, tx *harmonyd
 		if nextSector {
 			continue
 		}
-		if sec.currentSize+psize <= abi.PaddedPieceSize(p.sectorSize) {
+		if sec.currentSize+psize <= abi.PaddedPieceSize(p.minerDetails[p.addToID[maddr]].sectorSize) {
 			si, err := p.api.StateSectorGetInfo(ctx, maddr, sec.number, types.EmptyTSK)
 			if err != nil {
 				log.Errorw("getting sector info", "error", err, "sector", sec.number, "miner", maddr)
