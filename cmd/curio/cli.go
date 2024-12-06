@@ -18,6 +18,7 @@ import (
 
 	"github.com/filecoin-project/go-jsonrpc/auth"
 
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/reqcontext"
@@ -29,11 +30,11 @@ const providerEnvVar = "CURIO_API_INFO"
 
 var cliCmd = &cli.Command{
 	Name:  "cli",
-	Usage: "Execute cli commands",
+	Usage: translations.T("Execute cli commands"),
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:  "machine",
-			Usage: "machine host:port (curio run --listen address)",
+			Usage: translations.T("machine host:port (curio run --listen address)"),
 		},
 	},
 	Before: func(cctx *cli.Context) error {
@@ -209,11 +210,11 @@ var cliCmd = &cli.Command{
 
 var waitApiCmd = &cli.Command{
 	Name:  "wait-api",
-	Usage: "Wait for Curio api to come online",
+	Usage: translations.T("Wait for Curio api to come online"),
 	Flags: []cli.Flag{
 		&cli.DurationFlag{
 			Name:  "timeout",
-			Usage: "duration to wait till fail",
+			Usage: translations.T("duration to wait till fail"),
 			Value: time.Second * 30,
 		},
 	},

@@ -1,0 +1,444 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36" version="24.7.16" pages="4">
+  <diagram name="Strona-1" id="Tr9g8Si8d620d4WiGS6E">
+    <mxGraphModel dx="775" dy="573" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-46" value="&lt;div&gt;暂存&lt;/div&gt;&lt;div&gt;空间&lt;br&gt;&lt;/div&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#e1d5e7;strokeColor=#9673a6;" parent="1" vertex="1">
+          <mxGeometry x="580" y="350" width="60" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-44" value="&lt;div&gt;暂存&lt;/div&gt;&lt;div&gt;空间&lt;br&gt;&lt;/div&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#e1d5e7;strokeColor=#9673a6;" parent="1" vertex="1">
+          <mxGeometry x="220" y="350" width="60" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-32" value="冗余链节点" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
+          <mxGeometry x="350" y="100" width="124" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-1" value="&lt;font style=&quot;font-size: 24px;&quot;&gt;Curio Nodes&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="50" y="80" width="160" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-3" value="Lotus 链" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+          <mxGeometry x="260" y="70" width="110" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-5" value="Lotus 链" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+          <mxGeometry x="270" y="80" width="110" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-6" value="Lotus 链" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+          <mxGeometry x="280" y="90" width="110" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-9" value="Curio" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="175" y="240" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-10" value="Curio" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="185" y="250" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-11" value="Curio" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="195" y="260" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-12" value="Curio" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="205" y="270" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-13" value="Curio" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="215" y="280" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-19" value="封装节点" style="shape=process;whiteSpace=wrap;html=1;backgroundOutline=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+          <mxGeometry x="170" y="330" width="105" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-20" value="Curio" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="295" y="240" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-21" value="Curio" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="305" y="250" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-22" value="Curio" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="315" y="260" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-25" value="PoSt 节点" style="shape=process;whiteSpace=wrap;html=1;backgroundOutline=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+          <mxGeometry x="295" y="330" width="105" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-26" value="Curio" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="415" y="240" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-27" value="Curio" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="425" y="250" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-28" value="Curio" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="435" y="260" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-29" value="Curio" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="445" y="270" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-30" value="Curio" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="455" y="280" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-31" value="&lt;div&gt;存储&lt;/div&gt;&lt;div&gt;节点&lt;br&gt;&lt;/div&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+          <mxGeometry x="445" y="315" width="60" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-36" value="YugabyteDB&lt;br&gt;&lt;div&gt;(Postgres+HA)&lt;/div&gt;&lt;div&gt;协调&lt;/div&gt;&lt;div&gt;集群&lt;br&gt;&lt;/div&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="50" y="210" width="90" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-38" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 3;strokeWidth=2;rounded=0;" parent="1" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="285" y="650" as="sourcePoint" />
+            <mxPoint x="285" y="220" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-40" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 3;strokeWidth=2;rounded=0;" parent="1" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="407" y="650" as="sourcePoint" />
+            <mxPoint x="406.5" y="220" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-50" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" parent="1" source="uCUMHbnbCTemmPt3Qczi-42" target="uCUMHbnbCTemmPt3Qczi-45" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="570" y="310" />
+              <mxPoint x="570" y="310" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-42" value="Curio" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="540" y="285" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-43" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 3;strokeWidth=2;rounded=0;" parent="1" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="520" y="630" as="sourcePoint" />
+            <mxPoint x="520" y="220" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-45" value="分片存储" style="shape=process;whiteSpace=wrap;html=1;backgroundOutline=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+          <mxGeometry x="530" y="330" width="105" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-48" value="Boost" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
+          <mxGeometry x="540" y="200" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-52" value="Boost" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
+          <mxGeometry x="550" y="210" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-56" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="uCUMHbnbCTemmPt3Qczi-54" target="uCUMHbnbCTemmPt3Qczi-42" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-54" value="Boost" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#f8cecc;strokeColor=#b85450;" parent="1" vertex="1">
+          <mxGeometry x="560" y="220" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-57" value="&lt;div style=&quot;&quot;&gt;&lt;div style=&quot;&quot;&gt;多个参与者在一个集群上&lt;br&gt;&lt;/div&gt;&lt;/div&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;" parent="1" vertex="1">
+          <mxGeometry x="590" y="240" width="100" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-58" value="Sealing nodes make independent scheduling decisions. Each node looks for available work in the database, and collaboratively decides what to do next.&lt;br&gt;Sectors in the process of being sealed simply list which algorithms need to be executed on them, which means that work isn&#39;t bound by a sequential pipeline.For example data can start mowing to long-term storage while the commit message is landing on-chain" style="text;html=1;align=center;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=9;horizontal=1;" parent="1" vertex="1">
+          <mxGeometry x="160" y="430" width="120" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-59" value="&lt;div&gt;PoSt 节点协作调度 PoSt 任务。首先，每个节点观察链并提出执行的任务，然后 Harmony 任务引擎确保群集中的至少一个节点执行这些任务。这意味着仅使用两个节点的 SP 在没有重叠分区的情况下可以获得高度可用的窗口和获胜的 PoSt。&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;这种配置还使 SP 能够并行计算多个分区，使得非常大的演员以及在多个演员之间共享一组 PoSt 节点成为可能。&lt;br&gt; &lt;/div&gt;" style="text;html=1;align=center;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=9;horizontal=1;" parent="1" vertex="1">
+          <mxGeometry x="290" y="380" width="115" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-60" value="存储节点就像 Curio 集群中的任何其他节点一样 - 只是一个 Curio 节点，但只启用了轻量级的存储相关任务。" style="text;html=1;align=center;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=9;horizontal=1;" parent="1" vertex="1">
+          <mxGeometry x="405" y="380" width="115" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="uCUMHbnbCTemmPt3Qczi-61" value="&lt;div&gt;Curio 支持无修改的 boost。Curio 节点可以配置为公开 lotus-miner RPC 的子集。一个节点可以为多个矿工参与者公开多个端点，这使得配置具有多个参与者/boost 节点的集群变得容易。&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;未来，boost 将作为 curio 的组件进行集成，这意味着只需管理单一的二进制文件，使市场操作可扩展。&lt;br&gt;&lt;/div&gt;" style="text;html=1;align=center;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=9;horizontal=1;" parent="1" vertex="1">
+          <mxGeometry x="522.5" y="430" width="115" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="pQ0IkKOmqQIsSmUgU4DO-1" value="&lt;font style=&quot;font-size: 9px;&quot;&gt;Each Curio node can talk to a set of Chain nodes, so that in case one goes down or is slow, another one can be selected&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="260" y="150" width="90" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="pQ0IkKOmqQIsSmUgU4DO-2" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;YugabyteDB 已经在 boost 中使用，Curio 也使用它作为一个易于管理的高可用集群状态中心位置。技术上来说，它不持有任何关键数据，这些数据的丢失不会导致扇区无法验证，但所有集群操作都是通过它进行协调的。&lt;br&gt;&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="40" y="400" width="110" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="pQ0IkKOmqQIsSmUgU4DO-3" value="" style="endArrow=none;dashed=1;html=1;dashPattern=1 3;strokeWidth=2;rounded=0;" parent="1" edge="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="700" y="620" as="sourcePoint" />
+            <mxPoint x="700" y="190" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="WhimpXIwQ3v0k1WHfet7" name="Strona-2">
+    <mxGraphModel dx="775" dy="573" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="xu6kZlUL9wDcMCbd5zJD-1" value="&lt;font style=&quot;font-size: 24px;&quot;&gt;Curio Cluster&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" parent="1" vertex="1">
+          <mxGeometry x="30" y="160" width="160" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="st0Ed5sikWB2nDtZWLyY-1" value="&lt;div&gt;长期&lt;/div&gt;&lt;div&gt;存储&lt;br&gt;&lt;/div&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;" parent="1" vertex="1">
+          <mxGeometry x="270" y="584.5" width="90" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="st0Ed5sikWB2nDtZWLyY-5" value="链" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="30" y="355" width="110" height="67" as="geometry" />
+        </mxCell>
+        <mxCell id="st0Ed5sikWB2nDtZWLyY-12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;startArrow=classic;startFill=1;" parent="1" source="st0Ed5sikWB2nDtZWLyY-7" target="st0Ed5sikWB2nDtZWLyY-10" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="st0Ed5sikWB2nDtZWLyY-7" value="&lt;div&gt;PoRep&lt;/div&gt;&lt;div&gt;管道&lt;br&gt;&lt;/div&gt;" style="shape=parallelogram;html=1;strokeWidth=2;perimeter=parallelogramPerimeter;whiteSpace=wrap;rounded=1;arcSize=12;size=0.23;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="270" y="230" width="90" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="st0Ed5sikWB2nDtZWLyY-13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;startArrow=classic;startFill=1;" parent="1" source="st0Ed5sikWB2nDtZWLyY-8" target="st0Ed5sikWB2nDtZWLyY-10" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="st0Ed5sikWB2nDtZWLyY-8" value="&lt;div&gt;快照&lt;/div&gt;&lt;div&gt;管道&lt;br&gt;&lt;/div&gt;" style="shape=parallelogram;html=1;strokeWidth=2;perimeter=parallelogramPerimeter;whiteSpace=wrap;rounded=1;arcSize=12;size=0.23;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+          <mxGeometry x="270" y="280" width="90" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="st0Ed5sikWB2nDtZWLyY-14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;startArrow=classic;startFill=1;" parent="1" source="st0Ed5sikWB2nDtZWLyY-9" target="st0Ed5sikWB2nDtZWLyY-10" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="st0Ed5sikWB2nDtZWLyY-9" value="&lt;div&gt;解封&lt;/div&gt;&lt;div&gt;管道&lt;br&gt;&lt;/div&gt;" style="shape=parallelogram;html=1;strokeWidth=2;perimeter=parallelogramPerimeter;whiteSpace=wrap;rounded=1;arcSize=12;size=0.23;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+          <mxGeometry x="270" y="330" width="90" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="st0Ed5sikWB2nDtZWLyY-10" value="&lt;div&gt;计算&lt;/div&gt;&lt;div&gt;节点&lt;br&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;arcSize=14;strokeWidth=2;" parent="1" vertex="1">
+          <mxGeometry x="410" y="300" width="100" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="st0Ed5sikWB2nDtZWLyY-15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;startArrow=classic;startFill=1;" parent="1" source="st0Ed5sikWB2nDtZWLyY-11" target="st0Ed5sikWB2nDtZWLyY-10" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="st0Ed5sikWB2nDtZWLyY-11" value="&lt;div&gt;SaaS /&lt;br&gt;&lt;/div&gt;&lt;div&gt;去中心化Pin?&lt;/div&gt;" style="shape=parallelogram;html=1;strokeWidth=2;perimeter=parallelogramPerimeter;whiteSpace=wrap;rounded=1;arcSize=12;size=0.23;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" parent="1" vertex="1">
+          <mxGeometry x="270" y="380" width="90" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="st0Ed5sikWB2nDtZWLyY-16" value="&lt;div&gt;PoSt&lt;/div&gt;&lt;div&gt;证明&lt;br&gt;&lt;/div&gt;" style="shape=parallelogram;html=1;strokeWidth=2;perimeter=parallelogramPerimeter;whiteSpace=wrap;rounded=1;arcSize=12;size=0.23;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="270" y="430" width="90" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="st0Ed5sikWB2nDtZWLyY-18" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=classic;startFill=1;" parent="1" source="st0Ed5sikWB2nDtZWLyY-17" target="st0Ed5sikWB2nDtZWLyY-16" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="st0Ed5sikWB2nDtZWLyY-17" value="&lt;div&gt;证明&lt;/div&gt;&lt;div&gt;节点&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;arcSize=14;strokeWidth=2;" parent="1" vertex="1">
+          <mxGeometry x="410" y="425" width="100" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="st0Ed5sikWB2nDtZWLyY-19" value="链通信发生在一组节点之间，使其非常稳健" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=8;" parent="1" vertex="1">
+          <mxGeometry x="110" y="335" width="80" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="st0Ed5sikWB2nDtZWLyY-20" value="长期存储可以从群集中的任何地方进行读取" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="1" vertex="1">
+          <mxGeometry x="530" y="602" width="85" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-2" value="计算工人执行来自管道的任务。当管道准备好执行任务时，任务就会被创建，然后被可用的节点认领。所有节点都帮助维护与它们相关的管道" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="1" vertex="1">
+          <mxGeometry x="400" y="230" width="100" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-4" value="证明工人确保证明任务被正确且及时执行" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="1" vertex="1">
+          <mxGeometry x="520" y="435" width="110" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-5" value="创建新扇区" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="190" y="235" width="80" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-6" value="引入新数据" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="190" y="285" width="80" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-7" value="读取存档" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="190" y="335" width="80" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-8" value="&lt;div&gt;替代&lt;/div&gt;&lt;div&gt;收入&lt;br&gt;&lt;/div&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="190" y="385" width="80" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-9" value="&lt;div&gt;可靠的&lt;/div&gt;&lt;div&gt;证明&lt;br&gt;&lt;/div&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="190" y="435" width="80" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;startArrow=classic;startFill=1;" parent="1" source="AFPwOY_DDRvVrzBXaiLZ-10" target="AFPwOY_DDRvVrzBXaiLZ-12" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-10" value="&lt;div&gt;交易&lt;/div&gt;&lt;div&gt;客户&lt;br&gt;&lt;/div&gt;" style="shape=parallelogram;html=1;strokeWidth=2;perimeter=parallelogramPerimeter;whiteSpace=wrap;rounded=1;arcSize=12;size=0.23;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+          <mxGeometry x="270" y="480" width="90" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;startArrow=classic;startFill=1;" parent="1" source="AFPwOY_DDRvVrzBXaiLZ-11" target="AFPwOY_DDRvVrzBXaiLZ-12" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-11" value="&lt;div&gt;检索&lt;/div&gt;&lt;div&gt;服务器&lt;br&gt;&lt;/div&gt;" style="shape=parallelogram;html=1;strokeWidth=2;perimeter=parallelogramPerimeter;whiteSpace=wrap;rounded=1;arcSize=12;size=0.23;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+          <mxGeometry x="270" y="530" width="90" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-12" value="&lt;div&gt;网络&lt;/div&gt;&lt;div&gt;节点&lt;br&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;arcSize=14;strokeWidth=2;" parent="1" vertex="1">
+          <mxGeometry x="410" y="500" width="100" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-15" value="网络节点与互联网（或离线数据传输设备）通信，以在群集之间传输数据。" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="1" vertex="1">
+          <mxGeometry x="520" y="510" width="120" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-17" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=classic;startFill=1;" parent="1" source="AFPwOY_DDRvVrzBXaiLZ-16" target="st0Ed5sikWB2nDtZWLyY-1" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-16" value="&lt;div&gt;存储&lt;/div&gt;&lt;div&gt;节点&lt;br&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;absoluteArcSize=1;arcSize=14;strokeWidth=2;" parent="1" vertex="1">
+          <mxGeometry x="410" y="592" width="100" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-18" value="&lt;div&gt;数据&lt;/div&gt;&lt;div&gt;摄取&lt;br&gt;&lt;/div&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="190" y="485" width="80" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-19" value="&lt;div&gt;提供&lt;/div&gt;&lt;div&gt;检索&lt;br&gt;&lt;/div&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="190" y="530" width="80" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-20" value="&lt;div align=&quot;left&quot;&gt;Exists&lt;/div&gt;" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="40" y="512" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-21" value="很快" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
+          <mxGeometry x="40" y="542" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-22" value="计划的" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
+          <mxGeometry x="40" y="572" width="60" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="AFPwOY_DDRvVrzBXaiLZ-23" value="研究" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;" parent="1" vertex="1">
+          <mxGeometry x="40" y="602" width="60" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="V8QkG2pRNZyS1jShMDPV" name="Strona-3">
+    <mxGraphModel dx="775" dy="573" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="IToj2VZt3nN6CltXyNZm-27" value="" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="230" y="130" width="550" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-1" value="Curio 任务" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=24;" parent="1" vertex="1">
+          <mxGeometry x="40" y="40" width="140" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-3" value="Yugabyte" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#e1d5e7;strokeColor=#9673a6;dashed=1;dashPattern=12 12;" parent="1" vertex="1">
+          <mxGeometry x="210" y="100" width="80" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-34" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="IToj2VZt3nN6CltXyNZm-4" target="IToj2VZt3nN6CltXyNZm-29" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-4" value="harmory_machines" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;whiteSpace=wrap;" parent="1" vertex="1">
+          <mxGeometry x="320" y="150" width="140" height="90" as="geometry">
+            <mxRectangle x="50" y="210" width="140" height="30" as="alternateBounds" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-5" value="machine_id" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" parent="IToj2VZt3nN6CltXyNZm-4" vertex="1">
+          <mxGeometry y="30" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-6" value="host_and_port" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" parent="IToj2VZt3nN6CltXyNZm-4" vertex="1">
+          <mxGeometry y="50" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-7" value="last_contact" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" parent="IToj2VZt3nN6CltXyNZm-4" vertex="1">
+          <mxGeometry y="70" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-35" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="IToj2VZt3nN6CltXyNZm-9" target="IToj2VZt3nN6CltXyNZm-31" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-9" value="harmory_task" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;whiteSpace=wrap;" parent="1" vertex="1">
+          <mxGeometry x="470" y="150" width="140" height="90" as="geometry">
+            <mxRectangle x="50" y="210" width="140" height="30" as="alternateBounds" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-10" value="任务 ID" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" parent="IToj2VZt3nN6CltXyNZm-9" vertex="1">
+          <mxGeometry y="30" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-11" value="名称" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" parent="IToj2VZt3nN6CltXyNZm-9" vertex="1">
+          <mxGeometry y="50" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-12" value="owned_by" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" parent="IToj2VZt3nN6CltXyNZm-9" vertex="1">
+          <mxGeometry y="70" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-36" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="IToj2VZt3nN6CltXyNZm-13" target="IToj2VZt3nN6CltXyNZm-33" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-13" value="sectors_sdr_pipeline" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;html=1;whiteSpace=wrap;" parent="1" vertex="1">
+          <mxGeometry x="620" y="150" width="140" height="170" as="geometry">
+            <mxRectangle x="50" y="210" width="140" height="30" as="alternateBounds" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-14" value="扇区 ID" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" parent="IToj2VZt3nN6CltXyNZm-13" vertex="1">
+          <mxGeometry y="30" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-15" value="task_id_sdr" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" parent="IToj2VZt3nN6CltXyNZm-13" vertex="1">
+          <mxGeometry y="50" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-16" value="&lt;div&gt;after_sdr&lt;/div&gt;" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" parent="IToj2VZt3nN6CltXyNZm-13" vertex="1">
+          <mxGeometry y="70" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-23" value="&lt;div&gt;..&lt;/div&gt;" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" parent="IToj2VZt3nN6CltXyNZm-13" vertex="1">
+          <mxGeometry y="90" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-24" value="task_id_tree_r" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" parent="IToj2VZt3nN6CltXyNZm-13" vertex="1">
+          <mxGeometry y="110" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-25" value="after_tree_r" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" parent="IToj2VZt3nN6CltXyNZm-13" vertex="1">
+          <mxGeometry y="130" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-26" value="..." style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" parent="IToj2VZt3nN6CltXyNZm-13" vertex="1">
+          <mxGeometry y="150" width="140" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-28" value="&lt;div&gt;Curio 群集由一个共享的 Postgres 数据库协调。默认推荐使用 YugabyteDB。&lt;/div&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;div&gt;数据库包含一组用于协调群集节点之间操作的表。&lt;br&gt;&lt;/div&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="1" vertex="1">
+          <mxGeometry x="50" y="120" width="140" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-29" value="&lt;div style=&quot;font-size: 9px;&quot;&gt;&lt;p&gt;每个 Curio 节点主要通过其主机:端口标识。&lt;/p&gt;&lt;p&gt;节点在启动时会在 harmony_machines 表中注册自己，并定期更新其 last_contact，以便集群中的其他机器可以看到它们是活跃的，这样它们的任务就不需要被其他节点重新认领。&lt;/p&gt;&lt;/div&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;fillColor=#ffe6cc;strokeColor=#d79b00;dashed=1;" parent="1" vertex="1">
+          <mxGeometry x="330" y="360" width="120" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-31" value="&lt;div style=&quot;font-size: 9px;&quot;&gt;&lt;div class=&quot;flex max-w-full flex-col flex-grow&quot;&gt;&lt;div class=&quot;min-h-[20px] text-message flex w-full flex-col items-end gap-2 whitespace-normal break-words [.text-message+&amp;amp;]:mt-5&quot; dir=&quot;auto&quot; data-message-id=&quot;3e534940-5a57-4793-baab-534433404fe5&quot; data-message-author-role=&quot;assistant&quot;&gt;&lt;div class=&quot;flex w-full flex-col gap-1 empty:hidden first:pt-[3px]&quot;&gt;&lt;div class=&quot;markdown prose w-full break-words dark:prose-invert dark&quot;&gt;&lt;p&gt;任务执行通过 harmony_task 表进行协调。&lt;/p&gt;&lt;p&gt;任务最初由对其执行感兴趣的节点添加到该表中。添加任务的节点不一定是执行任务的节点。&lt;/p&gt;&lt;p&gt;任务最初的 owned_by 为 null——当 Curio 节点看到 owned_by 为 null 的任务，并且能够处理具有该名称的任务且有可用资源时，它们会尝试通过将该字段设置为自己的 machine_id 来认领任务。Postgres 只允许一个节点成功将自己设为所有者，然后该节点将开始执行任务。&lt;/p&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;mb-2 flex gap-3 empty:hidden -ml-2&quot;&gt;&lt;div class=&quot;items-center justify-start rounded-xl p-1 flex&quot;&gt;&lt;div class=&quot;flex items-center&quot;&gt;&lt;span data-state=&quot;closed&quot; class=&quot;&quot;&gt;&lt;button data-testid=&quot;voice-play-turn-action-button&quot; aria-label=&quot;Read aloud&quot; class=&quot;rounded-lg text-token-text-secondary hover:bg-token-main-surface-secondary&quot;&gt;&lt;span class=&quot;flex h-[30px] w-[30px] items-center justify-center&quot;&gt;&lt;svg class=&quot;icon-md-heavy&quot; xmlns=&quot;http://www.w3.org/2000/svg&quot; fill=&quot;none&quot; viewBox=&quot;0 0 24 24&quot; height=&quot;24&quot; width=&quot;24&quot;&gt;&lt;path fill=&quot;currentColor&quot; d=&quot;M11 4.9099C11 4.47485 10.4828 4.24734 10.1621 4.54132L6.67572 7.7372C6.49129 7.90626 6.25019 8.00005 6 8.00005H4C3.44772 8.00005 3 8.44776 3 9.00005V15C3 15.5523 3.44772 16 4 16H6C6.25019 16 6.49129 16.0938 6.67572 16.2629L10.1621 19.4588C10.4828 19.7527 11 19.5252 11 19.0902V4.9099ZM8.81069 3.06701C10.4142 1.59714 13 2.73463 13 4.9099V19.0902C13 21.2655 10.4142 22.403 8.81069 20.9331L5.61102 18H4C2.34315 18 1 16.6569 1 15V9.00005C1 7.34319 2.34315 6.00005 4 6.00005H5.61102L8.81069 3.06701ZM20.3166 6.35665C20.8019 6.09313 21.409 6.27296 21.6725 6.75833C22.5191 8.3176 22.9996 10.1042 22.9996 12.0001C22.9996 13.8507 22.5418 15.5974 21.7323 17.1302C21.4744 17.6185 20.8695 17.8054 20.3811 17.5475C19.8927 17.2896 19.7059 16.6846 19.9638 16.1962C20.6249 14.9444 20.9996 13.5175 20.9996 12.0001C20.9996 10.4458 20.6064 8.98627 19.9149 7.71262C19.6514 7.22726 19.8312 6.62017 20.3166 6.35665ZM15.7994 7.90049C16.241 7.5688 16.8679 7.65789 17.1995 8.09947C18.0156 9.18593 18.4996 10.5379 18.4996 12.0001C18.4996 13.3127 18.1094 14.5372 17.4385 15.5604C17.1357 16.0222 16.5158 16.1511 16.0539 15.8483C15.5921 15.5455 15.4632 14.9255 15.766 14.4637C16.2298 13.7564 16.4996 12.9113 16.4996 12.0001C16.4996 10.9859 16.1653 10.0526 15.6004 9.30063C15.2687 8.85905 15.3578 8.23218 15.7994 7.90049Z&quot; clip-rule=&quot;evenodd&quot; fill-rule=&quot;evenodd&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/span&gt;&lt;/button&gt;&lt;/span&gt;&lt;span data-state=&quot;closed&quot; class=&quot;&quot;&gt;&lt;button data-testid=&quot;copy-turn-action-button&quot; aria-label=&quot;Copy&quot; class=&quot;rounded-lg text-token-text-secondary hover:bg-token-main-surface-secondary&quot;&gt;&lt;span class=&quot;flex h-[30px] w-[30px] items-center justify-center&quot;&gt;&lt;svg class=&quot;icon-md-heavy&quot; xmlns=&quot;http://www.w3.org/2000/svg&quot; fill=&quot;none&quot; viewBox=&quot;0 0 24 24&quot; height=&quot;24&quot; width=&quot;24&quot;&gt;&lt;path fill=&quot;currentColor&quot; d=&quot;M7 5C7 3.34315 8.34315 2 10 2H19C20.6569 2 22 3.34315 22 5V14C22 15.6569 20.6569 17 19 17H17V19C17 20.6569 15.6569 22 14 22H5C3.34315 22 2 20.6569 2 19V10C2 8.34315 3.34315 7 5 7H7V5ZM9 7H14C15.6569 7 17 8.34315 17 10V15H19C19.5523 15 20 14.5523 20 14V5C20 4.44772 19.5523 4 19 4H10C9.44772 4 9 4.44772 9 5V7ZM5 9C4.44772 9 4 9.44772 4 10V19C4 19.5523 4.44772 20 5 20H14C14.5523 20 15 19.5523 15 19V10C15 9.44772 14.5523 9 14 9H5Z&quot; clip-rule=&quot;evenodd&quot; fill-rule=&quot;evenodd&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;/span&gt;&lt;/button&gt;&lt;/span&gt;&lt;span class=&quot;hidden&quot;&gt;&lt;/span&gt;&lt;span data-state=&quot;closed&quot; class=&quot;&quot;&gt;&lt;button class=&quot;cursor-pointer h-[30px] rounded-md px-1 text-token-text-secondary hover:bg-token-main-surface-secondary&quot; data-state=&quot;closed&quot; aria-expanded=&quot;false&quot; aria-haspopup=&quot;menu&quot; id=&quot;radix-:r1ee:&quot; type=&quot;button&quot;&gt;&lt;div class=&quot;flex items-center pb-0&quot;&gt;&lt;svg class=&quot;icon-md&quot; xmlns=&quot;http://www.w3.org/2000/svg&quot; fill=&quot;none&quot; viewBox=&quot;0 0 24 24&quot; height=&quot;24&quot; width=&quot;24&quot;&gt;&lt;path fill=&quot;currentColor&quot; d=&quot;M3.06957 10.8763C3.62331 6.43564 7.40967 3 12 3C14.2824 3 16.4028 3.85067 18.0118 5.25439V4C18.0118 3.44772 18.4595 3 19.0118 3C19.5641 3 20.0118 3.44772 20.0118 4V8C20.0118 8.55228 19.5641 9 19.0118 9H15C14.4477 9 14 8.55228 14 8C14 7.44772 14.4477 7 15 7H16.9571C15.6757 5.76379 13.9101 5 12 5C8.43108 5 5.48466 7.67174 5.0542 11.1237C4.98586 11.6718 4.48619 12.0607 3.93815 11.9923C3.39011 11.924 3.00123 11.4243 3.06957 10.8763ZM20.0618 12.0077C20.6099 12.076 20.9988 12.5757 20.9304 13.1237C20.3767 17.5644 16.5903 21 12 21C9.72322 21 7.60762 20.1535 5.99999 18.7559V20C5.99999 20.5523 5.55228 21 4.99999 21C4.44771 21 3.99999 20.5523 3.99999 20V16C3.99999 15.4477 4.44771 15 4.99999 15H8.99999C9.55228 15 9.99999 15.4477 9.99999 16C9.99999 16.5523 9.55228 17 8.99999 17H7.04285C8.32433 18.2362 10.0899 19 12 19C15.5689 19 18.5153 16.3283 18.9458 12.8763C19.0141 12.3282 19.5138 11.9393 20.0618 12.0077Z&quot;&gt;&lt;/path&gt;&lt;/svg&gt;&lt;span class=&quot;overflow-hidden text-clip whitespace-nowrap text-sm&quot;&gt;&lt;/span&gt;&lt;/div&gt;&lt;/button&gt;&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;fillColor=#ffe6cc;strokeColor=#d79b00;dashed=1;" parent="1" vertex="1">
+          <mxGeometry x="477" y="360" width="126" height="270" as="geometry" />
+        </mxCell>
+        <mxCell id="IToj2VZt3nN6CltXyNZm-33" value="sdr_pipeline 是任务协调的一种方式。每个封装节点负责其管道部分 - 例如执行 TreeR 的节点将寻找那些 after_sdr 为 true、但 after_tree_r 为 false 且 tree_r 任务 ID 为 null 的扇区 - 当它们找到这样的扇区时，这些节点将开始一个事务，为例如计算树创建一个任务，并将任务 ID 分配给树任务的 task_id_tree_r" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;fillColor=#ffe6cc;strokeColor=#d79b00;dashed=1;" parent="1" vertex="1">
+          <mxGeometry x="627.5" y="360" width="125" height="190" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="QyCwuJW-HYGqoXMuLRiO" name="Strona-4">
+    <mxGraphModel dx="775" dy="573" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="TBIGsvIdGa_IPObnmpnM-1" value="Curio 任务执行" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=24;" parent="1" vertex="1">
+          <mxGeometry x="40" y="40" width="250" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="TBIGsvIdGa_IPObnmpnM-2" value="SDR 节点" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="40" y="110" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="TBIGsvIdGa_IPObnmpnM-3" value="GPU 节点" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="210" y="110" width="130" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="TBIGsvIdGa_IPObnmpnM-4" value="示例：封装管道中的几个步骤" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="290" y="45" width="230" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="TBIGsvIdGa_IPObnmpnM-5" value="我们从一个包含两台机器的示例集群开始。这些机器将在启动时在 harmony_machine 表中注册自己" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="1" vertex="1">
+          <mxGeometry x="350" y="120" width="220" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="TBIGsvIdGa_IPObnmpnM-7" value="SDR 节点拥有支持 SHA 的 CPU 和大量内存。它将认领“SDR”任务。" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="1" vertex="1">
+          <mxGeometry x="40" y="170" width="140" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="TBIGsvIdGa_IPObnmpnM-9" value="例 GPU 节点配备 GPU，并配置为执行“SDRTrees”任务。" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="1" vertex="1">
+          <mxGeometry x="210" y="170" width="140" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="TBIGsvIdGa_IPObnmpnM-11" value="扇区 1 已创建" style="triangle;whiteSpace=wrap;html=1;fontSize=8;align=left;" parent="1" vertex="1">
+          <mxGeometry x="70" y="260" width="60" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="TBIGsvIdGa_IPObnmpnM-14" value="某些过程（例如 boost 代理处理交易）在 sectors_sdr_pipeline 中创建条目。该条目仅包含扇区编号和矿工参与者 ID，以及分配给该扇区的一组分片" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=8;" parent="1" vertex="1">
+          <mxGeometry x="50" y="390" width="80" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="TBIGsvIdGa_IPObnmpnM-12" value="&lt;div&gt;SDR 任务&lt;/div&gt;&lt;div&gt;已创建&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fontSize=9;align=center;verticalAlign=middle;" parent="1" vertex="1">
+          <mxGeometry x="150" y="260" width="110" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="Fwejmh2N7mDQbzCkq5GE-1" value="SDR 节点看到管道表中有一个扇区条目准备好启动 SDR。在事务中，它将在 harmony_task 表中创建一个任务，并将任务的 task_id 分配给管道表中扇区的 task_id_sdr 字段" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="1" vertex="1">
+          <mxGeometry x="160" y="410" width="90" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="Fwejmh2N7mDQbzCkq5GE-3" value="&lt;div&gt;SDR 任务&lt;/div&gt;&lt;div&gt;已被认领&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fontSize=9;align=center;verticalAlign=middle;" parent="1" vertex="1">
+          <mxGeometry x="270" y="260" width="110" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="Fwejmh2N7mDQbzCkq5GE-4" value="SDR 节点（可能是不同的节点）看到 harmony_task 表中有一个 SDR 任务，且 owner_id 为 null，因此它尝试将自己设为所有者。如果成功，该节点现在将开始执行任务" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="1" vertex="1">
+          <mxGeometry x="270" y="390" width="110" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="Fwejmh2N7mDQbzCkq5GE-5" value="&lt;div&gt;SDR 任务&lt;/div&gt;&lt;div&gt;执行开始&lt;br&gt;&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fontSize=9;align=center;verticalAlign=middle;" parent="1" vertex="1">
+          <mxGeometry x="390" y="260" width="110" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="Fwejmh2N7mDQbzCkq5GE-6" value="刚刚将自己设置为所有者的节点现在开始执行任务。它通过检查 sectors_sdr_pipeline 中哪些行的 task_id_sdr 设置为它当前正在执行的 task_id 来查找它正在操作的扇区" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="1" vertex="1">
+          <mxGeometry x="390" y="400" width="95" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="Fwejmh2N7mDQbzCkq5GE-7" value="&lt;div&gt;SDR 任务&lt;/div&gt;&lt;div&gt;执行&lt;/div&gt;&lt;div&gt;完成&lt;br&gt;&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fontSize=9;align=center;verticalAlign=middle;" parent="1" vertex="1">
+          <mxGeometry x="510" y="260" width="110" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="Fwejmh2N7mDQbzCkq5GE-8" value="当任务执行完成时，任务代码会将 sectors_sdr_pipeline 中的 after_sdr 设置为 true，这将指示下一个阶段前一个阶段已完成" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="1" vertex="1">
+          <mxGeometry x="510" y="390" width="105" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="Fwejmh2N7mDQbzCkq5GE-9" value="&lt;div&gt;SDRTrees 任务&lt;/div&gt;&lt;div&gt;已创建&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fontSize=9;align=center;verticalAlign=middle;" parent="1" vertex="1">
+          <mxGeometry x="100" y="520" width="110" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="Fwejmh2N7mDQbzCkq5GE-10" value="GPU 节点看到管道表中有一个扇区条目准备好开始树任务 - 这由 after_sdr 标志为 true 和 after_tree_.. 为 false 指示" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=9;" parent="1" vertex="1">
+          <mxGeometry x="100" y="640" width="110" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="Fwejmh2N7mDQbzCkq5GE-11" value="&lt;div&gt;SDRTrees 任务&lt;/div&gt;&lt;div&gt;已被认领&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fontSize=9;align=center;verticalAlign=middle;" parent="1" vertex="1">
+          <mxGeometry x="220" y="520" width="110" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="Fwejmh2N7mDQbzCkq5GE-12" value="&lt;div&gt;SDRTrees 任务&lt;/div&gt;&lt;div&gt;执行开始&lt;br&gt;&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fontSize=9;align=center;verticalAlign=middle;" parent="1" vertex="1">
+          <mxGeometry x="340" y="520" width="110" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="Fwejmh2N7mDQbzCkq5GE-13" value="&lt;div&gt;SDRTrees 任务&lt;/div&gt;&lt;div&gt;执行&lt;/div&gt;&lt;div&gt;完成&lt;br&gt;&lt;/div&gt;" style="shape=step;perimeter=stepPerimeter;whiteSpace=wrap;html=1;fixedSize=1;fontSize=9;align=center;verticalAlign=middle;" parent="1" vertex="1">
+          <mxGeometry x="460" y="520" width="110" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="Fwejmh2N7mDQbzCkq5GE-14" value="SDRTrees 任务由 GPU 节点执行。执行步骤几乎与 SDR（或其他任何）任务相同" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
+          <mxGeometry x="250" y="640" width="350" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
