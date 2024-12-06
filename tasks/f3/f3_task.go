@@ -3,10 +3,10 @@ package f3
 import (
 	"context"
 	"errors"
-	"github.com/yugabyte/pgx/v5"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
