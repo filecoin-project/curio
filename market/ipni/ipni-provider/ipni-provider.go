@@ -45,6 +45,7 @@ const IPNIPath = "/ipni/v1/ad/"
 // publishInterval represents the time interval between each publishing operation.
 // It is set to 10 minutes.
 const publishInterval = 10 * time.Minute
+const publishProviderSpacing = 5 * time.Minute
 
 var (
 	log = logging.Logger("ipni-provider")
@@ -472,7 +473,11 @@ func (p *Provider) getHeadCID(ctx context.Context, provider string) (cid.Cid, er
 // It then calls the publishhttp method to publish the head CID via HTTP. If an error occurs, it logs the error.
 // The function is intended to be run as a goroutine with a ticker to schedule its execution at regular intervals.
 func (p *Provider) publishHead(ctx context.Context) {
+	var i int
 	for provider := range p.keys {
+		if i > 0 {
+			time.Sleep(publishProviderSpacing)
+		}
 		c, err := p.getHeadCID(ctx, provider)
 		if err != nil {
 			log.Errorw("failed to get head CID", "provider", provider, "error", err)
@@ -482,6 +487,8 @@ func (p *Provider) publishHead(ctx context.Context) {
 		if err != nil {
 			log.Errorw("failed to publish head for provide", "provider", provider, "error", err)
 		}
+
+		i++
 	}
 }
 
