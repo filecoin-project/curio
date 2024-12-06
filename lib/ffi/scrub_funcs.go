@@ -18,7 +18,7 @@ import (
 )
 
 func (sb *SealCalls) CheckUnsealedCID(ctx context.Context, s storiface.SectorRef) (cid.Cid, error) {
-	reader, err := sb.sectors.storage.ReaderSeq(ctx, s, storiface.FTUnsealed)
+	reader, err := sb.Sectors.storage.ReaderSeq(ctx, s, storiface.FTUnsealed)
 	if err != nil {
 		return cid.Undef, xerrors.Errorf("getting unsealed sector reader: %w", err)
 	}
