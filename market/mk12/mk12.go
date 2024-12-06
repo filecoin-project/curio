@@ -580,6 +580,17 @@ func (m *MK12) maybeApplyBackpressure(ctx context.Context, maddr address.Address
 
 	cfg := m.cfg.Ingest
 
+	/*
+		SELECT COUNT(p.task_id) - COUNT(t.owner_id) AS buffered_park
+		FROM parked_pieces p
+		         LEFT JOIN harmony_task t ON p.task_id = t.id
+		WHERE p.complete = false
+
+
+
+
+	*/
+
 	if cfg.DoSnap {
 		var bufferedEncode, bufferedProve, waitDealSectors int
 		err = m.db.QueryRow(ctx, `
