@@ -967,7 +967,7 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 		if err != nil {
 			// Record the error with tags
 			ctx, _ = tag.New(ctx,
-				tag.Upsert(updateTagKey, fmt.Sprintf("%t", si.Update)),
+				tag.Upsert(updateTagKey, fmt.Sprintf("%t", si.Update != "")),
 				tag.Upsert(cacheIDTagKey, ""),
 				tag.Upsert(sealedIDTagKey, ""),
 			)
@@ -981,7 +981,7 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 		if err != nil {
 			// Record the error with tags
 			ctx, _ = tag.New(ctx,
-				tag.Upsert(updateTagKey, fmt.Sprintf("%t", si.Update)),
+				tag.Upsert(updateTagKey, fmt.Sprintf("%t", si.Update != "")),
 				tag.Upsert(cacheIDTagKey, ""),
 				tag.Upsert(sealedIDTagKey, ""),
 			)
