@@ -281,6 +281,7 @@ jobs:
       - run: git submodule update --init
       - install-ubuntu-deps
       - run: go install golang.org/x/tools/cmd/goimports
+      - run: go install github.com/hannahhoward/cbor-gen-for
       - run: make deps gen
       - run: git --no-pager diff && git --no-pager diff --quiet
   
@@ -315,8 +316,8 @@ workflows:
           resource_class: 2xlarge
       - test:
           name: test-all
+          target: "`go list ./... | grep -v curio/itests | grep -v market/indexstore`"
           suite: test-all
-          target: "`go list ./... | grep -v curio/itests`"
           resource_class: 2xlarge
       - test:
           name: test-itest-harmonyDB
@@ -327,4 +328,10 @@ workflows:
           name: test-itest-alertnow
           suite: test-itest-alertnow
           target: "./itests/alertnow_test.go"
+          resource_class: 2xlarge
+      - test:
+          name: test-idxStore
+          suite: test-idxStore
+          target: "./market/indexstore"
+          get-params: true
           resource_class: 2xlarge

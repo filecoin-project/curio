@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 )
@@ -82,7 +82,9 @@ func TestLocalStorage(t *testing.T) {
 		root: root,
 	}
 
-	db, err := harmonydb.NewFromConfigWithITestID(t, "testlocalstorage")
+	sharedITestID := harmonydb.ITestNewID()
+
+	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
 	require.NoError(t, err)
 
 	index := NewDBIndex(nil, db)

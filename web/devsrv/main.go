@@ -13,7 +13,7 @@ func main() {
 	srv, err := web.GetSrv(context.Background(),
 		&deps.Deps{
 			Cfg: &config.CurioConfig{
-				Subsystems: config.CurioSubsystemsConfig{GuiAddress: ":4701"},
+				Subsystems: config.CurioSubsystemsConfig{GuiAddress: ":4702"},
 			}},
 		true)
 

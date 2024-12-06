@@ -660,6 +660,7 @@ func stepNewMinerConfig(d *MigrationData) {
 	curioCfg.Addresses = append(curioCfg.Addresses, config.CurioAddresses{
 		PreCommitControl:      []string{},
 		CommitControl:         []string{},
+		DealPublishControl:    []string{},
 		TerminateControl:      []string{},
 		DisableOwnerFallback:  false,
 		DisableWorkerFallback: false,

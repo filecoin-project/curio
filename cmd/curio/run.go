@@ -16,7 +16,6 @@ import (
 	"github.com/filecoin-project/curio/cmd/curio/tasks"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/shutdown"
-	"github.com/filecoin-project/curio/market/lmrpc"
 
 	"github.com/filecoin-project/lotus/lib/ulimit"
 	"github.com/filecoin-project/lotus/metrics"
@@ -130,10 +129,6 @@ var runCmd = &cli.Command{
 			return xerrors.Errorf("starting tasks: %w", err)
 		}
 		defer taskEngine.GracefullyTerminate()
-
-		if err := lmrpc.ServeCurioMarketRPCFromConfig(dependencies.DB, dependencies.Chain, dependencies.Cfg); err != nil {
-			return xerrors.Errorf("starting market RPCs: %w", err)
-		}
 
 		err = rpc.ListenAndServe(ctx, dependencies, shutdownChan) // Monitor for shutdown.
 		if err != nil {

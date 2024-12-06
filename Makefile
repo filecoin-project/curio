@@ -65,11 +65,14 @@ build/.update-modules:
 
 # end git modules
 
-## CUDA Library Path
-CUDA_PATH := $(shell dirname $$(dirname $$(which nvcc)))
-CUDA_LIB_PATH := $(CUDA_PATH)/lib64
-LIBRARY_PATH ?= $(CUDA_LIB_PATH)
-export LIBRARY_PATH
+# CUDA Library Path
+# Conditional execution block for Linux
+OS := $(shell uname)
+ifeq ($(OS), Linux)
+    $(eval CUDA_PATH := $(shell dirname $$(dirname $$(which nvcc))))
+    $(eval CUDA_LIB_PATH := $(CUDA_PATH)/lib64)
+    export LIBRARY_PATH := $(LIBRARY_PATH):$(CUDA_LIB_PATH)
+endif
 
 ## MAIN BINARIES
 
@@ -103,7 +106,7 @@ ifeq ($(shell uname),Linux)
 
 batchdep: build/.supraseal-install
 batchdep: $(BUILD_DEPS)
-,PHONY: batchdep
+.PHONY: batchdep
 
 batch: CURIO_TAGS+= supraseal
 batch: CGO_LDFLAGS_ALLOW='.*'

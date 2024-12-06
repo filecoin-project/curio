@@ -139,6 +139,16 @@ var baseText = `
   # type: bool
   #EnableSendCommitMsg = false
 
+  # Whether to abort if any sector activation in a batch fails (newly sealed sectors, only with ProveCommitSectors3).
+  #
+  # type: bool
+  #RequireActivationSuccess = true
+
+  # Whether to abort if any sector activation in a batch fails (updating sectors, only with ProveReplicaUpdates3).
+  #
+  # type: bool
+  #RequireNotificationSuccess = true
+
   # EnableMoveStorage enables the move-into-long-term-storage task to run on this curio instance.
   # This tasks should only be enabled on nodes with long-term storage.
   # 
@@ -155,6 +165,55 @@ var baseText = `
   # type: int
   #MoveStorageMaxTasks = 0
 
+  # EnableUpdateEncode enables the encoding step of the SnapDeal process on this curio instance.
+  # This step involves encoding the data into the sector and computing updated TreeR (uses gpu).
+  #
+  # type: bool
+  #EnableUpdateEncode = false
+
+  # EnableUpdateProve enables the proving step of the SnapDeal process on this curio instance.
+  # This step generates the snark proof for the updated sector.
+  #
+  # type: bool
+  #EnableUpdateProve = false
+
+  # EnableUpdateSubmit enables the submission of SnapDeal proofs to the blockchain from this curio instance.
+  # This step submits the generated proofs to the chain.
+  #
+  # type: bool
+  #EnableUpdateSubmit = false
+
+  # UpdateEncodeMaxTasks sets the maximum number of concurrent SnapDeal encoding tasks that can run on this instance.
+  #
+  # type: int
+  #UpdateEncodeMaxTasks = 0
+
+  # UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance.
+  #
+  # type: int
+  #UpdateProveMaxTasks = 0
+
+  # BoostAdapters is a list of tuples of miner address and port/ip to listen for market (e.g. boost) requests.
+  # This interface is compatible with the lotus-miner RPC, implementing a subset needed for storage market operations.
+  # Strings should be in the format "actor:ip:port". IP cannot be 0.0.0.0. We recommend using a private IP.
+  # Example: "f0123:127.0.0.1:32100". Multiple addresses can be specified.
+  # 
+  # When a market node like boost gives Curio's market RPC a deal to placing into a sector, Curio will first store the
+  # deal data in a temporary location "Piece Park" before assigning it to a sector. This requires that at least one
+  # node in the cluster has the EnableParkPiece option enabled and has sufficient scratch space to store the deal data.
+  # This is different from lotus-miner which stored the deal data into an "unsealed" sector as soon as the deal was
+  # received. Deal data in PiecePark is accessed when the sector TreeD and TreeR are computed, but isn't needed for
+  # the initial SDR layers computation. Pieces in PiecePark are removed after all sectors referencing the piece are
+  # sealed.
+  # 
+  # To get API info for boost configuration run 'curio market rpc-info'
+  # 
+  # NOTE: All deal data will flow through this service, so it should be placed on a machine running boost or on
+  # a machine which handles ParkPiece tasks.
+  #
+  # type: []string
+  #BoostAdapters = []
+
   # EnableWebGui enables the web GUI on this curio instance. The UI has minimal local overhead, but it should
   # only need to be run on a single machine in the cluster.
   #
@@ -164,7 +223,24 @@ var baseText = `
   # The address that should listen for Web GUI requests.
   #
   # type: string
-  #GuiAddress = ":4701"
+  #GuiAddress = "0.0.0.0:4701"
+
+  # UseSyntheticPoRep enables the synthetic PoRep for all new sectors. When set to true, will reduce the amount of
+  # cache data held on disk after the completion of TreeRC task to 11GiB.
+  #
+  # type: bool
+  #UseSyntheticPoRep = false
+
+  # The maximum amount of SyntheticPoRep tasks that can run simultaneously. Note that the maximum number of tasks will
+  # also be bounded by resources available on the machine.
+  #
+  # type: int
+  #SyntheticPoRepMaxTasks = 0
+
+  # EnableDealMarket
+  #
+  # type: bool
+  #EnableDealMarket = false
 
 
 [Fees]
@@ -188,6 +264,16 @@ var baseText = `
   # type: types.FIL
   #MaxPublishDealsFee = "0.05 FIL"
 
+  # Whether to use available miner balance for sector collateral instead of sending it with each message
+  #
+  # type: bool
+  #CollateralFromMinerBalance = false
+
+  # Don't send collateral with messages even if there is no available balance in the miner actor
+  #
+  # type: bool
+  #DisableCollateralFallback = false
+
   [Fees.MaxPreCommitBatchGasFee]
     # type: types.FIL
     #Base = "0 FIL"
@@ -202,19 +288,6 @@ var baseText = `
     # type: types.FIL
     #PerSector = "0.03 FIL"
 
-[[Addresses]]
-  #PreCommitControl = []
-
-  #CommitControl = []
-
-  #TerminateControl = []
-
-  #DisableOwnerFallback = false
-
-  #DisableWorkerFallback = false
-
-  MinerAddresses = ["t01013"]
-
 
 [[Addresses]]
   #PreCommitControl = []
@@ -228,20 +301,6 @@ var baseText = `
   #DisableWorkerFallback = false
 
   #MinerAddresses = []
-
-
-[[Addresses]]
-  #PreCommitControl = []
-
-  #CommitControl = []
-
-  #TerminateControl = []
-
-  #DisableOwnerFallback = false
-
-  #DisableWorkerFallback = false
-
-  MinerAddresses = ["t01006"]
 
 
 [Proving]
@@ -277,25 +336,6 @@ var baseText = `
   #
   # type: Duration
   #PartitionCheckTimeout = "20m0s"
-
-  # Disable Window PoSt computation on the lotus-miner process even if no window PoSt workers are present.
-  # 
-  # WARNING: If no windowPoSt workers are connected, window PoSt WILL FAIL resulting in faulty sectors which will need
-  # to be recovered. Before enabling this option, make sure your PoSt workers work correctly.
-  # 
-  # After changing this option, confirm that the new value works in your setup by invoking
-  # 'lotus-miner proving compute window-post 0'
-  #
-  # type: bool
-  #DisableBuiltinWindowPoSt = false
-
-  # Disable Winning PoSt computation on the lotus-miner process even if no winning PoSt workers are present.
-  # 
-  # WARNING: If no WinningPoSt workers are connected, Winning PoSt WILL FAIL resulting in lost block rewards.
-  # Before enabling this option, make sure your PoSt workers work correctly.
-  #
-  # type: bool
-  #DisableBuiltinWinningPoSt = false
 
   # Disable WindowPoSt provable sector readability checks.
   # 
@@ -359,24 +399,154 @@ var baseText = `
   #SingleRecoveringPartitionPerPostMessage = false
 
 
-[Journal]
-  # Events of the form: "system1:event1,system1:event2[,...]"
+[Market]
+  [Market.DealMarketConfig]
+
+    [[Market.DealMarketConfig.PieceLocator]]
+      #URL = "https://localhost:9999"
+
+      [Market.DealMarketConfig.PieceLocator.Headers]
+        #Authorization = ["Basic YWRtaW46c2VjcmV0"]
+
+    [Market.DealMarketConfig.MK12]
+      # Miners is a list of miner to enable MK12 deals for
+      #
+      # type: []string
+      #Miners = ["t01000"]
+
+      # When a deal is ready to publish, the amount of time to wait for more
+      # deals to be ready to publish before publishing them all as a batch
+      #
+      # type: Duration
+      #PublishMsgPeriod = "0s"
+
+      # The maximum number of deals to include in a single PublishStorageDeals
+      # message
+      #
+      # type: uint64
+      #MaxDealsPerPublishMsg = 0
+
+      # The maximum collateral that the provider will put up against a deal,
+      # as a multiplier of the minimum collateral bound
+      # The maximum fee to pay when sending the PublishStorageDeals message
+      #
+      # type: types.FIL
+      #MaxPublishDealsFee = "0 FIL"
+
+      # ExpectedSealDuration is the expected time it would take to seal the deal sector
+      # This will be used to fail the deals which cannot be sealed on time.
+      # Please make sure to update this to shorter duration for snap deals
+      #
+      # type: Duration
+      #ExpectedSealDuration = "0s"
+
+
+[Ingest]
+  # Maximum number of sectors that can be queued waiting for deals to start processing.
+  # 0 = unlimited
+  # Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
+  # The DealSector queue includes deals which are ready to enter the sealing pipeline but are not yet part of it -
+  # size of this queue will also impact the maximum number of ParkPiece tasks which can run concurrently.
+  # DealSector queue is the first queue in the sealing pipeline, meaning that it should be used as the primary backpressure mechanism.
   #
-  # type: string
-  #DisabledEvents = ""
+  # type: int
+  #MaxQueueDealSector = 8
+
+  # Maximum number of sectors that can be queued waiting for SDR to start processing.
+  # 0 = unlimited
+  # Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
+  # The SDR queue includes deals which are in the process of entering the sealing pipeline. In case of the SDR tasks it is
+  # possible that this queue grows more than this limit(CC sectors), the backpressure is only applied to sectors
+  # entering the pipeline.
+  #
+  # type: int
+  #MaxQueueSDR = 8
+
+  # Maximum number of sectors that can be queued waiting for SDRTrees to start processing.
+  # 0 = unlimited
+  # Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
+  # In case of the trees tasks it is possible that this queue grows more than this limit, the backpressure is only
+  # applied to sectors entering the pipeline.
+  #
+  # type: int
+  #MaxQueueTrees = 0
+
+  # Maximum number of sectors that can be queued waiting for PoRep to start processing.
+  # 0 = unlimited
+  # Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
+  # Like with the trees tasks, it is possible that this queue grows more than this limit, the backpressure is only
+  # applied to sectors entering the pipeline.
+  #
+  # type: int
+  #MaxQueuePoRep = 0
+
+  # Maximum time an open deal sector should wait for more deal before it starts sealing
+  #
+  # type: Duration
+  #MaxDealWaitTime = "1h0m0s"
+
+  # DoSnap enables the snap deal process for deals ingested by this instance. Unlike in lotus-miner there is no
+  # fallback to porep when no sectors are available to snap into. When enabled all deals will be snap deals.
+  #
+  # type: bool
+  #DoSnap = false
 
 
 [Apis]
-  # ChainApiInfo is the API endpoint for the Lotus daemon.
-  #
-  # type: []string
-  ChainApiInfo = ["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBbGxvdyI6WyJyZWFkIiwid3JpdGUiLCJzaWduIiwiYWRtaW4iXX0.T_jmG4DTs9Zjd7rr78862lT7D2U63uz-zqcUKHwcqaU:/dns/localhost/tcp/1234/http"]
-
   # RPC Secret for the storage subsystem.
   #
   # type: string
-  StorageRPCSecret = "HxHe8YLHiY0LjHVw/WT/4XQkPGgRyCEYk+xiFi0Ob0o="
+  #StorageRPCSecret = ""
 
+
+[Alerting]
+  # MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
+  # alerts will be triggered for the wallet
+  #
+  # type: types.FIL
+  #MinimumWalletBalance = "5 FIL"
+
+  [Alerting.PagerDuty]
+    # Enable is a flag to enable or disable the PagerDuty integration.
+    #
+    # type: bool
+    #Enable = false
+
+    # PagerDutyEventURL is URL for PagerDuty.com Events API v2 URL. Events sent to this API URL are ultimately
+    # routed to a PagerDuty.com service and processed.
+    # The default is sufficient for integration with the stock commercial PagerDuty.com company's service.
+    #
+    # type: string
+    #PagerDutyEventURL = "https://events.pagerduty.com/v2/enqueue"
+
+    # PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
+    # identifier in the integration page for the service.
+    #
+    # type: string
+    #PageDutyIntegrationKey = ""
+
+  [Alerting.PrometheusAlertManager]
+    # Enable is a flag to enable or disable the Prometheus AlertManager integration.
+    #
+    # type: bool
+    #Enable = false
+
+    # AlertManagerURL is the URL for the Prometheus AlertManager API v2 URL.
+    #
+    # type: string
+    #AlertManagerURL = "http://localhost:9093/api/v2/alerts"
+
+  [Alerting.SlackWebhook]
+    # Enable is a flag to enable or disable the Prometheus AlertManager integration.
+    #
+    # type: bool
+    #Enable = false
+
+    # WebHookURL is the URL for the URL for slack Webhook.
+    # Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
+    #
+    # type: string
+    #WebHookURL = ""
 `
 
 func TestConfig(t *testing.T) {

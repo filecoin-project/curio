@@ -201,33 +201,6 @@ description: The default curio configuration
   # type: int
   #UpdateProveMaxTasks = 0
 
-  # EnableCommP enabled the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12
-  # deal, and when checking sector data with 'curio unseal check'.
-  #
-  # type: bool
-  #EnableCommP = false
-
-  # BoostAdapters is a list of tuples of miner address and port/ip to listen for market (e.g. boost) requests.
-  # This interface is compatible with the lotus-miner RPC, implementing a subset needed for storage market operations.
-  # Strings should be in the format "actor:ip:port". IP cannot be 0.0.0.0. We recommend using a private IP.
-  # Example: "f0123:127.0.0.1:32100". Multiple addresses can be specified.
-  # 
-  # When a market node like boost gives Curio's market RPC a deal to placing into a sector, Curio will first store the
-  # deal data in a temporary location "Piece Park" before assigning it to a sector. This requires that at least one
-  # node in the cluster has the EnableParkPiece option enabled and has sufficient scratch space to store the deal data.
-  # This is different from lotus-miner which stored the deal data into an "unsealed" sector as soon as the deal was
-  # received. Deal data in PiecePark is accessed when the sector TreeD and TreeR are computed, but isn't needed for
-  # the initial SDR layers computation. Pieces in PiecePark are removed after all sectors referencing the piece are
-  # sealed.
-  # 
-  # To get API info for boost configuration run 'curio market rpc-info'
-  # 
-  # NOTE: All deal data will flow through this service, so it should be placed on a machine running boost or on
-  # a machine which handles ParkPiece tasks.
-  #
-  # type: []string
-  #BoostAdapters = []
-
   # EnableWebGui enables the web GUI on this curio instance. The UI has minimal local overhead, but it should
   # only need to be run on a single machine in the cluster.
   #
@@ -255,6 +228,35 @@ description: The default curio configuration
   #
   # type: bool
   #EnableBatchSeal = false
+
+  # EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured.
+  #
+  # type: bool
+  #EnableDealMarket = false
+
+  # EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
+  # Must have EnableDealMarket = True
+  #
+  # type: bool
+  #EnableCommP = false
+
+  # The maximum amount of CommP tasks that can run simultaneously. Note that the maximum number of tasks will
+  # also be bounded by resources available on the machine.
+  #
+  # type: int
+  #CommPMaxTasks = 0
+
+  # EnableLibp2p enabled the libp2p module for the market. Must have EnableDealMarket set to true and must only be enabled
+  # on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
+  #
+  # type: bool
+  #EnableLibp2p = false
+
+  # The maximum amount of indexing and IPNI tasks that can run simultaneously. Note that the maximum number of tasks will
+  # also be bounded by resources available on the machine.
+  #
+  # type: int
+  #IndexingMaxTasks = 8
 
 
 [Fees]
@@ -308,6 +310,8 @@ description: The default curio configuration
 
   #CommitControl = []
 
+  #DealPublishControl = []
+
   #TerminateControl = []
 
   #DisableOwnerFallback = false
@@ -352,12 +356,163 @@ description: The default curio configuration
   #PartitionCheckTimeout = "20m0s"
 
 
+[HTTP]
+  # Enable the HTTP server on the node
+  #
+  # type: bool
+  #Enable = false
+
+  # DomainName specifies the domain name that the server uses to serve HTTP requests. DomainName cannot be empty and cannot be
+  # an IP address
+  #
+  # type: string
+  #DomainName = ""
+
+  # ListenAddress is the address that the server listens for HTTP requests.
+  #
+  # type: string
+  #ListenAddress = "0.0.0.0:12310"
+
+  # ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
+  #
+  # type: time.Duration
+  #ReadTimeout = "10s"
+
+  # WriteTimeout is the maximum duration before timing out writes of the response to the client.
+  #
+  # type: time.Duration
+  #WriteTimeout = "10s"
+
+  # IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
+  #
+  # type: time.Duration
+  #IdleTimeout = "2m0s"
+
+  # ReadHeaderTimeout is amount of time allowed to read request headers
+  #
+  # type: time.Duration
+  #ReadHeaderTimeout = "5s"
+
+  # EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.
+  #
+  # type: bool
+  #EnableCORS = true
+
+  [HTTP.CompressionLevels]
+    # type: int
+    #GzipLevel = 6
+
+    # type: int
+    #BrotliLevel = 4
+
+    # type: int
+    #DeflateLevel = 6
+
+
+[Market]
+  [Market.StorageMarketConfig]
+    # PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
+    # User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
+    # The server must have 2 endpoints
+    # 1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
+    # 2. /data?id=pieceCID must provide a reader for the requested piece
+    #
+    # type: []PieceLocatorConfig
+    #PieceLocator = []
+
+    [Market.StorageMarketConfig.MK12]
+      # When a deal is ready to publish, the amount of time to wait for more
+      # deals to be ready to publish before publishing them all as a batch
+      #
+      # type: Duration
+      #PublishMsgPeriod = "5m0s"
+
+      # The maximum number of deals to include in a single PublishStorageDeals
+      # message
+      #
+      # type: uint64
+      #MaxDealsPerPublishMsg = 8
+
+      # The maximum fee to pay per deal when sending the PublishStorageDeals message
+      #
+      # type: types.FIL
+      #MaxPublishDealFee = "0.5 FIL"
+
+      # ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
+      # This will be used to fail the deals which cannot be sealed on time.
+      #
+      # type: Duration
+      #ExpectedPoRepSealDuration = "8h0m0s"
+
+      # ExpectedSnapSealDuration is the expected time it would take to snap the deal sector
+      # This will be used to fail the deals which cannot be sealed on time.
+      #
+      # type: Duration
+      #ExpectedSnapSealDuration = "2h0m0s"
+
+      # SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
+      # Warning: If this check is skipped and there is a commP mismatch, all deals in the
+      # sector will need to be sent again
+      #
+      # type: bool
+      #SkipCommP = false
+
+      # MaxConcurrentDealSize is a sum of all size of all deals which are waiting to be added to a sector
+      # When the cumulative size of all deals in process reaches this number, new deals will be rejected.
+      # (Default: 0 = unlimited)
+      #
+      # type: int64
+      #MaxConcurrentDealSize = 0
+
+      # DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
+      # If True then all deals coming from unknown clients will be rejected.
+      #
+      # type: bool
+      #DenyUnknownClients = false
+
+    [Market.StorageMarketConfig.IPNI]
+      # Disable set whether to disable indexing announcement to the network and expose endpoints that
+      # allow indexer nodes to process announcements. Default: False
+      #
+      # type: bool
+      #Disable = false
+
+      # The network indexer web UI URL for viewing published announcements
+      # TODO: should we use this for checking published heads before publishing? Later commit
+      #
+      # type: []string
+      #ServiceURL = ["https://cid.contact"]
+
+      # The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
+      # heads.
+      #
+      # type: []string
+      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
+
+      # AnnounceAddresses is a list of addresses indexer clients can use to reach to the HTTP market node.
+      # Curio allows running more than one node for HTTP server and thus all addressed can be announced
+      # simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
+      #
+      # type: []string
+      #AnnounceAddresses = []
+
+    [Market.StorageMarketConfig.Indexing]
+      # Number of records per insert batch
+      #
+      # type: int
+      #InsertBatchSize = 15000
+
+      # Number of concurrent inserts to split AddIndex calls to
+      #
+      # type: int
+      #InsertConcurrency = 8
+
+
 [Ingest]
   # Maximum number of sectors that can be queued waiting for deals to start processing.
   # 0 = unlimited
   # Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
-  # The DealSector queue includes deals which are ready to enter the sealing pipeline but are not yet part of it -
-  # size of this queue will also impact the maximum number of ParkPiece tasks which can run concurrently.
+  # The DealSector queue includes deals which are ready to enter the sealing pipeline but are not yet part of it.
   # DealSector queue is the first queue in the sealing pipeline, meaning that it should be used as the primary backpressure mechanism.
   #
   # type: int

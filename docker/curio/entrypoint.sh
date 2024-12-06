@@ -36,7 +36,8 @@ if [ ! -f $CURIO_REPO_PATH/.init.curio ]; then
 	echo Initiating a new Curio cluster ...
 	curio config new-cluster $newminer
 	echo Enabling market ...
-  curio config get seal | sed -e $'$a\\\n  BoostAdapters = ["'"$newminer"':'"$myip"':32100"]\n  EnableParkPiece = true' | curio config set --title seal
+  curio config get seal | sed -e $'$a\\\n  EnableParkPiece = true' | curio config set --title seal
+  curio config get base | sed -e 's/#Miners = \[\]/Miners = ["'"$newminer"'"]/g' | curio config set --title base
   touch $CURIO_REPO_PATH/.init.config
   fi
 

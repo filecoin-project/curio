@@ -44,6 +44,15 @@ func AddressSelector(addrConf []config.CurioAddresses) func() (*MultiAddressSele
 					tmp.CommitControl = append(tmp.CommitControl, addr)
 				}
 
+				for _, s := range addrConf.DealPublishControl {
+					addr, err := address.NewFromString(s)
+					if err != nil {
+						return nil, xerrors.Errorf("parsing deal publish control address: %w", err)
+					}
+
+					tmp.DealPublishControl = append(tmp.DealPublishControl, addr)
+				}
+
 				for _, s := range addrConf.TerminateControl {
 					addr, err := address.NewFromString(s)
 					if err != nil {

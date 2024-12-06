@@ -16,6 +16,8 @@ import (
 
 var errTx = errors.New("cannot use a non-transaction func in a transaction")
 
+const InitialSerializationErrorRetryWait = 10 * time.Millisecond
+
 // rawStringOnly is _intentionally_private_ to force only basic strings in SQL queries.
 // In any package, raw strings will satisfy compilation.  Ex:
 //
@@ -31,7 +33,17 @@ func (db *DB) Exec(ctx context.Context, sql rawStringOnly, arguments ...any) (co
 	if db.usedInTransaction() {
 		return 0, errTx
 	}
+
+	retryWait := InitialSerializationErrorRetryWait
+
+retry:
 	res, err := db.pgx.Exec(ctx, string(sql), arguments...)
+	if err != nil && IsErrSerialization(err) {
+		time.Sleep(retryWait)
+		retryWait *= 2
+		goto retry
+	}
+
 	return int(res.RowsAffected()), err
 }
 
@@ -197,7 +209,7 @@ func (db *DB) BeginTransaction(ctx context.Context, f func(*Tx) (commit bool, er
 
 	opts := TransactionOptions{
 		RetrySerializationError:            false,
-		InitialSerializationErrorRetryWait: 10 * time.Millisecond,
+		InitialSerializationErrorRetryWait: InitialSerializationErrorRetryWait,
 	}
 
 	for _, o := range opt {

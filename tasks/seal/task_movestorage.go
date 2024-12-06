@@ -2,6 +2,7 @@ package seal
 
 import (
 	"context"
+	"fmt"
 
 	"golang.org/x/xerrors"
 
@@ -13,7 +14,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
 
 type MoveStorageTask struct {
@@ -68,6 +69,12 @@ func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	_, err = m.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET after_move_storage = TRUE, task_id_move_storage = NULL WHERE task_id_move_storage = $1`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("updating task: %w", err)
+	}
+
+	// Create a indexing task
+	_, err = m.db.Exec(ctx, `SELECT create_indexing_task($1, $2)`, taskID, "sectors_sdr_pipeline")
+	if err != nil {
+		return false, fmt.Errorf("error creating indexing task: %w", err)
 	}
 
 	return true, nil

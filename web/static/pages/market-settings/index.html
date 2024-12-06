@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Market Settings</title>
+    <script type="module" src="/ux/curio-ux.mjs"></script>
+    <script type="module" src="allow-list.mjs"></script>
+    <script type="module" src="client-filters.mjs"></script>
+    <script type="module" src="pricing-filters.mjs"></script>
+    <script type="module" src="default-allow.mjs"></script>
+</head>
+<body style="visibility:hidden; background:rgb(11, 22, 34)" data-bs-theme="dark">
+<curio-ux>
+    <div class="page">
+        <section class="section">
+            <div class="row">
+                    <h1>Market Setting</h1>
+            </div>
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                    <default-allow></default-allow>
+                </div>
+            </div>
+        </section>
+        <section class="section">
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                    <client-filters></client-filters>
+                </div>
+            </div>
+        </section>
+        <section class="section">
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                    <pricing-filters></pricing-filters>
+                </div>
+            </div>
+        </section>
+        <section class="section">
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                    <allow-list></allow-list>
+                </div>
+            </div>
+        </section>
+    </div>
+</curio-ux>
+</body>
+
+</html>
