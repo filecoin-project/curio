@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wallet</title>
+    <script type="module" src="./wallet.mjs"></script>
+    <script type="module" src="/ux/curio-ux.mjs"></script>  
+  <body style="visibility:hidden" data-bs-theme="dark">
+  <curio-ux>
+    <wallet-component></wallet-component>
+  </curio-ux>
+  <script>
+    const walletComponent = document.querySelector('wallet-component');
+    walletComponent.wallet_id = new URLSearchParams(window.location.search).get('id');
+    document.body.appendChild(walletComponent);
+  </script>
+</body>
+</html>
