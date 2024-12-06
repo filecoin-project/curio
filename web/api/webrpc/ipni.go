@@ -233,7 +233,11 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 				_ = Body.Close()
 			}(resp.Body)
 			if resp.StatusCode != http.StatusOK {
-				return nil, fmt.Errorf("failed to fetch data from IPNI service: %s", resp.Status)
+				d.SyncStatus = append(d.SyncStatus, IpniSyncStatus{
+					Service: service,
+					Error:   fmt.Sprintf("failed to fetch data from IPNI service: %s", resp.Status),
+				})
+				continue
 			}
 			out, err := io.ReadAll(resp.Body)
 			if err != nil {
