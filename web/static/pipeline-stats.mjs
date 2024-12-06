@@ -4,6 +4,7 @@ import RPCCall from '/lib/jsonrpc.mjs';
 class PipelineWaterfall extends LitElement {
     static properties = {
         sourceRPC: { type: String },
+        title: { type: String },
     };
 
     static styles = css`
@@ -22,6 +23,7 @@ class PipelineWaterfall extends LitElement {
     constructor() {
         super();
         this.sourceRPC = '';
+        this.title = '';
         this.data = null;
         this.chart = null;
         this.intervalId = null;
@@ -46,7 +48,6 @@ class PipelineWaterfall extends LitElement {
             if (this.intervalId) {
                 clearInterval(this.intervalId);
             }
-            // Poll for updates
             this.intervalId = setInterval(() => this.loadData(), 30000);
         } catch (error) {
             console.error('Error loading data:', error);
@@ -66,60 +67,51 @@ class PipelineWaterfall extends LitElement {
             return;
         }
 
-        // We'll build a waterfall:
-        // Start with total: a bar from 0 to total.
-        // For each stage:
-        //   - Pending: a bar that goes down from currentTotal to currentTotal - pending
-        //   - Running: a bar that goes up from currentTotal to currentTotal + running
-        //
-        // Keep track of currentTotal as we move along.
-
         let currentTotal = 0;
         const labels = [];
         const bars = [];
         const backgroundColors = [];
 
-        // Initial total bar
+        // Start with Total
         labels.push('Total');
         bars.push([0, this.data.Total]);
-        backgroundColors.push('rgba(54, 162, 235, 0.8)');
+        backgroundColors.push('rgb(54, 162, 235)');
         currentTotal = this.data.Total;
 
-        // For each stage, we add two bars: pending (down) and running (up)
+        // For each stage, pending goes down, running goes up
         for (const stage of this.data.Stages) {
-            const stageName = stage.Name;
-
-            // Pending: goes down
             if (stage.Pending !== 0) {
-                labels.push(`${stageName} Pending`);
                 const newTotal = currentTotal - stage.Pending;
-                // We'll store as [min, max] and min < max, so if pending is a decrease:
-                // The top should be currentTotal and bottom newTotal,
-                // but we must always give array as [lower, upper].
+                labels.push(`${stage.Name} Pending`);
+                // This creates a bar from newTotal to currentTotal.
+                // Since newTotal < currentTotal, this visually is a bar "segment"
+                // that will appear at a lower level than the previous top.
                 bars.push([newTotal, currentTotal]);
-                backgroundColors.push('rgba(255, 99, 132, 0.8)'); // red-ish for decrease
+                backgroundColors.push('rgb(255, 99, 132)'); // red-ish for decrease
                 currentTotal = newTotal;
             }
 
-            // Running: goes up
             if (stage.Running !== 0) {
-                labels.push(`${stageName} Running`);
-                const newTotal = currentTotal + stage.Running;
+                const newTotal = currentTotal - stage.Running;
+                labels.push(`${stage.Name} Running`);
                 bars.push([currentTotal, newTotal]);
-                backgroundColors.push('rgba(75, 192, 192, 0.8)'); // green-ish for increase
+                backgroundColors.push('rgb(75, 192, 192)'); // green-ish for increase
                 currentTotal = newTotal;
             }
         }
 
         const chartData = {
             labels: labels,
-            datasets: [{
-                label: 'Pipeline Flow',
-                data: bars,
-                backgroundColor: backgroundColors,
-                borderColor: 'rgba(0,0,0,0.1)',
-                borderWidth: 1
-            }]
+            datasets: [
+                {
+                    label: 'Changes',
+                    data: bars,
+                    backgroundColor: backgroundColors,
+                    borderColor: 'rgba(0,0,0,0.1)',
+                    borderWidth: 1,
+                    type: 'bar'
+                },
+            ]
         };
 
         const config = {
@@ -128,7 +120,6 @@ class PipelineWaterfall extends LitElement {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                indexAxis: 'x', // default for vertical bars
                 scales: {
                     x: {
                         title: {
@@ -152,19 +143,23 @@ class PipelineWaterfall extends LitElement {
                     tooltip: {
                         callbacks: {
                             label: function(context) {
-                                const label = context.label || '';
-                                const values = context.raw; // This will be [min, max]
-                                const diff = values[1] - values[0];
-                                return `${label}: ${diff > 0 ? '+' : ''}${diff} (from ${values[0]} to ${values[1]})`;
+                                if (context.dataset.type === 'bar') {
+                                    const values = context.raw; // [min, max]
+                                    const diff = values[1] - values[0];
+                                    return `${context.label}: ${diff > 0 ? '+' : ''}${diff} (from ${values[0]} to ${values[1]})`;
+                                } else {
+                                    return `${context.label}: ${context.formattedValue}`;
+                                }
                             }
                         }
                     },
                     title: {
                         display: true,
-                        text: 'Pipeline Waterfall Visualization'
+                        text: this.title,
                     },
                     legend: {
-                        display: false
+                        display: true,
+                        position: 'bottom',
                     }
                 }
             }
@@ -211,7 +206,7 @@ customElements.define('pipeline-stats', class PipelineStats extends LitElement {
             <div class="col-md-auto" style="max-width: 1000px">
                 <div class="info-block">
                     <h2>Pipelines</h2>
-                    <pipeline-waterfall sourceRPC="PipelineStatsMarket"></pipeline-waterfall>
+                    <pipeline-waterfall sourceRPC="PipelineStatsMarket" title="Market Pipeline"></pipeline-waterfall>
                 </div>
             </div>
             <div class="col-md-auto">

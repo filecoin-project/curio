@@ -70,6 +70,26 @@ CREATE TABLE ipni_chunks (
     UNIQUE (piece_cid, chunk_num)
 );
 
+-- IPNI pipeline is kept separate from rest for robustness
+-- and reuse. This allows for removing, recreating ads using CLI.
+CREATE TABLE ipni_task (
+    sp_id BIGINT NOT NULL,
+    sector BIGINT NOT NULL,
+    reg_seal_proof INT NOT NULL,
+    sector_offset BIGINT,
+
+    context_id BYTEA NOT NULL,
+    is_rm BOOLEAN NOT NULL,
+
+    provider TEXT NOT NULL,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
+    task_id BIGINT DEFAULT NULL,
+    complete BOOLEAN DEFAULT FALSE,
+
+    PRIMARY KEY (provider, context_id, is_rm)
+);
+
 CREATE OR REPLACE FUNCTION insert_ad_and_update_head(
     _ad_cid TEXT,
     _context_id BYTEA,
@@ -131,26 +151,6 @@ BEGIN
     ORDER BY order_number ASC;
 END;
 $$ LANGUAGE plpgsql;
-
--- IPNI pipeline is kept separate from rest for robustness
--- and reuse. This allows for removing, recreating ads using CLI.
-CREATE TABLE ipni_task (
-    sp_id BIGINT NOT NULL,
-    sector BIGINT NOT NULL,
-    reg_seal_proof INT NOT NULL,
-    sector_offset BIGINT,
-
-    context_id BYTEA NOT NULL,
-    is_rm BOOLEAN NOT NULL,
-
-    provider TEXT NOT NULL,
-
-    created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
-    task_id BIGINT DEFAULT NULL,
-    complete BOOLEAN DEFAULT FALSE,
-
-    PRIMARY KEY (provider, context_id, is_rm)
-);
 
 -- Function to create ipni tasks
 CREATE OR REPLACE FUNCTION insert_ipni_task(
