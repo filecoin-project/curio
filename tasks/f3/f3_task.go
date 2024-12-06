@@ -6,6 +6,7 @@ import (
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -71,6 +72,12 @@ func (f *F3Task) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done boo
 	var spID int64
 	err = f.db.QueryRow(ctx, "SELECT sp_id FROM f3_tasks WHERE task_id = $1", taskID).Scan(&spID)
 	if err != nil {
+		if err == pgx.ErrNoRows {
+			// can only happen when the SP ID was removed from the cluster configuration
+			log.Warnw("marking f3 task with no corresponding spid as done", "task", taskID)
+			return true, nil
+		}
+
 		return false, xerrors.Errorf("failed to get sp_id: %w", err)
 	}
 
@@ -195,7 +202,10 @@ func (f *F3Task) TypeDetails() harmonytask.TaskTypeDetails {
 			Gpu: 0,
 			Ram: 10 << 20,
 		},
-		MaxFailures: 1,
+		// No MaxRetries, never kill this task
+		RetryWait: func(retries int) time.Duration {
+			return time.Minute
+		},
 	}
 }
 
