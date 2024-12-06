@@ -572,15 +572,17 @@ func (st *Local) Reserve(ctx context.Context, sid storiface.SectorRef, ft storif
 			return nil, storiface.Err(storiface.ErrTempAllocateSpace, xerrors.Errorf("can't reserve %d bytes in '%s' (id:%s), only %d available", overhead, p.Local, id, stat.Available))
 		}
 
-		freePercentag := (float64(stat.Available-overheadOnDisk) / float64(stat.Available)) * 100.0
+		availableAfter := stat.Available - overheadOnDisk
+		freePercentag := (float64(availableAfter) / float64(MaxCapacity(stat))) * 100.0
 
 		if freePercentag < minFreePercentage {
+			log.Infow("reserve add", "id", id, "sector", sid, "fileType", fileType, "overhead", overhead, "reserved-before", p.Reserved, "reserved-after", p.Reserved+overhead, "freepct", freePercentag)
 			return nil, storiface.Err(storiface.ErrTempAllocateSpace, xerrors.Errorf("can't reserve %d bytes in '%s' (id:%s), free disk percentage %f will be lower than minimum %f", overhead, p.Local, id, freePercentag, minFreePercentage))
 		}
 
 		resID := sectorFile{sid.ID, fileType}
 
-		log.Debugw("reserve add", "id", id, "sector", sid, "fileType", fileType, "overhead", overhead, "reserved-before", p.Reserved, "reserved-after", p.Reserved+overhead)
+		log.Debugw("reserve add", "id", id, "sector", sid, "fileType", fileType, "overhead", overhead, "reserved-before", p.Reserved, "reserved-after", p.Reserved+overhead, "freepct", freePercentag)
 
 		p.Reserved += overhead
 		p.Reservations[resID.String()] = overhead
@@ -597,6 +599,13 @@ func (st *Local) Reserve(ctx context.Context, sid storiface.SectorRef, ft storif
 	}
 
 	return release, nil
+}
+
+func MaxCapacity(st fsutil.FsStat) int64 {
+	if st.Max > 0 {
+		return st.Max
+	}
+	return st.Capacity
 }
 
 // DoubleCallWrap wraps a function to make sure it's not called twice

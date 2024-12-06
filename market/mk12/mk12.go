@@ -126,6 +126,7 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 		}, nil
 	}
 	if !allowed {
+		log.Infow("client not allowed by providel", "client", ds.ClientDealProposal.Proposal.Client)
 		return &ProviderDealRejectionInfo{
 			Reason: "client not allowed by provider",
 		}, nil
