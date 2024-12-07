@@ -27,6 +27,11 @@ class PipelineWaterfall extends LitElement {
         this.data = null;
         this.chart = null;
         this.intervalId = null;
+
+        // Hardcode colors from provided vars
+        this.colorTotal = '#1DC8CC';    // var(--color-primary-main)
+        this.colorPending = '#B63333';  // var(--color-danger-main)
+        this.colorRunning = '#7EA83E';  // var(--color-success-main)
     }
 
     updated(changedProperties) {
@@ -48,7 +53,7 @@ class PipelineWaterfall extends LitElement {
             if (this.intervalId) {
                 clearInterval(this.intervalId);
             }
-            this.intervalId = setInterval(() => this.loadData(), 30000);
+            this.intervalId = setInterval(() => this.loadData(), 10000);
         } catch (error) {
             console.error('Error loading data:', error);
         }
@@ -67,35 +72,30 @@ class PipelineWaterfall extends LitElement {
             return;
         }
 
-        let currentTotal = 0;
-        const labels = [];
-        const bars = [];
-        const backgroundColors = [];
+        let currentTotal = this.data.Total;
+        const labels = ['Total'];
+        const bars = [[0, this.data.Total]];
+        const backgroundColors = [this.colorTotal];
 
-        // Start with Total
-        labels.push('Total');
-        bars.push([0, this.data.Total]);
-        backgroundColors.push('rgb(54, 162, 235)');
-        currentTotal = this.data.Total;
-
-        // For each stage, pending goes down, running goes up
+        // Create bars for each stage (pending and running)
         for (const stage of this.data.Stages) {
-            if (stage.Pending !== 0) {
+            // Pending bar
+            {
+                const oldTotal = currentTotal;
                 const newTotal = currentTotal - stage.Pending;
                 labels.push(`${stage.Name} Pending`);
-                // This creates a bar from newTotal to currentTotal.
-                // Since newTotal < currentTotal, this visually is a bar "segment"
-                // that will appear at a lower level than the previous top.
-                bars.push([newTotal, currentTotal]);
-                backgroundColors.push('rgb(255, 99, 132)'); // red-ish for decrease
+                bars.push([Math.min(oldTotal, newTotal), Math.max(oldTotal, newTotal)]);
+                backgroundColors.push(this.colorPending);
                 currentTotal = newTotal;
             }
 
-            if (stage.Running !== 0) {
+            // Running bar
+            {
+                const oldTotal = currentTotal;
                 const newTotal = currentTotal - stage.Running;
                 labels.push(`${stage.Name} Running`);
-                bars.push([currentTotal, newTotal]);
-                backgroundColors.push('rgb(75, 192, 192)'); // green-ish for increase
+                bars.push([Math.min(oldTotal, newTotal), Math.max(oldTotal, newTotal)]);
+                backgroundColors.push(this.colorRunning);
                 currentTotal = newTotal;
             }
         }
@@ -120,6 +120,7 @@ class PipelineWaterfall extends LitElement {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                animation: false, // Disable animations to prevent jumping
                 scales: {
                     x: {
                         title: {
@@ -133,6 +134,9 @@ class PipelineWaterfall extends LitElement {
                     },
                     y: {
                         beginAtZero: true,
+                        min: 0,
+                        // suggestedMax helps keep the scale stable based on total
+                        suggestedMax: this.data.Total > 0 ? this.data.Total : undefined,
                         title: {
                             display: true,
                             text: 'Count'
@@ -154,21 +158,34 @@ class PipelineWaterfall extends LitElement {
                         }
                     },
                     title: {
-                        display: true,
+                        display: !!this.title,
                         text: this.title,
                     },
                     legend: {
                         display: true,
                         position: 'bottom',
+                    },
+                    datalabels: {
+                        anchor: 'end',
+                        align: 'end',
+                        offset: 4,
+                        clamp: true,
+                        color: '#fff', // Use a contrasting color, e.g. white
+                        formatter: (value, ctx) => {
+                            const diff = value[1] - value[0];
+                            return diff === 0 ? '0' : (diff > 0 ? `+${diff}` : `${diff}`);
+                        }
                     }
                 }
-            }
+            },
+            plugins: [ChartDataLabels] // Enable datalabels plugin
         };
 
         if (!this.chart) {
             const ctx = this.shadowRoot.querySelector('canvas').getContext('2d');
             this.chart = new Chart(ctx, config);
         } else {
+            // Update existing chart data and options
             this.chart.data = chartData;
             this.chart.options = config.options;
             this.chart.update();
@@ -203,15 +220,19 @@ customElements.define('pipeline-stats', class PipelineStats extends LitElement {
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3" crossorigin="anonymous">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
             <div class="row">
-            <div class="col-md-auto" style="max-width: 1000px">
-                <div class="info-block">
-                    <h2>Pipelines</h2>
-                    <pipeline-waterfall sourceRPC="PipelineStatsMarket" title="Market Pipeline"></pipeline-waterfall>
+                    <div class="col-md-auto" style="max-width: 1000px">
+                        <div class="info-block">
+                            <h2>Pipelines</h2>
+                            <div style="background-color: var(--color-fg)">
+                                <pipeline-waterfall sourceRPC="PipelineStatsMarket" title="Market Pipeline"></pipeline-waterfall>
+                                <pipeline-waterfall sourceRPC="PipelineStatsSnap" title="Sector Update Pipeline"></pipeline-waterfall>
+                                <pipeline-waterfall sourceRPC="PipelineStatsSDR" title="SDR Pipeline"></pipeline-waterfall>
+                            </div>
+                        </div>
+                    </div>
+                <div class="col-md-auto">
                 </div>
             </div>
-            <div class="col-md-auto">
-            </div>
-        </div>
         `;
     }
 } );
