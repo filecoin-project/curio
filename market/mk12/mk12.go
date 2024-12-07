@@ -580,39 +580,95 @@ func (m *MK12) maybeApplyBackpressure(ctx context.Context, maddr address.Address
 
 	cfg := m.cfg.Ingest
 
-	/*
-		SELECT COUNT(p.task_id) - COUNT(t.owner_id) AS buffered_park
-		FROM parked_pieces p
-		         LEFT JOIN harmony_task t ON p.task_id = t.id
-		WHERE p.complete = false
+	// Check market pipeline conditions
+	// We reuse the pipeline stages logic from PipelineStatsMarket to determine
+	// how many pipelines are running and how many are queued at downloading/verify stages.
+	var runningPipelines, downloadingPending, verifyPending int64
+	err = m.db.QueryRow(ctx, `
+WITH pipeline_data AS (
+    SELECT dp.uuid,
+           dp.complete,
+           dp.commp_task_id,
+           dp.psd_task_id,
+           dp.find_deal_task_id,
+           dp.indexing_task_id,
+           dp.sector,
+           dp.after_commp,
+           dp.after_psd,
+           dp.after_find_deal,
+           pp.task_id AS downloading_task_id
+    FROM market_mk12_deal_pipeline dp
+    LEFT JOIN parked_pieces pp ON pp.piece_cid = dp.piece_cid
+    WHERE dp.complete = false
+),
+joined AS (
+    SELECT p.*,
+           dt.owner_id AS downloading_owner,
+           ct.owner_id AS commp_owner,
+           pt.owner_id AS psd_owner,
+           ft.owner_id AS find_deal_owner,
+           it.owner_id AS index_owner
+    FROM pipeline_data p
+    LEFT JOIN harmony_task dt ON dt.id = p.downloading_task_id
+    LEFT JOIN harmony_task ct ON ct.id = p.commp_task_id
+    LEFT JOIN harmony_task pt ON pt.id = p.psd_task_id
+    LEFT JOIN harmony_task ft ON ft.id = p.find_deal_task_id
+    LEFT JOIN harmony_task it ON it.id = p.indexing_task_id
+)
+SELECT
+    COUNT(DISTINCT uuid) FILTER (
+        WHERE (downloading_task_id IS NOT NULL AND downloading_owner IS NOT NULL)
+           OR (commp_task_id IS NOT NULL AND commp_owner IS NOT NULL)
+           OR (psd_task_id IS NOT NULL AND psd_owner IS NOT NULL)
+           OR (find_deal_task_id IS NOT NULL AND find_deal_owner IS NOT NULL)
+           OR (indexing_task_id IS NOT NULL AND index_owner IS NOT NULL)
+    ) AS running_pipelines,
+    COUNT(*) FILTER (WHERE downloading_task_id IS NOT NULL AND downloading_owner IS NULL) AS downloading_pending,
+    COUNT(*) FILTER (WHERE commp_task_id IS NOT NULL AND commp_owner IS NULL) AS verify_pending
+FROM joined
+`).Scan(&runningPipelines, &downloadingPending, &verifyPending)
+	if err != nil {
+		return false, xerrors.Errorf("failed to query market pipeline backpressure stats: %w", err)
+	}
 
+	if cfg.MaxMarketRunningPipelines != 0 && runningPipelines > int64(cfg.MaxMarketRunningPipelines) {
+		log.Infow("backpressure", "reason", "too many running market pipelines", "running_pipelines", runningPipelines, "max", cfg.MaxMarketRunningPipelines)
+		return true, nil
+	}
 
+	if cfg.MaxQueueDownload != 0 && downloadingPending > int64(cfg.MaxQueueDownload) {
+		log.Infow("backpressure", "reason", "too many pending downloads", "pending_downloads", downloadingPending, "max", cfg.MaxQueueDownload)
+		return true, nil
+	}
 
+	if cfg.MaxQueueCommP != 0 && verifyPending > int64(cfg.MaxQueueCommP) {
+		log.Infow("backpressure", "reason", "too many pending CommP tasks", "pending_commp", verifyPending, "max", cfg.MaxQueueCommP)
+		return true, nil
+	}
 
-	*/
-
+	// Existing logic for snap vs porep pipelines
 	if cfg.DoSnap {
 		var bufferedEncode, bufferedProve, waitDealSectors int
 		err = m.db.QueryRow(ctx, `
 		WITH BufferedEncode AS (
 			SELECT COUNT(p.task_id_encode) - COUNT(t.owner_id) AS buffered_encode
 			FROM sectors_snap_pipeline p
-					 LEFT JOIN harmony_task t ON p.task_id_encode = t.id
+			LEFT JOIN harmony_task t ON p.task_id_encode = t.id
 			WHERE p.after_encode = false
 		),
 		 BufferedProve AS (
 			 SELECT COUNT(p.task_id_prove) - COUNT(t.owner_id) AS buffered_prove
 			 FROM sectors_snap_pipeline p
-					  LEFT JOIN harmony_task t ON p.task_id_prove = t.id
+			 LEFT JOIN harmony_task t ON p.task_id_prove = t.id
 			 WHERE p.after_prove = true AND p.after_move_storage = false
 		 ),
 		 WaitDealSectors AS (
 			SELECT COUNT(DISTINCT osp.sector_number) AS wait_deal_sectors_count
 			FROM open_sector_pieces osp
-				 LEFT JOIN sectors_snap_initial_pieces sip 
+			LEFT JOIN sectors_snap_initial_pieces sip 
 				 ON osp.sector_number = sip.sector_number
 			WHERE sip.sector_number IS NULL
-		)
+		 )
 		SELECT
 			(SELECT buffered_encode FROM BufferedEncode) AS total_encode,
 			(SELECT buffered_prove FROM BufferedProve) AS buffered_prove,
@@ -634,7 +690,7 @@ func (m *MK12) maybeApplyBackpressure(ctx context.Context, maddr address.Address
 
 		if cfg.MaxQueueSnapProve != 0 && bufferedProve > cfg.MaxQueueSnapProve {
 			log.Infow("backpressure", "reason", "too many prove tasks", "buffered", bufferedProve, "max", cfg.MaxQueueSnapProve)
-			return
+			return true, nil
 		}
 	} else {
 		var bufferedSDR, bufferedTrees, bufferedPoRep, waitDealSectors int
@@ -660,7 +716,7 @@ func (m *MK12) maybeApplyBackpressure(ctx context.Context, maddr address.Address
 		WaitDealSectors AS (
 			SELECT COUNT(DISTINCT osp.sector_number) AS wait_deal_sectors_count
 			FROM open_sector_pieces osp
-				 LEFT JOIN sectors_sdr_initial_pieces sip 
+			LEFT JOIN sectors_sdr_initial_pieces sip 
 				 ON osp.sector_number = sip.sector_number
 			WHERE sip.sector_number IS NULL
 		)

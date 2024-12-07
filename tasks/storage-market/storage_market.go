@@ -721,8 +721,7 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 
 func (d *CurioStorageDealMarket) createIndexingTaskForMigratedDeals(ctx context.Context) {
 	// Call the migration function and get the number of rows moved
-	var rowsMoved int
-	err := d.db.QueryRow(ctx, "SELECT migrate_deal_pipeline_entries()").Scan(&rowsMoved)
+	rowsMoved, err := d.db.Exec(ctx, "SELECT migrate_deal_pipeline_entries()")
 	if err != nil {
 		log.Errorf("Error creating indexing tasks for migrated deals: %s", err)
 		return
