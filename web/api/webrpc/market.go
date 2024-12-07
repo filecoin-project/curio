@@ -921,3 +921,244 @@ func (a *WebRPC) MK12DealPipelineRemove(ctx context.Context, uuid string) error 
 	}, harmonydb.OptionRetry())
 	return err
 }
+
+type PipelineFailedStats struct {
+	DownloadingFailed int64
+	CommPFailed       int64
+	PSDFailed         int64
+	FindDealFailed    int64
+	IndexFailed       int64
+}
+
+func (a *WebRPC) PipelineFailedTasksMarket(ctx context.Context) (*PipelineFailedStats, error) {
+	// We'll create a similar query, but this time we coalesce the task IDs from harmony_task.
+	// If the join fails (no matching harmony_task), all joined fields for that task will be NULL.
+	// We detect failure by checking that xxx_task_id IS NOT NULL, after_xxx = false, and that no task record was found in harmony_task.
+
+	const query = `
+WITH pipeline_data AS (
+    SELECT dp.uuid,
+           dp.complete,
+           dp.commp_task_id,
+           dp.psd_task_id,
+           dp.find_deal_task_id,
+           dp.indexing_task_id,
+           dp.sector,
+           dp.after_commp,
+           dp.after_psd,
+           dp.after_find_deal,
+           pp.task_id AS downloading_task_id
+    FROM market_mk12_deal_pipeline dp
+    LEFT JOIN parked_pieces pp ON pp.piece_cid = dp.piece_cid
+    WHERE dp.complete = false
+),
+tasks AS (
+    SELECT p.*,
+           dt.id AS downloading_tid,
+           ct.id AS commp_tid,
+           pt.id AS psd_tid,
+           ft.id AS find_deal_tid,
+           it.id AS index_tid
+    FROM pipeline_data p
+    LEFT JOIN harmony_task dt ON dt.id = p.downloading_task_id
+    LEFT JOIN harmony_task ct ON ct.id = p.commp_task_id
+    LEFT JOIN harmony_task pt ON pt.id = p.psd_task_id
+    LEFT JOIN harmony_task ft ON ft.id = p.find_deal_task_id
+    LEFT JOIN harmony_task it ON it.id = p.indexing_task_id
+)
+SELECT
+    -- Downloading failed:
+    -- downloading_task_id IS NOT NULL, after_commp = false (haven't completed commp stage),
+    -- and downloading_tid IS NULL (no harmony_task record)
+    COUNT(*) FILTER (
+        WHERE downloading_task_id IS NOT NULL
+          AND after_commp = false
+          AND downloading_tid IS NULL
+    ) AS downloading_failed,
+
+    -- CommP (verify) failed:
+    -- commp_task_id IS NOT NULL, after_commp = false, commp_tid IS NULL
+    COUNT(*) FILTER (
+        WHERE commp_task_id IS NOT NULL
+          AND after_commp = false
+          AND commp_tid IS NULL
+    ) AS commp_failed,
+
+    -- PSD failed:
+    -- psd_task_id IS NOT NULL, after_psd = false, psd_tid IS NULL
+    COUNT(*) FILTER (
+        WHERE psd_task_id IS NOT NULL
+          AND after_psd = false
+          AND psd_tid IS NULL
+    ) AS psd_failed,
+
+    -- Find_Deal failed:
+    -- find_deal_task_id IS NOT NULL, after_find_deal = false, find_deal_tid IS NULL
+    COUNT(*) FILTER (
+        WHERE find_deal_task_id IS NOT NULL
+          AND after_find_deal = false
+          AND find_deal_tid IS NULL
+    ) AS find_deal_failed,
+
+    -- Index failed:
+    -- indexing_task_id IS NOT NULL and if we assume indexing is after find_deal:
+    -- If indexing_task_id is set, we are presumably at indexing stage.
+    -- If index_tid IS NULL (no task found), then it's failed.
+    -- We don't have after_index, so let's assume after_find_deal = true means we've passed publish stage and now at indexing.
+    COUNT(*) FILTER (
+        WHERE indexing_task_id IS NOT NULL
+          AND index_tid IS NULL
+          AND after_find_deal = true
+    ) AS index_failed
+FROM tasks
+`
+
+	var c []struct {
+		DownloadingFailed int64 `db:"downloading_failed"`
+		CommPFailed       int64 `db:"commp_failed"`
+		PSDFailed         int64 `db:"psd_failed"`
+		FindDealFailed    int64 `db:"find_deal_failed"`
+		IndexFailed       int64 `db:"index_failed"`
+	}
+
+	err := a.deps.DB.Select(ctx, &c, query)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to run failed task query: %w", err)
+	}
+
+	counts := c[0]
+
+	return &PipelineFailedStats{
+		DownloadingFailed: counts.DownloadingFailed,
+		CommPFailed:       counts.CommPFailed,
+		PSDFailed:         counts.PSDFailed,
+		FindDealFailed:    counts.FindDealFailed,
+		IndexFailed:       counts.IndexFailed,
+	}, nil
+}
+
+func (a *WebRPC) BulkRestartFailedMarketTasks(ctx context.Context, taskType string) error {
+	didCommit, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		var rows *harmonydb.Query
+		var err error
+
+		switch taskType {
+		case "downloading":
+			rows, err = tx.Query(`
+							SELECT pp.task_id
+							FROM market_mk12_deal_pipeline dp
+							LEFT JOIN parked_pieces pp ON pp.piece_cid = dp.piece_cid
+							LEFT JOIN harmony_task h ON h.id = pp.task_id
+							WHERE dp.complete = false
+							  AND pp.task_id IS NOT NULL
+							  AND dp.after_commp = false
+							  AND h.id IS NULL
+						`)
+		case "commp":
+			rows, err = tx.Query(`
+							SELECT dp.commp_task_id
+							FROM market_mk12_deal_pipeline dp
+							LEFT JOIN harmony_task h ON h.id = dp.commp_task_id
+							WHERE dp.complete = false
+							  AND dp.commp_task_id IS NOT NULL
+							  AND dp.after_commp = false
+							  AND h.id IS NULL
+						`)
+		case "psd":
+			rows, err = tx.Query(`
+							SELECT dp.psd_task_id
+							FROM market_mk12_deal_pipeline dp
+							LEFT JOIN harmony_task h ON h.id = dp.psd_task_id
+							WHERE dp.complete = false
+							  AND dp.psd_task_id IS NOT NULL
+							  AND dp.after_psd = false
+							  AND h.id IS NULL
+						`)
+		case "find_deal":
+			rows, err = tx.Query(`
+							SELECT dp.find_deal_task_id
+							FROM market_mk12_deal_pipeline dp
+							LEFT JOIN harmony_task h ON h.id = dp.find_deal_task_id
+							WHERE dp.complete = false
+							  AND dp.find_deal_task_id IS NOT NULL
+							  AND dp.after_find_deal = false
+							  AND h.id IS NULL
+						`)
+		case "index":
+			rows, err = tx.Query(`
+							SELECT dp.indexing_task_id
+							FROM market_mk12_deal_pipeline dp
+							LEFT JOIN harmony_task h ON h.id = dp.indexing_task_id
+							WHERE dp.complete = false
+							  AND dp.indexing_task_id IS NOT NULL
+							  AND dp.after_find_deal = true
+							  AND h.id IS NULL
+						`)
+		default:
+			return false, fmt.Errorf("unknown task type: %s", taskType)
+		}
+
+		if err != nil {
+			return false, fmt.Errorf("failed to query failed tasks: %w", err)
+		}
+		defer rows.Close()
+
+		var taskIDs []int64
+		for rows.Next() {
+			var tid int64
+			if err := rows.Scan(&tid); err != nil {
+				return false, fmt.Errorf("failed to scan task_id: %w", err)
+			}
+			taskIDs = append(taskIDs, tid)
+		}
+
+		if err := rows.Err(); err != nil {
+			return false, fmt.Errorf("row iteration error: %w", err)
+		}
+
+		for _, taskID := range taskIDs {
+			var name string
+			var posted time.Time
+			var result bool
+			err = tx.QueryRow(`
+							SELECT name, posted, result 
+							FROM harmony_task_history 
+							WHERE task_id = $1 
+							ORDER BY id DESC LIMIT 1
+						`, taskID).Scan(&name, &posted, &result)
+			if err == pgx.ErrNoRows {
+				// No history means can't restart this task
+				continue
+			} else if err != nil {
+				return false, fmt.Errorf("failed to query history: %w", err)
+			}
+
+			// If result=true means the task ended successfully, no restart needed
+			if result {
+				continue
+			}
+
+			log.Infow("restarting task", "task_id", taskID, "name", name)
+
+			_, err = tx.Exec(`
+							INSERT INTO harmony_task (id, initiated_by, update_time, posted_time, owner_id, added_by, previous_task, name)
+							VALUES ($1, NULL, NOW(), $2, NULL, $3, NULL, $4)
+						`, taskID, posted, a.deps.MachineID, name)
+			if err != nil {
+				return false, fmt.Errorf("failed to insert harmony_task for task_id %d: %w", taskID, err)
+			}
+		}
+
+		// All done successfully, commit the transaction
+		return true, nil
+	}, harmonydb.OptionRetry())
+
+	if err != nil {
+		return err
+	}
+	if !didCommit {
+		return fmt.Errorf("transaction did not commit")
+	}
+
+	return nil
+}

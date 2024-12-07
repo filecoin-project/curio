@@ -8,6 +8,8 @@ class DealPipelines extends LitElement {
         limit: { type: Number },
         offset: { type: Number },
         totalCount: { type: Number },
+        failedTasks: { type: Object },
+        restartingTaskType: { type: String }
     };
 
     constructor() {
@@ -16,6 +18,8 @@ class DealPipelines extends LitElement {
         this.limit = 25;
         this.offset = 0;
         this.totalCount = 0;
+        this.failedTasks = {};
+        this.restartingTaskType = '';
         this.loadData();
     }
 
@@ -36,9 +40,14 @@ class DealPipelines extends LitElement {
             const params = [this.limit, this.offset];
             const deals = await RPCCall('GetDealPipelines', params);
             this.deals = deals;
+
+            // Load failed tasks data
+            const failed = await RPCCall('PipelineFailedTasksMarket', []);
+            this.failedTasks = failed || {};
+
             this.requestUpdate();
         } catch (error) {
-            console.error('Failed to load deal pipelines:', error);
+            console.error('Failed to load deal pipelines or failed tasks:', error);
         }
     }
 
@@ -56,6 +65,75 @@ class DealPipelines extends LitElement {
         this.loadData();
     }
 
+    renderFailedTasks() {
+        const { DownloadingFailed, CommPFailed, PSDFailed, FindDealFailed, IndexFailed } = this.failedTasks;
+        const entries = [];
+
+        const renderLine = (label, count, type) => {
+            const isRestarting = this.restartingTaskType === type;
+            return html`
+                <div>
+                    <b>${label}</b> Task: ${count}
+                    <details style="display: inline-block; margin-left: 8px;">
+                        <summary class="btn btn-sm btn-warning">
+                            ${isRestarting ? 'Working...' : 'Actions'}
+                        </summary>
+                        <button 
+                            class="btn btn-sm btn-danger" 
+                            @click="${() => this.restartFailedTasks(type)}"
+                            ?disabled=${isRestarting}
+                        >
+                            Restart All
+                        </button>
+                    </details>
+                </div>
+            `;
+        };
+
+        if (DownloadingFailed > 0) {
+            entries.push(renderLine('Downloading', DownloadingFailed, 'downloading'));
+        }
+        if (CommPFailed > 0) {
+            entries.push(renderLine('CommP', CommPFailed, 'commp'));
+        }
+        if (PSDFailed > 0) {
+            entries.push(renderLine('PSD', PSDFailed, 'psd'));
+        }
+        if (FindDealFailed > 0) {
+            entries.push(renderLine('FindDeal', FindDealFailed, 'find_deal'));
+        }
+        if (IndexFailed > 0) {
+            entries.push(renderLine('Index', IndexFailed, 'index'));
+        }
+
+        if (entries.length === 0) {
+            return null;
+        }
+
+        return html`
+            <div class="failed-tasks">
+                <h2>Failed Tasks</h2>
+                ${entries}
+            </div>
+        `;
+    }
+
+    async restartFailedTasks(type) {
+        this.restartingTaskType = type;
+        this.requestUpdate();
+
+        try {
+            await RPCCall('BulkRestartFailedMarketTasks', [type]);
+            await this.loadData();
+        } catch (err) {
+            console.error('Failed to restart tasks:', err);
+            alert(`Failed to restart ${type} tasks: ${err.message || err}`);
+        } finally {
+            this.restartingTaskType = '';
+            this.requestUpdate();
+        }
+    }
+
     render() {
         return html`
             <link
@@ -66,6 +144,7 @@ class DealPipelines extends LitElement {
             <link rel="stylesheet" href="/ux/main.css" />
 
             <div>
+                ${this.renderFailedTasks()}
                 <h2>
                     Deal Pipelines
                     <button class="info-btn">
@@ -95,7 +174,6 @@ class DealPipelines extends LitElement {
             </span>
                     </button>
                 </h2>
-
                 <table class="table table-dark table-striped table-sm">
                     <thead>
                     <tr>
@@ -148,6 +226,7 @@ class DealPipelines extends LitElement {
     }
 
     formatPieceCid(pieceCid) {
+        if (!pieceCid) return '';
         if (pieceCid.length <= 24) {
             return pieceCid;
         }
@@ -194,61 +273,78 @@ class DealPipelines extends LitElement {
     }
 
     static styles = css`
-    .pagination-controls {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-top: 1rem;
-    }
+        .pagination-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 1rem;
+        }
 
-    .info-btn {
-      position: relative;
-      border: none;
-      background: transparent;
-      cursor: pointer;
-      color: #17a2b8;
-      font-size: 1em;
-      margin-left: 8px;
-    }
+        .info-btn {
+            position: relative;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            color: #17a2b8;
+            font-size: 1em;
+            margin-left: 8px;
+        }
 
-    .tooltip-text {
-      display: none;
-      position: absolute;
-      top: 50%;
-      left: 120%;
-      transform: translateY(-50%);
-      min-width: 440px;
-      max-width: 600px;
-      background-color: #333;
-      color: #fff;
-      padding: 8px;
-      border-radius: 4px;
-      font-size: 0.8em;
-      text-align: left;
-      white-space: normal;
-      z-index: 10;
-    }
+        .tooltip-text {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 120%;
+            transform: translateY(-50%);
+            min-width: 440px;
+            max-width: 600px;
+            background-color: #333;
+            color: #fff;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            text-align: left;
+            white-space: normal;
+            z-index: 10;
+        }
 
-    .info-btn:hover .tooltip-text {
-      display: block;
-    }
+        .info-btn:hover .tooltip-text {
+            display: block;
+        }
 
-    .copy-btn {
-      border: none;
-      background: transparent;
-      cursor: pointer;
-      color: #17a2b8;
-      padding: 0 0 0 5px;
-    }
+        .copy-btn {
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            color: #17a2b8;
+            padding: 0 0 0 5px;
+        }
 
-    .copy-btn svg {
-      vertical-align: middle;
-    }
+        .copy-btn svg {
+            vertical-align: middle;
+        }
 
-    .copy-btn:hover {
-      color: #0d6efd;
-    }
-  `;
+        .copy-btn:hover {
+            color: #0d6efd;
+        }
+
+        .failed-tasks {
+            margin-bottom: 1rem;
+        }
+        .failed-tasks h2 {
+            margin: 0 0 0.5rem 0;
+        }
+
+        details > summary {
+            display: inline-block;
+            cursor: pointer;
+            outline: none;
+        }
+
+        .btn {
+            margin: 0 4px;
+        }
+    `;
 }
 
 customElements.define('deal-pipelines', DealPipelines);
