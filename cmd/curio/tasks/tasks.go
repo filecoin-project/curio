@@ -178,18 +178,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		return ffi.NewSealCalls(stor, lstor, si), nil
 	})
 
-	{
-		// Piece handling
-		if cfg.Subsystems.EnableParkPiece {
-			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.ParkPieceMaxTasks)
-			if err != nil {
-				return nil, err
-			}
-			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
-			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask)
-		}
-	}
-
 	hasAnySealingTask := cfg.Subsystems.EnableSealSDR ||
 		cfg.Subsystems.EnableSealSDRTrees ||
 		cfg.Subsystems.EnableSendPrecommitMsg ||
@@ -208,6 +196,18 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			return nil, err
 		}
 		activeTasks = append(activeTasks, sealingTasks...)
+	}
+
+	{
+		// Piece handling
+		if cfg.Subsystems.EnableParkPiece {
+			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.ParkPieceMaxTasks)
+			if err != nil {
+				return nil, err
+			}
+			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
+			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask)
+		}
 	}
 
 	miners := make([]address.Address, 0, len(maddrs))
