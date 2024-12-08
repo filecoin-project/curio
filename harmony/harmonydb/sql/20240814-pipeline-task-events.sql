@@ -7,6 +7,10 @@ CREATE TABLE sectors_pipeline_events
     PRIMARY KEY (sp_id, sector_number, task_history_id)
 );
 
+-- 20241106-market-fixes.sql
+-- create unique index sectors_pipeline_events_task_history_id_uindex
+--  on sectors_pipeline_events (task_history_id, sp_id, sector_number);
+
 CREATE OR REPLACE FUNCTION append_sector_pipeline_events(
     sp_id_param BIGINT,
     sector_number_param BIGINT,

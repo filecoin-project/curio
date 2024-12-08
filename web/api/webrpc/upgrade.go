@@ -2,6 +2,7 @@ package webrpc
 
 import (
 	"context"
+	"time"
 
 	"golang.org/x/xerrors"
 
@@ -12,6 +13,8 @@ import (
 )
 
 type UpgradeSector struct {
+	StartTime time.Time `db:"start_time"`
+
 	SpID      uint64 `db:"sp_id"`
 	SectorNum uint64 `db:"sector_number"`
 
@@ -33,12 +36,20 @@ type UpgradeSector struct {
 	FailedReason string `db:"failed_reason"`
 	FailedMsg    string `db:"failed_reason_msg"`
 
+	MissingTasks []int64 `db:"-"`
+	AllTasks     []int64 `db:"-"`
+
 	Miner string
 }
 
-func (a *WebRPC) UpgradeSectors(ctx context.Context) ([]UpgradeSector, error) {
-	sectors := []UpgradeSector{}
-	err := a.deps.DB.Select(ctx, &sectors, `SELECT sp_id, sector_number, task_id_encode, after_encode, task_id_prove, after_prove, task_id_submit, after_submit, after_prove_msg_success, task_id_move_storage, after_move_storage, failed, failed_reason, failed_reason_msg FROM sectors_snap_pipeline`)
+func (a *WebRPC) UpgradeSectors(ctx context.Context) ([]*UpgradeSector, error) {
+	sectors := []*UpgradeSector{}
+	err := a.deps.DB.Select(ctx, &sectors, `SELECT start_time, sp_id, sector_number, task_id_encode, after_encode, task_id_prove, after_prove, task_id_submit, after_submit, after_prove_msg_success, task_id_move_storage, after_move_storage, failed, failed_reason, failed_reason_msg FROM sectors_snap_pipeline`)
+	if err != nil {
+		return nil, err
+	}
+
+	smt, err := a.pipelineSnapMissingTasks(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -49,6 +60,14 @@ func (a *WebRPC) UpgradeSectors(ctx context.Context) ([]UpgradeSector, error) {
 			return nil, err
 		}
 		s.Miner = maddr.String()
+
+		for _, mt := range smt {
+			if mt.SpID == int64(s.SpID) && mt.SectorNumber == int64(s.SectorNum) {
+				s.MissingTasks = mt.MissingTaskIDs
+				s.AllTasks = mt.AllTaskIDs
+				break
+			}
+		}
 	}
 
 	return sectors, nil
@@ -69,7 +88,7 @@ func (a *WebRPC) UpgradeDelete(ctx context.Context, spid, sectorNum uint64) erro
 	return err
 }
 
-type snapMissingTask struct {
+type SnapMissingTask struct {
 	SpID              int64   `db:"sp_id"`
 	SectorNumber      int64   `db:"sector_number"`
 	AllTaskIDs        []int64 `db:"all_task_ids"`
@@ -79,12 +98,12 @@ type snapMissingTask struct {
 	RestartStatus     string  `db:"restart_status"`
 }
 
-func (smt snapMissingTask) sectorID() abi.SectorID {
+func (smt SnapMissingTask) sectorID() abi.SectorID {
 	return abi.SectorID{Miner: abi.ActorID(smt.SpID), Number: abi.SectorNumber(smt.SectorNumber)}
 }
 
-func (a *WebRPC) pipelineSnapMissingTasks(ctx context.Context) ([]snapMissingTask, error) {
-	var tasks []snapMissingTask
+func (a *WebRPC) pipelineSnapMissingTasks(ctx context.Context) ([]SnapMissingTask, error) {
+	var tasks []SnapMissingTask
 	err := a.deps.DB.Select(ctx, &tasks, `
         WITH sector_tasks AS (
             SELECT

@@ -48,7 +48,7 @@ customElements.define('cluster-machines', class ClusterMachines extends LitEleme
                                     <td>${item.Gpu}</td>
                                     <td>${item.SinceContact}</td>
                                     <td>${item.Uptime}</td>
-                                    <td>${item.Tasks.split(',').map((item) => html`<a href="/task/?name=${item}">${item}</a> `)}</td>
+                                    <td>${item.Tasks.split(',').map((item) => html`<a href="/pages/task/?name=${item}">${item}</a> `)}</td>
                                     <td>${item.Layers.split(',').map((item) => html`<a href="/config/edit.html?layer=${item}">${item}</a> `)}</td>
                                 </tr>
                             `)}

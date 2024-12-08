@@ -23,8 +23,8 @@ type StorageGCStats struct {
 	Miner string
 }
 
-func (a *WebRPC) StorageGCStats(ctx context.Context) ([]StorageGCStats, error) {
-	var stats []StorageGCStats
+func (a *WebRPC) StorageGCStats(ctx context.Context) ([]*StorageGCStats, error) {
+	var stats []*StorageGCStats
 	err := a.deps.DB.Select(ctx, &stats, `SELECT sp_id, count(*) as count FROM storage_removal_marks GROUP BY sp_id ORDER BY sp_id DESC`)
 	if err != nil {
 		return nil, err
@@ -102,8 +102,8 @@ type StorageGCMarks struct {
 	Miner string
 }
 
-func (a *WebRPC) StorageGCMarks(ctx context.Context) ([]StorageGCMarks, error) {
-	var marks []StorageGCMarks
+func (a *WebRPC) StorageGCMarks(ctx context.Context) ([]*StorageGCMarks, error) {
+	var marks []*StorageGCMarks
 	err := a.deps.DB.Select(ctx, &marks, `
 		SELECT m.sp_id, m.sector_num, m.sector_filetype, m.storage_id, m.created_at, m.approved, m.approved_at, sl.can_seal, sl.can_store, sl.urls
 			FROM storage_removal_marks m LEFT JOIN storage_path sl ON m.storage_id = sl.storage_id

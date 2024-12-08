@@ -373,15 +373,16 @@ description: The default curio configuration
   # type: string
   #ListenAddress = "0.0.0.0:12310"
 
+  # DelegateTLS allows the server to delegate TLS to a reverse proxy. When enabled the listen address will serve
+  # HTTP and the reverse proxy will handle TLS termination.
+  #
+  # type: bool
+  #DelegateTLS = false
+
   # ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
   #
   # type: time.Duration
   #ReadTimeout = "10s"
-
-  # WriteTimeout is the maximum duration before timing out writes of the response to the client.
-  #
-  # type: time.Duration
-  #WriteTimeout = "10s"
 
   # IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
   #
@@ -457,12 +458,12 @@ description: The default curio configuration
       # type: bool
       #SkipCommP = false
 
-      # MaxConcurrentDealSize is a sum of all size of all deals which are waiting to be added to a sector
+      # MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector
       # When the cumulative size of all deals in process reaches this number, new deals will be rejected.
       # (Default: 0 = unlimited)
       #
       # type: int64
-      #MaxConcurrentDealSize = 0
+      #MaxConcurrentDealSizeGiB = 0
 
       # DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
       # If True then all deals coming from unknown clients will be rejected.
@@ -489,31 +490,48 @@ description: The default curio configuration
       # type: []string
       #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
 
-      # AnnounceAddresses is a list of addresses indexer clients can use to reach to the HTTP market node.
-      # Curio allows running more than one node for HTTP server and thus all addressed can be announced
-      # simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
-      #
-      # type: []string
-      #AnnounceAddresses = []
-
     [Market.StorageMarketConfig.Indexing]
       # Number of records per insert batch
       #
       # type: int
-      #InsertBatchSize = 15000
+      #InsertBatchSize = 1000
 
       # Number of concurrent inserts to split AddIndex calls to
       #
       # type: int
-      #InsertConcurrency = 8
+      #InsertConcurrency = 10
 
 
 [Ingest]
+  # MaxMarketRunningPipelines is the maximum number of market pipelines that can be actively running tasks.
+  # A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).
+  # If this limit is exceeded, the system will apply backpressure to delay processing of new deals.
+  # 0 means unlimited.
+  #
+  # type: int
+  #MaxMarketRunningPipelines = 64
+
+  # MaxQueueDownload is the maximum number of pipelines that can be queued at the downloading stage,
+  # waiting for a machine to pick up their task (owner_id is null).
+  # If this limit is exceeded, the system will apply backpressure to slow the ingestion of new deals.
+  # 0 means unlimited.
+  #
+  # type: int
+  #MaxQueueDownload = 8
+
+  # MaxQueueCommP is the maximum number of pipelines that can be queued at the CommP (verify) stage,
+  # waiting for a machine to pick up their verification task (owner_id is null).
+  # If this limit is exceeded, the system will apply backpressure, delaying new deal processing.
+  # 0 means unlimited.
+  #
+  # type: int
+  #MaxQueueCommP = 8
+
   # Maximum number of sectors that can be queued waiting for deals to start processing.
   # 0 = unlimited
   # Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
-  # The DealSector queue includes deals which are ready to enter the sealing pipeline but are not yet part of it.
-  # DealSector queue is the first queue in the sealing pipeline, meaning that it should be used as the primary backpressure mechanism.
+  # The DealSector queue includes deals that are ready to enter the sealing pipeline but are not yet part of it.
+  # DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism.
   #
   # type: int
   #MaxQueueDealSector = 8
@@ -549,7 +567,7 @@ description: The default curio configuration
   # type: int
   #MaxQueuePoRep = 0
 
-  # MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode to start processing.
+  # MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode tasks to start.
   # 0 means unlimited.
   # This applies backpressure to the market subsystem by delaying the ingestion of deal data.
   # Only applies to the Snap Deals pipeline (DoSnap = true).
@@ -559,19 +577,20 @@ description: The default curio configuration
 
   # MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
   # 0 means unlimited.
-  # This applies backpressure to the market subsystem by delaying the ingestion of deal data.
-  # Only applies to the Snap Deals pipeline (DoSnap = true).
+  # This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion.
   #
   # type: int
   #MaxQueueSnapProve = 0
 
-  # Maximum time an open deal sector should wait for more deal before it starts sealing
+  # Maximum time an open deal sector should wait for more deals before it starts sealing.
+  # This ensures that sectors don't remain open indefinitely, consuming resources.
   #
   # type: Duration
   #MaxDealWaitTime = "1h0m0s"
 
-  # DoSnap enables the snap deal process for deals ingested by this instance. Unlike in lotus-miner there is no
-  # fallback to porep when no sectors are available to snap into. When enabled all deals will be snap deals.
+  # DoSnap, when set to true, enables snap deal processing for deals ingested by this instance.
+  # Unlike lotus-miner, there is no fallback to PoRep when no snap sectors are available.
+  # When enabled, all deals will be processed as snap deals.
   #
   # type: bool
   #DoSnap = false

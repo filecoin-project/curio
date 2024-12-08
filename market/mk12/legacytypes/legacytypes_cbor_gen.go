@@ -778,3 +778,309 @@ func (t *AskResponse) UnmarshalCBOR(r io.Reader) (err error) {
 
 	return nil
 }
+func (t *Protocol) MarshalCBOR(w io.Writer) error {
+	if t == nil {
+		_, err := w.Write(cbg.CborNull)
+		return err
+	}
+
+	cw := cbg.NewCborWriter(w)
+
+	if _, err := cw.Write([]byte{162}); err != nil {
+		return err
+	}
+
+	// t.Name (string) (string)
+	if len("Name") > 8192 {
+		return xerrors.Errorf("Value in field \"Name\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("Name"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("Name")); err != nil {
+		return err
+	}
+
+	if len(t.Name) > 8192 {
+		return xerrors.Errorf("Value in field t.Name was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len(t.Name))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string(t.Name)); err != nil {
+		return err
+	}
+
+	// t.Addresses ([][]uint8) (slice)
+	if len("Addresses") > 8192 {
+		return xerrors.Errorf("Value in field \"Addresses\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("Addresses"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("Addresses")); err != nil {
+		return err
+	}
+
+	if len(t.Addresses) > 8192 {
+		return xerrors.Errorf("Slice value in field t.Addresses was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajArray, uint64(len(t.Addresses))); err != nil {
+		return err
+	}
+	for _, v := range t.Addresses {
+		if len(v) > 2097152 {
+			return xerrors.Errorf("Byte array in field v was too long")
+		}
+
+		if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(v))); err != nil {
+			return err
+		}
+
+		if _, err := cw.Write(v); err != nil {
+			return err
+		}
+
+	}
+	return nil
+}
+
+func (t *Protocol) UnmarshalCBOR(r io.Reader) (err error) {
+	*t = Protocol{}
+
+	cr := cbg.NewCborReader(r)
+
+	maj, extra, err := cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err == io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
+	}()
+
+	if maj != cbg.MajMap {
+		return fmt.Errorf("cbor input should be of type map")
+	}
+
+	if extra > cbg.MaxLength {
+		return fmt.Errorf("Protocol: map struct too large (%d)", extra)
+	}
+
+	var name string
+	n := extra
+
+	for i := uint64(0); i < n; i++ {
+
+		{
+			sval, err := cbg.ReadStringWithMax(cr, 8192)
+			if err != nil {
+				return err
+			}
+
+			name = string(sval)
+		}
+
+		switch name {
+		// t.Name (string) (string)
+		case "Name":
+
+			{
+				sval, err := cbg.ReadStringWithMax(cr, 8192)
+				if err != nil {
+					return err
+				}
+
+				t.Name = string(sval)
+			}
+			// t.Addresses ([][]uint8) (slice)
+		case "Addresses":
+
+			maj, extra, err = cr.ReadHeader()
+			if err != nil {
+				return err
+			}
+
+			if extra > 8192 {
+				return fmt.Errorf("t.Addresses: array too large (%d)", extra)
+			}
+
+			if maj != cbg.MajArray {
+				return fmt.Errorf("expected cbor array")
+			}
+
+			if extra > 0 {
+				t.Addresses = make([][]uint8, extra)
+			}
+
+			for i := 0; i < int(extra); i++ {
+				{
+					var maj byte
+					var extra uint64
+					var err error
+					_ = maj
+					_ = extra
+					_ = err
+
+					maj, extra, err = cr.ReadHeader()
+					if err != nil {
+						return err
+					}
+
+					if extra > 2097152 {
+						return fmt.Errorf("t.Addresses[i]: byte array too large (%d)", extra)
+					}
+					if maj != cbg.MajByteString {
+						return fmt.Errorf("expected byte array")
+					}
+
+					if extra > 0 {
+						t.Addresses[i] = make([]uint8, extra)
+					}
+
+					if _, err := io.ReadFull(cr, t.Addresses[i]); err != nil {
+						return err
+					}
+
+				}
+			}
+
+		default:
+			// Field doesn't exist on this type, so ignore it
+			cbg.ScanForLinks(r, func(cid.Cid) {})
+		}
+	}
+
+	return nil
+}
+func (t *QueryResponse) MarshalCBOR(w io.Writer) error {
+	if t == nil {
+		_, err := w.Write(cbg.CborNull)
+		return err
+	}
+
+	cw := cbg.NewCborWriter(w)
+
+	if _, err := cw.Write([]byte{161}); err != nil {
+		return err
+	}
+
+	// t.Protocols ([]legacytypes.Protocol) (slice)
+	if len("Protocols") > 8192 {
+		return xerrors.Errorf("Value in field \"Protocols\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("Protocols"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("Protocols")); err != nil {
+		return err
+	}
+
+	if len(t.Protocols) > 8192 {
+		return xerrors.Errorf("Slice value in field t.Protocols was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajArray, uint64(len(t.Protocols))); err != nil {
+		return err
+	}
+	for _, v := range t.Protocols {
+		if err := v.MarshalCBOR(cw); err != nil {
+			return err
+		}
+
+	}
+	return nil
+}
+
+func (t *QueryResponse) UnmarshalCBOR(r io.Reader) (err error) {
+	*t = QueryResponse{}
+
+	cr := cbg.NewCborReader(r)
+
+	maj, extra, err := cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err == io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
+	}()
+
+	if maj != cbg.MajMap {
+		return fmt.Errorf("cbor input should be of type map")
+	}
+
+	if extra > cbg.MaxLength {
+		return fmt.Errorf("QueryResponse: map struct too large (%d)", extra)
+	}
+
+	var name string
+	n := extra
+
+	for i := uint64(0); i < n; i++ {
+
+		{
+			sval, err := cbg.ReadStringWithMax(cr, 8192)
+			if err != nil {
+				return err
+			}
+
+			name = string(sval)
+		}
+
+		switch name {
+		// t.Protocols ([]legacytypes.Protocol) (slice)
+		case "Protocols":
+
+			maj, extra, err = cr.ReadHeader()
+			if err != nil {
+				return err
+			}
+
+			if extra > 8192 {
+				return fmt.Errorf("t.Protocols: array too large (%d)", extra)
+			}
+
+			if maj != cbg.MajArray {
+				return fmt.Errorf("expected cbor array")
+			}
+
+			if extra > 0 {
+				t.Protocols = make([]Protocol, extra)
+			}
+
+			for i := 0; i < int(extra); i++ {
+				{
+					var maj byte
+					var extra uint64
+					var err error
+					_ = maj
+					_ = extra
+					_ = err
+
+					{
+
+						if err := t.Protocols[i].UnmarshalCBOR(cr); err != nil {
+							return xerrors.Errorf("unmarshaling t.Protocols[i]: %w", err)
+						}
+
+					}
+
+				}
+			}
+
+		default:
+			// Field doesn't exist on this type, so ignore it
+			cbg.ScanForLinks(r, func(cid.Cid) {})
+		}
+	}
+
+	return nil
+}

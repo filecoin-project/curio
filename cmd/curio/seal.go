@@ -152,7 +152,7 @@ var sealStartCmd = &cli.Command{
 			}
 
 			for _, n := range num {
-				_, err := tx.Exec("insert into sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof) values ($1, $2, $3)", mid, n, spt)
+				_, err := tx.Exec("insert into sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof, user_sector_duration_epochs) values ($1, $2, $3, $4)", mid, n, spt, userDuration)
 				if err != nil {
 					return false, xerrors.Errorf("inserting into sectors_sdr_pipeline: %w", err)
 				}

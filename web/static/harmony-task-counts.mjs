@@ -43,7 +43,7 @@ customElements.define('harmony-task-counts', class HarmonyTaskStatsTable extends
                 <tbody>
                     ${this.data.map(task => html`
                     <tr class="${task.FalseCount > task.TrueCount && task.TrueCount === 0 ? 'row-error' : ''}">
-                        <td><a href="/task/?name=${task.Name}">${task.Name}</a></td>
+                        <td><a href="/pages/task/?name=${task.Name}">${task.Name}</a></td>
                         <td>${task.TrueCount}</td>
                         <td>${task.FalseCount} (${task.FailedPercentage})</td>
                     </tr>

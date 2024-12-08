@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -119,11 +120,13 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 	// Apply the Allow/Deny list
 	allowed, err := m.applyAllowList(ctx, ds)
 	if err != nil {
+		log.Errorw("failed to apply allow list", "error", err)
 		return &ProviderDealRejectionInfo{
 			Reason: "internal server error: validating deal against allow list",
 		}, nil
 	}
 	if !allowed {
+		log.Infow("client not allowed by providel", "client", ds.ClientDealProposal.Proposal.Client)
 		return &ProviderDealRejectionInfo{
 			Reason: "client not allowed by provider",
 		}, nil
@@ -159,13 +162,13 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 	}
 
 	valid := m.applyFilters(ctx, ds)
-	if valid.error != nil {
+	if valid != nil && valid.error != nil {
 		log.Errorf("failed to apply filetrs: %w", valid.error)
 		return &ProviderDealRejectionInfo{
 			Reason: "internal server error: failed to apply filters",
 		}, nil
 	}
-	if valid.reason != "" {
+	if valid != nil && valid.reason != "" {
 		return &ProviderDealRejectionInfo{
 			Reason: valid.reason,
 		}, nil
@@ -400,6 +403,13 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 		}, nil
 	}
 
+	propCid, err := deal.ClientDealProposal.Proposal.Cid()
+	if err != nil {
+		return &ProviderDealRejectionInfo{
+			Reason: fmt.Sprintf("get proposal CID: %s", err),
+		}, nil
+	}
+
 	sigByte, err := deal.ClientDealProposal.ClientSignature.MarshalBinary()
 	if err != nil {
 		return &ProviderDealRejectionInfo{
@@ -422,7 +432,12 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 		}, nil
 	}
 
-	headers, err := json.Marshal(tInfo.Headers)
+	goheaders := http.Header{}
+	for k, v := range tInfo.Headers {
+		goheaders.Set(k, v)
+	}
+
+	headers, err := json.Marshal(goheaders)
 	if err != nil {
 		return &ProviderDealRejectionInfo{
 			Reason: fmt.Sprintf("failed to marshal headers: %s", err),
@@ -440,13 +455,24 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 	}
 
 	comm, err := m.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		// First check if we already have deals with the proposal CID (duplicates can happen from boost deals)
+		var exist int
+		err = tx.QueryRow(`SELECT COUNT(1) as exists FROM market_mk12_deals WHERE proposal_cid=$1`, propCid).Scan(&exist)
+		if err != nil {
+			return false, xerrors.Errorf("failed to query market_mk12_deals propcid count: %w", err)
+		}
+		if exist > 0 {
+			return false, xerrors.Errorf("market deal with the same proposalCID %s already exists: %d", propCid, exist)
+		}
+
+		// Store the deal
 		n, err := tx.Exec(`INSERT INTO market_mk12_deals (uuid, signed_proposal_cid, 
-                                proposal_signature, proposal, piece_cid, 
+                                proposal_signature, proposal, proposal_cid, piece_cid, 
                                 piece_size, offline, verified, sp_id, start_epoch, end_epoch, 
                                 client_peer_id, fast_retrieval, announce_to_ipni, url, url_headers, label) 
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 				ON CONFLICT (uuid) DO NOTHING`,
-			deal.DealUuid.String(), deal.SignedProposalCID.String(), sigByte, propJson, prop.PieceCID.String(),
+			deal.DealUuid.String(), deal.SignedProposalCID.String(), sigByte, propJson, propCid, prop.PieceCID.String(),
 			prop.PieceSize, deal.IsOffline, prop.VerifiedDeal, mid, prop.StartEpoch, prop.EndEpoch, deal.ClientPeerID.String(),
 			deal.FastRetrieval, deal.AnnounceToIPNI, tInfo.URL, headers, b.Bytes())
 
@@ -512,6 +538,8 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 			}
 		}
 
+		// Pipeline execution continues in tasks/storage-market/storage_market.go
+
 		return true, nil
 	}, harmonydb.OptionRetry())
 
@@ -532,7 +560,7 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 }
 
 // maybeApplyBackpressure applies backpressure to the deal processing pipeline if certain conditions are met
-// Check if ConcurrentDealSize > MaxConcurrentDealSize
+// Check if ConcurrentDealSize > MaxConcurrentDealSizeGiB
 // Check if WaitDealSectors > MaxQueueDealSector
 // Check for buffered sector at each state of pipeline to their respective Max
 func (m *MK12) maybeApplyBackpressure(ctx context.Context, maddr address.Address) (wait bool, err error) {
@@ -544,35 +572,103 @@ func (m *MK12) maybeApplyBackpressure(ctx context.Context, maddr address.Address
 		return false, xerrors.Errorf("failed to get cumulative deal size in process from DB: %w", err)
 	}
 
-	if totalSize > m.cfg.Market.StorageMarketConfig.MK12.MaxConcurrentDealSize {
-		log.Infow("backpressure", "reason", "too many deals in process", "ConcurrentDealSize", totalSize, "max", m.cfg.Market.StorageMarketConfig.MK12.MaxConcurrentDealSize)
+	maxDsz := m.cfg.Market.StorageMarketConfig.MK12.MaxConcurrentDealSizeGiB >> 30
+	if maxDsz != 0 && totalSize > maxDsz {
+		log.Infow("backpressure", "reason", "too many deals in process", "ConcurrentDealSize", totalSize, "max", m.cfg.Market.StorageMarketConfig.MK12.MaxConcurrentDealSizeGiB)
 		return true, nil
 	}
 
 	cfg := m.cfg.Ingest
 
+	// Check market pipeline conditions
+	// We reuse the pipeline stages logic from PipelineStatsMarket to determine
+	// how many pipelines are running and how many are queued at downloading/verify stages.
+	var runningPipelines, downloadingPending, verifyPending int64
+	err = m.db.QueryRow(ctx, `
+WITH pipeline_data AS (
+    SELECT dp.uuid,
+           dp.complete,
+           dp.commp_task_id,
+           dp.psd_task_id,
+           dp.find_deal_task_id,
+           dp.indexing_task_id,
+           dp.sector,
+           dp.after_commp,
+           dp.after_psd,
+           dp.after_find_deal,
+           pp.task_id AS downloading_task_id
+    FROM market_mk12_deal_pipeline dp
+    LEFT JOIN parked_pieces pp ON pp.piece_cid = dp.piece_cid
+    WHERE dp.complete = false
+),
+joined AS (
+    SELECT p.*,
+           dt.owner_id AS downloading_owner,
+           ct.owner_id AS commp_owner,
+           pt.owner_id AS psd_owner,
+           ft.owner_id AS find_deal_owner,
+           it.owner_id AS index_owner
+    FROM pipeline_data p
+    LEFT JOIN harmony_task dt ON dt.id = p.downloading_task_id
+    LEFT JOIN harmony_task ct ON ct.id = p.commp_task_id
+    LEFT JOIN harmony_task pt ON pt.id = p.psd_task_id
+    LEFT JOIN harmony_task ft ON ft.id = p.find_deal_task_id
+    LEFT JOIN harmony_task it ON it.id = p.indexing_task_id
+)
+SELECT
+    COUNT(DISTINCT uuid) FILTER (
+        WHERE (downloading_task_id IS NOT NULL AND downloading_owner IS NOT NULL)
+           OR (commp_task_id IS NOT NULL AND commp_owner IS NOT NULL)
+           OR (psd_task_id IS NOT NULL AND psd_owner IS NOT NULL)
+           OR (find_deal_task_id IS NOT NULL AND find_deal_owner IS NOT NULL)
+           OR (indexing_task_id IS NOT NULL AND index_owner IS NOT NULL)
+    ) AS running_pipelines,
+    COUNT(*) FILTER (WHERE downloading_task_id IS NOT NULL AND downloading_owner IS NULL) AS downloading_pending,
+    COUNT(*) FILTER (WHERE commp_task_id IS NOT NULL AND commp_owner IS NULL) AS verify_pending
+FROM joined
+`).Scan(&runningPipelines, &downloadingPending, &verifyPending)
+	if err != nil {
+		return false, xerrors.Errorf("failed to query market pipeline backpressure stats: %w", err)
+	}
+
+	if cfg.MaxMarketRunningPipelines != 0 && runningPipelines > int64(cfg.MaxMarketRunningPipelines) {
+		log.Infow("backpressure", "reason", "too many running market pipelines", "running_pipelines", runningPipelines, "max", cfg.MaxMarketRunningPipelines)
+		return true, nil
+	}
+
+	if cfg.MaxQueueDownload != 0 && downloadingPending > int64(cfg.MaxQueueDownload) {
+		log.Infow("backpressure", "reason", "too many pending downloads", "pending_downloads", downloadingPending, "max", cfg.MaxQueueDownload)
+		return true, nil
+	}
+
+	if cfg.MaxQueueCommP != 0 && verifyPending > int64(cfg.MaxQueueCommP) {
+		log.Infow("backpressure", "reason", "too many pending CommP tasks", "pending_commp", verifyPending, "max", cfg.MaxQueueCommP)
+		return true, nil
+	}
+
+	// Existing logic for snap vs porep pipelines
 	if cfg.DoSnap {
 		var bufferedEncode, bufferedProve, waitDealSectors int
 		err = m.db.QueryRow(ctx, `
 		WITH BufferedEncode AS (
 			SELECT COUNT(p.task_id_encode) - COUNT(t.owner_id) AS buffered_encode
 			FROM sectors_snap_pipeline p
-					 LEFT JOIN harmony_task t ON p.task_id_encode = t.id
+			LEFT JOIN harmony_task t ON p.task_id_encode = t.id
 			WHERE p.after_encode = false
 		),
 		 BufferedProve AS (
 			 SELECT COUNT(p.task_id_prove) - COUNT(t.owner_id) AS buffered_prove
 			 FROM sectors_snap_pipeline p
-					  LEFT JOIN harmony_task t ON p.task_id_prove = t.id
+			 LEFT JOIN harmony_task t ON p.task_id_prove = t.id
 			 WHERE p.after_prove = true AND p.after_move_storage = false
 		 ),
 		 WaitDealSectors AS (
 			SELECT COUNT(DISTINCT osp.sector_number) AS wait_deal_sectors_count
 			FROM open_sector_pieces osp
-				 LEFT JOIN sectors_snap_initial_pieces sip 
+			LEFT JOIN sectors_snap_initial_pieces sip 
 				 ON osp.sector_number = sip.sector_number
 			WHERE sip.sector_number IS NULL
-		)
+		 )
 		SELECT
 			(SELECT buffered_encode FROM BufferedEncode) AS total_encode,
 			(SELECT buffered_prove FROM BufferedProve) AS buffered_prove,
@@ -594,7 +690,7 @@ func (m *MK12) maybeApplyBackpressure(ctx context.Context, maddr address.Address
 
 		if cfg.MaxQueueSnapProve != 0 && bufferedProve > cfg.MaxQueueSnapProve {
 			log.Infow("backpressure", "reason", "too many prove tasks", "buffered", bufferedProve, "max", cfg.MaxQueueSnapProve)
-			return
+			return true, nil
 		}
 	} else {
 		var bufferedSDR, bufferedTrees, bufferedPoRep, waitDealSectors int
@@ -620,7 +716,7 @@ func (m *MK12) maybeApplyBackpressure(ctx context.Context, maddr address.Address
 		WaitDealSectors AS (
 			SELECT COUNT(DISTINCT osp.sector_number) AS wait_deal_sectors_count
 			FROM open_sector_pieces osp
-				 LEFT JOIN sectors_sdr_initial_pieces sip 
+			LEFT JOIN sectors_sdr_initial_pieces sip 
 				 ON osp.sector_number = sip.sector_number
 			WHERE sip.sector_number IS NULL
 		)
@@ -664,14 +760,14 @@ func (m *MK12) applyFilters(ctx context.Context, deal *ProviderDealState) *valid
 	var clientRules []struct {
 		Wallets            []string `db:"wallets"`
 		PeerIDs            []string `db:"peer_id"`
-		PricingFilters     []int64  `db:"pricing_filters"`
+		PricingFilters     []string `db:"pricing_filters"`
 		MaxDealsPerHour    int64    `db:"max_deals_per_hour"`
 		MaxDealSizePerHour int64    `db:"max_deal_size_per_hour"`
 	}
 
 	err := m.db.Select(ctx, &clientRules, `SELECT 
 													wallets, 
-													peer_id, 
+													peer_ids, 
 													pricing_filters, 
 													max_deals_per_hour, 
 													max_deal_size_per_hour 
@@ -735,7 +831,7 @@ func (m *MK12) applyFilters(ctx context.Context, deal *ProviderDealState) *valid
 																price, 
 																verified 
 															FROM market_mk12_pricing_filters
-															WHERE number = ANY($1)`, clientRules[i].PricingFilters)
+															WHERE name = ANY($1)`, clientRules[i].PricingFilters)
 				if err != nil {
 					return &validationError{error: xerrors.Errorf("failed to query the price filters from DB: %w", err)}
 				}
@@ -787,12 +883,12 @@ func (m *MK12) applyFilters(ctx context.Context, deal *ProviderDealState) *valid
 // based on the market_mk12_allow_list table in the database
 func (m *MK12) applyAllowList(ctx context.Context, deal *ProviderDealState) (bool, error) {
 	var allowed bool
-	err := m.db.QueryRow(ctx, `SELECT status FROM market_mk12_allow_list WHERE wallet = $1`, deal.ClientDealProposal.Proposal.Client.String()).Scan(&allowed)
+	err := m.db.QueryRow(ctx, `SELECT status FROM market_allow_list WHERE wallet = $1`, deal.ClientDealProposal.Proposal.Client.String()).Scan(&allowed)
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return false, xerrors.Errorf("failed to query the allow list status from DB: %w", err)
 		}
-		return m.cfg.Market.StorageMarketConfig.MK12.DenyUnknownClients, nil
+		return !m.cfg.Market.StorageMarketConfig.MK12.DenyUnknownClients, nil
 	}
 	return allowed, nil
 }
