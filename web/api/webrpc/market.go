@@ -1162,3 +1162,162 @@ func (a *WebRPC) BulkRestartFailedMarketTasks(ctx context.Context, taskType stri
 
 	return nil
 }
+
+func (a *WebRPC) BulkRemoveFailedMarketPipelines(ctx context.Context, taskType string) error {
+	didCommit, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		var rows *harmonydb.Query
+		var err error
+
+		// We'll select pipeline fields directly based on the stage conditions
+		switch taskType {
+		case "downloading":
+			rows, err = tx.Query(`
+				SELECT dp.uuid, dp.url, dp.sector,
+				       dp.commp_task_id, dp.psd_task_id, dp.find_deal_task_id, dp.indexing_task_id
+				FROM market_mk12_deal_pipeline dp
+				LEFT JOIN parked_pieces pp ON pp.piece_cid = dp.piece_cid
+				LEFT JOIN harmony_task h ON h.id = pp.task_id
+				WHERE dp.complete = false
+				  AND pp.task_id IS NOT NULL
+				  AND dp.after_commp = false
+				  AND h.id IS NULL
+			`)
+		case "commp":
+			rows, err = tx.Query(`
+				SELECT dp.uuid, dp.url, dp.sector,
+				       dp.commp_task_id, dp.psd_task_id, dp.find_deal_task_id, dp.indexing_task_id
+				FROM market_mk12_deal_pipeline dp
+				LEFT JOIN harmony_task h ON h.id = dp.commp_task_id
+				WHERE dp.complete = false
+				  AND dp.commp_task_id IS NOT NULL
+				  AND dp.after_commp = false
+				  AND h.id IS NULL
+			`)
+		case "psd":
+			rows, err = tx.Query(`
+				SELECT dp.uuid, dp.url, dp.sector,
+				       dp.commp_task_id, dp.psd_task_id, dp.find_deal_task_id, dp.indexing_task_id
+				FROM market_mk12_deal_pipeline dp
+				LEFT JOIN harmony_task h ON h.id = dp.psd_task_id
+				WHERE dp.complete = false
+				  AND dp.psd_task_id IS NOT NULL
+				  AND dp.after_psd = false
+				  AND h.id IS NULL
+			`)
+		case "find_deal":
+			rows, err = tx.Query(`
+				SELECT dp.uuid, dp.url, dp.sector,
+				       dp.commp_task_id, dp.psd_task_id, dp.find_deal_task_id, dp.indexing_task_id
+				FROM market_mk12_deal_pipeline dp
+				LEFT JOIN harmony_task h ON h.id = dp.find_deal_task_id
+				WHERE dp.complete = false
+				  AND dp.find_deal_task_id IS NOT NULL
+				  AND dp.after_find_deal = false
+				  AND h.id IS NULL
+			`)
+		case "index":
+			rows, err = tx.Query(`
+				SELECT dp.uuid, dp.url, dp.sector,
+				       dp.commp_task_id, dp.psd_task_id, dp.find_deal_task_id, dp.indexing_task_id
+				FROM market_mk12_deal_pipeline dp
+				LEFT JOIN harmony_task h ON h.id = dp.indexing_task_id
+				WHERE dp.complete = false
+				  AND dp.indexing_task_id IS NOT NULL
+				  AND dp.after_find_deal = true
+				  AND h.id IS NULL
+			`)
+		default:
+			return false, fmt.Errorf("unknown task type: %s", taskType)
+		}
+
+		if err != nil {
+			return false, fmt.Errorf("failed to query failed pipelines: %w", err)
+		}
+		defer rows.Close()
+
+		type pipelineInfo struct {
+			uuid           string
+			url            string
+			sector         sql.NullInt64
+			commpTaskID    sql.NullInt64
+			psdTaskID      sql.NullInt64
+			findDealTaskID sql.NullInt64
+			indexingTaskID sql.NullInt64
+		}
+
+		var pipelines []pipelineInfo
+		for rows.Next() {
+			var p pipelineInfo
+			if err := rows.Scan(&p.uuid, &p.url, &p.sector, &p.commpTaskID, &p.psdTaskID, &p.findDealTaskID, &p.indexingTaskID); err != nil {
+				return false, fmt.Errorf("failed to scan pipeline info: %w", err)
+			}
+			pipelines = append(pipelines, p)
+		}
+		if err := rows.Err(); err != nil {
+			return false, fmt.Errorf("row iteration error: %w", err)
+		}
+
+		for _, p := range pipelines {
+			// Gather task IDs
+			var taskIDs []int64
+			if p.commpTaskID.Valid {
+				taskIDs = append(taskIDs, p.commpTaskID.Int64)
+			}
+			if p.psdTaskID.Valid {
+				taskIDs = append(taskIDs, p.psdTaskID.Int64)
+			}
+			if p.findDealTaskID.Valid {
+				taskIDs = append(taskIDs, p.findDealTaskID.Int64)
+			}
+			if p.indexingTaskID.Valid {
+				taskIDs = append(taskIDs, p.indexingTaskID.Int64)
+			}
+
+			if len(taskIDs) > 0 {
+				var runningTasks int
+				err = tx.QueryRow(`SELECT COUNT(*) FROM harmony_task WHERE id = ANY($1)`, taskIDs).Scan(&runningTasks)
+				if err != nil {
+					return false, err
+				}
+				if runningTasks > 0 {
+					// This should not happen if they are failed, but just in case
+					return false, fmt.Errorf("cannot remove deal pipeline %s: tasks are still running", p.uuid)
+				}
+			}
+
+			_, err = tx.Exec(`DELETE FROM market_mk12_deal_pipeline WHERE uuid = $1`, p.uuid)
+			if err != nil {
+				return false, err
+			}
+
+			// If sector is null, remove related pieceref
+			if !p.sector.Valid {
+				const prefix = "pieceref:"
+				if strings.HasPrefix(p.url, prefix) {
+					refIDStr := p.url[len(prefix):]
+					refID, err := strconv.ParseInt(refIDStr, 10, 64)
+					if err != nil {
+						return false, fmt.Errorf("invalid refID in URL for pipeline %s: %v", p.uuid, err)
+					}
+					_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, refID)
+					if err != nil {
+						return false, fmt.Errorf("failed to remove parked_piece_refs for pipeline %s: %w", p.uuid, err)
+					}
+				}
+			}
+
+			log.Infow("removed failed pipeline", "uuid", p.uuid)
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+
+	if err != nil {
+		return err
+	}
+	if !didCommit {
+		return fmt.Errorf("transaction did not commit")
+	}
+
+	return nil
+}

@@ -9,7 +9,8 @@ class DealPipelines extends LitElement {
         offset: { type: Number },
         totalCount: { type: Number },
         failedTasks: { type: Object },
-        restartingTaskType: { type: String }
+        restartingTaskType: { type: String },
+        removingTaskType: { type: String }
     };
 
     constructor() {
@@ -20,6 +21,7 @@ class DealPipelines extends LitElement {
         this.totalCount = 0;
         this.failedTasks = {};
         this.restartingTaskType = '';
+        this.removingTaskType = '';
         this.loadData();
     }
 
@@ -71,19 +73,28 @@ class DealPipelines extends LitElement {
 
         const renderLine = (label, count, type) => {
             const isRestarting = this.restartingTaskType === type;
+            const isRemoving = this.removingTaskType === type;
+            const isWorking = isRestarting || isRemoving;
             return html`
                 <div>
                     <b>${label}</b> Task: ${count}
                     <details style="display: inline-block; margin-left: 8px;">
-                        <summary class="btn btn-sm btn-warning">
-                            ${isRestarting ? 'Working...' : 'Actions'}
+                        <summary class="btn btn-sm btn-info">
+                            ${isWorking ? 'Working...' : 'Actions'}
                         </summary>
-                        <button 
-                            class="btn btn-sm btn-danger" 
-                            @click="${() => this.restartFailedTasks(type)}"
-                            ?disabled=${isRestarting}
+                        <button
+                                class="btn btn-sm btn-warning"
+                                @click="${() => this.restartFailedTasks(type)}"
+                                ?disabled=${isWorking}
                         >
                             Restart All
+                        </button>
+                        <button
+                                class="btn btn-sm btn-danger"
+                                @click="${() => this.removeFailedPipelines(type)}"
+                                ?disabled=${isWorking}
+                        >
+                            Remove All
                         </button>
                     </details>
                 </div>
@@ -120,6 +131,7 @@ class DealPipelines extends LitElement {
 
     async restartFailedTasks(type) {
         this.restartingTaskType = type;
+        this.removingTaskType = '';
         this.requestUpdate();
 
         try {
@@ -130,6 +142,23 @@ class DealPipelines extends LitElement {
             alert(`Failed to restart ${type} tasks: ${err.message || err}`);
         } finally {
             this.restartingTaskType = '';
+            this.requestUpdate();
+        }
+    }
+
+    async removeFailedPipelines(type) {
+        this.removingTaskType = type;
+        this.restartingTaskType = '';
+        this.requestUpdate();
+
+        try {
+            await RPCCall('BulkRemoveFailedMarketPipelines', [type]);
+            await this.loadData();
+        } catch (err) {
+            console.error('Failed to remove pipelines:', err);
+            alert(`Failed to remove ${type} pipelines: ${err.message || err}`);
+        } finally {
+            this.removingTaskType = '';
             this.requestUpdate();
         }
     }
