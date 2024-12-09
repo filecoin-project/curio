@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/snadrus/must"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
+	"github.com/snadrus/must"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
