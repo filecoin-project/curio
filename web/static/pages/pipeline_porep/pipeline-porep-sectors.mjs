@@ -162,7 +162,7 @@ customElements.define('pipeline-porep-sectors',class PipelinePorepSectors extend
             return html`
                 <td rowspan="${rowspan}" class="${missing ? 'pipeline-failed' : (started ? 'pipeline-active' : 'pipeline-waiting')}">
                     <div>${name}</div>
-                    <div>T:${task}</div>
+                    <div>T:<a href="/pages/task/id/?id=${task}">${task}</a></div>
                     ${missing ? html`<div><b>FAILED</b></div>` : ''}
                 </td>
             `;

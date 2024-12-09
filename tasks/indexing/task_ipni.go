@@ -1,6 +1,7 @@
 package indexing
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -36,6 +38,7 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
+	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 )
 
@@ -51,7 +54,6 @@ type IPNITask struct {
 }
 
 func NewIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.PieceProvider, cfg *config.CurioConfig, max taskhelp.Limiter) *IPNITask {
-
 	return &IPNITask{
 		db:            db,
 		indexStore:    indexStore,
@@ -100,6 +102,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	task := tasks[0]
 
 	if task.Complete {
+		log.Infow("IPNI task already complete", "task_id", taskID, "sector", task.Sector, "proof", task.Proof, "offset", task.Offset)
 		return true, nil
 	}
 
@@ -115,13 +118,13 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 			Number: task.Sector,
 		},
 		ProofType: task.Proof,
-	}, storiface.UnpaddedByteIndex(abi.PaddedPieceSize(task.Offset).Unpadded()), pi.Size.Unpadded(), pi.PieceCID)
+	}, storiface.PaddedByteIndex(task.Offset).Unpadded(), pi.Size.Unpadded(), pi.PieceCID)
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
 
 	opts := []carv2.Option{carv2.ZeroLengthSectionAsEOF(true)}
-	blockReader, err := carv2.NewBlockReader(reader, opts...)
+	blockReader, err := carv2.NewBlockReader(bufio.NewReaderSize(reader, 4<<20), opts...)
 	if err != nil {
 		return false, fmt.Errorf("getting block reader over piece: %w", err)
 	}
@@ -130,7 +133,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 
 	blockMetadata, err := blockReader.SkipNext()
 	for err == nil {
-		if err := chk.Accept(blockMetadata.Cid.Hash(), int64(blockMetadata.Offset)); err != nil {
+		if err := chk.Accept(blockMetadata.Cid.Hash(), int64(blockMetadata.Offset), blockMetadata.Size+40); err != nil {
 			return false, xerrors.Errorf("accepting block: %w", err)
 		}
 
@@ -187,15 +190,18 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 			IsRm:      task.Rm,
 		}
 
-		for _, a := range I.cfg.Market.StorageMarketConfig.IPNI.AnnounceAddresses {
-			u, err := url.Parse(strings.TrimSpace(a))
+		{
+			u, err := url.Parse(fmt.Sprintf("https://%s", I.cfg.HTTP.DomainName))
 			if err != nil {
-				return false, xerrors.Errorf("parsing announce address: %w", err)
+				return false, xerrors.Errorf("parsing announce address domain: %w", err)
 			}
+			u.Path = path.Join(u.Path, ipni_provider.IPNIRoutePath, task.Prov)
+
 			addr, err := maurl.FromURL(u)
 			if err != nil {
 				return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
 			}
+
 			adv.Addresses = append(adv.Addresses, addr.String())
 		}
 
@@ -250,6 +256,8 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	if err != nil {
 		return false, xerrors.Errorf("store IPNI success: %w", err)
 	}
+
+	log.Infow("IPNI task complete", "task_id", taskID, "sector", task.Sector, "proof", task.Proof, "offset", task.Offset)
 
 	return true, nil
 }
@@ -316,7 +324,7 @@ func (I *IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 1 << 30,
 		},
 		MaxFailures: 3,
-		IAmBored: passcall.Every(5*time.Minute, func(taskFunc harmonytask.AddTaskFunc) error {
+		IAmBored: passcall.Every(30*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
 			return I.schedule(context.Background(), taskFunc)
 		}),
 		Max: I.max,

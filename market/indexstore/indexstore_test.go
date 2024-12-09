@@ -94,11 +94,9 @@ func TestNewIndexStore(t *testing.T) {
 			m = blockMetadata.Hash()
 		}
 		recs <- Record{
-			Cid: blockMetadata.Cid,
-			OffsetSize: OffsetSize{
-				Offset: blockMetadata.SourceOffset,
-				Size:   blockMetadata.Size,
-			},
+			Cid:    blockMetadata.Cid,
+			Offset: blockMetadata.SourceOffset,
+			Size:   blockMetadata.Size,
 		}
 		i++
 
@@ -113,10 +111,10 @@ func TestNewIndexStore(t *testing.T) {
 	pcids, err := idxStore.PiecesContainingMultihash(ctx, m)
 	require.NoError(t, err)
 	require.Len(t, pcids, 1)
-	require.Equal(t, pcids[0], commp.PieceCID)
+	require.Equal(t, pcids[0].PieceCid.String(), commp.PieceCID.String())
 
 	// Remove all indexes from the store
-	err = idxStore.RemoveIndexes(ctx, pcids[0])
+	err = idxStore.RemoveIndexes(ctx, pcids[0].PieceCid)
 	require.NoError(t, err)
 
 	// Drop the table

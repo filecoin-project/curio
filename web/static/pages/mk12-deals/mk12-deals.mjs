@@ -1,5 +1,7 @@
 import {css, html, LitElement} from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { formatDate } from '/lib/dateutil.mjs';
+import '/ux/yesno.mjs';
 
 class MK12DealList extends LitElement {
     static properties = {
@@ -68,11 +70,12 @@ class MK12DealList extends LitElement {
         <table class="table table-dark table-striped table-sm">
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Provider</th>
-              <th>Piece CID</th>
-              <th>Piece Size</th>
-              <th>Created At</th>
+                <th>Created At</th>
+                <th>ID</th>
+                <th>Provider</th>
+                <th>Piece CID</th>
+                <th>Piece Size</th>
+                <th>Stored</th>
               <!-- Add more columns as needed -->
             </tr>
           </thead>
@@ -80,11 +83,12 @@ class MK12DealList extends LitElement {
             ${this.deals.map(
             (deal) => html`
                 <tr>
+                  <td>${formatDate(deal.created_at)}</td>
                   <td><a href="/pages/mk12-deal/?id=${deal.id}">${deal.id}</a></td>
                   <td>${deal.miner}</td>
                   <td><a href="/pages/piece/?id=${deal.piece_cid}">${deal.piece_cid}</a></td>
                   <td>${this.formatBytes(deal.piece_size)}</td>
-                  <td>${new Date(deal.created_at).toLocaleString()}</td>
+                  <td><done-not-done .value=${deal.complete}></done-not-done></td>
                 </tr>
               `
         )}

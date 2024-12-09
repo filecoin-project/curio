@@ -25,6 +25,14 @@ create table parked_pieces (
  * All references into the parked_pieces table should be done through this table.
  *
  * data_url is optional for refs which also act as data sources.
+ *
+ * Refs are ADDED when:
+ * 1. MK12 market accepts a non-offline deal
+ *
+ * Refs are REMOVED when:
+ * 1. (MK12) A sector related to a pieceref: url piece is finalized
+ * 2. (MK12) A deal pipeline not yet assigned to a sector is deleted
+ *
  */
 create table parked_piece_refs (
     ref_id bigserial primary key,
