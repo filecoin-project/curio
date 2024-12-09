@@ -273,7 +273,7 @@ func (c *InitialChunker) finishCAR(ctx context.Context, db *harmonydb.DB, pieceC
 	if db == nil {
 		// dry run mode, just log chunk hashes
 		for i, link := range c.prevChunks {
-			fmt.Printf("%d. %s\n", i, link)
+			fmt.Printf("%d. %s\n", i, link.link)
 		}
 
 		return nil, nil

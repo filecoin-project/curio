@@ -304,7 +304,6 @@ func (i *IndexStore) RemoveIndexes(ctx context.Context, pieceCid cid.Cid) error 
 		if err := i.executeBatchWithRetry(ctx, batch, pieceCid); err != nil {
 			return xerrors.Errorf("executing batch delete for PayloadToPieces for piece %s: %w", pieceCid, err)
 		}
-		batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
 	}
 
 	// Delete from PieceBlockOffsetSize
@@ -401,7 +400,7 @@ func (i *IndexStore) CheckHasPiece(ctx context.Context, piece cid.Cid) (bool, er
 		r = make([]byte, 0, 36)
 	}
 	if err := iter.Close(); err != nil {
-		return false, xerrors.Errorf("iterating piece hash range (P:0x%02x, n:%d): %w", piece.Bytes(), err)
+		return false, xerrors.Errorf("iterating piece hash range (P:0x%02x, n:%d): %w", piece.Bytes(), len(hashes), err)
 	}
 
 	return len(hashes) > 0, nil

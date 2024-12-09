@@ -182,7 +182,7 @@ loop:
 			Offset: blockMetadata.Offset,
 			Size:   blockMetadata.Size,
 		}:
-		case _, _ = <-addFail:
+		case <-addFail:
 			interrupted = true
 			break loop
 		}

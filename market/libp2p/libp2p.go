@@ -853,7 +853,7 @@ func (p *DealProvider) handleNewTransportStream(s network.Stream) {
 	}()
 
 	_ = s.SetWriteDeadline(time.Now().Add(providerWriteDeadline))
-	defer s.SetWriteDeadline(time.Time{})
+	defer s.SetWriteDeadline(time.Time{}) // nolint
 
 	var resp legacytypes.QueryResponse
 
