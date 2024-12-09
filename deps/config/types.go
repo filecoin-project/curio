@@ -3,6 +3,10 @@ package config
 import (
 	"time"
 
+	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/big"
+	"github.com/filecoin-project/go-state-types/builtin/v15/miner"
+
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
@@ -70,6 +74,18 @@ func DefaultCurioConfig() *CurioConfig {
 				AlertManagerURL: "http://localhost:9093/api/v2/alerts",
 			},
 		},
+		Batching: CurioBatchingConfig{
+			PreCommit: PreCommitBatchingConfig{
+				MaxPreCommitBatch:   miner.PreCommitSectorBatchMaxSize,
+				PreCommitBatchSlack: Duration(6 * time.Hour),
+				BaseFeeThreshold:    types.MustParseFIL("0.005"),
+			},
+			Commit: CommitBatchingConfig{
+				MaxCommitBatch:   miner.MaxAggregatedSectors,
+				CommitBatchSlack: Duration(1 * time.Hour),
+				BaseFeeThreshold: types.MustParseFIL("0.005"),
+			},
+		},
 	}
 }
 
@@ -85,6 +101,7 @@ type CurioConfig struct {
 	Seal      CurioSealConfig
 	Apis      ApisConfig
 	Alerting  CurioAlertingConfig
+	Batching  CurioBatchingConfig
 }
 
 func DefaultDefaultMaxFee() types.FIL {
@@ -94,6 +111,10 @@ func DefaultDefaultMaxFee() types.FIL {
 type BatchFeeConfig struct {
 	Base      types.FIL
 	PerSector types.FIL
+}
+
+func (b *BatchFeeConfig) FeeForSectors(nSectors int) abi.TokenAmount {
+	return big.Add(big.Int(b.Base), big.Mul(big.NewInt(int64(nSectors)), big.Int(b.PerSector)))
 }
 
 type CurioSubsystemsConfig struct {
@@ -499,4 +520,42 @@ type ApisConfig struct {
 
 	// Chain API auth secret for the Curio nodes to use.
 	StorageRPCSecret string
+}
+
+type CurioBatchingConfig struct {
+	// Precommit Batching configuration
+	PreCommit PreCommitBatchingConfig
+
+	// Commit batching configuration
+	Commit CommitBatchingConfig
+}
+
+type PreCommitBatchingConfig struct {
+	// Enable / Disable Precommit aggregation
+	AggregatePreCommits bool
+
+	// Maximum precommit batch size - batches will be sent immediately above this size if BaseFeeThreshold is higher
+	// than the current base fee. If not then we will wait batch if forced due to PreCommitBatchSlack
+	MaxPreCommitBatch int
+
+	// Time buffer for forceful batch submission before sectors/deal in batch would start expiring
+	PreCommitBatchSlack Duration
+
+	// Base fee value below which we should try to send Precommit message. This will be ignored if PreCommitBatchSlack has reached
+	BaseFeeThreshold types.FIL
+}
+
+type CommitBatchingConfig struct {
+	// Enable / Disable commit aggregation
+	AggregateCommits bool
+
+	// Maximum batched commit size - batches will be sent immediately above this size if BaseFeeThreshold is higher
+	//	// than the current base fee. If not then we will wait batch if forced due to CommitBatchSlack
+	MaxCommitBatch int
+
+	// Time buffer for forceful batch submission before sectors/deals in batch would start expiring
+	CommitBatchSlack Duration
+
+	// Base fee value below which we should try to send Commit message. This will be ignored if CommitBatchSlack has reached
+	BaseFeeThreshold types.FIL
 }

@@ -2,6 +2,8 @@ package seal
 
 import (
 	"context"
+	"sort"
+	"time"
 
 	"golang.org/x/xerrors"
 
@@ -9,6 +11,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/exitcode"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 
@@ -29,6 +32,120 @@ func (s *SealPoller) pollStartPrecommitMsg(ctx context.Context, task pollTask) {
 
 			return true, nil
 		})
+	}
+}
+
+type sectorBatch struct {
+	cutoff  abi.ChainEpoch
+	sectors []int64
+}
+
+func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context, tasks []pollTask) {
+	// Make batches based on Proof types
+	var tsks []pollTask
+	for i := range tasks {
+		if tasks[i].TaskPrecommitMsg == nil && !tasks[i].AfterPrecommitMsg && tasks[i].afterSynth() && s.pollers[pollerPrecommitMsg].IsSet() {
+			// If CC sector set StartEpoch/CutOff
+			if tasks[i].StartEpoch == 0 {
+				tasks[i].StartEpoch = abi.ChainEpoch(tasks[i].TicketEpoch) + policy.MaxPreCommitRandomnessLookback
+			}
+			tsks = append(tsks, tasks[i])
+		}
+	}
+
+	// Sort in ascending order to allow maximum time for sectors to wait for base free drop
+	sort.Slice(tsks, func(i, j int) bool {
+		return tsks[i].StartEpoch < tsks[j].StartEpoch
+	})
+
+	batchMap := make(map[int64]map[abi.RegisteredSealProof][]pollTask)
+	for i := range tsks {
+		{
+			v, ok := batchMap[tsks[i].SpID]
+			if !ok {
+				v = make(map[abi.RegisteredSealProof][]pollTask)
+				v[tsks[i].RegisteredSealProof] = append(v[tsks[i].RegisteredSealProof], tsks[i])
+			} else {
+				v[tsks[i].RegisteredSealProof] = append(v[tsks[i].RegisteredSealProof], tsks[i])
+				batchMap[tsks[i].SpID] = v
+			}
+		}
+	}
+
+	// Send batches per MinerID and per Proof type based on the following logic:
+	// 1. Check if MaxWait for any sector is reaching, if yes then send full batch (might as well as message will cost us)
+	// 2. If minimum batch size is not reached wait for next loop
+	// 3. If max batch size reached then check if baseFee below set threshold. If yes then send
+	// 4. Retry on next loop
+
+	ts, err := s.api.ChainHead(ctx)
+	if err != nil {
+		log.Errorf("error getting chain head: %s", err)
+		return
+	}
+
+	for spid, miners := range batchMap {
+		for _, pts := range miners {
+			// Break into batches
+			var batches []sectorBatch
+			for i := 0; i < len(pts); i += s.cfg.preCommit.MaxPreCommitBatch {
+				// Create a batch of size `maxBatchSize` or smaller for the last batch
+				end := i + s.cfg.preCommit.MaxPreCommitBatch
+				if end > len(pts) {
+					end = len(pts)
+				}
+				var batch []int64
+				var cutoff abi.ChainEpoch
+				for _, pt := range pts[i:end] {
+					batch = append(batch, pt.SectorNumber)
+					if cutoff == 0 || pt.StartEpoch < cutoff {
+						cutoff = pt.StartEpoch
+					}
+				}
+
+				batches = append(batches, sectorBatch{
+					cutoff:  cutoff,
+					sectors: batch,
+				})
+			}
+
+			// Process batch if cutoff has reached
+			for i := range batches {
+				if (time.Duration(batches[i].cutoff-ts.Height()) * time.Duration(build.BlockDelaySecs) * time.Second) < s.cfg.preCommit.PreCommitBatchSlack {
+					s.pollers[pollerPrecommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
+						n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_precommit_msg = $1 WHERE sp_id = $2 AND sector_number = ANY($3) AND task_id_precommit_msg IS NULL AND after_synth = TRUE`, id, spid, batches[i])
+						if err != nil {
+							return false, xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
+						}
+						if n != 1 {
+							return false, xerrors.Errorf("expected to update 1 row, updated %d", n)
+						}
+
+						return true, nil
+					})
+				}
+			}
+
+			// If we have enough sectors then check if base fee is low enough for us to send batched
+			if len(pts) >= s.cfg.preCommit.MaxPreCommitBatch {
+				if !s.cfg.commit.BaseFeeThreshold.Equals(abi.NewTokenAmount(0)) && ts.MinTicketBlock().ParentBaseFee.LessThan(s.cfg.preCommit.BaseFeeThreshold) {
+					batches := batches[:len(batches)-1]
+					for i := range batches {
+						s.pollers[pollerPrecommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
+							n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_precommit_msg = $1 WHERE sp_id = $2 AND sector_number = ANY($3) AND task_id_precommit_msg IS NULL AND after_synth = TRUE`, id, spid, batches[i])
+							if err != nil {
+								return false, xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
+							}
+							if n != 1 {
+								return false, xerrors.Errorf("expected to update 1 row, updated %d", n)
+							}
+
+							return true, nil
+						})
+					}
+				}
+			}
+		}
 	}
 }
 

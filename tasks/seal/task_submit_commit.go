@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/ipfs/go-cid"
+	"go.uber.org/multierr"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -16,6 +18,8 @@ import (
 	miner2 "github.com/filecoin-project/go-state-types/builtin/v13/miner"
 	verifreg13 "github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 	verifregtypes9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
+	"github.com/filecoin-project/go-state-types/network"
+	"github.com/filecoin-project/go-state-types/proof"
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -23,11 +27,13 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/multictladdr"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/message"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/market"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/ctladdr"
 )
@@ -40,41 +46,42 @@ type SubmitCommitAPI interface {
 	StateGetAllocation(ctx context.Context, clientAddr address.Address, allocationId verifregtypes9.AllocationId, tsk types.TipSetKey) (*verifregtypes9.Allocation, error)
 	StateGetAllocationIdForPendingDeal(ctx context.Context, dealId abi.DealID, tsk types.TipSetKey) (verifregtypes9.AllocationId, error)
 	StateMinerAvailableBalance(context.Context, address.Address, types.TipSetKey) (big.Int, error)
+	StateNetworkVersion(context.Context, types.TipSetKey) (network.Version, error)
 	ctladdr.NodeApi
 }
 
 type commitConfig struct {
-	maxFee                     types.FIL
+	feeCfg                     *config.CurioFees
 	RequireActivationSuccess   bool
 	RequireNotificationSuccess bool
-	CollateralFromMinerBalance bool
-	DisableCollateralFallback  bool
+	batching                   bool
 }
 
 type SubmitCommitTask struct {
-	sp  *SealPoller
-	db  *harmonydb.DB
-	api SubmitCommitAPI
+	sp     *SealPoller
+	db     *harmonydb.DB
+	api    SubmitCommitAPI
+	prover storiface.Prover
 
 	sender *message.Sender
 	as     *multictladdr.MultiAddressSelector
 	cfg    commitConfig
 }
 
-func NewSubmitCommitTask(sp *SealPoller, db *harmonydb.DB, api SubmitCommitAPI, sender *message.Sender, as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig) *SubmitCommitTask {
+func NewSubmitCommitTask(sp *SealPoller, db *harmonydb.DB, api SubmitCommitAPI, sender *message.Sender, as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig, prover storiface.Prover) *SubmitCommitTask {
 
 	cnfg := commitConfig{
-		maxFee:                     cfg.Fees.MaxCommitGasFee,
+		feeCfg:                     &cfg.Fees,
 		RequireActivationSuccess:   cfg.Subsystems.RequireActivationSuccess,
 		RequireNotificationSuccess: cfg.Subsystems.RequireNotificationSuccess,
-		CollateralFromMinerBalance: cfg.Fees.CollateralFromMinerBalance,
-		DisableCollateralFallback:  cfg.Fees.DisableCollateralFallback,
+		batching:                   cfg.Batching.Commit.AggregateCommits,
 	}
 
 	return &SubmitCommitTask{
 		sp:     sp,
 		db:     db,
 		api:    api,
+		prover: prover,
 		sender: sender,
 		as:     as,
 		cfg:    cnfg,
@@ -108,47 +115,35 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	ctx := context.Background()
 
 	var sectorParamsArr []struct {
-		SpID         int64  `db:"sp_id"`
-		SectorNumber int64  `db:"sector_number"`
-		Proof        []byte `db:"porep_proof"`
+		SpID         int64                   `db:"sp_id"`
+		SectorNumber int64                   `db:"sector_number"`
+		Proof        []byte                  `db:"porep_proof"`
+		RegSealProof abi.RegisteredSealProof `db:"reg_seal_proof"`
+		TicketValue  []byte                  `db:"ticket_value"`
+		SealedCID    string                  `db:"tree_r_cid"`
+		UnsealedCID  string                  `db:"tree_d_cid"`
+		SeedValue    []byte                  `db:"seed_value"`
 	}
 
 	err = s.db.Select(ctx, &sectorParamsArr, `
-		SELECT sp_id, sector_number, porep_proof
+		SELECT sp_id, sector_number, porep_proof, ticket_value, tree_r_cid, tree_d_cid
 		FROM sectors_sdr_pipeline
 		WHERE task_id_commit_msg = $1`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting sector params: %w", err)
 	}
 
-	if len(sectorParamsArr) != 1 {
-		return false, xerrors.Errorf("expected 1 sector params, got %d", len(sectorParamsArr))
-	}
-	sectorParams := sectorParamsArr[0]
-
-	var pieces []struct {
-		PieceIndex int64           `db:"piece_index"`
-		PieceCID   string          `db:"piece_cid"`
-		PieceSize  int64           `db:"piece_size"`
-		Proposal   json.RawMessage `db:"f05_deal_proposal"`
-		Manifest   json.RawMessage `db:"direct_piece_activation_manifest"`
-		DealID     abi.DealID      `db:"f05_deal_id"`
+	if s.cfg.batching {
+		if len(sectorParamsArr) == 0 || (len(sectorParamsArr) < 4 && len(sectorParamsArr) != 1) {
+			return false, xerrors.Errorf("expected either 1 or at least 4 sector params, got %d", len(sectorParamsArr))
+		}
+	} else {
+		if len(sectorParamsArr) != 1 {
+			return false, xerrors.Errorf("expected 1 sector params, got %d", len(sectorParamsArr))
+		}
 	}
 
-	err = s.db.Select(ctx, &pieces, `
-		SELECT piece_index,
-		       piece_cid,
-		       piece_size,
-		       f05_deal_proposal,
-		       direct_piece_activation_manifest,
-		       COALESCE(f05_deal_id, 0) AS f05_deal_id
-		FROM sectors_sdr_initial_pieces
-		WHERE sp_id = $1 AND sector_number = $2 ORDER BY piece_index ASC`, sectorParams.SpID, sectorParams.SectorNumber)
-	if err != nil {
-		return false, xerrors.Errorf("getting pieces: %w", err)
-	}
-
-	maddr, err := address.NewIDAddress(uint64(sectorParams.SpID))
+	maddr, err := address.NewIDAddress(uint64(sectorParamsArr[0].SpID))
 	if err != nil {
 		return false, xerrors.Errorf("getting miner address: %w", err)
 	}
@@ -158,116 +153,232 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("getting chain head: %w", err)
 	}
 
-	pci, err := s.api.StateSectorPreCommitInfo(ctx, maddr, abi.SectorNumber(sectorParams.SectorNumber), ts.Key())
-	if err != nil {
-		return false, xerrors.Errorf("getting precommit info: %w", err)
-	}
-	if pci == nil {
-		return false, xerrors.Errorf("precommit info not found on chain")
-	}
-
 	mi, err := s.api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
 	if err != nil {
 		return false, xerrors.Errorf("getting miner info: %w", err)
 	}
 
-	var verifiedSize int64
+	nv, err := s.api.StateNetworkVersion(ctx, ts.Key())
+	if err != nil {
+		return false, xerrors.Errorf("getting network version: %s", err)
+	}
+
+	regProof := sectorParamsArr[0].RegSealProof
 
 	params := miner.ProveCommitSectors3Params{
 		RequireActivationSuccess:   s.cfg.RequireActivationSuccess,
 		RequireNotificationSuccess: s.cfg.RequireNotificationSuccess,
 	}
 
-	var pams []miner.PieceActivationManifest
+	collateral := big.Zero()
+	var infos []proof.AggregateSealVerifyInfo
+	var sectors []int64
 
-	for _, piece := range pieces {
-		if piece.Proposal != nil {
-			var prop *market.DealProposal
-			err = json.Unmarshal(piece.Proposal, &prop)
-			if err != nil {
-				return false, xerrors.Errorf("marshalling json to deal proposal: %w", err)
-			}
-			alloc, err := s.api.StateGetAllocationIdForPendingDeal(ctx, piece.DealID, types.EmptyTSK)
-			if err != nil {
-				return false, xerrors.Errorf("getting allocation for deal %d: %w", piece.DealID, err)
-			}
-			clid, err := s.api.StateLookupID(ctx, prop.Client, types.EmptyTSK)
-			if err != nil {
-				return false, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
-			}
+	for _, sectorParams := range sectorParamsArr {
+		sectorParams := sectorParams
 
-			clientId, err := address.IDFromAddress(clid)
-			if err != nil {
-				return false, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
-			}
+		// Check miner ID is same for all sectors in batch
+		tmpMaddr, err := address.NewIDAddress(uint64(sectorParams.SpID))
+		if err != nil {
+			return false, xerrors.Errorf("getting miner address: %w", err)
+		}
 
-			var vac *miner2.VerifiedAllocationKey
-			if alloc != verifregtypes9.NoAllocationID {
-				vac = &miner2.VerifiedAllocationKey{
-					Client: abi.ActorID(clientId),
-					ID:     verifreg13.AllocationId(alloc),
-				}
-				verifiedSize += piece.PieceSize
-			}
+		if maddr != tmpMaddr {
+			return false, xerrors.Errorf("expected miner IDs to be same (%s) for all sectors in a batch but found %s", maddr.String(), tmpMaddr.String())
+		}
 
-			payload, err := cborutil.Dump(piece.DealID)
-			if err != nil {
-				return false, xerrors.Errorf("serializing deal id: %w", err)
-			}
+		// Check proof types is same for all sectors in batch
+		if sectorParams.RegSealProof != regProof {
+			return false, xerrors.Errorf("expected proofs type to be same (%d) for all sectors in a batch but found %d", regProof, sectorParams.RegSealProof)
+		}
 
-			pams = append(pams, miner.PieceActivationManifest{
-				CID:                   prop.PieceCID,
-				Size:                  prop.PieceSize,
-				VerifiedAllocationKey: vac,
-				Notify: []miner2.DataActivationNotification{
-					{
-						Address: market.Address,
-						Payload: payload,
-					},
-				},
-			})
-		} else {
+		var pieces []struct {
+			PieceIndex int64           `db:"piece_index"`
+			PieceCID   string          `db:"piece_cid"`
+			PieceSize  int64           `db:"piece_size"`
+			Proposal   json.RawMessage `db:"f05_deal_proposal"`
+			Manifest   json.RawMessage `db:"direct_piece_activation_manifest"`
+			DealID     abi.DealID      `db:"f05_deal_id"`
+		}
+
+		err = s.db.Select(ctx, &pieces, `
+		SELECT piece_index,
+		       piece_cid,
+		       piece_size,
+		       f05_deal_proposal,
+		       direct_piece_activation_manifest,
+		       COALESCE(f05_deal_id, 0) AS f05_deal_id
+		FROM sectors_sdr_initial_pieces
+		WHERE sp_id = $1 AND sector_number = $2 ORDER BY piece_index ASC`, sectorParams.SpID, sectorParams.SectorNumber)
+		if err != nil {
+			return false, xerrors.Errorf("getting pieces: %w", err)
+		}
+
+		pci, err := s.api.StateSectorPreCommitInfo(ctx, maddr, abi.SectorNumber(sectorParams.SectorNumber), ts.Key())
+		if err != nil {
+			return false, xerrors.Errorf("getting precommit info: %w", err)
+		}
+		if pci == nil {
+			return false, xerrors.Errorf("precommit info not found on chain")
+		}
+
+		var verifiedSize abi.PaddedPieceSize
+
+		var pams []miner.PieceActivationManifest
+
+		for _, piece := range pieces {
 			var pam *miner.PieceActivationManifest
-			err = json.Unmarshal(piece.Manifest, &pam)
-			if err != nil {
-				return false, xerrors.Errorf("marshalling json to PieceManifest: %w", err)
+			if piece.Proposal != nil {
+				var prop *market.DealProposal
+				err = json.Unmarshal(piece.Proposal, &prop)
+				if err != nil {
+					return false, xerrors.Errorf("marshalling json to deal proposal: %w", err)
+				}
+				alloc, err := s.api.StateGetAllocationIdForPendingDeal(ctx, piece.DealID, types.EmptyTSK)
+				if err != nil {
+					return false, xerrors.Errorf("getting allocation for deal %d: %w", piece.DealID, err)
+				}
+				clid, err := s.api.StateLookupID(ctx, prop.Client, types.EmptyTSK)
+				if err != nil {
+					return false, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
+				}
+
+				clientId, err := address.IDFromAddress(clid)
+				if err != nil {
+					return false, xerrors.Errorf("getting client address for deal %d: %w", piece.DealID, err)
+				}
+
+				var vac *miner2.VerifiedAllocationKey
+				if alloc != verifregtypes9.NoAllocationID {
+					vac = &miner2.VerifiedAllocationKey{
+						Client: abi.ActorID(clientId),
+						ID:     verifreg13.AllocationId(alloc),
+					}
+				}
+
+				payload, err := cborutil.Dump(piece.DealID)
+				if err != nil {
+					return false, xerrors.Errorf("serializing deal id: %w", err)
+				}
+
+				pam = &miner.PieceActivationManifest{
+					CID:                   prop.PieceCID,
+					Size:                  prop.PieceSize,
+					VerifiedAllocationKey: vac,
+					Notify: []miner2.DataActivationNotification{
+						{
+							Address: market.Address,
+							Payload: payload,
+						},
+					},
+				}
+			} else {
+				err = json.Unmarshal(piece.Manifest, &pam)
+				if err != nil {
+					return false, xerrors.Errorf("marshalling json to PieceManifest: %w", err)
+				}
 			}
-			_, err = AllocationCheck(ctx, s.api, pam, pci.Info.Expiration, abi.ActorID(sectorParams.SpID), ts)
+			unrecoverable, err := AllocationCheck(ctx, s.api, pam, pci.Info.Expiration, abi.ActorID(sectorParams.SpID), ts)
 			if err != nil {
-				return false, err
+				if unrecoverable {
+					_, err2 := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET 
+                                 failed = TRUE, failed_at = NOW(), failed_reason = 'alloc-check', failed_reason_msg = $1,
+                                 task_id_commit_msg = NULL, after_commit_msg = FALSE
+                             WHERE task_id_commit_msg = $2 AND sp_id = $3 AND sector_number = $4`, err.Error(), sectorParams.SpID, sectorParams.SectorNumber)
+					if err2 != nil {
+						return false, xerrors.Errorf("allocation check failed with an unrecoverable issue: %w", multierr.Combine(err, err2))
+					}
+					log.Errorw("allocation check failed with an unrecoverable issue", "sp", sectorParams.SpID, "sector", sectorParams.SectorNumber, "err", err)
+					continue // Skip this piece/allocation ? Would this fail the sector
+				}
 			}
+			if pam.VerifiedAllocationKey != nil || pam.VerifiedAllocationKey.ID != verifreg13.NoAllocationID {
+				verifiedSize += pam.Size
+			}
+
 			pams = append(pams, *pam)
 		}
+
+		ssize, err := pci.Info.SealProof.SectorSize()
+		if err != nil {
+			return false, xerrors.Errorf("could not get sector size: %w", err)
+		}
+
+		collateralPerSector, err := s.api.StateMinerInitialPledgeForSector(ctx, pci.Info.Expiration-ts.Height(), ssize, uint64(verifiedSize), ts.Key())
+		if err != nil {
+			return false, xerrors.Errorf("getting initial pledge collateral: %w", err)
+		}
+
+		collateralPerSector = big.Sub(collateralPerSector, pci.PreCommitDeposit)
+		if collateralPerSector.LessThan(big.Zero()) {
+			collateralPerSector = big.Zero()
+		}
+
+		collateral = big.Add(collateral, collateralPerSector)
+
+		params.SectorActivations = append(params.SectorActivations, miner.SectorActivationManifest{
+			SectorNumber: abi.SectorNumber(sectorParams.SectorNumber),
+			Pieces:       pams,
+		})
+		params.SectorProofs = append(params.SectorProofs, sectorParams.Proof)
+
+		sealedCID, err := cid.Parse(sectorParams.SealedCID)
+		if err != nil {
+			return false, xerrors.Errorf("parsing sealed CID: %w", err)
+		}
+
+		unsealedCID, err := cid.Parse(sectorParams.UnsealedCID)
+		if err != nil {
+			return false, xerrors.Errorf("parsing unsealed CID: %w", err)
+		}
+
+		infos = append(infos, proof.AggregateSealVerifyInfo{
+			Number:                abi.SectorNumber(sectorParams.SectorNumber),
+			Randomness:            sectorParams.TicketValue,
+			InteractiveRandomness: sectorParams.SeedValue,
+			SealedCID:             sealedCID,
+			UnsealedCID:           unsealedCID,
+		})
+
+		sectors = append(sectors, sectorParams.SectorNumber)
 	}
 
-	params.SectorActivations = append(params.SectorActivations, miner.SectorActivationManifest{
-		SectorNumber: abi.SectorNumber(sectorParams.SectorNumber),
-		Pieces:       pams,
-	})
-	params.SectorProofs = append(params.SectorProofs, sectorParams.Proof)
+	if len(sectorParamsArr) > 4 && s.cfg.batching {
+		arp, err := aggregateProofType(nv)
+		if err != nil {
+			return false, xerrors.Errorf("getting aggregate proof type: %w", err)
+		}
+		params.AggregateProofType = &arp
+
+		params.AggregateProof, err = s.prover.AggregateSealProofs(proof.AggregateSealVerifyProofAndInfos{
+			Miner:          abi.ActorID(sectorParamsArr[0].SpID),
+			SealProof:      regProof,
+			AggregateProof: arp,
+			Infos:          infos,
+		}, params.SectorProofs)
+
+		if err != nil {
+			return false, xerrors.Errorf("aggregating proofs: %w", err)
+		}
+		params.SectorProofs = nil // can't be set when aggregating
+
+		aggFeeRaw, err := policy.AggregateProveCommitNetworkFee(nv, len(infos), ts.MinTicketBlock().ParentBaseFee)
+		if err != nil {
+			return false, xerrors.Errorf("getting aggregate commit network fee: %s", err)
+		}
+
+		aggFee := big.Div(big.Mul(aggFeeRaw, big.NewInt(110)), big.NewInt(110))
+
+		collateral = big.Add(collateral, aggFee)
+	}
 
 	enc := new(bytes.Buffer)
 	if err := params.MarshalCBOR(enc); err != nil {
 		return false, xerrors.Errorf("could not serialize commit params: %w", err)
 	}
 
-	ssize, err := pci.Info.SealProof.SectorSize()
-	if err != nil {
-		return false, xerrors.Errorf("could not get sector size: %w", err)
-	}
-
-	collateral, err := s.api.StateMinerInitialPledgeForSector(ctx, pci.Info.Expiration-ts.Height(), ssize, uint64(verifiedSize), ts.Key())
-	if err != nil {
-		return false, xerrors.Errorf("getting initial pledge collateral: %w", err)
-	}
-
-	collateral = big.Sub(collateral, pci.PreCommitDeposit)
-	if collateral.LessThan(big.Zero()) {
-		collateral = big.Zero()
-	}
-
-	if s.cfg.CollateralFromMinerBalance {
-		if s.cfg.DisableCollateralFallback {
+	if s.cfg.feeCfg.CollateralFromMinerBalance {
+		if s.cfg.feeCfg.DisableCollateralFallback {
 			collateral = big.Zero()
 		}
 		balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)
@@ -282,7 +393,10 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		}
 	}
 
-	a, _, err := s.as.AddressFor(ctx, s.api, maddr, mi, api.CommitAddr, collateral, big.Zero())
+	maxFee := s.cfg.feeCfg.MaxCommitBatchGasFee.FeeForSectors(len(infos))
+	goodFunds := big.Add(maxFee, collateral)
+
+	a, _, err := s.as.AddressFor(ctx, s.api, maddr, mi, api.CommitAddr, goodFunds, collateral)
 	if err != nil {
 		return false, xerrors.Errorf("getting address for precommit: %w", err)
 	}
@@ -296,7 +410,11 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	}
 
 	mss := &api.MessageSendSpec{
-		MaxFee: abi.TokenAmount(s.cfg.maxFee),
+		MaxFee: abi.TokenAmount(s.cfg.feeCfg.MaxCommitGasFee),
+	}
+
+	if s.cfg.batching {
+		mss.MaxFee = maxFee
 	}
 
 	mcid, err := s.sender.Send(ctx, msg, mss, "commit")
@@ -304,7 +422,8 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("pushing message to mpool: %w", err)
 	}
 
-	_, err = s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET commit_msg_cid = $1, after_commit_msg = TRUE, task_id_commit_msg = NULL WHERE sp_id = $2 AND sector_number = $3`, mcid, sectorParams.SpID, sectorParams.SectorNumber)
+	_, err = s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET commit_msg_cid = $1, after_commit_msg = TRUE, 
+                                task_id_commit_msg = NULL WHERE task_id_commit_msg = $2 AND sp_id = $3 AND sector_number = ANY($4)`, mcid, taskID, sectorParamsArr[0].SpID, sectors)
 	if err != nil {
 		return false, xerrors.Errorf("updating commit_msg_cid: %w", err)
 	}
@@ -314,14 +433,14 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("inserting into message_waits: %w", err)
 	}
 
-	if err := s.transferFinalizedSectorData(ctx, sectorParams.SpID, sectorParams.SectorNumber); err != nil {
+	if err := s.transferFinalizedSectorData(ctx, sectorParamsArr[0].SpID, sectors); err != nil {
 		return false, xerrors.Errorf("transferring finalized sector data: %w", err)
 	}
 
 	return true, nil
 }
 
-func (s *SubmitCommitTask) transferFinalizedSectorData(ctx context.Context, spID, sectorNum int64) error {
+func (s *SubmitCommitTask) transferFinalizedSectorData(ctx context.Context, spID int64, sectors []int64) error {
 	if _, err := s.db.Exec(ctx, `
         INSERT INTO sectors_meta (
             sp_id,
@@ -356,7 +475,7 @@ func (s *SubmitCommitTask) transferFinalizedSectorData(ctx context.Context, spID
             sectors_sdr_pipeline
         WHERE
             sp_id = $1 AND
-            sector_number = $2
+            sector_number = ANY($2)
         ON CONFLICT (sp_id, sector_num) DO UPDATE SET
             reg_seal_proof = excluded.reg_seal_proof,
             ticket_epoch = excluded.ticket_epoch,
@@ -367,7 +486,7 @@ func (s *SubmitCommitTask) transferFinalizedSectorData(ctx context.Context, spID
             msg_cid_commit = excluded.msg_cid_commit,
             seed_epoch = excluded.seed_epoch,
             seed_value = excluded.seed_value;
-    `, spID, sectorNum); err != nil {
+    `, spID, sectors); err != nil {
 		return fmt.Errorf("failed to insert/update sectors_meta: %w", err)
 	}
 
@@ -404,7 +523,7 @@ func (s *SubmitCommitTask) transferFinalizedSectorData(ctx context.Context, spID
             sectors_sdr_initial_pieces
         WHERE
             sp_id = $1 AND
-            sector_number = $2
+            sector_number = ANY($2)
         ON CONFLICT (sp_id, sector_num, piece_num) DO UPDATE SET
             piece_cid = excluded.piece_cid,
             piece_size = excluded.piece_size,
@@ -415,7 +534,7 @@ func (s *SubmitCommitTask) transferFinalizedSectorData(ctx context.Context, spID
             f05_deal_id = excluded.f05_deal_id,
             ddo_pam = excluded.ddo_pam,
             f05_deal_proposal = excluded.f05_deal_proposal;
-    `, spID, sectorNum); err != nil {
+    `, spID, sectors); err != nil {
 		return fmt.Errorf("failed to insert/update sector_meta_pieces: %w", err)
 	}
 
@@ -489,3 +608,10 @@ func AllocationCheck(ctx context.Context, api AllocNodeApi, piece *miner.PieceAc
 }
 
 var _ harmonytask.TaskInterface = &SubmitCommitTask{}
+
+func aggregateProofType(nv network.Version) (abi.RegisteredAggregationProof, error) {
+	if nv < network.Version16 {
+		return abi.RegisteredAggregationProof_SnarkPackV1, nil
+	}
+	return abi.RegisteredAggregationProof_SnarkPackV2, nil
+}
