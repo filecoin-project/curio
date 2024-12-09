@@ -308,7 +308,7 @@ func (c *InitialChunker) finishCAR(ctx context.Context, db *harmonydb.DB, pieceC
 		}
 
 		return true, nil
-	})
+	}, harmonydb.OptionRetry())
 	if err != nil {
 		return nil, xerrors.Errorf("transaction: %w", err)
 	}

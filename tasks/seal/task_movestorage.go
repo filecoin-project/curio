@@ -79,7 +79,7 @@ func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		}
 
 		return true, nil
-	})
+	}, harmonydb.OptionRetry())
 	if err != nil {
 		return false, xerrors.Errorf("committing transaction: %w", err)
 	}
