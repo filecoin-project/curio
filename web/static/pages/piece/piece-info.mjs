@@ -145,7 +145,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                         <tr><th colspan="2"><h5>Top Level Info 📋</h5></th></tr>
                         <tr><td>Created At</td><td>${formatDate(entry.deal.created_at)}</td></tr>
                         <tr><td>UUID</td><td><a href="/pages/mk12-deal/?id=${entry.deal.uuid}">${entry.deal.uuid}</a></td></tr>
-                        <tr><td>Provider (sp_id)</td><td>f0${entry.deal.sp_id}</td></tr>
+                        <tr><td>Provider (sp_id)</td><td>${entry.deal.addr}</td></tr>
                         <tr><td>Signed Proposal CID</td><td>${entry.deal.signed_proposal_cid}</td></tr>
                         <tr><td>Proposal CID</td><td>${entry.deal.proposal_cid}</td></tr>
 
@@ -295,7 +295,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                             </tr>
 
                             <tr><th colspan="2"><h5>Sealing 📦</h5></th></tr>
-                            <tr><td>Sector</td><td>${entry.pipeline.sector.Valid ? html`<a href="/pages/sector/?sp=f0${entry.deal.sp_id}&id=${entry.pipeline.sector.Int64}">${entry.pipeline.sector.Int64}</a>` : 'N/A'}</td></tr>
+                            <tr><td>Sector</td><td>${entry.pipeline.sector.Valid ? html`<a href="/pages/sector/?sp=${entry.deal.addr}&id=${entry.pipeline.sector.Int64}">${entry.pipeline.sector.Int64}</a>` : 'N/A'}</td></tr>
                             <tr><td>Reg Seal Proof</td><td>${entry.pipeline.reg_seal_proof.Valid ? entry.pipeline.reg_seal_proof.Int64 : 'N/A'}</td></tr>
                             <tr><td>Sector Offset</td><td>${entry.pipeline.sector_offset.Valid ? entry.pipeline.sector_offset.Int64 : 'N/A'}</td></tr>
                             

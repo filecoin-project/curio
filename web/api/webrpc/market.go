@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/snadrus/must"
 	"net/http"
 	"strconv"
 	"strings"
@@ -696,6 +697,8 @@ type MK12Deal struct {
 	URL               sql.NullString  `db:"url" json:"url"`
 	URLHeaders        json.RawMessage `db:"url_headers" json:"url_headers"`
 	Error             sql.NullString  `db:"error" json:"error"`
+
+	Addr string `db:"-" json:"addr"`
 }
 
 // MK12DealPipeline represents a record from market_mk12_deal_pipeline table
@@ -731,12 +734,12 @@ type MK12DealPipeline struct {
 
 // MK12DealDetailEntry combines a deal and its pipeline
 type MK12DealDetailEntry struct {
-	Deal     MK12Deal          `json:"deal"`
+	Deal     *MK12Deal         `json:"deal"`
 	Pipeline *MK12DealPipeline `json:"pipeline,omitempty"`
 }
 
 func (a *WebRPC) MK12DealDetail(ctx context.Context, pieceCid string) ([]MK12DealDetailEntry, error) {
-	var mk12Deals []MK12Deal
+	var mk12Deals []*MK12Deal
 	err := a.deps.DB.Select(ctx, &mk12Deals, `
         SELECT
             uuid,
@@ -770,6 +773,8 @@ func (a *WebRPC) MK12DealDetail(ctx context.Context, pieceCid string) ([]MK12Dea
 	// Collect UUIDs from deals
 	uuids := make([]string, len(mk12Deals))
 	for i, deal := range mk12Deals {
+		deal.Addr = must.One(address.NewIDAddress(uint64(deal.SpId))).String()
+
 		uuids[i] = deal.UUID
 	}
 

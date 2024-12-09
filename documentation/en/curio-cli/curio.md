@@ -468,7 +468,6 @@ USAGE:
 
 COMMANDS:
    ipni-piece-chunks  generate ipni chunks from a file
-   mig-pcid           
    help, h            Shows a list of commands or help for one command
 
 OPTIONS:
@@ -482,18 +481,6 @@ NAME:
 
 USAGE:
    curio test debug ipni-piece-chunks [command options]
-
-OPTIONS:
-   --help, -h  show help
-```
-
-#### curio test debug mig-pcid
-```
-NAME:
-   curio test debug mig-pcid
-
-USAGE:
-   curio test debug mig-pcid [command options]
 
 OPTIONS:
    --help, -h  show help
