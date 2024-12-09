@@ -502,4 +502,50 @@ description: The default curio configuration
     # type: string
     #WebHookURL = ""
 
+
+[Batching]
+  [Batching.PreCommit]
+    # Enable / Disable Precommit aggregation
+    #
+    # type: bool
+    #AggregatePreCommits = false
+
+    # Maximum precommit batch size - batches will be sent immediately above this size if BaseFeeThreshold is higher
+    # than the current base fee. If not then we will wait batch if forced due to PreCommitBatchSlack
+    #
+    # type: int
+    #MaxPreCommitBatch = 256
+
+    # Time buffer for forceful batch submission before sectors/deal in batch would start expiring
+    #
+    # type: Duration
+    #PreCommitBatchSlack = "6h0m0s"
+
+    # Base fee value below which we should try to send Precommit message. This will be ignored if PreCommitBatchSlack has reached
+    #
+    # type: types.FIL
+    #BaseFeeThreshold = "0.005 FIL"
+
+  [Batching.Commit]
+    # Enable / Disable commit aggregation
+    #
+    # type: bool
+    #AggregateCommits = false
+
+    # Maximum batched commit size - batches will be sent immediately above this size if BaseFeeThreshold is higher
+    # // than the current base fee. If not then we will wait batch if forced due to CommitBatchSlack
+    #
+    # type: int
+    #MaxCommitBatch = 819
+
+    # Time buffer for forceful batch submission before sectors/deals in batch would start expiring
+    #
+    # type: Duration
+    #CommitBatchSlack = "1h0m0s"
+
+    # Base fee value below which we should try to send Commit message. This will be ignored if CommitBatchSlack has reached
+    #
+    # type: types.FIL
+    #BaseFeeThreshold = "0.005 FIL"
+
 ```

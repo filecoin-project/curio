@@ -37,6 +37,33 @@ var Doc = map[string][]DocField{
 			Comment: ``,
 		},
 	},
+	"CommitBatchingConfig": {
+		{
+			Name: "AggregateCommits",
+			Type: "bool",
+
+			Comment: `Enable / Disable commit aggregation`,
+		},
+		{
+			Name: "MaxCommitBatch",
+			Type: "int",
+
+			Comment: `Maximum batched commit size - batches will be sent immediately above this size if BaseFeeThreshold is higher
+// than the current base fee. If not then we will wait batch if forced due to CommitBatchSlack`,
+		},
+		{
+			Name: "CommitBatchSlack",
+			Type: "Duration",
+
+			Comment: `Time buffer for forceful batch submission before sectors/deals in batch would start expiring`,
+		},
+		{
+			Name: "BaseFeeThreshold",
+			Type: "types.FIL",
+
+			Comment: `Base fee value below which we should try to send Commit message. This will be ignored if CommitBatchSlack has reached`,
+		},
+	},
 	"CurioAddresses": {
 		{
 			Name: "PreCommitControl",
@@ -106,6 +133,20 @@ alerts will be triggered for the wallet`,
 			Comment: `SlackWebhookConfig is a configuration type for Slack webhook integration.`,
 		},
 	},
+	"CurioBatchingConfig": {
+		{
+			Name: "PreCommit",
+			Type: "PreCommitBatchingConfig",
+
+			Comment: `Precommit Batching configuration`,
+		},
+		{
+			Name: "Commit",
+			Type: "CommitBatchingConfig",
+
+			Comment: `Commit batching configuration`,
+		},
+	},
 	"CurioConfig": {
 		{
 			Name: "Subsystems",
@@ -152,6 +193,12 @@ alerts will be triggered for the wallet`,
 		{
 			Name: "Alerting",
 			Type: "CurioAlertingConfig",
+
+			Comment: ``,
+		},
+		{
+			Name: "Batching",
+			Type: "CurioBatchingConfig",
 
 			Comment: ``,
 		},
@@ -707,6 +754,33 @@ The default is sufficient for integration with the stock commercial PagerDuty.co
 
 			Comment: `PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
 identifier in the integration page for the service.`,
+		},
+	},
+	"PreCommitBatchingConfig": {
+		{
+			Name: "AggregatePreCommits",
+			Type: "bool",
+
+			Comment: `Enable / Disable Precommit aggregation`,
+		},
+		{
+			Name: "MaxPreCommitBatch",
+			Type: "int",
+
+			Comment: `Maximum precommit batch size - batches will be sent immediately above this size if BaseFeeThreshold is higher
+than the current base fee. If not then we will wait batch if forced due to PreCommitBatchSlack`,
+		},
+		{
+			Name: "PreCommitBatchSlack",
+			Type: "Duration",
+
+			Comment: `Time buffer for forceful batch submission before sectors/deal in batch would start expiring`,
+		},
+		{
+			Name: "BaseFeeThreshold",
+			Type: "types.FIL",
+
+			Comment: `Base fee value below which we should try to send Precommit message. This will be ignored if PreCommitBatchSlack has reached`,
 		},
 	},
 	"PrometheusAlertManagerConfig": {

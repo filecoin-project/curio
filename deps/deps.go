@@ -182,6 +182,7 @@ type Deps struct {
 	ListenAddr string
 	Name       string
 	Alert      *alertmanager.AlertNow
+	Prover     storiface.Prover
 }
 
 const (
@@ -225,6 +226,9 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		deps.Cfg, err = GetConfig(cctx.Context, cctx.StringSlice("layers"), deps.DB)
 		if err != nil {
 			return xerrors.Errorf("populate config: %w", err)
+		}
+		if deps.Cfg.Batching.Commit.AggregateCommits && deps.Cfg.Batching.Commit.MaxCommitBatch < miner.MinAggregatedSectors {
+			return xerrors.Errorf("commit batch size less than minimum required for aggregation")
 		}
 	}
 
@@ -346,6 +350,10 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 
 	if deps.Name == "" {
 		deps.Name = cctx.String("name")
+	}
+
+	if deps.Prover == nil {
+		deps.Prover = ffiwrapper.ProofProver
 	}
 
 	return nil

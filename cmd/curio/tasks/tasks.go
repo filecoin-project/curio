@@ -92,6 +92,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	si := dependencies.Si
 	bstore := dependencies.Bstore
 	machine := dependencies.ListenAddr
+	prover := dependencies.Prover
 	var activeTasks []harmonytask.TaskInterface
 
 	sender, sendTask := message.NewSender(full, full, db)
@@ -195,7 +196,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		cfg.Subsystems.EnableUpdateSubmit
 
 	if hasAnySealingTask {
-		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine)
+		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover)
 		if err != nil {
 			return nil, err
 		}
@@ -243,14 +244,14 @@ func addSealingTasks(
 	ctx context.Context, hasAnySealingTask bool, db *harmonydb.DB, full api.Chain, sender *message.Sender,
 	as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig, slrLazy *lazy.Lazy[*ffi.SealCalls],
 	asyncParams func() func() (bool, error), si paths.SectorIndex, stor *paths.Remote,
-	bstore curiochain.CurioBlockstore, machineHostPort string) ([]harmonytask.TaskInterface, error) {
+	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover) ([]harmonytask.TaskInterface, error) {
 	var activeTasks []harmonytask.TaskInterface
 	// Sealing / Snap
 
 	var sp *seal.SealPoller
 	var slr *ffi.SealCalls
 	if hasAnySealingTask {
-		sp = seal.NewPoller(db, full)
+		sp = seal.NewPoller(db, full, cfg)
 		go sp.RunPoller(ctx)
 
 		slr = must.One(slrLazy.Val())
@@ -303,7 +304,7 @@ func addSealingTasks(
 	}
 
 	if cfg.Subsystems.EnableSendPrecommitMsg {
-		precommitTask := seal.NewSubmitPrecommitTask(sp, db, full, sender, as, cfg.Fees.MaxPreCommitGasFee, cfg.Fees.CollateralFromMinerBalance, cfg.Fees.DisableCollateralFallback)
+		precommitTask := seal.NewSubmitPrecommitTask(sp, db, full, sender, as, cfg)
 		activeTasks = append(activeTasks, precommitTask)
 	}
 	if cfg.Subsystems.EnablePoRepProof {
@@ -321,7 +322,7 @@ func addSealingTasks(
 		}
 	}
 	if cfg.Subsystems.EnableSendCommitMsg {
-		commitTask := seal.NewSubmitCommitTask(sp, db, full, sender, as, cfg)
+		commitTask := seal.NewSubmitCommitTask(sp, db, full, sender, as, cfg, prover)
 		activeTasks = append(activeTasks, commitTask)
 	}
 
