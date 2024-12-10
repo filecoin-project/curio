@@ -39,29 +39,22 @@ var Doc = map[string][]DocField{
 	},
 	"CommitBatchingConfig": {
 		{
-			Name: "AggregateCommits",
-			Type: "bool",
-
-			Comment: `Enable / Disable commit aggregation`,
-		},
-		{
-			Name: "MaxCommitBatch",
-			Type: "int",
-
-			Comment: `Maximum batched commit size - batches will be sent immediately above this size if BaseFeeThreshold is higher
-// than the current base fee. If not then we will wait batch if forced due to CommitBatchSlack`,
-		},
-		{
-			Name: "CommitBatchSlack",
-			Type: "Duration",
-
-			Comment: `Time buffer for forceful batch submission before sectors/deals in batch would start expiring`,
-		},
-		{
 			Name: "BaseFeeThreshold",
 			Type: "types.FIL",
 
-			Comment: `Base fee value below which we should try to send Commit message. This will be ignored if CommitBatchSlack has reached`,
+			Comment: `Base fee value below which we should try to send Commit messages immediately`,
+		},
+		{
+			Name: "Timeout",
+			Type: "Duration",
+
+			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate`,
+		},
+		{
+			Name: "Slack",
+			Type: "Duration",
+
+			Comment: `Time buffer for forceful batch submission before sectors/deals in batch would start expiring`,
 		},
 	},
 	"CurioAddresses": {
@@ -758,29 +751,22 @@ identifier in the integration page for the service.`,
 	},
 	"PreCommitBatchingConfig": {
 		{
-			Name: "AggregatePreCommits",
-			Type: "bool",
-
-			Comment: `Enable / Disable Precommit aggregation`,
-		},
-		{
-			Name: "MaxPreCommitBatch",
-			Type: "int",
-
-			Comment: `Maximum precommit batch size - batches will be sent immediately above this size if BaseFeeThreshold is higher
-than the current base fee. If not then we will wait batch if forced due to PreCommitBatchSlack`,
-		},
-		{
-			Name: "PreCommitBatchSlack",
-			Type: "Duration",
-
-			Comment: `Time buffer for forceful batch submission before sectors/deal in batch would start expiring`,
-		},
-		{
 			Name: "BaseFeeThreshold",
 			Type: "types.FIL",
 
-			Comment: `Base fee value below which we should try to send Precommit message. This will be ignored if PreCommitBatchSlack has reached`,
+			Comment: `Base fee value below which we should try to send Precommit messages immediately`,
+		},
+		{
+			Name: "Timeout",
+			Type: "Duration",
+
+			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate`,
+		},
+		{
+			Name: "Slack",
+			Type: "Duration",
+
+			Comment: `Time buffer for forceful batch submission before sectors/deal in batch would start expiring`,
 		},
 	},
 	"PrometheusAlertManagerConfig": {

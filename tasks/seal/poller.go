@@ -9,6 +9,7 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+	miner15 "github.com/filecoin-project/go-state-types/builtin/v15/miner"
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -47,17 +48,17 @@ type SealPollerAPI interface {
 }
 
 type preCommitBatchingConfig struct {
-	Enabled             bool
-	MaxPreCommitBatch   int
-	PreCommitBatchSlack time.Duration
-	BaseFeeThreshold    abi.TokenAmount
+	MaxPreCommitBatch int
+	Slack             time.Duration
+	Timeout           time.Duration
+	BaseFeeThreshold  abi.TokenAmount
 }
 
 type commitBatchingConfig struct {
-	Enabled          bool
 	MinCommitBatch   int
 	MaxCommitBatch   int
-	CommitBatchSlack time.Duration
+	Slack            time.Duration
+	Timeout          time.Duration
 	BaseFeeThreshold abi.TokenAmount
 }
 
@@ -74,21 +75,28 @@ type SealPoller struct {
 	pollers [numPollers]promise.Promise[harmonytask.AddTaskFunc]
 }
 
-func NewPoller(db *harmonydb.DB, api SealPollerAPI, cfg *config.CurioConfig) *SealPoller {
+func NewPoller(db *harmonydb.DB, api SealPollerAPI, cfg *config.CurioConfig) (*SealPoller, error) {
+
+	if cfg.Batching.PreCommit.BaseFeeThreshold == types.MustParseFIL("0") {
+		return nil, xerrors.Errorf("BaseFeeThreshold cannot be 0 for precommit")
+	}
+	if cfg.Batching.Commit.BaseFeeThreshold == types.MustParseFIL("0") {
+		return nil, xerrors.Errorf("BaseFeeThreshold cannot be 0 for commit")
+	}
 
 	c := pollerConfig{
 		commit: commitBatchingConfig{
-			Enabled:          cfg.Batching.Commit.AggregateCommits,
 			MinCommitBatch:   miner.MinAggregatedSectors,
-			MaxCommitBatch:   cfg.Batching.Commit.MaxCommitBatch,
-			CommitBatchSlack: time.Duration(cfg.Batching.Commit.CommitBatchSlack),
+			MaxCommitBatch:   256,
+			Slack:            time.Duration(cfg.Batching.Commit.Slack),
+			Timeout:          time.Duration(cfg.Batching.Commit.Timeout),
 			BaseFeeThreshold: abi.TokenAmount(cfg.Batching.Commit.BaseFeeThreshold),
 		},
 		preCommit: preCommitBatchingConfig{
-			Enabled:             cfg.Batching.PreCommit.AggregatePreCommits,
-			MaxPreCommitBatch:   cfg.Batching.PreCommit.MaxPreCommitBatch,
-			PreCommitBatchSlack: time.Duration(cfg.Batching.PreCommit.PreCommitBatchSlack),
-			BaseFeeThreshold:    abi.TokenAmount(cfg.Batching.PreCommit.BaseFeeThreshold),
+			MaxPreCommitBatch: miner15.PreCommitSectorBatchMaxSize,
+			Slack:             time.Duration(cfg.Batching.PreCommit.Slack),
+			Timeout:           time.Duration(cfg.Batching.PreCommit.Timeout),
+			BaseFeeThreshold:  abi.TokenAmount(cfg.Batching.PreCommit.BaseFeeThreshold),
 		},
 	}
 
@@ -96,7 +104,7 @@ func NewPoller(db *harmonydb.DB, api SealPollerAPI, cfg *config.CurioConfig) *Se
 		db:  db,
 		api: api,
 		cfg: c,
-	}
+	}, nil
 }
 
 func (s *SealPoller) RunPoller(ctx context.Context) {
@@ -129,7 +137,7 @@ type pollTask struct {
 	SectorNumber        int64                   `db:"sector_number"`
 	RegisteredSealProof abi.RegisteredSealProof `db:"reg_seal_proof"`
 
-	TicketEpoch int64 `db:"ticket_epoch"`
+	TicketEpoch *int64 `db:"ticket_epoch"`
 
 	TaskSDR  *int64 `db:"task_id_sdr"`
 	AfterSDR bool   `db:"after_sdr"`
@@ -146,6 +154,8 @@ type pollTask struct {
 	TaskSynth  *int64 `db:"task_id_synth"`
 	AfterSynth bool   `db:"after_synth"`
 
+	PreCommitReadyAt *time.Time `db:"precommit_ready_at"`
+
 	TaskPrecommitMsg  *int64 `db:"task_id_precommit_msg"`
 	AfterPrecommitMsg bool   `db:"after_precommit_msg"`
 
@@ -161,6 +171,8 @@ type pollTask struct {
 
 	TaskMoveStorage  *int64 `db:"task_id_move_storage"`
 	AfterMoveStorage bool   `db:"after_move_storage"`
+
+	CommitReadyAt *time.Time `db:"commit_ready_at"`
 
 	TaskCommitMsg  *int64 `db:"task_id_commit_msg"`
 	AfterCommitMsg bool   `db:"after_commit_msg"`
@@ -191,6 +203,7 @@ func (s *SealPoller) poll(ctx context.Context) error {
 												p.after_tree_r,
 												p.task_id_synth, 
 												p.after_synth,
+												p.precommit_ready_at,
 												p.task_id_precommit_msg, 
 												p.after_precommit_msg,
 												p.after_precommit_msg_success, 
@@ -202,6 +215,7 @@ func (s *SealPoller) poll(ctx context.Context) error {
 												p.after_finalize,
 												p.task_id_move_storage, 
 												p.after_move_storage,
+												p.commit_ready_at,
 												p.task_id_commit_msg, 
 												p.after_commit_msg,
 												p.after_commit_msg_success,
@@ -239,26 +253,16 @@ func (s *SealPoller) poll(ctx context.Context) error {
 		s.pollStartSDRTreeD(ctx, task)
 		s.pollStartSDRTreeRC(ctx, task)
 		s.pollStartSynth(ctx, task)
-		if !s.cfg.preCommit.Enabled {
-			s.pollStartPrecommitMsg(ctx, task)
-		}
 		s.mustPoll(s.pollPrecommitMsgLanded(ctx, task))
 		s.pollStartPoRep(ctx, task, ts)
 		s.pollStartFinalize(ctx, task, ts)
 		s.pollStartMoveStorage(ctx, task)
-		if !s.cfg.commit.Enabled {
-			s.pollStartCommitMsg(ctx, task)
-		}
 		s.mustPoll(s.pollCommitMsgLanded(ctx, task))
 	}
 
 	// Aggregate/Batch PreCommit and Commit
-	if s.cfg.preCommit.Enabled {
-		s.pollStartBatchPrecommitMsg(ctx, tasks)
-	}
-	if s.cfg.commit.Enabled {
-		s.pollStartBatchCommitMsg(ctx, tasks)
-	}
+	s.pollStartBatchPrecommitMsg(ctx, tasks)
+	s.pollStartBatchCommitMsg(ctx, tasks)
 
 	return nil
 }

@@ -227,9 +227,6 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		if err != nil {
 			return xerrors.Errorf("populate config: %w", err)
 		}
-		if deps.Cfg.Batching.Commit.AggregateCommits && deps.Cfg.Batching.Commit.MaxCommitBatch < miner.MinAggregatedSectors {
-			return xerrors.Errorf("commit batch size less than minimum required for aggregation")
-		}
 	}
 
 	log.Debugw("config", "config", deps.Cfg)

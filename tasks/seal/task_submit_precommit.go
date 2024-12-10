@@ -42,24 +42,22 @@ type SubmitPrecommitTaskApi interface {
 }
 
 type SubmitPrecommitTask struct {
-	sp       *SealPoller
-	db       *harmonydb.DB
-	api      SubmitPrecommitTaskApi
-	sender   *message.Sender
-	as       *multictladdr.MultiAddressSelector
-	feeCfg   *config.CurioFees
-	batching bool
+	sp     *SealPoller
+	db     *harmonydb.DB
+	api    SubmitPrecommitTaskApi
+	sender *message.Sender
+	as     *multictladdr.MultiAddressSelector
+	feeCfg *config.CurioFees
 }
 
 func NewSubmitPrecommitTask(sp *SealPoller, db *harmonydb.DB, api SubmitPrecommitTaskApi, sender *message.Sender, as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig) *SubmitPrecommitTask {
 	return &SubmitPrecommitTask{
-		sp:       sp,
-		db:       db,
-		api:      api,
-		sender:   sender,
-		as:       as,
-		feeCfg:   &cfg.Fees,
-		batching: cfg.Batching.PreCommit.AggregatePreCommits,
+		sp:     sp,
+		db:     db,
+		api:    api,
+		sender: sender,
+		as:     as,
+		feeCfg: &cfg.Fees,
 	}
 }
 
@@ -109,15 +107,17 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		return false, xerrors.Errorf("getting sector params: %w", err)
 	}
 
-	if s.batching {
-		if len(sectorParamsArr) != 1 {
-			return false, xerrors.Errorf("expected 1 sector params, got %d", len(sectorParamsArr))
-		}
-	} else {
-		if len(sectorParamsArr) == 0 {
-			return false, xerrors.Errorf("expected at least 1 sector params, got 0")
-		}
+	if len(sectorParamsArr) == 0 {
+		return false, xerrors.Errorf("expected at least 1 sector params, got 0")
 	}
+
+	//if s.batching {
+	//	if len(sectorParamsArr) != 1 {
+	//		return false, xerrors.Errorf("expected 1 sector params, got %d", len(sectorParamsArr))
+	//	}
+	//} else {
+	//
+	//}
 
 	head, err := s.api.ChainHead(ctx)
 	if err != nil {
@@ -317,11 +317,7 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 	}
 
 	mss := &api.MessageSendSpec{
-		MaxFee: abi.TokenAmount(s.feeCfg.MaxPreCommitGasFee),
-	}
-
-	if s.batching {
-		mss.MaxFee = maxFee
+		MaxFee: maxFee,
 	}
 
 	mcid, err := s.sender.Send(ctx, msg, mss, "precommit")

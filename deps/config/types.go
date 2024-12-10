@@ -5,7 +5,6 @@ import (
 
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
-	"github.com/filecoin-project/go-state-types/builtin/v15/miner"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -76,14 +75,14 @@ func DefaultCurioConfig() *CurioConfig {
 		},
 		Batching: CurioBatchingConfig{
 			PreCommit: PreCommitBatchingConfig{
-				MaxPreCommitBatch:   miner.PreCommitSectorBatchMaxSize,
-				PreCommitBatchSlack: Duration(6 * time.Hour),
-				BaseFeeThreshold:    types.MustParseFIL("0.005"),
+				BaseFeeThreshold: types.MustParseFIL("0.005"),
+				Timeout:          Duration(4 * time.Hour),
+				Slack:            Duration(6 * time.Hour),
 			},
 			Commit: CommitBatchingConfig{
-				MaxCommitBatch:   miner.MaxAggregatedSectors,
-				CommitBatchSlack: Duration(1 * time.Hour),
 				BaseFeeThreshold: types.MustParseFIL("0.005"),
+				Timeout:          Duration(1 * time.Hour),
+				Slack:            Duration(1 * time.Hour),
 			},
 		},
 	}
@@ -531,31 +530,23 @@ type CurioBatchingConfig struct {
 }
 
 type PreCommitBatchingConfig struct {
-	// Enable / Disable Precommit aggregation
-	AggregatePreCommits bool
+	// Base fee value below which we should try to send Precommit messages immediately
+	BaseFeeThreshold types.FIL
 
-	// Maximum precommit batch size - batches will be sent immediately above this size if BaseFeeThreshold is higher
-	// than the current base fee. If not then we will wait batch if forced due to PreCommitBatchSlack
-	MaxPreCommitBatch int
+	// Maximum amount of time any given sector in the batch can wait for the batch to accumulate
+	Timeout Duration
 
 	// Time buffer for forceful batch submission before sectors/deal in batch would start expiring
-	PreCommitBatchSlack Duration
-
-	// Base fee value below which we should try to send Precommit message. This will be ignored if PreCommitBatchSlack has reached
-	BaseFeeThreshold types.FIL
+	Slack Duration
 }
 
 type CommitBatchingConfig struct {
-	// Enable / Disable commit aggregation
-	AggregateCommits bool
+	// Base fee value below which we should try to send Commit messages immediately
+	BaseFeeThreshold types.FIL
 
-	// Maximum batched commit size - batches will be sent immediately above this size if BaseFeeThreshold is higher
-	//	// than the current base fee. If not then we will wait batch if forced due to CommitBatchSlack
-	MaxCommitBatch int
+	// Maximum amount of time any given sector in the batch can wait for the batch to accumulate
+	Timeout Duration
 
 	// Time buffer for forceful batch submission before sectors/deals in batch would start expiring
-	CommitBatchSlack Duration
-
-	// Base fee value below which we should try to send Commit message. This will be ignored if CommitBatchSlack has reached
-	BaseFeeThreshold types.FIL
+	Slack Duration
 }

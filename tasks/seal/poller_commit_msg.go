@@ -2,6 +2,7 @@ package seal
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"time"
 
@@ -20,22 +21,6 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 )
-
-func (s *SealPoller) pollStartCommitMsg(ctx context.Context, task pollTask) {
-	if task.afterPoRep() && len(task.PoRepProof) > 0 && task.TaskCommitMsg == nil && !task.AfterCommitMsg && s.pollers[pollerCommitMsg].IsSet() {
-		s.pollers[pollerCommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_commit_msg = $1 WHERE sp_id = $2 AND sector_number = $3 AND task_id_commit_msg IS NULL`, id, task.SpID, task.SectorNumber)
-			if err != nil {
-				return false, xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
-			}
-			if n != 1 {
-				return false, xerrors.Errorf("expected to update 1 row, updated %d", n)
-			}
-
-			return true, nil
-		})
-	}
-}
 
 func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context, tasks []pollTask) {
 	// Make batches based on Proof types
@@ -98,21 +83,23 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context, tasks []pollTa
 
 	batchMap := make(map[int64]map[abi.RegisteredSealProof][]pollTask)
 	for i := range tsks {
+		// Check if SpID exists in batchMap
 		v, ok := batchMap[tsks[i].SpID]
 		if !ok {
+			// If not, initialize a new map for the RegisteredSealProof
 			v = make(map[abi.RegisteredSealProof][]pollTask)
 			batchMap[tsks[i].SpID] = v
-		} else {
-			v[tsks[i].RegisteredSealProof] = append(v[tsks[i].RegisteredSealProof], tsks[i])
-			batchMap[tsks[i].SpID] = v
 		}
+		// Append the task to the correct RegisteredSealProof
+		v[tsks[i].RegisteredSealProof] = append(v[tsks[i].RegisteredSealProof], tsks[i])
 	}
 
+	fmt.Println(batchMap)
+
 	// Send batches per MinerID and per Proof type based on the following logic:
-	// 1. Check if MaxWait for any sector is reaching, if yes then send full batch (might as well as message will cost us)
-	// 2. If minimum batch size is not reached wait for next loop
-	// 3. If max batch size reached then check if baseFee below set threshold. If yes then send
-	// 4. Retry on next loop
+	// 1. Check if Slack for any sector is reaching, if yes then send full batch
+	// 2. Check if timeout is reaching for any sector in the batch, if yes, then send the batch
+	// 3. Check if baseFee below set threshold. If yes then send all batches
 
 	for spid, miners := range batchMap {
 		for _, pts := range miners {
@@ -125,11 +112,16 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context, tasks []pollTa
 					end = len(pts)
 				}
 				var batch []int64
-				var cutoff abi.ChainEpoch
+				cutoff := abi.ChainEpoch(0)
+				earliest := time.Now()
 				for _, pt := range pts[i:end] {
 
 					if cutoff == 0 || pt.StartEpoch < cutoff {
 						cutoff = pt.StartEpoch
+					}
+
+					if pt.CommitReadyAt.Before(earliest) {
+						earliest = *pt.CommitReadyAt
 					}
 
 					batch = append(batch, pt.SectorNumber)
@@ -141,59 +133,54 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context, tasks []pollTa
 				})
 			}
 
-			// Process batch if cutoff has reached
 			for i := range batches {
-				if (time.Duration(batches[i].cutoff-ts.Height()) * time.Duration(build.BlockDelaySecs) * time.Second) < s.cfg.commit.CommitBatchSlack {
-					// If not enough for a batch i.e. <  miner.MinAggregatedSectors (4)
-					if len(batches[i].sectors) < miner.MinAggregatedSectors {
-						for _, sector := range batches[i].sectors {
-							s.pollers[pollerCommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-								n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_commit_msg = $1 WHERE sp_id = $2 AND sector_number = $3 AND task_id_commit_msg IS NULL`, id, spid, sector)
-								if err != nil {
-									return false, xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
-								}
-								if n != 1 {
-									return false, xerrors.Errorf("expected to update 1 row, updated %d", n)
-								}
-
-								return true, nil
-							})
-						}
-					}
-					s.pollers[pollerCommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-						n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_commit_msg = $1 WHERE sp_id = $2 AND sector_number = ANY($3) AND task_id_commit_msg IS NULL`, id, spid, batches[i])
-						if err != nil {
-							return false, xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
-						}
-						if n != 1 {
-							return false, xerrors.Errorf("expected to update 1 row, updated %d", n)
-						}
-
-						return true, nil
-					})
+				batch := batches[i]
+				//sectors := batch.sectors
+				// Process batch if slack has reached
+				if (time.Duration(batch.cutoff-ts.Height()) * time.Duration(build.BlockDelaySecs) * time.Second) < s.cfg.commit.Slack {
+					s.sendCommitBatch(ctx, spid, batch.sectors)
 				}
-			}
-
-			// If we have enough sectors then check if base fee is low enough for us to send batched
-			if len(pts) >= s.cfg.commit.MaxCommitBatch {
-				if !s.cfg.commit.BaseFeeThreshold.Equals(abi.NewTokenAmount(0)) && ts.MinTicketBlock().ParentBaseFee.LessThan(s.cfg.commit.BaseFeeThreshold) {
-					for i := range batches {
-						s.pollers[pollerCommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-							n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_commit_msg = $1 WHERE sp_id = $2 AND sector_number = ANY($3) AND task_id_commit_msg IS NULL`, id, spid, batches[i])
-							if err != nil {
-								return false, xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
-							}
-							if n != 1 {
-								return false, xerrors.Errorf("expected to update 1 row, updated %d", n)
-							}
-
-							return true, nil
-						})
-					}
+				// Process batch if timeout has reached
+				if batch.earliest.Add(s.cfg.commit.Timeout).After(time.Now()) {
+					s.sendCommitBatch(ctx, spid, batch.sectors)
+				}
+				// Process batch if base fee is low enough for us to send
+				if ts.MinTicketBlock().ParentBaseFee.LessThan(s.cfg.commit.BaseFeeThreshold) {
+					s.sendCommitBatch(ctx, spid, batch.sectors)
 				}
 			}
 		}
 	}
+}
+
+func (s *SealPoller) sendCommitBatch(ctx context.Context, spid int64, sectors []int64) {
+	if len(sectors) < miner.MinAggregatedSectors {
+		for i := range sectors {
+			s.pollers[pollerCommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
+				n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_commit_msg = $1 WHERE sp_id = $2 AND sector_number = $3 AND task_id_commit_msg IS NULL`, id, spid, sectors[i])
+				if err != nil {
+					return false, xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
+				}
+				if n != 1 {
+					return false, xerrors.Errorf("expected to update 1 row, updated %d", n)
+				}
+
+				return true, nil
+			})
+		}
+	}
+
+	s.pollers[pollerCommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
+		n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_commit_msg = $1 WHERE sp_id = $2 AND sector_number = ANY($3) AND task_id_commit_msg IS NULL`, id, spid, sectors)
+		if err != nil {
+			return false, xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
+		}
+		if n != len(sectors) {
+			return false, xerrors.Errorf("expected to update 1 row, updated %d", n)
+		}
+
+		return true, nil
+	})
 }
 
 func (s *SealPoller) pollCommitMsgLanded(ctx context.Context, task pollTask) error {

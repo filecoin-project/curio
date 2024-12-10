@@ -54,7 +54,6 @@ type commitConfig struct {
 	feeCfg                     *config.CurioFees
 	RequireActivationSuccess   bool
 	RequireNotificationSuccess bool
-	batching                   bool
 }
 
 type SubmitCommitTask struct {
@@ -74,7 +73,6 @@ func NewSubmitCommitTask(sp *SealPoller, db *harmonydb.DB, api SubmitCommitAPI, 
 		feeCfg:                     &cfg.Fees,
 		RequireActivationSuccess:   cfg.Subsystems.RequireActivationSuccess,
 		RequireNotificationSuccess: cfg.Subsystems.RequireNotificationSuccess,
-		batching:                   cfg.Batching.Commit.AggregateCommits,
 	}
 
 	return &SubmitCommitTask{
@@ -133,14 +131,8 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("getting sector params: %w", err)
 	}
 
-	if s.cfg.batching {
-		if len(sectorParamsArr) == 0 || (len(sectorParamsArr) < 4 && len(sectorParamsArr) != 1) {
-			return false, xerrors.Errorf("expected either 1 or at least 4 sector params, got %d", len(sectorParamsArr))
-		}
-	} else {
-		if len(sectorParamsArr) != 1 {
-			return false, xerrors.Errorf("expected 1 sector params, got %d", len(sectorParamsArr))
-		}
+	if len(sectorParamsArr) == 0 || (len(sectorParamsArr) < 4 && len(sectorParamsArr) != 1) {
+		return false, xerrors.Errorf("expected either 1 or at least 4 sector params, got %d", len(sectorParamsArr))
 	}
 
 	maddr, err := address.NewIDAddress(uint64(sectorParamsArr[0].SpID))
@@ -226,6 +218,8 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 
 		var pams []miner.PieceActivationManifest
 
+		var sectorFailed bool
+
 		for _, piece := range pieces {
 			var pam *miner.PieceActivationManifest
 			if piece.Proposal != nil {
@@ -289,7 +283,8 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 						return false, xerrors.Errorf("allocation check failed with an unrecoverable issue: %w", multierr.Combine(err, err2))
 					}
 					log.Errorw("allocation check failed with an unrecoverable issue", "sp", sectorParams.SpID, "sector", sectorParams.SectorNumber, "err", err)
-					continue // Skip this piece/allocation ? Would this fail the sector
+					sectorFailed = false
+					break
 				}
 			}
 			if pam.VerifiedAllocationKey != nil || pam.VerifiedAllocationKey.ID != verifreg13.NoAllocationID {
@@ -297,6 +292,10 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 			}
 
 			pams = append(pams, *pam)
+		}
+
+		if sectorFailed {
+			break
 		}
 
 		ssize, err := pci.Info.SealProof.SectorSize()
@@ -343,7 +342,16 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		sectors = append(sectors, sectorParams.SectorNumber)
 	}
 
-	if len(sectorParamsArr) > 4 && s.cfg.batching {
+	if len(infos) > 1 && len(infos) < 4 {
+		// We have dropped some sectors and now don't have minimum, fail this task and send sectors back to pool
+		_, err = s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET task_id_commit_msg = NULL WHERE task_id_commit_msg = $1 AND sp_id = $2 AND sector_number = ANY($3)`, taskID, sectorParamsArr[0].SpID, sectors)
+		if err != nil {
+			return false, xerrors.Errorf("unsetting commit task: %w", err)
+		}
+		return false, xerrors.Errorf("not enough sectors for aggregation: require 4 and have %d", len(infos))
+	}
+
+	if len(infos) >= 4 {
 		arp, err := aggregateProofType(nv)
 		if err != nil {
 			return false, xerrors.Errorf("getting aggregate proof type: %w", err)
@@ -410,11 +418,7 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	}
 
 	mss := &api.MessageSendSpec{
-		MaxFee: abi.TokenAmount(s.cfg.feeCfg.MaxCommitGasFee),
-	}
-
-	if s.cfg.batching {
-		mss.MaxFee = maxFee
+		MaxFee: maxFee,
 	}
 
 	mcid, err := s.sender.Send(ctx, msg, mss, "commit")

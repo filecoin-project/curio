@@ -505,47 +505,35 @@ description: The default curio configuration
 
 [Batching]
   [Batching.PreCommit]
-    # Enable / Disable Precommit aggregation
+    # Base fee value below which we should try to send Precommit messages immediately
     #
-    # type: bool
-    #AggregatePreCommits = false
+    # type: types.FIL
+    #BaseFeeThreshold = "0.005 FIL"
 
-    # Maximum precommit batch size - batches will be sent immediately above this size if BaseFeeThreshold is higher
-    # than the current base fee. If not then we will wait batch if forced due to PreCommitBatchSlack
+    # Maximum amount of time any given sector in the batch can wait for the batch to accumulate
     #
-    # type: int
-    #MaxPreCommitBatch = 256
+    # type: Duration
+    #Timeout = "4h0m0s"
 
     # Time buffer for forceful batch submission before sectors/deal in batch would start expiring
     #
     # type: Duration
-    #PreCommitBatchSlack = "6h0m0s"
+    #Slack = "6h0m0s"
 
-    # Base fee value below which we should try to send Precommit message. This will be ignored if PreCommitBatchSlack has reached
+  [Batching.Commit]
+    # Base fee value below which we should try to send Commit messages immediately
     #
     # type: types.FIL
     #BaseFeeThreshold = "0.005 FIL"
 
-  [Batching.Commit]
-    # Enable / Disable commit aggregation
+    # Maximum amount of time any given sector in the batch can wait for the batch to accumulate
     #
-    # type: bool
-    #AggregateCommits = false
-
-    # Maximum batched commit size - batches will be sent immediately above this size if BaseFeeThreshold is higher
-    # // than the current base fee. If not then we will wait batch if forced due to CommitBatchSlack
-    #
-    # type: int
-    #MaxCommitBatch = 819
+    # type: Duration
+    #Timeout = "1h0m0s"
 
     # Time buffer for forceful batch submission before sectors/deals in batch would start expiring
     #
     # type: Duration
-    #CommitBatchSlack = "1h0m0s"
-
-    # Base fee value below which we should try to send Commit message. This will be ignored if CommitBatchSlack has reached
-    #
-    # type: types.FIL
-    #BaseFeeThreshold = "0.005 FIL"
+    #Slack = "1h0m0s"
 
 ```
