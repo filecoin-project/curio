@@ -21,7 +21,6 @@ import (
 type ProofSetCreate struct {
 	CreateMessageHash string `db:"create_message_hash"`
 	Service           string `db:"service"`
-	ProofsetListener  string `db:"proofset_listener"`
 }
 
 func NewWatcherCreate(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
@@ -41,7 +40,7 @@ func processPendingProofSetCreates(ctx context.Context, db *harmonydb.DB, ethCli
 	var proofSetCreates []ProofSetCreate
 
 	err := db.Select(ctx, &proofSetCreates, `
-        SELECT create_message_hash, service, proofset_listener
+        SELECT create_message_hash, service
         FROM pdp_proofset_creates
         WHERE ok = TRUE AND proofset_created = FALSE
     `)
@@ -91,15 +90,26 @@ func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCr
 		return xerrors.Errorf("failed to extract proofSetId from receipt for tx %s: %w", psc.CreateMessageHash, err)
 	}
 
+	// Get the listener address for this proof set from the PDPVerifier contract
+	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ethClient)
+	if err != nil {
+		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
+	}
+
+	listenerAddr, err := pdpVerifier.GetProofSetListener(nil, big.NewInt(int64(proofSetId)))
+	if err != nil {
+		return xerrors.Errorf("failed to get listener address for proof set %d: %w", proofSetId, err)
+	}
+
 	// Get the proving period from the listener
 	// Assumption: listener is a PDP Service with proving window informational methods
-	provingPeriod, challengeWindow, err := getProvingPeriodChallengeWindow(ctx, ethClient, common.HexToAddress(psc.ProofsetListener), proofSetId)
+	provingPeriod, challengeWindow, err := getProvingPeriodChallengeWindow(ctx, ethClient, listenerAddr, proofSetId)
 	if err != nil {
 		return xerrors.Errorf("failed to get max proving period: %w", err)
 	}
 
 	// Insert a new entry into pdp_proof_sets
-	err = insertProofSet(ctx, db, psc.CreateMessageHash, proofSetId, psc.Service, psc.ProofsetListener, provingPeriod, challengeWindow)
+	err = insertProofSet(ctx, db, psc.CreateMessageHash, proofSetId, psc.Service, provingPeriod, challengeWindow)
 	if err != nil {
 		return xerrors.Errorf("failed to insert proof set %d for tx %+v: %w", proofSetId, psc, err)
 	}
@@ -142,13 +152,13 @@ func extractProofSetIdFromReceipt(receipt *types.Receipt) (uint64, error) {
 	return 0, xerrors.Errorf("ProofSetCreated event not found in receipt")
 }
 
-func insertProofSet(ctx context.Context, db *harmonydb.DB, createMsg string, proofSetId uint64, service string, listenerAddr string, provingPeriod uint64, challengeWindow uint64) error {
+func insertProofSet(ctx context.Context, db *harmonydb.DB, createMsg string, proofSetId uint64, service string, provingPeriod uint64, challengeWindow uint64) error {
 	// Implement the insertion into pdp_proof_sets table
 	// Adjust the SQL statement based on your table schema
 	_, err := db.Exec(ctx, `
-        INSERT INTO pdp_proof_sets (id, create_message_hash, service, proofset_listener, proving_period, prove_at_epoch)
+        INSERT INTO pdp_proof_sets (id, create_message_hash, service, proving_period, prove_at_epoch)
         VALUES ($1, $2, $3, $4, $5, $6, NULL)
-    `, proofSetId, createMsg, service, listenerAddr, provingPeriod, challengeWindow)
+    `, proofSetId, createMsg, service, provingPeriod, challengeWindow)
 	return err
 }
 

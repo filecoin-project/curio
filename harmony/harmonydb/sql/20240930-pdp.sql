@@ -83,9 +83,6 @@ CREATE TABLE pdp_proof_sets (
     -- this value will be set to NULL
     challenge_request_msg_hash TEXT,
 
-    -- the listener is assumed to be a PDP Service with proving window informational methods
-    proofset_listener TEXT NOT NULL,
-
     -- the proving period for this proofset and the challenge window duration
     proving_period BIGINT NOT NULL,
     challenge_window BIGINT NOT NULL,
@@ -118,7 +115,6 @@ CREATE TABLE pdp_proofset_creates (
 
     service TEXT NOT NULL REFERENCES pdp_services(service_label) ON DELETE CASCADE, -- service that requested the proofset
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    proofset_listener TEXT NOT NULL
 );
 
 -- proofset roots

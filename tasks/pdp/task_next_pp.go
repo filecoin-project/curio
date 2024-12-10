@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/xerrors"
@@ -94,12 +93,11 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 
 	// Select the proof set where challenge_request_task_id = taskID
 	var proofSet struct {
-		ID       int64  `db:"id"`
-		Listener string `db:"proofset_listener"`
+		ID int64 `db:"id"`
 	}
 
 	err = n.db.QueryRow(ctx, `
-        SELECT id, proofset_listener
+        SELECT id
         FROM pdp_proof_sets
         WHERE challenge_request_task_id = $1
     `, taskID).Scan(&proofSet)
@@ -111,8 +109,19 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, xerrors.Errorf("failed to query pdp_proof_sets: %w", err)
 	}
 
+	// Get the listener address for this proof set from the PDPVerifier contract
+	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, n.ethClient)
+	if err != nil {
+		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
+	}
+
+	listenerAddr, err := pdpVerifier.GetProofSetListener(nil, big.NewInt(proofSet.ID))
+	if err != nil {
+		return false, xerrors.Errorf("failed to get listener address for proof set %d: %w", proofSet.ID, err)
+	}
+
 	// Determine the next challenge window start by consulting the listener
-	provingSchedule, err := contract.NewIPDPProvingSchedule(common.HexToAddress(proofSet.Listener), n.ethClient)
+	provingSchedule, err := contract.NewIPDPProvingSchedule(listenerAddr, n.ethClient)
 	if err != nil {
 		return false, xerrors.Errorf("failed to create proving schedule binding, check that listener has proving schedule methods: %w", err)
 	}
