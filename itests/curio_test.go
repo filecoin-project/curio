@@ -158,6 +158,9 @@ func TestCurioHappyPath(t *testing.T) {
 
 	require.Contains(t, baseCfg.Addresses[0].MinerAddresses, maddr.String())
 
+	baseCfg.Batching.PreCommit.Timeout = config.Duration(5 * time.Second)
+	baseCfg.Batching.Commit.Timeout = config.Duration(5 * time.Second)
+
 	temp := os.TempDir()
 	dir, err := os.MkdirTemp(temp, "curio")
 	require.NoError(t, err)

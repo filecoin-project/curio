@@ -3,6 +3,9 @@ package config
 import (
 	"time"
 
+	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/big"
+
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
@@ -70,6 +73,18 @@ func DefaultCurioConfig() *CurioConfig {
 				AlertManagerURL: "http://localhost:9093/api/v2/alerts",
 			},
 		},
+		Batching: CurioBatchingConfig{
+			PreCommit: PreCommitBatchingConfig{
+				BaseFeeThreshold: types.MustParseFIL("0.005"),
+				Timeout:          Duration(4 * time.Hour),
+				Slack:            Duration(6 * time.Hour),
+			},
+			Commit: CommitBatchingConfig{
+				BaseFeeThreshold: types.MustParseFIL("0.005"),
+				Timeout:          Duration(1 * time.Hour),
+				Slack:            Duration(1 * time.Hour),
+			},
+		},
 	}
 }
 
@@ -85,6 +100,7 @@ type CurioConfig struct {
 	Seal      CurioSealConfig
 	Apis      ApisConfig
 	Alerting  CurioAlertingConfig
+	Batching  CurioBatchingConfig
 }
 
 func DefaultDefaultMaxFee() types.FIL {
@@ -94,6 +110,10 @@ func DefaultDefaultMaxFee() types.FIL {
 type BatchFeeConfig struct {
 	Base      types.FIL
 	PerSector types.FIL
+}
+
+func (b *BatchFeeConfig) FeeForSectors(nSectors int) abi.TokenAmount {
+	return big.Add(big.Int(b.Base), big.Mul(big.NewInt(int64(nSectors)), big.Int(b.PerSector)))
 }
 
 type CurioSubsystemsConfig struct {
@@ -499,4 +519,34 @@ type ApisConfig struct {
 
 	// Chain API auth secret for the Curio nodes to use.
 	StorageRPCSecret string
+}
+
+type CurioBatchingConfig struct {
+	// Precommit Batching configuration
+	PreCommit PreCommitBatchingConfig
+
+	// Commit batching configuration
+	Commit CommitBatchingConfig
+}
+
+type PreCommitBatchingConfig struct {
+	// Base fee value below which we should try to send Precommit messages immediately
+	BaseFeeThreshold types.FIL
+
+	// Maximum amount of time any given sector in the batch can wait for the batch to accumulate
+	Timeout Duration
+
+	// Time buffer for forceful batch submission before sectors/deal in batch would start expiring
+	Slack Duration
+}
+
+type CommitBatchingConfig struct {
+	// Base fee value below which we should try to send Commit messages immediately
+	BaseFeeThreshold types.FIL
+
+	// Maximum amount of time any given sector in the batch can wait for the batch to accumulate
+	Timeout Duration
+
+	// Time buffer for forceful batch submission before sectors/deals in batch would start expiring
+	Slack Duration
 }
