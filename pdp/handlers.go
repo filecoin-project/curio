@@ -207,7 +207,7 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 	}
 
 	// Step 6: Insert into message_waits_eth and pdp_proofset_creates
-	err = p.insertMessageWaitsAndProofsetCreate(ctx, txHash.Hex(), serviceLabel, recordKeeperAddr.Hex())
+	err = p.insertMessageWaitsAndProofsetCreate(ctx, txHash.Hex(), serviceLabel)
 	if err != nil {
 		log.Errorf("Failed to insert into message_waits_eth and pdp_proofset_creates: %+v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
