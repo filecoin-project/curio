@@ -230,6 +230,18 @@ func UrlsFromString(in string) URLs {
 	return strings.Split(in, URLSeparator)
 }
 
+var localPathPublisher atomic.Pointer[func() any]
+
+func init() {
+	expvar.Publish("localpath", expvar.Func(func() any {
+		pf := localPathPublisher.Load()
+		if pf == nil {
+			return nil
+		}
+		return (*pf)()
+	}))
+}
+
 func NewLocal(ctx context.Context, ls LocalStorage, index SectorIndex, urls []string) (*Local, error) {
 	l := &Local{
 		localStorage: newCachedLocalStorage(ls),
@@ -239,12 +251,13 @@ func NewLocal(ctx context.Context, ls LocalStorage, index SectorIndex, urls []st
 		paths: map[storiface.ID]*path{},
 	}
 
-	expvar.Publish("localpath", expvar.Func(func() any {
+	pf := func() any {
 		l.localLk.Lock()
 		defer l.localLk.Unlock()
 
 		return l.paths
-	}))
+	}
+	localPathPublisher.Store(&pf)
 
 	return l, l.open(ctx)
 }
