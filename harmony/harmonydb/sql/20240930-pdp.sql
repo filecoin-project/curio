@@ -114,7 +114,7 @@ CREATE TABLE pdp_proofset_creates (
     proofset_created BOOLEAN NOT NULL DEFAULT FALSE, -- set to true when the proofset is created
 
     service TEXT NOT NULL REFERENCES pdp_services(service_label) ON DELETE CASCADE, -- service that requested the proofset
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- proofset roots
