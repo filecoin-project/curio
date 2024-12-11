@@ -19,6 +19,19 @@
   },
   {
     "type": "function",
+    "name": "EXTRA_DATA_MAX_SIZE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "LEAF_SIZE",
     "inputs": [],
     "outputs": [
@@ -52,6 +65,19 @@
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "RANDOMNESS_PRECOMPILE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -101,6 +127,11 @@
             "internalType": "uint256"
           }
         ]
+      },
+      {
+        "name": "extraData",
+        "type": "bytes",
+        "internalType": "bytes"
       }
     ],
     "outputs": [
@@ -133,6 +164,11 @@
         "name": "listenerAddr",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "extraData",
+        "type": "bytes",
+        "internalType": "bytes"
       }
     ],
     "outputs": [
@@ -152,6 +188,11 @@
         "name": "setId",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "extraData",
+        "type": "bytes",
+        "internalType": "bytes"
       }
     ],
     "outputs": [],
@@ -297,6 +338,25 @@
   },
   {
     "type": "function",
+    "name": "getProofSetListener",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getProofSetOwner",
     "inputs": [
       {
@@ -315,6 +375,25 @@
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getRandomness",
+    "inputs": [
+      {
+        "name": "epoch",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -414,6 +493,16 @@
         "name": "setId",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "challengeEpoch",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "extraData",
+        "type": "bytes",
+        "internalType": "bytes"
       }
     ],
     "outputs": [],
@@ -580,6 +669,11 @@
         "name": "rootIds",
         "type": "uint256[]",
         "internalType": "uint256[]"
+      },
+      {
+        "name": "extraData",
+        "type": "bytes",
+        "internalType": "bytes"
       }
     ],
     "outputs": [],
@@ -767,7 +861,7 @@
   },
   {
     "type": "error",
-    "name": "FailedInnerCall",
+    "name": "FailedCall",
     "inputs": []
   },
   {

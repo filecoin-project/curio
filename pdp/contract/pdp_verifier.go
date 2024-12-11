@@ -54,7 +54,7 @@ type PDPVerifierRootIdAndOffset struct {
 
 // PDPVerifierMetaData contains all meta data concerning the PDPVerifier contract.
 var PDPVerifierMetaData = &bind.MetaData{
-	ABI: "[{\"type\":\"constructor\",\"inputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"BURN_ACTOR\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"LEAF_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_ENQUEUED_REMOVALS\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_ROOT_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"UPGRADE_INTERFACE_VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"addRoots\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootData\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.RootData[]\",\"components\":[{\"name\":\"root\",\"type\":\"tuple\",\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]},{\"name\":\"rawSize\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"claimProofSetOwnership\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"createProofSet\",\"inputs\":[{\"name\":\"listenerAddr\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"deleteProofSet\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"findRootIds\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"leafIndexs\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.RootIdAndOffset[]\",\"components\":[{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengeFinality\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengeRange\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextChallengeEpoch\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextProofSetId\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextRootId\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetOwner\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRootCid\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple\",\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRootLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getScheduledRemovals\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"initialize\",\"inputs\":[{\"name\":\"_challengeFinality\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"nextProvingPeriod\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"owner\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"proofSetLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"proposeProofSetOwner\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"provePossession\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"proofs\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.Proof[]\",\"components\":[{\"name\":\"leaf\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"proof\",\"type\":\"bytes32[]\",\"internalType\":\"bytes32[]\"}]}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"proxiableUUID\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"renounceOwnership\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"rootChallengable\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"rootLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"scheduleRemovals\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"transferOwnership\",\"inputs\":[{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"upgradeToAndCall\",\"inputs\":[{\"name\":\"newImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"event\",\"name\":\"Debug\",\"inputs\":[{\"name\":\"message\",\"type\":\"string\",\"indexed\":false,\"internalType\":\"string\"},{\"name\":\"value\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Initialized\",\"inputs\":[{\"name\":\"version\",\"type\":\"uint64\",\"indexed\":false,\"internalType\":\"uint64\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OwnershipTransferred\",\"inputs\":[{\"name\":\"previousOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofSetCreated\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofSetDeleted\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"deletedLeafCount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"RootsAdded\",\"inputs\":[{\"name\":\"firstAdded\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"RootsRemoved\",\"inputs\":[{\"name\":\"rootIds\",\"type\":\"uint256[]\",\"indexed\":true,\"internalType\":\"uint256[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Upgraded\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"error\",\"name\":\"AddressEmptyCode\",\"inputs\":[{\"name\":\"target\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967InvalidImplementation\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967NonPayable\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"FailedInnerCall\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"IndexedError\",\"inputs\":[{\"name\":\"idx\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"msg\",\"type\":\"string\",\"internalType\":\"string\"}]},{\"type\":\"error\",\"name\":\"InvalidInitialization\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"NotInitializing\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"OwnableInvalidOwner\",\"inputs\":[{\"name\":\"owner\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OwnableUnauthorizedAccount\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"UUPSUnauthorizedCallContext\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"UUPSUnsupportedProxiableUUID\",\"inputs\":[{\"name\":\"slot\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}]}]",
+	ABI: "[{\"type\":\"constructor\",\"inputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"BURN_ACTOR\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"EXTRA_DATA_MAX_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"LEAF_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_ENQUEUED_REMOVALS\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_ROOT_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"RANDOMNESS_PRECOMPILE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"UPGRADE_INTERFACE_VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"addRoots\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootData\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.RootData[]\",\"components\":[{\"name\":\"root\",\"type\":\"tuple\",\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]},{\"name\":\"rawSize\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"claimProofSetOwnership\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"createProofSet\",\"inputs\":[{\"name\":\"listenerAddr\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"deleteProofSet\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"findRootIds\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"leafIndexs\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.RootIdAndOffset[]\",\"components\":[{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengeFinality\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengeRange\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextChallengeEpoch\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextProofSetId\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextRootId\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetListener\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetOwner\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRandomness\",\"inputs\":[{\"name\":\"epoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRootCid\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple\",\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRootLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getScheduledRemovals\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"initialize\",\"inputs\":[{\"name\":\"_challengeFinality\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"nextProvingPeriod\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengeEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"owner\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"proofSetLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"proposeProofSetOwner\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"provePossession\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"proofs\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.Proof[]\",\"components\":[{\"name\":\"leaf\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"proof\",\"type\":\"bytes32[]\",\"internalType\":\"bytes32[]\"}]}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"proxiableUUID\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"renounceOwnership\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"rootChallengable\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"rootLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"scheduleRemovals\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"transferOwnership\",\"inputs\":[{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"upgradeToAndCall\",\"inputs\":[{\"name\":\"newImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"event\",\"name\":\"Debug\",\"inputs\":[{\"name\":\"message\",\"type\":\"string\",\"indexed\":false,\"internalType\":\"string\"},{\"name\":\"value\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Initialized\",\"inputs\":[{\"name\":\"version\",\"type\":\"uint64\",\"indexed\":false,\"internalType\":\"uint64\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OwnershipTransferred\",\"inputs\":[{\"name\":\"previousOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofSetCreated\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofSetDeleted\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"deletedLeafCount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"RootsAdded\",\"inputs\":[{\"name\":\"firstAdded\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"RootsRemoved\",\"inputs\":[{\"name\":\"rootIds\",\"type\":\"uint256[]\",\"indexed\":true,\"internalType\":\"uint256[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Upgraded\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"error\",\"name\":\"AddressEmptyCode\",\"inputs\":[{\"name\":\"target\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967InvalidImplementation\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967NonPayable\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"FailedCall\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"IndexedError\",\"inputs\":[{\"name\":\"idx\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"msg\",\"type\":\"string\",\"internalType\":\"string\"}]},{\"type\":\"error\",\"name\":\"InvalidInitialization\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"NotInitializing\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"OwnableInvalidOwner\",\"inputs\":[{\"name\":\"owner\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OwnableUnauthorizedAccount\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"UUPSUnauthorizedCallContext\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"UUPSUnsupportedProxiableUUID\",\"inputs\":[{\"name\":\"slot\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}]}]",
 }
 
 // PDPVerifierABI is the input ABI used to generate the binding from.
@@ -234,6 +234,37 @@ func (_PDPVerifier *PDPVerifierCallerSession) BURNACTOR() (common.Address, error
 	return _PDPVerifier.Contract.BURNACTOR(&_PDPVerifier.CallOpts)
 }
 
+// EXTRADATAMAXSIZE is a free data retrieval call binding the contract method 0x029b4646.
+//
+// Solidity: function EXTRA_DATA_MAX_SIZE() view returns(uint256)
+func (_PDPVerifier *PDPVerifierCaller) EXTRADATAMAXSIZE(opts *bind.CallOpts) (*big.Int, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "EXTRA_DATA_MAX_SIZE")
+
+	if err != nil {
+		return *new(*big.Int), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
+
+	return out0, err
+
+}
+
+// EXTRADATAMAXSIZE is a free data retrieval call binding the contract method 0x029b4646.
+//
+// Solidity: function EXTRA_DATA_MAX_SIZE() view returns(uint256)
+func (_PDPVerifier *PDPVerifierSession) EXTRADATAMAXSIZE() (*big.Int, error) {
+	return _PDPVerifier.Contract.EXTRADATAMAXSIZE(&_PDPVerifier.CallOpts)
+}
+
+// EXTRADATAMAXSIZE is a free data retrieval call binding the contract method 0x029b4646.
+//
+// Solidity: function EXTRA_DATA_MAX_SIZE() view returns(uint256)
+func (_PDPVerifier *PDPVerifierCallerSession) EXTRADATAMAXSIZE() (*big.Int, error) {
+	return _PDPVerifier.Contract.EXTRADATAMAXSIZE(&_PDPVerifier.CallOpts)
+}
+
 // LEAFSIZE is a free data retrieval call binding the contract method 0xc0e15949.
 //
 // Solidity: function LEAF_SIZE() view returns(uint256)
@@ -325,6 +356,37 @@ func (_PDPVerifier *PDPVerifierSession) MAXROOTSIZE() (*big.Int, error) {
 // Solidity: function MAX_ROOT_SIZE() view returns(uint256)
 func (_PDPVerifier *PDPVerifierCallerSession) MAXROOTSIZE() (*big.Int, error) {
 	return _PDPVerifier.Contract.MAXROOTSIZE(&_PDPVerifier.CallOpts)
+}
+
+// RANDOMNESSPRECOMPILE is a free data retrieval call binding the contract method 0x15b17570.
+//
+// Solidity: function RANDOMNESS_PRECOMPILE() view returns(address)
+func (_PDPVerifier *PDPVerifierCaller) RANDOMNESSPRECOMPILE(opts *bind.CallOpts) (common.Address, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "RANDOMNESS_PRECOMPILE")
+
+	if err != nil {
+		return *new(common.Address), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
+
+	return out0, err
+
+}
+
+// RANDOMNESSPRECOMPILE is a free data retrieval call binding the contract method 0x15b17570.
+//
+// Solidity: function RANDOMNESS_PRECOMPILE() view returns(address)
+func (_PDPVerifier *PDPVerifierSession) RANDOMNESSPRECOMPILE() (common.Address, error) {
+	return _PDPVerifier.Contract.RANDOMNESSPRECOMPILE(&_PDPVerifier.CallOpts)
+}
+
+// RANDOMNESSPRECOMPILE is a free data retrieval call binding the contract method 0x15b17570.
+//
+// Solidity: function RANDOMNESS_PRECOMPILE() view returns(address)
+func (_PDPVerifier *PDPVerifierCallerSession) RANDOMNESSPRECOMPILE() (common.Address, error) {
+	return _PDPVerifier.Contract.RANDOMNESSPRECOMPILE(&_PDPVerifier.CallOpts)
 }
 
 // UPGRADEINTERFACEVERSION is a free data retrieval call binding the contract method 0xad3cb1cc.
@@ -575,6 +637,37 @@ func (_PDPVerifier *PDPVerifierCallerSession) GetProofSetLeafCount(setId *big.In
 	return _PDPVerifier.Contract.GetProofSetLeafCount(&_PDPVerifier.CallOpts, setId)
 }
 
+// GetProofSetListener is a free data retrieval call binding the contract method 0x31601226.
+//
+// Solidity: function getProofSetListener(uint256 setId) view returns(address)
+func (_PDPVerifier *PDPVerifierCaller) GetProofSetListener(opts *bind.CallOpts, setId *big.Int) (common.Address, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "getProofSetListener", setId)
+
+	if err != nil {
+		return *new(common.Address), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
+
+	return out0, err
+
+}
+
+// GetProofSetListener is a free data retrieval call binding the contract method 0x31601226.
+//
+// Solidity: function getProofSetListener(uint256 setId) view returns(address)
+func (_PDPVerifier *PDPVerifierSession) GetProofSetListener(setId *big.Int) (common.Address, error) {
+	return _PDPVerifier.Contract.GetProofSetListener(&_PDPVerifier.CallOpts, setId)
+}
+
+// GetProofSetListener is a free data retrieval call binding the contract method 0x31601226.
+//
+// Solidity: function getProofSetListener(uint256 setId) view returns(address)
+func (_PDPVerifier *PDPVerifierCallerSession) GetProofSetListener(setId *big.Int) (common.Address, error) {
+	return _PDPVerifier.Contract.GetProofSetListener(&_PDPVerifier.CallOpts, setId)
+}
+
 // GetProofSetOwner is a free data retrieval call binding the contract method 0x4726075b.
 //
 // Solidity: function getProofSetOwner(uint256 setId) view returns(address, address)
@@ -605,6 +698,37 @@ func (_PDPVerifier *PDPVerifierSession) GetProofSetOwner(setId *big.Int) (common
 // Solidity: function getProofSetOwner(uint256 setId) view returns(address, address)
 func (_PDPVerifier *PDPVerifierCallerSession) GetProofSetOwner(setId *big.Int) (common.Address, common.Address, error) {
 	return _PDPVerifier.Contract.GetProofSetOwner(&_PDPVerifier.CallOpts, setId)
+}
+
+// GetRandomness is a free data retrieval call binding the contract method 0x453f4f62.
+//
+// Solidity: function getRandomness(uint256 epoch) view returns(uint256)
+func (_PDPVerifier *PDPVerifierCaller) GetRandomness(opts *bind.CallOpts, epoch *big.Int) (*big.Int, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "getRandomness", epoch)
+
+	if err != nil {
+		return *new(*big.Int), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
+
+	return out0, err
+
+}
+
+// GetRandomness is a free data retrieval call binding the contract method 0x453f4f62.
+//
+// Solidity: function getRandomness(uint256 epoch) view returns(uint256)
+func (_PDPVerifier *PDPVerifierSession) GetRandomness(epoch *big.Int) (*big.Int, error) {
+	return _PDPVerifier.Contract.GetRandomness(&_PDPVerifier.CallOpts, epoch)
+}
+
+// GetRandomness is a free data retrieval call binding the contract method 0x453f4f62.
+//
+// Solidity: function getRandomness(uint256 epoch) view returns(uint256)
+func (_PDPVerifier *PDPVerifierCallerSession) GetRandomness(epoch *big.Int) (*big.Int, error) {
+	return _PDPVerifier.Contract.GetRandomness(&_PDPVerifier.CallOpts, epoch)
 }
 
 // GetRootCid is a free data retrieval call binding the contract method 0x3b7ae913.
@@ -855,25 +979,25 @@ func (_PDPVerifier *PDPVerifierCallerSession) RootLive(setId *big.Int, rootId *b
 	return _PDPVerifier.Contract.RootLive(&_PDPVerifier.CallOpts, setId, rootId)
 }
 
-// AddRoots is a paid mutator transaction binding the contract method 0x32a87252.
+// AddRoots is a paid mutator transaction binding the contract method 0x11c0ee4a.
 //
-// Solidity: function addRoots(uint256 setId, ((bytes),uint256)[] rootData) returns(uint256)
-func (_PDPVerifier *PDPVerifierTransactor) AddRoots(opts *bind.TransactOpts, setId *big.Int, rootData []PDPVerifierRootData) (*types.Transaction, error) {
-	return _PDPVerifier.contract.Transact(opts, "addRoots", setId, rootData)
+// Solidity: function addRoots(uint256 setId, ((bytes),uint256)[] rootData, bytes extraData) returns(uint256)
+func (_PDPVerifier *PDPVerifierTransactor) AddRoots(opts *bind.TransactOpts, setId *big.Int, rootData []PDPVerifierRootData, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.contract.Transact(opts, "addRoots", setId, rootData, extraData)
 }
 
-// AddRoots is a paid mutator transaction binding the contract method 0x32a87252.
+// AddRoots is a paid mutator transaction binding the contract method 0x11c0ee4a.
 //
-// Solidity: function addRoots(uint256 setId, ((bytes),uint256)[] rootData) returns(uint256)
-func (_PDPVerifier *PDPVerifierSession) AddRoots(setId *big.Int, rootData []PDPVerifierRootData) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.AddRoots(&_PDPVerifier.TransactOpts, setId, rootData)
+// Solidity: function addRoots(uint256 setId, ((bytes),uint256)[] rootData, bytes extraData) returns(uint256)
+func (_PDPVerifier *PDPVerifierSession) AddRoots(setId *big.Int, rootData []PDPVerifierRootData, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.AddRoots(&_PDPVerifier.TransactOpts, setId, rootData, extraData)
 }
 
-// AddRoots is a paid mutator transaction binding the contract method 0x32a87252.
+// AddRoots is a paid mutator transaction binding the contract method 0x11c0ee4a.
 //
-// Solidity: function addRoots(uint256 setId, ((bytes),uint256)[] rootData) returns(uint256)
-func (_PDPVerifier *PDPVerifierTransactorSession) AddRoots(setId *big.Int, rootData []PDPVerifierRootData) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.AddRoots(&_PDPVerifier.TransactOpts, setId, rootData)
+// Solidity: function addRoots(uint256 setId, ((bytes),uint256)[] rootData, bytes extraData) returns(uint256)
+func (_PDPVerifier *PDPVerifierTransactorSession) AddRoots(setId *big.Int, rootData []PDPVerifierRootData, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.AddRoots(&_PDPVerifier.TransactOpts, setId, rootData, extraData)
 }
 
 // ClaimProofSetOwnership is a paid mutator transaction binding the contract method 0xee3dac65.
@@ -897,46 +1021,46 @@ func (_PDPVerifier *PDPVerifierTransactorSession) ClaimProofSetOwnership(setId *
 	return _PDPVerifier.Contract.ClaimProofSetOwnership(&_PDPVerifier.TransactOpts, setId)
 }
 
-// CreateProofSet is a paid mutator transaction binding the contract method 0x96984338.
+// CreateProofSet is a paid mutator transaction binding the contract method 0x0a4d7932.
 //
-// Solidity: function createProofSet(address listenerAddr) payable returns(uint256)
-func (_PDPVerifier *PDPVerifierTransactor) CreateProofSet(opts *bind.TransactOpts, listenerAddr common.Address) (*types.Transaction, error) {
-	return _PDPVerifier.contract.Transact(opts, "createProofSet", listenerAddr)
+// Solidity: function createProofSet(address listenerAddr, bytes extraData) payable returns(uint256)
+func (_PDPVerifier *PDPVerifierTransactor) CreateProofSet(opts *bind.TransactOpts, listenerAddr common.Address, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.contract.Transact(opts, "createProofSet", listenerAddr, extraData)
 }
 
-// CreateProofSet is a paid mutator transaction binding the contract method 0x96984338.
+// CreateProofSet is a paid mutator transaction binding the contract method 0x0a4d7932.
 //
-// Solidity: function createProofSet(address listenerAddr) payable returns(uint256)
-func (_PDPVerifier *PDPVerifierSession) CreateProofSet(listenerAddr common.Address) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.CreateProofSet(&_PDPVerifier.TransactOpts, listenerAddr)
+// Solidity: function createProofSet(address listenerAddr, bytes extraData) payable returns(uint256)
+func (_PDPVerifier *PDPVerifierSession) CreateProofSet(listenerAddr common.Address, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.CreateProofSet(&_PDPVerifier.TransactOpts, listenerAddr, extraData)
 }
 
-// CreateProofSet is a paid mutator transaction binding the contract method 0x96984338.
+// CreateProofSet is a paid mutator transaction binding the contract method 0x0a4d7932.
 //
-// Solidity: function createProofSet(address listenerAddr) payable returns(uint256)
-func (_PDPVerifier *PDPVerifierTransactorSession) CreateProofSet(listenerAddr common.Address) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.CreateProofSet(&_PDPVerifier.TransactOpts, listenerAddr)
+// Solidity: function createProofSet(address listenerAddr, bytes extraData) payable returns(uint256)
+func (_PDPVerifier *PDPVerifierTransactorSession) CreateProofSet(listenerAddr common.Address, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.CreateProofSet(&_PDPVerifier.TransactOpts, listenerAddr, extraData)
 }
 
-// DeleteProofSet is a paid mutator transaction binding the contract method 0xd6dadec8.
+// DeleteProofSet is a paid mutator transaction binding the contract method 0x847d1d06.
 //
-// Solidity: function deleteProofSet(uint256 setId) returns()
-func (_PDPVerifier *PDPVerifierTransactor) DeleteProofSet(opts *bind.TransactOpts, setId *big.Int) (*types.Transaction, error) {
-	return _PDPVerifier.contract.Transact(opts, "deleteProofSet", setId)
+// Solidity: function deleteProofSet(uint256 setId, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierTransactor) DeleteProofSet(opts *bind.TransactOpts, setId *big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.contract.Transact(opts, "deleteProofSet", setId, extraData)
 }
 
-// DeleteProofSet is a paid mutator transaction binding the contract method 0xd6dadec8.
+// DeleteProofSet is a paid mutator transaction binding the contract method 0x847d1d06.
 //
-// Solidity: function deleteProofSet(uint256 setId) returns()
-func (_PDPVerifier *PDPVerifierSession) DeleteProofSet(setId *big.Int) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.DeleteProofSet(&_PDPVerifier.TransactOpts, setId)
+// Solidity: function deleteProofSet(uint256 setId, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierSession) DeleteProofSet(setId *big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.DeleteProofSet(&_PDPVerifier.TransactOpts, setId, extraData)
 }
 
-// DeleteProofSet is a paid mutator transaction binding the contract method 0xd6dadec8.
+// DeleteProofSet is a paid mutator transaction binding the contract method 0x847d1d06.
 //
-// Solidity: function deleteProofSet(uint256 setId) returns()
-func (_PDPVerifier *PDPVerifierTransactorSession) DeleteProofSet(setId *big.Int) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.DeleteProofSet(&_PDPVerifier.TransactOpts, setId)
+// Solidity: function deleteProofSet(uint256 setId, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierTransactorSession) DeleteProofSet(setId *big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.DeleteProofSet(&_PDPVerifier.TransactOpts, setId, extraData)
 }
 
 // Initialize is a paid mutator transaction binding the contract method 0xfe4b84df.
@@ -960,25 +1084,25 @@ func (_PDPVerifier *PDPVerifierTransactorSession) Initialize(_challengeFinality 
 	return _PDPVerifier.Contract.Initialize(&_PDPVerifier.TransactOpts, _challengeFinality)
 }
 
-// NextProvingPeriod is a paid mutator transaction binding the contract method 0x153dea9a.
+// NextProvingPeriod is a paid mutator transaction binding the contract method 0x45c0b92d.
 //
-// Solidity: function nextProvingPeriod(uint256 setId) returns()
-func (_PDPVerifier *PDPVerifierTransactor) NextProvingPeriod(opts *bind.TransactOpts, setId *big.Int) (*types.Transaction, error) {
-	return _PDPVerifier.contract.Transact(opts, "nextProvingPeriod", setId)
+// Solidity: function nextProvingPeriod(uint256 setId, uint256 challengeEpoch, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierTransactor) NextProvingPeriod(opts *bind.TransactOpts, setId *big.Int, challengeEpoch *big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.contract.Transact(opts, "nextProvingPeriod", setId, challengeEpoch, extraData)
 }
 
-// NextProvingPeriod is a paid mutator transaction binding the contract method 0x153dea9a.
+// NextProvingPeriod is a paid mutator transaction binding the contract method 0x45c0b92d.
 //
-// Solidity: function nextProvingPeriod(uint256 setId) returns()
-func (_PDPVerifier *PDPVerifierSession) NextProvingPeriod(setId *big.Int) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.NextProvingPeriod(&_PDPVerifier.TransactOpts, setId)
+// Solidity: function nextProvingPeriod(uint256 setId, uint256 challengeEpoch, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierSession) NextProvingPeriod(setId *big.Int, challengeEpoch *big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.NextProvingPeriod(&_PDPVerifier.TransactOpts, setId, challengeEpoch, extraData)
 }
 
-// NextProvingPeriod is a paid mutator transaction binding the contract method 0x153dea9a.
+// NextProvingPeriod is a paid mutator transaction binding the contract method 0x45c0b92d.
 //
-// Solidity: function nextProvingPeriod(uint256 setId) returns()
-func (_PDPVerifier *PDPVerifierTransactorSession) NextProvingPeriod(setId *big.Int) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.NextProvingPeriod(&_PDPVerifier.TransactOpts, setId)
+// Solidity: function nextProvingPeriod(uint256 setId, uint256 challengeEpoch, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierTransactorSession) NextProvingPeriod(setId *big.Int, challengeEpoch *big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.NextProvingPeriod(&_PDPVerifier.TransactOpts, setId, challengeEpoch, extraData)
 }
 
 // ProposeProofSetOwner is a paid mutator transaction binding the contract method 0x6cb55c16.
@@ -1044,25 +1168,25 @@ func (_PDPVerifier *PDPVerifierTransactorSession) RenounceOwnership() (*types.Tr
 	return _PDPVerifier.Contract.RenounceOwnership(&_PDPVerifier.TransactOpts)
 }
 
-// ScheduleRemovals is a paid mutator transaction binding the contract method 0xe98cb5fc.
+// ScheduleRemovals is a paid mutator transaction binding the contract method 0x3b68e4e9.
 //
-// Solidity: function scheduleRemovals(uint256 setId, uint256[] rootIds) returns()
-func (_PDPVerifier *PDPVerifierTransactor) ScheduleRemovals(opts *bind.TransactOpts, setId *big.Int, rootIds []*big.Int) (*types.Transaction, error) {
-	return _PDPVerifier.contract.Transact(opts, "scheduleRemovals", setId, rootIds)
+// Solidity: function scheduleRemovals(uint256 setId, uint256[] rootIds, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierTransactor) ScheduleRemovals(opts *bind.TransactOpts, setId *big.Int, rootIds []*big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.contract.Transact(opts, "scheduleRemovals", setId, rootIds, extraData)
 }
 
-// ScheduleRemovals is a paid mutator transaction binding the contract method 0xe98cb5fc.
+// ScheduleRemovals is a paid mutator transaction binding the contract method 0x3b68e4e9.
 //
-// Solidity: function scheduleRemovals(uint256 setId, uint256[] rootIds) returns()
-func (_PDPVerifier *PDPVerifierSession) ScheduleRemovals(setId *big.Int, rootIds []*big.Int) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.ScheduleRemovals(&_PDPVerifier.TransactOpts, setId, rootIds)
+// Solidity: function scheduleRemovals(uint256 setId, uint256[] rootIds, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierSession) ScheduleRemovals(setId *big.Int, rootIds []*big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.ScheduleRemovals(&_PDPVerifier.TransactOpts, setId, rootIds, extraData)
 }
 
-// ScheduleRemovals is a paid mutator transaction binding the contract method 0xe98cb5fc.
+// ScheduleRemovals is a paid mutator transaction binding the contract method 0x3b68e4e9.
 //
-// Solidity: function scheduleRemovals(uint256 setId, uint256[] rootIds) returns()
-func (_PDPVerifier *PDPVerifierTransactorSession) ScheduleRemovals(setId *big.Int, rootIds []*big.Int) (*types.Transaction, error) {
-	return _PDPVerifier.Contract.ScheduleRemovals(&_PDPVerifier.TransactOpts, setId, rootIds)
+// Solidity: function scheduleRemovals(uint256 setId, uint256[] rootIds, bytes extraData) returns()
+func (_PDPVerifier *PDPVerifierTransactorSession) ScheduleRemovals(setId *big.Int, rootIds []*big.Int, extraData []byte) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.ScheduleRemovals(&_PDPVerifier.TransactOpts, setId, rootIds, extraData)
 }
 
 // TransferOwnership is a paid mutator transaction binding the contract method 0xf2fde38b.

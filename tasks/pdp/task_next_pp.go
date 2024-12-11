@@ -20,8 +20,6 @@ import (
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
-const ProvingPeriod = 15 // todo query from contracts
-
 type NextProvingPeriodTask struct {
 	db        *harmonydb.DB
 	ethClient *ethclient.Client
@@ -53,12 +51,13 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 		var toCallNext []struct {
 			ProofSetID int64 `db:"id"`
 		}
+
 		err := db.Select(ctx, &toCallNext, `
                 SELECT id
                 FROM pdp_proof_sets
                 WHERE challenge_request_task_id IS NULL
-                AND (prev_challenge_request_epoch + $1) <= $2
-            `, ProvingPeriod, apply.Height())
+                AND (prove_at_epoch + challenge_window) <= $1
+            `, apply.Height())
 		if err != nil && err != sql.ErrNoRows {
 			return xerrors.Errorf("failed to select proof sets needing nextProvingPeriod: %w", err)
 		}
@@ -93,19 +92,42 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 	ctx := context.Background()
 
 	// Select the proof set where challenge_request_task_id = taskID
-	var proofSetID int64
+	var proofSet struct {
+		ID int64 `db:"id"`
+	}
 
 	err = n.db.QueryRow(ctx, `
         SELECT id
         FROM pdp_proof_sets
         WHERE challenge_request_task_id = $1
-    `, taskID).Scan(&proofSetID)
+    `, taskID).Scan(&proofSet)
 	if err == sql.ErrNoRows {
 		// No matching proof set, task is done (something weird happened, and e.g another task was spawned in place of this one)
 		return true, nil
 	}
 	if err != nil {
 		return false, xerrors.Errorf("failed to query pdp_proof_sets: %w", err)
+	}
+
+	// Get the listener address for this proof set from the PDPVerifier contract
+	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, n.ethClient)
+	if err != nil {
+		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
+	}
+
+	listenerAddr, err := pdpVerifier.GetProofSetListener(nil, big.NewInt(proofSet.ID))
+	if err != nil {
+		return false, xerrors.Errorf("failed to get listener address for proof set %d: %w", proofSet.ID, err)
+	}
+
+	// Determine the next challenge window start by consulting the listener
+	provingSchedule, err := contract.NewIPDPProvingSchedule(listenerAddr, n.ethClient)
+	if err != nil {
+		return false, xerrors.Errorf("failed to create proving schedule binding, check that listener has proving schedule methods: %w", err)
+	}
+	next_prove_at, err := provingSchedule.NextChallengeWindowStart(nil, big.NewInt(proofSet.ID))
+	if err != nil {
+		return false, xerrors.Errorf("failed to get next challenge window start: %w", err)
 	}
 
 	// Instantiate the PDPVerifier contract
@@ -123,7 +145,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, xerrors.Errorf("failed to get PDPVerifier ABI: %w", err)
 	}
 
-	data, err := abiData.Pack("nextProvingPeriod", big.NewInt(proofSetID))
+	data, err := abiData.Pack("nextProvingPeriod", big.NewInt(proofSet.ID), next_prove_at, []byte{})
 	if err != nil {
 		return false, xerrors.Errorf("failed to pack data: %w", err)
 	}
@@ -143,7 +165,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, nil
 	}
 
-	fromAddress, _, err := pdpService.GetProofSetOwner(nil, big.NewInt(proofSetID))
+	fromAddress, _, err := pdpService.GetProofSetOwner(nil, big.NewInt(proofSet.ID))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get default sender address: %w", err)
 	}
@@ -167,9 +189,10 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		affected, err := tx.Exec(`
             UPDATE pdp_proof_sets
             SET challenge_request_msg_hash = $1,
-                prev_challenge_request_epoch = $2
+                prev_challenge_request_epoch = $2,
+				prove_at_epoch = $3
             WHERE id = $3
-        `, txHash.Hex(), ts.Height(), proofSetID)
+        `, txHash.Hex(), ts.Height(), next_prove_at.Uint64())
 		if err != nil {
 			return false, xerrors.Errorf("failed to update pdp_proof_sets: %w", err)
 		}

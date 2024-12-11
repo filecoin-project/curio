@@ -181,7 +181,7 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 	}
 
 	// Pack the method call data
-	data, err := abiData.Pack("createProofSet", recordKeeperAddr)
+	data, err := abiData.Pack("createProofSet", recordKeeperAddr, []byte{})
 	if err != nil {
 		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -249,7 +249,7 @@ func (p *PDPService) insertMessageWaitsAndProofsetCreate(ctx context.Context, tx
 		// Insert into pdp_proofset_creates
 		_, err = tx.Exec(`
             INSERT INTO pdp_proofset_creates (create_message_hash, service)
-            VALUES ($1, $2)
+            VALUES ($1, $2, $3)
         `, txHashHex, serviceLabel)
 		if err != nil {
 			return false, err // Return false to rollback the transaction
@@ -526,12 +526,15 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 	}
 
 	// check if the proofset belongs to the service in pdp_proof_sets
+
 	var proofSetService string
+	var provingPeriod uint64
+	var challengeWindow uint64
 	err = p.db.QueryRow(ctx, `
-			SELECT service
+			SELECT service, proving_period, challenge_window
 			FROM pdp_proof_sets
 			WHERE id = $1
-		`, proofSetIDUint64).Scan(&proofSetService)
+		`, proofSetIDUint64).Scan(&proofSetService, &provingPeriod, &challengeWindow)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			http.Error(w, "Proof set not found", http.StatusNotFound)
@@ -722,6 +725,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Failed to get chain head: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	height := ts.Height()
 
 	// Step 5: Prepare the Ethereum transaction data outside the DB transaction
 	// Obtain the ABI of the PDPVerifier contract
@@ -774,7 +778,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 
 	// Step 6: Prepare the Ethereum transaction
 	// Pack the method call data
-	data, err := abiData.Pack("addRoots", proofSetID, rootDataArray)
+	data, err := abiData.Pack("addRoots", proofSetID, rootDataArray, []byte{})
 	if err != nil {
 		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -806,6 +810,9 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Determine the next challenge window start
+	next_prove_at := uint64(height) + provingPeriod - challengeWindow
+
 	// Step 9: Insert into message_waits_eth and pdp_proofset_roots
 	_, err = p.db.BeginTransaction(ctx, func(txdb *harmonydb.Tx) (bool, error) {
 		// Insert into message_waits_eth
@@ -817,10 +824,15 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 			return false, err // Return false to rollback the transaction
 		}
 
+		// Update proof set for proving upon first add
+		// TODO this will go away once we initialize proof set with a call to next proving period
 		_, err = txdb.Exec(`
-			UPDATE pdp_proof_sets SET prev_challenge_request_epoch = $1, challenge_request_msg_hash = $2
-			WHERE id = $3 AND prev_challenge_request_epoch IS NULL AND challenge_request_msg_hash IS NULL
-			`, ts.Height(), txHash.Hex(), proofSetIDUint64)
+			UPDATE pdp_proof_sets SET prev_challenge_request_epoch = $1, challenge_request_msg_hash = $2, prove_at_epoch = $3
+			WHERE id = $4 AND prev_challenge_request_epoch IS NULL AND challenge_request_msg_hash IS NULL AND prove_at_epoch IS NULL
+			`, height, txHash.Hex(), next_prove_at, proofSetIDUint64)
+		if err != nil {
+			return false, err
+		}
 
 		// Insert into pdp_proofset_roots
 

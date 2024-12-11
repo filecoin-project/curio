@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/xerrors"
@@ -53,7 +55,7 @@ func processPendingProofSetCreates(ctx context.Context, db *harmonydb.DB, ethCli
 
 	// Process each proof set create
 	for _, psc := range proofSetCreates {
-		err := processProofSetCreate(ctx, db, psc)
+		err := processProofSetCreate(ctx, db, psc, ethClient)
 		if err != nil {
 			log.Warnf("Failed to process proof set create for tx %s: %v", psc.CreateMessageHash, err)
 			continue
@@ -63,7 +65,7 @@ func processPendingProofSetCreates(ctx context.Context, db *harmonydb.DB, ethCli
 	return nil
 }
 
-func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCreate) error {
+func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCreate, ethClient *ethclient.Client) error {
 	// Retrieve the tx_receipt from message_waits_eth
 	var txReceiptJSON []byte
 	err := db.QueryRow(ctx, `
@@ -88,8 +90,26 @@ func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCr
 		return xerrors.Errorf("failed to extract proofSetId from receipt for tx %s: %w", psc.CreateMessageHash, err)
 	}
 
+	// Get the listener address for this proof set from the PDPVerifier contract
+	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ethClient)
+	if err != nil {
+		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
+	}
+
+	listenerAddr, err := pdpVerifier.GetProofSetListener(nil, big.NewInt(int64(proofSetId)))
+	if err != nil {
+		return xerrors.Errorf("failed to get listener address for proof set %d: %w", proofSetId, err)
+	}
+
+	// Get the proving period from the listener
+	// Assumption: listener is a PDP Service with proving window informational methods
+	provingPeriod, challengeWindow, err := getProvingPeriodChallengeWindow(ctx, ethClient, listenerAddr, proofSetId)
+	if err != nil {
+		return xerrors.Errorf("failed to get max proving period: %w", err)
+	}
+
 	// Insert a new entry into pdp_proof_sets
-	err = insertProofSet(ctx, db, psc.CreateMessageHash, proofSetId, psc.Service)
+	err = insertProofSet(ctx, db, psc.CreateMessageHash, proofSetId, psc.Service, provingPeriod, challengeWindow)
 	if err != nil {
 		return xerrors.Errorf("failed to insert proof set %d for tx %+v: %w", proofSetId, psc, err)
 	}
@@ -132,12 +152,43 @@ func extractProofSetIdFromReceipt(receipt *types.Receipt) (uint64, error) {
 	return 0, xerrors.Errorf("ProofSetCreated event not found in receipt")
 }
 
-func insertProofSet(ctx context.Context, db *harmonydb.DB, createMsg string, proofSetId uint64, service string) error {
+func insertProofSet(ctx context.Context, db *harmonydb.DB, createMsg string, proofSetId uint64, service string, provingPeriod uint64, challengeWindow uint64) error {
 	// Implement the insertion into pdp_proof_sets table
 	// Adjust the SQL statement based on your table schema
 	_, err := db.Exec(ctx, `
-        INSERT INTO pdp_proof_sets (id, create_message_hash, service)
-        VALUES ($1, $2, $3)
-    `, proofSetId, createMsg, service)
+        INSERT INTO pdp_proof_sets (id, create_message_hash, service, proving_period, prove_at_epoch)
+        VALUES ($1, $2, $3, $4, $5, $6, NULL)
+    `, proofSetId, createMsg, service, provingPeriod, challengeWindow)
 	return err
+}
+
+func getProvingPeriodChallengeWindow(ctx context.Context, ethClient *ethclient.Client, listenerAddr common.Address, proofSetId uint64) (uint64, uint64, error) {
+	// ProvingPeriod
+	schedule, err := contract.NewIPDPProvingSchedule(listenerAddr, ethClient)
+	if err != nil {
+		return 0, 0, xerrors.Errorf("failed to create proving schedule binding, check that listener has proving schedule methods: %w", err)
+	}
+
+	period, err := schedule.GetMaxProvingPeriod(&bind.CallOpts{Context: ctx})
+	if err != nil {
+		return 0, 0, xerrors.Errorf("failed to get proving period: %w", err)
+	}
+
+	// ChallengeWindow
+	challengeWindow, err := schedule.ChallengeWindow(&bind.CallOpts{Context: ctx})
+	if err != nil {
+		return 0, 0, xerrors.Errorf("failed to get challenge window: %w", err)
+	}
+
+	// Validate that we CAN query next challenge window start once data is added
+	// It should be 0 without data added to the proof set
+	nextProveAt, err := schedule.NextChallengeWindowStart(&bind.CallOpts{Context: ctx}, big.NewInt(int64(proofSetId)))
+	if err != nil {
+		return 0, 0, xerrors.Errorf("failed to get next challenge window start: %w", err)
+	}
+	if nextProveAt.Cmp(big.NewInt(0)) != 0 {
+		return 0, 0, xerrors.Errorf("failed to get expected next challenge window start: %w", err)
+	}
+
+	return period, challengeWindow.Uint64(), nil
 }

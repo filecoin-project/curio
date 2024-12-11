@@ -68,6 +68,7 @@ CREATE TABLE pdp_piece_mh_to_commp (
 CREATE INDEX pdp_piecerefs_piece_cid_idx ON pdp_piecerefs(piece_cid);
 
 -- PDP proofsets we maintain
+
 CREATE TABLE pdp_proof_sets (
     id BIGINT PRIMARY KEY, -- on-chain proofset id
 
@@ -75,12 +76,19 @@ CREATE TABLE pdp_proof_sets (
     -- initially NULL on fresh proofsets.
     prev_challenge_request_epoch BIGINT,
 
-    -- task invoking nextProvingPeriod, the task should be spawned any time prev_challenge_request_epoch+provingPeriod is in the past
+    -- task invoking nextProvingPeriod, the task should be spawned any time prove_at_epoch+challenge_window is in the past
     challenge_request_task_id BIGINT REFERENCES harmony_task(id) ON DELETE SET NULL,
 
     -- first proofset add or nextProvingPeriod message hash, when the message lands prove_task_id will be spawned and
     -- this value will be set to NULL
     challenge_request_msg_hash TEXT,
+
+    -- the proving period for this proofset and the challenge window duration
+    proving_period BIGINT NOT NULL,
+    challenge_window BIGINT NOT NULL,
+
+    -- the epoch at which the next challenge window starts and proofs can be submitted
+    prove_at_epoch BIGINT,
 
     create_message_hash TEXT NOT NULL,
     service TEXT NOT NULL REFERENCES pdp_services(service_label) ON DELETE RESTRICT
