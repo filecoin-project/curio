@@ -117,7 +117,9 @@ func TestNewIndexStore(t *testing.T) {
 	err = idxStore.RemoveIndexes(ctx, pcids[0].PieceCid)
 	require.NoError(t, err)
 
-	// Drop the table
-	err = idxStore.session.Query("DROP TABLE PayloadToPiece").Exec()
+	// Drop the tables
+	err = idxStore.session.Query("DROP TABLE PayloadToPieces").Exec()
+	require.NoError(t, err)
+	err = idxStore.session.Query("DROP TABLE PieceBlockOffsetSize").Exec()
 	require.NoError(t, err)
 }
