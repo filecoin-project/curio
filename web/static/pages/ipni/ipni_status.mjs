@@ -44,6 +44,8 @@ class IpniStatus extends LitElement {
         rel="stylesheet"
         crossorigin="anonymous"
       />
+      <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
+      
       <style>
         .provider-row {
           cursor: pointer;
@@ -61,13 +63,12 @@ class IpniStatus extends LitElement {
           margin-right: 5px;
         }
         .accordion-button {
-            background-color: grey;
+            background-color: var(--color-nav-button);
+            color: var(--color-text-primary);
         }
         .accordion-button:not(.collapsed) {
-            background-color: grey;
-        }
-        .accordion-button-text {
-            background-color: white;
+            background-color: var(--color-nav-button);
+            color: var(--color-text-primary);
         }
         .accordion-item {
             background-color: transparent;
@@ -90,7 +91,7 @@ class IpniStatus extends LitElement {
                     <div class="accordion-item">
                       <h2 class="accordion-header" id="heading${index}">
                         <button
-                          class="accordion-button ${this.expandedProviders[provider.miner] ? '' : 'collapsed'}"
+                          class="accordion-button ${!this.expandedProviders[provider.miner] ? '' : 'collapsed'}"
                           type="button"
                           @click="${() => this.toggleProvider(provider.miner)}"
                         >
@@ -101,13 +102,13 @@ class IpniStatus extends LitElement {
                       </h2>
                       <div
                         id="collapse${index}"
-                        class="accordion-collapse collapse ${this.expandedProviders[provider.miner] ? 'show' : ''}"
+                        class="accordion-collapse collapse ${!this.expandedProviders[provider.miner] ? 'show' : ''}"
                         aria-labelledby="heading${index}"
                         data-bs-parent="#ipniStatusAccordion"
                       >
                         <div class="accordion-body">
                           <p><strong>PeerID:</strong> ${provider.peer_id}</p>
-                          <p><strong>Head:</strong> ${provider.head}</p>
+                          <p><strong>Head:</strong> <a href="/pages/ipni/?ad_cid=${provider.head}">${provider.head}</a></p>
                           ${provider.sync_status && provider.sync_status.length > 0 ? provider.sync_status.map((status) => html`
                                   <div class="sync-status">
                                     <p><strong>Service:</strong> ${status.service}</p>

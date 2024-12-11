@@ -42,6 +42,7 @@ import (
 	"github.com/filecoin-project/curio/lib/repo"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
+	"github.com/filecoin-project/curio/market/ipni/chunker"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -184,10 +185,12 @@ type Deps struct {
 	LocalPaths        *paths.BasicLocalStorage
 	ListenAddr        string
 	Name              string
+	MachineID         *int64
 	Alert             *alertmanager.AlertNow
 	IndexStore        *indexstore.IndexStore
 	PieceProvider     *pieceprovider.PieceProvider
 	CachedPieceReader *cachedreader.CachedPieceReader
+	ServeChunker      *chunker.ServeChunker
 }
 
 const (
@@ -354,6 +357,11 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 		deps.Name = cctx.String("name")
 	}
 
+	if deps.MachineID == nil {
+		deps.MachineID = new(int64)
+		*deps.MachineID = -1
+	}
+
 	if deps.IndexStore == nil {
 		deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(cctx.String("db-host"), ","), deps.Cfg)
 		if err != nil {
@@ -367,6 +375,10 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 
 	if deps.CachedPieceReader == nil {
 		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.PieceProvider)
+	}
+
+	if deps.ServeChunker == nil {
+		deps.ServeChunker = chunker.NewServeChunker(deps.DB, deps.PieceProvider, deps.IndexStore, deps.CachedPieceReader)
 	}
 
 	return nil

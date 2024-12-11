@@ -258,14 +258,41 @@ alerts will be triggered for the wallet`,
 	},
 	"CurioIngestConfig": {
 		{
+			Name: "MaxMarketRunningPipelines",
+			Type: "int",
+
+			Comment: `MaxMarketRunningPipelines is the maximum number of market pipelines that can be actively running tasks.
+A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).
+If this limit is exceeded, the system will apply backpressure to delay processing of new deals.
+0 means unlimited.`,
+		},
+		{
+			Name: "MaxQueueDownload",
+			Type: "int",
+
+			Comment: `MaxQueueDownload is the maximum number of pipelines that can be queued at the downloading stage,
+waiting for a machine to pick up their task (owner_id is null).
+If this limit is exceeded, the system will apply backpressure to slow the ingestion of new deals.
+0 means unlimited.`,
+		},
+		{
+			Name: "MaxQueueCommP",
+			Type: "int",
+
+			Comment: `MaxQueueCommP is the maximum number of pipelines that can be queued at the CommP (verify) stage,
+waiting for a machine to pick up their verification task (owner_id is null).
+If this limit is exceeded, the system will apply backpressure, delaying new deal processing.
+0 means unlimited.`,
+		},
+		{
 			Name: "MaxQueueDealSector",
 			Type: "int",
 
 			Comment: `Maximum number of sectors that can be queued waiting for deals to start processing.
 0 = unlimited
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
-The DealSector queue includes deals which are ready to enter the sealing pipeline but are not yet part of it.
-DealSector queue is the first queue in the sealing pipeline, meaning that it should be used as the primary backpressure mechanism.`,
+The DealSector queue includes deals that are ready to enter the sealing pipeline but are not yet part of it.
+DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism.`,
 		},
 		{
 			Name: "MaxQueueSDR",
@@ -305,7 +332,7 @@ Only applies to PoRep pipeline (DoSnap = false)`,
 			Name: "MaxQueueSnapEncode",
 			Type: "int",
 
-			Comment: `MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode to start processing.
+			Comment: `MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode tasks to start.
 0 means unlimited.
 This applies backpressure to the market subsystem by delaying the ingestion of deal data.
 Only applies to the Snap Deals pipeline (DoSnap = true).`,
@@ -316,21 +343,22 @@ Only applies to the Snap Deals pipeline (DoSnap = true).`,
 
 			Comment: `MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
 0 means unlimited.
-This applies backpressure to the market subsystem by delaying the ingestion of deal data.
-Only applies to the Snap Deals pipeline (DoSnap = true).`,
+This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion.`,
 		},
 		{
 			Name: "MaxDealWaitTime",
 			Type: "Duration",
 
-			Comment: `Maximum time an open deal sector should wait for more deal before it starts sealing`,
+			Comment: `Maximum time an open deal sector should wait for more deals before it starts sealing.
+This ensures that sectors don't remain open indefinitely, consuming resources.`,
 		},
 		{
 			Name: "DoSnap",
 			Type: "bool",
 
-			Comment: `DoSnap enables the snap deal process for deals ingested by this instance. Unlike in lotus-miner there is no
-fallback to porep when no sectors are available to snap into. When enabled all deals will be snap deals.`,
+			Comment: `DoSnap, when set to true, enables snap deal processing for deals ingested by this instance.
+Unlike lotus-miner, there is no fallback to PoRep when no snap sectors are available.
+When enabled, all deals will be processed as snap deals.`,
 		},
 	},
 	"CurioProvingConfig": {
@@ -749,16 +777,17 @@ an IP address`,
 			Comment: `ListenAddress is the address that the server listens for HTTP requests.`,
 		},
 		{
+			Name: "DelegateTLS",
+			Type: "bool",
+
+			Comment: `DelegateTLS allows the server to delegate TLS to a reverse proxy. When enabled the listen address will serve
+HTTP and the reverse proxy will handle TLS termination.`,
+		},
+		{
 			Name: "ReadTimeout",
 			Type: "time.Duration",
 
 			Comment: `ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.`,
-		},
-		{
-			Name: "WriteTimeout",
-			Type: "time.Duration",
-
-			Comment: `WriteTimeout is the maximum duration before timing out writes of the response to the client.`,
 		},
 		{
 			Name: "IdleTimeout",
@@ -806,14 +835,6 @@ TODO: should we use this for checking published heads before publishing? Later c
 
 			Comment: `The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
 heads.`,
-		},
-		{
-			Name: "AnnounceAddresses",
-			Type: "[]string",
-
-			Comment: `AnnounceAddresses is a list of addresses indexer clients can use to reach to the HTTP market node.
-Curio allows running more than one node for HTTP server and thus all addressed can be announced
-simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]`,
 		},
 	},
 	"IndexingConfig": {
@@ -880,10 +901,10 @@ sector will need to be sent again`,
 			Comment: `DisabledMiners is a list of miner addresses that should be excluded from online deal making protocols`,
 		},
 		{
-			Name: "MaxConcurrentDealSize",
+			Name: "MaxConcurrentDealSizeGiB",
 			Type: "int64",
 
-			Comment: `MaxConcurrentDealSize is a sum of all size of all deals which are waiting to be added to a sector
+			Comment: `MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector
 When the cumulative size of all deals in process reaches this number, new deals will be rejected.
 (Default: 0 = unlimited)`,
 		},

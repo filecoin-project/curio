@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -193,7 +194,10 @@ func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
 	// Catch any panics if encountered as we are working with user provided data
 	defer func() {
 		if r := recover(); r != nil {
-			log.Errorf("panic occurred: %v", r)
+			trace := make([]byte, 1<<16)
+			n := runtime.Stack(trace, false)
+
+			log.Errorf("panic occurred: %v\n%s", r, trace[:n])
 		}
 	}()
 
@@ -364,7 +368,7 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 	}
 
 	// Get the deal offset if sector has started sealing
-	if deal.AfterFindDeal && deal.Sector != nil {
+	if deal.AfterFindDeal && deal.Sector != nil && deal.Offset == nil {
 		type pieces struct {
 			Cid   string              `db:"piece_cid"`
 			Size  abi.PaddedPieceSize `db:"piece_size"`
@@ -388,7 +392,7 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 		}
 
 		if len(pieceList) == 0 {
-			return xerrors.Errorf("UUID: %s: no pieces found for the sector %d", deal.UUID, deal.Sector)
+			return xerrors.Errorf("UUID: %s: no pieces found for the sector %d", deal.UUID, *deal.Sector)
 		}
 
 		var offset abi.UnpaddedPieceSize
@@ -397,14 +401,12 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 			_, padLength := proofs.GetRequiredPadding(offset.Padded(), p.Size)
 			offset += padLength.Unpadded()
 			if p.Cid == deal.PieceCid && p.Size == deal.PieceSize {
-				n, err := d.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET sector_offset = $1 WHERE uuid = $2 AND sector = $3`, offset.Padded(), deal.UUID, deal.Sector)
+				n, err := d.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET sector_offset = $1 WHERE uuid = $2 AND sector = $3 AND sector_offset IS NULL`, offset.Padded(), deal.UUID, deal.Sector)
 				if err != nil {
 					return xerrors.Errorf("UUID: %s: updating deal pipeline with sector offset: %w", deal.UUID, err)
 				}
 				if n != 1 {
-					if err != nil {
-						return xerrors.Errorf("UUID: %s: expected 1 row for sector offset update in DB but found %d", deal.UUID, n)
-					}
+					return xerrors.Errorf("UUID: %s: expected 1 row for sector offset update in DB but found %d", deal.UUID, n)
 				}
 				return nil
 			}
@@ -688,19 +690,18 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 			return false, xerrors.Errorf("deal %s already added to sector by another process", deal.UUID)
 		}
 
-		sector, err = d.pin.AllocatePieceToSector(ctx, tx, maddr, pi, deal.RawSize, *dealUrl, headers)
+		var sp *abi.RegisteredSealProof
+		sector, sp, err = d.pin.AllocatePieceToSector(ctx, tx, maddr, pi, deal.RawSize, *dealUrl, headers)
 		if err != nil {
 			return false, xerrors.Errorf("UUID: %s: failed to add deal to a sector: %w", deal.UUID, err)
 		}
 
-		n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET sector = $1 WHERE uuid = $2 AND sector = NULL`, *sector, deal.UUID)
+		n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET sector = $1, reg_seal_proof = $2 WHERE uuid = $3 AND sector IS NULL`, *sector, *sp, deal.UUID)
 		if err != nil {
 			return false, xerrors.Errorf("UUID: %s: failed to add sector %d details to DB: %w", deal.UUID, *sector, err)
 		}
 		if n != 1 {
-			if err != nil {
-				return false, xerrors.Errorf("UUID: %s: expected 1 deal update for add sector %d details to DB but found %d", deal.UUID, *sector, n)
-			}
+			return false, xerrors.Errorf("UUID: %s: expected 1 deal update for add sector %d details to DB but found %d", deal.UUID, *sector, n)
 		}
 
 		return true, nil
@@ -720,8 +721,7 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 
 func (d *CurioStorageDealMarket) createIndexingTaskForMigratedDeals(ctx context.Context) {
 	// Call the migration function and get the number of rows moved
-	var rowsMoved int
-	err := d.db.QueryRow(ctx, "SELECT migrate_deal_pipeline_entries()").Scan(&rowsMoved)
+	rowsMoved, err := d.db.Exec(ctx, "SELECT migrate_deal_pipeline_entries()")
 	if err != nil {
 		log.Errorf("Error creating indexing tasks for migrated deals: %s", err)
 		return

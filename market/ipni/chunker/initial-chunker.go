@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/ipfs/go-cid"
 	"github.com/ipld/go-ipld-prime"
@@ -16,7 +17,10 @@ import (
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 )
 
-const longChainThreshold = 500_000
+const longChainThreshold = 500_000_000
+
+// maxCarChunkSize is maximum entry size for car-order ingested entries.
+const maxCarChunkSize = 512 << 20
 
 // InitialChunker is used for initial entry chain creation.
 // It employs a dual strategy, where it tracks the number of entries, and:
@@ -34,10 +38,13 @@ type InitialChunker struct {
 	dbMultihashes []multihash.Multihash
 
 	// car-order ingest, after longChainThreshold
-	carPending    []multihash.Multihash
-	carChunkStart *int64
+	carPending      []multihash.Multihash
+	carPendingBytes uint64
+	carChunkStart   *int64
 
 	prevChunks []carChunkMeta
+
+	start time.Time
 }
 
 type carChunkMeta struct {
@@ -49,10 +56,12 @@ type carChunkMeta struct {
 func NewInitialChunker() *InitialChunker {
 	return &InitialChunker{
 		chunkSize: entriesChunkSize,
+
+		start: time.Now(),
 	}
 }
 
-func (c *InitialChunker) Accept(mh multihash.Multihash, startOff int64) error {
+func (c *InitialChunker) Accept(mh multihash.Multihash, startOff int64, entryLen uint64) error {
 	if c.ingestedSoFar < longChainThreshold {
 		// db-order ingest
 		c.dbMultihashes = append(c.dbMultihashes, mh)
@@ -69,11 +78,12 @@ func (c *InitialChunker) Accept(mh multihash.Multihash, startOff int64) error {
 
 	// append to car-order ingest
 	c.carPending = append(c.carPending, mh)
+	c.carPendingBytes += entryLen
 	if c.carChunkStart == nil {
 		c.carChunkStart = &startOff
 	}
 
-	if len(c.carPending) >= c.chunkSize {
+	if len(c.carPending) >= c.chunkSize || c.carPendingBytes >= maxCarChunkSize {
 		if err := c.processCarPending(); err != nil {
 			return xerrors.Errorf("process car pending: %w", err)
 		}
@@ -106,12 +116,19 @@ func (c *InitialChunker) processCarPending() error {
 	})
 
 	c.carPending = c.carPending[:0]
+	c.carPendingBytes = 0
 	c.carChunkStart = nil
 
 	return nil
 }
 
 func (c *InitialChunker) Finish(ctx context.Context, db *harmonydb.DB, pieceCid cid.Cid) (ipld.Link, error) {
+	defer func() {
+		took := time.Since(c.start)
+		ingestedPerSec := float64(c.ingestedSoFar) / took.Seconds()
+		log.Infow("Finished initial chunking", "ingested", c.ingestedSoFar, "took", took, "ingestedPerSec", ingestedPerSec)
+	}()
+
 	// note: <= because we're not inserting anything here
 	if c.ingestedSoFar <= longChainThreshold {
 		// db-order ingest
@@ -135,9 +152,29 @@ func (c *InitialChunker) finishDB(ctx context.Context, db *harmonydb.DB, pieceCi
 		return bytes.Compare(c.dbMultihashes[i], c.dbMultihashes[j]) < 0
 	})
 
-	totalMhCount := len(c.dbMultihashes)
+	// Drop duplicates
+	var n int
+	var prev multihash.Multihash
+	for i := range c.dbMultihashes {
+		if i > 0 {
+			if string(c.dbMultihashes[i]) == string(prev) {
+				continue
+			}
+		}
+
+		c.dbMultihashes[n] = c.dbMultihashes[i]
+		prev = c.dbMultihashes[i]
+		n++
+	}
+
+	if len(c.dbMultihashes) != n {
+		log.Warnw("duplicates while indexing piece", "piece", pieceCid, "num", len(c.dbMultihashes)-n, "pieceOrigCount", len(c.dbMultihashes))
+		c.dbMultihashes = c.dbMultihashes[:n]
+	}
 
 	// Partition multihashes into chunks
+	totalMhCount := len(c.dbMultihashes)
+
 	var chunks [][]multihash.Multihash
 	for i := 0; i < len(c.dbMultihashes); i += c.chunkSize {
 		end := i + c.chunkSize
@@ -168,6 +205,15 @@ func (c *InitialChunker) finishDB(ctx context.Context, db *harmonydb.DB, pieceCi
 		}
 
 		chunkLinks[i] = link
+	}
+
+	if db == nil {
+		// dry run mode, just log chunk hashes
+		for i, link := range chunkLinks {
+			fmt.Printf("%d. %s\n", i, link)
+		}
+
+		return nil, nil
 	}
 
 	commit, err := db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (bool, error) {
@@ -223,6 +269,16 @@ func (c *InitialChunker) finishCAR(ctx context.Context, db *harmonydb.DB, pieceC
 	}
 
 	totalChunks := len(c.prevChunks)
+
+	if db == nil {
+		// dry run mode, just log chunk hashes
+		for i, link := range c.prevChunks {
+			fmt.Printf("%d. %s\n", i, link.link)
+		}
+
+		return nil, nil
+	}
+
 	commit, err := db.BeginTransaction(context.Background(), func(tx *harmonydb.Tx) (bool, error) {
 		batch := &pgx.Batch{}
 
@@ -252,7 +308,7 @@ func (c *InitialChunker) finishCAR(ctx context.Context, db *harmonydb.DB, pieceC
 		}
 
 		return true, nil
-	})
+	}, harmonydb.OptionRetry())
 	if err != nil {
 		return nil, xerrors.Errorf("transaction: %w", err)
 	}

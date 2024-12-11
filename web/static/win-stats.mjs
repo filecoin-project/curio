@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import '/ux/epoch.mjs';
 
 class WinStats extends LitElement {
     constructor() {
@@ -99,7 +100,7 @@ class WinStats extends LitElement {
                     ${this.data.map(entry => html`
                     <tr>
                         <td>${entry.Miner}</td>
-                        <td>${entry.Epoch}</td>
+                        <td><pretty-epoch .epoch=${entry.Epoch}></pretty-epoch></td>
                         <td>
                             <span 
                                 @click=${() => this.copyToClipboard(entry.Block)} 

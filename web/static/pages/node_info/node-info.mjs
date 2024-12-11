@@ -43,6 +43,7 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                     <td>
                         <a href="http://${this.data.Info.Host}/debug/pprof">[pprof]</a>
                         <a href="http://${this.data.Info.Host}/debug/metrics">[metrics]</a>
+                        <a href="http://${this.data.Info.Host}/debug/vars">[vars]</a>
                     </td>
                 </tr>
             </table>
@@ -108,7 +109,7 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                 </tr>
                 ${(this.data.RunningTasks||[]).map((task) => html`
                     <tr>
-                        <td>${task.ID}</td>
+                        <td><a href="/pages/task/id/?id=${task.ID}">${task.ID}</a></td>
                         <td>${task.Task}</td>
                         <td>${task.Posted}</td>
                         <td>${task.PoRepSector ? html`<a href="/pages/sector/?sp=${task.PoRepSectorMiner}&id=${task.PoRepSector}">${task.PoRepSectorMiner}:${task.PoRepSector}</a>` : ''}</td>
@@ -129,7 +130,7 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                 </tr>
                 ${this.data.FinishedTasks.map((task) => html`
                     <tr>
-                        <td>${task.ID}</td>
+                        <td><a href="/pages/task/id/?id=${task.ID}">${task.ID}</a></td>
                         <td>${task.Task}</td>
                         <td>${task.Posted}</td>
                         <td>${task.Start}</td>

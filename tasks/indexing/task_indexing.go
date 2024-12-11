@@ -1,6 +1,7 @@
 package indexing
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	carv2 "github.com/ipld/go-car/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
@@ -105,8 +107,8 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	// Check if piece is already indexed
 	var indexed bool
 	err = i.db.QueryRow(ctx, `SELECT indexed FROM market_piece_metadata WHERE piece_cid = $1`, task.PieceCid).Scan(&indexed)
-	if err != nil {
-		return false, xerrors.Errorf("checking if piece is already indexed: %w", err)
+	if err != nil && err != pgx.ErrNoRows {
+		return false, xerrors.Errorf("checking if piece %s is already indexed: %w", task.PieceCid, err)
 	}
 
 	// Return early if already indexed or should not be indexed
@@ -115,22 +117,9 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		if err != nil {
 			return false, err
 		}
+		log.Infow("Piece already indexed or should not be indexed", "piece_cid", task.PieceCid, "indexed", indexed, "should_index", task.ShouldIndex, "uuid", task.UUID, "sp_id", task.SpID, "sector", task.Sector)
+
 		return true, nil
-	}
-
-	unsealed, err := i.pieceProvider.IsUnsealed(ctx, storiface.SectorRef{
-		ID: abi.SectorID{
-			Miner:  abi.ActorID(task.SpID),
-			Number: task.Sector,
-		},
-		ProofType: task.Proof,
-	}, storiface.UnpaddedByteIndex(task.Offset), task.Size.Unpadded())
-	if err != nil {
-		return false, xerrors.Errorf("checking if sector is unsealed :%w", err)
-	}
-
-	if !unsealed {
-		return false, xerrors.Errorf("sector %d for miner %d is not unsealed", task.Sector, task.SpID)
 	}
 
 	pieceCid, err := cid.Parse(task.PieceCid)
@@ -144,7 +133,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 			Number: task.Sector,
 		},
 		ProofType: task.Proof,
-	}, storiface.UnpaddedByteIndex(abi.PaddedPieceSize(task.Offset).Unpadded()), task.Size.Unpadded(), pieceCid)
+	}, storiface.PaddedByteIndex(task.Offset).Unpadded(), task.Size.Unpadded(), pieceCid)
 
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
@@ -161,33 +150,45 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 
 	//recs := make([]indexstore.Record, 0, chanSize)
 	opts := []carv2.Option{carv2.ZeroLengthSectionAsEOF(true)}
-	blockReader, err := carv2.NewBlockReader(reader, opts...)
+	blockReader, err := carv2.NewBlockReader(bufio.NewReaderSize(reader, 4<<20), opts...)
 	if err != nil {
 		return false, fmt.Errorf("getting block reader over piece: %w", err)
 	}
 
 	var eg errgroup.Group
+	addFail := make(chan struct{})
+	var interrupted bool
+	var blocks int64
+	start := time.Now()
 
 	eg.Go(func() error {
+		defer close(addFail)
+
 		serr := i.indexStore.AddIndex(ctx, pieceCid, recs)
 		if serr != nil {
-			return xerrors.Errorf("adding index to DB: %w", err)
+			return xerrors.Errorf("adding index to DB: %w", serr)
 		}
 		return nil
 	})
 
 	blockMetadata, err := blockReader.SkipNext()
+loop:
 	for err == nil {
-		recs <- indexstore.Record{
-			Cid: blockMetadata.Cid,
-			OffsetSize: indexstore.OffsetSize{
-				Offset: blockMetadata.SourceOffset,
-				Size:   blockMetadata.Size,
-			},
+		blocks++
+
+		select {
+		case recs <- indexstore.Record{
+			Cid:    blockMetadata.Cid,
+			Offset: blockMetadata.Offset,
+			Size:   blockMetadata.Size,
+		}:
+		case <-addFail:
+			interrupted = true
+			break loop
 		}
 		blockMetadata, err = blockReader.SkipNext()
 	}
-	if !errors.Is(err, io.EOF) {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return false, fmt.Errorf("generating index for piece: %w", err)
 	}
 
@@ -197,7 +198,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	// Wait till AddIndex is finished
 	err = eg.Wait()
 	if err != nil {
-		return false, xerrors.Errorf("adding index to DB: %w", err)
+		return false, xerrors.Errorf("adding index to DB (interrupted %t): %w", interrupted, err)
 	}
 
 	log.Infof("Indexing deal %s took %0.3f seconds", task.UUID, time.Since(startTime).Seconds())
@@ -206,6 +207,9 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	if err != nil {
 		return false, err
 	}
+
+	blocksPerSecond := float64(blocks) / time.Since(start).Seconds()
+	log.Infow("Piece indexed", "piece_cid", task.PieceCid, "uuid", task.UUID, "sp_id", task.SpID, "sector", task.Sector, "blocks", blocks, "blocks_per_second", blocksPerSecond)
 
 	return true, nil
 }
@@ -307,9 +311,9 @@ func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu: 1,
 			Ram: uint64(i.insertBatchSize * i.insertConcurrency * 56 * 2),
 		},
-		Max:         taskhelp.Max(4),
+		Max:         i.max,
 		MaxFailures: 3,
-		IAmBored: passcall.Every(10*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
+		IAmBored: passcall.Every(30*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
 			return i.schedule(context.Background(), taskFunc)
 		}),
 	}
@@ -330,7 +334,7 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
             										WHERE sealed = TRUE
             										AND indexing_task_id IS NULL
             										AND indexed = FALSE
-													ORDER BY indexing_created_at ASC;`)
+													ORDER BY indexing_created_at ASC LIMIT 1;`)
 			if err != nil {
 				return false, xerrors.Errorf("getting pending indexing tasks: %w", err)
 			}

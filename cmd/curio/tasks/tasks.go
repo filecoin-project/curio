@@ -178,6 +178,26 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		return ffi.NewSealCalls(stor, lstor, si), nil
 	})
 
+	hasAnySealingTask := cfg.Subsystems.EnableSealSDR ||
+		cfg.Subsystems.EnableSealSDRTrees ||
+		cfg.Subsystems.EnableSendPrecommitMsg ||
+		cfg.Subsystems.EnablePoRepProof ||
+		cfg.Subsystems.EnableMoveStorage ||
+		cfg.Subsystems.EnableSendCommitMsg ||
+		cfg.Subsystems.EnableBatchSeal ||
+		cfg.Subsystems.EnableUpdateEncode ||
+		cfg.Subsystems.EnableUpdateProve ||
+		cfg.Subsystems.EnableUpdateSubmit ||
+		cfg.Subsystems.EnableCommP
+
+	if hasAnySealingTask {
+		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine)
+		if err != nil {
+			return nil, err
+		}
+		activeTasks = append(activeTasks, sealingTasks...)
+	}
+
 	{
 		// Piece handling
 		if cfg.Subsystems.EnableParkPiece {
@@ -188,25 +208,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
 			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask)
 		}
-	}
-
-	hasAnySealingTask := cfg.Subsystems.EnableSealSDR ||
-		cfg.Subsystems.EnableSealSDRTrees ||
-		cfg.Subsystems.EnableSendPrecommitMsg ||
-		cfg.Subsystems.EnablePoRepProof ||
-		cfg.Subsystems.EnableMoveStorage ||
-		cfg.Subsystems.EnableSendCommitMsg ||
-		cfg.Subsystems.EnableBatchSeal ||
-		cfg.Subsystems.EnableUpdateEncode ||
-		cfg.Subsystems.EnableUpdateProve ||
-		cfg.Subsystems.EnableUpdateSubmit
-
-	if hasAnySealingTask {
-		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine)
-		if err != nil {
-			return nil, err
-		}
-		activeTasks = append(activeTasks, sealingTasks...)
 	}
 
 	miners := make([]address.Address, 0, len(maddrs))
@@ -237,7 +238,10 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			// PSD and Deal find task do not require many resources. They can run on all machines
 			psdTask := storage_market.NewPSDTask(dm, db, sender, as, &cfg.Market.StorageMarketConfig.MK12, full)
 			dealFindTask := storage_market.NewFindDealTask(dm, db, full, &cfg.Market.StorageMarketConfig.MK12)
-			activeTasks = append(activeTasks, psdTask, dealFindTask)
+
+			checkIndexesTask := indexing.NewCheckIndexesTask(db, iStore)
+
+			activeTasks = append(activeTasks, psdTask, dealFindTask, checkIndexesTask)
 
 			// Start libp2p hosts and handle streams
 			err = libp2p.NewDealProvider(ctx, db, cfg, dm.MK12Handler, full, sender, miners, machine)
@@ -250,7 +254,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 
 		indexingTask := indexing.NewIndexingTask(db, sc, iStore, pp, cfg, idxMax)
 		ipniTask := indexing.NewIPNITask(db, sc, iStore, pp, cfg, idxMax)
-		activeTasks = append(activeTasks, indexingTask, ipniTask)
+		activeTasks = append(activeTasks, ipniTask, indexingTask)
 
 		if cfg.HTTP.Enable {
 			err = cuhttp.StartHTTPServer(ctx, dependencies)
@@ -276,6 +280,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		return nil, err
 	}
 	go machineDetails(dependencies, activeTasks, ht.ResourcesAvailable().MachineID, dependencies.Name)
+
+	*dependencies.MachineID = int64(ht.ResourcesAvailable().MachineID)
 
 	if hasAnySealingTask {
 		watcher, err := message.NewMessageWatcher(db, ht, chainSched, full)

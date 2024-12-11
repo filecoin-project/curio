@@ -57,8 +57,8 @@ class PendingDeals extends LitElement {
                 ${this.data.map(entry => html`
                     <tr>
                         <td>${entry.Miner}</td>
-                        <td>${entry.SectorNumber}</td>
-                        <td>${entry.PieceCID}</td>
+                        <td><a href="/pages/sector/?sp=${entry.Miner}&id=${entry.SectorNumber}">${entry.SectorNumber}</a></td>
+                        <td><a href="/pages/piece/?id=${entry.PieceCID}">${entry.PieceCID}</a></td>
                         <td>${entry.PieceSizeStr}</td>
                         <td>${entry.CreatedAtStr}</td>
                         <td>

@@ -53,6 +53,10 @@ func DefaultCurioConfig() *CurioConfig {
 			BatchSealSectorSize: "32GiB",
 		},
 		Ingest: CurioIngestConfig{
+			MaxMarketRunningPipelines: 64,
+			MaxQueueDownload:          8,
+			MaxQueueCommP:             8,
+
 			MaxQueueDealSector: 8, // default to 8 sectors open(or in process of opening) for deals
 			MaxQueueSDR:        8, // default to 8 (will cause backpressure even if deal sectors are 0)
 			MaxQueueTrees:      0, // default don't use this limit
@@ -76,8 +80,8 @@ func DefaultCurioConfig() *CurioConfig {
 			StorageMarketConfig: StorageMarketConfig{
 				PieceLocator: []PieceLocatorConfig{},
 				Indexing: IndexingConfig{
-					InsertConcurrency: 8,
-					InsertBatchSize:   15000,
+					InsertConcurrency: 10,
+					InsertBatchSize:   1000,
 				},
 				MK12: MK12Config{
 					PublishMsgPeriod:          Duration(5 * time.Minute),
@@ -89,7 +93,6 @@ func DefaultCurioConfig() *CurioConfig {
 				IPNI: IPNIConfig{
 					ServiceURL:         []string{"https://cid.contact"},
 					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce"},
-					AnnounceAddresses:  []string{},
 				},
 			},
 		},
@@ -97,7 +100,6 @@ func DefaultCurioConfig() *CurioConfig {
 			DomainName:        "",
 			ListenAddress:     "0.0.0.0:12310",
 			ReadTimeout:       time.Second * 10,
-			WriteTimeout:      time.Second * 10,
 			IdleTimeout:       time.Minute * 2,
 			ReadHeaderTimeout: time.Second * 5,
 			EnableCORS:        true,
@@ -405,11 +407,29 @@ func (dur *Duration) UnmarshalText(text []byte) error {
 }
 
 type CurioIngestConfig struct {
+	// MaxMarketRunningPipelines is the maximum number of market pipelines that can be actively running tasks.
+	// A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).
+	// If this limit is exceeded, the system will apply backpressure to delay processing of new deals.
+	// 0 means unlimited.
+	MaxMarketRunningPipelines int
+
+	// MaxQueueDownload is the maximum number of pipelines that can be queued at the downloading stage,
+	// waiting for a machine to pick up their task (owner_id is null).
+	// If this limit is exceeded, the system will apply backpressure to slow the ingestion of new deals.
+	// 0 means unlimited.
+	MaxQueueDownload int
+
+	// MaxQueueCommP is the maximum number of pipelines that can be queued at the CommP (verify) stage,
+	// waiting for a machine to pick up their verification task (owner_id is null).
+	// If this limit is exceeded, the system will apply backpressure, delaying new deal processing.
+	// 0 means unlimited.
+	MaxQueueCommP int
+
 	// Maximum number of sectors that can be queued waiting for deals to start processing.
 	// 0 = unlimited
 	// Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
-	// The DealSector queue includes deals which are ready to enter the sealing pipeline but are not yet part of it.
-	// DealSector queue is the first queue in the sealing pipeline, meaning that it should be used as the primary backpressure mechanism.
+	// The DealSector queue includes deals that are ready to enter the sealing pipeline but are not yet part of it.
+	// DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism.
 	MaxQueueDealSector int
 
 	// Maximum number of sectors that can be queued waiting for SDR to start processing.
@@ -437,7 +457,7 @@ type CurioIngestConfig struct {
 	// Only applies to PoRep pipeline (DoSnap = false)
 	MaxQueuePoRep int
 
-	// MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode to start processing.
+	// MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode tasks to start.
 	// 0 means unlimited.
 	// This applies backpressure to the market subsystem by delaying the ingestion of deal data.
 	// Only applies to the Snap Deals pipeline (DoSnap = true).
@@ -445,15 +465,16 @@ type CurioIngestConfig struct {
 
 	// MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
 	// 0 means unlimited.
-	// This applies backpressure to the market subsystem by delaying the ingestion of deal data.
-	// Only applies to the Snap Deals pipeline (DoSnap = true).
+	// This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion.
 	MaxQueueSnapProve int
 
-	// Maximum time an open deal sector should wait for more deal before it starts sealing
+	// Maximum time an open deal sector should wait for more deals before it starts sealing.
+	// This ensures that sectors don't remain open indefinitely, consuming resources.
 	MaxDealWaitTime Duration
 
-	// DoSnap enables the snap deal process for deals ingested by this instance. Unlike in lotus-miner there is no
-	// fallback to porep when no sectors are available to snap into. When enabled all deals will be snap deals.
+	// DoSnap, when set to true, enables snap deal processing for deals ingested by this instance.
+	// Unlike lotus-miner, there is no fallback to PoRep when no snap sectors are available.
+	// When enabled, all deals will be processed as snap deals.
 	DoSnap bool
 }
 
@@ -588,10 +609,10 @@ type MK12Config struct {
 	// DisabledMiners is a list of miner addresses that should be excluded from online deal making protocols
 	DisabledMiners []string
 
-	// MaxConcurrentDealSize is a sum of all size of all deals which are waiting to be added to a sector
+	// MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector
 	// When the cumulative size of all deals in process reaches this number, new deals will be rejected.
 	// (Default: 0 = unlimited)
-	MaxConcurrentDealSize int64
+	MaxConcurrentDealSizeGiB int64
 
 	// DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
 	// If True then all deals coming from unknown clients will be rejected.
@@ -623,11 +644,6 @@ type IPNIConfig struct {
 	// The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
 	// heads.
 	DirectAnnounceURLs []string
-
-	// AnnounceAddresses is a list of addresses indexer clients can use to reach to the HTTP market node.
-	// Curio allows running more than one node for HTTP server and thus all addressed can be announced
-	// simultaneously to the client. Example: ["https://mycurio.com", "http://myNewCurio:433/XYZ", "http://1.2.3.4:433"]
-	AnnounceAddresses []string
 }
 
 // HTTPConfig represents the configuration for an HTTP server.
@@ -642,11 +658,12 @@ type HTTPConfig struct {
 	// ListenAddress is the address that the server listens for HTTP requests.
 	ListenAddress string
 
+	// DelegateTLS allows the server to delegate TLS to a reverse proxy. When enabled the listen address will serve
+	// HTTP and the reverse proxy will handle TLS termination.
+	DelegateTLS bool
+
 	// ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
 	ReadTimeout time.Duration
-
-	// WriteTimeout is the maximum duration before timing out writes of the response to the client.
-	WriteTimeout time.Duration
 
 	// IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
 	IdleTimeout time.Duration
