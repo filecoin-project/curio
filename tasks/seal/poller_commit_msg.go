@@ -2,7 +2,6 @@ package seal
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"time"
 
@@ -93,8 +92,6 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context, tasks []pollTa
 		// Append the task to the correct RegisteredSealProof
 		v[tsks[i].RegisteredSealProof] = append(v[tsks[i].RegisteredSealProof], tsks[i])
 	}
-
-	fmt.Println(batchMap)
 
 	// Send batches per MinerID and per Proof type based on the following logic:
 	// 1. Check if Slack for any sector is reaching, if yes then send full batch

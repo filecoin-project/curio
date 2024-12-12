@@ -102,7 +102,7 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 	err = s.db.Select(ctx, &sectorParamsArr, `
 		SELECT sp_id, sector_number, reg_seal_proof, user_sector_duration_epochs, ticket_epoch, tree_r_cid, tree_d_cid
 		FROM sectors_sdr_pipeline
-		WHERE task_id_precommit_msg = $1`, taskID)
+		WHERE task_id_precommit_msg = $1 ORDER BY sector_number ASC`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting sector params: %w", err)
 	}
@@ -349,7 +349,7 @@ func (s *SubmitPrecommitTask) CanAccept(ids []harmonytask.TaskID, engine *harmon
 func (s *SubmitPrecommitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(1024),
-		Name: "PreCommitSubmit",
+		Name: "PreCommitBatch",
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,

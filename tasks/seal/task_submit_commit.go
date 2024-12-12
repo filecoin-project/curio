@@ -47,6 +47,7 @@ type SubmitCommitAPI interface {
 	StateGetAllocationIdForPendingDeal(ctx context.Context, dealId abi.DealID, tsk types.TipSetKey) (verifregtypes9.AllocationId, error)
 	StateMinerAvailableBalance(context.Context, address.Address, types.TipSetKey) (big.Int, error)
 	StateNetworkVersion(context.Context, types.TipSetKey) (network.Version, error)
+	GasEstimateMessageGas(ctx context.Context, msg *types.Message, spec *api.MessageSendSpec, tsk types.TipSetKey) (*types.Message, error)
 	ctladdr.NodeApi
 }
 
@@ -126,7 +127,7 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	err = s.db.Select(ctx, &sectorParamsArr, `
 		SELECT sp_id, sector_number, porep_proof, ticket_value, tree_r_cid, tree_d_cid
 		FROM sectors_sdr_pipeline
-		WHERE task_id_commit_msg = $1`, taskID)
+		WHERE task_id_commit_msg = $1 ORDER BY sector_number ASC`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting sector params: %w", err)
 	}
@@ -143,16 +144,6 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	ts, err := s.api.ChainHead(ctx)
 	if err != nil {
 		return false, xerrors.Errorf("getting chain head: %w", err)
-	}
-
-	mi, err := s.api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
-	if err != nil {
-		return false, xerrors.Errorf("getting miner info: %w", err)
-	}
-
-	nv, err := s.api.StateNetworkVersion(ctx, ts.Key())
-	if err != nil {
-		return false, xerrors.Errorf("getting network version: %s", err)
 	}
 
 	regProof := sectorParamsArr[0].RegSealProof
@@ -342,86 +333,14 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		sectors = append(sectors, sectorParams.SectorNumber)
 	}
 
-	if len(infos) > 1 && len(infos) < 4 {
-		// We have dropped some sectors and now don't have minimum, fail this task and send sectors back to pool
-		_, err = s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET task_id_commit_msg = NULL WHERE task_id_commit_msg = $1 AND sp_id = $2 AND sector_number = ANY($3)`, taskID, sectorParamsArr[0].SpID, sectors)
-		if err != nil {
-			return false, xerrors.Errorf("unsetting commit task: %w", err)
-		}
-		return false, xerrors.Errorf("not enough sectors for aggregation: require 4 and have %d", len(infos))
-	}
-
-	if len(infos) >= 4 {
-		arp, err := aggregateProofType(nv)
-		if err != nil {
-			return false, xerrors.Errorf("getting aggregate proof type: %w", err)
-		}
-		params.AggregateProofType = &arp
-
-		params.AggregateProof, err = s.prover.AggregateSealProofs(proof.AggregateSealVerifyProofAndInfos{
-			Miner:          abi.ActorID(sectorParamsArr[0].SpID),
-			SealProof:      regProof,
-			AggregateProof: arp,
-			Infos:          infos,
-		}, params.SectorProofs)
-
-		if err != nil {
-			return false, xerrors.Errorf("aggregating proofs: %w", err)
-		}
-		params.SectorProofs = nil // can't be set when aggregating
-
-		aggFeeRaw, err := policy.AggregateProveCommitNetworkFee(nv, len(infos), ts.MinTicketBlock().ParentBaseFee)
-		if err != nil {
-			return false, xerrors.Errorf("getting aggregate commit network fee: %s", err)
-		}
-
-		aggFee := big.Div(big.Mul(aggFeeRaw, big.NewInt(110)), big.NewInt(110))
-
-		collateral = big.Add(collateral, aggFee)
-	}
-
-	enc := new(bytes.Buffer)
-	if err := params.MarshalCBOR(enc); err != nil {
-		return false, xerrors.Errorf("could not serialize commit params: %w", err)
-	}
-
-	if s.cfg.feeCfg.CollateralFromMinerBalance {
-		if s.cfg.feeCfg.DisableCollateralFallback {
-			collateral = big.Zero()
-		}
-		balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)
-		if err != nil {
-			if err != nil {
-				return false, xerrors.Errorf("getting miner balance: %w", err)
-			}
-		}
-		collateral = big.Sub(collateral, balance)
-		if collateral.LessThan(big.Zero()) {
-			collateral = big.Zero()
-		}
-	}
-
 	maxFee := s.cfg.feeCfg.MaxCommitBatchGasFee.FeeForSectors(len(infos))
-	goodFunds := big.Add(maxFee, collateral)
 
-	a, _, err := s.as.AddressFor(ctx, s.api, maddr, mi, api.CommitAddr, goodFunds, collateral)
+	msg, err := s.createCommitMessage(ctx, maddr, sectorParamsArr[0].RegSealProof, sectorParamsArr[0].SpID, collateral, params, infos, ts)
 	if err != nil {
-		return false, xerrors.Errorf("getting address for precommit: %w", err)
+		return false, xerrors.Errorf("failed to create the commit message: %w", err)
 	}
 
-	msg := &types.Message{
-		To:     maddr,
-		From:   a,
-		Method: builtin.MethodsMiner.ProveCommitSectors3,
-		Params: enc.Bytes(),
-		Value:  collateral,
-	}
-
-	mss := &api.MessageSendSpec{
-		MaxFee: maxFee,
-	}
-
-	mcid, err := s.sender.Send(ctx, msg, mss, "commit")
+	mcid, err := s.sender.Send(ctx, msg, &api.MessageSendSpec{MaxFee: maxFee}, "commit")
 	if err != nil {
 		return false, xerrors.Errorf("pushing message to mpool: %w", err)
 	}
@@ -442,6 +361,127 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	}
 
 	return true, nil
+}
+
+func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr address.Address, sealProof abi.RegisteredSealProof, SpID int64, collateral abi.TokenAmount, params miner.ProveCommitSectors3Params, infos []proof.AggregateSealVerifyInfo, ts *types.TipSet) (*types.Message, error) {
+	aggParams := params
+	var aggCost, cost big.Int
+	var msg, aggMsg *types.Message
+	maxFee := s.cfg.feeCfg.MaxCommitBatchGasFee.FeeForSectors(len(infos))
+
+	nv, err := s.api.StateNetworkVersion(ctx, ts.Key())
+	if err != nil {
+		return nil, xerrors.Errorf("getting network version: %s", err)
+	}
+
+	balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)
+	if err != nil {
+		if err != nil {
+			return nil, xerrors.Errorf("getting miner balance: %w", err)
+		}
+	}
+
+	mi, err := s.api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
+	if err != nil {
+		return nil, xerrors.Errorf("getting miner info: %w", err)
+	}
+
+	if len(infos) > 4 {
+		arp, err := aggregateProofType(nv)
+		if err != nil {
+			return nil, xerrors.Errorf("getting aggregate proof type: %w", err)
+		}
+		aggParams.AggregateProofType = &arp
+
+		aggParams.AggregateProof, err = s.prover.AggregateSealProofs(proof.AggregateSealVerifyProofAndInfos{
+			Miner:          abi.ActorID(SpID),
+			SealProof:      sealProof,
+			AggregateProof: arp,
+			Infos:          infos,
+		}, aggParams.SectorProofs)
+
+		if err != nil {
+			return nil, xerrors.Errorf("aggregating proofs: %w", err)
+		}
+		aggParams.SectorProofs = nil // can't be set when aggregating
+
+		aggFeeRaw, err := policy.AggregateProveCommitNetworkFee(nv, len(infos), ts.MinTicketBlock().ParentBaseFee)
+		if err != nil {
+			return nil, xerrors.Errorf("getting aggregate commit network fee: %s", err)
+		}
+
+		aggFee := big.Div(big.Mul(aggFeeRaw, big.NewInt(110)), big.NewInt(110))
+
+		aggCollateral := big.Add(collateral, aggFee)
+		aggCollateral = s.calculateCollateral(balance, aggCollateral)
+		goodFunds := big.Add(maxFee, aggCollateral)
+		enc := new(bytes.Buffer)
+		if err := params.MarshalCBOR(enc); err != nil {
+			return nil, xerrors.Errorf("could not serialize commit params: %w", err)
+		}
+		aggMsg, err = s.gasEstimateCommit(ctx, maddr, enc.Bytes(), mi, goodFunds, aggCollateral, maxFee, ts.Key())
+		if err != nil {
+			return nil, err
+		}
+		aggGas := big.Mul(big.Add(ts.MinTicketBlock().ParentBaseFee, aggMsg.GasPremium), big.NewInt(aggMsg.GasLimit))
+		aggCost = big.Add(aggGas, aggFee)
+	}
+
+	{
+		collateral = s.calculateCollateral(balance, collateral)
+		goodFunds := big.Add(maxFee, collateral)
+		enc := new(bytes.Buffer)
+		if err := params.MarshalCBOR(enc); err != nil {
+			return nil, xerrors.Errorf("could not serialize commit params: %w", err)
+		}
+		msg, err = s.gasEstimateCommit(ctx, maddr, enc.Bytes(), mi, goodFunds, collateral, maxFee, ts.Key())
+		if err != nil {
+			return nil, err
+		}
+		gas := big.Mul(big.Add(ts.MinTicketBlock().ParentBaseFee, msg.GasPremium), big.NewInt(msg.GasLimit))
+		cost = gas
+	}
+
+	if aggCost.Nil() || cost.LessThan(aggCost) {
+		log.Debugw("Sending commit message without aggregate", "Batch Cost", cost, "Aggregate Cost", aggCost)
+		return msg, nil
+	}
+	return aggMsg, nil
+}
+
+func (s *SubmitCommitTask) gasEstimateCommit(ctx context.Context, maddr address.Address, params []byte, mi api.MinerInfo, goodFunds, collateral, maxFee abi.TokenAmount, ts types.TipSetKey) (*types.Message, error) {
+	a, _, err := s.as.AddressFor(ctx, s.api, maddr, mi, api.CommitAddr, goodFunds, collateral)
+	if err != nil {
+		return nil, xerrors.Errorf("getting address for precommit: %w", err)
+	}
+
+	msg := &types.Message{
+		To:     maddr,
+		From:   a,
+		Method: builtin.MethodsMiner.ProveCommitSectors3,
+		Params: params,
+		Value:  collateral,
+	}
+
+	mss := &api.MessageSendSpec{
+		MaxFee: maxFee,
+	}
+
+	return s.api.GasEstimateMessageGas(ctx, msg, mss, ts)
+}
+
+func (s *SubmitCommitTask) calculateCollateral(minerBalance abi.TokenAmount, collateral abi.TokenAmount) abi.TokenAmount {
+	if s.cfg.feeCfg.CollateralFromMinerBalance {
+		if s.cfg.feeCfg.DisableCollateralFallback {
+			collateral = big.Zero()
+		}
+
+		collateral = big.Sub(collateral, minerBalance)
+		if collateral.LessThan(big.Zero()) {
+			collateral = big.Zero()
+		}
+	}
+	return collateral
 }
 
 func (s *SubmitCommitTask) transferFinalizedSectorData(ctx context.Context, spID int64, sectors []int64) error {
@@ -553,7 +593,7 @@ func (s *SubmitCommitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 func (s *SubmitCommitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(128),
-		Name: "CommitSubmit",
+		Name: "CommitBatch",
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,
