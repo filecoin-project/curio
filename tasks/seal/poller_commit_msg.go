@@ -136,14 +136,17 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context, tasks []pollTa
 				// Process batch if slack has reached
 				if (time.Duration(batch.cutoff-ts.Height()) * time.Duration(build.BlockDelaySecs) * time.Second) < s.cfg.commit.Slack {
 					s.sendCommitBatch(ctx, spid, batch.sectors)
+					continue
 				}
 				// Process batch if timeout has reached
 				if batch.earliest.Add(s.cfg.commit.Timeout).After(time.Now()) {
 					s.sendCommitBatch(ctx, spid, batch.sectors)
+					continue
 				}
 				// Process batch if base fee is low enough for us to send
 				if ts.MinTicketBlock().ParentBaseFee.LessThan(s.cfg.commit.BaseFeeThreshold) {
 					s.sendCommitBatch(ctx, spid, batch.sectors)
+					continue
 				}
 			}
 		}

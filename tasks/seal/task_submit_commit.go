@@ -443,7 +443,7 @@ func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr addres
 	}
 
 	if aggCost.Nil() || cost.LessThan(aggCost) {
-		log.Debugw("Sending commit message without aggregate", "Batch Cost", cost, "Aggregate Cost", aggCost)
+		log.Infow("Sending commit message without aggregate", "Batch Cost", cost, "Aggregate Cost", aggCost)
 		return msg, nil
 	}
 	return aggMsg, nil
