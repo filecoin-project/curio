@@ -30,6 +30,10 @@ func DefaultCurioConfig() *CurioConfig {
 				Base:      types.MustParseFIL("0"),
 				PerSector: types.MustParseFIL("0.03"), // enough for 6 agg and 1nFIL base fee
 			},
+			MaxUpdateBatchGasFee: BatchFeeConfig{
+				Base:      types.MustParseFIL("0"),
+				PerSector: types.MustParseFIL("0.03"),
+			},
 
 			MaxTerminateGasFee:         types.MustParseFIL("0.5"),
 			MaxWindowPoStGasFee:        types.MustParseFIL("5"),
@@ -80,6 +84,11 @@ func DefaultCurioConfig() *CurioConfig {
 				Slack:            Duration(6 * time.Hour),
 			},
 			Commit: CommitBatchingConfig{
+				BaseFeeThreshold: types.MustParseFIL("0.005"),
+				Timeout:          Duration(1 * time.Hour),
+				Slack:            Duration(1 * time.Hour),
+			},
+			Update: UpdateBatchingConfig{
 				BaseFeeThreshold: types.MustParseFIL("0.005"),
 				Timeout:          Duration(1 * time.Hour),
 				Slack:            Duration(1 * time.Hour),
@@ -308,6 +317,7 @@ type CurioFees struct {
 	// maxBatchFee = maxBase + maxPerSector * nSectors
 	MaxPreCommitBatchGasFee BatchFeeConfig
 	MaxCommitBatchGasFee    BatchFeeConfig
+	MaxUpdateBatchGasFee    BatchFeeConfig
 
 	MaxTerminateGasFee types.FIL
 	// WindowPoSt is a high-value operation, so the default fee should be high.
@@ -527,6 +537,9 @@ type CurioBatchingConfig struct {
 
 	// Commit batching configuration
 	Commit CommitBatchingConfig
+
+	// Snap Deals batching configuration
+	Update UpdateBatchingConfig
 }
 
 type PreCommitBatchingConfig struct {
@@ -541,6 +554,17 @@ type PreCommitBatchingConfig struct {
 }
 
 type CommitBatchingConfig struct {
+	// Base fee value below which we should try to send Commit messages immediately
+	BaseFeeThreshold types.FIL
+
+	// Maximum amount of time any given sector in the batch can wait for the batch to accumulate
+	Timeout Duration
+
+	// Time buffer for forceful batch submission before sectors/deals in batch would start expiring
+	Slack Duration
+}
+
+type UpdateBatchingConfig struct {
 	// Base fee value below which we should try to send Commit messages immediately
 	BaseFeeThreshold types.FIL
 

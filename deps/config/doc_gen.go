@@ -139,6 +139,12 @@ alerts will be triggered for the wallet`,
 
 			Comment: `Commit batching configuration`,
 		},
+		{
+			Name: "Update",
+			Type: "UpdateBatchingConfig",
+
+			Comment: `Snap Deals batching configuration`,
+		},
 	},
 	"CurioConfig": {
 		{
@@ -223,6 +229,12 @@ alerts will be triggered for the wallet`,
 		},
 		{
 			Name: "MaxCommitBatchGasFee",
+			Type: "BatchFeeConfig",
+
+			Comment: ``,
+		},
+		{
+			Name: "MaxUpdateBatchGasFee",
 			Type: "BatchFeeConfig",
 
 			Comment: ``,
@@ -796,6 +808,26 @@ identifier in the integration page for the service.`,
 
 			Comment: `WebHookURL is the URL for the URL for slack Webhook.
 Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX`,
+		},
+	},
+	"UpdateBatchingConfig": {
+		{
+			Name: "BaseFeeThreshold",
+			Type: "types.FIL",
+
+			Comment: `Base fee value below which we should try to send Commit messages immediately`,
+		},
+		{
+			Name: "Timeout",
+			Type: "Duration",
+
+			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate`,
+		},
+		{
+			Name: "Slack",
+			Type: "Duration",
+
+			Comment: `Time buffer for forceful batch submission before sectors/deals in batch would start expiring`,
 		},
 	},
 }

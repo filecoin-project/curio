@@ -274,7 +274,7 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 						return false, xerrors.Errorf("allocation check failed with an unrecoverable issue: %w", multierr.Combine(err, err2))
 					}
 					log.Errorw("allocation check failed with an unrecoverable issue", "sp", sectorParams.SpID, "sector", sectorParams.SectorNumber, "err", err)
-					sectorFailed = false
+					sectorFailed = true
 					break
 				}
 			}
@@ -286,7 +286,7 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		}
 
 		if sectorFailed {
-			break
+			continue // Skip this sector
 		}
 
 		ssize, err := pci.Info.SealProof.SectorSize()
