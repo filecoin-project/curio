@@ -83,7 +83,7 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 	}
 
 	if len(fullNodes) == 0 {
-		return nil, nil, xerrors.Errorf("no compatible nodes found - all nodes had network mismatches or connection errors")
+		return nil, nil, xerrors.Errorf("failed to establish connection with all nodes")
 	}
 
 	finalCloser := func() {

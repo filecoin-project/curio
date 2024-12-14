@@ -20,9 +20,6 @@ import (
 
 	"github.com/filecoin-project/lotus/lib/ulimit"
 	"github.com/filecoin-project/lotus/metrics"
-	"github.com/filecoin-project/lotus/api/v0api"
-	"github.com/filecoin-project/lotus/build"
-	"github.com/filecoin-project/lotus/cli/lcli"
 )
 
 type stackTracer interface {
@@ -138,7 +135,6 @@ var runCmd = &cli.Command{
 			return xerrors.Errorf("starting market RPCs: %w", err)
 		}
 
-		api, closer, err := lcli.GetFullNodeAPI(cctx)
 		if err != nil {
 			return err
 		}
