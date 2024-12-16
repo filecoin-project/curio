@@ -135,11 +135,6 @@ var runCmd = &cli.Command{
 			return xerrors.Errorf("starting market RPCs: %w", err)
 		}
 
-		if err != nil {
-			return err
-		}
-		defer closer()
-
 		err = rpc.ListenAndServe(ctx, dependencies, shutdownChan)
 		if err != nil {
 			return err
