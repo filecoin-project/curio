@@ -18,18 +18,18 @@ func (sb *SealCalls) decodeCommon(ctx context.Context, taskID harmonytask.TaskID
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	paths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, &taskID, sector, storiface.FTNone, storiface.FTUnsealed, storiface.PathStorage)
+	paths, pathIDs, releaseSector, err := sb.Sectors.AcquireSector(ctx, &taskID, sector, storiface.FTNone, storiface.FTUnsealed, storiface.PathStorage)
 	if err != nil {
 		return xerrors.Errorf("acquiring sector paths: %w", err)
 	}
 	defer releaseSector()
 
-	sealReader, err := sb.sectors.storage.ReaderSeq(ctx, sector, fileType)
+	sealReader, err := sb.Sectors.storage.ReaderSeq(ctx, sector, fileType)
 	if err != nil {
 		return xerrors.Errorf("getting sealed sector reader: %w", err)
 	}
 
-	keyReader, err := sb.sectors.storage.ReaderSeq(ctx, sector, storiface.FTKey)
+	keyReader, err := sb.Sectors.storage.ReaderSeq(ctx, sector, storiface.FTKey)
 	if err != nil {
 		return xerrors.Errorf("getting key reader: %w", err)
 	}
@@ -66,7 +66,7 @@ func (sb *SealCalls) decodeCommon(ctx context.Context, taskID harmonytask.TaskID
 		return xerrors.Errorf("ensure one copy: %w", err)
 	}
 
-	if err := sb.sectors.storage.Remove(ctx, sector.ID, storiface.FTKey, true, nil); err != nil {
+	if err := sb.Sectors.storage.Remove(ctx, sector.ID, storiface.FTKey, true, nil); err != nil {
 		return err
 	}
 

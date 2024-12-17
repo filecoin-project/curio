@@ -15,7 +15,7 @@ import (
 func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID, pieceID storiface.PieceNumber, size int64, data io.Reader) error {
 	// todo: config(?): allow setting PathStorage for this
 	// todo storage reservations
-	paths, _, done, err := sb.sectors.AcquireSector(ctx, taskID, pieceID.Ref(), storiface.FTNone, storiface.FTPiece, storiface.PathSealing)
+	paths, _, done, err := sb.Sectors.AcquireSector(ctx, taskID, pieceID.Ref(), storiface.FTNone, storiface.FTPiece, storiface.PathSealing)
 	if err != nil {
 		return err
 	}
@@ -68,9 +68,9 @@ func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID,
 }
 
 func (sb *SealCalls) PieceReader(ctx context.Context, id storiface.PieceNumber) (io.ReadCloser, error) {
-	return sb.sectors.storage.ReaderSeq(ctx, id.Ref(), storiface.FTPiece)
+	return sb.Sectors.storage.ReaderSeq(ctx, id.Ref(), storiface.FTPiece)
 }
 
 func (sb *SealCalls) RemovePiece(ctx context.Context, id storiface.PieceNumber) error {
-	return sb.sectors.storage.Remove(ctx, id.Ref().ID, storiface.FTPiece, true, nil)
+	return sb.Sectors.storage.Remove(ctx, id.Ref().ID, storiface.FTPiece, true, nil)
 }
