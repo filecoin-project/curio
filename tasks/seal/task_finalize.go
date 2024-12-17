@@ -152,41 +152,8 @@ func (f *FinalizeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	if f.slots != nil {
 		// batch handling part 2:
 
-		// delete from batch_sector_refs
-		var freeSlot bool
-
-		_, err = f.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			_, err = tx.Exec(`DELETE FROM batch_sector_refs WHERE sp_id = $1 AND sector_number = $2`, task.SpID, task.SectorNumber)
-			if err != nil {
-				return false, xerrors.Errorf("deleting batch refs: %w", err)
-			}
-
-			// get sector ref count, if zero free the pipeline slot
-			var count []struct {
-				Count int64 `db:"count"`
-			}
-			err = tx.Select(&count, `SELECT COUNT(1) as count FROM batch_sector_refs WHERE machine_host_and_port = $1 AND pipeline_slot = $2`, ownedBy[0].HostAndPort, refs[0].PipelineSlot)
-			if err != nil {
-				return false, xerrors.Errorf("getting batch ref count: %w", err)
-			}
-
-			if count[0].Count == 0 {
-				freeSlot = true
-			} else {
-				log.Infow("Not freeing batch slot", "slot", refs[0].PipelineSlot, "machine", ownedBy[0].HostAndPort, "remaining", count[0].Count)
-			}
-
-			return true, nil
-		}, harmonydb.OptionRetry())
-		if err != nil {
-			return false, xerrors.Errorf("deleting batch refs: %w", err)
-		}
-
-		if freeSlot {
-			log.Infow("Freeing batch slot", "slot", refs[0].PipelineSlot, "machine", ownedBy[0].HostAndPort)
-			if err := f.slots.Put(uint64(refs[0].PipelineSlot)); err != nil {
-				return false, xerrors.Errorf("freeing slot: %w", err)
-			}
+		if err := f.slots.SectorDone(ctx, uint64(refs[0].PipelineSlot), sector.ID); err != nil {
+			return false, xerrors.Errorf("mark batch ref done: %w", err)
 		}
 	}
 

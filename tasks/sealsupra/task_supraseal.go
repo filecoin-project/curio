@@ -62,7 +62,7 @@ type SupraSeal struct {
 }
 
 func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool, nvmeDevices []string, machineHostAndPort string,
-	slots *slotmgr.SlotMgr, db *harmonydb.DB, api SupraSealNodeAPI, storage *paths.Remote, sindex paths.SectorIndex) (*SupraSeal, error) {
+	db *harmonydb.DB, api SupraSealNodeAPI, storage *paths.Remote, sindex paths.SectorIndex) (*SupraSeal, error) {
 	var spt abi.RegisteredSealProof
 	switch sectorSize {
 	case "32GiB":
@@ -188,31 +188,16 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 		return nil, xerrors.Errorf("not enough space for %d pipelines (can do %d), only %d pages available, want %d (slot size %d) pages", pipelines, maxPipelines, space, slotSize*uint64(pipelines), slotSize)
 	}
 
+	var slotOffs []uint64
 	for i := 0; i < pipelines; i++ {
 		slot := slotSize * uint64(i)
-
-		var slotRefs []struct {
-			Count int `db:"count"`
-		}
-
-		err := db.Select(context.Background(), &slotRefs, `SELECT COUNT(*) as count FROM batch_sector_refs WHERE pipeline_slot = $1 AND machine_host_and_port = $2`, slot, machineHostAndPort)
-		if err != nil {
-			return nil, xerrors.Errorf("getting slot refs: %w", err)
-		}
-
-		if len(slotRefs) > 0 {
-			if slotRefs[0].Count > 0 {
-				log.Infow("slot already in use", "slot", slot, "refs", slotRefs[0].Count)
-				continue
-			}
-		}
-
 		log.Infow("batch slot", "slot", slot, "machine", machineHostAndPort)
+		slotOffs = append(slotOffs, slot)
+	}
 
-		err = slots.Put(slot)
-		if err != nil {
-			return nil, xerrors.Errorf("putting slot: %w", err)
-		}
+	slots, err := slotmgr.NewSlotMgr(db, machineHostAndPort, slotOffs)
+	if err != nil {
+		return nil, xerrors.Errorf("creating slot manager: %w", err)
 	}
 
 	return &SupraSeal{
@@ -268,12 +253,14 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	outPaths := make([]supraffi.Path, len(sectors))
 	outPathIDs := make([]storiface.SectorPaths, len(sectors))
 	alloc := storiface.FTSealed | storiface.FTCache
+	sectorsIDs := make([]abi.SectorID, len(sectors))
 
 	for i, t := range sectors {
 		sid := abi.SectorID{
 			Miner:  abi.ActorID(t.SpID),
 			Number: abi.SectorNumber(t.SectorNumber),
 		}
+		sectorsIDs = append(sectorsIDs, sid)
 
 		// cleanup any potential previous failed attempts
 		if err := s.storage.Remove(ctx, sid, storiface.FTSealed, true, nil); err != nil {
@@ -323,10 +310,10 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	s.inSDR.Lock()
-	slot := s.slots.Get()
+	slot := s.slots.Get(sectorsIDs)
 
 	cleanup := func() {
-		perr := s.slots.Put(slot)
+		perr := s.slots.AbortSlot(slot)
 		if perr != nil {
 			log.Errorf("putting slot back: %s", err)
 		}
@@ -353,7 +340,7 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	s.inSDR.Unlock()
 	s.outSDR.Lock()
 	cleanup = func() {
-		perr := s.slots.Put(slot)
+		perr := s.slots.AbortSlot(slot)
 		if perr != nil {
 			log.Errorf("putting slot back: %s", err)
 		}
@@ -468,6 +455,10 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	cleanup = func() {
 		s.outSDR.Unlock()
 		// NOTE: We're not releasing the slot yet, we keep it until sector Finalize
+	}
+
+	if err := s.slots.MarkWorkDone(slot); err != nil {
+		return true, xerrors.Errorf("marking work done: %w", err)
 	}
 
 	return true, nil
