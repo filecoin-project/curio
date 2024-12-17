@@ -54,7 +54,7 @@ type PDPVerifierRootIdAndOffset struct {
 
 // PDPVerifierMetaData contains all meta data concerning the PDPVerifier contract.
 var PDPVerifierMetaData = &bind.MetaData{
-	ABI: "[{\"type\":\"constructor\",\"inputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"BURN_ACTOR\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"EXTRA_DATA_MAX_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"LEAF_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_ENQUEUED_REMOVALS\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_ROOT_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"RANDOMNESS_PRECOMPILE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"UPGRADE_INTERFACE_VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"addRoots\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootData\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.RootData[]\",\"components\":[{\"name\":\"root\",\"type\":\"tuple\",\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]},{\"name\":\"rawSize\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"claimProofSetOwnership\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"createProofSet\",\"inputs\":[{\"name\":\"listenerAddr\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"deleteProofSet\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"findRootIds\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"leafIndexs\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.RootIdAndOffset[]\",\"components\":[{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengeFinality\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengeRange\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextChallengeEpoch\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextProofSetId\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextRootId\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetListener\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetOwner\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRandomness\",\"inputs\":[{\"name\":\"epoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRootCid\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple\",\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRootLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getScheduledRemovals\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"initialize\",\"inputs\":[{\"name\":\"_challengeFinality\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"nextProvingPeriod\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengeEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"owner\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"proofSetLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"proposeProofSetOwner\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"provePossession\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"proofs\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.Proof[]\",\"components\":[{\"name\":\"leaf\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"proof\",\"type\":\"bytes32[]\",\"internalType\":\"bytes32[]\"}]}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"proxiableUUID\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"renounceOwnership\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"rootChallengable\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"rootLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"scheduleRemovals\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"transferOwnership\",\"inputs\":[{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"upgradeToAndCall\",\"inputs\":[{\"name\":\"newImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"event\",\"name\":\"Debug\",\"inputs\":[{\"name\":\"message\",\"type\":\"string\",\"indexed\":false,\"internalType\":\"string\"},{\"name\":\"value\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Initialized\",\"inputs\":[{\"name\":\"version\",\"type\":\"uint64\",\"indexed\":false,\"internalType\":\"uint64\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OwnershipTransferred\",\"inputs\":[{\"name\":\"previousOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofSetCreated\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofSetDeleted\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"deletedLeafCount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"RootsAdded\",\"inputs\":[{\"name\":\"firstAdded\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"RootsRemoved\",\"inputs\":[{\"name\":\"rootIds\",\"type\":\"uint256[]\",\"indexed\":true,\"internalType\":\"uint256[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Upgraded\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"error\",\"name\":\"AddressEmptyCode\",\"inputs\":[{\"name\":\"target\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967InvalidImplementation\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967NonPayable\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"FailedCall\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"IndexedError\",\"inputs\":[{\"name\":\"idx\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"msg\",\"type\":\"string\",\"internalType\":\"string\"}]},{\"type\":\"error\",\"name\":\"InvalidInitialization\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"NotInitializing\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"OwnableInvalidOwner\",\"inputs\":[{\"name\":\"owner\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OwnableUnauthorizedAccount\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"UUPSUnauthorizedCallContext\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"UUPSUnsupportedProxiableUUID\",\"inputs\":[{\"name\":\"slot\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}]}]",
+	ABI: "[{\"type\":\"constructor\",\"inputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"BURN_ACTOR\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"EXTRA_DATA_MAX_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"FIL_USD_PRICE_FEED_ID\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"LEAF_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_ENQUEUED_REMOVALS\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_ROOT_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"NO_CHALLENGE_SCHEDULED\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"PYTH\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"contractIPyth\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"RANDOMNESS_PRECOMPILE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"SECONDS_IN_DAY\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"UPGRADE_INTERFACE_VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"addRoots\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootData\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.RootData[]\",\"components\":[{\"name\":\"root\",\"type\":\"tuple\",\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]},{\"name\":\"rawSize\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"claimProofSetOwnership\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"createProofSet\",\"inputs\":[{\"name\":\"listenerAddr\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"deleteProofSet\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"findRootIds\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"leafIndexs\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.RootIdAndOffset[]\",\"components\":[{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengeFinality\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengeRange\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getFILUSDPrice\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"},{\"name\":\"\",\"type\":\"int32\",\"internalType\":\"int32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextChallengeEpoch\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextProofSetId\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextRootId\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetLastProvenEpoch\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetListener\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getProofSetOwner\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRandomness\",\"inputs\":[{\"name\":\"epoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRootCid\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple\",\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRootLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getScheduledRemovals\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"initialize\",\"inputs\":[{\"name\":\"_challengeFinality\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"nextProvingPeriod\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengeEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"owner\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"proofSetLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"proposeProofSetOwner\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"provePossession\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"proofs\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.Proof[]\",\"components\":[{\"name\":\"leaf\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"proof\",\"type\":\"bytes32[]\",\"internalType\":\"bytes32[]\"}]}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"proxiableUUID\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"renounceOwnership\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"rootChallengable\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"rootLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"scheduleRemovals\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"rootIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"transferOwnership\",\"inputs\":[{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"upgradeToAndCall\",\"inputs\":[{\"name\":\"newImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"event\",\"name\":\"Debug\",\"inputs\":[{\"name\":\"message\",\"type\":\"string\",\"indexed\":false,\"internalType\":\"string\"},{\"name\":\"value\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Initialized\",\"inputs\":[{\"name\":\"version\",\"type\":\"uint64\",\"indexed\":false,\"internalType\":\"uint64\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OwnershipTransferred\",\"inputs\":[{\"name\":\"previousOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofFeePaid\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"fee\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"price\",\"type\":\"uint64\",\"indexed\":false,\"internalType\":\"uint64\"},{\"name\":\"expo\",\"type\":\"int32\",\"indexed\":false,\"internalType\":\"int32\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofSetCreated\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofSetDeleted\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"deletedLeafCount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofSetEmpty\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"RootsAdded\",\"inputs\":[{\"name\":\"firstAdded\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"RootsRemoved\",\"inputs\":[{\"name\":\"rootIds\",\"type\":\"uint256[]\",\"indexed\":true,\"internalType\":\"uint256[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Upgraded\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"error\",\"name\":\"AddressEmptyCode\",\"inputs\":[{\"name\":\"target\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967InvalidImplementation\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967NonPayable\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"FailedCall\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"IndexedError\",\"inputs\":[{\"name\":\"idx\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"msg\",\"type\":\"string\",\"internalType\":\"string\"}]},{\"type\":\"error\",\"name\":\"InvalidInitialization\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"NotInitializing\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"OwnableInvalidOwner\",\"inputs\":[{\"name\":\"owner\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OwnableUnauthorizedAccount\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"UUPSUnauthorizedCallContext\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"UUPSUnsupportedProxiableUUID\",\"inputs\":[{\"name\":\"slot\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}]}]",
 }
 
 // PDPVerifierABI is the input ABI used to generate the binding from.
@@ -265,6 +265,37 @@ func (_PDPVerifier *PDPVerifierCallerSession) EXTRADATAMAXSIZE() (*big.Int, erro
 	return _PDPVerifier.Contract.EXTRADATAMAXSIZE(&_PDPVerifier.CallOpts)
 }
 
+// FILUSDPRICEFEEDID is a free data retrieval call binding the contract method 0x19c75950.
+//
+// Solidity: function FIL_USD_PRICE_FEED_ID() view returns(bytes32)
+func (_PDPVerifier *PDPVerifierCaller) FILUSDPRICEFEEDID(opts *bind.CallOpts) ([32]byte, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "FIL_USD_PRICE_FEED_ID")
+
+	if err != nil {
+		return *new([32]byte), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new([32]byte)).(*[32]byte)
+
+	return out0, err
+
+}
+
+// FILUSDPRICEFEEDID is a free data retrieval call binding the contract method 0x19c75950.
+//
+// Solidity: function FIL_USD_PRICE_FEED_ID() view returns(bytes32)
+func (_PDPVerifier *PDPVerifierSession) FILUSDPRICEFEEDID() ([32]byte, error) {
+	return _PDPVerifier.Contract.FILUSDPRICEFEEDID(&_PDPVerifier.CallOpts)
+}
+
+// FILUSDPRICEFEEDID is a free data retrieval call binding the contract method 0x19c75950.
+//
+// Solidity: function FIL_USD_PRICE_FEED_ID() view returns(bytes32)
+func (_PDPVerifier *PDPVerifierCallerSession) FILUSDPRICEFEEDID() ([32]byte, error) {
+	return _PDPVerifier.Contract.FILUSDPRICEFEEDID(&_PDPVerifier.CallOpts)
+}
+
 // LEAFSIZE is a free data retrieval call binding the contract method 0xc0e15949.
 //
 // Solidity: function LEAF_SIZE() view returns(uint256)
@@ -358,6 +389,68 @@ func (_PDPVerifier *PDPVerifierCallerSession) MAXROOTSIZE() (*big.Int, error) {
 	return _PDPVerifier.Contract.MAXROOTSIZE(&_PDPVerifier.CallOpts)
 }
 
+// NOCHALLENGESCHEDULED is a free data retrieval call binding the contract method 0x462dd449.
+//
+// Solidity: function NO_CHALLENGE_SCHEDULED() view returns(uint256)
+func (_PDPVerifier *PDPVerifierCaller) NOCHALLENGESCHEDULED(opts *bind.CallOpts) (*big.Int, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "NO_CHALLENGE_SCHEDULED")
+
+	if err != nil {
+		return *new(*big.Int), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
+
+	return out0, err
+
+}
+
+// NOCHALLENGESCHEDULED is a free data retrieval call binding the contract method 0x462dd449.
+//
+// Solidity: function NO_CHALLENGE_SCHEDULED() view returns(uint256)
+func (_PDPVerifier *PDPVerifierSession) NOCHALLENGESCHEDULED() (*big.Int, error) {
+	return _PDPVerifier.Contract.NOCHALLENGESCHEDULED(&_PDPVerifier.CallOpts)
+}
+
+// NOCHALLENGESCHEDULED is a free data retrieval call binding the contract method 0x462dd449.
+//
+// Solidity: function NO_CHALLENGE_SCHEDULED() view returns(uint256)
+func (_PDPVerifier *PDPVerifierCallerSession) NOCHALLENGESCHEDULED() (*big.Int, error) {
+	return _PDPVerifier.Contract.NOCHALLENGESCHEDULED(&_PDPVerifier.CallOpts)
+}
+
+// PYTH is a free data retrieval call binding the contract method 0x67e406d5.
+//
+// Solidity: function PYTH() view returns(address)
+func (_PDPVerifier *PDPVerifierCaller) PYTH(opts *bind.CallOpts) (common.Address, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "PYTH")
+
+	if err != nil {
+		return *new(common.Address), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(common.Address)).(*common.Address)
+
+	return out0, err
+
+}
+
+// PYTH is a free data retrieval call binding the contract method 0x67e406d5.
+//
+// Solidity: function PYTH() view returns(address)
+func (_PDPVerifier *PDPVerifierSession) PYTH() (common.Address, error) {
+	return _PDPVerifier.Contract.PYTH(&_PDPVerifier.CallOpts)
+}
+
+// PYTH is a free data retrieval call binding the contract method 0x67e406d5.
+//
+// Solidity: function PYTH() view returns(address)
+func (_PDPVerifier *PDPVerifierCallerSession) PYTH() (common.Address, error) {
+	return _PDPVerifier.Contract.PYTH(&_PDPVerifier.CallOpts)
+}
+
 // RANDOMNESSPRECOMPILE is a free data retrieval call binding the contract method 0x15b17570.
 //
 // Solidity: function RANDOMNESS_PRECOMPILE() view returns(address)
@@ -387,6 +480,37 @@ func (_PDPVerifier *PDPVerifierSession) RANDOMNESSPRECOMPILE() (common.Address, 
 // Solidity: function RANDOMNESS_PRECOMPILE() view returns(address)
 func (_PDPVerifier *PDPVerifierCallerSession) RANDOMNESSPRECOMPILE() (common.Address, error) {
 	return _PDPVerifier.Contract.RANDOMNESSPRECOMPILE(&_PDPVerifier.CallOpts)
+}
+
+// SECONDSINDAY is a free data retrieval call binding the contract method 0x61a52a36.
+//
+// Solidity: function SECONDS_IN_DAY() view returns(uint256)
+func (_PDPVerifier *PDPVerifierCaller) SECONDSINDAY(opts *bind.CallOpts) (*big.Int, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "SECONDS_IN_DAY")
+
+	if err != nil {
+		return *new(*big.Int), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
+
+	return out0, err
+
+}
+
+// SECONDSINDAY is a free data retrieval call binding the contract method 0x61a52a36.
+//
+// Solidity: function SECONDS_IN_DAY() view returns(uint256)
+func (_PDPVerifier *PDPVerifierSession) SECONDSINDAY() (*big.Int, error) {
+	return _PDPVerifier.Contract.SECONDSINDAY(&_PDPVerifier.CallOpts)
+}
+
+// SECONDSINDAY is a free data retrieval call binding the contract method 0x61a52a36.
+//
+// Solidity: function SECONDS_IN_DAY() view returns(uint256)
+func (_PDPVerifier *PDPVerifierCallerSession) SECONDSINDAY() (*big.Int, error) {
+	return _PDPVerifier.Contract.SECONDSINDAY(&_PDPVerifier.CallOpts)
 }
 
 // UPGRADEINTERFACEVERSION is a free data retrieval call binding the contract method 0xad3cb1cc.
@@ -513,6 +637,38 @@ func (_PDPVerifier *PDPVerifierCallerSession) GetChallengeRange(setId *big.Int) 
 	return _PDPVerifier.Contract.GetChallengeRange(&_PDPVerifier.CallOpts, setId)
 }
 
+// GetFILUSDPrice is a free data retrieval call binding the contract method 0x4fa27920.
+//
+// Solidity: function getFILUSDPrice() view returns(uint64, int32)
+func (_PDPVerifier *PDPVerifierCaller) GetFILUSDPrice(opts *bind.CallOpts) (uint64, int32, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "getFILUSDPrice")
+
+	if err != nil {
+		return *new(uint64), *new(int32), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(uint64)).(*uint64)
+	out1 := *abi.ConvertType(out[1], new(int32)).(*int32)
+
+	return out0, out1, err
+
+}
+
+// GetFILUSDPrice is a free data retrieval call binding the contract method 0x4fa27920.
+//
+// Solidity: function getFILUSDPrice() view returns(uint64, int32)
+func (_PDPVerifier *PDPVerifierSession) GetFILUSDPrice() (uint64, int32, error) {
+	return _PDPVerifier.Contract.GetFILUSDPrice(&_PDPVerifier.CallOpts)
+}
+
+// GetFILUSDPrice is a free data retrieval call binding the contract method 0x4fa27920.
+//
+// Solidity: function getFILUSDPrice() view returns(uint64, int32)
+func (_PDPVerifier *PDPVerifierCallerSession) GetFILUSDPrice() (uint64, int32, error) {
+	return _PDPVerifier.Contract.GetFILUSDPrice(&_PDPVerifier.CallOpts)
+}
+
 // GetNextChallengeEpoch is a free data retrieval call binding the contract method 0x6ba4608f.
 //
 // Solidity: function getNextChallengeEpoch(uint256 setId) view returns(uint256)
@@ -604,6 +760,37 @@ func (_PDPVerifier *PDPVerifierSession) GetNextRootId(setId *big.Int) (*big.Int,
 // Solidity: function getNextRootId(uint256 setId) view returns(uint256)
 func (_PDPVerifier *PDPVerifierCallerSession) GetNextRootId(setId *big.Int) (*big.Int, error) {
 	return _PDPVerifier.Contract.GetNextRootId(&_PDPVerifier.CallOpts, setId)
+}
+
+// GetProofSetLastProvenEpoch is a free data retrieval call binding the contract method 0xfaa67163.
+//
+// Solidity: function getProofSetLastProvenEpoch(uint256 setId) view returns(uint256)
+func (_PDPVerifier *PDPVerifierCaller) GetProofSetLastProvenEpoch(opts *bind.CallOpts, setId *big.Int) (*big.Int, error) {
+	var out []interface{}
+	err := _PDPVerifier.contract.Call(opts, &out, "getProofSetLastProvenEpoch", setId)
+
+	if err != nil {
+		return *new(*big.Int), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
+
+	return out0, err
+
+}
+
+// GetProofSetLastProvenEpoch is a free data retrieval call binding the contract method 0xfaa67163.
+//
+// Solidity: function getProofSetLastProvenEpoch(uint256 setId) view returns(uint256)
+func (_PDPVerifier *PDPVerifierSession) GetProofSetLastProvenEpoch(setId *big.Int) (*big.Int, error) {
+	return _PDPVerifier.Contract.GetProofSetLastProvenEpoch(&_PDPVerifier.CallOpts, setId)
+}
+
+// GetProofSetLastProvenEpoch is a free data retrieval call binding the contract method 0xfaa67163.
+//
+// Solidity: function getProofSetLastProvenEpoch(uint256 setId) view returns(uint256)
+func (_PDPVerifier *PDPVerifierCallerSession) GetProofSetLastProvenEpoch(setId *big.Int) (*big.Int, error) {
+	return _PDPVerifier.Contract.GetProofSetLastProvenEpoch(&_PDPVerifier.CallOpts, setId)
 }
 
 // GetProofSetLeafCount is a free data retrieval call binding the contract method 0x3f84135f.
@@ -1653,6 +1840,153 @@ func (_PDPVerifier *PDPVerifierFilterer) ParseOwnershipTransferred(log types.Log
 	return event, nil
 }
 
+// PDPVerifierProofFeePaidIterator is returned from FilterProofFeePaid and is used to iterate over the raw logs and unpacked data for ProofFeePaid events raised by the PDPVerifier contract.
+type PDPVerifierProofFeePaidIterator struct {
+	Event *PDPVerifierProofFeePaid // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *PDPVerifierProofFeePaidIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(PDPVerifierProofFeePaid)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(PDPVerifierProofFeePaid)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *PDPVerifierProofFeePaidIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *PDPVerifierProofFeePaidIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// PDPVerifierProofFeePaid represents a ProofFeePaid event raised by the PDPVerifier contract.
+type PDPVerifierProofFeePaid struct {
+	SetId *big.Int
+	Fee   *big.Int
+	Price uint64
+	Expo  int32
+	Raw   types.Log // Blockchain specific contextual infos
+}
+
+// FilterProofFeePaid is a free log retrieval operation binding the contract event 0x928bbf5188022bf8b9a0e59f5e81e179d0a4c729bdba2856ac971af2063fbf2b.
+//
+// Solidity: event ProofFeePaid(uint256 indexed setId, uint256 fee, uint64 price, int32 expo)
+func (_PDPVerifier *PDPVerifierFilterer) FilterProofFeePaid(opts *bind.FilterOpts, setId []*big.Int) (*PDPVerifierProofFeePaidIterator, error) {
+
+	var setIdRule []interface{}
+	for _, setIdItem := range setId {
+		setIdRule = append(setIdRule, setIdItem)
+	}
+
+	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "ProofFeePaid", setIdRule)
+	if err != nil {
+		return nil, err
+	}
+	return &PDPVerifierProofFeePaidIterator{contract: _PDPVerifier.contract, event: "ProofFeePaid", logs: logs, sub: sub}, nil
+}
+
+// WatchProofFeePaid is a free log subscription operation binding the contract event 0x928bbf5188022bf8b9a0e59f5e81e179d0a4c729bdba2856ac971af2063fbf2b.
+//
+// Solidity: event ProofFeePaid(uint256 indexed setId, uint256 fee, uint64 price, int32 expo)
+func (_PDPVerifier *PDPVerifierFilterer) WatchProofFeePaid(opts *bind.WatchOpts, sink chan<- *PDPVerifierProofFeePaid, setId []*big.Int) (event.Subscription, error) {
+
+	var setIdRule []interface{}
+	for _, setIdItem := range setId {
+		setIdRule = append(setIdRule, setIdItem)
+	}
+
+	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "ProofFeePaid", setIdRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(PDPVerifierProofFeePaid)
+				if err := _PDPVerifier.contract.UnpackLog(event, "ProofFeePaid", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseProofFeePaid is a log parse operation binding the contract event 0x928bbf5188022bf8b9a0e59f5e81e179d0a4c729bdba2856ac971af2063fbf2b.
+//
+// Solidity: event ProofFeePaid(uint256 indexed setId, uint256 fee, uint64 price, int32 expo)
+func (_PDPVerifier *PDPVerifierFilterer) ParseProofFeePaid(log types.Log) (*PDPVerifierProofFeePaid, error) {
+	event := new(PDPVerifierProofFeePaid)
+	if err := _PDPVerifier.contract.UnpackLog(event, "ProofFeePaid", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
 // PDPVerifierProofSetCreatedIterator is returned from FilterProofSetCreated and is used to iterate over the raw logs and unpacked data for ProofSetCreated events raised by the PDPVerifier contract.
 type PDPVerifierProofSetCreatedIterator struct {
 	Event *PDPVerifierProofSetCreated // Event containing the contract specifics and raw log
@@ -1936,6 +2270,150 @@ func (_PDPVerifier *PDPVerifierFilterer) WatchProofSetDeleted(opts *bind.WatchOp
 func (_PDPVerifier *PDPVerifierFilterer) ParseProofSetDeleted(log types.Log) (*PDPVerifierProofSetDeleted, error) {
 	event := new(PDPVerifierProofSetDeleted)
 	if err := _PDPVerifier.contract.UnpackLog(event, "ProofSetDeleted", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
+// PDPVerifierProofSetEmptyIterator is returned from FilterProofSetEmpty and is used to iterate over the raw logs and unpacked data for ProofSetEmpty events raised by the PDPVerifier contract.
+type PDPVerifierProofSetEmptyIterator struct {
+	Event *PDPVerifierProofSetEmpty // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *PDPVerifierProofSetEmptyIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(PDPVerifierProofSetEmpty)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(PDPVerifierProofSetEmpty)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *PDPVerifierProofSetEmptyIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *PDPVerifierProofSetEmptyIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// PDPVerifierProofSetEmpty represents a ProofSetEmpty event raised by the PDPVerifier contract.
+type PDPVerifierProofSetEmpty struct {
+	SetId *big.Int
+	Raw   types.Log // Blockchain specific contextual infos
+}
+
+// FilterProofSetEmpty is a free log retrieval operation binding the contract event 0x323c29bc8d678a5d987b90a321982d10b9a91bcad071a9e445879497bf0e68e7.
+//
+// Solidity: event ProofSetEmpty(uint256 indexed setId)
+func (_PDPVerifier *PDPVerifierFilterer) FilterProofSetEmpty(opts *bind.FilterOpts, setId []*big.Int) (*PDPVerifierProofSetEmptyIterator, error) {
+
+	var setIdRule []interface{}
+	for _, setIdItem := range setId {
+		setIdRule = append(setIdRule, setIdItem)
+	}
+
+	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "ProofSetEmpty", setIdRule)
+	if err != nil {
+		return nil, err
+	}
+	return &PDPVerifierProofSetEmptyIterator{contract: _PDPVerifier.contract, event: "ProofSetEmpty", logs: logs, sub: sub}, nil
+}
+
+// WatchProofSetEmpty is a free log subscription operation binding the contract event 0x323c29bc8d678a5d987b90a321982d10b9a91bcad071a9e445879497bf0e68e7.
+//
+// Solidity: event ProofSetEmpty(uint256 indexed setId)
+func (_PDPVerifier *PDPVerifierFilterer) WatchProofSetEmpty(opts *bind.WatchOpts, sink chan<- *PDPVerifierProofSetEmpty, setId []*big.Int) (event.Subscription, error) {
+
+	var setIdRule []interface{}
+	for _, setIdItem := range setId {
+		setIdRule = append(setIdRule, setIdItem)
+	}
+
+	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "ProofSetEmpty", setIdRule)
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(PDPVerifierProofSetEmpty)
+				if err := _PDPVerifier.contract.UnpackLog(event, "ProofSetEmpty", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseProofSetEmpty is a log parse operation binding the contract event 0x323c29bc8d678a5d987b90a321982d10b9a91bcad071a9e445879497bf0e68e7.
+//
+// Solidity: event ProofSetEmpty(uint256 indexed setId)
+func (_PDPVerifier *PDPVerifierFilterer) ParseProofSetEmpty(log types.Log) (*PDPVerifierProofSetEmpty, error) {
+	event := new(PDPVerifierProofSetEmpty)
+	if err := _PDPVerifier.contract.UnpackLog(event, "ProofSetEmpty", log); err != nil {
 		return nil, err
 	}
 	event.Raw = log

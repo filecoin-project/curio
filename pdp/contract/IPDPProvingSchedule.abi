@@ -40,6 +40,25 @@
   },
   {
     "type": "function",
+    "name": "initChallengeWindowStart",
+    "inputs": [
+      {
+        "name": "setId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
     "name": "nextChallengeWindowStart",
     "inputs": [
       {
