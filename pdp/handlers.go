@@ -720,13 +720,6 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	ts, err := p.filClient.ChainHead(ctx)
-	if err != nil {
-		http.Error(w, "Failed to get chain head: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	height := ts.Height()
-
 	// Step 5: Prepare the Ethereum transaction data outside the DB transaction
 	// Obtain the ABI of the PDPVerifier contract
 	abiData, err := contract.PDPVerifierMetaData.GetAbi()
@@ -810,9 +803,6 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Determine the next challenge window start
-	next_prove_at := uint64(height) + provingPeriod - challengeWindow
-
 	// Step 9: Insert into message_waits_eth and pdp_proofset_roots
 	_, err = p.db.BeginTransaction(ctx, func(txdb *harmonydb.Tx) (bool, error) {
 		// Insert into message_waits_eth
@@ -824,12 +814,11 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 			return false, err // Return false to rollback the transaction
 		}
 
-		// Update proof set for proving upon first add
-		// TODO this will go away once we initialize proof set with a call to next proving period
+		// Update proof set for initialization upon first add
 		_, err = txdb.Exec(`
-			UPDATE pdp_proof_sets SET prev_challenge_request_epoch = $1, challenge_request_msg_hash = $2, prove_at_epoch = $3
-			WHERE id = $4 AND prev_challenge_request_epoch IS NULL AND challenge_request_msg_hash IS NULL AND prove_at_epoch IS NULL
-			`, height, txHash.Hex(), next_prove_at, proofSetIDUint64)
+			UPDATE pdp_proof_sets SET init_ready = true
+			WHERE id = $1 AND prev_challenge_request_epoch IS NULL AND challenge_request_msg_hash IS NULL AND prove_at_epoch IS NULL
+			`, proofSetIDUint64)
 		if err != nil {
 			return false, err
 		}
