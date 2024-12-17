@@ -93,7 +93,7 @@ CREATE TABLE pdp_proof_sets (
 
     -- flag indicating that the proving period is ready for init.  Currently set after first add 
     -- Set to true after first root add
-    init_ready BOOLEAN,
+    init_ready BOOLEAN NOT NULL DEFAULT FALSE,
 
     create_message_hash TEXT NOT NULL,
     service TEXT NOT NULL REFERENCES pdp_services(service_label) ON DELETE RESTRICT
