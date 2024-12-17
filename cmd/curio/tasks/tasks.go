@@ -277,8 +277,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 
 			pdpProveTask := pdp.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), es, dependencies.CachedPieceReader)
 			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
+			pdpInitProvingPeriodTask := pdp.NewInitProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
 			pdpNotifTask := pdp.NewPDPNotifyTask(db)
-			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask)
+			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask)
 		}
 
 		idxMax := taskhelp.Max(8)

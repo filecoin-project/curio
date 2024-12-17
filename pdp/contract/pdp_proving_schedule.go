@@ -31,7 +31,7 @@ var (
 
 // IPDPProvingScheduleMetaData contains all meta data concerning the IPDPProvingSchedule contract.
 var IPDPProvingScheduleMetaData = &bind.MetaData{
-	ABI: "[{\"type\":\"function\",\"name\":\"challengeWindow\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"pure\"},{\"type\":\"function\",\"name\":\"getChallengesPerProof\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"pure\"},{\"type\":\"function\",\"name\":\"getMaxProvingPeriod\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"pure\"},{\"type\":\"function\",\"name\":\"nextChallengeWindowStart\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"}]",
+	ABI: "[{\"type\":\"function\",\"name\":\"challengeWindow\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"pure\"},{\"type\":\"function\",\"name\":\"getChallengesPerProof\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"pure\"},{\"type\":\"function\",\"name\":\"getMaxProvingPeriod\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"pure\"},{\"type\":\"function\",\"name\":\"initChallengeWindowStart\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"pure\"},{\"type\":\"function\",\"name\":\"nextChallengeWindowStart\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"}]",
 }
 
 // IPDPProvingScheduleABI is the input ABI used to generate the binding from.
@@ -271,6 +271,37 @@ func (_IPDPProvingSchedule *IPDPProvingScheduleSession) GetMaxProvingPeriod() (u
 // Solidity: function getMaxProvingPeriod() pure returns(uint64)
 func (_IPDPProvingSchedule *IPDPProvingScheduleCallerSession) GetMaxProvingPeriod() (uint64, error) {
 	return _IPDPProvingSchedule.Contract.GetMaxProvingPeriod(&_IPDPProvingSchedule.CallOpts)
+}
+
+// InitChallengeWindowStart is a free data retrieval call binding the contract method 0xe402fffd.
+//
+// Solidity: function initChallengeWindowStart(uint256 setId) pure returns(uint256)
+func (_IPDPProvingSchedule *IPDPProvingScheduleCaller) InitChallengeWindowStart(opts *bind.CallOpts, setId *big.Int) (*big.Int, error) {
+	var out []interface{}
+	err := _IPDPProvingSchedule.contract.Call(opts, &out, "initChallengeWindowStart", setId)
+
+	if err != nil {
+		return *new(*big.Int), err
+	}
+
+	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
+
+	return out0, err
+
+}
+
+// InitChallengeWindowStart is a free data retrieval call binding the contract method 0xe402fffd.
+//
+// Solidity: function initChallengeWindowStart(uint256 setId) pure returns(uint256)
+func (_IPDPProvingSchedule *IPDPProvingScheduleSession) InitChallengeWindowStart(setId *big.Int) (*big.Int, error) {
+	return _IPDPProvingSchedule.Contract.InitChallengeWindowStart(&_IPDPProvingSchedule.CallOpts, setId)
+}
+
+// InitChallengeWindowStart is a free data retrieval call binding the contract method 0xe402fffd.
+//
+// Solidity: function initChallengeWindowStart(uint256 setId) pure returns(uint256)
+func (_IPDPProvingSchedule *IPDPProvingScheduleCallerSession) InitChallengeWindowStart(setId *big.Int) (*big.Int, error) {
+	return _IPDPProvingSchedule.Contract.InitChallengeWindowStart(&_IPDPProvingSchedule.CallOpts, setId)
 }
 
 // NextChallengeWindowStart is a free data retrieval call binding the contract method 0x8bf96d28.
