@@ -69,6 +69,7 @@ func main() {
 		fetchParamCmd,
 		ffiCmd,
 		calcCmd,
+		premiumCmd,
 	}
 
 	jaeger := tracing.SetupJaegerTracing("curio")
