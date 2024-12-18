@@ -62,7 +62,7 @@ type pollTask struct {
 
 SealPoller从数据库中检索所有`after_commit_msg_success`或`after_move_storage`不为真的`pollTasks`，并尝试在可能的情况下推进它们的状态。当一个`pollTask`的依赖项（由"after_"字段指示）完成，且任务本身尚未排队（其任务ID为nil）或完成（其"After"字段为false）时，就会推进该任务。每个pollTask的推进都会触发一个数据库事务，尝试用从HarmonyDB接收到的新任务ID更新任务ID。该事务确保在读取状态和更新任务ID之间，任务没有被其他人排队。这个轮询过程按顺序进行，每个阶段都有不同的条件，确保在继续之前满足所有先前的条件。如果一个任务由于其先前的依赖项未完成而无法继续，轮询器将在下一轮回来。大多数情况下，轮询器操作期间发生的错误会被记录，不会导致轮询器停止。但如果在数据库事务期间发生严重问题，它将被回滚，并给出详细的错误消息。通过这种方式组织工作，SealPoller确保密封程序中的每个步骤按正确的顺序发生，并在可能的情况下取得进展。它允许在考虑其他正在进行的任务的约束条件下，尽可能高效地密封扇区。
 
-<figure><img src="../.gitbook/assets/sealing-tasks.png" alt="密封任务执行"><figcaption><p>Curio harmony任务执行</p></figcaption></figure>
+<figure><img src="../.gitbook/assets/sealing-tasks.svg" width="800" alt="密封任务执行"><figcaption><p>Curio harmony任务执行</p></figcaption></figure>
 
 ## Piece Park
 ## 数据块停放
