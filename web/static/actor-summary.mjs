@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import '/lib/cu-wallet.mjs';
 
 class Expirations extends LitElement {
     static properties = {
@@ -249,7 +250,7 @@ class ActorSummary extends LitElement {
                 <tbody>
                 ${this.data.map(entry => html`
                     <tr>
-                        <td>${entry.Address}</td>
+                        <td><cu-wallet .wallet_id="${entry.Address}" /></td>
                         <td>
                             ${entry.CLayers.map(layer => html`<span>${layer} </span>`)}
                         </td>
