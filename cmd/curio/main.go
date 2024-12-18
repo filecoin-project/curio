@@ -63,6 +63,7 @@ func main() {
 		testCmd,
 		webCmd,
 		guidedsetup.GuidedsetupCmd,
+		guidedsetup.ServicesetupCmd,
 		sealCmd,
 		unsealCmd,
 		marketCmd,
