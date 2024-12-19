@@ -135,7 +135,7 @@ var runCmd = &cli.Command{
 			return xerrors.Errorf("starting market RPCs: %w", err)
 		}
 
-		err = rpc.ListenAndServe(ctx, dependencies, shutdownChan) // Monitor for shutdown.
+		err = rpc.ListenAndServe(ctx, dependencies, shutdownChan)
 		if err != nil {
 			return err
 		}
