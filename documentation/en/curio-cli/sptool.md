@@ -14,6 +14,7 @@ COMMANDS:
    info     Print miner actor info
    sectors  interact with sector store
    proving  View proving information
+   toolbox  some tools to fix some problems
    help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
@@ -485,6 +486,34 @@ NAME:
 
 USAGE:
    sptool proving faults [command options] [arguments...]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+## sptool toolbox
+```
+NAME:
+   sptool toolbox - some tools to fix some problems
+
+USAGE:
+   sptool toolbox command [command options] [arguments...]
+
+COMMANDS:
+   msg-finder  Perform db operations to fix issues with messages getting stuck
+   help, h     Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### sptool toolbox msg-finder
+```
+NAME:
+   sptool toolbox msg-finder - Perform db operations to fix issues with messages getting stuck
+
+USAGE:
+   sptool toolbox msg-finder [command options] [arguments...]
 
 OPTIONS:
    --help, -h  show help
