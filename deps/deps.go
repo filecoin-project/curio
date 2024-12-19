@@ -182,6 +182,7 @@ type Deps struct {
 	ListenAddr string
 	Name       string
 	Alert      *alertmanager.AlertNow
+	Prover     storiface.Prover
 }
 
 const (
@@ -346,6 +347,10 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 
 	if deps.Name == "" {
 		deps.Name = cctx.String("name")
+	}
+
+	if deps.Prover == nil {
+		deps.Prover = ffiwrapper.ProofProver
 	}
 
 	return nil

@@ -302,6 +302,13 @@ description: The default curio configuration
     # type: types.FIL
     #PerSector = "0.03 FIL"
 
+  [Fees.MaxUpdateBatchGasFee]
+    # type: types.FIL
+    #Base = "0 FIL"
+
+    # type: types.FIL
+    #PerSector = "0.03 FIL"
+
 
 [[Addresses]]
   #PreCommitControl = []
@@ -501,5 +508,55 @@ description: The default curio configuration
     #
     # type: string
     #WebHookURL = ""
+
+
+[Batching]
+  [Batching.PreCommit]
+    # Base fee value below which we should try to send Precommit messages immediately
+    #
+    # type: types.FIL
+    #BaseFeeThreshold = "0.005 FIL"
+
+    # Maximum amount of time any given sector in the batch can wait for the batch to accumulate
+    #
+    # type: Duration
+    #Timeout = "4h0m0s"
+
+    # Time buffer for forceful batch submission before sectors/deal in batch would start expiring
+    #
+    # type: Duration
+    #Slack = "6h0m0s"
+
+  [Batching.Commit]
+    # Base fee value below which we should try to send Commit messages immediately
+    #
+    # type: types.FIL
+    #BaseFeeThreshold = "0.005 FIL"
+
+    # Maximum amount of time any given sector in the batch can wait for the batch to accumulate
+    #
+    # type: Duration
+    #Timeout = "1h0m0s"
+
+    # Time buffer for forceful batch submission before sectors/deals in batch would start expiring
+    #
+    # type: Duration
+    #Slack = "1h0m0s"
+
+  [Batching.Update]
+    # Base fee value below which we should try to send Commit messages immediately
+    #
+    # type: types.FIL
+    #BaseFeeThreshold = "0.005 FIL"
+
+    # Maximum amount of time any given sector in the batch can wait for the batch to accumulate
+    #
+    # type: Duration
+    #Timeout = "1h0m0s"
+
+    # Time buffer for forceful batch submission before sectors/deals in batch would start expiring
+    #
+    # type: Duration
+    #Slack = "1h0m0s"
 
 ```
