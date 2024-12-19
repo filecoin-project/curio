@@ -71,6 +71,8 @@ type Local struct {
 	paths map[storiface.ID]*path
 
 	localLk sync.RWMutex
+
+	postLk atomic.Int32
 }
 
 type sectorFile struct {
@@ -604,6 +606,14 @@ func DoubleCallWrap(f func()) func() {
 }
 
 func (st *Local) AcquireSector(ctx context.Context, sid storiface.SectorRef, existing storiface.SectorFileType, allocate storiface.SectorFileType, pathType storiface.PathType, op storiface.AcquireMode, opts ...storiface.AcquireOption) (storiface.SectorPaths, storiface.SectorPaths, error) {
+	for st.postLk.Load() > 0 {
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return st.acquireSector(ctx, sid, existing, allocate, pathType, op, opts...)
+}
+
+func (st *Local) acquireSector(ctx context.Context, sid storiface.SectorRef, existing storiface.SectorFileType, allocate storiface.SectorFileType, pathType storiface.PathType, op storiface.AcquireMode, opts ...storiface.AcquireOption) (storiface.SectorPaths, storiface.SectorPaths, error) {
 	if existing|allocate != existing^allocate {
 		return storiface.SectorPaths{}, storiface.SectorPaths{}, xerrors.New("can't both find and allocate a sector")
 	}
@@ -952,6 +962,9 @@ func (st *Local) FsStat(ctx context.Context, id storiface.ID) (fsutil.FsStat, er
 }
 
 func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.ActorID, si storiface.PostSectorChallenge, ppt abi.RegisteredPoStProof) ([]byte, error) {
+	st.postLk.Add(1)
+	defer st.postLk.Add(-1)
+
 	sr := storiface.SectorRef{
 		ID: abi.SectorID{
 			Miner:  minerID,
@@ -963,7 +976,7 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 	var cache, sealed, cacheID, sealedID string
 
 	if si.Update {
-		src, si, err := st.AcquireSector(ctx, sr, storiface.FTUpdate|storiface.FTUpdateCache, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
+		src, si, err := st.acquireSector(ctx, sr, storiface.FTUpdate|storiface.FTUpdateCache, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
 		if err != nil {
 			// Record the error with tags
 			ctx, _ = tag.New(ctx,
@@ -977,7 +990,7 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 		cache, sealed = src.UpdateCache, src.Update
 		cacheID, sealedID = si.UpdateCache, si.Update
 	} else {
-		src, si, err := st.AcquireSector(ctx, sr, storiface.FTSealed|storiface.FTCache, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
+		src, si, err := st.acquireSector(ctx, sr, storiface.FTSealed|storiface.FTCache, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
 		if err != nil {
 			// Record the error with tags
 			ctx, _ = tag.New(ctx,
