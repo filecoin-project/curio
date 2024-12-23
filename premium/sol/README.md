@@ -12,7 +12,7 @@ npx hardhat node
 npx hardhat ignition deploy ./ignition/modules/Lock.js
 ```
 
-## Deploying the contract
+## Deploying the CurioMembership contract
 1. Mainnet
     ```shell
    npx hardhat deploy --network mainnet
@@ -27,5 +27,34 @@ npx hardhat ignition deploy ./ignition/modules/Lock.js
     ```shell
    npx hardhat deploy --network devnet
    ```
+   
+## Deploying the CurioMembershipStableCoin contract
+1. Ethereum/Sepolia
+    ```shell
+   npx hardhat run scripts/deployDestination.js --network ethereum
+   ```
+   or
+   ```shell
+   npx hardhat run scripts/deployDestination.js --network ethereumsepolia
+   ```
+
+2. Polygon/Sepolia
+    ```shell
+   npx hardhat run scripts/deployDestination.js --network polygon
+   ```
+   or
+   ```shell
+   npx hardhat run scripts/deployDestination.js --network polygonsepolia
+   ```
+
+3. Arbitrum/Sepolia
+    ```shell
+   npx hardhat run scripts/deployDestination.js --network arbitrum
+   ```
+   or
+   ```shell
+   npx hardhat run scripts/deployDestination.js --network arbitrumsepolia
+   ```
 
 Once the contract is deployed, we must update the value of constant `contractABI` in file `curio/cmd/sptool/premium.go` with content of file `curio/premium/sol/artifacts/contracts/CurioMembership.sol/CurioMembership.json`
+

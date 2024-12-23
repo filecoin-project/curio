@@ -3,6 +3,7 @@ import { Contract, toBigInt } from "ethers";
 import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 
 import { expect } from "chai";
+import {address} from "hardhat/internal/core/config/config-validation";
 
 /* From the keymaker: (a different keymaker output is used in production)
 The private key in hexadecimal format
@@ -29,45 +30,28 @@ describe("CurioMembership", function () {
     const [owner, otherAccount] = await ethers.getSigners();
 
     const fundsDestWallet = await ethers.Wallet.createRandom();
+    const gw = await ethers.Wallet.createRandom();
+    const gs = await ethers.Wallet.createRandom();
     const myContractType = await ethers.getContractFactory("CurioMembership");
-    const contract = await myContractType.deploy(fundsDestWallet.address, rateChangeSignerAddress);
+    const contract = await myContractType.deploy(rateChangeSignerAddress, gw, gs);
  
-    console.log(contract);
+    //console.log(contract);
     return { contract, owner, fundsDestWallet, otherAccount };
   }
   describe("Deployment", function () {
     it("Should know its admin", async function () {
       const { contract, owner } = await loadFixture(deployCurioMembershipFixture);
-      expect(await contract.admin()).to.equal(owner);
-    });
-
-    it("Should know its funds Dest", async function () {
-      const { contract, owner, fundsDestWallet } = await loadFixture(deployCurioMembershipFixture);
-      expect(await contract.fundsReceiver()).to.equal(fundsDestWallet.address);
+      expect(await contract.serviceProvider()).to.equal(owner);
     });
   });
 
   describe("Changes", function () {
-    it("Should allow fundsDest change by admin", async function () {
-      const { contract, owner } = await loadFixture(deployCurioMembershipFixture);
-      // Create a new wallet to receive funds
-      const otherAccount = await ethers.Wallet.createRandom();
-
-      await contract.connect(owner).getFunction('changeFundsReceiver')(otherAccount.address);
-      expect(await contract.fundsReceiver()).to.equal(otherAccount.address);
-    });
-
-    it("Should forbid fundsDest change by non-admin", async function () {
-      const { contract, owner, otherAccount } = await loadFixture(deployCurioMembershipFixture);
-      await expect(contract.connect(otherAccount).getFunction('changeFundsReceiver')(otherAccount.address)).to.be.revertedWith("Only admin can perform this action");
-    });
-
     it("Should allow a signed rate change", async function () {
       const { contract, owner, otherAccount, fundsDestWallet } = await loadFixture(deployCurioMembershipFixture);
       var now = (+new Date() / 1000)|0;
       var rate = 2000;
       var {signature, sig, packedMessage, messageHash} = await sign(rate, now);
-      console.log("rate", rate, "\nnow", now, "\nsignature", signature, "\nsig", sig, "\npackedMessage", packedMessage, "\nmessageHash", messageHash);
+      //console.log("rate", rate, "\nnow", now, "\nsignature", signature, "\nsig", sig, "\npackedMessage", packedMessage, "\nmessageHash", messageHash);
       //ethers.Signature.getNormalizedV(sig.v);
       //const recoveredAddress = ethers.Signature.verify(messageHash, signature);
       //expect(recoveredAddress).to.equal(rateChangeSignerAddress);
@@ -84,13 +68,13 @@ describe("CurioMembership", function () {
         //to.emit(contract, "DebugRecoveredSigner").withArgs(rateChangeSignerAddress). // <-- here's the failure
         to.emit(contract, "ExchangeRateUpdated").withArgs(rate, now);
 
-      expect(await contract.exchangeRate()).to.equal(rate);
+      expect(await contract.exchangeRateGLOBAL()).to.equal(rate);
     });
 
     it("Should forbid a rate change with a bad signature", async function () {
       const { contract, owner, otherAccount, fundsDestWallet } = await loadFixture(deployCurioMembershipFixture);
       var now = (+new Date() / 1000)|0;
-      var rate = 2000;
+      var rate = 1000;
       var {signature, sig, packedMessage, messageHash} = await sign(rate, now);
       var fn = await expect(contract.connect(owner).getFunction('setExchangeRate')(packedMessage, atob("SGVsbG8sIHdvcmxk")));
       fn.to.be.revertedWith("Exchange rate update is too old");
@@ -99,45 +83,38 @@ describe("CurioMembership", function () {
     it("Should forbid a rate change from the distant past", async function () {
       const { contract, owner, otherAccount, fundsDestWallet } = await loadFixture(deployCurioMembershipFixture);
       var now = (+new Date("2005-01-01") / 1000)|0;
-      var rate = 2000;
+      var rate = 1000;
       var {signature, sig, packedMessage, messageHash} = await sign(rate, now);
       var fn = await expect(contract.connect(owner).getFunction('setExchangeRate')(packedMessage, atob("SGVsbG8sIHdvcmxk")));
       fn.to.be.revertedWith("Exchange rate update is too old");
     });
   });
   describe("Pay", function() {
-    it("Should allow pay() happy path for 500 with emit and updated pay record", async function() {
-      const { contract, owner, otherAccount, fundsDestWallet } = await loadFixture(deployCurioMembershipFixture);
-      var now = (+new Date() / 1000)|0;
-      var {signature, sig, packedMessage, messageHash} = await sign(1000,now);
-
-      await expect(contract.connect(owner).getFunction('pay')("pCU1234", packedMessage, signature, {value: BigInt(500_000)})).
-       to.emit(contract, "PaymentMade").withArgs("pCU1234", owner.address, 500_000, 1);
-
-       expect((await contract.paymentRecords("pCU1234"))[1]).to.equal(1);
-    });
-
-    it("Should allow pay() happy path for 2000 with emit and updated pay record", async function() {
+    it("Should allow pay() happy path for 1000 with emit and updated pay record", async function() {
       const { contract, owner, otherAccount, fundsDestWallet } = await loadFixture(deployCurioMembershipFixture);
 
       var {signature, sig, packedMessage, messageHash} = await sign(1000, (+new Date() / 1000)|0);
 
-      await expect(contract.connect(owner).getFunction('pay')("tCU5678", packedMessage, signature, {value: 2_000_000})).
-      to.emit(contract, "PaymentMade").withArgs("tCU5678", owner.address, 2_000_000, 2);
+      await expect(contract.connect(owner).getFunction('payWithFil')("tCU5678", packedMessage, signature, {value: 1_000_000})).
+      to.emit(contract, "PaymentMade").withArgs("tCU5678", owner.address, 1_000_000);
 
-      expect((await contract.paymentRecords("tCU5678"))[1]).to.equal(2);
+      const record = await contract.FilPaymentRecords(1);
+      console.log("MachineId for record 1:", record.machineId);
+      expect(record.machineId).to.equal("tCU5678");
+      expect(record.amount).to.equal(1000*1000)
+
       // TODO verify event log entry
     });
 
     it("Should forbid pay() for 100", async function() {
       const { contract, owner, otherAccount, fundsDestWallet } = await loadFixture(deployCurioMembershipFixture);
-      var fn = await expect(contract.connect(owner).getFunction('pay')(100));
+      var fn = await expect(contract.connect(owner).getFunction('payWithFil')(100));
       fn.to.be.revertedWith("Incorrect payment amount");
     });
 
     it("Should forbid pay() with outdated rate", async function() {
       const { contract, owner, otherAccount, fundsDestWallet } = await loadFixture(deployCurioMembershipFixture);
-      var fn = await expect(contract.connect(owner).getFunction('pay')(500));
+      var fn = await expect(contract.connect(owner).getFunction('payWithFil')(1000));
       fn.to.be.revertedWith("Exchange rate is outdated");
     });
   })
