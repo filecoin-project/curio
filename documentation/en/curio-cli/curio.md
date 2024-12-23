@@ -111,14 +111,16 @@ DESCRIPTION:
       
 
 OPTIONS:
-   --init                                 initialize the path first (default: false)
-   --weight value                         (for init) path weight (default: 10)
-   --seal                                 (for init) use path for sealing (default: false)
-   --store                                (for init) use path for long-term storage (default: false)
-   --max-storage value                    (for init) limit storage space for sectors (expensive for very large paths!)
-   --groups value [ --groups value ]      path group names
-   --allow-to value [ --allow-to value ]  path groups allowed to pull data from this path (allow all if not specified)
-   --help, -h                             show help
+   --init                                       initialize the path first (default: false)
+   --weight value                               (for init) path weight (default: 10)
+   --seal                                       (for init) use path for sealing (default: false)
+   --store                                      (for init) use path for long-term storage (default: false)
+   --max-storage value                          (for init) limit storage space for sectors (expensive for very large paths!)
+   --groups value [ --groups value ]            path group names
+   --allow-to value [ --allow-to value ]        path groups allowed to pull data from this path (allow all if not specified)
+   --allow-types value [ --allow-types value ]  file types to allow storing in this path
+   --deny-types value [ --deny-types value ]    file types to deny storing in this path
+   --help, -h                                   show help
 ```
 
 #### curio cli storage detach

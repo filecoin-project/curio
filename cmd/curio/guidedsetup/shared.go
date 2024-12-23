@@ -241,6 +241,7 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 		}
 
 		// Express as new toml to avoid adding StorageRPCSecret in more than 1 layer
+		curioCfg.Apis.StorageRPCSecret = ""
 		ct := &bytes.Buffer{}
 		if err = toml.NewEncoder(ct).Encode(curioCfg); err != nil {
 			return minerAddress, err
