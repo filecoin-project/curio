@@ -57,7 +57,7 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
                 FROM pdp_proof_sets
                 WHERE challenge_request_task_id IS NULL
                 AND init_ready AND prove_at_epoch IS NULL
-            `, apply.Height())
+            `)
 		if err != nil && err != sql.ErrNoRows {
 			return xerrors.Errorf("failed to select proof sets needing nextProvingPeriod: %w", err)
 		}
