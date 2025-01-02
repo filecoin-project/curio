@@ -103,7 +103,7 @@ func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCr
 
 	// Get the proving period from the listener
 	// Assumption: listener is a PDP Service with proving window informational methods
-	provingPeriod, challengeWindow, err := getProvingPeriodChallengeWindow(ctx, ethClient, listenerAddr, proofSetId)
+	provingPeriod, challengeWindow, err := getProvingPeriodChallengeWindow(ctx, ethClient, listenerAddr)
 	if err != nil {
 		return xerrors.Errorf("failed to get max proving period: %w", err)
 	}
@@ -157,12 +157,12 @@ func insertProofSet(ctx context.Context, db *harmonydb.DB, createMsg string, pro
 	// Adjust the SQL statement based on your table schema
 	_, err := db.Exec(ctx, `
         INSERT INTO pdp_proof_sets (id, create_message_hash, service, proving_period, prove_at_epoch)
-        VALUES ($1, $2, $3, $4, $5, $6, NULL)
+        VALUES ($1, $2, $3, $4, $5)
     `, proofSetId, createMsg, service, provingPeriod, challengeWindow)
 	return err
 }
 
-func getProvingPeriodChallengeWindow(ctx context.Context, ethClient *ethclient.Client, listenerAddr common.Address, proofSetId uint64) (uint64, uint64, error) {
+func getProvingPeriodChallengeWindow(ctx context.Context, ethClient *ethclient.Client, listenerAddr common.Address) (uint64, uint64, error) {
 	// ProvingPeriod
 	schedule, err := contract.NewIPDPProvingSchedule(listenerAddr, ethClient)
 	if err != nil {
