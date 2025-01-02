@@ -156,7 +156,7 @@ func insertProofSet(ctx context.Context, db *harmonydb.DB, createMsg string, pro
 	// Implement the insertion into pdp_proof_sets table
 	// Adjust the SQL statement based on your table schema
 	_, err := db.Exec(ctx, `
-        INSERT INTO pdp_proof_sets (id, create_message_hash, service, proving_period, prove_at_epoch)
+        INSERT INTO pdp_proof_sets (id, create_message_hash, service, proving_period, challenge_window)
         VALUES ($1, $2, $3, $4, $5)
     `, proofSetId, createMsg, service, provingPeriod, challengeWindow)
 	return err
