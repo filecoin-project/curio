@@ -165,8 +165,9 @@ if [ ! -d "deps/sppark" ]; then
     git clone --branch v0.1.10 https://github.com/supranational/sppark.git deps/sppark
 fi
 if [ ! -d "deps/blst" ]; then
-    git clone --branch bef14ca512ea575aff6f661fdad794263938795d https://github.com/supranational/blst.git deps/blst
+    git clone https://github.com/supranational/blst.git deps/blst
     (cd deps/blst
+    git checkout bef14ca512ea575aff6f661fdad794263938795d
      ./build.sh -march=native)
 fi
 
