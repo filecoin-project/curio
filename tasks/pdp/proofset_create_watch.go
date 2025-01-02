@@ -180,15 +180,5 @@ func getProvingPeriodChallengeWindow(ctx context.Context, ethClient *ethclient.C
 		return 0, 0, xerrors.Errorf("failed to get challenge window: %w", err)
 	}
 
-	// Validate that we CAN query next challenge window start once data is added
-	// It should be 0 without data added to the proof set
-	nextProveAt, err := schedule.NextChallengeWindowStart(&bind.CallOpts{Context: ctx}, big.NewInt(int64(proofSetId)))
-	if err != nil {
-		return 0, 0, xerrors.Errorf("failed to get next challenge window start: %w", err)
-	}
-	if nextProveAt.Cmp(big.NewInt(0)) != 0 {
-		return 0, 0, xerrors.Errorf("failed to get expected next challenge window start: %w", err)
-	}
-
 	return period, challengeWindow.Uint64(), nil
 }

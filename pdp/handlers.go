@@ -528,13 +528,11 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 	// check if the proofset belongs to the service in pdp_proof_sets
 
 	var proofSetService string
-	var provingPeriod uint64
-	var challengeWindow uint64
 	err = p.db.QueryRow(ctx, `
-			SELECT service, proving_period, challenge_window
+			SELECT service, 
 			FROM pdp_proof_sets
 			WHERE id = $1
-		`, proofSetIDUint64).Scan(&proofSetService, &provingPeriod, &challengeWindow)
+		`, proofSetIDUint64).Scan(&proofSetService)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			http.Error(w, "Proof set not found", http.StatusNotFound)
