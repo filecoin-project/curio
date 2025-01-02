@@ -249,7 +249,7 @@ func (p *PDPService) insertMessageWaitsAndProofsetCreate(ctx context.Context, tx
 		// Insert into pdp_proofset_creates
 		_, err = tx.Exec(`
             INSERT INTO pdp_proofset_creates (create_message_hash, service)
-            VALUES ($1, $2, $3)
+            VALUES ($1, $2)
         `, txHashHex, serviceLabel)
 		if err != nil {
 			return false, err // Return false to rollback the transaction
