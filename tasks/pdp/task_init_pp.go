@@ -221,7 +221,7 @@ func (ipp *InitProvingPeriodTask) CanAccept(ids []harmonytask.TaskID, engine *ha
 
 func (ipp *InitProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PDPInitProvingPeriod",
+		Name: "PDPInitPP",
 		Cost: resources.Resources{
 			Cpu: 0,
 			Gpu: 0,
