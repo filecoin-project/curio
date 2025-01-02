@@ -143,8 +143,8 @@ LDFLAGS="-fno-omit-frame-pointer -Wl,-z,relro,-z,now -Wl,-z,noexecstack -fuse-ld
          -pthread -lrt -luuid -lssl -lcrypto -lm -laio"
 
 # Check for the default result directory
-# if [ ! -d "/var/tmp/supra_seal" ]; then
-#    mkdir -p /var/tmp/supra_seal
+# if [ ! -d "/var/tmp/supraseal" ]; then
+#    mkdir -p /var/tmp/supraseal
 # fi
 
 rm -fr obj

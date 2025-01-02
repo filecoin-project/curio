@@ -58,7 +58,7 @@ echo "************************************************************"
 mkdir -p $test_dir/tree-r_test_512MiB_rand
 ./bin/tree_r -l $cache_512MiB_rand/sc-02-data-layer-2.dat -d $cache_512MiB_rand/staged-file -o $test_dir/tree-r_test_512MiB_rand -b 512MiB
 # Only the root of r is written to p_aux
-cmp -i 32 ../cache_benchy_run_512MiB_rand/p_aux /var/tmp/supra_seal/test_tmp/tree-r_test_512MiB_rand/p_aux
+cmp -i 32 ../cache_benchy_run_512MiB_rand/p_aux /var/tmp/supraseal/test_tmp/tree-r_test_512MiB_rand/p_aux
 cmp $cache_512MiB_rand/sc-02-data-tree-r-last.dat $test_dir/tree-r_test_512MiB_rand/sc-02-data-tree-r-last.dat
 cmp $cache_512MiB_rand/sealed-file $test_dir/tree-r_test_512MiB_rand/sealed-file
 
@@ -92,7 +92,7 @@ echo "************************************************************"
 mkdir -p $test_dir/tree-r_test_32GiB
 ./bin/tree_r -l $cache_32GiB/sc-02-data-layer-11.dat -d $cache_32GiB/staged-file -o $test_dir/tree-r_test_32GiB -b 32GiB
 # Only the root of r is written to p_aux
-cmp -i 32 ../cache_benchy_run_32GiB/p_aux /var/tmp/supra_seal/test_tmp/tree-r_test_32GiB/p_aux
+cmp -i 32 ../cache_benchy_run_32GiB/p_aux /var/tmp/supraseal/test_tmp/tree-r_test_32GiB/p_aux
 cmp $cache_32GiB/sc-02-data-tree-r-last-0.dat $test_dir/tree-r_test_32GiB/sc-02-data-tree-r-last-0.dat
 cmp $cache_32GiB/sc-02-data-tree-r-last-1.dat $test_dir/tree-r_test_32GiB/sc-02-data-tree-r-last-1.dat
 
