@@ -84,8 +84,8 @@ CREATE TABLE pdp_proof_sets (
     challenge_request_msg_hash TEXT,
 
     -- the proving period for this proofset and the challenge window duration
-    proving_period BIGINT NOT NULL,
-    challenge_window BIGINT NOT NULL,
+    proving_period BIGINT, 
+    challenge_window BIGINT,
 
     -- the epoch at which the next challenge window starts and proofs can be submitted
     -- initialized to NULL indicating a special proving period init task handles challenge generation
