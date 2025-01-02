@@ -36,7 +36,6 @@ build/.blst-install: $(BLST_PATH)
 	bash scripts/build-blst.sh
 	@touch $@
 
-MODULES+=$(BLST_PATH)
 BUILD_DEPS+=build/.blst-install
 CLEAN+=build/.blst-install
 
@@ -53,7 +52,6 @@ build/.supraseal-install: $(SUPRA_FFI_PATH)
 	cd $(SUPRA_FFI_PATH) && ./build.sh
 	@touch $@
 
-# MODULES+=$(SUPRA_FFI_PATH) -- already included in BLST_PATH
 CLEAN+=build/.supraseal-install
 endif
 
@@ -103,7 +101,7 @@ ifeq ($(shell uname),Linux)
 
 batchdep: build/.supraseal-install
 batchdep: $(BUILD_DEPS)
-,PHONY: batchdep
+.PHONY: batchdep
 
 batch: CURIO_TAGS+= supraseal
 batch: CGO_LDFLAGS_ALLOW='.*'
