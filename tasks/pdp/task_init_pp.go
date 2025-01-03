@@ -3,8 +3,10 @@ package pdp
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/xerrors"
@@ -119,10 +121,24 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	}
 
 	// Determine the next challenge window start by consulting the listener
+	fmt.Printf("Listener addr: %v\n", listenerAddr.Hex())
 	provingSchedule, err := contract.NewIPDPProvingSchedule(listenerAddr, ipp.ethClient)
 	if err != nil {
 		return false, xerrors.Errorf("failed to create proving schedule binding, check that listener has proving schedule methods: %w", err)
 	}
+
+	period, err := provingSchedule.GetMaxProvingPeriod(&bind.CallOpts{Context: ctx})
+	if err != nil {
+		return false, xerrors.Errorf("failed to get proving period: %w", err)
+	}
+
+	// ChallengeWindow
+	challengeWindow, err := provingSchedule.ChallengeWindow(&bind.CallOpts{Context: ctx})
+	if err != nil {
+		return false, xerrors.Errorf("failed to get challenge window: %w", err)
+	}
+	fmt.Printf("successfully got period %v and challengeWindow %v\n", period, challengeWindow)
+
 	init_prove_at, err := provingSchedule.InitChallengeWindowStart(nil, big.NewInt(proofSetID))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get next challenge window start: %w", err)
