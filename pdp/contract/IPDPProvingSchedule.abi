@@ -41,13 +41,7 @@
   {
     "type": "function",
     "name": "initChallengeWindowStart",
-    "inputs": [
-      {
-        "name": "setId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
+    "inputs": [],
     "outputs": [
       {
         "name": "",
