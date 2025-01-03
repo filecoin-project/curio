@@ -1185,6 +1185,282 @@
       "translation": "更多信息请访问 http://docs.curiostorage.org",
       "message": "Additional info is at http://docs.curiostorage.org",
       "placeholder": null
+    },
+    {
+      "id": "Not adding DB variables to RC file as shell {Shell} is not BASH or ZSH.",
+      "translation": "由于 shell {Shell} 不是 BASH 或 ZSH，因此未将数据库变量添加到 RC 文件中。",
+      "message": "Not adding DB variables to RC file as shell {Shell} is not BASH or ZSH.",
+      "placeholder": null
+    },
+    {
+      "id": "Error getting user home directory:",
+      "translation": "获取用户主目录时出错:",
+      "message": "Error getting user home directory:",
+      "placeholder": null
+    },
+    {
+      "id": "Error opening {RcFile} file: {Err}",
+      "translation": "打开文件 {RcFile} 时出错: {Err}",
+      "message": "Error opening {RcFile} file: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Error reading {RcFile} file: {Err}",
+      "translation": "读取文件 {RcFile} 时出错: {Err}",
+      "message": "Error reading {RcFile} file: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Error opening {RcFile} file in write mode:",
+      "translation": "以写入模式打开文件 {RcFile} 时出错:",
+      "message": "Error opening {RcFile} file in write mode:",
+      "placeholder": null
+    },
+    {
+      "id": "Error writing to {RcFile} file: {Err}",
+      "translation": "写入文件 {RcFile} 时出错: {Err}",
+      "message": "Error writing to {RcFile} file: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Failed to flush thw writes to file {RcFile}: {Err}",
+      "translation": "无法将写入内容刷新到文件 {RcFile}: {Err}",
+      "message": "Failed to flush thw writes to file {RcFile}: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Retrying.......({I}/5)",
+      "translation": "重试中.......({I}/5)",
+      "message": "Retrying.......({I}/5)",
+      "placeholder": null
+    },
+    {
+      "id": "Execute 'curio service-setup' to setup the Curio service on this node and proceed to do the same on the other nodes",
+      "translation": "执行 'curio service-setup' 以在此节点上设置 Curio 服务，并在其他节点上执行相同操作",
+      "message": "Execute 'curio service-setup' to setup the Curio service on this node and proceed to do the same on the other nodes",
+      "placeholder": null
+    },
+    {
+      "id": "This interactive tool creates/replace Curio service file and creates the basic env file for it.",
+      "translation": "此交互式工具创建/替换 Curio 服务文件并为其创建基本的 env 文件。",
+      "message": "This interactive tool creates/replace Curio service file and creates the basic env file for it.",
+      "placeholder": null
+    },
+    {
+      "id": "This process is idempotent.",
+      "translation": "此过程是幂等的。",
+      "message": "This process is idempotent.",
+      "placeholder": null
+    },
+    {
+      "id": "Service file {ServiceName} already exists at {ServicePath}, no changes made.",
+      "translation": "服务文件 {ServiceName} 已存在于 {ServicePath}，未做任何更改。",
+      "message": "Service file {ServiceName} already exists at {ServicePath}, no changes made.",
+      "placeholder": null
+    },
+    {
+      "id": "Error checking for service file at {ServicePath}: {Err}",
+      "translation": "检查 {ServicePath} 的服务文件时出错: {Err}",
+      "message": "Error checking for service file at {ServicePath}: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Error writing service file: {Err}",
+      "translation": "写入服务文件时出错: {Err}",
+      "message": "Error writing service file: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Service file {ServiceName} created successfully at {TargetServicePath}",
+      "translation": "服务文件 {ServiceName} 已成功创建于 {TargetServicePath}",
+      "message": "Service file {ServiceName} created successfully at {TargetServicePath}",
+      "placeholder": null
+    },
+    {
+      "id": "Error reloading systemd: {Err}",
+      "translation": "重新加载 systemd 时出错: {Err}",
+      "message": "Error reloading systemd: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Error enabling service: {Err}",
+      "translation": "启用服务时出错: {Err}",
+      "message": "Error enabling service: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Service {ServiceName} enabled.",
+      "translation": "服务 {ServiceName} 已启用。",
+      "message": "Service {ServiceName} enabled.",
+      "placeholder": null
+    },
+    {
+      "id": "Enter the info to configure your Curio node",
+      "translation": "输入信息以配置您的 Curio 节点",
+      "message": "Enter the info to configure your Curio node",
+      "placeholder": null
+    },
+    {
+      "id": "CURIO_LAYERS: {}",
+      "translation": "CURIO_LAYERS: {}",
+      "message": "CURIO_LAYERS: {}",
+      "placeholder": null
+    },
+    {
+      "id": "CURIO_REPO_PATH: {Curio}",
+      "translation": "CURIO_REPO_PATH: {Curio}",
+      "message": "CURIO_REPO_PATH: {Curio}",
+      "placeholder": null
+    },
+    {
+      "id": "CURIO_NODE_NAME: {}",
+      "translation": "CURIO_NODE_NAME: {}",
+      "message": "CURIO_NODE_NAME: {}",
+      "placeholder": null
+    },
+    {
+      "id": "Continue update the env file.",
+      "translation": "继续更新 env 文件。",
+      "message": "Continue update the env file.",
+      "placeholder": null
+    },
+    {
+      "id": "Env config error occurred, abandoning: {Error}",
+      "translation": "发生环境配置错误，放弃中: {Error}",
+      "message": "Env config error occurred, abandoning: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "Enter the config layer name to use for this node. Base is already included by default",
+      "translation": "输入此节点要使用的配置层名称。默认情况下已包含 Base",
+      "message": "Enter the config layer name to use for this node. Base is already included by default",
+      "placeholder": null
+    },
+    {
+      "id": "No layer provided",
+      "translation": "未提供层",
+      "message": "No layer provided",
+      "placeholder": null
+    },
+    {
+      "id": "Enter the {Stringrepo_path_node_namei_1}",
+      "translation": "输入 {Stringrepo_path_node_namei_1}",
+      "message": "Enter the {Stringrepo_path_node_namei_1}",
+      "placeholder": null
+    },
+    {
+      "id": "Error opening or creating file {EnvFilePath}: {Err}",
+      "translation": "打开或创建文件 {EnvFilePath} 时出错: {Err}",
+      "message": "Error opening or creating file {EnvFilePath}: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Error writing to file {EnvFilePath}: {Err}",
+      "translation": "写入文件 {EnvFilePath} 时出错: {Err}",
+      "message": "Error writing to file {EnvFilePath}: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Service env file /etc/curio.env created successfully.",
+      "translation": "服务环境文件 /etc/curio.env 已成功创建。",
+      "message": "Service env file /etc/curio.env created successfully.",
+      "placeholder": null
+    },
+    {
+      "id": "Do you wish to add Harmony DB credentials to your ~/.bashrc or ~/.zshrc file?",
+      "translation": "您是否希望将 Harmony DB 凭据添加到 ~/.bashrc 或 ~/.zshrc 文件中？",
+      "message": "Do you wish to add Harmony DB credentials to your ~/.bashrc or ~/.zshrc file?",
+      "placeholder": null
+    },
+    {
+      "id": "Yes",
+      "translation": "是",
+      "message": "Yes",
+      "placeholder": null
+    },
+    {
+      "id": "No",
+      "translation": "否",
+      "message": "No",
+      "placeholder": null
+    },
+    {
+      "id": "Error closing {RcFile} file: {Err}",
+      "translation": "关闭 {RcFile} 文件时出错: {Err}",
+      "message": "Error closing {RcFile} file: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE.",
+      "translation": "添加 FIL_PROOFS_PARAMETER_CACHE 等其他变量。",
+      "message": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE.",
+      "placeholder": null
+    },
+    {
+      "id": "Do you want to add additional variables like FIL_PROOFS_PARAMETER_CACHE? (y/n)",
+      "translation": "您是否希望添加 FIL_PROOFS_PARAMETER_CACHE 等其他变量？(y/n)",
+      "message": "Do you want to add additional variables like FIL_PROOFS_PARAMETER_CACHE? (y/n)",
+      "placeholder": null
+    },
+    {
+      "id": "No additional variables added",
+      "translation": "未添加其他变量",
+      "message": "No additional variables added",
+      "placeholder": null
+    },
+    {
+      "id": "Error reading input: {Err}",
+      "translation": "读取输入时出错: {Err}",
+      "message": "Error reading input: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Skipping invalid input: {EnvVar}",
+      "translation": "跳过无效输入: {EnvVar}",
+      "message": "Skipping invalid input: {EnvVar}",
+      "placeholder": null
+    },
+    {
+      "id": "Start typing your additional environment variables one variable per line. Use Ctrl+D to finish:",
+      "translation": "开始输入您的附加环境变量，每行一个变量。使用 Ctrl+D 完成输入:",
+      "message": "Start typing your additional environment variables one variable per line. Use Ctrl+D to finish:",
+      "placeholder": null
+    },
+    {
+      "id": "Failed to flush the writes to file {RcFile}: {Err}",
+      "translation": "未能将写入数据刷新到文件 {RcFile}：{Err}",
+      "message": "Failed to flush the writes to file {RcFile}: {Err}",
+      "placeholder": null
+    },
+    {
+      "id": "Finished updating the {RcFile} file",
+      "translation": "已完成 {RcFile} 文件的更新",
+      "message": "Finished updating the {RcFile} file",
+      "placeholder": null
+    },
+    {
+      "id": "CURIO_LAYERS: {Layers}",
+      "translation": "CURIO_LAYERS: {Layers}",
+      "message": "CURIO_LAYERS: {Layers}",
+      "placeholder": null
+    },
+    {
+      "id": "CURIO_REPO_PATH: {RepoPath}",
+      "translation": "CURIO_REPO_PATH: {RepoPath}",
+      "message": "CURIO_REPO_PATH: {RepoPath}",
+      "placeholder": null
+    },
+    {
+      "id": "CURIO_NODE_NAME: {NodeName}",
+      "translation": "CURIO_NODE_NAME: {NodeName}",
+      "message": "CURIO_NODE_NAME: {NodeName}",
+      "placeholder": null
+    },
+    {
+      "id": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE: {EnvVars}",
+      "translation": "添加其他变量，例如 FIL_PROOFS_PARAMETER_CACHE: {EnvVars}",
+      "message": "Add additional variables like FIL_PROOFS_PARAMETER_CACHE: {EnvVars}",
+      "placeholder": null
     }
   ]
 }
