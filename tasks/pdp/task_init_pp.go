@@ -92,15 +92,13 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	ctx := context.Background()
 
 	// Select the proof set where challenge_request_task_id = taskID
-	var proofSet struct {
-		ID int64 `db:"id"`
-	}
+	var proofSetID int64
 
 	err = ipp.db.QueryRow(ctx, `
         SELECT id
         FROM pdp_proof_sets
         WHERE challenge_request_task_id = $1 
-    `, taskID).Scan(&proofSet)
+    `, taskID).Scan(&proofSetID)
 	if err == sql.ErrNoRows {
 		// No matching proof set, task is done (something weird happened, and e.g another task was spawned in place of this one)
 		return true, nil
@@ -115,9 +113,9 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
 	}
 
-	listenerAddr, err := pdpVerifier.GetProofSetListener(nil, big.NewInt(proofSet.ID))
+	listenerAddr, err := pdpVerifier.GetProofSetListener(nil, big.NewInt(proofSetID))
 	if err != nil {
-		return false, xerrors.Errorf("failed to get listener address for proof set %d: %w", proofSet.ID, err)
+		return false, xerrors.Errorf("failed to get listener address for proof set %d: %w", proofSetID, err)
 	}
 
 	// Determine the next challenge window start by consulting the listener
@@ -125,7 +123,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	if err != nil {
 		return false, xerrors.Errorf("failed to create proving schedule binding, check that listener has proving schedule methods: %w", err)
 	}
-	init_prove_at, err := provingSchedule.InitChallengeWindowStart(nil, big.NewInt(proofSet.ID))
+	init_prove_at, err := provingSchedule.InitChallengeWindowStart(nil, big.NewInt(proofSetID))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get next challenge window start: %w", err)
 	}
@@ -140,7 +138,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 		return false, xerrors.Errorf("failed to get PDPVerifier ABI: %w", err)
 	}
 
-	data, err := abiData.Pack("nextProvingPeriod", big.NewInt(proofSet.ID), init_prove_at, []byte{})
+	data, err := abiData.Pack("nextProvingPeriod", big.NewInt(proofSetID), init_prove_at, []byte{})
 	if err != nil {
 		return false, xerrors.Errorf("failed to pack data: %w", err)
 	}
@@ -160,7 +158,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 		return false, nil
 	}
 
-	fromAddress, _, err := pdpVerifier.GetProofSetOwner(nil, big.NewInt(proofSet.ID))
+	fromAddress, _, err := pdpVerifier.GetProofSetOwner(nil, big.NewInt(proofSetID))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get default sender address: %w", err)
 	}
