@@ -70,9 +70,9 @@ SupraSeal 是一个针对 Filecoin 优化的批量封装实现，允许并行封
 在进行进一步配置之前，请确保对原始 NVME IOPS 进行基准测试，以验证是否满足 IOPS 要求。
 
 ```bash
-cd extern/supra_seal/deps/spdk-v22.09/
+cd extern/supraseal/deps/spdk-v22.09/
 
-# repeat -b with all devices you plan to use with supra_seal
+# repeat -b with all devices you plan to use with supraseal
 # 注意：您需要测试所有设备，以便查看系统中是否存在任何瓶颈
 
 ./build/examples/perf -b 0000:85:00.0 -b 0000:86:00.0...  -q 64 -o 4096 -w randread -t 10
@@ -312,7 +312,7 @@ Hugepagesize:    1048576 kB
 {% endhint %}
 
 ```bash
-cd extern/supra_seal/deps/spdk-v22.09/
+cd extern/supraseal/deps/spdk-v22.09/
 env NRHUGE=36 ./scripts/setup.sh
 ```
 
