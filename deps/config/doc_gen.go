@@ -37,6 +37,26 @@ var Doc = map[string][]DocField{
 			Comment: ``,
 		},
 	},
+	"CommitBatchingConfig": {
+		{
+			Name: "BaseFeeThreshold",
+			Type: "types.FIL",
+
+			Comment: `Base fee value below which we should try to send Commit messages immediately`,
+		},
+		{
+			Name: "Timeout",
+			Type: "Duration",
+
+			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate`,
+		},
+		{
+			Name: "Slack",
+			Type: "Duration",
+
+			Comment: `Time buffer for forceful batch submission before sectors/deals in batch would start expiring`,
+		},
+	},
 	"CurioAddresses": {
 		{
 			Name: "PreCommitControl",
@@ -106,6 +126,26 @@ alerts will be triggered for the wallet`,
 			Comment: `SlackWebhookConfig is a configuration type for Slack webhook integration.`,
 		},
 	},
+	"CurioBatchingConfig": {
+		{
+			Name: "PreCommit",
+			Type: "PreCommitBatchingConfig",
+
+			Comment: `Precommit Batching configuration`,
+		},
+		{
+			Name: "Commit",
+			Type: "CommitBatchingConfig",
+
+			Comment: `Commit batching configuration`,
+		},
+		{
+			Name: "Update",
+			Type: "UpdateBatchingConfig",
+
+			Comment: `Snap Deals batching configuration`,
+		},
+	},
 	"CurioConfig": {
 		{
 			Name: "Subsystems",
@@ -155,6 +195,12 @@ alerts will be triggered for the wallet`,
 
 			Comment: ``,
 		},
+		{
+			Name: "Batching",
+			Type: "CurioBatchingConfig",
+
+			Comment: ``,
+		},
 	},
 	"CurioFees": {
 		{
@@ -183,6 +229,12 @@ alerts will be triggered for the wallet`,
 		},
 		{
 			Name: "MaxCommitBatchGasFee",
+			Type: "BatchFeeConfig",
+
+			Comment: ``,
+		},
+		{
+			Name: "MaxUpdateBatchGasFee",
 			Type: "BatchFeeConfig",
 
 			Comment: ``,
@@ -709,6 +761,26 @@ The default is sufficient for integration with the stock commercial PagerDuty.co
 identifier in the integration page for the service.`,
 		},
 	},
+	"PreCommitBatchingConfig": {
+		{
+			Name: "BaseFeeThreshold",
+			Type: "types.FIL",
+
+			Comment: `Base fee value below which we should try to send Precommit messages immediately`,
+		},
+		{
+			Name: "Timeout",
+			Type: "Duration",
+
+			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate`,
+		},
+		{
+			Name: "Slack",
+			Type: "Duration",
+
+			Comment: `Time buffer for forceful batch submission before sectors/deal in batch would start expiring`,
+		},
+	},
 	"PrometheusAlertManagerConfig": {
 		{
 			Name: "Enable",
@@ -736,6 +808,26 @@ identifier in the integration page for the service.`,
 
 			Comment: `WebHookURL is the URL for the URL for slack Webhook.
 Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX`,
+		},
+	},
+	"UpdateBatchingConfig": {
+		{
+			Name: "BaseFeeThreshold",
+			Type: "types.FIL",
+
+			Comment: `Base fee value below which we should try to send Commit messages immediately`,
+		},
+		{
+			Name: "Timeout",
+			Type: "Duration",
+
+			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate`,
+		},
+		{
+			Name: "Slack",
+			Type: "Duration",
+
+			Comment: `Time buffer for forceful batch submission before sectors/deals in batch would start expiring`,
 		},
 	},
 }

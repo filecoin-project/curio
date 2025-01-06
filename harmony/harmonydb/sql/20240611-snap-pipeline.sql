@@ -26,6 +26,8 @@ CREATE TABLE sectors_snap_pipeline (
     task_id_prove BIGINT,
     after_prove BOOLEAN NOT NULL DEFAULT FALSE,
 
+    -- update_ready_at TIMESTAMP, // Added in 20241210-sdr-batching
+
     -- submit
     prove_msg_cid TEXT,
 
