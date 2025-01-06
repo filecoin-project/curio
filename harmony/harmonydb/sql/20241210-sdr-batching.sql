@@ -1,6 +1,9 @@
 ALTER TABLE sectors_sdr_pipeline ADD COLUMN precommit_ready_at TIMESTAMPTZ;
 ALTER TABLE sectors_sdr_pipeline ADD COLUMN commit_ready_at TIMESTAMPTZ;
 
+UPDATE sectors_sdr_pipeline SET precommit_ready_at = CURRENT_TIMESTAMP AT TIME ZONE 'UTC' WHERE after_tree_r = TRUE;
+UPDATE sectors_sdr_pipeline SET commit_ready_at = CURRENT_TIMESTAMP AT TIME ZONE 'UTC' WHERE after_porep = TRUE;
+
 -- Function to precommit_ready_at value. Used by the trigger
 CREATE OR REPLACE FUNCTION set_precommit_ready_at()
 RETURNS TRIGGER AS $$
