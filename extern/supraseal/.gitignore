@@ -1,0 +1,10 @@
+/bin
+/c2/bellperson
+/deps
+/obj
+**/target
+*~
+*.log
+*.swp
+*.lock
+.install-supraseal

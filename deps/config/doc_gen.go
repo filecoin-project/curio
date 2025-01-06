@@ -37,6 +37,26 @@ var Doc = map[string][]DocField{
 			Comment: ``,
 		},
 	},
+	"CommitBatchingConfig": {
+		{
+			Name: "BaseFeeThreshold",
+			Type: "types.FIL",
+
+			Comment: `Base fee value below which we should try to send Commit messages immediately`,
+		},
+		{
+			Name: "Timeout",
+			Type: "Duration",
+
+			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate`,
+		},
+		{
+			Name: "Slack",
+			Type: "Duration",
+
+			Comment: `Time buffer for forceful batch submission before sectors/deals in batch would start expiring`,
+		},
+	},
 	"CompressionConfig": {
 		{
 			Name: "GzipLevel",
@@ -132,6 +152,26 @@ alerts will be triggered for the wallet`,
 			Comment: `SlackWebhookConfig is a configuration type for Slack webhook integration.`,
 		},
 	},
+	"CurioBatchingConfig": {
+		{
+			Name: "PreCommit",
+			Type: "PreCommitBatchingConfig",
+
+			Comment: `Precommit Batching configuration`,
+		},
+		{
+			Name: "Commit",
+			Type: "CommitBatchingConfig",
+
+			Comment: `Commit batching configuration`,
+		},
+		{
+			Name: "Update",
+			Type: "UpdateBatchingConfig",
+
+			Comment: `Snap Deals batching configuration`,
+		},
+	},
 	"CurioConfig": {
 		{
 			Name: "Subsystems",
@@ -193,6 +233,12 @@ alerts will be triggered for the wallet`,
 
 			Comment: ``,
 		},
+		{
+			Name: "Batching",
+			Type: "CurioBatchingConfig",
+
+			Comment: ``,
+		},
 	},
 	"CurioFees": {
 		{
@@ -221,6 +267,12 @@ alerts will be triggered for the wallet`,
 		},
 		{
 			Name: "MaxCommitBatchGasFee",
+			Type: "BatchFeeConfig",
+
+			Comment: ``,
+		},
+		{
+			Name: "MaxUpdateBatchGasFee",
 			Type: "BatchFeeConfig",
 
 			Comment: ``,
@@ -961,6 +1013,26 @@ identifier in the integration page for the service.`,
 			Comment: ``,
 		},
 	},
+	"PreCommitBatchingConfig": {
+		{
+			Name: "BaseFeeThreshold",
+			Type: "types.FIL",
+
+			Comment: `Base fee value below which we should try to send Precommit messages immediately`,
+		},
+		{
+			Name: "Timeout",
+			Type: "Duration",
+
+			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate`,
+		},
+		{
+			Name: "Slack",
+			Type: "Duration",
+
+			Comment: `Time buffer for forceful batch submission before sectors/deal in batch would start expiring`,
+		},
+	},
 	"PrometheusAlertManagerConfig": {
 		{
 			Name: "Enable",
@@ -1018,6 +1090,26 @@ User can run a remote file server which can host all the pieces over the HTTP an
 The server must have 2 endpoints
 1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
 2. /data?id=pieceCID must provide a reader for the requested piece`,
+		},
+	},
+	"UpdateBatchingConfig": {
+		{
+			Name: "BaseFeeThreshold",
+			Type: "types.FIL",
+
+			Comment: `Base fee value below which we should try to send Commit messages immediately`,
+		},
+		{
+			Name: "Timeout",
+			Type: "Duration",
+
+			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate`,
+		},
+		{
+			Name: "Slack",
+			Type: "Duration",
+
+			Comment: `Time buffer for forceful batch submission before sectors/deals in batch would start expiring`,
 		},
 	},
 }

@@ -64,9 +64,9 @@ Please consider contributing to the [SupraSeal hardware examples](https://github
 Please make sure to benchmark the raw NVME IOPS before proceeding with further configuration to verify that IOPS requirements are fulfilled.&#x20;
 
 ```bash
-cd extern/supra_seal/deps/spdk-v22.09/
+cd extern/supraseal/deps/spdk-v22.09/
 
-# repeat -b with all devices you plan to use with supra_seal
+# repeat -b with all devices you plan to use with supraseal
 # NOTE: You want to test with ALL devices so that you can see if there are any bottlenecks in the system
 ./build/examples/perf -b 0000:85:00.0 -b 0000:86:00.0...  -q 64 -o 4096 -w randread -t 10
 ```
@@ -297,7 +297,7 @@ This is only needed while batch sealing is in beta, future versions of Curio wil
 {% endhint %}
 
 ```bash
-cd extern/supra_seal/deps/spdk-v22.09/
+cd extern/supraseal/deps/spdk-v22.09/
 env NRHUGE=36 ./scripts/setup.sh
 ```
 
@@ -399,7 +399,7 @@ To troubleshoot:
 If the [NVME Benchmark](supraseal.md#benchmark-nvme-iops) shows lower than expected IOPS, you can try formatting the NVMe devices with SPDK:
 
 ```bash
-cd extern/supra_seal/deps/spdk-v22.09/
+cd extern/supraseal/deps/spdk-v22.09/
 ./build/examples/nvme_manage
 ```
 

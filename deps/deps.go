@@ -183,6 +183,7 @@ type Deps struct {
 	Si                paths.SectorIndex
 	LocalStore        *paths.Local
 	LocalPaths        *paths.BasicLocalStorage
+	Prover            storiface.Prover
 	ListenAddr        string
 	Name              string
 	MachineID         *int64
@@ -379,6 +380,10 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 
 	if deps.ServeChunker == nil {
 		deps.ServeChunker = chunker.NewServeChunker(deps.DB, deps.PieceProvider, deps.IndexStore, deps.CachedPieceReader)
+	}
+
+	if deps.Prover == nil {
+		deps.Prover = ffiwrapper.ProofProver
 	}
 
 	return nil
