@@ -1,54 +1,7 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 import '/pages/pipeline_porep/pipeline-porep-sectors.mjs';
-
-customElements.define('sector-snap-state', class SectorSnapState extends LitElement {
-    static properties = {
-        data: { type: Object }
-    };
-
-    render() {
-        if (!this.data) {
-            return html`<div>No SnapDeals data available.</div>`;
-        }
-
-        return html`
-            ${this.data.Failed ? html`
-                <p style="color: var(--color-danger-main)">
-                   ${this.data.FailedReason}: ${this.data.FailedReasonMsg}
-                </p>
-            `: ''}
-            
-            <table class="table table-dark">
-                <tr>
-                    <th>Stage</th>
-                    <th>Status</th>
-                    <th>Task ID</th>
-                </tr>
-                <tr>
-                    <td>Encode</td>
-                    <td>${this.data.AfterEncode ? 'Completed' : 'Pending'}</td>
-                    <td>${this.data.TaskEncode || 'N/A'}</td>
-                </tr>
-                <tr>
-                    <td>Prove</td>
-                    <td>${this.data.AfterProve ? 'Completed' : 'Pending'}</td>
-                    <td>${this.data.TaskProve || 'N/A'}</td>
-                </tr>
-                <tr>
-                    <td>Submit</td>
-                    <td>${this.data.AfterSubmit ? 'Completed' : 'Pending'}</td>
-                    <td>${this.data.TaskSubmit || 'N/A'}</td>
-                </tr>
-                <tr>
-                    <td>Move Storage</td>
-                    <td>${this.data.AfterMoveStorage ? 'Completed' : 'Pending'}</td>
-                    <td>${this.data.TaskMoveStorage || 'N/A'}</td>
-                </tr>
-            </table>
-        `;
-    }
-});
+import '/pages/snap/upgrade-sectors.mjs';
 
 customElements.define('sector-info',class SectorInfo extends LitElement {
     constructor() {
@@ -100,6 +53,47 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                 </div>
             </div>
             <div>
+                <h3>Sector Info</h3>
+                <table class="table table-dark table-striped table-sm">
+                    <tr>
+                        <td>Miner ID</td>
+                        <td>Sector Number</td>
+                        <td>PreCommit Message</td>
+                        <td>Commit Message</td>
+                        <td>Activation Epoch</td>
+                        <td>Expiration Epoch</td>
+                        <td>Deal Weight</td>
+                        <td>Deadline</td>
+                        <td>Partition</td>
+                        <td>Unsealed CID</td>
+                        <td>Sealed CID</td>
+                        <td>Updated Unsealed CID</td>
+                        <td>Updated Sealed CID</td>
+                        <td>Is Snap</td>
+                        <td>Update Message</td>
+                        <td>Unsealed State</td>
+                    </tr>
+                    <tr>
+                        <td>${this.data.Miner}</td>
+                        <td>${this.data.SectorNumber}</td>
+                        <td>${this.data.PreCommitMsg}</td>
+                        <td>${this.data.CommitMsg}</td>
+                        <td>${this.data.ActivationEpoch}</td>
+                        <td>${this.data.ExpirationEpoch}</td>
+                        <td>${this.data.DealWeight}</td>
+                        <td>${this.data.Deadline}</td>
+                        <td>${this.data.Partition}</td>
+                        <td>${this.data.UnsealedCid}</td>
+                        <td>${this.data.SealedCid}</td>
+                        <td>${this.data.UpdatedUnsealedCid}</td>
+                        <td>${this.data.UpdatedSealedCid}</td>
+                        <td>${this.data.IsSnap}</td>
+                        <td>${this.data.UpdateMsg}</td>
+                        <td>${this.data.UnsealedState}</td>
+                    </tr>
+                </table>
+            </div>
+            <div>
                 ${this.data.PipelinePoRep ? html`
                     <h3>PoRep Pipeline</h3>
                     <sector-porep-state .data=${this.data.PipelinePoRep}></sector-porep-state>
@@ -108,7 +102,7 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
             <div>
                 ${this.data.PipelineSnap ? html`
             <h3>SnapDeals Pipeline</h3>
-            <sector-snap-state .data=${this.data.PipelineSnap}></sector-snap-state>
+            <upgrade-sectors .data=${this.data.PipelineSnap}></upgrade-sectors>
         ` : ''}
             </div>
             <div>
