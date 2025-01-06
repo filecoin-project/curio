@@ -5,6 +5,7 @@ import (
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -238,11 +239,12 @@ func (s *SealPoller) poll(ctx context.Context) error {
 		return err
 	}
 
+	tasks = lo.Filter(tasks, func(t pollTask, _ int) bool {
+		return !t.Failed
+	})
+
 	for _, task := range tasks {
 		task := task
-		if task.Failed {
-			continue
-		}
 
 		ts, err := s.api.ChainHead(ctx)
 		if err != nil {
