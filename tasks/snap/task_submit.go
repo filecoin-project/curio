@@ -502,7 +502,7 @@ func (s *SubmitTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Tas
 
 func (s *SubmitTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "BatchUpdateSubmit",
+		Name: "UpdateBatch",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,
