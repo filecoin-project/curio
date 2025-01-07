@@ -14,7 +14,7 @@ Curio provides a flexible filtering system to manage storage deals effectively. 
 
 By configuring these filters, you can optimize your storage provisioning according to your business needs and network policies.
 
-<figure><img src="../.gitbook/assets/Screenshot 2024-11-04 at 2.57.00 PM.png" alt=""><figcaption><p>Deal filters</p></figcaption></figure>
+<figure><img src="../.gitbook/assets/deal_filters.png" alt=""><figcaption><p>Deal filters</p></figcaption></figure>
 
 ## Pricing Filters
 
