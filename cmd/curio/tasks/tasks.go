@@ -84,7 +84,7 @@ func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.Cur
 	return computeTask, submitTask, recoverTask, nil
 }
 
-func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.TaskEngine, error) {
+func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) (*harmonytask.TaskEngine, error) {
 	cfg := dependencies.Cfg
 	db := dependencies.DB
 	full := dependencies.Chain
@@ -244,11 +244,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 
 			activeTasks = append(activeTasks, psdTask, dealFindTask, checkIndexesTask)
 
-			// Start libp2p hosts and handle streams
-			err = libp2p.NewDealProvider(ctx, db, cfg, dm.MK12Handler, full, sender, miners, machine)
-			if err != nil {
-				return nil, err
-			}
+			// Start libp2p hosts and handle streams. This is a special function which calls the shutdown channel
+			// instead of returning the error. This design is to allow libp2p take over if required
+			go libp2p.NewDealProvider(ctx, db, cfg, dm.MK12Handler, full, sender, miners, machine, shutdownChan)
 		}
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)

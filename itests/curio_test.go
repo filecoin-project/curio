@@ -376,7 +376,7 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	err = dependencies.PopulateRemainingDeps(ctx, cctx, false)
 	require.NoError(t, err)
 
-	taskEngine, err := tasks.StartTasks(ctx, dependencies)
+	taskEngine, err := tasks.StartTasks(ctx, dependencies, shutdownChan)
 	require.NoError(t, err)
 
 	go func() {

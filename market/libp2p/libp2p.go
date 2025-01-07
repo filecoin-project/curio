@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -253,18 +254,25 @@ func getCfg(ctx context.Context, db *harmonydb.DB, httpConf config.HTTPConfig, m
 		return nil, xerrors.Errorf("marshaling private key: %w", err)
 	}
 
-	var privKey []byte
-	err = db.QueryRow(ctx, `SELECT update_libp2p_node ($1, $2, $3)`, machine, initialPrivBytes, initialPeerID).Scan(&privKey)
-	if err != nil {
-		return nil, xerrors.Errorf("getting private key from DB: %w", err)
-	}
+	for {
+		var privKey []byte
+		err = db.QueryRow(ctx, `SELECT update_libp2p_node ($1, $2, $3)`, machine, initialPrivBytes, initialPeerID).Scan(&privKey)
+		if err != nil {
+			if strings.Contains(err.Error(), "Libp2p node already running on") {
+				time.Sleep(time.Minute)
+				continue
+			}
+			return nil, xerrors.Errorf("getting private key from DB: %w", err)
+		}
 
-	p, err := crypto.UnmarshalPrivateKey(privKey)
-	if err != nil {
-		return nil, xerrors.Errorf("unmarshaling private key: %w", err)
-	}
+		p, err := crypto.UnmarshalPrivateKey(privKey)
+		if err != nil {
+			return nil, xerrors.Errorf("unmarshaling private key: %w", err)
+		}
 
-	ret.priv = p
+		ret.priv = p
+		break
+	}
 
 	return &ret, nil
 }
@@ -318,10 +326,12 @@ type mk12libp2pAPI interface {
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (minerInfo api.MinerInfo, err error)
 }
 
-func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, prov *mk12.MK12, api mk12libp2pAPI, sender *message.Sender, miners []address.Address, machine string) error {
+func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, prov *mk12.MK12, api mk12libp2pAPI, sender *message.Sender, miners []address.Address, machine string, shutdownChan chan struct{}) {
 	h, publicAddr, err := NewLibp2pHost(ctx, db, cfg, machine)
 	if err != nil {
-		return xerrors.Errorf("failed to start libp2p nodes: %w", err)
+		log.Errorf("failed to start libp2p nodes: %s", err)
+		close(shutdownChan)
+		return
 	}
 
 	var disabledMiners []address.Address
@@ -329,7 +339,9 @@ func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioCon
 	for _, m := range cfg.Market.StorageMarketConfig.MK12.DisabledMiners {
 		maddr, err := address.NewFromString(m)
 		if err != nil {
-			return err
+			log.Errorf("failed to parse miner string: %s", err)
+			close(shutdownChan)
+			return
 		}
 		disabledMiners = append(disabledMiners, maddr)
 	}
@@ -352,8 +364,6 @@ func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioCon
 	})
 
 	go p.checkMinerInfos(ctx, sender, publicAddr.Libp2pAddr, nonDisabledMiners)
-
-	return nil
 }
 
 func (p *DealProvider) checkMinerInfos(ctx context.Context, sender *message.Sender, announceAddr multiaddr.Multiaddr, miners []address.Address) {
