@@ -33,3 +33,16 @@ export function formatDate(dateString) {
 
     return `${formattedDate} (${timeAgo} ago)`;
 }
+
+export function formatDateTwo(dateString) {
+    const date = new Date(dateString);
+    const formattedDate = date.getFullYear() + '-' +
+        String(date.getMonth() + 1).padStart(2, '0') + '-' +
+        String(date.getDate()).padStart(2, '0') + ' ' +
+        String(date.getHours()).padStart(2, '0') + ':' +
+        String(date.getMinutes()).padStart(2, '0');
+
+    const timeAgo = timeSince(date);
+
+    return [`${formattedDate}`, `${timeAgo} ago`];
+}
