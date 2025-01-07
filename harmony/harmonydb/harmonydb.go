@@ -141,6 +141,9 @@ const SQL_STRING = ctxkey("sqlString")
 func (t tracer) TraceQueryStart(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	return context.WithValue(context.WithValue(ctx, SQL_START, time.Now()), SQL_STRING, data.SQL)
 }
+
+var slowQueryThreshold = 5000 * time.Millisecond
+
 func (t tracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryEndData) {
 	DBMeasures.Hits.M(1)
 	ms := time.Since(ctx.Value(SQL_START).(time.Time)).Milliseconds()
@@ -148,6 +151,14 @@ func (t tracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.Trac
 	DBMeasures.Waits.Observe(float64(ms))
 	if data.Err != nil {
 		DBMeasures.Errors.M(1)
+	}
+	if ms > slowQueryThreshold.Milliseconds() {
+		logger.Warnw("Slow SQL run",
+			"query", ctx.Value(SQL_STRING).(string),
+			"err", data.Err,
+			"rowCt", data.CommandTag.RowsAffected(),
+			"milliseconds", ms)
+		return
 	}
 	logger.Debugw("SQL run",
 		"query", ctx.Value(SQL_STRING).(string),
@@ -231,7 +242,16 @@ func ensureSchemaExists(connString, schema string) error {
 	if len(schema) < 5 || !schemaRE.MatchString(schema) {
 		return xerrors.New("schema must be of the form " + schemaREString + "\n Got: " + schema)
 	}
+
+	retryWait := InitialSerializationErrorRetryWait
+
+retry:
 	_, err = p.Exec(context.Background(), "CREATE SCHEMA IF NOT EXISTS "+schema)
+	if err != nil && IsErrSerialization(err) {
+		time.Sleep(retryWait)
+		retryWait *= 2
+		goto retry
+	}
 	if err != nil {
 		return xerrors.Errorf("cannot create schema: %w", err)
 	}
@@ -303,7 +323,7 @@ func (db *DB) upgrade() error {
 			}
 			megaSql += s + ";"
 		}
-		_, err = db.pgx.Exec(context.Background(), megaSql)
+		_, err = db.Exec(context.Background(), rawStringOnly(megaSql))
 		if err != nil {
 			msg := fmt.Sprintf("Could not upgrade! %s", err.Error())
 			logger.Error(msg)

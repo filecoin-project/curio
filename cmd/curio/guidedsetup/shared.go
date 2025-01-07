@@ -33,6 +33,8 @@ import (
 	"github.com/filecoin-project/lotus/node/repo"
 )
 
+//go:generate cbor-gen-for --map-encoding SectorInfo
+
 const (
 	FlagMinerRepo = "miner-repo"
 )
@@ -151,6 +153,7 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 		MinerAddresses:        []string{addr.String()},
 		PreCommitControl:      smCfg.Addresses.PreCommitControl,
 		CommitControl:         smCfg.Addresses.CommitControl,
+		DealPublishControl:    smCfg.Addresses.DealPublishControl,
 		TerminateControl:      smCfg.Addresses.TerminateControl,
 		DisableOwnerFallback:  smCfg.Addresses.DisableOwnerFallback,
 		DisableWorkerFallback: smCfg.Addresses.DisableWorkerFallback,
@@ -290,6 +293,9 @@ func ensureEmptyArrays(cfg *config.CurioConfig) {
 			}
 			if cfg.Addresses[i].CommitControl == nil {
 				cfg.Addresses[i].CommitControl = []string{}
+			}
+			if cfg.Addresses[i].DealPublishControl == nil {
+				cfg.Addresses[i].DealPublishControl = []string{}
 			}
 			if cfg.Addresses[i].TerminateControl == nil {
 				cfg.Addresses[i].TerminateControl = []string{}

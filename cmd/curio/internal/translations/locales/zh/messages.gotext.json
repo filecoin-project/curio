@@ -1185,6 +1185,42 @@
       "translation": "更多信息请访问 http://docs.curiostorage.org",
       "message": "Additional info is at http://docs.curiostorage.org",
       "placeholder": null
+    },
+    {
+      "id": "Failed to generate the libp2p private key.",
+      "translation": "生成 libp2p 私钥失败。",
+      "message": "Failed to generate the libp2p private key.",
+      "placeholder": null
+    },
+    {
+      "id": "Failed to generate miner ID from address.",
+      "translation": "从地址生成矿工 ID 失败。",
+      "message": "Failed to generate miner ID from address.",
+      "placeholder": null
+    },
+    {
+      "id": "Failed to insert libp2p private key into database. Please run 'curio market libp2p generate-key minerID' to complete the migration.",
+      "translation": "无法将 libp2p 私钥插入数据库。请运行 'curio market libp2p generate-key minerID' 完成迁移。",
+      "message": "Failed to insert libp2p private key into database. Please run 'curio market libp2p generate-key minerID' to complete the migration.",
+      "placeholder": null
+    },
+    {
+      "id": "New libp2p key was not created",
+      "translation": "未创建新的 libp2p 密钥。",
+      "message": "New libp2p key was not created",
+      "placeholder": null
+    },
+    {
+      "id": "More than 1 row was affected in the 'libp2p' table when creating new libp2p key.",
+      "translation": "在创建新的 libp2p 密钥时，'libp2p' 表中有多于 1 行受到了影响。",
+      "message": "More than 1 row was affected in the 'libp2p' table when creating new libp2p key.",
+      "placeholder": null
+    },
+    {
+      "id": "Failed to marshal libp2p private key.",
+      "translation": "libp2p私钥编组失败。",
+      "message": "Failed to marshal libp2p private key.",
+      "placeholder": null
     }
   ]
 }

@@ -3,6 +3,8 @@ package piece
 import (
 	"context"
 	"encoding/json"
+	"math"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -16,13 +18,14 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/dealdata"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
-	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
 
 var log = logging.Logger("cu-piece")
 var PieceParkPollInterval = time.Second * 15
+
+const ParkMinFreeStoragePercent = 20
 
 // ParkPieceTask gets a piece from some origin, and parks it in storage
 // Pieces are always f00, piece ID is mapped to pieceCID in the DB
@@ -159,7 +162,13 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 	for i := range refData {
 		if refData[i].DataURL != "" {
-			upr := dealdata.NewUrlReader(refData[i].DataURL, pieceRawSize)
+			hdrs := make(http.Header)
+			err = json.Unmarshal(refData[i].DataHeaders, &hdrs)
+			if err != nil {
+				return false, xerrors.Errorf("unmarshaling reference data headers: %w", err)
+			}
+			upr := dealdata.NewUrlReader(refData[i].DataURL, hdrs, pieceRawSize)
+
 			defer func() {
 				_ = upr.Close()
 			}()
@@ -200,9 +209,22 @@ func (p *ParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu:     1,
 			Gpu:     0,
 			Ram:     64 << 20,
-			Storage: p.sc.Storage(p.taskToRef, storiface.FTPiece, storiface.FTNone, maxSizePiece, storiface.PathSealing, paths.MinFreeStoragePercentage),
+			Storage: p.sc.Storage(p.taskToRef, storiface.FTPiece, storiface.FTNone, maxSizePiece, storiface.PathSealing, ParkMinFreeStoragePercent),
 		},
 		MaxFailures: 10,
+		RetryWait: func(retries int) time.Duration {
+			baseWait, maxWait := 5*time.Second, time.Minute
+			mul := 1.5
+
+			// Use math.Pow for exponential backoff
+			wait := time.Duration(float64(baseWait) * math.Pow(mul, float64(retries)))
+
+			// Ensure the wait time doesn't exceed maxWait
+			if wait > maxWait {
+				return maxWait
+			}
+			return wait
+		},
 	}
 }
 

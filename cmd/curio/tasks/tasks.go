@@ -20,6 +20,7 @@ import (
 
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/api"
+	"github.com/filecoin-project/curio/cuhttp"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -33,8 +34,10 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/slotmgr"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/tasks/f3"
 	"github.com/filecoin-project/curio/tasks/gc"
+	"github.com/filecoin-project/curio/tasks/indexing"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/metadata"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
@@ -42,6 +45,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/seal"
 	"github.com/filecoin-project/curio/tasks/sealsupra"
 	"github.com/filecoin-project/curio/tasks/snap"
+	storage_market "github.com/filecoin-project/curio/tasks/storage-market"
 	"github.com/filecoin-project/curio/tasks/unseal"
 	window2 "github.com/filecoin-project/curio/tasks/window"
 	"github.com/filecoin-project/curio/tasks/winning"
@@ -80,7 +84,7 @@ func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.Cur
 	return computeTask, submitTask, recoverTask, nil
 }
 
-func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.TaskEngine, error) {
+func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) (*harmonytask.TaskEngine, error) {
 	cfg := dependencies.Cfg
 	db := dependencies.DB
 	full := dependencies.Chain
@@ -93,6 +97,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	bstore := dependencies.Bstore
 	machine := dependencies.ListenAddr
 	prover := dependencies.Prover
+	iStore := dependencies.IndexStore
+	pp := dependencies.PieceProvider
+
 	var activeTasks []harmonytask.TaskInterface
 
 	sender, sendTask := message.NewSender(full, full, db)
@@ -172,6 +179,26 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		return ffi.NewSealCalls(stor, lstor, si), nil
 	})
 
+	hasAnySealingTask := cfg.Subsystems.EnableSealSDR ||
+		cfg.Subsystems.EnableSealSDRTrees ||
+		cfg.Subsystems.EnableSendPrecommitMsg ||
+		cfg.Subsystems.EnablePoRepProof ||
+		cfg.Subsystems.EnableMoveStorage ||
+		cfg.Subsystems.EnableSendCommitMsg ||
+		cfg.Subsystems.EnableBatchSeal ||
+		cfg.Subsystems.EnableUpdateEncode ||
+		cfg.Subsystems.EnableUpdateProve ||
+		cfg.Subsystems.EnableUpdateSubmit ||
+		cfg.Subsystems.EnableCommP
+
+	if hasAnySealingTask {
+		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover)
+		if err != nil {
+			return nil, err
+		}
+		activeTasks = append(activeTasks, sealingTasks...)
+	}
+
 	{
 		// Piece handling
 		if cfg.Subsystems.EnableParkPiece {
@@ -184,35 +211,63 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		}
 	}
 
-	hasAnySealingTask := cfg.Subsystems.EnableSealSDR ||
-		cfg.Subsystems.EnableSealSDRTrees ||
-		cfg.Subsystems.EnableSendPrecommitMsg ||
-		cfg.Subsystems.EnablePoRepProof ||
-		cfg.Subsystems.EnableMoveStorage ||
-		cfg.Subsystems.EnableSendCommitMsg ||
-		cfg.Subsystems.EnableBatchSeal ||
-		cfg.Subsystems.EnableUpdateEncode ||
-		cfg.Subsystems.EnableUpdateProve ||
-		cfg.Subsystems.EnableUpdateSubmit
+	miners := make([]address.Address, 0, len(maddrs))
+	for k := range maddrs {
+		miners = append(miners, address.Address(k))
+	}
 
-	if hasAnySealingTask {
-		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover)
+	{
+		// Market tasks
+		sc, err := slrLazy.Val()
 		if err != nil {
 			return nil, err
 		}
-		activeTasks = append(activeTasks, sealingTasks...)
+
+		if cfg.Subsystems.EnableDealMarket {
+			// Main market poller should run on all nodes
+			dm := storage_market.NewCurioStorageDealMarket(miners, db, cfg, sc, full)
+			err = dm.StartMarket(ctx)
+			if err != nil {
+				return nil, err
+			}
+
+			if cfg.Subsystems.EnableCommP {
+				commpTask := storage_market.NewCommpTask(dm, db, must.One(slrLazy.Val()), full, cfg.Subsystems.CommPMaxTasks)
+				activeTasks = append(activeTasks, commpTask)
+			}
+
+			// PSD and Deal find task do not require many resources. They can run on all machines
+			psdTask := storage_market.NewPSDTask(dm, db, sender, as, &cfg.Market.StorageMarketConfig.MK12, full)
+			dealFindTask := storage_market.NewFindDealTask(dm, db, full, &cfg.Market.StorageMarketConfig.MK12)
+
+			checkIndexesTask := indexing.NewCheckIndexesTask(db, iStore)
+
+			activeTasks = append(activeTasks, psdTask, dealFindTask, checkIndexesTask)
+
+			// Start libp2p hosts and handle streams. This is a special function which calls the shutdown channel
+			// instead of returning the error. This design is to allow libp2p take over if required
+			go libp2p.NewDealProvider(ctx, db, cfg, dm.MK12Handler, full, sender, miners, machine, shutdownChan)
+		}
+
+		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
+
+		indexingTask := indexing.NewIndexingTask(db, sc, iStore, pp, cfg, idxMax)
+		ipniTask := indexing.NewIPNITask(db, sc, iStore, pp, cfg, idxMax)
+		activeTasks = append(activeTasks, ipniTask, indexingTask)
+
+		if cfg.HTTP.Enable {
+			err = cuhttp.StartHTTPServer(ctx, dependencies)
+			if err != nil {
+				return nil, xerrors.Errorf("failed to start the HTTP server: %w", err)
+			}
+		}
 	}
 
 	amTask := alertmanager.NewAlertTask(full, db, cfg.Alerting, dependencies.Al)
 	activeTasks = append(activeTasks, amTask)
 
-	minerAddresses := make([]string, 0, len(maddrs))
-	for k := range maddrs {
-		minerAddresses = append(minerAddresses, address.Address(k).String())
-	}
-
 	log.Infow("This Curio instance handles",
-		"miner_addresses", minerAddresses,
+		"miner_addresses", miners,
 		"tasks", lo.Map(activeTasks, func(t harmonytask.TaskInterface, _ int) string { return t.TypeDetails().Name }))
 
 	// harmony treats the first task as highest priority, so reverse the order
@@ -224,6 +279,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		return nil, err
 	}
 	go machineDetails(dependencies, activeTasks, ht.ResourcesAvailable().MachineID, dependencies.Name)
+
+	*dependencies.MachineID = int64(ht.ResourcesAvailable().MachineID)
 
 	if hasAnySealingTask {
 		watcher, err := message.NewMessageWatcher(db, ht, chainSched, full)

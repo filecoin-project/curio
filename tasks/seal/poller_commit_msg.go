@@ -225,6 +225,12 @@ func (s *SealPoller) pollCommitMsgLanded(ctx context.Context, task pollTask) err
 				if err != nil {
 					return xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
 				}
+
+				n, err := s.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET sealed = TRUE WHERE sp_id = $1 AND sector = $2 AND sealed = FALSE`, task.SpID, task.SectorNumber)
+				if err != nil {
+					return xerrors.Errorf("update market_mk12_deal_pipeline: %w", err)
+				}
+				log.Debugw("marked deals as sealed", "sp", task.SpID, "sector", task.SectorNumber, "count", n)
 			}
 		}
 	}

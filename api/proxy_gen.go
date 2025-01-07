@@ -106,6 +106,8 @@ type CurioChainRPCMethods struct {
 
 	GasEstimateMessageGas func(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec, p3 types.TipSetKey) (*types.Message, error) ``
 
+	MarketAddBalance func(p0 context.Context, p1 address.Address, p2 address.Address, p3 types.BigInt) (cid.Cid, error) ``
+
 	MinerCreateBlock func(p0 context.Context, p1 *api.BlockTemplate) (*types.BlockMsg, error) ``
 
 	MinerGetBaseInfo func(p0 context.Context, p1 address.Address, p2 abi.ChainEpoch, p3 types.TipSetKey) (*api.MiningBaseInfo, error) ``
@@ -123,6 +125,8 @@ type CurioChainRPCMethods struct {
 	Shutdown func(p0 context.Context) error `perm:"admin"`
 
 	StateAccountKey func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) ``
+
+	StateCall func(p0 context.Context, p1 *types.Message, p2 types.TipSetKey) (*api.InvocResult, error) ``
 
 	StateCirculatingSupply func(p0 context.Context, p1 types.TipSetKey) (big.Int, error) ``
 
@@ -524,6 +528,17 @@ func (s *CurioChainRPCStub) GasEstimateMessageGas(p0 context.Context, p1 *types.
 	return nil, ErrNotSupported
 }
 
+func (s *CurioChainRPCStruct) MarketAddBalance(p0 context.Context, p1 address.Address, p2 address.Address, p3 types.BigInt) (cid.Cid, error) {
+	if s.Internal.MarketAddBalance == nil {
+		return *new(cid.Cid), ErrNotSupported
+	}
+	return s.Internal.MarketAddBalance(p0, p1, p2, p3)
+}
+
+func (s *CurioChainRPCStub) MarketAddBalance(p0 context.Context, p1 address.Address, p2 address.Address, p3 types.BigInt) (cid.Cid, error) {
+	return *new(cid.Cid), ErrNotSupported
+}
+
 func (s *CurioChainRPCStruct) MinerCreateBlock(p0 context.Context, p1 *api.BlockTemplate) (*types.BlockMsg, error) {
 	if s.Internal.MinerCreateBlock == nil {
 		return nil, ErrNotSupported
@@ -621,6 +636,17 @@ func (s *CurioChainRPCStruct) StateAccountKey(p0 context.Context, p1 address.Add
 
 func (s *CurioChainRPCStub) StateAccountKey(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) {
 	return *new(address.Address), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateCall(p0 context.Context, p1 *types.Message, p2 types.TipSetKey) (*api.InvocResult, error) {
+	if s.Internal.StateCall == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateCall(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateCall(p0 context.Context, p1 *types.Message, p2 types.TipSetKey) (*api.InvocResult, error) {
+	return nil, ErrNotSupported
 }
 
 func (s *CurioChainRPCStruct) StateCirculatingSupply(p0 context.Context, p1 types.TipSetKey) (big.Int, error) {

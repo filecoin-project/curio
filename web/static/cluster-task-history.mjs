@@ -34,7 +34,7 @@ customElements.define('cluster-task-history', class ClusterTaskHistory extends L
                     ${this.data.map((item) => html`
                         <tr>
                             <td>${item.Name}</td>
-                            <td>${item.TaskID}</td>
+                            <td><a href="/pages/task/id/?id=${item.TaskID}">${item.TaskID}</a></td>
                             <td>${item.CompletedBy}</td>
                             <td>${item.Posted}</td>
                             <td>${item.Start}</td>

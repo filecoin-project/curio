@@ -57,6 +57,26 @@ var Doc = map[string][]DocField{
 			Comment: `Time buffer for forceful batch submission before sectors/deals in batch would start expiring`,
 		},
 	},
+	"CompressionConfig": {
+		{
+			Name: "GzipLevel",
+			Type: "int",
+
+			Comment: ``,
+		},
+		{
+			Name: "BrotliLevel",
+			Type: "int",
+
+			Comment: ``,
+		},
+		{
+			Name: "DeflateLevel",
+			Type: "int",
+
+			Comment: ``,
+		},
+	},
 	"CurioAddresses": {
 		{
 			Name: "PreCommitControl",
@@ -69,6 +89,12 @@ var Doc = map[string][]DocField{
 			Type: "[]string",
 
 			Comment: `Addresses to send Commit messages from`,
+		},
+		{
+			Name: "DealPublishControl",
+			Type: "[]string",
+
+			Comment: `Address to send the deal collateral from with PublishStorageDeal Message`,
 		},
 		{
 			Name: "TerminateControl",
@@ -168,6 +194,18 @@ alerts will be triggered for the wallet`,
 		{
 			Name: "Proving",
 			Type: "CurioProvingConfig",
+
+			Comment: ``,
+		},
+		{
+			Name: "HTTP",
+			Type: "HTTPConfig",
+
+			Comment: ``,
+		},
+		{
+			Name: "Market",
+			Type: "MarketConfig",
 
 			Comment: ``,
 		},
@@ -272,15 +310,41 @@ alerts will be triggered for the wallet`,
 	},
 	"CurioIngestConfig": {
 		{
+			Name: "MaxMarketRunningPipelines",
+			Type: "int",
+
+			Comment: `MaxMarketRunningPipelines is the maximum number of market pipelines that can be actively running tasks.
+A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).
+If this limit is exceeded, the system will apply backpressure to delay processing of new deals.
+0 means unlimited.`,
+		},
+		{
+			Name: "MaxQueueDownload",
+			Type: "int",
+
+			Comment: `MaxQueueDownload is the maximum number of pipelines that can be queued at the downloading stage,
+waiting for a machine to pick up their task (owner_id is null).
+If this limit is exceeded, the system will apply backpressure to slow the ingestion of new deals.
+0 means unlimited.`,
+		},
+		{
+			Name: "MaxQueueCommP",
+			Type: "int",
+
+			Comment: `MaxQueueCommP is the maximum number of pipelines that can be queued at the CommP (verify) stage,
+waiting for a machine to pick up their verification task (owner_id is null).
+If this limit is exceeded, the system will apply backpressure, delaying new deal processing.
+0 means unlimited.`,
+		},
+		{
 			Name: "MaxQueueDealSector",
 			Type: "int",
 
 			Comment: `Maximum number of sectors that can be queued waiting for deals to start processing.
 0 = unlimited
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
-The DealSector queue includes deals which are ready to enter the sealing pipeline but are not yet part of it -
-size of this queue will also impact the maximum number of ParkPiece tasks which can run concurrently.
-DealSector queue is the first queue in the sealing pipeline, meaning that it should be used as the primary backpressure mechanism.`,
+The DealSector queue includes deals that are ready to enter the sealing pipeline but are not yet part of it.
+DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism.`,
 		},
 		{
 			Name: "MaxQueueSDR",
@@ -320,7 +384,7 @@ Only applies to PoRep pipeline (DoSnap = false)`,
 			Name: "MaxQueueSnapEncode",
 			Type: "int",
 
-			Comment: `MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode to start processing.
+			Comment: `MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode tasks to start.
 0 means unlimited.
 This applies backpressure to the market subsystem by delaying the ingestion of deal data.
 Only applies to the Snap Deals pipeline (DoSnap = true).`,
@@ -331,21 +395,22 @@ Only applies to the Snap Deals pipeline (DoSnap = true).`,
 
 			Comment: `MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
 0 means unlimited.
-This applies backpressure to the market subsystem by delaying the ingestion of deal data.
-Only applies to the Snap Deals pipeline (DoSnap = true).`,
+This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion.`,
 		},
 		{
 			Name: "MaxDealWaitTime",
 			Type: "Duration",
 
-			Comment: `Maximum time an open deal sector should wait for more deal before it starts sealing`,
+			Comment: `Maximum time an open deal sector should wait for more deals before it starts sealing.
+This ensures that sectors don't remain open indefinitely, consuming resources.`,
 		},
 		{
 			Name: "DoSnap",
 			Type: "bool",
 
-			Comment: `DoSnap enables the snap deal process for deals ingested by this instance. Unlike in lotus-miner there is no
-fallback to porep when no sectors are available to snap into. When enabled all deals will be snap deals.`,
+			Comment: `DoSnap, when set to true, enables snap deal processing for deals ingested by this instance.
+Unlike lotus-miner, there is no fallback to PoRep when no snap sectors are available.
+When enabled, all deals will be processed as snap deals.`,
 		},
 	},
 	"CurioProvingConfig": {
@@ -656,35 +721,6 @@ This step submits the generated proofs to the chain.`,
 			Comment: `UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance.`,
 		},
 		{
-			Name: "EnableCommP",
-			Type: "bool",
-
-			Comment: `EnableCommP enabled the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12
-deal, and when checking sector data with 'curio unseal check'.`,
-		},
-		{
-			Name: "BoostAdapters",
-			Type: "[]string",
-
-			Comment: `BoostAdapters is a list of tuples of miner address and port/ip to listen for market (e.g. boost) requests.
-This interface is compatible with the lotus-miner RPC, implementing a subset needed for storage market operations.
-Strings should be in the format "actor:ip:port". IP cannot be 0.0.0.0. We recommend using a private IP.
-Example: "f0123:127.0.0.1:32100". Multiple addresses can be specified.
-
-When a market node like boost gives Curio's market RPC a deal to placing into a sector, Curio will first store the
-deal data in a temporary location "Piece Park" before assigning it to a sector. This requires that at least one
-node in the cluster has the EnableParkPiece option enabled and has sufficient scratch space to store the deal data.
-This is different from lotus-miner which stored the deal data into an "unsealed" sector as soon as the deal was
-received. Deal data in PiecePark is accessed when the sector TreeD and TreeR are computed, but isn't needed for
-the initial SDR layers computation. Pieces in PiecePark are removed after all sectors referencing the piece are
-sealed.
-
-To get API info for boost configuration run 'curio market rpc-info'
-
-NOTE: All deal data will flow through this service, so it should be placed on a machine running boost or on
-a machine which handles ParkPiece tasks.`,
-		},
-		{
 			Name: "EnableWebGui",
 			Type: "bool",
 
@@ -717,6 +753,33 @@ also be bounded by resources available on the machine.`,
 
 			Comment: `Batch Seal`,
 		},
+		{
+			Name: "EnableDealMarket",
+			Type: "bool",
+
+			Comment: `EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured.`,
+		},
+		{
+			Name: "EnableCommP",
+			Type: "bool",
+
+			Comment: `EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
+Must have EnableDealMarket = True`,
+		},
+		{
+			Name: "CommPMaxTasks",
+			Type: "int",
+
+			Comment: `The maximum amount of CommP tasks that can run simultaneously. Note that the maximum number of tasks will
+also be bounded by resources available on the machine.`,
+		},
+		{
+			Name: "IndexingMaxTasks",
+			Type: "int",
+
+			Comment: `The maximum amount of indexing and IPNI tasks that can run simultaneously. Note that the maximum number of tasks will
+also be bounded by resources available on the machine.`,
+		},
 	},
 	"Duration time.Duration": {
 		{
@@ -736,6 +799,174 @@ also be bounded by resources available on the machine.`,
 			Type: "[]byte(d.String()),",
 
 			Comment: ``,
+		},
+	},
+	"HTTPConfig": {
+		{
+			Name: "Enable",
+			Type: "bool",
+
+			Comment: `Enable the HTTP server on the node`,
+		},
+		{
+			Name: "DomainName",
+			Type: "string",
+
+			Comment: `DomainName specifies the domain name that the server uses to serve HTTP requests. DomainName cannot be empty and cannot be
+an IP address`,
+		},
+		{
+			Name: "ListenAddress",
+			Type: "string",
+
+			Comment: `ListenAddress is the address that the server listens for HTTP requests.`,
+		},
+		{
+			Name: "DelegateTLS",
+			Type: "bool",
+
+			Comment: `DelegateTLS allows the server to delegate TLS to a reverse proxy. When enabled the listen address will serve
+HTTP and the reverse proxy will handle TLS termination.`,
+		},
+		{
+			Name: "ReadTimeout",
+			Type: "time.Duration",
+
+			Comment: `ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.`,
+		},
+		{
+			Name: "IdleTimeout",
+			Type: "time.Duration",
+
+			Comment: `IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.`,
+		},
+		{
+			Name: "ReadHeaderTimeout",
+			Type: "time.Duration",
+
+			Comment: `ReadHeaderTimeout is amount of time allowed to read request headers`,
+		},
+		{
+			Name: "EnableCORS",
+			Type: "bool",
+
+			Comment: `EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.`,
+		},
+		{
+			Name: "CompressionLevels",
+			Type: "CompressionConfig",
+
+			Comment: `CompressionLevels hold the compression level for various compression methods supported by the server`,
+		},
+	},
+	"IPNIConfig": {
+		{
+			Name: "Disable",
+			Type: "bool",
+
+			Comment: `Disable set whether to disable indexing announcement to the network and expose endpoints that
+allow indexer nodes to process announcements. Default: False`,
+		},
+		{
+			Name: "ServiceURL",
+			Type: "[]string",
+
+			Comment: `The network indexer web UI URL for viewing published announcements
+TODO: should we use this for checking published heads before publishing? Later commit`,
+		},
+		{
+			Name: "DirectAnnounceURLs",
+			Type: "[]string",
+
+			Comment: `The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
+heads.`,
+		},
+	},
+	"IndexingConfig": {
+		{
+			Name: "InsertBatchSize",
+			Type: "int",
+
+			Comment: `Number of records per insert batch`,
+		},
+		{
+			Name: "InsertConcurrency",
+			Type: "int",
+
+			Comment: `Number of concurrent inserts to split AddIndex calls to`,
+		},
+	},
+	"MK12Config": {
+		{
+			Name: "PublishMsgPeriod",
+			Type: "Duration",
+
+			Comment: `When a deal is ready to publish, the amount of time to wait for more
+deals to be ready to publish before publishing them all as a batch`,
+		},
+		{
+			Name: "MaxDealsPerPublishMsg",
+			Type: "uint64",
+
+			Comment: `The maximum number of deals to include in a single PublishStorageDeals
+message`,
+		},
+		{
+			Name: "MaxPublishDealFee",
+			Type: "types.FIL",
+
+			Comment: `The maximum fee to pay per deal when sending the PublishStorageDeals message`,
+		},
+		{
+			Name: "ExpectedPoRepSealDuration",
+			Type: "Duration",
+
+			Comment: `ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
+This will be used to fail the deals which cannot be sealed on time.`,
+		},
+		{
+			Name: "ExpectedSnapSealDuration",
+			Type: "Duration",
+
+			Comment: `ExpectedSnapSealDuration is the expected time it would take to snap the deal sector
+This will be used to fail the deals which cannot be sealed on time.`,
+		},
+		{
+			Name: "SkipCommP",
+			Type: "bool",
+
+			Comment: `SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
+Warning: If this check is skipped and there is a commP mismatch, all deals in the
+sector will need to be sent again`,
+		},
+		{
+			Name: "DisabledMiners",
+			Type: "[]string",
+
+			Comment: `DisabledMiners is a list of miner addresses that should be excluded from online deal making protocols`,
+		},
+		{
+			Name: "MaxConcurrentDealSizeGiB",
+			Type: "int64",
+
+			Comment: `MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector
+When the cumulative size of all deals in process reaches this number, new deals will be rejected.
+(Default: 0 = unlimited)`,
+		},
+		{
+			Name: "DenyUnknownClients",
+			Type: "bool",
+
+			Comment: `DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
+If True then all deals coming from unknown clients will be rejected.`,
+		},
+	},
+	"MarketConfig": {
+		{
+			Name: "StorageMarketConfig",
+			Type: "StorageMarketConfig",
+
+			Comment: `StorageMarketConfig houses all the deal related market configuration`,
 		},
 	},
 	"PagerDutyConfig": {
@@ -759,6 +990,20 @@ The default is sufficient for integration with the stock commercial PagerDuty.co
 
 			Comment: `PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
 identifier in the integration page for the service.`,
+		},
+	},
+	"PieceLocatorConfig": {
+		{
+			Name: "URL",
+			Type: "string",
+
+			Comment: ``,
+		},
+		{
+			Name: "Headers",
+			Type: "http.Header",
+
+			Comment: ``,
 		},
 	},
 	"PreCommitBatchingConfig": {
@@ -808,6 +1053,36 @@ identifier in the integration page for the service.`,
 
 			Comment: `WebHookURL is the URL for the URL for slack Webhook.
 Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX`,
+		},
+	},
+	"StorageMarketConfig": {
+		{
+			Name: "MK12",
+			Type: "MK12Config",
+
+			Comment: `MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)`,
+		},
+		{
+			Name: "IPNI",
+			Type: "IPNIConfig",
+
+			Comment: `IPNI configuration for ipni-provider`,
+		},
+		{
+			Name: "Indexing",
+			Type: "IndexingConfig",
+
+			Comment: `Indexing configuration for deal indexing`,
+		},
+		{
+			Name: "PieceLocator",
+			Type: "[]PieceLocatorConfig",
+
+			Comment: `PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
+User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
+The server must have 2 endpoints
+1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
+2. /data?id=pieceCID must provide a reader for the requested piece`,
 		},
 	},
 	"UpdateBatchingConfig": {

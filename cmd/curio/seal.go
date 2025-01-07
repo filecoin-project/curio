@@ -143,17 +143,33 @@ var sealStartCmd = &cli.Command{
 			}
 		}
 
-		num, err := seal.AllocateSectorNumbers(ctx, dep.Chain, dep.DB, act, cctx.Int("count"), func(tx *harmonydb.Tx, numbers []abi.SectorNumber) (bool, error) {
-			for _, n := range numbers {
+		var num []abi.SectorNumber
+
+		comm, err := dep.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			num, err = seal.AllocateSectorNumbers(ctx, dep.Chain, tx, act, cctx.Int("count"))
+			if err != nil {
+				return false, err
+			}
+
+			for _, n := range num {
 				_, err := tx.Exec("insert into sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof, user_sector_duration_epochs) values ($1, $2, $3, $4)", mid, n, spt, userDuration)
 				if err != nil {
 					return false, xerrors.Errorf("inserting into sectors_sdr_pipeline: %w", err)
 				}
 			}
+
+			if err != nil {
+				return false, xerrors.Errorf("allocating sector numbers: %w", err)
+			}
 			return true, nil
 		})
+
 		if err != nil {
-			return xerrors.Errorf("allocating sector numbers: %w", err)
+			return xerrors.Errorf("failed to allocate new sectors: %w", err)
+		}
+
+		if !comm {
+			return xerrors.Errorf("failed to commit the transaction")
 		}
 
 		for _, number := range num {

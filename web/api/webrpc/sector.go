@@ -23,17 +23,51 @@ type SectorInfo struct {
 	SectorNumber  int64
 	SpID          uint64
 	PipelinePoRep *sectorListEntry
+	PipelineSnap  *sectorSnapListEntry
 
-	Pieces    []SectorPieceMeta
-	Locations []LocationTable
-	Tasks     []SectorInfoTaskSummary
-
+	Pieces      []SectorPieceMeta
+	Locations   []LocationTable
+	Tasks       []SectorInfoTaskSummary
 	TaskHistory []TaskHistory
 
 	Resumable bool
 	Restart   bool
 }
 
+type sectorSnapListEntry struct {
+	SnapPipelineTask
+}
+
+type SnapPipelineTask struct {
+	SpID         int64     `db:"sp_id"`
+	SectorNumber int64     `db:"sector_number"`
+	StartTime    time.Time `db:"start_time"`
+
+	UpgradeProof int  `db:"upgrade_proof"`
+	DataAssigned bool `db:"data_assigned"`
+
+	UpdateUnsealedCID *string `db:"update_unsealed_cid"`
+	UpdateSealedCID   *string `db:"update_sealed_cid"`
+
+	TaskEncode           *int64 `db:"task_id_encode"`
+	AfterEncode          bool   `db:"after_encode"`
+	TaskProve            *int64 `db:"task_id_prove"`
+	AfterProve           bool   `db:"after_prove"`
+	TaskSubmit           *int64 `db:"task_id_submit"`
+	AfterSubmit          bool   `db:"after_submit"`
+	AfterProveMsgSuccess bool   `db:"after_prove_msg_success"`
+	ProveMsgTsk          []byte `db:"prove_msg_tsk"`
+
+	TaskMoveStorage  *int64 `db:"task_id_move_storage"`
+	AfterMoveStorage bool   `db:"after_move_storage"`
+
+	Failed          bool       `db:"failed"`
+	FailedAt        *time.Time `db:"failed_at"`
+	FailedReason    string     `db:"failed_reason"`
+	FailedReasonMsg string     `db:"failed_reason_msg"`
+
+	SubmitAfter *time.Time `db:"submit_after"`
+}
 type SectorInfoTaskSummary struct {
 	Name           string
 	SincePosted    string
@@ -82,6 +116,8 @@ type SectorPieceMeta struct {
 	PieceParkComplete      bool      `db:"-"`
 	PieceParkTaskID        *int64    `db:"-"`
 	PieceParkCleanupTaskID *int64    `db:"-"`
+
+	IsSnapPiece bool `db:"-"`
 }
 
 type FileLocations struct {
@@ -113,6 +149,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 	var tasks []PipelineTask
 
+	// Fetch PoRep pipeline data
 	err = a.deps.DB.Select(ctx, &tasks, `SELECT 
        sp_id, sector_number,
        create_time,
@@ -134,9 +171,27 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		return nil, xerrors.Errorf("failed to fetch pipeline task info: %w", err)
 	}
 
-	// if len(tasks) == 0 {  They could be onboarded from elsewhere.
-	// 	return nil, xerrors.Errorf("sector not found")
-	// }
+	// Fetch SnapDeals pipeline data
+	var snapTasks []SnapPipelineTask
+
+	err = a.deps.DB.Select(ctx, &snapTasks, `SELECT
+        sp_id, sector_number,
+        start_time,
+        upgrade_proof,
+        data_assigned,
+        update_unsealed_cid,
+        update_sealed_cid,
+        task_id_encode, after_encode,
+        task_id_prove, after_prove,
+        task_id_submit, after_submit,
+        after_prove_msg_success, prove_msg_tsk,
+        task_id_move_storage, after_move_storage,
+        failed, failed_at, failed_reason, failed_reason_msg,
+        submit_after
+    FROM sectors_snap_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, intid)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to fetch snap pipeline task info: %w", err)
+	}
 
 	head, err := a.deps.Chain.ChainHead(ctx)
 	if err != nil {
@@ -163,6 +218,16 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 			ChainFaulty:   must.One(mbf.faulty.IsSet(uint64(task.SectorNumber))),
 		}
 	}
+
+	// Create SnapDeals pipeline entry
+	var sleSnap *sectorSnapListEntry
+	if len(snapTasks) > 0 {
+		task := snapTasks[0]
+		sleSnap = &sectorSnapListEntry{
+			SnapPipelineTask: task,
+		}
+	}
+
 	var sectorLocations []struct {
 		CanSeal, CanStore bool
 		FileType          storiface.SectorFileType `db:"sector_filetype"`
@@ -244,12 +309,31 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 	var pieces []SectorPieceMeta
 
+	// Fetch PoRep pieces
 	err = a.deps.DB.Select(ctx, &pieces, `SELECT piece_index, piece_cid, piece_size,
-       data_url, data_raw_size, data_delete_on_finalize,
-       f05_publish_cid, f05_deal_id, direct_piece_activation_manifest FROM sectors_sdr_initial_pieces WHERE sp_id = $1 AND sector_number = $2`, spid, intid)
+           data_url, data_raw_size, data_delete_on_finalize,
+           f05_publish_cid, f05_deal_id, direct_piece_activation_manifest FROM sectors_sdr_initial_pieces WHERE sp_id = $1 AND sector_number = $2`, spid, intid)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch sector pieces: %w", err)
 	}
+
+	// Fetch SnapDeals pieces
+	var snapPieces []SectorPieceMeta
+
+	err = a.deps.DB.Select(ctx, &snapPieces, `SELECT piece_index, piece_cid, piece_size,
+           data_url, data_raw_size, data_delete_on_finalize,
+           NULL as f05_publish_cid, NULL as f05_deal_id, direct_piece_activation_manifest FROM sectors_snap_initial_pieces WHERE sp_id = $1 AND sector_number = $2`, spid, intid)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to fetch snap sector pieces: %w", err)
+	}
+
+	// Mark SnapDeals pieces
+	for i := range snapPieces {
+		snapPieces[i].IsSnapPiece = true
+	}
+
+	// Combine both slices
+	pieces = append(pieces, snapPieces...)
 
 	for i := range pieces {
 		pieces[i].StrPieceSize = types.SizeStr(types.NewInt(uint64(pieces[i].PieceSize)))
@@ -279,8 +363,8 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		}
 
 		err = a.deps.DB.Select(ctx, &parkedPiece, `SELECT ppr.piece_id, ppr.data_url, pp.created_at, pp.complete, pp.task_id, pp.cleanup_task_id FROM parked_piece_refs ppr
-		INNER JOIN parked_pieces pp ON pp.id = ppr.piece_id
-		WHERE ppr.ref_id = $1`, intID)
+        INNER JOIN parked_pieces pp ON pp.id = ppr.piece_id
+        WHERE ppr.ref_id = $1`, intID)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to fetch parked piece: %w", err)
 		}
@@ -303,15 +387,17 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 	// TaskIDs
 	var htasks []SectorInfoTaskSummary
-	if len(tasks) > 0 {
-		taskIDs := map[int64]struct{}{}
-		task := tasks[0]
-		// get non-nil task IDs
-		appendNonNil := func(id *int64) {
-			if id != nil {
-				taskIDs[*id] = struct{}{}
-			}
+	taskIDs := map[int64]struct{}{}
+
+	appendNonNil := func(id *int64) {
+		if id != nil {
+			taskIDs[*id] = struct{}{}
 		}
+	}
+
+	// Append PoRep task IDs
+	if len(tasks) > 0 {
+		task := tasks[0]
 		appendNonNil(task.TaskSDR)
 		appendNonNil(task.TaskTreeD)
 		appendNonNil(task.TaskTreeC)
@@ -321,54 +407,76 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		appendNonNil(task.TaskFinalize)
 		appendNonNil(task.TaskMoveStorage)
 		appendNonNil(task.TaskCommitMsg)
+	}
 
-		if len(taskIDs) > 0 {
-			ids := lo.Keys(taskIDs)
+	// Append SnapDeals task IDs
+	if len(snapTasks) > 0 {
+		task := snapTasks[0]
+		appendNonNil(task.TaskEncode)
+		appendNonNil(task.TaskProve)
+		appendNonNil(task.TaskSubmit)
+		appendNonNil(task.TaskMoveStorage)
+	}
 
-			var dbtasks []struct {
-				OwnerID     *string   `db:"owner_id"`
-				HostAndPort *string   `db:"host_and_port"`
-				TaskID      int64     `db:"id"`
-				Name        string    `db:"name"`
-				UpdateTime  time.Time `db:"update_time"`
-			}
-			err = a.deps.DB.Select(ctx, &dbtasks, `SELECT t.owner_id, hm.host_and_port, t.id, t.name, t.update_time FROM harmony_task t LEFT JOIN curio.harmony_machines hm ON hm.id = t.owner_id WHERE t.id = ANY($1)`, ids)
-			if err != nil {
-				return nil, xerrors.Errorf("failed to fetch task names: %v", err)
-			}
+	if len(taskIDs) > 0 {
+		ids := lo.Keys(taskIDs)
 
-			for _, tn := range dbtasks {
-				htasks = append(htasks, SectorInfoTaskSummary{
-					Name:        tn.Name,
-					SincePosted: time.Since(tn.UpdateTime.Local()).Round(time.Second).String(),
-					Owner:       tn.HostAndPort,
-					OwnerID:     tn.OwnerID,
-					ID:          tn.TaskID,
-				})
-			}
+		var dbtasks []struct {
+			OwnerID     *string   `db:"owner_id"`
+			HostAndPort *string   `db:"host_and_port"`
+			TaskID      int64     `db:"id"`
+			Name        string    `db:"name"`
+			UpdateTime  time.Time `db:"update_time"`
+		}
+		err = a.deps.DB.Select(ctx, &dbtasks, `SELECT t.owner_id, hm.host_and_port, t.id, t.name, t.update_time FROM harmony_task t LEFT JOIN curio.harmony_machines hm ON hm.id = t.owner_id WHERE t.id = ANY($1)`, ids)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to fetch task names: %v", err)
+		}
+
+		for _, tn := range dbtasks {
+			htasks = append(htasks, SectorInfoTaskSummary{
+				Name:        tn.Name,
+				SincePosted: time.Since(tn.UpdateTime.Local()).Round(time.Second).String(),
+				Owner:       tn.HostAndPort,
+				OwnerID:     tn.OwnerID,
+				ID:          tn.TaskID,
+			})
 		}
 	}
 
 	// Task history
-	/*
-		WITH task_ids AS (
-		    SELECT unnest(get_sdr_pipeline_tasks(116147, 1)) AS task_id
-		)
-		SELECT ti.task_id pipeline_task_id, ht.id harmony_task_id, ht.name, ht.completed_by_host_and_port, ht.result, ht.err, ht.work_start, ht.work_end
-		FROM task_ids ti
-		         INNER JOIN harmony_task_history ht ON ti.task_id = ht.task_id
-	*/
-
-	var th []TaskHistory
-	err = a.deps.DB.Select(ctx, &th, `
-		WITH task_ids AS (
-				SELECT unnest(get_sdr_pipeline_tasks($1, $2)) AS task_id
-		)
-		SELECT ti.task_id pipeline_task_id, ht.name, ht.completed_by_host_and_port, ht.result, ht.err, ht.work_start, ht.work_end
-		FROM task_ids ti
-						INNER JOIN harmony_task_history ht ON ti.task_id = ht.task_id`, spid, intid)
+	var taskIDsList []struct {
+		TaskID int64 `db:"task_id"`
+	}
+	// Fetch PoRep task IDs
+	err = a.deps.DB.Select(ctx, &taskIDsList, `SELECT unnest(get_sdr_pipeline_tasks($1, $2)) AS task_id`, spid, intid)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch task history: %w", err)
+	}
+
+	// Fetch SnapDeals task IDs
+	var snapTaskIDs []struct {
+		TaskID int64 `db:"task_id"`
+	}
+	err = a.deps.DB.Select(ctx, &snapTaskIDs, `SELECT unnest(get_snap_pipeline_tasks($1, $2)) AS task_id`, spid, intid)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to fetch snap task history: %w", err)
+	}
+
+	// Combine task IDs
+	taskIDsList = append(taskIDsList, snapTaskIDs...)
+
+	var th []TaskHistory
+	for _, taskID := range taskIDsList {
+		var taskHistories []TaskHistory
+		err = a.deps.DB.Select(ctx, &taskHistories, `
+            SELECT ht.task_id pipeline_task_id, ht.name, ht.completed_by_host_and_port, ht.result, ht.err, ht.work_start, ht.work_end
+            FROM harmony_task_history ht
+            WHERE ht.task_id = $1`, taskID.TaskID)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to fetch task history: %w", err)
+		}
+		th = append(th, taskHistories...)
 	}
 
 	for i := range th {
@@ -382,13 +490,15 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		HarmonyTaskID *int64 `db:"harmony_task_id"`
 	}
 	err = a.deps.DB.Select(ctx, &taskState, `WITH task_ids AS (
-	    SELECT unnest(get_sdr_pipeline_tasks($1, $2)) AS task_id
-	)
-	SELECT ti.task_id pipeline_id, ht.id harmony_task_id
-	FROM task_ids ti
-	         LEFT JOIN harmony_task ht ON ti.task_id = ht.id`, spid, intid)
+        SELECT unnest(get_sdr_pipeline_tasks($1, $2)) AS task_id
+        UNION
+        SELECT unnest(get_snap_pipeline_tasks($1, $2)) AS task_id
+    )
+    SELECT ti.task_id pipeline_id, ht.id harmony_task_id
+    FROM task_ids ti
+             LEFT JOIN harmony_task ht ON ti.task_id = ht.id`, spid, intid)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to fetch task history: %w", err)
+		return nil, xerrors.Errorf("failed to fetch task state: %w", err)
 	}
 
 	var hasAnyStuckTask bool
@@ -403,6 +513,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		SectorNumber:  intid,
 		SpID:          spid,
 		PipelinePoRep: sle,
+		PipelineSnap:  sleSnap,
 
 		Pieces:      pieces,
 		Locations:   locs,
@@ -410,32 +521,48 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		TaskHistory: th,
 
 		Resumable: hasAnyStuckTask,
-		Restart:   hasAnyStuckTask && !sle.AfterSynthetic, // Should be stuck and not be past SyntheticProofs
+		Restart:   hasAnyStuckTask && (sle == nil || !sle.AfterSynthetic),
 	}, nil
 }
 
 func (a *WebRPC) SectorResume(ctx context.Context, spid, id int64) error {
+	// Resume PoRep tasks
 	_, err := a.deps.DB.Exec(ctx, `SELECT unset_task_id($1, $2)`, spid, id)
 	if err != nil {
-		return xerrors.Errorf("failed to resume sector: %w", err)
+		return xerrors.Errorf("failed to resume PoRep sector: %w", err)
+	}
+
+	// Resume SnapDeals tasks
+	_, err = a.deps.DB.Exec(ctx, `SELECT unset_task_id_snap($1, $2)`, spid, id)
+	if err != nil {
+		return xerrors.Errorf("failed to resume SnapDeals sector: %w", err)
 	}
 	return nil
 }
 
 func (a *WebRPC) SectorRemove(ctx context.Context, spid, id int64) error {
+	// Remove sector from batch_sector_refs
 	_, err := a.deps.DB.Exec(ctx, `DELETE FROM batch_sector_refs WHERE sp_id = $1 AND sector_number = $2`, spid, id)
 	if err != nil {
 		return xerrors.Errorf("failed to remove sector batch refs: %w", err)
 	}
 
+	// Remove from sectors_sdr_pipeline
 	_, err = a.deps.DB.Exec(ctx, `DELETE FROM sectors_sdr_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, id)
 	if err != nil {
-		return xerrors.Errorf("failed to remove sector: %w", err)
+		return xerrors.Errorf("failed to remove PoRep sector: %w", err)
 	}
 
+	// Remove from sectors_snap_pipeline
+	_, err = a.deps.DB.Exec(ctx, `DELETE FROM sectors_snap_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, id)
+	if err != nil {
+		return xerrors.Errorf("failed to remove SnapDeals sector: %w", err)
+	}
+
+	// Mark sector for removal
 	_, err = a.deps.DB.Exec(ctx, `INSERT INTO storage_removal_marks (sp_id, sector_num, sector_filetype, storage_id, created_at, approved, approved_at)
-		SELECT miner_id, sector_num, sector_filetype, storage_id, current_timestamp, FALSE, NULL FROM sector_location
-		WHERE miner_id = $1 AND sector_num = $2`, spid, id)
+        SELECT miner_id, sector_num, sector_filetype, storage_id, current_timestamp, FALSE, NULL FROM sector_location
+        WHERE miner_id = $1 AND sector_num = $2`, spid, id)
 	if err != nil {
 		return xerrors.Errorf("failed to mark sector for removal: %w", err)
 	}
@@ -444,12 +571,21 @@ func (a *WebRPC) SectorRemove(ctx context.Context, spid, id int64) error {
 }
 
 func (a *WebRPC) SectorRestart(ctx context.Context, spid, id int64) error {
+	// Reset PoRep sector state
 	_, err := a.deps.DB.Exec(ctx, `UPDATE sectors_sdr_pipeline SET after_sdr = false, after_tree_d = false, after_tree_c = false,
-                                after_tree_r = false WHERE sp_id = $1 AND sector_number = $2`, spid, id)
+                                    after_tree_r = false WHERE sp_id = $1 AND sector_number = $2`, spid, id)
 	if err != nil {
-		return xerrors.Errorf("failed to reset sector state: %w", err)
+		return xerrors.Errorf("failed to reset PoRep sector state: %w", err)
 	}
 
+	// Reset SnapDeals sector state
+	_, err = a.deps.DB.Exec(ctx, `UPDATE sectors_snap_pipeline SET after_encode = false, after_prove = false, after_submit = false,
+                                    after_move_storage = false WHERE sp_id = $1 AND sector_number = $2`, spid, id)
+	if err != nil {
+		return xerrors.Errorf("failed to reset SnapDeals sector state: %w", err)
+	}
+
+	// Remove sector files
 	err = a.deps.Stor.Remove(ctx, abi.SectorID{Miner: abi.ActorID(spid), Number: abi.SectorNumber(id)}, storiface.FTCache, true, nil)
 	if err != nil {
 		return xerrors.Errorf("failed to remove cache file: %w", err)
@@ -459,9 +595,14 @@ func (a *WebRPC) SectorRestart(ctx context.Context, spid, id int64) error {
 		return xerrors.Errorf("failed to remove sealed file: %w", err)
 	}
 
+	// Unset task IDs for both pipelines
 	_, err = a.deps.DB.Exec(ctx, `SELECT unset_task_id($1, $2)`, spid, id)
 	if err != nil {
-		return xerrors.Errorf("failed to resume sector: %w", err)
+		return xerrors.Errorf("failed to resume PoRep sector: %w", err)
+	}
+	_, err = a.deps.DB.Exec(ctx, `SELECT unset_task_id_snap($1, $2)`, spid, id)
+	if err != nil {
+		return xerrors.Errorf("failed to resume SnapDeals sector: %w", err)
 	}
 	return nil
 }

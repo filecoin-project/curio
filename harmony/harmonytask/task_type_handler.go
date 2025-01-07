@@ -179,8 +179,6 @@ canAcceptAgain:
 	}, TaskMeasures.ActiveTasks.M(int64(h.Max.ActiveThis())))
 
 	go func() {
-		log.Infow("Beginning work on Task", "id", *tID, "from", from, "name", h.Name)
-
 		var done bool
 		var doErr error
 		workStart := time.Now()
@@ -192,6 +190,8 @@ canAcceptAgain:
 				log.Errorw("Could not get sector ID", "task", h.Name, "id", *tID, "error", err)
 			}
 		}
+
+		log.Infow("Beginning work on Task", "id", *tID, "from", from, "name", h.Name, "sector", sectorID)
 
 		defer func() {
 			if r := recover(); r != nil {

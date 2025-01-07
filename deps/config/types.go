@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/filecoin-project/go-state-types/abi"
@@ -13,9 +14,9 @@ func DefaultCurioConfig() *CurioConfig {
 	return &CurioConfig{
 		Subsystems: CurioSubsystemsConfig{
 			GuiAddress:                 "0.0.0.0:4701",
-			BoostAdapters:              []string{},
 			RequireActivationSuccess:   true,
 			RequireNotificationSuccess: true,
+			IndexingMaxTasks:           8,
 		},
 		Fees: CurioFees{
 			DefaultMaxFee:      DefaultDefaultMaxFee(),
@@ -42,10 +43,11 @@ func DefaultCurioConfig() *CurioConfig {
 			DisableCollateralFallback:  false,
 		},
 		Addresses: []CurioAddresses{{
-			PreCommitControl: []string{},
-			CommitControl:    []string{},
-			TerminateControl: []string{},
-			MinerAddresses:   []string{},
+			PreCommitControl:   []string{},
+			CommitControl:      []string{},
+			DealPublishControl: []string{},
+			TerminateControl:   []string{},
+			MinerAddresses:     []string{},
 		}},
 		Proving: CurioProvingConfig{
 			ParallelCheckLimit:    32,
@@ -58,6 +60,10 @@ func DefaultCurioConfig() *CurioConfig {
 			BatchSealSectorSize: "32GiB",
 		},
 		Ingest: CurioIngestConfig{
+			MaxMarketRunningPipelines: 64,
+			MaxQueueDownload:          8,
+			MaxQueueCommP:             8,
+
 			MaxQueueDealSector: 8, // default to 8 sectors open(or in process of opening) for deals
 			MaxQueueSDR:        8, // default to 8 (will cause backpressure even if deal sectors are 0)
 			MaxQueueTrees:      0, // default don't use this limit
@@ -94,6 +100,39 @@ func DefaultCurioConfig() *CurioConfig {
 				Slack:            Duration(1 * time.Hour),
 			},
 		},
+		Market: MarketConfig{
+			StorageMarketConfig: StorageMarketConfig{
+				PieceLocator: []PieceLocatorConfig{},
+				Indexing: IndexingConfig{
+					InsertConcurrency: 10,
+					InsertBatchSize:   1000,
+				},
+				MK12: MK12Config{
+					PublishMsgPeriod:          Duration(5 * time.Minute),
+					MaxDealsPerPublishMsg:     8,
+					MaxPublishDealFee:         types.MustParseFIL("0.5 FIL"),
+					ExpectedPoRepSealDuration: Duration(8 * time.Hour),
+					ExpectedSnapSealDuration:  Duration(2 * time.Hour),
+				},
+				IPNI: IPNIConfig{
+					ServiceURL:         []string{"https://cid.contact"},
+					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce"},
+				},
+			},
+		},
+		HTTP: HTTPConfig{
+			DomainName:        "",
+			ListenAddress:     "0.0.0.0:12310",
+			ReadTimeout:       time.Second * 10,
+			IdleTimeout:       time.Minute * 2,
+			ReadHeaderTimeout: time.Second * 5,
+			EnableCORS:        true,
+			CompressionLevels: CompressionConfig{
+				GzipLevel:    6,
+				BrotliLevel:  4,
+				DeflateLevel: 6,
+			},
+		},
 	}
 }
 
@@ -105,6 +144,8 @@ type CurioConfig struct {
 	// Addresses of wallets per MinerAddress (one of the fields).
 	Addresses []CurioAddresses
 	Proving   CurioProvingConfig
+	HTTP      HTTPConfig
+	Market    MarketConfig
 	Ingest    CurioIngestConfig
 	Seal      CurioSealConfig
 	Apis      ApisConfig
@@ -268,29 +309,6 @@ type CurioSubsystemsConfig struct {
 	// UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance.
 	UpdateProveMaxTasks int
 
-	// EnableCommP enabled the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12
-	// deal, and when checking sector data with 'curio unseal check'.
-	EnableCommP bool
-
-	// BoostAdapters is a list of tuples of miner address and port/ip to listen for market (e.g. boost) requests.
-	// This interface is compatible with the lotus-miner RPC, implementing a subset needed for storage market operations.
-	// Strings should be in the format "actor:ip:port". IP cannot be 0.0.0.0. We recommend using a private IP.
-	// Example: "f0123:127.0.0.1:32100". Multiple addresses can be specified.
-	//
-	// When a market node like boost gives Curio's market RPC a deal to placing into a sector, Curio will first store the
-	// deal data in a temporary location "Piece Park" before assigning it to a sector. This requires that at least one
-	// node in the cluster has the EnableParkPiece option enabled and has sufficient scratch space to store the deal data.
-	// This is different from lotus-miner which stored the deal data into an "unsealed" sector as soon as the deal was
-	// received. Deal data in PiecePark is accessed when the sector TreeD and TreeR are computed, but isn't needed for
-	// the initial SDR layers computation. Pieces in PiecePark are removed after all sectors referencing the piece are
-	// sealed.
-	//
-	// To get API info for boost configuration run 'curio market rpc-info'
-	//
-	// NOTE: All deal data will flow through this service, so it should be placed on a machine running boost or on
-	// a machine which handles ParkPiece tasks.
-	BoostAdapters []string
-
 	// EnableWebGui enables the web GUI on this curio instance. The UI has minimal local overhead, but it should
 	// only need to be run on a single machine in the cluster.
 	EnableWebGui bool
@@ -308,6 +326,21 @@ type CurioSubsystemsConfig struct {
 
 	// Batch Seal
 	EnableBatchSeal bool
+
+	// EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured.
+	EnableDealMarket bool
+
+	// EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
+	// Must have EnableDealMarket = True
+	EnableCommP bool
+
+	// The maximum amount of CommP tasks that can run simultaneously. Note that the maximum number of tasks will
+	// also be bounded by resources available on the machine.
+	CommPMaxTasks int
+
+	// The maximum amount of indexing and IPNI tasks that can run simultaneously. Note that the maximum number of tasks will
+	// also be bounded by resources available on the machine.
+	IndexingMaxTasks int
 }
 type CurioFees struct {
 	DefaultMaxFee      types.FIL
@@ -333,8 +366,10 @@ type CurioAddresses struct {
 	// Addresses to send PreCommit messages from
 	PreCommitControl []string
 	// Addresses to send Commit messages from
-	CommitControl    []string
-	TerminateControl []string
+	CommitControl []string
+	// Address to send the deal collateral from with PublishStorageDeal Message
+	DealPublishControl []string
+	TerminateControl   []string
 
 	// DisableOwnerFallback disables usage of the owner address for messages
 	// sent automatically
@@ -398,12 +433,29 @@ func (dur *Duration) UnmarshalText(text []byte) error {
 }
 
 type CurioIngestConfig struct {
+	// MaxMarketRunningPipelines is the maximum number of market pipelines that can be actively running tasks.
+	// A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).
+	// If this limit is exceeded, the system will apply backpressure to delay processing of new deals.
+	// 0 means unlimited.
+	MaxMarketRunningPipelines int
+
+	// MaxQueueDownload is the maximum number of pipelines that can be queued at the downloading stage,
+	// waiting for a machine to pick up their task (owner_id is null).
+	// If this limit is exceeded, the system will apply backpressure to slow the ingestion of new deals.
+	// 0 means unlimited.
+	MaxQueueDownload int
+
+	// MaxQueueCommP is the maximum number of pipelines that can be queued at the CommP (verify) stage,
+	// waiting for a machine to pick up their verification task (owner_id is null).
+	// If this limit is exceeded, the system will apply backpressure, delaying new deal processing.
+	// 0 means unlimited.
+	MaxQueueCommP int
+
 	// Maximum number of sectors that can be queued waiting for deals to start processing.
 	// 0 = unlimited
 	// Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
-	// The DealSector queue includes deals which are ready to enter the sealing pipeline but are not yet part of it -
-	// size of this queue will also impact the maximum number of ParkPiece tasks which can run concurrently.
-	// DealSector queue is the first queue in the sealing pipeline, meaning that it should be used as the primary backpressure mechanism.
+	// The DealSector queue includes deals that are ready to enter the sealing pipeline but are not yet part of it.
+	// DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism.
 	MaxQueueDealSector int
 
 	// Maximum number of sectors that can be queued waiting for SDR to start processing.
@@ -431,7 +483,7 @@ type CurioIngestConfig struct {
 	// Only applies to PoRep pipeline (DoSnap = false)
 	MaxQueuePoRep int
 
-	// MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode to start processing.
+	// MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode tasks to start.
 	// 0 means unlimited.
 	// This applies backpressure to the market subsystem by delaying the ingestion of deal data.
 	// Only applies to the Snap Deals pipeline (DoSnap = true).
@@ -439,15 +491,16 @@ type CurioIngestConfig struct {
 
 	// MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
 	// 0 means unlimited.
-	// This applies backpressure to the market subsystem by delaying the ingestion of deal data.
-	// Only applies to the Snap Deals pipeline (DoSnap = true).
+	// This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion.
 	MaxQueueSnapProve int
 
-	// Maximum time an open deal sector should wait for more deal before it starts sealing
+	// Maximum time an open deal sector should wait for more deals before it starts sealing.
+	// This ensures that sectors don't remain open indefinitely, consuming resources.
 	MaxDealWaitTime Duration
 
-	// DoSnap enables the snap deal process for deals ingested by this instance. Unlike in lotus-miner there is no
-	// fallback to porep when no sectors are available to snap into. When enabled all deals will be snap deals.
+	// DoSnap, when set to true, enables snap deal processing for deals ingested by this instance.
+	// Unlike lotus-miner, there is no fallback to PoRep when no snap sectors are available.
+	// When enabled, all deals will be processed as snap deals.
 	DoSnap bool
 }
 
@@ -573,4 +626,131 @@ type UpdateBatchingConfig struct {
 
 	// Time buffer for forceful batch submission before sectors/deals in batch would start expiring
 	Slack Duration
+}
+
+type MarketConfig struct {
+	// StorageMarketConfig houses all the deal related market configuration
+	StorageMarketConfig StorageMarketConfig
+}
+
+type StorageMarketConfig struct {
+	// MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)
+	MK12 MK12Config
+
+	// IPNI configuration for ipni-provider
+	IPNI IPNIConfig
+
+	// Indexing configuration for deal indexing
+	Indexing IndexingConfig
+
+	// PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
+	// User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
+	// The server must have 2 endpoints
+	// 	1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
+	//  2. /data?id=pieceCID must provide a reader for the requested piece
+	PieceLocator []PieceLocatorConfig
+}
+
+type MK12Config struct {
+	// When a deal is ready to publish, the amount of time to wait for more
+	// deals to be ready to publish before publishing them all as a batch
+	PublishMsgPeriod Duration
+
+	// The maximum number of deals to include in a single PublishStorageDeals
+	// message
+	MaxDealsPerPublishMsg uint64
+
+	// The maximum fee to pay per deal when sending the PublishStorageDeals message
+	MaxPublishDealFee types.FIL
+
+	// ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
+	// This will be used to fail the deals which cannot be sealed on time.
+	ExpectedPoRepSealDuration Duration
+
+	// ExpectedSnapSealDuration is the expected time it would take to snap the deal sector
+	// This will be used to fail the deals which cannot be sealed on time.
+	ExpectedSnapSealDuration Duration
+
+	// SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
+	// Warning: If this check is skipped and there is a commP mismatch, all deals in the
+	// sector will need to be sent again
+	SkipCommP bool
+
+	// DisabledMiners is a list of miner addresses that should be excluded from online deal making protocols
+	DisabledMiners []string
+
+	// MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector
+	// When the cumulative size of all deals in process reaches this number, new deals will be rejected.
+	// (Default: 0 = unlimited)
+	MaxConcurrentDealSizeGiB int64
+
+	// DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
+	// If True then all deals coming from unknown clients will be rejected.
+	DenyUnknownClients bool
+}
+
+type PieceLocatorConfig struct {
+	URL     string
+	Headers http.Header
+}
+
+type IndexingConfig struct {
+	// Number of records per insert batch
+	InsertBatchSize int
+
+	// Number of concurrent inserts to split AddIndex calls to
+	InsertConcurrency int
+}
+
+type IPNIConfig struct {
+	// Disable set whether to disable indexing announcement to the network and expose endpoints that
+	// allow indexer nodes to process announcements. Default: False
+	Disable bool
+
+	// The network indexer web UI URL for viewing published announcements
+	// TODO: should we use this for checking published heads before publishing? Later commit
+	ServiceURL []string
+
+	// The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
+	// heads.
+	DirectAnnounceURLs []string
+}
+
+// HTTPConfig represents the configuration for an HTTP server.
+type HTTPConfig struct {
+	// Enable the HTTP server on the node
+	Enable bool
+
+	// DomainName specifies the domain name that the server uses to serve HTTP requests. DomainName cannot be empty and cannot be
+	// an IP address
+	DomainName string
+
+	// ListenAddress is the address that the server listens for HTTP requests.
+	ListenAddress string
+
+	// DelegateTLS allows the server to delegate TLS to a reverse proxy. When enabled the listen address will serve
+	// HTTP and the reverse proxy will handle TLS termination.
+	DelegateTLS bool
+
+	// ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
+	ReadTimeout time.Duration
+
+	// IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
+	IdleTimeout time.Duration
+
+	// ReadHeaderTimeout is amount of time allowed to read request headers
+	ReadHeaderTimeout time.Duration
+
+	// EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.
+	EnableCORS bool
+
+	// CompressionLevels hold the compression level for various compression methods supported by the server
+	CompressionLevels CompressionConfig
+}
+
+// CompressionConfig holds the compression levels for supported types
+type CompressionConfig struct {
+	GzipLevel    int
+	BrotliLevel  int
+	DeflateLevel int
 }

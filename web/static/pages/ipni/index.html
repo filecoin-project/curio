@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>IPNI</title>
+    <script type="module" src="/ux/curio-ux.mjs"></script>
+    <script type="module" src="ipni_status.mjs"></script>
+    <script type="module" src="ipni_search.mjs"></script>
+</head>
+<body style="visibility:hidden; background:rgb(11, 22, 34)" data-bs-theme="dark">
+<curio-ux>
+    <div class="page">
+        <section class="section">
+            <div class="row">
+                <h1>IPNI</h1>
+            </div>
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                    <ipni-search></ipni-search>
+                </div>
+            </div>
+        </section>
+        <section class="section">
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                    <ipni-status></ipni-status>
+                </div>
+            </div>
+        </section>
+    </div>
+</curio-ux>
+</body>
+</html>
