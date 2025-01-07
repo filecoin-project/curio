@@ -774,13 +774,6 @@ Must have EnableDealMarket = True`,
 also be bounded by resources available on the machine.`,
 		},
 		{
-			Name: "EnableLibp2p",
-			Type: "bool",
-
-			Comment: `EnableLibp2p enabled the libp2p module for the market. Must have EnableDealMarket set to true and must only be enabled
-on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.`,
-		},
-		{
 			Name: "IndexingMaxTasks",
 			Type: "int",
 

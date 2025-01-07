@@ -246,12 +246,6 @@ description: The default curio configuration
   # type: int
   #CommPMaxTasks = 0
 
-  # EnableLibp2p enabled the libp2p module for the market. Must have EnableDealMarket set to true and must only be enabled
-  # on a sinle node. Enabling on multiple nodes will cause issues with libp2p deals.
-  #
-  # type: bool
-  #EnableLibp2p = false
-
   # The maximum amount of indexing and IPNI tasks that can run simultaneously. Note that the maximum number of tasks will
   # also be bounded by resources available on the machine.
   #
