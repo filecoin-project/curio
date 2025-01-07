@@ -2,7 +2,7 @@
     "openrpc": "1.2.6",
     "info": {
         "title": "Curio RPC API",
-        "version": "1.24.2"
+        "version": "1.24.3"
     },
     "methods": [
         {
