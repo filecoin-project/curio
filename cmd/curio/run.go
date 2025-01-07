@@ -123,7 +123,7 @@ var runCmd = &cli.Command{
 
 		go ffiSelfTest() // Panics on failure
 
-		taskEngine, err := tasks.StartTasks(ctx, dependencies)
+		taskEngine, err := tasks.StartTasks(ctx, dependencies, shutdownChan)
 
 		if err != nil {
 			return xerrors.Errorf("starting tasks: %w", err)

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -133,7 +134,7 @@ func NewLibp2pHost(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfi
 			select {
 			case <-ctx.Done():
 				log.Info("Releasing libp2p claims")
-				_, err := db.Exec(ctx, `UPDATE libp2p SET running_on = NULL`)
+				_, err := db.Exec(ctx, `UPDATE libp2p SET running_on = NULL WHERE running_on = $1`, machine)
 				if err != nil {
 					log.Error("Cleaning up libp2p claims ", err)
 				}
@@ -318,10 +319,105 @@ type mk12libp2pAPI interface {
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (minerInfo api.MinerInfo, err error)
 }
 
-func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, prov *mk12.MK12, api mk12libp2pAPI, sender *message.Sender, miners []address.Address, machine string) error {
+func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, prov *mk12.MK12, api mk12libp2pAPI, sender *message.Sender, miners []address.Address, machine string, shutdownChan chan struct{}) {
+	//Check in the DB every minute who owns the libp2p ticket
+	//if it was us, and is still us, and we're running DealProvider already do nothing, just keep polling
+	//if it was us, and no longer is us, shut down DealProvider
+	//if it wasn't us, and now is us, start DealProvider
+
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+
+	checkStatus := func(ctx context.Context, db *harmonydb.DB, runningOn string) (bool, error) {
+		var exists bool
+
+		err := db.QueryRow(ctx, `SELECT EXISTS(
+			SELECT 1 
+			FROM libp2p 
+			WHERE running_on = $1 
+			   OR running_on IS NULL 
+			   OR updated_at < NOW() - INTERVAL '5 minutes')`, runningOn).Scan(&exists)
+		if err != nil {
+			return false, err
+		}
+		return exists, nil
+	}
+
+	shouldRun, err := checkStatus(ctx, db, machine)
+	if err != nil {
+		log.Errorw("failed to check if libp2p is running", "err", err)
+		close(shutdownChan)
+		return
+	}
+
+	var dealProviderStarted bool
+	newctx, cancel := context.WithCancel(ctx)
+
+	if shouldRun {
+		err = makeDealProvider(newctx, db, cfg, prov, api, sender, miners, machine)
+		if err != nil {
+			if strings.Contains(err.Error(), "Libp2p node already running on") {
+				// Some other node started before us even if we had the ticket
+				cancel()
+			} else {
+				log.Errorw("failed to start libp2p nodes", "err", err)
+				close(shutdownChan)
+				cancel()
+				return
+			}
+		} else {
+			dealProviderStarted = true
+		}
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			cancel()
+			return
+		case <-t.C:
+			shouldRun, err = checkStatus(ctx, db, machine)
+			if err != nil {
+				log.Errorw("failed to check if libp2p is running", "err", err)
+				close(shutdownChan)
+				cancel()
+				return
+			}
+			if shouldRun {
+				if !dealProviderStarted {
+					newctx, cancel = context.WithCancel(ctx) // Recreate the context in case we cancelled it before (start, stop, start)
+					err = makeDealProvider(newctx, db, cfg, prov, api, sender, miners, machine)
+					if err != nil {
+						if strings.Contains(err.Error(), "Libp2p node already running on") {
+							// Some other node started before us even if we had the ticket
+							cancel()
+							continue
+						}
+						log.Errorw("failed to start libp2p nodes", "err", err)
+						close(shutdownChan)
+						cancel()
+						return
+					}
+					dealProviderStarted = true
+					continue
+				}
+				continue
+			} else {
+				if dealProviderStarted {
+					dealProviderStarted = false
+					cancel()
+					continue
+				}
+				continue
+			}
+		}
+	}
+}
+
+func makeDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, prov *mk12.MK12, api mk12libp2pAPI, sender *message.Sender, miners []address.Address, machine string) error {
 	h, publicAddr, err := NewLibp2pHost(ctx, db, cfg, machine)
 	if err != nil {
-		return xerrors.Errorf("failed to start libp2p nodes: %w", err)
+		return xerrors.Errorf("failed to start libp2p nodes: %s", err)
 	}
 
 	var disabledMiners []address.Address
@@ -329,7 +425,7 @@ func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioCon
 	for _, m := range cfg.Market.StorageMarketConfig.MK12.DisabledMiners {
 		maddr, err := address.NewFromString(m)
 		if err != nil {
-			return err
+			return xerrors.Errorf("failed to parse miner string: %s", err)
 		}
 		disabledMiners = append(disabledMiners, maddr)
 	}
@@ -352,7 +448,6 @@ func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioCon
 	})
 
 	go p.checkMinerInfos(ctx, sender, publicAddr.Libp2pAddr, nonDisabledMiners)
-
 	return nil
 }
 
