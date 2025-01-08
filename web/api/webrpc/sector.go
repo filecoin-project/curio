@@ -115,10 +115,10 @@ type SectorPieceMeta struct {
 	PieceCid   string `db:"piece_cid"`
 	PieceSize  int64  `db:"piece_size"`
 
-	DealID           string `db:"deal_id"`
-	DataUrl          string `db:"data_url"`
-	DataRawSize      int64  `db:"data_raw_size"`
-	DeleteOnFinalize bool   `db:"data_delete_on_finalize"`
+	DealID           *string `db:"deal_id"`
+	DataUrl          *string `db:"data_url"`
+	DataRawSize      int64   `db:"data_raw_size"`
+	DeleteOnFinalize *bool   `db:"data_delete_on_finalize"`
 
 	F05PublishCid *string `db:"f05_publish_cid"`
 	F05DealID     *int64  `db:"f05_deal_id"`
@@ -141,8 +141,8 @@ type SectorPieceMeta struct {
 
 	IsSnapPiece bool `db:"is_snap"`
 
-	MK12Deal   bool `db:"boost_deal"`
-	LegacyDeal bool `db:"legacy_deal"`
+	MK12Deal   *bool `db:"boost_deal"`
+	LegacyDeal *bool `db:"legacy_deal"`
 }
 
 type FileLocations struct {
@@ -408,8 +408,8 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
        orig_unsealed_cid, cur_sealed_cid, cur_unsealed_cid, 
        msg_cid_precommit, msg_cid_commit, msg_cid_update, 
        expiration_epoch, deadline, partition, target_unseal_state, 
-       is_cc FROM sectors_sdr_meta 
-             WHERE sp_id = $1 AND sector_number = $2`, spid, intid)
+       is_cc FROM sectors_meta 
+             WHERE sp_id = $1 AND sector_num = $2`, spid, intid)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch sector metadata: %w", err)
 	}
@@ -440,9 +440,9 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 	var pieces []SectorPieceMeta
 
-	err = a.deps.DB.Select(ctx, &pieces, `SELECT piece_index, piece_cid, piece_size,
+	err = a.deps.DB.Select(ctx, &pieces, `SELECT piece_index, combined.piece_cid, combined.piece_size,
 													   data_url, data_raw_size, data_delete_on_finalize,
-													   f05_publish_cid, f05_deal_id, direct_piece_activation_manifest,
+													   f05_deal_id, direct_piece_activation_manifest,
 													   mpd.id AS deal_id, -- Extracted id from market_piece_deal
 													   mpd.boost_deal, -- Retrieved boost_deal from market_piece_deal
        												   mpd.legacy_deal, -- Retrieved legacy_deal from market_piece_deal
@@ -452,7 +452,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 													SELECT meta.piece_num AS piece_index, meta.piece_cid, meta.piece_size,
 														   NULL AS data_url, meta.raw_data_size AS data_raw_size,
 														   NOT meta.requested_keep_data AS data_delete_on_finalize,
-														   meta.f05_publish_cid, meta.f05_deal_id, meta.ddo_pam AS direct_piece_activation_manifest,
+														   meta.f05_deal_id, meta.ddo_pam AS direct_piece_activation_manifest,
 														   meta.sp_id,
 														   NOT sm.is_cc AS is_snap -- is_snap based on is_cc from sectors_meta
 													FROM sectors_meta_pieces meta
@@ -464,7 +464,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 													-- SDR pipeline entries (temporary, non-snap pieces)
 													SELECT sdr.piece_index, sdr.piece_cid, sdr.piece_size,
 														   sdr.data_url, sdr.data_raw_size, sdr.data_delete_on_finalize,
-														   sdr.f05_publish_cid, sdr.f05_deal_id, sdr.direct_piece_activation_manifest,
+														   sdr.f05_deal_id, sdr.direct_piece_activation_manifest,
 														   sdr.sp_id,
 														   FALSE AS is_snap -- SDR pipeline pieces are never snap deals
 													FROM sectors_sdr_initial_pieces sdr
@@ -480,7 +480,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 													-- Snap pipeline entries (temporary, always snap deals)
 													SELECT snap.piece_index, snap.piece_cid, snap.piece_size,
 														   snap.data_url, snap.data_raw_size, snap.data_delete_on_finalize,
-														   NULL AS f05_publish_cid, NULL AS f05_deal_id, snap.direct_piece_activation_manifest,
+														   NULL AS f05_deal_id, snap.direct_piece_activation_manifest,
 														   snap.sp_id,
 														   TRUE AS is_snap -- Snap pipeline pieces are always snap deals
 													FROM sectors_snap_initial_pieces snap
@@ -502,7 +502,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		pieces[i].StrPieceSize = types.SizeStr(types.NewInt(uint64(pieces[i].PieceSize)))
 		pieces[i].StrDataRawSize = types.SizeStr(types.NewInt(uint64(pieces[i].DataRawSize)))
 
-		id, isPiecePark := strings.CutPrefix(pieces[i].DataUrl, "pieceref:")
+		id, isPiecePark := strings.CutPrefix(derefOrZero(pieces[i].DataUrl), "pieceref:")
 		if !isPiecePark {
 			continue
 		}
@@ -805,4 +805,11 @@ func (a *WebRPC) SectorRestart(ctx context.Context, spid, id int64) error {
 		return xerrors.Errorf("failed to resume SnapDeals sector: %w", err)
 	}
 	return nil
+}
+
+func derefOrZero[T any](a *T) T {
+	if a == nil {
+		return *new(T)
+	}
+	return *a
 }

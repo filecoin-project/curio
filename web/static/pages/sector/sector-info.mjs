@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 import '/pages/pipeline_porep/pipeline-porep-sectors.mjs';
-import '/pages/snap/upgrade-sectors.mjs';
+import '/snap/upgrade-sectors.mjs';
 
 customElements.define('sector-info',class SectorInfo extends LitElement {
     constructor() {
@@ -134,7 +134,7 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                             <td><a href="/pages/mk12-deal/?id=${piece.DealID}">${piece.DealID}</a></td>
                             <td>${piece.DataUrl}</td>
                             <td>${piece.DataRawSize}</td>
-                            <td>${piece.DeleteOnFinalize}</td>
+                            <td>${piece.DeleteOnFinalize === null ? 'Either' : piece.DeleteOnFinalize}</td>
                             <td>${piece.IsSnapPiece ? 'SnapDeals' : 'PoRep'}</td>
                             <td>${piece.F05PublishCid}</td>
                             <td>${piece.F05DealID}</td>
