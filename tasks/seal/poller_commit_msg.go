@@ -252,12 +252,12 @@ func (s *SealPoller) pollCommitMsgFail(ctx context.Context, maddr address.Addres
 
 		return xerrors.Errorf("sector not found after, commit message can't be found either")
 	default:
-		return xerrors.Errorf("commit message failed with exit code %s", exitcode.ExitCode(execResult.ExecutedRcptExitCode))
+		return xerrors.Errorf("commit message (s %d:%d m:%s) failed with exit code %s", task.SpID, task.SectorNumber, execResult.CommitMsgCID.String, exitcode.ExitCode(execResult.ExecutedRcptExitCode))
 	}
 }
 
 func (s *SealPoller) pollRetryCommitMsgSend(ctx context.Context, task pollTask, execResult dbExecResult) error {
-	if execResult.CommitMsgCID == nil {
+	if !execResult.CommitMsgCID.Valid {
 		return xerrors.Errorf("commit msg cid was nil")
 	}
 
@@ -266,7 +266,7 @@ func (s *SealPoller) pollRetryCommitMsgSend(ctx context.Context, task pollTask, 
 	_, err := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET
                                 commit_msg_cid = NULL, task_id_commit_msg = NULL, after_commit_msg = FALSE
                             	WHERE commit_msg_cid = $1 AND sp_id = $2 AND sector_number = $3 AND after_commit_msg_success = FALSE`,
-		*execResult.CommitMsgCID, task.SpID, task.SectorNumber)
+		execResult.CommitMsgCID.String, task.SpID, task.SectorNumber)
 	if err != nil {
 		return xerrors.Errorf("update sectors_sdr_pipeline to retry precommit msg send: %w", err)
 	}
