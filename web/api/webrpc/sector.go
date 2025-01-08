@@ -677,39 +677,41 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		return nil, xerrors.Errorf("failed to get on chain info for the sector: %w", err)
 	}
 
-	dw, vp := .0, .0
-	dealWeight := "CC"
-	{
-		rdw := big.Add(onChainInfo.DealWeight, onChainInfo.VerifiedDealWeight)
-		dw = float64(big.Div(rdw, big.NewInt(int64(onChainInfo.Expiration-onChainInfo.PowerBaseEpoch))).Uint64())
-		vp = float64(big.Div(big.Mul(onChainInfo.VerifiedDealWeight, big.NewInt(verifiedPowerGainMul)), big.NewInt(int64(onChainInfo.Expiration-onChainInfo.PowerBaseEpoch))).Uint64())
-		if vp > 0 {
-			dw = vp
-		}
-		if dw > 0 {
-			dealWeight = units.BytesSize(dw)
-		}
-	}
-
-	if si.Deadline == nil || si.Partition == nil {
-		part, err := a.deps.Chain.StateSectorPartition(ctx, maddr, abi.SectorNumber(intid), types.EmptyTSK)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to get partition info for the sector: %w", err)
+	if onChainInfo != nil {
+		dw, vp := .0, .0
+		dealWeight := "CC"
+		{
+			rdw := big.Add(onChainInfo.DealWeight, onChainInfo.VerifiedDealWeight)
+			dw = float64(big.Div(rdw, big.NewInt(int64(onChainInfo.Expiration-onChainInfo.PowerBaseEpoch))).Uint64())
+			vp = float64(big.Div(big.Mul(onChainInfo.VerifiedDealWeight, big.NewInt(verifiedPowerGainMul)), big.NewInt(int64(onChainInfo.Expiration-onChainInfo.PowerBaseEpoch))).Uint64())
+			if vp > 0 {
+				dw = vp
+			}
+			if dw > 0 {
+				dealWeight = units.BytesSize(dw)
+			}
 		}
 
-		d := int64(part.Deadline)
-		si.Deadline = &d
+		if si.Deadline == nil || si.Partition == nil {
+			part, err := a.deps.Chain.StateSectorPartition(ctx, maddr, abi.SectorNumber(intid), types.EmptyTSK)
+			if err != nil {
+				return nil, xerrors.Errorf("failed to get partition info for the sector: %w", err)
+			}
 
-		p := int64(part.Partition)
-		si.Partition = &p
-	}
+			d := int64(part.Deadline)
+			si.Deadline = &d
 
-	si.ActivationEpoch = onChainInfo.Activation
-	if si.ExpirationEpoch == nil || *si.ExpirationEpoch != int64(onChainInfo.Expiration) {
-		expr := int64(onChainInfo.Expiration)
-		si.ExpirationEpoch = &expr
+			p := int64(part.Partition)
+			si.Partition = &p
+		}
+
+		si.ActivationEpoch = onChainInfo.Activation
+		if si.ExpirationEpoch == nil || *si.ExpirationEpoch != int64(onChainInfo.Expiration) {
+			expr := int64(onChainInfo.Expiration)
+			si.ExpirationEpoch = &expr
+		}
+		si.DealWeight = dealWeight
 	}
-	si.DealWeight = dealWeight
 
 	si.PipelinePoRep = sle
 	si.PipelineSnap = sleSnap
