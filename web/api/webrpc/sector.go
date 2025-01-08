@@ -7,13 +7,13 @@ import (
 	"time"
 
 	"github.com/docker/go-units"
-	"github.com/filecoin-project/go-state-types/big"
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -115,6 +115,7 @@ type SectorPieceMeta struct {
 	PieceCid   string `db:"piece_cid"`
 	PieceSize  int64  `db:"piece_size"`
 
+	DealID           string `db:"deal_id"`
 	DataUrl          string `db:"data_url"`
 	DataRawSize      int64  `db:"data_raw_size"`
 	DeleteOnFinalize bool   `db:"data_delete_on_finalize"`
@@ -138,7 +139,10 @@ type SectorPieceMeta struct {
 	PieceParkTaskID        *int64    `db:"-"`
 	PieceParkCleanupTaskID *int64    `db:"-"`
 
-	IsSnapPiece bool `db:"-"`
+	IsSnapPiece bool `db:"is_snap"`
+
+	MK12Deal   bool `db:"boost_deal"`
+	LegacyDeal bool `db:"legacy_deal"`
 }
 
 type FileLocations struct {
@@ -436,31 +440,63 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 	var pieces []SectorPieceMeta
 
-	// Fetch PoRep pieces
 	err = a.deps.DB.Select(ctx, &pieces, `SELECT piece_index, piece_cid, piece_size,
-           data_url, data_raw_size, data_delete_on_finalize,
-           f05_publish_cid, f05_deal_id, direct_piece_activation_manifest FROM sectors_sdr_initial_pieces WHERE sp_id = $1 AND sector_number = $2`, spid, intid)
+													   data_url, data_raw_size, data_delete_on_finalize,
+													   f05_publish_cid, f05_deal_id, direct_piece_activation_manifest,
+													   mpd.id AS deal_id, -- Extracted id from market_piece_deal
+													   mpd.boost_deal, -- Retrieved boost_deal from market_piece_deal
+       												   mpd.legacy_deal, -- Retrieved legacy_deal from market_piece_deal
+													   is_snap -- New column indicating whether the piece is a snap deal
+												FROM (
+													-- Meta table entries (permanent, prioritized)
+													SELECT meta.piece_num AS piece_index, meta.piece_cid, meta.piece_size,
+														   NULL AS data_url, meta.raw_data_size AS data_raw_size,
+														   NOT meta.requested_keep_data AS data_delete_on_finalize,
+														   meta.f05_publish_cid, meta.f05_deal_id, meta.ddo_pam AS direct_piece_activation_manifest,
+														   meta.sp_id,
+														   NOT sm.is_cc AS is_snap -- is_snap based on is_cc from sectors_meta
+													FROM sectors_meta_pieces meta
+													JOIN sectors_meta sm ON meta.sp_id = sm.sp_id AND meta.sector_num = sm.sector_num
+													WHERE meta.sp_id = $1 AND meta.sector_num = $2
+												
+													UNION ALL
+												
+													-- SDR pipeline entries (temporary, non-snap pieces)
+													SELECT sdr.piece_index, sdr.piece_cid, sdr.piece_size,
+														   sdr.data_url, sdr.data_raw_size, sdr.data_delete_on_finalize,
+														   sdr.f05_publish_cid, sdr.f05_deal_id, sdr.direct_piece_activation_manifest,
+														   sdr.sp_id,
+														   FALSE AS is_snap -- SDR pipeline pieces are never snap deals
+													FROM sectors_sdr_initial_pieces sdr
+													WHERE sdr.sp_id = $1 AND sdr.sector_number = $2
+													  AND NOT EXISTS (
+														  SELECT 1
+														  FROM sectors_meta_pieces meta
+														  WHERE meta.sp_id = sdr.sp_id AND meta.piece_cid = sdr.piece_cid
+													  )
+												
+													UNION ALL
+												
+													-- Snap pipeline entries (temporary, always snap deals)
+													SELECT snap.piece_index, snap.piece_cid, snap.piece_size,
+														   snap.data_url, snap.data_raw_size, snap.data_delete_on_finalize,
+														   NULL AS f05_publish_cid, NULL AS f05_deal_id, snap.direct_piece_activation_manifest,
+														   snap.sp_id,
+														   TRUE AS is_snap -- Snap pipeline pieces are always snap deals
+													FROM sectors_snap_initial_pieces snap
+													WHERE snap.sp_id = $1 AND snap.sector_number = $2
+													  AND NOT EXISTS (
+														  SELECT 1
+														  FROM sectors_meta_pieces meta
+														  WHERE meta.sp_id = snap.sp_id AND meta.piece_cid = snap.piece_cid
+													  )
+												) AS combined
+												LEFT JOIN market_piece_deal mpd 
+													   ON combined.sp_id = mpd.sp_id AND combined.piece_cid = mpd.piece_cid;
+												`, spid, intid)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch sector pieces: %w", err)
 	}
-
-	// Fetch SnapDeals pieces
-	var snapPieces []SectorPieceMeta
-
-	err = a.deps.DB.Select(ctx, &snapPieces, `SELECT piece_index, piece_cid, piece_size,
-           data_url, data_raw_size, data_delete_on_finalize,
-           NULL as f05_publish_cid, NULL as f05_deal_id, direct_piece_activation_manifest FROM sectors_snap_initial_pieces WHERE sp_id = $1 AND sector_number = $2`, spid, intid)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to fetch snap sector pieces: %w", err)
-	}
-
-	// Mark SnapDeals pieces
-	for i := range snapPieces {
-		snapPieces[i].IsSnapPiece = true
-	}
-
-	// Combine both slices
-	pieces = append(pieces, snapPieces...)
 
 	for i := range pieces {
 		pieces[i].StrPieceSize = types.SizeStr(types.NewInt(uint64(pieces[i].PieceSize)))

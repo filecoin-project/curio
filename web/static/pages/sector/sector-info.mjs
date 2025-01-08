@@ -112,6 +112,7 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                         <th>Piece Index</th>
                         <th>Piece CID</th>
                         <th>Piece Size</th>
+                        <th>Deal ID</th>
                         <th>Data URL</th>
                         <th>Data Raw Size</th>
                         <th>Delete On Finalize</th>
@@ -130,6 +131,7 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                             <td>${piece.PieceIndex}</td>
                             <td><a href="/pages/piece/?id=${piece.PieceCid}">${piece.PieceCid}</a></td>
                             <td>${piece.PieceSize}</td>
+                            <td><a href="/pages/mk12-deal/?id=${piece.DealID}">${piece.DealID}</a></td>
                             <td>${piece.DataUrl}</td>
                             <td>${piece.DataRawSize}</td>
                             <td>${piece.DeleteOnFinalize}</td>
