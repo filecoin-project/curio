@@ -52,7 +52,7 @@ CXX=${CXX:-c++}
 NVCC=${NVCC:-nvcc}
 
 CUDA=$(dirname $(dirname $(which $NVCC)))
-SPDK="deps/spdk-v22.09"
+SPDK="deps/spdk-v24.05"
 CUDA_ARCH="-arch=sm_80 -gencode arch=compute_70,code=sm_70 -t0"
 CXXSTD=`$CXX -dM -E -x c++ /dev/null | \
         awk '{ if($2=="__cplusplus" && $3<"2017") print "-std=c++17"; }'`
@@ -70,6 +70,7 @@ CXXFLAGS="$CFLAGS -march=native $CXXSTD \
 LDFLAGS="-fno-omit-frame-pointer -Wl,-z,relro,-z,now -Wl,-z,noexecstack -fuse-ld=bfd\
          -L$SPDK/build/lib \
          -Wl,--whole-archive -Wl,--no-as-needed \
+         -lspdk_log \
          -lspdk_bdev_malloc \
          -lspdk_bdev_null \
          -lspdk_bdev_nvme \
@@ -118,7 +119,10 @@ LDFLAGS="-fno-omit-frame-pointer -Wl,-z,relro,-z,now -Wl,-z,noexecstack -fuse-ld
          -lspdk_jsonrpc \
          -lspdk_json \
          -lspdk_util \
-         -lspdk_log \
+         -lspdk_keyring \
+         -lspdk_keyring_file \
+         -lspdk_keyring_linux \
+         -lspdk_event_keyring \
          -Wl,--no-whole-archive $SPDK/build/lib/libspdk_env_dpdk.a \
          -Wl,--whole-archive $SPDK/dpdk/build/lib/librte_bus_pci.a \
          $SPDK/dpdk/build/lib/librte_cryptodev.a \
@@ -127,6 +131,7 @@ LDFLAGS="-fno-omit-frame-pointer -Wl,-z,relro,-z,now -Wl,-z,noexecstack -fuse-ld
          $SPDK/dpdk/build/lib/librte_ethdev.a \
          $SPDK/dpdk/build/lib/librte_hash.a \
          $SPDK/dpdk/build/lib/librte_kvargs.a \
+         $SPDK/dpdk/build/lib/librte_log.a \
          $SPDK/dpdk/build/lib/librte_mbuf.a \
          $SPDK/dpdk/build/lib/librte_mempool.a \
          $SPDK/dpdk/build/lib/librte_mempool_ring.a \
@@ -139,8 +144,8 @@ LDFLAGS="-fno-omit-frame-pointer -Wl,-z,relro,-z,now -Wl,-z,noexecstack -fuse-ld
          $SPDK/dpdk/build/lib/librte_vhost.a \
          -Wl,--no-whole-archive \
          -lnuma -ldl \
-         -L$SPDK/isa-l/.libs -lisal \
-         -pthread -lrt -luuid -lssl -lcrypto -lm -laio"
+         -L$SPDK/isa-l/.libs -L$SPDK/isa-l-crypto/.libs -lisal -lisal_crypto \
+         -pthread -lrt -luuid -lssl -lcrypto -lm -laio -lfuse3 -larchive -lkeyutils"
 
 # Check for the default result directory
 # if [ ! -d "/var/tmp/supraseal" ]; then
@@ -155,10 +160,10 @@ mkdir -p bin
 
 mkdir -p deps
 if [ ! -d $SPDK ]; then
-    git clone --branch v22.09 https://github.com/spdk/spdk --recursive $SPDK
+    git clone --branch v24.05 https://github.com/spdk/spdk --recursive $SPDK
     (cd $SPDK
      sudo scripts/pkgdep.sh
-     ./configure --with-virtio --with-vhost
+     ./configure --with-virtio --with-vhost --without-fuse --without-crypto
      make -j 10)
 fi
 if [ ! -d "deps/sppark" ]; then
