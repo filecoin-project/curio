@@ -41,6 +41,8 @@ type PipelineTask struct {
 	AfterSynthetic   bool   `db:"after_synth"`
 	StartedSynthetic bool   `db:"started_synthetic"`
 
+	PreCommitReadyAt *time.Time `db:"precommit_ready_at"`
+
 	TaskPrecommitMsg    *int64 `db:"task_id_precommit_msg"`
 	AfterPrecommitMsg   bool   `db:"after_precommit_msg"`
 	StartedPrecommitMsg bool   `db:"started_precommit_msg"`
@@ -60,6 +62,8 @@ type PipelineTask struct {
 	TaskMoveStorage    *int64 `db:"task_id_move_storage"`
 	AfterMoveStorage   bool   `db:"after_move_storage"`
 	StartedMoveStorage bool   `db:"started_move_storage"`
+
+	CommitReadyAt *time.Time `db:"commit_ready_at"`
 
 	TaskCommitMsg    *int64 `db:"task_id_commit_msg"`
 	AfterCommitMsg   bool   `db:"after_commit_msg"`
@@ -105,6 +109,7 @@ func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, e
 												sp.after_tree_r,
 												sp.task_id_synth, 
 												sp.after_synth,
+												sp.precommit_ready_at,
 												sp.task_id_precommit_msg, 
 												sp.after_precommit_msg,
 												sp.after_precommit_msg_success, 
@@ -116,6 +121,7 @@ func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, e
 												sp.after_finalize,
 												sp.task_id_move_storage, 
 												sp.after_move_storage,
+												sp.commit_ready_at,
 												sp.task_id_commit_msg, 
 												sp.after_commit_msg,
 												sp.after_commit_msg_success,

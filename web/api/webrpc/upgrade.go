@@ -24,6 +24,8 @@ type UpgradeSector struct {
 	TaskIDProve *uint64 `db:"task_id_prove"`
 	AfterProve  bool    `db:"after_prove"`
 
+	UpdateReadyAt *time.Time `db:"update_ready_at"`
+
 	TaskIDSubmit *uint64 `db:"task_id_submit"`
 	AfterSubmit  bool    `db:"after_submit"`
 
@@ -44,7 +46,7 @@ type UpgradeSector struct {
 
 func (a *WebRPC) UpgradeSectors(ctx context.Context) ([]*UpgradeSector, error) {
 	sectors := []*UpgradeSector{}
-	err := a.deps.DB.Select(ctx, &sectors, `SELECT start_time, sp_id, sector_number, task_id_encode, after_encode, task_id_prove, after_prove, task_id_submit, after_submit, after_prove_msg_success, task_id_move_storage, after_move_storage, failed, failed_reason, failed_reason_msg FROM sectors_snap_pipeline`)
+	err := a.deps.DB.Select(ctx, &sectors, `SELECT start_time, sp_id, sector_number, task_id_encode, after_encode, task_id_prove, after_prove, update_ready_at, task_id_submit, after_submit, after_prove_msg_success, task_id_move_storage, after_move_storage, failed, failed_reason, failed_reason_msg FROM sectors_snap_pipeline`)
 	if err != nil {
 		return nil, err
 	}
