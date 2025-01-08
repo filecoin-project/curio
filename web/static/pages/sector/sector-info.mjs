@@ -70,7 +70,21 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                         <tr><td>Updated Sealed CID</td><td>${this.data.UpdatedSealedCid}</td></tr>
                         <tr><td>Is Snap</td><td>${this.data.IsSnap}</td></tr>
                         <tr><td>Update Message</td><td>${this.data.UpdateMsg}</td></tr>
-                        <tr><td>Unsealed State</td><td>${this.data.UnsealedState}</td></tr>
+                        <tr>
+                            <td>Unsealed State</td>
+                            <td style="color: ${
+                                    (this.data.UnsealedState === false && this.data.HasUnsealed) ||
+                                    (this.data.UnsealedState === true && !this.data.HasUnsealed)
+                                            ? 'orange'
+                                            : 'inherit'
+                            }">
+                                ${this.data.UnsealedState == null
+                                        ? 'Either'
+                                        : this.data.UnsealedState
+                                                ? 'Keep Unsealed'
+                                                : 'Remove Unsealed'}
+                            </td>
+                        </tr>
                 </table>
             </div>
             <div>

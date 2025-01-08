@@ -41,6 +41,7 @@ type SectorInfo struct {
 	IsSnap             bool
 	UpdateMsg          string
 	UnsealedState      bool
+	HasUnsealed        bool
 
 	PipelinePoRep *sectorListEntry
 	PipelineSnap  *sectorSnapListEntry
@@ -162,7 +163,7 @@ type LocationTable struct {
 
 type SectorMeta struct {
 	OrigUnsealedCid string `db:"orig_unsealed_cid"`
-	OrigSealedCid   string `db:"orig_unsealed_cid"`
+	OrigSealedCid   string `db:"orig_sealed_cid"`
 
 	UpdatedUnsealedCid string `db:"cur_unsealed_cid"`
 	UpdatedSealedCid   string `db:"cur_sealed_cid"`
@@ -340,6 +341,9 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 	for i, loc := range sectorLocations {
 		loc := loc
+		if loc.FileType == storiface.FTUnsealed {
+			si.HasUnsealed = true
+		}
 
 		urlList := strings.Split(loc.Urls, paths.URLSeparator)
 
