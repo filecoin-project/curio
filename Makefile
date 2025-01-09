@@ -81,7 +81,7 @@ deps: $(BUILD_DEPS)
 
 ## ldflags -s -w strips binary
 
-CURIO_TAGS := cunative
+CURIO_TAGS ?= cunative
 
 curio: $(BUILD_DEPS)
 	rm -f curio
@@ -264,7 +264,7 @@ build_lotus?=0
 curio_docker_user?=curio
 curio_base_image=$(curio_docker_user)/curio-all-in-one:latest-debug
 ffi_from_source?=0
-lotus_version?=v1.30.0-rc2
+lotus_version?=v1.32.0-rc1
 
 ifeq ($(build_lotus),1)
 # v1: building lotus image with provided lotus version
@@ -301,7 +301,7 @@ curio_docker_build_cmd=docker build --build-arg CURIO_TEST_IMAGE=$(curio_base_im
 
 docker/curio-all-in-one:
 	$(curio_docker_build_cmd) -f Dockerfile --target curio-all-in-one \
-		-t $(curio_base_image) --build-arg GOFLAGS=-tags=debug .
+		-t $(curio_base_image) --build-arg CURIO_TAGS="cunative debug" .
 .PHONY: docker/curio-all-in-one
 
 docker/lotus:

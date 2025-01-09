@@ -2,25 +2,7 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import RPCCall from '/lib/jsonrpc.mjs';
 import { formatDateTwo } from '/lib/dateutil.mjs';
 
-class PipelinePorepSectors extends LitElement {
-    static properties = {
-        data: { type: Array },
-    };
-
-    constructor() {
-        super();
-        this.data = [];
-        this.loadData();
-    }
-
-    async loadData() {
-        this.data = await RPCCall('PipelinePorepSectors');
-        // Refresh every 3 seconds
-        setTimeout(() => this.loadData(), 3000);
-        this.requestUpdate();
-    }
-
-    static styles = css`
+export const pipelineStyles = css`
     .porep-pipeline-table,
     .porep-state {
       color: #d0d0d0;
@@ -86,6 +68,26 @@ class PipelinePorepSectors extends LitElement {
       background-color: #a06010;
     }
   `;
+
+class PipelinePorepSectors extends LitElement {
+    static properties = {
+        data: { type: Array },
+    };
+
+    constructor() {
+        super();
+        this.data = [];
+        this.loadData();
+    }
+
+    async loadData() {
+        this.data = await RPCCall('PipelinePorepSectors');
+        // Refresh every 3 seconds
+        setTimeout(() => this.loadData(), 3000);
+        this.requestUpdate();
+    }
+
+    static styles = [pipelineStyles];
 
     render() {
         // Count how many are "waiting for precommit":
@@ -169,7 +171,7 @@ class PipelinePorepSectors extends LitElement {
         </td>
 
         <!-- Pipeline sub-table -->
-        <td>${this.renderSectorPipeline(sector)}</td>
+        <td>${renderSectorPipeline(sector)}</td>
 
         <!-- Details link -->
         <td>
@@ -200,221 +202,224 @@ class PipelinePorepSectors extends LitElement {
       <div style="${style}">${timeStr}</div>
     `;
     }
+}
 
-    renderSectorPipeline(sector) {
-        return html`
+customElements.define('pipeline-porep-sectors', PipelinePorepSectors);
+
+export function renderSectorPipeline(sector) {
+    return html`
       <table class="porep-state porep-pipeline-table">
         <tbody>
           <tr>
             <!-- Row 1 tasks -->
-            ${this.renderSectorState(
-            'SDR',
-            1,
-            sector,
-            sector.TaskSDR,
-            sector.AfterSDR,
-            sector.StartedSDR
-        )}
-            ${this.renderSectorState(
-            'TreeC',
-            1,
-            sector,
-            sector.TaskTreeC,
-            sector.AfterTreeC,
-            sector.StartedTreeRC
-        )}
-            ${this.renderSectorState(
-            'Synthetic',
-            2,
-            sector,
-            sector.TaskSynthetic,
-            sector.AfterSynthetic,
-            sector.StartedSynthetic
-        )}
-            ${this.renderSectorState(
-            'PComm Msg',
-            2,
-            sector,
-            sector.TaskPrecommitMsg,
-            sector.AfterPrecommitMsg,
-            sector.StartedPrecommitMsg
-        )}
-            ${this.renderSectorStateNoTask(
-            'PComm Wait',
-            2,
-            sector.AfterPrecommitMsg,
-            sector.AfterPrecommitMsgSuccess
-        )}
+            ${renderSectorState(
+        'SDR',
+        1,
+        sector,
+        sector.TaskSDR,
+        sector.AfterSDR,
+        sector.StartedSDR
+    )}
+            ${renderSectorState(
+        'TreeC',
+        1,
+        sector,
+        sector.TaskTreeC,
+        sector.AfterTreeC,
+        sector.StartedTreeRC
+    )}
+            ${renderSectorState(
+        'Synthetic',
+        2,
+        sector,
+        sector.TaskSynthetic,
+        sector.AfterSynthetic,
+        sector.StartedSynthetic
+    )}
+            ${renderSectorState(
+        'PComm Msg',
+        2,
+        sector,
+        sector.TaskPrecommitMsg,
+        sector.AfterPrecommitMsg,
+        sector.StartedPrecommitMsg
+    )}
+            ${renderSectorStateNoTask(
+        'PComm Wait',
+        2,
+        sector.AfterPrecommitMsg,
+        sector.AfterPrecommitMsgSuccess
+    )}
             <td
               rowspan="2"
               class="${sector.AfterPrecommitMsgSuccess
-            ? 'pipeline-active'
-            : ''} ${sector.AfterSeed ? 'pipeline-success' : ''}"
+        ? 'pipeline-active'
+        : ''} ${sector.AfterSeed ? 'pipeline-success' : ''}"
             >
               <div>Wait Seed</div>
               <div>${sector.AfterSeed ? 'done' : sector.SeedEpoch}</div>
             </td>
-            ${this.renderSectorState(
-            'PoRep',
-            2,
-            sector,
-            sector.TaskPoRep,
-            sector.AfterPoRep,
-            sector.StartedPoRep
-        )}
-            ${this.renderSectorState(
-            'Clear Cache',
-            1,
-            sector,
-            sector.TaskFinalize,
-            sector.AfterFinalize,
-            sector.StartedFinalize
-        )}
-            ${this.renderSectorState(
-            'Move Storage',
-            1,
-            sector,
-            sector.TaskMoveStorage,
-            sector.AfterMoveStorage,
-            sector.StartedMoveStorage
-        )}
+            ${renderSectorState(
+        'PoRep',
+        2,
+        sector,
+        sector.TaskPoRep,
+        sector.AfterPoRep,
+        sector.StartedPoRep
+    )}
+            ${renderSectorState(
+        'Clear Cache',
+        1,
+        sector,
+        sector.TaskFinalize,
+        sector.AfterFinalize,
+        sector.StartedFinalize
+    )}
+            ${renderSectorState(
+        'Move Storage',
+        1,
+        sector,
+        sector.TaskMoveStorage,
+        sector.AfterMoveStorage,
+        sector.StartedMoveStorage
+    )}
             <td
               class="${sector.ChainSector
-            ? 'pipeline-success'
-            : sector.ChainAlloc
-                ? 'pipeline-active'
-                : 'pipeline-failed'}"
+        ? 'pipeline-success'
+        : sector.ChainAlloc
+            ? 'pipeline-active'
+            : 'pipeline-failed'}"
             >
               <div>On Chain</div>
               <div>
                 ${sector.ChainSector
-            ? 'yes'
-            : sector.ChainAlloc
-                ? 'allocated'
-                : 'no'}
+        ? 'yes'
+        : sector.ChainAlloc
+            ? 'allocated'
+            : 'no'}
               </div>
             </td>
             <td
               rowspan="2"
               class="${sector.Failed
-            ? 'pipeline-failed'
-            : sector.ChainActive
-                ? 'pipeline-success'
-                : 'pipeline-active'}"
+        ? 'pipeline-failed'
+        : sector.ChainActive
+            ? 'pipeline-success'
+            : 'pipeline-active'}"
             >
               <div>State</div>
               <div>
                 ${sector.Failed
-            ? 'Failed'
-            : sector.ChainActive
-                ? 'Sealed'
-                : 'Sealing'}
+        ? 'Failed'
+        : sector.ChainActive
+            ? 'Sealed'
+            : 'Sealing'}
               </div>
             </td>
           </tr>
           <tr>
             <!-- Row 2 tasks -->
-            ${this.renderSectorState(
-            'TreeD',
-            1,
-            sector,
-            sector.TaskTreeD,
-            sector.AfterTreeD,
-            sector.StartedTreeD
-        )}
-            ${this.renderSectorState(
-            'TreeR',
-            1,
-            sector,
-            sector.TaskTreeR,
-            sector.AfterTreeR,
-            sector.StartedTreeRC
-        )}
+            ${renderSectorState(
+        'TreeD',
+        1,
+        sector,
+        sector.TaskTreeD,
+        sector.AfterTreeD,
+        sector.StartedTreeD
+    )}
+            ${renderSectorState(
+        'TreeR',
+        1,
+        sector,
+        sector.TaskTreeR,
+        sector.AfterTreeR,
+        sector.StartedTreeRC
+    )}
             <!-- Commit steps -->
-            ${this.renderSectorState(
-            'Commit Msg',
-            1,
-            sector,
-            sector.TaskCommitMsg,
-            sector.AfterCommitMsg,
-            sector.StartedCommitMsg
-        )}
-            ${this.renderSectorStateNoTask(
-            'Commit Wait',
-            1,
-            sector.AfterCommitMsg,
-            sector.AfterCommitMsgSuccess
-        )}
+            ${renderSectorState(
+        'Commit Msg',
+        1,
+        sector,
+        sector.TaskCommitMsg,
+        sector.AfterCommitMsg,
+        sector.StartedCommitMsg
+    )}
+            ${renderSectorStateNoTask(
+        'Commit Wait',
+        1,
+        sector.AfterCommitMsg,
+        sector.AfterCommitMsgSuccess
+    )}
             <td
               class="${sector.ChainActive
-            ? 'pipeline-success'
-            : 'pipeline-failed'}"
+        ? 'pipeline-success'
+        : 'pipeline-failed'}"
             >
               <div>Active</div>
               <div>
                 ${sector.ChainActive
-            ? 'yes'
-            : sector.ChainUnproven
-                ? 'unproven'
-                : sector.ChainFaulty
-                    ? 'faulty'
-                    : 'no'}
+        ? 'yes'
+        : sector.ChainUnproven
+            ? 'unproven'
+            : sector.ChainFaulty
+                ? 'faulty'
+                : 'no'}
               </div>
             </td>
           </tr>
         </tbody>
       </table>
     `;
-    }
+}
 
-    /**
-     * Renders a stage cell with a task ID (if present) or a "Done / --" state.
-     * Also applies special "waiting" color if:
-     *   - "PComm Msg" and sector is waiting for precommit
-     *   - "Commit Msg" and sector is waiting for commit
-     */
-    renderSectorState(name, rowspan, sector, task, after, started) {
-        // 1) "waiting for precommit"
-        if (
-            name === 'PComm Msg' &&
-            sector.PreCommitReadyAt &&
-            !sector.AfterPrecommitMsg &&
-            !sector.TaskPrecommitMsg
-        ) {
-            return html`
+/**
+ * Renders a stage cell with a task ID (if present) or a "Done / --" state.
+ * Also applies special "waiting" color if:
+ *   - "PComm Msg" and sector is waiting for precommit
+ *   - "Commit Msg" and sector is waiting for commit
+ */
+export function renderSectorState(name, rowspan, sector, task, after, started) {
+    // 1) "waiting for precommit"
+    if (
+        name === 'PComm Msg' &&
+        sector.PreCommitReadyAt &&
+        !sector.AfterPrecommitMsg &&
+        !sector.TaskPrecommitMsg
+    ) {
+        return html`
         <td rowspan="${rowspan}" class="pipeline-waiting-precommit">
           <div>${name}</div>
           <div>Waiting</div>
         </td>
       `;
-        }
-        // 2) "waiting for commit"
-        if (
-            name === 'Commit Msg' &&
-            sector.CommitReadyAt &&
-            !sector.AfterCommitMsg &&
-            !sector.TaskCommitMsg
-        ) {
-            return html`
+    }
+    // 2) "waiting for commit"
+    if (
+        name === 'Commit Msg' &&
+        sector.CommitReadyAt &&
+        !sector.AfterCommitMsg &&
+        !sector.TaskCommitMsg
+    ) {
+        return html`
         <td rowspan="${rowspan}" class="pipeline-waiting-commit">
           <div>${name}</div>
           <div>Waiting</div>
         </td>
       `;
-        }
+    }
 
-        // Normal logic for tasks with an ID
-        if (task) {
-            const missing =
-                sector.MissingTasks && sector.MissingTasks.includes(task);
-            return html`
+    // Normal logic for tasks with an ID
+    if (task) {
+        const missing =
+            sector.MissingTasks && sector.MissingTasks.includes(task);
+        return html`
         <td
           rowspan="${rowspan}"
           class="${missing
-                ? 'pipeline-failed'
-                : started
-                    ? 'pipeline-active'
-                    : 'pipeline-waiting'}"
+            ? 'pipeline-failed'
+            : started
+                ? 'pipeline-active'
+                : 'pipeline-waiting'}"
         >
           <div>${name}</div>
           <div>
@@ -424,34 +429,31 @@ class PipelinePorepSectors extends LitElement {
           ${missing ? html`<div><b>FAILED</b></div>` : ''}
         </td>
       `;
-        }
+    }
 
-        // No task ID => either done or not started
-        return html`
+    // No task ID => either done or not started
+    return html`
       <td rowspan="${rowspan}" class="${after ? 'pipeline-success' : ''}">
         <div>${name}</div>
         <div>${after ? 'done' : '--'}</div>
       </td>
     `;
-    }
+}
 
-    /**
-     * Renders a stage cell for tasks that don't have an associated Task ID
-     * but do have after/active states to display.
-     */
-    renderSectorStateNoTask(name, rowspan, active, after) {
-        return html`
+/**
+ * Renders a stage cell for tasks that don't have an associated Task ID
+ * but do have after/active states to display.
+ */
+export function renderSectorStateNoTask(name, rowspan, active, after) {
+    return html`
       <td
         rowspan="${rowspan}"
         class="${active ? 'pipeline-active' : ''} ${after
-            ? 'pipeline-success'
-            : ''}"
+        ? 'pipeline-success'
+        : ''}"
       >
         <div>${name}</div>
         <div>${after ? 'done' : '--'}</div>
       </td>
     `;
-    }
 }
-
-customElements.define('pipeline-porep-sectors', PipelinePorepSectors);

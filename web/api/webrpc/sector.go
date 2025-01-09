@@ -2,6 +2,7 @@ package webrpc
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -168,17 +169,17 @@ type SectorMeta struct {
 	UpdatedUnsealedCid string `db:"cur_unsealed_cid"`
 	UpdatedSealedCid   string `db:"cur_sealed_cid"`
 
-	PreCommitCid string `db:"msg_cid_precommit"`
-	CommitCid    string `db:"msg_cid_commit"`
-	UpdateCid    string `db:"msg_cid_update"`
+	PreCommitCid string  `db:"msg_cid_precommit"`
+	CommitCid    string  `db:"msg_cid_commit"`
+	UpdateCid    *string `db:"msg_cid_update"`
 
-	IsCC            bool   `db:"is_cc"`
+	IsCC            *bool  `db:"is_cc"`
 	ExpirationEpoch *int64 `db:"expiration_epoch"`
 
 	Deadline  *int64 `db:"deadline"`
 	Partition *int64 `db:"partition"`
 
-	UnsealedState bool `db:"target_unseal_state"`
+	UnsealedState *bool `db:"target_unseal_state"`
 }
 
 func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*SectorInfo, error) {
@@ -192,6 +193,8 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	if err != nil {
 		return nil, xerrors.Errorf("invalid sp")
 	}
+
+	fmt.Println("SPID", spid)
 
 	si := &SectorInfo{
 		SpID:         spid,
@@ -221,6 +224,10 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
     FROM sectors_sdr_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, intid)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch pipeline task info: %w", err)
+	}
+
+	if len(tasks) == 0 {
+		fmt.Println("NO PIPELINE")
 	}
 
 	// Fetch SnapDeals pipeline data
@@ -258,6 +265,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 	var sle *sectorListEntry
 	if len(tasks) > 0 {
+		fmt.Println("FOUND THE PIPELINE")
 		task := tasks[0]
 		if task.PreCommitMsgCid != nil {
 			si.PreCommitMsg = *task.PreCommitMsgCid
@@ -426,8 +434,15 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		si.UpdatedSealedCid = sectormeta.UpdatedSealedCid
 		si.PreCommitMsg = sectormeta.PreCommitCid
 		si.CommitMsg = sectormeta.CommitCid
-		si.UpdateMsg = sectormeta.UpdateCid
-		si.IsSnap = !sectormeta.IsCC
+		if sectormeta.UpdateCid != nil {
+			si.UpdateMsg = *sectormeta.UpdateCid
+		}
+		if sectormeta.IsCC != nil {
+			si.IsSnap = !*sectormeta.IsCC
+		} else {
+			si.IsSnap = false
+		}
+
 		if sectormeta.ExpirationEpoch != nil {
 			si.ExpirationEpoch = sectormeta.ExpirationEpoch
 		}
@@ -439,7 +454,9 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 			p := *sectormeta.Partition
 			si.Partition = &p
 		}
-		si.UnsealedState = sectormeta.UnsealedState
+		if sectormeta.UnsealedState != nil {
+			si.UnsealedState = *sectormeta.UnsealedState
+		}
 	}
 
 	var pieces []SectorPieceMeta

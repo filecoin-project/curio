@@ -1,8 +1,8 @@
 #####################################
 ARG LOTUS_TEST_IMAGE=curio/lotus-all-in-one:latest
-FROM ${LOTUS_TEST_IMAGE} as lotus-test
-FROM golang:1.22.3-bullseye AS curio-builder
-MAINTAINER Curio Development Team
+FROM ${LOTUS_TEST_IMAGE} AS lotus-test
+FROM golang:1.22.8-bullseye AS curio-builder
+LABEL Maintainer = "Curio Development Team"
 
 RUN apt-get update && apt-get install -y ca-certificates build-essential clang ocl-icd-opencl-dev ocl-icd-libopencl1 jq libhwloc-dev
 
@@ -43,6 +43,7 @@ RUN make clean deps
 
 ARG RUSTFLAGS=""
 ARG GOFLAGS=""
+ARG CURIO_TAGS=""
 
 RUN make build
 

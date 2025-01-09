@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
-import '/pages/pipeline_porep/pipeline-porep-sectors.mjs';
-import '/snap/upgrade-sectors.mjs';
+import { renderSectorPipeline, pipelineStyles } from '/pages/pipeline_porep/pipeline-porep-sectors.mjs';
+import { renderSectorSnapPipeline, snapPipelineStyles} from '/snap/upgrade-sectors.mjs';
 
 customElements.define('sector-info',class SectorInfo extends LitElement {
     constructor() {
@@ -26,6 +26,8 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
         await RPCCall('SectorRestart', [this.data.SpID, this.data.SectorNumber]);
         window.location.reload();
     }
+
+    static styles = [pipelineStyles, snapPipelineStyles];
 
     render() {
         if (!this.data) {
@@ -90,14 +92,18 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
             <div>
                 ${this.data.PipelinePoRep ? html`
                     <h3>PoRep Pipeline</h3>
-                    <sector-porep-state .data=${this.data.PipelinePoRep}></sector-porep-state>
-                ` : ''}
+                    ${renderSectorPipeline(this.data.PipelinePoRep)}
+                ` : html`
+                    <p>No data available for the PoRep pipeline.</p>
+                `}
             </div>
             <div>
                 ${this.data.PipelineSnap ? html`
-            <h3>SnapDeals Pipeline</h3>
-            <upgrade-sectors .data=${this.data.PipelineSnap}></upgrade-sectors>
-        ` : ''}
+                    <h3>SnapDeals Pipeline</h3>
+                    ${renderSectorSnapPipeline(this.data.PipelineSnap)}
+                ` : html`
+                    <p>No data available for the SnapDeals pipeline.</p>
+                `}
             </div>
             <div>
                 <h3>Pieces</h3>
