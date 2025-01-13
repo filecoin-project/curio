@@ -622,7 +622,7 @@ func (sb *SealCalls) GenerateUnsealedSector(ctx context.Context, sector storifac
 }
 
 func TruncateAndMoveUnsealed(tempUnsealed, unsealed string, ssize abi.SectorSize) error {
-	// truncate sealed file to sector size
+	// truncate unsealed file to sector size
 	if err := os.Truncate(tempUnsealed, int64(ssize)); err != nil {
 		return xerrors.Errorf("truncating unsealed file to sector size: %w", err)
 	}
