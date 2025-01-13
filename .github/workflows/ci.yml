@@ -328,14 +328,6 @@ jobs:
         run: make gen
         shell: bash
 
-      - name: Print Config File
-        run: cat documentation/en/configuration/default-curio-configuration.md
-        shell: bash
-
-      - name: Print CMD File
-        run: cat documentation/en/curio-cli/curio.md
-        shell: bash
-
       - name: Git diff check
         run: git --no-pager diff
         shell: bash
