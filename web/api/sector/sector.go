@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -55,7 +56,7 @@ type sec struct {
 func Routes(r *mux.Router, deps *deps.Deps) {
 	c := &cfg{deps}
 	// At menu.html:
-	r.Methods("GET").Path("/all").HandlerFunc(c.getSectors)
+	r.Methods("POST").Path("/all").HandlerFunc(c.getSectors)
 	r.Methods("POST").Path("/terminate").HandlerFunc(c.terminateSectors)
 }
 
@@ -93,221 +94,259 @@ func (c *cfg) terminateSectors(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
-	// TODO get sector info from chain and from database, then fold them together
-	// and return the result.
+	err := r.ParseForm()
+	apihelper.OrHTTPFail(w, err)
+	drawStr := r.FormValue("draw")
+	startStr := r.FormValue("start")
+	lengthStr := r.FormValue("length")
+	var draw, start, length int
+	if draw, err = strconv.Atoi(drawStr); err != nil {
+		draw = 1
+	}
+	if start, err = strconv.Atoi(startStr); err != nil {
+		start = 0
+	}
+	if length, err = strconv.Atoi(lengthStr); err != nil {
+		length = 10
+	}
+	if length > 1000 {
+		length = 1000
+	}
+	var totalCount int
+	row := c.DB.QueryRow(r.Context(), `
+SELECT COUNT(*) 
+FROM (
+  SELECT DISTINCT miner_id, sector_num 
+  FROM sector_location 
+  WHERE sector_filetype != 32
+) AS t
+`)
+	err = row.Scan(&totalCount)
+	apihelper.OrHTTPFail(w, err)
+	type rowKey struct {
+		MinerID   int64
+		SectorNum int64
+	}
+	var baseRows []rowKey
+	rows, err := c.DB.Query(r.Context(), `
+SELECT miner_id, sector_num
+FROM sector_location
+WHERE sector_filetype != 32
+GROUP BY miner_id, sector_num
+ORDER BY miner_id, sector_num
+OFFSET $1
+LIMIT $2
+`, start, length)
+	apihelper.OrHTTPFail(w, err)
+	for rows.Next() {
+		var rk rowKey
+		err := rows.Scan(&rk.MinerID, &rk.SectorNum)
+		apihelper.OrHTTPFail(w, err)
+		baseRows = append(baseRows, rk)
+	}
+	rows.Close()
+	type aggregatorRow struct {
+		MinerID        int64
+		SectorNum      int64
+		SectorFiletype int
+	}
+	var aggregatorRows []*aggregatorRow
+	for _, br := range baseRows {
+		var sumVal *int
+		var sumFiletype int
+		r2 := c.DB.QueryRow(r.Context(), `
+SELECT COALESCE(SUM(sector_filetype), 0)
+FROM sector_location
+WHERE miner_id = $1 AND sector_num = $2
+  AND sector_filetype != 32
+`, br.MinerID, br.SectorNum)
+		err := r2.Scan(&sumVal)
+		apihelper.OrHTTPFail(w, err)
+		if sumVal != nil {
+			sumFiletype = *sumVal
+		}
+		aggregatorRows = append(aggregatorRows, &aggregatorRow{
+			MinerID:        br.MinerID,
+			SectorNum:      br.SectorNum,
+			SectorFiletype: sumFiletype,
+		})
+	}
 	type sector struct {
-		MinerID        int64 `db:"miner_id"`
-		SectorNum      int64 `db:"sector_num"`
-		SectorFiletype int   `db:"sector_filetype" json:"-"` // Useless?
-		MinerAddress   address.Address
-		HasSealed      bool
-		HasUnsealed    bool
-		HasSnap        bool
-		ExpiresAt      abi.ChainEpoch // map to Duration
-		IsOnChain      bool
-		IsFilPlus      bool
-		SealInfo       string
-		Proving        bool
-		Flag           bool
-		DealWeight     string
-		Deals          string
-		//StorageID         string         `db:"storage_id"` // map to serverName
-		// Activation        abi.ChainEpoch // map to time.Time. advanced view only
-		// DealIDs           []abi.DealID //  advanced view only
-		//ExpectedDayReward abi.TokenAmount
-		//SealProof         abi.RegisteredSealProof
+		MinerID      int64
+		SectorNum    int64
+		MinerAddress address.Address
+		HasSealed    bool
+		HasUnsealed  bool
+		HasSnap      bool
+		ExpiresAt    abi.ChainEpoch
+		IsOnChain    bool
+		IsFilPlus    bool
+		SealInfo     string
+		Proving      bool
+		Flag         bool
+		DealWeight   string
+		Deals        string
 	}
-
-	type piece struct {
-		Size     int64           `db:"piece_size"`
-		DealID   uint64          `db:"f05_deal_id"`
-		Proposal json.RawMessage `db:"f05_deal_proposal"`
-		Manifest json.RawMessage `db:"direct_piece_activation_manifest"`
-		Miner    int64           `db:"sp_id"`
-		Sector   int64           `db:"sector_number"`
+	sectors := make([]sector, len(aggregatorRows))
+	minerToAddr := make(map[int64]address.Address)
+	for i, ag := range aggregatorRows {
+		var s sector
+		s.MinerID = ag.MinerID
+		s.SectorNum = ag.SectorNum
+		s.HasSealed = ag.SectorFiletype&int(storiface.FTSealed) != 0 ||
+			ag.SectorFiletype&int(storiface.FTUpdate) != 0
+		s.HasUnsealed = ag.SectorFiletype&int(storiface.FTUnsealed) != 0
+		s.HasSnap = ag.SectorFiletype&int(storiface.FTUpdate) != 0
+		addr, err := address.NewIDAddress(uint64(ag.MinerID))
+		apihelper.OrHTTPFail(w, err)
+		s.MinerAddress = addr
+		minerToAddr[ag.MinerID] = addr
+		sectors[i] = s
 	}
-	var sectors []sector
-	var pieces []piece
-
-	apihelper.OrHTTPFail(w, c.DB.Select(r.Context(), &sectors, `SELECT 
-		miner_id, sector_num, SUM(sector_filetype) as sector_filetype  
-		FROM sector_location WHERE sector_filetype != 32
-		GROUP BY miner_id, sector_num 
-		ORDER BY miner_id, sector_num`))
-
-	minerToAddr := map[int64]address.Address{}
 	head, err := c.Chain.ChainHead(r.Context())
 	apihelper.OrHTTPFail(w, err)
-
 	type sectorID struct {
 		mID  int64
 		sNum uint64
 	}
-	sectorIdx := map[sectorID]int{}
+	sectorIdx := make(map[sectorID]int)
 	for i, s := range sectors {
-		sectors[i].HasSealed = s.SectorFiletype&int(storiface.FTSealed) != 0 || s.SectorFiletype&int(storiface.FTUpdate) != 0
-		sectors[i].HasUnsealed = s.SectorFiletype&int(storiface.FTUnsealed) != 0
-		sectors[i].HasSnap = s.SectorFiletype&int(storiface.FTUpdate) != 0
 		sectorIdx[sectorID{s.MinerID, uint64(s.SectorNum)}] = i
-		addr, err := address.NewIDAddress(uint64(s.MinerID))
-		apihelper.OrHTTPFail(w, err)
-		sectors[i].MinerAddress = addr
-		if _, ok := minerToAddr[s.MinerID]; !ok {
-			minerToAddr[s.MinerID] = addr
-		}
 	}
-
-	// Get all pieces
-	apihelper.OrHTTPFail(w, c.DB.Select(r.Context(), &pieces, `SELECT 
-										sp_id,
-										sector_number,
-										piece_size,
-										COALESCE(f05_deal_id, 0) AS f05_deal_id,
-										f05_deal_proposal,
-										direct_piece_activation_manifest  
-										FROM sectors_sdr_initial_pieces 
-										ORDER BY sp_id, sector_number`))
-	var mpieces []piece
-	apihelper.OrHTTPFail(w, c.DB.Select(r.Context(), &mpieces, `SELECT 
-										sp_id,
-										sector_num as sector_number,
-										piece_size,
-										COALESCE(f05_deal_id, 0) AS f05_deal_id,
-										f05_deal_proposal,
-										ddo_pam as direct_piece_activation_manifest
-										FROM sectors_meta_pieces 
-										ORDER BY sp_id, sector_num`))
-	pieces = append(pieces, mpieces...)
-	pieceIndex := map[sectorID][]int{}
-	for i, piece := range pieces {
-		piece := piece
-		cur := pieceIndex[sectorID{mID: piece.Miner, sNum: uint64(piece.Sector)}]
-		pieceIndex[sectorID{mID: piece.Miner, sNum: uint64(piece.Sector)}] = append(cur, i)
-	}
-
-	for minerID, maddr := range minerToAddr {
-		onChainInfo, err := c.getCachedSectorInfo(w, r, maddr, head.Key())
+	for mid, maddr := range minerToAddr {
+		info, err := c.getCachedSectorInfo(w, r, maddr, head.Key())
 		apihelper.OrHTTPFail(w, err)
-		for _, chainy := range onChainInfo {
+		for _, chainy := range info {
 			st := chainy.onChain
-			if i, ok := sectorIdx[sectorID{minerID, uint64(st.SectorNumber)}]; ok {
-				sectors[i].IsOnChain = true
-				sectors[i].ExpiresAt = st.Expiration
-				sectors[i].IsFilPlus = st.VerifiedDealWeight.GreaterThan(big.NewInt(0))
-				if ss, err := st.SealProof.SectorSize(); err == nil {
-					sectors[i].SealInfo = ss.ShortString()
-				}
-				sectors[i].Proving = chainy.active
-				if st.Expiration < head.Height() {
-					sectors[i].Flag = true // Flag expired sectors
-				}
-
-				dw, vp := .0, .0
-				f05, ddo := 0, 0
-				var pi []piece
-				if j, ok := pieceIndex[sectorID{sectors[i].MinerID, uint64(sectors[i].SectorNum)}]; ok {
-					for _, k := range j {
-						pi = append(pi, pieces[k])
-					}
-				}
-				estimate := st.Expiration-st.Activation <= 0 || sectors[i].HasSnap
-				if estimate {
-					for _, p := range pi {
-						if p.Proposal != nil {
-							var prop *market.DealProposal
-							apihelper.OrHTTPFail(w, json.Unmarshal(p.Proposal, &prop))
-							dw += float64(prop.PieceSize)
-							if prop.VerifiedDeal {
-								vp += float64(prop.PieceSize) * verifiedPowerGainMul
-							}
-							f05++
-						}
-						if p.Manifest != nil {
-							var pam *miner.PieceActivationManifest
-							apihelper.OrHTTPFail(w, json.Unmarshal(p.Manifest, &pam))
-							dw += float64(pam.Size)
-							if pam.VerifiedAllocationKey != nil {
-								vp += float64(pam.Size) * verifiedPowerGainMul
-							}
-							ddo++
-						}
-					}
-				} else {
-					rdw := big.Add(st.DealWeight, st.VerifiedDealWeight)
-					dw = float64(big.Div(rdw, big.NewInt(int64(st.Expiration-st.PowerBaseEpoch))).Uint64())
-					vp = float64(big.Div(big.Mul(st.VerifiedDealWeight, big.NewInt(verifiedPowerGainMul)), big.NewInt(int64(st.Expiration-st.PowerBaseEpoch))).Uint64())
-					// DDO sectors don't have deal info on chain
-					for _, p := range pi {
-						if p.Manifest != nil {
-							ddo++
-						}
-						if p.Proposal != nil {
-							f05++
-						}
-					}
-				}
-				sectors[i].DealWeight = "CC"
-				if dw > 0 {
-					sectors[i].DealWeight = units.BytesSize(dw)
-				}
-				if vp > 0 {
-					sectors[i].DealWeight = units.BytesSize(vp)
-				}
-				sectors[i].Deals = fmt.Sprintf("Market: %d, DDO: %d", f05, ddo)
-			} else {
-				// sector is on chain but not in db
-				s := sector{
-					MinerID:      minerID,
-					MinerAddress: maddr,
-					SectorNum:    int64(chainy.onChain.SectorNumber),
-					IsOnChain:    true,
-					ExpiresAt:    chainy.onChain.Expiration,
-					IsFilPlus:    chainy.onChain.VerifiedDealWeight.GreaterThan(big.NewInt(0)),
-					Proving:      chainy.active,
-					Flag:         true, // All such sectors should be flagged to be terminated
-				}
-				if ss, err := chainy.onChain.SealProof.SectorSize(); err == nil {
-					s.SealInfo = ss.ShortString()
-				}
-				sectors = append(sectors, s)
+			key := sectorID{mID: mid, sNum: uint64(st.SectorNumber)}
+			i, ok := sectorIdx[key]
+			if !ok {
+				continue
 			}
-			/*
-				info, err := c.Full.StateSectorGetInfo(r.Context(), minerToAddr[s], abi.SectorNumber(uint64(sectors[i].SectorNum)), headKey)
-				if err != nil {
-					sectors[i].IsValid = false
-					continue
-				}*/
+			sectors[i].IsOnChain = true
+			sectors[i].ExpiresAt = st.Expiration
+			sectors[i].IsFilPlus = st.VerifiedDealWeight.GreaterThan(big.NewInt(0))
+			sz, e2 := st.SealProof.SectorSize()
+			if e2 == nil {
+				sectors[i].SealInfo = sz.ShortString()
+			}
+			sectors[i].Proving = chainy.active
+			if st.Expiration < head.Height() {
+				sectors[i].Flag = true
+			}
 		}
 	}
-
-	// Add deal details to sectors which are not on chain
-	for i := range sectors {
-		if !sectors[i].IsOnChain {
-			var pi []piece
-			dw, vp := .0, .0
-			f05, ddo := 0, 0
-
-			// Find if there are any deals for this sector
-			if j, ok := pieceIndex[sectorID{sectors[i].MinerID, uint64(sectors[i].SectorNum)}]; ok {
-				for _, k := range j {
-					pi = append(pi, pieces[k])
-				}
+	if len(aggregatorRows) > 0 {
+		type pieceRow1 struct {
+			Miner    int64
+			Sector   int64
+			Size     int64
+			DealID   uint64
+			Proposal json.RawMessage
+			Manifest json.RawMessage
+		}
+		var allPieces []pieceRow1
+		for _, ag := range aggregatorRows {
+			rows1, e1 := c.DB.Query(r.Context(), `
+SELECT sp_id, sector_number, piece_size, COALESCE(f05_deal_id, 0), f05_deal_proposal, direct_piece_activation_manifest
+FROM sectors_sdr_initial_pieces
+WHERE sp_id = $1 AND sector_number = $2
+`, ag.MinerID, ag.SectorNum)
+			apihelper.OrHTTPFail(w, e1)
+			for rows1.Next() {
+				var pr pieceRow1
+				var dealID uint64
+				err := rows1.Scan(
+					&pr.Miner,
+					&pr.Sector,
+					&pr.Size,
+					&dealID,
+					&pr.Proposal,
+					&pr.Manifest,
+				)
+				apihelper.OrHTTPFail(w, err)
+				pr.DealID = dealID
+				allPieces = append(allPieces, pr)
 			}
-
-			if len(pi) > 0 {
-				for _, p := range pi {
-					if p.Proposal != nil {
-						var prop *market.DealProposal
-						apihelper.OrHTTPFail(w, json.Unmarshal(p.Proposal, &prop))
+			rows1.Close()
+			var p2 []struct {
+				Miner    int64
+				Sector   int64
+				Size     int64
+				DealID   uint64
+				Proposal json.RawMessage
+				Manifest json.RawMessage
+			}
+			rows2, e2 := c.DB.Query(r.Context(), `
+SELECT sp_id, sector_num, piece_size, COALESCE(f05_deal_id, 0), f05_deal_proposal, ddo_pam
+FROM sectors_meta_pieces
+WHERE sp_id = $1 AND sector_num = $2
+`, ag.MinerID, ag.SectorNum)
+			apihelper.OrHTTPFail(w, e2)
+			for rows2.Next() {
+				var x struct {
+					Miner    int64
+					Sector   int64
+					Size     int64
+					DealID   uint64
+					Proposal json.RawMessage
+					Manifest json.RawMessage
+				}
+				err := rows2.Scan(
+					&x.Miner,
+					&x.Sector,
+					&x.Size,
+					&x.DealID,
+					&x.Proposal,
+					&x.Manifest,
+				)
+				apihelper.OrHTTPFail(w, err)
+				p2 = append(p2, x)
+			}
+			rows2.Close()
+			for _, row := range p2 {
+				allPieces = append(allPieces, pieceRow1{
+					Miner:    row.Miner,
+					Sector:   row.Sector,
+					Size:     row.Size,
+					DealID:   row.DealID,
+					Proposal: row.Proposal,
+					Manifest: row.Manifest,
+				})
+			}
+		}
+		pieceMap := make(map[sectorID][]int)
+		for i, ap := range allPieces {
+			pieceMap[sectorID{mID: ap.Miner, sNum: uint64(ap.Sector)}] = append(pieceMap[sectorID{mID: ap.Miner, sNum: uint64(ap.Sector)}], i)
+		}
+		for i := range sectors {
+			s := &sectors[i]
+			sid := sectorID{s.MinerID, uint64(s.SectorNum)}
+			idxs, found := pieceMap[sid]
+			if !found {
+				s.DealWeight = "CC"
+				s.Deals = "Market: 0, DDO: 0"
+				continue
+			}
+			var dw, vp float64
+			var f05, ddo int
+			for _, idx := range idxs {
+				piece := allPieces[idx]
+				if piece.Proposal != nil {
+					var prop *market.DealProposal
+					e := json.Unmarshal(piece.Proposal, &prop)
+					if e == nil && prop != nil {
 						dw += float64(prop.PieceSize)
 						if prop.VerifiedDeal {
 							vp += float64(prop.PieceSize) * verifiedPowerGainMul
 						}
 						f05++
 					}
-					if p.Manifest != nil {
-						var pam *miner.PieceActivationManifest
-						apihelper.OrHTTPFail(w, json.Unmarshal(p.Manifest, &pam))
+				}
+				if piece.Manifest != nil {
+					var pam *miner.PieceActivationManifest
+					e := json.Unmarshal(piece.Manifest, &pam)
+					if e == nil && pam != nil {
 						dw += float64(pam.Size)
 						if pam.VerifiedAllocationKey != nil {
 							vp += float64(pam.Size) * verifiedPowerGainMul
@@ -316,18 +355,28 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-			sectors[i].IsFilPlus = vp > 0
-			if dw > 0 {
-				sectors[i].DealWeight = units.BytesSize(dw)
-			} else if vp > 0 {
-				sectors[i].DealWeight = units.BytesSize(vp)
-			} else {
-				sectors[i].DealWeight = "CC"
+			if vp > 0 {
+				s.IsFilPlus = true
 			}
-			sectors[i].Deals = fmt.Sprintf("Market: %d, DDO: %d", f05, ddo)
+			if dw <= 0 && vp <= 0 {
+				s.DealWeight = "CC"
+			} else {
+				val := dw
+				if vp > 0 {
+					val = vp
+				}
+				s.DealWeight = units.BytesSize(val)
+			}
+			s.Deals = fmt.Sprintf("Market: %d, DDO: %d", f05, ddo)
 		}
 	}
-	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(map[string]any{"data": sectors}))
+	out := map[string]interface{}{
+		"draw":            draw,
+		"recordsTotal":    totalCount,
+		"recordsFiltered": totalCount,
+		"data":            sectors,
+	}
+	apihelper.OrHTTPFail(w, json.NewEncoder(w).Encode(out))
 }
 
 type sectorInfo struct {
