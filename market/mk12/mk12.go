@@ -446,6 +446,8 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 				Reason: fmt.Sprintf("failed to marshal headers: %s", err),
 			}, nil
 		}
+	} else {
+		headers = []byte("{}")
 	}
 
 	// Cbor marshal the Deal Label manually as non-string label will result in "" with JSON marshal
