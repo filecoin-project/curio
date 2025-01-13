@@ -424,24 +424,28 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 		}, nil
 	}
 
-	// de-serialize transport opaque token
-	tInfo := &HttpRequest{}
-	if err := json.Unmarshal(deal.Transfer.Params, tInfo); err != nil {
-		return &ProviderDealRejectionInfo{
-			Reason: fmt.Sprintf("failed to de-serialize transport params bytes '%s': %s", string(deal.Transfer.Params), err),
-		}, nil
-	}
+	var headers []byte
+	var tInfo *HttpRequest
 
-	goheaders := http.Header{}
-	for k, v := range tInfo.Headers {
-		goheaders.Set(k, v)
-	}
+	if !deal.IsOffline {
+		// de-serialize transport opaque token
+		if err := json.Unmarshal(deal.Transfer.Params, tInfo); err != nil {
+			return &ProviderDealRejectionInfo{
+				Reason: fmt.Sprintf("failed to de-serialize transport params bytes '%s': %s", string(deal.Transfer.Params), err),
+			}, nil
+		}
 
-	headers, err := json.Marshal(goheaders)
-	if err != nil {
-		return &ProviderDealRejectionInfo{
-			Reason: fmt.Sprintf("failed to marshal headers: %s", err),
-		}, nil
+		goheaders := http.Header{}
+		for k, v := range tInfo.Headers {
+			goheaders.Set(k, v)
+		}
+
+		headers, err = json.Marshal(goheaders)
+		if err != nil {
+			return &ProviderDealRejectionInfo{
+				Reason: fmt.Sprintf("failed to marshal headers: %s", err),
+			}, nil
+		}
 	}
 
 	// Cbor marshal the Deal Label manually as non-string label will result in "" with JSON marshal
