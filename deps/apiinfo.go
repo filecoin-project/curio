@@ -22,7 +22,7 @@ import (
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
-	"github.com/filecoin-project/lotus/build"
+	"github.com/filecoin-project/curio/build"
 )
 
 var clog = logging.Logger("curio/chain")
