@@ -41,7 +41,7 @@ type SectorInfo struct {
 	UpdatedSealedCid   string
 	IsSnap             bool
 	UpdateMsg          string
-	UnsealedState      bool
+	UnsealedState      *bool
 	HasUnsealed        bool
 
 	PipelinePoRep *sectorListEntry
@@ -454,9 +454,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 			p := *sectormeta.Partition
 			si.Partition = &p
 		}
-		if sectormeta.UnsealedState != nil {
-			si.UnsealedState = *sectormeta.UnsealedState
-		}
+		si.UnsealedState = sectormeta.UnsealedState
 	}
 
 	var pieces []SectorPieceMeta
