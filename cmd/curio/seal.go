@@ -15,6 +15,7 @@ import (
 	miner12 "github.com/filecoin-project/go-state-types/builtin/v12/miner"
 
 	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/reqcontext"
@@ -27,7 +28,7 @@ import (
 
 var sealCmd = &cli.Command{
 	Name:  "seal",
-	Usage: "Manage the sealing pipeline",
+	Usage: translations.T("Manage the sealing pipeline"),
 	Subcommands: []*cli.Command{
 		sealStartCmd,
 		sealMigrateLMSectorsCmd,
@@ -37,42 +38,43 @@ var sealCmd = &cli.Command{
 
 var sealStartCmd = &cli.Command{
 	Name:  "start",
-	Usage: "Start new sealing operations manually",
+	Usage: translations.T("Start new sealing operations manually"),
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:     "actor",
-			Usage:    "Specify actor address to start sealing sectors for",
+			Usage:    translations.T("Specify actor address to start sealing sectors for"),
 			Required: true,
 		},
 		&cli.BoolFlag{
 			Name:  "now",
-			Usage: "Start sealing sectors for all actors now (not on schedule)",
+			Usage: translations.T("Start sealing sectors for all actors now (not on schedule)"),
 		},
 		&cli.BoolFlag{
 			Name:  "cc",
-			Usage: "Start sealing new CC sectors",
+			Usage: translations.T("Start sealing new CC sectors"),
 		},
 		&cli.IntFlag{
 			Name:  "count",
-			Usage: "Number of sectors to start",
+			Usage: translations.T("Number of sectors to start"),
 			Value: 1,
 		},
 		&cli.BoolFlag{
 			Name:  "synthetic",
-			Usage: "Use synthetic PoRep",
+			Usage: translations.T("Use synthetic PoRep"),
 			Value: false,
 		},
 		&cli.StringSliceFlag{
 			Name:  "layers",
-			Usage: "list of layers to be interpreted (atop defaults). Default: base",
+			Usage: translations.T("list of layers to be interpreted (atop defaults). Default: base"),
 		},
 		&cli.IntFlag{
 			Name:        "duration-days",
 			Aliases:     []string{"d"},
-			Usage:       "How long to commit sectors for",
-			DefaultText: "1278 (3.5 years)",
+			Usage:       translations.T("How long to commit sectors for"),
+			DefaultText: translations.T("1278 (3.5 years)"),
 		},
 	},
+
 	Action: func(cctx *cli.Context) error {
 		if !cctx.Bool("now") {
 			return xerrors.Errorf("schedule not implemented, use --now")
@@ -97,15 +99,15 @@ var sealStartCmd = &cli.Command{
 
 		/*
 			create table sectors_sdr_pipeline (
-			    sp_id bigint not null,
-			    sector_number bigint not null,
+							sp_id bigint not null,
+							sector_number bigint not null,
 
-			    -- at request time
-			    create_time timestamp not null,
-			    reg_seal_proof int not null,
-			    comm_d_cid text not null,
+							-- at request time
+							create_time timestamp not null,
+							reg_seal_proof int not null,
+							comm_d_cid text not null,
 
-			    [... other not relevant fields]
+							[... other not relevant fields]
 		*/
 
 		mid, err := address.IDFromAddress(act)
@@ -182,21 +184,22 @@ var sealStartCmd = &cli.Command{
 
 var sealMigrateLMSectorsCmd = &cli.Command{
 	Name:   "migrate-lm-sectors",
-	Usage:  "(debug tool) Copy LM sector metadata into Curio DB",
+	Usage:  translations.T("(debug tool) Copy LM sector metadata into Curio DB"),
 	Hidden: true, // only needed in advanced cases where manual repair is needed
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:  "miner-repo",
-			Usage: "Path to miner repo",
+			Usage: translations.T("Path to miner repo"),
 			Value: "~/.lotusminer",
 		},
 		&cli.BoolFlag{
 			Name:    "seal-ignore",
-			Usage:   "Ignore sectors that cannot be migrated",
+			Usage:   translations.T("Ignore sectors that cannot be migrated"),
 			Value:   false,
 			EnvVars: []string{"CURUO_MIGRATE_SEAL_IGNORE"},
 		},
 	},
+
 	Action: func(cctx *cli.Context) error {
 		ctx := reqcontext.ReqContext(cctx)
 		db, err := deps.MakeDB(cctx)
@@ -259,22 +262,23 @@ var sealMigrateLMSectorsCmd = &cli.Command{
 
 var sealEventsCmd = &cli.Command{
 	Name:  "events",
-	Usage: "List pipeline events",
+	Usage: translations.T("List pipeline events"),
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:  "actor",
-			Usage: "Filter events by actor address; lists all if not specified",
+			Usage: translations.T("Filter events by actor address; lists all if not specified"),
 		},
 		&cli.IntFlag{
 			Name:  "sector",
-			Usage: "Filter events by sector number; requires --actor to be specified",
+			Usage: translations.T("Filter events by sector number; requires --actor to be specified"),
 		},
 		&cli.UintFlag{
 			Name:  "last",
-			Usage: "Limit output to the last N events",
+			Usage: translations.T("Limit output to the last N events"),
 			Value: 100,
 		},
 	},
+
 	Action: func(cctx *cli.Context) error {
 
 		var actorID uint64
@@ -320,22 +324,22 @@ var sealEventsCmd = &cli.Command{
 		if !cctx.IsSet("actor") {
 			// list for all actors
 			err = dep.DB.Select(ctx, &events, `SELECT s.sp_id, s.sector_number, h.*
-				FROM harmony_task_history h
-         			JOIN sectors_pipeline_events s ON h.id = s.task_history_id
-				ORDER BY h.work_end DESC LIMIT $1;`, cctx.Int("last"))
+					FROM harmony_task_history h
+													JOIN sectors_pipeline_events s ON h.id = s.task_history_id
+					ORDER BY h.work_end DESC LIMIT $1;`, cctx.Int("last"))
 		} else if cctx.IsSet("sector") {
 			// list for specific actor and sector
 			err = dep.DB.Select(ctx, &events, `SELECT s.sp_id, s.sector_number, h.*
-				FROM harmony_task_history h
-         			JOIN sectors_pipeline_events s ON h.id = s.task_history_id
-				WHERE s.sp_id = $1 AND s.sector_number = $2 ORDER BY h.work_end DESC LIMIT $3;`, actorID, sector, cctx.Int("last"))
+					FROM harmony_task_history h
+													JOIN sectors_pipeline_events s ON h.id = s.task_history_id
+					WHERE s.sp_id = $1 AND s.sector_number = $2 ORDER BY h.work_end DESC LIMIT $3;`, actorID, sector, cctx.Int("last"))
 		} else {
 			fmt.Println(cctx.IsSet("actor"), cctx.IsSet("sector"))
 			// list for specific actor
 			err = dep.DB.Select(ctx, &events, `SELECT s.sp_id, s.sector_number, h.*
-				FROM harmony_task_history h
-         			JOIN sectors_pipeline_events s ON h.id = s.task_history_id
-				WHERE s.sp_id = $1 ORDER BY h.work_end DESC LIMIT $2;`, actorID, cctx.Int("last"))
+					FROM harmony_task_history h
+													JOIN sectors_pipeline_events s ON h.id = s.task_history_id
+					WHERE s.sp_id = $1 ORDER BY h.work_end DESC LIMIT $2;`, actorID, cctx.Int("last"))
 		}
 
 		if err != nil {

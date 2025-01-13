@@ -1,0 +1,23 @@
+brew install xmlstarlet
+
+interesting but useless: 
+   xmlstarlet sel -t -v "//@value" -n curio-cluster.drawio |sort -u | xmllint --html --xpath "string()" - 2>/dev/null >out.txt
+
+do this: 
+   xmlstarlet sel -t -v "//@value" -n curio-cluster.drawio |sort -u >out.txt
+  prepend: {"message": "
+  append: "}, "translation": ""},
+
+First lines: 
+{
+    "language": "zh",
+    "messages":  [
+    
+(and close with):
+    ]}
+
+AI:
+Complete these translations, preserving html formatting.
+
+run:
+  go run replaceTranslations.go curio-cluster.drawio curio_cluster_translations.json

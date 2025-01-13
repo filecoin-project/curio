@@ -1187,6 +1187,618 @@
       "placeholder": null
     },
     {
+      "id": "Math Utils",
+      "translation": "数学工具",
+      "message": "Math Utils",
+      "placeholder": null
+    },
+    {
+      "id": "Analyze and display the layout of batch sealer threads",
+      "translation": "分析并显示批量封装线程的布局",
+      "message": "Analyze and display the layout of batch sealer threads",
+      "placeholder": null
+    },
+    {
+      "id": "Analyze and display the layout of batch sealer threads on your CPU.\n\nIt provides detailed information about CPU utilization for batch sealing operations, including core allocation, thread\ndistribution for different batch sizes.",
+      "translation": "分析并显示CPU上批量封装线程的布局。\n\n提供有关批量封装操作的CPU利用率的详细信息，包括核心分配和不同批量大小的线程分布。",
+      "message": "Analyze and display the layout of batch sealer threads on your CPU.\n\nIt provides detailed information about CPU utilization for batch sealing operations, including core allocation, thread\ndistribution for different batch sizes.",
+      "placeholder": null
+    },
+    {
+      "id": "Generate a supra_seal configuration",
+      "translation": "生成 supra_seal 配置",
+      "message": "Generate a supra_seal configuration",
+      "placeholder": null
+    },
+    {
+      "id": "Generate a supra_seal configuration for a given batch size.\n\nThis command outputs a configuration expected by SupraSeal. Main purpose of this command is for debugging and testing.\nThe config can be used directly with SupraSeal binaries to test it without involving Curio.",
+      "translation": "为指定的批量大小生成 supra_seal 配置。\n\n此命令输出 SupraSeal 所需的配置，主要用于调试和测试。配置可以直接用于 SupraSeal 二进制文件进行测试，而无需涉及 Curio。",
+      "message": "Generate a supra_seal configuration for a given batch size.\n\nThis command outputs a configuration expected by SupraSeal. Main purpose of this command is for debugging and testing.\nThe config can be used directly with SupraSeal binaries to test it without involving Curio.",
+      "placeholder": null
+    },
+    {
+      "id": "Zen3 and later supports two sectors per thread, set to false for older CPUs",
+      "translation": "Zen3 及以后版本支持每个线程两个扇区，旧版CPU请设置为 false",
+      "message": "Zen3 and later supports two sectors per thread, set to false for older CPUs",
+      "placeholder": null
+    },
+    {
+      "id": "Execute cli commands",
+      "translation": "执行 CLI 命令",
+      "message": "Execute cli commands",
+      "placeholder": null
+    },
+    {
+      "id": "machine host:port (curio run --listen address)",
+      "translation": "机器主机:端口 (curio run --listen address)",
+      "message": "machine host:port (curio run --listen address)",
+      "placeholder": null
+    },
+    {
+      "id": "Wait for Curio api to come online",
+      "translation": "等待 Curio API 上线",
+      "message": "Wait for Curio api to come online",
+      "placeholder": null
+    },
+    {
+      "id": "duration to wait till fail",
+      "translation": "等待失败的持续时间",
+      "message": "duration to wait till fail",
+      "placeholder": null
+    },
+    {
+      "id": "Manage node config by layers. The layer 'base' will always be applied at Curio start-up.",
+      "translation": "通过层管理节点配置。Curio 启动时始终应用“base”层。",
+      "message": "Manage node config by layers. The layer 'base' will always be applied at Curio start-up.",
+      "placeholder": null
+    },
+    {
+      "id": "Print default node config",
+      "translation": "打印默认节点配置",
+      "message": "Print default node config",
+      "placeholder": null
+    },
+    {
+      "id": "don't comment default values",
+      "translation": "不要注释默认值",
+      "message": "don't comment default values",
+      "placeholder": null
+    },
+    {
+      "id": "Set a config layer or the base by providing a filename or stdin.",
+      "translation": "通过提供文件名或标准输入来设置配置层或基础层。",
+      "message": "Set a config layer or the base by providing a filename or stdin.",
+      "placeholder": null
+    },
+    {
+      "id": "a layer's file name",
+      "translation": "层的文件名",
+      "message": "a layer's file name",
+      "placeholder": null
+    },
+    {
+      "id": "title of the config layer (req'd for stdin)",
+      "translation": "配置层的标题（标准输入必需）",
+      "message": "title of the config layer (req'd for stdin)",
+      "placeholder": null
+    },
+    {
+      "id": "Get a config layer by name. You may want to pipe the output to a file, or use 'less'",
+      "translation": "通过名称获取配置层。您可能希望将输出传递到文件，或使用 'less'",
+      "message": "Get a config layer by name. You may want to pipe the output to a file, or use 'less'",
+      "placeholder": null
+    },
+    {
+      "id": "layer name",
+      "translation": "层名称",
+      "message": "layer name",
+      "placeholder": null
+    },
+    {
+      "id": "List config layers present in the DB.",
+      "translation": "列出数据库中存在的配置层。",
+      "message": "List config layers present in the DB.",
+      "placeholder": null
+    },
+    {
+      "id": "Remove a named config layer.",
+      "translation": "移除命名的配置层。",
+      "message": "Remove a named config layer.",
+      "placeholder": null
+    },
+    {
+      "id": "Interpret stacked config layers by this version of curio, with system-generated comments.",
+      "translation": "由此版本的 Curio 解释堆叠的配置层，带有系统生成的注释。",
+      "message": "Interpret stacked config layers by this version of curio, with system-generated comments.",
+      "placeholder": null
+    },
+    {
+      "id": "a list of layers to be interpreted as the final config",
+      "translation": "要解释为最终配置的层列表",
+      "message": "a list of layers to be interpreted as the final config",
+      "placeholder": null
+    },
+    {
+      "id": "comma or space separated list of layers to be interpreted (base is always applied)",
+      "translation": "要解释的层列表，以逗号或空格分隔（base 始终应用）",
+      "message": "comma or space separated list of layers to be interpreted (base is always applied)",
+      "placeholder": null
+    },
+    {
+      "id": "edit a config layer",
+      "translation": "编辑配置层",
+      "message": "edit a config layer",
+      "placeholder": null
+    },
+    {
+      "id": "[layer name]",
+      "translation": "[层名称]",
+      "message": "[layer name]",
+      "placeholder": null
+    },
+    {
+      "id": "editor to use",
+      "translation": "使用的编辑器",
+      "message": "editor to use",
+      "placeholder": null
+    },
+    {
+      "id": "source config layer",
+      "translation": "源配置层",
+      "message": "source config layer",
+      "placeholder": null
+    },
+    {
+      "id": "allow overwrite of existing layer if source is a different layer",
+      "translation": "如果源是不同的层，则允许覆盖现有层",
+      "message": "allow overwrite of existing layer if source is a different layer",
+      "placeholder": null
+    },
+    {
+      "id": "save the whole config into the layer, not just the diff",
+      "translation": "将整个配置保存到层中，而不仅仅是差异",
+      "message": "save the whole config into the layer, not just the diff",
+      "placeholder": null
+    },
+    {
+      "id": "do not interpret source layer",
+      "translation": "不要解释源层",
+      "message": "do not interpret source layer",
+      "placeholder": null
+    },
+    {
+      "id": "true if --source is set",
+      "translation": "如果设置了 --source，则为 true",
+      "message": "true if --source is set",
+      "placeholder": null
+    },
+    {
+      "id": "Create new configuration for a new cluster",
+      "translation": "为新集群创建新配置",
+      "message": "Create new configuration for a new cluster",
+      "placeholder": null
+    },
+    {
+      "id": "[SP actor address...]",
+      "translation": "[SP actor 地址...]",
+      "message": "[SP actor address...]",
+      "placeholder": null
+    },
+    {
+      "id": "Manage logging",
+      "translation": "管理日志记录",
+      "message": "Manage logging",
+      "placeholder": null
+    },
+    {
+      "id": "List log systems",
+      "translation": "列出日志系统",
+      "message": "List log systems",
+      "placeholder": null
+    },
+    {
+      "id": "Set log level",
+      "translation": "设置日志级别",
+      "message": "Set log level",
+      "placeholder": null
+    },
+    {
+      "id": "[level]",
+      "translation": "[级别]",
+      "message": "[level]",
+      "placeholder": null
+    },
+    {
+      "id": "Set the log level for logging systems:\n\n   The system flag can be specified multiple times.\n\n   eg) log set-level --system chain --system chainxchg debug\n\n   Available Levels:\n   debug\n   info\n   warn\n   error\n\n   Environment Variables:\n   GOLOG_LOG_LEVEL - Default log level for all log systems\n   GOLOG_LOG_FMT   - Change output log format (json, nocolor)\n   GOLOG_FILE      - Write logs to file\n   GOLOG_OUTPUT    - Specify whether to output to file, stderr, stdout or a combination, i.e. file+stderr",
+      "translation": "为日志系统设置日志级别：\n\n 系统标志可以多次指定。\n\n 例如) log set-level --system chain --system chainxchg debug\n\n 可用级别：\n debug\n info\n warn\n error\n\n 环境变量：\n GOLOG_LOG_LEVEL - 所有日志系统的默认日志级别\n GOLOG_LOG_FMT   - 更改输出日志格式 (json, nocolor)\n GOLOG_FILE      - 将日志写入文件\n GOLOG_OUTPUT    - 指定是否输出到文件、stderr、stdout 或组合，例如 file+stderr",
+      "message": "Set the log level for logging systems:\n\n   The system flag can be specified multiple times.\n\n   eg) log set-level --system chain --system chainxchg debug\n\n   Available Levels:\n   debug\n   info\n   warn\n   error\n\n   Environment Variables:\n   GOLOG_LOG_LEVEL - Default log level for all log systems\n   GOLOG_LOG_FMT   - Change output log format (json, nocolor)\n   GOLOG_FILE      - Write logs to file\n   GOLOG_OUTPUT    - Specify whether to output to file, stderr, stdout or a combination, i.e. file+stderr",
+      "placeholder": null
+    },
+    {
+      "id": "limit to log system",
+      "translation": "限制到日志系统",
+      "message": "limit to log system",
+      "placeholder": null
+    },
+    {
+      "id": "Filecoin decentralized storage network provider",
+      "translation": "Filecoin 去中心化存储网络提供商",
+      "message": "Filecoin decentralized storage network provider",
+      "placeholder": null
+    },
+    {
+      "id": "use color in display output",
+      "translation": "在显示输出中使用颜色",
+      "message": "use color in display output",
+      "placeholder": null
+    },
+    {
+      "id": "depends on output being a TTY",
+      "translation": "取决于输出是否为TTY",
+      "message": "depends on output being a TTY",
+      "placeholder": null
+    },
+    {
+      "id": "Command separated list of hostnames for yugabyte cluster",
+      "translation": "Yugabyte 集群的主机名命令分隔列表",
+      "message": "Command separated list of hostnames for yugabyte cluster",
+      "placeholder": null
+    },
+    {
+      "id": "enables very verbose mode, useful for debugging the CLI",
+      "translation": "启用非常详细的模式，有助于调试 CLI",
+      "message": "enables very verbose mode, useful for debugging the CLI",
+      "placeholder": null
+    },
+    {
+      "id": "Fetch proving parameters",
+      "translation": "获取证明参数",
+      "message": "Fetch proving parameters",
+      "placeholder": null
+    },
+    {
+      "id": "[sectorSize]",
+      "translation": "[扇区大小]",
+      "message": "[sectorSize]",
+      "placeholder": null
+    },
+    {
+      "id": "list of layers to be interpreted (atop defaults). Default: base",
+      "translation": "要解释的层列表（在默认值之上）。默认：base",
+      "message": "list of layers to be interpreted (atop defaults). Default: base",
+      "placeholder": null
+    },
+    {
+      "id": "start sealing a deal sector early",
+      "translation": "提前开始封装交易扇区",
+      "message": "start sealing a deal sector early",
+      "placeholder": null
+    },
+    {
+      "id": "Specify actor address to start sealing sectors for",
+      "translation": "指定演员地址以开始封装扇区",
+      "message": "Specify actor address to start sealing sectors for",
+      "placeholder": null
+    },
+    {
+      "id": "Use synthetic PoRep",
+      "translation": "使用合成 PoRep",
+      "message": "Use synthetic PoRep",
+      "placeholder": null
+    },
+    {
+      "id": "\u003csector\u003e",
+      "translation": "\u003c扇区\u003e",
+      "message": "\u003csector\u003e",
+      "placeholder": null
+    },
+    {
+      "id": "Manage the sealing pipeline",
+      "translation": "管理封装流水线",
+      "message": "Manage the sealing pipeline",
+      "placeholder": null
+    },
+    {
+      "id": "Start new sealing operations manually",
+      "translation": "手动开始新的封装操作",
+      "message": "Start new sealing operations manually",
+      "placeholder": null
+    },
+    {
+      "id": "Start sealing sectors for all actors now (not on schedule)",
+      "translation": "立即为所有演员开始封装扇区（非计划内）",
+      "message": "Start sealing sectors for all actors now (not on schedule)",
+      "placeholder": null
+    },
+    {
+      "id": "Start sealing new CC sectors",
+      "translation": "开始封装新的 CC 扇区",
+      "message": "Start sealing new CC sectors",
+      "placeholder": null
+    },
+    {
+      "id": "Number of sectors to start",
+      "translation": "要开始的扇区数量",
+      "message": "Number of sectors to start",
+      "placeholder": null
+    },
+    {
+      "id": "How long to commit sectors for",
+      "translation": "承诺扇区的时间长度",
+      "message": "How long to commit sectors for",
+      "placeholder": null
+    },
+    {
+      "id": "1278 (3.5 years)",
+      "translation": "1278 (3.5 年)",
+      "message": "1278 (3.5 years)",
+      "placeholder": null
+    },
+    {
+      "id": "(debug tool) Copy LM sector metadata into Curio DB",
+      "translation": "（调试工具）将 LM 扇区元数据复制到 Curio 数据库",
+      "message": "(debug tool) Copy LM sector metadata into Curio DB",
+      "placeholder": null
+    },
+    {
+      "id": "Path to miner repo",
+      "translation": "矿工库的路径",
+      "message": "Path to miner repo",
+      "placeholder": null
+    },
+    {
+      "id": "Ignore sectors that cannot be migrated",
+      "translation": "忽略无法迁移的扇区",
+      "message": "Ignore sectors that cannot be migrated",
+      "placeholder": null
+    },
+    {
+      "id": "List pipeline events",
+      "translation": "列出流水线事件",
+      "message": "List pipeline events",
+      "placeholder": null
+    },
+    {
+      "id": "Filter events by actor address; lists all if not specified",
+      "translation": "按演员地址过滤事件；如果未指定则列出所有",
+      "message": "Filter events by actor address; lists all if not specified",
+      "placeholder": null
+    },
+    {
+      "id": "Filter events by sector number; requires --actor to be specified",
+      "translation": "按扇区编号过滤事件；需要指定 --actor",
+      "message": "Filter events by sector number; requires --actor to be specified",
+      "placeholder": null
+    },
+    {
+      "id": "Limit output to the last N events",
+      "translation": "将输出限制为最后 N 个事件",
+      "message": "Limit output to the last N events",
+      "placeholder": null
+    },
+    {
+      "id": "Start a Curio process",
+      "translation": "启动 Curio 进程",
+      "message": "Start a Curio process",
+      "placeholder": null
+    },
+    {
+      "id": "host address and port the worker api will listen on",
+      "translation": "worker API 监听的主机地址和端口",
+      "message": "host address and port the worker api will listen on",
+      "placeholder": null
+    },
+    {
+      "id": "host address and port the gui will listen on",
+      "translation": "GUI 监听的主机地址和端口",
+      "message": "host address and port the gui will listen on",
+      "placeholder": null
+    },
+    {
+      "id": "don't check full-node sync status",
+      "translation": "不检查全节点同步状态",
+      "message": "don't check full-node sync status",
+      "placeholder": null
+    },
+    {
+      "id": "only run init, then return",
+      "translation": "仅运行初始化，然后返回",
+      "message": "only run init, then return",
+      "placeholder": null
+    },
+    {
+      "id": "manage open file limit",
+      "translation": "管理打开文件的限制",
+      "message": "manage open file limit",
+      "placeholder": null
+    },
+    {
+      "id": "custom node name",
+      "translation": "自定义节点名称",
+      "message": "custom node name",
+      "placeholder": null
+    },
+    {
+      "id": "Start Curio web interface",
+      "translation": "启动 Curio 网络界面",
+      "message": "Start Curio web interface",
+      "placeholder": null
+    },
+    {
+      "id": "Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.",
+      "translation": "启动 Curio 网络界面的一个实例。\n\t如果“web”层不存在，则创建该层，然后使用该层调用运行。",
+      "message": "Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.",
+      "placeholder": null
+    },
+    {
+      "id": "Address to listen for the GUI on",
+      "translation": "GUI 监听的地址",
+      "message": "Address to listen for the GUI on",
+      "placeholder": null
+    },
+    {
+      "id": "Stop a running Curio process",
+      "translation": "停止正在运行的 Curio 进程",
+      "message": "Stop a running Curio process",
+      "placeholder": null
+    },
+    {
+      "id": "manage sector storage",
+      "translation": "管理扇区存储",
+      "message": "manage sector storage",
+      "placeholder": null
+    },
+    {
+      "id": "Sectors can be stored across many filesystem paths. These\ncommands provide ways to manage the storage a Curio node will use to store sectors\nlong term for proving (references as 'store') as well as how sectors will be\nstored while moving through the sealing pipeline (references as 'seal').",
+      "translation": "扇区可以存储在多个文件系统路径中。这些命令提供了管理 Curio 节点用于长期存储和证明的存储方法（参考为“store”），以及封装过程中扇区的存储方式（参考为“seal”）。",
+      "message": "Sectors can be stored across many filesystem paths. These\ncommands provide ways to manage the storage a Curio node will use to store sectors\nlong term for proving (references as 'store') as well as how sectors will be\nstored while moving through the sealing pipeline (references as 'seal').",
+      "placeholder": null
+    },
+    {
+      "id": "attach local storage path",
+      "translation": "附加本地存储路径",
+      "message": "attach local storage path",
+      "placeholder": null
+    },
+    {
+      "id": "[path]",
+      "translation": "[路径]",
+      "message": "[path]",
+      "placeholder": null
+    },
+    {
+      "id": "Storage can be attached to a Curio node using this command. The storage volume\nlist is stored local to the Curio node in storage.json set in curio run. We do not\nrecommend manually modifying this value without further understanding of the\nstorage system.\n\nEach storage volume contains a configuration file which describes the\ncapabilities of the volume. When the '--init' flag is provided, this file will\nbe created using the additional flags.\n\nWeight\nA high weight value means data will be more likely to be stored in this path\n\nSeal\nData for the sealing process will be stored here\n\nStore\nFinalized sectors that will be moved here for long term storage and be proven\nover time",
+      "translation": "可以使用此命令将存储附加到 Curio 节点。存储卷列表存储在本地 Curio 节点中的 storage.json 文件中，通过 curio run 设置。建议在了解存储系统之前，不要手动修改此值。\n\n每个存储卷包含一个配置文件，该文件描述了该卷的功能。提供 '--init' 标志时，将使用其他标志创建此文件。\n\n权重\n较高的权重值意味着数据更有可能存储在此路径中\n\n封装\n封装过程的数据将存储在这里\n\n存储\n已完成的扇区将移至此处进行长期存储，并随着时间推移进行证明",
+      "message": "Storage can be attached to a Curio node using this command. The storage volume\nlist is stored local to the Curio node in storage.json set in curio run. We do not\nrecommend manually modifying this value without further understanding of the\nstorage system.\n\nEach storage volume contains a configuration file which describes the\ncapabilities of the volume. When the '--init' flag is provided, this file will\nbe created using the additional flags.\n\nWeight\nA high weight value means data will be more likely to be stored in this path\n\nSeal\nData for the sealing process will be stored here\n\nStore\nFinalized sectors that will be moved here for long term storage and be proven\nover time",
+      "placeholder": null
+    },
+    {
+      "id": "initialize the path first",
+      "translation": "先初始化路径",
+      "message": "initialize the path first",
+      "placeholder": null
+    },
+    {
+      "id": "(for init) path weight",
+      "translation": "（用于初始化）路径权重",
+      "message": "(for init) path weight",
+      "placeholder": null
+    },
+    {
+      "id": "(for init) use path for sealing",
+      "translation": "（用于初始化）路径用于封装",
+      "message": "(for init) use path for sealing",
+      "placeholder": null
+    },
+    {
+      "id": "(for init) use path for long-term storage",
+      "translation": "（用于初始化）路径用于长期存储",
+      "message": "(for init) use path for long-term storage",
+      "placeholder": null
+    },
+    {
+      "id": "(for init) limit storage space for sectors (expensive for very large paths!)",
+      "translation": "（用于初始化）限制扇区的存储空间（对非常大的路径来说成本较高！）",
+      "message": "(for init) limit storage space for sectors (expensive for very large paths!)",
+      "placeholder": null
+    },
+    {
+      "id": "path group names",
+      "translation": "路径组名称",
+      "message": "path group names",
+      "placeholder": null
+    },
+    {
+      "id": "path groups allowed to pull data from this path (allow all if not specified)",
+      "translation": "允许从此路径提取数据的路径组（如果未指定，则允许所有）",
+      "message": "path groups allowed to pull data from this path (allow all if not specified)",
+      "placeholder": null
+    },
+    {
+      "id": "detach local storage path",
+      "translation": "分离本地存储路径",
+      "message": "detach local storage path",
+      "placeholder": null
+    },
+    {
+      "id": "list local storage paths",
+      "translation": "列出本地存储路径",
+      "message": "list local storage paths",
+      "placeholder": null
+    },
+    {
+      "id": "only list local storage paths",
+      "translation": "仅列出本地存储路径",
+      "message": "only list local storage paths",
+      "placeholder": null
+    },
+    {
+      "id": "find sector in the storage system",
+      "translation": "在存储系统中查找扇区",
+      "message": "find sector in the storage system",
+      "placeholder": null
+    },
+    {
+      "id": "[miner address] [sector number]",
+      "translation": "[矿工地址] [扇区编号]",
+      "message": "[miner address] [sector number]",
+      "placeholder": null
+    },
+    {
+      "id": "Utility functions for testing",
+      "translation": "测试的实用功能",
+      "message": "Utility functions for testing",
+      "placeholder": null
+    },
+    {
+      "id": "Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.",
+      "translation": "为扇区计算时空证明（需要预封装的扇区）。这些将不会发送到链上。",
+      "message": "Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.",
+      "placeholder": null
+    },
+    {
+      "id": "Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.",
+      "translation": "通过在下一个可用的 Curio 上运行来测试窗口后调度器。如果所有重试都失败，则需要按 ctrl+c 退出。",
+      "message": "Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.",
+      "placeholder": null
+    },
+    {
+      "id": "deadline to compute WindowPoSt for",
+      "translation": "计算 WindowPoSt 的截止日期",
+      "message": "deadline to compute WindowPoSt for",
+      "placeholder": null
+    },
+    {
+      "id": "Compute WindowPoSt for performance and configuration testing.",
+      "translation": "计算 WindowPoSt 以进行性能和配置测试。",
+      "message": "Compute WindowPoSt for performance and configuration testing.",
+      "placeholder": null
+    },
+    {
+      "id": "Note: This command is intended to be used to verify PoSt compute performance.\nIt will not send any messages to the chain. Since it can compute any deadline, output may be incorrectly timed for the chain.",
+      "translation": "注意：此命令旨在用于验证 PoSt 计算性能。\n它不会向链发送任何消息。由于它可以计算任何截止日期，输出的时间可能与链不符。",
+      "message": "Note: This command is intended to be used to verify PoSt compute performance.\nIt will not send any messages to the chain. Since it can compute any deadline, output may be incorrectly timed for the chain.",
+      "placeholder": null
+    },
+    {
+      "id": "[deadline index]",
+      "translation": "[截止日期索引]",
+      "message": "[deadline index]",
+      "placeholder": null
+    },
+    {
+      "id": "path to json file containing storage config",
+      "translation": "包含存储配置的 JSON 文件的路径",
+      "message": "path to json file containing storage config",
+      "placeholder": null
+    },
+    {
+      "id": "partition to compute WindowPoSt for",
+      "translation": "计算 WindowPoSt 的分区",
+      "message": "partition to compute WindowPoSt for",
+      "placeholder": null
+    },
+    {
       "id": "Failed to generate the libp2p private key.",
       "translation": "生成 libp2p 私钥失败。",
       "message": "Failed to generate the libp2p private key.",
@@ -1220,6 +1832,114 @@
       "id": "Failed to marshal libp2p private key.",
       "translation": "libp2p私钥编组失败。",
       "message": "Failed to marshal libp2p private key.",
+      "placeholder": null
+    },
+    {
+      "id": "generate ipni chunks from a file",
+      "translation": "从文件生成 IPNI 块",
+      "message": "generate ipni chunks from a file",
+      "placeholder": null
+    },
+    {
+      "id": "Add URL to fetch data for offline deals",
+      "translation": "添加 URL 以获取离线交易的数据",
+      "message": "Add URL to fetch data for offline deals",
+      "placeholder": null
+    },
+    {
+      "id": "CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'",
+      "translation": "用于多交易输入的 CSV 文件位置。文件中的每一行应为格式 'uuid, 原始大小, URL, header1, header2...'",
+      "message": "CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'",
+      "placeholder": null
+    },
+    {
+      "id": "Custom `HEADER` to include in the HTTP request",
+      "translation": "在 HTTP 请求中包含自定义 `HEADER`",
+      "message": "Custom `HEADER` to include in the HTTP request",
+      "placeholder": null
+    },
+    {
+      "id": "`URL` to send the request to",
+      "translation": "发送请求的 `URL`",
+      "message": "`URL` to send the request to",
+      "placeholder": null
+    },
+    {
+      "id": "Moves funds from the deal collateral wallet into escrow with the storage market actor",
+      "translation": "将资金从交易抵押钱包转移到存储市场参与者的托管账户",
+      "message": "Moves funds from the deal collateral wallet into escrow with the storage market actor",
+      "placeholder": null
+    },
+    {
+      "id": "maximum fee in FIL user is willing to pay for this message",
+      "translation": "用户愿意为此消息支付的最大 FIL 费用",
+      "message": "maximum fee in FIL user is willing to pay for this message",
+      "placeholder": null
+    },
+    {
+      "id": "Specify wallet address to send the funds from",
+      "translation": "指定发送资金的钱包地址",
+      "message": "Specify wallet address to send the funds from",
+      "placeholder": null
+    },
+    {
+      "id": "Collection of debugging utilities",
+      "translation": "调试工具集合",
+      "message": "Collection of debugging utilities",
+      "placeholder": null
+    },
+    {
+      "id": "Manage unsealed data",
+      "translation": "管理未密封的数据",
+      "message": "Manage unsealed data",
+      "placeholder": null
+    },
+    {
+      "id": "Get information about unsealed data",
+      "translation": "获取未密封数据的信息",
+      "message": "Get information about unsealed data",
+      "placeholder": null
+    },
+    {
+      "id": "List data from the sectors_unseal_pipeline and sectors_meta tables",
+      "translation": "列出来自 sectors_unseal_pipeline 和 sectors_meta 表的数据",
+      "message": "List data from the sectors_unseal_pipeline and sectors_meta tables",
+      "placeholder": null
+    },
+    {
+      "id": "Filter by storage provider ID",
+      "translation": "按存储提供者 ID 过滤",
+      "message": "Filter by storage provider ID",
+      "placeholder": null
+    },
+    {
+      "id": "Output file path (default: stdout)",
+      "translation": "输出文件路径（默认：标准输出）",
+      "message": "Output file path (default: stdout)",
+      "placeholder": null
+    },
+    {
+      "id": "Set the target unseal state for a sector",
+      "translation": "设置扇区的目标解封状态",
+      "message": "Set the target unseal state for a sector",
+      "placeholder": null
+    },
+    {
+      "id": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+      "translation": "为特定扇区设置目标解封状态。\n   \u003cminer-id\u003e: 存储提供者 ID\n   \u003csector-number\u003e: 扇区号\n   \u003ctarget-state\u003e: 目标状态（true、false 或 none）\n\n   解封目标状态表示 Curio 应如何维护扇区的未密封副本。\n\t   如果目标状态为 true，Curio 将确保扇区未密封。\n\t   如果目标状态为 false，Curio 将确保扇区没有未密封副本。\n\t   如果目标状态为 none，Curio 将不会更改扇区的当前状态。\n\n   当前，Curio 仅在目标状态从其他状态更改为 true 时启动新的解封进程。\n\n   当目标状态为 false 且存在未密封的扇区文件时，GC 标记步骤将为未密封的扇区文件创建一个删除标记。文件将在删除标记被接受后才会被移除。",
+      "message": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+      "placeholder": null
+    },
+    {
+      "id": "Check data integrity in unsealed sector files",
+      "translation": "检查未密封扇区文件中的数据完整性",
+      "message": "Check data integrity in unsealed sector files",
+      "placeholder": null
+    },
+    {
+      "id": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
+      "translation": "为特定扇区创建检查任务，等待其完成并输出结果。\n   \u003cminer-id\u003e: 存储提供者 ID\n   \u003csector-number\u003e: 扇区号",
+      "message": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
       "placeholder": null
     }
   ]
