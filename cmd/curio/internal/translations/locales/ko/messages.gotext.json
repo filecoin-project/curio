@@ -1863,6 +1863,114 @@
             "translation": "libp2p 개인 키 마샬링에 실패했습니다.",
             "message": "Failed to marshal libp2p private key.",
             "placeholder": null
+        },
+        {
+            "id": "generate ipni chunks from a file",
+            "translation": "파일에서 IPNI 청크 생성",
+            "message": "generate ipni chunks from a file",
+            "placeholder": null
+        },
+        {
+            "id": "Add URL to fetch data for offline deals",
+            "translation": "오프라인 거래 데이터를 가져올 URL 추가",
+            "message": "Add URL to fetch data for offline deals",
+            "placeholder": null
+        },
+        {
+            "id": "CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'",
+            "translation": "여러 거래 입력에 사용할 CSV 파일 위치. 파일의 각 행은 'uuid, 원시 크기, url, header1, header2...' 형식이어야 합니다.",
+            "message": "CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'",
+            "placeholder": null
+        },
+        {
+            "id": "Custom `HEADER` to include in the HTTP request",
+            "translation": "HTTP 요청에 포함할 사용자 정의 `HEADER`",
+            "message": "Custom `HEADER` to include in the HTTP request",
+            "placeholder": null
+        },
+        {
+            "id": "`URL` to send the request to",
+            "translation": "요청을 보낼 `URL`",
+            "message": "`URL` to send the request to",
+            "placeholder": null
+        },
+        {
+            "id": "Moves funds from the deal collateral wallet into escrow with the storage market actor",
+            "translation": "거래 담보 지갑에서 자금을 스토리지 시장 액터의 에스크로로 이동",
+            "message": "Moves funds from the deal collateral wallet into escrow with the storage market actor",
+            "placeholder": null
+        },
+        {
+            "id": "maximum fee in FIL user is willing to pay for this message",
+            "translation": "사용자가 이 메시지에 대해 지불하려는 FIL의 최대 수수료",
+            "message": "maximum fee in FIL user is willing to pay for this message",
+            "placeholder": null
+        },
+        {
+            "id": "Specify wallet address to send the funds from",
+            "translation": "자금을 보낼 지갑 주소 지정",
+            "message": "Specify wallet address to send the funds from",
+            "placeholder": null
+        },
+        {
+            "id": "Collection of debugging utilities",
+            "translation": "디버깅 유틸리티 모음",
+            "message": "Collection of debugging utilities",
+            "placeholder": null
+        },
+        {
+            "id": "Manage unsealed data",
+            "translation": "미봉인 데이터를 관리",
+            "message": "Manage unsealed data",
+            "placeholder": null
+        },
+        {
+            "id": "Get information about unsealed data",
+            "translation": "미봉인 데이터에 대한 정보 가져오기",
+            "message": "Get information about unsealed data",
+            "placeholder": null
+        },
+        {
+            "id": "List data from the sectors_unseal_pipeline and sectors_meta tables",
+            "translation": "sectors_unseal_pipeline 및 sectors_meta 테이블의 데이터 나열",
+            "message": "List data from the sectors_unseal_pipeline and sectors_meta tables",
+            "placeholder": null
+        },
+        {
+            "id": "Filter by storage provider ID",
+            "translation": "스토리지 제공자 ID로 필터링",
+            "message": "Filter by storage provider ID",
+            "placeholder": null
+        },
+        {
+            "id": "Output file path (default: stdout)",
+            "translation": "출력 파일 경로 (기본값: 표준 출력)",
+            "message": "Output file path (default: stdout)",
+            "placeholder": null
+        },
+        {
+            "id": "Set the target unseal state for a sector",
+            "translation": "섹터의 목표 미봉인 상태 설정",
+            "message": "Set the target unseal state for a sector",
+            "placeholder": null
+        },
+        {
+            "id": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+            "translation": "특정 섹터의 목표 미봉인 상태를 설정합니다.\n   \u003cminer-id\u003e: 스토리지 제공자 ID\n   \u003csector-number\u003e: 섹터 번호\n   \u003ctarget-state\u003e: 목표 상태 (true, false, none 중 하나)\n\n   미봉인 목표 상태는 Curio가 섹터의 미봉인 복사본을 어떻게 유지할지를 나타냅니다.\n\t   목표 상태가 true이면 Curio는 섹터가 미봉인 상태로 유지되도록 보장합니다.\n\t   목표 상태가 false이면 Curio는 섹터에 미봉인 복사본이 없도록 보장합니다.\n\t   목표 상태가 none이면 Curio는 섹터의 현재 상태를 변경하지 않습니다.\n\n   현재, 목표 상태가 다른 상태에서 true로 변경될 때만 Curio는 새로운 미봉인 프로세스를 시작합니다.\n\n   목표 상태가 false이고 미봉인 섹터 파일이 존재하는 경우, GC 마크 단계는 미봉인 섹터 파일에 대한 제거 마크를 생성합니다. 파일은 제거 마크가 승인된 후에만 제거됩니다.",
+            "message": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+            "placeholder": null
+        },
+        {
+            "id": "Check data integrity in unsealed sector files",
+            "translation": "미봉인 섹터 파일의 데이터 무결성 확인",
+            "message": "Check data integrity in unsealed sector files",
+            "placeholder": null
+        },
+        {
+            "id": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
+            "translation": "특정 섹터에 대한 검사 작업을 생성하고 완료를 기다린 후 결과를 출력합니다.\n   \u003cminer-id\u003e: 스토리지 제공자 ID\n   \u003csector-number\u003e: 섹터 번호",
+            "message": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
+            "placeholder": null
         }
     ]
 }

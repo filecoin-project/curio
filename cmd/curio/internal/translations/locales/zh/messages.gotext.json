@@ -1833,6 +1833,114 @@
       "translation": "libp2p私钥编组失败。",
       "message": "Failed to marshal libp2p private key.",
       "placeholder": null
+    },
+    {
+      "id": "generate ipni chunks from a file",
+      "translation": "从文件生成 IPNI 块",
+      "message": "generate ipni chunks from a file",
+      "placeholder": null
+    },
+    {
+      "id": "Add URL to fetch data for offline deals",
+      "translation": "添加 URL 以获取离线交易的数据",
+      "message": "Add URL to fetch data for offline deals",
+      "placeholder": null
+    },
+    {
+      "id": "CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'",
+      "translation": "用于多交易输入的 CSV 文件位置。文件中的每一行应为格式 'uuid, 原始大小, URL, header1, header2...'",
+      "message": "CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'",
+      "placeholder": null
+    },
+    {
+      "id": "Custom `HEADER` to include in the HTTP request",
+      "translation": "在 HTTP 请求中包含自定义 `HEADER`",
+      "message": "Custom `HEADER` to include in the HTTP request",
+      "placeholder": null
+    },
+    {
+      "id": "`URL` to send the request to",
+      "translation": "发送请求的 `URL`",
+      "message": "`URL` to send the request to",
+      "placeholder": null
+    },
+    {
+      "id": "Moves funds from the deal collateral wallet into escrow with the storage market actor",
+      "translation": "将资金从交易抵押钱包转移到存储市场参与者的托管账户",
+      "message": "Moves funds from the deal collateral wallet into escrow with the storage market actor",
+      "placeholder": null
+    },
+    {
+      "id": "maximum fee in FIL user is willing to pay for this message",
+      "translation": "用户愿意为此消息支付的最大 FIL 费用",
+      "message": "maximum fee in FIL user is willing to pay for this message",
+      "placeholder": null
+    },
+    {
+      "id": "Specify wallet address to send the funds from",
+      "translation": "指定发送资金的钱包地址",
+      "message": "Specify wallet address to send the funds from",
+      "placeholder": null
+    },
+    {
+      "id": "Collection of debugging utilities",
+      "translation": "调试工具集合",
+      "message": "Collection of debugging utilities",
+      "placeholder": null
+    },
+    {
+      "id": "Manage unsealed data",
+      "translation": "管理未密封的数据",
+      "message": "Manage unsealed data",
+      "placeholder": null
+    },
+    {
+      "id": "Get information about unsealed data",
+      "translation": "获取未密封数据的信息",
+      "message": "Get information about unsealed data",
+      "placeholder": null
+    },
+    {
+      "id": "List data from the sectors_unseal_pipeline and sectors_meta tables",
+      "translation": "列出来自 sectors_unseal_pipeline 和 sectors_meta 表的数据",
+      "message": "List data from the sectors_unseal_pipeline and sectors_meta tables",
+      "placeholder": null
+    },
+    {
+      "id": "Filter by storage provider ID",
+      "translation": "按存储提供者 ID 过滤",
+      "message": "Filter by storage provider ID",
+      "placeholder": null
+    },
+    {
+      "id": "Output file path (default: stdout)",
+      "translation": "输出文件路径（默认：标准输出）",
+      "message": "Output file path (default: stdout)",
+      "placeholder": null
+    },
+    {
+      "id": "Set the target unseal state for a sector",
+      "translation": "设置扇区的目标解封状态",
+      "message": "Set the target unseal state for a sector",
+      "placeholder": null
+    },
+    {
+      "id": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+      "translation": "为特定扇区设置目标解封状态。\n   \u003cminer-id\u003e: 存储提供者 ID\n   \u003csector-number\u003e: 扇区号\n   \u003ctarget-state\u003e: 目标状态（true、false 或 none）\n\n   解封目标状态表示 Curio 应如何维护扇区的未密封副本。\n\t   如果目标状态为 true，Curio 将确保扇区未密封。\n\t   如果目标状态为 false，Curio 将确保扇区没有未密封副本。\n\t   如果目标状态为 none，Curio 将不会更改扇区的当前状态。\n\n   当前，Curio 仅在目标状态从其他状态更改为 true 时启动新的解封进程。\n\n   当目标状态为 false 且存在未密封的扇区文件时，GC 标记步骤将为未密封的扇区文件创建一个删除标记。文件将在删除标记被接受后才会被移除。",
+      "message": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+      "placeholder": null
+    },
+    {
+      "id": "Check data integrity in unsealed sector files",
+      "translation": "检查未密封扇区文件中的数据完整性",
+      "message": "Check data integrity in unsealed sector files",
+      "placeholder": null
+    },
+    {
+      "id": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
+      "translation": "为特定扇区创建检查任务，等待其完成并输出结果。\n   \u003cminer-id\u003e: 存储提供者 ID\n   \u003csector-number\u003e: 扇区号",
+      "message": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
+      "placeholder": null
     }
   ]
 }

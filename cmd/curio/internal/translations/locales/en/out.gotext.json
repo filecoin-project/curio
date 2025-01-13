@@ -233,6 +233,13 @@
             "fuzzy": true
         },
         {
+            "id": "generate ipni chunks from a file",
+            "message": "generate ipni chunks from a file",
+            "translation": "generate ipni chunks from a file",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Manage logging",
             "message": "Manage logging",
             "translation": "Manage logging",
@@ -324,13 +331,6 @@
             "fuzzy": true
         },
         {
-            "id": "list of layers to be interpreted (atop defaults). Default: base",
-            "message": "list of layers to be interpreted (atop defaults). Default: base",
-            "translation": "list of layers to be interpreted (atop defaults). Default: base",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
             "id": "start sealing a deal sector early",
             "message": "start sealing a deal sector early",
             "translation": "start sealing a deal sector early",
@@ -355,6 +355,132 @@
             "id": "\u003csector\u003e",
             "message": "\u003csector\u003e",
             "translation": "\u003csector\u003e",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Add URL to fetch data for offline deals",
+            "message": "Add URL to fetch data for offline deals",
+            "translation": "Add URL to fetch data for offline deals",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'",
+            "message": "CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'",
+            "translation": "CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Custom `HEADER` to include in the HTTP request",
+            "message": "Custom `HEADER` to include in the HTTP request",
+            "translation": "Custom `HEADER` to include in the HTTP request",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "`URL` to send the request to",
+            "message": "`URL` to send the request to",
+            "translation": "`URL` to send the request to",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Moves funds from the deal collateral wallet into escrow with the storage market actor",
+            "message": "Moves funds from the deal collateral wallet into escrow with the storage market actor",
+            "translation": "Moves funds from the deal collateral wallet into escrow with the storage market actor",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "maximum fee in FIL user is willing to pay for this message",
+            "message": "maximum fee in FIL user is willing to pay for this message",
+            "translation": "maximum fee in FIL user is willing to pay for this message",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Specify wallet address to send the funds from",
+            "message": "Specify wallet address to send the funds from",
+            "translation": "Specify wallet address to send the funds from",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Start a Curio process",
+            "message": "Start a Curio process",
+            "translation": "Start a Curio process",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "host address and port the worker api will listen on",
+            "message": "host address and port the worker api will listen on",
+            "translation": "host address and port the worker api will listen on",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "host address and port the gui will listen on",
+            "message": "host address and port the gui will listen on",
+            "translation": "host address and port the gui will listen on",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "don't check full-node sync status",
+            "message": "don't check full-node sync status",
+            "translation": "don't check full-node sync status",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "only run init, then return",
+            "message": "only run init, then return",
+            "translation": "only run init, then return",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "manage open file limit",
+            "message": "manage open file limit",
+            "translation": "manage open file limit",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "list of layers to be interpreted (atop defaults). Default: base",
+            "message": "list of layers to be interpreted (atop defaults). Default: base",
+            "translation": "list of layers to be interpreted (atop defaults). Default: base",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "custom node name",
+            "message": "custom node name",
+            "translation": "custom node name",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Start Curio web interface",
+            "message": "Start Curio web interface",
+            "translation": "Start Curio web interface",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.",
+            "message": "Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.",
+            "translation": "Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Address to listen for the GUI on",
+            "message": "Address to listen for the GUI on",
+            "translation": "Address to listen for the GUI on",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },
@@ -453,76 +579,6 @@
             "id": "Limit output to the last N events",
             "message": "Limit output to the last N events",
             "translation": "Limit output to the last N events",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "Start a Curio process",
-            "message": "Start a Curio process",
-            "translation": "Start a Curio process",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "host address and port the worker api will listen on",
-            "message": "host address and port the worker api will listen on",
-            "translation": "host address and port the worker api will listen on",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "host address and port the gui will listen on",
-            "message": "host address and port the gui will listen on",
-            "translation": "host address and port the gui will listen on",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "don't check full-node sync status",
-            "message": "don't check full-node sync status",
-            "translation": "don't check full-node sync status",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "only run init, then return",
-            "message": "only run init, then return",
-            "translation": "only run init, then return",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "manage open file limit",
-            "message": "manage open file limit",
-            "translation": "manage open file limit",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "custom node name",
-            "message": "custom node name",
-            "translation": "custom node name",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "Start Curio web interface",
-            "message": "Start Curio web interface",
-            "translation": "Start Curio web interface",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.",
-            "message": "Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.",
-            "translation": "Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
-            "id": "Address to listen for the GUI on",
-            "message": "Address to listen for the GUI on",
-            "translation": "Address to listen for the GUI on",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },
@@ -712,6 +768,76 @@
             "id": "partition to compute WindowPoSt for",
             "message": "partition to compute WindowPoSt for",
             "translation": "partition to compute WindowPoSt for",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Collection of debugging utilities",
+            "message": "Collection of debugging utilities",
+            "translation": "Collection of debugging utilities",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Manage unsealed data",
+            "message": "Manage unsealed data",
+            "translation": "Manage unsealed data",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Get information about unsealed data",
+            "message": "Get information about unsealed data",
+            "translation": "Get information about unsealed data",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "List data from the sectors_unseal_pipeline and sectors_meta tables",
+            "message": "List data from the sectors_unseal_pipeline and sectors_meta tables",
+            "translation": "List data from the sectors_unseal_pipeline and sectors_meta tables",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Filter by storage provider ID",
+            "message": "Filter by storage provider ID",
+            "translation": "Filter by storage provider ID",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Output file path (default: stdout)",
+            "message": "Output file path (default: stdout)",
+            "translation": "Output file path (default: stdout)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Set the target unseal state for a sector",
+            "message": "Set the target unseal state for a sector",
+            "translation": "Set the target unseal state for a sector",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+            "message": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+            "translation": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Check data integrity in unsealed sector files",
+            "message": "Check data integrity in unsealed sector files",
+            "translation": "Check data integrity in unsealed sector files",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
+            "message": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
+            "translation": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },

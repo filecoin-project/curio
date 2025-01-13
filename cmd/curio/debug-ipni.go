@@ -12,12 +12,13 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 )
 
 var testDebugIpniChunks = &cli.Command{
 	Name:  "ipni-piece-chunks",
-	Usage: "generate ipni chunks from a file",
+	Usage: translations.T("generate ipni chunks from a file"),
 	Action: func(c *cli.Context) error {
 		ck := chunker.NewInitialChunker()
 

@@ -82,21 +82,21 @@ var marketSealCmd = &cli.Command{
 
 var marketAddOfflineURLCmd = &cli.Command{
 	Name:  "add-url",
-	Usage: "Add URL to fetch data for offline deals",
+	Usage: translations.T("Add URL to fetch data for offline deals"),
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:  "file",
-			Usage: "CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'\"",
+			Usage: translations.T("CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'"),
 		},
 		&cli.StringSliceFlag{
 			Name:    "header",
 			Aliases: []string{"H"},
-			Usage:   "Custom `HEADER` to include in the HTTP request",
+			Usage:   translations.T("Custom `HEADER` to include in the HTTP request"),
 		},
 		&cli.StringFlag{
 			Name:     "url",
 			Aliases:  []string{"u"},
-			Usage:    "`URL` to send the request to",
+			Usage:    translations.T("`URL` to send the request to"),
 			Required: true,
 		},
 	},
@@ -238,22 +238,22 @@ var marketAddOfflineURLCmd = &cli.Command{
 
 var marketMoveToEscrowCmd = &cli.Command{
 	Name:  "move-to-escrow",
-	Usage: "Moves funds from the deal collateral wallet into escrow with the storage market actor",
+	Usage: translations.T("Moves funds from the deal collateral wallet into escrow with the storage market actor"),
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:     "actor",
-			Usage:    "Specify actor address to start sealing sectors for",
+			Usage:    translations.T("Specify actor address to start sealing sectors for"),
 			Required: true,
 		},
 		&cli.StringFlag{
 			Name:     "max-fee",
-			Usage:    "maximum fee in FIL user is willing to pay for this message",
+			Usage:    translations.T("maximum fee in FIL user is willing to pay for this message"),
 			Required: false,
 			Value:    "0.5",
 		},
 		&cli.StringFlag{
 			Name:     "wallet",
-			Usage:    "Specify wallet address to send the funds from",
+			Usage:    translations.T("Specify wallet address to send the funds from"),
 			Required: true,
 		},
 	},

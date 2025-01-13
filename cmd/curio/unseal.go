@@ -18,6 +18,7 @@ import (
 
 	"github.com/filecoin-project/go-address"
 
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/paths"
@@ -27,7 +28,7 @@ import (
 
 var unsealCmd = &cli.Command{
 	Name:  "unseal",
-	Usage: "Manage unsealed data",
+	Usage: translations.T("Manage unsealed data"),
 	Subcommands: []*cli.Command{
 		unsealInfoCmd,
 		listUnsealPipelineCmd,
@@ -38,7 +39,7 @@ var unsealCmd = &cli.Command{
 
 var unsealInfoCmd = &cli.Command{
 	Name:      "info",
-	Usage:     "Get information about unsealed data",
+	Usage:     translations.T("Get information about unsealed data"),
 	ArgsUsage: "[minerAddress] [sectorNumber]",
 
 	Action: func(cctx *cli.Context) error {
@@ -273,17 +274,17 @@ func filterPred[T any](pred func(T) bool) func(T, int) bool {
 
 var listUnsealPipelineCmd = &cli.Command{
 	Name:  "list-sectors",
-	Usage: "List data from the sectors_unseal_pipeline and sectors_meta tables",
+	Usage: translations.T("List data from the sectors_unseal_pipeline and sectors_meta tables"),
 	Flags: []cli.Flag{
 		&cli.Int64Flag{
 			Name:    "sp-id",
 			Aliases: []string{"s"},
-			Usage:   "Filter by storage provider ID",
+			Usage:   translations.T("Filter by storage provider ID"),
 		},
 		&cli.StringFlag{
 			Name:    "output",
 			Aliases: []string{"o"},
-			Usage:   "Output file path (default: stdout)",
+			Usage:   translations.T("Output file path (default: stdout)"),
 		},
 	},
 	Action: func(cctx *cli.Context) error {
@@ -392,9 +393,9 @@ var listUnsealPipelineCmd = &cli.Command{
 
 var setTargetUnsealStateCmd = &cli.Command{
 	Name:      "set-target-state",
-	Usage:     "Set the target unseal state for a sector",
+	Usage:     translations.T("Set the target unseal state for a sector"),
 	ArgsUsage: "<miner-id> <sector-number> <target-state>",
-	Description: `Set the target unseal state for a specific sector.
+	Description: translations.T(`Set the target unseal state for a specific sector.
    <miner-id>: The storage provider ID
    <sector-number>: The sector number
    <target-state>: The target state (true, false, or none)
@@ -408,7 +409,7 @@ var setTargetUnsealStateCmd = &cli.Command{
 
    When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark
    for the unsealed sector file. The file will only be removed after the removal mark is accepted.
-`,
+`),
 	Action: func(cctx *cli.Context) error {
 		if cctx.Args().Len() != 3 {
 			return cli.ShowSubcommandHelp(cctx)
@@ -480,11 +481,11 @@ func formatNullableBool(v *bool) string {
 
 var unsealCheckCmd = &cli.Command{
 	Name:      "check",
-	Usage:     "Check data integrity in unsealed sector files",
+	Usage:     translations.T("Check data integrity in unsealed sector files"),
 	ArgsUsage: "<miner-id> <sector-number>",
-	Description: `Create a check task for a specific sector, wait for its completion, and output the result.
+	Description: translations.T(`Create a check task for a specific sector, wait for its completion, and output the result.
    <miner-id>: The storage provider ID
-   <sector-number>: The sector number`,
+   <sector-number>: The sector number`),
 	Action: func(cctx *cli.Context) error {
 		if cctx.Args().Len() != 2 {
 			return cli.ShowSubcommandHelp(cctx)
