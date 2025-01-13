@@ -329,9 +329,19 @@ func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioCon
 	defer t.Stop()
 
 	checkStatus := func(ctx context.Context, db *harmonydb.DB, runningOn string) (bool, error) {
+		var count int
+
+		err := db.QueryRow(ctx, `SELECT COUNT(*) FROM libp2p`).Scan(&count)
+		if err != nil {
+			return false, err
+		}
+		if count == 0 {
+			return true, nil
+		}
+
 		var exists bool
 
-		err := db.QueryRow(ctx, `SELECT EXISTS(
+		err = db.QueryRow(ctx, `SELECT EXISTS(
 			SELECT 1 
 			FROM libp2p 
 			WHERE running_on = $1 
