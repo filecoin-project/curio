@@ -187,6 +187,7 @@ type StorageDealSummary struct {
 	Miner             string         `json:"miner"`
 	IsLegacy          bool           `json:"is_legacy"`
 	Indexed           *bool          `db:"indexed" json:"indexed"`
+	IsDDO             bool           `db:"is_ddo" json:"is_ddo"`
 }
 
 func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDealSummary, error) {
@@ -207,30 +208,83 @@ func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDeal
 	if !isLegacy {
 		var summaries []StorageDealSummary
 		err = a.deps.DB.Select(ctx, &summaries, `SELECT 
-									md.uuid,
-									md.sp_id,
-									md.created_at,
-									md.signed_proposal_cid,
-									md.offline,
-									md.verified,
-									md.start_epoch,
-									md.end_epoch,
-									md.client_peer_id,
-									md.chain_deal_id,
-									md.publish_cid,
-									md.piece_cid,
-									md.piece_size,
-									md.fast_retrieval,
-									md.announce_to_ipni,
-									md.url,
-									md.url_headers,
-									md.error,
-									mpd.sector_num,
-									mpm.indexed
-									FROM market_mk12_deals md 
-										LEFT JOIN market_piece_deal mpd ON mpd.id = md.uuid AND mpd.sp_id = md.sp_id
-										LEFT JOIN market_piece_metadata mpm ON mpm.piece_cid = md.piece_cid
-									WHERE md.uuid = $1`, id.String())
+														deal.uuid,
+														deal.sp_id,
+														deal.created_at,
+														deal.signed_proposal_cid,
+														deal.offline,
+														deal.verified,
+														deal.start_epoch,
+														deal.end_epoch,
+														deal.client_peer_id,
+														deal.chain_deal_id,
+														deal.publish_cid,
+														deal.piece_cid,
+														deal.piece_size,
+														deal.fast_retrieval,
+														deal.announce_to_ipni,
+														deal.url,
+														deal.url_headers,
+														deal.error,
+														mpd.sector_num,
+														mpm.indexed,
+														deal.is_ddo -- New column indicating whether the deal is from market_direct_deals
+													FROM (
+														-- Query from market_mk12_deals (default, original table)
+														SELECT 
+															md.uuid,
+															md.sp_id,
+															md.created_at,
+															md.signed_proposal_cid,
+															md.offline,
+															md.verified,
+															md.start_epoch,
+															md.end_epoch,
+															md.client_peer_id,
+															md.chain_deal_id,
+															md.publish_cid,
+															md.piece_cid,
+															md.piece_size,
+															md.fast_retrieval,
+															md.announce_to_ipni,
+															md.url,
+															md.url_headers,
+															md.error,
+															FALSE AS is_ddo -- Not from market_direct_deals
+														FROM market_mk12_deals md
+														WHERE md.uuid = $1
+													
+														UNION ALL
+													
+														-- Query from market_direct_deals (new table)
+														SELECT 
+															mdd.uuid,
+															mdd.sp_id,
+															mdd.created_at,
+															'' AS signed_proposal_cid,
+															mdd.offline,
+															mdd.verified,
+															mdd.start_epoch,
+															mdd.end_epoch,
+															'' AS client_peer_id,
+															0 AS chain_deal_id,
+															'' AS publish_cid,
+															mdd.piece_cid,
+															mdd.piece_size,
+															mdd.fast_retrieval,
+															mdd.announce_to_ipni,
+															'' AS url,
+															'{}' AS url_headers,
+															'' AS error,
+															TRUE AS is_ddo -- From market_direct_deals
+														FROM market_direct_deals mdd
+														WHERE mdd.uuid = $1
+													) AS deal
+													LEFT JOIN market_piece_deal mpd 
+														ON mpd.id = deal.uuid AND mpd.sp_id = deal.sp_id
+													LEFT JOIN market_piece_metadata mpm 
+														ON mpm.piece_cid = deal.piece_cid;
+													`, id.String())
 
 		if err != nil {
 			return &StorageDealSummary{}, xerrors.Errorf("select deal summary: %w", err)

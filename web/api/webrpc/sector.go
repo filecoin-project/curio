@@ -2,16 +2,19 @@ package webrpc
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/docker/go-units"
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -19,9 +22,28 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
+const verifiedPowerGainMul = 9
+
 type SectorInfo struct {
-	SectorNumber  int64
-	SpID          uint64
+	SectorNumber       int64
+	SpID               uint64
+	Miner              string
+	PreCommitMsg       string
+	CommitMsg          string
+	ActivationEpoch    abi.ChainEpoch
+	ExpirationEpoch    *int64
+	DealWeight         string
+	Deadline           *int64
+	Partition          *int64
+	UnsealedCid        string
+	SealedCid          string
+	UpdatedUnsealedCid string
+	UpdatedSealedCid   string
+	IsSnap             bool
+	UpdateMsg          string
+	UnsealedState      bool
+	HasUnsealed        bool
+
 	PipelinePoRep *sectorListEntry
 	PipelineSnap  *sectorSnapListEntry
 
@@ -49,14 +71,15 @@ type SnapPipelineTask struct {
 	UpdateUnsealedCID *string `db:"update_unsealed_cid"`
 	UpdateSealedCID   *string `db:"update_sealed_cid"`
 
-	TaskEncode           *int64 `db:"task_id_encode"`
-	AfterEncode          bool   `db:"after_encode"`
-	TaskProve            *int64 `db:"task_id_prove"`
-	AfterProve           bool   `db:"after_prove"`
-	TaskSubmit           *int64 `db:"task_id_submit"`
-	AfterSubmit          bool   `db:"after_submit"`
-	AfterProveMsgSuccess bool   `db:"after_prove_msg_success"`
-	ProveMsgTsk          []byte `db:"prove_msg_tsk"`
+	TaskEncode           *int64  `db:"task_id_encode"`
+	AfterEncode          bool    `db:"after_encode"`
+	TaskProve            *int64  `db:"task_id_prove"`
+	AfterProve           bool    `db:"after_prove"`
+	TaskSubmit           *int64  `db:"task_id_submit"`
+	AfterSubmit          bool    `db:"after_submit"`
+	AfterProveMsgSuccess bool    `db:"after_prove_msg_success"`
+	ProveMsgTsk          []byte  `db:"prove_msg_tsk"`
+	UpdateMsgCid         *string `db:"prove_msg_cid"`
 
 	TaskMoveStorage  *int64 `db:"task_id_move_storage"`
 	AfterMoveStorage bool   `db:"after_move_storage"`
@@ -94,9 +117,10 @@ type SectorPieceMeta struct {
 	PieceCid   string `db:"piece_cid"`
 	PieceSize  int64  `db:"piece_size"`
 
-	DataUrl          string `db:"data_url"`
-	DataRawSize      int64  `db:"data_raw_size"`
-	DeleteOnFinalize bool   `db:"data_delete_on_finalize"`
+	DealID           *string `db:"deal_id"`
+	DataUrl          *string `db:"data_url"`
+	DataRawSize      int64   `db:"data_raw_size"`
+	DeleteOnFinalize *bool   `db:"data_delete_on_finalize"`
 
 	F05PublishCid *string `db:"f05_publish_cid"`
 	F05DealID     *int64  `db:"f05_deal_id"`
@@ -117,7 +141,10 @@ type SectorPieceMeta struct {
 	PieceParkTaskID        *int64    `db:"-"`
 	PieceParkCleanupTaskID *int64    `db:"-"`
 
-	IsSnapPiece bool `db:"-"`
+	IsSnapPiece bool `db:"is_snap"`
+
+	MK12Deal   *bool `db:"boost_deal"`
+	LegacyDeal *bool `db:"legacy_deal"`
 }
 
 type FileLocations struct {
@@ -135,6 +162,26 @@ type LocationTable struct {
 	Locations []FileLocations
 }
 
+type SectorMeta struct {
+	OrigUnsealedCid string `db:"orig_unsealed_cid"`
+	OrigSealedCid   string `db:"orig_sealed_cid"`
+
+	UpdatedUnsealedCid string `db:"cur_unsealed_cid"`
+	UpdatedSealedCid   string `db:"cur_sealed_cid"`
+
+	PreCommitCid string  `db:"msg_cid_precommit"`
+	CommitCid    string  `db:"msg_cid_commit"`
+	UpdateCid    *string `db:"msg_cid_update"`
+
+	IsCC            *bool  `db:"is_cc"`
+	ExpirationEpoch *int64 `db:"expiration_epoch"`
+
+	Deadline  *int64 `db:"deadline"`
+	Partition *int64 `db:"partition"`
+
+	UnsealedState *bool `db:"target_unseal_state"`
+}
+
 func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*SectorInfo, error) {
 
 	maddr, err := address.NewFromString(sp)
@@ -147,6 +194,14 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		return nil, xerrors.Errorf("invalid sp")
 	}
 
+	fmt.Println("SPID", spid)
+
+	si := &SectorInfo{
+		SpID:         spid,
+		Miner:        maddr.String(),
+		SectorNumber: intid,
+	}
+
 	var tasks []PipelineTask
 
 	// Fetch PoRep pipeline data
@@ -154,21 +209,25 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
        sp_id, sector_number,
        create_time,
        task_id_sdr, after_sdr,
-       task_id_tree_d, after_tree_d,
+       task_id_tree_d, after_tree_d, tree_d_cid,
        task_id_tree_c, after_tree_c,
-       task_id_tree_r, after_tree_r,
+       task_id_tree_r, after_tree_r, tree_r_cid,
        task_id_synth, after_synth,
        task_id_precommit_msg, after_precommit_msg,
-       after_precommit_msg_success, seed_epoch,
+       after_precommit_msg_success, precommit_msg_cid, seed_epoch,
        task_id_porep, porep_proof, after_porep,
        task_id_finalize, after_finalize,
        task_id_move_storage, after_move_storage,
        task_id_commit_msg, after_commit_msg,
-       after_commit_msg_success,
+       after_commit_msg_success, commit_msg_cid,
        failed, failed_reason
     FROM sectors_sdr_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, intid)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch pipeline task info: %w", err)
+	}
+
+	if len(tasks) == 0 {
+		fmt.Println("NO PIPELINE")
 	}
 
 	// Fetch SnapDeals pipeline data
@@ -185,7 +244,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
         task_id_prove, after_prove,
         task_id_submit, after_submit,
         after_prove_msg_success, prove_msg_tsk,
-        task_id_move_storage, after_move_storage,
+        task_id_move_storage, after_move_storage, prove_msg_cid,
         failed, failed_at, failed_reason, failed_reason_msg,
         submit_after
     FROM sectors_snap_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, intid)
@@ -206,7 +265,35 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 	var sle *sectorListEntry
 	if len(tasks) > 0 {
+		fmt.Println("FOUND THE PIPELINE")
 		task := tasks[0]
+		if task.PreCommitMsgCid != nil {
+			si.PreCommitMsg = *task.PreCommitMsgCid
+		} else {
+			si.PreCommitMsg = ""
+		}
+
+		if task.CommitMsgCid != nil {
+			si.CommitMsg = *task.CommitMsgCid
+		} else {
+			si.CommitMsg = ""
+		}
+
+		if task.TreeD != nil {
+			si.UnsealedCid = *task.TreeD
+			si.UpdatedUnsealedCid = *task.TreeD
+		} else {
+			si.UnsealedCid = ""
+			si.UpdatedUnsealedCid = ""
+		}
+
+		if task.TreeR != nil {
+			si.SealedCid = *task.TreeR
+			si.UpdatedSealedCid = *task.TreeR
+		} else {
+			si.SealedCid = ""
+			si.UpdatedSealedCid = ""
+		}
 		sle = &sectorListEntry{
 			PipelineTask: tasks[0],
 			AfterSeed:    task.SeedEpoch != nil && *task.SeedEpoch <= int64(epoch),
@@ -223,6 +310,22 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 	var sleSnap *sectorSnapListEntry
 	if len(snapTasks) > 0 {
 		task := snapTasks[0]
+		if task.UpdateUnsealedCID != nil {
+			si.UpdatedUnsealedCid = *task.UpdateUnsealedCID
+		} else {
+			si.UpdatedUnsealedCid = ""
+		}
+		if task.UpdateUnsealedCID != nil {
+			si.UpdatedSealedCid = *task.UpdateUnsealedCID
+		} else {
+			si.UpdatedSealedCid = ""
+		}
+		if task.UpdateMsgCid != nil {
+			si.UpdateMsg = *task.UpdateMsgCid
+		} else {
+			si.UpdateMsg = ""
+		}
+		si.IsSnap = true
 		sleSnap = &sectorSnapListEntry{
 			SnapPipelineTask: task,
 		}
@@ -246,6 +349,9 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 	for i, loc := range sectorLocations {
 		loc := loc
+		if loc.FileType == storiface.FTUnsealed {
+			si.HasUnsealed = true
+		}
 
 		urlList := strings.Split(loc.Urls, paths.URLSeparator)
 
@@ -307,39 +413,117 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 	}
 
+	var sectorMetas []SectorMeta
+
+	// Fetch SectorMeta from DB
+	err = a.deps.DB.Select(ctx, &sectorMetas, `SELECT orig_sealed_cid, 
+       orig_unsealed_cid, cur_sealed_cid, cur_unsealed_cid, 
+       msg_cid_precommit, msg_cid_commit, msg_cid_update, 
+       expiration_epoch, deadline, partition, target_unseal_state, 
+       is_cc FROM sectors_meta 
+             WHERE sp_id = $1 AND sector_num = $2`, spid, intid)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to fetch sector metadata: %w", err)
+	}
+
+	if len(sectorMetas) > 0 {
+		sectormeta := sectorMetas[0]
+		si.UnsealedCid = sectormeta.OrigUnsealedCid
+		si.SealedCid = sectormeta.OrigSealedCid
+		si.UpdatedUnsealedCid = sectormeta.UpdatedUnsealedCid
+		si.UpdatedSealedCid = sectormeta.UpdatedSealedCid
+		si.PreCommitMsg = sectormeta.PreCommitCid
+		si.CommitMsg = sectormeta.CommitCid
+		if sectormeta.UpdateCid != nil {
+			si.UpdateMsg = *sectormeta.UpdateCid
+		}
+		if sectormeta.IsCC != nil {
+			si.IsSnap = !*sectormeta.IsCC
+		} else {
+			si.IsSnap = false
+		}
+
+		if sectormeta.ExpirationEpoch != nil {
+			si.ExpirationEpoch = sectormeta.ExpirationEpoch
+		}
+		if sectormeta.Deadline != nil {
+			d := *sectormeta.Deadline
+			si.Deadline = &d
+		}
+		if sectormeta.Partition != nil {
+			p := *sectormeta.Partition
+			si.Partition = &p
+		}
+		if sectormeta.UnsealedState != nil {
+			si.UnsealedState = *sectormeta.UnsealedState
+		}
+	}
+
 	var pieces []SectorPieceMeta
 
-	// Fetch PoRep pieces
-	err = a.deps.DB.Select(ctx, &pieces, `SELECT piece_index, piece_cid, piece_size,
-           data_url, data_raw_size, data_delete_on_finalize,
-           f05_publish_cid, f05_deal_id, direct_piece_activation_manifest FROM sectors_sdr_initial_pieces WHERE sp_id = $1 AND sector_number = $2`, spid, intid)
+	err = a.deps.DB.Select(ctx, &pieces, `SELECT piece_index, combined.piece_cid, combined.piece_size,
+													   data_url, data_raw_size, data_delete_on_finalize,
+													   f05_deal_id, direct_piece_activation_manifest,
+													   mpd.id AS deal_id, -- Extracted id from market_piece_deal
+													   mpd.boost_deal, -- Retrieved boost_deal from market_piece_deal
+       												   mpd.legacy_deal, -- Retrieved legacy_deal from market_piece_deal
+													   is_snap -- New column indicating whether the piece is a snap deal
+												FROM (
+													-- Meta table entries (permanent, prioritized)
+													SELECT meta.piece_num AS piece_index, meta.piece_cid, meta.piece_size,
+														   NULL AS data_url, meta.raw_data_size AS data_raw_size,
+														   NOT meta.requested_keep_data AS data_delete_on_finalize,
+														   meta.f05_deal_id, meta.ddo_pam AS direct_piece_activation_manifest,
+														   meta.sp_id,
+														   NOT sm.is_cc AS is_snap -- is_snap based on is_cc from sectors_meta
+													FROM sectors_meta_pieces meta
+													JOIN sectors_meta sm ON meta.sp_id = sm.sp_id AND meta.sector_num = sm.sector_num
+													WHERE meta.sp_id = $1 AND meta.sector_num = $2
+												
+													UNION ALL
+												
+													-- SDR pipeline entries (temporary, non-snap pieces)
+													SELECT sdr.piece_index, sdr.piece_cid, sdr.piece_size,
+														   sdr.data_url, sdr.data_raw_size, sdr.data_delete_on_finalize,
+														   sdr.f05_deal_id, sdr.direct_piece_activation_manifest,
+														   sdr.sp_id,
+														   FALSE AS is_snap -- SDR pipeline pieces are never snap deals
+													FROM sectors_sdr_initial_pieces sdr
+													WHERE sdr.sp_id = $1 AND sdr.sector_number = $2
+													  AND NOT EXISTS (
+														  SELECT 1
+														  FROM sectors_meta_pieces meta
+														  WHERE meta.sp_id = sdr.sp_id AND meta.piece_cid = sdr.piece_cid
+													  )
+												
+													UNION ALL
+												
+													-- Snap pipeline entries (temporary, always snap deals)
+													SELECT snap.piece_index, snap.piece_cid, snap.piece_size,
+														   snap.data_url, snap.data_raw_size, snap.data_delete_on_finalize,
+														   NULL AS f05_deal_id, snap.direct_piece_activation_manifest,
+														   snap.sp_id,
+														   TRUE AS is_snap -- Snap pipeline pieces are always snap deals
+													FROM sectors_snap_initial_pieces snap
+													WHERE snap.sp_id = $1 AND snap.sector_number = $2
+													  AND NOT EXISTS (
+														  SELECT 1
+														  FROM sectors_meta_pieces meta
+														  WHERE meta.sp_id = snap.sp_id AND meta.piece_cid = snap.piece_cid
+													  )
+												) AS combined
+												LEFT JOIN market_piece_deal mpd 
+													   ON combined.sp_id = mpd.sp_id AND combined.piece_cid = mpd.piece_cid;
+												`, spid, intid)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch sector pieces: %w", err)
 	}
-
-	// Fetch SnapDeals pieces
-	var snapPieces []SectorPieceMeta
-
-	err = a.deps.DB.Select(ctx, &snapPieces, `SELECT piece_index, piece_cid, piece_size,
-           data_url, data_raw_size, data_delete_on_finalize,
-           NULL as f05_publish_cid, NULL as f05_deal_id, direct_piece_activation_manifest FROM sectors_snap_initial_pieces WHERE sp_id = $1 AND sector_number = $2`, spid, intid)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to fetch snap sector pieces: %w", err)
-	}
-
-	// Mark SnapDeals pieces
-	for i := range snapPieces {
-		snapPieces[i].IsSnapPiece = true
-	}
-
-	// Combine both slices
-	pieces = append(pieces, snapPieces...)
 
 	for i := range pieces {
 		pieces[i].StrPieceSize = types.SizeStr(types.NewInt(uint64(pieces[i].PieceSize)))
 		pieces[i].StrDataRawSize = types.SizeStr(types.NewInt(uint64(pieces[i].DataRawSize)))
 
-		id, isPiecePark := strings.CutPrefix(pieces[i].DataUrl, "pieceref:")
+		id, isPiecePark := strings.CutPrefix(derefOrZero(pieces[i].DataUrl), "pieceref:")
 		if !isPiecePark {
 			continue
 		}
@@ -509,20 +693,59 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		}
 	}
 
-	return &SectorInfo{
-		SectorNumber:  intid,
-		SpID:          spid,
-		PipelinePoRep: sle,
-		PipelineSnap:  sleSnap,
+	onChainInfo, err := a.deps.Chain.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(intid), types.EmptyTSK)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get on chain info for the sector: %w", err)
+	}
 
-		Pieces:      pieces,
-		Locations:   locs,
-		Tasks:       htasks,
-		TaskHistory: th,
+	if onChainInfo != nil {
+		dw, vp := .0, .0
+		dealWeight := "CC"
+		{
+			rdw := big.Add(onChainInfo.DealWeight, onChainInfo.VerifiedDealWeight)
+			dw = float64(big.Div(rdw, big.NewInt(int64(onChainInfo.Expiration-onChainInfo.PowerBaseEpoch))).Uint64())
+			vp = float64(big.Div(big.Mul(onChainInfo.VerifiedDealWeight, big.NewInt(verifiedPowerGainMul)), big.NewInt(int64(onChainInfo.Expiration-onChainInfo.PowerBaseEpoch))).Uint64())
+			if vp > 0 {
+				dw = vp
+			}
+			if dw > 0 {
+				dealWeight = units.BytesSize(dw)
+			}
+		}
 
-		Resumable: hasAnyStuckTask,
-		Restart:   hasAnyStuckTask && (sle == nil || !sle.AfterSynthetic),
-	}, nil
+		if si.Deadline == nil || si.Partition == nil {
+			part, err := a.deps.Chain.StateSectorPartition(ctx, maddr, abi.SectorNumber(intid), types.EmptyTSK)
+			if err != nil {
+				return nil, xerrors.Errorf("failed to get partition info for the sector: %w", err)
+			}
+
+			d := int64(part.Deadline)
+			si.Deadline = &d
+
+			p := int64(part.Partition)
+			si.Partition = &p
+		}
+
+		si.ActivationEpoch = onChainInfo.Activation
+		if si.ExpirationEpoch == nil || *si.ExpirationEpoch != int64(onChainInfo.Expiration) {
+			expr := int64(onChainInfo.Expiration)
+			si.ExpirationEpoch = &expr
+		}
+		si.DealWeight = dealWeight
+	}
+
+	si.PipelinePoRep = sle
+	si.PipelineSnap = sleSnap
+
+	si.Pieces = pieces
+	si.Locations = locs
+	si.Tasks = htasks
+	si.TaskHistory = th
+
+	si.Resumable = hasAnyStuckTask
+	si.Restart = hasAnyStuckTask && (sle == nil || !sle.AfterSynthetic)
+
+	return si, nil
 }
 
 func (a *WebRPC) SectorResume(ctx context.Context, spid, id int64) error {
@@ -605,4 +828,11 @@ func (a *WebRPC) SectorRestart(ctx context.Context, spid, id int64) error {
 		return xerrors.Errorf("failed to resume SnapDeals sector: %w", err)
 	}
 	return nil
+}
+
+func derefOrZero[T any](a *T) T {
+	if a == nil {
+		return *new(T)
+	}
+	return *a
 }

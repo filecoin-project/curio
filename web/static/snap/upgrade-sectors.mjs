@@ -2,26 +2,7 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import RPCCall from '/lib/jsonrpc.mjs';
 import { formatDateTwo } from '/lib/dateutil.mjs';
 
-
-class UpgradeSectors extends LitElement {
-    static properties = {
-        data: { type: Array },
-    };
-
-    constructor() {
-        super();
-        this.data = [];
-        this.loadData();
-    }
-
-    async loadData() {
-        this.data = await RPCCall('UpgradeSectors');
-        // Refresh every 3 seconds
-        setTimeout(() => this.loadData(), 3000);
-        this.requestUpdate();
-    }
-
-    static styles = css`
+export const snapPipelineStyles = css`
     .porep-pipeline-table,
     .porep-state {
       color: #d0d0d0;
@@ -73,6 +54,26 @@ class UpgradeSectors extends LitElement {
       background-color: #a06010;
     }
   `;
+
+class UpgradeSectors extends LitElement {
+    static properties = {
+        data: { type: Array },
+    };
+
+    constructor() {
+        super();
+        this.data = [];
+        this.loadData();
+    }
+
+    static styles = [snapPipelineStyles];
+
+    async loadData() {
+        this.data = await RPCCall('UpgradeSectors');
+        // Refresh every 3 seconds
+        setTimeout(() => this.loadData(), 3000);
+        this.requestUpdate();
+    }
 
     render() {
         // Count how many are "waiting for submit":
@@ -136,7 +137,7 @@ class UpgradeSectors extends LitElement {
         </td>
 
         <!-- Pipeline (small sub-table) -->
-        <td>${this.renderSectorPipeline(sector)}</td>
+        <td>${renderSectorSnapPipeline(sector)}</td>
 
         <!-- Details link -->
         <td>
@@ -158,45 +159,48 @@ class UpgradeSectors extends LitElement {
             <div style="${style}">${timeStr}</div>
         `;
     }
+}
 
-    renderSectorPipeline(sector) {
-        return html`
+customElements.define('upgrade-sectors', UpgradeSectors);
+
+export function renderSectorSnapPipeline(sector) {
+    return html`
             <table class="porep-state porep-pipeline-table">
                 <tbody>
                 <tr>
-                    ${this.renderSectorState(
-                            'Encode',
-                            sector,
-                            sector.TaskIDEncode,
-                            sector.AfterEncode,
-                            sector.StartedEncode
-                    )}
-                    ${this.renderSectorState(
-                            'Prove',
-                            sector,
-                            sector.TaskIDProve,
-                            sector.AfterProve,
-                            sector.StartedProve
-                    )}
-                    ${this.renderSectorState(
-                            'Submit',
-                            sector,
-                            sector.TaskIDSubmit,
-                            sector.AfterSubmit,
-                            sector.StartedSubmit
-                    )}
-                    ${this.renderSectorState(
-                            'Move Storage',
-                            sector,
-                            sector.TaskIDMoveStorage,
-                            sector.AfterMoveStorage,
-                            sector.StartedMoveStorage
-                    )}
-                    ${this.renderSectorStateNoTask(
-                            'Prove Msg Landed',
-                            sector.AfterSubmit,
-                            sector.AfterProveSuccess
-                    )}
+                    ${renderSectorSnapState(
+        'Encode',
+        sector,
+        sector.TaskIDEncode,
+        sector.AfterEncode,
+        sector.StartedEncode
+    )}
+                    ${renderSectorSnapState(
+        'Prove',
+        sector,
+        sector.TaskIDProve,
+        sector.AfterProve,
+        sector.StartedProve
+    )}
+                    ${renderSectorSnapState(
+        'Submit',
+        sector,
+        sector.TaskIDSubmit,
+        sector.AfterSubmit,
+        sector.StartedSubmit
+    )}
+                    ${renderSectorSnapState(
+        'Move Storage',
+        sector,
+        sector.TaskIDMoveStorage,
+        sector.AfterMoveStorage,
+        sector.StartedMoveStorage
+    )}
+                    ${renderSectorSnapStateNoTask(
+        'Prove Msg Landed',
+        sector.AfterSubmit,
+        sector.AfterProveSuccess
+    )}
                     <!-- Sector overall state: failed or healthy -->
                     <td class="${sector.Failed ? 'pipeline-failed' : 'pipeline-success'}">
                         <div>State</div>
@@ -206,41 +210,41 @@ class UpgradeSectors extends LitElement {
                 </tbody>
             </table>
         `;
-    }
+}
 
-    /**
-     * Renders a stage cell for the pipeline.
-     * If this is the "Submit" stage and the sector is waiting for submit,
-     * we apply the orange "pipeline-waiting-submit" style and show "Waiting".
-     */
-    renderSectorState(name, sector, taskID, after, started) {
-        // Special case: waiting for submit
-        if (
-            name === 'Submit' &&
-            sector.UpdateReadyAt &&
-            !sector.AfterSubmit &&
-            !sector.TaskIDSubmit
-        ) {
-            return html`
+/**
+ * Renders a stage cell for the pipeline.
+ * If this is the "Submit" stage and the sector is waiting for submit,
+ * we apply the orange "pipeline-waiting-submit" style and show "Waiting".
+ */
+export function renderSectorSnapState(name, sector, taskID, after, started) {
+    // Special case: waiting for submit
+    if (
+        name === 'Submit' &&
+        sector.UpdateReadyAt &&
+        !sector.AfterSubmit &&
+        !sector.TaskIDSubmit
+    ) {
+        return html`
                 <td class="pipeline-waiting-submit">
                     <div>${name}</div>
                     <div>Waiting</div>
                 </td>
             `;
-        }
+    }
 
-        // Otherwise, do normal logic
-        if (taskID) {
-            const missing =
-                sector.MissingTasks && sector.MissingTasks.includes(taskID);
+    // Otherwise, do normal logic
+    if (taskID) {
+        const missing =
+            sector.MissingTasks && sector.MissingTasks.includes(taskID);
 
-            return html`
+        return html`
         <td
           class="${missing
-                ? 'pipeline-failed'
-                : started
-                    ? 'pipeline-active'
-                    : 'pipeline-waiting'}"
+            ? 'pipeline-failed'
+            : started
+                ? 'pipeline-active'
+                : 'pipeline-waiting'}"
         >
           <div>${name}</div>
           <div>
@@ -249,26 +253,23 @@ class UpgradeSectors extends LitElement {
           ${missing ? html`<div><b>FAILED</b></div>` : ''}
         </td>
       `;
-        } else {
-            return html`
+    } else {
+        return html`
         <td class="${after ? 'pipeline-success' : 'pipeline-waiting'}">
           <div>${name}</div>
           <div>${after ? 'Done' : '--'}</div>
         </td>
       `;
-        }
     }
+}
 
-    renderSectorStateNoTask(name, active, after) {
-        return html`
+export function renderSectorSnapStateNoTask(name, active, after) {
+    return html`
             <td class="${active ? 'pipeline-active' : ''} ${after
-                    ? 'pipeline-success'
-                    : ''}">
+        ? 'pipeline-success'
+        : ''}">
                 <div>${name}</div>
                 <div>${after ? 'Done' : '--'}</div>
             </td>
         `;
-    }
 }
-
-customElements.define('upgrade-sectors', UpgradeSectors);

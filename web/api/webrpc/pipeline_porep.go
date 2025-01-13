@@ -26,16 +26,18 @@ type PipelineTask struct {
 	AfterSDR   bool   `db:"after_sdr"`
 	StartedSDR bool   `db:"started_sdr"`
 
-	TaskTreeD    *int64 `db:"task_id_tree_d"`
-	AfterTreeD   bool   `db:"after_tree_d"`
-	StartedTreeD bool   `db:"started_tree_d"`
+	TaskTreeD    *int64  `db:"task_id_tree_d"`
+	AfterTreeD   bool    `db:"after_tree_d"`
+	StartedTreeD bool    `db:"started_tree_d"`
+	TreeD        *string `db:"tree_d_cid"`
 
 	TaskTreeC     *int64 `db:"task_id_tree_c"`
 	AfterTreeC    bool   `db:"after_tree_c"`
 	StartedTreeRC bool   `db:"started_tree_rc"`
 
-	TaskTreeR  *int64 `db:"task_id_tree_r"`
-	AfterTreeR bool   `db:"after_tree_r"`
+	TaskTreeR  *int64  `db:"task_id_tree_r"`
+	AfterTreeR bool    `db:"after_tree_r"`
+	TreeR      *string `db:"tree_r_cid"`
 
 	TaskSynthetic    *int64 `db:"task_id_synth"`
 	AfterSynthetic   bool   `db:"after_synth"`
@@ -47,8 +49,9 @@ type PipelineTask struct {
 	AfterPrecommitMsg   bool   `db:"after_precommit_msg"`
 	StartedPrecommitMsg bool   `db:"started_precommit_msg"`
 
-	AfterPrecommitMsgSuccess bool   `db:"after_precommit_msg_success"`
-	SeedEpoch                *int64 `db:"seed_epoch"`
+	AfterPrecommitMsgSuccess bool    `db:"after_precommit_msg_success"`
+	PreCommitMsgCid          *string `db:"precommit_msg_cid"`
+	SeedEpoch                *int64  `db:"seed_epoch"`
 
 	TaskPoRep    *int64 `db:"task_id_porep"`
 	PoRepProof   []byte `db:"porep_proof"`
@@ -69,7 +72,8 @@ type PipelineTask struct {
 	AfterCommitMsg   bool   `db:"after_commit_msg"`
 	StartedCommitMsg bool   `db:"started_commit_msg"`
 
-	AfterCommitMsgSuccess bool `db:"after_commit_msg_success"`
+	AfterCommitMsgSuccess bool    `db:"after_commit_msg_success"`
+	CommitMsgCid          *string `db:"commit_msg_cid"`
 
 	Failed       bool   `db:"failed"`
 	FailedReason string `db:"failed_reason"`

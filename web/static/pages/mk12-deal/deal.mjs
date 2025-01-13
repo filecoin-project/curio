@@ -33,6 +33,7 @@ class DealDetails extends LitElement {
                 {property: 'Offline', value: entry.offline},
                 {property: 'Verified', value: entry.verified},
                 {property: 'Is Legacy', value: entry.is_legacy},
+                {property: 'Is DDO', value: entry.is_ddo},
                 {property: 'Start Epoch', value: html`<pretty-epoch .epoch=${entry.start_epoch}></pretty-epoch>`},
                 {property: 'End Epoch', value: html`<pretty-epoch .epoch=${entry.end_epoch}></pretty-epoch>`},
                 {property: 'Client Peer ID', value: entry.client_peer_id},

@@ -1,54 +1,7 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
-import '/pages/pipeline_porep/pipeline-porep-sectors.mjs';
-
-customElements.define('sector-snap-state', class SectorSnapState extends LitElement {
-    static properties = {
-        data: { type: Object }
-    };
-
-    render() {
-        if (!this.data) {
-            return html`<div>No SnapDeals data available.</div>`;
-        }
-
-        return html`
-            ${this.data.Failed ? html`
-                <p style="color: var(--color-danger-main)">
-                   ${this.data.FailedReason}: ${this.data.FailedReasonMsg}
-                </p>
-            `: ''}
-            
-            <table class="table table-dark">
-                <tr>
-                    <th>Stage</th>
-                    <th>Status</th>
-                    <th>Task ID</th>
-                </tr>
-                <tr>
-                    <td>Encode</td>
-                    <td>${this.data.AfterEncode ? 'Completed' : 'Pending'}</td>
-                    <td>${this.data.TaskEncode || 'N/A'}</td>
-                </tr>
-                <tr>
-                    <td>Prove</td>
-                    <td>${this.data.AfterProve ? 'Completed' : 'Pending'}</td>
-                    <td>${this.data.TaskProve || 'N/A'}</td>
-                </tr>
-                <tr>
-                    <td>Submit</td>
-                    <td>${this.data.AfterSubmit ? 'Completed' : 'Pending'}</td>
-                    <td>${this.data.TaskSubmit || 'N/A'}</td>
-                </tr>
-                <tr>
-                    <td>Move Storage</td>
-                    <td>${this.data.AfterMoveStorage ? 'Completed' : 'Pending'}</td>
-                    <td>${this.data.TaskMoveStorage || 'N/A'}</td>
-                </tr>
-            </table>
-        `;
-    }
-});
+import { renderSectorPipeline, pipelineStyles } from '/pages/pipeline_porep/pipeline-porep-sectors.mjs';
+import { renderSectorSnapPipeline, snapPipelineStyles} from '/snap/upgrade-sectors.mjs';
 
 customElements.define('sector-info',class SectorInfo extends LitElement {
     constructor() {
@@ -73,6 +26,8 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
         await RPCCall('SectorRestart', [this.data.SpID, this.data.SectorNumber]);
         window.location.reload();
     }
+
+    static styles = [pipelineStyles, snapPipelineStyles];
 
     render() {
         if (!this.data) {
@@ -100,16 +55,55 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                 </div>
             </div>
             <div>
+                <h3>Sector Info</h3>
+                <table class="table table-dark table-striped table-sm">
+                        <tr><td>Miner ID</td><td>${this.data.Miner}</td></tr>
+                        <tr><td>Sector Number</td><td>${this.data.SectorNumber}</td></tr>
+                        <tr><td>PreCommit Message</td><td>${this.data.PreCommitMsg}</td></tr>
+                        <tr><td>Commit Message</td><td>${this.data.CommitMsg}</td></tr>
+                        <tr><td>Activation Epoch</td><td>${this.data.ActivationEpoch}</td></tr>
+                        <tr><td>Expiration Epoch</td><td>${this.data.ExpirationEpoch}</td></tr>
+                        <tr><td>Deal Weight</td><td>${this.data.DealWeight}</td></tr>
+                        <tr><td>Deadline</td><td>${this.data.Deadline}</td></tr>
+                        <tr><td>Partition</td><td>${this.data.Partition}</td></tr>
+                        <tr><td>Unsealed CID</td><td>${this.data.UnsealedCid}</td></tr>
+                        <tr><td>Sealed CID</td><td>${this.data.SealedCid}</td></tr>
+                        <tr><td>Updated Unsealed CID</td><td>${this.data.UpdatedUnsealedCid}</td></tr>
+                        <tr><td>Updated Sealed CID</td><td>${this.data.UpdatedSealedCid}</td></tr>
+                        <tr><td>Is Snap</td><td>${this.data.IsSnap}</td></tr>
+                        <tr><td>Update Message</td><td>${this.data.UpdateMsg}</td></tr>
+                        <tr>
+                            <td>Unsealed State</td>
+                            <td style="color: ${
+                                    (this.data.UnsealedState === false && this.data.HasUnsealed) ||
+                                    (this.data.UnsealedState === true && !this.data.HasUnsealed)
+                                            ? 'orange'
+                                            : 'inherit'
+                            }">
+                                ${this.data.UnsealedState == null
+                                        ? 'Either'
+                                        : this.data.UnsealedState
+                                                ? 'Keep Unsealed'
+                                                : 'Remove Unsealed'}
+                            </td>
+                        </tr>
+                </table>
+            </div>
+            <div>
                 ${this.data.PipelinePoRep ? html`
                     <h3>PoRep Pipeline</h3>
-                    <sector-porep-state .data=${this.data.PipelinePoRep}></sector-porep-state>
-                ` : ''}
+                    ${renderSectorPipeline(this.data.PipelinePoRep)}
+                ` : html`
+                    <p>No data available for the PoRep pipeline.</p>
+                `}
             </div>
             <div>
                 ${this.data.PipelineSnap ? html`
-            <h3>SnapDeals Pipeline</h3>
-            <sector-snap-state .data=${this.data.PipelineSnap}></sector-snap-state>
-        ` : ''}
+                    <h3>SnapDeals Pipeline</h3>
+                    ${renderSectorSnapPipeline(this.data.PipelineSnap)}
+                ` : html`
+                    <p>No data available for the SnapDeals pipeline.</p>
+                `}
             </div>
             <div>
                 <h3>Pieces</h3>
@@ -118,6 +112,7 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                         <th>Piece Index</th>
                         <th>Piece CID</th>
                         <th>Piece Size</th>
+                        <th>Deal ID</th>
                         <th>Data URL</th>
                         <th>Data Raw Size</th>
                         <th>Delete On Finalize</th>
@@ -136,9 +131,10 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                             <td>${piece.PieceIndex}</td>
                             <td><a href="/pages/piece/?id=${piece.PieceCid}">${piece.PieceCid}</a></td>
                             <td>${piece.PieceSize}</td>
+                            <td><a href="/pages/mk12-deal/?id=${piece.DealID}">${piece.DealID}</a></td>
                             <td>${piece.DataUrl}</td>
                             <td>${piece.DataRawSize}</td>
-                            <td>${piece.DeleteOnFinalize}</td>
+                            <td>${piece.DeleteOnFinalize === null ? 'Either' : piece.DeleteOnFinalize}</td>
                             <td>${piece.IsSnapPiece ? 'SnapDeals' : 'PoRep'}</td>
                             <td>${piece.F05PublishCid}</td>
                             <td>${piece.F05DealID}</td>
