@@ -7,17 +7,17 @@ fn main() {
         .canonicalize()
         .expect("cannot canonicalize path");
 
-    let spdk_lib_dir_buf = PathBuf::from("../../deps/spdk-v22.09/build/lib")
+    let spdk_lib_dir_buf = PathBuf::from("../../deps/spdk-v24.05/build/lib")
         .canonicalize()
         .expect("cannot canonicalize path");
     let spdk_lib_dir = spdk_lib_dir_buf.to_str().unwrap();
 
-    let dpdk_lib_dir_buf = PathBuf::from("../../deps/spdk-v22.09/dpdk/build/lib")
+    let dpdk_lib_dir_buf = PathBuf::from("../../deps/spdk-v24.05/dpdk/build/lib")
         .canonicalize()
         .expect("cannot canonicalize path");
     let dpdk_lib_dir = dpdk_lib_dir_buf.to_str().unwrap();
 
-    let dpdk_env_path = PathBuf::from("../../deps/spdk-v22.09/build/lib/libspdk_env_dpdk.a")
+    let dpdk_env_path = PathBuf::from("../../deps/spdk-v24.05/build/lib/libspdk_env_dpdk.a")
         .canonicalize()
         .expect("cannot canonicalize path");
 
