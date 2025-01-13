@@ -29,6 +29,7 @@ var testCmd = &cli.Command{
 	Subcommands: []*cli.Command{
 		//provingInfoCmd,
 		wdPostCmd,
+		testDebugCmd,
 	},
 	Before: func(cctx *cli.Context) error {
 		return nil

@@ -7,6 +7,8 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-address"
 )
 
 type MachineSummary struct {
@@ -20,6 +22,7 @@ type MachineSummary struct {
 	RamHumanized string
 	Gpu          int
 	Layers       string
+	Uptime       string
 }
 
 func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) {
@@ -34,7 +37,8 @@ func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) 
 							hm.gpu,
 							hmd.machine_name,
 							hmd.tasks,
-							hmd.layers
+							hmd.layers,
+							hmd.startup_time
 						FROM 
 							harmony_machines hm
 						LEFT JOIN 
@@ -51,12 +55,14 @@ func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) 
 		var m MachineSummary
 		var lastContact time.Duration
 		var ram int64
+		var uptime time.Time
 
-		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu, &m.Name, &m.Tasks, &m.Layers); err != nil {
+		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu, &m.Name, &m.Tasks, &m.Layers, &uptime); err != nil {
 			return nil, err // Handle error
 		}
 		m.SinceContact = lastContact.Round(time.Second).String()
 		m.RamHumanized = humanize.Bytes(uint64(ram))
+		m.Uptime = humanize.Time(uptime)
 		m.Tasks = strings.TrimSuffix(strings.TrimPrefix(m.Tasks, ","), ",")
 		m.Layers = strings.TrimSuffix(strings.TrimPrefix(m.Layers, ","), ",")
 
@@ -168,6 +174,7 @@ type MachineInfo struct {
 		Posted string
 
 		PoRepSector, PoRepSectorSP *int64
+		PoRepSectorMiner           string
 	}
 
 	FinishedTasks []struct {
@@ -282,8 +289,9 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 			Task   string
 			Posted string
 
-			PoRepSector   *int64
-			PoRepSectorSP *int64
+			PoRepSector      *int64
+			PoRepSectorSP    *int64
+			PoRepSectorMiner string
 		}
 
 		var posted time.Time
@@ -296,15 +304,15 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 			// try to find in the porep pipeline
 			rows4, err := a.deps.DB.Query(ctx, `SELECT sp_id, sector_number FROM sectors_sdr_pipeline 
             	WHERE task_id_sdr=$1
-								OR task_id_tree_d=$1
-								OR task_id_tree_c=$1
-								OR task_id_tree_r=$1
-								OR task_id_precommit_msg=$1
-								OR task_id_porep=$1	
-								OR task_id_commit_msg=$1
-								OR task_id_finalize=$1
-								OR task_id_move_storage=$1
-            	    `, t.ID)
+				OR task_id_tree_d=$1
+				OR task_id_tree_c=$1
+				OR task_id_tree_r=$1
+				OR task_id_synth=$1 
+				OR task_id_precommit_msg=$1
+				OR task_id_porep=$1	
+				OR task_id_commit_msg=$1
+				OR task_id_finalize=$1
+				OR task_id_move_storage=$1`, t.ID)
 			if err != nil {
 				return nil, err
 			}
@@ -317,6 +325,11 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 				}
 				t.PoRepSector = &sector
 				t.PoRepSectorSP = &spid
+				maddr, err := address.NewIDAddress(uint64(spid))
+				if err != nil {
+					return nil, err
+				}
+				t.PoRepSectorMiner = maddr.String()
 			}
 
 			rows4.Close()

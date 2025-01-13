@@ -26,7 +26,7 @@ BUILD_DEPS+=ffi-version-check
 
 ## BLST (from supraseal, but needed in curio)
 
-BLST_PATH:=extern/supra_seal/
+BLST_PATH:=extern/supraseal/
 BLST_DEPS:=.install-blst
 BLST_DEPS:=$(addprefix $(BLST_PATH),$(BLST_DEPS))
 
@@ -36,14 +36,13 @@ build/.blst-install: $(BLST_PATH)
 	bash scripts/build-blst.sh
 	@touch $@
 
-MODULES+=$(BLST_PATH)
 BUILD_DEPS+=build/.blst-install
 CLEAN+=build/.blst-install
 
 ## SUPRA-FFI
 
 ifeq ($(shell uname),Linux)
-SUPRA_FFI_PATH:=extern/supra_seal/
+SUPRA_FFI_PATH:=extern/supraseal/
 SUPRA_FFI_DEPS:=.install-supraseal
 SUPRA_FFI_DEPS:=$(addprefix $(SUPRA_FFI_PATH),$(SUPRA_FFI_DEPS))
 
@@ -53,7 +52,6 @@ build/.supraseal-install: $(SUPRA_FFI_PATH)
 	cd $(SUPRA_FFI_PATH) && ./build.sh
 	@touch $@
 
-# MODULES+=$(SUPRA_FFI_PATH) -- already included in BLST_PATH
 CLEAN+=build/.supraseal-install
 endif
 
@@ -65,11 +63,14 @@ build/.update-modules:
 
 # end git modules
 
-## CUDA Library Path
-CUDA_PATH := $(shell dirname $$(dirname $$(which nvcc)))
-CUDA_LIB_PATH := $(CUDA_PATH)/lib64
-LIBRARY_PATH ?= $(CUDA_LIB_PATH)
-export LIBRARY_PATH
+# CUDA Library Path
+# Conditional execution block for Linux
+OS := $(shell uname)
+ifeq ($(OS), Linux)
+    $(eval CUDA_PATH := $(shell dirname $$(dirname $$(which nvcc))))
+    $(eval CUDA_LIB_PATH := $(CUDA_PATH)/lib64)
+    export LIBRARY_PATH := $(LIBRARY_PATH):$(CUDA_LIB_PATH)
+endif
 
 ## MAIN BINARIES
 
@@ -80,9 +81,13 @@ deps: $(BUILD_DEPS)
 
 ## ldflags -s -w strips binary
 
+CURIO_TAGS := cunative
+
 curio: $(BUILD_DEPS)
 	rm -f curio
-	GOAMD64=v3 CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) -o curio -ldflags " -s -w \
+	GOAMD64=v3 CGO_LDFLAGS_ALLOW=$(CGO_LDFLAGS_ALLOW) $(GOCC) build $(GOFLAGS) \
+	-tags "$(CURIO_TAGS)" \
+	-o curio -ldflags " -s -w \
 	-X github.com/filecoin-project/curio/build.IsOpencl=$(FFI_USE_OPENCL) \
 	-X github.com/filecoin-project/curio/build.CurrentCommit=+git_`git log -1 --format=%h_%cI`" \
 	./cmd/curio
@@ -91,7 +96,7 @@ BINS+=curio
 
 sptool: $(BUILD_DEPS)
 	rm -f sptool
-	$(GOCC) build $(GOFLAGS) -o sptool ./cmd/sptool
+	$(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o sptool ./cmd/sptool
 .PHONY: sptool
 BINS+=sptool
 
@@ -99,14 +104,16 @@ ifeq ($(shell uname),Linux)
 
 batchdep: build/.supraseal-install
 batchdep: $(BUILD_DEPS)
-,PHONY: batchdep
+.PHONY: batchdep
 
-batch: GOFLAGS+=-tags=supraseal
+batch: CURIO_TAGS+= supraseal
 batch: CGO_LDFLAGS_ALLOW='.*'
 batch: batchdep build
 .PHONY: batch
 
-batch-calibnet: GOFLAGS+=-tags=calibnet,supraseal
+
+batch-calibnet: CURIO_TAGS+= supraseal
+batch-calibnet: CURIO_TAGS+= calibnet
 batch-calibnet: CGO_LDFLAGS_ALLOW='.*'
 batch-calibnet: batchdep build
 .PHONY: batch-calibnet
@@ -121,13 +128,13 @@ batch-calibnet:
 	@exit 1
 endif
 
-calibnet: GOFLAGS+=-tags=calibnet
+calibnet: CURIO_TAGS+= calibnet
 calibnet: build
 
-debug: GOFLAGS+=-tags=debug
+debug: CURIO_TAGS+= debug
 debug: build
 
-2k: GOFLAGS+=-tags=2k
+2k: CURIO_TAGS+= 2k
 2k: build
 
 all: build 
@@ -257,7 +264,7 @@ build_lotus?=0
 curio_docker_user?=curio
 curio_base_image=$(curio_docker_user)/curio-all-in-one:latest-debug
 ffi_from_source?=0
-lotus_version?=v1.28.1
+lotus_version?=v1.30.0-rc2
 
 ifeq ($(build_lotus),1)
 # v1: building lotus image with provided lotus version

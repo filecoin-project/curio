@@ -4,10 +4,10 @@ NAME:
    sptool - Manage Filecoin Miner Actor
 
 USAGE:
-   sptool [global options] command [command options] [arguments...]
+   sptool [global options] command [command options]
 
 VERSION:
-   1.23.0
+   1.24.3
 
 COMMANDS:
    actor    Manage Filecoin Miner Actor Metadata
@@ -29,7 +29,7 @@ NAME:
    sptool actor - Manage Filecoin Miner Actor Metadata
 
 USAGE:
-   sptool actor command [command options] [arguments...]
+   sptool actor command [command options]
 
 COMMANDS:
    set-addresses, set-addrs    set addresses that your miner can be publicly dialed on
@@ -124,7 +124,7 @@ NAME:
    sptool actor control - Manage control addresses
 
 USAGE:
-   sptool actor control command [command options] [arguments...]
+   sptool actor control command [command options]
 
 COMMANDS:
    list     Get currently set control addresses. Note: This excludes most roles as they are not known to the immediate chain state.
@@ -141,7 +141,7 @@ NAME:
    sptool actor control list - Get currently set control addresses. Note: This excludes most roles as they are not known to the immediate chain state.
 
 USAGE:
-   sptool actor control list [command options] [arguments...]
+   sptool actor control list [command options]
 
 OPTIONS:
    --verbose   (default: false)
@@ -193,7 +193,7 @@ NAME:
    sptool actor compact-allocated - compact allocated sectors bitfield
 
 USAGE:
-   sptool actor compact-allocated [command options] [arguments...]
+   sptool actor compact-allocated [command options]
 
 OPTIONS:
    --mask-last-offset value  Mask sector IDs from 0 to 'highest_allocated - offset' (default: 0)
@@ -238,7 +238,7 @@ NAME:
    sptool actor new-miner - Initializes a new miner actor
 
 USAGE:
-   sptool actor new-miner [command options] [arguments...]
+   sptool actor new-miner [command options]
 
 OPTIONS:
    --worker value, -w value  worker key to use for new miner initialisation
@@ -255,7 +255,7 @@ NAME:
    sptool info - Print miner actor info
 
 USAGE:
-   sptool info [command options] [arguments...]
+   sptool info [command options]
 
 OPTIONS:
    --help, -h  show help
@@ -267,7 +267,7 @@ NAME:
    sptool sectors - interact with sector store
 
 USAGE:
-   sptool sectors command [command options] [arguments...]
+   sptool sectors command [command options]
 
 COMMANDS:
    status              Get the seal status of a sector by its number
@@ -306,7 +306,7 @@ NAME:
    sptool sectors list - List sectors
 
 USAGE:
-   sptool sectors list [command options] [arguments...]
+   sptool sectors list [command options]
 
 OPTIONS:
    --help, -h  show help
@@ -318,7 +318,7 @@ NAME:
    sptool sectors precommits - Print on-chain precommit info
 
 USAGE:
-   sptool sectors precommits [command options] [arguments...]
+   sptool sectors precommits [command options]
 
 OPTIONS:
    --help, -h  show help
@@ -330,7 +330,7 @@ NAME:
    sptool sectors check-expire - Inspect expiring sectors
 
 USAGE:
-   sptool sectors check-expire [command options] [arguments...]
+   sptool sectors check-expire [command options]
 
 OPTIONS:
    --cutoff value  skip sectors whose current expiration is more than <cutoff> epochs from now, defaults to 60 days (default: 172800)
@@ -343,7 +343,7 @@ NAME:
    sptool sectors expired - Get or cleanup expired sectors
 
 USAGE:
-   sptool sectors expired [command options] [arguments...]
+   sptool sectors expired [command options]
 
 OPTIONS:
    --expired-epoch value  epoch at which to check sector expirations (default: WinningPoSt lookback epoch)
@@ -411,7 +411,7 @@ NAME:
    sptool sectors compact-partitions - removes dead sectors from partitions and reduces the number of partitions used if possible
 
 USAGE:
-   sptool sectors compact-partitions [command options] [arguments...]
+   sptool sectors compact-partitions [command options]
 
 OPTIONS:
    --deadline value                           the deadline to compact the partitions in (default: 0)
@@ -426,7 +426,7 @@ NAME:
    sptool proving - View proving information
 
 USAGE:
-   sptool proving command [command options] [arguments...]
+   sptool proving command [command options]
 
 COMMANDS:
    info       View current state information
@@ -445,7 +445,7 @@ NAME:
    sptool proving info - View current state information
 
 USAGE:
-   sptool proving info [command options] [arguments...]
+   sptool proving info [command options]
 
 OPTIONS:
    --help, -h  show help
@@ -457,7 +457,7 @@ NAME:
    sptool proving deadlines - View the current proving period deadlines information
 
 USAGE:
-   sptool proving deadlines [command options] [arguments...]
+   sptool proving deadlines [command options]
 
 OPTIONS:
    --all, -a   Count all sectors (only live sectors are counted by default) (default: false)
@@ -484,7 +484,7 @@ NAME:
    sptool proving faults - View the currently known proving faulty sectors information
 
 USAGE:
-   sptool proving faults [command options] [arguments...]
+   sptool proving faults [command options]
 
 OPTIONS:
    --help, -h  show help

@@ -98,6 +98,8 @@ func Register(db *harmonydb.DB, hostnameAndPort string) (*Reg, error) {
 		}
 	}()
 
+	logger.Infow("Node registered the following resources", "CPU", reg.Cpu, "Memory", reg.Ram, "GPU", reg.Gpu)
+
 	return &reg, nil
 }
 

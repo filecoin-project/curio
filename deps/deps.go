@@ -34,11 +34,15 @@ import (
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/repo"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/market/indexstore"
+	"github.com/filecoin-project/curio/market/ipni/chunker"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -165,23 +169,29 @@ func GetDeps(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 }
 
 type Deps struct {
-	Layers     []string
-	Cfg        *config.CurioConfig // values
-	DB         *harmonydb.DB       // has itest capability
-	Chain      api.Chain
-	Bstore     curiochain.CurioBlockstore
-	Verif      storiface.Verifier
-	As         *multictladdr.MultiAddressSelector
-	Maddrs     map[dtypes.MinerAddress]bool
-	ProofTypes map[abi.RegisteredSealProof]bool
-	Stor       *paths.Remote
-	Al         *curioalerting.AlertingSystem
-	Si         paths.SectorIndex
-	LocalStore *paths.Local
-	LocalPaths *paths.BasicLocalStorage
-	ListenAddr string
-	Name       string
-	Alert      *alertmanager.AlertNow
+	Layers            []string
+	Cfg               *config.CurioConfig // values
+	DB                *harmonydb.DB       // has itest capability
+	Chain             api.Chain
+	Bstore            curiochain.CurioBlockstore
+	Verif             storiface.Verifier
+	As                *multictladdr.MultiAddressSelector
+	Maddrs            map[dtypes.MinerAddress]bool
+	ProofTypes        map[abi.RegisteredSealProof]bool
+	Stor              *paths.Remote
+	Al                *curioalerting.AlertingSystem
+	Si                paths.SectorIndex
+	LocalStore        *paths.Local
+	LocalPaths        *paths.BasicLocalStorage
+	Prover            storiface.Prover
+	ListenAddr        string
+	Name              string
+	MachineID         *int64
+	Alert             *alertmanager.AlertNow
+	IndexStore        *indexstore.IndexStore
+	PieceProvider     *pieceprovider.PieceProvider
+	CachedPieceReader *cachedreader.CachedPieceReader
+	ServeChunker      *chunker.ServeChunker
 }
 
 const (
@@ -348,6 +358,34 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 		deps.Name = cctx.String("name")
 	}
 
+	if deps.MachineID == nil {
+		deps.MachineID = new(int64)
+		*deps.MachineID = -1
+	}
+
+	if deps.IndexStore == nil {
+		deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(cctx.String("db-host"), ","), deps.Cfg)
+		if err != nil {
+			return xerrors.Errorf("failed to start index store: %w", err)
+		}
+	}
+
+	if deps.PieceProvider == nil {
+		deps.PieceProvider = pieceprovider.NewPieceProvider(deps.Stor, deps.Si)
+	}
+
+	if deps.CachedPieceReader == nil {
+		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.PieceProvider)
+	}
+
+	if deps.ServeChunker == nil {
+		deps.ServeChunker = chunker.NewServeChunker(deps.DB, deps.PieceProvider, deps.IndexStore, deps.CachedPieceReader)
+	}
+
+	if deps.Prover == nil {
+		deps.Prover = ffiwrapper.ProofProver
+	}
+
 	return nil
 }
 
@@ -380,6 +418,9 @@ func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *config.CurioCo
 		}
 		if curioConfigWithDefaults.Addresses[i].CommitControl == nil {
 			curioConfigWithDefaults.Addresses[i].CommitControl = []string{}
+		}
+		if curioConfigWithDefaults.Addresses[i].DealPublishControl == nil {
+			curioConfigWithDefaults.Addresses[i].DealPublishControl = []string{}
 		}
 		if curioConfigWithDefaults.Addresses[i].TerminateControl == nil {
 			curioConfigWithDefaults.Addresses[i].TerminateControl = []string{}
@@ -495,6 +536,7 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 		curioConfig.Addresses = append(curioConfig.Addresses, config.CurioAddresses{
 			PreCommitControl:      []string{},
 			CommitControl:         []string{},
+			DealPublishControl:    []string{},
 			TerminateControl:      []string{},
 			DisableOwnerFallback:  false,
 			DisableWorkerFallback: false,

@@ -22,6 +22,7 @@ import (
 	prooftypes "github.com/filecoin-project/go-state-types/proof"
 
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -95,7 +96,7 @@ func NewWinPostTask(max int, db *harmonydb.DB, remote *paths.Remote, verifier st
 func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	log.Debugw("WinPostTask.Do()", "taskID", taskID)
 
-	ctx := context.TODO()
+	ctx := deps.OnSingleNode(context.Background())
 
 	type BlockCID struct {
 		CID string
@@ -397,7 +398,7 @@ func (t *WinPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	{
 		uts := base.TipSet.MinTimestamp() + build.BlockDelaySecs*(uint64(base.AddRounds)+1)
 
-		blockMsg, err = t.api.MinerCreateBlock(context.TODO(), &api.BlockTemplate{
+		blockMsg, err = t.api.MinerCreateBlock(ctx, &api.BlockTemplate{
 			Miner:            maddr,
 			Parents:          base.TipSet.Key(),
 			Ticket:           ticket,

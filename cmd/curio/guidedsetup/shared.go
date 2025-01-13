@@ -34,6 +34,8 @@ import (
 	"github.com/filecoin-project/lotus/node/repo"
 )
 
+//go:generate cbor-gen-for --map-encoding SectorInfo
+
 const (
 	FlagMinerRepo = "miner-repo"
 )
@@ -152,6 +154,7 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 		MinerAddresses:        []string{addr.String()},
 		PreCommitControl:      smCfg.Addresses.PreCommitControl,
 		CommitControl:         smCfg.Addresses.CommitControl,
+		DealPublishControl:    smCfg.Addresses.DealPublishControl,
 		TerminateControl:      smCfg.Addresses.TerminateControl,
 		DisableOwnerFallback:  smCfg.Addresses.DisableOwnerFallback,
 		DisableWorkerFallback: smCfg.Addresses.DisableWorkerFallback,
@@ -238,7 +241,14 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 			return minerAddress, xerrors.Errorf("Cannot delete existing layer: %w", err)
 		}
 
-		_, err = db.Exec(ctx, "INSERT INTO harmony_config (title, config) VALUES ($1, $2)", layerName, configTOML.String())
+		// Express as new toml to avoid adding StorageRPCSecret in more than 1 layer
+		curioCfg.Apis.StorageRPCSecret = ""
+		ct := &bytes.Buffer{}
+		if err = toml.NewEncoder(ct).Encode(curioCfg); err != nil {
+			return minerAddress, err
+		}
+
+		_, err = db.Exec(ctx, "INSERT INTO harmony_config (title, config) VALUES ($1, $2)", layerName, ct.String())
 		if err != nil {
 			return minerAddress, xerrors.Errorf("Cannot insert layer after layer created message: %w", err)
 		}
@@ -284,6 +294,9 @@ func ensureEmptyArrays(cfg *config.CurioConfig) {
 			}
 			if cfg.Addresses[i].CommitControl == nil {
 				cfg.Addresses[i].CommitControl = []string{}
+			}
+			if cfg.Addresses[i].DealPublishControl == nil {
+				cfg.Addresses[i].DealPublishControl = []string{}
 			}
 			if cfg.Addresses[i].TerminateControl == nil {
 				cfg.Addresses[i].TerminateControl = []string{}
@@ -356,13 +369,17 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 		}
 	}
 
-	for _, sectr := range sectors {
+	for i, sectr := range sectors {
 		if !migratableState(sectr.State) || sectr.State == sector.Removed {
 			continue
 		}
+		if i > 0 && i%1000 == 0 {
+			fmt.Printf("Migration: %d / %d (%0.2f%%)\n", i, len(sectors), float64(i)/float64(len(sectors))*100)
+		}
 
-		// Insert sector metadata
-		_, err := db.Exec(ctx, `
+		_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+			// Insert sector metadata
+			_, err := tx.Exec(`
         INSERT INTO sectors_meta (sp_id, sector_num, reg_seal_proof, ticket_epoch, ticket_value,
                                   orig_sealed_cid, orig_unsealed_cid, cur_sealed_cid, cur_unsealed_cid,
                                   msg_cid_precommit, msg_cid_commit, msg_cid_update, seed_epoch, seed_value)
@@ -372,65 +389,65 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
             orig_sealed_cid = excluded.orig_sealed_cid, orig_unsealed_cid = excluded.orig_unsealed_cid, cur_sealed_cid = excluded.cur_sealed_cid,
             cur_unsealed_cid = excluded.cur_unsealed_cid, msg_cid_precommit = excluded.msg_cid_precommit, msg_cid_commit = excluded.msg_cid_commit,
             msg_cid_update = excluded.msg_cid_update, seed_epoch = excluded.seed_epoch, seed_value = excluded.seed_value`,
-			mid,
-			sectr.SectorNumber,
-			sectr.SectorType,
-			sectr.TicketEpoch,
-			sectr.TicketValue,
-			cidPtrToStrptr(sectr.CommR),
-			cidPtrToStrptr(sectr.CommD),
-			cidPtrToStrptr(coalescePtrs(sectr.UpdateSealed, sectr.CommR)),
-			cidPtrToStrptr(coalescePtrs(sectr.UpdateUnsealed, sectr.CommD)),
-			cidPtrToStrptr(sectr.PreCommitMessage),
-			cidPtrToStrptr(sectr.CommitMessage),
-			cidPtrToStrptr(sectr.ReplicaUpdateMessage),
-			sectr.SeedEpoch,
-			sectr.SeedValue,
-		)
-		if err != nil {
-			b, _ := json.MarshalIndent(sectr, "", "  ")
-			fmt.Println(string(b))
+				mid,
+				sectr.SectorNumber,
+				sectr.SectorType,
+				sectr.TicketEpoch,
+				sectr.TicketValue,
+				cidPtrToStrptr(sectr.CommR),
+				cidPtrToStrptr(sectr.CommD),
+				cidPtrToStrptr(coalescePtrs(sectr.UpdateSealed, sectr.CommR)),
+				cidPtrToStrptr(coalescePtrs(sectr.UpdateUnsealed, sectr.CommD)),
+				cidPtrToStrptr(sectr.PreCommitMessage),
+				cidPtrToStrptr(sectr.CommitMessage),
+				cidPtrToStrptr(sectr.ReplicaUpdateMessage),
+				sectr.SeedEpoch,
+				sectr.SeedValue,
+			)
+			if err != nil {
+				b, _ := json.MarshalIndent(sectr, "", "  ")
+				fmt.Println(string(b))
 
-			return xerrors.Errorf("inserting/updating sectors_meta for sector %d: %w", sectr.SectorNumber, err)
-		}
-
-		// Process each piece within the sector
-		for j, piece := range sectr.Pieces {
-			dealID := int64(0)
-			startEpoch := int64(0)
-			endEpoch := int64(0)
-			var pamJSON *string
-			var dealProposalJSONStr *string
-
-			if piece.HasDealInfo() {
-				dealInfo := piece.DealInfo()
-				if dealInfo.Impl().DealProposal != nil {
-					dealID = int64(dealInfo.Impl().DealID)
-				}
-
-				startEpoch = int64(must.One(dealInfo.StartEpoch()))
-				endEpoch = int64(must.One(dealInfo.EndEpoch()))
-				if piece.Impl().PieceActivationManifest != nil {
-					pam, err := json.Marshal(piece.Impl().PieceActivationManifest)
-					if err != nil {
-						return xerrors.Errorf("error marshalling JSON for piece %d in sector %d: %w", j, sectr.SectorNumber, err)
-					}
-					ps := string(pam)
-					pamJSON = &ps
-				}
-				if piece.Impl().DealProposal != nil {
-					dealProposalJSON, err := json.Marshal(piece.Impl().DealProposal)
-					if err != nil {
-						return xerrors.Errorf("error marshalling deal proposal JSON for piece %d in sector %d: %w", j, sectr.SectorNumber, err)
-					}
-					dp := string(dealProposalJSON)
-					dealProposalJSONStr = &dp
-				}
-
+				return false, xerrors.Errorf("inserting/updating sectors_meta for sector %d: %w", sectr.SectorNumber, err)
 			}
 
-			// Splitting the SQL statement for readability and adding new fields
-			_, err = db.Exec(ctx, `
+			// Process each piece within the sector
+			for j, piece := range sectr.Pieces {
+				dealID := int64(0)
+				startEpoch := int64(0)
+				endEpoch := int64(0)
+				var pamJSON *string
+				var dealProposalJSONStr *string
+
+				if piece.HasDealInfo() {
+					dealInfo := piece.DealInfo()
+					if dealInfo.Impl().DealProposal != nil {
+						dealID = int64(dealInfo.Impl().DealID)
+					}
+
+					startEpoch = int64(must.One(dealInfo.StartEpoch()))
+					endEpoch = int64(must.One(dealInfo.EndEpoch()))
+					if piece.Impl().PieceActivationManifest != nil {
+						pam, err := json.Marshal(piece.Impl().PieceActivationManifest)
+						if err != nil {
+							return false, xerrors.Errorf("error marshalling JSON for piece %d in sector %d: %w", j, sectr.SectorNumber, err)
+						}
+						ps := string(pam)
+						pamJSON = &ps
+					}
+					if piece.Impl().DealProposal != nil {
+						dealProposalJSON, err := json.Marshal(piece.Impl().DealProposal)
+						if err != nil {
+							return false, xerrors.Errorf("error marshalling deal proposal JSON for piece %d in sector %d: %w", j, sectr.SectorNumber, err)
+						}
+						dp := string(dealProposalJSON)
+						dealProposalJSONStr = &dp
+					}
+
+				}
+
+				// Splitting the SQL statement for readability and adding new fields
+				_, err = tx.Exec(`
 					INSERT INTO sectors_meta_pieces (
 						sp_id, sector_num, piece_num, piece_cid, piece_size, 
 						requested_keep_data, raw_data_size, start_epoch, orig_end_epoch,
@@ -447,25 +464,31 @@ func MigrateSectors(ctx context.Context, maddr address.Address, mmeta datastore.
 						f05_deal_id = excluded.f05_deal_id, 
 						ddo_pam = excluded.ddo_pam,
 						f05_deal_proposal = excluded.f05_deal_proposal`,
-				mid,
-				sectr.SectorNumber,
-				j,
-				piece.PieceCID(),
-				piece.Piece().Size,
-				piece.HasDealInfo(),
-				nil, // raw_data_size might be calculated based on the piece size, or retrieved if available
-				startEpoch,
-				endEpoch,
-				dealID,
-				pamJSON,
-				dealProposalJSONStr,
-			)
-			if err != nil {
-				b, _ := json.MarshalIndent(sectr, "", "  ")
-				fmt.Println(string(b))
+					mid,
+					sectr.SectorNumber,
+					j,
+					piece.PieceCID(),
+					piece.Piece().Size,
+					piece.HasDealInfo(),
+					nil, // raw_data_size might be calculated based on the piece size, or retrieved if available
+					startEpoch,
+					endEpoch,
+					dealID,
+					pamJSON,
+					dealProposalJSONStr,
+				)
+				if err != nil {
+					b, _ := json.MarshalIndent(sectr, "", "  ")
+					fmt.Println(string(b))
 
-				return xerrors.Errorf("inserting/updating sector_meta_pieces for sector %d, piece %d: %w", sectr.SectorNumber, j, err)
+					return false, xerrors.Errorf("inserting/updating sector_meta_pieces for sector %d, piece %d: %w", sectr.SectorNumber, j, err)
+				}
 			}
+
+			return true, nil
+		}, harmonydb.OptionRetry())
+		if err != nil {
+			return xerrors.Errorf("processing sector %d: %w", sectr.SectorNumber, err)
 		}
 	}
 

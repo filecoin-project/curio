@@ -38,4 +38,8 @@ func UnpaddedCeil(n uint64) UnpaddedByteIndex {
 
 type PaddedByteIndex uint64
 
+func (i PaddedByteIndex) Unpadded() UnpaddedByteIndex {
+	return UnpaddedByteIndex(abi.PaddedPieceSize(i).Unpadded())
+}
+
 type RGetter func(ctx context.Context, id abi.SectorID) (sealed cid.Cid, update bool, err error)

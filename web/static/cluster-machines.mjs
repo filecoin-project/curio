@@ -32,6 +32,7 @@ customElements.define('cluster-machines', class ClusterMachines extends LitEleme
                                 <th>RAM</th>
                                 <th>GPUs</th>
                                 <th>Last Contact</th>
+                                <th>Uptime</th>
                                 <th>Tasks Supported</th>
                                 <th>Layers Enabled</th>
                             </tr>
@@ -46,7 +47,8 @@ customElements.define('cluster-machines', class ClusterMachines extends LitEleme
                                     <td>${item.RamHumanized}</td>
                                     <td>${item.Gpu}</td>
                                     <td>${item.SinceContact}</td>
-                                    <td>${item.Tasks.split(',').map((item) => html`<a href="/task/?name=${item}">${item}</a> `)}</td>
+                                    <td>${item.Uptime}</td>
+                                    <td>${item.Tasks.split(',').map((item) => html`<a href="/pages/task/?name=${item}">${item}</a> `)}</td>
                                     <td>${item.Layers.split(',').map((item) => html`<a href="/config/edit.html?layer=${item}">${item}</a> `)}</td>
                                 </tr>
                             `)}

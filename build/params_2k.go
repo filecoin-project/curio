@@ -18,5 +18,5 @@ var UpgradeSmokeHeight = abi.ChainEpoch(-1)
 
 func init() {
 	SetAddressNetwork(address.Testnet)
-	BuildType = BuildDebug
+	BuildType = Build2k
 }

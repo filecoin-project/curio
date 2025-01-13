@@ -7,7 +7,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/curio/market"
+	"github.com/filecoin-project/curio/market/storageingest"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -22,6 +22,8 @@ type OpenDealInfo struct {
 
 	PieceSizeStr string `db:"-"`
 	CreatedAtStr string `db:"-"`
+
+	Miner string
 }
 
 func (a *WebRPC) DealsPending(ctx context.Context) ([]OpenDealInfo, error) {
@@ -34,6 +36,11 @@ func (a *WebRPC) DealsPending(ctx context.Context) ([]OpenDealInfo, error) {
 	for i, deal := range deals {
 		deals[i].PieceSizeStr = types.SizeStr(types.NewInt(deal.PieceSize))
 		deals[i].CreatedAtStr = deal.CreatedAt.Format("2006-01-02 15:04:05")
+		maddr, err := address.NewIDAddress(uint64(deals[i].Actor))
+		if err != nil {
+			return nil, err
+		}
+		deals[i].Miner = maddr.String()
 	}
 
 	return deals, nil
@@ -45,5 +52,5 @@ func (a *WebRPC) DealsSealNow(ctx context.Context, spId, sectorNumber uint64) er
 		return err
 	}
 
-	return market.SealNow(ctx, a.deps.Chain, a.deps.DB, maddr, abi.SectorNumber(sectorNumber), false)
+	return storageingest.SealNow(ctx, a.deps.Chain, a.deps.DB, maddr, abi.SectorNumber(sectorNumber), false)
 }

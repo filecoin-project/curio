@@ -31,8 +31,6 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
-const disablePreChecks = false // todo config
-
 func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr address.Address, di *dline.Info, partIdx uint64, test bool) (out *miner2.SubmitWindowedPoStParams, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -74,7 +72,6 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 	}
 
 	var postPartition miner2.PoStPartition
-	var xsinfos []proof7.ExtendedSectorInfo
 
 	{
 		toProve, err := bitfield.SubtractBitField(partition.LiveSectors, partition.FaultySectors)
@@ -95,53 +92,25 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 		if err != nil {
 			return nil, xerrors.Errorf("copy toProve: %w", err)
 		}
-		if !disablePreChecks {
-			good, err = checkSectors(ctx, t.api, t.faultTracker, maddr, toProve, ts.Key())
-			if err != nil {
-				return nil, xerrors.Errorf("checking sectors to skip: %w", err)
-			}
-		}
 
-		/*good, err = bitfield.SubtractBitField(good, postSkipped)
-		if err != nil {
-			return nil, xerrors.Errorf("toProve - postSkipped: %w", err)
-		}
-
-		post skipped is legacy retry mechanism, shouldn't be needed anymore
-		*/
-
-		skipped, err := bitfield.SubtractBitField(toProve, good)
-		if err != nil {
-			return nil, xerrors.Errorf("toProve - good: %w", err)
-		}
-
-		sc, err := skipped.Count()
-		if err != nil {
-			return nil, xerrors.Errorf("getting skipped sector count: %w", err)
-		}
-
-		skipCount := sc
-
-		ssi, err := t.sectorsForProof(ctx, maddr, good, partition.AllSectors, ts)
+		xsinfos, err := t.sectorsForProof(ctx, maddr, good, partition.AllSectors, ts)
 		if err != nil {
 			return nil, xerrors.Errorf("getting sorted sector info: %w", err)
 		}
 
-		if len(ssi) == 0 {
+		if len(xsinfos) == 0 {
 			return nil, xerrors.Errorf("no sectors to prove")
 		}
 
-		xsinfos = append(xsinfos, ssi...)
 		postPartition = miner2.PoStPartition{
 			Index:   partIdx,
-			Skipped: skipped,
+			Skipped: bitfield.New(),
 		}
 
 		log.Infow("running window post",
 			"chain-random", rand,
 			"deadline", di,
-			"height", ts.Height(),
-			"skipped", skipCount)
+			"height", ts.Height())
 
 		tsStart := build.Clock.Now()
 

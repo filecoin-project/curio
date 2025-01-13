@@ -19,6 +19,7 @@ import (
 	"github.com/filecoin-project/go-state-types/proof"
 
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/storiface"
 )
 
@@ -45,9 +46,11 @@ func init() {
 		ch = make(chan string, 1)
 		ch <- "0"
 	} else {
-		ch = make(chan string, len(devices))
-		for i := 0; i < len(devices); i++ {
-			ch <- strconv.Itoa(i)
+		nSlots := len(devices) * resources.GpuOverprovisionFactor
+
+		ch = make(chan string, nSlots)
+		for i := 0; i < nSlots; i++ {
+			ch <- strconv.Itoa(i / resources.GpuOverprovisionFactor)
 		}
 	}
 }

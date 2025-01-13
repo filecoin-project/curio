@@ -1,8 +1,10 @@
+//go:build cunative
+
 package cunative
 
 /*
-#cgo CFLAGS: -I${SRCDIR}/../../../extern/supra_seal/deps/blst/bindings
-#cgo LDFLAGS: -L${SRCDIR}/../../../extern/supra_seal/deps/blst -lblst
+#cgo CFLAGS: -I${SRCDIR}/../../../extern/supraseal/deps/blst/bindings
+#cgo LDFLAGS: -L${SRCDIR}/../../../extern/supraseal/deps/blst -lblst
 #include <stdint.h>
 #include <stdlib.h>
 #include "blst.h"

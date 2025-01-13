@@ -9,6 +9,8 @@ import (
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
 
+	"github.com/filecoin-project/go-address"
+
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
 
@@ -18,14 +20,24 @@ import (
 type StorageGCStats struct {
 	Actor int64 `db:"sp_id"`
 	Count int   `db:"count"`
+	Miner string
 }
 
-func (a *WebRPC) StorageGCStats(ctx context.Context) ([]StorageGCStats, error) {
-	var stats []StorageGCStats
+func (a *WebRPC) StorageGCStats(ctx context.Context) ([]*StorageGCStats, error) {
+	var stats []*StorageGCStats
 	err := a.deps.DB.Select(ctx, &stats, `SELECT sp_id, count(*) as count FROM storage_removal_marks GROUP BY sp_id ORDER BY sp_id DESC`)
 	if err != nil {
 		return nil, err
 	}
+
+	for _, s := range stats {
+		maddr, err := address.NewIDAddress(uint64(s.Actor))
+		if err != nil {
+			return nil, err
+		}
+		s.Miner = maddr.String()
+	}
+
 	return stats, nil
 }
 
@@ -86,10 +98,12 @@ type StorageGCMarks struct {
 	// db ignored
 	TypeName string `db:"-"`
 	PathType string `db:"-"`
+
+	Miner string
 }
 
-func (a *WebRPC) StorageGCMarks(ctx context.Context) ([]StorageGCMarks, error) {
-	var marks []StorageGCMarks
+func (a *WebRPC) StorageGCMarks(ctx context.Context) ([]*StorageGCMarks, error) {
+	var marks []*StorageGCMarks
 	err := a.deps.DB.Select(ctx, &marks, `
 		SELECT m.sp_id, m.sector_num, m.sector_filetype, m.storage_id, m.created_at, m.approved, m.approved_at, sl.can_seal, sl.can_store, sl.urls
 			FROM storage_removal_marks m LEFT JOIN storage_path sl ON m.storage_id = sl.storage_id
@@ -115,6 +129,11 @@ func (a *WebRPC) StorageGCMarks(ctx context.Context) ([]StorageGCMarks, error) {
 			return must.One(url.Parse(u)).Host
 		})
 		marks[i].Urls = strings.Join(us, ", ")
+		maddr, err := address.NewIDAddress(uint64(marks[i].Actor))
+		if err != nil {
+			return nil, err
+		}
+		marks[i].Miner = maddr.String()
 	}
 
 	return marks, nil

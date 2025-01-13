@@ -1,0 +1,1 @@
+ALTER TABLE harmony_task ADD COLUMN retries BIGINT NOT NULL DEFAULT 0;

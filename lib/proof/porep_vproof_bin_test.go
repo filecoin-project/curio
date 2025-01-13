@@ -16,7 +16,7 @@ func TestDecode(t *testing.T) {
 		t.Skip()
 	}
 
-	//binFile := "../../extern/supra_seal/demos/c2-test/resources/test/commit-phase1-output"
+	//binFile := "../../extern/supraseal/demos/c2-test/resources/test/commit-phase1-output"
 	binFile := "../../commit-phase1-output.gz"
 
 	gzData, err := os.ReadFile(binFile)
@@ -122,7 +122,7 @@ fn main() -> Result<()> {
 }
 
 func TestDecodeSNRustDec(t *testing.T) {
-	//binFile := "../../extern/supra_seal/demos/c2-test/resources/test/commit-phase1-output"
+	//binFile := "../../extern/supraseal/demos/c2-test/resources/test/commit-phase1-output"
 	binFile := "../../commit-phase1-output.json"
 
 	rawData, err := os.ReadFile(binFile)

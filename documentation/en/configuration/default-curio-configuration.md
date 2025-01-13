@@ -201,33 +201,6 @@ description: The default curio configuration
   # type: int
   #UpdateProveMaxTasks = 0
 
-  # EnableCommP enabled the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12
-  # deal, and when checking sector data with 'curio unseal check'.
-  #
-  # type: bool
-  #EnableCommP = false
-
-  # BoostAdapters is a list of tuples of miner address and port/ip to listen for market (e.g. boost) requests.
-  # This interface is compatible with the lotus-miner RPC, implementing a subset needed for storage market operations.
-  # Strings should be in the format "actor:ip:port". IP cannot be 0.0.0.0. We recommend using a private IP.
-  # Example: "f0123:127.0.0.1:32100". Multiple addresses can be specified.
-  # 
-  # When a market node like boost gives Curio's market RPC a deal to placing into a sector, Curio will first store the
-  # deal data in a temporary location "Piece Park" before assigning it to a sector. This requires that at least one
-  # node in the cluster has the EnableParkPiece option enabled and has sufficient scratch space to store the deal data.
-  # This is different from lotus-miner which stored the deal data into an "unsealed" sector as soon as the deal was
-  # received. Deal data in PiecePark is accessed when the sector TreeD and TreeR are computed, but isn't needed for
-  # the initial SDR layers computation. Pieces in PiecePark are removed after all sectors referencing the piece are
-  # sealed.
-  # 
-  # To get API info for boost configuration run 'curio market rpc-info'
-  # 
-  # NOTE: All deal data will flow through this service, so it should be placed on a machine running boost or on
-  # a machine which handles ParkPiece tasks.
-  #
-  # type: []string
-  #BoostAdapters = []
-
   # EnableWebGui enables the web GUI on this curio instance. The UI has minimal local overhead, but it should
   # only need to be run on a single machine in the cluster.
   #
@@ -255,6 +228,29 @@ description: The default curio configuration
   #
   # type: bool
   #EnableBatchSeal = false
+
+  # EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured.
+  #
+  # type: bool
+  #EnableDealMarket = false
+
+  # EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
+  # Must have EnableDealMarket = True
+  #
+  # type: bool
+  #EnableCommP = false
+
+  # The maximum amount of CommP tasks that can run simultaneously. Note that the maximum number of tasks will
+  # also be bounded by resources available on the machine.
+  #
+  # type: int
+  #CommPMaxTasks = 0
+
+  # The maximum amount of indexing and IPNI tasks that can run simultaneously. Note that the maximum number of tasks will
+  # also be bounded by resources available on the machine.
+  #
+  # type: int
+  #IndexingMaxTasks = 8
 
 
 [Fees]
@@ -302,11 +298,20 @@ description: The default curio configuration
     # type: types.FIL
     #PerSector = "0.03 FIL"
 
+  [Fees.MaxUpdateBatchGasFee]
+    # type: types.FIL
+    #Base = "0 FIL"
+
+    # type: types.FIL
+    #PerSector = "0.03 FIL"
+
 
 [[Addresses]]
   #PreCommitControl = []
 
   #CommitControl = []
+
+  #DealPublishControl = []
 
   #TerminateControl = []
 
@@ -325,7 +330,7 @@ description: The default curio configuration
   # to late submission.
   # 
   # After changing this option, confirm that the new value works in your setup by invoking
-  # 'lotus-miner proving compute window-post 0'
+  # 'curio test wd task 0'
   #
   # type: int
   #ParallelCheckLimit = 32
@@ -351,75 +356,183 @@ description: The default curio configuration
   # type: Duration
   #PartitionCheckTimeout = "20m0s"
 
-  # Disable WindowPoSt provable sector readability checks.
-  # 
-  # In normal operation, when preparing to compute WindowPoSt, lotus-miner will perform a round of reading challenges
-  # from all sectors to confirm that those sectors can be proven. Challenges read in this process are discarded, as
-  # we're only interested in checking that sector data can be read.
-  # 
-  # When using builtin proof computation (no PoSt workers, and DisableBuiltinWindowPoSt is set to false), this process
-  # can save a lot of time and compute resources in the case that some sectors are not readable - this is caused by
-  # the builtin logic not skipping snark computation when some sectors need to be skipped.
-  # 
-  # When using PoSt workers, this process is mostly redundant, with PoSt workers challenges will be read once, and
-  # if challenges for some sectors aren't readable, those sectors will just get skipped.
-  # 
-  # Disabling sector pre-checks will slightly reduce IO load when proving sectors, possibly resulting in shorter
-  # time to produce window PoSt. In setups with good IO capabilities the effect of this option on proving time should
-  # be negligible.
-  # 
-  # NOTE: It likely is a bad idea to disable sector pre-checks in setups with no PoSt workers.
-  # 
-  # NOTE: Even when this option is enabled, recovering sectors will be checked before recovery declaration message is
-  # sent to the chain
-  # 
-  # After changing this option, confirm that the new value works in your setup by invoking
-  # 'lotus-miner proving compute window-post 0'
+
+[HTTP]
+  # Enable the HTTP server on the node
   #
   # type: bool
-  #DisableWDPoStPreChecks = false
+  #Enable = false
 
-  # Maximum number of partitions to prove in a single SubmitWindowPoSt messace. 0 = network limit (3 in nv21)
-  # 
-  # A single partition may contain up to 2349 32GiB sectors, or 2300 64GiB sectors.
-  # //
-  # Note that setting this value lower may result in less efficient gas use - more messages will be sent,
-  # to prove each deadline, resulting in more total gas use (but each message will have lower gas limit)
-  # 
-  # Setting this value above the network limit has no effect
+  # DomainName specifies the domain name that the server uses to serve HTTP requests. DomainName cannot be empty and cannot be
+  # an IP address
   #
-  # type: int
-  #MaxPartitionsPerPoStMessage = 0
+  # type: string
+  #DomainName = ""
 
-  # In some cases when submitting DeclareFaultsRecovered messages,
-  # there may be too many recoveries to fit in a BlockGasLimit.
-  # In those cases it may be necessary to set this value to something low (eg 1);
-  # Note that setting this value lower may result in less efficient gas use - more messages will be sent than needed,
-  # resulting in more total gas use (but each message will have lower gas limit)
+  # ListenAddress is the address that the server listens for HTTP requests.
   #
-  # type: int
-  #MaxPartitionsPerRecoveryMessage = 0
+  # type: string
+  #ListenAddress = "0.0.0.0:12310"
 
-  # Enable single partition per PoSt Message for partitions containing recovery sectors
-  # 
-  # In cases when submitting PoSt messages which contain recovering sectors, the default network limit may still be
-  # too high to fit in the block gas limit. In those cases, it becomes useful to only house the single partition
-  # with recovering sectors in the post message
-  # 
-  # Note that setting this value lower may result in less efficient gas use - more messages will be sent,
-  # to prove each deadline, resulting in more total gas use (but each message will have lower gas limit)
+  # DelegateTLS allows the server to delegate TLS to a reverse proxy. When enabled the listen address will serve
+  # HTTP and the reverse proxy will handle TLS termination.
   #
   # type: bool
-  #SingleRecoveringPartitionPerPostMessage = false
+  #DelegateTLS = false
+
+  # ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
+  #
+  # type: time.Duration
+  #ReadTimeout = "10s"
+
+  # IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
+  #
+  # type: time.Duration
+  #IdleTimeout = "2m0s"
+
+  # ReadHeaderTimeout is amount of time allowed to read request headers
+  #
+  # type: time.Duration
+  #ReadHeaderTimeout = "5s"
+
+  # EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.
+  #
+  # type: bool
+  #EnableCORS = true
+
+  [HTTP.CompressionLevels]
+    # type: int
+    #GzipLevel = 6
+
+    # type: int
+    #BrotliLevel = 4
+
+    # type: int
+    #DeflateLevel = 6
+
+
+[Market]
+  [Market.StorageMarketConfig]
+    # PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
+    # User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
+    # The server must have 2 endpoints
+    # 1. /pieces?id=pieceCID responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
+    # 2. /data?id=pieceCID must provide a reader for the requested piece
+    #
+    # type: []PieceLocatorConfig
+    #PieceLocator = []
+
+    [Market.StorageMarketConfig.MK12]
+      # When a deal is ready to publish, the amount of time to wait for more
+      # deals to be ready to publish before publishing them all as a batch
+      #
+      # type: Duration
+      #PublishMsgPeriod = "5m0s"
+
+      # The maximum number of deals to include in a single PublishStorageDeals
+      # message
+      #
+      # type: uint64
+      #MaxDealsPerPublishMsg = 8
+
+      # The maximum fee to pay per deal when sending the PublishStorageDeals message
+      #
+      # type: types.FIL
+      #MaxPublishDealFee = "0.5 FIL"
+
+      # ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
+      # This will be used to fail the deals which cannot be sealed on time.
+      #
+      # type: Duration
+      #ExpectedPoRepSealDuration = "8h0m0s"
+
+      # ExpectedSnapSealDuration is the expected time it would take to snap the deal sector
+      # This will be used to fail the deals which cannot be sealed on time.
+      #
+      # type: Duration
+      #ExpectedSnapSealDuration = "2h0m0s"
+
+      # SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
+      # Warning: If this check is skipped and there is a commP mismatch, all deals in the
+      # sector will need to be sent again
+      #
+      # type: bool
+      #SkipCommP = false
+
+      # MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector
+      # When the cumulative size of all deals in process reaches this number, new deals will be rejected.
+      # (Default: 0 = unlimited)
+      #
+      # type: int64
+      #MaxConcurrentDealSizeGiB = 0
+
+      # DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
+      # If True then all deals coming from unknown clients will be rejected.
+      #
+      # type: bool
+      #DenyUnknownClients = false
+
+    [Market.StorageMarketConfig.IPNI]
+      # Disable set whether to disable indexing announcement to the network and expose endpoints that
+      # allow indexer nodes to process announcements. Default: False
+      #
+      # type: bool
+      #Disable = false
+
+      # The network indexer web UI URL for viewing published announcements
+      # TODO: should we use this for checking published heads before publishing? Later commit
+      #
+      # type: []string
+      #ServiceURL = ["https://cid.contact"]
+
+      # The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
+      # heads.
+      #
+      # type: []string
+      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
+
+    [Market.StorageMarketConfig.Indexing]
+      # Number of records per insert batch
+      #
+      # type: int
+      #InsertBatchSize = 1000
+
+      # Number of concurrent inserts to split AddIndex calls to
+      #
+      # type: int
+      #InsertConcurrency = 10
 
 
 [Ingest]
+  # MaxMarketRunningPipelines is the maximum number of market pipelines that can be actively running tasks.
+  # A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).
+  # If this limit is exceeded, the system will apply backpressure to delay processing of new deals.
+  # 0 means unlimited.
+  #
+  # type: int
+  #MaxMarketRunningPipelines = 64
+
+  # MaxQueueDownload is the maximum number of pipelines that can be queued at the downloading stage,
+  # waiting for a machine to pick up their task (owner_id is null).
+  # If this limit is exceeded, the system will apply backpressure to slow the ingestion of new deals.
+  # 0 means unlimited.
+  #
+  # type: int
+  #MaxQueueDownload = 8
+
+  # MaxQueueCommP is the maximum number of pipelines that can be queued at the CommP (verify) stage,
+  # waiting for a machine to pick up their verification task (owner_id is null).
+  # If this limit is exceeded, the system will apply backpressure, delaying new deal processing.
+  # 0 means unlimited.
+  #
+  # type: int
+  #MaxQueueCommP = 8
+
   # Maximum number of sectors that can be queued waiting for deals to start processing.
   # 0 = unlimited
   # Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
-  # The DealSector queue includes deals which are ready to enter the sealing pipeline but are not yet part of it -
-  # size of this queue will also impact the maximum number of ParkPiece tasks which can run concurrently.
-  # DealSector queue is the first queue in the sealing pipeline, meaning that it should be used as the primary backpressure mechanism.
+  # The DealSector queue includes deals that are ready to enter the sealing pipeline but are not yet part of it.
+  # DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism.
   #
   # type: int
   #MaxQueueDealSector = 8
@@ -455,7 +568,7 @@ description: The default curio configuration
   # type: int
   #MaxQueuePoRep = 0
 
-  # MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode to start processing.
+  # MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode tasks to start.
   # 0 means unlimited.
   # This applies backpressure to the market subsystem by delaying the ingestion of deal data.
   # Only applies to the Snap Deals pipeline (DoSnap = true).
@@ -465,19 +578,20 @@ description: The default curio configuration
 
   # MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
   # 0 means unlimited.
-  # This applies backpressure to the market subsystem by delaying the ingestion of deal data.
-  # Only applies to the Snap Deals pipeline (DoSnap = true).
+  # This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion.
   #
   # type: int
   #MaxQueueSnapProve = 0
 
-  # Maximum time an open deal sector should wait for more deal before it starts sealing
+  # Maximum time an open deal sector should wait for more deals before it starts sealing.
+  # This ensures that sectors don't remain open indefinitely, consuming resources.
   #
   # type: Duration
   #MaxDealWaitTime = "1h0m0s"
 
-  # DoSnap enables the snap deal process for deals ingested by this instance. Unlike in lotus-miner there is no
-  # fallback to porep when no sectors are available to snap into. When enabled all deals will be snap deals.
+  # DoSnap, when set to true, enables snap deal processing for deals ingested by this instance.
+  # Unlike lotus-miner, there is no fallback to PoRep when no snap sectors are available.
+  # When enabled, all deals will be processed as snap deals.
   #
   # type: bool
   #DoSnap = false
@@ -508,9 +622,7 @@ description: The default curio configuration
 
 
 [Apis]
-  # RPC Secret for the storage subsystem.
-  # If integrating with lotus-miner this must match the value from
-  # cat ~/.lotusminer/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU | jq -r .PrivateKey
+  # Chain API auth secret for the Curio nodes to use.
   #
   # type: string
   #StorageRPCSecret = ""
@@ -564,5 +676,55 @@ description: The default curio configuration
     #
     # type: string
     #WebHookURL = ""
+
+
+[Batching]
+  [Batching.PreCommit]
+    # Base fee value below which we should try to send Precommit messages immediately
+    #
+    # type: types.FIL
+    #BaseFeeThreshold = "0.005 FIL"
+
+    # Maximum amount of time any given sector in the batch can wait for the batch to accumulate
+    #
+    # type: Duration
+    #Timeout = "4h0m0s"
+
+    # Time buffer for forceful batch submission before sectors/deal in batch would start expiring
+    #
+    # type: Duration
+    #Slack = "6h0m0s"
+
+  [Batching.Commit]
+    # Base fee value below which we should try to send Commit messages immediately
+    #
+    # type: types.FIL
+    #BaseFeeThreshold = "0.005 FIL"
+
+    # Maximum amount of time any given sector in the batch can wait for the batch to accumulate
+    #
+    # type: Duration
+    #Timeout = "1h0m0s"
+
+    # Time buffer for forceful batch submission before sectors/deals in batch would start expiring
+    #
+    # type: Duration
+    #Slack = "1h0m0s"
+
+  [Batching.Update]
+    # Base fee value below which we should try to send Commit messages immediately
+    #
+    # type: types.FIL
+    #BaseFeeThreshold = "0.005 FIL"
+
+    # Maximum amount of time any given sector in the batch can wait for the batch to accumulate
+    #
+    # type: Duration
+    #Timeout = "1h0m0s"
+
+    # Time buffer for forceful batch submission before sectors/deals in batch would start expiring
+    #
+    # type: Duration
+    #Slack = "1h0m0s"
 
 ```

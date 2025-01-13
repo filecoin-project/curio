@@ -1,0 +1,4 @@
+CREATE TABLE autocert_cache (
+    k TEXT NOT NULL PRIMARY KEY,
+    v BYTEA NOT NULL
+);

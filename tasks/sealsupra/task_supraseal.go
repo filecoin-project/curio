@@ -11,6 +11,8 @@ import (
 
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/snadrus/must"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -103,6 +105,77 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 
 	supraffi.SupraSealInit(uint64(ssize), configFile)
 	log.Infow("supraseal init done")
+
+	{
+		hp, err := supraffi.GetHealthInfo()
+		if err != nil {
+			return nil, xerrors.Errorf("get health page: %w", err)
+		}
+
+		log.Infow("nvme health page", "hp", hp)
+	}
+
+	// Initialize previous health infos slice
+	prevHealthInfos := make([]supraffi.HealthInfo, len(nvmeDevices))
+
+	go func() {
+		const intervalSeconds = 30
+		ticker := time.NewTicker(time.Duration(intervalSeconds) * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			healthInfos, err := supraffi.GetHealthInfo()
+			if err != nil {
+				log.Errorw("health page get error", "error", err)
+				continue
+			}
+
+			for i, hi := range healthInfos {
+				if i >= len(nvmeDevices) {
+					log.Warnw("More health info entries than nvme devices", "index", i)
+					break
+				}
+				deviceName := nvmeDevices[i]
+
+				ctx, err := tag.New(
+					context.Background(),
+					tag.Insert(nvmeDeviceKey, deviceName),
+				)
+				if err != nil {
+					log.Errorw("Failed to create context with tags", "error", err)
+					continue
+				}
+
+				// Record the metrics
+				stats.Record(ctx, SupraSealMeasures.NVMeTemperature.M(hi.Temperature))
+				stats.Record(ctx, SupraSealMeasures.NVMeAvailableSpare.M(int64(hi.AvailableSpare)))
+				stats.Record(ctx, SupraSealMeasures.NVMePercentageUsed.M(int64(hi.PercentageUsed)))
+				stats.Record(ctx, SupraSealMeasures.NVMePowerCycles.M(int64(hi.PowerCycles)))
+				stats.Record(ctx, SupraSealMeasures.NVMePowerOnHours.M(hi.PowerOnHours.Hours()))
+				stats.Record(ctx, SupraSealMeasures.NVMeUnsafeShutdowns.M(int64(hi.UnsafeShutdowns)))
+				stats.Record(ctx, SupraSealMeasures.NVMeMediaErrors.M(int64(hi.MediaErrors)))
+				stats.Record(ctx, SupraSealMeasures.NVMeErrorLogEntries.M(int64(hi.ErrorLogEntries)))
+				stats.Record(ctx, SupraSealMeasures.NVMeCriticalWarning.M(int64(hi.CriticalWarning)))
+
+				// For counters, compute difference from previous values
+				if prevHealthInfos[i].DataUnitsRead != 0 {
+					dataUnitsReadBytes := int64((hi.DataUnitsRead - prevHealthInfos[i].DataUnitsRead) * 512_000)
+					dataUnitsWrittenBytes := int64((hi.DataUnitsWritten - prevHealthInfos[i].DataUnitsWritten) * 512_000)
+					hostReadCommands := int64(hi.HostReadCommands - prevHealthInfos[i].HostReadCommands)
+					hostWriteCommands := int64(hi.HostWriteCommands - prevHealthInfos[i].HostWriteCommands)
+
+					// Record the diffs and computed metrics
+					stats.Record(ctx, SupraSealMeasures.NVMeBytesRead.M(dataUnitsReadBytes))
+					stats.Record(ctx, SupraSealMeasures.NVMeBytesWritten.M(dataUnitsWrittenBytes))
+					stats.Record(ctx, SupraSealMeasures.NVMeReadIO.M(hostReadCommands))
+					stats.Record(ctx, SupraSealMeasures.NVMeWriteIO.M(hostWriteCommands))
+				}
+
+				// Update previous health info
+				prevHealthInfos[i] = hi
+			}
+		}
+	}()
 
 	// Get maximum block offset (essentially the number of pages in the smallest nvme device)
 	space := supraffi.GetMaxBlockOffset(uint64(ssize))
@@ -442,6 +515,15 @@ func (s *SupraSeal) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
+	if s.slots.Available() == 0 {
+		return nil
+	}
+
+	if err := hugepageutil.CheckHugePages(36); err != nil {
+		log.Warnw("huge pages check failed, try 'sudo sysctl -w vm.nr_hugepages=36' and make sure your system uses 1G huge pages", "err", err)
+		return nil
+	}
+
 	taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 		// claim [sectors] pipeline entries
 		var sectors []struct {

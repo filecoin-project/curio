@@ -101,6 +101,14 @@ over time
 			Name:  "allow-to",
 			Usage: translations.T("path groups allowed to pull data from this path (allow all if not specified)"),
 		},
+		&cli.StringSliceFlag{
+			Name:  "allow-types",
+			Usage: "file types to allow storing in this path",
+		},
+		&cli.StringSliceFlag{
+			Name:  "deny-types",
+			Usage: "file types to deny storing in this path",
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 		minerApi, closer, err := rpc.GetCurioAPI(cctx)
@@ -129,6 +137,19 @@ over time
 				}
 			}
 
+			for _, t := range cctx.StringSlice("allow-types") {
+				_, err := storiface.TypeFromString(t)
+				if err != nil {
+					return xerrors.Errorf("parsing allow-types: %w", err)
+				}
+			}
+			for _, t := range cctx.StringSlice("deny-types") {
+				_, err := storiface.TypeFromString(t)
+				if err != nil {
+					return xerrors.Errorf("parsing deny-types: %w", err)
+				}
+			}
+
 			cfg := storiface.LocalStorageMeta{
 				ID:         storiface.ID(uuid.New().String()),
 				Weight:     cctx.Uint64("weight"),
@@ -137,6 +158,9 @@ over time
 				MaxStorage: uint64(maxStor),
 				Groups:     cctx.StringSlice("groups"),
 				AllowTo:    cctx.StringSlice("allow-to"),
+
+				AllowTypes: cctx.StringSlice("allow-types"),
+				DenyTypes:  cctx.StringSlice("deny-types"),
 			}
 
 			if !(cfg.CanStore || cfg.CanSeal) {

@@ -151,7 +151,7 @@ func (mw *MessageWatcher) update() {
 		look, err := mw.api.StateSearchMsg(ctx, lbtsk, cid.MustParse(msg.Cid), api.LookbackNoLimit, true)
 		if err != nil {
 			log.Errorf("failed to search for message: %+v", err)
-			return
+			continue
 		}
 
 		if look == nil {
@@ -161,19 +161,19 @@ func (mw *MessageWatcher) update() {
 		tskCid, err := look.TipSet.Cid()
 		if err != nil {
 			log.Errorf("failed to get tipset cid: %+v", err)
-			return
+			continue
 		}
 
 		emsg, err := mw.api.ChainGetMessage(ctx, look.Message)
 		if err != nil {
 			log.Errorf("failed to get message: %+v", err)
-			return
+			continue
 		}
 
 		execMsg, err := json.Marshal(emsg)
 		if err != nil {
 			log.Errorf("failed to marshal message: %+v", err)
-			return
+			continue
 		}
 
 		// record in db
@@ -188,7 +188,7 @@ func (mw *MessageWatcher) update() {
 			msg.Cid)
 		if err != nil {
 			log.Errorf("failed to update message wait: %+v", err)
-			return
+			continue
 		}
 	}
 }
