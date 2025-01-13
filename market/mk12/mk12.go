@@ -425,7 +425,7 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 	}
 
 	var headers []byte
-	var tInfo *HttpRequest
+	tInfo := &HttpRequest{}
 
 	if !deal.IsOffline {
 		// de-serialize transport opaque token
