@@ -253,7 +253,7 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	outPaths := make([]supraffi.Path, len(sectors))
 	outPathIDs := make([]storiface.SectorPaths, len(sectors))
 	alloc := storiface.FTSealed | storiface.FTCache
-	sectorsIDs := make([]abi.SectorID, len(sectors))
+	sectorsIDs := make([]abi.SectorID, 0, len(sectors))
 
 	for i, t := range sectors {
 		sid := abi.SectorID{
