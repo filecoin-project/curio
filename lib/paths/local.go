@@ -1178,49 +1178,55 @@ func (st *Local) supraPoRepVanillaProof(src storiface.SectorPaths, sr storiface.
 
 	// first see if commit-phase1-output is there
 	commitPhase1OutputPath := filepath.Join(src.Cache, CommitPhase1OutputFileSupra)
-	if _, err := os.Stat(commitPhase1OutputPath); err != nil {
-		if !os.IsNotExist(err) {
-			return nil, xerrors.Errorf("stat commit phase1 output: %w", err)
-		}
 
-		parentsPath, err := ParentsForProof(sr.ProofType)
-		if err != nil {
-			return nil, xerrors.Errorf("parents for proof: %w", err)
-		}
-
-		// not found, compute it
-		res := supraffi.C1(bm.BlockOffset, bm.BatchSectors, bm.NumInPipeline, replicaID[:], seed, ticket, src.Cache, parentsPath, src.Sealed, uint64(ssize))
-		if res != 0 {
-			return nil, xerrors.Errorf("c1 failed: %d", res)
-		}
-
-		// check again
+	for {
 		if _, err := os.Stat(commitPhase1OutputPath); err != nil {
-			return nil, xerrors.Errorf("stat commit phase1 output after compute: %w", err)
+			if !os.IsNotExist(err) {
+				return nil, xerrors.Errorf("stat commit phase1 output: %w", err)
+			}
+
+			parentsPath, err := ParentsForProof(sr.ProofType)
+			if err != nil {
+				return nil, xerrors.Errorf("parents for proof: %w", err)
+			}
+
+			// not found, compute it
+			res := supraffi.C1(bm.BlockOffset, bm.BatchSectors, bm.NumInPipeline, replicaID[:], seed, ticket, src.Cache, parentsPath, src.Sealed, uint64(ssize))
+			if res != 0 {
+				return nil, xerrors.Errorf("c1 failed: %d", res)
+			}
+
+			// check again
+			if _, err := os.Stat(commitPhase1OutputPath); err != nil {
+				return nil, xerrors.Errorf("stat commit phase1 output after compute: %w", err)
+			}
 		}
+
+		// read the output
+		rawOut, err := os.ReadFile(commitPhase1OutputPath)
+		if err != nil {
+			return nil, xerrors.Errorf("read commit phase1 output: %w", err)
+		}
+
+		// decode
+		dec, err := cuproof.DecodeCommit1OutRaw(bytes.NewReader(rawOut))
+		if err != nil {
+			log.Errorw("failed to decode commit phase1 output, will retry", "err", err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		log.Infow("supraPoRepVanillaProof", "sref", sr, "replicaID", replicaID, "seed", seed, "ticket", ticket, "decrepl", dec.ReplicaID, "decr", dec.CommR, "decd", dec.CommD)
+
+		// out is json, so we need to marshal it back
+		out, err := json.Marshal(dec)
+		if err != nil {
+			log.Errorw("failed to decode commit phase1 output", "err", err)
+			time.Sleep(1 * time.Second)
+		}
+
+		return out, nil
 	}
-
-	// read the output
-	rawOut, err := os.ReadFile(commitPhase1OutputPath)
-	if err != nil {
-		return nil, xerrors.Errorf("read commit phase1 output: %w", err)
-	}
-
-	// decode
-	dec, err := cuproof.DecodeCommit1OutRaw(bytes.NewReader(rawOut))
-	if err != nil {
-		return nil, xerrors.Errorf("decode commit phase1 output: %w", err)
-	}
-
-	log.Infow("supraPoRepVanillaProof", "sref", sr, "replicaID", replicaID, "seed", seed, "ticket", ticket, "decrepl", dec.ReplicaID, "decr", dec.CommR, "decd", dec.CommD)
-
-	// out is json, so we need to marshal it back
-	out, err := json.Marshal(dec)
-	if err != nil {
-		return nil, xerrors.Errorf("marshal commit phase1 output: %w", err)
-	}
-
-	return out, nil
 }
 
 var _ Store = &Local{}
