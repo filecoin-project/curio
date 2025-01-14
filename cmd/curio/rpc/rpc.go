@@ -249,6 +249,22 @@ func (p *CurioAPI) LogSetLevel(ctx context.Context, subsystem, level string) err
 	return logging.SetLogLevel(subsystem, level)
 }
 
+func (p *CurioAPI) Cordon(ctx context.Context) error {
+	_, err := p.DB.Exec(ctx, `UPDATE harmony_machines SET unschedulable = $1 WHERE id = $2`, true, p.MachineID)
+	if err != nil {
+		return xerrors.Errorf("cordon failed: %w", err)
+	}
+	return nil
+}
+
+func (p *CurioAPI) Uncordon(ctx context.Context) error {
+	_, err := p.DB.Exec(ctx, `UPDATE harmony_machines SET unschedulable = $1 WHERE id = $2`, false, p.MachineID)
+	if err != nil {
+		return xerrors.Errorf("uncordon failed: %w", err)
+	}
+	return nil
+}
+
 func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) error {
 	fh := &paths.FetchHandler{Local: dependencies.LocalStore, PfHandler: &paths.DefaultPartialFileHandler{}}
 	remoteHandler := func(w http.ResponseWriter, r *http.Request) {

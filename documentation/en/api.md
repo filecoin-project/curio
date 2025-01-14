@@ -9,7 +9,9 @@ description: Curio API references
 * [Allocate](api.md#Allocate)
   * [AllocatePieceToSector](api.md#AllocatePieceToSector)
 * [DefaultGroup](api.md#DefaultGroup)
+  * [Cordon](api.md#Cordon)
   * [Shutdown](api.md#Shutdown)
+  * [Uncordon](api.md#Uncordon)
   * [Version](api.md#Version)
 * [Log](api.md#Log)
   * [LogList](api.md#LogList)
@@ -110,7 +112,25 @@ Response:
 ### DefaultGroup
 
 
+#### Cordon
+
+
+Perms: admin
+
+Inputs: `null`
+
+Response: `{}`
+
 #### Shutdown
+
+
+Perms: admin
+
+Inputs: `null`
+
+Response: `{}`
+
+#### Uncordon
 
 
 Perms: admin

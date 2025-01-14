@@ -43,6 +43,8 @@ type CurioStruct struct {
 type CurioMethods struct {
 	AllocatePieceToSector func(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (api.SectorOffset, error) `perm:"write"`
 
+	Cordon func(p0 context.Context) error `perm:"admin"`
+
 	LogList func(p0 context.Context) ([]string, error) `perm:"read"`
 
 	LogSetLevel func(p0 context.Context, p1 string, p2 string) error `perm:"admin"`
@@ -64,6 +66,8 @@ type CurioMethods struct {
 	StorageLocal func(p0 context.Context) (map[storiface.ID]string, error) `perm:"admin"`
 
 	StorageStat func(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) `perm:"admin"`
+
+	Uncordon func(p0 context.Context) error `perm:"admin"`
 
 	Version func(p0 context.Context) ([]int, error) `perm:"admin"`
 }
@@ -231,6 +235,17 @@ func (s *CurioStub) AllocatePieceToSector(p0 context.Context, p1 address.Address
 	return *new(api.SectorOffset), ErrNotSupported
 }
 
+func (s *CurioStruct) Cordon(p0 context.Context) error {
+	if s.Internal.Cordon == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.Cordon(p0)
+}
+
+func (s *CurioStub) Cordon(p0 context.Context) error {
+	return ErrNotSupported
+}
+
 func (s *CurioStruct) LogList(p0 context.Context) ([]string, error) {
 	if s.Internal.LogList == nil {
 		return *new([]string), ErrNotSupported
@@ -350,6 +365,17 @@ func (s *CurioStruct) StorageStat(p0 context.Context, p1 storiface.ID) (fsutil.F
 
 func (s *CurioStub) StorageStat(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) {
 	return *new(fsutil.FsStat), ErrNotSupported
+}
+
+func (s *CurioStruct) Uncordon(p0 context.Context) error {
+	if s.Internal.Uncordon == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.Uncordon(p0)
+}
+
+func (s *CurioStub) Uncordon(p0 context.Context) error {
+	return ErrNotSupported
 }
 
 func (s *CurioStruct) Version(p0 context.Context) ([]int, error) {

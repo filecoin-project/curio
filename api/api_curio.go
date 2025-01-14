@@ -21,6 +21,8 @@ type Curio interface {
 
 	Version(context.Context) ([]int, error) //perm:admin
 	Shutdown(context.Context) error         //perm:admin
+	Cordon(context.Context) error           //perm:admin
+	Uncordon(context.Context) error         //perm:admin
 
 	// MethodGroup: Deal
 	//The deal method group contains method for adding deals to sector
