@@ -177,7 +177,7 @@ func (a *WebRPC) prepExpirationBucket(out []SectorBucket, now *types.TipSet) ([]
 		totalPower = newTotalPower
 
 		epochsToExpiry := out[i].BucketEpoch - now.Height()
-		secsToExpiry := int64(epochsToExpiry) * build.BlockDelaySecs
+		secsToExpiry := int64(epochsToExpiry) * int64(build.BlockDelaySecs)
 		daysToExpiry := secsToExpiry / (60 * 60 * 24)
 
 		out[i].Days = daysToExpiry
