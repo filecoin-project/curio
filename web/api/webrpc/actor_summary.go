@@ -69,10 +69,24 @@ type ActorDetail struct {
 	PeerID                 string
 	Address                []string
 	SectorSize             abi.SectorSize
-	PendingOwnerAddress    *address.Address
-	BeneficiaryTerm        *miner.BeneficiaryTerm
-	PendingBeneficiaryTerm *miner.PendingBeneficiaryChange
+	PendingOwnerAddress    *string
+	BeneficiaryTerm        *BeneficiaryTerm
+	PendingBeneficiaryTerm *PendingBeneficiaryChange
 	Wallets                []WalletInfo
+}
+
+type PendingBeneficiaryChange struct {
+	NewBeneficiary        string
+	NewQuota              string
+	NewExpiration         abi.ChainEpoch
+	ApprovedByBeneficiary bool
+	ApprovedByNominee     bool
+}
+
+type BeneficiaryTerm struct {
+	Quota      string
+	UsedQuota  string
+	Expiration abi.ChainEpoch
 }
 
 func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail, error) {
@@ -134,17 +148,37 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 	}
 
 	ad := &ActorDetail{
-		Summary:                summary,
-		OwnerAddress:           info.Owner.String(),
-		Beneficiary:            info.Beneficiary.String(),
-		WorkerAddress:          info.Worker.String(),
-		WorkerBalance:          types.FIL(wbal).Short(),
-		PeerID:                 info.PeerId.String(),
-		Address:                addresses,
-		SectorSize:             info.SectorSize,
-		PendingOwnerAddress:    info.PendingOwnerAddress,
-		BeneficiaryTerm:        info.BeneficiaryTerm,
-		PendingBeneficiaryTerm: info.PendingBeneficiaryTerm,
+		Summary:       summary,
+		OwnerAddress:  info.Owner.String(),
+		Beneficiary:   info.Beneficiary.String(),
+		WorkerAddress: info.Worker.String(),
+		WorkerBalance: types.FIL(wbal).Short(),
+		PeerID:        info.PeerId.String(),
+		Address:       addresses,
+		SectorSize:    info.SectorSize,
+	}
+
+	if info.PendingOwnerAddress != nil {
+		i := info.PendingOwnerAddress.String()
+		ad.PendingOwnerAddress = &i
+	}
+
+	if info.PendingBeneficiaryTerm != nil {
+		ad.PendingBeneficiaryTerm = &PendingBeneficiaryChange{
+			NewBeneficiary:        info.PendingBeneficiaryTerm.NewBeneficiary.String(),
+			NewQuota:              types.FIL(info.PendingBeneficiaryTerm.NewQuota).Short(),
+			NewExpiration:         info.PendingBeneficiaryTerm.NewExpiration,
+			ApprovedByBeneficiary: info.PendingBeneficiaryTerm.ApprovedByBeneficiary,
+			ApprovedByNominee:     info.PendingBeneficiaryTerm.ApprovedByNominee,
+		}
+	}
+
+	if info.BeneficiaryTerm != nil {
+		ad.BeneficiaryTerm = &BeneficiaryTerm{
+			Quota:      types.FIL(info.BeneficiaryTerm.Quota).Short(),
+			UsedQuota:  types.FIL(info.BeneficiaryTerm.UsedQuota).Short(),
+			Expiration: info.BeneficiaryTerm.Expiration,
+		}
 	}
 
 	var wallets []WalletInfo
