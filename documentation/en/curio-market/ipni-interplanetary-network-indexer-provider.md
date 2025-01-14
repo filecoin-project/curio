@@ -26,11 +26,24 @@ The behaviour of the Curio IPNI provider is controlled through the `IPNIConfig` 
 ### Default Configuration
 
 ```go
-IPNI: IPNIConfig{
-	ServiceURL:         []string{"https://cid.contact"},
-	DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce"},
-	AnnounceAddresses:  []string{},
-}
+ [Market.StorageMarketConfig.IPNI]
+      # Disable set whether to disable indexing announcement to the network and expose endpoints that
+      # allow indexer nodes to process announcements. Default: False
+      #
+      # type: bool
+      #Disable = false
+
+      # The network indexer web UI URL for viewing published announcements
+      # TODO: should we use this for checking published heads before publishing? Later commit
+      #
+      # type: []string
+      #ServiceURL = ["https://cid.contact"]
+
+      # The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
+      # heads.
+      #
+      # type: []string
+      #DirectAnnounceURLs = ["https://cid.contact/ingest/announce"]
 ```
 
 ### **IPNIConfig Fields**
@@ -38,11 +51,6 @@ IPNI: IPNIConfig{
 * **Disable**: Disables indexing announcements if set to `true`. Default: `false`.
 * **ServiceURL**: URLs for accessing the indexer web UI to view published advertisements.
 * **DirectAnnounceURLs**: URLs of indexing nodes where the provider sends HTTP announcements of new advertisements.
-* **AnnounceAddresses**: A list of addresses where indexers can access the provider to retrieve advertised content. These are the list of all `DomainName` from HTTP configurations in the cluster.
-
-#### Example
-
-You can announce multiple nodes by setting `AnnounceAddresses` to values like `["https://node1.mycurio.com", "https://node2.mycurio.com"]`, ensuring indexers can reach any of them for synchronization.
 
 ## IPNI Task
 
