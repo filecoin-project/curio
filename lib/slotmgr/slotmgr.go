@@ -13,8 +13,9 @@ import (
 	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
 var WatchInterval = 5 * time.Minute
