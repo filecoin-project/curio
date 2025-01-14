@@ -288,7 +288,8 @@ func (e *TaskEngine) poller() {
 			log.Error("Unable to check schedulable status: ", err)
 			continue
 		}
-		if schedulable {
+		if !schedulable {
+			log.Debugf("Machine %s is not schedulable", e.hostAndPort)
 			continue
 		}
 
