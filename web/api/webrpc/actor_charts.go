@@ -4,19 +4,19 @@ import (
 	"context"
 	"sort"
 
-	"github.com/filecoin-project/curio/lib/curiochain"
-	"github.com/filecoin-project/go-state-types/big"
-	"github.com/filecoin-project/lotus/blockstore"
-	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
-	"github.com/filecoin-project/lotus/chain/store"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/lib/curiochain"
 
+	"github.com/filecoin-project/lotus/blockstore"
+	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+	"github.com/filecoin-project/lotus/chain/store"
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
@@ -177,10 +177,10 @@ func (a *WebRPC) prepExpirationBucket(out []SectorBucket, now *types.TipSet) ([]
 		totalPower = newTotalPower
 
 		epochsToExpiry := out[i].BucketEpoch - now.Height()
-		secsToExpiry := epochsToExpiry * build.BlockDelaySecs
+		secsToExpiry := int64(epochsToExpiry) * build.BlockDelaySecs
 		daysToExpiry := secsToExpiry / (60 * 60 * 24)
 
-		out[i].Days = int64(daysToExpiry)
+		out[i].Days = daysToExpiry
 	}
 
 	return out, nil
