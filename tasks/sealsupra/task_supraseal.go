@@ -62,18 +62,18 @@ type SupraSeal struct {
 }
 
 func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool, nvmeDevices []string, machineHostAndPort string,
-	db *harmonydb.DB, api SupraSealNodeAPI, storage *paths.Remote, sindex paths.SectorIndex) (*SupraSeal, error) {
+	db *harmonydb.DB, api SupraSealNodeAPI, storage *paths.Remote, sindex paths.SectorIndex) (*SupraSeal, *slotmgr.SlotMgr, error) {
 	var spt abi.RegisteredSealProof
 	switch sectorSize {
 	case "32GiB":
 		spt = abi.RegisteredSealProof_StackedDrg32GiBV1_1
 	default:
-		return nil, xerrors.Errorf("unsupported sector size: %s", sectorSize)
+		return nil, nil, xerrors.Errorf("unsupported sector size: %s", sectorSize)
 	}
 
 	ssize, err := spt.SectorSize()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	log.Infow("start supraseal init")
@@ -83,21 +83,21 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 
 		cstr, err := GenerateSupraSealConfigString(dualHashers, batchSize, nvmeDevices)
 		if err != nil {
-			return nil, xerrors.Errorf("generating supraseal config: %w", err)
+			return nil, nil, xerrors.Errorf("generating supraseal config: %w", err)
 		}
 
 		cfgFile, err := os.CreateTemp("", "supraseal-config-*.cfg")
 		if err != nil {
-			return nil, xerrors.Errorf("creating temp file: %w", err)
+			return nil, nil, xerrors.Errorf("creating temp file: %w", err)
 		}
 
 		if _, err := cfgFile.WriteString(cstr); err != nil {
-			return nil, xerrors.Errorf("writing temp file: %w", err)
+			return nil, nil, xerrors.Errorf("writing temp file: %w", err)
 		}
 
 		configFile = cfgFile.Name()
 		if err := cfgFile.Close(); err != nil {
-			return nil, xerrors.Errorf("closing temp file: %w", err)
+			return nil, nil, xerrors.Errorf("closing temp file: %w", err)
 		}
 
 		log.Infow("generated supraseal config", "config", cstr, "file", configFile)
@@ -109,7 +109,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 	{
 		hp, err := supraffi.GetHealthInfo()
 		if err != nil {
-			return nil, xerrors.Errorf("get health page: %w", err)
+			return nil, nil, xerrors.Errorf("get health page: %w", err)
 		}
 
 		log.Infow("nvme health page", "hp", hp)
@@ -185,7 +185,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 
 	maxPipelines := space / slotSize
 	if maxPipelines < uint64(pipelines) {
-		return nil, xerrors.Errorf("not enough space for %d pipelines (can do %d), only %d pages available, want %d (slot size %d) pages", pipelines, maxPipelines, space, slotSize*uint64(pipelines), slotSize)
+		return nil, nil, xerrors.Errorf("not enough space for %d pipelines (can do %d), only %d pages available, want %d (slot size %d) pages", pipelines, maxPipelines, space, slotSize*uint64(pipelines), slotSize)
 	}
 
 	var slotOffs []uint64
@@ -197,7 +197,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 
 	slots, err := slotmgr.NewSlotMgr(db, machineHostAndPort, slotOffs)
 	if err != nil {
-		return nil, xerrors.Errorf("creating slot manager: %w", err)
+		return nil, nil, xerrors.Errorf("creating slot manager: %w", err)
 	}
 
 	return &SupraSeal{
@@ -214,7 +214,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 		outSDR: &pipelinePhase{phaseNum: 2},
 
 		slots: slots,
-	}, nil
+	}, slots, nil
 }
 
 func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
