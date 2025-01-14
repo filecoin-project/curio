@@ -2,6 +2,7 @@ package slotmgr
 
 import (
 	"context"
+	"expvar"
 	"fmt"
 	"sync"
 	"time"
@@ -88,6 +89,32 @@ func NewSlotMgr(db *harmonydb.DB, machineHostAndPort string, slotOffs []uint64) 
 	}
 	sm.cond = sync.NewCond(&sm.lk)
 
+	// Expose entire slotmgr as expvar
+	expvar.Publish("slotmgr", expvar.Func(func() interface{} {
+		sm.lk.Lock()
+		defer sm.lk.Unlock()
+
+		type jsonSlot struct {
+			SlotOffset uint64 `json:"slot_offset"`
+			Work       bool   `json:"work"`
+			Sectors    []abi.SectorID `json:"sectors"`
+		}
+		type jsonSm struct {
+			Slots []jsonSlot `json:"slots"`
+		}
+
+		slc := make([]jsonSlot, len(sm.slots))
+		for i, slt := range sm.slots {
+			slc[i] = jsonSlot{
+				SlotOffset: slt.slotOffset,
+				Work:       slt.work,
+				Sectors:    lo.Keys(slt.sectors),
+			}
+		}
+
+		return jsonSm{Slots: slc}
+	}))
+
 	// Start a background watch loop
 	go sm.watchSlots()
 
@@ -158,6 +185,12 @@ func (s *SlotMgr) watchSingle() error {
 func (s *SlotMgr) Get(ids []abi.SectorID) uint64 {
 	s.lk.Lock()
 	defer s.lk.Unlock()
+
+	if len(ids) == 0 {
+		panic("no ids")
+	}
+
+	log.Infow("acquiring slot", "sectors", ids)
 
 	for {
 		for _, slt := range s.slots {
