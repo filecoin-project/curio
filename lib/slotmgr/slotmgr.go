@@ -95,8 +95,8 @@ func NewSlotMgr(db *harmonydb.DB, machineHostAndPort string, slotOffs []uint64) 
 		defer sm.lk.Unlock()
 
 		type jsonSlot struct {
-			SlotOffset uint64 `json:"slot_offset"`
-			Work       bool   `json:"work"`
+			SlotOffset uint64         `json:"slot_offset"`
+			Work       bool           `json:"work"`
 			Sectors    []abi.SectorID `json:"sectors"`
 		}
 		type jsonSm struct {
@@ -184,9 +184,9 @@ func (s *SlotMgr) watchSingle() error {
 // Get allocates a slot for work. Called from a batch sealing task.
 func (s *SlotMgr) Get(ids []abi.SectorID) uint64 {
 	s.lk.Lock()
-	defer s.lk.Unlock()
 
 	if len(ids) == 0 {
+		s.lk.Unlock()
 		panic("no ids")
 	}
 
@@ -201,13 +201,16 @@ func (s *SlotMgr) Get(ids []abi.SectorID) uint64 {
 					slt.sectors[id] = struct{}{}
 				}
 				slt.work = true
+				soff := slt.slotOffset
 
 				// Record metrics (slots acquired, available count, per-slot)
-				stats.Record(context.Background(), SlotMgrMeasures.SlotsAcquired.M(1))
-				stats.Record(context.Background(), SlotMgrMeasures.SlotsAvailable.M(int64(s.Available())))
 				s.recordSlotMetrics(slt)
 
-				return slt.slotOffset
+				s.lk.Unlock()
+				stats.Record(context.Background(), SlotMgrMeasures.SlotsAcquired.M(1))
+				stats.Record(context.Background(), SlotMgrMeasures.SlotsAvailable.M(int64(s.Available())))
+
+				return soff
 			}
 		}
 		s.cond.Wait() // wait until a slot is freed
