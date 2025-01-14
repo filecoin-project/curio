@@ -1179,7 +1179,16 @@ func (st *Local) supraPoRepVanillaProof(src storiface.SectorPaths, sr storiface.
 	// first see if commit-phase1-output is there
 	commitPhase1OutputPath := filepath.Join(src.Cache, CommitPhase1OutputFileSupra)
 
+	var retry bool
+
 	for {
+		if retry {
+			if err := os.Remove(commitPhase1OutputPath); err != nil {
+				return nil, xerrors.Errorf("remove bad commit phase 1 output file: %w", err)
+			}
+		}
+		retry = true
+
 		if _, err := os.Stat(commitPhase1OutputPath); err != nil {
 			if !os.IsNotExist(err) {
 				return nil, xerrors.Errorf("stat commit phase1 output: %w", err)
