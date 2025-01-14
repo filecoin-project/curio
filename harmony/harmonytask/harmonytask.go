@@ -289,7 +289,7 @@ func (e *TaskEngine) poller() {
 			continue
 		}
 		if !schedulable {
-			log.Debugf("Machine %s is not schedulable", e.hostAndPort)
+			log.Debugf("Machine %s is not schedulable. Please check the cordon status.", e.hostAndPort)
 			continue
 		}
 
