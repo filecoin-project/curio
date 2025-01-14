@@ -7,6 +7,7 @@
 extern "C" {
 #endif
 
+int supra_version();
 
 // Optional init function.
 // config_file - topology config file. Defaults to supra_config.cfg
