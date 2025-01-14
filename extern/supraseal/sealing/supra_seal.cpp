@@ -130,6 +130,11 @@ static void init_ctx(size_t sector_size) {
 }
 
 extern "C"
+int supra_version() {
+    return 0x100001;
+}
+
+extern "C"
 void supra_seal_init(size_t sector_size, const char* config_file) {
   printf("INIT called %s\n", config_file);
   std::unique_lock<std::mutex> lck(ctx_mtx);

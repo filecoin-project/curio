@@ -3,8 +3,9 @@ package proof
 import (
 	"encoding/binary"
 	"fmt"
-	"golang.org/x/xerrors"
 	"io"
+
+	"golang.org/x/xerrors"
 )
 
 // This file contains a bincode decoder for Commit1OutRaw.
