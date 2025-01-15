@@ -1,6 +1,13 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import '/actor-summary.mjs'; // <sector-expirations>
 import RPCCall from '/lib/jsonrpc.mjs';
+// // Import the main Chart.js UMD bundle as an ES module
+// import Chart from 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js';
+// // Import the datalabels plugin
+// import ChartDataLabels from 'https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.js';
+//
+// // Register the plugin with Chart.js (important!)
+// Chart.register(ChartDataLabels);
 
 customElements.define('actor-detail', class Actor extends LitElement {
     connectedCallback() {
@@ -52,8 +59,21 @@ customElements.define('actor-detail', class Actor extends LitElement {
   `;
 
     async loadData() {
-        this.data = await RPCCall('ActorInfo', [this.id]);
-        this.requestUpdate();
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const actorID = params.get('id');
+
+            // Fetch piece info
+            this.data = await RPCCall('ActorInfo', [actorID]);
+            this.requestUpdate();
+
+            // TODO SNAP/POREP pipelines
+
+            setTimeout(() => this.loadData(), 30000);
+            this.requestUpdate();
+        } catch (error) {
+            console.error('Failed to load actor details:', error);
+        }
     }
 
     render() {
@@ -75,196 +95,202 @@ customElements.define('actor-detail', class Actor extends LitElement {
                             : [this.data].map(actorInfo => html`
                                 <section class="section">
                                     <div class="row">
-                                        <h1>Actor Overview</h1>
+                                        <h1 class="info-block dash-tile">Overview</h1>
                                     </div>
                                     <div class="row">
                                         <div class="col-md-auto">
-                                            <div class="info-block dash-tile">
-                                                <h3>Actor</h3>
-                                                <table class="table table-dark">
-                                                    <tbody>
-                                                        <tr>
-                                                            <td>Address:</td>
-                                                            <td>${actorInfo.Summary.Address}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td>CLayers:</td>
-                                                            <td>${actorInfo.Summary.CLayers}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td>SectorSize:</td>
-                                                            <td>${this.toHumanBytes(actorInfo.SectorSize)}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td>QualityAdjustedPower:</td>
-                                                            <td>${actorInfo.Summary.QualityAdjustedPower}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td>RawBytePower:</td>
-                                                            <td>${actorInfo.Summary.RawBytePower}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td>Balance:</td>
-                                                            <td>${actorInfo.Summary.ActorBalance}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td>Available:</td>
-                                                            <td>${actorInfo.Summary.ActorAvailable}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td>WorkerBalance:</td>
-                                                            <td>${actorInfo.Summary.WorkerBalance}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td>Vesting:</td>
-                                                            <td>${actorInfo.Summary.VestingFunds}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td>InitialPledgeRequirement:</td>
-                                                            <td>${actorInfo.Summary.InitialPledgeRequirement}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td>PreCommitDeposits:</td>
-                                                            <td>${actorInfo.Summary.PreCommitDeposits}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td>OwnerAddress:</td>
-                                                            <td>${actorInfo.OwnerAddress}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td>Beneficiary:</td>
-                                                            <td>${actorInfo.Beneficiary}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td>WorkerAddress:</td>
-                                                            <td>${actorInfo.WorkerAddress}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td>PeerID:</td>
-                                                            <td>${actorInfo.PeerID}</td>
-                                                        </tr>
-    
-                                                        <!-- Addresses (simple array of strings) -->
-                                                        <tr>
-                                                            <td>Address:</td>
-                                                            <td>
-                                                                ${actorInfo.Address.map(addr => html`
-                                                                    <div>${addr}</div>
-                                                                `)}
-                                                            </td>
-                                                        </tr>
-    
-                                                        <tr>
-                                                            <td>Deadlines:</td>
-                                                            <td>${this.renderDeadlines(actorInfo.Summary.Deadlines)}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td>Wins 24h:</td>
-                                                            <td>${actorInfo.Summary.Win1}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td>Win 7 day:</td>
-                                                            <td>${actorInfo.Summary.Win7}</td>
-                                                        </tr>
-                                                        <tr>
-                                                            <td>Win 30 day:</td>
-                                                            <td>${actorInfo.Summary.Win30}</td>
-                                                        </tr>
-                                                        ${actorInfo.BeneficiaryTerm ? html`
-                                                                            <tr>
-                                                                                <td colspan="2"><strong>BeneficiaryTerm</strong></td>
-                                                                            </tr>
-                                                                            <tr>
-                                                                                <td>Quota:</td>
-                                                                                <td>${actorInfo.BeneficiaryTerm.Quota}</td>
-                                                                            </tr>
-                                                                            <tr>
-                                                                                <td>UsedQuota:</td>
-                                                                                <td>${actorInfo.BeneficiaryTerm.UsedQuota}</td>
-                                                                            </tr>
-                                                                            <tr>
-                                                                                <td>Expiration:</td>
-                                                                                <td>${actorInfo.BeneficiaryTerm.Expiration}</td>
-                                                                            </tr>
-                                                                        `
-                                                                        : null
-                                                        }
-                                                        ${actorInfo.PendingOwnerAddress ? html`
-                                                                            <tr>
-                                                                                <td>PendingOwnerAddress:</td>
-                                                                                <td>${actorInfo.PendingOwnerAddress}</td>
-                                                                            </tr>
-                                                                        `
-                                                                        : null
-                                                        }
-                                                        ${actorInfo.PendingBeneficiaryTerm ? html`
-                                                                            <tr>
-                                                                                <td colspan="2"><strong>PendingBeneficiaryTerm</strong></td>
-                                                                            </tr>
-                                                                            <tr>
-                                                                                <td>NewBeneficiary:</td>
-                                                                                <td>${actorInfo.PendingBeneficiaryTerm.NewBeneficiary}</td>
-                                                                            </tr>
-                                                                            <tr>
-                                                                                <td>NewQuota:</td>
-                                                                                <td>${actorInfo.PendingBeneficiaryTerm.NewQuota}</td>
-                                                                            </tr>
-                                                                            <tr>
-                                                                                <td>NewExpiration:</td>
-                                                                                <td>${actorInfo.PendingBeneficiaryTerm.NewExpiration}</td>
-                                                                            </tr>
-                                                                            <tr>
-                                                                                <td>ApprovedByBeneficiary:</td>
-                                                                                <td>${actorInfo.PendingBeneficiaryTerm.ApprovedByBeneficiary}</td>
-                                                                            </tr>
-                                                                            <tr>
-                                                                                <td>ApprovedByNominee:</td>
-                                                                                <td>${actorInfo.PendingBeneficiaryTerm.ApprovedByNominee}</td>
-                                                                            </tr>
-                                                                        `
-                                                                        : null
-                                                        }
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
-
-                                        <!-- Wallets Section -->
-                                        <div class="col-md-auto">
-                                            <div class="info-block dash-tile">
-                                                <h3>Wallets</h3>
-                                            </div>
-                                            <table class="table table-dark">
-                                                <thead>
-                                                <tr>
-                                                    <th scope="col">Type</th>
-                                                    <th scope="col">Address</th>
-                                                    <th scope="col">Balance</th>
-                                                </tr>
-                                                </thead>
+                                            <table class="table table-dark table-striped table-sm">
                                                 <tbody>
-                                                ${
-                                                        actorInfo.Wallets.map(wallet => html`
-                            <tr>
-                              <td>${wallet.Type}</td>
-                              <td>${wallet.Address}</td>
-                              <td>${wallet.Balance}</td>
-                            </tr>
-                          `)
-                                                }
+                                                    <tr>
+                                                        <td>Address:</td>
+                                                        <td>${actorInfo.Summary.Address}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Source Config Layers:</td>
+                                                        <td>${actorInfo.Summary.CLayers}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Sector Size:</td>
+                                                        <td>${this.toHumanBytes(actorInfo.SectorSize)}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Quality Adjusted Power:</td>
+                                                        <td>${actorInfo.Summary.QualityAdjustedPower}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Raw Byte Power:</td>
+                                                        <td>${actorInfo.Summary.RawBytePower}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Balance:</td>
+                                                        <td>${actorInfo.Summary.ActorBalance}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Available:</td>
+                                                        <td>${actorInfo.Summary.ActorAvailable}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Worker Balance:</td>
+                                                        <td>${actorInfo.WorkerBalance}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Vesting:</td>
+                                                        <td>${actorInfo.Summary.VestingFunds}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Initial Pledge Requirement:</td>
+                                                        <td>${actorInfo.Summary.InitialPledgeRequirement}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>PreCommit Deposits:</td>
+                                                        <td>${actorInfo.Summary.PreCommitDeposits}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Owner Address:</td>
+                                                        <td>${actorInfo.OwnerAddress}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Beneficiary:</td>
+                                                        <td>${actorInfo.Beneficiary}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Worker Address:</td>
+                                                        <td>${actorInfo.WorkerAddress}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Peer ID:</td>
+                                                        <td>${actorInfo.PeerID}</td>
+                                                    </tr>
+
+                                                    <tr>
+                                                        <td>Address:</td>
+                                                        <td>
+                                                            ${actorInfo.Address ? actorInfo.Address.map(addr => html`<div>${addr}</div>`) : ''}
+                                                        </td>
+                                                    </tr>
+
+                                                    <tr>
+                                                        <td>Deadlines:</td>
+                                                        <td>
+                                                            ${this.renderDeadlines(actorInfo.Summary.Deadlines)}
+                                                        </td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Wins 24h:</td>
+                                                        <td>${actorInfo.Summary.Win1}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Win 7 day:</td>
+                                                        <td>${actorInfo.Summary.Win7}</td>
+                                                    </tr>
+                                                    <tr>
+                                                        <td>Win 30 day:</td>
+                                                        <td>${actorInfo.Summary.Win30}</td>
+                                                    </tr>
+                                                    ${actorInfo.BeneficiaryTerm ? html`
+                                                                        <tr>
+                                                                            <td><strong>BeneficiaryTerm</strong></td>
+                                                                            <td>
+                                                                                <table class="table table-borderless table-sm">
+                                                                                    <tbody>
+                                                                                        <tr>
+                                                                                            <td>Quota:</td>
+                                                                                            <td>${actorInfo.BeneficiaryTerm.Quota}</td>
+                                                                                        </tr>
+                                                                                        <tr>
+                                                                                            <td>UsedQuota:</td>
+                                                                                            <td>${actorInfo.BeneficiaryTerm.UsedQuota}</td>
+                                                                                        </tr>
+                                                                                        <tr>
+                                                                                            <td>Expiration:</td>
+                                                                                            <td>${actorInfo.BeneficiaryTerm.Expiration}</td>
+                                                                                        </tr>
+                                                                                    </tbody>
+                                                                                </table>
+                                                                            </td>
+                                                                        </tr>
+                                                                    `
+                                                                    : null
+                                                    }
+                                                    ${actorInfo.PendingOwnerAddress ? html`
+                                                                        <tr>
+                                                                            <td>PendingOwnerAddress:</td>
+                                                                            <td>${actorInfo.PendingOwnerAddress}</td>
+                                                                        </tr>
+                                                                    `
+                                                                    : null
+                                                    }
+                                                    ${actorInfo.PendingBeneficiaryTerm ? html`
+                                                                        <tr>
+                                                                            <td><strong>PendingBeneficiaryTerm</strong></td>
+                                                                            <td>
+                                                                                <table class="table table-borderless table-sm">
+                                                                                    <tbody>
+                                                                                        <tr>
+                                                                                            <td>NewBeneficiary:</td>
+                                                                                            <td>${actorInfo.PendingBeneficiaryTerm.NewBeneficiary}</td>
+                                                                                        </tr>
+                                                                                        <tr>
+                                                                                            <td>NewQuota:</td>
+                                                                                            <td>${actorInfo.PendingBeneficiaryTerm.NewQuota}</td>
+                                                                                        </tr>
+                                                                                        <tr>
+                                                                                            <td>NewExpiration:</td>
+                                                                                            <td>${actorInfo.PendingBeneficiaryTerm.NewExpiration}</td>
+                                                                                        </tr>
+                                                                                        <tr>
+                                                                                            <td>ApprovedByBeneficiary:</td>
+                                                                                            <td>${actorInfo.PendingBeneficiaryTerm.ApprovedByBeneficiary}</td>
+                                                                                        </tr>
+                                                                                        <tr>
+                                                                                            <td>ApprovedByNominee:</td>
+                                                                                            <td>${actorInfo.PendingBeneficiaryTerm.ApprovedByNominee}</td>
+                                                                                        </tr>
+                                                                                    </tbody>
+                                                                                </table>
+                                                                            </td>
+                                                                        </tr>
+                                                                    `
+                                                                    : null
+                                                    }
                                                 </tbody>
                                             </table>
                                         </div>
                                     </div>
 
+                                    <!-- Wallets Section -->
+                                    <div class="col-md-auto">
+                                        <h1 class="info-block dash-tile">Wallets</h1>
+                                        ${actorInfo.Wallets ? html`
+                                            <table class="table table-dark table-striped table-sm">
+                                              <thead>
+                                                <tr>
+                                                  <th scope="col">Type</th>
+                                                  <th scope="col">Address</th>
+                                                  <th scope="col">Balance</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                ${actorInfo.Wallets.map(wallet => html`
+                                                    <tr>
+                                                      <td>${wallet.Type}</td>
+                                                      <td>${wallet.Address}</td>
+                                                      <td>${wallet.Balance}</td>
+                                                    </tr>
+                                                  `)
+                                                }
+                                              </tbody>
+                                            </table>
+                                          `: "No wallets found"
+                                        }
+                                    </div>
+
+
                                     <!-- Sector Expirations -->
                                     <div class="row">
                                         <div class="col-md-auto">
-                                            <div class="info-block dash-tile">
-                                                <h3>Charts</h3>
-                                                <div style="background: #3f3f3f; height: 200px; width: 90vw;"></div>
+                                                <h1 class="info-block dash-tile">Power and Funds Charts</h1>
                                                 <actor-charts address="${actorInfo.Summary.Address}"></actor-charts>
-                                            </div>
                                         </div>
                                     </div>
                                 </section>
@@ -301,7 +327,7 @@ customElements.define('actor-detail', class Actor extends LitElement {
               ${d.Proven ? 'deadline-proven' : ''}
               ${d.PartFaulty ? 'deadline-partially-faulty' : ''}
               ${d.Faulty ? 'deadline-faulty' : ''}"
-                    ></div>
+                     ></div>
                 `)}
             </div>
         `;

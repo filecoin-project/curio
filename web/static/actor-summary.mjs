@@ -74,12 +74,6 @@ class ActorSummary extends LitElement {
         border-color: rgba(50, 50, 50, 0.9) transparent transparent transparent;
       }
     
-      /* Show tooltip when hovering over the container */
-      .deadline-entry-container:hover .deadline-entry-tooltip {
-        visibility: visible;
-        opacity: 1; /* fade-in */
-      }
-    
       .address-container {
         display: flex;
         align-items: center;
@@ -90,6 +84,16 @@ class ActorSummary extends LitElement {
         super();
         this.data = [];
         this.loadData();
+
+        this.openDeadlineIndex = -1; // no tooltip open by default
+
+        // Listen for clicks anywhere in the document
+        document.addEventListener('click', this.handleOutsideClick.bind(this));
+    }
+
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        document.removeEventListener('click', this.handleOutsideClick);
     }
 
     async loadData() {
@@ -106,36 +110,85 @@ class ActorSummary extends LitElement {
     renderDeadlines(deadlines) {
         return html`
             <div class="deadline-box">
-                ${deadlines.map(d => {
-                    const countInfo = d.Count
-                            ? html`
-              Total: ${d.Count.Total},
-              Active: ${d.Count.Active},
-              Live: ${d.Count.Live},
-              Fault: ${d.Count.Fault},
-              Recovering: ${d.Count.Recovering}
-            `
-                            : 'No Count Info';
+                ${
+                        deadlines.map((d, index) => {
+                            const countInfo = d.Count
+                                    ? html`
+                                        Total: ${d.Count.Total},
+                                        Active: ${d.Count.Active},
+                                        Live: ${d.Count.Live},
+                                        Fault: ${d.Count.Fault},
+                                        Recovering: ${d.Count.Recovering}
+                                    `
+                                    : 'No Count Info';
 
-                    return html`
-          <div class="deadline-entry-container">
-            <div
-              class="deadline-entry
+                            // If this tooltip is open, we show it. Otherwise, hide it.
+                            const isOpen = (this.openDeadlineIndex === index);
+
+                            return html`
+                                <div
+                                        class="deadline-entry-container"
+                                        data-deadline-index="${index}"
+                                        style="position: relative;"
+                                >
+                                    <div
+                                            class="deadline-entry
                 ${d.Current ? 'deadline-entry-cur' : ''}
                 ${d.Proven ? 'deadline-proven' : ''}
                 ${d.PartFaulty ? 'deadline-partially-faulty' : ''}
                 ${d.Faulty ? 'deadline-faulty' : ''}"
-            >
-            </div>
-            <div class="deadline-entry-tooltip">
-              ${countInfo}
-            </div>
-          </div>
-        `;
-                })}
+                                    ></div>
+
+                                    <!-- The tooltip -->
+                                    <div
+                                            class="deadline-entry-tooltip"
+                                            style="
+                  visibility: ${isOpen ? 'visible' : 'hidden'};
+                  opacity: ${isOpen ? '1' : '0'};
+                "
+                                    >
+                                        ${countInfo}
+                                    </div>
+                                </div>
+                            `;
+                        })
+                }
             </div>
         `;
     }
+
+
+    handleOutsideClick(e) {
+        // If we have an open tooltip, and the user clicked outside it, close it
+        // We'll detect if they clicked inside a .deadline-entry-container
+        // that references the same index. If not, we close.
+        const clickedEl = e.composedPath
+            ? e.composedPath()[0]
+            : e.target; // cross-browser, some use composedPath
+
+        // We'll store a custom data attr (e.g. data-deadline-index)
+        // on the container so we know which one was clicked
+        if (!clickedEl.closest || !clickedEl.closest('.deadline-entry-container')) {
+            // Click is outside any deadline container
+            this.openDeadlineIndex = -1;
+            this.requestUpdate();
+            return;
+        }
+
+        // If clicked inside a container, let's see which index
+        const container = clickedEl.closest('.deadline-entry-container');
+        const idx = parseInt(container.dataset.deadlineIndex, 10);
+
+        // If we clicked the same index that was open, we can close it.
+        // Or if it's different, open that new one.
+        if (this.openDeadlineIndex === idx) {
+            this.openDeadlineIndex = -1; // toggle off
+        } else {
+            this.openDeadlineIndex = idx; // show new
+        }
+        this.requestUpdate();
+    }
+
 
     render() {
         return html`
@@ -158,7 +211,7 @@ class ActorSummary extends LitElement {
                     <tr>
                         <td>
                             <div  class="address-container">
-                                <a href="/actor/?id=${entry.Address}">${entry.Address}</a>
+                                <a href="/pages/actor/?id=${entry.Address}">${entry.Address}</a>
                                 <clipboard-copy .text=${entry.Address}></clipboard-copy>
                             </div>
                         </td>

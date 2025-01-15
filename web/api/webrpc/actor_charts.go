@@ -103,8 +103,10 @@ func (a *WebRPC) ActorCharts(ctx context.Context, maddr address.Address) (*Secto
 			sbc, ok := bucketsMapCC[bucket]
 			if !ok {
 				sbc = &SectorBucket{
-					BucketEpoch: bucket,
-					Count:       0,
+					BucketEpoch:       bucket,
+					Count:             0,
+					QAP:               abi.NewStoragePower(0),                   // Dummy value for CC TODO: Figure out the correct value
+					VestedLockedFunds: big.Sub(locked.VestingFunds, big.Zero()), // Dummy value for CC TODO: Figure out the correct value
 				}
 				bucketsMapCC[bucket] = sbc
 			}
@@ -139,7 +141,7 @@ func (a *WebRPC) ActorCharts(ctx context.Context, maddr address.Address) (*Secto
 		return nil, err
 	}
 
-	// If first point in CC is larger than first point in All, shift the first CC point to the first All point
+	//If first point in CC is larger than first point in All, shift the first CC point to the first All point
 	if len(out.CC) > 0 && len(out.All) > 0 && out.CC[0].BucketEpoch > out.All[0].BucketEpoch {
 		out.CC[0].BucketEpoch = out.All[0].BucketEpoch
 	}

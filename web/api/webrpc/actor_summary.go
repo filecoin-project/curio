@@ -132,30 +132,22 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 		return nil, xerrors.Errorf("getting miner info: %w", err)
 	}
 
-	balanceCache := map[address.Address]big.Int{}
-	wbal, ok := balanceCache[info.Worker]
-	if !ok {
-		wbal, err = a.deps.Chain.WalletBalance(ctx, info.Worker)
-		if err != nil {
-			return nil, xerrors.Errorf("getting worker balance: %w", err)
-		}
-		balanceCache[info.Worker] = wbal
-	}
-
 	var addresses []string
 	for _, addr := range info.Multiaddrs {
 		addresses = append(addresses, string(addr))
 	}
 
+	peerID := ""
+
+	if info.PeerId != nil {
+		peerID = info.PeerId.String()
+	}
+
 	ad := &ActorDetail{
-		Summary:       summary,
-		OwnerAddress:  info.Owner.String(),
-		Beneficiary:   info.Beneficiary.String(),
-		WorkerAddress: info.Worker.String(),
-		WorkerBalance: types.FIL(wbal).Short(),
-		PeerID:        info.PeerId.String(),
-		Address:       addresses,
-		SectorSize:    info.SectorSize,
+		Summary:    summary,
+		PeerID:     peerID,
+		Address:    addresses,
+		SectorSize: info.SectorSize,
 	}
 
 	if info.PendingOwnerAddress != nil {
@@ -181,48 +173,87 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 		}
 	}
 
+	accountKeyMap := make(map[address.Address]address.Address)
+	for _, addr := range append(info.ControlAddresses, info.Worker, info.Owner, info.Beneficiary) {
+		accountKey, err := a.deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
+		if err != nil {
+			return nil, xerrors.Errorf("getting account key: %w", err)
+		}
+		accountKeyMap[addr] = accountKey
+	}
+
 	var wallets []WalletInfo
+	balanceCache := map[address.Address]big.Int{}
 
 	found := make(map[address.Address]struct{})
 	for name, addrs := range minerWallets {
 		for _, addr := range addrs {
-			wb, ok := balanceCache[addr]
+			ak, ok := accountKeyMap[addr]
+			if !ok {
+				ak, err = a.deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
+				if err != nil {
+					return nil, xerrors.Errorf("getting account key: %w", err)
+				}
+				accountKeyMap[addr] = ak
+			}
+			wb, ok := balanceCache[accountKeyMap[addr]]
 			if !ok {
 				wb, err = a.deps.Chain.WalletBalance(ctx, addr)
 				if err != nil {
 					return nil, xerrors.Errorf("getting wallet balance: %w", err)
 				}
-				balanceCache[addr] = wb
+				balanceCache[accountKeyMap[addr]] = wb
 			}
 			ad.Wallets = append(ad.Wallets, WalletInfo{
 				Type:    name,
-				Address: addr.String(),
+				Address: accountKeyMap[addr].String(),
 				Balance: types.FIL(wb).Short(),
 			})
-			found[addr] = struct{}{}
+			found[accountKeyMap[addr]] = struct{}{}
 		}
 	}
 
 	for _, addr := range info.ControlAddresses {
-		_, ok := found[addr]
+		_, ok := found[accountKeyMap[addr]]
 		if ok {
 			continue
 		}
-		bal, ok := balanceCache[addr]
+		ak, ok := accountKeyMap[accountKeyMap[addr]]
 		if !ok {
-			bal, err = a.deps.Chain.WalletBalance(ctx, info.Worker)
+			ak, err = a.deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
+			if err != nil {
+				return nil, xerrors.Errorf("getting account key: %w", err)
+			}
+			accountKeyMap[accountKeyMap[addr]] = ak
+		}
+		bal, ok := balanceCache[accountKeyMap[addr]]
+		if !ok {
+			bal, err = a.deps.Chain.WalletBalance(ctx, accountKeyMap[addr])
 			if err != nil {
 				return nil, xerrors.Errorf("getting control address balance: %w", err)
 			}
-			balanceCache[addr] = bal
+			balanceCache[accountKeyMap[addr]] = bal
 		}
 		ad.Wallets = append(ad.Wallets, WalletInfo{
 			Type:    "Control",
-			Address: addr.String(),
+			Address: accountKeyMap[addr].String(),
 			Balance: types.FIL(bal).Short(),
 		})
 	}
 
+	wbal, ok := balanceCache[accountKeyMap[info.Worker]]
+	if !ok {
+		wbal, err = a.deps.Chain.WalletBalance(ctx, accountKeyMap[info.Worker])
+		if err != nil {
+			return nil, xerrors.Errorf("getting worker balance: %w", err)
+		}
+		balanceCache[accountKeyMap[info.Worker]] = wbal
+	}
+
+	ad.OwnerAddress = accountKeyMap[info.Owner].String()
+	ad.Beneficiary = accountKeyMap[info.Beneficiary].String()
+	ad.WorkerAddress = accountKeyMap[info.Worker].String()
+	ad.WorkerBalance = types.FIL(wbal).Short()
 	ad.Wallets = wallets
 	return ad, nil
 }
