@@ -13,7 +13,8 @@ Migrating from Boost to Curio involves transitioning all deal data, including Bo
 
 
     ```bash
-    bashCopy codemake migrate-curio
+    git checkout feat/curio-migration
+    make migrate-curio
     ```
 
 ## Preparation for Migration
