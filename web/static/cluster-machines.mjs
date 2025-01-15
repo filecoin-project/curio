@@ -33,6 +33,7 @@ customElements.define('cluster-machines', class ClusterMachines extends LitEleme
                                 <th>GPUs</th>
                                 <th>Last Contact</th>
                                 <th>Uptime</th>
+                                <td>Schedulable</td>
                                 <th>Tasks Supported</th>
                                 <th>Layers Enabled</th>
                             </tr>
@@ -48,6 +49,10 @@ customElements.define('cluster-machines', class ClusterMachines extends LitEleme
                                     <td>${item.Gpu}</td>
                                     <td>${item.SinceContact}</td>
                                     <td>${item.Uptime}</td>
+                                    <td>
+                                        ${!item.Unschedulable ? html`<span class="success">ok</span>` : html``}
+                                        ${item.Unschedulable ? html`<span class="warning">${item.RunningTasks > 0 ? html`cordoned (${item.RunningTasks} tasks still running)` : html`cordoned`}</span>` : html``}
+                                    </td>
                                     <td>${item.Tasks.split(',').map((item) => html`<a href="/pages/task/?name=${item}">${item}</a> `)}</td>
                                     <td>${item.Layers.split(',').map((item) => html`<a href="/config/edit.html?layer=${item}">${item}</a> `)}</td>
                                 </tr>

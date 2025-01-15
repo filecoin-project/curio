@@ -30,6 +30,7 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                     <td>CPU</td>
                     <td>Memory</td>
                     <td>GPU</td>
+                    <td>Schedulable</td>
                     <td>Debug</td>
                 </tr>
                 <tr>
@@ -40,6 +41,10 @@ customElements.define('node-info',class NodeInfoElement extends LitElement {
                     <td>${this.data.Info.CPU}</td>
                     <td>${this.toHumanBytes(this.data.Info.Memory)}</td>
                     <td>${this.data.Info.GPU}</td>
+                    <td>
+                        ${!this.data.Info.Unschedulable ? html`<span class="success">ok</span>` : html``} 
+                        ${this.data.Info.Unschedulable ? html`<span class="warning">${this.data.Info.RunningTasks > 0 ? html`cordoned (${this.data.Info.RunningTasks} tasks still running)` : html`cordoned`}</span>` : html``}
+                    </td>
                     <td>
                         <a href="http://${this.data.Info.Host}/debug/pprof">[pprof]</a>
                         <a href="http://${this.data.Info.Host}/debug/metrics">[metrics]</a>
