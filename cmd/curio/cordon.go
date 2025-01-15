@@ -3,12 +3,13 @@ package main
 import (
 	"github.com/urfave/cli/v2"
 
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 )
 
 var cordonCmd = &cli.Command{
 	Name:  "cordon",
-	Usage: "Cordon a machine, set it to maintenance mode",
+	Usage: translations.T("Cordon a machine, set it to maintenance mode"),
 	Action: func(cctx *cli.Context) error {
 		api, closer, err := rpc.GetCurioAPI(cctx)
 		if err != nil {
@@ -22,7 +23,7 @@ var cordonCmd = &cli.Command{
 
 var uncordonCmd = &cli.Command{
 	Name:  "uncordon",
-	Usage: "Uncordon a machine, resume scheduling",
+	Usage: translations.T("Uncordon a machine, resume scheduling"),
 	Action: func(cctx *cli.Context) error {
 		api, closer, err := rpc.GetCurioAPI(cctx)
 		if err != nil {
