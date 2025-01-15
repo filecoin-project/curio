@@ -3,6 +3,8 @@ package seal
 import (
 	"bytes"
 	"context"
+	"sync/atomic"
+	"time"
 
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
@@ -20,6 +22,8 @@ import (
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
+
+var PorepLastBored = atomic.Pointer[time.Time]{}
 
 type PoRepAPI interface {
 	ChainHead(context.Context) (*types.TipSet, error)
@@ -165,6 +169,11 @@ func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 	res := harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(p.max),
 		Name: "PoRep",
+		IAmBored: func(harmonytask.AddTaskFunc) error {
+			now := time.Now()
+			PorepLastBored.Store(&now)
+			return nil
+		},
 		Cost: resources.Resources{
 			Cpu:       1,
 			Gpu:       gpu,
