@@ -10,11 +10,6 @@ import (
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 )
 
-type nodeInfo struct {
-	Version     string
-	Schedulable bool
-}
-
 var infoCmd = &cli.Command{
 	Name:  "info",
 	Usage: translations.T("Get Curio node info"),
