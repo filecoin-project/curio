@@ -1145,6 +1145,8 @@ func (st *Local) ReadSnapVanillaProof(ctx context.Context, sr storiface.SectorRe
 	return out, nil
 }
 
+var supraC1Token = make(chan struct{}, 1)
+
 func (st *Local) supraPoRepVanillaProof(src storiface.SectorPaths, sr storiface.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error) {
 	batchMetaPath := filepath.Join(src.Cache, BatchMetaFile)
 	bmdata, err := os.ReadFile(batchMetaPath)
@@ -1200,7 +1202,10 @@ func (st *Local) supraPoRepVanillaProof(src storiface.SectorPaths, sr storiface.
 			}
 
 			// not found, compute it
+			supraC1Token <- struct{}{}
 			res := supraffi.C1(bm.BlockOffset, bm.BatchSectors, bm.NumInPipeline, replicaID[:], seed, ticket, src.Cache, parentsPath, src.Sealed, uint64(ssize))
+			<-supraC1Token
+			
 			if res != 0 {
 				return nil, xerrors.Errorf("c1 failed: %d", res)
 			}
