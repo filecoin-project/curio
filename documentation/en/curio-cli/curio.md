@@ -45,6 +45,7 @@ USAGE:
    curio cli command [command options]
 
 COMMANDS:
+   info      Get Curio node info
    storage   manage sector storage
    log       Manage logging
    wait-api  Wait for Curio api to come online
@@ -56,6 +57,18 @@ COMMANDS:
 OPTIONS:
    --machine value  machine host:port (curio run --listen address)
    --help, -h       show help
+```
+
+### curio cli info
+```
+NAME:
+   curio cli info - Get Curio node info
+
+USAGE:
+   curio cli info [command options]
+
+OPTIONS:
+   --help, -h  show help
 ```
 
 ### curio cli storage

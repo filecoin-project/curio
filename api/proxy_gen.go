@@ -23,6 +23,7 @@ import (
 	"github.com/filecoin-project/go-state-types/dline"
 	"github.com/filecoin-project/go-state-types/network"
 
+	ltypes "github.com/filecoin-project/curio/api/types"
 	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/api"
@@ -44,6 +45,8 @@ type CurioMethods struct {
 	AllocatePieceToSector func(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (api.SectorOffset, error) `perm:"write"`
 
 	Cordon func(p0 context.Context) error `perm:"admin"`
+
+	Info func(p0 context.Context) (*ltypes.NodeInfo, error) `perm:"read"`
 
 	LogList func(p0 context.Context) ([]string, error) `perm:"read"`
 
@@ -244,6 +247,17 @@ func (s *CurioStruct) Cordon(p0 context.Context) error {
 
 func (s *CurioStub) Cordon(p0 context.Context) error {
 	return ErrNotSupported
+}
+
+func (s *CurioStruct) Info(p0 context.Context) (*ltypes.NodeInfo, error) {
+	if s.Internal.Info == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.Info(p0)
+}
+
+func (s *CurioStub) Info(p0 context.Context) (*ltypes.NodeInfo, error) {
+	return nil, ErrNotSupported
 }
 
 func (s *CurioStruct) LogList(p0 context.Context) ([]string, error) {

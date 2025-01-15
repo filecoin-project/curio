@@ -201,6 +201,7 @@ var cliCmd = &cli.Command{
 		return nil
 	},
 	Subcommands: []*cli.Command{
+		infoCmd,
 		storageCmd,
 		logCmd,
 		waitApiCmd,
