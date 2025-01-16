@@ -41,6 +41,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/metadata"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
+	"github.com/filecoin-project/curio/tasks/proofshare"
 	"github.com/filecoin-project/curio/tasks/scrub"
 	"github.com/filecoin-project/curio/tasks/seal"
 	"github.com/filecoin-project/curio/tasks/sealsupra"
@@ -270,10 +271,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		"miner_addresses", miners,
 		"tasks", lo.Map(activeTasks, func(t harmonytask.TaskInterface, _ int) string { return t.TypeDetails().Name }))
 
-	// harmony treats the first task as highest priority, so reverse the order
-	// (we could have just appended to this list in the reverse order, but defining
-	//  tasks in pipeline order is more intuitive)
-
 	ht, err := harmonytask.New(db, activeTasks, dependencies.ListenAddr)
 	if err != nil {
 		return nil, err
@@ -398,6 +395,16 @@ func addSealingTasks(
 		submitTask := snap.NewSubmitTask(db, full, bstore, sender, as, cfg)
 		activeTasks = append(activeTasks, submitTask)
 	}
+
+	if cfg.Subsystems.EnableProofShare {
+		requestProofsTask := proofshare.NewTaskRequestProofs(db, asyncParams())
+		provideSnarkTask := proofshare.NewTaskProvideSnark(db, asyncParams(), cfg.Subsystems.ProofShareMaxTasks)
+		activeTasks = append(activeTasks, requestProofsTask, provideSnarkTask)
+	}
+
+	// harmony treats the first task as highest priority, so reverse the order
+	// (we could have just appended to this list in the reverse order, but defining
+	//  tasks in pipeline order is more intuitive)
 	activeTasks = lo.Reverse(activeTasks)
 
 	if hasAnySealingTask {
