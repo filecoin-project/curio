@@ -143,6 +143,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	if err != nil {
 		return false, xerrors.Errorf("failed to get next challenge window start: %w", err)
 	}
+	init_prove_at = init_prove_at.Add(init_prove_at, challengeWindow) // we just need to be inside the challenge window so put next prove at the very end
 
 	// Instantiate the PDPVerifier contract
 	pdpContracts := contract.ContractAddresses()
