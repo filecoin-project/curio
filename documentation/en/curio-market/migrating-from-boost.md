@@ -29,12 +29,13 @@ Migrating from Boost to Curio involves transitioning all deal data, including Bo
 Use the `migrate-curio` tool to begin the migration process.
 
 ```bash
-./migrate-curio migrate --boost-repo /path/to/boost-repo \
+./migrate-curio --boost-repo /path/to/boost-repo \
     --db-host "127.0.0.1" \
     --db-name "yugabyte" \
     --db-user "yugabyte" \
     --db-password "yugabyte" \
-    --db-port "5433"
+    --db-port "5433" \
+    migrate
 ```
 
 This command starts the migration, pulling data from the Boost repository and pushing it into Curio’s database.
@@ -99,11 +100,8 @@ For all deals that have been migrated and are in unsealed sectors, Curio handles
 
 
     ```bash
-    migrate-curio cleanup yugabyte --hosts <yugabyte-hosts> --username <username> --password <password> --connect-string <postgres-connection-string> --i-know-what-i-am-doing
-
-    ./migrate-curio migrate --boost-repo /path/to/boost-repo \
+    ./migrate-curio cleanup yugabyte \
         --db-host "127.0.0.1" \
-        --db-name "yugabyte" \
         --db-user "yugabyte" \
         --db-password "yugabyte" \
         --db-port "5433" \
