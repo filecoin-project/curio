@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"sort"
+	"sync"
 
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -94,8 +96,10 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 	if err != nil {
 		return nil, xerrors.Errorf("parsing address: %w", err)
 	}
+
 	confNameToAddr := map[address.Address][]string{}
 	minerWallets := map[string][]address.Address{}
+
 	err = a.visitAddresses(func(layer string, cAddrs config.CurioAddresses, madr address.Address) {
 		if !bytes.Equal(maddr.Bytes(), madr.Bytes()) {
 			return
@@ -174,80 +178,90 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 	}
 
 	accountKeyMap := make(map[address.Address]address.Address)
-	for _, addr := range append(info.ControlAddresses, info.Worker, info.Owner, info.Beneficiary) {
-		accountKey, err := a.deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
-		if err != nil {
-			return nil, xerrors.Errorf("getting account key: %w", err)
-		}
-		accountKeyMap[addr] = accountKey
-	}
+	balanceCache := make(map[address.Address]big.Int)
+	processedAddrs := make(map[address.Address]struct{})
 
 	var wallets []WalletInfo
-	balanceCache := map[address.Address]big.Int{}
+	var mu sync.Mutex
 
-	found := make(map[address.Address]struct{})
+	// Use errgroup for error handling with goroutines
+	g, ctx := errgroup.WithContext(ctx)
+
+	// Helper functions
+	getAccountKey := func(addr address.Address) (address.Address, error) {
+		if ak, exists := accountKeyMap[addr]; exists {
+			return ak, nil
+		}
+		ak, err := a.deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
+		if err != nil {
+			return address.Undef, err
+		}
+		accountKeyMap[addr] = ak
+		return ak, nil
+	}
+
+	getWalletBalance := func(addr address.Address) (big.Int, error) {
+		if bal, exists := balanceCache[addr]; exists {
+			return bal, nil
+		}
+		bal, err := a.deps.Chain.WalletBalance(ctx, addr)
+		if err != nil {
+			return big.Int{}, err
+		}
+		balanceCache[addr] = bal
+		return bal, nil
+	}
+
+	processAddress := func(addr address.Address, addrType string) error {
+		ak, err := getAccountKey(addr)
+		if err != nil {
+			return err
+		}
+		bal, err := getWalletBalance(ak)
+		if err != nil {
+			return err
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+		if _, exists := processedAddrs[ak]; !exists {
+			processedAddrs[ak] = struct{}{}
+			wallets = append(wallets, WalletInfo{
+				Type:    addrType,
+				Address: ak.String(),
+				Balance: types.FIL(bal).Short(),
+			})
+		}
+		return nil
+	}
+
+	// Process minerWallets
 	for name, addrs := range minerWallets {
 		for _, addr := range addrs {
-			ak, ok := accountKeyMap[addr]
-			if !ok {
-				ak, err = a.deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
-				if err != nil {
-					return nil, xerrors.Errorf("getting account key: %w", err)
-				}
-				accountKeyMap[addr] = ak
-			}
-			wb, ok := balanceCache[accountKeyMap[addr]]
-			if !ok {
-				wb, err = a.deps.Chain.WalletBalance(ctx, addr)
-				if err != nil {
-					return nil, xerrors.Errorf("getting wallet balance: %w", err)
-				}
-				balanceCache[accountKeyMap[addr]] = wb
-			}
-			ad.Wallets = append(ad.Wallets, WalletInfo{
-				Type:    name,
-				Address: accountKeyMap[addr].String(),
-				Balance: types.FIL(wb).Short(),
+			addr := addr // Avoid closure issues
+			name := name
+			g.Go(func() error {
+				return processAddress(addr, name)
 			})
-			found[accountKeyMap[addr]] = struct{}{}
 		}
 	}
 
-	for _, addr := range info.ControlAddresses {
-		_, ok := found[accountKeyMap[addr]]
-		if ok {
-			continue
-		}
-		ak, ok := accountKeyMap[accountKeyMap[addr]]
-		if !ok {
-			ak, err = a.deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
-			if err != nil {
-				return nil, xerrors.Errorf("getting account key: %w", err)
-			}
-			accountKeyMap[accountKeyMap[addr]] = ak
-		}
-		bal, ok := balanceCache[accountKeyMap[addr]]
-		if !ok {
-			bal, err = a.deps.Chain.WalletBalance(ctx, accountKeyMap[addr])
-			if err != nil {
-				return nil, xerrors.Errorf("getting control address balance: %w", err)
-			}
-			balanceCache[accountKeyMap[addr]] = bal
-		}
-		ad.Wallets = append(ad.Wallets, WalletInfo{
-			Type:    "Control",
-			Address: accountKeyMap[addr].String(),
-			Balance: types.FIL(bal).Short(),
+	// Process ControlAddresses
+	for _, addr := range append(info.ControlAddresses, info.Worker, info.Owner, info.Beneficiary) {
+		addr := addr // Avoid closure issues
+		g.Go(func() error {
+			return processAddress(addr, "Control")
 		})
 	}
 
-	wbal, ok := balanceCache[accountKeyMap[info.Worker]]
-	if !ok {
-		wbal, err = a.deps.Chain.WalletBalance(ctx, accountKeyMap[info.Worker])
-		if err != nil {
-			return nil, xerrors.Errorf("getting worker balance: %w", err)
-		}
-		balanceCache[accountKeyMap[info.Worker]] = wbal
+	// Wait for all goroutines to complete
+	if err := g.Wait(); err != nil {
+		return nil, xerrors.Errorf("processing addresses: %w", err)
+	}
+
+	wbal, err := getWalletBalance(accountKeyMap[info.Worker])
+	if err != nil {
+		return nil, xerrors.Errorf("getting worker balance: %w", err)
 	}
 
 	ad.OwnerAddress = accountKeyMap[info.Owner].String()
@@ -255,6 +269,7 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 	ad.WorkerAddress = accountKeyMap[info.Worker].String()
 	ad.WorkerBalance = types.FIL(wbal).Short()
 	ad.Wallets = wallets
+
 	return ad, nil
 }
 
