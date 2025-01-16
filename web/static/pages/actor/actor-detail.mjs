@@ -461,7 +461,7 @@ class ActorCharts extends LitElement {
                         },
                     ],
                 },
-                options: this.createChartOptions('Quality-Adjusted Power (All)', 'QAP', nowEpoch, allQAPData),
+                options: this.createChartOptions('Quality-Adjusted Power', 'QAP', nowEpoch, allQAPData),
             };
 
             if (!this.chartQAP) {
@@ -501,7 +501,7 @@ class ActorCharts extends LitElement {
                     ],
                 },
                 options: this.createChartOptions(
-                    'Vested Locked Funds (All)',
+                    'Vested Locked Funds',
                     'Locked Funds (FIL)',
                     nowEpoch,
                     allLockedData
@@ -536,7 +536,7 @@ class ActorCharts extends LitElement {
                     display: true,
                     text: chartTitle,
                     font: {
-                        size: window.innerWidth > 1200 ? 18 : 14, // Adjust font size based on screen width
+                        size: window.innerWidth > 1200 ? 20 : 18, // Adjust font size based on screen width
                     },
                 },
                 tooltip: {
@@ -568,7 +568,7 @@ class ActorCharts extends LitElement {
                         display: true,
                         text: 'Days in Future',
                         font: {
-                            size: window.innerWidth > 1200 ? 14 : 12,
+                            size: window.innerWidth > 1200 ? 16 : 14,
                         },
                     },
                     ticks: {
@@ -577,7 +577,7 @@ class ActorCharts extends LitElement {
                             return days + 'd';
                         },
                         font: {
-                            size: window.innerWidth > 1200 ? 12 : 10,
+                            size: window.innerWidth > 1200 ? 14 : 12,
                         },
                     },
                     min: nowEpoch,
@@ -603,7 +603,7 @@ class ActorCharts extends LitElement {
                             return yTitle === 'QAP' ? toHumanBytes(value) : value;
                         },
                         font: {
-                            size: window.innerWidth > 1200 ? 12 : 10,
+                            size: window.innerWidth > 1200 ? 14 : 12,
                         },
                     },
                     beginAtZero: true,
