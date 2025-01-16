@@ -1,13 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import '/actor-summary.mjs'; // <sector-expirations>
 import RPCCall from '/lib/jsonrpc.mjs';
-// // Import the main Chart.js UMD bundle as an ES module
-// import Chart from 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js';
-// // Import the datalabels plugin
-// import ChartDataLabels from 'https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.js';
-//
-// // Register the plugin with Chart.js (important!)
-// Chart.register(ChartDataLabels);
 
 customElements.define('actor-detail', class Actor extends LitElement {
     connectedCallback() {
@@ -67,8 +60,6 @@ customElements.define('actor-detail', class Actor extends LitElement {
             this.data = await RPCCall('ActorInfo', [actorID]);
             this.requestUpdate();
 
-            // TODO SNAP/POREP pipelines
-
             setTimeout(() => this.loadData(), 30000);
             this.requestUpdate();
         } catch (error) {
@@ -81,7 +72,7 @@ customElements.define('actor-detail', class Actor extends LitElement {
             <link
                     href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
                     rel="stylesheet"
-                    integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8t94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3"
+                    integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3"
                     crossorigin="anonymous"
             >
             <link
@@ -111,7 +102,7 @@ customElements.define('actor-detail', class Actor extends LitElement {
                                                     </tr>
                                                     <tr>
                                                         <td>Sector Size:</td>
-                                                        <td>${this.toHumanBytes(actorInfo.SectorSize)}</td>
+                                                        <td>${toHumanBytes(actorInfo.SectorSize)}</td>
                                                     </tr>
                                                     <tr>
                                                         <td>Quality Adjusted Power:</td>
@@ -191,9 +182,9 @@ customElements.define('actor-detail', class Actor extends LitElement {
                                                                         <tr>
                                                                             <td><strong>BeneficiaryTerm</strong></td>
                                                                             <td>
-                                                                                <table class="table table-borderless table-sm">
+                                                                                <table class="table table-dark table-striped table-borderless table-sm">
                                                                                     <tbody>
-                                                                                        <tr>
+                                                                                        <tr style="color: white">
                                                                                             <td>Quota:</td>
                                                                                             <td>${actorInfo.BeneficiaryTerm.Quota}</td>
                                                                                         </tr>
@@ -224,7 +215,7 @@ customElements.define('actor-detail', class Actor extends LitElement {
                                                                         <tr>
                                                                             <td><strong>PendingBeneficiaryTerm</strong></td>
                                                                             <td>
-                                                                                <table class="table table-borderless table-sm">
+                                                                                <table class="table table-dark table-borderless table-striped table-sm">
                                                                                     <tbody>
                                                                                         <tr>
                                                                                             <td>NewBeneficiary:</td>
@@ -297,21 +288,6 @@ customElements.define('actor-detail', class Actor extends LitElement {
                             `)
             }
         `;
-    }
-
-    /**
-     * Convert a bytes number to a human-readable string (e.g., KB, MB, etc.)
-     */
-    toHumanBytes(bytes) {
-        if (typeof bytes !== 'number') {
-            return 'N/A';
-        }
-        const sizes = ['Bytes', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB'];
-        let sizeIndex = 0;
-        for (; bytes >= 1024 && sizeIndex < sizes.length - 1; sizeIndex++) {
-            bytes /= 1024;
-        }
-        return bytes.toFixed(2) + ' ' + sizes[sizeIndex];
     }
 
     /**
@@ -502,10 +478,10 @@ class ActorCharts extends LitElement {
         // 3) VESTED LOCKED FUNDS CHART (Only All)
         // ---------------------------
         {
-            // Also a big-int string; parse to float
+            // Convert attoFIL to FIL and format for better readability
             const allLockedData = this.data.All.map(d => ({
                 x: d.BucketEpoch,
-                y: parseFloat(d.VestedLockedFunds), // again, big values => float precision
+                y: d.VestedLockedFunds / 1e18, // Convert attoFIL to FIL
             }));
 
             const lockedConfig = {
@@ -524,7 +500,12 @@ class ActorCharts extends LitElement {
                         },
                     ],
                 },
-                options: this.createChartOptions('Vested Locked Funds (All)', 'Locked Funds', nowEpoch, allLockedData),
+                options: this.createChartOptions(
+                    'Vested Locked Funds (All)',
+                    'Locked Funds (FIL)',
+                    nowEpoch,
+                    allLockedData
+                ),
             };
 
             if (!this.chartVested) {
@@ -554,17 +535,27 @@ class ActorCharts extends LitElement {
                 title: {
                     display: true,
                     text: chartTitle,
+                    font: {
+                        size: window.innerWidth > 1200 ? 18 : 14, // Adjust font size based on screen width
+                    },
                 },
                 tooltip: {
                     callbacks: {
                         label: (context) => {
-                            // Convert epoch to 'days' offset from nowEpoch
                             const epochVal = context.parsed.x;
                             const daysOffset = Math.round(((epochVal - nowEpoch) * 30) / 86400);
                             const months = (daysOffset / 30).toFixed(1);
-                            return `${
-                                context.dataset.label
-                            }: ${context.parsed.y}, Days: ${daysOffset} (months: ${months})`;
+                            let value;
+
+                            if (yTitle === 'QAP') {
+                                value = this.toHumanBytes(context.parsed.y); // For QAP
+                            } else if (yTitle === 'Locked Funds (FIL)') {
+                                value = this.toHumanFIL(context.parsed.y); // For Vesting
+                            } else {
+                                value = context.parsed.y;
+                            }
+
+                            return `${context.dataset.label}: ${value}, Days: ${daysOffset} (months: ${months})`;
                         },
                     },
                 },
@@ -576,14 +567,19 @@ class ActorCharts extends LitElement {
                     title: {
                         display: true,
                         text: 'Days in Future',
+                        font: {
+                            size: window.innerWidth > 1200 ? 14 : 12,
+                        },
                     },
                     ticks: {
                         callback: (value) => {
                             const days = Math.round(((value - nowEpoch) * 30) / 86400);
                             return days + 'd';
                         },
+                        font: {
+                            size: window.innerWidth > 1200 ? 12 : 10,
+                        },
                     },
-                    // compute max from both sets if available
                     min: nowEpoch,
                     max: (() => {
                         const maxAll = allData.length ? allData[allData.length - 1].x : 0;
@@ -598,12 +594,43 @@ class ActorCharts extends LitElement {
                     title: {
                         display: true,
                         text: yTitle,
+                        font: {
+                            size: window.innerWidth > 1200 ? 14 : 12,
+                        },
+                    },
+                    ticks: {
+                        callback: (value) => {
+                            return yTitle === 'QAP' ? toHumanBytes(value) : value;
+                        },
+                        font: {
+                            size: window.innerWidth > 1200 ? 12 : 10,
+                        },
                     },
                     beginAtZero: true,
                 },
             },
         };
     }
+
+    toHumanFIL(value) {
+        if (typeof value !== 'number' || value === 0) return '0 FIL';
+
+        const units = ['nFIL', 'µFIL', 'mFIL', 'FIL'];
+        let unitIndex = 0;
+
+        // Convert value from attoFIL to FIL
+        value /= 1e18; // Convert attoFIL to FIL
+
+        // Adjust to appropriate unit
+        while (value < 1 && unitIndex < units.length - 1) {
+            value *= 1000;
+            unitIndex++;
+        }
+
+        // Format value with 2 decimal places
+        return value.toFixed(2) + ' ' + units[unitIndex];
+    }
+
 
     render() {
         return html`
@@ -626,4 +653,20 @@ class ActorCharts extends LitElement {
 }
 
 customElements.define('actor-charts', ActorCharts);
+
+
+/**
+ * Convert a bytes number to a human-readable string (e.g., KB, MB, etc.)
+ */
+function toHumanBytes(bytes) {
+    if (typeof bytes !== 'number') {
+        return 'N/A';
+    }
+    const sizes = ['Bytes', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB'];
+    let sizeIndex = 0;
+    for (; bytes >= 1024 && sizeIndex < sizes.length - 1; sizeIndex++) {
+        bytes /= 1024;
+    }
+    return bytes.toFixed(2) + ' ' + sizes[sizeIndex];
+}
 
