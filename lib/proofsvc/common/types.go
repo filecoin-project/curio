@@ -1,5 +1,10 @@
 package common
 
+import (
+	"github.com/filecoin-project/curio/lib/proof"
+	"github.com/filecoin-project/go-state-types/abi"
+)
+
 type WorkRequest struct {
 	ID   int64 `json:"id" db:"id"`
 
@@ -22,4 +27,11 @@ type WorkResponse struct {
 
 type WorkAsk struct {
 	ID int64 `json:"id"`
+}
+
+type ProofRequest struct {
+	SectorID *abi.SectorID
+
+	// proof request enum
+	PoRep *proof.Commit1OutRaw
 }
