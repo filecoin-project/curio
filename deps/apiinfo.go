@@ -18,11 +18,11 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/curio/api"
+	"github.com/filecoin-project/curio/build"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
-	"github.com/filecoin-project/curio/build"
 )
 
 var clog = logging.Logger("curio/chain")
@@ -72,7 +72,7 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 
 		// Compare with binary's network using BuildTypeString()
 		if string(networkName) != build.BuildTypeString() {
-			clog.Warnf("Network mismatch for node %s: binary built for %s but node is on %s", 
+			clog.Warnf("Network mismatch for node %s: binary built for %s but node is on %s",
 				head.addr, build.BuildTypeString(), networkName)
 			closer()
 			continue
