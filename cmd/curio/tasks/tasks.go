@@ -399,7 +399,8 @@ func addSealingTasks(
 	if cfg.Subsystems.EnableProofShare {
 		requestProofsTask := proofshare.NewTaskRequestProofs(db, asyncParams())
 		provideSnarkTask := proofshare.NewTaskProvideSnark(db, asyncParams(), cfg.Subsystems.ProofShareMaxTasks)
-		activeTasks = append(activeTasks, requestProofsTask, provideSnarkTask)
+		submitTask := proofshare.NewTaskSubmit(db)
+		activeTasks = append(activeTasks, requestProofsTask, provideSnarkTask, submitTask)
 	}
 
 	// harmony treats the first task as highest priority, so reverse the order
