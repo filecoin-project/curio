@@ -341,6 +341,13 @@ type CurioSubsystemsConfig struct {
 	// The maximum amount of indexing and IPNI tasks that can run simultaneously. Note that the maximum number of tasks will
 	// also be bounded by resources available on the machine.
 	IndexingMaxTasks int
+
+	// EnableProofShare enables the proof share tasks on the node.
+	EnableProofShare bool
+
+	// The maximum amount of ProofShare tasks that can run simultaneously. Note that the maximum number of tasks will
+	// also be bounded by resources available on the machine.
+	ProofShareMaxTasks int
 }
 type CurioFees struct {
 	DefaultMaxFee      types.FIL
