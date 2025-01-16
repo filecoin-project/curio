@@ -9,7 +9,10 @@ description: Curio API references
 * [Allocate](api.md#Allocate)
   * [AllocatePieceToSector](api.md#AllocatePieceToSector)
 * [DefaultGroup](api.md#DefaultGroup)
+  * [Cordon](api.md#Cordon)
+  * [Info](api.md#Info)
   * [Shutdown](api.md#Shutdown)
+  * [Uncordon](api.md#Uncordon)
   * [Version](api.md#Version)
 * [Log](api.md#Log)
   * [LogList](api.md#LogList)
@@ -110,7 +113,50 @@ Response:
 ### DefaultGroup
 
 
+#### Cordon
+
+
+Perms: admin
+
+Inputs: `null`
+
+Response: `{}`
+
+#### Info
+
+
+Perms: read
+
+Inputs: `null`
+
+Response:
+```json
+{
+  "ID": 123,
+  "CPU": 123,
+  "RAM": 9,
+  "GPU": 1,
+  "HostPort": "string value",
+  "LastContact": "0001-01-01T00:00:00Z",
+  "Unschedulable": true,
+  "Name": "string value",
+  "StartupTime": "0001-01-01T00:00:00Z",
+  "Tasks": "string value",
+  "Layers": "string value",
+  "Miners": "string value"
+}
+```
+
 #### Shutdown
+
+
+Perms: admin
+
+Inputs: `null`
+
+Response: `{}`
+
+#### Uncordon
 
 
 Perms: admin

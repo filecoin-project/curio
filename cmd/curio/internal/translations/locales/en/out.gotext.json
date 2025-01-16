@@ -233,9 +233,30 @@
             "fuzzy": true
         },
         {
+            "id": "Cordon a machine, set it to maintenance mode",
+            "message": "Cordon a machine, set it to maintenance mode",
+            "translation": "Cordon a machine, set it to maintenance mode",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Uncordon a machine, resume scheduling",
+            "message": "Uncordon a machine, resume scheduling",
+            "translation": "Uncordon a machine, resume scheduling",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "generate ipni chunks from a file",
             "message": "generate ipni chunks from a file",
             "translation": "generate ipni chunks from a file",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Get Curio node info",
+            "message": "Get Curio node info",
+            "translation": "Get Curio node info",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },

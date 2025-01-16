@@ -28,6 +28,7 @@ import (
 
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/api/client"
+	ltypes "github.com/filecoin-project/curio/api/types"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/metrics"
@@ -247,6 +248,52 @@ func (p *CurioAPI) LogList(ctx context.Context) ([]string, error) {
 
 func (p *CurioAPI) LogSetLevel(ctx context.Context, subsystem, level string) error {
 	return logging.SetLogLevel(subsystem, level)
+}
+
+func (p *CurioAPI) Cordon(ctx context.Context) error {
+	_, err := p.DB.Exec(ctx, `UPDATE harmony_machines SET unschedulable = $1 WHERE id = $2`, true, p.MachineID)
+	if err != nil {
+		return xerrors.Errorf("cordon failed: %w", err)
+	}
+	return nil
+}
+
+func (p *CurioAPI) Uncordon(ctx context.Context) error {
+	_, err := p.DB.Exec(ctx, `UPDATE harmony_machines SET unschedulable = $1 WHERE id = $2`, false, p.MachineID)
+	if err != nil {
+		return xerrors.Errorf("uncordon failed: %w", err)
+	}
+	return nil
+}
+
+func (p *CurioAPI) Info(ctx context.Context) (*ltypes.NodeInfo, error) {
+	var ni ltypes.NodeInfo
+	err := p.DB.QueryRow(ctx, `
+		SELECT 
+			hm.id,
+			hm.cpu,
+			hm.ram,
+			hm.gpu,
+			hm.host_and_port,
+			hm.last_contact,
+			hm.unschedulable,
+			hmd.machine_name,
+			hmd.startup_time,
+			hmd.tasks,
+			hmd.layers,
+			hmd.miners
+		FROM 
+			harmony_machines hm
+		LEFT JOIN 
+			harmony_machine_details hmd ON hm.id = hmd.machine_id
+		WHERE 
+		    hm.id=$1;
+		`, p.MachineID).Scan(&ni.ID, &ni.CPU, &ni.RAM, &ni.GPU, &ni.HostPort, &ni.LastContact, &ni.Unschedulable, &ni.Name, &ni.StartupTime, &ni.Tasks, &ni.Layers, &ni.Miners)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ni, nil
 }
 
 func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) error {

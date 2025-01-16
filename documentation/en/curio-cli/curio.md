@@ -45,15 +45,30 @@ USAGE:
    curio cli command [command options]
 
 COMMANDS:
+   info      Get Curio node info
    storage   manage sector storage
    log       Manage logging
    wait-api  Wait for Curio api to come online
    stop      Stop a running Curio process
+   cordon    Cordon a machine, set it to maintenance mode
+   uncordon  Uncordon a machine, resume scheduling
    help, h   Shows a list of commands or help for one command
 
 OPTIONS:
    --machine value  machine host:port (curio run --listen address)
    --help, -h       show help
+```
+
+### curio cli info
+```
+NAME:
+   curio cli info - Get Curio node info
+
+USAGE:
+   curio cli info [command options]
+
+OPTIONS:
+   --help, -h  show help
 ```
 
 ### curio cli storage
@@ -243,6 +258,30 @@ NAME:
 
 USAGE:
    curio cli stop [command options]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### curio cli cordon
+```
+NAME:
+   curio cli cordon - Cordon a machine, set it to maintenance mode
+
+USAGE:
+   curio cli cordon [command options]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### curio cli uncordon
+```
+NAME:
+   curio cli uncordon - Uncordon a machine, resume scheduling
+
+USAGE:
+   curio cli uncordon [command options]
 
 OPTIONS:
    --help, -h  show help

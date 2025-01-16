@@ -8,6 +8,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	ltypes "github.com/filecoin-project/curio/api/types"
 	storiface "github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/api"
@@ -19,8 +20,11 @@ type Curio interface {
 	// MethodGroup: Curio
 	//The common method group contains administration methods
 
-	Version(context.Context) ([]int, error) //perm:admin
-	Shutdown(context.Context) error         //perm:admin
+	Version(context.Context) ([]int, error)             //perm:admin
+	Shutdown(context.Context) error                     //perm:admin
+	Cordon(context.Context) error                       //perm:admin
+	Uncordon(context.Context) error                     //perm:admin
+	Info(ctx context.Context) (*ltypes.NodeInfo, error) //perm:read
 
 	// MethodGroup: Deal
 	//The deal method group contains method for adding deals to sector

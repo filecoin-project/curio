@@ -1941,6 +1941,24 @@
       "translation": "为特定扇区创建检查任务，等待其完成并输出结果。\n   \u003cminer-id\u003e: 存储提供者 ID\n   \u003csector-number\u003e: 扇区号",
       "message": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
       "placeholder": null
+    },
+    {
+      "id": "Cordon a machine, set it to maintenance mode",
+      "translation": "隔离一个节点，将其设置为维护模式",
+      "message": "Cordon a machine, set it to maintenance mode",
+      "placeholder": null
+    },
+    {
+      "id": "Uncordon a machine, resume scheduling",
+      "translation": "取消隔离一个节点，恢复调度",
+      "message": "Uncordon a machine, resume scheduling",
+      "placeholder": null
+    },
+    {
+      "id": "Get Curio node info",
+      "translation": "获取 Curio 节点信息",
+      "message": "Get Curio node info",
+      "placeholder": null
     }
   ]
 }

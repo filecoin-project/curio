@@ -1971,6 +1971,24 @@
             "translation": "특정 섹터에 대한 검사 작업을 생성하고 완료를 기다린 후 결과를 출력합니다.\n   \u003cminer-id\u003e: 스토리지 제공자 ID\n   \u003csector-number\u003e: 섹터 번호",
             "message": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
             "placeholder": null
+        },
+        {
+            "id": "Cordon a machine, set it to maintenance mode",
+            "translation": "노드를 격리하고 유지 보수 모드로 설정",
+            "message": "Cordon a machine, set it to maintenance mode",
+            "placeholder": null
+        },
+        {
+            "id": "Uncordon a machine, resume scheduling",
+            "translation": "노드 격리를 해제하고 스케줄링 재개",
+            "message": "Uncordon a machine, resume scheduling",
+            "placeholder": null
+        },
+        {
+            "id": "Get Curio node info",
+            "translation": "Curio 노드 정보 가져오기",
+            "message": "Get Curio node info",
+            "placeholder": null
         }
     ]
 }
