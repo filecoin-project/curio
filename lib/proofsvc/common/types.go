@@ -1,9 +1,12 @@
 package common
 
 type WorkRequest struct {
-	ID   string `json:"id" db:"id"`
-	Data string `json:"data" db:"request_data"`
-	Done bool   `json:"done" db:"done"`
+	ID   int64 `json:"id" db:"id"`
+
+	Data *string `json:"data" db:"request_data"`
+	Done *bool   `json:"done" db:"done"`
+
+	WorkAskID int64 `json:"work_ask_id" db:"work_ask_id"`
 }
 
 type ProofResponse struct {
@@ -13,6 +16,10 @@ type ProofResponse struct {
 }
 
 type WorkResponse struct {
-	Work     bool          `json:"work"`
 	Requests []WorkRequest `json:"requests"`
+	ActiveAsks []int64 `json:"active_asks"`
+}
+
+type WorkAsk struct {
+	ID int64 `json:"id"`
 }
