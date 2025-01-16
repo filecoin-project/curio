@@ -1,7 +1,7 @@
 CREATE TABLE proofshare_queue (
     service_id BIGINT NOT NULL,
     
-    obtained_at TIMESTAMPZ NOT NULL,
+    obtained_at TIMESTAMP WITH TIME ZONE NOT NULL,
 
     request_data JSONB NOT NULL,
     response_data JSONB,
