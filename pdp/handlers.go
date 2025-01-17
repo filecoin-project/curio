@@ -459,12 +459,26 @@ func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Step 6: Get the next challenge epoch
+	var nextChallengeEpoch int64
+	err = p.db.QueryRow(ctx, `
+        SELECT prove_at_epoch
+        FROM pdp_proof_sets
+        WHERE id = $1
+    `, proofSetId).Scan(&nextChallengeEpoch)
+	if err != nil {
+		http.Error(w, "Failed to retrieve next challenge epoch: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	// Step 6: Prepare the response
 	response := struct {
-		ID    uint64      `json:"id"`
-		Roots []RootEntry `json:"roots"`
+		ID                 uint64      `json:"id"`
+		Roots              []RootEntry `json:"roots"`
+		NextChallengeEpoch int64       `json:"nextChallengeEpoch"`
 	}{
-		ID: proofSet.ID,
+		ID:                 proofSet.ID,
+		NextChallengeEpoch: nextChallengeEpoch,
 	}
 
 	// Convert roots to the desired JSON format
