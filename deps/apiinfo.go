@@ -18,6 +18,7 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/curio/api"
+	"github.com/filecoin-project/curio/build"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -30,20 +31,20 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 	if tn, ok := ctx.App.Metadata["testnode-full"]; ok {
 		return tn.(api.Chain), func() {}, nil
 	}
+
+	if len(ainfoCfg) == 0 {
+		return nil, nil, xerrors.Errorf("could not get API info: none configured. \nConsider getting base.toml with './curio config get base >/tmp/base.toml' \nthen adding   \n[APIs] \n ChainApiInfo = [\" result_from lotus auth api-info --perm=admin \"]\n  and updating it with './curio config set /tmp/base.toml'")
+	}
+
 	var httpHeads []httpHead
 	version := "v1"
-	{
-		if len(ainfoCfg) == 0 {
-			return nil, nil, xerrors.Errorf("could not get API info: none configured. \nConsider getting base.toml with './curio config get base >/tmp/base.toml' \nthen adding   \n[APIs] \n ChainApiInfo = [\" result_from lotus auth api-info --perm=admin \"]\n  and updating it with './curio config set /tmp/base.toml'")
+	for _, i := range ainfoCfg {
+		ainfo := cliutil.ParseApiInfo(i)
+		addr, err := ainfo.DialArgs(version)
+		if err != nil {
+			return nil, nil, xerrors.Errorf("could not get DialArgs: %w", err)
 		}
-		for _, i := range ainfoCfg {
-			ainfo := cliutil.ParseApiInfo(i)
-			addr, err := ainfo.DialArgs(version)
-			if err != nil {
-				return nil, nil, xerrors.Errorf("could not get DialArgs: %w", err)
-			}
-			httpHeads = append(httpHeads, httpHead{addr: addr, header: ainfo.AuthHeader()})
-		}
+		httpHeads = append(httpHeads, httpHead{addr: addr, header: ainfo.AuthHeader()})
 	}
 
 	if cliutil.IsVeryVerbose {
@@ -53,12 +54,30 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 	var fullNodes []api.Chain
 	var closers []jsonrpc.ClientCloser
 
+	// Check network compatibility for each node
 	for _, head := range httpHeads {
 		v1api, closer, err := newChainNodeRPCV1(ctx.Context, head.addr, head.header)
 		if err != nil {
 			clog.Warnf("Not able to establish connection to node with addr: %s, Reason: %s", head.addr, err.Error())
 			continue
 		}
+
+		// Validate network match
+		networkName, err := v1api.StateNetworkName(ctx.Context)
+		if err != nil {
+			clog.Warnf("Failed to get network name from node %s: %s", head.addr, err.Error())
+			closer()
+			continue
+		}
+
+		// Compare with binary's network using BuildTypeString()
+		if string(networkName) != build.BuildTypeString() {
+			clog.Warnf("Network mismatch for node %s: binary built for %s but node is on %s",
+				head.addr, build.BuildTypeString(), networkName)
+			closer()
+			continue
+		}
+
 		fullNodes = append(fullNodes, v1api)
 		closers = append(closers, closer)
 	}
