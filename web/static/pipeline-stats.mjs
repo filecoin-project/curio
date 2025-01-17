@@ -210,6 +210,14 @@ customElements.define('pipeline-stats', class PipelineStats extends LitElement {
         this.data = [];
         this.loadData();
     }
+
+    static styles = css`
+        .chart-root {
+            background-color: var(--color-fg);
+            margin-bottom: 18px;
+        }
+    `
+
     async loadData() {
         this.data = await RPCCall('PorepPipelineSummary') || [];
         setTimeout(() => this.loadData(), 5000);
@@ -222,15 +230,20 @@ customElements.define('pipeline-stats', class PipelineStats extends LitElement {
             <div class="row">
                     <div class="col-md-auto" style="max-width: 1000px">
                         <div class="info-block">
-                            <h2>Pipelines</h2>
-                            <div style="background-color: var(--color-fg)">
-                                <pipeline-waterfall sourceRPC="PipelineStatsMarket" title="Market Pipeline"></pipeline-waterfall>
+                            <h2>Storage Pipelines</h2>
+                            <div class="chart-root">
                                 <pipeline-waterfall sourceRPC="PipelineStatsSnap" title="Sector Update Pipeline"></pipeline-waterfall>
+                            </div>
+                            <div class="chart-root">
                                 <pipeline-waterfall sourceRPC="PipelineStatsSDR" title="SDR Pipeline"></pipeline-waterfall>
                             </div>
                         </div>
                     </div>
                 <div class="col-md-auto">
+                    <h2>Market Pipeline</h2>
+                    <div class="chart-root">
+                        <pipeline-waterfall sourceRPC="PipelineStatsMarket" title="Market Pipeline"></pipeline-waterfall>
+                    </div>
                 </div>
             </div>
         `;

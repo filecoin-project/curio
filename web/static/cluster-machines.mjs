@@ -34,24 +34,22 @@ customElements.define('cluster-machines', class ClusterMachines extends LitEleme
             />
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
 
-            <!-- Toggle for Detailed View -->
-            <div class="form-check mb-3">
-                <input
-                    class="form-check-input"
-                    type="checkbox"
-                    id="detailedCheckbox"
-                    .checked=${this.detailed}
-                    @change=${this._toggleDetailed}
-                />
-                <label class="form-check-label" for="detailedCheckbox">
-                    Detailed
-                </label>
-            </div>
-
             <div class="row">
                 <div class="col-md-auto" style="max-width: 1000px">
                     <div class="info-block">
                         <h2>Cluster Machines</h2>
+                        <div class="form-check mb-3">
+                            <input
+                            class="form-check-input"
+                                type="checkbox"
+                                id="detailedCheckbox"
+                                .checked=${this.detailed}
+                                @change=${this._toggleDetailed}
+                            />
+                            <label class="form-check-label" for="detailedCheckbox">
+                                Detailed
+                            </label>
+                        </div>
                         <table class="table table-dark">
                             <thead>
                                 <tr>
