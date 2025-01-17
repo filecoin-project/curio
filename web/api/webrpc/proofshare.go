@@ -59,7 +59,7 @@ func (a *WebRPC) PSSetMeta(ctx context.Context, enabled bool, wallet string) err
 
 // PSListQueue returns all records from the proofshare_queue table, ordered by the newest first.
 func (a *WebRPC) PSListQueue(ctx context.Context) ([]ProofShareQueueItem, error) {
-	var items []ProofShareQueueItem
+	items := []ProofShareQueueItem{}
 
 	err := a.deps.DB.Select(ctx, &items, `
         SELECT service_id,
