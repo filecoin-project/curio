@@ -450,7 +450,7 @@ class ActorCharts extends LitElement {
                 data: {
                     datasets: [
                         {
-                            label: 'All Sectors (QAP)',
+                            label: 'QAP',
                             borderColor: 'rgb(255, 205, 86)',
                             backgroundColor: 'rgba(255, 205, 86, 0.2)',
                             borderWidth: 1,
@@ -489,7 +489,7 @@ class ActorCharts extends LitElement {
                 data: {
                     datasets: [
                         {
-                            label: 'All Sectors (Locked Funds)',
+                            label: 'Locked Funds',
                             borderColor: 'rgb(153, 102, 255)',
                             backgroundColor: 'rgba(153, 102, 255, 0.2)',
                             borderWidth: 1,
@@ -501,7 +501,7 @@ class ActorCharts extends LitElement {
                     ],
                 },
                 options: this.createChartOptions(
-                    'Vested Locked Funds',
+                    'Vesting Locked Funds',
                     'Locked Funds (FIL)',
                     nowEpoch,
                     allLockedData

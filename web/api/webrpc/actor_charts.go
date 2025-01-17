@@ -97,9 +97,21 @@ func (a *WebRPC) ActorCharts(ctx context.Context, maddr address.Address) (*Secto
 
 		// Accumulate data
 		sb.Count++
-		sb.QAP = big.Add(sb.QAP, sector.VerifiedDealWeight)
+		dw, vp := abi.NewStoragePower(0), abi.NewStoragePower(0)
+		rdw := big.Add(sector.DealWeight, sector.VerifiedDealWeight)
+		dw = big.Div(rdw, big.NewInt(int64(sector.Expiration-sector.PowerBaseEpoch)))
+		vp = big.Div(big.Mul(sector.VerifiedDealWeight, big.NewInt(verifiedPowerGainMul)), big.NewInt(int64(sector.Expiration-sector.PowerBaseEpoch)))
 
-		if sector.DealWeight.Equals(abi.NewStoragePower(0)) {
+		weight := big.Zero()
+		if sector.DealWeight.GreaterThan(abi.NewStoragePower(0)) {
+			weight = dw
+		}
+		if sector.VerifiedDealWeight.GreaterThan(abi.NewStoragePower(0)) {
+			weight = vp
+		}
+		sb.QAP = big.Add(sb.QAP, weight)
+
+		if sector.DealWeight.Equals(abi.NewStoragePower(0)) && sector.VerifiedDealWeight.Equals(abi.NewStoragePower(0)) {
 			sbc, ok := bucketsMapCC[bucket]
 			if !ok {
 				sbc = &SectorBucket{
