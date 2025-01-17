@@ -134,6 +134,7 @@ Drawer.styles = [
       background-color: var(--color-fg);
       color: var(--color-text-primary);
       overflow-y: auto;
+      z-index: 10;
 
       &[anchor="right"] {
         top: 0;
