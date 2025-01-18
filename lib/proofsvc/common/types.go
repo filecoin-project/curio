@@ -1,12 +1,15 @@
 package common
 
 import (
-	"github.com/filecoin-project/curio/lib/proof"
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/proof"
 )
 
 type WorkRequest struct {
-	ID   int64 `json:"id" db:"id"`
+	ID int64 `json:"id" db:"id"`
 
 	Data *string `json:"data" db:"request_data"`
 	Done *bool   `json:"done" db:"done"`
@@ -21,8 +24,8 @@ type ProofResponse struct {
 }
 
 type WorkResponse struct {
-	Requests []WorkRequest `json:"requests"`
-	ActiveAsks []int64 `json:"active_asks"`
+	Requests   []WorkRequest `json:"requests"`
+	ActiveAsks []int64       `json:"active_asks"`
 }
 
 type WorkAsk struct {
@@ -34,4 +37,17 @@ type ProofRequest struct {
 
 	// proof request enum
 	PoRep *proof.Commit1OutRaw
+}
+
+func (p *ProofRequest) Validate() error {
+	if p.PoRep != nil {
+		if p.SectorID == nil {
+			return xerrors.Errorf("sector id is required for PoRep")
+		}
+
+		// todo validate vanilla
+
+		return nil
+	}
+	return xerrors.Errorf("invalid proof request: no proof request")
 }

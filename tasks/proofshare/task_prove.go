@@ -5,6 +5,13 @@ import (
 	"encoding/json"
 	"time"
 
+	"golang.org/x/xerrors"
+
+	ffi "github.com/filecoin-project/filecoin-ffi"
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-state-types/abi"
+	proof2 "github.com/filecoin-project/go-state-types/proof"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -14,17 +21,10 @@ import (
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
 	"github.com/filecoin-project/curio/tasks/seal"
-	ffi "github.com/filecoin-project/filecoin-ffi"
-	commcid "github.com/filecoin-project/go-fil-commcid"
-	"github.com/filecoin-project/go-state-types/abi"
-	proof2 "github.com/filecoin-project/go-state-types/proof"
-	"golang.org/x/xerrors"
 )
 
-
-
 type TaskProvideSnark struct {
-	db *harmonydb.DB
+	db          *harmonydb.DB
 	paramsReady func() (bool, error)
 
 	max int
@@ -64,7 +64,7 @@ func (t *TaskProvideSnark) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 /*
 CREATE TABLE proofshare_queue (
     service_id BIGINT NOT NULL,
-    
+
     obtained_at TIMESTAMPZ NOT NULL,
 
     request_data JSONB NOT NULL,
@@ -168,30 +168,29 @@ func computeProof(ctx context.Context, request common.ProofRequest) ([]byte, err
 }
 
 /*
-type Commit1OutRaw struct {
-	CommD           Commitment                `json:"comm_d"`
-	CommR           Commitment                `json:"comm_r"`
-	RegisteredProof StringRegisteredProofType `json:"registered_proof"`
-	ReplicaID       Commitment                `json:"replica_id"`
-	Seed            Ticket                    `json:"seed"`
-	Ticket          Ticket                    `json:"ticket"`
+	type Commit1OutRaw struct {
+		CommD           Commitment                `json:"comm_d"`
+		CommR           Commitment                `json:"comm_r"`
+		RegisteredProof StringRegisteredProofType `json:"registered_proof"`
+		ReplicaID       Commitment                `json:"replica_id"`
+		Seed            Ticket                    `json:"seed"`
+		Ticket          Ticket                    `json:"ticket"`
 
-	// ProofType -> [partitions] -> [challenge_index?] -> Proof
-	VanillaProofs map[StringRegisteredProofType][][]VanillaStackedProof `json:"vanilla_proofs"`
-}
+		// ProofType -> [partitions] -> [challenge_index?] -> Proof
+		VanillaProofs map[StringRegisteredProofType][][]VanillaStackedProof `json:"vanilla_proofs"`
+	}
 
-type SealVerifyInfo struct {
-	SealProof abi.RegisteredSealProof
-	abi.SectorID
-	Randomness            abi.SealRandomness
-	InteractiveRandomness abi.InteractiveSealRandomness
-	Proof                 []byte
+	type SealVerifyInfo struct {
+		SealProof abi.RegisteredSealProof
+		abi.SectorID
+		Randomness            abi.SealRandomness
+		InteractiveRandomness abi.InteractiveSealRandomness
+		Proof                 []byte
 
-	// Safe because we get those from the miner actor
-	SealedCID   cid.Cid `checked:"true"` // CommR
-	UnsealedCID cid.Cid `checked:"true"` // CommD
-}
-
+		// Safe because we get those from the miner actor
+		SealedCID   cid.Cid `checked:"true"` // CommR
+		UnsealedCID cid.Cid `checked:"true"` // CommD
+	}
 */
 func computePoRep(ctx context.Context, request *proof.Commit1OutRaw, sectorID abi.SectorID) ([]byte, error) {
 	// Serialize the commit1out to JSON to pass as vanilla proof
@@ -228,8 +227,8 @@ func computePoRep(ctx context.Context, request *proof.Commit1OutRaw, sectorID ab
 		Randomness:            abi.SealRandomness(request.Ticket[:]),
 		InteractiveRandomness: abi.InteractiveSealRandomness(request.Seed[:]),
 		Proof:                 proof,
-		SealedCID:            commR,
-		UnsealedCID:          commD,
+		SealedCID:             commR,
+		UnsealedCID:           commD,
 	})
 	if err != nil {
 		return nil, xerrors.Errorf("failed to verify proof: %w", err)
