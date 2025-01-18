@@ -63,11 +63,11 @@ func (t *TaskSubmit) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 				return false, nil
 			}
 
-			// 3) Here we pick the row we want to schedule; 
+			// 3) Here we pick the row we want to schedule;
 			//    the example picks randomly, but we’ll pick the first for simplicity.
 			taskRow := rows[0]
 
-			// 4) Mark this row with the new task ID. 
+			// 4) Mark this row with the new task ID.
 			_, err = tx.Exec(`
 				UPDATE proofshare_queue
 				SET submit_task_id = $1

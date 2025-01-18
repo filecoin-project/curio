@@ -5,6 +5,7 @@ import (
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -12,7 +13,6 @@ import (
 	"github.com/filecoin-project/curio/lib/proofsvc"
 	"github.com/filecoin-project/curio/tasks/seal"
 	"github.com/filecoin-project/curio/tasks/snap"
-	"golang.org/x/xerrors"
 )
 
 var log = logging.Logger("proofshare")
@@ -23,7 +23,7 @@ var RequestQueueLowWaterMark = 3
 var RequestQueueHighWaterMark = 5
 
 type TaskRequestProofs struct {
-	db *harmonydb.DB
+	db          *harmonydb.DB
 	paramsReady func() (bool, error)
 }
 
@@ -112,7 +112,7 @@ func (t *TaskRequestProofs) CanAccept(ids []harmonytask.TaskID, engine *harmonyt
 		log.Infow("TaskRequestProofs.CanAccept() params not ready, not scheduling")
 		return nil, nil
 	}
-	
+
 	id := ids[0]
 	return &id, nil
 }
@@ -160,7 +160,7 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	meta := pshareMeta[0]
 
 	log.Infow("starting proof request loop", "toRequest", toRequest, "wallet", meta.Wallet)
-	
+
 	for {
 		// Poll existing work requests from the remote service
 		work, err := proofsvc.PollWork(meta.Wallet)
@@ -226,7 +226,7 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		// If we still need more requests, create new work asks
 		neededAsks := toRequest - len(work.ActiveAsks)
 		log.Infow("checking if more asks needed", "neededAsks", neededAsks, "toRequest", toRequest, "activeAsks", len(work.ActiveAsks))
-		
+
 		for i := 0; i < neededAsks; i++ {
 			askID, askErr := proofsvc.CreateWorkAsk(meta.Wallet)
 			if askErr != nil {
@@ -252,11 +252,11 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 // TypeDetails implements harmonytask.TaskInterface.
 func (t *TaskRequestProofs) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name:        "PShareRequest",
-		Cost:        resources.Resources{
-			Cpu:       1,
-			Gpu:       0,
-			Ram:       1 << 20,
+		Name: "PShareRequest",
+		Cost: resources.Resources{
+			Cpu: 1,
+			Gpu: 0,
+			Ram: 1 << 20,
 		},
 		RetryWait: func(retries int) time.Duration {
 			return time.Second * 10

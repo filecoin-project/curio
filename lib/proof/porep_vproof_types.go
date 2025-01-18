@@ -1,8 +1,9 @@
 package proof
 
 import (
-	"github.com/filecoin-project/go-state-types/abi"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-state-types/abi"
 )
 
 // This file contains PoRep vanilla proof type definitions from
@@ -19,11 +20,11 @@ type Ticket [32]byte
 type StringRegisteredProofType string // e.g. "StackedDrg2KiBV1", StackedDrg32GiBV1_1
 
 /*
-
 // These enumerations must match the proofs library and never change.
 type RegisteredSealProof int64
 
 const (
+
 	RegisteredSealProof_StackedDrg2KiBV1   = RegisteredSealProof(0)
 	RegisteredSealProof_StackedDrg8MiBV1   = RegisteredSealProof(1)
 	RegisteredSealProof_StackedDrg512MiBV1 = RegisteredSealProof(2)
@@ -47,6 +48,7 @@ const (
 	RegisteredSealProof_StackedDrg512MiBV1_2_Feat_NiPoRep = RegisteredSealProof(17)
 	RegisteredSealProof_StackedDrg32GiBV1_2_Feat_NiPoRep  = RegisteredSealProof(18)
 	RegisteredSealProof_StackedDrg64GiBV1_2_Feat_NiPoRep  = RegisteredSealProof(19)
+
 )
 
 Rust:
@@ -54,39 +56,38 @@ Rust:
 // Enum is append-only: once published, a `RegisteredSealProof` value must never change.
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum RegisteredSealProof {
-    StackedDrg2KiBV1,
-    StackedDrg8MiBV1,
-    StackedDrg512MiBV1,
-    StackedDrg32GiBV1,
-    StackedDrg64GiBV1,
 
-    StackedDrg2KiBV1_1,
-    StackedDrg8MiBV1_1,
-    StackedDrg512MiBV1_1,
-    StackedDrg32GiBV1_1,
-    StackedDrg64GiBV1_1,
+	pub enum RegisteredSealProof {
+	    StackedDrg2KiBV1,
+	    StackedDrg8MiBV1,
+	    StackedDrg512MiBV1,
+	    StackedDrg32GiBV1,
+	    StackedDrg64GiBV1,
 
-    StackedDrg2KiBV1_1_Feat_SyntheticPoRep,
-    StackedDrg8MiBV1_1_Feat_SyntheticPoRep,
-    StackedDrg512MiBV1_1_Feat_SyntheticPoRep,
-    StackedDrg32GiBV1_1_Feat_SyntheticPoRep,
-    StackedDrg64GiBV1_1_Feat_SyntheticPoRep,
+	    StackedDrg2KiBV1_1,
+	    StackedDrg8MiBV1_1,
+	    StackedDrg512MiBV1_1,
+	    StackedDrg32GiBV1_1,
+	    StackedDrg64GiBV1_1,
 
-    // NOTE: The SyntheticPoRep feature was added in proofs API
-    // version 1.2, however the published proof name has the incorrect
-    // version 1_1 coded into it.
-    //
-    // Non-interactive PoRep is also a feature added at API version
-    // 1.2, so the naming has been corrected before publication.
-    StackedDrg2KiBV1_2_Feat_NonInteractivePoRep,
-    StackedDrg8MiBV1_2_Feat_NonInteractivePoRep,
-    StackedDrg512MiBV1_2_Feat_NonInteractivePoRep,
-    StackedDrg32GiBV1_2_Feat_NonInteractivePoRep,
-    StackedDrg64GiBV1_2_Feat_NonInteractivePoRep,
-}
+	    StackedDrg2KiBV1_1_Feat_SyntheticPoRep,
+	    StackedDrg8MiBV1_1_Feat_SyntheticPoRep,
+	    StackedDrg512MiBV1_1_Feat_SyntheticPoRep,
+	    StackedDrg32GiBV1_1_Feat_SyntheticPoRep,
+	    StackedDrg64GiBV1_1_Feat_SyntheticPoRep,
 
-
+	    // NOTE: The SyntheticPoRep feature was added in proofs API
+	    // version 1.2, however the published proof name has the incorrect
+	    // version 1_1 coded into it.
+	    //
+	    // Non-interactive PoRep is also a feature added at API version
+	    // 1.2, so the naming has been corrected before publication.
+	    StackedDrg2KiBV1_2_Feat_NonInteractivePoRep,
+	    StackedDrg8MiBV1_2_Feat_NonInteractivePoRep,
+	    StackedDrg512MiBV1_2_Feat_NonInteractivePoRep,
+	    StackedDrg32GiBV1_2_Feat_NonInteractivePoRep,
+	    StackedDrg64GiBV1_2_Feat_NonInteractivePoRep,
+	}
 */
 func (s StringRegisteredProofType) ToABI() (abi.RegisteredSealProof, error) {
 	switch s {
@@ -189,7 +190,6 @@ func StringProofFromAbi(p abi.RegisteredSealProof) (string, error) {
 		return "", xerrors.Errorf("unknown proof type: %d", p)
 	}
 }
-
 
 type HasherDomain = any
 

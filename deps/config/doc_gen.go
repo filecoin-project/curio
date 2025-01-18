@@ -780,6 +780,19 @@ also be bounded by resources available on the machine.`,
 			Comment: `The maximum amount of indexing and IPNI tasks that can run simultaneously. Note that the maximum number of tasks will
 also be bounded by resources available on the machine.`,
 		},
+		{
+			Name: "EnableProofShare",
+			Type: "bool",
+
+			Comment: `EnableProofShare enables the proof share tasks on the node.`,
+		},
+		{
+			Name: "ProofShareMaxTasks",
+			Type: "int",
+
+			Comment: `The maximum amount of ProofShare tasks that can run simultaneously. Note that the maximum number of tasks will
+also be bounded by resources available on the machine.`,
+		},
 	},
 	"Duration time.Duration": {
 		{
