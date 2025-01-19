@@ -22,13 +22,13 @@ class ProofShareClient extends LitElement {
     this.loadAllSettings();
   }
 
-  // Use light DOM so Bootstrap + main.css apply
   createRenderRoot() {
+    // Use light DOM so Bootstrap + main.css apply
     return this;
   }
 
   /**
-   * Fetch all settings from PSClientGet (which now returns a list).
+   * Fetch all rows from PSClientGet (which returns a list of settings).
    */
   async loadAllSettings() {
     try {
@@ -47,7 +47,7 @@ class ProofShareClient extends LitElement {
    * Toggle whether to show requests for a particular spId.
    * If turning on, fetch them first if we haven’t yet.
    */
-  async toggleRequests(spId) {
+  async toggleRequests(spId, address) {
     const wasShown = !!this.showRequests[spId];
     // Flip boolean
     this.showRequests[spId] = !wasShown;
@@ -58,7 +58,7 @@ class ProofShareClient extends LitElement {
         const reqs = await RPCCall('PSClientRequests', [spId]);
         this.spRequests[spId] = Array.isArray(reqs) ? reqs : [];
       } catch (err) {
-        console.error(`Error loading requests for sp_id=${spId}:`, err);
+        console.error(`Error loading requests for ${address}:`, err);
         this.spRequests[spId] = [];
       }
     }
@@ -81,14 +81,14 @@ class ProofShareClient extends LitElement {
    */
   async saveRow(row) {
     try {
-      // Make sure we pass exactly the shape that PSClientSet expects
       await RPCCall('PSClientSet', [{
         sp_id: row.sp_id,
+        address: row.address,
         enabled: row.enabled,
         wallet: row.wallet,
         minimum_pending_seconds: row.minimum_pending_seconds,
         do_porep: row.do_porep,
-        do_snap: row.do_snap
+        do_snap: row.do_snap,
       }]);
       console.log(`Saved row for sp_id=${row.sp_id}`);
     } catch (err) {
@@ -96,9 +96,88 @@ class ProofShareClient extends LitElement {
     }
   }
 
+  /**
+   * Add a new sp_id row. 
+   * Prompts the user for sp_id, then sets some defaults & calls PSClientSet.
+   */
+  async addSP() {
+    const address = prompt('Enter new SP address:');
+    if (!address) return; // user cancelled
+
+    // Use some defaults for new row
+    const newRow = {
+      address,
+      enabled: false,
+      wallet: null,
+      minimum_pending_seconds: 0,
+      do_porep: false,
+      do_snap: false,
+    };
+
+    try {
+      await RPCCall('PSClientSet', [newRow]);
+      console.log(`Added new ${address}`);
+      await this.loadAllSettings();
+    } catch (err) {
+      console.error('Error adding new sp row:', err);
+      alert(`Failed to add ${address}. See console for details.`);
+    }
+  }
+
+  /**
+   * Remove a row (sp_id != 0).
+   * Calls a new server method: PSClientRemove(spId).
+   */
+  async removeRow(spId, address) {
+    if (!confirm(`Are you sure you want to remove ${address}?`)) {
+      return;
+    }
+    try {
+      await RPCCall('PSClientRemove', [spId]);
+      console.log(`Removed ${address}`);
+      await this.loadAllSettings();
+    } catch (err) {
+      console.error(`Error removing ${address}:`, err);
+      alert(`Failed to remove ${address}. See console for details.`);
+    }
+  }
+
+  /**
+   * Render the sub-table of requests for a given sp_id, if loaded.
+   */
+  renderRequestsFor(spId, address) {
+    const list = this.spRequests[spId] || [];
+    return html`
+      <h4>Requests for ${address}</h4>
+      <table class="table table-dark table-sm table-striped">
+        <thead>
+          <tr>
+            <th>Task ID</th>
+            <th>Sector</th>
+            <th>Service ID</th>
+            <th>Done</th>
+            <th>Created At</th>
+            <th>Done At</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map(req => html`
+            <tr>
+              <td>${req.task_id}</td>
+              <td>${req.sp_id}:${req.sector_num}</td>
+              <td>${req.service_id}</td>
+              <td>${req.done ? 'Yes' : 'No'}</td>
+              <td>${req.created_at}</td>
+              <td>${req.done_at?.Time || ''}</td>
+            </tr>
+          `)}
+        </tbody>
+      </table>
+    `;
+  }
+
   render() {
     return html`
-      <!-- Bootstrap & main.css -->
       <link
         rel="stylesheet"
         href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
@@ -108,16 +187,22 @@ class ProofShareClient extends LitElement {
       <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
 
       <div class="container">
-        <h2>🛒 ProofShare Client Settings</h2>
-        <p>All rows in <code>proofshare_client_settings</code>:</p>
+        <h2>🛒 Client Settings</h2>
+        <p>Buy proof compute from a market. Select which SP pipelines should use the market.</p>
 
-        <table class="table table-dark table-sm table-striped">
+        <div class="mb-2">
+          <button class="btn btn-primary" @click=${this.addSP}>
+            Add SP
+          </button>
+        </div>
+
+        <table class="table table-dark">
           <thead>
             <tr>
               <th>SP ID</th>
               <th>Enabled</th>
               <th>Wallet</th>
-              <th>Min Pending Secs</th>
+              <th><abbr title="Delay before outsourcing work, allowing time for local compute to be used first">buy_delay_secs</abbr></th>
               <th>do_porep</th>
               <th>do_snap</th>
               <th>Actions</th>
@@ -126,9 +211,7 @@ class ProofShareClient extends LitElement {
           <tbody>
             ${this.settingsList.map((row) => html`
               <tr>
-                <td>
-                  ${row.sp_id === 0 ? 'default' : row.sp_id}
-                </td>
+                <td>${row.sp_id === 0 ? 'all/other' : row.address}</td>
                 <td>
                   <input
                     type="checkbox"
@@ -170,16 +253,26 @@ class ProofShareClient extends LitElement {
                   <button class="btn btn-success btn-sm" @click=${() => this.saveRow(row)}>
                     Save
                   </button>
-                  <button class="btn btn-info btn-sm" @click=${() => this.toggleRequests(row.sp_id)}>
+                  <button class="btn btn-info btn-sm" @click=${() => this.toggleRequests(row.sp_id, row.address)}>
                     ${this.showRequests[row.sp_id] ? 'Hide' : 'View'} Requests
                   </button>
+                  <!-- Remove is not shown for sp_id=0 -->
+                  ${row.sp_id !== 0 ? html`
+                    <button
+                      class="btn btn-danger btn-sm"
+                      @click=${() => this.removeRow(row.sp_id, row.address)}
+                    >
+                      Remove
+                    </button>
+                  ` : null}
                 </td>
               </tr>
-              <!-- If showRequests[sp_id], render requests table -->
+
+              <!-- If showRequests[sp_id], render requests table in a sub-row -->
               ${this.showRequests[row.sp_id] ? html`
                 <tr>
                   <td colspan="7">
-                    ${this.renderRequestsFor(row.sp_id)}
+                    ${this.renderRequestsFor(row.sp_id, row.address)}
                   </td>
                 </tr>
               ` : ''}
@@ -187,40 +280,6 @@ class ProofShareClient extends LitElement {
           </tbody>
         </table>
       </div>
-    `;
-  }
-
-  /**
-   * Render the sub-table of requests for a given sp_id, if loaded.
-   */
-  renderRequestsFor(spId) {
-    const list = this.spRequests[spId] || [];
-    return html`
-      <h4>Requests for sp_id=${spId === 0 ? 'default' : spId}</h4>
-      <table class="table table-dark table-sm table-striped">
-        <thead>
-          <tr>
-            <th>Task ID</th>
-            <th>Sector</th>
-            <th>Service ID</th>
-            <th>Done</th>
-            <th>Created At</th>
-            <th>Done At</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${list.map(req => html`
-            <tr>
-              <td>${req.task_id}</td>
-              <td>${req.sp_id}:${req.sector_num}</td>
-              <td>${req.service_id}</td>
-              <td>${req.done ? 'Yes' : 'No'}</td>
-              <td>${req.created_at}</td>
-              <td>${req.done_at?.Time || ''}</td>
-            </tr>
-          `)}
-        </tbody>
-      </table>
     `;
   }
 }

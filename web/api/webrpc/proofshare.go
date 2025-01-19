@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/filecoin-project/go-address"
+	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
 )
 
@@ -88,6 +90,8 @@ type ProofShareClientSettings struct {
 	MinimumPendingSecs int64   `db:"minimum_pending_seconds" json:"minimum_pending_seconds"`
 	DoPoRep            bool    `db:"do_porep"              json:"do_porep"`
 	DoSnap             bool    `db:"do_snap"               json:"do_snap"`
+
+	Address string `db:"-" json:"address"`
 }
 
 // ProofShareClientRequest model
@@ -112,13 +116,31 @@ func (a *WebRPC) PSClientGet(ctx context.Context) ([]ProofShareClientSettings, e
 	if err != nil {
 		return nil, xerrors.Errorf("PSClientGet: query error: %w", err)
 	}
+
+
+	for i := range out {
+		out[i].Address = must.One(address.NewIDAddress(uint64(out[i].SpID))).String()
+	}
+
 	return out, nil
 }
 
 // PSClientSet updates or inserts a row in proofshare_client_settings.
 // If a row for sp_id doesn’t exist, do an INSERT; otherwise do an UPDATE.
 func (a *WebRPC) PSClientSet(ctx context.Context, s ProofShareClientSettings) error {
-	_, err := a.deps.DB.Exec(ctx, `
+	maddr, err := address.NewFromString(s.Address)
+	if err != nil {
+		return xerrors.Errorf("PSClientSet: invalid address: %w", err)
+	}
+
+	mid, err := address.IDFromAddress(maddr)
+	if err != nil {
+		return xerrors.Errorf("PSClientSet: invalid address: %w", err)
+	}
+
+	s.SpID = int64(mid)
+
+	_, err = a.deps.DB.Exec(ctx, `
         INSERT INTO proofshare_client_settings (sp_id, enabled, wallet, minimum_pending_seconds, do_porep, do_snap)
         VALUES ($1, $2, $3, $4, $5, $6)
         ON CONFLICT (sp_id) DO UPDATE
@@ -158,4 +180,19 @@ func (a *WebRPC) PSClientRequests(ctx context.Context, spId int64) ([]ProofShare
 		return nil, xerrors.Errorf("PSClientRequests: query error: %w", err)
 	}
 	return rows, nil
+}
+
+// PSClientRemove removes a row from proofshare_client_settings if sp_id != 0.
+func (a *WebRPC) PSClientRemove(ctx context.Context, spId int64) error {
+    if spId == 0 {
+        return xerrors.Errorf("cannot remove default sp_id=0 row")
+    }
+    _, err := a.deps.DB.Exec(ctx, `
+        DELETE FROM proofshare_client_settings
+        WHERE sp_id = $1
+    `, spId)
+    if err != nil {
+        return xerrors.Errorf("PSClientRemove: delete error: %w", err)
+    }
+    return nil
 }

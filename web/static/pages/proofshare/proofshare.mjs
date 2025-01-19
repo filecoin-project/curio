@@ -1,6 +1,7 @@
 import { LitElement, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 import '/ux/task.mjs';
+import { formatDate } from '/lib/dateutil.mjs';
 
 class ProofShareElement extends LitElement {
   static properties = {
@@ -66,6 +67,8 @@ class ProofShareElement extends LitElement {
 
       <div class="container">
         <h2>🏗️ Provider Settings</h2>
+        <p>Sell idle compute to a proving market.</p>
+
         <div class="mb-2">
           <label class="form-check-label">
             <input
@@ -91,7 +94,7 @@ class ProofShareElement extends LitElement {
         <hr />
 
         <h2>Queue</h2>
-        <table class="table table-dark table-striped table-sm">
+        <table class="table table-dark">
           <thead>
             <tr>
               <th>Service ID</th>
@@ -106,7 +109,7 @@ class ProofShareElement extends LitElement {
             ${this.queue.map((item) => html`
               <tr>
                 <td>${item.service_id}</td>
-                <td>${item.obtained_at}</td>
+                <td>${formatDate(item.obtained_at)}</td>
                 <td>${item.compute_task_id ? html`<task-status .taskId=${item.compute_task_id}></task-status>` : ''}</td>
                 <td>${item.compute_done ? 'Yes' : 'No'}</td>
                 <td>${item.submit_task_id ? html`<task-status .taskId=${item.submit_task_id}></task-status>` : ''}</td>
