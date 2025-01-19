@@ -28,3 +28,36 @@ CREATE TABLE proofshare_meta (
 );
 
 INSERT INTO proofshare_meta (singleton, enabled, wallet) VALUES (TRUE, FALSE, NULL);
+
+CREATE TABLE proofshare_client_settings (
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    sp_id BIGINT NOT NULL DEFAULT 0, -- 0 = all/other
+
+    wallet TEXT,
+
+    minimum_pending_seconds BIGINT NOT NULL DEFAULT 0,
+    
+    do_porep BOOLEAN NOT NULL DEFAULT FALSE,
+    do_snap BOOLEAN NOT NULL DEFAULT FALSE,
+
+    PRIMARY KEY (sp_id)
+);
+
+INSERT INTO proofshare_client_settings (enabled, sp_id, wallet, minimum_pending_seconds, do_porep, do_snap) VALUES (FALSE, 0, NULL, 0, FALSE, FALSE);
+
+CREATE TABLE proofshare_client_requests (
+    task_id BIGINT NOT NULL,
+    
+    sp_id BIGINT NOT NULL,
+    sector_num BIGINT NOT NULL,
+
+    service_id BIGINT NOT NULL,
+    response_data BYTEA,
+
+    done BOOLEAN NOT NULL DEFAULT FALSE,
+
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    done_at TIMESTAMP WITH TIME ZONE,
+
+    PRIMARY KEY (task_id)
+);
