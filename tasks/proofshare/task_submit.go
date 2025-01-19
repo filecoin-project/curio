@@ -97,7 +97,7 @@ func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool
 	var row struct {
 		ServiceID    int64           `db:"service_id"`
 		RequestData  json.RawMessage `db:"request_data"`
-		ResponseData json.RawMessage `db:"response_data"`
+		ResponseData []byte          `db:"response_data"`
 	}
 	err := t.db.QueryRow(ctx, `
 		SELECT service_id, request_data, response_data
@@ -130,14 +130,9 @@ func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool
 	wreq := common.WorkRequest{
 		ID: row.ServiceID,
 	}
-	// Our stored 'response_data' is presumably a JSON-encoded proof (or raw bytes).
-	var proofBytes []byte
-	if err := json.Unmarshal(row.ResponseData, &proofBytes); err != nil {
-		return false, xerrors.Errorf("failed to parse response_data as proof bytes: %w", err)
-	}
 	proofResp := common.ProofResponse{
 		ID:    strconv.FormatInt(row.ServiceID, 10),
-		Proof: proofBytes,
+		Proof: row.ResponseData,
 	}
 
 	// 4) Submit the proof to the remote service

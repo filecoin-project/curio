@@ -11,13 +11,13 @@ import (
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 	proof2 "github.com/filecoin-project/go-state-types/proof"
+	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffiselect"
-	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
 	"github.com/filecoin-project/curio/tasks/seal"
@@ -28,8 +28,6 @@ type TaskProvideSnark struct {
 	paramsReady func() (bool, error)
 
 	max int
-
-	add promise.Promise[harmonytask.AddTaskFunc]
 }
 
 func NewTaskProvideSnark(db *harmonydb.DB, paramck func() (bool, error), max int) *TaskProvideSnark {
@@ -42,7 +40,40 @@ func NewTaskProvideSnark(db *harmonydb.DB, paramck func() (bool, error), max int
 
 // Adder implements harmonytask.TaskInterface.
 func (t *TaskProvideSnark) Adder(add harmonytask.AddTaskFunc) {
-	t.add.Set(add)
+	ticker := time.NewTicker(10 * time.Second)
+	go func() {
+		for range ticker.C {
+			add(func(taskID harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
+				// Find unprocessed proofs to compute
+				var serviceID int64
+				err := tx.QueryRow(`
+					SELECT service_id
+					FROM proofshare_queue q
+					WHERE compute_done = false AND compute_task_id IS NULL
+					LIMIT 1
+				`).Scan(&serviceID)
+				if err == pgx.ErrNoRows {
+					return false, nil
+				}
+				if err != nil {
+					return false, xerrors.Errorf("failed to query queue: %w", err)
+				}
+
+				// Create task
+				err = tx.QueryRow(`
+					UPDATE proofshare_queue 
+					SET compute_task_id = $1
+					WHERE service_id = $2
+					RETURNING service_id
+				`, taskID, serviceID).Scan(&serviceID)
+				if err != nil {
+					return false, xerrors.Errorf("failed to update queue: %w", err)
+				}
+
+				return true, nil
+			})
+		}
+	}()
 }
 
 // CanAccept implements harmonytask.TaskInterface.
@@ -103,7 +134,7 @@ func (t *TaskProvideSnark) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		RequestData json.RawMessage
 	}
 
-	err = t.db.QueryRow(ctx, "SELECT request_data FROM proofshare_queue WHERE compute_task_id = $1", taskID).Scan(&tasks)
+	err = t.db.Select(ctx, &tasks, "SELECT request_data FROM proofshare_queue WHERE compute_task_id = $1", taskID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to fetch task: %w", err)
 	}
@@ -132,7 +163,7 @@ func (t *TaskProvideSnark) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("no task found")
 	}
 
-	return false, nil
+	return true, nil
 }
 
 // TypeDetails implements harmonytask.TaskInterface.
@@ -206,7 +237,7 @@ func computePoRep(ctx context.Context, request *proof.Commit1OutRaw, sectorID ab
 		return nil, xerrors.Errorf("computing seal proof failed: %w", err)
 	}
 
-	commR, err := commcid.DataCommitmentV1ToCID(request.CommR[:])
+	commR, err := commcid.ReplicaCommitmentV1ToCID(request.CommR[:])
 	if err != nil {
 		return nil, xerrors.Errorf("invalid CommR: %w", err)
 	}

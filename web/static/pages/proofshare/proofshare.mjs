@@ -99,7 +99,6 @@ class ProofShareElement extends LitElement {
               <th>Compute Done</th>
               <th>Submit Task</th>
               <th>Submit Done</th>
-              <th>Request Data</th>
               <th>Response Data</th>
             </tr>
           </thead>
@@ -112,11 +111,6 @@ class ProofShareElement extends LitElement {
                 <td>${item.compute_done ? 'Yes' : 'No'}</td>
                 <td>${item.submit_task_id ?? ''}</td>
                 <td>${item.submit_done ? 'Yes' : 'No'}</td>
-                <td>
-                  <pre style="white-space: pre-wrap; max-width: 300px; max-height: 150px; overflow: auto;">
-                    ${item.request_data ? JSON.stringify(item.request_data, null, 2) : ''}
-                  </pre>
-                </td>
                 <td>
                   <pre style="white-space: pre-wrap; max-width: 300px; max-height: 150px; overflow: auto;">
                     ${item.response_data ? JSON.stringify(item.response_data, null, 2) : ''}

@@ -19,7 +19,6 @@ type ProofShareMeta struct {
 type ProofShareQueueItem struct {
 	ServiceID     int64           `db:"service_id"     json:"service_id"`
 	ObtainedAt    time.Time       `db:"obtained_at"    json:"obtained_at"`
-	RequestData   json.RawMessage `db:"request_data"   json:"request_data"`
 	ResponseData  json.RawMessage `db:"response_data"  json:"response_data"`
 	ComputeTaskID *int64          `db:"compute_task_id" json:"compute_task_id"`
 	ComputeDone   bool            `db:"compute_done"   json:"compute_done"`
@@ -64,7 +63,6 @@ func (a *WebRPC) PSListQueue(ctx context.Context) ([]ProofShareQueueItem, error)
 	err := a.deps.DB.Select(ctx, &items, `
         SELECT service_id,
                obtained_at,
-               request_data,
                response_data,
                compute_task_id,
                compute_done,
