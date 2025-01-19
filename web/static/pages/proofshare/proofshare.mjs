@@ -1,5 +1,6 @@
 import { LitElement, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import '/ux/task.mjs';
 
 class ProofShareElement extends LitElement {
   static properties = {
@@ -64,7 +65,7 @@ class ProofShareElement extends LitElement {
       <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
 
       <div class="container">
-        <h2>Settings</h2>
+        <h2>🏗️ Provider Settings</h2>
         <div class="mb-2">
           <label class="form-check-label">
             <input
@@ -99,7 +100,6 @@ class ProofShareElement extends LitElement {
               <th>Compute Done</th>
               <th>Submit Task</th>
               <th>Submit Done</th>
-              <th>Response Data</th>
             </tr>
           </thead>
           <tbody>
@@ -107,15 +107,10 @@ class ProofShareElement extends LitElement {
               <tr>
                 <td>${item.service_id}</td>
                 <td>${item.obtained_at}</td>
-                <td>${item.compute_task_id ?? ''}</td>
+                <td>${item.compute_task_id ? html`<task-status .taskId=${item.compute_task_id}></task-status>` : ''}</td>
                 <td>${item.compute_done ? 'Yes' : 'No'}</td>
-                <td>${item.submit_task_id ?? ''}</td>
+                <td>${item.submit_task_id ? html`<task-status .taskId=${item.submit_task_id}></task-status>` : ''}</td>
                 <td>${item.submit_done ? 'Yes' : 'No'}</td>
-                <td>
-                  <pre style="white-space: pre-wrap; max-width: 300px; max-height: 150px; overflow: auto;">
-                    ${item.response_data ? JSON.stringify(item.response_data, null, 2) : ''}
-                  </pre>
-                </td>
               </tr>
             `)}
           </tbody>

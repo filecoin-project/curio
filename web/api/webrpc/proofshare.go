@@ -2,7 +2,7 @@ package webrpc
 
 import (
 	"context"
-	"encoding/json"
+	"database/sql"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -17,13 +17,12 @@ type ProofShareMeta struct {
 
 // ProofShareQueueItem represents each row in proofshare_queue.
 type ProofShareQueueItem struct {
-	ServiceID     int64           `db:"service_id"     json:"service_id"`
-	ObtainedAt    time.Time       `db:"obtained_at"    json:"obtained_at"`
-	ResponseData  json.RawMessage `db:"response_data"  json:"response_data"`
-	ComputeTaskID *int64          `db:"compute_task_id" json:"compute_task_id"`
-	ComputeDone   bool            `db:"compute_done"   json:"compute_done"`
-	SubmitTaskID  *int64          `db:"submit_task_id" json:"submit_task_id"`
-	SubmitDone    bool            `db:"submit_done"    json:"submit_done"`
+	ServiceID     int64     `db:"service_id"     json:"service_id"`
+	ObtainedAt    time.Time `db:"obtained_at"    json:"obtained_at"`
+	ComputeTaskID *int64    `db:"compute_task_id" json:"compute_task_id"`
+	ComputeDone   bool      `db:"compute_done"   json:"compute_done"`
+	SubmitTaskID  *int64    `db:"submit_task_id" json:"submit_task_id"`
+	SubmitDone    bool      `db:"submit_done"    json:"submit_done"`
 }
 
 // PSGetMeta returns the current meta row from proofshare_meta (always a single row).
@@ -63,7 +62,6 @@ func (a *WebRPC) PSListQueue(ctx context.Context) ([]ProofShareQueueItem, error)
 	err := a.deps.DB.Select(ctx, &items, `
         SELECT service_id,
                obtained_at,
-               response_data,
                compute_task_id,
                compute_done,
                submit_task_id,
@@ -76,4 +74,88 @@ func (a *WebRPC) PSListQueue(ctx context.Context) ([]ProofShareQueueItem, error)
 	}
 
 	return items, nil
+}
+
+///////
+// CLIENT
+
+// ProofShareClientSettings model
+// Matches proofshare_client_settings table columns
+type ProofShareClientSettings struct {
+	SpID               int64   `db:"sp_id"                 json:"sp_id"`
+	Enabled            bool    `db:"enabled"               json:"enabled"`
+	Wallet             *string `db:"wallet"                json:"wallet"`
+	MinimumPendingSecs int64   `db:"minimum_pending_seconds" json:"minimum_pending_seconds"`
+	DoPoRep            bool    `db:"do_porep"              json:"do_porep"`
+	DoSnap             bool    `db:"do_snap"               json:"do_snap"`
+}
+
+// ProofShareClientRequest model
+// Matches proofshare_client_requests table columns
+type ProofShareClientRequest struct {
+	TaskID    int64        `db:"task_id"      json:"task_id"`
+	SpID      int64        `db:"sp_id"        json:"sp_id"`
+	SectorNum int64        `db:"sector_num"   json:"sector_num"`
+	ServiceID int64        `db:"service_id"   json:"service_id"`
+	Done      bool         `db:"done"         json:"done"`
+	CreatedAt time.Time    `db:"created_at"   json:"created_at"`
+	DoneAt    sql.NullTime `db:"done_at"      json:"done_at,omitempty"`
+}
+// PSClientGet fetches all proofshare_client_settings rows.
+func (a *WebRPC) PSClientGet(ctx context.Context) ([]ProofShareClientSettings, error) {
+	var out []ProofShareClientSettings
+	err := a.deps.DB.Select(ctx, &out, `
+        SELECT sp_id, enabled, wallet, minimum_pending_seconds, do_porep, do_snap
+        FROM proofshare_client_settings
+        ORDER BY sp_id ASC
+    `)
+	if err != nil {
+		return nil, xerrors.Errorf("PSClientGet: query error: %w", err)
+	}
+	return out, nil
+}
+
+// PSClientSet updates or inserts a row in proofshare_client_settings.
+// If a row for sp_id doesn’t exist, do an INSERT; otherwise do an UPDATE.
+func (a *WebRPC) PSClientSet(ctx context.Context, s ProofShareClientSettings) error {
+	_, err := a.deps.DB.Exec(ctx, `
+        INSERT INTO proofshare_client_settings (sp_id, enabled, wallet, minimum_pending_seconds, do_porep, do_snap)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (sp_id) DO UPDATE
+          SET enabled = EXCLUDED.enabled,
+              wallet  = EXCLUDED.wallet,
+              minimum_pending_seconds = EXCLUDED.minimum_pending_seconds,
+              do_porep = EXCLUDED.do_porep,
+              do_snap = EXCLUDED.do_snap
+    `,
+		s.SpID,
+		s.Enabled,
+		s.Wallet,
+		s.MinimumPendingSecs,
+		s.DoPoRep,
+		s.DoSnap,
+	)
+	if err != nil {
+		return xerrors.Errorf("PSClientSet: upsert error: %w", err)
+	}
+	return nil
+}
+
+// PSClientRequests returns the list of proofshare_client_requests for a given sp_id
+// (or all if sp_id=0 and that’s your convention).
+func (a *WebRPC) PSClientRequests(ctx context.Context, spId int64) ([]ProofShareClientRequest, error) {
+	var rows []ProofShareClientRequest
+
+	// If you want spId=0 to mean "all," you can do logic in WHERE
+	// e.g.: WHERE (sp_id = $1 OR $1=0)
+	err := a.deps.DB.Select(ctx, &rows, `
+        SELECT task_id, sp_id, sector_num, service_id, done, created_at, done_at
+        FROM proofshare_client_requests
+        WHERE (sp_id = $1 OR $1=0)
+        ORDER BY created_at DESC
+    `, spId)
+	if err != nil {
+		return nil, xerrors.Errorf("PSClientRequests: query error: %w", err)
+	}
+	return rows, nil
 }

@@ -1,0 +1,229 @@
+import { LitElement, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
+import RPCCall from '/lib/jsonrpc.mjs';
+
+class ProofShareClient extends LitElement {
+  static properties = {
+    settingsList: { type: Array },
+    spRequests: { type: Object },
+    showRequests: { type: Object },
+  };
+
+  constructor() {
+    super();
+    // All proofshare_client_settings rows
+    this.settingsList = [];
+
+    // For each sp_id => an array of requests (from proofshare_client_requests)
+    this.spRequests = {};
+
+    // For each sp_id => boolean whether we’re showing requests
+    this.showRequests = {};
+
+    this.loadAllSettings();
+  }
+
+  // Use light DOM so Bootstrap + main.css apply
+  createRenderRoot() {
+    return this;
+  }
+
+  /**
+   * Fetch all settings from PSClientGet (which now returns a list).
+   */
+  async loadAllSettings() {
+    try {
+      const list = await RPCCall('PSClientGet', []);
+      // If server returns null or not an array, default to []
+      this.settingsList = Array.isArray(list) ? list : [];
+    } catch (err) {
+      console.error('Error loading proofshare client settings:', err);
+      this.settingsList = [];
+    }
+    // Re-render
+    this.requestUpdate();
+  }
+
+  /**
+   * Toggle whether to show requests for a particular spId.
+   * If turning on, fetch them first if we haven’t yet.
+   */
+  async toggleRequests(spId) {
+    const wasShown = !!this.showRequests[spId];
+    // Flip boolean
+    this.showRequests[spId] = !wasShown;
+
+    // If we *just* turned it on, and we don’t have requests loaded, fetch them.
+    if (!wasShown && !this.spRequests[spId]) {
+      try {
+        const reqs = await RPCCall('PSClientRequests', [spId]);
+        this.spRequests[spId] = Array.isArray(reqs) ? reqs : [];
+      } catch (err) {
+        console.error(`Error loading requests for sp_id=${spId}:`, err);
+        this.spRequests[spId] = [];
+      }
+    }
+
+    // Re-render after toggling or fetching
+    this.requestUpdate();
+  }
+
+  /**
+   * Update a single field (key) in the row object (settings).
+   * We store changes in this.settingsList directly so user can press Save later.
+   */
+  onChange(row, field, value) {
+    row[field] = value;
+    this.requestUpdate();
+  }
+
+  /**
+   * Saves the given row by calling PSClientSet.
+   */
+  async saveRow(row) {
+    try {
+      // Make sure we pass exactly the shape that PSClientSet expects
+      await RPCCall('PSClientSet', [{
+        sp_id: row.sp_id,
+        enabled: row.enabled,
+        wallet: row.wallet,
+        minimum_pending_seconds: row.minimum_pending_seconds,
+        do_porep: row.do_porep,
+        do_snap: row.do_snap
+      }]);
+      console.log(`Saved row for sp_id=${row.sp_id}`);
+    } catch (err) {
+      console.error(`Error saving settings for sp_id=${row.sp_id}:`, err);
+    }
+  }
+
+  render() {
+    return html`
+      <!-- Bootstrap & main.css -->
+      <link
+        rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
+        integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3"
+        crossorigin="anonymous"
+      />
+      <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
+
+      <div class="container">
+        <h2>🛒 ProofShare Client Settings</h2>
+        <p>All rows in <code>proofshare_client_settings</code>:</p>
+
+        <table class="table table-dark table-sm table-striped">
+          <thead>
+            <tr>
+              <th>SP ID</th>
+              <th>Enabled</th>
+              <th>Wallet</th>
+              <th>Min Pending Secs</th>
+              <th>do_porep</th>
+              <th>do_snap</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${this.settingsList.map((row) => html`
+              <tr>
+                <td>
+                  ${row.sp_id === 0 ? 'default' : row.sp_id}
+                </td>
+                <td>
+                  <input
+                    type="checkbox"
+                    .checked=${row.enabled}
+                    @change=${(e) => this.onChange(row, 'enabled', e.target.checked)}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="text"
+                    style="width:150px"
+                    .value=${row.wallet || ''}
+                    @input=${(e) => this.onChange(row, 'wallet', e.target.value || null)}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="number"
+                    style="width:120px"
+                    .value=${row.minimum_pending_seconds}
+                    @input=${(e) => this.onChange(row, 'minimum_pending_seconds', parseInt(e.target.value) || 0)}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="checkbox"
+                    .checked=${row.do_porep}
+                    @change=${(e) => this.onChange(row, 'do_porep', e.target.checked)}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="checkbox"
+                    .checked=${row.do_snap}
+                    @change=${(e) => this.onChange(row, 'do_snap', e.target.checked)}
+                  />
+                </td>
+                <td>
+                  <button class="btn btn-success btn-sm" @click=${() => this.saveRow(row)}>
+                    Save
+                  </button>
+                  <button class="btn btn-info btn-sm" @click=${() => this.toggleRequests(row.sp_id)}>
+                    ${this.showRequests[row.sp_id] ? 'Hide' : 'View'} Requests
+                  </button>
+                </td>
+              </tr>
+              <!-- If showRequests[sp_id], render requests table -->
+              ${this.showRequests[row.sp_id] ? html`
+                <tr>
+                  <td colspan="7">
+                    ${this.renderRequestsFor(row.sp_id)}
+                  </td>
+                </tr>
+              ` : ''}
+            `)}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  /**
+   * Render the sub-table of requests for a given sp_id, if loaded.
+   */
+  renderRequestsFor(spId) {
+    const list = this.spRequests[spId] || [];
+    return html`
+      <h4>Requests for sp_id=${spId === 0 ? 'default' : spId}</h4>
+      <table class="table table-dark table-sm table-striped">
+        <thead>
+          <tr>
+            <th>Task ID</th>
+            <th>Sector</th>
+            <th>Service ID</th>
+            <th>Done</th>
+            <th>Created At</th>
+            <th>Done At</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map(req => html`
+            <tr>
+              <td>${req.task_id}</td>
+              <td>${req.sp_id}:${req.sector_num}</td>
+              <td>${req.service_id}</td>
+              <td>${req.done ? 'Yes' : 'No'}</td>
+              <td>${req.created_at}</td>
+              <td>${req.done_at?.Time || ''}</td>
+            </tr>
+          `)}
+        </tbody>
+      </table>
+    `;
+  }
+}
+
+// Register the custom element
+customElements.define('proof-share-client', ProofShareClient);
