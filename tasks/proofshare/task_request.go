@@ -135,6 +135,21 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return false, err
 	}
 
+	defer func() {
+		if !done {
+			return
+		}
+
+		_, err = t.db.Exec(ctx, `
+			UPDATE proofshare_meta SET request_task_id = NULL WHERE singleton = true
+		`)
+		if err != nil {
+			log.Errorw("failed to reset request_task_id", "error", err)
+			done = false
+			err = xerrors.Errorf("failed to reset request_task_id: %w", err)
+		}
+	}()
+
 	log.Infow("checked queue count", "count", queueCount)
 
 	toRequest := RequestQueueHighWaterMark - queueCount
