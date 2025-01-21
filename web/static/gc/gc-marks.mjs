@@ -3,23 +3,60 @@ import RPCCall from '/lib/jsonrpc.mjs';
 
 class StorageGCStats extends LitElement {
     static properties = {
-        data: { type: Array }
+        data: { type: Array },
+        pageSize: { type: Number }, // Make pageSize a reactive property
+        currentPage: { type: Number },
+        totalPages: { type: Number },
+        totalCount: { type: Number },
     };
 
     constructor() {
         super();
         this.data = [];
-        this.loadData();
+        this.pageSize = 100; // Default value for page size
+        this.currentPage = 1;
+        this.totalPages = 0;
+        this.totalCount = 0;
+        this.loadData(); // Load the initial data for page 1
     }
 
-    async loadData() {
-        this.data = await RPCCall('StorageGCMarks');
+    async loadData(page = 1) {
+        const offset = (page - 1) * this.pageSize;
+
+        // Fetch data from the backend with limit and offset
+        const response = await RPCCall('StorageGCMarks', { limit: this.pageSize, offset });
+
+        this.data = response.marks; // Data for the current page
+        this.totalCount = response.total; // Total number of rows
+        this.totalPages = Math.ceil(this.totalCount / this.pageSize); // Calculate total pages
+        this.currentPage = page; // Update the current page
         this.requestUpdate();
     }
+
 
     async approveEntry(entry) {
         await RPCCall('StorageGCApprove', [entry.Actor, entry.SectorNum, entry.FileType, entry.StorageID]);
         this.loadData();
+    }
+
+    renderPagination() {
+        return html`
+            <nav>
+                <ul class="pagination">
+                    <li class="page-item ${this.currentPage === 1 ? 'disabled' : ''}">
+                        <button class="page-link" @click="${() => this.loadData(this.currentPage - 1)}">Previous</button>
+                    </li>
+                    <li class="page-item disabled">
+                        <span class="page-link">
+                            Page ${this.currentPage} of ${this.totalPages}
+                        </span>
+                    </li>
+                    <li class="page-item ${this.currentPage === this.totalPages ? 'disabled' : ''}">
+                        <button class="page-link" @click="${() => this.loadData(this.currentPage + 1)}">Next</button>
+                    </li>
+                </ul>
+            </nav>
+        `;
     }
 
     render() {
@@ -55,15 +92,15 @@ class StorageGCStats extends LitElement {
                         <td>${entry.TypeName}</td>
                         <td>${entry.CreatedAt}</td>
                         <td>
-                            ${entry.Approved ?
-            "Yes " + entry.ApprovedAt :
-            html`No <button @click="${() => this.approveEntry(entry)}" class="btn btn-primary btn-sm">Approve</button>`
-        }
+                            ${entry.Approved
+                                    ? `Yes ${entry.ApprovedAt}`
+                                    : html`No <button @click="${() => this.approveEntry(entry)}" class="btn btn-primary btn-sm">Approve</button>`}
                         </td>
                     </tr>
-                    `)}
+                `)}
                 </tbody>
             </table>
+            ${this.renderPagination()}
         `;
     }
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 
@@ -102,15 +103,26 @@ type StorageGCMarks struct {
 	Miner string
 }
 
-func (a *WebRPC) StorageGCMarks(ctx context.Context) ([]*StorageGCMarks, error) {
+func (a *WebRPC) StorageGCMarks(ctx context.Context, limit int, offset int) ([]*StorageGCMarks, int, error) {
 	var marks []*StorageGCMarks
-	err := a.deps.DB.Select(ctx, &marks, `
+
+	var total int
+
+	// Get the total count of rows
+	err := a.deps.DB.Select(ctx, &total, `SELECT COUNT(*) FROM storage_removal_marks`)
+	if err != nil {
+		return nil, 0, xerrors.Errorf("querying storage removal marks: %w", err)
+	}
+
+	err = a.deps.DB.Select(ctx, &marks, `
 		SELECT m.sp_id, m.sector_num, m.sector_filetype, m.storage_id, m.created_at, m.approved, m.approved_at, sl.can_seal, sl.can_store, sl.urls
 			FROM storage_removal_marks m LEFT JOIN storage_path sl ON m.storage_id = sl.storage_id
-			ORDER BY created_at DESC`)
+			ORDER BY created_at DESC LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
+
+	minerMap := make(map[int64]address.Address)
 
 	for i, m := range marks {
 		marks[i].TypeName = storiface.SectorFileType(m.FileType).String()
@@ -129,14 +141,18 @@ func (a *WebRPC) StorageGCMarks(ctx context.Context) ([]*StorageGCMarks, error) 
 			return must.One(url.Parse(u)).Host
 		})
 		marks[i].Urls = strings.Join(us, ", ")
-		maddr, err := address.NewIDAddress(uint64(marks[i].Actor))
-		if err != nil {
-			return nil, err
+		maddr, ok := minerMap[marks[i].Actor]
+		if !ok {
+			maddr, err := address.NewIDAddress(uint64(marks[i].Actor))
+			if err != nil {
+				return nil, 0, err
+			}
+			minerMap[marks[i].Actor] = maddr
 		}
 		marks[i].Miner = maddr.String()
 	}
 
-	return marks, nil
+	return marks, total, nil
 }
 
 func (a *WebRPC) StorageGCApprove(ctx context.Context, actor int64, sectorNum int64, fileType int64, storageID string) error {
