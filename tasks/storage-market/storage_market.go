@@ -3,6 +3,7 @@ package storage_market
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -74,7 +75,7 @@ type MK12Pipeline struct {
 	PieceCid  string              `db:"piece_cid"`
 	PieceSize abi.PaddedPieceSize `db:"piece_size"`
 	Offline   bool                `db:"offline"` // data is not downloaded before starting the deal
-	RawSize   int64               `db:"raw_size"`
+	RawSize   sql.NullInt64       `db:"raw_size"`
 	URL       *string             `db:"url"`
 	Headers   json.RawMessage     `db:"headers"`
 
@@ -691,7 +692,7 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 		}
 
 		var sp *abi.RegisteredSealProof
-		sector, sp, err = d.pin.AllocatePieceToSector(ctx, tx, maddr, pi, deal.RawSize, *dealUrl, headers)
+		sector, sp, err = d.pin.AllocatePieceToSector(ctx, tx, maddr, pi, deal.RawSize.Int64, *dealUrl, headers)
 		if err != nil {
 			return false, xerrors.Errorf("UUID: %s: failed to add deal to a sector: %w", deal.UUID, err)
 		}
