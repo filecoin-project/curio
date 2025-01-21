@@ -1,8 +1,6 @@
 module github.com/filecoin-project/curio
 
-go 1.22.7
-
-toolchain go1.22.8
+go 1.23.4
 
 require (
 	contrib.go.opencensus.io/exporter/prometheus v0.4.2
