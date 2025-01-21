@@ -28,6 +28,10 @@ import (
 	"github.com/multiformats/go-multiaddr"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
@@ -53,12 +57,15 @@ var (
 
 // peerInfo represents information about a peer, including its ID and private key.
 type peerInfo struct {
-	ID  peer.ID
-	Key crypto.PrivKey
+	ID    peer.ID
+	Key   crypto.PrivKey
+	SPID  abi.ActorID
+	Miner address.Address
 }
 
 // Provider represents a provider for IPNI.
 type Provider struct {
+	full          api.Chain
 	db            *harmonydb.DB
 	pieceProvider *pieceprovider.PieceProvider
 	indexStore    *indexstore.IndexStore
@@ -84,7 +91,7 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 
 	keyMap := make(map[string]*peerInfo)
 
-	rows, err := d.DB.Query(ctx, `SELECT priv_key FROM ipni_peerid`)
+	rows, err := d.DB.Query(ctx, `SELECT priv_key, peer_id, sp_id FROM ipni_peerid`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get private libp2p keys from DB: %w", err)
 	}
@@ -93,7 +100,9 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 
 	for rows.Next() && rows.Err() == nil {
 		var priv []byte
-		err := rows.Scan(&priv)
+		var peerID string
+		var spID abi.ActorID
+		err := rows.Scan(&priv, &peerID, &spID)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to scan the row: %w", err)
 		}
@@ -108,9 +117,20 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 			return nil, xerrors.Errorf("generating peer ID from private key: %w", err)
 		}
 
+		if id.String() != peerID {
+			return nil, xerrors.Errorf("peer ID mismatch: got %s (calculated), expected %s (DB)", id.String(), peerID)
+		}
+
+		maddr, err := address.NewIDAddress(uint64(spID))
+		if err != nil {
+			return nil, xerrors.Errorf("parsing miner ID: %w", err)
+		}
+
 		keyMap[id.String()] = &peerInfo{
-			Key: pkey,
-			ID:  id,
+			Key:   pkey,
+			ID:    id,
+			SPID:  spID,
+			Miner: maddr,
 		}
 
 		log.Infow("ipni peer ID", "peerID", id.String())
@@ -154,6 +174,7 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 	}
 
 	return &Provider{
+		full:                d.Chain,
 		db:                  d.DB,
 		pieceProvider:       d.PieceProvider,
 		indexStore:          d.IndexStore,
@@ -444,6 +465,10 @@ func (p *Provider) StartPublishing(ctx context.Context) {
 			case <-ticker.C:
 				// Call the function to publish head for each provider
 				p.publishHead(ctx)
+				err := p.updateSparkContract(ctx)
+				if err != nil {
+					log.Errorw("failed to update ipni provider peer mapping", "err", err)
+				}
 			case <-ctx.Done():
 				ticker.Stop()
 				return

@@ -1,0 +1,43 @@
+{
+  "name": "miner-peerid-mapping",
+  "version": "1.0.0",
+  "description": "A Hardhat project for deploying and interacting with the MinerPeerIDMapping smart contract.",
+  "main": "hardhat.config.ts",
+  "scripts": {
+    "build": "npx hardhat compile",
+    "deploy": "npx hardhat deploy --network devnet",
+    "deploy:calibration": "npx hardhat deploy --network calibrationnet",
+    "deploy:mainnet": "npx hardhat deploy --network mainnet",
+    "test": "npx hardhat test",
+    "lint": "npx eslint ./contracts ./test",
+    "format": "npx prettier --write ./contracts ./test"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "^3.0.8",
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@types/node": "^22.10.7",
+    "chai": "^4.3.7",
+    "chai-ethers": "^0.0.1",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.2",
+    "hardhat": "^2.22.10",
+    "ts-mocha": "^10.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "@zondax/filecoin-solidity": "^4.0.3",
+    "hardhat-deploy": "^0.12.4",
+    "hardhat-deploy-ethers": "^0.4.2"
+  },
+  "keywords": [
+    "hardhat",
+    "solidity",
+    "filecoin",
+    "fevm",
+    "miner",
+    "peerid"
+  ],
+  "author": "Mayank Pandey (Lexluthr)",
+  "license": "MIT"
+}
