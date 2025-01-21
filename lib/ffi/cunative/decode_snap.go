@@ -34,7 +34,7 @@ void snap_decode_loop(const uint8_t *replica, const uint8_t *key, const uint8_t 
 import "C"
 
 import (
-	"encoding/hex"
+	poseidondst "github.com/filecoin-project/curio/lib/proof/poseidon"
 	"io"
 	"math/big"
 	"math/bits"
@@ -45,7 +45,6 @@ import (
 	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 	"github.com/ipfs/go-cid"
 	pool "github.com/libp2p/go-buffer-pool"
-	"github.com/snadrus/must"
 	"github.com/triplewz/poseidon"
 	"golang.org/x/xerrors"
 
@@ -254,7 +253,7 @@ func Phi(commDNew, commROld BytesLE) (B32le, error) {
 	inputB := bigIntLE(commROld)
 	input := []*big.Int{inputA, inputB}
 
-	cons, err := poseidon.GenPoseidonConstants[*CustomDomainSepTagElement](3)
+	cons, err := poseidon.GenPoseidonConstants[*poseidondst.SnapElement](3)
 	if err != nil {
 		return [32]byte{}, err
 	}
@@ -275,7 +274,7 @@ func rho(phi B32le, high uint32) (*fr.Element, error) {
 	inputB := new(big.Int).SetUint64(uint64(high))
 	input := []*big.Int{inputA, inputB}
 
-	cons, err := poseidon.GenPoseidonConstants[*CustomDomainSepTagElement](3)
+	cons, err := poseidon.GenPoseidonConstants[*poseidondst.SnapElement](3)
 	if err != nil {
 		return nil, err
 	}
@@ -379,148 +378,3 @@ func bigIntLE(in BytesLE) *big.Int {
 	// SetBytes is BE, so we needed to invert
 	return new(big.Int).SetBytes(b)
 }
-
-// CustomDomainSepTagElement is a custom element which overrides SetString used by the poseidon hash function to set
-// the default hardcoded DST. We hijack the SetString function to set the DST to the hardcoded value needed for Snap.
-type CustomDomainSepTagElement struct {
-	*fr.Element
-}
-
-func (c *CustomDomainSepTagElement) SetUint64(u uint64) *CustomDomainSepTagElement {
-	if c.Element == nil {
-		c.Element = new(fr.Element)
-	}
-
-	c.Element = c.Element.SetUint64(u)
-	return c
-}
-
-func (c *CustomDomainSepTagElement) SetBigInt(b *big.Int) *CustomDomainSepTagElement {
-	if c.Element == nil {
-		c.Element = new(fr.Element)
-	}
-
-	c.Element = c.Element.SetBigInt(b)
-	return c
-}
-
-func (c *CustomDomainSepTagElement) SetBytes(bytes []byte) *CustomDomainSepTagElement {
-	if c.Element == nil {
-		c.Element = new(fr.Element)
-	}
-
-	c.Element = c.Element.SetBytes(bytes)
-	return c
-}
-
-func (c *CustomDomainSepTagElement) BigInt(b *big.Int) *big.Int {
-	if c.Element == nil {
-		c.Element = new(fr.Element)
-	}
-
-	return c.Element.BigInt(b)
-}
-
-func (c *CustomDomainSepTagElement) SetOne() *CustomDomainSepTagElement {
-	if c.Element == nil {
-		c.Element = new(fr.Element)
-	}
-
-	c.Element = c.Element.SetOne()
-	return c
-}
-
-func (c *CustomDomainSepTagElement) SetZero() *CustomDomainSepTagElement {
-	if c.Element == nil {
-		c.Element = new(fr.Element)
-	}
-
-	c.Element = c.Element.SetZero()
-	return c
-}
-
-func (c *CustomDomainSepTagElement) Inverse(e *CustomDomainSepTagElement) *CustomDomainSepTagElement {
-	if c.Element == nil {
-		c.Element = new(fr.Element)
-	}
-
-	c.Element = c.Element.Inverse(e.Element)
-	return c
-}
-
-func (c *CustomDomainSepTagElement) Set(e *CustomDomainSepTagElement) *CustomDomainSepTagElement {
-	if c.Element == nil {
-		c.Element = new(fr.Element)
-	}
-
-	c.Element = c.Element.Set(e.Element)
-	return c
-}
-
-func (c *CustomDomainSepTagElement) Square(e *CustomDomainSepTagElement) *CustomDomainSepTagElement {
-	if c.Element == nil {
-		c.Element = new(fr.Element)
-	}
-
-	c.Element = c.Element.Square(e.Element)
-	return c
-}
-
-func (c *CustomDomainSepTagElement) Mul(e2 *CustomDomainSepTagElement, e *CustomDomainSepTagElement) *CustomDomainSepTagElement {
-	if c.Element == nil {
-		c.Element = new(fr.Element)
-	}
-
-	c.Element = c.Element.Mul(e2.Element, e.Element)
-	return c
-}
-
-func (c *CustomDomainSepTagElement) Add(e2 *CustomDomainSepTagElement, e *CustomDomainSepTagElement) *CustomDomainSepTagElement {
-	if c.Element == nil {
-		c.Element = new(fr.Element)
-	}
-
-	c.Element = c.Element.Add(e2.Element, e.Element)
-	return c
-}
-
-func (c *CustomDomainSepTagElement) Sub(e2 *CustomDomainSepTagElement, e *CustomDomainSepTagElement) *CustomDomainSepTagElement {
-	if c.Element == nil {
-		c.Element = new(fr.Element)
-	}
-
-	c.Element = c.Element.Sub(e2.Element, e.Element)
-	return c
-}
-
-func (c *CustomDomainSepTagElement) Cmp(x *CustomDomainSepTagElement) int {
-	if c.Element == nil {
-		c.Element = new(fr.Element)
-	}
-
-	return c.Element.Cmp(x.Element)
-}
-
-func (c *CustomDomainSepTagElement) SetString(s string) (*CustomDomainSepTagElement, error) {
-	if s == "3" {
-		genRandomnessDST := "0000000000010000000000000000000000000000000000000000000000000000"
-		dstLE := must.One(hex.DecodeString(genRandomnessDST))
-		inverted := make([]byte, len(dstLE))
-		for i := 0; i < len(dstLE); i++ {
-			inverted[i] = dstLE[len(dstLE)-1-i]
-		}
-
-		c.SetBytes(inverted)
-		return c, nil
-	}
-
-	el, err := c.Element.SetString(s)
-	if err != nil {
-		return nil, err
-	}
-
-	c.Element = el
-	return c, nil
-}
-
-var _ poseidon.Element[*CustomDomainSepTagElement] = &CustomDomainSepTagElement{}
