@@ -24,11 +24,32 @@ import (
 )
 
 func (p *Provider) updateSparkContract(ctx context.Context) error {
+	var priv []byte
+	var onChainPeerID string
+
+	err := p.db.QueryRow(ctx, `select priv_key, peer_id from libp2p LIMIT 1`).Scan(&priv, &onChainPeerID)
+	if err != nil {
+		return xerrors.Errorf("querying libp2p peer: %w", err)
+	}
+
+	pKey, err := crypto.UnmarshalPrivateKey(priv)
+	if err != nil {
+		return xerrors.Errorf("unmarshaling private key: %w", err)
+	}
+
 	for _, pInfo := range p.keys {
 		pInfo := pInfo
 		mInfo, err := p.full.StateMinerInfo(ctx, pInfo.Miner, types.EmptyTSK)
 		if err != nil {
 			return err
+		}
+
+		if mInfo.PeerId == nil {
+			return xerrors.Errorf("peer id not found for miner: %s", pInfo.Miner)
+		}
+
+		if mInfo.PeerId.String() != onChainPeerID {
+			return xerrors.Errorf("peer id mismatch for miner: %s: onChain: %s and DB: %s", pInfo.Miner, mInfo.PeerId.String(), onChainPeerID)
 		}
 
 		contractID, err := spark.GetContractAddress()
@@ -81,7 +102,7 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 		var params []byte
 
 		if len(res.MsgRct.Return) == 0 {
-			params, err = p.getSparkParams(pInfo.SPID, pInfo.ID.String(), pInfo.Key, "add")
+			params, err = p.getSparkParams(pInfo.SPID, pInfo.ID.String(), pKey, "add")
 			if err != nil {
 				return xerrors.Errorf("failed to get spark params for %s: %w", pInfo.Miner.String(), err)
 			}
@@ -97,7 +118,7 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 				continue
 			}
 
-			params, err = p.getSparkParams(pInfo.SPID, pInfo.ID.String(), pInfo.Key, "update")
+			params, err = p.getSparkParams(pInfo.SPID, pInfo.ID.String(), pKey, "update")
 			if err != nil {
 				return xerrors.Errorf("failed to get spark params for %s: %w", pInfo.Miner.String(), err)
 			}
