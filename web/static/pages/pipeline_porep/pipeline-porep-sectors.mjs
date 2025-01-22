@@ -382,6 +382,7 @@ export function renderSectorState(name, rowspan, sector, task, after, started) {
     // 1) "waiting for precommit"
     if (
         name === 'PComm Msg' &&
+        sector.AfterSynthetic &&
         sector.PreCommitReadyAt &&
         !sector.AfterPrecommitMsg &&
         !sector.TaskPrecommitMsg
