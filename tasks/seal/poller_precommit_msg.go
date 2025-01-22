@@ -2,6 +2,7 @@ package seal
 
 import (
 	"context"
+	"database/sql"
 	"sort"
 	"time"
 
@@ -102,14 +103,17 @@ func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context, tasks []pol
 				// Process batch if slack has reached
 				if (time.Duration(batch.cutoff-ts.Height()) * time.Duration(build.BlockDelaySecs) * time.Second) < s.cfg.preCommit.Slack {
 					s.sendPreCommitBatch(ctx, spid, batch.sectors)
+					continue
 				}
 				// Process batch if timeout has reached
 				if batch.earliest.Add(s.cfg.preCommit.Timeout).After(time.Now()) {
 					s.sendPreCommitBatch(ctx, spid, batch.sectors)
+					continue
 				}
 				// Process batch if base fee is low enough for us to send
 				if ts.MinTicketBlock().ParentBaseFee.LessThan(s.cfg.preCommit.BaseFeeThreshold) {
 					s.sendPreCommitBatch(ctx, spid, batch.sectors)
+					continue
 				}
 			}
 		}
@@ -131,8 +135,8 @@ func (s *SealPoller) sendPreCommitBatch(ctx context.Context, spid int64, sectors
 }
 
 type dbExecResult struct {
-	PrecommitMsgCID *string `db:"precommit_msg_cid"`
-	CommitMsgCID    *string `db:"commit_msg_cid"`
+	PrecommitMsgCID sql.NullString `db:"precommit_msg_cid"`
+	CommitMsgCID    sql.NullString `db:"commit_msg_cid"`
 
 	ExecutedTskCID   string `db:"executed_tsk_cid"`
 	ExecutedTskEpoch int64  `db:"executed_tsk_epoch"`
@@ -195,12 +199,12 @@ func (s *SealPoller) pollPrecommitMsgFail(ctx context.Context, task pollTask, ex
 		// just retry
 		return s.pollRetryPrecommitMsgSend(ctx, task, execResult)
 	default:
-		return xerrors.Errorf("precommit message failed with exit code %s", exitcode.ExitCode(execResult.ExecutedRcptExitCode))
+		return xerrors.Errorf("precommit message (s %d:%d m:%s) failed with exit code %s", task.SpID, task.SectorNumber, execResult.PrecommitMsgCID.String, exitcode.ExitCode(execResult.ExecutedRcptExitCode))
 	}
 }
 
 func (s *SealPoller) pollRetryPrecommitMsgSend(ctx context.Context, task pollTask, execResult dbExecResult) error {
-	if execResult.PrecommitMsgCID == nil {
+	if !execResult.PrecommitMsgCID.Valid {
 		return xerrors.Errorf("precommit msg cid was nil")
 	}
 
@@ -209,7 +213,7 @@ func (s *SealPoller) pollRetryPrecommitMsgSend(ctx context.Context, task pollTas
 	_, err := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET
                                 precommit_msg_cid = NULL, task_id_precommit_msg = NULL, after_precommit_msg = FALSE
                             	WHERE precommit_msg_cid = $1 AND sp_id = $2 AND sector_number = $3 AND after_precommit_msg_success = FALSE`,
-		*execResult.PrecommitMsgCID, task.SpID, task.SectorNumber)
+		execResult.PrecommitMsgCID.String, task.SpID, task.SectorNumber)
 	if err != nil {
 		return xerrors.Errorf("update sectors_sdr_pipeline to retry precommit msg send: %w", err)
 	}

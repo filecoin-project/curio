@@ -19,7 +19,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/proof"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	// TODO everywhere here that we call this we should call our proxy instead.
 	ffi "github.com/filecoin-project/filecoin-ffi"
@@ -525,11 +525,121 @@ func changePathType(path string, newType storiface.SectorFileType) (string, erro
 
 	return newPath, nil
 }
+
+func (sb *SealCalls) GenerateUnsealedSector(ctx context.Context, sector storiface.SectorRef, sectorPaths, pathIDs storiface.SectorPaths, keepUnsealed bool) error {
+	ssize, err := sector.ProofType.SectorSize()
+	if err != nil {
+		return xerrors.Errorf("getting sector size: %w", err)
+
+	}
+
+	// Return early if unsealed copy is not required
+	if !keepUnsealed {
+		return nil
+	}
+
+	// We are going to be moving the unsealed file, no need to allocate storage specifically for it
+	sectorPaths.Unsealed, err = changePathType(sectorPaths.Cache, storiface.FTUnsealed)
+	if err != nil {
+		return xerrors.Errorf("changing path type: %w", err)
+
+	}
+
+	pathIDs.Unsealed = pathIDs.Cache // this is just an uuid string
+
+	defer func() {
+		// We don't pass FTUnsealed to Acquire, so releaseSector won't declare it. Do it here.
+		if err := sb.sectors.sindex.StorageDeclareSector(ctx, storiface.ID(pathIDs.Unsealed), sector.ID, storiface.FTUnsealed, true); err != nil {
+			log.Errorf("declare unsealed sector error: %s", err)
+		}
+	}()
+
+	// tree-d contains exactly unsealed data in the prefix, so
+	// * we move it to a temp file
+	// * we truncate the temp file to the sector size
+	// * we move the temp file to the unsealed location
+
+	// temp path in cache where we'll move tree-d before truncating
+	// it is in the cache directory so that we can use os.Rename to move it
+	// to unsealed (which may be on a different filesystem)
+	tempUnsealed := filepath.Join(sectorPaths.Cache, storiface.SectorName(sector.ID))
+
+	_, terr := os.Stat(tempUnsealed)
+	tempUnsealedExists := terr == nil
+
+	// First handle an edge case where we have already gone through this step,
+	// in that case we'll see tree-d missing and unsealed present
+
+	if _, err := os.Stat(filepath.Join(sectorPaths.Cache, proofpaths.TreeDName)); err != nil {
+		if os.IsNotExist(err) {
+			// check that unsealed exists and is the right size
+			st, err := os.Stat(sectorPaths.Unsealed)
+			if err != nil {
+				if os.IsNotExist(err) {
+					if tempUnsealedExists {
+						// unsealed file does not exist, but temp unsealed file does
+						// so we can just resume where the previous attempt left off
+						return TruncateAndMoveUnsealed(tempUnsealed, sectorPaths.Unsealed, ssize)
+					}
+					return xerrors.Errorf("neither unsealed file nor temp-unsealed file exists")
+
+				}
+				return xerrors.Errorf("stat unsealed file: %w", err)
+
+			}
+			if st.Size() != int64(ssize) {
+				if tempUnsealedExists {
+					// unsealed file exists but is the wrong size, and temp unsealed file exists
+					// so we can just resume where the previous attempt left off with some cleanup
+
+					if err := os.Remove(sectorPaths.Unsealed); err != nil {
+						return xerrors.Errorf("removing unsealed file from last attempt: %w", err)
+
+					}
+
+					return TruncateAndMoveUnsealed(tempUnsealed, sectorPaths.Unsealed, ssize)
+
+				}
+				return xerrors.Errorf("unsealed file is not the right size: %d != %d and temp unsealed is missing", st.Size(), ssize)
+
+			}
+
+			// all good, just log that this edge case happened
+			log.Warnw("unsealed file exists but tree-d is missing, skipping move", "sector", sector.ID, "unsealed", sectorPaths.Unsealed, "cache", sectorPaths.Cache)
+			return nil
+		}
+		return xerrors.Errorf("stat tree-d file: %w", err)
+	}
+
+	// If the state in clean do the move
+
+	// move tree-d to temp file
+	if err := os.Rename(filepath.Join(sectorPaths.Cache, proofpaths.TreeDName), tempUnsealed); err != nil {
+		return xerrors.Errorf("moving tree-d to temp file: %w", err)
+	}
+
+	return TruncateAndMoveUnsealed(tempUnsealed, sectorPaths.Unsealed, ssize)
+}
+
+func TruncateAndMoveUnsealed(tempUnsealed, unsealed string, ssize abi.SectorSize) error {
+	// truncate unsealed file to sector size
+	if err := os.Truncate(tempUnsealed, int64(ssize)); err != nil {
+		return xerrors.Errorf("truncating unsealed file to sector size: %w", err)
+	}
+
+	// move temp file to unsealed location
+	if err := paths.Move(tempUnsealed, unsealed); err != nil {
+		return xerrors.Errorf("move temp unsealed sector to final location (%s -> %s): %w", tempUnsealed, unsealed, err)
+	}
+	return nil
+}
+
 func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface.SectorRef, keepUnsealed bool) error {
 	sectorPaths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, nil, sector, storiface.FTCache, storiface.FTNone, storiface.PathSealing)
 	if err != nil {
 		return xerrors.Errorf("acquiring sector paths: %w", err)
 	}
+
 	defer releaseSector()
 
 	ssize, err := sector.ProofType.SectorSize()
@@ -537,98 +647,14 @@ func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface.Sector
 		return xerrors.Errorf("getting sector size: %w", err)
 	}
 
-	if keepUnsealed {
-		// We are going to be moving the unsealed file, no need to allocate storage specifically for it
-		sectorPaths.Unsealed, err = changePathType(sectorPaths.Cache, storiface.FTUnsealed)
-		if err != nil {
-			return xerrors.Errorf("changing path type: %w", err)
-		}
-
-		pathIDs.Unsealed = pathIDs.Cache // this is just an uuid string
-
-		defer func() {
-			// We don't pass FTUnsealed to Acquire, so releaseSector won't declare it. Do it here.
-			if err := sb.sectors.sindex.StorageDeclareSector(ctx, storiface.ID(pathIDs.Unsealed), sector.ID, storiface.FTUnsealed, true); err != nil {
-				log.Errorf("declare unsealed sector error: %+v", err)
-			}
-		}()
-
-		// tree-d contains exactly unsealed data in the prefix, so
-		// * we move it to a temp file
-		// * we truncate the temp file to the sector size
-		// * we move the temp file to the unsealed location
-
-		// temp path in cache where we'll move tree-d before truncating
-		// it is in the cache directory so that we can use os.Rename to move it
-		// to unsealed (which may be on a different filesystem)
-		tempUnsealed := filepath.Join(sectorPaths.Cache, storiface.SectorName(sector.ID))
-
-		_, terr := os.Stat(tempUnsealed)
-		tempUnsealedExists := terr == nil
-
-		// First handle an edge case where we have already gone through this step,
-		// but ClearCache or later steps failed. In that case we'll see tree-d missing and unsealed present
-
-		if _, err := os.Stat(filepath.Join(sectorPaths.Cache, proofpaths.TreeDName)); err != nil {
-			if os.IsNotExist(err) {
-				// check that unsealed exists and is the right size
-				st, err := os.Stat(sectorPaths.Unsealed)
-				if err != nil {
-					if os.IsNotExist(err) {
-						if tempUnsealedExists {
-							// unsealed file does not exist, but temp unsealed file does
-							// so we can just resume where the previous attempt left off
-							goto retryUnsealedMove
-						}
-						return xerrors.Errorf("neither unsealed file nor temp-unsealed file exists")
-					}
-					return xerrors.Errorf("stat unsealed file: %w", err)
-				}
-				if st.Size() != int64(ssize) {
-					if tempUnsealedExists {
-						// unsealed file exists but is the wrong size, and temp unsealed file exists
-						// so we can just resume where the previous attempt left off with some cleanup
-
-						if err := os.Remove(sectorPaths.Unsealed); err != nil {
-							return xerrors.Errorf("removing unsealed file from last attempt: %w", err)
-						}
-
-						goto retryUnsealedMove
-					}
-					return xerrors.Errorf("unsealed file is not the right size: %d != %d and temp unsealed is missing", st.Size(), ssize)
-				}
-
-				// all good, just log that this edge case happened
-				log.Warnw("unsealed file exists but tree-d is missing, skipping move", "sector", sector.ID, "unsealed", sectorPaths.Unsealed, "cache", sectorPaths.Cache)
-				goto afterUnsealedMove
-			}
-			return xerrors.Errorf("stat tree-d file: %w", err)
-		}
-
-		// If the state in clean do the move
-
-		// move tree-d to temp file
-		if err := os.Rename(filepath.Join(sectorPaths.Cache, proofpaths.TreeDName), tempUnsealed); err != nil {
-			return xerrors.Errorf("moving tree-d to temp file: %w", err)
-		}
-
-	retryUnsealedMove:
-
-		// truncate sealed file to sector size
-		if err := os.Truncate(tempUnsealed, int64(ssize)); err != nil {
-			return xerrors.Errorf("truncating unsealed file to sector size: %w", err)
-		}
-
-		// move temp file to unsealed location
-		if err := paths.Move(tempUnsealed, sectorPaths.Unsealed); err != nil {
-			return xerrors.Errorf("move temp unsealed sector to final location (%s -> %s): %w", tempUnsealed, sectorPaths.Unsealed, err)
-		}
-	}
-
-afterUnsealedMove:
+	// If this is a synthetic proof sector then unsealed should already exist otherwise generate it
 	if abi.Synthetic[sector.ProofType] {
-		if err = ffi.ClearSyntheticProofs(uint64(ssize), sectorPaths.Cache); err != nil {
+		if err := ffi.ClearSyntheticProofs(uint64(ssize), sectorPaths.Cache); err != nil {
 			return xerrors.Errorf("Unable to delete Synth cache: %w", err)
+		}
+	} else {
+		if err := sb.GenerateUnsealedSector(ctx, sector, sectorPaths, pathIDs, keepUnsealed); err != nil {
+			return xerrors.Errorf("generating unsealed copy of the sector: %w", err)
 		}
 	}
 
@@ -753,7 +779,7 @@ func (sb *SealCalls) TreeD(ctx context.Context, sector storiface.SectorRef, unse
 	return nil
 }
 
-func (sb *SealCalls) SyntheticProofs(ctx context.Context, task *harmonytask.TaskID, sector storiface.SectorRef, sealed cid.Cid, unsealed cid.Cid, randomness abi.SealRandomness, pieces []abi.PieceInfo) error {
+func (sb *SealCalls) SyntheticProofs(ctx context.Context, task *harmonytask.TaskID, sector storiface.SectorRef, sealed cid.Cid, unsealed cid.Cid, randomness abi.SealRandomness, pieces []abi.PieceInfo, keepUnsealed bool) error {
 	fspaths, pathIDs, releaseSector, err := sb.sectors.AcquireSector(ctx, task, sector, storiface.FTCache|storiface.FTSealed, storiface.FTNone, storiface.PathSealing)
 	if err != nil {
 		return xerrors.Errorf("acquiring sector paths: %w", err)
@@ -778,6 +804,11 @@ func (sb *SealCalls) SyntheticProofs(ctx context.Context, task *harmonytask.Task
 		if err != nil {
 			return xerrors.Errorf("checking PreCommit for synthetic proofs for num:%d tkt:%v seed:%v sealedCID:%v, unsealedCID:%v failed: %w", sector.ID.Number, randomness, sd[:], sealed, unsealed, err)
 		}
+	}
+
+	// Generate unsealed copy before clearing cache
+	if err = sb.GenerateUnsealedSector(ctx, sector, fspaths, pathIDs, keepUnsealed); err != nil {
+		return xerrors.Errorf("generating unsealed sector: %w", err)
 	}
 
 	if err = ffi.ClearCache(uint64(ssize), fspaths.Cache); err != nil {

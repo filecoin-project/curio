@@ -227,7 +227,7 @@ During the build process it will clone and build SPDK, sppark, and blst.
 
 SPDK must be setup after every reboot:
 ```
-cd deps/spdk-v22.09
+cd deps/spdk-v24.05
 sudo env NRHUGE=36 ./scripts/setup.sh
 ```
 
