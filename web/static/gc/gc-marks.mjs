@@ -15,7 +15,7 @@ class StorageGCStats extends LitElement {
     constructor() {
         super();
         this.data = [];
-        this.pageSize = 5; // Default number of rows per page
+        this.pageSize = 50; // Default number of rows per page
         this.currentPage = 1;
         this.totalPages = 0;
         this.totalCount = 0;
