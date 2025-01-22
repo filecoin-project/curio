@@ -48,18 +48,24 @@ type ProveTask struct {
 	ethClient *ethclient.Client
 	sender    *message.SenderETH
 	cpr       *cachedreader.CachedPieceReader
+	fil       ProveTaskChainApi
 
 	head atomic.Pointer[chainTypes.TipSet]
 
 	addFunc promise.Promise[harmonytask.AddTaskFunc]
 }
 
-func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethClient *ethclient.Client, sender *message.SenderETH, cpr *cachedreader.CachedPieceReader) *ProveTask {
+type ProveTaskChainApi interface {
+	StateGetRandomnessDigestFromBeacon(ctx context.Context, randEpoch abi.ChainEpoch, tsk chainTypes.TipSetKey) (abi.Randomness, error) //perm:read
+}
+
+func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethClient *ethclient.Client, fil ProveTaskChainApi, sender *message.SenderETH, cpr *cachedreader.CachedPieceReader) *ProveTask {
 	pt := &ProveTask{
 		db:        db,
 		ethClient: ethClient,
 		sender:    sender,
 		cpr:       cpr,
+		fil:       fil,
 	}
 
 	// ProveTasks are created on pdp_proof_sets entries where
@@ -180,7 +186,12 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to get next challenge epoch: %w", err)
 	}
 
-	proofs, err := p.GenerateProofs(ctx, pdpService, proofSetID, challengeEpoch, contract.NumChallenges)
+	seed, err := p.fil.StateGetRandomnessDigestFromBeacon(ctx, abi.ChainEpoch(challengeEpoch.Int64()), chainTypes.EmptyTSK)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get chain randomness from beacon for pdp prove: %w", err)
+	}
+
+	proofs, err := p.GenerateProofs(ctx, pdpService, proofSetID, seed, contract.NumChallenges)
 	if err != nil {
 		return false, xerrors.Errorf("failed to generate proofs: %w", err)
 	}
@@ -250,7 +261,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	return true, nil
 }
 
-func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDPVerifier, proofSetID int64, seed *big.Int, numChallenges int) ([]contract.PDPVerifierProof, error) {
+func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDPVerifier, proofSetID int64, seed abi.Randomness, numChallenges int) ([]contract.PDPVerifierProof, error) {
 	proofs := make([]contract.PDPVerifierProof, numChallenges)
 
 	callOpts := &bind.CallOpts{
@@ -286,13 +297,13 @@ func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDP
 	return proofs, nil
 }
 
-func generateChallengeIndex(seed *big.Int, proofSetID int64, proofIndex int, totalLeaves uint64) int64 {
+func generateChallengeIndex(seed abi.Randomness, proofSetID int64, proofIndex int, totalLeaves uint64) int64 {
 	// Create a buffer to hold the concatenated data (96 bytes: 32 bytes * 3)
 	data := make([]byte, 0, 96)
 
-	// Convert seed to 32-byte big-endian representation
-	seedBytes := padTo32Bytes(seed.Bytes())
-	data = append(data, seedBytes...)
+	// Seed is a 32-byte big-endian representation
+
+	data = append(data, seed...)
 
 	// Convert proofSetID to 32-byte big-endian representation
 	proofSetIDBigInt := big.NewInt(proofSetID)
