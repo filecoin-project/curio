@@ -143,7 +143,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	if err != nil {
 		return false, xerrors.Errorf("failed to get next challenge window start: %w", err)
 	}
-	init_prove_at = init_prove_at.Add(init_prove_at, big.NewInt(int64(10))) // Give a buffer of 10 epochs so that we are still within challenge window
+	init_prove_at = init_prove_at.Add(init_prove_at, challengeWindow.Div(challengeWindow, big.NewInt(2))) // Give a buffer of 1/2 challenge window epochs so that we are still within challenge window
 	fmt.Printf("init_prove_at: %v\n", init_prove_at)
 	fmt.Printf("proofset ID: %v\n", proofSetID)
 	// Instantiate the PDPVerifier contract
