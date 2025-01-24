@@ -28,6 +28,7 @@ import (
 	"github.com/multiformats/go-multiaddr"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
@@ -435,6 +436,10 @@ func Routes(r *chi.Mux, p *Provider) {
 
 // StartPublishing starts a poller which publishes the head for each provider every 10 minutes.
 func (p *Provider) StartPublishing(ctx context.Context) {
+	// Don't publish for devnet or calibnet
+	if !(build.BuildTypeString()[1:] == "mainnet") {
+		return
+	}
 	// A poller which publishes head for each provider
 	// every 10 minutes
 	ticker := time.NewTicker(publishInterval)
