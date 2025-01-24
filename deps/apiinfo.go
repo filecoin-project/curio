@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net/http"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -71,11 +72,13 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 		}
 
 		// Compare with binary's network using BuildTypeString()
-		if string(networkName) != build.BuildTypeString()[1:] {
-			clog.Warnf("Network mismatch for node %s: binary built for %s but node is on %s",
-				head.addr, build.BuildTypeString()[1:], networkName)
-			closer()
-			continue
+		if !(strings.HasPrefix(string(networkName), "test") || strings.HasPrefix(string(networkName), "local")) {
+			if string(networkName) != build.BuildTypeString()[1:] {
+				clog.Warnf("Network mismatch for node %s: binary built for %s but node is on %s",
+					head.addr, build.BuildTypeString()[1:], networkName)
+				closer()
+				continue
+			}
 		}
 
 		fullNodes = append(fullNodes, v1api)
