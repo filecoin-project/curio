@@ -687,6 +687,12 @@ type MK12Config struct {
 	// DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
 	// If True then all deals coming from unknown clients will be rejected.
 	DenyUnknownClients bool
+
+	// DenyOnlineDeals determines if the storage provider will accept online deals
+	DenyOnlineDeals bool
+
+	// DenyOfflineDeals determines if the storage provider will accept offline deals
+	DenyOfflineDeals bool
 }
 
 type PieceLocatorConfig struct {
