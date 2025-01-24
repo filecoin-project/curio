@@ -130,6 +130,11 @@ static void init_ctx(size_t sector_size) {
 }
 
 extern "C"
+int supra_version() {
+    return 0x100001;
+}
+
+extern "C"
 void supra_seal_init(size_t sector_size, const char* config_file) {
   printf("INIT called %s\n", config_file);
   std::unique_lock<std::mutex> lck(ctx_mtx);
@@ -207,29 +212,37 @@ int c1(size_t block_offset, size_t num_sectors, size_t sector_slot,
        const uint8_t* ticket, const char* cache_path,
        const char* parents_filename, const char* replica_path,
        size_t sector_size) {
-  size_t qpair = sealing_ctx->topology->c1_qpair;
-  int node_reader_core = sealing_ctx->topology->c1_reader;
-  const char* output_dir = cache_path;
+  try {
+    size_t qpair = sealing_ctx->topology->c1_qpair;
+    int node_reader_core = sealing_ctx->topology->c1_reader;
+    const char* output_dir = cache_path;
 
-  init_ctx(sector_size);
+    init_ctx(sector_size);
 
-#define CALL_C1(C) \
-  { \
-    streaming_node_reader_t<C> reader(sealing_ctx->controllers, qpair, \
-                                      block_offset, node_reader_core,   \
-                                      sealing_ctx->topology->c1_sleep_time); \
-    return do_c1<C>(reader,                                             \
-                    num_sectors, sector_slot,                          \
-                    replica_id, seed,                                  \
-                    ticket, cache_path,                                \
-                    parents_filename, replica_path,                    \
-                    output_dir);                                       \
+    #define CALL_C1(C) \
+    { \
+      streaming_node_reader_t<C> reader(sealing_ctx->controllers, qpair, \
+                                        block_offset, node_reader_core,   \
+                                        sealing_ctx->topology->c1_sleep_time); \
+      return do_c1<C>(reader,                                             \
+                      num_sectors, sector_slot,                           \
+                      replica_id, seed,                                   \
+                      ticket, cache_path,                                 \
+                      parents_filename, replica_path,                     \
+                      output_dir);                                        \
+    }
+
+    SECTOR_PARAMS_TABLE(SECTOR_CALL_TABLE(CALL_C1));
+    #undef CALL_C1
+
+    return 0;
+  } catch (const std::exception& e) {
+    fprintf(stderr, "Exception in c1: %s\n", e.what());
+    std::terminate();
+  } catch (...) {
+    fprintf(stderr, "Unknown exception in c1\n");
+    std::terminate();
   }
-
-  SECTOR_PARAMS_TABLE(SECTOR_CALL_TABLE(CALL_C1));
-#undef CALL_C1
-
-  return 0;
 }
 
 template<class C>

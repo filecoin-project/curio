@@ -166,6 +166,16 @@ ${SRCDIR}/../../extern/supraseal/deps/spdk-v24.05/dpdk/build/lib/librte_vhost.a
 
 */
 
+const libsupra_version = 0x10_00_01
+
+func init() {
+	libVer := int(C.supra_version())
+
+	if libVer != libsupra_version {
+		panic(fmt.Sprintf("libsupra version mismatch: %x != %x", libVer, libsupra_version))
+	}
+}
+
 // SupraSealInit initializes the supra seal with a sector size and optional config file.
 func SupraSealInit(sectorSize uint64, configFile string) {
 	cConfigFile := C.CString(configFile)
