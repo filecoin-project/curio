@@ -12,6 +12,7 @@ import (
 	"sort"
 	"sync/atomic"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -229,11 +230,39 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	log.Infow("PDP Prove Task", "proofSetID", proofSetID, "taskID", taskID, "proofs", proofs, "data", hex.EncodeToString(data))
 
+	// Estimate gas to charge the fee
+	fromAddress, err := p.getSenderAddress(ctx)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get sender address: %w", err)
+	}
+	pdpVerifierAddress := contract.ContractAddresses().PDPVerifier
+
+	msg := ethereum.CallMsg{
+		From: fromAddress,
+		To:   &pdpVerifierAddress,
+		Data: data,
+	}
+
+	gasLimitEstimate, err := p.ethClient.EstimateGas(ctx, msg)
+	if err != nil {
+		return false, xerrors.Errorf("failed to estimate gas: %w", err)
+	}
+	if gasLimitEstimate == 0 {
+		return false, xerrors.Errorf("estimated gas limit is zero")
+	}
+	proofFee, err := pdpService.CalculateProofFee(callOpts, big.NewInt(proofSetID), big.NewInt(int64(gasLimitEstimate)))
+	if err != nil {
+		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
+	}
+	// Add 10% buffer to the proof fee
+	proofFee = new(big.Int).Mul(proofFee, big.NewInt(110))
+	proofFee = new(big.Int).Div(proofFee, big.NewInt(100))
+
 	// Prepare the transaction (nonce will be set to 0, SenderETH will assign it)
 	txEth := types.NewTransaction(
 		0,
-		contract.ContractAddresses().PDPVerifier,
-		contract.ProofFee(p.head.Load()),
+		pdpVerifierAddress,
+		proofFee,
 		0,
 		nil,
 		data,
@@ -242,11 +271,6 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	if !stillOwned() {
 		// Task was abandoned, don't send the proofs
 		return false, nil
-	}
-
-	fromAddress, err := p.getSenderAddress(ctx)
-	if err != nil {
-		return false, xerrors.Errorf("failed to get sender address: %w", err)
 	}
 
 	reason := "pdp-prove"
