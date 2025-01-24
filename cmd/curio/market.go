@@ -224,9 +224,10 @@ var marketAddOfflineURLCmd = &cli.Command{
 			_, err = dep.DB.Exec(ctx, `INSERT INTO market_offline_urls (
 								uuid,
 								url,
+                                headers,
 								raw_size
 							) VALUES ($1, $2, $3, $4);`,
-				uuid, url, size)
+				uuid, url, []byte("{}"), size)
 			if err != nil {
 				return xerrors.Errorf("adding details to DB: %w", err)
 			}

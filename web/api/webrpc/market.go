@@ -952,6 +952,15 @@ func (a *WebRPC) MK12DealPipelineRemove(ctx context.Context, uuid string) error 
 			}
 		}
 
+		//Mark failure for deal
+		n, err := tx.Exec(`UPDATE market_mk12_deals SET error = $1 WHERE uuid = $2`, "Deal pipeline removed by SP", uuid)
+		if err != nil {
+			return false, xerrors.Errorf("failed to mark deal %s as failed", uuid)
+		}
+		if n != 1 {
+			return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
+		}
+
 		// Remove market_mk12_deal_pipeline entry
 		_, err = tx.Exec(`DELETE FROM market_mk12_deal_pipeline WHERE uuid = $1`, uuid)
 		if err != nil {

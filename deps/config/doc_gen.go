@@ -960,6 +960,18 @@ When the cumulative size of all deals in process reaches this number, new deals 
 			Comment: `DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
 If True then all deals coming from unknown clients will be rejected.`,
 		},
+		{
+			Name: "DenyOnlineDeals",
+			Type: "bool",
+
+			Comment: `DenyOnlineDeals determines if the storage provider will accept online deals`,
+		},
+		{
+			Name: "DenyOfflineDeals",
+			Type: "bool",
+
+			Comment: `DenyOfflineDeals determines if the storage provider will accept offline deals`,
+		},
 	},
 	"MarketConfig": {
 		{

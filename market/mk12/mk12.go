@@ -96,6 +96,22 @@ func NewMK12Handler(miners []address.Address, db *harmonydb.DB, sc *ffi.SealCall
 // from the network
 func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.ID) (*ProviderDealRejectionInfo, error) {
 
+	if m.cfg.Market.StorageMarketConfig.MK12.DenyOfflineDeals {
+		if dp.IsOffline {
+			return &ProviderDealRejectionInfo{
+				Reason: "offline deals are not allowed on this provider",
+			}, nil
+		}
+	}
+
+	if m.cfg.Market.StorageMarketConfig.MK12.DenyOnlineDeals {
+		if !dp.IsOffline {
+			return &ProviderDealRejectionInfo{
+				Reason: "online deals are not allowed on this provider",
+			}, nil
+		}
+	}
+
 	ds := &ProviderDealState{
 		DealUuid:           dp.DealUUID,
 		ClientDealProposal: dp.ClientDealProposal,

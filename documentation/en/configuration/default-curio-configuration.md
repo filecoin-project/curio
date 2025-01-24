@@ -472,6 +472,16 @@ description: The default curio configuration
       # type: bool
       #DenyUnknownClients = false
 
+      # DenyOnlineDeals determines if the storage provider will accept online deals
+      #
+      # type: bool
+      #DenyOnlineDeals = false
+
+      # DenyOfflineDeals determines if the storage provider will accept offline deals
+      #
+      # type: bool
+      #DenyOfflineDeals = false
+
     [Market.StorageMarketConfig.IPNI]
       # Disable set whether to disable indexing announcement to the network and expose endpoints that
       # allow indexer nodes to process announcements. Default: False

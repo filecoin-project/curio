@@ -453,7 +453,8 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 						UPDATE market_mk12_deal_pipeline
 						SET url = selected_data.url,
 							headers = selected_data.headers,
-							raw_size = selected_data.raw_size
+							raw_size = selected_data.raw_size,
+							started = TRUE
 						FROM selected_data
 						WHERE market_mk12_deal_pipeline.uuid = $1
 						RETURNING CASE 
