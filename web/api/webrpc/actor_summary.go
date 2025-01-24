@@ -6,6 +6,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/multiformats/go-multiaddr"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
@@ -138,7 +139,14 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 
 	var addresses []string
 	for _, addr := range info.Multiaddrs {
-		addresses = append(addresses, string(addr))
+		madr, err := multiaddr.NewMultiaddrBytes(addr)
+		if err != nil {
+			log.Errorf("parsing multiaddr: %w", err)
+		}
+		if madr == nil {
+			continue
+		}
+		addresses = append(addresses, madr.String())
 	}
 
 	peerID := ""
@@ -182,7 +190,7 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 	processedAddrs := make(map[address.Address]struct{})
 
 	var wallets []WalletInfo
-	var mu sync.Mutex
+	var akm, bcm, mu sync.Mutex
 
 	// Use errgroup for error handling with goroutines
 	g, ctx := errgroup.WithContext(ctx)
@@ -196,7 +204,9 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 		if err != nil {
 			return address.Undef, err
 		}
+		akm.Lock()
 		accountKeyMap[addr] = ak
+		akm.Unlock()
 		return ak, nil
 	}
 
@@ -208,7 +218,9 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 		if err != nil {
 			return big.Int{}, err
 		}
+		bcm.Lock()
 		balanceCache[addr] = bal
+		bcm.Unlock()
 		return bal, nil
 	}
 
