@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"math/bits"
@@ -251,18 +252,22 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	if gasLimitEstimate == 0 {
 		return false, xerrors.Errorf("estimated gas limit is zero")
 	}
+	fmt.Println("gasLimitEstimate", gasLimitEstimate)
 
 	ts, err := p.fil.ChainHead(ctx)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get chain head: %w", err)
 	}
 	baseFee := ts.Blocks()[0].ParentBaseFee
+	fmt.Println("baseFee", baseFee)
 	gasFee := new(big.Int).Mul(baseFee.Int, big.NewInt(int64(gasLimitEstimate)))
+	fmt.Println("gasFee", gasFee)
 
 	proofFee, err := pdpService.CalculateProofFee(callOpts, big.NewInt(proofSetID), gasFee)
 	if err != nil {
 		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
 	}
+	fmt.Println("proofFee", proofFee)
 	// Add 10% buffer to the proof fee
 	proofFee = new(big.Int).Mul(proofFee, big.NewInt(110))
 	proofFee = new(big.Int).Div(proofFee, big.NewInt(100))
