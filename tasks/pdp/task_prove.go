@@ -58,6 +58,7 @@ type ProveTask struct {
 
 type ProveTaskChainApi interface {
 	StateGetRandomnessDigestFromBeacon(ctx context.Context, randEpoch abi.ChainEpoch, tsk chainTypes.TipSetKey) (abi.Randomness, error) //perm:read
+	ChainHead(context.Context) (*chainTypes.TipSet, error)                                                                              //perm:read
 }
 
 func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethClient *ethclient.Client, fil ProveTaskChainApi, sender *message.SenderETH, cpr *cachedreader.CachedPieceReader) *ProveTask {
@@ -250,7 +251,15 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	if gasLimitEstimate == 0 {
 		return false, xerrors.Errorf("estimated gas limit is zero")
 	}
-	proofFee, err := pdpService.CalculateProofFee(callOpts, big.NewInt(proofSetID), big.NewInt(int64(gasLimitEstimate)))
+
+	ts, err := p.fil.ChainHead(ctx)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get chain head: %w", err)
+	}
+	baseFee := ts.Blocks()[0].ParentBaseFee
+	gasFee := new(big.Int).Mul(baseFee.Int, big.NewInt(int64(gasLimitEstimate)))
+
+	proofFee, err := pdpService.CalculateProofFee(callOpts, big.NewInt(proofSetID), gasFee)
 	if err != nil {
 		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
 	}
