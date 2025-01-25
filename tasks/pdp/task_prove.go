@@ -237,12 +237,12 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to get sender address: %w", err)
 	}
 	pdpVerifierAddress := contract.ContractAddresses().PDPVerifier
-
+	log.Infow("PDP Prove Task", "done with proof now estimating fee")
 	msg := ethereum.CallMsg{
 		From:  fromAddress,
 		To:    &pdpVerifierAddress,
 		Data:  data,
-		Value: big.NewInt(0).Mul(big.NewInt(1e18), big.NewInt(1000)), // 1000 FIL
+		Value: big.NewInt(0).Mul(big.NewInt(1e18), big.NewInt(10)), // 10 FIL
 	}
 
 	gasLimitEstimate, err := p.ethClient.EstimateGas(ctx, msg)
