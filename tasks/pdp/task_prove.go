@@ -232,17 +232,17 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	// If gas used is 0 fee is maximized
 	gasFee := big.NewInt(0)
-	log.Infow("PDP Prove Task", "gasFeeEstimate %d", gasFee)
+	log.Infow("PDP Prove Task", "gasFeeEstimate", gasFee)
 	proofFee, err := pdpService.CalculateProofFee(callOpts, big.NewInt(proofSetID), gasFee)
 	if err != nil {
 		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
 	}
-	log.Infow("PDP Prove Task", "proofFee initial %d", proofFee)
+	log.Infow("PDP Prove Task", "proofFee initial", proofFee)
 	// Add 10% buffer to the proof fee
 	proofFee = new(big.Int).Mul(proofFee, big.NewInt(110))
 	proofFee = new(big.Int).Div(proofFee, big.NewInt(100))
 
-	log.Infow("PDP Prove Task", "proofFee + 10% %d", proofFee)
+	log.Infow("PDP Prove Task", "proofFee + 10%", proofFee)
 
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
@@ -259,6 +259,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		nil,
 		data,
 	)
+	log.Infow("PDP Prove Task", "txEth", txEth)
 
 	if !stillOwned() {
 		// Task was abandoned, don't send the proofs
