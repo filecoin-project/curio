@@ -12,7 +12,6 @@ import (
 	"sort"
 	"sync/atomic"
 
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -231,46 +230,25 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	log.Infow("PDP Prove Task", "proofSetID", proofSetID, "taskID", taskID, "proofs", proofs, "data", hex.EncodeToString(data))
 
-	// Estimate gas to charge the fee
+	// If gas used is 0 fee is maximized
+	gasFee := big.NewInt(0)
+	log.Infow("PDP Prove Task", "gasFeeEstimate", gasFee)
+	proofFee, err := pdpService.CalculateProofFee(callOpts, big.NewInt(proofSetID), gasFee)
+	if err != nil {
+		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
+	}
+	log.Infow("PDP Prove Task", "proofFee initial", proofFee)
+	// Add 10% buffer to the proof fee
+	proofFee = new(big.Int).Mul(proofFee, big.NewInt(110))
+	proofFee = new(big.Int).Div(proofFee, big.NewInt(100))
+
+	log.Infow("PDP Prove Task", "proofFee + 10%", proofFee)
+
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get sender address: %w", err)
 	}
 	pdpVerifierAddress := contract.ContractAddresses().PDPVerifier
-	log.Infow("PDP Prove Task", "done with proof now estimating fee")
-	msg := ethereum.CallMsg{
-		From:  fromAddress,
-		To:    &pdpVerifierAddress,
-		Data:  data,
-		Value: big.NewInt(0).Mul(big.NewInt(1e18), big.NewInt(10)), // 10 FIL
-	}
-
-	gasLimitEstimate, err := p.ethClient.EstimateGas(ctx, msg)
-	if err != nil {
-		return false, xerrors.Errorf("failed to estimate gas: %w", err)
-	}
-	if gasLimitEstimate == 0 {
-		return false, xerrors.Errorf("estimated gas limit is zero")
-	}
-	log.Infow("PDP Prove Task", "gasLimitEstimate", gasLimitEstimate)
-
-	ts, err := p.fil.ChainHead(ctx)
-	if err != nil {
-		return false, xerrors.Errorf("failed to get chain head: %w", err)
-	}
-	baseFee := ts.Blocks()[0].ParentBaseFee
-	log.Infow("PDP Prove Task", "baseFee", baseFee)
-	gasFee := new(big.Int).Mul(baseFee.Int, big.NewInt(int64(gasLimitEstimate)))
-	log.Infow("PDP Prove Task", "gasFee", gasFee)
-
-	proofFee, err := pdpService.CalculateProofFee(callOpts, big.NewInt(proofSetID), gasFee)
-	if err != nil {
-		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
-	}
-	log.Infow("PDP Prove Task", "proofFee", proofFee)
-	// Add 10% buffer to the proof fee
-	proofFee = new(big.Int).Mul(proofFee, big.NewInt(110))
-	proofFee = new(big.Int).Div(proofFee, big.NewInt(100))
 
 	// Prepare the transaction (nonce will be set to 0, SenderETH will assign it)
 	txEth := types.NewTransaction(
