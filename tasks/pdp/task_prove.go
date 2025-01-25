@@ -239,9 +239,10 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	pdpVerifierAddress := contract.ContractAddresses().PDPVerifier
 
 	msg := ethereum.CallMsg{
-		From: fromAddress,
-		To:   &pdpVerifierAddress,
-		Data: data,
+		From:  fromAddress,
+		To:    &pdpVerifierAddress,
+		Data:  data,
+		Value: big.NewInt(0).Mul(big.NewInt(1e18), big.NewInt(1000)), // 1000 FIL
 	}
 
 	gasLimitEstimate, err := p.ethClient.EstimateGas(ctx, msg)
