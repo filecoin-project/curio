@@ -238,11 +238,10 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
 	}
 	log.Infow("PDP Prove Task", "proofFee initial", proofFee)
-	// Add 10% buffer to the proof fee
-	proofFee = new(big.Int).Mul(proofFee, big.NewInt(110))
-	proofFee = new(big.Int).Div(proofFee, big.NewInt(100))
+	// Add 2x buffer for certainty
+	proofFee = new(big.Int).Mul(proofFee, big.NewInt(3))
 
-	log.Infow("PDP Prove Task", "proofFee + 10%", proofFee)
+	log.Infow("PDP Prove Task", "proofFee 3x", proofFee)
 
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
