@@ -3,7 +3,6 @@ package pdp
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -121,15 +120,9 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	}
 
 	// Determine the next challenge window start by consulting the listener
-	fmt.Printf("Listener addr: %v\n", listenerAddr.Hex())
 	provingSchedule, err := contract.NewIPDPProvingSchedule(listenerAddr, ipp.ethClient)
 	if err != nil {
 		return false, xerrors.Errorf("failed to create proving schedule binding, check that listener has proving schedule methods: %w", err)
-	}
-
-	period, err := provingSchedule.GetMaxProvingPeriod(&bind.CallOpts{Context: ctx})
-	if err != nil {
-		return false, xerrors.Errorf("failed to get proving period: %w", err)
 	}
 
 	// ChallengeWindow
@@ -137,15 +130,12 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	if err != nil {
 		return false, xerrors.Errorf("failed to get challenge window: %w", err)
 	}
-	fmt.Printf("successfully got period %v and challengeWindow %v\n", period, challengeWindow)
 
 	init_prove_at, err := provingSchedule.InitChallengeWindowStart(&bind.CallOpts{Context: ctx})
 	if err != nil {
 		return false, xerrors.Errorf("failed to get next challenge window start: %w", err)
 	}
 	init_prove_at = init_prove_at.Add(init_prove_at, challengeWindow.Div(challengeWindow, big.NewInt(2))) // Give a buffer of 1/2 challenge window epochs so that we are still within challenge window
-	fmt.Printf("init_prove_at: %v\n", init_prove_at)
-	fmt.Printf("proofset ID: %v\n", proofSetID)
 	// Instantiate the PDPVerifier contract
 	pdpContracts := contract.ContractAddresses()
 	pdpVeriferAddress := pdpContracts.PDPVerifier
@@ -188,7 +178,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	}
 
 	// Send the transaction
-	reason := "pdp-proving-period"
+	reason := "pdp-proving-init"
 	txHash, err := ipp.sender.Send(ctx, fromAddress, txEth, reason)
 	if err != nil {
 		return false, xerrors.Errorf("failed to send transaction: %w", err)

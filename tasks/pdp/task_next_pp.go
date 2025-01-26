@@ -3,7 +3,6 @@ package pdp
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/core/types"
@@ -91,7 +90,6 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 
 func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
-	fmt.Printf("NextPPTask Do is happening!\n")
 	// Select the proof set where challenge_request_task_id = taskID
 	var proofSetID int64
 
@@ -128,7 +126,6 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 	if err != nil {
 		return false, xerrors.Errorf("failed to get next challenge window start: %w", err)
 	}
-	fmt.Printf("next prove at: %v\n", next_prove_at)
 
 	// Instantiate the PDPVerifier contract
 	pdpContracts := contract.ContractAddresses()
@@ -157,7 +154,6 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 
 	if !stillOwned() {
 		// Task was abandoned, don't send the transaction
-		fmt.Printf("Task was abandoned, don't send the transaction\n")
 		return false, nil
 	}
 
@@ -174,13 +170,11 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 
 	// Send the transaction
 	reason := "pdp-proving-period"
-	fmt.Printf("Sending transaction \n")
 	txHash, err := n.sender.Send(ctx, fromAddress, txEth, reason)
 	if err != nil {
 		return false, xerrors.Errorf("failed to send transaction: %w", err)
 	}
 
-	fmt.Printf("Updating database %v \n", txHash)
 	// Update the database in a transaction
 	_, err = n.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// Update pdp_proof_sets
@@ -214,7 +208,8 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 	}
 
 	// Task completed successfully
-	fmt.Printf("we made it to the end\n")
+	log.Infow("Next challenge window scheduled", "epoch", next_prove_at)
+
 	return true, nil
 }
 
