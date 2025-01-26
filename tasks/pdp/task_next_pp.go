@@ -189,8 +189,8 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
             SET challenge_request_msg_hash = $1,
                 prev_challenge_request_epoch = $2,
 				prove_at_epoch = $3
-            WHERE id = $3
-        `, txHash.Hex(), ts.Height(), next_prove_at.Uint64())
+            WHERE id = $4
+        `, txHash.Hex(), ts.Height(), next_prove_at.Uint64(), proofSetID)
 		if err != nil {
 			return false, xerrors.Errorf("failed to update pdp_proof_sets: %w", err)
 		}
