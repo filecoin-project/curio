@@ -284,7 +284,7 @@ func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDP
 		Context: ctx,
 	}
 
-	totalLeafCount, err := pdpService.GetProofSetLeafCount(callOpts, big.NewInt(proofSetID))
+	totalLeafCount, err := pdpService.GetChallengeRange(callOpts, big.NewInt(proofSetID))
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get proof set leaf count: %w", err)
 	}
