@@ -145,16 +145,6 @@ CREATE TABLE pdp_proofset_roots (
     FOREIGN KEY (pdp_pieceref) REFERENCES pdp_piecerefs(id) ON DELETE SET NULL -- sets null on delete so that it's easy to notice and clean up
 );
 
-CREATE TABLE pdp_proofset_root_deletes (
-    proofset BIGINT NOT NULL, -- pdp_proof_sets.id
-    root_id BIGINT NOT NULL, -- pdp_proofset_roots.root_id
-
-    PRIMARY KEY (proofset, root_id),
-    FOREIGN KEY (proofset) REFERENCES pdp_proof_sets(id) ON DELETE CASCADE,
-    FOREIGN KEY (root_id) REFERENCES pdp_proofset_roots(root_id) ON DELETE CASCADE
-);
-
-
 -- proofset root adds - tracking add-root messages which didn't land yet, so don't have a known root_id
 CREATE TABLE pdp_proofset_root_adds (
     proofset BIGINT NOT NULL, -- pdp_proof_sets.id

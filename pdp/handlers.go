@@ -994,30 +994,6 @@ func (p *PDPService) handleDeleteRootFromProofSet(w http.ResponseWriter, r *http
 			return false, err
 		}
 
-		var exists int
-		err = tx.QueryRow(`
-			SELECT COUNT(*) FROM pdp_proof_sets_roots 
-			WHERE proof_set_id = $1 AND root_id = $2
-		`, proofSetID, rootID).Scan(&exists)
-
-		if err != nil {
-			return false, fmt.Errorf("failed to check root existence: %w", err)
-		}
-
-		if exists == 0 {
-			return false, fmt.Errorf("root not found")
-		}
-
-		// Schedule root for deletion
-		_, err = tx.Exec(`
-			INSERT INTO pdp_proofset_root_deletes (proofset, root_id)
-			VALUES ($1, $2)
-		`, proofSetID, rootID)
-
-		if err != nil {
-			return false, fmt.Errorf("failed to delete root: %w", err)
-		}
-
 		return true, nil
 	}, harmonydb.OptionRetry())
 

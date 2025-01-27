@@ -170,11 +170,11 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	pdpContracts := contract.ContractAddresses()
-	pdpServiceAddress := pdpContracts.PDPVerifier
+	pdpVerifierAddress := pdpContracts.PDPVerifier
 
-	pdpService, err := contract.NewPDPVerifier(pdpServiceAddress, p.ethClient)
+	pdpVerifier, err := contract.NewPDPVerifier(pdpVerifierAddress, p.ethClient)
 	if err != nil {
-		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract at %s: %w", pdpServiceAddress.Hex(), err)
+		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract at %s: %w", pdpVerifierAddress.Hex(), err)
 	}
 
 	callOpts := &bind.CallOpts{
@@ -182,7 +182,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	// Proof parameters
-	challengeEpoch, err := pdpService.GetNextChallengeEpoch(callOpts, big.NewInt(proofSetID))
+	challengeEpoch, err := pdpVerifier.GetNextChallengeEpoch(callOpts, big.NewInt(proofSetID))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get next challenge epoch: %w", err)
 	}
@@ -192,7 +192,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to get chain randomness from beacon for pdp prove: %w", err)
 	}
 
-	proofs, err := p.GenerateProofs(ctx, pdpService, proofSetID, seed, contract.NumChallenges)
+	proofs, err := p.GenerateProofs(ctx, pdpVerifier, proofSetID, seed, contract.NumChallenges)
 	if err != nil {
 		return false, xerrors.Errorf("failed to generate proofs: %w", err)
 	}
@@ -233,7 +233,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	// If gas used is 0 fee is maximized
 	gasFee := big.NewInt(0)
 	log.Infow("PDP Prove Task", "gasFeeEstimate", gasFee)
-	proofFee, err := pdpService.CalculateProofFee(callOpts, big.NewInt(proofSetID), gasFee)
+	proofFee, err := pdpVerifier.CalculateProofFee(callOpts, big.NewInt(proofSetID), gasFee)
 	if err != nil {
 		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
 	}
@@ -247,7 +247,6 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	if err != nil {
 		return false, xerrors.Errorf("failed to get sender address: %w", err)
 	}
-	pdpVerifierAddress := contract.ContractAddresses().PDPVerifier
 
 	// Prepare the transaction (nonce will be set to 0, SenderETH will assign it)
 	txEth := types.NewTransaction(
@@ -272,7 +271,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	// Remove the roots previously scheduled for deletion
-	err = p.cleanupDeletedRoots(ctx, proofSetID)
+	err = p.cleanupDeletedRoots(ctx, proofSetID, pdpVerifier)
 	if err != nil {
 		return false, xerrors.Errorf("failed to cleanup deleted roots: %w", err)
 	}
@@ -637,42 +636,30 @@ func (p *ProveTask) getSenderAddress(ctx context.Context) (common.Address, error
 	return address, nil
 }
 
-func (p *ProveTask) cleanupDeletedRoots(ctx context.Context, proofSetID int64) error {
-	// Get all pending deletes for this proofset
-	type deleteEntry struct {
-		RootID int64 `db:"root_id"`
-	}
+func (p *ProveTask) cleanupDeletedRoots(ctx context.Context, proofSetID int64, pdpVerifier *contract.PDPVerifier) error {
 
-	var deletes []deleteEntry
-	err := p.db.Select(ctx, &deletes, `
-        SELECT root_id 
-        FROM pdp_proofset_root_deletes 
-        WHERE proofset = $1
-    `, proofSetID)
+	removals, err := pdpVerifier.GetScheduledRemovals(nil, big.NewInt(proofSetID))
 	if err != nil {
-		return xerrors.Errorf("failed to get root deletes: %w", err)
-	}
-
-	if len(deletes) == 0 {
-		return nil
+		return xerrors.Errorf("failed to get scheduled removals: %w", err)
 	}
 
 	// Execute cleanup in a transaction
 	ok, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		for _, delete := range deletes {
+
+		for _, removeID := range removals {
 			// Get the pdp_pieceref ID for the root before deleting
 			var pdpPieceRefID int64
 			err := tx.QueryRow(`
                 SELECT pdp_pieceref 
                 FROM pdp_proofset_roots 
                 WHERE proofset = $1 AND root_id = $2
-            `, proofSetID, delete.RootID).Scan(&pdpPieceRefID)
+            `, proofSetID, removeID.Int64()).Scan(&pdpPieceRefID)
 			if err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
 					// Root already deleted, skip
 					continue
 				}
-				return false, xerrors.Errorf("failed to get piece ref for root %d: %w", delete.RootID, err)
+				return false, xerrors.Errorf("failed to get piece ref for root %d: %w", removeID, err)
 			}
 
 			// Get parked piece ref
@@ -683,7 +670,7 @@ func (p *ProveTask) cleanupDeletedRoots(ctx context.Context, proofSetID int64) e
 				WHERE id = $1
 			`, pdpPieceRefID).Scan(&parkedPieceRef)
 			if err != nil {
-				return false, xerrors.Errorf("failed to get parked piece ref for root %d: %w", delete.RootID, err)
+				return false, xerrors.Errorf("failed to get parked piece ref for root %d: %w", removeID, err)
 			}
 
 			// Delete the parked piece ref, this will cascade to the pdp piece ref too
@@ -699,18 +686,9 @@ func (p *ProveTask) cleanupDeletedRoots(ctx context.Context, proofSetID int64) e
 			_, err = tx.Exec(`
                 DELETE FROM pdp_proofset_roots 
                 WHERE proofset = $1 AND root_id = $2
-            `, proofSetID, delete.RootID)
+            `, proofSetID, removeID)
 			if err != nil {
-				return false, xerrors.Errorf("failed to delete root %d: %w", delete.RootID, err)
-			}
-
-			// Finally remove the entry scheduling the root for deletion
-			_, err = tx.Exec(`
-                DELETE FROM pdp_proofset_root_deletes 
-                WHERE proofset = $1 AND root_id = $2
-            `, proofSetID, delete.RootID)
-			if err != nil {
-				return false, xerrors.Errorf("failed to remove delete entry for root %d: %w", delete.RootID, err)
+				return false, xerrors.Errorf("failed to delete root %d: %w", removeID, err)
 			}
 		}
 
