@@ -109,6 +109,14 @@ over time
 			Name:  "deny-types",
 			Usage: "file types to deny storing in this path",
 		},
+		&cli.StringSliceFlag{
+			Name:  "allow-miners",
+			Usage: "miners to allow storing in this path",
+		},
+		&cli.StringSliceFlag{
+			Name:  "deny-miners",
+			Usage: "miners to deny storing in this path",
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 		minerApi, closer, err := rpc.GetCurioAPI(cctx)
@@ -150,6 +158,19 @@ over time
 				}
 			}
 
+			for _, m := range cctx.StringSlice("allow-miners") {
+				_, err := address.NewFromString(m)
+				if err != nil {
+					return xerrors.Errorf("parsing allow-miners: %w", err)
+				}
+			}
+			for _, m := range cctx.StringSlice("deny-miners") {
+				_, err := address.NewFromString(m)
+				if err != nil {
+					return xerrors.Errorf("parsing deny-miners: %w", err)
+				}
+			}
+
 			cfg := storiface.LocalStorageMeta{
 				ID:         storiface.ID(uuid.New().String()),
 				Weight:     cctx.Uint64("weight"),
@@ -161,6 +182,9 @@ over time
 
 				AllowTypes: cctx.StringSlice("allow-types"),
 				DenyTypes:  cctx.StringSlice("deny-types"),
+
+				AllowMiners: cctx.StringSlice("allow-miners"),
+				DenyMiners:  cctx.StringSlice("deny-miners"),
 			}
 
 			if !(cfg.CanStore || cfg.CanSeal) {
