@@ -16,7 +16,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 
-	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -98,8 +97,8 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context, tasks []pollTa
 	// 2. Check if timeout is reaching for any sector in the batch, if yes, then send the batch
 	// 3. Check if baseFee below set threshold. If yes then send all batches
 
-	for spid, miners := range batchMap {
-		for _, pts := range miners {
+	for spid, sealProofMap := range batchMap {
+		for _, pts := range sealProofMap {
 			// Break into batches
 			var batches []sectorBatch
 			for i := 0; i < len(pts); i += s.cfg.commit.MaxCommitBatch {
@@ -154,29 +153,13 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context, tasks []pollTa
 }
 
 func (s *SealPoller) sendCommitBatch(ctx context.Context, spid int64, sectors []int64) {
-	if len(sectors) < miner.MinAggregatedSectors {
-		for i := range sectors {
-			s.pollers[pollerCommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-				n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_commit_msg = $1 WHERE sp_id = $2 AND sector_number = $3 AND task_id_commit_msg IS NULL`, id, spid, sectors[i])
-				if err != nil {
-					return false, xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
-				}
-				if n != 1 {
-					return false, xerrors.Errorf("expected to update 1 row, updated %d", n)
-				}
-
-				return true, nil
-			})
-		}
-	}
-
 	s.pollers[pollerCommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-		n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_commit_msg = $1 WHERE sp_id = $2 AND sector_number = ANY($3) AND task_id_commit_msg IS NULL`, id, spid, sectors)
+		n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_commit_msg = $1 WHERE sp_id = $2 AND sector_number = ANY($3) AND task_id_commit_msg IS NULL AND after_commit_msg_success = FALSE`, id, spid, sectors)
 		if err != nil {
 			return false, xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
 		}
-		if n != len(sectors) {
-			return false, xerrors.Errorf("expected to update 1 row, updated %d", n)
+		if n > len(sectors) {
+			return false, xerrors.Errorf("expected to update at most %d rows, updated %d", len(sectors), n)
 		}
 
 		return true, nil
