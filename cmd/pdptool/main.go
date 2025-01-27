@@ -1013,7 +1013,7 @@ var removeRootsCmd = &cli.Command{
 			Usage:    "Service Name to include in the JWT token",
 			Required: true,
 		},
-		&cli.StringSliceFlag{
+		&cli.Uint64Flag{
 			Name:     "root-id",
 			Usage:    "Root ID for removal",
 			Required: true,
@@ -1039,6 +1039,7 @@ var removeRootsCmd = &cli.Command{
 
 		// Construct the POST URL
 		deleteURL := fmt.Sprintf("%s/pdp/proof-sets/%d/roots/%d", serviceURL, proofSetID, rootID)
+		fmt.Printf("Delete URL: %s\n", deleteURL)
 
 		// Create the POST request
 		req, err := http.NewRequest("DELETE", deleteURL, nil)

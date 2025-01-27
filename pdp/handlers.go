@@ -883,9 +883,8 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusCreated)
 }
 
-func (p *PDPService) handleDeleteRootFromProofSet(w http.ResponseWriter, r *http.Request) {
+func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-
 	// Step 1: Verify that the request is authorized using ECDSA JWT
 	serviceLabel, err := p.verifyJWTToken(r)
 	if err != nil {
@@ -1056,31 +1055,6 @@ func (p *PDPService) handleGetProofSetRoot(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		return
 	}*/
-}
-
-func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Request) {
-	// Spec snippet:
-	// ### DEL /proof-sets/{set id}/roots/{root id}
-
-	proofSetIDStr := chi.URLParam(r, "proofSetID")
-	proofSetID, err := strconv.ParseInt(proofSetIDStr, 10, 64)
-	if err != nil {
-		http.Error(w, "Invalid proof set ID", http.StatusBadRequest)
-		return
-	}
-
-	rootIDStr := chi.URLParam(r, "rootID")
-	rootID, err := strconv.ParseInt(rootIDStr, 10, 64)
-	if err != nil {
-		http.Error(w, "Invalid root ID", http.StatusBadRequest)
-		return
-	}
-
-	_ = proofSetID
-	_ = rootID
-
-	// Respond with 204 No Content
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // Data models corresponding to the updated schema
