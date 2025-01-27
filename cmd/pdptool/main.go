@@ -1057,7 +1057,7 @@ var removeRootsCmd = &cli.Command{
 
 		// Read and display the response
 		if resp.StatusCode == http.StatusNoContent {
-			fmt.Printf("Roots added to proof set ID %d successfully.\n", proofSetID)
+			fmt.Printf("Root %d scheduled for removal from proof set ID %d.\n", rootID, proofSetID)
 		} else {
 			return fmt.Errorf("failed to add roots, status code %d", resp.StatusCode)
 		}
