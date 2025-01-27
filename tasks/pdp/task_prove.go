@@ -647,6 +647,7 @@ func (p *ProveTask) cleanupDeletedRoots(ctx context.Context, proofSetID int64, p
 	ok, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 
 		for _, removeID := range removals {
+			log.Infow("cleanupDeletedRoots", "removeID", removeID)
 			// Get the pdp_pieceref ID for the root before deleting
 			var pdpPieceRefID int64
 			err := tx.QueryRow(`
