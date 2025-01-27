@@ -48,6 +48,7 @@ func main() {
 			getProofSetCmd,       // retrieve the details of a proof set from the PDP service
 
 			addRootsCmd,
+			removeRootsCmd, // schedule roots for removal after next proof submission
 		},
 	}
 	app.Setup()
@@ -987,6 +988,78 @@ var addRootsCmd = &cli.Command{
 			fmt.Printf("Response: %s\n", bodyString)
 		} else {
 			return fmt.Errorf("failed to add roots, status code %d: %s", resp.StatusCode, bodyString)
+		}
+
+		return nil
+	},
+}
+
+var removeRootsCmd = &cli.Command{
+	Name:  "remove-roots",
+	Usage: "Schedule roots for removal after next proof submission",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "service-url",
+			Usage:    "URL of the PDP service",
+			Required: true,
+		},
+		&cli.Uint64Flag{
+			Name:     "proof-set-id",
+			Usage:    "ID of the proof set to which roots will be added",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "service-name",
+			Usage:    "Service Name to include in the JWT token",
+			Required: true,
+		},
+		&cli.StringSliceFlag{
+			Name:     "root-id",
+			Usage:    "Root ID for removal",
+			Required: true,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		serviceURL := cctx.String("service-url")
+		serviceName := cctx.String("service-name")
+		proofSetID := cctx.Uint64("proof-set-id")
+		rootID := cctx.Uint64("root-id")
+
+		// Load the private key (implement `loadPrivateKey` according to your setup)
+		privKey, err := loadPrivateKey()
+		if err != nil {
+			return fmt.Errorf("failed to load private key: %v", err)
+		}
+
+		// Create the JWT token (implement `createJWTToken` according to your setup)
+		jwtToken, err := createJWTToken(serviceName, privKey)
+		if err != nil {
+			return fmt.Errorf("failed to create JWT token: %v", err)
+		}
+
+		// Construct the POST URL
+		deleteURL := fmt.Sprintf("%s/pdp/proof-sets/%d/roots/%d", serviceURL, proofSetID, rootID)
+
+		// Create the POST request
+		req, err := http.NewRequest("DELETE", deleteURL, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create request: %v", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		req.Header.Set("Content-Type", "application/json")
+
+		// Send the request
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to send request: %v", err)
+		}
+
+		// Read and display the response
+		if resp.StatusCode == http.StatusNoContent {
+			fmt.Printf("Roots added to proof set ID %d successfully.\n", proofSetID)
+		} else {
+			return fmt.Errorf("failed to add roots, status code %d", resp.StatusCode)
 		}
 
 		return nil
