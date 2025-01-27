@@ -108,6 +108,15 @@ CREATE TABLE pdp_prove_tasks (
     FOREIGN KEY (task_id) REFERENCES harmony_task(id) ON DELETE CASCADE
 );
 
+CREATE TABLE pdp_proofset_root_deletes (
+    proofset BIGINT NOT NULL, -- pdp_proof_sets.id
+    root_id BIGINT NOT NULL, -- pdp_proofset_roots.root_id
+
+    PRIMARY KEY (proofset, root_id),
+    FOREIGN KEY (proofset) REFERENCES pdp_proof_sets(id) ON DELETE CASCADE,
+    FOREIGN KEY (root_id) REFERENCES pdp_proofset_roots(root_id) ON DELETE CASCADE
+);
+
 -- proofset creation requests
 CREATE TABLE pdp_proofset_creates (
     create_message_hash TEXT PRIMARY KEY REFERENCES message_waits_eth(signed_tx_hash) ON DELETE CASCADE,

@@ -271,6 +271,12 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to send transaction: %w", err)
 	}
 
+	// Remove the roots previously scheduled for deletion
+	err = p.cleanupDeletedRoots(ctx, proofSetID)
+	if err != nil {
+		return false, xerrors.Errorf("failed to cleanup deleted roots: %w", err)
+	}
+
 	log.Infow("PDP Prove Task: transaction sent", "txHash", txHash, "proofSetID", proofSetID, "taskID", taskID)
 
 	// Task completed successfully
@@ -629,6 +635,96 @@ func (p *ProveTask) getSenderAddress(ctx context.Context) (common.Address, error
 	}
 	address := common.HexToAddress(addressStr)
 	return address, nil
+}
+
+func (p *ProveTask) cleanupDeletedRoots(ctx context.Context, proofSetID int64) error {
+	// Get all pending deletes for this proofset
+	type deleteEntry struct {
+		RootID int64 `db:"root_id"`
+	}
+
+	var deletes []deleteEntry
+	err := p.db.Select(ctx, &deletes, `
+        SELECT root_id 
+        FROM pdp_proofset_root_deletes 
+        WHERE proofset = $1
+    `, proofSetID)
+	if err != nil {
+		return xerrors.Errorf("failed to get root deletes: %w", err)
+	}
+
+	if len(deletes) == 0 {
+		return nil
+	}
+
+	// Execute cleanup in a transaction
+	ok, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		for _, delete := range deletes {
+			// Get the pdp_pieceref ID for the root before deleting
+			var pdpPieceRefID int64
+			err := tx.QueryRow(`
+                SELECT pdp_pieceref 
+                FROM pdp_proofset_roots 
+                WHERE proofset = $1 AND root_id = $2
+            `, proofSetID, delete.RootID).Scan(&pdpPieceRefID)
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					// Root already deleted, skip
+					continue
+				}
+				return false, xerrors.Errorf("failed to get piece ref for root %d: %w", delete.RootID, err)
+			}
+
+			// Get parked piece ref
+			var parkedPieceRef int64
+			err = tx.QueryRow(`
+				SELECT piece_ref
+				FROM pdp_piecerefs
+				WHERE id = $1
+			`, pdpPieceRefID).Scan(&parkedPieceRef)
+			if err != nil {
+				return false, xerrors.Errorf("failed to get parked piece ref for root %d: %w", delete.RootID, err)
+			}
+
+			// Delete the parked piece ref, this will cascade to the pdp piece ref too
+			_, err = tx.Exec(`
+				DELETE FROM parked_piece_refs
+				WHERE ref_id = $1
+			`, parkedPieceRef)
+			if err != nil {
+				return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", parkedPieceRef, err)
+			}
+
+			// Delete the root entry
+			_, err = tx.Exec(`
+                DELETE FROM pdp_proofset_roots 
+                WHERE proofset = $1 AND root_id = $2
+            `, proofSetID, delete.RootID)
+			if err != nil {
+				return false, xerrors.Errorf("failed to delete root %d: %w", delete.RootID, err)
+			}
+
+			// Finally remove the entry scheduling the root for deletion
+			_, err = tx.Exec(`
+                DELETE FROM pdp_proofset_root_deletes 
+                WHERE proofset = $1 AND root_id = $2
+            `, proofSetID, delete.RootID)
+			if err != nil {
+				return false, xerrors.Errorf("failed to remove delete entry for root %d: %w", delete.RootID, err)
+			}
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+
+	if err != nil {
+		return xerrors.Errorf("failed to cleanup deleted roots: %w", err)
+	}
+	if !ok {
+		return xerrors.Errorf("database delete not committed")
+	}
+
+	return nil
 }
 
 func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
