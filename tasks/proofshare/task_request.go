@@ -267,7 +267,7 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 // TypeDetails implements harmonytask.TaskInterface.
 func (t *TaskRequestProofs) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PShareRequest",
+		Name: "bg:PShareRequest",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Gpu: 0,
