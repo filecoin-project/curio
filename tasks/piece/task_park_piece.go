@@ -3,7 +3,6 @@ package piece
 import (
 	"context"
 	"encoding/json"
-	"github.com/filecoin-project/curio/lib/paths"
 	"math"
 	"net/http"
 	"time"
@@ -18,6 +17,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/dealdata"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
 )
