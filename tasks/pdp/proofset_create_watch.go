@@ -103,7 +103,7 @@ func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCr
 
 	// Get the proving period from the listener
 	// Assumption: listener is a PDP Service with proving window informational methods
-	provingPeriod, challengeWindow, err := getProvingPeriodChallengeWindow(ctx, ethClient, listenerAddr, proofSetId)
+	provingPeriod, challengeWindow, err := getProvingPeriodChallengeWindow(ctx, ethClient, listenerAddr)
 	if err != nil {
 		return xerrors.Errorf("failed to get max proving period: %w", err)
 	}
@@ -156,13 +156,13 @@ func insertProofSet(ctx context.Context, db *harmonydb.DB, createMsg string, pro
 	// Implement the insertion into pdp_proof_sets table
 	// Adjust the SQL statement based on your table schema
 	_, err := db.Exec(ctx, `
-        INSERT INTO pdp_proof_sets (id, create_message_hash, service, proving_period, prove_at_epoch)
-        VALUES ($1, $2, $3, $4, $5, $6, NULL)
+        INSERT INTO pdp_proof_sets (id, create_message_hash, service, proving_period, challenge_window)
+        VALUES ($1, $2, $3, $4, $5)
     `, proofSetId, createMsg, service, provingPeriod, challengeWindow)
 	return err
 }
 
-func getProvingPeriodChallengeWindow(ctx context.Context, ethClient *ethclient.Client, listenerAddr common.Address, proofSetId uint64) (uint64, uint64, error) {
+func getProvingPeriodChallengeWindow(ctx context.Context, ethClient *ethclient.Client, listenerAddr common.Address) (uint64, uint64, error) {
 	// ProvingPeriod
 	schedule, err := contract.NewIPDPProvingSchedule(listenerAddr, ethClient)
 	if err != nil {
@@ -178,16 +178,6 @@ func getProvingPeriodChallengeWindow(ctx context.Context, ethClient *ethclient.C
 	challengeWindow, err := schedule.ChallengeWindow(&bind.CallOpts{Context: ctx})
 	if err != nil {
 		return 0, 0, xerrors.Errorf("failed to get challenge window: %w", err)
-	}
-
-	// Validate that we CAN query next challenge window start once data is added
-	// It should be 0 without data added to the proof set
-	nextProveAt, err := schedule.NextChallengeWindowStart(&bind.CallOpts{Context: ctx}, big.NewInt(int64(proofSetId)))
-	if err != nil {
-		return 0, 0, xerrors.Errorf("failed to get next challenge window start: %w", err)
-	}
-	if nextProveAt.Cmp(big.NewInt(0)) != 0 {
-		return 0, 0, xerrors.Errorf("failed to get expected next challenge window start: %w", err)
 	}
 
 	return period, challengeWindow.Uint64(), nil
