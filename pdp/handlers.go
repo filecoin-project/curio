@@ -883,6 +883,129 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusCreated)
 }
 
+func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	// Step 1: Verify that the request is authorized using ECDSA JWT
+	serviceLabel, err := p.verifyJWTToken(r)
+	if err != nil {
+		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	// Step 2: Extract parameters from the URL
+	proofSetIdStr := chi.URLParam(r, "proofSetID")
+	if proofSetIdStr == "" {
+		http.Error(w, "Missing proof set ID in URL", http.StatusBadRequest)
+		return
+	}
+	rootIdStr := chi.URLParam(r, "rootID")
+	if rootIdStr == "" {
+		http.Error(w, "Missing root ID in URL", http.StatusBadRequest)
+		return
+	}
+
+	// Convert proofSetId to uint64
+	proofSetID, err := strconv.ParseUint(proofSetIdStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid proof set ID format", http.StatusBadRequest)
+		return
+	}
+	rootID, err := strconv.ParseUint(rootIdStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid root ID format", http.StatusBadRequest)
+		return
+	}
+
+	// check if the proofset belongs to the service in pdp_proof_sets
+	var proofSetService string
+	err = p.db.QueryRow(ctx, `
+			SELECT service 
+			FROM pdp_proof_sets
+			WHERE id = $1
+		`, proofSetID).Scan(&proofSetService)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			http.Error(w, "Proof set not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Failed to retrieve proof set: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if proofSetService != serviceLabel {
+		// same as when actually not found to avoid leaking information in obvious ways
+		http.Error(w, "Proof set not found", http.StatusNotFound)
+		return
+	}
+
+	// Get the ABI and pack the transaction data
+	abiData, err := contract.PDPVerifierMetaData.GetAbi()
+	if err != nil {
+		http.Error(w, "Failed to get contract ABI: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Pack the method call data
+	data, err := abiData.Pack("scheduleRemovals",
+		big.NewInt(int64(proofSetID)),
+		[]*big.Int{big.NewInt(int64(rootID))},
+		[]byte{},
+	)
+	if err != nil {
+		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Get the sender address
+	fromAddress, err := p.getSenderAddress(ctx)
+	if err != nil {
+		http.Error(w, "Failed to get sender address: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Prepare the transaction
+	ethTx := types.NewTransaction(
+		0, // nonce will be set by SenderETH
+		contract.ContractAddresses().PDPVerifier,
+		big.NewInt(0), // value
+		0,             // gas limit (will be estimated)
+		nil,           // gas price (will be set by SenderETH)
+		data,
+	)
+
+	// Send the transaction
+	reason := "pdp-delete-root"
+	txHash, err := p.sender.Send(ctx, fromAddress, ethTx, reason)
+	if err != nil {
+		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("Failed to send transaction: %+v", err)
+		return
+	}
+
+	// Schedule deletion of the root from the proof set using a transaction
+	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// Insert into message_waits_eth
+		_, err := tx.Exec(`
+			INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
+			VALUES ($1, $2)
+		`, txHash.Hex(), "pending")
+		if err != nil {
+			return false, err
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+
+	if err != nil {
+		http.Error(w, "Failed to schedule delete root: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return 204 No Content on successful deletion
+	w.WriteHeader(http.StatusNoContent)
+
+}
+
 func (p *PDPService) handleGetProofSetRoot(w http.ResponseWriter, r *http.Request) {
 	// Spec snippet:
 	// ### GET /proof-sets/{set id}/roots/{root id}
@@ -928,31 +1051,6 @@ func (p *PDPService) handleGetProofSetRoot(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		return
 	}*/
-}
-
-func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Request) {
-	// Spec snippet:
-	// ### DEL /proof-sets/{set id}/roots/{root id}
-
-	proofSetIDStr := chi.URLParam(r, "proofSetID")
-	proofSetID, err := strconv.ParseInt(proofSetIDStr, 10, 64)
-	if err != nil {
-		http.Error(w, "Invalid proof set ID", http.StatusBadRequest)
-		return
-	}
-
-	rootIDStr := chi.URLParam(r, "rootID")
-	rootID, err := strconv.ParseInt(rootIDStr, 10, 64)
-	if err != nil {
-		http.Error(w, "Invalid root ID", http.StatusBadRequest)
-		return
-	}
-
-	_ = proofSetID
-	_ = rootID
-
-	// Respond with 204 No Content
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // Data models corresponding to the updated schema
