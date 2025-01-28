@@ -663,22 +663,11 @@ func (p *ProveTask) cleanupDeletedRoots(ctx context.Context, proofSetID int64, p
 				return false, xerrors.Errorf("failed to get piece ref for root %d: %w", removeID, err)
 			}
 
-			// Get parked piece ref
-			var parkedPieceRef int64
-			err = tx.QueryRow(`
-				SELECT piece_ref
-				FROM pdp_piecerefs
-				WHERE id = $1
-			`, pdpPieceRefID).Scan(&parkedPieceRef)
-			if err != nil {
-				return false, xerrors.Errorf("failed to get parked piece ref for root %d: %w", removeID, err)
-			}
-
 			// Delete the parked piece ref, this will cascade to the pdp piece ref too
 			_, err = tx.Exec(`
 				DELETE FROM parked_piece_refs
 				WHERE ref_id = $1
-			`, parkedPieceRef)
+			`, pdpPieceRefID)
 			if err != nil {
 				return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", parkedPieceRef, err)
 			}
