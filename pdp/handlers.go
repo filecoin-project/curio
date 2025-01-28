@@ -997,10 +997,6 @@ func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Req
 	}, harmonydb.OptionRetry())
 
 	if err != nil {
-		if err.Error() == "root not found" {
-			http.Error(w, "Root not found", http.StatusNotFound)
-			return
-		}
 		http.Error(w, "Failed to schedule delete root: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
