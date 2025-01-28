@@ -20,7 +20,7 @@ func (st *Local) StashCreate(ctx context.Context, maxSize int64, writeFunc func(
 	var maxAvailable int64
 
 	for _, p := range st.paths {
-		if !p.canSeal {
+		if !p.CanSeal {
 			continue
 		}
 
@@ -47,7 +47,7 @@ func (st *Local) StashCreate(ctx context.Context, maxSize int64, writeFunc func(
 		return uuid.Nil, xerrors.Errorf("no sealing paths have enough space (%d bytes)", maxSize)
 	}
 
-	stashDir := filepath.Join(selectedPath.local, StashDirName)
+	stashDir := filepath.Join(selectedPath.Local, StashDirName)
 	err := os.MkdirAll(stashDir, 0755)
 	if err != nil {
 		return uuid.Nil, xerrors.Errorf("creating stash directory %s: %w", stashDir, err)
@@ -96,13 +96,13 @@ func (st *Local) StashRemove(ctx context.Context, id uuid.UUID) error {
 	fileName := id.String() + ".tmp"
 
 	for _, p := range st.paths {
-		if !p.canSeal {
+		if !p.CanSeal {
 			continue
 		}
 
 		st.localLk.RUnlock()
 
-		stashDir := filepath.Join(p.local, StashDirName)
+		stashDir := filepath.Join(p.Local, StashDirName)
 		stashFilePath := filepath.Join(stashDir, fileName)
 		if _, err := os.Stat(stashFilePath); err == nil {
 			if err := os.Remove(stashFilePath); err != nil {
@@ -125,11 +125,11 @@ func (st *Local) ServeAndRemove(ctx context.Context, id uuid.UUID) (io.ReadClose
 	fileName := id.String() + ".tmp"
 
 	for _, p := range st.paths {
-		if !p.canSeal {
+		if !p.CanSeal {
 			continue
 		}
 
-		stashDir := filepath.Join(p.local, StashDirName)
+		stashDir := filepath.Join(p.Local, StashDirName)
 		stashFilePath := filepath.Join(stashDir, fileName)
 		f, err := os.Open(stashFilePath)
 		if err == nil {

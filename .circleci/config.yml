@@ -7,12 +7,12 @@ executors:
   golang:
     docker:
       # Must match GO_VERSION_MIN in project root
-      - image: cimg/go:1.22.3
+      - image: cimg/go:1.22.8
     resource_class: medium+
   golang-2xl:
     docker:
       # Must match GO_VERSION_MIN in project root
-      - image: cimg/go:1.22.3
+      - image: cimg/go:1.22.8
     resource_class: 2xlarge
   ubuntu:
     docker:
@@ -282,6 +282,7 @@ jobs:
       - install-ubuntu-deps
       - run: go install golang.org/x/tools/cmd/goimports
       - run: go install github.com/hannahhoward/cbor-gen-for
+      - run: go install golang.org/x/text/cmd/gotext
       - run: make deps gen
       - run: git --no-pager diff && git --no-pager diff --quiet
   

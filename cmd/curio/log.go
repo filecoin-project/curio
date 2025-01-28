@@ -6,13 +6,14 @@ import (
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/lib/reqcontext"
 )
 
 var logCmd = &cli.Command{
 	Name:  "log",
-	Usage: "Manage logging",
+	Usage: translations.T("Manage logging"),
 	Subcommands: []*cli.Command{
 		LogList,
 		LogSetLevel,
@@ -21,7 +22,7 @@ var logCmd = &cli.Command{
 
 var LogList = &cli.Command{
 	Name:  "list",
-	Usage: "List log systems",
+	Usage: translations.T("List log systems"),
 	Action: func(cctx *cli.Context) error {
 		minerApi, closer, err := rpc.GetCurioAPI(cctx)
 		if err != nil {
@@ -46,9 +47,9 @@ var LogList = &cli.Command{
 
 var LogSetLevel = &cli.Command{
 	Name:      "set-level",
-	Usage:     "Set log level",
-	ArgsUsage: "[level]",
-	Description: `Set the log level for logging systems:
+	Usage:     translations.T("Set log level"),
+	ArgsUsage: translations.T("[level]"),
+	Description: translations.T(`Set the log level for logging systems:
 
    The system flag can be specified multiple times.
 
@@ -65,11 +66,11 @@ var LogSetLevel = &cli.Command{
    GOLOG_LOG_FMT   - Change output log format (json, nocolor)
    GOLOG_FILE      - Write logs to file
    GOLOG_OUTPUT    - Specify whether to output to file, stderr, stdout or a combination, i.e. file+stderr
-`,
+`),
 	Flags: []cli.Flag{
 		&cli.StringSliceFlag{
 			Name:  "system",
-			Usage: "limit to log system",
+			Usage: translations.T("limit to log system"),
 			Value: &cli.StringSlice{},
 		},
 	},

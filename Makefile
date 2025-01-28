@@ -26,7 +26,7 @@ BUILD_DEPS+=ffi-version-check
 
 ## BLST (from supraseal, but needed in curio)
 
-BLST_PATH:=extern/supra_seal/
+BLST_PATH:=extern/supraseal/
 BLST_DEPS:=.install-blst
 BLST_DEPS:=$(addprefix $(BLST_PATH),$(BLST_DEPS))
 
@@ -36,14 +36,13 @@ build/.blst-install: $(BLST_PATH)
 	bash scripts/build-blst.sh
 	@touch $@
 
-MODULES+=$(BLST_PATH)
 BUILD_DEPS+=build/.blst-install
 CLEAN+=build/.blst-install
 
 ## SUPRA-FFI
 
 ifeq ($(shell uname),Linux)
-SUPRA_FFI_PATH:=extern/supra_seal/
+SUPRA_FFI_PATH:=extern/supraseal/
 SUPRA_FFI_DEPS:=.install-supraseal
 SUPRA_FFI_DEPS:=$(addprefix $(SUPRA_FFI_PATH),$(SUPRA_FFI_DEPS))
 
@@ -53,7 +52,6 @@ build/.supraseal-install: $(SUPRA_FFI_PATH)
 	cd $(SUPRA_FFI_PATH) && ./build.sh
 	@touch $@
 
-# MODULES+=$(SUPRA_FFI_PATH) -- already included in BLST_PATH
 CLEAN+=build/.supraseal-install
 endif
 
@@ -83,7 +81,7 @@ deps: $(BUILD_DEPS)
 
 ## ldflags -s -w strips binary
 
-CURIO_TAGS := cunative
+CURIO_TAGS ?= cunative
 
 curio: $(BUILD_DEPS)
 	rm -f curio
@@ -98,7 +96,7 @@ BINS+=curio
 
 sptool: $(BUILD_DEPS)
 	rm -f sptool
-	$(GOCC) build $(GOFLAGS) -o sptool ./cmd/sptool
+	$(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o sptool ./cmd/sptool
 .PHONY: sptool
 BINS+=sptool
 
@@ -266,7 +264,7 @@ build_lotus?=0
 curio_docker_user?=curio
 curio_base_image=$(curio_docker_user)/curio-all-in-one:latest-debug
 ffi_from_source?=0
-lotus_version?=v1.30.0-rc2
+lotus_version?=v1.32.0-rc1
 
 ifeq ($(build_lotus),1)
 # v1: building lotus image with provided lotus version
@@ -303,7 +301,7 @@ curio_docker_build_cmd=docker build --build-arg CURIO_TEST_IMAGE=$(curio_base_im
 
 docker/curio-all-in-one:
 	$(curio_docker_build_cmd) -f Dockerfile --target curio-all-in-one \
-		-t $(curio_base_image) --build-arg GOFLAGS=-tags=debug .
+		-t $(curio_base_image) --build-arg CURIO_TAGS="cunative debug" .
 .PHONY: docker/curio-all-in-one
 
 docker/lotus:

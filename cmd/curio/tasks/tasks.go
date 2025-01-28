@@ -85,7 +85,7 @@ func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.Cur
 	return computeTask, submitTask, recoverTask, nil
 }
 
-func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.TaskEngine, error) {
+func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) (*harmonytask.TaskEngine, error) {
 	cfg := dependencies.Cfg
 	db := dependencies.DB
 	full := dependencies.Chain
@@ -97,6 +97,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 	si := dependencies.Si
 	bstore := dependencies.Bstore
 	machine := dependencies.ListenAddr
+	prover := dependencies.Prover
 	iStore := dependencies.IndexStore
 	pp := dependencies.SectorReader
 
@@ -197,19 +198,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		return ffi.NewSealCalls(stor, lstor, si), nil
 	})
 
-	{
-		// Piece handling
-		if cfg.Subsystems.EnableParkPiece {
-			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.ParkPieceMaxTasks)
-			if err != nil {
-				return nil, err
-			}
-
-			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
-			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask)
-		}
-	}
-
 	hasAnySealingTask := cfg.Subsystems.EnableSealSDR ||
 		cfg.Subsystems.EnableSealSDRTrees ||
 		cfg.Subsystems.EnableSendPrecommitMsg ||
@@ -219,14 +207,27 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		cfg.Subsystems.EnableBatchSeal ||
 		cfg.Subsystems.EnableUpdateEncode ||
 		cfg.Subsystems.EnableUpdateProve ||
-		cfg.Subsystems.EnableUpdateSubmit
+		cfg.Subsystems.EnableUpdateSubmit ||
+		cfg.Subsystems.EnableCommP
 
 	if hasAnySealingTask {
-		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine)
+		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover)
 		if err != nil {
 			return nil, err
 		}
 		activeTasks = append(activeTasks, sealingTasks...)
+	}
+
+	{
+		// Piece handling
+		if cfg.Subsystems.EnableParkPiece {
+			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.ParkPieceMaxTasks)
+			if err != nil {
+				return nil, err
+			}
+			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
+			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask)
+		}
 	}
 
 	miners := make([]address.Address, 0, len(maddrs))
@@ -257,13 +258,14 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			// PSD and Deal find task do not require many resources. They can run on all machines
 			psdTask := storage_market.NewPSDTask(dm, db, sender, as, &cfg.Market.StorageMarketConfig.MK12, full)
 			dealFindTask := storage_market.NewFindDealTask(dm, db, full, &cfg.Market.StorageMarketConfig.MK12)
-			activeTasks = append(activeTasks, psdTask, dealFindTask)
 
-			// Start libp2p hosts and handle streams
-			err = libp2p.NewDealProvider(ctx, db, cfg, dm.MK12Handler, full, sender, miners, machine)
-			if err != nil {
-				return nil, err
-			}
+			checkIndexesTask := indexing.NewCheckIndexesTask(db, iStore)
+
+			activeTasks = append(activeTasks, psdTask, dealFindTask, checkIndexesTask)
+
+			// Start libp2p hosts and handle streams. This is a special function which calls the shutdown channel
+			// instead of returning the error. This design is to allow libp2p take over if required
+			go libp2p.NewDealProvider(ctx, db, cfg, dm.MK12Handler, full, sender, miners, machine, shutdownChan)
 		}
 
 		var sdeps cuhttp.ServiceDeps
@@ -282,11 +284,11 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask)
 		}
 
-		idxMax := taskhelp.Max(8)
+		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 
 		indexingTask := indexing.NewIndexingTask(db, sc, iStore, pp, cfg, idxMax)
 		ipniTask := indexing.NewIPNITask(db, sc, iStore, pp, cfg, idxMax)
-		activeTasks = append(activeTasks, indexingTask, ipniTask)
+		activeTasks = append(activeTasks, ipniTask, indexingTask)
 
 		if cfg.HTTP.Enable {
 			err = cuhttp.StartHTTPServer(ctx, dependencies, &sdeps)
@@ -312,6 +314,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps) (*harmonytask.Task
 		return nil, err
 	}
 	go machineDetails(dependencies, activeTasks, ht.ResourcesAvailable().MachineID, dependencies.Name)
+
+	*dependencies.MachineID = int64(ht.ResourcesAvailable().MachineID)
 
 	if hasAnySealingTask {
 		watcher, err := message.NewMessageWatcher(db, ht, chainSched, full)
@@ -341,14 +345,18 @@ func addSealingTasks(
 	ctx context.Context, hasAnySealingTask bool, db *harmonydb.DB, full api.Chain, sender *message.Sender,
 	as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig, slrLazy *lazy.Lazy[*ffi.SealCalls],
 	asyncParams func() func() (bool, error), si paths.SectorIndex, stor *paths.Remote,
-	bstore curiochain.CurioBlockstore, machineHostPort string) ([]harmonytask.TaskInterface, error) {
+	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover) ([]harmonytask.TaskInterface, error) {
 	var activeTasks []harmonytask.TaskInterface
 	// Sealing / Snap
 
 	var sp *seal.SealPoller
 	var slr *ffi.SealCalls
+	var err error
 	if hasAnySealingTask {
-		sp = seal.NewPoller(db, full)
+		sp, err = seal.NewPoller(db, full, cfg)
+		if err != nil {
+			return nil, xerrors.Errorf("creating seal poller: %w", err)
+		}
 		go sp.RunPoller(ctx)
 
 		slr = must.One(slrLazy.Val())
@@ -364,18 +372,17 @@ func addSealingTasks(
 	}
 
 	if cfg.Subsystems.EnableBatchSeal {
-		slotMgr = slotmgr.NewSlotMgr()
-
-		batchSealTask, err := sealsupra.NewSupraSeal(
+		batchSealTask, sm, err := sealsupra.NewSupraSeal(
 			cfg.Seal.BatchSealSectorSize,
 			cfg.Seal.BatchSealBatchSize,
 			cfg.Seal.BatchSealPipelines,
 			!cfg.Seal.SingleHasherPerThread,
 			cfg.Seal.LayerNVMEDevices,
-			machineHostPort, slotMgr, db, full, stor, si)
+			machineHostPort, db, full, stor, si)
 		if err != nil {
 			return nil, xerrors.Errorf("setting up batch sealer: %w", err)
 		}
+		slotMgr = sm
 		activeTasks = append(activeTasks, batchSealTask)
 		addFinalize = true
 	}
@@ -401,7 +408,7 @@ func addSealingTasks(
 	}
 
 	if cfg.Subsystems.EnableSendPrecommitMsg {
-		precommitTask := seal.NewSubmitPrecommitTask(sp, db, full, sender, as, cfg.Fees.MaxPreCommitGasFee, cfg.Fees.CollateralFromMinerBalance, cfg.Fees.DisableCollateralFallback)
+		precommitTask := seal.NewSubmitPrecommitTask(sp, db, full, sender, as, cfg)
 		activeTasks = append(activeTasks, precommitTask)
 	}
 	if cfg.Subsystems.EnablePoRepProof {
@@ -430,7 +437,7 @@ func addSealingTasks(
 		}
 	}
 	if cfg.Subsystems.EnableSendCommitMsg {
-		commitTask := seal.NewSubmitCommitTask(sp, db, full, sender, as, cfg)
+		commitTask := seal.NewSubmitCommitTask(sp, db, full, sender, as, cfg, prover)
 		activeTasks = append(activeTasks, commitTask)
 	}
 

@@ -26,7 +26,7 @@ var _ storiface.Reader = &pieceReader{}
 var MaxPieceReaderBurnBytes int64 = 1 << 20 // 1M
 var ReadBuf = 128 * (127 * 8)               // unpadded(128k)
 
-var MinRandomReadSize = int64(4 << 10)
+var MinRandomReadSize = int64(1 << 20)
 
 type pieceGetter func(offset, size uint64) (io.ReadCloser, error)
 

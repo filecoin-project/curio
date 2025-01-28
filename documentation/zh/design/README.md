@@ -11,11 +11,11 @@ description: >-
 
 Curio 的核心内部组件包括 HarmonyDB、HarmonyTask、ChainScheduler 以及配置和当前存储定义的数据库抽象。
 
-<figure><img src="../.gitbook/assets/curio-node.png" alt="Curio Node"><figcaption><p>Curio nodes</p></figcaption></figure>
+<figure><img src="../.gitbook/assets/curio-node.svg" width="800" alt="Curio Node"><figcaption><p>Curio nodes</p></figcaption></figure>
 
 Curio 集群是由多个连接到 YugabyteDB 集群和市场节点的 Curio 节点组成的集群。单个 Curio 集群可以根据需要为多个矿工 ID 提供服务，并在它们之间共享计算资源。
 
-<figure><img src="../.gitbook/assets/curio-cluster.png" alt="Curio cluster"><figcaption><p>Curio cluster</p></figcaption></figure>
+<figure><img src="../.gitbook/assets/curio-cluster.svg" width="800" alt="Curio cluster"><figcaption><p>Curio cluster</p></figcaption></figure>
 
 ## HarmonyDB 
 
@@ -49,7 +49,7 @@ HarmonyTask 是纯粹的（无任务逻辑）分布式任务管理器。
 * 贪婪工人：工人主动认领他们可以处理的任务。
 * 轮询分配：在 Curio 节点认领任务后，HarmonyDB 尝试将剩余工作分配给其他机器。
 
-<figure><img src="../.gitbook/assets/curio-tasks.png" alt="Curio Tasks"><figcaption><p>Harmony tasks</p></figcaption></figure>
+<figure><img src="../.gitbook/assets/curio-tasks.svg" width="800" alt="Curio Tasks"><figcaption><p>Harmony tasks</p></figcaption></figure>
 
 ### Model 
 ### 模型

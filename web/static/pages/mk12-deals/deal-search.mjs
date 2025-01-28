@@ -29,9 +29,9 @@ class DealSearch extends LitElement {
         crossorigin="anonymous"
       />
       <div class="search-container">
-        <input
+        <input 
+          autofocus
           type="text"
-          class="form-control"
           placeholder="Enter deal ID"
           @input="${this.handleInput}"
         />
@@ -44,15 +44,24 @@ class DealSearch extends LitElement {
 
     static styles = css`
     .search-container {
-      display: flex;
-      align-items: center;
+      display: grid;
+      grid-template-columns: 1fr max-content;
+      grid-column-gap: 0.75rem;
       margin-bottom: 1rem;
     }
+    
+    .btn {
+    padding: 0.4rem 1rem;
+    border: none;
+    border-radius: 0;
+    background-color: var(--color-form-default);
+    color: var(--color-text-primary);
 
-    .search-container input {
-      flex: 1;
-      margin-right: 0.5rem;
+    &:hover, &:focus, &:focus-visible {
+        background-color: var(--color-form-default-pressed);
+        color: var(--color-text-secondary);
     }
+  }
   `;
 }
 

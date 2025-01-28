@@ -2,7 +2,7 @@
 CREATE TABLE ipni_peerid (
     priv_key BYTEA NOT NULL PRIMARY KEY,
     peer_id TEXT NOT NULL UNIQUE,
-    sp_id BIGINT NOT NULL
+    sp_id BIGINT NOT NULL -- 20241106-market-fixes.sql UNIQUE
 );
 
 CREATE TABLE ipni (
@@ -12,6 +12,9 @@ CREATE TABLE ipni (
     -- metadata column in not required as Curio only supports one type of metadata(HTTP)
     is_rm BOOLEAN NOT NULL,
 
+    -- skip added in 20241106-market-fixes.sql
+    -- is_skip BOOLEAN NOT NULL DEFAULT FALSE, -- set to true means return 404 for related entries
+
     previous TEXT, -- previous ad will only be null for first ad in chain
 
     provider TEXT NOT NULL, -- peerID from libp2p, this is main identifier on IPNI side
@@ -19,6 +22,9 @@ CREATE TABLE ipni (
 
     signature BYTEA NOT NULL,
     entries TEXT NOT NULL, -- CID of first link in entry chain
+
+    piece_cid TEXT NOT NULL, -- For easy look up
+    piece_size BIGINT NOT NULL, -- For easy look up
 
     unique (ad_cid)
 );
@@ -30,7 +36,10 @@ CREATE INDEX ipni_provider_order_number ON ipni(provider, order_number);
 CREATE UNIQUE INDEX ipni_ad_cid ON ipni(ad_cid);
 
 -- This index will speed up lookups based on the ad_cid, which is frequently used to identify specific ads
-CREATE UNIQUE INDEX ipni_context_id ON ipni(context_id, ad_cid, is_rm);
+CREATE UNIQUE INDEX ipni_context_id ON ipni(context_id, ad_cid, is_rm); -- dropped in 20241106-market-fixes.sql
+-- 20241106-market-fixes.sql:
+-- CREATE INDEX ipni_context_id ON ipni(context_id, ad_cid, is_rm, is_skip) -- non-unique to allow multiple skips
+-- CREATE INDEX ipni_entries_skip ON ipni(entries, is_skip, piece_cid);
 
 -- Since the get_ad_chain function relies on both provider and ad_cid to find the order_number, this index will optimize that query:
 CREATE INDEX ipni_provider_ad_cid ON ipni(provider, ad_cid);
@@ -61,9 +70,31 @@ CREATE TABLE ipni_chunks (
     UNIQUE (piece_cid, chunk_num)
 );
 
+-- IPNI pipeline is kept separate from rest for robustness
+-- and reuse. This allows for removing, recreating ads using CLI.
+CREATE TABLE ipni_task (
+    sp_id BIGINT NOT NULL,
+    sector BIGINT NOT NULL,
+    reg_seal_proof INT NOT NULL,
+    sector_offset BIGINT,
+
+    context_id BYTEA NOT NULL,
+    is_rm BOOLEAN NOT NULL,
+
+    provider TEXT NOT NULL,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
+    task_id BIGINT DEFAULT NULL,
+    complete BOOLEAN DEFAULT FALSE,
+
+    PRIMARY KEY (provider, context_id, is_rm)
+);
+
 CREATE OR REPLACE FUNCTION insert_ad_and_update_head(
     _ad_cid TEXT,
     _context_id BYTEA,
+    _piece_cid TEXT,
+    _piece_size BIGINT,
     _is_rm BOOLEAN,
     _provider TEXT,
     _addresses TEXT,
@@ -79,8 +110,8 @@ BEGIN
     WHERE provider = _provider;
 
     -- Insert the new ad into the ipni table with an automatically assigned order_number
-    INSERT INTO ipni (ad_cid, context_id, is_rm, previous, provider, addresses, signature, entries)
-    VALUES (_ad_cid, _context_id, _is_rm, _previous, _provider, _addresses, _signature, _entries);
+    INSERT INTO ipni (ad_cid, context_id, is_rm, previous, provider, addresses, signature, entries, piece_cid, piece_size)
+    VALUES (_ad_cid, _context_id, _is_rm, _previous, _provider, _addresses, _signature, _entries, _piece_cid, _piece_size);
 
     -- Update the ipni_head table to set the new ad as the head of the chain
     INSERT INTO ipni_head (provider, head)
@@ -120,26 +151,6 @@ BEGIN
     ORDER BY order_number ASC;
 END;
 $$ LANGUAGE plpgsql;
-
--- IPNI pipeline is kept separate from rest for robustness
--- and reuse. This allows for removing, recreating ads using CLI.
-CREATE TABLE ipni_task (
-    sp_id BIGINT NOT NULL,
-    sector BIGINT NOT NULL,
-    reg_seal_proof INT NOT NULL,
-    sector_offset BIGINT,
-
-    context_id BYTEA NOT NULL,
-    is_rm BOOLEAN NOT NULL,
-
-    provider TEXT NOT NULL,
-
-    created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
-    task_id BIGINT DEFAULT NULL,
-    complete BOOLEAN DEFAULT FALSE,
-
-    PRIMARY KEY (provider, context_id, is_rm)
-);
 
 -- Function to create ipni tasks
 CREATE OR REPLACE FUNCTION insert_ipni_task(

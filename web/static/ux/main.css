@@ -18,6 +18,13 @@
     /* Text colors */
     --color-text-primary: #FFF;
     --color-text-secondary: #171717;
+    --color-text-dense: #e0e0e0;
+
+    /* Areas */
+    --color-fg: #2A2A2E;
+    --color-bg: #1D1D21;
+
+    --color-shadow-main: #1e1d1f;
 
     /* Forms */
     --color-form-default: #808080; /* buttons, field outlines */
@@ -28,6 +35,9 @@
     --color-form-group-2: #71512B;
     --color-form-group-3: #2A5D6A;
     --color-form-group-4: #662671;
+
+    --color-nav-button: #2A2A2E;
+    --color-nav-button-hover: var(--color-secondary-dark);
 }
 
 html {

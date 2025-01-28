@@ -443,6 +443,8 @@ func ExampleValue(method string, t, parent reflect.Type) interface{} {
 		}
 	case reflect.Interface:
 		return struct{}{}
+	case reflect.Float64:
+		return float64(1)
 	}
 
 	panic(fmt.Sprintf("No example value for type: %s (method '%s')", t, method))

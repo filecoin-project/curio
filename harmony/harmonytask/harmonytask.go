@@ -282,6 +282,17 @@ func (e *TaskEngine) poller() {
 		}
 		nextWait = POLL_DURATION
 
+		// Check if the machine is schedulable
+		schedulable, err := e.schedulable()
+		if err != nil {
+			log.Error("Unable to check schedulable status: ", err)
+			continue
+		}
+		if !schedulable {
+			log.Debugf("Machine %s is not schedulable. Please check the cordon status.", e.hostAndPort)
+			continue
+		}
+
 		accepted := e.pollerTryAllWork()
 		if accepted {
 			nextWait = POLL_NEXT_DURATION
@@ -316,7 +327,7 @@ func (e *TaskEngine) followWorkInDB() {
 
 	for fromName, srcs := range e.follows {
 		var cList []int // Which work is done (that we follow) since we last checked?
-		err := e.db.Select(e.ctx, &cList, `SELECT h.task_id FROM harmony_task_history 
+		err := e.db.Select(e.ctx, &cList, `SELECT h.task_id FROM harmony_task_history
    		WHERE h.work_end>$1 AND h.name=$2`, lastFollowTime.UTC(), fromName)
 		if err != nil {
 			log.Error("Could not query DB: ", err)
@@ -325,7 +336,7 @@ func (e *TaskEngine) followWorkInDB() {
 		for _, src := range srcs {
 			for _, workAlreadyDone := range cList { // Were any tasks made to follow these tasks?
 				var ct int
-				err := e.db.QueryRow(e.ctx, `SELECT COUNT(*) FROM harmony_task 
+				err := e.db.QueryRow(e.ctx, `SELECT COUNT(*) FROM harmony_task
 					WHERE name=$1 AND previous_task=$2`, src.h.Name, workAlreadyDone).Scan(&ct)
 				if err != nil {
 					log.Error("Could not query harmony_task: ", err)
@@ -367,7 +378,7 @@ func (e *TaskEngine) pollerTryAllWork() bool {
 		}
 
 		var allUnownedTasks []task
-		err := e.db.Select(e.ctx, &allUnownedTasks, `SELECT id, update_time, retries 
+		err := e.db.Select(e.ctx, &allUnownedTasks, `SELECT id, update_time, retries
 			FROM harmony_task
 			WHERE owner_id IS NULL AND name=$1
 			ORDER BY update_time`, v.Name)
@@ -449,6 +460,15 @@ func (e *TaskEngine) Resources() resources.Resources {
 
 func (e *TaskEngine) Host() string {
 	return e.hostAndPort
+}
+
+func (e *TaskEngine) schedulable() (bool, error) {
+	var unschedulable bool
+	err := e.db.QueryRow(e.ctx, `SELECT unschedulable FROM harmony_machines WHERE host_and_port=$1`, e.hostAndPort).Scan(&unschedulable)
+	if err != nil {
+		return false, err
+	}
+	return !unschedulable, nil
 }
 
 // About the Registry

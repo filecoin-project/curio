@@ -8,6 +8,7 @@ import (
 
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 
@@ -23,8 +24,8 @@ type StorageGCStats struct {
 	Miner string
 }
 
-func (a *WebRPC) StorageGCStats(ctx context.Context) ([]StorageGCStats, error) {
-	var stats []StorageGCStats
+func (a *WebRPC) StorageGCStats(ctx context.Context) ([]*StorageGCStats, error) {
+	var stats []*StorageGCStats
 	err := a.deps.DB.Select(ctx, &stats, `SELECT sp_id, count(*) as count FROM storage_removal_marks GROUP BY sp_id ORDER BY sp_id DESC`)
 	if err != nil {
 		return nil, err
@@ -80,7 +81,7 @@ func (a *WebRPC) StorageUseStats(ctx context.Context) ([]StorageUseStats, error)
 	return stats, nil
 }
 
-type StorageGCMarks struct {
+type StorageGCMark struct {
 	Actor     int64  `db:"sp_id"`
 	SectorNum int64  `db:"sector_num"`
 	FileType  int64  `db:"sector_filetype"`
@@ -102,15 +103,69 @@ type StorageGCMarks struct {
 	Miner string
 }
 
-func (a *WebRPC) StorageGCMarks(ctx context.Context) ([]StorageGCMarks, error) {
-	var marks []StorageGCMarks
-	err := a.deps.DB.Select(ctx, &marks, `
-		SELECT m.sp_id, m.sector_num, m.sector_filetype, m.storage_id, m.created_at, m.approved, m.approved_at, sl.can_seal, sl.can_store, sl.urls
-			FROM storage_removal_marks m LEFT JOIN storage_path sl ON m.storage_id = sl.storage_id
-			ORDER BY created_at DESC`)
-	if err != nil {
-		return nil, err
+type StorageGCMarks struct {
+	Marks []*StorageGCMark
+	Total int
+}
+
+func (a *WebRPC) StorageGCMarks(ctx context.Context, miner *string, sectorNum *int64, limit int, offset int) (*StorageGCMarks, error) {
+	var spID *int64
+	if miner != nil {
+		maddr, err := address.NewFromString(*miner)
+		if err != nil {
+			return nil, err
+		}
+		sp_id, err := address.IDFromAddress(maddr)
+		if err != nil {
+			return nil, err
+		}
+		tspid := int64(sp_id)
+		spID = &tspid
 	}
+
+	if sectorNum != nil && *sectorNum < 0 {
+		return nil, xerrors.Errorf("invalid sector_num: %d", *sectorNum)
+	}
+
+	var marks []*StorageGCMark
+	var total int
+
+	// Get the total count of rows
+	err := a.deps.DB.QueryRow(ctx, `SELECT 
+    											COUNT(*) 
+											FROM storage_removal_marks 
+											WHERE 
+											     ($1::BIGINT IS NULL OR sp_id = $1) 
+											  AND ($2::BIGINT IS NULL OR sector_num = $2)`, spID, sectorNum).Scan(&total)
+	if err != nil {
+		return nil, xerrors.Errorf("querying storage removal marks: %w", err)
+	}
+
+	err = a.deps.DB.Select(ctx, &marks, `
+								SELECT 
+								    m.sp_id, 
+								    m.sector_num, 
+								    m.sector_filetype, 
+								    m.storage_id, 
+								    m.created_at, 
+								    m.approved, 
+								    m.approved_at, 
+								    sl.can_seal, 
+								    sl.can_store, 
+								    sl.urls
+								FROM storage_removal_marks m 
+								    LEFT JOIN storage_path sl ON m.storage_id = sl.storage_id
+								WHERE 
+								    ($1::BIGINT IS NULL OR m.sp_id = $1)
+    								AND ($2::BIGINT IS NULL OR m.sector_num = $2) 
+								ORDER BY created_at 
+								DESC LIMIT $3 
+								OFFSET $4`, spID, sectorNum, limit, offset)
+	if err != nil {
+		return nil, xerrors.Errorf("querying storage removal marks: %w", err)
+	}
+
+	minerMap := make(map[int64]address.Address)
 
 	for i, m := range marks {
 		marks[i].TypeName = storiface.SectorFileType(m.FileType).String()
@@ -129,14 +184,21 @@ func (a *WebRPC) StorageGCMarks(ctx context.Context) ([]StorageGCMarks, error) {
 			return must.One(url.Parse(u)).Host
 		})
 		marks[i].Urls = strings.Join(us, ", ")
-		maddr, err := address.NewIDAddress(uint64(marks[i].Actor))
-		if err != nil {
-			return nil, err
+		maddr, ok := minerMap[marks[i].Actor]
+		if !ok {
+			maddr, err = address.NewIDAddress(uint64(marks[i].Actor))
+			if err != nil {
+				return nil, err
+			}
+			minerMap[marks[i].Actor] = maddr
 		}
 		marks[i].Miner = maddr.String()
 	}
 
-	return marks, nil
+	return &StorageGCMarks{
+		Marks: marks,
+		Total: total,
+	}, nil
 }
 
 func (a *WebRPC) StorageGCApprove(ctx context.Context, actor int64, sectorNum int64, fileType int64, storageID string) error {

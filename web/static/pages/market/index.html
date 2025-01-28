@@ -6,11 +6,13 @@
     <script type="module" src="market-balance.mjs"></script>
     <script type="module" src="market-asks.mjs"></script>
     <script type="module" src="deal-pipelines.mjs"></script>
+    <script type="module" src="pending-deals.mjs"></script>
+    <script type="module" src="piece-summary.mjs"></script>
 </head>
 <body style="visibility:hidden; background:rgb(11, 22, 34)" data-bs-theme="dark">
 <curio-ux>
     <div class="page">
-    <section class="section">
+    <section class="section" style="padding-bottom: 50px">
         <div class="row">
             <h1>Storage Market</h1>
         </div>
@@ -18,16 +20,26 @@
             <div class="col-md-auto" style="max-width: 95%">
                 <market-balance></market-balance>
             </div>
+            <div class="col-md-auto" style="max-width: 95%">
+                <piece-summary></piece-summary>
+            </div>
         </div>
     </section>
-    <section class="section">
+    <section class="section" style="padding-bottom: 50px">
         <div class="row">
             <div class="col-md-auto" style="max-width: 95%">
                 <market-asks></market-asks>
             </div>
         </div>
     </section>
-    <section class="section">
+    <section class="section" style="padding-bottom: 50px">
+        <div class="row">
+            <div class="col-md-auto" style="max-width: 95%">
+                <pending-deals></pending-deals>
+            </div>
+        </div>
+    </section>
+    <section class="section" style="padding-bottom: 50px">
         <div class="row">
             <div class="col-md-auto" style="max-width: 95%">
                 <deal-pipelines></deal-pipelines>

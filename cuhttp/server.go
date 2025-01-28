@@ -2,8 +2,10 @@ package cuhttp
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/CAFxX/httpcompression"
@@ -75,7 +77,7 @@ func compressionMiddleware(config *config.CompressionConfig) (func(http.Handler)
 func libp2pConnMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if the request path is "/"
-		if r.URL.Path == "/" {
+		if r.URL.Path == "/" || r.URL.Path == "" {
 			// Check if the request is a WebSocket upgrade request
 			if isWebSocketUpgrade(r) {
 				// Rewrite the path to "/libp2p"
@@ -94,10 +96,10 @@ func isWebSocketUpgrade(r *http.Request) bool {
 	if r.Method != http.MethodGet {
 		return false
 	}
-	if r.Header.Get("Upgrade") != "websocket" {
+	if strings.ToLower(r.Header.Get("Upgrade")) != "websocket" {
 		return false
 	}
-	if r.Header.Get("Connection") != "Upgrade" {
+	if strings.ToLower(r.Header.Get("Connection")) != "upgrade" {
 		return false
 	}
 	return true
@@ -108,15 +110,7 @@ type ServiceDeps struct {
 }
 
 func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
-	ch := cache{db: d.DB}
 	cfg := d.Cfg.HTTP
-
-	// Set up the autocert manager for Let's Encrypt
-	certManager := autocert.Manager{
-		Cache:      ch,
-		Prompt:     autocert.AcceptTOS, // Automatically accept the Terms of Service
-		HostPolicy: autocert.HostWhitelist(cfg.DomainName),
-	}
 
 	// Setup the Chi router for more complex routing (if needed in the future)
 	chiRouter := chi.NewRouter()
@@ -166,10 +160,22 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 		Addr:              cfg.ListenAddress,
 		Handler:           libp2pConnMiddleware(loggingMiddleware(compressionMw(chiRouter))), // Attach middlewares
 		ReadTimeout:       cfg.ReadTimeout,
-		WriteTimeout:      cfg.WriteTimeout,
+		WriteTimeout:      time.Hour * 2,
 		IdleTimeout:       cfg.IdleTimeout,
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
-		TLSConfig:         certManager.TLSConfig(),
+	}
+
+	if !cfg.DelegateTLS {
+		// Set up the autocert manager for Let's Encrypt
+		certManager := autocert.Manager{
+			Cache:      cache{db: d.DB},
+			Prompt:     autocert.AcceptTOS, // Automatically accept the Terms of Service
+			HostPolicy: autocert.HostWhitelist(cfg.DomainName),
+		}
+
+		server.TLSConfig = &tls.Config{
+			GetCertificate: certManager.GetCertificate,
+		}
 	}
 
 	// We don't need to run an HTTP server. Any HTTP request should simply be handled as HTTPS.
@@ -177,7 +183,12 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 	// Start the server with TLS
 	go func() {
 		log.Infof("Starting HTTPS server for https://%s on %s", cfg.DomainName, cfg.ListenAddress)
-		serr := server.ListenAndServeTLS("", "")
+		var serr error
+		if !cfg.DelegateTLS {
+			serr = server.ListenAndServeTLS("", "")
+		} else {
+			serr = server.ListenAndServe()
+		}
 		if serr != nil {
 			log.Errorf("Failed to start HTTPS server: %s", serr)
 			panic(serr)

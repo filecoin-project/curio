@@ -5,13 +5,14 @@ import (
 
 	"github.com/urfave/cli/v2"
 
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/lib/reqcontext"
 )
 
 var stopCmd = &cli.Command{
 	Name:  "stop",
-	Usage: "Stop a running Curio process",
+	Usage: translations.T("Stop a running Curio process"),
 	Flags: []cli.Flag{},
 	Action: func(cctx *cli.Context) error {
 		api, closer, err := rpc.GetCurioAPI(cctx)

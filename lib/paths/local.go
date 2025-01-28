@@ -4,17 +4,23 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"expvar"
+	"fmt"
 	"math/bits"
 	"math/rand"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/ipfs/go-cid"
+	"github.com/snadrus/must"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
@@ -29,6 +35,9 @@ import (
 	"github.com/filecoin-project/lotus/lib/result"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
 )
+
+// time abow which a warn log will be emitted for slow PoSt reads
+var SlowPoStCheckThreshold = 45 * time.Second
 
 type LocalStorage interface {
 	GetStorage() (storiface.StorageConfig, error)
@@ -75,14 +84,28 @@ type sectorFile struct {
 	ft  storiface.SectorFileType
 }
 
+func (sf *sectorFile) String() string {
+	return fmt.Sprintf("%d-%d-%d", sf.sid.Miner, sf.sid.Number, sf.ft)
+}
+
+func ft(s string) *sectorFile {
+	var out sectorFile
+	sp := strings.Split(s, "-")
+	out.sid.Miner = abi.ActorID(must.One(strconv.ParseUint(sp[0], 10, 64)))
+	out.sid.Number = abi.SectorNumber(must.One(strconv.ParseUint(sp[1], 10, 64)))
+	out.ft = storiface.SectorFileType(must.One(strconv.ParseUint(sp[2], 10, 64)))
+
+	return &out
+}
+
 type path struct {
-	local      string // absolute local path
-	maxStorage uint64
+	Local      string // absolute local path
+	MaxStorage uint64
 
-	reserved     int64
-	reservations map[sectorFile]int64
+	Reserved     int64
+	Reservations map[string]int64
 
-	canSeal bool
+	CanSeal bool
 }
 
 // statExistingSectorForReservation is optional parameter for stat method
@@ -97,12 +120,12 @@ type statExistingSectorForReservation struct {
 func (p *path) stat(ls LocalStorage, newReserve ...statExistingSectorForReservation) (stat fsutil.FsStat, newResvOnDisk int64, err error) {
 	start := time.Now()
 
-	stat, err = ls.Stat(p.local)
+	stat, err = ls.Stat(p.Local)
 	if err != nil {
-		return fsutil.FsStat{}, 0, xerrors.Errorf("stat %s: %w", p.local, err)
+		return fsutil.FsStat{}, 0, xerrors.Errorf("stat %s: %w", p.Local, err)
 	}
 
-	stat.Reserved = p.reserved
+	stat.Reserved = p.Reserved
 	var newReserveOnDisk int64
 
 	accountExistingFiles := func(id abi.SectorID, fileType storiface.SectorFileType, overhead int64) (int64, error) {
@@ -134,13 +157,14 @@ func (p *path) stat(ls LocalStorage, newReserve ...statExistingSectorForReservat
 		return used, nil
 	}
 
-	for id, oh := range p.reservations {
-		onDisk, err := accountExistingFiles(id.sid, id.ft, oh)
+	for id, oh := range p.Reservations {
+		rid := ft(id)
+		onDisk, err := accountExistingFiles(rid.sid, rid.ft, oh)
 		if err != nil {
 			return fsutil.FsStat{}, 0, err
 		}
 		if onDisk > oh {
-			log.Warnw("reserved space on disk is greater than expected", "id", id.sid, "fileType", id.ft, "onDisk", onDisk, "oh", oh)
+			log.Warnw("reserved space on disk is greater than expected", "id", rid.sid, "fileType", rid.ft, "onDisk", onDisk, "oh", oh)
 			onDisk = oh
 		}
 
@@ -152,7 +176,7 @@ func (p *path) stat(ls LocalStorage, newReserve ...statExistingSectorForReservat
 
 			resID := sectorFile{reservation.id, fileType}
 
-			if _, has := p.reservations[resID]; has {
+			if _, has := p.Reservations[resID.String()]; has {
 				// already accounted for
 				continue
 			}
@@ -171,17 +195,7 @@ func (p *path) stat(ls LocalStorage, newReserve ...statExistingSectorForReservat
 	}
 
 	if stat.Reserved < 0 {
-		//log.Warnf("negative reserved storage: p.reserved=%d, reserved: %d", p.reserved, stat.Reserved)
-		var jsonReservations []map[string]interface{}
-		for id, res := range p.reservations {
-			jsonReservations = append(jsonReservations, map[string]interface{}{
-				"id":  id.sid,
-				"ft":  id.ft,
-				"res": res,
-			})
-		}
-
-		log.Warnw("negative reserved storage", "reserved", stat.Reserved, "origResv", p.reserved, "reservations", len(p.reservations), "newReserveOnDisk", newReserveOnDisk, "reservations", jsonReservations)
+		log.Warnw("negative reserved storage", "reserved", stat.Reserved, "origResv", p.Reserved, "newReserveOnDisk", newReserveOnDisk, "reservations", p.Reservations)
 		stat.Reserved = 0
 	}
 
@@ -190,17 +204,17 @@ func (p *path) stat(ls LocalStorage, newReserve ...statExistingSectorForReservat
 		stat.Available = 0
 	}
 
-	if p.maxStorage > 0 {
-		used, err := ls.DiskUsage(p.local)
+	if p.MaxStorage > 0 {
+		used, err := ls.DiskUsage(p.Local)
 		if err != nil {
 			return fsutil.FsStat{}, 0, err
 		}
 
-		stat.Max = int64(p.maxStorage)
+		stat.Max = int64(p.MaxStorage)
 		stat.Used = used
 
-		avail := int64(p.maxStorage) - used
-		if uint64(used) > p.maxStorage {
+		avail := int64(p.MaxStorage) - used
+		if uint64(used) > p.MaxStorage {
 			avail = 0
 		}
 
@@ -210,20 +224,32 @@ func (p *path) stat(ls LocalStorage, newReserve ...statExistingSectorForReservat
 	}
 
 	if time.Since(start) > 5*time.Second {
-		log.Warnw("slow storage stat", "took", time.Since(start), "reservations", len(p.reservations))
+		log.Warnw("slow storage stat", "took", time.Since(start), "reservations", len(p.Reservations))
 	}
 
 	return stat, newReserveOnDisk, err
 }
 
 func (p *path) sectorPath(sid abi.SectorID, fileType storiface.SectorFileType) string {
-	return filepath.Join(p.local, fileType.String(), storiface.SectorName(sid))
+	return filepath.Join(p.Local, fileType.String(), storiface.SectorName(sid))
 }
 
 type URLs []string
 
 func UrlsFromString(in string) URLs {
 	return strings.Split(in, URLSeparator)
+}
+
+var localPathPublisher atomic.Pointer[func() any]
+
+func init() {
+	expvar.Publish("localpath", expvar.Func(func() any {
+		pf := localPathPublisher.Load()
+		if pf == nil {
+			return nil
+		}
+		return (*pf)()
+	}))
 }
 
 func NewLocal(ctx context.Context, ls LocalStorage, index SectorIndex, url string) (*Local, error) {
@@ -234,6 +260,15 @@ func NewLocal(ctx context.Context, ls LocalStorage, index SectorIndex, url strin
 
 		paths: map[storiface.ID]*path{},
 	}
+
+	pf := func() any {
+		l.localLk.Lock()
+		defer l.localLk.Unlock()
+
+		return l.paths
+	}
+	localPathPublisher.Store(&pf)
+
 	return l, l.open(ctx)
 }
 
@@ -252,18 +287,18 @@ func (st *Local) OpenPath(ctx context.Context, p string) error {
 	}
 
 	if p, exists := st.paths[meta.ID]; exists {
-		return xerrors.Errorf("path with ID %s already opened: '%s'", meta.ID, p.local)
+		return xerrors.Errorf("path with ID %s already opened: '%s'", meta.ID, p.Local)
 	}
 
 	// TODO: Check existing / dedupe
 
 	out := &path{
-		local: p,
+		Local: p,
 
-		maxStorage:   meta.MaxStorage,
-		reserved:     0,
-		reservations: map[sectorFile]int64{},
-		canSeal:      meta.CanSeal,
+		MaxStorage:   meta.MaxStorage,
+		Reserved:     0,
+		Reservations: map[string]int64{},
+		CanSeal:      meta.CanSeal,
 	}
 
 	// Remove all stashes on startup
@@ -360,14 +395,14 @@ func (st *Local) Redeclare(ctx context.Context, filterId *storiface.ID, dropMiss
 	defer st.localLk.Unlock()
 
 	for id, p := range st.paths {
-		mb, err := os.ReadFile(filepath.Join(p.local, MetaFile))
+		mb, err := os.ReadFile(filepath.Join(p.Local, MetaFile))
 		if err != nil {
-			return xerrors.Errorf("reading storage metadata for %s: %w", p.local, err)
+			return xerrors.Errorf("reading storage metadata for %s: %w", p.Local, err)
 		}
 
 		var meta storiface.LocalStorageMeta
 		if err := json.Unmarshal(mb, &meta); err != nil {
-			return xerrors.Errorf("unmarshalling storage metadata for %s: %w", p.local, err)
+			return xerrors.Errorf("unmarshalling storage metadata for %s: %w", p.Local, err)
 		}
 
 		fst, _, err := p.stat(st.localStorage)
@@ -376,7 +411,7 @@ func (st *Local) Redeclare(ctx context.Context, filterId *storiface.ID, dropMiss
 		}
 
 		if id != meta.ID {
-			log.Errorf("storage path ID changed: %s; %s -> %s", p.local, id, meta.ID)
+			log.Errorf("storage path ID changed: %s; %s -> %s", p.Local, id, meta.ID)
 			continue
 		}
 		if filterId != nil && *filterId != id {
@@ -401,7 +436,7 @@ func (st *Local) Redeclare(ctx context.Context, filterId *storiface.ID, dropMiss
 			return xerrors.Errorf("redeclaring storage in index: %w", err)
 		}
 
-		if err := st.declareSectors(ctx, p.local, meta.ID, meta.CanStore, dropMissingDecls); err != nil {
+		if err := st.declareSectors(ctx, p.Local, meta.ID, meta.CanStore, dropMissingDecls); err != nil {
 			return xerrors.Errorf("redeclaring sectors: %w", err)
 		}
 	}
@@ -526,7 +561,7 @@ func (st *Local) reportStorage(ctx context.Context) {
 }
 
 func (st *Local) Reserve(ctx context.Context, sid storiface.SectorRef, ft storiface.SectorFileType,
-	storageIDs storiface.SectorPaths, overheadTab map[storiface.SectorFileType]int, minFreePercentage float64) (func(), error) {
+	storageIDs storiface.SectorPaths, overheadTab map[storiface.SectorFileType]int, minFreePercentage float64) (userRelease func(), err error) {
 	ssize, err := sid.ProofType.SectorSize()
 	if err != nil {
 		return nil, err
@@ -569,34 +604,43 @@ func (st *Local) Reserve(ctx context.Context, sid storiface.SectorRef, ft storif
 		overheadOnDisk := overhead - resvOnDisk
 
 		if stat.Available < overheadOnDisk {
-			return nil, storiface.Err(storiface.ErrTempAllocateSpace, xerrors.Errorf("can't reserve %d bytes in '%s' (id:%s), only %d available", overhead, p.local, id, stat.Available))
+			return nil, storiface.Err(storiface.ErrTempAllocateSpace, xerrors.Errorf("can't reserve %d bytes in '%s' (id:%s), only %d available", overhead, p.Local, id, stat.Available))
 		}
 
-		freePercentag := (float64(stat.Available-overheadOnDisk) / float64(stat.Available)) * 100.0
+		availableAfter := stat.Available - overheadOnDisk
+		freePercentag := (float64(availableAfter) / float64(MaxCapacity(stat))) * 100.0
 
 		if freePercentag < minFreePercentage {
-			return nil, storiface.Err(storiface.ErrTempAllocateSpace, xerrors.Errorf("can't reserve %d bytes in '%s' (id:%s), free disk percentage %f will be lower than minimum %f", overhead, p.local, id, freePercentag, minFreePercentage))
+			log.Infow("reserve add", "id", id, "sector", sid, "fileType", fileType, "overhead", overhead, "reserved-before", p.Reserved, "reserved-after", p.Reserved+overhead, "freepct", freePercentag)
+			return nil, storiface.Err(storiface.ErrTempAllocateSpace, xerrors.Errorf("can't reserve %d bytes in '%s' (id:%s), free disk percentage %f will be lower than minimum %f", overhead, p.Local, id, freePercentag, minFreePercentage))
 		}
 
 		resID := sectorFile{sid.ID, fileType}
 
-		log.Debugw("reserve add", "id", id, "sector", sid, "fileType", fileType, "overhead", overhead, "reserved-before", p.reserved, "reserved-after", p.reserved+overhead)
+		log.Debugw("reserve add", "id", id, "sector", sid, "fileType", fileType, "overhead", overhead, "reserved-before", p.Reserved, "reserved-after", p.Reserved+overhead, "freepct", freePercentag)
 
-		p.reserved += overhead
-		p.reservations[resID] = overhead
+		p.Reserved += overhead
+		p.Reservations[resID.String()] = overhead
 
 		old_r := release
 		release = func() {
 			old_r()
 			st.localLk.Lock()
 			defer st.localLk.Unlock()
-			log.Debugw("reserve release", "id", id, "sector", sid, "fileType", fileType, "overhead", overhead, "reserved-before", p.reserved, "reserved-after", p.reserved-overhead)
-			p.reserved -= overhead
-			delete(p.reservations, resID)
+			log.Debugw("reserve release", "id", id, "sector", sid, "fileType", fileType, "overhead", overhead, "reserved-before", p.Reserved, "reserved-after", p.Reserved-overhead)
+			p.Reserved -= overhead
+			delete(p.Reservations, resID.String())
 		}
 	}
 
 	return release, nil
+}
+
+func MaxCapacity(st fsutil.FsStat) int64 {
+	if st.Max > 0 {
+		return st.Max
+	}
+	return st.Capacity
 }
 
 // DoubleCallWrap wraps a function to make sure it's not called twice
@@ -674,7 +718,7 @@ func (st *Local) AcquireSector(ctx context.Context, sid storiface.SectorRef, exi
 				continue
 			}
 
-			if p.local == "" { // TODO: can that even be the case?
+			if p.Local == "" { // TODO: can that even be the case?
 				continue
 			}
 
@@ -719,7 +763,7 @@ func (st *Local) AcquireSector(ctx context.Context, sid storiface.SectorRef, exi
 				continue
 			}
 
-			if p.local == "" { // TODO: can that even be the case?
+			if p.Local == "" { // TODO: can that even be the case?
 				continue
 			}
 
@@ -761,7 +805,7 @@ func (st *Local) Local(ctx context.Context) ([]storiface.StoragePath, error) {
 
 	var out []storiface.StoragePath
 	for id, p := range st.paths {
-		if p.local == "" {
+		if p.Local == "" {
 			continue
 		}
 
@@ -773,7 +817,7 @@ func (st *Local) Local(ctx context.Context) ([]storiface.StoragePath, error) {
 		out = append(out, storiface.StoragePath{
 			ID:        id,
 			Weight:    si.Weight,
-			LocalPath: p.local,
+			LocalPath: p.Local,
 			CanSeal:   si.CanSeal,
 			CanStore:  si.CanStore,
 		})
@@ -787,7 +831,7 @@ func (st *Local) Remove(ctx context.Context, sid abi.SectorID, typ storiface.Sec
 		return xerrors.New("delete expects one file type")
 	}
 
-	log.Debugw("Remove called", "sid", sid, "type", typ, "force", force, "keepIn", keepIn)
+	log.Debugw("Remove called", "Sid", sid, "type", typ, "force", force, "keepIn", keepIn)
 
 	si, err := st.index.StorageFindSector(ctx, sid, typ, 0, false)
 	if err != nil {
@@ -856,7 +900,7 @@ func (st *Local) removeSector(ctx context.Context, sid abi.SectorID, typ storifa
 		return nil
 	}
 
-	if p.local == "" { // TODO: can that even be the case?
+	if p.Local == "" { // TODO: can that even be the case?
 		return nil
 	}
 
@@ -976,6 +1020,13 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 	if si.Update {
 		src, si, err := st.AcquireSector(ctx, sr, storiface.FTUpdate|storiface.FTUpdateCache, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
 		if err != nil {
+			// Record the error with tags
+			ctx, _ = tag.New(ctx,
+				tag.Upsert(updateTagKey, fmt.Sprintf("%t", si.Update != "")),
+				tag.Upsert(cacheIDTagKey, ""),
+				tag.Upsert(sealedIDTagKey, ""),
+			)
+			stats.Record(ctx, GenerateSingleVanillaProofErrors.M(1))
 			return nil, xerrors.Errorf("acquire sector: %w", err)
 		}
 		cache, sealed = src.UpdateCache, src.Update
@@ -983,6 +1034,13 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 	} else {
 		src, si, err := st.AcquireSector(ctx, sr, storiface.FTSealed|storiface.FTCache, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
 		if err != nil {
+			// Record the error with tags
+			ctx, _ = tag.New(ctx,
+				tag.Upsert(updateTagKey, fmt.Sprintf("%t", si.Update != "")),
+				tag.Upsert(cacheIDTagKey, ""),
+				tag.Upsert(sealedIDTagKey, ""),
+			)
+			stats.Record(ctx, GenerateSingleVanillaProofErrors.M(1))
 			return nil, xerrors.Errorf("acquire sector: %w", err)
 		}
 		cache, sealed = src.Cache, src.Sealed
@@ -990,8 +1048,28 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 	}
 
 	if sealed == "" || cache == "" {
+		// Record the error with tags
+		ctx, _ = tag.New(ctx,
+			tag.Upsert(updateTagKey, fmt.Sprintf("%t", si.Update)),
+			tag.Upsert(cacheIDTagKey, cacheID),
+			tag.Upsert(sealedIDTagKey, sealedID),
+		)
+		stats.Record(ctx, GenerateSingleVanillaProofErrors.M(1))
 		return nil, errPathNotFound
 	}
+
+	// Add metrics context with tags
+	ctx, err := tag.New(ctx,
+		tag.Upsert(updateTagKey, fmt.Sprintf("%t", si.Update)),
+		tag.Upsert(cacheIDTagKey, cacheID),
+		tag.Upsert(sealedIDTagKey, sealedID),
+	)
+	if err != nil {
+		log.Errorw("failed to create tagged context", "err", err)
+	}
+
+	// Record that the function was called
+	stats.Record(ctx, GenerateSingleVanillaProofCalls.M(1))
 
 	psi := ffi.PrivateSectorInfo{
 		SectorInfo: proof.SectorInfo{
@@ -1013,11 +1091,23 @@ func (st *Local) GenerateSingleVanillaProof(ctx context.Context, minerID abi.Act
 
 	select {
 	case r := <-resCh:
+		// Record the duration upon successful completion
+		duration := time.Since(start).Milliseconds()
+		stats.Record(ctx, GenerateSingleVanillaProofDuration.M(duration))
+
+		if duration > SlowPoStCheckThreshold.Milliseconds() {
+			log.Warnw("slow GenerateSingleVanillaProof", "duration", duration, "cache-id", cacheID, "sealed-id", sealedID, "cache", cache, "sealed", sealed, "sector", si)
+		}
+
 		return r.Unwrap()
 	case <-ctx.Done():
-		log.Errorw("failed to generate valilla PoSt proof before context cancellation", "err", ctx.Err(), "duration", time.Since(start), "cache-id", cacheID, "sealed-id", sealedID, "cache", cache, "sealed", sealed)
+		// Record the duration and error if the context is canceled
+		duration := time.Since(start).Milliseconds()
+		stats.Record(ctx, GenerateSingleVanillaProofDuration.M(duration))
+		stats.Record(ctx, GenerateSingleVanillaProofErrors.M(1))
+		log.Errorw("failed to generate vanilla PoSt proof before context cancellation", "err", ctx.Err(), "duration", duration, "cache-id", cacheID, "sealed-id", sealedID, "cache", cache, "sealed", sealed)
 
-		// this will leave the GenerateSingleVanillaProof goroutine hanging, but that's still less bad than failing PoSt
+		// This will leave the GenerateSingleVanillaProof goroutine hanging, but that's still less bad than failing PoSt
 		return nil, xerrors.Errorf("failed to generate vanilla proof before context cancellation: %w", ctx.Err())
 	}
 }
@@ -1072,6 +1162,8 @@ func (st *Local) ReadSnapVanillaProof(ctx context.Context, sr storiface.SectorRe
 	return out, nil
 }
 
+var supraC1Token = make(chan struct{}, 1)
+
 func (st *Local) supraPoRepVanillaProof(src storiface.SectorPaths, sr storiface.SectorRef, sealed, unsealed cid.Cid, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness) ([]byte, error) {
 	batchMetaPath := filepath.Join(src.Cache, BatchMetaFile)
 	bmdata, err := os.ReadFile(batchMetaPath)
@@ -1105,49 +1197,67 @@ func (st *Local) supraPoRepVanillaProof(src storiface.SectorPaths, sr storiface.
 
 	// first see if commit-phase1-output is there
 	commitPhase1OutputPath := filepath.Join(src.Cache, CommitPhase1OutputFileSupra)
-	if _, err := os.Stat(commitPhase1OutputPath); err != nil {
-		if !os.IsNotExist(err) {
-			return nil, xerrors.Errorf("stat commit phase1 output: %w", err)
-		}
 
-		parentsPath, err := ParentsForProof(sr.ProofType)
-		if err != nil {
-			return nil, xerrors.Errorf("parents for proof: %w", err)
-		}
+	var retry bool
 
-		// not found, compute it
-		res := supraffi.C1(bm.BlockOffset, bm.BatchSectors, bm.NumInPipeline, replicaID[:], seed, ticket, src.Cache, parentsPath, src.Sealed, uint64(ssize))
-		if res != 0 {
-			return nil, xerrors.Errorf("c1 failed: %d", res)
+	for {
+		if retry {
+			if err := os.Remove(commitPhase1OutputPath); err != nil {
+				return nil, xerrors.Errorf("remove bad commit phase 1 output file: %w", err)
+			}
 		}
+		retry = true
 
-		// check again
 		if _, err := os.Stat(commitPhase1OutputPath); err != nil {
-			return nil, xerrors.Errorf("stat commit phase1 output after compute: %w", err)
+			if !os.IsNotExist(err) {
+				return nil, xerrors.Errorf("stat commit phase1 output: %w", err)
+			}
+
+			parentsPath, err := ParentsForProof(sr.ProofType)
+			if err != nil {
+				return nil, xerrors.Errorf("parents for proof: %w", err)
+			}
+
+			// not found, compute it
+			supraC1Token <- struct{}{}
+			res := supraffi.C1(bm.BlockOffset, bm.BatchSectors, bm.NumInPipeline, replicaID[:], seed, ticket, src.Cache, parentsPath, src.Sealed, uint64(ssize))
+			<-supraC1Token
+
+			if res != 0 {
+				return nil, xerrors.Errorf("c1 failed: %d", res)
+			}
+
+			// check again
+			if _, err := os.Stat(commitPhase1OutputPath); err != nil {
+				return nil, xerrors.Errorf("stat commit phase1 output after compute: %w", err)
+			}
 		}
+
+		// read the output
+		rawOut, err := os.ReadFile(commitPhase1OutputPath)
+		if err != nil {
+			return nil, xerrors.Errorf("read commit phase1 output: %w", err)
+		}
+
+		// decode
+		dec, err := cuproof.DecodeCommit1OutRaw(bytes.NewReader(rawOut))
+		if err != nil {
+			log.Errorw("failed to decode commit phase1 output, will retry", "err", err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		log.Infow("supraPoRepVanillaProof", "sref", sr, "replicaID", replicaID, "seed", seed, "ticket", ticket, "decrepl", dec.ReplicaID, "decr", dec.CommR, "decd", dec.CommD)
+
+		// out is json, so we need to marshal it back
+		out, err := json.Marshal(dec)
+		if err != nil {
+			log.Errorw("failed to decode commit phase1 output", "err", err)
+			time.Sleep(1 * time.Second)
+		}
+
+		return out, nil
 	}
-
-	// read the output
-	rawOut, err := os.ReadFile(commitPhase1OutputPath)
-	if err != nil {
-		return nil, xerrors.Errorf("read commit phase1 output: %w", err)
-	}
-
-	// decode
-	dec, err := cuproof.DecodeCommit1OutRaw(bytes.NewReader(rawOut))
-	if err != nil {
-		return nil, xerrors.Errorf("decode commit phase1 output: %w", err)
-	}
-
-	log.Infow("supraPoRepVanillaProof", "sref", sr, "replicaID", replicaID, "seed", seed, "ticket", ticket, "decrepl", dec.ReplicaID, "decr", dec.CommR, "decd", dec.CommD)
-
-	// out is json, so we need to marshal it back
-	out, err := json.Marshal(dec)
-	if err != nil {
-		return nil, xerrors.Errorf("marshal commit phase1 output: %w", err)
-	}
-
-	return out, nil
 }
 
 var _ Store = &Local{}

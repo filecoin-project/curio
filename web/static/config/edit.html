@@ -143,8 +143,7 @@
                                 axios.post('/api/config/layers/' + layer, value)
                                     .then(response => {
                                         // Set cookie named 'message' with the value 'Data saved successfully'
-                                        document.cookie = 'message=The layer "' + layer + '" saved successfully.; path=/;';
-
+                                        document.cookie = 'message=The layer "' + layer + '" saved successfully. Please restart all nodes using the layer "' + layer + '".; path=/;';
                                         window.location.href = '/pages/config/list/';
                                     })
                                     .catch(error => {

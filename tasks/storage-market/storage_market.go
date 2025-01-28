@@ -1,16 +1,21 @@
 package storage_market
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
 	"time"
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -25,7 +30,7 @@ import (
 	"github.com/filecoin-project/curio/market/mk12"
 	"github.com/filecoin-project/curio/market/storageingest"
 
-	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/proofs"
 	"github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
 
@@ -68,12 +73,13 @@ type MK12Pipeline struct {
 	SpID int64  `db:"sp_id"`
 
 	// started after data download
-	Started  bool            `db:"started"`
-	PieceCid string          `db:"piece_cid"`
-	Offline  bool            `db:"offline"` // data is not downloaded before starting the deal
-	RawSize  int64           `db:"raw_size"`
-	URL      *string         `db:"url"`
-	Headers  json.RawMessage `db:"headers"`
+	Started   bool                `db:"started"`
+	PieceCid  string              `db:"piece_cid"`
+	PieceSize abi.PaddedPieceSize `db:"piece_size"`
+	Offline   bool                `db:"offline"` // data is not downloaded before starting the deal
+	RawSize   sql.NullInt64       `db:"raw_size"`
+	URL       *string             `db:"url"`
+	Headers   json.RawMessage     `db:"headers"`
 
 	// commP task
 	CommTaskID *int64 `db:"commp_task_id"`
@@ -122,15 +128,15 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 				// Do not start the poller if no minerID present
 				return nil
 			}
-			d.MK12Handler, err = mk12.NewMK12Handler(miners, d.db, d.sc, d.api)
+			d.MK12Handler, err = mk12.NewMK12Handler(miners, d.db, d.sc, d.api, d.cfg)
 			if err != nil {
 				return err
 			}
 
 			if d.cfg.Ingest.DoSnap {
-				d.pin, err = storageingest.NewPieceIngesterSnap(ctx, d.db, d.api, miners, false, d.cfg)
+				d.pin, err = storageingest.NewPieceIngesterSnap(ctx, d.db, d.api, miners, d.cfg)
 			} else {
-				d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, miners, false, d.cfg)
+				d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, miners, d.cfg)
 			}
 		}
 	}
@@ -191,7 +197,10 @@ func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
 	// Catch any panics if encountered as we are working with user provided data
 	defer func() {
 		if r := recover(); r != nil {
-			log.Errorf("panic occurred: %v", r)
+			trace := make([]byte, 1<<16)
+			n := runtime.Stack(trace, false)
+
+			log.Errorf("panic occurred: %v\n%s", r, trace[:n])
 		}
 	}()
 
@@ -203,6 +212,7 @@ func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
 									p.sp_id as sp_id,
 									p.started as started,
 									p.piece_cid as piece_cid,
+									p.piece_size as piece_size,
 									p.raw_size as raw_size,
 									
 									p.offline as offline,
@@ -353,12 +363,60 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 	}
 
 	// If on chain deal ID is present, we should add the deal to a sector
-	if deal.AfterFindDeal && deal.Sector == nil && deal.Offset == nil {
+	if deal.AfterFindDeal && deal.Sector == nil {
 		err := d.ingestDeal(ctx, deal)
 		if err != nil {
 			return xerrors.Errorf("ingest deal: %w", err)
 		}
 	}
+
+	// Get the deal offset if sector has started sealing
+	if deal.AfterFindDeal && deal.Sector != nil && deal.Offset == nil {
+		type pieces struct {
+			Cid   string              `db:"piece_cid"`
+			Size  abi.PaddedPieceSize `db:"piece_size"`
+			Index int64               `db:"piece_index"`
+		}
+
+		var pieceList []pieces
+		err := d.db.Select(ctx, &pieceList, `SELECT piece_cid, piece_size, piece_index
+												FROM sectors_sdr_initial_pieces
+												WHERE sp_id = $1 AND sector_number = $2
+												
+												UNION ALL
+												
+												SELECT piece_cid, piece_size, piece_index
+												FROM sectors_snap_initial_pieces
+												WHERE sp_id = $1 AND sector_number = $2
+												
+												ORDER BY piece_index ASC;`, deal.SpID, deal.Sector)
+		if err != nil {
+			return xerrors.Errorf("UUID: %s: getting pieces for sector: %w", deal.UUID, err)
+		}
+
+		if len(pieceList) == 0 {
+			return xerrors.Errorf("UUID: %s: no pieces found for the sector %d", deal.UUID, *deal.Sector)
+		}
+
+		var offset abi.UnpaddedPieceSize
+
+		for _, p := range pieceList {
+			_, padLength := proofs.GetRequiredPadding(offset.Padded(), p.Size)
+			offset += padLength.Unpadded()
+			if p.Cid == deal.PieceCid && p.Size == deal.PieceSize {
+				n, err := d.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET sector_offset = $1 WHERE uuid = $2 AND sector = $3 AND sector_offset IS NULL`, offset.Padded(), deal.UUID, deal.Sector)
+				if err != nil {
+					return xerrors.Errorf("UUID: %s: updating deal pipeline with sector offset: %w", deal.UUID, err)
+				}
+				if n != 1 {
+					return xerrors.Errorf("UUID: %s: expected 1 row for sector offset update in DB but found %d", deal.UUID, n)
+				}
+				return nil
+			}
+			offset += p.Size.Unpadded()
+		}
+	}
+
 	return nil
 }
 
@@ -381,6 +439,7 @@ type MarketMK12Deal struct {
 	FastRetrieval     bool      `db:"fast_retrieval"`
 	AnnounceToIpni    bool      `db:"announce_to_ipni"`
 	Error             *string   `db:"error"`
+	Label             []byte    `db:"label"`
 }
 
 func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, deal string, pcid string) error {
@@ -396,7 +455,8 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 						UPDATE market_mk12_deal_pipeline
 						SET url = selected_data.url,
 							headers = selected_data.headers,
-							raw_size = selected_data.raw_size
+							raw_size = selected_data.raw_size,
+							started = TRUE
 						FROM selected_data
 						WHERE market_mk12_deal_pipeline.uuid = $1
 						RETURNING CASE 
@@ -404,7 +464,9 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 							ELSE FALSE 
 						END;`, deal).Scan(&updated)
 		if err != nil {
-			return false, xerrors.Errorf("failed to update the pipeline for deal %s: %w", deal, err)
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return false, xerrors.Errorf("failed to update the pipeline for deal %s: %w", deal, err)
+			}
 		}
 
 		if updated {
@@ -451,8 +513,10 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 				return false, xerrors.Errorf("failed to parse the raw size: %w", err)
 			}
 
+			dataUrl := fmt.Sprintf("%s/data?id=%s", rUrl, pcid)
+
 			_, err = tx.Exec(`UPDATE market_mk12_deal_pipeline SET url = $1, headers = $2, raw_size = $3, started = TRUE 
-                           WHERE uuid = $4 AND started = FALSE`, urlString, hdrs, rawSize, deal)
+                           WHERE uuid = $4 AND started = FALSE`, dataUrl, hdrs, rawSize, deal)
 			if err != nil {
 				return false, xerrors.Errorf("store url for piece %s: updating pipeline: %w", pcid, err)
 			}
@@ -535,7 +599,7 @@ func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context, deals []MK12Pip
 }
 
 func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeline) error {
-	var info api.SectorOffset
+	var sector *abi.SectorNumber
 
 	comm, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		// Prepare a variable to hold the result
@@ -559,7 +623,8 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 										publish_cid,
 										fast_retrieval,
 										announce_to_ipni,
-										error
+										error,
+										label
 									FROM market_mk12_deals
 									WHERE uuid = $1;`, deal.UUID)
 		if err != nil {
@@ -582,6 +647,16 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 		if err != nil {
 			return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
 		}
+
+		// Unmarshal Label from cbor and replace in proposal. This fixes the problem where non-string
+		// labels are saved as "" in json in DB
+		var l market.DealLabel
+		lr := bytes.NewReader(dbdeal.Label)
+		err = l.UnmarshalCBOR(lr)
+		if err != nil {
+			return false, xerrors.Errorf("unmarshal label: %w", err)
+		}
+		prop.Label = l
 
 		pcid, err := cid.Parse(dbdeal.PublishCid)
 		if err != nil {
@@ -623,21 +698,20 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 			return false, xerrors.Errorf("deal %s already added to sector by another process", deal.UUID)
 		}
 
-		info, err = d.pin.AllocatePieceToSector(ctx, tx, maddr, pi, deal.RawSize, *dealUrl, headers)
+		var sp *abi.RegisteredSealProof
+		sector, sp, err = d.pin.AllocatePieceToSector(ctx, tx, maddr, pi, deal.RawSize.Int64, *dealUrl, headers)
 		if err != nil {
 			return false, xerrors.Errorf("UUID: %s: failed to add deal to a sector: %w", deal.UUID, err)
 		}
 
-		n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET sector = $1, sector_offset = $2 
-                                 WHERE uuid = $3 AND sector = NULL AND sector_offset = NULL`, info.Sector, info.Offset, deal.UUID)
+		n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET sector = $1, reg_seal_proof = $2 WHERE uuid = $3 AND sector IS NULL`, *sector, *sp, deal.UUID)
 		if err != nil {
-			return false, xerrors.Errorf("UUID: %s: failed to add sector %d and offset %d details to DB: %w", deal.UUID, info.Sector, info.Offset, err)
+			return false, xerrors.Errorf("UUID: %s: failed to add sector %d details to DB: %w", deal.UUID, *sector, err)
 		}
 		if n != 1 {
-			if err != nil {
-				return false, xerrors.Errorf("UUID: %s: expected 1 deal update for add sector %d and offset %d details to DB but found %d", deal.UUID, info.Sector, info.Offset, n)
-			}
+			return false, xerrors.Errorf("UUID: %s: expected 1 deal update for add sector %d details to DB but found %d", deal.UUID, *sector, n)
 		}
+
 		return true, nil
 	}, harmonydb.OptionRetry())
 
@@ -649,14 +723,13 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 		return xerrors.Errorf("UUID: %s: failed to commit transaction: %w", deal.UUID, err)
 	}
 
-	log.Infof("Added deal %s to sector %d at %d", deal.UUID, info.Sector, info.Offset)
+	log.Infof("Added deal %s to sector %d", deal.UUID, *sector)
 	return nil
 }
 
 func (d *CurioStorageDealMarket) createIndexingTaskForMigratedDeals(ctx context.Context) {
 	// Call the migration function and get the number of rows moved
-	var rowsMoved int
-	err := d.db.QueryRow(ctx, "SELECT migrate_deal_pipeline_entries()").Scan(&rowsMoved)
+	rowsMoved, err := d.db.Exec(ctx, "SELECT migrate_deal_pipeline_entries()")
 	if err != nil {
 		log.Errorf("Error creating indexing tasks for migrated deals: %s", err)
 		return

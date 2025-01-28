@@ -11,6 +11,8 @@ import (
 
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/snadrus/must"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -60,18 +62,18 @@ type SupraSeal struct {
 }
 
 func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool, nvmeDevices []string, machineHostAndPort string,
-	slots *slotmgr.SlotMgr, db *harmonydb.DB, api SupraSealNodeAPI, storage *paths.Remote, sindex paths.SectorIndex) (*SupraSeal, error) {
+	db *harmonydb.DB, api SupraSealNodeAPI, storage *paths.Remote, sindex paths.SectorIndex) (*SupraSeal, *slotmgr.SlotMgr, error) {
 	var spt abi.RegisteredSealProof
 	switch sectorSize {
 	case "32GiB":
 		spt = abi.RegisteredSealProof_StackedDrg32GiBV1_1
 	default:
-		return nil, xerrors.Errorf("unsupported sector size: %s", sectorSize)
+		return nil, nil, xerrors.Errorf("unsupported sector size: %s", sectorSize)
 	}
 
 	ssize, err := spt.SectorSize()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	log.Infow("start supraseal init")
@@ -81,21 +83,21 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 
 		cstr, err := GenerateSupraSealConfigString(dualHashers, batchSize, nvmeDevices)
 		if err != nil {
-			return nil, xerrors.Errorf("generating supraseal config: %w", err)
+			return nil, nil, xerrors.Errorf("generating supraseal config: %w", err)
 		}
 
 		cfgFile, err := os.CreateTemp("", "supraseal-config-*.cfg")
 		if err != nil {
-			return nil, xerrors.Errorf("creating temp file: %w", err)
+			return nil, nil, xerrors.Errorf("creating temp file: %w", err)
 		}
 
 		if _, err := cfgFile.WriteString(cstr); err != nil {
-			return nil, xerrors.Errorf("writing temp file: %w", err)
+			return nil, nil, xerrors.Errorf("writing temp file: %w", err)
 		}
 
 		configFile = cfgFile.Name()
 		if err := cfgFile.Close(); err != nil {
-			return nil, xerrors.Errorf("closing temp file: %w", err)
+			return nil, nil, xerrors.Errorf("closing temp file: %w", err)
 		}
 
 		log.Infow("generated supraseal config", "config", cstr, "file", configFile)
@@ -103,6 +105,77 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 
 	supraffi.SupraSealInit(uint64(ssize), configFile)
 	log.Infow("supraseal init done")
+
+	{
+		hp, err := supraffi.GetHealthInfo()
+		if err != nil {
+			return nil, nil, xerrors.Errorf("get health page: %w", err)
+		}
+
+		log.Infow("nvme health page", "hp", hp)
+	}
+
+	// Initialize previous health infos slice
+	prevHealthInfos := make([]supraffi.HealthInfo, len(nvmeDevices))
+
+	go func() {
+		const intervalSeconds = 30
+		ticker := time.NewTicker(time.Duration(intervalSeconds) * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			healthInfos, err := supraffi.GetHealthInfo()
+			if err != nil {
+				log.Errorw("health page get error", "error", err)
+				continue
+			}
+
+			for i, hi := range healthInfos {
+				if i >= len(nvmeDevices) {
+					log.Warnw("More health info entries than nvme devices", "index", i)
+					break
+				}
+				deviceName := nvmeDevices[i]
+
+				ctx, err := tag.New(
+					context.Background(),
+					tag.Insert(nvmeDeviceKey, deviceName),
+				)
+				if err != nil {
+					log.Errorw("Failed to create context with tags", "error", err)
+					continue
+				}
+
+				// Record the metrics
+				stats.Record(ctx, SupraSealMeasures.NVMeTemperature.M(hi.Temperature))
+				stats.Record(ctx, SupraSealMeasures.NVMeAvailableSpare.M(int64(hi.AvailableSpare)))
+				stats.Record(ctx, SupraSealMeasures.NVMePercentageUsed.M(int64(hi.PercentageUsed)))
+				stats.Record(ctx, SupraSealMeasures.NVMePowerCycles.M(int64(hi.PowerCycles)))
+				stats.Record(ctx, SupraSealMeasures.NVMePowerOnHours.M(hi.PowerOnHours.Hours()))
+				stats.Record(ctx, SupraSealMeasures.NVMeUnsafeShutdowns.M(int64(hi.UnsafeShutdowns)))
+				stats.Record(ctx, SupraSealMeasures.NVMeMediaErrors.M(int64(hi.MediaErrors)))
+				stats.Record(ctx, SupraSealMeasures.NVMeErrorLogEntries.M(int64(hi.ErrorLogEntries)))
+				stats.Record(ctx, SupraSealMeasures.NVMeCriticalWarning.M(int64(hi.CriticalWarning)))
+
+				// For counters, compute difference from previous values
+				if prevHealthInfos[i].DataUnitsRead != 0 {
+					dataUnitsReadBytes := int64((hi.DataUnitsRead - prevHealthInfos[i].DataUnitsRead) * 512_000)
+					dataUnitsWrittenBytes := int64((hi.DataUnitsWritten - prevHealthInfos[i].DataUnitsWritten) * 512_000)
+					hostReadCommands := int64(hi.HostReadCommands - prevHealthInfos[i].HostReadCommands)
+					hostWriteCommands := int64(hi.HostWriteCommands - prevHealthInfos[i].HostWriteCommands)
+
+					// Record the diffs and computed metrics
+					stats.Record(ctx, SupraSealMeasures.NVMeBytesRead.M(dataUnitsReadBytes))
+					stats.Record(ctx, SupraSealMeasures.NVMeBytesWritten.M(dataUnitsWrittenBytes))
+					stats.Record(ctx, SupraSealMeasures.NVMeReadIO.M(hostReadCommands))
+					stats.Record(ctx, SupraSealMeasures.NVMeWriteIO.M(hostWriteCommands))
+				}
+
+				// Update previous health info
+				prevHealthInfos[i] = hi
+			}
+		}
+	}()
 
 	// Get maximum block offset (essentially the number of pages in the smallest nvme device)
 	space := supraffi.GetMaxBlockOffset(uint64(ssize))
@@ -112,34 +185,19 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 
 	maxPipelines := space / slotSize
 	if maxPipelines < uint64(pipelines) {
-		return nil, xerrors.Errorf("not enough space for %d pipelines (can do %d), only %d pages available, want %d (slot size %d) pages", pipelines, maxPipelines, space, slotSize*uint64(pipelines), slotSize)
+		return nil, nil, xerrors.Errorf("not enough space for %d pipelines (can do %d), only %d pages available, want %d (slot size %d) pages", pipelines, maxPipelines, space, slotSize*uint64(pipelines), slotSize)
 	}
 
+	var slotOffs []uint64
 	for i := 0; i < pipelines; i++ {
 		slot := slotSize * uint64(i)
-
-		var slotRefs []struct {
-			Count int `db:"count"`
-		}
-
-		err := db.Select(context.Background(), &slotRefs, `SELECT COUNT(*) as count FROM batch_sector_refs WHERE pipeline_slot = $1 AND machine_host_and_port = $2`, slot, machineHostAndPort)
-		if err != nil {
-			return nil, xerrors.Errorf("getting slot refs: %w", err)
-		}
-
-		if len(slotRefs) > 0 {
-			if slotRefs[0].Count > 0 {
-				log.Infow("slot already in use", "slot", slot, "refs", slotRefs[0].Count)
-				continue
-			}
-		}
-
 		log.Infow("batch slot", "slot", slot, "machine", machineHostAndPort)
+		slotOffs = append(slotOffs, slot)
+	}
 
-		err = slots.Put(slot)
-		if err != nil {
-			return nil, xerrors.Errorf("putting slot: %w", err)
-		}
+	slots, err := slotmgr.NewSlotMgr(db, machineHostAndPort, slotOffs)
+	if err != nil {
+		return nil, nil, xerrors.Errorf("creating slot manager: %w", err)
 	}
 
 	return &SupraSeal{
@@ -156,7 +214,7 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 		outSDR: &pipelinePhase{phaseNum: 2},
 
 		slots: slots,
-	}, nil
+	}, slots, nil
 }
 
 func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
@@ -195,12 +253,14 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	outPaths := make([]supraffi.Path, len(sectors))
 	outPathIDs := make([]storiface.SectorPaths, len(sectors))
 	alloc := storiface.FTSealed | storiface.FTCache
+	sectorsIDs := make([]abi.SectorID, 0, len(sectors))
 
 	for i, t := range sectors {
 		sid := abi.SectorID{
 			Miner:  abi.ActorID(t.SpID),
 			Number: abi.SectorNumber(t.SectorNumber),
 		}
+		sectorsIDs = append(sectorsIDs, sid)
 
 		// cleanup any potential previous failed attempts
 		if err := s.storage.Remove(ctx, sid, storiface.FTSealed, true, nil); err != nil {
@@ -250,10 +310,10 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	s.inSDR.Lock()
-	slot := s.slots.Get()
+	slot := s.slots.Get(sectorsIDs)
 
 	cleanup := func() {
-		perr := s.slots.Put(slot)
+		perr := s.slots.AbortSlot(slot)
 		if perr != nil {
 			log.Errorf("putting slot back: %s", err)
 		}
@@ -280,7 +340,7 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	s.inSDR.Unlock()
 	s.outSDR.Lock()
 	cleanup = func() {
-		perr := s.slots.Put(slot)
+		perr := s.slots.AbortSlot(slot)
 		if perr != nil {
 			log.Errorf("putting slot back: %s", err)
 		}
@@ -395,6 +455,10 @@ func (s *SupraSeal) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	cleanup = func() {
 		s.outSDR.Unlock()
 		// NOTE: We're not releasing the slot yet, we keep it until sector Finalize
+	}
+
+	if err := s.slots.MarkWorkDone(slot); err != nil {
+		return true, xerrors.Errorf("marking work done: %w", err)
 	}
 
 	return true, nil

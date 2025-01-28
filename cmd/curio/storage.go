@@ -18,6 +18,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/lib/reqcontext"
 	storiface "github.com/filecoin-project/curio/lib/storiface"
@@ -27,12 +28,13 @@ import (
 )
 
 var storageCmd = &cli.Command{
-	Name:  "storage",
-	Usage: "manage sector storage",
-	Description: `Sectors can be stored across many filesystem paths. These
+	Name: "storage",
+
+	Usage: translations.T("manage sector storage"),
+	Description: translations.T(`Sectors can be stored across many filesystem paths. These
 commands provide ways to manage the storage a Curio node will use to store sectors
 long term for proving (references as 'store') as well as how sectors will be
-stored while moving through the sealing pipeline (references as 'seal').`,
+stored while moving through the sealing pipeline (references as 'seal').`),
 	Subcommands: []*cli.Command{
 		storageAttachCmd,
 		storageDetachCmd,
@@ -46,10 +48,11 @@ stored while moving through the sealing pipeline (references as 'seal').`,
 }
 
 var storageAttachCmd = &cli.Command{
-	Name:      "attach",
-	Usage:     "attach local storage path",
-	ArgsUsage: "[path]",
-	Description: `Storage can be attached to a Curio node using this command. The storage volume
+	Name: "attach",
+
+	Usage:     translations.T("attach local storage path"),
+	ArgsUsage: translations.T("[path]"),
+	Description: translations.T(`Storage can be attached to a Curio node using this command. The storage volume
 list is stored local to the Curio node in storage.json set in curio run. We do not
 recommend manually modifying this value without further understanding of the
 storage system.
@@ -67,36 +70,52 @@ Data for the sealing process will be stored here
 Store
 Finalized sectors that will be moved here for long term storage and be proven
 over time
-   `,
+   `),
 	Flags: []cli.Flag{
 		&cli.BoolFlag{
 			Name:  "init",
-			Usage: "initialize the path first",
+			Usage: translations.T("initialize the path first"),
 		},
 		&cli.Uint64Flag{
 			Name:  "weight",
-			Usage: "(for init) path weight",
+			Usage: translations.T("(for init) path weight"),
 			Value: 10,
 		},
 		&cli.BoolFlag{
 			Name:  "seal",
-			Usage: "(for init) use path for sealing",
+			Usage: translations.T("(for init) use path for sealing"),
 		},
 		&cli.BoolFlag{
 			Name:  "store",
-			Usage: "(for init) use path for long-term storage",
+			Usage: translations.T("(for init) use path for long-term storage"),
 		},
 		&cli.StringFlag{
 			Name:  "max-storage",
-			Usage: "(for init) limit storage space for sectors (expensive for very large paths!)",
+			Usage: translations.T("(for init) limit storage space for sectors (expensive for very large paths!)"),
 		},
 		&cli.StringSliceFlag{
 			Name:  "groups",
-			Usage: "path group names",
+			Usage: translations.T("path group names"),
 		},
 		&cli.StringSliceFlag{
 			Name:  "allow-to",
-			Usage: "path groups allowed to pull data from this path (allow all if not specified)",
+			Usage: translations.T("path groups allowed to pull data from this path (allow all if not specified)"),
+		},
+		&cli.StringSliceFlag{
+			Name:  "allow-types",
+			Usage: "file types to allow storing in this path",
+		},
+		&cli.StringSliceFlag{
+			Name:  "deny-types",
+			Usage: "file types to deny storing in this path",
+		},
+		&cli.StringSliceFlag{
+			Name:  "allow-miners",
+			Usage: "miners to allow storing in this path",
+		},
+		&cli.StringSliceFlag{
+			Name:  "deny-miners",
+			Usage: "miners to deny storing in this path",
 		},
 	},
 	Action: func(cctx *cli.Context) error {
@@ -126,6 +145,32 @@ over time
 				}
 			}
 
+			for _, t := range cctx.StringSlice("allow-types") {
+				_, err := storiface.TypeFromString(t)
+				if err != nil {
+					return xerrors.Errorf("parsing allow-types: %w", err)
+				}
+			}
+			for _, t := range cctx.StringSlice("deny-types") {
+				_, err := storiface.TypeFromString(t)
+				if err != nil {
+					return xerrors.Errorf("parsing deny-types: %w", err)
+				}
+			}
+
+			for _, m := range cctx.StringSlice("allow-miners") {
+				_, err := address.NewFromString(m)
+				if err != nil {
+					return xerrors.Errorf("parsing allow-miners: %w", err)
+				}
+			}
+			for _, m := range cctx.StringSlice("deny-miners") {
+				_, err := address.NewFromString(m)
+				if err != nil {
+					return xerrors.Errorf("parsing deny-miners: %w", err)
+				}
+			}
+
 			cfg := storiface.LocalStorageMeta{
 				ID:         storiface.ID(uuid.New().String()),
 				Weight:     cctx.Uint64("weight"),
@@ -134,6 +179,12 @@ over time
 				MaxStorage: uint64(maxStor),
 				Groups:     cctx.StringSlice("groups"),
 				AllowTo:    cctx.StringSlice("allow-to"),
+
+				AllowTypes: cctx.StringSlice("allow-types"),
+				DenyTypes:  cctx.StringSlice("deny-types"),
+
+				AllowMiners: cctx.StringSlice("allow-miners"),
+				DenyMiners:  cctx.StringSlice("deny-miners"),
 			}
 
 			if !(cfg.CanStore || cfg.CanSeal) {
@@ -151,13 +202,13 @@ over time
 
 var storageDetachCmd = &cli.Command{
 	Name:  "detach",
-	Usage: "detach local storage path",
+	Usage: translations.T("detach local storage path"),
 	Flags: []cli.Flag{
 		&cli.BoolFlag{
 			Name: "really-do-it",
 		},
 	},
-	ArgsUsage: "[path]",
+	ArgsUsage: translations.T("[path]"),
 	Action: func(cctx *cli.Context) error {
 		minerApi, closer, err := rpc.GetCurioAPI(cctx)
 		if err != nil {
@@ -185,11 +236,11 @@ var storageDetachCmd = &cli.Command{
 
 var storageListCmd = &cli.Command{
 	Name:  "list",
-	Usage: "list local storage paths",
+	Usage: translations.T("list local storage paths"),
 	Flags: []cli.Flag{
 		&cli.BoolFlag{
 			Name:  "local",
-			Usage: "only list local storage paths",
+			Usage: translations.T("only list local storage paths"),
 		},
 	},
 	Subcommands: []*cli.Command{
@@ -398,8 +449,8 @@ type storedSector struct {
 
 var storageFindCmd = &cli.Command{
 	Name:      "find",
-	Usage:     "find sector in the storage system",
-	ArgsUsage: "[miner address] [sector number]",
+	Usage:     translations.T("find sector in the storage system"),
+	ArgsUsage: translations.T("[miner address] [sector number]"),
 	Action: func(cctx *cli.Context) error {
 		minerApi, closer, err := rpc.GetCurioAPI(cctx)
 		if err != nil {

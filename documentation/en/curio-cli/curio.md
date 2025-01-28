@@ -7,7 +7,7 @@ USAGE:
    curio [global options] command [command options]
 
 VERSION:
-   1.24.1
+   1.24.4
 
 COMMANDS:
    cli           Execute cli commands
@@ -45,15 +45,30 @@ USAGE:
    curio cli command [command options]
 
 COMMANDS:
+   info      Get Curio node info
    storage   manage sector storage
    log       Manage logging
    wait-api  Wait for Curio api to come online
    stop      Stop a running Curio process
+   cordon    Cordon a machine, set it to maintenance mode
+   uncordon  Uncordon a machine, resume scheduling
    help, h   Shows a list of commands or help for one command
 
 OPTIONS:
    --machine value  machine host:port (curio run --listen address)
    --help, -h       show help
+```
+
+### curio cli info
+```
+NAME:
+   curio cli info - Get Curio node info
+
+USAGE:
+   curio cli info [command options]
+
+OPTIONS:
+   --help, -h  show help
 ```
 
 ### curio cli storage
@@ -111,14 +126,18 @@ DESCRIPTION:
       
 
 OPTIONS:
-   --init                                 initialize the path first (default: false)
-   --weight value                         (for init) path weight (default: 10)
-   --seal                                 (for init) use path for sealing (default: false)
-   --store                                (for init) use path for long-term storage (default: false)
-   --max-storage value                    (for init) limit storage space for sectors (expensive for very large paths!)
-   --groups value [ --groups value ]      path group names
-   --allow-to value [ --allow-to value ]  path groups allowed to pull data from this path (allow all if not specified)
-   --help, -h                             show help
+   --init                                         initialize the path first (default: false)
+   --weight value                                 (for init) path weight (default: 10)
+   --seal                                         (for init) use path for sealing (default: false)
+   --store                                        (for init) use path for long-term storage (default: false)
+   --max-storage value                            (for init) limit storage space for sectors (expensive for very large paths!)
+   --groups value [ --groups value ]              path group names
+   --allow-to value [ --allow-to value ]          path groups allowed to pull data from this path (allow all if not specified)
+   --allow-types value [ --allow-types value ]    file types to allow storing in this path
+   --deny-types value [ --deny-types value ]      file types to deny storing in this path
+   --allow-miners value [ --allow-miners value ]  miners to allow storing in this path
+   --deny-miners value [ --deny-miners value ]    miners to deny storing in this path
+   --help, -h                                     show help
 ```
 
 #### curio cli storage detach
@@ -241,6 +260,30 @@ NAME:
 
 USAGE:
    curio cli stop [command options]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### curio cli cordon
+```
+NAME:
+   curio cli cordon - Cordon a machine, set it to maintenance mode
+
+USAGE:
+   curio cli cordon [command options]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### curio cli uncordon
+```
+NAME:
+   curio cli uncordon - Uncordon a machine, resume scheduling
+
+USAGE:
+   curio cli uncordon [command options]
 
 OPTIONS:
    --help, -h  show help
@@ -400,6 +443,7 @@ USAGE:
 
 COMMANDS:
    window-post, wd, windowpost, wdpost  Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.
+   debug                                Collection of debugging utilities
    help, h                              Shows a list of commands or help for one command
 
 OPTIONS:
@@ -455,6 +499,34 @@ OPTIONS:
    --deadline value                   deadline to compute WindowPoSt for  (default: 0)
    --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
    --help, -h                         show help
+```
+
+### curio test debug
+```
+NAME:
+   curio test debug - Collection of debugging utilities
+
+USAGE:
+   curio test debug command [command options]
+
+COMMANDS:
+   ipni-piece-chunks  generate ipni chunks from a file
+   help, h            Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+#### curio test debug ipni-piece-chunks
+```
+NAME:
+   curio test debug ipni-piece-chunks - generate ipni chunks from a file
+
+USAGE:
+   curio test debug ipni-piece-chunks [command options]
+
+OPTIONS:
+   --help, -h  show help
 ```
 
 ## curio web
@@ -671,7 +743,7 @@ USAGE:
    curio market add-url [command options] <deal UUID> <raw size/car size>
 
 OPTIONS:
-   --file value                                               CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'"
+   --file value                                               CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'
    --header HEADER, -H HEADER [ --header HEADER, -H HEADER ]  Custom HEADER to include in the HTTP request
    --url URL, -u URL                                          URL to send the request to
    --help, -h                                                 show help

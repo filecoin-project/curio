@@ -2,9 +2,11 @@ package dealdata
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"golang.org/x/xerrors"
 
@@ -75,12 +77,33 @@ func (u *UrlPieceReader) initiateRequest() error {
 		return xerrors.Errorf("error making GET request: %w", err)
 	}
 	if resp.StatusCode != 200 {
-		return xerrors.Errorf("a non 200 response code: %s", resp.Status)
+		limitedReader := io.LimitReader(resp.Body, 1024)
+		respBodyBytes, readErr := io.ReadAll(limitedReader)
+		closeErr := resp.Body.Close()
+		sanitizedBody := sanitize(respBodyBytes)
+		errMsg := fmt.Sprintf("non-200 response code: %s. Response body: <msg>%s</msg>", resp.Status, sanitizedBody)
+		if readErr != nil && readErr != io.EOF {
+			return xerrors.Errorf("%s. Error reading response body: %w", errMsg, readErr)
+		}
+		if closeErr != nil {
+			return xerrors.Errorf("%s. Error closing response body: %w", errMsg, closeErr)
+		}
+		return xerrors.New(errMsg)
 	}
 
 	// Set 'active' to the response body
 	u.active = resp.Body
 	return nil
+}
+
+// sanitize filters the input bytes, allowing only safe printable characters.
+func sanitize(input []byte) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 32 && r <= 126 {
+			return r
+		}
+		return '?'
+	}, string(input))
 }
 
 func (u *UrlPieceReader) Read(p []byte) (n int, err error) {

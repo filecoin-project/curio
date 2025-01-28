@@ -1,12 +1,14 @@
 package libp2p
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -51,7 +53,12 @@ var log = logging.Logger("curio-libp2p")
 // typically 6M gas per message. 0.02 FIL should suffice even at close to 5nFIL basefee, but provides a reasonable upper bound
 var maintenanceMsgMaxFee = must.One(types.ParseFIL("0.02"))
 
-func NewLibp2pHost(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, machine string) (host.Host, multiaddr.Multiaddr, error) {
+type PublicAddrs struct {
+	Libp2pAddr multiaddr.Multiaddr
+	HttpAddr   multiaddr.Multiaddr
+}
+
+func NewLibp2pHost(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, machine string) (host.Host, *PublicAddrs, error) {
 	lcfg, err := getCfg(ctx, db, cfg.HTTP, machine)
 	if err != nil {
 		return nil, nil, err
@@ -127,7 +134,7 @@ func NewLibp2pHost(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfi
 			select {
 			case <-ctx.Done():
 				log.Info("Releasing libp2p claims")
-				_, err := db.Exec(ctx, `UPDATE libp2p SET running_on = NULL`)
+				_, err := db.Exec(ctx, `UPDATE libp2p SET running_on = NULL WHERE running_on = $1`, machine)
 				if err != nil {
 					log.Error("Cleaning up libp2p claims ", err)
 				}
@@ -145,7 +152,12 @@ func NewLibp2pHost(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfi
 		}
 	}()
 
-	return h, lcfg.AnnounceAddr, err
+	pub := &PublicAddrs{
+		Libp2pAddr: lcfg.AnnounceAddr,
+		HttpAddr:   lcfg.HttpAddr,
+	}
+
+	return h, pub, err
 }
 
 func getMatchingLocalListenAddress(h host.Host, machine string) (multiaddr.Multiaddr, error) {
@@ -193,6 +205,7 @@ type libp2pCfg struct {
 	priv         crypto.PrivKey
 	ListenAddr   []multiaddr.Multiaddr
 	AnnounceAddr multiaddr.Multiaddr
+	HttpAddr     multiaddr.Multiaddr
 }
 
 func getCfg(ctx context.Context, db *harmonydb.DB, httpConf config.HTTPConfig, machine string) (*libp2pCfg, error) {
@@ -207,12 +220,23 @@ func getCfg(ctx context.Context, db *harmonydb.DB, httpConf config.HTTPConfig, m
 
 	ret.ListenAddr = append(ret.ListenAddr, must.One(multiaddr.NewMultiaddr("/ip4/0.0.0.0/tcp/0/ws")))
 
-	publicAddr, err := multiaddr.NewMultiaddr(fmt.Sprintf("/dns/%s/tcp/%d/wss", httpConf.DomainName, 443))
-	if err != nil {
-		return nil, xerrors.Errorf("creating public address: %w", err)
+	{
+		publicAddr, err := multiaddr.NewMultiaddr(fmt.Sprintf("/dns/%s/tcp/%d/wss", httpConf.DomainName, 443))
+		if err != nil {
+			return nil, xerrors.Errorf("creating public address: %w", err)
+		}
+
+		ret.AnnounceAddr = publicAddr
 	}
 
-	ret.AnnounceAddr = publicAddr
+	{
+		publicAddr, err := multiaddr.NewMultiaddr(fmt.Sprintf("/dns/%s/tcp/%d/https", httpConf.DomainName, 443))
+		if err != nil {
+			return nil, xerrors.Errorf("creating public address: %w", err)
+		}
+
+		ret.HttpAddr = publicAddr
+	}
 
 	// Generate possible initial key values (really only used on first cluster startup, but cheap enough to just propose to the function)
 	initialPriv, initialPub, err := crypto.GenerateEd25519Key(rand.Reader)
@@ -258,6 +282,7 @@ var propLog = logging.Logger("mk12-prop")
 const DealProtocolv120ID = "/fil/storage/mk/1.2.0"
 const DealProtocolv121ID = "/fil/storage/mk/1.2.1"
 const DealStatusV12ProtocolID = "/fil/storage/status/1.2.0"
+const TransportsProtocolID = "/fil/retrieval/transports/1.0.0"
 
 // The time limit to read a message from the client when the client opens a stream
 const providerReadDeadline = 10 * time.Second
@@ -285,6 +310,8 @@ type DealProvider struct {
 	api            mk12libp2pAPI
 	db             *harmonydb.DB
 	disabledMiners []address.Address
+
+	PublicAddrs *PublicAddrs
 }
 
 type mk12libp2pAPI interface {
@@ -292,10 +319,115 @@ type mk12libp2pAPI interface {
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (minerInfo api.MinerInfo, err error)
 }
 
-func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, prov *mk12.MK12, api mk12libp2pAPI, sender *message.Sender, miners []address.Address, machine string) error {
-	h, announceAddr, err := NewLibp2pHost(ctx, db, cfg, machine)
+func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, prov *mk12.MK12, api mk12libp2pAPI, sender *message.Sender, miners []address.Address, machine string, shutdownChan chan struct{}) {
+	//Check in the DB every minute who owns the libp2p ticket
+	//if it was us, and is still us, and we're running DealProvider already do nothing, just keep polling
+	//if it was us, and no longer is us, shut down DealProvider
+	//if it wasn't us, and now is us, start DealProvider
+
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+
+	checkStatus := func(ctx context.Context, db *harmonydb.DB, runningOn string) (bool, error) {
+		var count int
+
+		err := db.QueryRow(ctx, `SELECT COUNT(*) FROM libp2p`).Scan(&count)
+		if err != nil {
+			return false, err
+		}
+		if count == 0 {
+			return true, nil
+		}
+
+		var exists bool
+
+		err = db.QueryRow(ctx, `SELECT EXISTS(
+			SELECT 1 
+			FROM libp2p 
+			WHERE running_on = $1 
+			   OR running_on IS NULL 
+			   OR updated_at < NOW() - INTERVAL '5 minutes')`, runningOn).Scan(&exists)
+		if err != nil {
+			return false, err
+		}
+		return exists, nil
+	}
+
+	shouldRun, err := checkStatus(ctx, db, machine)
 	if err != nil {
-		return xerrors.Errorf("failed to start libp2p nodes: %w", err)
+		log.Errorw("failed to check if libp2p is running", "err", err)
+		close(shutdownChan)
+		return
+	}
+
+	var dealProviderStarted bool
+	newctx, cancel := context.WithCancel(ctx)
+
+	if shouldRun {
+		err = makeDealProvider(newctx, db, cfg, prov, api, sender, miners, machine)
+		if err != nil {
+			if strings.Contains(err.Error(), "Libp2p node already running on") {
+				// Some other node started before us even if we had the ticket
+				cancel()
+			} else {
+				log.Errorw("failed to start libp2p nodes", "err", err)
+				close(shutdownChan)
+				cancel()
+				return
+			}
+		} else {
+			dealProviderStarted = true
+		}
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			cancel()
+			return
+		case <-t.C:
+			shouldRun, err = checkStatus(ctx, db, machine)
+			if err != nil {
+				log.Errorw("failed to check if libp2p is running", "err", err)
+				close(shutdownChan)
+				cancel()
+				return
+			}
+			if shouldRun {
+				if !dealProviderStarted {
+					newctx, cancel = context.WithCancel(ctx) // Recreate the context in case we cancelled it before (start, stop, start)
+					err = makeDealProvider(newctx, db, cfg, prov, api, sender, miners, machine)
+					if err != nil {
+						if strings.Contains(err.Error(), "Libp2p node already running on") {
+							// Some other node started before us even if we had the ticket
+							cancel()
+							continue
+						}
+						log.Errorw("failed to start libp2p nodes", "err", err)
+						close(shutdownChan)
+						cancel()
+						return
+					}
+					dealProviderStarted = true
+					continue
+				}
+				continue
+			} else {
+				if dealProviderStarted {
+					dealProviderStarted = false
+					cancel()
+					continue
+				}
+				continue
+			}
+		}
+	}
+}
+
+func makeDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioConfig, prov *mk12.MK12, api mk12libp2pAPI, sender *message.Sender, miners []address.Address, machine string) error {
+	h, publicAddr, err := NewLibp2pHost(ctx, db, cfg, machine)
+	if err != nil {
+		return xerrors.Errorf("failed to start libp2p nodes: %s", err)
 	}
 
 	var disabledMiners []address.Address
@@ -303,7 +435,7 @@ func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioCon
 	for _, m := range cfg.Market.StorageMarketConfig.MK12.DisabledMiners {
 		maddr, err := address.NewFromString(m)
 		if err != nil {
-			return err
+			return xerrors.Errorf("failed to parse miner string: %s", err)
 		}
 		disabledMiners = append(disabledMiners, maddr)
 	}
@@ -315,6 +447,8 @@ func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioCon
 		api:            api,
 		db:             db,
 		disabledMiners: disabledMiners,
+
+		PublicAddrs: publicAddr,
 	}
 
 	go p.Start(ctx, h)
@@ -323,8 +457,7 @@ func NewDealProvider(ctx context.Context, db *harmonydb.DB, cfg *config.CurioCon
 		return !lo.Contains(disabledMiners, addr)
 	})
 
-	go p.checkMinerInfos(ctx, sender, announceAddr, nonDisabledMiners)
-
+	go p.checkMinerInfos(ctx, sender, publicAddr.Libp2pAddr, nonDisabledMiners)
 	return nil
 }
 
@@ -418,6 +551,9 @@ func (p *DealProvider) Start(ctx context.Context, host host.Host) {
 	// Handle Query Ask
 	host.SetStreamHandler(legacytypes.AskProtocolID, SafeHandle(p.handleNewAskStream))
 
+	// Handle Transport Protocol
+	host.SetStreamHandler(TransportsProtocolID, SafeHandle(p.handleNewTransportStream))
+
 	// Wait for context cancellation
 
 	<-ctx.Done()
@@ -425,6 +561,7 @@ func (p *DealProvider) Start(ctx context.Context, host host.Host) {
 	host.RemoveStreamHandler(DealProtocolv120ID)
 	host.RemoveStreamHandler(DealStatusV12ProtocolID)
 	host.RemoveStreamHandler(legacytypes.AskProtocolID)
+	host.RemoveStreamHandler(TransportsProtocolID)
 }
 
 // Called when the client opens a libp2p stream with a new deal proposal
@@ -590,7 +727,7 @@ func (p *DealProvider) getDealStatus(req mk12.DealStatusRequest, reqLog *zap.Sug
 					SealingStatus:     "Sealed",
 					Proposal:          st.Proposal,
 					SignedProposalCid: st.SignedProposalCID,
-					PublishCid:        &st.PublishCID,
+					PublishCid:        cidOrNil(st.PublishCID),
 					ChainDealID:       st.ChainDealID,
 				},
 				IsOffline:      st.Offline,
@@ -618,7 +755,7 @@ func (p *DealProvider) getDealStatus(req mk12.DealStatusRequest, reqLog *zap.Sug
 				SealingStatus:     "Not assigned to sector",
 				Proposal:          st.Proposal,
 				SignedProposalCid: st.SignedProposalCID,
-				PublishCid:        &st.PublishCID,
+				PublishCid:        cidOrNil(st.PublishCID),
 				ChainDealID:       st.ChainDealID,
 			},
 			IsOffline:      st.Offline,
@@ -642,7 +779,7 @@ func (p *DealProvider) getDealStatus(req mk12.DealStatusRequest, reqLog *zap.Sug
 			SealingStatus:     "Sealed and Indexed",
 			Proposal:          st.Proposal,
 			SignedProposalCid: st.SignedProposalCID,
-			PublishCid:        &st.PublishCID,
+			PublishCid:        cidOrNil(st.PublishCID),
 			ChainDealID:       st.ChainDealID,
 		},
 		IsOffline:      st.Offline,
@@ -660,18 +797,28 @@ type dealInfo struct {
 	PublishCID        cid.Cid
 }
 
+func cidOrNil(c cid.Cid) *cid.Cid {
+	if c == cid.Undef {
+		return nil
+	}
+
+	return &c
+}
+
 func (p *DealProvider) getSealedDealStatus(ctx context.Context, id string, onChain bool) (dealInfo, error) {
 	var dealInfos []struct {
 		Offline           bool            `db:"offline"`
-		Error             string          `db:"error"`
+		Error             *string         `db:"error"`
 		Proposal          json.RawMessage `db:"proposal"`
 		SignedProposalCID string          `db:"signed_proposal_cid"`
+		Label             []byte          `db:"label"`
 	}
 	err := p.db.Select(ctx, &dealInfos, `SELECT
     										offline,
 											error,
 											proposal,
-											signed_proposal_cid
+											signed_proposal_cid,
+											label
 										FROM 
 											market_mk12_deals
 										WHERE 
@@ -693,14 +840,28 @@ func (p *DealProvider) getSealedDealStatus(ctx context.Context, id string, onCha
 		return dealInfo{}, xerrors.Errorf("failed to unmarshal deal proposal: %w", err)
 	}
 
+	// Unmarshal Label from cbor and replace in proposal. This fixes the problem where non-string
+	// labels are saved as "" in json in DB
+	var l market.DealLabel
+	lr := bytes.NewReader(di.Label)
+	err = l.UnmarshalCBOR(lr)
+	if err != nil {
+		return dealInfo{}, xerrors.Errorf("unmarshal label: %w", err)
+	}
+	prop.Label = l
+
 	spc, err := cid.Parse(di.SignedProposalCID)
 	if err != nil {
 		return dealInfo{}, xerrors.Errorf("failed to parse signed proposal CID: %w", err)
 	}
 
+	if di.Error == nil {
+		di.Error = new(string)
+	}
+
 	ret := dealInfo{
 		Offline:           di.Offline,
-		Error:             di.Error,
+		Error:             *di.Error,
 		Proposal:          prop,
 		SignedProposalCID: spc,
 		ChainDealID:       abi.DealID(0),
@@ -715,7 +876,7 @@ func (p *DealProvider) getSealedDealStatus(ctx context.Context, id string, onCha
 		ChainDealID int64  `db:"chain_deal_id"`
 		PublishCID  string `db:"publish_cid"`
 	}
-	err = p.db.Select(ctx, &dealInfos, `SELECT 
+	err = p.db.Select(ctx, &cInfos, `SELECT 
 											chain_deal_id,
 											publish_cid
 										FROM 
@@ -780,5 +941,37 @@ func (p *DealProvider) handleNewAskStream(s network.Stream) {
 
 	if err := cborutil.WriteCborRPC(s, &resp); err != nil {
 		reqLog.Errorw("failed to write queryAsk response", "err", err)
+	}
+}
+
+func (p *DealProvider) handleNewTransportStream(s network.Stream) {
+	start := time.Now()
+	reqLog := netlog.With("client-peer", s.Conn().RemotePeer())
+	reqLog.Debugw("new queryTransportRequest")
+
+	defer func() {
+		err := s.Close()
+		if err != nil {
+			reqLog.Infow("closing stream", "err", err)
+		}
+		reqLog.Debugw("handled queryTransportRequest", "duration", time.Since(start).String())
+	}()
+
+	_ = s.SetWriteDeadline(time.Now().Add(providerWriteDeadline))
+	defer s.SetWriteDeadline(time.Time{}) // nolint
+
+	var resp legacytypes.QueryResponse
+
+	resp.Protocols = append(resp.Protocols, legacytypes.Protocol{
+		Name:      "libp2p",
+		Addresses: [][]byte{p.PublicAddrs.Libp2pAddr.Bytes()},
+	})
+	resp.Protocols = append(resp.Protocols, legacytypes.Protocol{
+		Name:      "http",
+		Addresses: [][]byte{p.PublicAddrs.HttpAddr.Bytes()},
+	})
+
+	if err := cborutil.WriteCborRPC(s, &resp); err != nil {
+		reqLog.Errorw("failed to write transport response", "err", err)
 	}
 }

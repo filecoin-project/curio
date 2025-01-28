@@ -12,6 +12,7 @@ import (
 	"go.opencensus.io/stats"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/cmd/curio/tasks"
 	"github.com/filecoin-project/curio/deps"
@@ -27,44 +28,44 @@ type stackTracer interface {
 
 var runCmd = &cli.Command{
 	Name:  "run",
-	Usage: "Start a Curio process",
+	Usage: translations.T("Start a Curio process"),
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:    "listen",
-			Usage:   "host address and port the worker api will listen on",
+			Usage:   translations.T("host address and port the worker api will listen on"),
 			Value:   "0.0.0.0:12300",
 			EnvVars: []string{"CURIO_LISTEN"},
 		},
 		&cli.StringFlag{
 			Name:   "gui-listen",
-			Usage:  "host address and port the gui will listen on",
+			Usage:  translations.T("host address and port the gui will listen on"),
 			Hidden: true,
 		},
 		&cli.BoolFlag{
 			Name:  "nosync",
-			Usage: "don't check full-node sync status",
+			Usage: translations.T("don't check full-node sync status"),
 		},
 		&cli.BoolFlag{
 			Name:   "halt-after-init",
-			Usage:  "only run init, then return",
+			Usage:  translations.T("only run init, then return"),
 			Hidden: true,
 		},
 		&cli.BoolFlag{
 			Name:  "manage-fdlimit",
-			Usage: "manage open file limit",
+			Usage: translations.T("manage open file limit"),
 			Value: true,
 		},
 		&cli.StringSliceFlag{
 			Name:    "layers",
-			Usage:   "list of layers to be interpreted (atop defaults). Default: base",
+			Usage:   translations.T("list of layers to be interpreted (atop defaults). Default: base"),
 			EnvVars: []string{"CURIO_LAYERS"},
 			Aliases: []string{"l", "layer"},
 		},
 		&cli.StringFlag{
 			Name:        "name",
-			Usage:       "custom node name",
+			Usage:       translations.T("custom node name"),
 			EnvVars:     []string{"CURIO_NODE_NAME"},
-			DefaultText: "",
+			DefaultText: translations.T(""),
 		},
 	},
 	Action: func(cctx *cli.Context) (err error) {
@@ -123,7 +124,7 @@ var runCmd = &cli.Command{
 
 		go ffiSelfTest() // Panics on failure
 
-		taskEngine, err := tasks.StartTasks(ctx, dependencies)
+		taskEngine, err := tasks.StartTasks(ctx, dependencies, shutdownChan)
 
 		if err != nil {
 			return xerrors.Errorf("starting tasks: %w", err)
@@ -145,23 +146,24 @@ var runCmd = &cli.Command{
 
 var layersFlag = &cli.StringSliceFlag{
 	Name:  "layers",
-	Usage: "list of layers to be interpreted (atop defaults). Default: base",
+	Usage: translations.T("list of layers to be interpreted (atop defaults). Default: base"),
 }
 
 var webCmd = &cli.Command{
-	Name:  "web",
-	Usage: "Start Curio web interface",
-	Description: `Start an instance of Curio web interface. 
-	This creates the 'web' layer if it does not exist, then calls run with that layer.`,
+	Name: "web",
+
+	Usage: translations.T("Start Curio web interface"),
+	Description: translations.T(`Start an instance of Curio web interface. 
+	This creates the 'web' layer if it does not exist, then calls run with that layer.`),
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:  "gui-listen",
-			Usage: "Address to listen for the GUI on",
+			Usage: translations.T("Address to listen for the GUI on"),
 			Value: "0.0.0.0:4701",
 		},
 		&cli.BoolFlag{
 			Name:  "nosync",
-			Usage: "don't check full-node sync status",
+			Usage: translations.T("don't check full-node sync status"),
 		},
 		layersFlag,
 	},

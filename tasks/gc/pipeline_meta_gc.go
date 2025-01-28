@@ -163,7 +163,8 @@ func (s *PipelineGC) cleanupMK12DealPipeline() error {
 	ctx := context.Background()
 
 	// Execute the query
-	_, err := s.db.Exec(ctx, `DELETE FROM market_mk12_deal_pipeline WHERE complete = TRUE;`)
+	// NOTE: pipelines can be complete before indexing finishes in case of reindexing pipeline tasks (created in CheckIndex task)
+	_, err := s.db.Exec(ctx, `DELETE FROM market_mk12_deal_pipeline WHERE (should_index = FALSE OR indexed = TRUE) AND complete = TRUE;`)
 	if err != nil {
 		return xerrors.Errorf("failed to clean up sealed deals: %w", err)
 	}

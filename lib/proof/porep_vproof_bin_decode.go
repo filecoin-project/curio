@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+
+	"golang.org/x/xerrors"
 )
 
 // This file contains a bincode decoder for Commit1OutRaw.
@@ -67,8 +69,15 @@ func DecodeCommit1OutRaw(r io.Reader) (Commit1OutRaw, error) {
 	}
 
 	// Read last byte, require EOF
-	if _, err := r.Read(make([]byte, 1)); err != io.EOF {
-		return out, fmt.Errorf("expected EOF")
+	b := make([]byte, 1)
+	if n, err := r.Read(b); err != io.EOF {
+		if err != nil {
+			return out, xerrors.Errorf("expected EOF, got: %w (n:%d, b:%x)", err, n, b)
+		}
+
+		n2, derr := io.Copy(io.Discard, r)
+
+		return out, xerrors.Errorf("expected EOF (ndc:%d, b:%x, derr:%x)", int64(n)+n2, b, derr)
 	}
 
 	return out, nil

@@ -23,13 +23,11 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/docker/go-units"
-	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/manifoldco/promptui"
 	"github.com/mitchellh/go-homedir"
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
 	"github.com/urfave/cli/v2"
-	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 
 	"github.com/filecoin-project/go-address"
@@ -38,6 +36,7 @@ import (
 
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	_ "github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
@@ -65,7 +64,7 @@ var GuidedsetupCmd = &cli.Command{
 		},
 	},
 	Action: func(cctx *cli.Context) (err error) {
-		T, say := SetupLanguage()
+		T, say := translations.SetupLanguage()
 		setupCtrlC(say)
 
 		// Run the migration steps
@@ -144,42 +143,6 @@ var (
 		Foreground(lipgloss.Color("#00FF00")).
 		Background(lipgloss.Color("#f8f9fa"))
 )
-
-func SetupLanguage() (func(key message.Reference, a ...interface{}) string, func(style lipgloss.Style, key message.Reference, a ...interface{})) {
-	langText := "en"
-	problem := false
-	if len(os.Getenv("LANG")) > 1 {
-		langText = os.Getenv("LANG")[:2]
-	} else {
-		problem = true
-	}
-
-	lang, err := language.Parse(langText)
-	if err != nil {
-		lang = language.English
-		problem = true
-		fmt.Println("Error parsing language")
-	}
-
-	langs := message.DefaultCatalog.Languages()
-	have := lo.SliceToMap(langs, func(t language.Tag) (string, bool) { return t.String(), true })
-	if _, ok := have[lang.String()]; !ok {
-		lang = language.English
-		problem = true
-	}
-	if problem {
-		_ = os.Setenv("LANG", "en-US") // for later users of this function
-		notice.Copy().AlignHorizontal(lipgloss.Right).
-			Render("$LANG=" + langText + " unsupported. Available: " + strings.Join(lo.Keys(have), ", "))
-		fmt.Println("Defaulting to English. Please reach out to the Curio team if you would like to have additional language support.")
-	}
-	return func(key message.Reference, a ...interface{}) string {
-			return message.NewPrinter(lang).Sprintf(key, a...)
-		}, func(sty lipgloss.Style, key message.Reference, a ...interface{}) {
-			msg := message.NewPrinter(lang).Sprintf(key, a...)
-			fmt.Println(sty.Render(msg))
-		}
-}
 
 func newOrMigrate(d *MigrationData) {
 	i, _, err := (&promptui.Select{
@@ -285,40 +248,6 @@ saveConfigFile:
 }
 
 func completeInit(d *MigrationData) {
-	// Add libp2p key
-	pk, _, err := crypto.GenerateEd25519Key(rand.Reader)
-	if err != nil {
-		d.say(notice, "Failed to generate the libp2p private key.", err.Error())
-		os.Exit(1)
-	}
-
-	mid, err := address.IDFromAddress(d.MinerID)
-	if err != nil {
-		d.say(notice, "Failed to generate miner ID from address.", err.Error())
-		os.Exit(1)
-	}
-
-	kbytes, err := crypto.MarshalPrivateKey(pk)
-	if err != nil {
-		d.say(notice, "Failed to marshal libp2p private key.", err.Error())
-		os.Exit(1)
-	}
-
-	n, err := d.DB.Exec(d.ctx, `INSERT INTO libp2p (sp_id, priv_key) VALUES ($1, $2) ON CONFLICT(sp_id) DO NOTHING`, mid, kbytes)
-	if err != nil {
-		d.say(notice, "Failed to insert libp2p private key into database. Please run 'curio market libp2p generate-key minerID' to complete the migration.", err.Error())
-		os.Exit(1)
-	}
-
-	if n == 0 {
-		d.say(plain, "New libp2p key was not created")
-	}
-
-	if n > 1 {
-		d.say(notice, "More than 1 row was affected in the 'libp2p' table when creating new libp2p key.")
-		os.Exit(1)
-	}
-
 	stepCompleted(d, d.T("New Miner initialization complete."))
 }
 

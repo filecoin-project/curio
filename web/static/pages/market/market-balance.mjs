@@ -1,4 +1,4 @@
-import { html, LitElement } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
+import { html, css, LitElement } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 
 class MarketBalance extends LitElement {
@@ -116,13 +116,12 @@ class MarketBalance extends LitElement {
         </table>
 
         <!-- Form to Move Balance to Escrow -->
-        <h3>Move Balance to Escrow</h3>
+        <h4>Move Balance to Escrow</h4>
         <form @submit="${this.handleSubmit}" style="padding-bottom: 20px">
-          <div class="mb-3">
+          <div class="search-container">
             <label for="minerSelect" class="form-label">Select Miner</label>
             <select
               id="minerSelect"
-              class="form-select"
               .value="${this.selectedMiner}"
               @change="${this.handleMinerChange}"
               required
@@ -135,23 +134,21 @@ class MarketBalance extends LitElement {
         )}
             </select>
           </div>
-          <div class="mb-3">
+          <div class="search-container">
             <label for="amountInput" class="form-label">Amount</label>
             <input
               type="text"
               id="amountInput"
-              class="form-control"
               .value="${this.amount}"
               @input="${this.handleAmountChange}"
               required
             />
           </div>
-          <div class="mb-3">
+          <div class="search-container">
             <label for="walletInput" class="form-label">Wallet</label>
             <input
               type="text"
               id="walletInput"
-              class="form-control"
               .value="${this.wallet}"
               @input="${this.handleWalletChange}"
               required
@@ -164,6 +161,38 @@ class MarketBalance extends LitElement {
       </div>
     `;
     }
+
+    static styles = css`
+    h2 {
+            text-align: center;
+            margin-bottom: 20px;
+    }
+    
+    h4 {
+            text-align: center;
+            margin-bottom: 20px;
+    }
+        
+    .search-container {
+      display: grid;
+      grid-template-columns: 1fr max-content;
+      grid-column-gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    
+    .btn {
+    padding: 0.4rem 1rem;
+    border: none;
+    border-radius: 0;
+    background-color: var(--color-form-default);
+    color: var(--color-text-primary);
+
+    &:hover, &:focus, &:focus-visible {
+        background-color: var(--color-form-default-pressed);
+        color: var(--color-text-secondary);
+    }
+  }
+  `;
 }
 
 customElements.define('market-balance', MarketBalance);

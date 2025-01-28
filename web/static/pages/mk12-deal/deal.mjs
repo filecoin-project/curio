@@ -1,5 +1,7 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { formatDate } from '/lib/dateutil.mjs';
+import '/ux/epoch.mjs';
 
 class DealDetails extends LitElement {
     constructor() {
@@ -26,22 +28,28 @@ class DealDetails extends LitElement {
                 {property: 'ID', value: entry.id},
                 {property: 'Provider', value: entry.miner},
                 {property: 'Sector Number', value: entry.sector},
-                {property: 'Created At', value: entry.created_at},
+                {property: 'Created At', value: formatDate(entry.created_at)},
                 {property: 'Signed Proposal Cid', value: entry.signed_proposal_cid},
                 {property: 'Offline', value: entry.offline},
                 {property: 'Verified', value: entry.verified},
                 {property: 'Is Legacy', value: entry.is_legacy},
-                {property: 'Start Epoch', value: entry.start_epoch},
-                {property: 'End Epoch', value: entry.end_epoch},
+                {property: 'Is DDO', value: entry.is_ddo},
+                {property: 'Start Epoch', value: html`<pretty-epoch .epoch=${entry.start_epoch}></pretty-epoch>`},
+                {property: 'End Epoch', value: html`<pretty-epoch .epoch=${entry.end_epoch}></pretty-epoch>`},
                 {property: 'Client Peer ID', value: entry.client_peer_id},
                 {property: 'Chain Deal ID', value: entry.chain_deal_id},
                 {property: 'Publish CID', value: entry.publish_cid},
-                {property: 'Piece CID', value: entry.piece_cid},
+                {property: 'Piece CID', value: html`<a href="/pages/piece/?id=${entry.piece_cid}">${entry.piece_cid}</a>`},
                 {property: 'Piece Size', value: entry.piece_size},
                 {property: 'Fast Retrieval', value: entry.fast_retrieval},
                 {property: 'Announce To IPNI', value: entry.announce_to_ipni},
                 {property: 'Url', value: entry.url},
-                {property: 'Url Headers', value: JSON.stringify(entry.url_headers, null, 2)},
+                {property: 'Url Headers', value: html`
+                        <details>
+                            <summary>[SHOW]</summary>
+                            <pre>${JSON.stringify(entry.url_headers, null, 2)}</pre>
+                        </details>
+                    `},
                 {property: 'Error', value: entry.error},
             ];
             return html`

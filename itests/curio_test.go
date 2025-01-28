@@ -163,6 +163,9 @@ func TestCurioHappyPath(t *testing.T) {
 
 	require.Contains(t, baseCfg.Addresses[0].MinerAddresses, maddr.String())
 
+	baseCfg.Batching.PreCommit.Timeout = config.Duration(5 * time.Second)
+	baseCfg.Batching.Commit.Timeout = config.Duration(5 * time.Minute)
+
 	temp := os.TempDir()
 	dir, err := os.MkdirTemp(temp, "curio")
 	require.NoError(t, err)
@@ -373,7 +376,7 @@ func ConstructCurioTest(ctx context.Context, t *testing.T, dir string, db *harmo
 	err = dependencies.PopulateRemainingDeps(ctx, cctx, false)
 	require.NoError(t, err)
 
-	taskEngine, err := tasks.StartTasks(ctx, dependencies)
+	taskEngine, err := tasks.StartTasks(ctx, dependencies, shutdownChan)
 	require.NoError(t, err)
 
 	go func() {

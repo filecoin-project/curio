@@ -3,6 +3,7 @@ package seal
 import (
 	"bytes"
 	"context"
+	"time"
 
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
@@ -171,8 +172,11 @@ func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram:       50 << 30, // todo correct value
 			MachineID: 0,
 		},
-		MaxFailures: 5,
-		Follows:     nil,
+		MaxFailures: 10,
+		RetryWait: func(retries int) time.Duration {
+			return max(time.Second<<retries, 2*time.Minute)
+		},
+		Follows: nil,
 	}
 
 	if IsDevnet {

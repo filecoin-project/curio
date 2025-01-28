@@ -1,6 +1,7 @@
 package indexing
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	carv2 "github.com/ipld/go-car/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
@@ -65,6 +67,7 @@ type itask struct {
 	RawSize     int64                   `db:"raw_size"`
 	ShouldIndex bool                    `db:"should_index"`
 	Announce    bool                    `db:"announce"`
+	ChainDealId abi.DealID              `db:"chain_deal_id"`
 }
 
 func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
@@ -74,20 +77,23 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	ctx := context.Background()
 
 	err = i.db.Select(ctx, &tasks, `SELECT 
-											uuid, 
-											sp_id, 
-											sector,
-											piece_cid, 
-											piece_size, 
-											sector_offset,
-											reg_seal_proof,
-											raw_size,
-											should_index,
-											announce
+											p.uuid, 
+											p.sp_id, 
+											p.sector,
+											p.piece_cid, 
+											p.piece_size, 
+											p.sector_offset,
+											p.reg_seal_proof,
+											p.raw_size,
+											p.should_index,
+											p.announce,
+											d.chain_deal_id
 										FROM 
-											market_mk12_deal_pipeline
+											market_mk12_deal_pipeline p
+										LEFT JOIN 
+											market_mk12_deals d ON p.uuid = d.uuid AND p.sp_id = d.sp_id
 										WHERE 
-											indexing_task_id = $1;`, taskID)
+											p.indexing_task_id = $1;`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting indexing params: %w", err)
 	}
@@ -101,8 +107,8 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	// Check if piece is already indexed
 	var indexed bool
 	err = i.db.QueryRow(ctx, `SELECT indexed FROM market_piece_metadata WHERE piece_cid = $1`, task.PieceCid).Scan(&indexed)
-	if err != nil {
-		return false, xerrors.Errorf("checking if piece is already indexed: %w", err)
+	if err != nil && err != pgx.ErrNoRows {
+		return false, xerrors.Errorf("checking if piece %s is already indexed: %w", task.PieceCid, err)
 	}
 
 	// Return early if already indexed or should not be indexed
@@ -111,22 +117,9 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		if err != nil {
 			return false, err
 		}
+		log.Infow("Piece already indexed or should not be indexed", "piece_cid", task.PieceCid, "indexed", indexed, "should_index", task.ShouldIndex, "uuid", task.UUID, "sp_id", task.SpID, "sector", task.Sector)
+
 		return true, nil
-	}
-
-	unsealed, err := i.pieceProvider.IsUnsealed(ctx, storiface.SectorRef{
-		ID: abi.SectorID{
-			Miner:  abi.ActorID(task.SpID),
-			Number: task.Sector,
-		},
-		ProofType: task.Proof,
-	}, storiface.UnpaddedByteIndex(task.Offset), task.Size.Unpadded())
-	if err != nil {
-		return false, xerrors.Errorf("checking if sector is unsealed :%w", err)
-	}
-
-	if !unsealed {
-		return false, xerrors.Errorf("sector %d for miner %d is not unsealed", task.Sector, task.SpID)
 	}
 
 	pieceCid, err := cid.Parse(task.PieceCid)
@@ -140,7 +133,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 			Number: task.Sector,
 		},
 		ProofType: task.Proof,
-	}, storiface.UnpaddedByteIndex(abi.PaddedPieceSize(task.Offset).Unpadded()), task.Size.Unpadded(), pieceCid)
+	}, storiface.PaddedByteIndex(task.Offset).Unpadded(), task.Size.Unpadded(), pieceCid)
 
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
@@ -157,33 +150,45 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 
 	//recs := make([]indexstore.Record, 0, chanSize)
 	opts := []carv2.Option{carv2.ZeroLengthSectionAsEOF(true)}
-	blockReader, err := carv2.NewBlockReader(reader, opts...)
+	blockReader, err := carv2.NewBlockReader(bufio.NewReaderSize(reader, 4<<20), opts...)
 	if err != nil {
 		return false, fmt.Errorf("getting block reader over piece: %w", err)
 	}
 
 	var eg errgroup.Group
+	addFail := make(chan struct{})
+	var interrupted bool
+	var blocks int64
+	start := time.Now()
 
 	eg.Go(func() error {
+		defer close(addFail)
+
 		serr := i.indexStore.AddIndex(ctx, pieceCid, recs)
 		if serr != nil {
-			return xerrors.Errorf("adding index to DB: %w", err)
+			return xerrors.Errorf("adding index to DB: %w", serr)
 		}
 		return nil
 	})
 
 	blockMetadata, err := blockReader.SkipNext()
+loop:
 	for err == nil {
-		recs <- indexstore.Record{
-			Cid: blockMetadata.Cid,
-			OffsetSize: indexstore.OffsetSize{
-				Offset: blockMetadata.SourceOffset,
-				Size:   blockMetadata.Size,
-			},
+		blocks++
+
+		select {
+		case recs <- indexstore.Record{
+			Cid:    blockMetadata.Cid,
+			Offset: blockMetadata.Offset,
+			Size:   blockMetadata.Size,
+		}:
+		case <-addFail:
+			interrupted = true
+			break loop
 		}
 		blockMetadata, err = blockReader.SkipNext()
 	}
-	if !errors.Is(err, io.EOF) {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return false, fmt.Errorf("generating index for piece: %w", err)
 	}
 
@@ -193,7 +198,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	// Wait till AddIndex is finished
 	err = eg.Wait()
 	if err != nil {
-		return false, xerrors.Errorf("adding index to DB: %w", err)
+		return false, xerrors.Errorf("adding index to DB (interrupted %t): %w", interrupted, err)
 	}
 
 	log.Infof("Indexing deal %s took %0.3f seconds", task.UUID, time.Since(startTime).Seconds())
@@ -203,21 +208,25 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return false, err
 	}
 
+	blocksPerSecond := float64(blocks) / time.Since(start).Seconds()
+	log.Infow("Piece indexed", "piece_cid", task.PieceCid, "uuid", task.UUID, "sp_id", task.SpID, "sector", task.Sector, "blocks", blocks, "blocks_per_second", blocksPerSecond)
+
 	return true, nil
 }
 
 // recordCompletion add the piece metadata and piece deal to the DB and
 // records the completion of an indexing task in the database
 func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID harmonytask.TaskID, indexed bool) error {
-	_, err := i.db.Exec(ctx, `SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		task.UUID, task.PieceCid, true, task.SpID, task.Sector, task.Offset, task.Size, task.RawSize, indexed)
+	_, err := i.db.Exec(ctx, `SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		task.UUID, task.PieceCid, true, task.SpID, task.Sector, task.Offset, task.Size, task.RawSize, indexed, false, task.ChainDealId)
 	if err != nil {
 		return xerrors.Errorf("failed to update piece metadata and piece deal for deal %s: %w", task.UUID, err)
 	}
 
 	// If IPNI is disabled then mark deal as complete otherwise just mark as indexed
 	if i.cfg.Market.StorageMarketConfig.IPNI.Disable {
-		n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE, complete = TRUE WHERE uuid = $1`, task.UUID)
+		n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE, indexing_task_id = NULL, 
+                                     complete = TRUE WHERE uuid = $1 AND indexing_task_id = $2`, task.UUID, taskID)
 		if err != nil {
 			return xerrors.Errorf("store indexing success: updating pipeline: %w", err)
 		}
@@ -225,7 +234,8 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 			return xerrors.Errorf("store indexing success: updated %d rows", n)
 		}
 	} else {
-		n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE WHERE uuid = $1`, task.UUID)
+		n, err := i.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET indexed = TRUE, indexing_task_id = NULL 
+                                 WHERE uuid = $1 AND indexing_task_id = $2`, task.UUID, taskID)
 		if err != nil {
 			return xerrors.Errorf("store indexing success: updating pipeline: %w", err)
 		}
@@ -301,9 +311,9 @@ func (i *IndexingTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu: 1,
 			Ram: uint64(i.insertBatchSize * i.insertConcurrency * 56 * 2),
 		},
-		Max:         taskhelp.Max(4),
+		Max:         i.max,
 		MaxFailures: 3,
-		IAmBored: passcall.Every(10*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
+		IAmBored: passcall.Every(30*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
 			return i.schedule(context.Background(), taskFunc)
 		}),
 	}
@@ -322,8 +332,9 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 
 			err := i.db.Select(ctx, &pendings, `SELECT uuid FROM market_mk12_deal_pipeline 
             										WHERE sealed = TRUE
-            										AND indexing_task_id IS NULL 
-													ORDER BY indexing_created_at ASC;`)
+            										AND indexing_task_id IS NULL
+            										AND indexed = FALSE
+													ORDER BY indexing_created_at ASC LIMIT 1;`)
 			if err != nil {
 				return false, xerrors.Errorf("getting pending indexing tasks: %w", err)
 			}

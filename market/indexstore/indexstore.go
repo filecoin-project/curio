@@ -27,9 +27,9 @@ var log = logging.Logger("indexstore")
 
 type settings struct {
 	// Number of records per insert batch
-	InsertBatchSize int
+	InsertBatchSize int // default 15000
 	// Number of concurrent inserts to split AddIndex/DeleteIndex calls to
-	InsertConcurrency int
+	InsertConcurrency int // default 8
 }
 
 type IndexStore struct {
@@ -39,17 +39,10 @@ type IndexStore struct {
 	ctx      context.Context
 }
 
-type OffsetSize struct {
-	// Offset is the offset into the CAR file of the section, where a section
-	// is <section size><cid><block data>
-	Offset uint64 `json:"offset"`
-	// Size is the size of the block data (not the whole section)
-	Size uint64 `json:"size"`
-}
-
 type Record struct {
-	Cid        cid.Cid `json:"cid"`
-	OffsetSize `json:"offsetsize"`
+	Cid    cid.Cid `json:"cid"`
+	Offset uint64  `json:"offset"`
+	Size   uint64  `json:"size"`
 }
 
 var ErrNotFound = errors.New("not found")
@@ -84,7 +77,9 @@ func NewIndexStore(hosts []string, cfg *config.CurioConfig) (*IndexStore, error)
 	}
 
 	cluster := gocql.NewCluster(hosts...)
-	cluster.Timeout = time.Minute
+	cluster.Timeout = 5 * time.Minute
+	cluster.Consistency = gocql.One
+	cluster.NumConns = cfg.Market.StorageMarketConfig.Indexing.InsertConcurrency * 8
 
 	store := &IndexStore{
 		cluster: cluster,
@@ -98,11 +93,10 @@ func NewIndexStore(hosts []string, cfg *config.CurioConfig) (*IndexStore, error)
 }
 
 func (i *IndexStore) Start(ctx context.Context) error {
-	// Create cassandra keyspace
+	// Create Cassandra keyspace
 	session, err := i.cluster.CreateSession()
 	if err != nil {
 		return xerrors.Errorf("creating cassandra session: %w", err)
-
 	}
 	query := `CREATE KEYSPACE IF NOT EXISTS ` + keyspace +
 		` WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 3 }`
@@ -118,7 +112,6 @@ func (i *IndexStore) Start(ctx context.Context) error {
 	session, err = i.cluster.CreateSession()
 	if err != nil {
 		return xerrors.Errorf("creating cassandra session: %w", err)
-
 	}
 
 	lines := strings.Split(createCQL, ";")
@@ -140,62 +133,70 @@ func (i *IndexStore) Start(ctx context.Context) error {
 	return nil
 }
 
-// AddIndex adds multihash -> piece cid mappings, along with offset / size information for the piece.
-// It takes a context, the piece cid, and a slice of Record structs as arguments.
-// It returns an error if any error occurs during the execution.
+// AddIndex adds multihash -> piece cid mappings, along with offset and size information for the piece.
 func (i *IndexStore) AddIndex(ctx context.Context, pieceCid cid.Cid, recordsChan chan Record) error {
-	Qry := `INSERT INTO PayloadToPiece (PieceCid, PayloadMultihash, BlockOffset, BlockSize) VALUES (?, ?, ?, ?)`
+	insertPieceBlockOffsetSize := `INSERT INTO PieceBlockOffsetSize (PieceCid, PayloadMultihash, BlockOffset) VALUES (?, ?, ?)`
+	insertPayloadToPieces := `INSERT INTO PayloadToPieces (PayloadMultihash, PieceCid, BlockSize) VALUES (?, ?, ?)`
 	pieceCidBytes := pieceCid.Bytes()
 
 	var eg errgroup.Group
 
 	// Start worker threads based on InsertConcurrency value
-	// These workers will be further batch based on InsertBatchSize in the
-	// goroutines for each BatchInsert operation
 	for worker := 0; worker < i.settings.InsertConcurrency; worker++ {
 		eg.Go(func() error {
-			var batch *gocql.Batch
-			// Running a loop on all instead of creating batches require less memory
+			var batchPieceBlockOffsetSize *gocql.Batch
+			var batchPayloadToPieces *gocql.Batch
 			for {
-				if batch == nil {
-					batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
-					batch.Entries = make([]gocql.BatchEntry, 0, i.settings.InsertBatchSize)
+				if batchPieceBlockOffsetSize == nil {
+					batchPieceBlockOffsetSize = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
+					batchPieceBlockOffsetSize.Entries = make([]gocql.BatchEntry, 0, i.settings.InsertBatchSize)
+				}
+				if batchPayloadToPieces == nil {
+					batchPayloadToPieces = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
+					batchPayloadToPieces.Entries = make([]gocql.BatchEntry, 0, i.settings.InsertBatchSize)
 				}
 
 				rec, ok := <-recordsChan
 
 				if !ok {
-					if len(batch.Entries) > 0 {
-						err := i.session.ExecuteBatch(batch)
-						if err != nil {
-							return fmt.Errorf("executing batch insert for piece %s: %w", pieceCid, err)
+					if len(batchPieceBlockOffsetSize.Entries) > 0 {
+						if err := i.executeBatchWithRetry(ctx, batchPieceBlockOffsetSize, pieceCid); err != nil {
+							return err
+						}
+					}
+					if len(batchPayloadToPieces.Entries) > 0 {
+						if err := i.executeBatchWithRetry(ctx, batchPayloadToPieces, pieceCid); err != nil {
+							return err
 						}
 					}
 					return nil
 				}
 
-				batch.Entries = append(batch.Entries, gocql.BatchEntry{
-					Stmt:       Qry,
-					Args:       []any{pieceCidBytes, []byte(rec.Cid.Hash()), rec.Offset, rec.Size},
+				payloadMultihashBytes := []byte(rec.Cid.Hash())
+
+				batchPieceBlockOffsetSize.Entries = append(batchPieceBlockOffsetSize.Entries, gocql.BatchEntry{
+					Stmt:       insertPieceBlockOffsetSize,
+					Args:       []interface{}{pieceCidBytes, payloadMultihashBytes, rec.Offset},
 					Idempotent: true,
 				})
 
-				if len(batch.Entries) == i.settings.InsertBatchSize {
-					err := func() error {
-						defer func(start time.Time) {
-							log.Debugw("addIndex Batch Insert", "took", time.Since(start), "entries", len(batch.Entries))
-						}(time.Now())
+				batchPayloadToPieces.Entries = append(batchPayloadToPieces.Entries, gocql.BatchEntry{
+					Stmt:       insertPayloadToPieces,
+					Args:       []interface{}{payloadMultihashBytes, pieceCidBytes, rec.Size},
+					Idempotent: true,
+				})
 
-						err := i.session.ExecuteBatch(batch)
-						if err != nil {
-							return fmt.Errorf("executing batch insert for piece %s: %w", pieceCid, err)
-						}
-						return nil
-					}()
-					if err != nil {
+				if len(batchPieceBlockOffsetSize.Entries) == i.settings.InsertBatchSize {
+					if err := i.executeBatchWithRetry(ctx, batchPieceBlockOffsetSize, pieceCid); err != nil {
 						return err
 					}
-					batch = nil
+					batchPieceBlockOffsetSize = nil
+				}
+				if len(batchPayloadToPieces.Entries) == i.settings.InsertBatchSize {
+					if err := i.executeBatchWithRetry(ctx, batchPayloadToPieces, pieceCid); err != nil {
+						return err
+					}
+					batchPayloadToPieces = nil
 				}
 			}
 		})
@@ -203,99 +204,167 @@ func (i *IndexStore) AddIndex(ctx context.Context, pieceCid cid.Cid, recordsChan
 
 	err := eg.Wait()
 	if err != nil {
-		return err
+		return xerrors.Errorf("addindex wait: %w", err)
+	}
+
+	return nil
+}
+
+// executeBatchWithRetry executes a batch with retry logic and exponential backoff
+func (i *IndexStore) executeBatchWithRetry(ctx context.Context, batch *gocql.Batch, pieceCid cid.Cid) error {
+	var err error
+	maxRetries := 20
+	backoff := 20 * time.Second
+	maxBackoff := 180 * time.Second
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		start := time.Now()
+		err = i.session.ExecuteBatch(batch)
+		if time.Since(start) > 30*time.Second {
+			log.Warnw("Batch Insert", "took", time.Since(start), "entries", len(batch.Entries))
+		} else {
+			log.Debugw("Batch Insert", "took", time.Since(start), "entries", len(batch.Entries))
+		}
+
+		if err == nil {
+			return nil
+		}
+
+		// If context is done, exit immediately
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		log.Warnf("Batch insert attempt %d failed for piece %s: %v", attempt+1, pieceCid, err)
+
+		// If max retries reached, return error
+		if attempt == maxRetries {
+			return xerrors.Errorf("execute batch: executing batch insert for piece %s: %w", pieceCid, err)
+		}
+
+		// Sleep for backoff duration before retrying
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+
+		// Exponential backoff
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
 	}
 
 	return nil
 }
 
 // RemoveIndexes removes all multihash -> piece cid mappings, and all
-// offset / size information for the piece.
+// offset information for the piece.
 func (i *IndexStore) RemoveIndexes(ctx context.Context, pieceCid cid.Cid) error {
-	delQry := `DELETE FROM PayloadToPiece WHERE PayloadMultihash = ? AND PieceCid = ?`
 	pieceCidBytes := pieceCid.Bytes()
 
-	// Get multihashes for piece
-	getQry := `SELECT PayloadMultihash FROM PayloadToPiece WHERE PieceCid = ?`
-	iter := i.session.Query(getQry, pieceCidBytes).WithContext(ctx).Iter()
+	// First, select all PayloadMultihash for the given PieceCid from PieceBlockOffsetSize
+	selectQry := `SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ?`
+	iter := i.session.Query(selectQry, pieceCidBytes).WithContext(ctx).Iter()
 
-	// Create batch for deletion
+	var payloadMultihashBytes []byte
+	var payloadMultihashes [][]byte
+	for iter.Scan(&payloadMultihashBytes) {
+		// Copy the bytes since the slice will be overwritten
+		mhCopy := make([]byte, len(payloadMultihashBytes))
+		copy(mhCopy, payloadMultihashBytes)
+		payloadMultihashes = append(payloadMultihashes, mhCopy)
+	}
+	if err := iter.Close(); err != nil {
+		return xerrors.Errorf("scanning PayloadMultihash for piece %s: %w", pieceCid, err)
+	}
+
+	// Prepare batch deletes for PayloadToPieces
+	delPayloadToPiecesQry := `DELETE FROM PayloadToPieces WHERE PayloadMultihash = ? AND PieceCid = ?`
 	batch := i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
-	batch.Entries = make([]gocql.BatchEntry, 0, i.settings.InsertBatchSize)
+	batchSize := i.settings.InsertBatchSize
 
-	var payloadMHBz []byte
-	for iter.Scan(&payloadMHBz) {
-		// Add each delete operation to batch
+	for idx, payloadMH := range payloadMultihashes {
 		batch.Entries = append(batch.Entries, gocql.BatchEntry{
-			Stmt:       delQry,
-			Args:       []any{payloadMHBz, pieceCidBytes},
+			Stmt:       delPayloadToPiecesQry,
+			Args:       []interface{}{payloadMH, pieceCidBytes},
 			Idempotent: true,
 		})
 
-		// Execute batch
-		if len(batch.Entries) >= i.settings.InsertBatchSize {
-			err := i.session.ExecuteBatch(batch)
-			if err != nil {
-				return xerrors.Errorf("executing batch delete for piece %s: %w", pieceCid, err)
+		if len(batch.Entries) >= batchSize || idx == len(payloadMultihashes)-1 {
+			if err := i.executeBatchWithRetry(ctx, batch, pieceCid); err != nil {
+				return xerrors.Errorf("executing batch delete for PayloadToPieces for piece %s: %w", pieceCid, err)
 			}
-			// Create a new batch after executing
 			batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
-			batch.Entries = make([]gocql.BatchEntry, 0, i.settings.InsertBatchSize)
 		}
 	}
 
-	// Execute remaining operations in the batch
-	if len(batch.Entries) > 0 {
-		err := i.session.ExecuteBatch(batch)
-		if err != nil {
-			return xerrors.Errorf("executing batch delete for piece %s: %w", pieceCid, err)
+	if len(batch.Entries) >= 0 {
+		if err := i.executeBatchWithRetry(ctx, batch, pieceCid); err != nil {
+			return xerrors.Errorf("executing batch delete for PayloadToPieces for piece %s: %w", pieceCid, err)
 		}
 	}
 
-	if err := iter.Close(); err != nil {
-		return xerrors.Errorf("Getting piece index for piece %s: %w", pieceCid, err)
+	// Delete from PieceBlockOffsetSize
+	delPieceBlockOffsetSizeQry := `DELETE FROM PieceBlockOffsetSize WHERE PieceCid = ?`
+	err := i.session.Query(delPieceBlockOffsetSizeQry, pieceCidBytes).WithContext(ctx).Exec()
+	if err != nil {
+		return xerrors.Errorf("deleting PieceBlockOffsetSize for piece %s: %w", pieceCid, err)
 	}
 
 	return nil
 }
 
-// PiecesContainingMultihash gets all pieces that contain a multihash (used when retrieving by payload CID)
-func (i *IndexStore) PiecesContainingMultihash(ctx context.Context, m multihash.Multihash) ([]cid.Cid, error) {
-	var pcids []cid.Cid
-	var bz []byte
-	qry := `SELECT PieceCid FROM PayloadToPiece WHERE PayloadMultihash = ?`
+// PieceInfo contains PieceCid and BlockSize
+type PieceInfo struct {
+	PieceCid  cid.Cid
+	BlockSize uint64
+}
+
+// PiecesContainingMultihash gets all pieces that contain a multihash along with their BlockSize
+func (i *IndexStore) PiecesContainingMultihash(ctx context.Context, m multihash.Multihash) ([]PieceInfo, error) {
+	var pieces []PieceInfo
+	var pieceCidBytes []byte
+	var blockSize uint64
+
+	qry := `SELECT PieceCid, BlockSize FROM PayloadToPieces WHERE PayloadMultihash = ?`
 	iter := i.session.Query(qry, []byte(m)).WithContext(ctx).Iter()
-	for iter.Scan(&bz) {
-		pcid, err := cid.Parse(bz)
+	for iter.Scan(&pieceCidBytes, &blockSize) {
+		pcid, err := cid.Parse(pieceCidBytes)
 		if err != nil {
 			return nil, fmt.Errorf("parsing piece cid: %w", err)
 		}
-		pcids = append(pcids, pcid)
+		pieces = append(pieces, PieceInfo{
+			PieceCid:  pcid,
+			BlockSize: blockSize,
+		})
 	}
 	if err := iter.Close(); err != nil {
 		return nil, fmt.Errorf("getting pieces containing multihash %s: %w", m, err)
 	}
 
 	// No pieces found for multihash, return a "not found" error
-	if len(pcids) == 0 {
+	if len(pieces) == 0 {
 		return nil, normalizeMultihashError(m, ErrNotFound)
 	}
-	return pcids, nil
+	return pieces, nil
 }
 
-func (i *IndexStore) GetOffsetSize(ctx context.Context, pieceCid cid.Cid, hash multihash.Multihash) (*OffsetSize, error) {
-	var offset, size uint64
-	qry := `SELECT BlockOffset, BlockSize FROM PayloadToPiece WHERE PieceCid = ? AND PayloadMultihash = ?`
-	err := i.session.Query(qry, pieceCid.Bytes(), []byte(hash)).WithContext(ctx).Scan(&offset, &size)
+// GetOffset retrieves the offset of a payload in a piece
+func (i *IndexStore) GetOffset(ctx context.Context, pieceCid cid.Cid, hash multihash.Multihash) (uint64, error) {
+	var offset uint64
+	qryOffset := `SELECT BlockOffset FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash = ?`
+	err := i.session.Query(qryOffset, pieceCid.Bytes(), []byte(hash)).WithContext(ctx).Scan(&offset)
 	if err != nil {
-		return nil, fmt.Errorf("getting offset / size: %w", err)
+		return 0, fmt.Errorf("getting offset: %w", err)
 	}
 
-	return &OffsetSize{Offset: offset, Size: size}, nil
+	return offset, nil
 }
 
 func (i *IndexStore) GetPieceHashRange(ctx context.Context, piece cid.Cid, start multihash.Multihash, num int64) ([]multihash.Multihash, error) {
-	qry := "SELECT PayloadMultihash FROM PayloadToPiece WHERE PieceCid = ? AND PayloadMultihash >= ? ORDER BY PayloadMultihash ASC LIMIT ?"
+	qry := "SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash >= ? ORDER BY PayloadMultihash ASC LIMIT ?"
 	iter := i.session.Query(qry, piece.Bytes(), []byte(start), num).WithContext(ctx).Iter()
 
 	var hashes []multihash.Multihash
@@ -304,12 +373,35 @@ func (i *IndexStore) GetPieceHashRange(ctx context.Context, piece cid.Cid, start
 		m := multihash.Multihash(r)
 		hashes = append(hashes, m)
 
-		// allocate new r, preallocating the typical size of a multihash (36b)
+		// Allocate new r, preallocating the typical size of a multihash (36 bytes)
 		r = make([]byte, 0, 36)
 	}
 	if err := iter.Close(); err != nil {
-		return nil, xerrors.Errorf("iterating piece hash range: %w", err)
+		return nil, xerrors.Errorf("iterating piece hash range (P:0x%02x, H:0x%02x, n:%d): %w", piece.Bytes(), []byte(start), num, err)
+	}
+	if len(hashes) != int(num) {
+		return nil, xerrors.Errorf("expected %d hashes, got %d (possibly missing indexes)", num, len(hashes))
 	}
 
 	return hashes, nil
+}
+
+func (i *IndexStore) CheckHasPiece(ctx context.Context, piece cid.Cid) (bool, error) {
+	qry := "SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash >= ? ORDER BY PayloadMultihash ASC LIMIT ?"
+	iter := i.session.Query(qry, piece.Bytes(), []byte{0}, 1).WithContext(ctx).Iter()
+
+	var hashes []multihash.Multihash
+	var r []byte
+	for iter.Scan(&r) {
+		m := multihash.Multihash(r)
+		hashes = append(hashes, m)
+
+		// Allocate new r, preallocating the typical size of a multihash (36 bytes)
+		r = make([]byte, 0, 36)
+	}
+	if err := iter.Close(); err != nil {
+		return false, xerrors.Errorf("iterating piece hash range (P:0x%02x, n:%d): %w", piece.Bytes(), len(hashes), err)
+	}
+
+	return len(hashes) > 0, nil
 }
