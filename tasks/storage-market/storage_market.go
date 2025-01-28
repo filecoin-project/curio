@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -462,7 +464,9 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 							ELSE FALSE 
 						END;`, deal).Scan(&updated)
 		if err != nil {
-			return false, xerrors.Errorf("failed to update the pipeline for deal %s: %w", deal, err)
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return false, xerrors.Errorf("failed to update the pipeline for deal %s: %w", deal, err)
+			}
 		}
 
 		if updated {
