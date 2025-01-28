@@ -137,7 +137,7 @@ debug: build
 2k: CURIO_TAGS+= 2k
 2k: build
 
-all: build 
+all: build
 .PHONY: all
 
 build: curio sptool
@@ -225,7 +225,7 @@ docsgen-openrpc: docsgen-openrpc-curio
 	@echo "FixImports will run only from the 'make gen' target"
 .PHONY: docsgen-openrpc
 
-docsgen-openrpc-bin: api-gen 
+docsgen-openrpc-bin: api-gen
 	$(GOCC) build $(GOFLAGS) -o docgen-openrpc ./api/docgen-openrpc/cmd
 
 docsgen-openrpc-curio: docsgen-openrpc-bin
