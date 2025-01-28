@@ -669,7 +669,7 @@ func (p *ProveTask) cleanupDeletedRoots(ctx context.Context, proofSetID int64, p
 				WHERE ref_id = $1
 			`, pdpPieceRefID)
 			if err != nil {
-				return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", parkedPieceRef, err)
+				return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", pdpPieceRefID, err)
 			}
 
 			// Delete the root entry
