@@ -513,8 +513,10 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 				return false, xerrors.Errorf("failed to parse the raw size: %w", err)
 			}
 
+			dataUrl := fmt.Sprintf("%s/data?id=%s", rUrl, pcid)
+
 			_, err = tx.Exec(`UPDATE market_mk12_deal_pipeline SET url = $1, headers = $2, raw_size = $3, started = TRUE 
-                           WHERE uuid = $4 AND started = FALSE`, urlString, hdrs, rawSize, deal)
+                           WHERE uuid = $4 AND started = FALSE`, dataUrl, hdrs, rawSize, deal)
 			if err != nil {
 				return false, xerrors.Errorf("store url for piece %s: updating pipeline: %w", pcid, err)
 			}

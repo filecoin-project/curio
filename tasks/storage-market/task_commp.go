@@ -120,7 +120,7 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 		} else {
 			// Create a new HTTP request
-			req, err := http.NewRequest(http.MethodGet, goUrl.String()+fmt.Sprintf("/data?id=%s", piece.Pcid), nil)
+			req, err := http.NewRequest(http.MethodGet, goUrl.String(), nil)
 			if err != nil {
 				return false, xerrors.Errorf("error creating request: %w", err)
 			}
