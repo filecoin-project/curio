@@ -94,17 +94,16 @@ For all deals that have been migrated and are in unsealed sectors, Curio handles
 
 
     ```bash
-    migrate-curio cleanup leveldb --boost-repo <boost-repo-path>
+    migrate-curio --boost-repo <boost-repo-path> cleanup leveldb
     ```
 *   If the `LID` store was using YugabyteDB for storing indexes, use the following command\
 
 
     ```bash
     ./migrate-curio cleanup yugabyte \
-        --db-host "127.0.0.1" \
-        --db-user "yugabyte" \
-        --db-password "yugabyte" \
-        --db-port "5433" \
+        --hosts "127.0.0.1" \
+        --username "yugabyte" \
+        --password "yugabyte" \
         --connect-string "postgresql://postgres:postgres@localhost" \
         --i-know-what-i-am-doing
     ```
