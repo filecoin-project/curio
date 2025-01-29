@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
-	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -64,7 +64,7 @@ var authCreateServiceSecretCmd = &cli.Command{
 	Usage: "Generate a new service secret and public key",
 	Action: func(cctx *cli.Context) error {
 		// Generate an ECDSA private key
-		privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.New(rand.NewSource(time.Now().UnixNano())))
+		privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		if err != nil {
 			return fmt.Errorf("failed to generate private key: %v", err)
 		}
