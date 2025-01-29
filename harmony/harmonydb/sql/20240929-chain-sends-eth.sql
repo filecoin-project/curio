@@ -68,3 +68,8 @@ CREATE TABLE message_waits_eth (
     tx_receipt JSONB,
     tx_success BOOLEAN
 );
+
+-- index for UPDATE message_waits_eth SET waiter_machine_id = $1 WHERE waiter_machine_id IS NULL AND tx_status = 'pending'
+CREATE INDEX idx_message_waits_eth_pending
+    ON message_waits_eth (waiter_machine_id)
+    WHERE waiter_machine_id IS NULL AND tx_status = 'pending';

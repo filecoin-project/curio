@@ -209,7 +209,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	// [ ["0x559e581f022bb4e4ec6e719e563bf0e026ad6de42e56c18714a2c692b1b88d7e", ["0x559e581f022bb4e4ec6e719e563bf0e026ad6de42e56c18714a2c692b1b88d7e"]] ]
 
-	{
+	/* {
 		// format proofs for logging
 		var proofStr string = "[ [\"0x"
 		proofStr += hex.EncodeToString(proofs[0].Leaf[:])
@@ -226,22 +226,18 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		proofStr += "] ] ]"
 
 		log.Infof("PDP Prove Task: proofSetID: %d, taskID: %d, proofs: %s", proofSetID, taskID, proofStr)
-	}
+	} */
 
-	log.Infow("PDP Prove Task", "proofSetID", proofSetID, "taskID", taskID, "proofs", proofs, "data", hex.EncodeToString(data))
-
+	
 	// If gas used is 0 fee is maximized
 	gasFee := big.NewInt(0)
-	log.Infow("PDP Prove Task", "gasFeeEstimate", gasFee)
 	proofFee, err := pdpVerifier.CalculateProofFee(callOpts, big.NewInt(proofSetID), gasFee)
 	if err != nil {
 		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
 	}
-	log.Infow("PDP Prove Task", "proofFee initial", proofFee)
+
 	// Add 2x buffer for certainty
 	proofFee = new(big.Int).Mul(proofFee, big.NewInt(3))
-
-	log.Infow("PDP Prove Task", "proofFee 3x", proofFee)
 
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
@@ -257,7 +253,17 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		nil,
 		data,
 	)
-	log.Infow("PDP Prove Task", "txEth", txEth)
+
+	log.Infow("PDP Prove Task", 
+		"proofSetID", proofSetID,
+		"taskID", taskID,
+		"proofs", proofs,
+		"data", hex.EncodeToString(data),
+		"gasFeeEstimate", gasFee,
+		"proofFee initial", proofFee.Div(proofFee, big.NewInt(3)),
+		"proofFee 3x", proofFee,
+		"txEth", txEth,
+	)
 
 	if !stillOwned() {
 		// Task was abandoned, don't send the proofs
@@ -349,7 +355,7 @@ func generateChallengeIndex(seed abi.Randomness, proofSetID int64, proofIndex in
 	challengeIndex := new(big.Int).Mod(hashInt, totalLeavesBigInt)
 
 	// Log for debugging
-	log.Infow("generateChallengeIndex",
+	log.Debugw("generateChallengeIndex",
 		"seed", seed,
 		"proofSetID", proofSetID,
 		"proofIndex", proofIndex,
@@ -440,7 +446,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 	}
 
 	subrootChallengedLeaf := challengedLeaf - (challSubRoot.SubrootOffset / LeafSize)
-	log.Infow("subrootChallengedLeaf", "subrootChallengedLeaf", subrootChallengedLeaf, "challengedLeaf", challengedLeaf, "subrootOffsetLs", challSubRoot.SubrootOffset/LeafSize)
+	log.Debugw("subrootChallengedLeaf", "subrootChallengedLeaf", subrootChallengedLeaf, "challengedLeaf", challengedLeaf, "subrootOffsetLs", challSubRoot.SubrootOffset/LeafSize)
 
 	/*
 		type RawMerkleProof struct {
@@ -454,7 +460,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 	if err != nil {
 		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to generate subroot proof: %w", err)
 	}
-	log.Infow("subrootProof", "subrootProof", subrootProof)
+	log.Debugw("subrootProof", "subrootProof", subrootProof)
 
 	// build partial top-tree
 	type treeElem struct {
@@ -512,7 +518,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 
 		curElem := partialTree[elemIndex{Level: level, ElemOffset: offset}]
 
-		log.Infow("processing partialtree subroot", "curElem", curElem, "level", level, "offset", offset, "subroot", subroot.SubrootOffset, "subrootSz", subroot.SubrootSize)
+		log.Debugw("processing partialtree subroot", "curElem", curElem, "level", level, "offset", offset, "subroot", subroot.SubrootOffset, "subrootSz", subroot.SubrootSize)
 
 		for !isRight(offset) {
 			// find the rightSibling
@@ -529,7 +535,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 					Level: level,
 					Hash:  zerocomm.PieceComms[level-zerocomm.Skip-1],
 				}
-				log.Infow("rightSibling zero", "rightSibling", rightSibling, "siblingIndex", siblingIndex, "level", level, "offset", offset)
+				log.Debugw("rightSibling zero", "rightSibling", rightSibling, "siblingIndex", siblingIndex, "level", level, "offset", offset)
 				partialTree[siblingIndex] = rightSibling
 			}
 
@@ -560,13 +566,13 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 			}
 			return partialTreeList[i].ElemOffset < partialTreeList[j].ElemOffset
 		})
-		log.Infow("partialTree", "partialTree", partialTreeList)
+		log.Debugw("partialTree", "partialTree", partialTreeList)
 	}
 
 	challLevel := proof.NodeLevel(challSubRoot.SubrootSize/LeafSize, arity)
 	challOffset := (challSubRoot.SubrootOffset / LeafSize) >> uint(challLevel-1)
 
-	log.Infow("challSubRoot", "challSubRoot", challSubrootIdx, "challLevel", challLevel, "challOffset", challOffset)
+	log.Debugw("challSubRoot", "challSubRoot", challSubrootIdx, "challLevel", challLevel, "challOffset", challOffset)
 
 	challSubtreeLeaf := partialTree[elemIndex{Level: challLevel, ElemOffset: challOffset}]
 	if challSubtreeLeaf.Hash != subrootProof.Root {
@@ -590,7 +596,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 			return contract.PDPVerifierProof{}, xerrors.Errorf("missing sibling at level %d, offset %d", currentLevel, siblingOffset)
 		}
 
-		log.Infow("siblingElem", "siblingElem", siblingElem, "siblingIndex", siblingIndex, "currentLevel", currentLevel, "currentOffset", currentOffset, "siblingOffset", siblingOffset)
+		log.Debugw("siblingElem", "siblingElem", siblingElem, "siblingIndex", siblingIndex, "currentLevel", currentLevel, "currentOffset", currentOffset, "siblingOffset", siblingOffset)
 
 		// Append the sibling's hash to the proof
 		out.Proof = append(out.Proof, siblingElem.Hash)
@@ -600,7 +606,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 		currentLevel++
 	}
 
-	log.Infow("proof complete", "proof", out)
+	log.Debugw("proof complete", "proof", out)
 
 	rootCid, err := cid.Parse(subroots[0].Root)
 	if err != nil {
@@ -647,7 +653,7 @@ func (p *ProveTask) cleanupDeletedRoots(ctx context.Context, proofSetID int64, p
 	ok, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 
 		for _, removeID := range removals {
-			log.Infow("cleanupDeletedRoots", "removeID", removeID)
+			log.Debugw("cleanupDeletedRoots", "removeID", removeID)
 			// Get the pdp_pieceref ID for the root before deleting
 			var pdpPieceRefID int64
 			err := tx.QueryRow(`
@@ -731,11 +737,11 @@ func Verify(proof contract.PDPVerifierProof, root [32]byte, position uint64) boo
 		sibling := proof.Proof[i]
 
 		if position%2 == 0 {
-			log.Infow("Verify", "position", position, "left-c", hex.EncodeToString(computedHash[:]), "right-s", hex.EncodeToString(sibling[:]), "ouh", hex.EncodeToString(shabytes(append(computedHash[:], sibling[:]...))[:]))
+			log.Debugw("Verify", "position", position, "left-c", hex.EncodeToString(computedHash[:]), "right-s", hex.EncodeToString(sibling[:]), "ouh", hex.EncodeToString(shabytes(append(computedHash[:], sibling[:]...))[:]))
 			// If position is even, current node is on the left
 			computedHash = sha256.Sum256(append(computedHash[:], sibling[:]...))
 		} else {
-			log.Infow("Verify", "position", position, "left-s", hex.EncodeToString(sibling[:]), "right-c", hex.EncodeToString(computedHash[:]), "ouh", hex.EncodeToString(shabytes(append(sibling[:], computedHash[:]...))[:]))
+			log.Debugw("Verify", "position", position, "left-s", hex.EncodeToString(sibling[:]), "right-c", hex.EncodeToString(computedHash[:]), "ouh", hex.EncodeToString(shabytes(append(sibling[:], computedHash[:]...))[:]))
 			// If position is odd, current node is on the right
 			computedHash = sha256.Sum256(append(sibling[:], computedHash[:]...))
 		}
