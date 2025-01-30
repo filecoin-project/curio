@@ -93,7 +93,8 @@ func (CidKeyer) Keyer(k cid.Cid) abi.Keyer {
 }
 
 func (CidKeyer) ParseKey(s string) (cid.Cid, error) {
-	return cid.Parse(s)
+	_, c, err := cid.CidFromBytes([]byte(s))
+	return c, err
 }
 
 // --------------------------------------------------------------------
