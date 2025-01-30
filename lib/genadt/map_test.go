@@ -104,13 +104,13 @@ func newAdtMap(t *testing.T) *adt.Map {
 
 // Some sample keys for testing
 var (
-	sampleCid1, _ = cid.Parse("bafkqabkj7n5gi4aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	sampleCid2, _ = cid.Parse("bafkqbky7usfid5bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
-	sampleCid3, _ = cid.Parse("bafkqbkz7usfid5ccccccccccccccccccccccccccccccccc")
+	sampleCid1, _ = cid.Parse("QmaZZhiMT7NNq3gxv3MNcjeNG5kmrX86ED2qg8w2j9bct7")
+	sampleCid2, _ = cid.Parse("QmbWM2rhNRgPXEAT92NXUVHc2atf7EqWHemffC92qNPqo5")
+	sampleCid3, _ = cid.Parse("QmUVTX4Gy9ANnWgbDzRLrRW99mq9NrR7ohfofPQ7vcGxGm")
 
-	sampleAddr1, _ = address.NewFromString("t1abcdefff")
-	sampleAddr2, _ = address.NewFromString("t1fghijzzz")
-	sampleAddr3, _ = address.NewFromString("t1klmnoppp")
+	sampleAddr1, _ = address.NewFromString("f0123")
+	sampleAddr2, _ = address.NewFromString("f0453")
+	sampleAddr3, _ = address.NewFromString("f0572")
 
 	sampleValA = &testValue{Data: "valueA"}
 	sampleValB = &testValue{Data: "valueB"}
