@@ -93,7 +93,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/triplewz/poseidon v0.0.2
 	github.com/urfave/cli/v2 v2.27.4
-	github.com/whyrusleeping/cbor-gen v0.2.0
+	github.com/whyrusleeping/cbor-gen v0.2.1-0.20250127155753-e937ae7c479e
 	github.com/yugabyte/gocql v1.6.0-yb-1
 	github.com/yugabyte/pgx/v5 v5.5.3-yb-2
 	go.opencensus.io v0.24.0
