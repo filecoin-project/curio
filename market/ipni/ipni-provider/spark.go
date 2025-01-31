@@ -126,6 +126,11 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 				return xerrors.Errorf("Failed to unpack result: %w", err)
 			}
 
+			// Check if peerID is empty, indicating no data found
+			if pd.PeerID == "" && len(pd.SignedMessage) == 0 {
+				return fmt.Errorf("no data found for minerID: %d", pInfo.SPID)
+			}
+
 			if pd.PeerID == pInfo.ID.String() {
 				detail := spark.SparkMessage{
 					Miner: pInfo.SPID,

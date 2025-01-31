@@ -79,11 +79,18 @@ contract MinerPeerIDMapping {
     /**
      * @notice Fetch the PeerID and signed message associated with a MinerID.
      * @param minerID The MinerID to query.
-     * @return The PeerID and signed message associated with the MinerID.
+     * @return peerID The PeerID associated with the MinerID.
+     * @return signedMessage The signed message associated with the MinerID.
      */
-    function getPeerData(uint64 minerID) public view returns (PeerData memory) {
-        return minerToPeerData[minerID];
+    function getPeerData(uint64 minerID) public view returns (string memory peerID, bytes memory signedMessage) {
+        PeerData memory data = minerToPeerData[minerID];
+
+        // Return an error if no peer data exists for this MinerID
+        require(bytes(data.peerID).length > 0, "No data found for the given MinerID");
+
+        return (data.peerID, data.signedMessage);
     }
+
 
     /**
      * @notice Check if the caller is the controlling address for the given MinerID.

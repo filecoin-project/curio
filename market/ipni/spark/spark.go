@@ -19,7 +19,7 @@ func GetContractAddress() (string, error) {
 		return "", errors.New("not supported on this network")
 	}
 
-	return "0x599172a7654E47f070576ca7e56Ab9564FbD4041", nil
+	return "0x792A226A73CAa73DD95b88b37DA29717b950C7D3", nil
 }
 
 const AddPeerAbi = `[
@@ -102,21 +102,14 @@ const GetPeerAbi = `[
       "name": "getPeerData",
       "outputs": [
         {
-          "components": [
-            {
-              "internalType": "string",
-              "name": "peerID",
-              "type": "string"
-            },
-            {
-              "internalType": "bytes",
-              "name": "signedMessage",
-              "type": "bytes"
-            }
-          ],
-          "internalType": "struct MinerPeerIDMapping.PeerData",
-          "name": "",
-          "type": "tuple"
+          "internalType": "string",
+          "name": "peerID",
+          "type": "string"
+        },
+        {
+          "internalType": "bytes",
+          "name": "signedMessage",
+          "type": "bytes"
         }
       ],
       "stateMutability": "view",
