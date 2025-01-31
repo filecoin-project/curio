@@ -16,6 +16,7 @@ build/.*
 .vscode
 /venv
 scratchpad
+node_modules
 
 # to ensure tests build: itests/ go test -c .
 /itests/itests.test
@@ -24,4 +25,6 @@ scratchpad
 # in dirty git state if removed from the docker context
 !extern/filecoin-ffi/rust/filecoin.pc
 
-node_modules
+# Premium smart contract deployment
+/premium/sol/deployments/
+
