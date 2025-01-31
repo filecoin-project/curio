@@ -128,7 +128,7 @@ var deletePeer = &cli.Command{
 
 		if len(res.MsgRct.Return) == 0 {
 			if err != nil {
-				return xerrors.Errorf("failed to get spark params for %s: %w", maddr.String())
+				return xerrors.Errorf("failed to get spark params for %s: %w", maddr.String(), err)
 			}
 		} else {
 			pd := struct {

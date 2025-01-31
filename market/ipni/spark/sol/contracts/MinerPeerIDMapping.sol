@@ -77,20 +77,19 @@ contract MinerPeerIDMapping {
     }
 
     /**
-     * @notice Fetch the PeerID and signed message associated with a MinerID.
+     * @notice Fetch the PeerData struct associated with a MinerID.
      * @param minerID The MinerID to query.
-     * @return peerID The PeerID associated with the MinerID.
-     * @return signedMessage The signed message associated with the MinerID.
+     * @return The PeerData struct associated with the MinerID.
      */
-    function getPeerData(uint64 minerID) public view returns (string memory peerID, bytes memory signedMessage) {
+    function getPeerData(uint64 minerID) public view returns (PeerData memory) {
         PeerData memory data = minerToPeerData[minerID];
 
         // If no data exists for the minerID, return default values
         if (bytes(data.peerID).length == 0) {
-            return ("", bytes(""));
+            return PeerData("", bytes(""));
         }
 
-        return (data.peerID, data.signedMessage);
+        return data;
     }
 
 
