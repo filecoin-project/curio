@@ -24,7 +24,7 @@ import (
 	"github.com/filecoin-project/go-state-types/network"
 
 	ltypes "github.com/filecoin-project/curio/api/types"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -59,6 +59,8 @@ type CurioMethods struct {
 	StorageDetachLocal func(p0 context.Context, p1 string) error `perm:"admin"`
 
 	StorageFindSector func(p0 context.Context, p1 abi.SectorID, p2 storiface.SectorFileType, p3 abi.SectorSize, p4 bool) ([]storiface.SectorStorageInfo, error) `perm:"admin"`
+
+	StorageGenerateVanillaProof func(p0 context.Context, p1 address.Address, p2 abi.SectorNumber) ([]byte, error) `perm:"admin"`
 
 	StorageInfo func(p0 context.Context, p1 storiface.ID) (storiface.StorageInfo, error) `perm:"admin"`
 
@@ -324,6 +326,17 @@ func (s *CurioStruct) StorageFindSector(p0 context.Context, p1 abi.SectorID, p2 
 
 func (s *CurioStub) StorageFindSector(p0 context.Context, p1 abi.SectorID, p2 storiface.SectorFileType, p3 abi.SectorSize, p4 bool) ([]storiface.SectorStorageInfo, error) {
 	return *new([]storiface.SectorStorageInfo), ErrNotSupported
+}
+
+func (s *CurioStruct) StorageGenerateVanillaProof(p0 context.Context, p1 address.Address, p2 abi.SectorNumber) ([]byte, error) {
+	if s.Internal.StorageGenerateVanillaProof == nil {
+		return *new([]byte), ErrNotSupported
+	}
+	return s.Internal.StorageGenerateVanillaProof(p0, p1, p2)
+}
+
+func (s *CurioStub) StorageGenerateVanillaProof(p0 context.Context, p1 address.Address, p2 abi.SectorNumber) ([]byte, error) {
+	return *new([]byte), ErrNotSupported
 }
 
 func (s *CurioStruct) StorageInfo(p0 context.Context, p1 storiface.ID) (storiface.StorageInfo, error) {

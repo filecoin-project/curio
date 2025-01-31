@@ -730,6 +730,13 @@
             "fuzzy": true
         },
         {
+            "id": "generate vanilla proof for a sector",
+            "message": "generate vanilla proof for a sector",
+            "translation": "generate vanilla proof for a sector",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Utility functions for testing",
             "message": "Utility functions for testing",
             "translation": "Utility functions for testing",
