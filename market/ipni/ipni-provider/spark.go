@@ -112,9 +112,12 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 				SignedMessage []byte
 			}{}
 
+			log.Debugf("res.MsgRct.Return: %v", res.MsgRct.Return)
+			log.Debugf("res.MsgRct.Return: %s", string(res.MsgRct.Return))
+
 			err = parsedABI.UnpackIntoInterface(&pd, "getPeerData", res.MsgRct.Return)
 			if err != nil {
-				log.Fatalf("Failed to unpack result: %v", err)
+				return xerrors.Errorf("Failed to unpack result: %w", err)
 			}
 
 			if pd.PeerID == pInfo.ID.String() {
