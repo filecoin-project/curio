@@ -98,12 +98,18 @@ var deletePeer = &cli.Command{
 			log.Fatalf("Failed to pack function call data: %v", err)
 		}
 
+		getparam := abi.CborBytes(callData)
+		getParams, err := actors.SerializeParams(&getparam)
+		if err != nil {
+			return fmt.Errorf("failed to serialize params: %w", err)
+		}
+
 		rMsg := &types.Message{
 			To:         toAddr,
 			From:       mInfo.Worker,
 			Value:      types.NewInt(0),
 			Method:     builtin.MethodsEVM.InvokeContract,
-			Params:     callData,
+			Params:     getParams,
 			GasLimit:   buildconstants.BlockGasLimit,
 			GasFeeCap:  fbig.Zero(),
 			GasPremium: fbig.Zero(),
@@ -121,7 +127,24 @@ var deletePeer = &cli.Command{
 		var params []byte
 
 		if len(res.MsgRct.Return) == 0 {
-			return xerrors.Errorf("no peer returned for miner %s", maddr.String())
+			if err != nil {
+				return xerrors.Errorf("failed to get spark params for %s: %w", maddr.String())
+			}
+		} else {
+			pd := struct {
+				PeerID        string
+				SignedMessage []byte
+			}{}
+
+			err = parsedABI.UnpackIntoInterface(&pd, "getPeerData", res.MsgRct.Return)
+			if err != nil {
+				return xerrors.Errorf("Failed to unpack result: %w", err)
+			}
+
+			// Check if peerID is empty, indicating no data found
+			if pd.PeerID == "" && len(pd.SignedMessage) == 0 {
+				return xerrors.Errorf("no data found for minerID in MinerPeerIDMapping contract: %s", maddr.String())
+			}
 		}
 
 		// Parse the contract's ABI

@@ -19,7 +19,7 @@ func GetContractAddress() (string, error) {
 		return "", errors.New("not supported on this network")
 	}
 
-	return "0x792A226A73CAa73DD95b88b37DA29717b950C7D3", nil
+	return "0x4a40Eb4d62A09597068ab55b3ac532870C77Dfce", nil
 }
 
 const AddPeerAbi = `[

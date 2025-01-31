@@ -85,8 +85,10 @@ contract MinerPeerIDMapping {
     function getPeerData(uint64 minerID) public view returns (string memory peerID, bytes memory signedMessage) {
         PeerData memory data = minerToPeerData[minerID];
 
-        // Return an error if no peer data exists for this MinerID
-        require(bytes(data.peerID).length > 0, "No data found for the given MinerID");
+        // If no data exists for the minerID, return default values
+        if (bytes(data.peerID).length == 0) {
+            return ("", bytes(""));
+        }
 
         return (data.peerID, data.signedMessage);
     }
