@@ -291,6 +291,8 @@ func (p *CurioAPI) StorageGenerateVanillaProof(ctx context.Context, maddr addres
 		return nil, xerrors.Errorf("failed to get chain randomness from beacon for window post (ts=%d; deadline=%d): %w", head.Height(), di, err)
 	}
 
+	rand[31] &= 0x3f
+
 	postChallenges, err := ffi.GeneratePoStFallbackSectorChallenges(ppt, minerID, append(abi.PoStRandomness{}, rand...), []abi.SectorNumber{sector})
 	if err != nil {
 		return nil, xerrors.Errorf("generating fallback challenges: %v", err)
