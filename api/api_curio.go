@@ -9,7 +9,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	ltypes "github.com/filecoin-project/curio/api/types"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/api"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
@@ -42,6 +42,7 @@ type Curio interface {
 	StorageStat(ctx context.Context, id storiface.ID) (fsutil.FsStat, error)                                                                                               //perm:admin
 	StorageInfo(context.Context, storiface.ID) (storiface.StorageInfo, error)                                                                                              //perm:admin
 	StorageFindSector(ctx context.Context, sector abi.SectorID, ft storiface.SectorFileType, ssize abi.SectorSize, allowFetch bool) ([]storiface.SectorStorageInfo, error) //perm:admin
+	StorageGenerateVanillaProof(ctx context.Context, maddr address.Address, sector abi.SectorNumber) ([]byte, error)                                                       //perm:admin
 
 	// MethodGroup: Log
 	//The log method group has logging methods

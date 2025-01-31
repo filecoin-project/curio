@@ -86,11 +86,12 @@ DESCRIPTION:
    stored while moving through the sealing pipeline (references as 'seal').
 
 COMMANDS:
-   attach   attach local storage path
-   detach   detach local storage path
-   list     list local storage paths
-   find     find sector in the storage system
-   help, h  Shows a list of commands or help for one command
+   attach                  attach local storage path
+   detach                  detach local storage path
+   list                    list local storage paths
+   find                    find sector in the storage system
+   generate-vanilla-proof  generate vanilla proof for a sector
+   help, h                 Shows a list of commands or help for one command
 
 OPTIONS:
    --help, -h  show help
@@ -173,6 +174,18 @@ NAME:
 
 USAGE:
    curio cli storage find [command options] [miner address] [sector number]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+#### curio cli storage generate-vanilla-proof
+```
+NAME:
+   curio cli storage generate-vanilla-proof - generate vanilla proof for a sector
+
+USAGE:
+   curio cli storage generate-vanilla-proof [command options] [miner address] [sector number]
 
 OPTIONS:
    --help, -h  show help

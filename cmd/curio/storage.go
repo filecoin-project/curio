@@ -21,7 +21,7 @@ import (
 	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/lib/reqcontext"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
@@ -40,6 +40,7 @@ stored while moving through the sealing pipeline (references as 'seal').`),
 		storageDetachCmd,
 		storageListCmd,
 		storageFindCmd,
+		storageGenerateVanillaProofCmd,
 		/*storageDetachCmd,
 		storageRedeclareCmd,
 		storageCleanupCmd,
@@ -546,6 +547,39 @@ var storageFindCmd = &cli.Command{
 			}
 		}
 
+		return nil
+	},
+}
+
+var storageGenerateVanillaProofCmd = &cli.Command{
+	Name:      "generate-vanilla-proof",
+	Usage:     translations.T("generate vanilla proof for a sector"),
+	ArgsUsage: translations.T("[miner address] [sector number]"),
+	Action: func(cctx *cli.Context) error {
+		api, closer, err := rpc.GetCurioAPI(cctx)
+		if err != nil {
+			return err
+		}
+		defer closer()
+		ctx := reqcontext.ReqContext(cctx)
+		if cctx.NArg() != 2 {
+			return fmt.Errorf("incorrect number of arguments, got %d", cctx.NArg())
+		}
+		ma := cctx.Args().First()
+		maddr, err := address.NewFromString(ma)
+		if err != nil {
+			return xerrors.Errorf("parsing miner address: %w", err)
+		}
+		snum, err := strconv.ParseUint(cctx.Args().Get(1), 10, 64)
+		if err != nil {
+			return xerrors.Errorf("parsing sector number: %w", err)
+		}
+
+		proof, err := api.StorageGenerateVanillaProof(ctx, maddr, abi.SectorNumber(snum))
+		if err != nil {
+			return xerrors.Errorf("generating proof: %w", err)
+		}
+		fmt.Println(proof)
 		return nil
 	},
 }
