@@ -14,19 +14,12 @@ type SparkMessage struct {
 }
 
 func GetContractAddress() (string, error) {
-	if build.BuildType == build.BuildMainnet {
-		return "", nil
+
+	if build.BuildType != build.BuildMainnet {
+		return "", errors.New("not supported on this network")
 	}
 
-	if build.BuildType == build.BuildCalibnet {
-		return "0xE08bBc65aF1f1a40BD3cbaD290a23925F83b8BBB", nil
-	}
-
-	if build.BuildType == build.Build2k || build.BuildType == build.BuildDebug {
-		return "", errors.New("manual contract is required for debug build")
-	}
-
-	return "", errors.New("unknown build type")
+	return "0x599172a7654E47f070576ca7e56Ab9564FbD4041", nil
 }
 
 const AddPeerAbi = `[

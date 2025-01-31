@@ -10,36 +10,15 @@ contract MinerPeerIDMapping {
         bytes signedMessage;
     }
 
-    // State variables
-    address public owner;
     mapping(uint64 => PeerData) public minerToPeerData;
 
     // Events
     event PeerDataAdded(uint64 indexed minerID, string peerID);
     event PeerDataUpdated(uint64 indexed minerID, string oldPeerID, string newPeerID);
     event PeerDataDeleted(uint64 indexed minerID);
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
-    // Modifier to restrict access to the owner
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Caller is not the owner");
-        _;
-    }
-
-    // Constructor: Set the deployer as the initial owner
     constructor() {
-        owner = msg.sender;
-        emit OwnershipTransferred(address(0), msg.sender);
-    }
-
-    /**
-     * @notice Transfer ownership to a new address.
-     * @param newOwner The address of the new owner.
-     */
-    function transferOwnership(address newOwner) public onlyOwner {
-        require(newOwner != address(0), "New owner is the zero address");
-        emit OwnershipTransferred(owner, newOwner);
-        owner = newOwner;
+        // The contract is immutable from the owner now, no ownership transfer is possible
     }
 
     /**
@@ -55,9 +34,7 @@ contract MinerPeerIDMapping {
     ) public {
         require(bytes(minerToPeerData[minerID].peerID).length == 0, "Peer data already exists for this MinerID");
 
-        if (msg.sender != owner) {
-            require(isControllingAddress(msg.sender, minerID), "Caller is not the controlling address");
-        }
+        require(isControllingAddress(msg.sender, minerID), "Caller is not the controlling address");
 
         minerToPeerData[minerID] = PeerData(newPeerID, signedMessage);
 
@@ -77,9 +54,7 @@ contract MinerPeerIDMapping {
     ) public {
         require(bytes(minerToPeerData[minerID].peerID).length > 0, "No peer data exists for this MinerID");
 
-        if (msg.sender != owner) {
-            require(isControllingAddress(msg.sender, minerID), "Caller is not the controlling address");
-        }
+        require(isControllingAddress(msg.sender, minerID), "Caller is not the controlling address");
 
         string memory oldPeerID = minerToPeerData[minerID].peerID;
         minerToPeerData[minerID] = PeerData(newPeerID, signedMessage);
@@ -94,9 +69,7 @@ contract MinerPeerIDMapping {
     function deletePeerData(uint64 minerID) public {
         require(bytes(minerToPeerData[minerID].peerID).length > 0, "No peer data exists for this MinerID");
 
-        if (msg.sender != owner) {
-            require(isControllingAddress(msg.sender, minerID), "Caller is not the controlling address");
-        }
+        require(isControllingAddress(msg.sender, minerID), "Caller is not the controlling address");
 
         delete minerToPeerData[minerID];
 

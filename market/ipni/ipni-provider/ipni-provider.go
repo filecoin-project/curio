@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/go-chi/chi/v5"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -456,6 +457,11 @@ func Routes(r *chi.Mux, p *Provider) {
 
 // StartPublishing starts a poller which publishes the head for each provider every 10 minutes.
 func (p *Provider) StartPublishing(ctx context.Context) {
+	// Do not publish for any network except mainnet
+	if build.BuildType != build.BuildMainnet {
+		return
+	}
+
 	// A poller which publishes head for each provider
 	// every 10 minutes
 	ticker := time.NewTicker(publishInterval)

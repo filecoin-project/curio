@@ -107,15 +107,34 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 				return xerrors.Errorf("failed to get spark params for %s: %w", pInfo.Miner.String(), err)
 			}
 		} else {
-			pd := spark.SparkMessage{}
+			pd := struct {
+				PeerID        string
+				SignedMessage []byte
+			}{}
 
 			err = parsedABI.UnpackIntoInterface(&pd, "getPeerData", res.MsgRct.Return)
 			if err != nil {
 				log.Fatalf("Failed to unpack result: %v", err)
 			}
 
-			if pd.Peer == pInfo.ID.String() {
-				continue
+			if pd.PeerID == pInfo.ID.String() {
+				detail := spark.SparkMessage{
+					Miner: pInfo.SPID,
+					Peer:  pInfo.ID.String(),
+				}
+
+				jdetail, err := json.Marshal(detail)
+				if err != nil {
+					return xerrors.Errorf("failed to marshal spark message: %w", err)
+				}
+
+				ok, err := pKey.GetPublic().Verify(jdetail, pd.SignedMessage)
+				if err != nil {
+					return xerrors.Errorf("failed to verify signed message: %w", err)
+				}
+				if ok {
+					continue
+				}
 			}
 
 			params, err = p.getSparkParams(pInfo.SPID, pInfo.ID.String(), pKey, "update")
