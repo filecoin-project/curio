@@ -45,7 +45,7 @@ const AddPeerAbi = `[
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
-    },
+    }
 ]`
 
 const UpdatePeerAbi = `[
@@ -87,7 +87,7 @@ const DeletePeerAbi = `[
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
-    },
+    }
 ]`
 
 const GetPeerAbi = `[
@@ -121,5 +121,5 @@ const GetPeerAbi = `[
       ],
       "stateMutability": "view",
       "type": "function"
-    },
+    }
 ]`

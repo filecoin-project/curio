@@ -70,13 +70,13 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 		// Parse the contract ABI
 		parsedABI, err := eabi.JSON(strings.NewReader(spark.GetPeerAbi))
 		if err != nil {
-			log.Fatalf("Failed to parse getPeer ABI: %v", err)
+			return xerrors.Errorf("Failed to parse getPeer ABI: %w", err)
 		}
 
 		// Encode the function call
 		callData, err := parsedABI.Pack("getPeerData", pInfo.SPID)
 		if err != nil {
-			log.Fatalf("Failed to pack function call data: %v", err)
+			return xerrors.Errorf("Failed to pack function call data: %w", err)
 		}
 
 		rMsg := &types.Message{
