@@ -14,6 +14,7 @@ COMMANDS:
    info     Print miner actor info
    sectors  interact with sector store
    proving  View proving information
+   toolbox  some tools to fix some problems
    help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
@@ -488,4 +489,49 @@ USAGE:
 
 OPTIONS:
    --help, -h  show help
+```
+
+## sptool toolbox
+```
+NAME:
+   sptool toolbox - some tools to fix some problems
+
+USAGE:
+   sptool toolbox command [command options]
+
+COMMANDS:
+   spark    Manage Smart Contract PeerID used by Spark
+   help, h  Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### sptool toolbox spark
+```
+NAME:
+   sptool toolbox spark - Manage Smart Contract PeerID used by Spark
+
+USAGE:
+   sptool toolbox spark command [command options]
+
+COMMANDS:
+   delete-peer  Delete PeerID from Spark Smart Contract
+   help, h      Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+#### sptool toolbox spark delete-peer
+```
+NAME:
+   sptool toolbox spark delete-peer - Delete PeerID from Spark Smart Contract
+
+USAGE:
+   sptool toolbox spark delete-peer [command options] <Miner ID>
+
+OPTIONS:
+   --really-do-it  Send the message to the smart contract (default: false)
+   --help, -h      show help
 ```
