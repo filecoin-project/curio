@@ -23,6 +23,7 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/minio/sha256-simd"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/sync/errgroup"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
@@ -432,9 +433,6 @@ func uploadOnePiece(serviceURL string, reqBody []byte, jwtToken string, r io.Rea
 			body, _ := io.ReadAll(uploadResp.Body)
 			return fmt.Errorf("upload failed with status code %d: %s", uploadResp.StatusCode, string(body))
 		}
-
-		fmt.Println("Piece uploaded successfully.")
-
 		if localNotifWait {
 			fmt.Println("Waiting for server notification...")
 			<-notifyReceived
@@ -578,7 +576,12 @@ var pieceUploadCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to marshal request data: %v", err)
 		}
-		return uploadOnePiece(serviceURL, reqBody, jwtToken, file, pieceSize, localNotifWait, notifyReceived)
+		if err := uploadOnePiece(serviceURL, reqBody, jwtToken, file, pieceSize, localNotifWait, notifyReceived); err != nil {
+			return fmt.Errorf("failed to upload piece: %v", err)
+		}
+
+		fmt.Println("Piece uploaded successfully.")
+		return nil
 	},
 }
 
@@ -614,6 +617,11 @@ var uploadFileCmd = &cli.Command{
 			Name:  "local-notif-wait",
 			Usage: "Wait for server notification by spawning a temporary local HTTP server",
 		},
+		&cli.IntFlag{
+			Name:  "num-workers",
+			Usage: "Number of workers to use for uploading",
+			Value: 2,
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 
@@ -628,6 +636,7 @@ var uploadFileCmd = &cli.Command{
 		hashType := cctx.String("hash-type")
 		localNotifWait := cctx.Bool("local-notif-wait")
 		notifyURL := cctx.String("notify-url")
+		numWorkers := cctx.Int("num-workers")
 
 		if jwtToken == "" {
 			if serviceName == "" {
@@ -661,6 +670,7 @@ var uploadFileCmd = &cli.Command{
 
 		// Progress bar
 		bar := progressbar.NewOptions(int(fileSize/chunkSize), progressbar.OptionSetDescription("Uploading..."))
+		bar.Set(1)
 
 		// Setup local server if needed
 		var notifyReceived chan struct{}
@@ -670,70 +680,99 @@ var uploadFileCmd = &cli.Command{
 				return fmt.Errorf("failed to start local HTTP server: %v", err)
 			}
 		}
-		//g, ctx := errgroup.WithContext(cctx.Context)
+
+		g, ctx := errgroup.WithContext(cctx.Context)
+		barCh := make(chan struct{})
+		defer close(barCh)
+		counter := 0
+		go func() error {
+			for {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case _, ok := <-barCh:
+					if !ok {
+						return nil
+					}
+					counter++
+					bar.Set(int(counter))
+				}
+			}
+		}()
+		jobCh := make(chan int64, numWorkers)
+		for i := 0; i < numWorkers; i++ {
+			g.Go(func() error {
+				for {
+					var idx int64
+					var ok bool
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case idx, ok = <-jobCh:
+						if !ok {
+							return nil
+						}
+					}
+
+					// Read the chunk
+					buf := make([]byte, chunkSize)
+					n, err := file.ReadAt(buf, idx)
+					if err != nil && err != io.EOF {
+						return fmt.Errorf("failed to read file chunk: %v", err)
+					}
+					// Prepare the piece
+					chunkReader := bytes.NewReader(buf[:n])
+					_, _, commpDigest, shadigest, err := preparePiece(chunkReader)
+					if err != nil {
+						return fmt.Errorf("failed to prepare piece: %v", err)
+					}
+					// Prepare the request data
+					var checkData map[string]interface{}
+					switch hashType {
+					case "sha256":
+						checkData = map[string]interface{}{
+							"name": "sha2-256",
+							"hash": hex.EncodeToString(shadigest),
+							"size": n,
+						}
+					case "commp":
+						checkData = map[string]interface{}{
+							"name": "sha2-256-trunc254-padded",
+							"hash": hex.EncodeToString(commpDigest),
+							"size": n,
+						}
+					default:
+						return fmt.Errorf("unsupported hash type: %s", hashType)
+					}
+
+					reqData := map[string]interface{}{
+						"check": checkData,
+					}
+					if notifyURL != "" {
+						reqData["notify"] = notifyURL
+					}
+					reqBody, err := json.Marshal(reqData)
+					if err != nil {
+						return fmt.Errorf("failed to marshal request data: %v", err)
+					}
+
+					// Upload the piece
+					err = uploadOnePiece(serviceURL, reqBody, jwtToken, chunkReader, int64(n), localNotifWait, notifyReceived)
+					if err != nil {
+						return fmt.Errorf("failed to upload piece: %v", err)
+					}
+					barCh <- struct{}{}
+				}
+			})
+		}
+
 		// Iterate through file in 100MB chunks
 		for i := int64(0); i < fileSize; i += chunkSize {
-			//g.Go(func() error {
-			//	select {
-			//	case <-ctx.Done():
-			//		return ctx.Err()
-			//	default:
-			//	}
-
-			// Read the chunk
-			buf := make([]byte, chunkSize)
-			n, err := file.ReadAt(buf, i)
-			if err != nil && err != io.EOF {
-				return fmt.Errorf("failed to read file chunk: %v", err)
-			}
-			// Prepare the piece
-			chunkReader := bytes.NewReader(buf[:n])
-			_, _, commpDigest, shadigest, err := preparePiece(chunkReader)
-			if err != nil {
-				return fmt.Errorf("failed to prepare piece: %v", err)
-			}
-			// Prepare the request data
-			var checkData map[string]interface{}
-			switch hashType {
-			case "sha256":
-				checkData = map[string]interface{}{
-					"name": "sha2-256",
-					"hash": hex.EncodeToString(shadigest),
-					"size": n,
-				}
-			case "commp":
-				checkData = map[string]interface{}{
-					"name": "sha2-256-trunc254-padded",
-					"hash": hex.EncodeToString(commpDigest),
-					"size": n,
-				}
-			default:
-				return fmt.Errorf("unsupported hash type: %s", hashType)
-			}
-
-			reqData := map[string]interface{}{
-				"check": checkData,
-			}
-			if notifyURL != "" {
-				reqData["notify"] = notifyURL
-			}
-			reqBody, err := json.Marshal(reqData)
-			if err != nil {
-				return fmt.Errorf("failed to marshal request data: %v", err)
-			}
-
-			// Upload the piece
-			err = uploadOnePiece(serviceURL, reqBody, jwtToken, chunkReader, int64(n), localNotifWait, notifyReceived)
-			if err != nil {
-				return fmt.Errorf("failed to upload piece: %v", err)
-			}
-			bar.Set(int(i / chunkSize))
-			//return nil
-			//})
+			jobCh <- i
 		}
-		//if err := g.Wait(); err != nil {
-		//	fmt.Printf("error upon upload: %v\n", err)
-		//}
+		if err := g.Wait(); err != nil {
+			return fmt.Errorf("error upon upload: %v", err)
+		}
 		return nil
 	},
 }
