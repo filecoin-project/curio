@@ -158,10 +158,10 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 	server := &http.Server{
 		Addr:              cfg.ListenAddress,
 		Handler:           libp2pConnMiddleware(loggingMiddleware(compressionMw(chiRouter))), // Attach middlewares
-		ReadTimeout:       cfg.ReadTimeout,
+		ReadTimeout:       time.Hour * 2,
 		WriteTimeout:      time.Hour * 2,
-		IdleTimeout:       cfg.IdleTimeout,
-		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+		IdleTimeout:       time.Hour * 2,
+		ReadHeaderTimeout: time.Hour * 2,
 	}
 
 	if !cfg.DelegateTLS {
