@@ -26,6 +26,7 @@ import (
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
+	"github.com/schollz/progressbar/v3"
 
 	curiobuild "github.com/filecoin-project/curio/build"
 )
@@ -43,6 +44,7 @@ func main() {
 
 			piecePrepareCmd, // hash a piece to get a piece cid
 			pieceUploadCmd,  // upload a piece to a pdp service
+			uploadFileCmd,   // upload a file to a pdp service in many chunks
 
 			createProofSetCmd,    // create a new proof set on the PDP service
 			getProofSetStatusCmd, // get the status of a proof set creation on the PDP service
@@ -249,7 +251,6 @@ func loadPrivateKey() (*ecdsa.PrivateKey, error) {
 	if !ok {
 		return nil, fmt.Errorf("private key is not ECDSA")
 	}
-	fmt.Printf("Loaded private key: %x\n", ecdsaPrivKey.D.Bytes())
 
 	return ecdsaPrivKey, nil
 }
@@ -578,6 +579,162 @@ var pieceUploadCmd = &cli.Command{
 			return fmt.Errorf("failed to marshal request data: %v", err)
 		}
 		return uploadOnePiece(serviceURL, reqBody, jwtToken, file, pieceSize, localNotifWait, notifyReceived)
+	},
+}
+
+var uploadFileCmd = &cli.Command{
+	Name:      "upload-file",
+	Usage:     "Upload a file to a PDP Service in many chunks",
+	ArgsUsage: "<input-file>",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "service-url",
+			Usage:    "URL of the PDP service",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:  "jwt-token",
+			Usage: "JWT token for authentication (optional if --service-name is provided)",
+		},
+		&cli.StringFlag{
+			Name:  "service-name",
+			Usage: "Service Name to include in the JWT token (used if --jwt-token is not provided)",
+		},
+		&cli.StringFlag{
+			Name:     "notify-url",
+			Usage:    "Notification URL",
+			Required: false,
+		},
+		&cli.StringFlag{
+			Name:  "hash-type",
+			Usage: "Hash type to use for verification (sha256 or commp)",
+			Value: "sha256",
+		},
+		&cli.BoolFlag{
+			Name:  "local-notif-wait",
+			Usage: "Wait for server notification by spawning a temporary local HTTP server",
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+
+		inputFile := cctx.Args().Get(0)
+		if inputFile == "" {
+			return fmt.Errorf("input file is required")
+		}
+
+		serviceURL := cctx.String("service-url")
+		jwtToken := cctx.String("jwt-token")
+		serviceName := cctx.String("service-name")
+		hashType := cctx.String("hash-type")
+		localNotifWait := cctx.Bool("local-notif-wait")
+		notifyURL := cctx.String("notify-url")
+
+		if jwtToken == "" {
+			if serviceName == "" {
+				return fmt.Errorf("either --jwt-token or --service-name must be provided")
+			}
+			privKey, err := loadPrivateKey()
+			if err != nil {
+				return err
+			}
+			var errCreateToken error
+			jwtToken, errCreateToken = createJWTToken(serviceName, privKey)
+			if errCreateToken != nil {
+				return errCreateToken
+			}
+		}
+
+		// Open input file
+		file, err := os.Open(inputFile)
+		if err != nil {
+			return fmt.Errorf("failed to open input file: %v", err)
+		}
+		defer file.Close()
+
+		// Get the file size
+		fi, err := file.Stat()
+		if err != nil {
+			return fmt.Errorf("failed to stat input file: %v", err)
+		}
+		fileSize := fi.Size()
+		chunkSize := int64(1024 * 1024)
+
+		// Progress bar
+		bar := progressbar.NewOptions(int(fileSize/chunkSize), progressbar.OptionSetDescription("Uploading..."))
+
+		// Setup local server if needed
+		var notifyReceived chan struct{}
+		if localNotifWait {
+			notifyURL, notifyReceived, err = startLocalNotifyServer()
+			if err != nil {
+				return fmt.Errorf("failed to start local HTTP server: %v", err)
+			}
+		}
+		//g, ctx := errgroup.WithContext(cctx.Context)
+		// Iterate through file in 100MB chunks
+		for i := int64(0); i < fileSize; i += chunkSize {
+			//g.Go(func() error {
+			//	select {
+			//	case <-ctx.Done():
+			//		return ctx.Err()
+			//	default:
+			//	}
+
+			// Read the chunk
+			buf := make([]byte, chunkSize)
+			n, err := file.ReadAt(buf, i)
+			if err != nil && err != io.EOF {
+				return fmt.Errorf("failed to read file chunk: %v", err)
+			}
+			// Prepare the piece
+			chunkReader := bytes.NewReader(buf[:n])
+			_, _, commpDigest, shadigest, err := preparePiece(chunkReader)
+			if err != nil {
+				return fmt.Errorf("failed to prepare piece: %v", err)
+			}
+			// Prepare the request data
+			var checkData map[string]interface{}
+			switch hashType {
+			case "sha256":
+				checkData = map[string]interface{}{
+					"name": "sha2-256",
+					"hash": hex.EncodeToString(shadigest),
+					"size": n,
+				}
+			case "commp":
+				checkData = map[string]interface{}{
+					"name": "sha2-256-trunc254-padded",
+					"hash": hex.EncodeToString(commpDigest),
+					"size": n,
+				}
+			default:
+				return fmt.Errorf("unsupported hash type: %s", hashType)
+			}
+
+			reqData := map[string]interface{}{
+				"check": checkData,
+			}
+			if notifyURL != "" {
+				reqData["notify"] = notifyURL
+			}
+			reqBody, err := json.Marshal(reqData)
+			if err != nil {
+				return fmt.Errorf("failed to marshal request data: %v", err)
+			}
+
+			// Upload the piece
+			err = uploadOnePiece(serviceURL, reqBody, jwtToken, chunkReader, int64(n), localNotifWait, notifyReceived)
+			if err != nil {
+				return fmt.Errorf("failed to upload piece: %v", err)
+			}
+			bar.Set(int(i / chunkSize))
+			//return nil
+			//})
+		}
+		//if err := g.Wait(); err != nil {
+		//	fmt.Printf("error upon upload: %v\n", err)
+		//}
+		return nil
 	},
 }
 
