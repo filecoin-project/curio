@@ -2,6 +2,7 @@
 package rpc
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -22,9 +23,12 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
+	ffi "github.com/filecoin-project/filecoin-ffi"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-jsonrpc/auth"
+	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/crypto"
 
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/api/client"
@@ -34,7 +38,7 @@ import (
 	"github.com/filecoin-project/curio/lib/metrics"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/repo"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/web"
 
 	lapi "github.com/filecoin-project/lotus/api"
@@ -240,6 +244,69 @@ func (p *CurioAPI) StorageAddLocal(ctx context.Context, path string) error {
 	}
 
 	return nil
+}
+
+func (p *CurioAPI) StorageGenerateVanillaProof(ctx context.Context, maddr address.Address, sector abi.SectorNumber) ([]byte, error) {
+	head, err := p.Chain.ChainHead(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("getting chain head: %w", err)
+	}
+
+	ts := head.Key()
+
+	si, err := p.Chain.StateSectorGetInfo(ctx, maddr, sector, ts)
+	if err != nil {
+		return nil, xerrors.Errorf("getting sector info: %w", err)
+	}
+
+	di, err := p.Chain.StateSectorPartition(ctx, maddr, sector, ts)
+	if err != nil {
+		return nil, xerrors.Errorf("getting sector partition: %w", err)
+	}
+
+	nv, err := p.Chain.StateNetworkVersion(ctx, ts)
+	if err != nil {
+		return nil, xerrors.Errorf("getting network version: %w", err)
+	}
+
+	ppt, err := si.SealProof.RegisteredWindowPoStProofByNetworkVersion(nv)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get window post type: %w", err)
+	}
+
+	mi, err := address.IDFromAddress(maddr)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get miner id: %w", err)
+	}
+
+	minerID := abi.ActorID(mi)
+
+	buf := new(bytes.Buffer)
+	if err := maddr.MarshalCBOR(buf); err != nil {
+		return nil, xerrors.Errorf("failed to marshal address to cbor: %w", err)
+	}
+
+	rand, err := p.Chain.StateGetRandomnessFromBeacon(ctx, crypto.DomainSeparationTag_WindowedPoStChallengeSeed, head.Height(), buf.Bytes(), ts)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get chain randomness from beacon for window post (ts=%d; deadline=%d): %w", head.Height(), di, err)
+	}
+
+	rand[31] &= 0x3f
+
+	postChallenges, err := ffi.GeneratePoStFallbackSectorChallenges(ppt, minerID, append(abi.PoStRandomness{}, rand...), []abi.SectorNumber{sector})
+	if err != nil {
+		return nil, xerrors.Errorf("generating fallback challenges: %v", err)
+	}
+
+	psc := storiface.PostSectorChallenge{
+		SealProof:    si.SealProof,
+		SectorNumber: sector,
+		SealedCID:    si.SealedCID,
+		Update:       si.SectorKeyCID != nil,
+		Challenge:    postChallenges.Challenges[sector],
+	}
+
+	return p.Stor.GenerateSingleVanillaProof(ctx, minerID, psc, ppt)
 }
 
 func (p *CurioAPI) LogList(ctx context.Context) ([]string, error) {

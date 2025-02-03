@@ -21,6 +21,7 @@ description: Curio API references
   * [StorageAddLocal](api.md#StorageAddLocal)
   * [StorageDetachLocal](api.md#StorageDetachLocal)
   * [StorageFindSector](api.md#StorageFindSector)
+  * [StorageGenerateVanillaProof](api.md#StorageGenerateVanillaProof)
   * [StorageInfo](api.md#StorageInfo)
   * [StorageInit](api.md#StorageInit)
   * [StorageList](api.md#StorageList)
@@ -292,6 +293,21 @@ Response:
   }
 ]
 ```
+
+#### StorageGenerateVanillaProof
+
+
+Perms: admin
+
+Inputs:
+```json
+[
+  "f01234",
+  9
+]
+```
+
+Response: `"Ynl0ZSBhcnJheQ=="`
 
 #### StorageInfo
 

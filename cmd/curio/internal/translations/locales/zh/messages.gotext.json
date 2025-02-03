@@ -1959,6 +1959,12 @@
       "translation": "获取 Curio 节点信息",
       "message": "Get Curio node info",
       "placeholder": null
+    },
+    {
+      "id": "generate vanilla proof for a sector",
+      "translation": "为一个扇区生成原始证明",
+      "message": "generate vanilla proof for a sector",
+      "placeholder": null
     }
   ]
 }

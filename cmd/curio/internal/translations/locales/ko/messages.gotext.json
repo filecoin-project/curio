@@ -1989,6 +1989,12 @@
             "translation": "Curio 노드 정보 가져오기",
             "message": "Get Curio node info",
             "placeholder": null
+        },
+        {
+            "id": "generate vanilla proof for a sector",
+            "translation": "섹터에 대한 바닐라 증명 생성",
+            "message": "generate vanilla proof for a sector",
+            "placeholder": null
         }
     ]
 }
