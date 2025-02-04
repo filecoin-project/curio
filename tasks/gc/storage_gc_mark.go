@@ -335,7 +335,7 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	// SELECT sp_id, sector_num FROM sectors_meta WHERE orig_unsealed_cid != cur_sealed_cid
 	var snapSectors []struct {
 		SpID      int64 `db:"sp_id"`
-		SectorNum int64 `db:"sector_number"`
+		SectorNum int64 `db:"sector_num"`
 	}
 	err = s.db.Select(ctx, &snapSectors, `SELECT sp_id, sector_num FROM sectors_meta WHERE orig_unsealed_cid != cur_sealed_cid ORDER BY sp_id, sector_num`)
 	if err != nil {
@@ -352,6 +352,10 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		s, err := mstate.GetSector(abi.SectorNumber(sector.SectorNum))
 		if err != nil {
 			return false, xerrors.Errorf("get sector %d: %w", sector.SectorNum, err)
+		}
+		if s == nil {
+			log.Warnw("sector is nil", "miner", sector.SpID, "sector", sector.SectorNum)
+			continue
 		}
 
 		if s.SectorKeyCID != nil {
@@ -371,7 +375,7 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 				}
 
 				n, err := tx.Exec(`INSERT INTO storage_removal_marks (sp_id, sector_num, sector_filetype, storage_id)
-				VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`, decl.Miner, decl.Number, storiface.FTSealed, string(storageId))
+				VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`, decl.Miner, decl.Number, int64(storiface.FTSealed), string(storageId))
 				if err != nil {
 					return false, xerrors.Errorf("insert storage_removal_marks: %w", err)
 				}
