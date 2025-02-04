@@ -89,9 +89,9 @@ type StorageStoreStats struct {
 	Available int64  `json:"available"`
 	Used      int64  `json:"used"`
 
-	CapStr    string `json:"cap_str"`
-	UseStr    string `json:"use_str"`
-	AvailStr  string `json:"avail_str"`
+	CapStr   string `json:"cap_str"`
+	UseStr   string `json:"use_str"`
+	AvailStr string `json:"avail_str"`
 }
 
 // storagePathRow mirrors the columns we need from the storage_path table.
