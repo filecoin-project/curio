@@ -130,7 +130,7 @@ class StorageGCStats extends LitElement {
                 ${this.data.map(entry => html`
                     <tr>
                         <td>${entry.Miner}</td>
-                        <td>${entry.SectorNum}</td>
+                        <td><a href="/pages/sector/?sp=${entry.Miner}&id=${entry.SectorNum}">${entry.SectorNum}</a></td>
                         <td>
                             <div>${entry.StorageID}</div>
                             <div>${entry.Urls}</div>

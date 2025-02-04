@@ -119,7 +119,7 @@ type SectorPieceMeta struct {
 
 	DealID           *string `db:"deal_id"`
 	DataUrl          *string `db:"data_url"`
-	DataRawSize      int64   `db:"data_raw_size"`
+	DataRawSize      *int64  `db:"data_raw_size"`
 	DeleteOnFinalize *bool   `db:"data_delete_on_finalize"`
 
 	F05PublishCid *string `db:"f05_publish_cid"`
@@ -519,7 +519,7 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 	for i := range pieces {
 		pieces[i].StrPieceSize = types.SizeStr(types.NewInt(uint64(pieces[i].PieceSize)))
-		pieces[i].StrDataRawSize = types.SizeStr(types.NewInt(uint64(pieces[i].DataRawSize)))
+		pieces[i].StrDataRawSize = types.SizeStr(types.NewInt(uint64(derefOrZero(pieces[i].DataRawSize))))
 
 		id, isPiecePark := strings.CutPrefix(derefOrZero(pieces[i].DataUrl), "pieceref:")
 		if !isPiecePark {

@@ -370,6 +370,10 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 		for storageId, decls := range storageSectors {
 			for _, decl := range decls {
+				if !decl.SectorFileType.Has(storiface.FTSealed) {
+					continue
+				}
+
 				if _, ok := marks[decl.SectorID]; !ok {
 					continue
 				}
