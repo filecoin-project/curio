@@ -293,6 +293,19 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	/*
 		STAGE 3: Mark "sealed" files which are sector-keys in snap sectors
 	*/
+	// First as a paranoid sanity check we'll get a filter map with sectors which have update, update-cache files
+	// so that we never mark sealed files for sectors without update files
+
+	sectorsWithUpdate := map[abi.SectorID]storiface.SectorFileType{}
+	for _, decls := range storageSectors {
+		for _, decl := range decls {
+			if decl.SectorFileType&(storiface.FTUpdate|storiface.FTUpdateCache) == 0 {
+				continue
+			}
+
+			sectorsWithUpdate[decl.SectorID] |= decl.SectorFileType & (storiface.FTUpdate | storiface.FTUpdateCache)
+		}
+	}
 
 	// get a tipset 1.5 finality-ago; we only want to take sectors which were snapped for a while
 	head, err := s.api.ChainHead(ctx)
@@ -358,12 +371,21 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			continue
 		}
 
-		if s.SectorKeyCID != nil {
-			marks[abi.SectorID{
-				Miner:  abi.ActorID(sector.SpID),
-				Number: abi.SectorNumber(sector.SectorNum),
-			}] = struct{}{}
+		if s.SectorKeyCID == nil {
+			continue
 		}
+
+		si := abi.SectorID{
+			Miner:  abi.ActorID(sector.SpID),
+			Number: abi.SectorNumber(sector.SectorNum),
+		}
+
+		if u := sectorsWithUpdate[si]; u != (storiface.FTUpdate | storiface.FTUpdateCache) {
+			log.Warnw("sector has no update files", "miner", sector.SpID, "sector", sector.SectorNum)
+			continue
+		}
+
+		marks[si] = struct{}{}
 	}
 
 	_, err = s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
