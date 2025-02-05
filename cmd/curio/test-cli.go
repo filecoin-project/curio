@@ -65,11 +65,15 @@ var wdPostTaskCmd = &cli.Command{
 			Name:  "layers",
 			Usage: translations.T("list of layers to be interpreted (atop defaults). Default: base"),
 		},
+		&cli.StringFlag{
+			Name: "addr",
+			Usage: translations.T("SP ID to compute WindowPoSt for"),
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 		ctx := context.Background()
 
-		deps, err := deps.GetDeps(ctx, cctx)
+		deps, err := deps.GetDepsCLI(ctx, cctx)
 		if err != nil {
 			return xerrors.Errorf("get config: %w", err)
 		}
@@ -80,12 +84,24 @@ var wdPostTaskCmd = &cli.Command{
 		}
 		ht := ts.Height()
 
+		var spAddr address.Address
+		if cctx.IsSet("addr") {
+			spAddr, err = address.NewFromString(cctx.String("addr"))
+			if err != nil {
+				return xerrors.Errorf("invalid sp address: %w", err)
+			}
+		}
+
 		var taskIDs []int64
 		for addr := range deps.Maddrs {
 			maddr, err := address.IDFromAddress(address.Address(addr))
 			if err != nil {
 				return xerrors.Errorf("cannot get miner id %w", err)
 			}
+			if spAddr != address.Undef && address.Address(addr) != spAddr {
+				continue
+			}
+
 			var taskId int64
 
 			_, err = deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
@@ -111,7 +127,7 @@ var wdPostTaskCmd = &cli.Command{
 				return xerrors.Errorf("writing SQL transaction: %w", err)
 			}
 
-			fmt.Printf("Inserted task %d for miner ID %s. Waiting for success ", taskId, address.Address(addr).String())
+			log.Infof("Inserted task %d for miner ID %s. Waiting for success ", taskId, address.Address(addr).String())
 			taskIDs = append(taskIDs, taskId)
 		}
 
