@@ -66,7 +66,7 @@ var wdPostTaskCmd = &cli.Command{
 			Usage: translations.T("list of layers to be interpreted (atop defaults). Default: base"),
 		},
 		&cli.StringFlag{
-			Name: "addr",
+			Name:  "addr",
 			Usage: translations.T("SP ID to compute WindowPoSt for"),
 		},
 	},

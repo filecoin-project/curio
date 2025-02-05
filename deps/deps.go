@@ -514,9 +514,9 @@ func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 	}
 
 	return &Deps{
-		Cfg:   cfg,
-		DB:    db,
-		Chain: full,
+		Cfg:    cfg,
+		DB:     db,
+		Chain:  full,
 		Maddrs: maddrs,
 	}, nil
 }
