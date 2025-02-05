@@ -376,9 +376,7 @@ func startLocalNotifyServer() (string, chan struct{}, error) {
 	return serverAddr, notifyReceived, nil
 }
 
-func uploadOnePiece(serviceURL string, reqBody []byte, jwtToken string, r io.ReadSeeker, pieceSize int64, localNotifWait bool, notifyReceived chan struct{}) error {
-	client := &http.Client{}
-
+func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtToken string, r io.ReadSeeker, pieceSize int64, localNotifWait bool, notifyReceived chan struct{}) error {
 	req, err := http.NewRequest("POST", serviceURL+"/pdp/piece", bytes.NewReader(reqBody))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
@@ -575,7 +573,8 @@ var pieceUploadCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to marshal request data: %v", err)
 		}
-		if err := uploadOnePiece(serviceURL, reqBody, jwtToken, file, pieceSize, localNotifWait, notifyReceived); err != nil {
+		client := &http.Client{}
+		if err := uploadOnePiece(client, serviceURL, reqBody, jwtToken, file, pieceSize, localNotifWait, notifyReceived); err != nil {
 			return fmt.Errorf("failed to upload piece: %v", err)
 		}
 
@@ -675,6 +674,7 @@ var uploadFileCmd = &cli.Command{
 
 		orderedCommPs := []cid.Cid{}
 		counter := 0
+		client := &http.Client{}
 		for idx := int64(0); idx < fileSize; idx += chunkSize {
 			// Read the chunk
 			buf := make([]byte, chunkSize)
@@ -719,7 +719,7 @@ var uploadFileCmd = &cli.Command{
 			}
 
 			// Upload the piece
-			err = uploadOnePiece(serviceURL, reqBody, jwtToken, chunkReader, int64(n), localNotifWait, notifyReceived)
+			err = uploadOnePiece(client, serviceURL, reqBody, jwtToken, chunkReader, int64(n), localNotifWait, notifyReceived)
 			if err != nil {
 				return fmt.Errorf("failed to upload piece: %v", err)
 			}

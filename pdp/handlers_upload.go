@@ -142,6 +142,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to process request: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	log.Infow("post vals", "pieceCid", pieceCid, "havePieceCid", havePieceCid, "err", err)
 
 	// Variables to hold information outside the transaction
 	var uploadUUID uuid.UUID
