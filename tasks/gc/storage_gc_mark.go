@@ -2,6 +2,7 @@ package gc
 
 import (
 	"context"
+	"github.com/filecoin-project/go-state-types/builtin"
 	"time"
 
 	cbor "github.com/ipfs/go-ipld-cbor"
@@ -10,6 +11,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -21,6 +23,7 @@ import (
 
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
@@ -28,6 +31,7 @@ const StorageGCInterval = 9 * time.Minute
 
 type StorageGCMarkNodeAPI interface {
 	StateGetActor(ctx context.Context, actor address.Address, tsk types.TipSetKey) (*types.Actor, error)
+	StateNetworkVersion(ctx context.Context, tsk types.TipSetKey) (network.Version, error)
 	ChainHead(ctx context.Context) (*types.TipSet, error)
 	ChainGetTipSetByHeight(ctx context.Context, height abi.ChainEpoch, tsk types.TipSetKey) (*types.TipSet, error)
 }
@@ -312,8 +316,14 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	if err != nil {
 		return false, xerrors.Errorf("get chain head: %w", err)
 	}
+	nv, err := s.api.StateNetworkVersion(ctx, head.Key())
+	if err != nil {
+		return false, xerrors.Errorf("get network version: %w", err)
+	}
 
-	finalityHeight := head.Height() - (900 + 450)
+	lb := policy.GetWinningPoStSectorSetLookback(nv) - builtin.EpochsInDay - 1
+
+	finalityHeight := head.Height() - lb
 
 	finalityTipset, err := s.api.ChainGetTipSetByHeight(ctx, finalityHeight, head.Key())
 	if err != nil {
