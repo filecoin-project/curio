@@ -2,7 +2,6 @@ package gc
 
 import (
 	"context"
-	"github.com/filecoin-project/go-state-types/builtin"
 	"time"
 
 	cbor "github.com/ipfs/go-ipld-cbor"
@@ -11,6 +10,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/builtin"
 	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
