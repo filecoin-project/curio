@@ -765,6 +765,13 @@
             "fuzzy": true
         },
         {
+            "id": "SP ID to compute WindowPoSt for",
+            "message": "SP ID to compute WindowPoSt for",
+            "translation": "SP ID to compute WindowPoSt for",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Compute WindowPoSt for performance and configuration testing.",
             "message": "Compute WindowPoSt for performance and configuration testing.",
             "translation": "Compute WindowPoSt for performance and configuration testing.",
