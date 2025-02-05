@@ -151,16 +151,20 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 
 	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		if havePieceCid {
+			log.Infow("we have piece cid")
 			// Check if a 'parked_pieces' entry exists for the given 'piece_cid'
 			var parkedPieceID int64
 			err := tx.QueryRow(`
             SELECT id FROM parked_pieces WHERE piece_cid = $1 AND long_term = TRUE AND complete = TRUE
         `, pieceCid).Scan(&parkedPieceID)
 			if err != nil && err != pgx.ErrNoRows {
+				log.Infow("Impossible erroring with no consequences", "err", err)
 				return false, fmt.Errorf("failed to query parked_pieces: %w", err)
 			}
 
+			log.Infow("ErrNoRows yikes why is it this way", err)
 			if err == nil {
+				log.Infow("no error finding the parked piece")
 				// Piece is already stored
 				// Create a new 'parked_piece_refs' entry
 				var parkedPieceRefID int64
@@ -169,6 +173,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
                 VALUES ($1, TRUE) RETURNING ref_id
             `, parkedPieceID).Scan(&parkedPieceRefID)
 				if err != nil {
+					log.Infow("Impossible erroring with no consequences 2", "err", err)
 					return false, fmt.Errorf("failed to insert into parked_piece_refs: %w", err)
 				}
 
