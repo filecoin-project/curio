@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@zondax/filecoin-solidity/contracts/v0.8/MinerAPI.sol";
-import "@zondax/filecoin-solidity/contracts/v0.8/types/CommonTypes.sol";
+import "filecoin-solidity-api/contracts/v0.8/MinerAPI.sol";
+import "filecoin-solidity-api/contracts/v0.8/types/CommonTypes.sol";
+import "filecoin-solidity-api/contracts/v0.8/utils/FilAddressIdConverter.sol";
+import "filecoin-solidity-api/contracts/v0.8/utils/FilAddresses.sol";
 
 contract MinerPeerIDMapping {
     struct PeerData {
@@ -104,10 +106,13 @@ contract MinerPeerIDMapping {
         CommonTypes.FilActorId minerActorID = CommonTypes.FilActorId.wrap(minerID);
 
         // Create a FilAddress for the caller
-        CommonTypes.FilAddress memory callerAddress = CommonTypes.FilAddress({data: abi.encodePacked(caller)});
+        (bool ok, uint64 addr) = FilAddressIdConverter.getActorID(caller);
+        require(ok = true, "Failed to covert called to actor ID");
+        CommonTypes.FilAddress memory callerAddress = FilAddresses.fromActorID(addr);
 
         // Call the MinerAPI function
-        bool isControlling = MinerAPI.isControllingAddress(minerActorID, callerAddress);
+        (int256 exitCode, bool isControlling) = MinerAPI.isControllingAddress(minerActorID, callerAddress);
+        require(exitCode == 0, "MinerAPI call failed");
 
         return isControlling;
     }

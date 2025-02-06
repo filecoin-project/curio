@@ -27,7 +27,7 @@
     "typescript": "^5.7.3"
   },
   "dependencies": {
-    "@zondax/filecoin-solidity": "^4.0.3"
+    "filecoin-solidity-api": "github:filecoin-project/filecoin-solidity"
   },
   "keywords": [
     "hardhat",
