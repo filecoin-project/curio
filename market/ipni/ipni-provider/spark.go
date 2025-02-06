@@ -163,6 +163,7 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 						return xerrors.Errorf("failed to verify signed message: %w", err)
 					}
 					if ok {
+						log.Infof("not updating peerID for minerID in MinerPeerIDMapping contract: %d", pInfo.SPID)
 						continue
 					}
 					reason = "update"
