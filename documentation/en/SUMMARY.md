@@ -1,6 +1,7 @@
 # Table of contents
 
 * [What is Curio?](README.md)
+  * [Filecoin Storage Provider](readme/filecoin-storage-provider.md)
 * [Design](design/README.md)
   * [Sealing](design/sealing.md)
   * [Harmony Tasks](design/harmony-tasks.md)
