@@ -1,6 +1,7 @@
 package ipni_provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -105,16 +106,17 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 			return fmt.Errorf("state call failed: %s", res.MsgRct.ExitCode.String())
 		}
 
-		var params []byte
+		var evmReturn abi.CborBytes
+		err = evmReturn.UnmarshalCBOR(bytes.NewReader(res.MsgRct.Return))
+		if err != nil {
+			return xerrors.Errorf("failed to unmarshal evm return: %w", err)
+		}
 
-		if len(res.MsgRct.Return) == 0 {
-			params, err = p.getSparkParams(pInfo.SPID, pInfo.ID.String(), pKey, "add")
-			if err != nil {
-				return xerrors.Errorf("failed to get spark params for %s: %w", pInfo.Miner.String(), err)
-			}
-		} else {
-			log.Debugf("res.MsgRct.Return: %v", res.MsgRct.Return)
-			log.Debugf("res.MsgRct.Return: %s", string(res.MsgRct.Return))
+		var params []byte
+		reason := "add"
+
+		if len(evmReturn) > 0 {
+			log.Errorf("res.MsgRct.Return: %x", evmReturn)
 
 			// Define a struct that represents the tuple from the ABI
 			type PeerData struct {
@@ -130,7 +132,7 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 			// Create an instance of the wrapper struct
 			var result WrappedPeerData
 
-			err = parsedABI.UnpackIntoInterface(&result, "getPeerData", res.MsgRct.Return)
+			err = parsedABI.UnpackIntoInterface(&result, "getPeerData", evmReturn)
 			if err != nil {
 				return xerrors.Errorf("Failed to unpack result: %w", err)
 			}
@@ -138,55 +140,55 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 			pd := result.Result
 
 			// Check if peerID is empty
-			if pd.PeerID == "" {
-				log.Warnf("no data found for minerID in MinerPeerIDMapping contract: %d", pInfo.SPID)
-				continue
-			}
-
-			// check if signed message is zero bytes
-			if len(pd.SignedMessage) == 0 {
-				log.Warnf("no signed message found for minerID in MinerPeerIDMapping contract: %d", pInfo.SPID)
-				continue
-			}
-
-			if pd.PeerID == pInfo.ID.String() {
-				detail := spark.SparkMessage{
-					Miner: pInfo.SPID,
-					Peer:  pInfo.ID.String(),
-				}
-
-				jdetail, err := json.Marshal(detail)
-				if err != nil {
-					return xerrors.Errorf("failed to marshal spark message: %w", err)
-				}
-
-				ok, err := pKey.GetPublic().Verify(jdetail, pd.SignedMessage)
-				if err != nil {
-					return xerrors.Errorf("failed to verify signed message: %w", err)
-				}
-				if ok {
+			if pd.PeerID != "" {
+				// check if signed message is zero bytes
+				if len(pd.SignedMessage) == 0 {
+					log.Warnf("no signed message found for minerID in MinerPeerIDMapping contract: %d", pInfo.SPID)
 					continue
 				}
-			}
 
-			params, err = p.getSparkParams(pInfo.SPID, pInfo.ID.String(), pKey, "update")
-			if err != nil {
-				return xerrors.Errorf("failed to get spark params for %s: %w", pInfo.Miner.String(), err)
+				if pd.PeerID == pInfo.ID.String() {
+					detail := spark.SparkMessage{
+						Miner: pInfo.SPID,
+						Peer:  pInfo.ID.String(),
+					}
+
+					jdetail, err := json.Marshal(detail)
+					if err != nil {
+						return xerrors.Errorf("failed to marshal spark message: %w", err)
+					}
+
+					ok, err := pKey.GetPublic().Verify(jdetail, pd.SignedMessage)
+					if err != nil {
+						return xerrors.Errorf("failed to verify signed message: %w", err)
+					}
+					if ok {
+						continue
+					}
+					reason = "update"
+				}
 			}
+		}
+
+		params, err = p.getSparkParams(pInfo.SPID, pInfo.ID.String(), pKey, reason)
+		if err != nil {
+			return xerrors.Errorf("failed to get spark params for %s: %w", pInfo.Miner.String(), err)
+		}
+
+		workerId, err := p.full.StateLookupID(ctx, mInfo.Worker, types.EmptyTSK)
+		if err != nil {
+			return xerrors.Errorf("failed to lookup worker id: %w", err)
 		}
 
 		msg := &types.Message{
-			From:       mInfo.Worker,
-			To:         toAddr,
-			Value:      abi.NewTokenAmount(0),
-			Method:     builtin.MethodsEVM.InvokeContract,
-			Params:     params,
-			GasLimit:   buildconstants.BlockGasLimit,
-			GasFeeCap:  fbig.Zero(),
-			GasPremium: fbig.Zero(),
+			From:   workerId,
+			To:     toAddr,
+			Value:  abi.NewTokenAmount(0),
+			Method: builtin.MethodsEVM.InvokeContract,
+			Params: params,
 		}
 
-		maxFee, err := types.ParseFIL("5 FIL")
+		maxFee, err := types.ParseFIL("1 FIL")
 		if err != nil {
 			return xerrors.Errorf("failed to parse max fee: %w", err)
 		}
@@ -221,12 +223,15 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 
 func (p *Provider) getSparkParams(miner abi.ActorID, newPeer string, key crypto.PrivKey, msgType string) ([]byte, error) {
 	var abiStr string
+	var funcName string
 
 	if msgType == "add" {
 		abiStr = spark.AddPeerAbi
+		funcName = "addPeerData"
 	}
 	if msgType == "update" {
 		abiStr = spark.UpdatePeerAbi
+		funcName = "updatePeerData"
 	}
 
 	parsedABI, err := eabi.JSON(strings.NewReader(abiStr))
@@ -249,9 +254,9 @@ func (p *Provider) getSparkParams(miner abi.ActorID, newPeer string, key crypto.
 		return nil, xerrors.Errorf("failed to sign spark message: %w", err)
 	}
 
-	data, err := parsedABI.Pack("updatePeerData", miner, newPeer, signed)
+	data, err := parsedABI.Pack(funcName, miner, newPeer, signed)
 	if err != nil {
-		return nil, xerrors.Errorf("Failed to pack the `updatePeerData()` function call: %v", err)
+		return nil, xerrors.Errorf("Failed to pack the `%s()` function call: %v", funcName, err)
 	}
 
 	param := abi.CborBytes(data)
