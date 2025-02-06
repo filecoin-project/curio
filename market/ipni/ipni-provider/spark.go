@@ -113,22 +113,39 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 				return xerrors.Errorf("failed to get spark params for %s: %w", pInfo.Miner.String(), err)
 			}
 		} else {
-			pd := struct {
-				PeerID        string
-				SignedMessage []byte
-			}{}
-
 			log.Debugf("res.MsgRct.Return: %v", res.MsgRct.Return)
 			log.Debugf("res.MsgRct.Return: %s", string(res.MsgRct.Return))
 
-			err = parsedABI.UnpackIntoInterface(&pd, "getPeerData", res.MsgRct.Return)
+			// Define a struct that represents the tuple from the ABI
+			type PeerData struct {
+				PeerID        string `abi:"peerID"`
+				SignedMessage []byte `abi:"signedMessage"`
+			}
+
+			// Define a wrapper struct that will be used for unpacking
+			type WrappedPeerData struct {
+				Result PeerData `abi:""`
+			}
+
+			// Create an instance of the wrapper struct
+			var result WrappedPeerData
+
+			err = parsedABI.UnpackIntoInterface(&result, "getPeerData", res.MsgRct.Return)
 			if err != nil {
 				return xerrors.Errorf("Failed to unpack result: %w", err)
 			}
 
-			// Check if peerID is empty, indicating no data found
-			if pd.PeerID == "" && len(pd.SignedMessage) == 0 {
+			pd := result.Result
+
+			// Check if peerID is empty
+			if pd.PeerID == "" {
 				log.Warnf("no data found for minerID in MinerPeerIDMapping contract: %d", pInfo.SPID)
+				continue
+			}
+
+			// check if signed message is zero bytes
+			if len(pd.SignedMessage) == 0 {
+				log.Warnf("no signed message found for minerID in MinerPeerIDMapping contract: %d", pInfo.SPID)
 				continue
 			}
 

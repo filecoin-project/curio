@@ -27,8 +27,7 @@
     "typescript": "^5.7.3"
   },
   "dependencies": {
-    "@zondax/filecoin-solidity": "^4.0.3",
-    "hardhat-deploy-ethers": "^0.4.2"
+    "@zondax/filecoin-solidity": "^4.0.3"
   },
   "keywords": [
     "hardhat",
