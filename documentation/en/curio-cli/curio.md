@@ -511,6 +511,7 @@ USAGE:
 OPTIONS:
    --deadline value                   deadline to compute WindowPoSt for  (default: 0)
    --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
+   --addr value                       SP ID to compute WindowPoSt for
    --help, -h                         show help
 ```
 

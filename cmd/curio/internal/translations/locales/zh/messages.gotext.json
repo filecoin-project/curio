@@ -1965,6 +1965,12 @@
       "translation": "为一个扇区生成原始证明",
       "message": "generate vanilla proof for a sector",
       "placeholder": null
+    },
+    {
+      "id": "SP ID to compute WindowPoSt for",
+      "translation": "用于计算 WindowPoSt 的存储提供者 ID",
+      "message": "SP ID to compute WindowPoSt for",
+      "placeholder": null
     }
   ]
 }

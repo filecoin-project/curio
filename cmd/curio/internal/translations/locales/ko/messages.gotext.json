@@ -1995,6 +1995,12 @@
             "translation": "섹터에 대한 바닐라 증명 생성",
             "message": "generate vanilla proof for a sector",
             "placeholder": null
+        },
+        {
+            "id": "SP ID to compute WindowPoSt for",
+            "translation": "WindowPoSt 계산을 위한 SP ID",
+            "message": "SP ID to compute WindowPoSt for",
+            "placeholder": null
         }
     ]
 }

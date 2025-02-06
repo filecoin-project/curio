@@ -500,10 +500,24 @@ func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		fullCloser()
 	}()
 
+	maddrs := map[dtypes.MinerAddress]bool{}
+	if len(maddrs) == 0 {
+		for _, s := range cfg.Addresses {
+			for _, s := range s.MinerAddresses {
+				addr, err := address.NewFromString(s)
+				if err != nil {
+					return nil, err
+				}
+				maddrs[dtypes.MinerAddress(addr)] = true
+			}
+		}
+	}
+
 	return &Deps{
-		Cfg:   cfg,
-		DB:    db,
-		Chain: full,
+		Cfg:    cfg,
+		DB:     db,
+		Chain:  full,
+		Maddrs: maddrs,
 	}, nil
 }
 
