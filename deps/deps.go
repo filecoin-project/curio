@@ -429,6 +429,11 @@ func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *config.CurioCo
 	return meta, err
 }
 func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.CurioConfig, error) {
+	err := updateBaseLayer(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+
 	curioConfig := config.DefaultCurioConfig()
 	have := []string{}
 	layers = append([]string{"base"}, layers...) // Always stack on top of "base" layer
@@ -460,6 +465,45 @@ func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.
 	// 3rd-parties can dynamically include config requirements and we can
 	// validate the config. Because of layering, we must validate @ startup.
 	return curioConfig, nil
+}
+
+func updateBaseLayer(ctx context.Context, db *harmonydb.DB) error {
+	// Get existing base from DB
+	text := ""
+	err := db.QueryRow(ctx, `SELECT config FROM harmony_config WHERE title=$1`, "base").Scan(&text)
+	if err != nil {
+		if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
+			return fmt.Errorf("missing layer 'base' ")
+		}
+		return fmt.Errorf("could not read layer 'base': %w", err)
+	}
+
+	cfg := config.DefaultCurioConfig()
+
+	// Apply existing base to updated default config
+	_, err = LoadConfigWithUpgrades(text, cfg)
+	if err != nil {
+		return fmt.Errorf("could not read base layer, bad toml %s: %w", text, err)
+	}
+
+	// Convert the update config to string
+	cb, err := config.ConfigUpdate(cfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
+	if err != nil {
+		return xerrors.Errorf("cannot update base config: %w", err)
+	}
+
+	// Check if we need to update the DB
+	if text == string(cb) {
+		return nil
+	}
+
+	// Save the updated base with comments
+	_, err = db.Exec(ctx, "UPDATE harmony_config SET config=$1 WHERE title='base'", string(cb))
+	if err != nil {
+		return xerrors.Errorf("cannot update base config: %w", err)
+	}
+
+	return nil
 }
 
 func GetDefaultConfig(comment bool) (string, error) {
