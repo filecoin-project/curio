@@ -466,12 +466,6 @@ func (p *Provider) StartPublishing(ctx context.Context) {
 	// every 10 minutes
 	ticker := time.NewTicker(publishInterval)
 	go func() {
-		// Call the function to publish head for each provider
-		err := p.updateSparkContract(ctx)
-		if err != nil {
-			log.Errorw("failed to update ipni provider peer mapping", "err", err)
-		}
-
 		for {
 			select {
 			case <-ticker.C:

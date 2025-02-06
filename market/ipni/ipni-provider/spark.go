@@ -116,7 +116,7 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 		reason := "add"
 
 		if len(evmReturn) > 0 {
-			log.Errorf("res.MsgRct.Return: %x", evmReturn)
+			log.Debugf("res.MsgRct.Return: %x", evmReturn)
 
 			// Define a struct that represents the tuple from the ABI
 			type PeerData struct {
