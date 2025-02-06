@@ -82,7 +82,7 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 		param := abi.CborBytes(callData)
 		getParams, err := actors.SerializeParams(&param)
 		if err != nil {
-			return fmt.Errorf("failed to serialize params: %w", err)
+			return xerrors.Errorf("failed to serialize params: %w", err)
 		}
 
 		rMsg := &types.Message{
@@ -98,7 +98,7 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 
 		res, err := p.full.StateCall(ctx, rMsg, types.EmptyTSK)
 		if err != nil {
-			return fmt.Errorf("state call failed: %w", err)
+			return xerrors.Errorf("state call failed: %w", err)
 		}
 
 		if res.MsgRct.ExitCode.IsError() {

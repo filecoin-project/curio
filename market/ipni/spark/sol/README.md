@@ -226,56 +226,104 @@ The contract can be interacted with using Go by encoding ABI calls. Below is an 
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"log"
+  "encoding/json"
+  "fmt"
+  "log"
+  "strings"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
+  "github.com/ethereum/go-ethereum/accounts/abi"
+  "github.com/filecoin-project/go-state-types/builtin"
+  "github.com/filecoin-project/lotus/chain/types"
+  "github.com/filecoin-project/lotus/chain/types/ethtypes"
+  "github.com/filecoin-project/lotus/cli"
 )
 
+// Define a struct that represents the tuple from the ABI
 type PeerData struct {
-	PeerID        string `json:"peerID"`
-	SignedMessage []byte `json:"signedMessage"`
+  PeerID        string `abi:"peerID"`
+  SignedMessage []byte `abi:"signedMessage"`
+}
+
+// Define a wrapper struct for proper ABI decoding
+type WrappedPeerData struct {
+  Result PeerData `abi:""`
 }
 
 func main() {
-	client, err := ethclient.Dial("<RPC_URL>")
-	if err != nil {
-		log.Fatalf("Failed to connect to Ethereum client: %v", err)
-	}
+  // Setup Lotus CLI context
+  // Get FullNodeAPI from Lotus CLI
+  fullNode, closer, err := cli.GetFullNodeAPI(cctx)
+  if err != nil {
+    log.Fatalf("Failed to connect to Lotus node: %v", err)
+  }
+  defer closer()
 
-	contractAddress := common.HexToAddress("<CONTRACT_ADDRESS>")
-	parsedABI, err := abi.JSON(strings.NewReader(<ABI_JSON>))
-	if err != nil {
-		log.Fatalf("Failed to parse contract ABI: %v", err)
-	}
+  ctx := cctx.Context
 
-	callOpts := &bind.CallOpts{
-		Pending: false,
-	}
+  // ABI definition for the function getPeerData(uint64) -> tuple(string,bytes)
+  const abiJSON = `[{"name":"getPeerData","type":"function","inputs":[{"name":"minerID","type":"uint64"}],"outputs":[{"name":"","type":"tuple","components":[{"name":"peerID","type":"string"},{"name":"signedMessage","type":"bytes"}]}]}]`
 
-	minerID := uint64(1234)
-	result, err := parsedABI.Pack("getPeerData", minerID)
-	if err != nil {
-		log.Fatalf("Failed to pack data: %v", err)
-	}
+  // Parse ABI properly
+  parsedABI, err := abi.JSON(strings.NewReader(abiJSON))
+  if err != nil {
+    log.Fatalf("Failed to parse contract ABI: %v", err)
+  }
 
-	response := make([]interface{}, 2) // Matching the return type
-	err = client.CallContract(callOpts, &response, contractAddress, result)
-	if err != nil {
-		log.Fatalf("Failed to call contract: %v", err)
-	}
+  // Miner ID to query
+  minerID := uint64(1234)
 
-	peerData := PeerData{
-		PeerID:        response[0].(string),
-		SignedMessage: response[1].([]byte),
-	}
+  // Encode the function call with the Miner ID
+  callData, err := parsedABI.Pack("getPeerData", minerID)
+  if err != nil {
+    log.Fatalf("Failed to pack function call data: %v", err)
+  }
 
-	output, _ := json.MarshalIndent(peerData, "", "  ")
-	fmt.Println(string(output))
+  // Convert contract address to Filecoin format
+  contractID := "<CONTRACT_ETH_ADDRESS>" // Replace with actual contract address
+
+  to, err := ethtypes.ParseEthAddress(contractID)
+  if err != nil {
+    fmt.Println("failed to parse contract address: %w", err)
+    return
+  }
+
+  toAddr, err := to.ToFilecoinAddress()
+  if err != nil {
+    fmt.Println("failed to convert Eth address to Filecoin address: %w", err)
+    return
+  }
+
+  // Construct the Filecoin message
+  msg := &types.Message{
+    To:     toAddr,
+    From:   toAddr, // from address doesn't matter
+    Value:  types.NewInt(0),
+    Method: builtin.MethodsEVM.InvokeContract,
+    Params: callData,
+  }
+
+  // Execute the contract call on Lotus
+  res, err := fullNode.StateCall(ctx, msg, types.EmptyTSK)
+  if err != nil {
+    log.Fatalf("StateCall failed: %v", err)
+  }
+
+  // Check if execution failed
+  if res.MsgRct.ExitCode.IsError() {
+    log.Fatalf("Smart contract call failed with exit code: %s", res.MsgRct.ExitCode.String())
+  }
+
+  // Decode the response correctly (tuple unpacking)
+  var result WrappedPeerData
+  err = parsedABI.UnpackIntoInterface(&result, "getPeerData", res.MsgRct.Return)
+  if err != nil {
+    log.Fatalf("Failed to unpack ABI data: %v", err)
+  }
+
+  // Print the decoded output
+  output, _ := json.MarshalIndent(result.Result, "", "  ")
+  fmt.Println(string(output))
+
 }
 ```
 
