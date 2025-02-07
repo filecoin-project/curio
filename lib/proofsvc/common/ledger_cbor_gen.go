@@ -8,6 +8,9 @@ import (
 	"math"
 	"sort"
 
+	genadt "github.com/filecoin-project/curio/lib/genadt"
+	crypto "github.com/filecoin-project/go-state-types/crypto"
+	types "github.com/filecoin-project/lotus/chain/types"
 	cid "github.com/ipfs/go-cid"
 	cbg "github.com/whyrusleeping/cbor-gen"
 	xerrors "golang.org/x/xerrors"
@@ -142,21 +145,24 @@ func (t *Message) UnmarshalCBOR(r io.Reader) (err error) {
 		return fmt.Errorf("Message: map struct too large (%d)", extra)
 	}
 
-	var name string
 	n := extra
 
+	nameBuf := make([]byte, 7)
 	for i := uint64(0); i < n; i++ {
-
-		{
-			sval, err := cbg.ReadStringWithMax(cr, 8192)
-			if err != nil {
-				return err
-			}
-
-			name = string(sval)
+		nameLen, ok, err := cbg.ReadFullStringIntoBuf(cr, nameBuf, 8192)
+		if err != nil {
+			return err
 		}
 
-		switch name {
+		if !ok {
+			// Field doesn't exist on this type, so ignore it
+			if err := cbg.ScanForLinks(cr, func(cid.Cid) {}); err != nil {
+				return err
+			}
+			continue
+		}
+
+		switch string(nameBuf[:nameLen]) {
 		// t.Actor (address.Address) (struct)
 		case "Actor":
 
@@ -233,7 +239,9 @@ func (t *Message) UnmarshalCBOR(r io.Reader) (err error) {
 
 		default:
 			// Field doesn't exist on this type, so ignore it
-			cbg.ScanForLinks(r, func(cid.Cid) {})
+			if err := cbg.ScanForLinks(r, func(cid.Cid) {}); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -251,7 +259,7 @@ func (t *Messages) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.Messages ([]*common.Message) (slice)
+	// t.Messages ([]*genadt.CborLink[*github.com/filecoin-project/curio/lib/proofsvc/common.Message]) (slice)
 	if len("Messages") > 8192 {
 		return xerrors.Errorf("Value in field \"Messages\" was too long")
 	}
@@ -302,22 +310,25 @@ func (t *Messages) UnmarshalCBOR(r io.Reader) (err error) {
 		return fmt.Errorf("Messages: map struct too large (%d)", extra)
 	}
 
-	var name string
 	n := extra
 
+	nameBuf := make([]byte, 8)
 	for i := uint64(0); i < n; i++ {
-
-		{
-			sval, err := cbg.ReadStringWithMax(cr, 8192)
-			if err != nil {
-				return err
-			}
-
-			name = string(sval)
+		nameLen, ok, err := cbg.ReadFullStringIntoBuf(cr, nameBuf, 8192)
+		if err != nil {
+			return err
 		}
 
-		switch name {
-		// t.Messages ([]*common.Message) (slice)
+		if !ok {
+			// Field doesn't exist on this type, so ignore it
+			if err := cbg.ScanForLinks(cr, func(cid.Cid) {}); err != nil {
+				return err
+			}
+			continue
+		}
+
+		switch string(nameBuf[:nameLen]) {
+		// t.Messages ([]*genadt.CborLink[*github.com/filecoin-project/curio/lib/proofsvc/common.Message]) (slice)
 		case "Messages":
 
 			maj, extra, err = cr.ReadHeader()
@@ -334,7 +345,7 @@ func (t *Messages) UnmarshalCBOR(r io.Reader) (err error) {
 			}
 
 			if extra > 0 {
-				t.Messages = make([]*Message, extra)
+				t.Messages = make([]*genadt.CborLink[*Message], extra)
 			}
 
 			for i := 0; i < int(extra); i++ {
@@ -356,7 +367,7 @@ func (t *Messages) UnmarshalCBOR(r io.Reader) (err error) {
 							if err := cr.UnreadByte(); err != nil {
 								return err
 							}
-							t.Messages[i] = new(Message)
+							t.Messages[i] = new(genadt.CborLink[*Message])
 							if err := t.Messages[i].UnmarshalCBOR(cr); err != nil {
 								return xerrors.Errorf("unmarshaling t.Messages[i] pointer: %w", err)
 							}
@@ -369,7 +380,492 @@ func (t *Messages) UnmarshalCBOR(r io.Reader) (err error) {
 
 		default:
 			// Field doesn't exist on this type, so ignore it
-			cbg.ScanForLinks(r, func(cid.Cid) {})
+			if err := cbg.ScanForLinks(r, func(cid.Cid) {}); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+func (t *VoucherTable) MarshalCBOR(w io.Writer) error {
+	if t == nil {
+		_, err := w.Write(cbg.CborNull)
+		return err
+	}
+
+	cw := cbg.NewCborWriter(w)
+
+	if _, err := cw.Write([]byte{161}); err != nil {
+		return err
+	}
+
+	// t.Vouchers ([][]uint8) (slice)
+	if len("Vouchers") > 8192 {
+		return xerrors.Errorf("Value in field \"Vouchers\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("Vouchers"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("Vouchers")); err != nil {
+		return err
+	}
+
+	if len(t.Vouchers) > 8192 {
+		return xerrors.Errorf("Slice value in field t.Vouchers was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajArray, uint64(len(t.Vouchers))); err != nil {
+		return err
+	}
+	for _, v := range t.Vouchers {
+		if len(v) > 2097152 {
+			return xerrors.Errorf("Byte array in field v was too long")
+		}
+
+		if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(v))); err != nil {
+			return err
+		}
+
+		if _, err := cw.Write(v); err != nil {
+			return err
+		}
+
+	}
+	return nil
+}
+
+func (t *VoucherTable) UnmarshalCBOR(r io.Reader) (err error) {
+	*t = VoucherTable{}
+
+	cr := cbg.NewCborReader(r)
+
+	maj, extra, err := cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err == io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
+	}()
+
+	if maj != cbg.MajMap {
+		return fmt.Errorf("cbor input should be of type map")
+	}
+
+	if extra > cbg.MaxLength {
+		return fmt.Errorf("VoucherTable: map struct too large (%d)", extra)
+	}
+
+	n := extra
+
+	nameBuf := make([]byte, 8)
+	for i := uint64(0); i < n; i++ {
+		nameLen, ok, err := cbg.ReadFullStringIntoBuf(cr, nameBuf, 8192)
+		if err != nil {
+			return err
+		}
+
+		if !ok {
+			// Field doesn't exist on this type, so ignore it
+			if err := cbg.ScanForLinks(cr, func(cid.Cid) {}); err != nil {
+				return err
+			}
+			continue
+		}
+
+		switch string(nameBuf[:nameLen]) {
+		// t.Vouchers ([][]uint8) (slice)
+		case "Vouchers":
+
+			maj, extra, err = cr.ReadHeader()
+			if err != nil {
+				return err
+			}
+
+			if extra > 8192 {
+				return fmt.Errorf("t.Vouchers: array too large (%d)", extra)
+			}
+
+			if maj != cbg.MajArray {
+				return fmt.Errorf("expected cbor array")
+			}
+
+			if extra > 0 {
+				t.Vouchers = make([][]uint8, extra)
+			}
+
+			for i := 0; i < int(extra); i++ {
+				{
+					var maj byte
+					var extra uint64
+					var err error
+					_ = maj
+					_ = extra
+					_ = err
+
+					maj, extra, err = cr.ReadHeader()
+					if err != nil {
+						return err
+					}
+
+					if extra > 2097152 {
+						return fmt.Errorf("t.Vouchers[i]: byte array too large (%d)", extra)
+					}
+					if maj != cbg.MajByteString {
+						return fmt.Errorf("expected byte array")
+					}
+
+					if extra > 0 {
+						t.Vouchers[i] = make([]uint8, extra)
+					}
+
+					if _, err := io.ReadFull(cr, t.Vouchers[i]); err != nil {
+						return err
+					}
+
+				}
+			}
+
+		default:
+			// Field doesn't exist on this type, so ignore it
+			if err := cbg.ScanForLinks(r, func(cid.Cid) {}); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+func (t *BlockHeader) MarshalCBOR(w io.Writer) error {
+	if t == nil {
+		_, err := w.Write(cbg.CborNull)
+		return err
+	}
+
+	cw := cbg.NewCborWriter(w)
+
+	if _, err := cw.Write([]byte{168}); err != nil {
+		return err
+	}
+
+	// t.Height (uint64) (uint64)
+	if len("Height") > 8192 {
+		return xerrors.Errorf("Value in field \"Height\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("Height"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("Height")); err != nil {
+		return err
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.Height)); err != nil {
+		return err
+	}
+
+	// t.Inputs (genadt.CborLink[*github.com/filecoin-project/curio/lib/proofsvc/common.VoucherTable]) (struct)
+	if len("Inputs") > 8192 {
+		return xerrors.Errorf("Value in field \"Inputs\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("Inputs"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("Inputs")); err != nil {
+		return err
+	}
+
+	if err := t.Inputs.MarshalCBOR(cw); err != nil {
+		return err
+	}
+
+	// t.L1Base (types.TipSetKey) (struct)
+	if len("L1Base") > 8192 {
+		return xerrors.Errorf("Value in field \"L1Base\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("L1Base"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("L1Base")); err != nil {
+		return err
+	}
+
+	if err := t.L1Base.MarshalCBOR(cw); err != nil {
+		return err
+	}
+
+	// t.Parent (cid.Cid) (struct)
+	if len("Parent") > 8192 {
+		return xerrors.Errorf("Value in field \"Parent\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("Parent"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("Parent")); err != nil {
+		return err
+	}
+
+	if err := cbg.WriteCid(cw, t.Parent); err != nil {
+		return xerrors.Errorf("failed to write cid field t.Parent: %w", err)
+	}
+
+	// t.Outputs (genadt.CborLink[*github.com/filecoin-project/curio/lib/proofsvc/common.VoucherTable]) (struct)
+	if len("Outputs") > 8192 {
+		return xerrors.Errorf("Value in field \"Outputs\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("Outputs"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("Outputs")); err != nil {
+		return err
+	}
+
+	if err := t.Outputs.MarshalCBOR(cw); err != nil {
+		return err
+	}
+
+	// t.Messages (genadt.CborLink[*github.com/filecoin-project/curio/lib/proofsvc/common.Messages]) (struct)
+	if len("Messages") > 8192 {
+		return xerrors.Errorf("Value in field \"Messages\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("Messages"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("Messages")); err != nil {
+		return err
+	}
+
+	if err := t.Messages.MarshalCBOR(cw); err != nil {
+		return err
+	}
+
+	// t.Signature (crypto.Signature) (struct)
+	if len("Signature") > 8192 {
+		return xerrors.Errorf("Value in field \"Signature\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("Signature"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("Signature")); err != nil {
+		return err
+	}
+
+	if err := t.Signature.MarshalCBOR(cw); err != nil {
+		return err
+	}
+
+	// t.Validator (address.Address) (struct)
+	if len("Validator") > 8192 {
+		return xerrors.Errorf("Value in field \"Validator\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("Validator"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("Validator")); err != nil {
+		return err
+	}
+
+	if err := t.Validator.MarshalCBOR(cw); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (t *BlockHeader) UnmarshalCBOR(r io.Reader) (err error) {
+	*t = BlockHeader{}
+
+	cr := cbg.NewCborReader(r)
+
+	maj, extra, err := cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err == io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
+	}()
+
+	if maj != cbg.MajMap {
+		return fmt.Errorf("cbor input should be of type map")
+	}
+
+	if extra > cbg.MaxLength {
+		return fmt.Errorf("BlockHeader: map struct too large (%d)", extra)
+	}
+
+	n := extra
+
+	nameBuf := make([]byte, 9)
+	for i := uint64(0); i < n; i++ {
+		nameLen, ok, err := cbg.ReadFullStringIntoBuf(cr, nameBuf, 8192)
+		if err != nil {
+			return err
+		}
+
+		if !ok {
+			// Field doesn't exist on this type, so ignore it
+			if err := cbg.ScanForLinks(cr, func(cid.Cid) {}); err != nil {
+				return err
+			}
+			continue
+		}
+
+		switch string(nameBuf[:nameLen]) {
+		// t.Height (uint64) (uint64)
+		case "Height":
+
+			{
+
+				maj, extra, err = cr.ReadHeader()
+				if err != nil {
+					return err
+				}
+				if maj != cbg.MajUnsignedInt {
+					return fmt.Errorf("wrong type for uint64 field")
+				}
+				t.Height = uint64(extra)
+
+			}
+			// t.Inputs (genadt.CborLink[*github.com/filecoin-project/curio/lib/proofsvc/common.VoucherTable]) (struct)
+		case "Inputs":
+
+			{
+
+				b, err := cr.ReadByte()
+				if err != nil {
+					return err
+				}
+				if b != cbg.CborNull[0] {
+					if err := cr.UnreadByte(); err != nil {
+						return err
+					}
+					t.Inputs = new(genadt.CborLink[*VoucherTable])
+					if err := t.Inputs.UnmarshalCBOR(cr); err != nil {
+						return xerrors.Errorf("unmarshaling t.Inputs pointer: %w", err)
+					}
+				}
+
+			}
+			// t.L1Base (types.TipSetKey) (struct)
+		case "L1Base":
+
+			{
+
+				b, err := cr.ReadByte()
+				if err != nil {
+					return err
+				}
+				if b != cbg.CborNull[0] {
+					if err := cr.UnreadByte(); err != nil {
+						return err
+					}
+					t.L1Base = new(types.TipSetKey)
+					if err := t.L1Base.UnmarshalCBOR(cr); err != nil {
+						return xerrors.Errorf("unmarshaling t.L1Base pointer: %w", err)
+					}
+				}
+
+			}
+			// t.Parent (cid.Cid) (struct)
+		case "Parent":
+
+			{
+
+				c, err := cbg.ReadCid(cr)
+				if err != nil {
+					return xerrors.Errorf("failed to read cid field t.Parent: %w", err)
+				}
+
+				t.Parent = c
+
+			}
+			// t.Outputs (genadt.CborLink[*github.com/filecoin-project/curio/lib/proofsvc/common.VoucherTable]) (struct)
+		case "Outputs":
+
+			{
+
+				b, err := cr.ReadByte()
+				if err != nil {
+					return err
+				}
+				if b != cbg.CborNull[0] {
+					if err := cr.UnreadByte(); err != nil {
+						return err
+					}
+					t.Outputs = new(genadt.CborLink[*VoucherTable])
+					if err := t.Outputs.UnmarshalCBOR(cr); err != nil {
+						return xerrors.Errorf("unmarshaling t.Outputs pointer: %w", err)
+					}
+				}
+
+			}
+			// t.Messages (genadt.CborLink[*github.com/filecoin-project/curio/lib/proofsvc/common.Messages]) (struct)
+		case "Messages":
+
+			{
+
+				b, err := cr.ReadByte()
+				if err != nil {
+					return err
+				}
+				if b != cbg.CborNull[0] {
+					if err := cr.UnreadByte(); err != nil {
+						return err
+					}
+					t.Messages = new(genadt.CborLink[*Messages])
+					if err := t.Messages.UnmarshalCBOR(cr); err != nil {
+						return xerrors.Errorf("unmarshaling t.Messages pointer: %w", err)
+					}
+				}
+
+			}
+			// t.Signature (crypto.Signature) (struct)
+		case "Signature":
+
+			{
+
+				b, err := cr.ReadByte()
+				if err != nil {
+					return err
+				}
+				if b != cbg.CborNull[0] {
+					if err := cr.UnreadByte(); err != nil {
+						return err
+					}
+					t.Signature = new(crypto.Signature)
+					if err := t.Signature.UnmarshalCBOR(cr); err != nil {
+						return xerrors.Errorf("unmarshaling t.Signature pointer: %w", err)
+					}
+				}
+
+			}
+			// t.Validator (address.Address) (struct)
+		case "Validator":
+
+			{
+
+				if err := t.Validator.UnmarshalCBOR(cr); err != nil {
+					return xerrors.Errorf("unmarshaling t.Validator: %w", err)
+				}
+
+			}
+
+		default:
+			// Field doesn't exist on this type, so ignore it
+			if err := cbg.ScanForLinks(r, func(cid.Cid) {}); err != nil {
+				return err
+			}
 		}
 	}
 
