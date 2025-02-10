@@ -84,6 +84,10 @@ type PieceLocatorConfig struct {
 * **URL**: The endpoint where the piece data can be located.
 * **Headers**: Any custom headers needed for the HTTP request, such as authorization tokens.
 
+{% hint style="warning" %}
+PieceLocator service will allow Curio to lookup details of a piece automatically for an offline deal. The `add-url` command should not be used for deal which are expected to fetch the data from PieceLocator services.
+{% endhint %}
+
 Consequences: If the piece data is not available at the specified URL, the offline deal will fail. Make sure that the remote server is properly configured and available.
 
 ## Enabling Storage Market
@@ -166,6 +170,10 @@ Tasks refer to operations that the system performs on deals to ensure their succ
 
 The `add-url` command allows you to specify a URL from which the miner can fetch piece data for offline deals. This is essential for deals where the client does not transfer the data immediately upon deal acceptance.
 
+{% hint style="warning" %}
+The `add-url` command should not be used for deal which are expected to fetch the data from PieceLocator services.
+{% endhint %}
+
 ```bash
 curio market add-url [command options] <deal UUID> <raw size/car size>
 ```
@@ -174,6 +182,14 @@ curio market add-url [command options] <deal UUID> <raw size/car size>
 
 ```bash
 curio market add-url --url "https://data.server/pieces?id=pieceCID" --header "Authorization: Bearer token" <UUID> <raw size>
+
+OR
+
+curio market add-url --url "https://data.server/filename" --header "Authorization: Bearer token" <UUID> <raw size>
+
+OR
+
+curio market add-url --url "https://data.server/filename" <UUID> <raw size>
 ```
 
 **Options**:
