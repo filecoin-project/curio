@@ -51,8 +51,7 @@ contract Router is ReentrancyGuard {
         require(msg.value > 0, "Deposit cannot be zero");
         
         // Resolve caller’s Filecoin actor ID.
-        address normalized = msg.sender.mustNormalize();
-        (bool idSuccess, uint64 clientID) = FilAddressIdConverter.getActorID(normalized);
+        (bool idSuccess, uint64 clientID) = FilAddressIdConverter.getActorID(msg.sender);
         require(idSuccess, "Unable to resolve actor ID");
         
         clientBalance[clientID] += msg.value;
@@ -66,8 +65,7 @@ contract Router is ReentrancyGuard {
         uint64 nonce,
         bytes calldata signature
     ) external nonReentrant {
-        address caller = msg.sender.mustNormalize();
-        (bool svcSuccess, uint64 callerID) = FilAddressIdConverter.getActorID(caller);
+        (bool svcSuccess, uint64 callerID) = FilAddressIdConverter.getActorID(msg.sender);
         require(svcSuccess && callerID == CommonTypes.FilActorId.unwrap(serviceActor), "Only service may redeem vouchers");
         
         require(nonce > clientLastNonce[clientID], "Voucher nonce too low");
@@ -111,7 +109,7 @@ contract Router is ReentrancyGuard {
         require(cumulativeAmount >= providerVoucherRedeemed[providerID], "Cumulative amount decreased");
         
         uint256 increment = cumulativeAmount - providerVoucherRedeemed[providerID];
-        require(servicePool >= increment, "Insufficient service pool");
+        require(servicePool >= increment, "Insufficient service pool amount");
         
         // Construct voucher message: Router address || serviceActor || providerID || cumulativeAmount || nonce.
         bytes memory message = abi.encodePacked(
@@ -142,8 +140,7 @@ contract Router is ReentrancyGuard {
     
     /// @notice Allows the service to withdraw any residual funds from the service pool.
     function serviceWithdraw(uint256 amount) external nonReentrant {
-        address caller = msg.sender.mustNormalize();
-        (bool svcSuccess, uint64 callerID) = FilAddressIdConverter.getActorID(caller);
+        (bool svcSuccess, uint64 callerID) = FilAddressIdConverter.getActorID(msg.sender);
         require(svcSuccess && callerID == CommonTypes.FilActorId.unwrap(serviceActor), "Only service may withdraw");
         require(amount <= servicePool, "Amount exceeds service pool");
         

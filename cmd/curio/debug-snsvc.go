@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	ethcommon "github.com/ethereum/go-ethereum/common"
+
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/lotus/chain/types"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/urfave/cli/v2"
-	"math/big"
 )
 
 var debugSNSvc = &cli.Command{
@@ -20,7 +20,7 @@ var debugSNSvc = &cli.Command{
 			Usage: "Deposit FIL into the Router contract (client)",
 			Flags: []cli.Flag{
 				&cli.StringFlag{Name: "from", Usage: "Sender address", Required: true},
-				&cli.StringFlag{Name: "amount", Usage: "Amount in attoFIL", Required: true},
+				&cli.StringFlag{Name: "amount", Usage: "Amount in FIL", Required: true},
 			},
 			Action: depositAction,
 		},
@@ -30,7 +30,7 @@ var debugSNSvc = &cli.Command{
 			Flags: []cli.Flag{
 				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
 				&cli.Uint64Flag{Name: "client", Usage: "Client actor ID", Required: true},
-				&cli.StringFlag{Name: "amount", Usage: "Cumulative amount (attoFIL)", Required: true},
+				&cli.StringFlag{Name: "amount", Usage: "Cumulative amount (FIL)", Required: true},
 				&cli.Uint64Flag{Name: "nonce", Usage: "Voucher nonce", Required: true},
 				&cli.StringFlag{Name: "sig", Usage: "Voucher signature (hex)", Required: true},
 			},
@@ -42,7 +42,7 @@ var debugSNSvc = &cli.Command{
 			Flags: []cli.Flag{
 				&cli.StringFlag{Name: "from", Usage: "Provider sender address", Required: true},
 				&cli.Uint64Flag{Name: "provider", Usage: "Provider actor ID", Required: true},
-				&cli.StringFlag{Name: "amount", Usage: "Cumulative amount (attoFIL)", Required: true},
+				&cli.StringFlag{Name: "amount", Usage: "Cumulative amount (FIL)", Required: true},
 				&cli.Uint64Flag{Name: "nonce", Usage: "Voucher nonce", Required: true},
 				&cli.StringFlag{Name: "sig", Usage: "Voucher signature (hex)", Required: true},
 			},
@@ -53,7 +53,7 @@ var debugSNSvc = &cli.Command{
 			Usage: "Withdraw funds from the service pool (service role)",
 			Flags: []cli.Flag{
 				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
-				&cli.StringFlag{Name: "amount", Usage: "Amount to withdraw (attoFIL)", Required: true},
+				&cli.StringFlag{Name: "amount", Usage: "Amount to withdraw (FIL)", Required: true},
 			},
 			Action: serviceWithdrawAction,
 		},
@@ -61,8 +61,7 @@ var debugSNSvc = &cli.Command{
 			Name:  "get-client-state",
 			Usage: "Query the state of a client",
 			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "from", Usage: "Caller address", Required: true},
-				&cli.Uint64Flag{Name: "client", Usage: "Client actor ID", Required: true},
+				&cli.StringFlag{Name: "client", Usage: "Client actor address", Required: true},
 			},
 			Action: getClientStateAction,
 		},
@@ -70,17 +69,14 @@ var debugSNSvc = &cli.Command{
 			Name:  "get-provider-state",
 			Usage: "Query the state of a provider",
 			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "from", Usage: "Caller address", Required: true},
-				&cli.Uint64Flag{Name: "provider", Usage: "Provider actor ID", Required: true},
+				&cli.StringFlag{Name: "provider", Usage: "Provider actor address", Required: true},
 			},
 			Action: getProviderStateAction,
 		},
 		{
-			Name:  "get-service-state",
-			Usage: "Query the service state",
-			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "from", Usage: "Caller address", Required: true},
-			},
+			Name:   "get-service-state",
+			Usage:  "Query the service state",
+			Flags:  []cli.Flag{},
 			Action: getServiceStateAction,
 		},
 	},
@@ -102,13 +98,13 @@ func depositAction(cctx *cli.Context) error {
 	}
 
 	amountStr := cctx.String("amount")
-	amount, ok := new(big.Int).SetString(amountStr, 10)
-	if !ok {
-		return fmt.Errorf("invalid amount")
+	filAmount, err := types.ParseFIL(amountStr)
+	if err != nil {
+		return fmt.Errorf("invalid amount: %w", err)
 	}
 
 	routerAddr := common.Router() // returns the router contract address (Filecoin address)
-	if err := common.ClientDeposit(ctx, full, fromAddr, routerAddr, abi.TokenAmount(amount)); err != nil {
+	if err := common.ClientDeposit(ctx, full, fromAddr, routerAddr, abi.TokenAmount(filAmount)); err != nil {
 		return fmt.Errorf("deposit failed: %w", err)
 	}
 
@@ -134,17 +130,17 @@ func redeemClientAction(cctx *cli.Context) error {
 	clientID := cctx.Uint64("client")
 
 	amountStr := cctx.String("amount")
-	cumAmount, ok := new(big.Int).SetString(amountStr, 10)
-	if !ok {
-		return fmt.Errorf("invalid cumulative amount")
+	filAmount, err := types.ParseFIL(amountStr)
+	if err != nil {
+		return fmt.Errorf("invalid amount: %w", err)
 	}
+
 	nonce := cctx.Uint64("nonce")
 
-	sigHex := cctx.String("sig")
-	sig := ethcommon.FromHex(sigHex)
+	sig := []byte{} // TODO!!!!!!
 
 	routerAddr := common.Router()
-	if err := common.ServiceRedeemClientVoucher(ctx, full, fromAddr, routerAddr, clientID, abi.TokenAmount(cumAmount), nonce, sig); err != nil {
+	if err := common.ServiceRedeemClientVoucher(ctx, full, fromAddr, routerAddr, clientID, abi.TokenAmount(filAmount), nonce, sig); err != nil {
 		return fmt.Errorf("redeem client voucher failed: %w", err)
 	}
 	fmt.Println("Redeem client voucher succeeded")
@@ -169,17 +165,17 @@ func redeemProviderAction(cctx *cli.Context) error {
 	providerID := cctx.Uint64("provider")
 
 	amountStr := cctx.String("amount")
-	cumAmount, ok := new(big.Int).SetString(amountStr, 10)
-	if !ok {
-		return fmt.Errorf("invalid cumulative amount")
+	filAmount, err := types.ParseFIL(amountStr)
+	if err != nil {
+		return fmt.Errorf("invalid cumulative amount: %w", err)
 	}
+
 	nonce := cctx.Uint64("nonce")
 
-	sigHex := cctx.String("sig")
-	sig := ethcommon.FromHex(sigHex)
+	sig := []byte{} // TODO!!!!!!
 
 	routerAddr := common.Router()
-	if err := common.Cli(ctx, full, fromAddr, routerAddr, providerID, abi.TokenAmount(cumAmount), nonce, sig); err != nil {
+	if err := common.ServiceRedeemProviderVoucher(ctx, full, fromAddr, routerAddr, providerID, abi.TokenAmount(filAmount), nonce, sig); err != nil {
 		return fmt.Errorf("redeem provider voucher failed: %w", err)
 	}
 	fmt.Println("Redeem provider voucher succeeded")
@@ -202,13 +198,13 @@ func serviceWithdrawAction(cctx *cli.Context) error {
 	}
 
 	amountStr := cctx.String("amount")
-	amount, ok := new(big.Int).SetString(amountStr, 10)
-	if !ok {
-		return fmt.Errorf("invalid withdraw amount")
+	filAmount, err := types.ParseFIL(amountStr)
+	if err != nil {
+		return fmt.Errorf("invalid withdraw amount: %w", err)
 	}
 
 	routerAddr := common.Router()
-	if err := common.ServiceWithdraw(ctx, full, fromAddr, routerAddr, abi.TokenAmount(amount)); err != nil {
+	if err := common.ServiceWithdraw(ctx, full, fromAddr, routerAddr, abi.TokenAmount(filAmount)); err != nil {
 		return fmt.Errorf("service withdraw failed: %w", err)
 	}
 	fmt.Println("Service withdrawal succeeded")
@@ -224,20 +220,29 @@ func getClientStateAction(cctx *cli.Context) error {
 	}
 	defer closer()
 
-	fromStr := cctx.String("from")
-	fromAddr, err := address.NewFromString(fromStr)
+	clientAddrStr := cctx.String("client")
+	clientAddr, err := address.NewFromString(clientAddrStr)
 	if err != nil {
-		return fmt.Errorf("invalid caller address: %w", err)
+		return fmt.Errorf("invalid client address: %w", err)
 	}
 
-	clientID := cctx.Uint64("client")
+	clientIdAddr, err := full.StateLookupID(ctx, clientAddr, types.EmptyTSK)
+	if err != nil {
+		return fmt.Errorf("get client id failed: %w", err)
+	}
+
+	clientID, err := address.IDFromAddress(clientIdAddr)
+	if err != nil {
+		return fmt.Errorf("get client id failed: %w", err)
+	}
+
 	routerAddr := common.Router()
-	balance, voucherRedeemed, lastNonce, err := common.GetClientState(ctx, full, fromAddr, routerAddr, clientID)
+	balance, voucherRedeemed, lastNonce, err := common.GetClientState(ctx, full, routerAddr, clientID)
 	if err != nil {
 		return fmt.Errorf("get client state failed: %w", err)
 	}
-	fmt.Printf("Client %d: Balance: %s, VoucherRedeemed: %s, LastNonce: %d\n",
-		clientID, balance.String(), voucherRedeemed.String(), lastNonce)
+	fmt.Printf("Client %s: Balance: %s, VoucherRedeemed: %s, LastNonce: %d\n",
+		clientAddrStr, types.FIL(balance).String(), types.FIL(voucherRedeemed).String(), lastNonce)
 	return nil
 }
 
@@ -250,20 +255,29 @@ func getProviderStateAction(cctx *cli.Context) error {
 	}
 	defer closer()
 
-	fromStr := cctx.String("from")
-	fromAddr, err := address.NewFromString(fromStr)
+	providerAddrStr := cctx.String("provider")
+	providerAddr, err := address.NewFromString(providerAddrStr)
 	if err != nil {
-		return fmt.Errorf("invalid caller address: %w", err)
+		return fmt.Errorf("invalid provider address: %w", err)
 	}
 
-	providerID := cctx.Uint64("provider")
+	providerIdAddr, err := full.StateLookupID(ctx, providerAddr, types.EmptyTSK)
+	if err != nil {
+		return fmt.Errorf("get provider id failed: %w", err)
+	}
+
+	providerID, err := address.IDFromAddress(providerIdAddr)
+	if err != nil {
+		return fmt.Errorf("get provider id failed: %w", err)
+	}
+
 	routerAddr := common.Router()
-	voucherRedeemed, lastNonce, err := common.GetProviderState(ctx, full, fromAddr, routerAddr, providerID)
+	voucherRedeemed, lastNonce, err := common.GetProviderState(ctx, full, routerAddr, providerID)
 	if err != nil {
 		return fmt.Errorf("get provider state failed: %w", err)
 	}
 	fmt.Printf("Provider %d: VoucherRedeemed: %s, LastNonce: %d\n",
-		providerID, voucherRedeemed.String(), lastNonce)
+		providerID, types.FIL(voucherRedeemed).String(), lastNonce)
 	return nil
 }
 
@@ -276,17 +290,11 @@ func getServiceStateAction(cctx *cli.Context) error {
 	}
 	defer closer()
 
-	fromStr := cctx.String("from")
-	fromAddr, err := address.NewFromString(fromStr)
-	if err != nil {
-		return fmt.Errorf("invalid caller address: %w", err)
-	}
-
 	routerAddr := common.Router()
-	serviceActor, pool, err := common.GetServiceState(ctx, full, fromAddr, routerAddr)
+	serviceActor, pool, err := common.GetServiceState(ctx, full, routerAddr)
 	if err != nil {
 		return fmt.Errorf("get service state failed: %w", err)
 	}
-	fmt.Printf("Service State: ServiceActor: %d, Pool: %s\n", serviceActor, pool.String())
+	fmt.Printf("Service State: ServiceActor: %d, Pool: %s\n", serviceActor, types.FIL(pool).String())
 	return nil
 }
