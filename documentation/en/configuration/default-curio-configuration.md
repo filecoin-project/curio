@@ -482,6 +482,18 @@ description: The default curio configuration
       # type: bool
       #DenyOfflineDeals = false
 
+      # CIDGravityToken is the authorization token to use for CIDGravity filters.
+      # If empty then CIDGravity filters are not called.
+      #
+      # type: string
+      #CIDGravityToken = ""
+
+      # DefaultCIDGravityAccept when set to true till accept deals when CIDGravity service is not available.
+      # Default behaviors is to reject the deals
+      #
+      # type: bool
+      #DefaultCIDGravityAccept = false
+
     [Market.StorageMarketConfig.IPNI]
       # Disable set whether to disable indexing announcement to the network and expose endpoints that
       # allow indexer nodes to process announcements. Default: False

@@ -31,12 +31,14 @@ import (
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/multictladdr"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/market/mk12/legacytypes"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
 	ctypes "github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/storage/ctladdr"
 )
 
 var log = logging.Logger("mk12")
@@ -50,15 +52,17 @@ type MK12API interface {
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
 	StateVerifiedClientStatus(ctx context.Context, addr address.Address, tsk types.TipSetKey) (*abi.StoragePower, error)
 	WalletSign(context.Context, address.Address, []byte) (*crypto.Signature, error)
+	ctladdr.NodeApi
 }
 
 type MK12 struct {
 	miners []address.Address
 	db     *harmonydb.DB
 	api    MK12API
-	sc     *ffi.SealCalls
+	si     paths.SectorIndex
 	cfg    *config.CurioConfig
 	sm     map[address.Address]abi.SectorSize
+	as     *multictladdr.MultiAddressSelector
 }
 
 type validationError struct {
@@ -67,7 +71,7 @@ type validationError struct {
 	reason string
 }
 
-func NewMK12Handler(miners []address.Address, db *harmonydb.DB, sc *ffi.SealCalls, mapi MK12API, cfg *config.CurioConfig) (*MK12, error) {
+func NewMK12Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorIndex, mapi MK12API, cfg *config.CurioConfig, as *multictladdr.MultiAddressSelector) (*MK12, error) {
 	ctx := context.Background()
 
 	sm := make(map[address.Address]abi.SectorSize)
@@ -86,9 +90,10 @@ func NewMK12Handler(miners []address.Address, db *harmonydb.DB, sc *ffi.SealCall
 		miners: miners,
 		db:     db,
 		api:    mapi,
-		sc:     sc,
+		si:     si,
 		sm:     sm,
 		cfg:    cfg,
+		as:     as,
 	}, nil
 }
 
@@ -177,17 +182,33 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 		}, nil
 	}
 
-	valid := m.applyFilters(ctx, ds)
-	if valid != nil && valid.error != nil {
-		log.Errorf("failed to apply filetrs: %w", valid.error)
-		return &ProviderDealRejectionInfo{
-			Reason: "internal server error: failed to apply filters",
-		}, nil
-	}
-	if valid != nil && valid.reason != "" {
-		return &ProviderDealRejectionInfo{
-			Reason: valid.reason,
-		}, nil
+	// Either use CIDGravity Filters or internal filters
+	if m.cfg.Market.StorageMarketConfig.MK12.CIDGravityToken != "" {
+		accept, msg, err := m.cidGravityCheck(ctx, ds)
+		if err != nil {
+			log.Errorf("failed to check cid gravity: %w", err)
+			return &ProviderDealRejectionInfo{
+				Reason: "internal server error: failed to check cid gravity",
+			}, nil
+		}
+		if !accept {
+			return &ProviderDealRejectionInfo{
+				Reason: msg,
+			}, nil
+		}
+	} else {
+		valid := m.applyFilters(ctx, ds)
+		if valid != nil && valid.error != nil {
+			log.Errorf("failed to apply filetrs: %w", valid.error)
+			return &ProviderDealRejectionInfo{
+				Reason: "internal server error: failed to apply filters",
+			}, nil
+		}
+		if valid != nil && valid.reason != "" {
+			return &ProviderDealRejectionInfo{
+				Reason: valid.reason,
+			}, nil
+		}
 	}
 
 	return m.processDeal(ctx, ds)
