@@ -42,18 +42,15 @@ contract Router is ReentrancyGuard {
     event ServiceWithdrawal(uint256 amount);
     
     constructor(CommonTypes.FilActorId _serviceActor) {
-        // The service actor is provided as a FilActorId (f0) at deployment.
         require(CommonTypes.FilActorId.unwrap(_serviceActor) > 0, "Invalid service actor");
         serviceActor = _serviceActor;
     }
     
     /// @notice Client deposits FIL into the router.
-    /// The caller’s EVM address is normalized (via FilAddressIdConverter) into a Filecoin actor ID.
     function deposit() external payable nonReentrant {
         require(msg.value > 0, "Deposit cannot be zero");
         
-        // Convert msg.sender (an EVM address) to a Filecoin actor ID.
-        // The helper "mustNormalize" will revert if conversion fails.
+        // Resolve caller’s Filecoin actor ID.
         address normalized = msg.sender.mustNormalize();
         (bool idSuccess, uint64 clientID) = FilAddressIdConverter.getActorID(normalized);
         require(idSuccess, "Unable to resolve actor ID");
@@ -63,18 +60,12 @@ contract Router is ReentrancyGuard {
     }
     
     /// @notice Service redeems a client voucher off-chain signed by the client.
-    /// @param clientID the client actor ID (f0) from which funds are drawn.
-    /// @param cumulativeAmount the cumulative amount authorized (attoFIL)
-    /// @param nonce voucher sequence number; must be strictly increasing.
-    /// @param signature raw signature bytes over the CBOR-encoded voucher message.
     function redeemClientVoucher(
         uint64 clientID,
         uint256 cumulativeAmount,
         uint64 nonce,
         bytes calldata signature
     ) external nonReentrant {
-        // Only service (or a designated caller) can call this.
-        // For simplicity, we check that msg.sender normalizes to serviceActor.
         address caller = msg.sender.mustNormalize();
         (bool svcSuccess, uint64 callerID) = FilAddressIdConverter.getActorID(caller);
         require(svcSuccess && callerID == CommonTypes.FilActorId.unwrap(serviceActor), "Only service may redeem vouchers");
@@ -85,8 +76,7 @@ contract Router is ReentrancyGuard {
         uint256 increment = cumulativeAmount - clientVoucherRedeemed[clientID];
         require(clientBalance[clientID] >= increment, "Insufficient client balance");
         
-        // Construct the voucher message to authenticate.
-        // For example, encode: Router address || clientID || serviceActor || cumulativeAmount || nonce.
+        // Construct voucher message: Router address || clientID || serviceActor || cumulativeAmount || nonce.
         bytes memory message = abi.encodePacked(
             address(this),
             clientID,
@@ -95,16 +85,13 @@ contract Router is ReentrancyGuard {
             nonce
         );
         
-        // Verify the client signature using AccountAPI.
         AccountTypes.AuthenticateMessageParams memory authParams = AccountTypes.AuthenticateMessageParams({
             signature: signature,
             message: message
         });
-        // This call reverts if authentication fails.
         int256 authExit = AccountAPI.authenticateMessage(CommonTypes.FilActorId.wrap(clientID), authParams);
         require(authExit == 0, "Client voucher signature invalid");
         
-        // Update client state and move funds.
         clientBalance[clientID] -= increment;
         clientVoucherRedeemed[clientID] = cumulativeAmount;
         clientLastNonce[clientID] = nonce;
@@ -114,24 +101,19 @@ contract Router is ReentrancyGuard {
     }
     
     /// @notice Provider redeems a service voucher off-chain signed by the service.
-    /// @param providerID the provider actor ID (f0) to which funds will be sent.
-    /// @param cumulativeAmount the cumulative amount (attoFIL) authorized by service.
-    /// @param nonce voucher sequence number; must be strictly increasing.
-    /// @param signature raw signature bytes over the voucher message.
     function redeemProviderVoucher(
         uint64 providerID,
         uint256 cumulativeAmount,
         uint64 nonce,
         bytes calldata signature
     ) external nonReentrant {
-        // Anyone may call this function; however, voucher authenticity is checked.
         require(nonce > providerLastNonce[providerID], "Voucher nonce too low");
         require(cumulativeAmount >= providerVoucherRedeemed[providerID], "Cumulative amount decreased");
         
         uint256 increment = cumulativeAmount - providerVoucherRedeemed[providerID];
         require(servicePool >= increment, "Insufficient service pool");
         
-        // Construct the voucher message: Router address || serviceActor || providerID || cumulativeAmount || nonce.
+        // Construct voucher message: Router address || serviceActor || providerID || cumulativeAmount || nonce.
         bytes memory message = abi.encodePacked(
             address(this),
             CommonTypes.FilActorId.unwrap(serviceActor),
@@ -140,7 +122,6 @@ contract Router is ReentrancyGuard {
             nonce
         );
         
-        // Verify service signature.
         AccountTypes.AuthenticateMessageParams memory authParams = AccountTypes.AuthenticateMessageParams({
             signature: signature,
             message: message
@@ -148,14 +129,10 @@ contract Router is ReentrancyGuard {
         int256 authExit = AccountAPI.authenticateMessage(serviceActor, authParams);
         require(authExit == 0, "Service voucher signature invalid");
         
-        // Update provider state and transfer funds.
         servicePool -= increment;
         providerVoucherRedeemed[providerID] = cumulativeAmount;
         providerLastNonce[providerID] = nonce;
         
-        // Use SendAPI to send FIL to the provider's address.
-        // The provider's on-chain Filecoin address should be provided in f4 or other format.
-        // Here we assume providerID can be converted to a FilAddress via FilAddresses.fromActorID.
         CommonTypes.FilAddress memory providerAddr = FilAddresses.fromActorID(providerID);
         int256 sendExit = SendAPI.send(providerAddr, increment);
         require(sendExit == 0, "Failed to send FIL to provider");
@@ -175,5 +152,22 @@ contract Router is ReentrancyGuard {
         require(sendExit == 0, "Failed to withdraw FIL");
         
         emit ServiceWithdrawal(amount);
+    }
+    
+    // --- New View Functions ---
+    
+    /// @notice Returns the state for a given client.
+    function getClientState(uint64 clientID) external view returns (uint256 balance, uint256 voucherRedeemed, uint64 lastNonce) {
+        return (clientBalance[clientID], clientVoucherRedeemed[clientID], clientLastNonce[clientID]);
+    }
+    
+    /// @notice Returns the state for a given provider.
+    function getProviderState(uint64 providerID) external view returns (uint256 voucherRedeemed, uint64 lastNonce) {
+        return (providerVoucherRedeemed[providerID], providerLastNonce[providerID]);
+    }
+    
+    /// @notice Returns the service state.
+    function getServiceState() external view returns (CommonTypes.FilActorId, uint256) {
+        return (serviceActor, servicePool);
     }
 }
