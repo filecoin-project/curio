@@ -468,39 +468,47 @@ func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.
 }
 
 func updateBaseLayer(ctx context.Context, db *harmonydb.DB) error {
-	// Get existing base from DB
-	text := ""
-	err := db.QueryRow(ctx, `SELECT config FROM harmony_config WHERE title=$1`, "base").Scan(&text)
-	if err != nil {
-		if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
-			return fmt.Errorf("missing layer 'base' ")
+	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		// Get existing base from DB
+		text := ""
+		err = tx.QueryRow(`SELECT config FROM harmony_config WHERE title=$1`, "base").Scan(&text)
+		if err != nil {
+			if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
+				return false, fmt.Errorf("missing layer 'base' ")
+			}
+			return false, fmt.Errorf("could not read layer 'base': %w", err)
 		}
-		return fmt.Errorf("could not read layer 'base': %w", err)
-	}
 
-	cfg := config.DefaultCurioConfig()
+		cfg := config.DefaultCurioConfig()
 
-	// Apply existing base to updated default config
-	_, err = LoadConfigWithUpgrades(text, cfg)
+		// Apply existing base to updated default config
+		_, err = LoadConfigWithUpgrades(text, cfg)
+		if err != nil {
+			return false, fmt.Errorf("could not read base layer, bad toml %s: %w", text, err)
+		}
+
+		// Convert the update config to string
+		cb, err := config.ConfigUpdate(cfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
+		if err != nil {
+			return false, xerrors.Errorf("cannot update base config: %w", err)
+		}
+
+		// Check if we need to update the DB
+		if text == string(cb) {
+			return false, nil
+		}
+
+		// Save the updated base with comments
+		_, err = tx.Exec("UPDATE harmony_config SET config=$1 WHERE title='base'", string(cb))
+		if err != nil {
+			return false, xerrors.Errorf("cannot update base config: %w", err)
+		}
+
+		return true, nil
+	})
+
 	if err != nil {
-		return fmt.Errorf("could not read base layer, bad toml %s: %w", text, err)
-	}
-
-	// Convert the update config to string
-	cb, err := config.ConfigUpdate(cfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
-	if err != nil {
-		return xerrors.Errorf("cannot update base config: %w", err)
-	}
-
-	// Check if we need to update the DB
-	if text == string(cb) {
-		return nil
-	}
-
-	// Save the updated base with comments
-	_, err = db.Exec(ctx, "UPDATE harmony_config SET config=$1 WHERE title='base'", string(cb))
-	if err != nil {
-		return xerrors.Errorf("cannot update base config: %w", err)
+		return err
 	}
 
 	return nil
