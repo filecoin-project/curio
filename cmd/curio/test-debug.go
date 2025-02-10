@@ -11,5 +11,6 @@ var testDebugCmd = &cli.Command{
 	Usage: translations.T("Collection of debugging utilities"),
 	Subcommands: []*cli.Command{
 		testDebugIpniChunks,
+		debugSNSvc,
 	},
 }

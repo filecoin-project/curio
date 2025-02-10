@@ -6,24 +6,29 @@ import (
 	"crypto/ecdsa"
 	"encoding/binary"
 	"fmt"
-	"github.com/filecoin-project/lotus/chain/types/ethtypes"
 	"math/big"
 	"strings"
+
+	"github.com/filecoin-project/lotus/chain/types/ethtypes"
 
 	eabi "github.com/ethereum/go-ethereum/accounts/abi"
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/filecoin-project/go-address"
-	abi2 "github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/abi"
+	fbig "github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
+	"github.com/filecoin-project/go-state-types/exitcode"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors"
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
-const RouterMainnet = "0xaf44852Fd59169B8C079BA2e8c8380471b040C14"
+// RouterMainnet is the Ethereum form of the router address. This is just an example.
+const RouterMainnet = "0xc5C406f89FBC6844394205B19532862f28d89Fd6"
 
+// Router returns the Filecoin address of the router.
 func Router() address.Address {
 	to, err := ethtypes.ParseEthAddress(RouterMainnet)
 	if err != nil {
@@ -38,7 +43,13 @@ func Router() address.Address {
 	return toAddr
 }
 
-// --- ABI definitions for the Router contract ---
+// ToFilBig converts a standard library *big.Int to a filecoin-project big.Int
+func ToFilBig(x *big.Int) fbig.Int {
+	return fbig.NewFromGo(x)
+}
+
+// --- ABI definitions for the Router contract calls ---
+
 const DepositABI = `[
 	{
 	  "inputs": [],
@@ -127,17 +138,117 @@ const GetServiceStateABI = `[
 	  "inputs": [],
 	  "name": "getServiceState",
 	  "outputs": [
-	    {"internalType": "uint64", "name": "", "type": "uint64"},
-	    {"internalType": "uint256", "name": "", "type": "uint256"}
+	    {
+          "internalType": "CommonTypes.FilActorId",
+          "name": "serviceActor",
+          "type": "uint64"
+        },
+	    {"internalType": "uint256", "name": "servicePool", "type": "uint256"}
 	  ],
 	  "stateMutability": "view",
 	  "type": "function"
 	}
 ]`
 
-// --- Off-chain Voucher Types & Helpers ---
+// --- Implementation for missing deposit, voucher redemption, etc. ---
 
-// ClientVoucher represents a voucher from a client.
+// ClientDeposit calls `deposit()` with a pay value = the deposit amount in attoFIL
+func ClientDeposit(
+	ctx context.Context,
+	full api.FullNode,
+	from, router address.Address,
+	amount fbig.Int,
+) error {
+	parsedABI, err := eabi.JSON(strings.NewReader(DepositABI))
+	if err != nil {
+		return fmt.Errorf("parse deposit ABI: %w", err)
+	}
+	data, err := parsedABI.Pack("deposit")
+	if err != nil {
+		return fmt.Errorf("pack deposit call: %w", err)
+	}
+	_, err = sendEVMMessage(ctx, full, from, router, amount, data)
+	if err != nil {
+		return fmt.Errorf("deposit message failed: %w", err)
+	}
+	return nil
+}
+
+// ServiceRedeemClientVoucher calls `redeemClientVoucher(clientID, cumulativeAmount, nonce, signature)`.
+func ServiceRedeemClientVoucher(
+	ctx context.Context,
+	full api.FullNode,
+	from, router address.Address,
+	clientID uint64,
+	cumulativeAmount fbig.Int,
+	nonce uint64,
+	sig []byte,
+) error {
+	parsedABI, err := eabi.JSON(strings.NewReader(RedeemClientVoucherABI))
+	if err != nil {
+		return fmt.Errorf("parse redeemClientVoucher ABI: %w", err)
+	}
+	data, err := parsedABI.Pack("redeemClientVoucher", clientID, cumulativeAmount, nonce, sig)
+	if err != nil {
+		return fmt.Errorf("pack redeemClientVoucher: %w", err)
+	}
+	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	if err != nil {
+		return fmt.Errorf("redeemClientVoucher message failed: %w", err)
+	}
+	return nil
+}
+
+// ServiceRedeemProviderVoucher calls `redeemProviderVoucher(providerID, cumulativeAmount, nonce, signature)`.
+func ServiceRedeemProviderVoucher(
+	ctx context.Context,
+	full api.FullNode,
+	from, router address.Address,
+	providerID uint64,
+	cumulativeAmount fbig.Int,
+	nonce uint64,
+	sig []byte,
+) error {
+	parsedABI, err := eabi.JSON(strings.NewReader(RedeemProviderVoucherABI))
+	if err != nil {
+		return fmt.Errorf("parse redeemProviderVoucher ABI: %w", err)
+	}
+	data, err := parsedABI.Pack("redeemProviderVoucher", providerID, cumulativeAmount, nonce, sig)
+	if err != nil {
+		return fmt.Errorf("pack redeemProviderVoucher: %w", err)
+	}
+	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	if err != nil {
+		return fmt.Errorf("redeemProviderVoucher message failed: %w", err)
+	}
+	return nil
+}
+
+// ServiceWithdraw calls `serviceWithdraw(amount)`.
+func ServiceWithdraw(
+	ctx context.Context,
+	full api.FullNode,
+	from, router address.Address,
+	amount fbig.Int,
+) error {
+	parsedABI, err := eabi.JSON(strings.NewReader(ServiceWithdrawABI))
+	if err != nil {
+		return fmt.Errorf("parse serviceWithdraw ABI: %w", err)
+	}
+	data, err := parsedABI.Pack("serviceWithdraw", amount)
+	if err != nil {
+		return fmt.Errorf("pack serviceWithdraw: %w", err)
+	}
+	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	if err != nil {
+		return fmt.Errorf("serviceWithdraw message failed: %w", err)
+	}
+	return nil
+}
+
+// --- Off-chain voucher creation/verification (unchanged) ---
+
+// ClientVoucher ...
 type ClientVoucher struct {
 	ClientID         uint64
 	CumulativeAmount *big.Int
@@ -145,7 +256,7 @@ type ClientVoucher struct {
 	Signature        []byte
 }
 
-// ProviderVoucher represents a voucher from the service authorizing payment to a provider.
+// ProviderVoucher ...
 type ProviderVoucher struct {
 	ProviderID       uint64
 	CumulativeAmount *big.Int
@@ -153,50 +264,44 @@ type ProviderVoucher struct {
 	Signature        []byte
 }
 
-// CreateClientVoucher creates the message bytes that the client must sign.
-// It returns the bytes that should be signed (the same as constructed in the contract).
+// CreateClientVoucher ...
 func CreateClientVoucher(router ethcommon.Address, clientID uint64, serviceActor uint64, cumulativeAmount *big.Int, nonce uint64) []byte {
-	// We use tight packing: router (20 bytes), clientID (8 bytes), serviceActor (8 bytes), cumulativeAmount (32 bytes) and nonce (8 bytes).
 	var buf bytes.Buffer
-	// Write router (as 20 bytes)
+	// router (20 bytes)
 	buf.Write(ethcommon.LeftPadBytes(router.Bytes(), 20))
-	// Write clientID (big-endian 8 bytes)
+	// clientID (8 bytes)
 	tmp := make([]byte, 8)
 	binary.BigEndian.PutUint64(tmp, clientID)
 	buf.Write(tmp)
-	// Write serviceActor (8 bytes)
+	// serviceActor (8 bytes)
 	binary.BigEndian.PutUint64(tmp, serviceActor)
 	buf.Write(tmp)
-	// Write cumulativeAmount as 32 bytes (left padded)
+	// cumulativeAmount (32 bytes)
 	caBytes := cumulativeAmount.Bytes()
 	buf.Write(ethcommon.LeftPadBytes(caBytes, 32))
-	// Write nonce (8 bytes)
+	// nonce (8 bytes)
 	binary.BigEndian.PutUint64(tmp, nonce)
 	buf.Write(tmp)
 	return buf.Bytes()
 }
 
-// CreateProviderVoucher creates the message bytes that the service must sign for provider voucher.
+// CreateProviderVoucher ...
 func CreateProviderVoucher(router ethcommon.Address, serviceActor uint64, providerID uint64, cumulativeAmount *big.Int, nonce uint64) []byte {
 	var buf bytes.Buffer
 	buf.Write(ethcommon.LeftPadBytes(router.Bytes(), 20))
-	// Write serviceActor (8 bytes)
 	tmp := make([]byte, 8)
 	binary.BigEndian.PutUint64(tmp, serviceActor)
 	buf.Write(tmp)
-	// Write providerID (8 bytes)
 	binary.BigEndian.PutUint64(tmp, providerID)
 	buf.Write(tmp)
-	// Write cumulativeAmount (32 bytes)
 	caBytes := cumulativeAmount.Bytes()
 	buf.Write(ethcommon.LeftPadBytes(caBytes, 32))
-	// Write nonce (8 bytes)
 	binary.BigEndian.PutUint64(tmp, nonce)
 	buf.Write(tmp)
 	return buf.Bytes()
 }
 
-// SignVoucher signs the given voucher message with the provided private key.
+// SignVoucher ...
 func SignVoucher(message []byte, privKey *ecdsa.PrivateKey) ([]byte, error) {
 	hash := crypto.Keccak256Hash(message)
 	sig, err := crypto.Sign(hash.Bytes(), privKey)
@@ -206,19 +311,16 @@ func SignVoucher(message []byte, privKey *ecdsa.PrivateKey) ([]byte, error) {
 	return sig, nil
 }
 
-// VerifyVoucher verifies that the given signature is valid for the message.
+// VerifyVoucher ...
 func VerifyVoucher(message []byte, signature []byte, pubKey *ecdsa.PublicKey) bool {
 	hash := crypto.Keccak256Hash(message)
-	// Remove recovery byte if present.
 	if len(signature) == 65 {
 		signature = signature[:64]
 	}
 	return crypto.VerifySignature(crypto.FromECDSAPub(pubKey), hash.Bytes(), signature)
 }
 
-// VerifyVoucherUpdate compares two vouchers (the best accepted so far and the newly proposed voucher).
-// It checks that the new voucher’s nonce is higher than the best accepted voucher’s nonce
-// and that the new cumulative amount is higher. It returns the balance increase (difference).
+// VerifyVoucherUpdate ...
 func VerifyVoucherUpdate(best, proposed *ClientVoucher) (*big.Int, error) {
 	if proposed.Nonce <= best.Nonce {
 		return nil, fmt.Errorf("proposed voucher nonce is not higher than best accepted: %d <= %d", proposed.Nonce, best.Nonce)
@@ -230,136 +332,131 @@ func VerifyVoucherUpdate(best, proposed *ClientVoucher) (*big.Int, error) {
 	return increment, nil
 }
 
-// --- Contract State Query Helpers ---
+// --- Query Contract State (unchanged from your snippet) ---
 
-// GetClientState queries the contract for a client’s state.
-func GetClientState(ctx context.Context, full api.FullNode, from, router address.Address, clientID uint64) (balance *big.Int, voucherRedeemed *big.Int, lastNonce uint64, err error) {
+func GetClientState(ctx context.Context, full api.FullNode, router address.Address, clientID uint64) (fbig.Int, fbig.Int, uint64, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(GetClientStateABI))
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to parse getClientState ABI: %w", err)
+		return fbig.Int{}, fbig.Int{}, 0, fmt.Errorf("failed to parse getClientState ABI: %w", err)
 	}
 	data, err := parsedABI.Pack("getClientState", clientID)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to pack getClientState call: %w", err)
+		return fbig.Int{}, fbig.Int{}, 0, fmt.Errorf("failed to pack getClientState call: %w", err)
 	}
-	// Use a StateCall message (read-only)
 	res, err := full.StateCall(ctx, &types.Message{
 		To:     router,
-		From:   from,
-		Value:  abi2.NewTokenAmount(0),
+		From:   builtin.SystemActorAddr,
+		Value:  abi.NewTokenAmount(0),
 		Method: builtin.MethodsEVM.InvokeContract,
 		Params: mustSerializeCBOR(data),
 	}, types.EmptyTSK)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("StateCall failed: %w", err)
+		return fbig.Int{}, fbig.Int{}, 0, fmt.Errorf("StateCall failed: %w", err)
 	}
-	// Unpack the returned tuple (balance, voucherRedeemed, lastNonce)
+
+	var rawBytes abi.CborBytes
+	if err := rawBytes.UnmarshalCBOR(bytes.NewReader(res.MsgRct.Return)); err != nil {
+		return fbig.Int{}, fbig.Int{}, 0, fmt.Errorf("failed to unmarshal getClientState result: %w", err)
+	}
+
 	var out struct {
-		Balance         *big.Int
-		VoucherRedeemed *big.Int
-		LastNonce       uint64
+		Balance         *big.Int `abi:"balance"`
+		VoucherRedeemed *big.Int `abi:"voucherRedeemed"`
+		LastNonce       uint64   `abi:"lastNonce"`
 	}
-	err = parsedABI.UnpackIntoInterface(&out, "getClientState", res.MsgRct.Return)
+	err = parsedABI.UnpackIntoInterface(&out, "getClientState", rawBytes)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("failed to unpack getClientState result: %w", err)
+		return fbig.Int{}, fbig.Int{}, 0, fmt.Errorf("failed to unpack getClientState result: %w", err)
 	}
-	return out.Balance, out.VoucherRedeemed, out.LastNonce, nil
+	return fbig.NewFromGo(out.Balance), fbig.NewFromGo(out.VoucherRedeemed), out.LastNonce, nil
 }
 
-// GetProviderState queries the contract for a provider’s state.
-func GetProviderState(ctx context.Context, full api.FullNode, from, router address.Address, providerID uint64) (voucherRedeemed *big.Int, lastNonce uint64, err error) {
+func GetProviderState(ctx context.Context, full api.FullNode, router address.Address, providerID uint64) (fbig.Int, uint64, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(GetProviderStateABI))
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to parse getProviderState ABI: %w", err)
+		return fbig.Int{}, 0, fmt.Errorf("failed to parse getProviderState ABI: %w", err)
 	}
 	data, err := parsedABI.Pack("getProviderState", providerID)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to pack getProviderState call: %w", err)
+		return fbig.Int{}, 0, fmt.Errorf("failed to pack getProviderState call: %w", err)
 	}
 	res, err := full.StateCall(ctx, &types.Message{
 		To:     router,
-		From:   from,
-		Value:  abi2.NewTokenAmount(0),
+		From:   builtin.SystemActorAddr,
+		Value:  abi.NewTokenAmount(0),
 		Method: builtin.MethodsEVM.InvokeContract,
 		Params: mustSerializeCBOR(data),
 	}, types.EmptyTSK)
 	if err != nil {
-		return nil, 0, fmt.Errorf("StateCall failed: %w", err)
+		return fbig.Int{}, 0, fmt.Errorf("StateCall failed: %w", err)
 	}
+
+	var rawBytes abi.CborBytes
+	if err := rawBytes.UnmarshalCBOR(bytes.NewReader(res.MsgRct.Return)); err != nil {
+		return fbig.Int{}, 0, fmt.Errorf("failed to unmarshal getProviderState result: %w", err)
+	}
+
 	var out struct {
-		VoucherRedeemed *big.Int
-		LastNonce       uint64
+		VoucherRedeemed *big.Int `abi:"voucherRedeemed"`
+		LastNonce       uint64   `abi:"lastNonce"`
 	}
-	err = parsedABI.UnpackIntoInterface(&out, "getProviderState", res.MsgRct.Return)
+	err = parsedABI.UnpackIntoInterface(&out, "getProviderState", rawBytes)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to unpack getProviderState result: %w", err)
+		return fbig.Int{}, 0, fmt.Errorf("failed to unpack getProviderState: %w", err)
 	}
-	return out.VoucherRedeemed, out.LastNonce, nil
+	return fbig.NewFromGo(out.VoucherRedeemed), out.LastNonce, nil
 }
 
-// GetServiceState queries the contract for the service state.
-func GetServiceState(ctx context.Context, full api.FullNode, from, router address.Address) (serviceActor uint64, pool *big.Int, err error) {
+func GetServiceState(ctx context.Context, full api.FullNode, router address.Address) (uint64, fbig.Int, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(GetServiceStateABI))
 	if err != nil {
-		return 0, nil, fmt.Errorf("failed to parse getServiceState ABI: %w", err)
+		return 0, fbig.Int{}, fmt.Errorf("failed to parse getServiceState ABI: %w", err)
 	}
 	data, err := parsedABI.Pack("getServiceState")
 	if err != nil {
-		return 0, nil, fmt.Errorf("failed to pack getServiceState call: %w", err)
+		return 0, fbig.Int{}, fmt.Errorf("failed to pack getServiceState call: %w", err)
 	}
 	res, err := full.StateCall(ctx, &types.Message{
 		To:     router,
-		From:   from,
-		Value:  abi2.NewTokenAmount(0),
+		From:   builtin.SystemActorAddr,
+		Value:  abi.NewTokenAmount(0),
 		Method: builtin.MethodsEVM.InvokeContract,
 		Params: mustSerializeCBOR(data),
 	}, types.EmptyTSK)
 	if err != nil {
-		return 0, nil, fmt.Errorf("StateCall failed: %w", err)
+		return 0, fbig.Int{}, fmt.Errorf("StateCall failed: %w", err)
 	}
+	if res.MsgRct.ExitCode != exitcode.Ok {
+		return 0, fbig.Int{}, fmt.Errorf("getServiceState returned non-ok exit code: %s", res.MsgRct.ExitCode)
+	}
+
+	var rawBytes abi.CborBytes
+	if err := rawBytes.UnmarshalCBOR(bytes.NewReader(res.MsgRct.Return)); err != nil {
+		return 0, fbig.Int{}, fmt.Errorf("failed to unmarshal getServiceState result: %w (%x)", err, res.MsgRct.Return)
+	}
+
 	var out struct {
-		ServiceActor uint64
-		Pool         *big.Int
+		ServiceActor uint64 `abi:"serviceActor"`
+		ServicePool  *big.Int `abi:"servicePool"`
 	}
-	err = parsedABI.UnpackIntoInterface(&out, "getServiceState", res.MsgRct.Return)
+
+	err = parsedABI.UnpackIntoInterface(&out, "getServiceState", rawBytes)
 	if err != nil {
-		return 0, nil, fmt.Errorf("failed to unpack getServiceState result: %w", err)
+		return 0, fbig.Int{}, fmt.Errorf("failed to unpack getServiceState: %w (%x)", err, rawBytes)
 	}
-	return out.ServiceActor, out.Pool, nil
+	return out.ServiceActor, fbig.NewFromGo(out.ServicePool), nil
 }
 
-// --- Withdraw Methods ---
+// --- EVM invocation helper ---
 
-// ServiceWithdraw sends a service withdrawal transaction to the Router contract.
-// It calls the serviceWithdraw function with the desired amount (in attoFIL).
-func ServiceWithdraw(ctx context.Context, full api.FullNode, from, router address.Address, amount abi2.TokenAmount) error {
-	parsedABI, err := eabi.JSON(strings.NewReader(ServiceWithdrawABI))
-	if err != nil {
-		return fmt.Errorf("failed to parse serviceWithdraw ABI: %w", err)
-	}
-	data, err := parsedABI.Pack("serviceWithdraw", amount)
-	if err != nil {
-		return fmt.Errorf("failed to pack serviceWithdraw call: %w", err)
-	}
-	// For serviceWithdraw, the call value is zero.
-	_, err = sendEVMMessage(ctx, full, from, router, abi2.NewTokenAmount(0), data)
-	if err != nil {
-		return fmt.Errorf("serviceWithdraw message failed: %w", err)
-	}
-	return nil
-}
-
-// --- Helper to send EVM messages ---
-// sendEVMMessage creates and pushes a message to the Lotus full‐node.
-// It wraps the packed call data into CBOR format.
 func sendEVMMessage(
 	ctx context.Context,
 	full api.FullNode,
 	from, to address.Address,
-	value abi2.TokenAmount,
+	value fbig.Int,
 	data []byte,
 ) (*types.Message, error) {
-	param := abi2.CborBytes(data)
+	param := abi.CborBytes(data)
 	ser, aerr := actors.SerializeParams(&param)
 	if aerr != nil {
 		return nil, fmt.Errorf("failed to serialize params: %w", aerr)
@@ -367,7 +464,7 @@ func sendEVMMessage(
 	msg := &types.Message{
 		To:     to,
 		From:   from,
-		Value:  value,
+		Value:  value, // filecoin big.Int
 		Method: builtin.MethodsEVM.InvokeContract,
 		Params: ser,
 	}
@@ -375,7 +472,10 @@ func sendEVMMessage(
 	if err != nil {
 		return nil, fmt.Errorf("failed to push message: %w", err)
 	}
-	_, err = full.StateWaitMsg(ctx, signedMsg.Cid(), 1, 600, true)
+
+	fmt.Printf("Pushed message: %s\n", signedMsg.Cid())
+
+	_, err = full.StateWaitMsg(ctx, signedMsg.Cid(), 2, 600, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to wait for message: %w", err)
 	}
@@ -384,7 +484,7 @@ func sendEVMMessage(
 
 // mustSerializeCBOR is a helper that wraps call data in a CBOR byte array.
 func mustSerializeCBOR(data []byte) []byte {
-	param := abi2.CborBytes(data)
+	param := abi.CborBytes(data)
 	ser, err := actors.SerializeParams(&param)
 	if err != nil {
 		panic(fmt.Sprintf("failed to serialize params: %v", err))
