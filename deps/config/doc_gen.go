@@ -972,6 +972,20 @@ If True then all deals coming from unknown clients will be rejected.`,
 
 			Comment: `DenyOfflineDeals determines if the storage provider will accept offline deals`,
 		},
+		{
+			Name: "CIDGravityToken",
+			Type: "string",
+
+			Comment: `CIDGravityToken is the authorization token to use for CIDGravity filters.
+If empty then CIDGravity filters are not called.`,
+		},
+		{
+			Name: "DefaultCIDGravityAccept",
+			Type: "bool",
+
+			Comment: `DefaultCIDGravityAccept when set to true till accept deals when CIDGravity service is not available.
+Default behaviors is to reject the deals`,
+		},
 	},
 	"MarketConfig": {
 		{
