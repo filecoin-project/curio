@@ -24,8 +24,11 @@ import (
 	"github.com/minio/sha256-simd"
 	"github.com/urfave/cli/v2"
 
+	"github.com/filecoin-project/go-commp-utils/nonffi"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
+	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/schollz/progressbar/v3"
 
 	curiobuild "github.com/filecoin-project/curio/build"
@@ -391,6 +394,7 @@ func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtT
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
+		fmt.Println("http.StatusOK")
 		// Piece already exists, get the pieceCID from the response
 		var respData map[string]string
 		err = json.NewDecoder(resp.Body).Decode(&respData)
@@ -401,6 +405,7 @@ func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtT
 		fmt.Printf("Piece already exists on the server. Piece CID: %s\n", pieceCID)
 		return nil
 	} else if resp.StatusCode == http.StatusCreated {
+		fmt.Println("http.StatusCreated")
 		// Get the upload URL from the Location header
 		uploadURL := resp.Header.Get("Location")
 		if uploadURL == "" {
@@ -672,8 +677,9 @@ var uploadFileCmd = &cli.Command{
 			}
 		}
 
-		orderedCommPs := []cid.Cid{}
+		orderedPieces := []abi.PieceInfo{}
 		counter := 0
+		subrootStr := ""
 		client := &http.Client{}
 		for idx := int64(0); idx < fileSize; idx += chunkSize {
 			// Read the chunk
@@ -684,7 +690,7 @@ var uploadFileCmd = &cli.Command{
 			}
 			// Prepare the piece
 			chunkReader := bytes.NewReader(buf[:n])
-			commP, _, commpDigest, shadigest, err := preparePiece(chunkReader)
+			commP, paddedPieceSize, commpDigest, shadigest, err := preparePiece(chunkReader)
 			if err != nil {
 				return fmt.Errorf("failed to prepare piece: %v", err)
 			}
@@ -723,13 +729,20 @@ var uploadFileCmd = &cli.Command{
 			if err != nil {
 				return fmt.Errorf("failed to upload piece: %v", err)
 			}
-			orderedCommPs = append(orderedCommPs, commP)
+			orderedPieces = append(orderedPieces, abi.PieceInfo{Size: abi.PaddedPieceSize(paddedPieceSize), PieceCID: commP})
+			subrootStr = fmt.Sprintf("%s+%s", subrootStr, commP)
 			counter++
 			bar.Set(int(counter))
 		}
+		subrootStr = subrootStr[1:]
 
-		fmt.Printf("File upload complete\n")
-		fmt.Printf("CommPs: %v\n", orderedCommPs)
+		root, err := nonffi.GenerateUnsealedCID(abi.RegisteredSealProof_StackedDrg64GiBV1_1, orderedPieces)
+		if err != nil {
+			return fmt.Errorf("failed to generate unsealed CID: %v", err)
+		}
+
+		s := fmt.Sprintf("%s:%s\n", root, subrootStr)
+		fmt.Printf("%s\n", s)
 		return nil
 	},
 }
