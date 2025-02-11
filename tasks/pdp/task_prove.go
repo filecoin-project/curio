@@ -627,6 +627,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 	}
 	var cr [LeafSize]byte
 	copy(cr[:], commRoot)
+	log.Debugw("Verify", "root", hex.EncodeToString(cr[:]))
 
 	if !Verify(out, cr, uint64(challengedLeaf)) {
 		return contract.PDPVerifierProof{}, xerrors.Errorf("proof verification failed")
