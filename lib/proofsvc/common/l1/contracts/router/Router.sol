@@ -57,7 +57,80 @@ contract Router is ReentrancyGuard {
         clientBalance[clientID] += msg.value;
         emit Deposit(clientID, msg.value);
     }
-    
+    /// @notice Creates the voucher bytes for a client voucher.
+    function createClientVoucher(
+        uint64 clientID,
+        uint256 cumulativeAmount,
+        uint64 nonce
+    ) external view returns (bytes memory) {
+        return abi.encodePacked(
+            address(this),
+            clientID,
+            CommonTypes.FilActorId.unwrap(serviceActor),
+            cumulativeAmount,
+            nonce
+        );
+    }
+
+    /// @notice Creates the voucher bytes for a provider voucher.
+    function createProviderVoucher(
+        uint64 providerID,
+        uint256 cumulativeAmount,
+        uint64 nonce
+    ) external view returns (bytes memory) {
+        return abi.encodePacked(
+            address(this),
+            CommonTypes.FilActorId.unwrap(serviceActor),
+            providerID,
+            cumulativeAmount,
+            nonce
+        );
+    }
+
+    /// @notice Validates a client voucher signature given its inputs.
+    function validateClientVoucher(
+        uint64 clientID,
+        uint256 cumulativeAmount,
+        uint64 nonce,
+        bytes calldata signature
+    ) external view returns (bool) {
+        bytes memory voucher = abi.encodePacked(
+            address(this),
+            clientID,
+            CommonTypes.FilActorId.unwrap(serviceActor),
+            cumulativeAmount,
+            nonce
+        );
+        AccountTypes.AuthenticateMessageParams memory authParams = AccountTypes.AuthenticateMessageParams({
+            signature: signature,
+            message: voucher
+        });
+        int256 authExit = AccountAPI.authenticateMessage(CommonTypes.FilActorId.wrap(clientID), authParams);
+        return authExit == 0;
+    }
+
+    /// @notice Validates a provider voucher signature given its inputs.
+    function validateProviderVoucher(
+        uint64 providerID,
+        uint256 cumulativeAmount,
+        uint64 nonce,
+        bytes calldata signature
+    ) external view returns (bool) {
+        bytes memory voucher = abi.encodePacked(
+            address(this),
+            CommonTypes.FilActorId.unwrap(serviceActor),
+            providerID,
+            cumulativeAmount,
+            nonce
+        );
+        AccountTypes.AuthenticateMessageParams memory authParams = AccountTypes.AuthenticateMessageParams({
+            signature: signature,
+            message: voucher
+        });
+        int256 authExit = AccountAPI.authenticateMessage(serviceActor, authParams);
+        return authExit == 0;
+    }
+
     /// @notice Service redeems a client voucher off-chain signed by the client.
     function redeemClientVoucher(
         uint64 clientID,
@@ -74,18 +147,12 @@ contract Router is ReentrancyGuard {
         uint256 increment = cumulativeAmount - clientVoucherRedeemed[clientID];
         require(clientBalance[clientID] >= increment, "Insufficient client balance");
         
-        // Construct voucher message: Router address || clientID || serviceActor || cumulativeAmount || nonce.
-        bytes memory message = abi.encodePacked(
-            address(this),
-            clientID,
-            CommonTypes.FilActorId.unwrap(serviceActor),
-            cumulativeAmount,
-            nonce
-        );
+        // Use the external voucher creation method.
+        bytes memory voucherBytes = this.createClientVoucher(clientID, cumulativeAmount, nonce);
         
         AccountTypes.AuthenticateMessageParams memory authParams = AccountTypes.AuthenticateMessageParams({
             signature: signature,
-            message: message
+            message: voucherBytes
         });
         int256 authExit = AccountAPI.authenticateMessage(CommonTypes.FilActorId.wrap(clientID), authParams);
         require(authExit == 0, "Client voucher signature invalid");
@@ -111,18 +178,12 @@ contract Router is ReentrancyGuard {
         uint256 increment = cumulativeAmount - providerVoucherRedeemed[providerID];
         require(servicePool >= increment, "Insufficient service pool amount");
         
-        // Construct voucher message: Router address || serviceActor || providerID || cumulativeAmount || nonce.
-        bytes memory message = abi.encodePacked(
-            address(this),
-            CommonTypes.FilActorId.unwrap(serviceActor),
-            providerID,
-            cumulativeAmount,
-            nonce
-        );
+        // Use the external voucher creation method.
+        bytes memory voucherBytes = this.createProviderVoucher(providerID, cumulativeAmount, nonce);
         
         AccountTypes.AuthenticateMessageParams memory authParams = AccountTypes.AuthenticateMessageParams({
             signature: signature,
-            message: message
+            message: voucherBytes
         });
         int256 authExit = AccountAPI.authenticateMessage(serviceActor, authParams);
         require(authExit == 0, "Service voucher signature invalid");
@@ -150,8 +211,8 @@ contract Router is ReentrancyGuard {
         
         emit ServiceWithdrawal(amount);
     }
-    
-    // --- New View Functions ---
+
+    // TODO: Service deposit
     
     /// @notice Returns the state for a given client.
     function getClientState(uint64 clientID) external view returns (uint256 balance, uint256 voucherRedeemed, uint64 lastNonce) {
