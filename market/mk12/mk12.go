@@ -101,22 +101,6 @@ func NewMK12Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorI
 // from the network
 func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.ID) (*ProviderDealRejectionInfo, error) {
 
-	if m.cfg.Market.StorageMarketConfig.MK12.DenyOfflineDeals {
-		if dp.IsOffline {
-			return &ProviderDealRejectionInfo{
-				Reason: "offline deals are not allowed on this provider",
-			}, nil
-		}
-	}
-
-	if m.cfg.Market.StorageMarketConfig.MK12.DenyOnlineDeals {
-		if !dp.IsOffline {
-			return &ProviderDealRejectionInfo{
-				Reason: "online deals are not allowed on this provider",
-			}, nil
-		}
-	}
-
 	ds := &ProviderDealState{
 		DealUuid:           dp.DealUUID,
 		ClientDealProposal: dp.ClientDealProposal,
@@ -137,21 +121,6 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 	}
 
 	ds.SignedProposalCID = spc
-
-	// Apply the Allow/Deny list
-	allowed, err := m.applyAllowList(ctx, ds)
-	if err != nil {
-		log.Errorw("failed to apply allow list", "error", err)
-		return &ProviderDealRejectionInfo{
-			Reason: "internal server error: validating deal against allow list",
-		}, nil
-	}
-	if !allowed {
-		log.Infow("client not allowed by providel", "client", ds.ClientDealProposal.Proposal.Client)
-		return &ProviderDealRejectionInfo{
-			Reason: "client not allowed by provider",
-		}, nil
-	}
 
 	// Validate the deal proposal
 	if err := m.validateDealProposal(ctx, ds); err != nil {
@@ -197,6 +166,37 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 			}, nil
 		}
 	} else {
+		if m.cfg.Market.StorageMarketConfig.MK12.DenyOfflineDeals {
+			if dp.IsOffline {
+				return &ProviderDealRejectionInfo{
+					Reason: "offline deals are not allowed on this provider",
+				}, nil
+			}
+		}
+
+		if m.cfg.Market.StorageMarketConfig.MK12.DenyOnlineDeals {
+			if !dp.IsOffline {
+				return &ProviderDealRejectionInfo{
+					Reason: "online deals are not allowed on this provider",
+				}, nil
+			}
+		}
+
+		// Apply the Allow/Deny list
+		allowed, err := m.applyAllowList(ctx, ds)
+		if err != nil {
+			log.Errorw("failed to apply allow list", "error", err)
+			return &ProviderDealRejectionInfo{
+				Reason: "internal server error: validating deal against allow list",
+			}, nil
+		}
+		if !allowed {
+			log.Infow("client not allowed by provider", "client", ds.ClientDealProposal.Proposal.Client)
+			return &ProviderDealRejectionInfo{
+				Reason: "client not allowed by provider",
+			}, nil
+		}
+
 		valid := m.applyFilters(ctx, ds)
 		if valid != nil && valid.error != nil {
 			log.Errorf("failed to apply filetrs: %w", valid.error)
