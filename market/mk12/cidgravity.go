@@ -15,6 +15,8 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 	"github.com/filecoin-project/go-state-types/crypto"
 
+	"github.com/filecoin-project/curio/build"
+
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -98,9 +100,10 @@ type cidGravityResponse struct {
 	MatchingRule            int    `json:"matchingRule"`
 }
 
-const cidGravityUrl = "https://service.cidgravity.com/api/proposal/check"
+const cidGravityDealCheckUrl = "https://service.cidgravity.com/api/proposal/check"
+const cidGravityMinerCheckUrl = "https://service.cidgravity.com/private/v1/miner-status-checker/check"
+const cidGravityMinerCheckLabel = "cidg-miner-status-check"
 const agentName = "curio"
-const formatVersion = "2.3.0"
 
 var commonHeaders = http.Header{
 	"X-Agent":         []string{"curio-market-storage-filter"},
@@ -119,9 +122,20 @@ func (m *MK12) cidGravityCheck(ctx context.Context, deal *ProviderDealState) (bo
 	client := &http.Client{}
 
 	// Create the new request
-	req, err := http.NewRequest("POST", cidGravityUrl, bytes.NewBuffer(data))
-	if err != nil {
-		return false, "", xerrors.Errorf("Error creating request: %v", err)
+	var req *http.Request
+	if deal.ClientDealProposal.Proposal.Label.IsString() {
+		lableStr, err := deal.ClientDealProposal.Proposal.Label.ToString()
+		if err != nil {
+			return false, "", xerrors.Errorf("Error getting label string: %v", err)
+		}
+		if lableStr == cidGravityMinerCheckLabel {
+			req, err = http.NewRequest("POST", cidGravityMinerCheckUrl, bytes.NewBuffer(data))
+		}
+	} else {
+		req, err = http.NewRequest("POST", cidGravityDealCheckUrl, bytes.NewBuffer(data))
+		if err != nil {
+			return false, "", xerrors.Errorf("Error creating request: %v", err)
+		}
 	}
 
 	// Add necessary headers
@@ -183,7 +197,7 @@ func (m *MK12) cidGravityCheck(ctx context.Context, deal *ProviderDealState) (bo
 func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealState) ([]byte, error) {
 	data := CidGravityPayload{
 		Agent:         agentName,
-		FormatVersion: formatVersion,
+		FormatVersion: build.BuildVersion,
 		DealType:      "storage",
 	}
 
