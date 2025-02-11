@@ -3,17 +3,14 @@ package common
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
-	"encoding/binary"
 	"fmt"
 	"math/big"
 	"strings"
 
 	"github.com/filecoin-project/lotus/chain/types/ethtypes"
+	"github.com/filecoin-project/lotus/lib/must"
 
 	eabi "github.com/ethereum/go-ethereum/accounts/abi"
-	ethcommon "github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -26,7 +23,10 @@ import (
 )
 
 // RouterMainnet is the Ethereum form of the router address. This is just an example.
-const RouterMainnet = "0xc5C406f89FBC6844394205B19532862f28d89Fd6"
+const RouterMainnet = "0x287F8d531655435DF8114BCC0977663dC7F10049"
+const serviceActor = 3370466
+
+var Service = must.One(address.NewIDAddress(serviceActor))
 
 // Router returns the Filecoin address of the router.
 func Router() address.Address {
@@ -150,6 +150,38 @@ const GetServiceStateABI = `[
 	}
 ]`
 
+const CreateClientVoucherABI = `[
+	{
+		"inputs": [
+			{ "internalType": "uint64", "name": "clientID", "type": "uint64" },
+			{ "internalType": "uint256", "name": "cumulativeAmount", "type": "uint256" },
+			{ "internalType": "uint64", "name": "nonce", "type": "uint64" }
+		],
+		"name": "createClientVoucher",
+		"outputs": [
+			{ "internalType": "bytes", "name": "", "type": "bytes" }
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+]`
+
+const CreateProviderVoucherABI = `[
+	{
+		"inputs": [
+			{ "internalType": "uint64", "name": "providerID", "type": "uint64" },
+			{ "internalType": "uint256", "name": "cumulativeAmount", "type": "uint256" },
+			{ "internalType": "uint64", "name": "nonce", "type": "uint64" }
+		],
+		"name": "createProviderVoucher",
+		"outputs": [
+			{ "internalType": "bytes", "name": "", "type": "bytes" }
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+]`
+
 // --- Implementation for missing deposit, voucher redemption, etc. ---
 
 // ClientDeposit calls `deposit()` with a pay value = the deposit amount in attoFIL
@@ -188,7 +220,7 @@ func ServiceRedeemClientVoucher(
 	if err != nil {
 		return fmt.Errorf("parse redeemClientVoucher ABI: %w", err)
 	}
-	data, err := parsedABI.Pack("redeemClientVoucher", clientID, cumulativeAmount, nonce, sig)
+	data, err := parsedABI.Pack("redeemClientVoucher", clientID, cumulativeAmount.Int, nonce, sig)
 	if err != nil {
 		return fmt.Errorf("pack redeemClientVoucher: %w", err)
 	}
@@ -213,10 +245,13 @@ func ServiceRedeemProviderVoucher(
 	if err != nil {
 		return fmt.Errorf("parse redeemProviderVoucher ABI: %w", err)
 	}
-	data, err := parsedABI.Pack("redeemProviderVoucher", providerID, cumulativeAmount, nonce, sig)
+	data, err := parsedABI.Pack("redeemProviderVoucher", providerID, cumulativeAmount.Int, nonce, sig)
 	if err != nil {
 		return fmt.Errorf("pack redeemProviderVoucher: %w", err)
 	}
+
+	fmt.Printf("redeemProviderVoucher(%d, %d, %d, %x) data: %x\n", providerID, cumulativeAmount.Int, nonce, sig, data)
+
 	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
 	if err != nil {
 		return fmt.Errorf("redeemProviderVoucher message failed: %w", err)
@@ -228,17 +263,20 @@ func ServiceRedeemProviderVoucher(
 func ServiceWithdraw(
 	ctx context.Context,
 	full api.FullNode,
-	from, router address.Address,
 	amount fbig.Int,
 ) error {
 	parsedABI, err := eabi.JSON(strings.NewReader(ServiceWithdrawABI))
 	if err != nil {
 		return fmt.Errorf("parse serviceWithdraw ABI: %w", err)
 	}
-	data, err := parsedABI.Pack("serviceWithdraw", amount)
+	data, err := parsedABI.Pack("serviceWithdraw", amount.Int)
 	if err != nil {
 		return fmt.Errorf("pack serviceWithdraw: %w", err)
 	}
+
+	router := Router()
+	from := Service
+
 	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
 	if err != nil {
 		return fmt.Errorf("serviceWithdraw message failed: %w", err)
@@ -264,60 +302,82 @@ type ProviderVoucher struct {
 	Signature        []byte
 }
 
-// CreateClientVoucher ...
-func CreateClientVoucher(router ethcommon.Address, clientID uint64, serviceActor uint64, cumulativeAmount *big.Int, nonce uint64) []byte {
-	var buf bytes.Buffer
-	// router (20 bytes)
-	buf.Write(ethcommon.LeftPadBytes(router.Bytes(), 20))
-	// clientID (8 bytes)
-	tmp := make([]byte, 8)
-	binary.BigEndian.PutUint64(tmp, clientID)
-	buf.Write(tmp)
-	// serviceActor (8 bytes)
-	binary.BigEndian.PutUint64(tmp, serviceActor)
-	buf.Write(tmp)
-	// cumulativeAmount (32 bytes)
-	caBytes := cumulativeAmount.Bytes()
-	buf.Write(ethcommon.LeftPadBytes(caBytes, 32))
-	// nonce (8 bytes)
-	binary.BigEndian.PutUint64(tmp, nonce)
-	buf.Write(tmp)
-	return buf.Bytes()
-}
-
-// CreateProviderVoucher ...
-func CreateProviderVoucher(router ethcommon.Address, serviceActor uint64, providerID uint64, cumulativeAmount *big.Int, nonce uint64) []byte {
-	var buf bytes.Buffer
-	buf.Write(ethcommon.LeftPadBytes(router.Bytes(), 20))
-	tmp := make([]byte, 8)
-	binary.BigEndian.PutUint64(tmp, serviceActor)
-	buf.Write(tmp)
-	binary.BigEndian.PutUint64(tmp, providerID)
-	buf.Write(tmp)
-	caBytes := cumulativeAmount.Bytes()
-	buf.Write(ethcommon.LeftPadBytes(caBytes, 32))
-	binary.BigEndian.PutUint64(tmp, nonce)
-	buf.Write(tmp)
-	return buf.Bytes()
-}
-
-// SignVoucher ...
-func SignVoucher(message []byte, privKey *ecdsa.PrivateKey) ([]byte, error) {
-	hash := crypto.Keccak256Hash(message)
-	sig, err := crypto.Sign(hash.Bytes(), privKey)
+func CreateClientVoucher(ctx context.Context, full api.FullNode, clientID uint64, cumulativeAmount *big.Int, nonce uint64) ([]byte, error) {
+	parsedABI, err := eabi.JSON(strings.NewReader(CreateClientVoucherABI))
 	if err != nil {
-		return nil, fmt.Errorf("failed to sign voucher: %w", err)
+		return nil, fmt.Errorf("failed to parse CreateClientVoucher ABI: %w", err)
 	}
-	return sig, nil
+
+	data, err := parsedABI.Pack("createClientVoucher", clientID, cumulativeAmount, nonce)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pack createClientVoucher call: %w", err)
+	}
+
+	router := Router()
+
+	msg := &types.Message{
+		To:     router,
+		From:   builtin.SystemActorAddr,
+		Value:  abi.NewTokenAmount(0),
+		Method: builtin.MethodsEVM.InvokeContract,
+		Params: mustSerializeCBOR(data),
+	}
+
+	res, err := full.StateCall(ctx, msg, types.EmptyTSK)
+	if err != nil {
+		return nil, fmt.Errorf("StateCall for createClientVoucher failed: %w", err)
+	}
+
+	var rawBytes abi.CborBytes
+	if err := rawBytes.UnmarshalCBOR(bytes.NewReader(res.MsgRct.Return)); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal createClientVoucher result: %w", err)
+	}
+
+	var voucher []byte
+	if err := parsedABI.UnpackIntoInterface(&voucher, "createClientVoucher", rawBytes); err != nil {
+		return nil, fmt.Errorf("failed to unpack createClientVoucher result: %w", err)
+	}
+
+	return voucher, nil
 }
 
-// VerifyVoucher ...
-func VerifyVoucher(message []byte, signature []byte, pubKey *ecdsa.PublicKey) bool {
-	hash := crypto.Keccak256Hash(message)
-	if len(signature) == 65 {
-		signature = signature[:64]
+func CreateProviderVoucher(ctx context.Context, full api.FullNode, providerID uint64, cumulativeAmount *big.Int, nonce uint64) ([]byte, error) {
+	parsedABI, err := eabi.JSON(strings.NewReader(CreateProviderVoucherABI))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse CreateProviderVoucher ABI: %w", err)
 	}
-	return crypto.VerifySignature(crypto.FromECDSAPub(pubKey), hash.Bytes(), signature)
+
+	data, err := parsedABI.Pack("createProviderVoucher", providerID, cumulativeAmount, nonce)
+	if err != nil {
+		return nil, fmt.Errorf("failed to pack createProviderVoucher call: %w", err)
+	}
+
+	router := Router()
+
+	msg := &types.Message{
+		To:     router,
+		From:   builtin.SystemActorAddr,
+		Value:  abi.NewTokenAmount(0),
+		Method: builtin.MethodsEVM.InvokeContract,
+		Params: mustSerializeCBOR(data),
+	}
+
+	res, err := full.StateCall(ctx, msg, types.EmptyTSK)
+	if err != nil {
+		return nil, fmt.Errorf("StateCall for createProviderVoucher failed: %w", err)
+	}
+
+	var rawBytes abi.CborBytes
+	if err := rawBytes.UnmarshalCBOR(bytes.NewReader(res.MsgRct.Return)); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal createProviderVoucher result: %w", err)
+	}
+
+	var voucher []byte
+	if err := parsedABI.UnpackIntoInterface(&voucher, "createProviderVoucher", rawBytes); err != nil {
+		return nil, fmt.Errorf("failed to unpack createProviderVoucher result: %w", err)
+	}
+
+	return voucher, nil
 }
 
 // VerifyVoucherUpdate ...
@@ -331,8 +391,6 @@ func VerifyVoucherUpdate(best, proposed *ClientVoucher) (*big.Int, error) {
 	increment := new(big.Int).Sub(proposed.CumulativeAmount, best.CumulativeAmount)
 	return increment, nil
 }
-
-// --- Query Contract State (unchanged from your snippet) ---
 
 func GetClientState(ctx context.Context, full api.FullNode, router address.Address, clientID uint64) (fbig.Int, fbig.Int, uint64, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(GetClientStateABI))
