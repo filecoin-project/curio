@@ -23,7 +23,7 @@ import (
 )
 
 // RouterMainnet is the Ethereum form of the router address. This is just an example.
-const RouterMainnet = "0x287F8d531655435DF8114BCC0977663dC7F10049"
+const RouterMainnet = "0xc0f51E2ECA0D0269B37e20db33a249e38FFAB5A6"
 const serviceActor = 3370466
 
 var Service = must.One(address.NewIDAddress(serviceActor))
@@ -98,6 +98,16 @@ const ServiceWithdrawABI = `[
 	  "name": "serviceWithdraw",
 	  "outputs": [],
 	  "stateMutability": "nonpayable",
+	  "type": "function"
+	}
+]`
+
+const ServiceDepositABI = `[
+	{
+	  "inputs": [],
+	  "name": "serviceDeposit",
+	  "outputs": [],
+	  "stateMutability": "payable",
 	  "type": "function"
 	}
 ]`
@@ -280,6 +290,27 @@ func ServiceWithdraw(
 	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
 	if err != nil {
 		return fmt.Errorf("serviceWithdraw message failed: %w", err)
+	}
+	return nil
+}
+
+// ServiceDeposit calls `serviceDeposit()`.
+func ServiceDeposit(ctx context.Context, full api.FullNode, amount fbig.Int) error {
+	parsedABI, err := eabi.JSON(strings.NewReader(ServiceDepositABI))
+	if err != nil {
+		return fmt.Errorf("parse serviceDeposit ABI: %w", err)
+	}
+	data, err := parsedABI.Pack("serviceDeposit")
+	if err != nil {
+		return fmt.Errorf("pack serviceDeposit: %w", err)
+	}
+
+	router := Router()
+	from := Service
+
+	_, err = sendEVMMessage(ctx, full, from, router, amount, data)
+	if err != nil {
+		return fmt.Errorf("serviceDeposit message failed: %w", err)
 	}
 	return nil
 }

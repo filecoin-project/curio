@@ -58,6 +58,14 @@ var debugSNSvc = &cli.Command{
 			Action: serviceWithdrawAction,
 		},
 		{
+			Name:  "service-deposit",
+			Usage: "Deposit funds into the service pool (service role)",
+			Flags: []cli.Flag{
+				&cli.StringFlag{Name: "amount", Usage: "Amount to deposit (FIL)", Required: true},
+			},
+			Action: serviceDepositAction,
+		},
+		{
 			Name:  "get-client-state",
 			Usage: "Query the state of a client",
 			Flags: []cli.Flag{
@@ -251,11 +259,33 @@ func serviceWithdrawAction(cctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("invalid withdraw amount: %w", err)
 	}
-	
+
 	if err := common.ServiceWithdraw(ctx, full, abi.TokenAmount(filAmount)); err != nil {
 		return fmt.Errorf("service withdraw failed: %w", err)
 	}
 	fmt.Println("Service withdrawal succeeded")
+	return nil
+}
+
+// serviceDepositAction allows the service to deposit funds into the service pool.
+func serviceDepositAction(cctx *cli.Context) error {
+	ctx := context.Background()
+	full, closer, err := cliutil.GetFullNodeAPIV1(cctx)
+	if err != nil {
+		return err
+	}
+	defer closer()
+
+	amountStr := cctx.String("amount")
+	filAmount, err := types.ParseFIL(amountStr)
+	if err != nil {
+		return fmt.Errorf("invalid deposit amount: %w", err)
+	}
+
+	if err := common.ServiceDeposit(ctx, full, abi.TokenAmount(filAmount)); err != nil {
+		return fmt.Errorf("service deposit failed: %w", err)
+	}
+	fmt.Println("Service deposit succeeded")
 	return nil
 }
 
