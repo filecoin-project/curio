@@ -556,6 +556,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 
 	{
 		var partialTreeList []elemIndex
+		var partialTreeHashList []treeElem
 		for k := range partialTree {
 			partialTreeList = append(partialTreeList, k)
 		}
@@ -565,7 +566,11 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 			}
 			return partialTreeList[i].ElemOffset < partialTreeList[j].ElemOffset
 		})
+		for _, k := range partialTreeList {
+			partialTreeHashList = append(partialTreeHashList, partialTree[k])
+		}
 		log.Debugw("partialTree", "partialTree", partialTreeList)
+		log.Debugw("partialTreeHashList", "partialTreeHashList", partialTreeHashList)
 	}
 
 	challLevel := proof.NodeLevel(challSubRoot.SubrootSize/LeafSize, arity)
@@ -602,10 +607,10 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 		if currentOffset < siblingOffset { // left
 			log.Debugw("Proof", "position", index, "left-c", hex.EncodeToString(elem.Hash[:]), "right-s", hex.EncodeToString(siblingElem.Hash[:]), "out", hex.EncodeToString(shabytes(append(elem.Hash[:], siblingElem.Hash[:]...))[:]))
 		} else { // right
-			log.Debugw("Proof", "position", index, "left-s", hex.EncodeToString(siblingElem.Hash[:]), "right-c", hex.EncodeToString(elem.Hash[:]), "ouh", hex.EncodeToString(shabytes(append(siblingElem.Hash[:], elem.Hash[:]...))[:]))
+			log.Debugw("Proof", "position", index, "left-s", hex.EncodeToString(siblingElem.Hash[:]), "right-c", hex.EncodeToString(elem.Hash[:]), "out", hex.EncodeToString(shabytes(append(siblingElem.Hash[:], elem.Hash[:]...))[:]))
 		}
 
-		//log.Debugw("siblingElem", "siblingElem", siblingElem, "siblingIndex", siblingIndex, "currentLevel", currentLevel, "currentOffset", currentOffset, "siblingOffset", siblingOffset)
+		//log.Debugw("siblingElem", "siblingElem", siblingElem, "siblinbgIndex", siblingIndex, "currentLevel", currentLevel, "currentOffset", currentOffset, "siblingOffset", siblingOffset)
 
 		// Append the sibling's hash to the proof
 		out.Proof = append(out.Proof, siblingElem.Hash)
