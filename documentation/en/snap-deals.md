@@ -30,36 +30,23 @@ To enable the snap deals pipeline in a Curio cluster, user needs to enable the s
 Data can be ingested using either the Snap Deals pipeline or the PoRep pipeline at any given time, but not both simultaneously.
 {% endhint %}
 
-### Enable snap tasks
+### Configuration
 
-1.  Add the `upgrade` layer already shipped with Curio to the `/etc/curio.env` file on the Curio nodes where GPU resources are available.\
-    &#x20;
+{% hint style="warning" %}
+When switching between Snap and PoRep deal pipeline, you must ensure that no sectors are being sealed or snapped. All pipelines must be empty before making a switch.
+{% endhint %}
 
-    ```
-    CURIO_LAYERS=gui,seal,post,upgrade <----- Add the "upgrade" layer
-    CURIO_ALL_REMAINING_FIELDS_ARE_OPTIONAL=true
-    CURIO_DB_HOST=yugabyte1,yugabyte2,yugabyte3
-    CURIO_DB_USER=yugabyte
-    CURIO_DB_PASSWORD=yugabyte
-    CURIO_DB_PORT=5433
-    CURIO_DB_NAME=yugabyte
-    CURIO_REPO_PATH=~/.curio
-    CURIO_NODE_NAME=ChangeMe
-    FIL_PROOFS_USE_MULTICORE_SDR=1
-    ```
+#### Curio Market
 
-    \
+1. Enable snap deals on base layer
+2. Save the layer and exit. [Enable snap tasks](snap-deals.md#enable-snap-tasks) and restart all the nodes.
 
-2.  Restart the Curio services on the node.\
-    &#x20;
+```
+  [Ingest]
+  DoSnap = true
+```
 
-    ```
-    systemctl restart curio
-    ```
-
-
-
-### Update the Curio market adapter
+#### Boost Adapter (Deprecated)
 
 1.  Create or update the market layer ([if one is already created](enabling-market.md#enable-market-adapter-in-curio)) for the minerID where you wish to use snap deals pipeline.\
 
@@ -108,4 +95,30 @@ Data can be ingested using either the Snap Deals pipeline or the PoRep pipeline 
 
     &#x20;
 2. Add the new market configuration layer to the appropriate nodes based on the [best practices](best-practices.md).
-3. Restart the Curio service.
+
+### Enable snap tasks
+
+1.  Add the `upgrade` layer already shipped with Curio to the `/etc/curio.env` file on the Curio nodes where GPU resources are available.\
+    &#x20;
+
+    ```
+    CURIO_LAYERS=gui,seal,post,upgrade <----- Add the "upgrade" layer
+    CURIO_ALL_REMAINING_FIELDS_ARE_OPTIONAL=true
+    CURIO_DB_HOST=yugabyte1,yugabyte2,yugabyte3
+    CURIO_DB_USER=yugabyte
+    CURIO_DB_PASSWORD=yugabyte
+    CURIO_DB_PORT=5433
+    CURIO_DB_NAME=yugabyte
+    CURIO_REPO_PATH=~/.curio
+    CURIO_NODE_NAME=ChangeMe
+    FIL_PROOFS_USE_MULTICORE_SDR=1
+    ```
+
+    \
+
+2.  Restart the Curio services on the node.\
+    &#x20;
+
+    ```
+    systemctl restart curio
+    ```

@@ -5,7 +5,9 @@ description: This page explains how to setup supraseal batch sealer in Curio
 # Batch Sealing with SupraSeal
 
 {% hint style="danger" %}
-**Disclaimer:** SupraSeal batch sealing is currently in **BETA**. Use with caution and expect potential issues or changes in future versions. Currently some additional manual system configuration is required.
+**Disclaimer:** SupraSeal batch sealing is currently in **BETA**. Use with caution and expect potential issues or changes in future versions. Currently some additional manual system configuration is required.\
+\
+Batch Sealing only supports "CC" sectors as of now. Please make sure that "SnapDeals" are enabled in the cluster if you wish to onboard data with SupraSeal enabled. If SnapDeals are not enabled, deals will be routed to SupraSeal pipeline which will discard the actual data and seal empty sectors.
 {% endhint %}
 
 SupraSeal is an optimized batch sealing implementation for Filecoin that allows sealing multiple sectors in parallel. It can significantly improve sealing throughput compared to sealing sectors individually.
@@ -43,12 +45,10 @@ You need 2 sets of NVMe drives:
    * Fast with sufficient capacity (\~70G x batchSize x pipelines)
    * Can be remote storage if fast enough (\~500MiB/s/GPU)
 
-The following table shows the number of NVMe drives required for different batch sizes. The drive count column indicates `N + M` where `N` is the number of drives for layer data (SPDK) and `M` is the number of drives for P2 output (filesystem).
-The iops/drive column shows the minimum iops **per drive** required for the batch size.
-Batch size indicated with `2x` means dual-pipeline drive setup. IOPS requirements are calculated simply by dividing total target 10M IOPS by the number of drives. In reality, depending on CPU core speed this may be too low or higher than neccesary. When ordering a system with barely enough IOPS plan to have free drive slots in case you need to add more drives later.
+The following table shows the number of NVMe drives required for different batch sizes. The drive count column indicates `N + M` where `N` is the number of drives for layer data (SPDK) and `M` is the number of drives for P2 output (filesystem). The iops/drive column shows the minimum iops **per drive** required for the batch size. Batch size indicated with `2x` means dual-pipeline drive setup. IOPS requirements are calculated simply by dividing total target 10M IOPS by the number of drives. In reality, depending on CPU core speed this may be too low or higher than neccesary. When ordering a system with barely enough IOPS plan to have free drive slots in case you need to add more drives later.
 
 | Batch Size   | 3.84TB | 7.68TB | 12.8TB | 15.36TB | 30.72TB |
-|--------------|--------|--------|--------|---------|---------|
+| ------------ | ------ | ------ | ------ | ------- | ------- |
 | 32           | 4 + 1  | 2 + 1  | 1 + 1  | 1 + 1   | 1 + 1   |
 | ^ iops/drive | 2500K  | 5000K  | 10000K | 10000K  | 10000K  |
 | 64 (2x 32)   | 7 + 2  | 4 + 1  | 2 + 1  | 2 + 1   | 1 + 1   |
@@ -57,7 +57,6 @@ Batch size indicated with `2x` means dual-pipeline drive setup. IOPS requirement
 | ^ iops/drive | 770K   | 1429K  | 2500K  | 2500K   | 5000K   |
 | 2x 128       | 26 + 6 | 13 + 3 | 8 + 2  | 7 + 2   | 4 + 1   |
 | ^ iops/drive | 385K   | 770K   | 1250K  | 1429K   | 2500K   |
-
 
 ## Hardware Recommendations
 
@@ -131,7 +130,6 @@ CUDA 12.x is required, 11.x won't work. The build process depends on GCC 11.x sy
 * On newer Ubuntu install `gcc-11` and `g++-11` packages
 * In addtion to general build dependencies (listed on the [installation page](installation.md)), you need `libgmp-dev` and `libconfig++-dev`
 
-
 ### Building
 
 Build the batch-capable Curio binary:
@@ -163,7 +161,7 @@ env NRHUGE=36 ./scripts/setup.sh
 
 ### Benchmark NVME IOPS
 
-Please make sure to benchmark the raw NVME IOPS before proceeding with further configuration to verify that IOPS requirements are fulfilled.&#x20;
+Please make sure to benchmark the raw NVME IOPS before proceeding with further configuration to verify that IOPS requirements are fulfilled.
 
 ```bash
 cd extern/supraseal/deps/spdk-v24.05/
@@ -193,7 +191,6 @@ Total                                  : 8006785.90   31276.51      71.91      1
 ```
 
 With ideally >10M IOPS total for all devices.
-
 
 ### PC2 output storage
 
@@ -432,6 +429,7 @@ cd extern/supraseal/deps/spdk-v24.05/
 ```
 
 Go through the menus like this
+
 ```
 NVMe Management Options
 	[1: list controllers]
@@ -481,10 +479,10 @@ y
 ```
 
 Then you might see a difference in performance like this:
+
 ```
                                                                            Latency(us)
 Device Information                     :       IOPS      MiB/s    Average        min        max
 PCIE (0000:c1:00.0) NSID 1 from core  0:  721383.71    2817.91      88.68      11.20     591.51  ## before
 PCIE (0000:86:00.0) NSID 1 from core  0: 1205271.62    4708.09      53.07      11.87     446.84  ## after
 ```
-
