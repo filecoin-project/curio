@@ -23,7 +23,7 @@ import (
 )
 
 // RouterMainnet is the Ethereum form of the router address. This is just an example.
-const RouterMainnet = "0xc0f51E2ECA0D0269B37e20db33a249e38FFAB5A6"
+const RouterMainnet = "0xaBfD2a59A3b4C34d02E5b9138864F7cdb7515fC0"
 const serviceActor = 3370466
 
 var Service = must.One(address.NewIDAddress(serviceActor))
@@ -60,6 +60,38 @@ const DepositABI = `[
 	}
 ]`
 
+const InitiateClientWithdrawalABI = `[
+	{
+	  "inputs": [
+		{"internalType": "uint256", "name": "amount", "type": "uint256"}
+	  ],
+	  "name": "initiateClientWithdrawal",
+	  "outputs": [],
+	  "stateMutability": "nonpayable",
+	  "type": "function"
+	}
+]`
+
+const CompleteClientWithdrawalABI = `[
+	{
+	  "inputs": [],
+	  "name": "completeClientWithdrawal",
+	  "outputs": [],
+	  "stateMutability": "nonpayable",
+	  "type": "function"
+	}
+]`
+
+const CancelClientWithdrawalABI = `[
+	{
+	  "inputs": [],
+	  "name": "cancelClientWithdrawal",
+	  "outputs": [],
+	  "stateMutability": "nonpayable",
+	  "type": "function"
+	}
+]`
+
 const RedeemClientVoucherABI = `[
 	{
 	  "inputs": [
@@ -90,12 +122,32 @@ const RedeemProviderVoucherABI = `[
 	}
 ]`
 
-const ServiceWithdrawABI = `[
+const InitiateServiceWithdrawalABI = `[
 	{
 	  "inputs": [
 		{"internalType": "uint256", "name": "amount", "type": "uint256"}
 	  ],
-	  "name": "serviceWithdraw",
+	  "name": "initiateServiceWithdrawal",
+	  "outputs": [],
+	  "stateMutability": "nonpayable",
+	  "type": "function"
+	}
+]`
+
+const CompleteServiceWithdrawalABI = `[
+	{
+	  "inputs": [],
+	  "name": "completeServiceWithdrawal",
+	  "outputs": [],
+	  "stateMutability": "nonpayable",
+	  "type": "function"
+	}
+]`
+
+const CancelServiceWithdrawalABI = `[
+	{
+	  "inputs": [],
+	  "name": "cancelServiceWithdrawal",
 	  "outputs": [],
 	  "stateMutability": "nonpayable",
 	  "type": "function"
@@ -192,6 +244,8 @@ const CreateProviderVoucherABI = `[
 	}
 ]`
 
+
+
 // --- Implementation for missing deposit, voucher redemption, etc. ---
 
 // ClientDeposit calls `deposit()` with a pay value = the deposit amount in attoFIL
@@ -212,6 +266,63 @@ func ClientDeposit(
 	_, err = sendEVMMessage(ctx, full, from, router, amount, data)
 	if err != nil {
 		return fmt.Errorf("deposit message failed: %w", err)
+	}
+	return nil
+}
+
+func ClientInitiateWithdrawal(ctx context.Context, full api.FullNode, from address.Address, amount fbig.Int) error {
+	parsedABI, err := eabi.JSON(strings.NewReader(InitiateClientWithdrawalABI))
+	if err != nil {
+		return fmt.Errorf("parse initiateClientWithdrawal ABI: %w", err)
+	}
+	data, err := parsedABI.Pack("initiateClientWithdrawal", amount.Int)
+	if err != nil {
+		return fmt.Errorf("pack initiateClientWithdrawal: %w", err)
+	}
+
+	router := Router()
+
+	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	if err != nil {
+		return fmt.Errorf("initiateClientWithdrawal message failed: %w", err)
+	}
+	return nil
+}
+
+func ClientCompleteWithdrawal(ctx context.Context, full api.FullNode, from address.Address) error {
+	parsedABI, err := eabi.JSON(strings.NewReader(CompleteClientWithdrawalABI))
+	if err != nil {
+		return fmt.Errorf("parse completeClientWithdrawal ABI: %w", err)
+	}
+	data, err := parsedABI.Pack("completeClientWithdrawal")
+	if err != nil {
+		return fmt.Errorf("pack completeClientWithdrawal: %w", err)
+	}
+
+	router := Router()
+
+	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	if err != nil {
+		return fmt.Errorf("completeClientWithdrawal message failed: %w", err)
+	}
+	return nil
+}
+
+func ClientCancelWithdrawal(ctx context.Context, full api.FullNode, from address.Address) error {
+	parsedABI, err := eabi.JSON(strings.NewReader(CancelClientWithdrawalABI))
+	if err != nil {
+		return fmt.Errorf("parse cancelClientWithdrawal ABI: %w", err)
+	}
+	data, err := parsedABI.Pack("cancelClientWithdrawal")
+	if err != nil {
+		return fmt.Errorf("pack cancelClientWithdrawal: %w", err)
+	}
+
+	router := Router()
+
+	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	if err != nil {
+		return fmt.Errorf("cancelClientWithdrawal message failed: %w", err)
 	}
 	return nil
 }
@@ -269,19 +380,14 @@ func ServiceRedeemProviderVoucher(
 	return nil
 }
 
-// ServiceWithdraw calls `serviceWithdraw(amount)`.
-func ServiceWithdraw(
-	ctx context.Context,
-	full api.FullNode,
-	amount fbig.Int,
-) error {
-	parsedABI, err := eabi.JSON(strings.NewReader(ServiceWithdrawABI))
+func ServiceInitiateWithdrawal(ctx context.Context, full api.FullNode, amount fbig.Int) error {
+	parsedABI, err := eabi.JSON(strings.NewReader(InitiateServiceWithdrawalABI))
 	if err != nil {
-		return fmt.Errorf("parse serviceWithdraw ABI: %w", err)
+		return fmt.Errorf("parse initiateServiceWithdrawal ABI: %w", err)
 	}
-	data, err := parsedABI.Pack("serviceWithdraw", amount.Int)
+	data, err := parsedABI.Pack("initiateServiceWithdrawal", amount.Int)
 	if err != nil {
-		return fmt.Errorf("pack serviceWithdraw: %w", err)
+		return fmt.Errorf("pack initiateServiceWithdrawal: %w", err)
 	}
 
 	router := Router()
@@ -289,7 +395,47 @@ func ServiceWithdraw(
 
 	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
 	if err != nil {
-		return fmt.Errorf("serviceWithdraw message failed: %w", err)
+		return fmt.Errorf("initiateServiceWithdrawal message failed: %w", err)
+	}
+	return nil
+}
+
+func ServiceCompleteWithdrawal(ctx context.Context, full api.FullNode) error {
+	parsedABI, err := eabi.JSON(strings.NewReader(CompleteServiceWithdrawalABI))
+	if err != nil {
+		return fmt.Errorf("parse completeServiceWithdrawal ABI: %w", err)
+	}
+	data, err := parsedABI.Pack("completeServiceWithdrawal")
+	if err != nil {
+		return fmt.Errorf("pack completeServiceWithdrawal: %w", err)
+	}
+
+	router := Router()
+	from := Service
+
+	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	if err != nil {
+		return fmt.Errorf("completeServiceWithdrawal message failed: %w", err)
+	}
+	return nil
+}
+
+func ServiceCancelWithdrawal(ctx context.Context, full api.FullNode) error {
+	parsedABI, err := eabi.JSON(strings.NewReader(CancelServiceWithdrawalABI))
+	if err != nil {
+		return fmt.Errorf("parse cancelServiceWithdrawal ABI: %w", err)
+	}
+	data, err := parsedABI.Pack("cancelServiceWithdrawal")
+	if err != nil {
+		return fmt.Errorf("pack cancelServiceWithdrawal: %w", err)
+	}
+
+	router := Router()
+	from := Service
+
+	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	if err != nil {
+		return fmt.Errorf("cancelServiceWithdrawal message failed: %w", err)
 	}
 	return nil
 }

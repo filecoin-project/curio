@@ -26,6 +26,47 @@ var debugSNSvc = &cli.Command{
 			Action: depositAction,
 		},
 		{
+			Name:  "client-initiate-withdrawal",
+			Usage: "Initiate a withdrawal request from the client's deposit",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:     "from",
+					Usage:    "Client sender address",
+					Required: true,
+				},
+				&cli.StringFlag{
+					Name:     "amount",
+					Usage:    "Withdrawal amount (in FIL)",
+					Required: true,
+				},
+			},
+			Action: clientInitiateWithdrawalAction,
+		},
+		{
+			Name:  "client-complete-withdrawal",
+			Usage: "Complete a pending client withdrawal after the withdrawal window elapses",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:     "from",
+					Usage:    "Client sender address",
+					Required: true,
+				},
+			},
+			Action: clientCompleteWithdrawalAction,
+		},
+		{
+			Name:  "client-cancel-withdrawal",
+			Usage: "Cancel a pending client withdrawal request",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:     "from",
+					Usage:    "Client sender address",
+					Required: true,
+				},
+			},
+			Action: clientCancelWithdrawalAction,
+		},
+		{
 			Name:  "redeem-client",
 			Usage: "Redeem a client voucher (service role)",
 			Flags: []cli.Flag{
@@ -50,12 +91,26 @@ var debugSNSvc = &cli.Command{
 			Action: redeemProviderAction,
 		},
 		{
-			Name:  "service-withdraw",
-			Usage: "Withdraw funds from the service pool (service role)",
+			Name:  "service-initiate-withdrawal",
+			Usage: "Initiate a withdrawal request from the service pool",
 			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "amount", Usage: "Amount to withdraw (FIL)", Required: true},
+				&cli.StringFlag{
+					Name:     "amount",
+					Usage:    "Withdrawal amount (in FIL)",
+					Required: true,
+				},
 			},
-			Action: serviceWithdrawAction,
+			Action: serviceInitiateWithdrawalAction,
+		},
+		{
+			Name:   "service-complete-withdrawal",
+			Usage:  "Complete a pending service withdrawal after the withdrawal window elapses",
+			Action: serviceCompleteWithdrawalAction,
+		},
+		{
+			Name:   "service-cancel-withdrawal",
+			Usage:  "Cancel a pending service withdrawal request",
+			Action: serviceCancelWithdrawalAction,
 		},
 		{
 			Name:  "service-deposit",
@@ -245,8 +300,87 @@ func redeemProviderAction(cctx *cli.Context) error {
 	return nil
 }
 
-// serviceWithdrawAction allows the service to withdraw residual funds.
-func serviceWithdrawAction(cctx *cli.Context) error {
+
+// clientInitiateWithdrawalAction submits a transaction to call `initiateClientWithdrawal(amount)`.
+// It deducts the withdrawal amount from the client’s deposit (subject to the withdrawal window).
+func clientInitiateWithdrawalAction(cctx *cli.Context) error {
+	ctx := context.Background()
+	full, closer, err := cliutil.GetFullNodeAPIV1(cctx)
+	if err != nil {
+		return err
+	}
+	defer closer()
+
+	fromStr := cctx.String("from")
+	fromAddr, err := address.NewFromString(fromStr)
+	if err != nil {
+		return fmt.Errorf("invalid client from address: %w", err)
+	}
+
+	amountStr := cctx.String("amount")
+	filAmount, err := types.ParseFIL(amountStr)
+	if err != nil {
+		return fmt.Errorf("invalid withdrawal amount: %w", err)
+	}
+
+	// Call the common function to initiate a client withdrawal.
+	if err := common.ClientInitiateWithdrawal(ctx, full, fromAddr, abi.TokenAmount(filAmount)); err != nil {
+		return fmt.Errorf("client initiate withdrawal failed: %w", err)
+	}
+
+	fmt.Println("Client withdrawal initiated successfully")
+	return nil
+}
+
+// clientCompleteWithdrawalAction completes a previously initiated client withdrawal.
+func clientCompleteWithdrawalAction(cctx *cli.Context) error {
+	ctx := context.Background()
+	full, closer, err := cliutil.GetFullNodeAPIV1(cctx)
+	if err != nil {
+		return err
+	}
+	defer closer()
+
+	fromStr := cctx.String("from")
+	fromAddr, err := address.NewFromString(fromStr)
+	if err != nil {
+		return fmt.Errorf("invalid client from address: %w", err)
+	}
+
+	if err := common.ClientCompleteWithdrawal(ctx, full, fromAddr); err != nil {
+		return fmt.Errorf("client complete withdrawal failed: %w", err)
+	}
+
+	fmt.Println("Client withdrawal completed successfully")
+	return nil
+}
+
+// clientCancelWithdrawalAction cancels a pending client withdrawal.
+func clientCancelWithdrawalAction(cctx *cli.Context) error {
+	ctx := context.Background()
+	full, closer, err := cliutil.GetFullNodeAPIV1(cctx)
+	if err != nil {
+		return err
+	}
+	defer closer()
+
+	fromStr := cctx.String("from")
+	fromAddr, err := address.NewFromString(fromStr)
+	if err != nil {
+		return fmt.Errorf("invalid client from address: %w", err)
+	}
+
+	if err := common.ClientCancelWithdrawal(ctx, full, fromAddr); err != nil {
+		return fmt.Errorf("client cancel withdrawal failed: %w", err)
+	}
+
+	fmt.Println("Client withdrawal canceled successfully")
+	return nil
+}
+
+// serviceInitiateWithdrawalAction submits a transaction to call `initiateServiceWithdrawal(amount)`.
+// Note that the service actor is hardcoded (via the common.Service variable).
+func serviceInitiateWithdrawalAction(cctx *cli.Context) error {
 	ctx := context.Background()
 	full, closer, err := cliutil.GetFullNodeAPIV1(cctx)
 	if err != nil {
@@ -257,13 +391,48 @@ func serviceWithdrawAction(cctx *cli.Context) error {
 	amountStr := cctx.String("amount")
 	filAmount, err := types.ParseFIL(amountStr)
 	if err != nil {
-		return fmt.Errorf("invalid withdraw amount: %w", err)
+		return fmt.Errorf("invalid withdrawal amount: %w", err)
 	}
 
-	if err := common.ServiceWithdraw(ctx, full, abi.TokenAmount(filAmount)); err != nil {
-		return fmt.Errorf("service withdraw failed: %w", err)
+	if err := common.ServiceInitiateWithdrawal(ctx, full, abi.TokenAmount(filAmount)); err != nil {
+		return fmt.Errorf("service initiate withdrawal failed: %w", err)
 	}
-	fmt.Println("Service withdrawal succeeded")
+
+	fmt.Println("Service withdrawal initiated successfully")
+	return nil
+}
+
+// serviceCompleteWithdrawalAction completes a previously initiated service withdrawal.
+func serviceCompleteWithdrawalAction(cctx *cli.Context) error {
+	ctx := context.Background()
+	full, closer, err := cliutil.GetFullNodeAPIV1(cctx)
+	if err != nil {
+		return err
+	}
+	defer closer()
+
+	if err := common.ServiceCompleteWithdrawal(ctx, full); err != nil {
+		return fmt.Errorf("service complete withdrawal failed: %w", err)
+	}
+
+	fmt.Println("Service withdrawal completed successfully")
+	return nil
+}
+
+// serviceCancelWithdrawalAction cancels a pending service withdrawal.
+func serviceCancelWithdrawalAction(cctx *cli.Context) error {
+	ctx := context.Background()
+	full, closer, err := cliutil.GetFullNodeAPIV1(cctx)
+	if err != nil {
+		return err
+	}
+	defer closer()
+
+	if err := common.ServiceCancelWithdrawal(ctx, full); err != nil {
+		return fmt.Errorf("service cancel withdrawal failed: %w", err)
+	}
+
+	fmt.Println("Service withdrawal canceled successfully")
 	return nil
 }
 
