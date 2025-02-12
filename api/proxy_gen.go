@@ -70,6 +70,8 @@ type CurioMethods struct {
 
 	StorageLocal func(p0 context.Context) (map[storiface.ID]string, error) `perm:"admin"`
 
+	StorageRedeclare func(p0 context.Context, p1 *storiface.ID, p2 bool) error `perm:"admin"`
+
 	StorageStat func(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) `perm:"admin"`
 
 	Uncordon func(p0 context.Context) error `perm:"admin"`
@@ -381,6 +383,17 @@ func (s *CurioStruct) StorageLocal(p0 context.Context) (map[storiface.ID]string,
 
 func (s *CurioStub) StorageLocal(p0 context.Context) (map[storiface.ID]string, error) {
 	return *new(map[storiface.ID]string), ErrNotSupported
+}
+
+func (s *CurioStruct) StorageRedeclare(p0 context.Context, p1 *storiface.ID, p2 bool) error {
+	if s.Internal.StorageRedeclare == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.StorageRedeclare(p0, p1, p2)
+}
+
+func (s *CurioStub) StorageRedeclare(p0 context.Context, p1 *storiface.ID, p2 bool) error {
+	return ErrNotSupported
 }
 
 func (s *CurioStruct) StorageStat(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) {

@@ -737,6 +737,20 @@
             "fuzzy": true
         },
         {
+            "id": "redeclare sectors in a local storage path",
+            "message": "redeclare sectors in a local storage path",
+            "translation": "redeclare sectors in a local storage path",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "--machine flag in cli command should point to the node where storage to redeclare is attached",
+            "message": "--machine flag in cli command should point to the node where storage to redeclare is attached",
+            "translation": "--machine flag in cli command should point to the node where storage to redeclare is attached",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Utility functions for testing",
             "message": "Utility functions for testing",
             "translation": "Utility functions for testing",

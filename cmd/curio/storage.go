@@ -41,8 +41,8 @@ stored while moving through the sealing pipeline (references as 'seal').`),
 		storageListCmd,
 		storageFindCmd,
 		storageGenerateVanillaProofCmd,
-		/*storageDetachCmd,
 		storageRedeclareCmd,
+		/*storageDetachCmd,
 		storageCleanupCmd,
 		storageLocks,*/
 	},
@@ -580,6 +580,57 @@ var storageGenerateVanillaProofCmd = &cli.Command{
 			return xerrors.Errorf("generating proof: %w", err)
 		}
 		fmt.Println(proof)
+		return nil
+	},
+}
+
+var storageRedeclareCmd = &cli.Command{
+	Name:        "redeclare",
+	Usage:       translations.T("redeclare sectors in a local storage path"),
+	Description: translations.T("--machine flag in cli command should point to the node where storage to redeclare is attached"),
+	ArgsUsage:   "[id]",
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:  "all",
+			Usage: "redeclare all storage paths",
+		},
+		&cli.BoolFlag{
+			Name:  "drop-missing",
+			Usage: "Drop index entries with missing files",
+			Value: true,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		api, closer, err := rpc.GetCurioAPI(cctx)
+		if err != nil {
+			return err
+		}
+		defer closer()
+		ctx := reqcontext.ReqContext(cctx)
+
+		// check if no argument and no --id or --all flag is provided
+		if cctx.NArg() == 0 && !cctx.Bool("all") {
+			return xerrors.Errorf("You must specify a storage id, or --all")
+		}
+
+		if cctx.Bool("all") && cctx.NArg() > 0 {
+			return xerrors.Errorf("No additional arguments are expected when --all is set")
+		}
+
+		if !cctx.Bool("all") {
+			id := storiface.ID(strings.TrimSpace(cctx.Args().First()))
+			return api.StorageRedeclare(ctx, &id, cctx.Bool("drop-missing"))
+		}
+
+		local, err := api.StorageLocal(ctx)
+		if err != nil {
+			return err
+		}
+
+		for l := range local {
+			return api.StorageRedeclare(ctx, &l, cctx.Bool("drop-missing"))
+		}
+
 		return nil
 	},
 }

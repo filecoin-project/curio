@@ -26,6 +26,7 @@ description: Curio API references
   * [StorageInit](api.md#StorageInit)
   * [StorageList](api.md#StorageList)
   * [StorageLocal](api.md#StorageLocal)
+  * [StorageRedeclare](api.md#StorageRedeclare)
   * [StorageStat](api.md#StorageStat)
 ### Allocate
 
@@ -425,6 +426,21 @@ Response:
   "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8": "/data/path"
 }
 ```
+
+#### StorageRedeclare
+
+
+Perms: admin
+
+Inputs:
+```json
+[
+  "string value",
+  true
+]
+```
+
+Response: `{}`
 
 #### StorageStat
 

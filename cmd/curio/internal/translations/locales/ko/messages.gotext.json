@@ -2001,6 +2001,18 @@
             "translation": "WindowPoSt 계산을 위한 SP ID",
             "message": "SP ID to compute WindowPoSt for",
             "placeholder": null
+        },
+        {
+            "id": "redeclare sectors in a local storage path",
+            "translation": "로컬 스토리지 경로에서 섹터를 다시 선언",
+            "message": "redeclare sectors in a local storage path",
+            "placeholder": null
+        },
+        {
+            "id": "--machine flag in cli command should point to the node where storage to redeclare is attached",
+            "translation": "CLI 명령의 --machine 플래그는 다시 선언할 스토리지가 연결된 노드를 가리켜야 합니다",
+            "message": "--machine flag in cli command should point to the node where storage to redeclare is attached",
+            "placeholder": null
         }
     ]
 }

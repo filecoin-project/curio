@@ -251,7 +251,7 @@ go-generate:
 gen: gensimple
 .PHONY: gen
 
-gensimple: go-generate cfgdoc-gen api-gen docsgen docsgen-cli
+gensimple: api-gen go-generate cfgdoc-gen docsgen docsgen-cli
 	$(GOCC) run ./scripts/fiximports
 	go mod tidy
 .PHONY: gen
