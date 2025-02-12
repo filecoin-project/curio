@@ -548,6 +548,8 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 				Hash:  parent,
 			}
 
+			log.Debugw("computing partial tree:", "parentLevel", parentLevel, "elemOffset", parentOffset, "hash", hex.EncodeToString(parent[:]))
+
 			// move to the parent
 			level = parentLevel
 			offset = parentOffset
@@ -556,7 +558,6 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 
 	{
 		var partialTreeList []elemIndex
-		var partialTreeHashList []treeElem
 		for k := range partialTree {
 			partialTreeList = append(partialTreeList, k)
 		}
@@ -567,10 +568,11 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 			return partialTreeList[i].ElemOffset < partialTreeList[j].ElemOffset
 		})
 		for _, k := range partialTreeList {
-			partialTreeHashList = append(partialTreeHashList, partialTree[k])
+			v := partialTree[k]
+			log.Debugw("partialTree", "index", k, "hash", hex.EncodeToString(v.Hash[:]))
 		}
 		log.Debugw("partialTree", "partialTree", partialTreeList)
-		log.Debugw("partialTreeHashList", "partialTreeHashList", partialTreeHashList)
+
 	}
 
 	challLevel := proof.NodeLevel(challSubRoot.SubrootSize/LeafSize, arity)
