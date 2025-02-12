@@ -12,9 +12,12 @@ import "filecoin-solidity-api/contracts/v0.8/utils/FilAddressIdConverter.sol";
 // OpenZeppelin reentrancy protection
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract Router is ReentrancyGuard {
+contract _Router is ReentrancyGuard {
     using FilAddresses for CommonTypes.FilAddress;
     using FilAddressIdConverter for address;
+
+    uint256 public constant DST_CLIENT_VOUCHER = 0xc896443a8cbf4cb49ec50beef800b5b2a3764c14b7c5454e8248e1f195b1c000;
+    uint256 public constant DST_PROVIDER_VOUCHER = 0xc896443a8cbf4cb49ec50beef800b5b2a3764c14b7c5454e8248e1f195b1c001;
 
     // --- Roles ---
     // service actor is fixed at deployment (as an ID)
@@ -40,7 +43,7 @@ contract Router is ReentrancyGuard {
     event ClientVoucherRedeemed(uint64 indexed clientID, uint256 cumulativeAmount, uint64 nonce);
     event ProviderVoucherRedeemed(uint64 indexed providerID, uint256 cumulativeAmount, uint64 nonce);
     event ServiceWithdrawal(uint256 amount);
-    
+    event ServiceDeposit(uint256 amount);
     constructor(CommonTypes.FilActorId _serviceActor) {
         require(CommonTypes.FilActorId.unwrap(_serviceActor) > 0, "Invalid service actor");
         serviceActor = _serviceActor;
@@ -57,6 +60,7 @@ contract Router is ReentrancyGuard {
         clientBalance[clientID] += msg.value;
         emit Deposit(clientID, msg.value);
     }
+    
     /// @notice Creates the voucher bytes for a client voucher.
     function createClientVoucher(
         uint64 clientID,
@@ -68,7 +72,8 @@ contract Router is ReentrancyGuard {
             clientID,
             CommonTypes.FilActorId.unwrap(serviceActor),
             cumulativeAmount,
-            nonce
+            nonce,
+            DST_CLIENT_VOUCHER
         );
     }
 
@@ -83,7 +88,8 @@ contract Router is ReentrancyGuard {
             CommonTypes.FilActorId.unwrap(serviceActor),
             providerID,
             cumulativeAmount,
-            nonce
+            nonce,
+            DST_PROVIDER_VOUCHER
         );
     }
 
@@ -212,7 +218,16 @@ contract Router is ReentrancyGuard {
         emit ServiceWithdrawal(amount);
     }
 
-    // TODO: Service deposit
+    /// @notice Allows the service to deposit funds into the service pool.
+    function serviceDeposit() external payable nonReentrant {
+        (bool svcSuccess, uint64 callerID) = FilAddressIdConverter.getActorID(msg.sender);
+        require(svcSuccess && callerID == CommonTypes.FilActorId.unwrap(serviceActor), "Only service may deposit");
+        require(msg.value > 0, "Must deposit non-zero amount");
+        
+        servicePool += msg.value;
+        
+        emit ServiceDeposit(msg.value);
+    }
     
     /// @notice Returns the state for a given client.
     function getClientState(uint64 clientID) external view returns (uint256 balance, uint256 voucherRedeemed, uint64 lastNonce) {
