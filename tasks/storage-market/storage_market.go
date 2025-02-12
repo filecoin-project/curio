@@ -476,8 +476,8 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 		// Check if We can find the URL for this piece on remote servers
 		for rUrl, headers := range d.urls {
 			// Create a new HTTP request
-			urlString := fmt.Sprintf("%s/pieces?id=%s", rUrl, pcid)
-			req, err := http.NewRequest(http.MethodGet, urlString, nil)
+			urlString := fmt.Sprintf("%s?id=%s", rUrl, pcid)
+			req, err := http.NewRequest(http.MethodHead, urlString, nil)
 			if err != nil {
 				return false, xerrors.Errorf("error creating request: %w", err)
 			}
@@ -513,10 +513,8 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 				return false, xerrors.Errorf("failed to parse the raw size: %w", err)
 			}
 
-			dataUrl := fmt.Sprintf("%s/data?id=%s", rUrl, pcid)
-
 			_, err = tx.Exec(`UPDATE market_mk12_deal_pipeline SET url = $1, headers = $2, raw_size = $3, started = TRUE 
-                           WHERE uuid = $4 AND started = FALSE`, dataUrl, hdrs, rawSize, deal)
+                           WHERE uuid = $4 AND started = FALSE`, urlString, hdrs, rawSize, deal)
 			if err != nil {
 				return false, xerrors.Errorf("store url for piece %s: updating pipeline: %w", pcid, err)
 			}
