@@ -131,10 +131,12 @@ CUDA 12.x is required, 11.x won't work. The build process depends on GCC 11.x sy
 * On newer Ubuntu install `gcc-11` and `g++-11` packages
 * In addtion to general build dependencies (listed on the [installation page](installation.md)), you need `libgmp-dev` and `libconfig++-dev`
 
-```bash
+
 ### Building
 
 Build the batch-capable Curio binary:
+
+```bash
 make batch
 ```
 
