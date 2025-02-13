@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"time"
 
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
 	"github.com/filecoin-project/go-address"
@@ -99,23 +100,31 @@ var debugSNSvc = &cli.Command{
 					Usage:    "Withdrawal amount (in FIL)",
 					Required: true,
 				},
+				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
 			},
 			Action: serviceInitiateWithdrawalAction,
 		},
 		{
 			Name:   "service-complete-withdrawal",
 			Usage:  "Complete a pending service withdrawal after the withdrawal window elapses",
+			Flags: []cli.Flag{
+				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
+			},
 			Action: serviceCompleteWithdrawalAction,
 		},
 		{
 			Name:   "service-cancel-withdrawal",
 			Usage:  "Cancel a pending service withdrawal request",
+			Flags: []cli.Flag{
+				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
+			},
 			Action: serviceCancelWithdrawalAction,
 		},
 		{
 			Name:  "service-deposit",
 			Usage: "Deposit funds into the service pool (service role)",
 			Flags: []cli.Flag{
+				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
 				&cli.StringFlag{Name: "amount", Usage: "Amount to deposit (FIL)", Required: true},
 			},
 			Action: serviceDepositAction,
@@ -158,8 +167,26 @@ var debugSNSvc = &cli.Command{
 				&cli.StringFlag{Name: "provider", Usage: "Provider actor address", Required: true},
 				&cli.StringFlag{Name: "amount", Usage: "Amount to redeem (FIL)", Required: true},
 				&cli.Uint64Flag{Name: "nonce", Usage: "Voucher nonce", Required: true},
+				&cli.StringFlag{Name: "service", Usage: "Service sender address", Required: true},
 			},
 			Action: createProviderVoucherAction,
+		},
+		{
+			Name:   "propose-service-actor",
+			Usage:  "Propose a new service actor",
+			Flags:  []cli.Flag{
+				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
+				&cli.StringFlag{Name: "new-service-actor", Usage: "New service actor address", Required: true},
+			},
+			Action: proposeServiceActorAction,
+		},
+		{
+			Name:   "accept-service-actor",
+			Usage:  "Accept a proposed service actor",
+			Flags:  []cli.Flag{
+				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
+			},
+			Action: acceptServiceActorAction,
 		},
 	},
 }
@@ -185,8 +212,7 @@ func depositAction(cctx *cli.Context) error {
 		return fmt.Errorf("invalid amount: %w", err)
 	}
 
-	routerAddr := common.Router() // returns the router contract address (Filecoin address)
-	if err := common.ClientDeposit(ctx, full, fromAddr, routerAddr, abi.TokenAmount(filAmount)); err != nil {
+	if err := common.ClientDeposit(ctx, full, fromAddr, abi.TokenAmount(filAmount)); err != nil {
 		return fmt.Errorf("deposit failed: %w", err)
 	}
 
@@ -394,7 +420,13 @@ func serviceInitiateWithdrawalAction(cctx *cli.Context) error {
 		return fmt.Errorf("invalid withdrawal amount: %w", err)
 	}
 
-	if err := common.ServiceInitiateWithdrawal(ctx, full, abi.TokenAmount(filAmount)); err != nil {
+	fromStr := cctx.String("from")
+	fromAddr, err := address.NewFromString(fromStr)
+	if err != nil {
+		return fmt.Errorf("invalid service from address: %w", err)
+	}
+
+	if err := common.ServiceInitiateWithdrawal(ctx, full, fromAddr, abi.TokenAmount(filAmount)); err != nil {
 		return fmt.Errorf("service initiate withdrawal failed: %w", err)
 	}
 
@@ -411,7 +443,13 @@ func serviceCompleteWithdrawalAction(cctx *cli.Context) error {
 	}
 	defer closer()
 
-	if err := common.ServiceCompleteWithdrawal(ctx, full); err != nil {
+	fromStr := cctx.String("from")
+	fromAddr, err := address.NewFromString(fromStr)
+	if err != nil {
+		return fmt.Errorf("invalid service from address: %w", err)
+	}
+
+	if err := common.ServiceCompleteWithdrawal(ctx, full, fromAddr); err != nil {
 		return fmt.Errorf("service complete withdrawal failed: %w", err)
 	}
 
@@ -428,7 +466,13 @@ func serviceCancelWithdrawalAction(cctx *cli.Context) error {
 	}
 	defer closer()
 
-	if err := common.ServiceCancelWithdrawal(ctx, full); err != nil {
+	fromStr := cctx.String("from")
+	fromAddr, err := address.NewFromString(fromStr)
+	if err != nil {
+		return fmt.Errorf("invalid service from address: %w", err)
+	}
+
+	if err := common.ServiceCancelWithdrawal(ctx, full, fromAddr); err != nil {
 		return fmt.Errorf("service cancel withdrawal failed: %w", err)
 	}
 
@@ -451,7 +495,13 @@ func serviceDepositAction(cctx *cli.Context) error {
 		return fmt.Errorf("invalid deposit amount: %w", err)
 	}
 
-	if err := common.ServiceDeposit(ctx, full, abi.TokenAmount(filAmount)); err != nil {
+	fromStr := cctx.String("from")
+	fromAddr, err := address.NewFromString(fromStr)
+	if err != nil {
+		return fmt.Errorf("invalid service from address: %w", err)
+	}
+
+	if err := common.ServiceDeposit(ctx, full, fromAddr, abi.TokenAmount(filAmount)); err != nil {
 		return fmt.Errorf("service deposit failed: %w", err)
 	}
 	fmt.Println("Service deposit succeeded")
@@ -493,7 +543,16 @@ func getClientStateAction(cctx *cli.Context) error {
 	fmt.Printf("VoucherRedeemed: %s\n", types.FIL(voucherRedeemed).String())
 	fmt.Printf("LastNonce: %d\n", lastNonce)
 	fmt.Printf("WithdrawAmount: %s\n", types.FIL(withdrawAmount).String())
-	fmt.Printf("WithdrawTimestamp: %d\n", withdrawTimestamp)
+	ts := withdrawTimestamp.Int.Uint64()
+	wt := time.Unix(int64(ts), 0)
+	diff := time.Until(wt)
+	var diffStr string
+	if diff >= 0 {
+		diffStr = fmt.Sprintf("in %s", diff)
+	} else {
+		diffStr = fmt.Sprintf("%s ago", -diff)
+	}
+	fmt.Printf("WithdrawTime: %s (%s)\n", wt.Format(time.RFC3339), diffStr)
 	return nil
 }
 
@@ -550,9 +609,9 @@ func getServiceStateAction(cctx *cli.Context) error {
 	fmt.Printf("  ServiceActor: %d\n", serviceActor)
 	fmt.Printf("  Pool: %s\n", types.FIL(pool).String())
 	fmt.Printf("  PendingWithdrawalAmount: %s\n", types.FIL(pendingWithdrawalAmount).String())
-	fmt.Printf("  PendingWithdrawalTimestamp: %d\n", pendingWithdrawalTimestamp)
-	fmt.Printf("  ProposedServiceActor: %d\n", proposedServiceActor)
-	fmt.Printf("  ActorChangeTimestamp: %d\n", actorChangeTimestamp)
+	fmt.Printf("  Pending Withdrawal Timestamp: %s\n", time.Unix(types.BigInt(pendingWithdrawalTimestamp).Int64(), 0).Format(time.RFC1123))
+	fmt.Printf("  Proposed Service Actor: %d\n", proposedServiceActor)
+	fmt.Printf("  Actor Change Timestamp: %s\n", time.Unix(types.BigInt(actorChangeTimestamp).Int64(), 0).Format(time.RFC1123))
 	return nil
 }
 
@@ -677,7 +736,12 @@ func createProviderVoucherAction(cctx *cli.Context) error {
 	// Output the voucher as a hex-encoded string.
 	fmt.Println("Provider Voucher:", hex.EncodeToString(voucher))
 
-	svcAddr, err := full.StateAccountKey(cctx.Context, common.Service, types.EmptyTSK)
+	service, err := address.NewFromString(cctx.String("service"))
+	if err != nil {
+		return fmt.Errorf("invalid service address: %w", err)
+	}
+
+	svcAddr, err := full.StateAccountKey(cctx.Context, service, types.EmptyTSK)
 	if err != nil {
 		return fmt.Errorf("get service address failed: %w", err)
 	}
@@ -694,5 +758,53 @@ func createProviderVoucherAction(cctx *cli.Context) error {
 		return fmt.Errorf("verify voucher failed: %w", err)
 	}
 	fmt.Println("Verification result:", ok)
+	return nil
+}
+
+func proposeServiceActorAction(cctx *cli.Context) error {
+	full, closer, err := cliutil.GetFullNodeAPIV1(cctx)
+	if err != nil {
+		return err
+	}
+	defer closer()
+
+	fromStr := cctx.String("from")
+	fromAddr, err := address.NewFromString(fromStr)
+	if err != nil {
+		return fmt.Errorf("invalid service from address: %w", err)
+	}
+
+	newServiceActorStr := cctx.String("new-service-actor")
+	newServiceActorAddr, err := address.NewFromString(newServiceActorStr)
+	if err != nil {
+		return fmt.Errorf("invalid new service actor address: %w", err)
+	}
+
+	if err := common.ProposeServiceActor(cctx.Context, full, fromAddr, newServiceActorAddr); err != nil {
+		return fmt.Errorf("propose service actor failed: %w", err)
+	}
+
+	fmt.Println("Service actor proposed successfully")
+	return nil
+}
+
+func acceptServiceActorAction(cctx *cli.Context) error {
+	full, closer, err := cliutil.GetFullNodeAPIV1(cctx)
+	if err != nil {
+		return err
+	}
+	defer closer()
+
+	fromStr := cctx.String("from")
+	fromAddr, err := address.NewFromString(fromStr)
+	if err != nil {
+		return fmt.Errorf("invalid service from address: %w", err)
+	}
+
+	if err := common.AcceptServiceActor(cctx.Context, full, fromAddr); err != nil {
+		return fmt.Errorf("accept service actor failed: %w", err)
+	}
+
+	fmt.Println("Service actor accepted successfully")
 	return nil
 }
