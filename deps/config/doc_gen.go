@@ -895,6 +895,12 @@ heads.`,
 
 			Comment: `Number of concurrent inserts to split AddIndex calls to`,
 		},
+		{
+			Name: "ReplicationFactor",
+			Type: "int",
+
+			Comment: `ReplicationFactor is the number of replicas for the index`,
+		},
 	},
 	"MK12Config": {
 		{

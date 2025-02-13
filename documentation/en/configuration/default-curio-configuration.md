@@ -512,6 +512,11 @@ description: The default curio configuration
       # type: int
       #InsertConcurrency = 10
 
+      # ReplicationFactor is the number of replicas for the index
+      #
+      # type: int
+      #ReplicationFactor = 3
+
 
 [Ingest]
   # MaxMarketRunningPipelines is the maximum number of market pipelines that can be actively running tasks.

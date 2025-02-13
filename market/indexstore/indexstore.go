@@ -30,6 +30,8 @@ type settings struct {
 	InsertBatchSize int // default 15000
 	// Number of concurrent inserts to split AddIndex/DeleteIndex calls to
 	InsertConcurrency int // default 8
+	// ReplicationFactor is the number of replicas for the keyspace
+	ReplicationFactor int // default 3
 }
 
 type IndexStore struct {
@@ -86,6 +88,7 @@ func NewIndexStore(hosts []string, cfg *config.CurioConfig) (*IndexStore, error)
 		settings: settings{
 			InsertBatchSize:   cfg.Market.StorageMarketConfig.Indexing.InsertBatchSize,
 			InsertConcurrency: cfg.Market.StorageMarketConfig.Indexing.InsertConcurrency,
+			ReplicationFactor: cfg.Market.StorageMarketConfig.Indexing.ReplicationFactor,
 		},
 	}
 
@@ -98,8 +101,7 @@ func (i *IndexStore) Start(ctx context.Context) error {
 	if err != nil {
 		return xerrors.Errorf("creating cassandra session: %w", err)
 	}
-	query := `CREATE KEYSPACE IF NOT EXISTS ` + keyspace +
-		` WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 3 }`
+	query := fmt.Sprintf("CREATE KEYSPACE IF NOT EXISTS %s WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : %d }", keyspace, i.settings.ReplicationFactor)
 	err = session.Query(query).WithContext(ctx).Exec()
 	if err != nil {
 		return xerrors.Errorf("creating cassandra keyspace: %w", err)

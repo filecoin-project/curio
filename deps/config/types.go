@@ -106,6 +106,7 @@ func DefaultCurioConfig() *CurioConfig {
 				Indexing: IndexingConfig{
 					InsertConcurrency: 10,
 					InsertBatchSize:   1000,
+					ReplicationFactor: 3,
 				},
 				MK12: MK12Config{
 					PublishMsgPeriod:          Duration(5 * time.Minute),
@@ -706,6 +707,9 @@ type IndexingConfig struct {
 
 	// Number of concurrent inserts to split AddIndex calls to
 	InsertConcurrency int
+
+	// ReplicationFactor is the number of replicas for the index
+	ReplicationFactor int
 }
 
 type IPNIConfig struct {
