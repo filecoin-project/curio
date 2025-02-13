@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"path"
 	"strings"
 	"time"
 
@@ -38,7 +37,6 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
-	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 )
 
@@ -195,14 +193,13 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 			if err != nil {
 				return false, xerrors.Errorf("parsing announce address domain: %w", err)
 			}
-			u.Path = path.Join(u.Path, ipni_provider.IPNIRoutePath, task.Prov)
 
 			addr, err := maurl.FromURL(u)
 			if err != nil {
 				return false, xerrors.Errorf("converting URL to multiaddr: %w", err)
 			}
 
-			adv.Addresses = append(adv.Addresses, addr.String())
+			adv.Addresses = append(adv.Addresses, addr.String()) // This address is used for retrievals and is different from provider address
 		}
 
 		if prev != "" {
