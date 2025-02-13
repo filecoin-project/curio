@@ -91,6 +91,7 @@ COMMANDS:
    list                    list local storage paths
    find                    find sector in the storage system
    generate-vanilla-proof  generate vanilla proof for a sector
+   redeclare               redeclare sectors in a local storage path
    help, h                 Shows a list of commands or help for one command
 
 OPTIONS:
@@ -189,6 +190,23 @@ USAGE:
 
 OPTIONS:
    --help, -h  show help
+```
+
+#### curio cli storage redeclare
+```
+NAME:
+   curio cli storage redeclare - redeclare sectors in a local storage path
+
+USAGE:
+   curio cli storage redeclare [command options] [id]
+
+DESCRIPTION:
+   --machine flag in cli command should point to the node where storage to redeclare is attached
+
+OPTIONS:
+   --all           redeclare all storage paths (default: false)
+   --drop-missing  Drop index entries with missing files (default: true)
+   --help, -h      show help
 ```
 
 ### curio cli log

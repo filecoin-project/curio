@@ -309,6 +309,19 @@ func (p *CurioAPI) StorageGenerateVanillaProof(ctx context.Context, maddr addres
 	return p.Stor.GenerateSingleVanillaProof(ctx, minerID, psc, ppt)
 }
 
+func (p *CurioAPI) StorageRedeclare(ctx context.Context, filterId *storiface.ID, dropMissing bool) error {
+	sl, err := p.LocalStore.Local(ctx)
+	if err != nil {
+		return xerrors.Errorf("getting local store: %w", err)
+	}
+	for _, id := range sl {
+		if id.ID == *filterId {
+			return p.LocalStore.Redeclare(ctx, filterId, dropMissing)
+		}
+	}
+	return xerrors.Errorf("storage %s not found on the node", *filterId)
+}
+
 func (p *CurioAPI) LogList(ctx context.Context) ([]string, error) {
 	return logging.GetSubsystems(), nil
 }

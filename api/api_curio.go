@@ -43,6 +43,7 @@ type Curio interface {
 	StorageInfo(context.Context, storiface.ID) (storiface.StorageInfo, error)                                                                                              //perm:admin
 	StorageFindSector(ctx context.Context, sector abi.SectorID, ft storiface.SectorFileType, ssize abi.SectorSize, allowFetch bool) ([]storiface.SectorStorageInfo, error) //perm:admin
 	StorageGenerateVanillaProof(ctx context.Context, maddr address.Address, sector abi.SectorNumber) ([]byte, error)                                                       //perm:admin
+	StorageRedeclare(ctx context.Context, filterId *storiface.ID, dropMissing bool) error                                                                                  //perm:admin
 
 	// MethodGroup: Log
 	//The log method group has logging methods

@@ -1971,6 +1971,18 @@
       "translation": "用于计算 WindowPoSt 的存储提供者 ID",
       "message": "SP ID to compute WindowPoSt for",
       "placeholder": null
+    },
+    {
+      "id": "redeclare sectors in a local storage path",
+      "translation": "在本地存储路径中重新声明扇区",
+      "message": "redeclare sectors in a local storage path",
+      "placeholder": null
+    },
+    {
+      "id": "--machine flag in cli command should point to the node where storage to redeclare is attached",
+      "translation": "CLI 命令中的 --machine 标志应指向连接了要重新声明存储的节点",
+      "message": "--machine flag in cli command should point to the node where storage to redeclare is attached",
+      "placeholder": null
     }
   ]
 }
