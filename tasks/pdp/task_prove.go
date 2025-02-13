@@ -548,7 +548,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 				Hash:  parent,
 			}
 
-			log.Debugw("computing partial tree:", "parentLevel", parentLevel, "elemOffset", parentOffset, "hash", hex.EncodeToString(parent[:]))
+			log.Debugw("computing partial tree:", "parentLevel", parentLevel, "parentOffset", parentOffset, "hash", hex.EncodeToString(parent[:]), "elem", hex.EncodeToString(curElem.Hash[:]), "rightElem", hex.EncodeToString(rightSibling.Hash[:]))
 
 			// move to the parent
 			level = parentLevel
