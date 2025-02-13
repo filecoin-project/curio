@@ -91,7 +91,7 @@ func (mw *MessageWatcher) update() {
 
 	// first if we see pending messages with null owner, assign them to ourselves
 	{
-		n, err := mw.db.Exec(ctx, `UPDATE message_waits SET waiter_machine_id = $1 WHERE waiter_machine_id IS NULL AND executed_tsk_cid IS NULL`, machineID)
+		n, err := mw.db.Exec(ctx, `UPDATE message_waits SET waiter_machine_id = $1 WHERE waiter_machine_id IS NULL AND executed_tsk_cid IS NULL FOR UPDATE SKIP LOCKED`, machineID)
 		if err != nil {
 			log.Errorf("failed to assign pending messages: %+v", err)
 			return
