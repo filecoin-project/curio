@@ -68,16 +68,6 @@ The `MinerPeerIDMapping` contract provides a decentralized way to map Filecoin m
 
 ## **Contract Functions**
 
-### **Ownership Management**
-
-- **Transfer Ownership**
-  ```solidity
-  function transferOwnership(address newOwner) public onlyOwner;
-  ```
-  Allows the owner to transfer contract ownership to a new address.
-
----
-
 ### **Peer Data Management**
 
 - **Add Peer Data**
@@ -127,7 +117,7 @@ The signed message stored in the contract contains JSON-encoded information:
 }
 ```
 
-This message is signed using the private key associated with the on-chain PeerID.
+This message is signed using the private key associated with the PeerID.
 
 ---
 
@@ -167,51 +157,40 @@ import * as libp2pCrypto from "@libp2p/crypto"; // Ensure this library is instal
 import * as multihashes from "multihashes"; // For decoding PeerID
 
 /**
- * Fetch miner's PeerID and verify the signature of a message.
- * @param {string} minerAddress - Filecoin miner address
- * @param {Buffer} message - The message that was signed
+ * Verify the signature of a message.
+ * @param {int64} minerID - Miner's actor ID
+ * @param {string} peerID - PeerID used for IPNI communication by the miner
  * @param {Buffer} signature - The signature to verify
  */
-async function verifyMinerSignature(minerAddress, message, signature) {
-  try {
-    // Set up the Filecoin RPC client
-    const rpcUrl = "http://127.0.0.1:1234/rpc/v0"; // Replace with your Filecoin Lotus RPC URL
-    const connector = new HttpJsonRpcConnector({ url: rpcUrl });
-    const lotusClient = new LotusClient(connector);
 
-    // Step 1: Fetch miner info
-    const minerInfo = await lotusClient.state.minerInfo(minerAddress);
+async function verifyMinerSignature(minerID, peerID, signature) {
+  // Step 1: Reconstruct the message that was signed
+  const message = JSON.stringify({miner: `f0${minerID}`, peer: peerID})
 
-    if (!minerInfo || !minerInfo.PeerId) {
-      throw new Error("Could not retrieve PeerID from miner info.");
-    }
+  // Step 2: Decode PeerID to obtain the public key
+  const decodedPeerID = multihashes.decode(Buffer.from(peerID, "base64"));
+  const publicKeyBytes = decodedPeerID.digest;
 
-    // Extract PeerID
-    const { PeerId } = minerInfo;
-    console.log("Retrieved PeerID:", PeerId);
+  // Step 3: Generate a Libp2p public key object
+  const publicKey = await libp2pCrypto.keys.unmarshalPublicKey(publicKeyBytes);
 
-    // Step 2: Decode PeerID to obtain the public key
-    const decodedPeerID = multihashes.decode(Buffer.from(PeerId, "base64"));
-    const publicKeyBytes = decodedPeerID.digest;
+  // Step 4: Verify the signature
+  const isValid = await publicKey.verify(message, signature);
 
-    // Step 3: Generate a Libp2p public key object
-    const publicKey = await libp2pCrypto.keys.unmarshalPublicKey(publicKeyBytes);
-
-    // Step 4: Verify the signature
-    const isValid = await publicKey.verify(message, signature);
-
-    if (isValid) {
-      console.log("Signature is valid.");
-      return true;
-    } else {
-      console.log("Signature is invalid.");
-      return false;
-    }
-  } catch (error) {
-    console.error("Error during verification:", error.message);
-    throw error;
+  if (isValid) {
+    console.log("Signature is valid.");
+    return true;
+  } else {
+    console.log("Signature is invalid.");
+    return false;
   }
 }
+
+// example usage
+
+const minerID = 1000
+const {peerID, signedMessage} = await contract.getPeerData(minerID);
+await verifyMinerSignature(minerID, peerID, signedMessage)
 ```
 
 ---
