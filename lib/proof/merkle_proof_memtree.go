@@ -1,6 +1,14 @@
 package proof
 
-import "golang.org/x/xerrors"
+import (
+	"encoding/hex"
+
+	logger "github.com/ipfs/go-log/v2"
+	"github.com/minio/sha256-simd"
+	"golang.org/x/xerrors"
+)
+
+var log = logger.Logger("proof")
 
 type RawMerkleProof struct {
 	Leaf  [32]byte
@@ -69,10 +77,18 @@ func MemtreeProof(memtree []byte, leafIndex int64) (*RawMerkleProof, error) {
 		siblingIndex := index ^ 1 // Toggle the last bit to get the sibling index
 
 		siblingOffset := levelStarts[level] + siblingIndex*NODE_SIZE
+		nodeOffset := levelStarts[level] + index*NODE_SIZE
 		var siblingHash [NODE_SIZE]byte
+		var node [NODE_SIZE]byte
+		copy(node[:], memtree[nodeOffset:nodeOffset+NODE_SIZE])
 		copy(siblingHash[:], memtree[siblingOffset:siblingOffset+NODE_SIZE])
 		proof.Proof = append(proof.Proof, siblingHash)
 
+		if index < siblingIndex { // left
+			log.Debugw("Proof", "position", index, "left-c", hex.EncodeToString(node[:]), "right-s", hex.EncodeToString(siblingHash[:]), "ouh", hex.EncodeToString(shabytes(append(node[:], siblingHash[:]...))[:]))
+		} else { // right
+			log.Debugw("Proof", "position", index, "left-s", hex.EncodeToString(siblingHash[:]), "right-c", hex.EncodeToString(node[:]), "ouh", hex.EncodeToString(shabytes(append(siblingHash[:], node[:]...))[:]))
+		}
 		// Move up to the parent index
 		index /= int64(arity)
 	}
@@ -82,4 +98,9 @@ func MemtreeProof(memtree []byte, leafIndex int64) (*RawMerkleProof, error) {
 	copy(proof.Root[:], memtree[rootOffset:rootOffset+NODE_SIZE])
 
 	return proof, nil
+}
+
+func shabytes(in []byte) []byte {
+	out := sha256.Sum256(in)
+	return out[:]
 }

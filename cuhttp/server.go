@@ -2,7 +2,6 @@ package cuhttp
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net/http"
 	"strings"
@@ -159,10 +158,10 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 	server := &http.Server{
 		Addr:              cfg.ListenAddress,
 		Handler:           libp2pConnMiddleware(loggingMiddleware(compressionMw(chiRouter))), // Attach middlewares
-		ReadTimeout:       cfg.ReadTimeout,
+		ReadTimeout:       time.Hour * 2,
 		WriteTimeout:      time.Hour * 2,
-		IdleTimeout:       cfg.IdleTimeout,
-		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
+		IdleTimeout:       time.Hour * 2,
+		ReadHeaderTimeout: time.Hour * 2,
 	}
 
 	if !cfg.DelegateTLS {
@@ -173,9 +172,8 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 			HostPolicy: autocert.HostWhitelist(cfg.DomainName),
 		}
 
-		server.TLSConfig = &tls.Config{
-			GetCertificate: certManager.GetCertificate,
-		}
+		server.TLSConfig = certManager.TLSConfig()
+		log.Infof("server.TLSConfig NextProtos: %v", server.TLSConfig.NextProtos)
 	}
 
 	// We don't need to run an HTTP server. Any HTTP request should simply be handled as HTTPS.
@@ -185,6 +183,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 		log.Infof("Starting HTTPS server for https://%s on %s", cfg.DomainName, cfg.ListenAddress)
 		var serr error
 		if !cfg.DelegateTLS {
+			log.Infof("serving like we should")
 			serr = server.ListenAndServeTLS("", "")
 		} else {
 			serr = server.ListenAndServe()
