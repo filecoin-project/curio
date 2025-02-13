@@ -21,9 +21,9 @@ contract _Router is ReentrancyGuard {
     uint256 public constant DST_PROVIDER_VOUCHER = 0xc896443a8cbf4cb49ec50beef800b5b2a3764c14b7c5454e8248e1f195b1c001;
 
     // Withdraw window (4 hours)
-    uint32 public constant WITHDRAW_WINDOW = 10 minutes;
+    uint32 public constant WITHDRAW_WINDOW = 5 minutes;
     // Service actor delay (2 days)
-    uint32 public constant SERVICE_ACTOR_DELAY = 2 days;
+    uint32 public constant SERVICE_ACTOR_DELAY = 5 minutes;
 
     // --- Roles ---
     // service actor is fixed at deployment (as an ID)
@@ -88,7 +88,6 @@ contract _Router is ReentrancyGuard {
         (bool svcSuccess, uint64 callerID) = FilAddressIdConverter.getActorID(msg.sender);
         require(svcSuccess && callerID == CommonTypes.FilActorId.unwrap(serviceActor), "Only service actor");
         require(CommonTypes.FilActorId.unwrap(newServiceActor) > 0, "Invalid service actor");
-        require(nextServiceActorTimestamp == 0, "Proposal already pending");
 
         proposedServiceActor = newServiceActor;
         nextServiceActorTimestamp = block.timestamp + SERVICE_ACTOR_DELAY;
