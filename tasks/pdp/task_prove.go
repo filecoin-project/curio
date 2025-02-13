@@ -553,6 +553,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 			// move to the parent
 			level = parentLevel
 			offset = parentOffset
+			curElem = partialTree[elemIndex{Level: level, ElemOffset: offset}]
 		}
 	}
 
