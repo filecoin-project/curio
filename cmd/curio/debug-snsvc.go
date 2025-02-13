@@ -484,12 +484,16 @@ func getClientStateAction(cctx *cli.Context) error {
 	}
 
 	routerAddr := common.Router()
-	balance, voucherRedeemed, lastNonce, err := common.GetClientState(ctx, full, routerAddr, clientID)
+	balance, voucherRedeemed, lastNonce, withdrawAmount, withdrawTimestamp, err := common.GetClientState(ctx, full, routerAddr, clientID)
 	if err != nil {
 		return fmt.Errorf("get client state failed: %w", err)
 	}
-	fmt.Printf("Client %s: Balance: %s, VoucherRedeemed: %s, LastNonce: %d\n",
-		clientAddrStr, types.FIL(balance).String(), types.FIL(voucherRedeemed).String(), lastNonce)
+	fmt.Printf("Client: %s\n", clientAddrStr)
+	fmt.Printf("Balance: %s\n", types.FIL(balance).String())
+	fmt.Printf("VoucherRedeemed: %s\n", types.FIL(voucherRedeemed).String())
+	fmt.Printf("LastNonce: %d\n", lastNonce)
+	fmt.Printf("WithdrawAmount: %s\n", types.FIL(withdrawAmount).String())
+	fmt.Printf("WithdrawTimestamp: %d\n", withdrawTimestamp)
 	return nil
 }
 
@@ -538,11 +542,17 @@ func getServiceStateAction(cctx *cli.Context) error {
 	defer closer()
 
 	routerAddr := common.Router()
-	serviceActor, pool, err := common.GetServiceState(ctx, full, routerAddr)
+	serviceActor, pool, pendingWithdrawalAmount, pendingWithdrawalTimestamp, proposedServiceActor, actorChangeTimestamp, err := common.GetServiceState(ctx, full, routerAddr)
 	if err != nil {
 		return fmt.Errorf("get service state failed: %w", err)
 	}
-	fmt.Printf("Service State: ServiceActor: %d, Pool: %s\n", serviceActor, types.FIL(pool).String())
+	fmt.Printf("Service State:\n")
+	fmt.Printf("  ServiceActor: %d\n", serviceActor)
+	fmt.Printf("  Pool: %s\n", types.FIL(pool).String())
+	fmt.Printf("  PendingWithdrawalAmount: %s\n", types.FIL(pendingWithdrawalAmount).String())
+	fmt.Printf("  PendingWithdrawalTimestamp: %d\n", pendingWithdrawalTimestamp)
+	fmt.Printf("  ProposedServiceActor: %d\n", proposedServiceActor)
+	fmt.Printf("  ActorChangeTimestamp: %d\n", actorChangeTimestamp)
 	return nil
 }
 
@@ -584,12 +594,12 @@ func createClientVoucherAction(cctx *cli.Context) error {
 	{
 		routerAddr := common.Router()
 
-		balance, voucherRedeemed, lastNonce, err := common.GetClientState(cctx.Context, full, routerAddr, clientID)
+		balance, voucherRedeemed, lastNonce, withdrawAmount, withdrawTimestamp, err := common.GetClientState(cctx.Context, full, routerAddr, clientID)
 		if err != nil {
 			return fmt.Errorf("get client state failed: %w", err)
 		}
-		fmt.Printf("Client %s: Balance: %s, VoucherRedeemed: %s, LastNonce: %d\n",
-			clientAddr.String(), types.FIL(balance).String(), types.FIL(voucherRedeemed).String(), lastNonce)
+		fmt.Printf("Client %s: Balance: %s, VoucherRedeemed: %s, LastNonce: %d, WithdrawAmount: %s, WithdrawTimestamp: %d\n",
+			clientAddr.String(), types.FIL(balance).String(), types.FIL(voucherRedeemed).String(), lastNonce, types.FIL(withdrawAmount).String(), withdrawTimestamp)
 
 		nonce = lastNonce + 1
 		cumulativeAmount = types.FIL(types.BigAdd(types.BigInt(voucherRedeemed), types.BigInt(cumulativeAmount)))

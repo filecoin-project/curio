@@ -173,7 +173,9 @@ const GetClientStateABI = `[
 	  "outputs": [
 	    {"internalType": "uint256", "name": "balance", "type": "uint256"},
 	    {"internalType": "uint256", "name": "voucherRedeemed", "type": "uint256"},
-	    {"internalType": "uint64", "name": "lastNonce", "type": "uint64"}
+	    {"internalType": "uint64", "name": "lastNonce", "type": "uint64"},
+	    {"internalType": "uint256", "name": "withdrawAmount", "type": "uint256"},
+	    {"internalType": "uint256", "name": "withdrawTimestamp", "type": "uint256"}
 	  ],
 	  "stateMutability": "view",
 	  "type": "function"
@@ -205,7 +207,11 @@ const GetServiceStateABI = `[
           "name": "serviceActor",
           "type": "uint64"
         },
-	    {"internalType": "uint256", "name": "servicePool", "type": "uint256"}
+	    {"internalType": "uint256", "name": "servicePool", "type": "uint256"},
+	    {"internalType": "uint256", "name": "pendingWithdrawalAmount", "type": "uint256"},
+	    {"internalType": "uint256", "name": "pendingWithdrawalTimestamp", "type": "uint256"},
+	    {"internalType": "CommonTypes.FilActorId", "name": "pendingActor", "type": "uint64"},
+	    {"internalType": "uint256", "name": "actorChangeTimestamp", "type": "uint256"}
 	  ],
 	  "stateMutability": "view",
 	  "type": "function"
@@ -569,14 +575,14 @@ func VerifyVoucherUpdate(best, proposed *ClientVoucher) (*big.Int, error) {
 	return increment, nil
 }
 
-func GetClientState(ctx context.Context, full api.FullNode, router address.Address, clientID uint64) (fbig.Int, fbig.Int, uint64, error) {
+func GetClientState(ctx context.Context, full api.FullNode, router address.Address, clientID uint64) (fbig.Int, fbig.Int, uint64, fbig.Int, fbig.Int, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(GetClientStateABI))
 	if err != nil {
-		return fbig.Int{}, fbig.Int{}, 0, fmt.Errorf("failed to parse getClientState ABI: %w", err)
+		return fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fbig.Int{}, fmt.Errorf("failed to parse getClientState ABI: %w", err)
 	}
 	data, err := parsedABI.Pack("getClientState", clientID)
 	if err != nil {
-		return fbig.Int{}, fbig.Int{}, 0, fmt.Errorf("failed to pack getClientState call: %w", err)
+		return fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fbig.Int{}, fmt.Errorf("failed to pack getClientState call: %w", err)
 	}
 	res, err := full.StateCall(ctx, &types.Message{
 		To:     router,
@@ -586,24 +592,26 @@ func GetClientState(ctx context.Context, full api.FullNode, router address.Addre
 		Params: mustSerializeCBOR(data),
 	}, types.EmptyTSK)
 	if err != nil {
-		return fbig.Int{}, fbig.Int{}, 0, fmt.Errorf("StateCall failed: %w", err)
+		return fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fbig.Int{}, fmt.Errorf("StateCall failed: %w", err)
 	}
 
 	var rawBytes abi.CborBytes
 	if err := rawBytes.UnmarshalCBOR(bytes.NewReader(res.MsgRct.Return)); err != nil {
-		return fbig.Int{}, fbig.Int{}, 0, fmt.Errorf("failed to unmarshal getClientState result: %w", err)
+		return fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fbig.Int{}, fmt.Errorf("failed to unmarshal getClientState result: %w", err)
 	}
 
 	var out struct {
-		Balance         *big.Int `abi:"balance"`
-		VoucherRedeemed *big.Int `abi:"voucherRedeemed"`
-		LastNonce       uint64   `abi:"lastNonce"`
+		Balance           *big.Int `abi:"balance"`
+		VoucherRedeemed   *big.Int `abi:"voucherRedeemed"`
+		LastNonce         uint64   `abi:"lastNonce"`
+		WithdrawAmount    *big.Int `abi:"withdrawAmount"`
+		WithdrawTimestamp *big.Int `abi:"withdrawTimestamp"`
 	}
 	err = parsedABI.UnpackIntoInterface(&out, "getClientState", rawBytes)
 	if err != nil {
-		return fbig.Int{}, fbig.Int{}, 0, fmt.Errorf("failed to unpack getClientState result: %w", err)
+		return fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fbig.Int{}, fmt.Errorf("failed to unpack getClientState result: %w", err)
 	}
-	return fbig.NewFromGo(out.Balance), fbig.NewFromGo(out.VoucherRedeemed), out.LastNonce, nil
+	return fbig.NewFromGo(out.Balance), fbig.NewFromGo(out.VoucherRedeemed), out.LastNonce, fbig.NewFromGo(out.WithdrawAmount), fbig.NewFromGo(out.WithdrawTimestamp), nil
 }
 
 func GetProviderState(ctx context.Context, full api.FullNode, router address.Address, providerID uint64) (fbig.Int, uint64, error) {
@@ -642,14 +650,14 @@ func GetProviderState(ctx context.Context, full api.FullNode, router address.Add
 	return fbig.NewFromGo(out.VoucherRedeemed), out.LastNonce, nil
 }
 
-func GetServiceState(ctx context.Context, full api.FullNode, router address.Address) (uint64, fbig.Int, error) {
+func GetServiceState(ctx context.Context, full api.FullNode, router address.Address) (uint64, fbig.Int, fbig.Int, fbig.Int, uint64, fbig.Int, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(GetServiceStateABI))
 	if err != nil {
-		return 0, fbig.Int{}, fmt.Errorf("failed to parse getServiceState ABI: %w", err)
+		return 0, fbig.Int{}, fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fmt.Errorf("failed to parse getServiceState ABI: %w", err)
 	}
 	data, err := parsedABI.Pack("getServiceState")
 	if err != nil {
-		return 0, fbig.Int{}, fmt.Errorf("failed to pack getServiceState call: %w", err)
+		return 0, fbig.Int{}, fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fmt.Errorf("failed to pack getServiceState call: %w", err)
 	}
 	res, err := full.StateCall(ctx, &types.Message{
 		To:     router,
@@ -659,27 +667,31 @@ func GetServiceState(ctx context.Context, full api.FullNode, router address.Addr
 		Params: mustSerializeCBOR(data),
 	}, types.EmptyTSK)
 	if err != nil {
-		return 0, fbig.Int{}, fmt.Errorf("StateCall failed: %w", err)
+		return 0, fbig.Int{}, fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fmt.Errorf("StateCall failed: %w", err)
 	}
 	if res.MsgRct.ExitCode != exitcode.Ok {
-		return 0, fbig.Int{}, fmt.Errorf("getServiceState returned non-ok exit code: %s", res.MsgRct.ExitCode)
+		return 0, fbig.Int{}, fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fmt.Errorf("getServiceState returned non-ok exit code: %s", res.MsgRct.ExitCode)
 	}
 
 	var rawBytes abi.CborBytes
 	if err := rawBytes.UnmarshalCBOR(bytes.NewReader(res.MsgRct.Return)); err != nil {
-		return 0, fbig.Int{}, fmt.Errorf("failed to unmarshal getServiceState result: %w (%x)", err, res.MsgRct.Return)
+		return 0, fbig.Int{}, fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fmt.Errorf("failed to unmarshal getServiceState result: %w (%x)", err, res.MsgRct.Return)
 	}
 
 	var out struct {
-		ServiceActor uint64 `abi:"serviceActor"`
-		ServicePool  *big.Int `abi:"servicePool"`
+		ServiceActor               uint64   `abi:"serviceActor"`
+		ServicePool                *big.Int `abi:"servicePool"`
+		PendingWithdrawalAmount    *big.Int `abi:"pendingWithdrawalAmount"`
+		PendingWithdrawalTimestamp *big.Int `abi:"pendingWithdrawalTimestamp"`
+		ProposedServiceActor       uint64   `abi:"proposedServiceActor"`
+		ActorChangeTimestamp       *big.Int `abi:"actorChangeTimestamp"`
 	}
 
 	err = parsedABI.UnpackIntoInterface(&out, "getServiceState", rawBytes)
 	if err != nil {
-		return 0, fbig.Int{}, fmt.Errorf("failed to unpack getServiceState: %w (%x)", err, rawBytes)
+		return 0, fbig.Int{}, fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fmt.Errorf("failed to unpack getServiceState: %w (%x)", err, rawBytes)
 	}
-	return out.ServiceActor, fbig.NewFromGo(out.ServicePool), nil
+	return out.ServiceActor, fbig.NewFromGo(out.ServicePool), fbig.NewFromGo(out.PendingWithdrawalAmount), fbig.NewFromGo(out.PendingWithdrawalTimestamp), out.ProposedServiceActor, fbig.NewFromGo(out.ActorChangeTimestamp), nil
 }
 
 // --- EVM invocation helper ---

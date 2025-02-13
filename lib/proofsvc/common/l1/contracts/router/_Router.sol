@@ -22,10 +22,17 @@ contract _Router is ReentrancyGuard {
 
     // Withdraw window (4 hours)
     uint32 public constant WITHDRAW_WINDOW = 10 minutes;
+    // Service actor delay (2 days)
+    uint32 public constant SERVICE_ACTOR_DELAY = 2 days;
 
     // --- Roles ---
     // service actor is fixed at deployment (as an ID)
     CommonTypes.FilActorId public serviceActor;
+
+    // proposed next service actor ID
+    CommonTypes.FilActorId public proposedServiceActor;
+    // proposed next service actor ID timestamp
+    uint256 public nextServiceActorTimestamp;
     
     // mapping from client actor IDs to their deposited balance (in attoFIL)
     mapping(uint64 => uint256) public clientBalance;
@@ -67,9 +74,46 @@ contract _Router is ReentrancyGuard {
     event ServiceWithdrawalCompleted(uint256 amount);
     event ServiceWithdrawalCanceled(uint256 amount);
 
+    event ServiceActorProposed(CommonTypes.FilActorId newServiceActor, uint256 readyTime);
+    event ServiceActorAccepted(CommonTypes.FilActorId newServiceActor);
+
     constructor(CommonTypes.FilActorId _serviceActor) {
         require(CommonTypes.FilActorId.unwrap(_serviceActor) > 0, "Invalid service actor");
         serviceActor = _serviceActor;
+    }
+
+    /// @notice Proposes a new service actor. Only callable by the current service actor.
+    /// @param newServiceActor The ID of the proposed new service actor
+    function proposeServiceActor(CommonTypes.FilActorId newServiceActor) external nonReentrant {
+        (bool svcSuccess, uint64 callerID) = FilAddressIdConverter.getActorID(msg.sender);
+        require(svcSuccess && callerID == CommonTypes.FilActorId.unwrap(serviceActor), "Only service actor");
+        require(CommonTypes.FilActorId.unwrap(newServiceActor) > 0, "Invalid service actor");
+        require(nextServiceActorTimestamp == 0, "Proposal already pending");
+
+        proposedServiceActor = newServiceActor;
+        nextServiceActorTimestamp = block.timestamp + SERVICE_ACTOR_DELAY;
+
+        emit ServiceActorProposed(newServiceActor, nextServiceActorTimestamp);
+    }
+
+    /// @notice Accepts the proposed service actor change after delay. Only callable by the proposed actor.
+    function acceptServiceActor() external nonReentrant {
+        require(nextServiceActorTimestamp > 0, "No proposal pending");
+        require(block.timestamp >= nextServiceActorTimestamp, "Delay not elapsed");
+        
+        (bool idSuccess, uint64 actorID) = FilAddressIdConverter.getActorID(msg.sender);
+        require(idSuccess, "Unable to resolve actor ID");
+        require(CommonTypes.FilActorId.unwrap(proposedServiceActor) == actorID, "Only proposed actor");
+
+        serviceActor = proposedServiceActor;
+        proposedServiceActor = CommonTypes.FilActorId.wrap(0);
+        nextServiceActorTimestamp = 0;
+
+        emit ServiceActorAccepted(serviceActor);
+    }
+
+    function getProposedServiceActor() external view returns (CommonTypes.FilActorId) {
+        return proposedServiceActor;
     }
     
     /// @notice Client deposits FIL into the router.
@@ -332,8 +376,21 @@ contract _Router is ReentrancyGuard {
     }
     
     /// @notice Returns the state for a given client.
-    function getClientState(uint64 clientID) external view returns (uint256 balance, uint256 voucherRedeemed, uint64 lastNonce) {
-        return (clientBalance[clientID], clientVoucherRedeemed[clientID], clientLastNonce[clientID]);
+    function getClientState(uint64 clientID) external view returns (
+        uint256 balance,
+        uint256 voucherRedeemed,
+        uint64 lastNonce,
+        uint256 withdrawAmount,
+        uint256 withdrawTimestamp
+    ) {
+        WithdrawRequest memory request = clientWithdrawRequests[clientID];
+        return (
+            clientBalance[clientID],
+            clientVoucherRedeemed[clientID],
+            clientLastNonce[clientID],
+            request.amount,
+            request.timestamp
+        );
     }
     
     /// @notice Returns the state for a given provider.
@@ -341,8 +398,23 @@ contract _Router is ReentrancyGuard {
         return (providerVoucherRedeemed[providerID], providerLastNonce[providerID]);
     }
     
-    /// @notice Returns the service state.
-    function getServiceState() external view returns (CommonTypes.FilActorId, uint256) {
-        return (serviceActor, servicePool);
+    /// @notice Returns the service state along with pending withdrawal state and actor change details.
+    function getServiceState() external view returns (
+        CommonTypes.FilActorId currentActor,
+        uint256 pool,
+        uint256 pendingWithdrawalAmount,
+        uint256 pendingWithdrawalTimestamp,
+        CommonTypes.FilActorId pendingActor,
+        uint256 actorChangeTimestamp
+    ) {
+        WithdrawRequest memory request = serviceWithdrawRequest;
+        return (
+            serviceActor,
+            servicePool,
+            request.amount,
+            request.timestamp,
+            proposedServiceActor,
+            nextServiceActorTimestamp
+        );
     }
 }
