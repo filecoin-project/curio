@@ -708,7 +708,8 @@ type IndexingConfig struct {
 	// Number of concurrent inserts to split AddIndex calls to
 	InsertConcurrency int
 
-	// ReplicationFactor is the number of replicas for the index
+	// ReplicationFactor is the number of replicas for the index,
+	// it only applies on the first startup, and later changes must be done with ycql utils.
 	ReplicationFactor int
 }
 

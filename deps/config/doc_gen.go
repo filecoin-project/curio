@@ -899,7 +899,8 @@ heads.`,
 			Name: "ReplicationFactor",
 			Type: "int",
 
-			Comment: `ReplicationFactor is the number of replicas for the index`,
+			Comment: `ReplicationFactor is the number of replicas for the index,
+it only applies on the first startup, and later changes must be done with ycql utils.`,
 		},
 	},
 	"MK12Config": {

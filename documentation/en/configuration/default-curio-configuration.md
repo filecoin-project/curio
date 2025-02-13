@@ -512,7 +512,8 @@ description: The default curio configuration
       # type: int
       #InsertConcurrency = 10
 
-      # ReplicationFactor is the number of replicas for the index
+      # ReplicationFactor is the number of replicas for the index,
+      # it only applies on the first startup, and later changes must be done with ycql utils.
       #
       # type: int
       #ReplicationFactor = 3
