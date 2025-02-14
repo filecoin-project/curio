@@ -405,6 +405,9 @@ var ddoCmd = &cli.Command{
 
 		ctx := reqcontext.ReqContext(cctx)
 		dep, err := deps.GetDepsCLI(ctx, cctx)
+		if err != nil {
+			return err
+		}
 
 		clientAddr, err := address.NewFromString(cctx.Args().Get(0))
 		if err != nil {
@@ -444,7 +447,7 @@ var ddoCmd = &cli.Command{
 		}
 
 		if alloc.Provider != abi.ActorID(actID) {
-			return xerrors.Errorf("allocation provider %s does not match actor %s", alloc.Provider, actID)
+			return xerrors.Errorf("allocation provider %d does not match actor %d", alloc.Provider, actID)
 		}
 
 		// If the TermMin is longer than initial sector duration, the deal will be dropped from the sector
