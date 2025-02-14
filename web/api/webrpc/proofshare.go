@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/filecoin-project/curio/lib/proofsvc/common"
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
 )
@@ -105,6 +107,7 @@ type ProofShareClientRequest struct {
 	CreatedAt time.Time    `db:"created_at"   json:"created_at"`
 	DoneAt    sql.NullTime `db:"done_at"      json:"done_at,omitempty"`
 }
+
 // PSClientGet fetches all proofshare_client_settings rows.
 func (a *WebRPC) PSClientGet(ctx context.Context) ([]ProofShareClientSettings, error) {
 	var out []ProofShareClientSettings
@@ -116,7 +119,6 @@ func (a *WebRPC) PSClientGet(ctx context.Context) ([]ProofShareClientSettings, e
 	if err != nil {
 		return nil, xerrors.Errorf("PSClientGet: query error: %w", err)
 	}
-
 
 	for i := range out {
 		out[i].Address = must.One(address.NewIDAddress(uint64(out[i].SpID))).String()
@@ -184,15 +186,94 @@ func (a *WebRPC) PSClientRequests(ctx context.Context, spId int64) ([]ProofShare
 
 // PSClientRemove removes a row from proofshare_client_settings if sp_id != 0.
 func (a *WebRPC) PSClientRemove(ctx context.Context, spId int64) error {
-    if spId == 0 {
-        return xerrors.Errorf("cannot remove default sp_id=0 row")
-    }
-    _, err := a.deps.DB.Exec(ctx, `
+	if spId == 0 {
+		return xerrors.Errorf("cannot remove default sp_id=0 row")
+	}
+	_, err := a.deps.DB.Exec(ctx, `
         DELETE FROM proofshare_client_settings
         WHERE sp_id = $1
     `, spId)
-    if err != nil {
-        return xerrors.Errorf("PSClientRemove: delete error: %w", err)
-    }
-    return nil
+	if err != nil {
+		return xerrors.Errorf("PSClientRemove: delete error: %w", err)
+	}
+	return nil
+}
+
+///////
+// CLIENT PAYMENTS
+
+type ProofShareClientWallet struct {
+	Wallet int64 `db:"wallet" json:"wallet"`
+
+	// db ignored
+	Address address.Address `db:"-" json:"address"`
+
+	ChainBalance string `db:"-" json:"chain_balance"`
+
+	// balance which appears as "available" in the router on-chain
+	RouterAvailBalance string `db:"-" json:"router_avail_balance"`
+
+	// balance "to settle" in the router on-chain (service has vouches for those payments, but didn't settle on-chain yet)
+	RouterUnsettledBalance string `db:"-" json:"router_unsettled_balance"`
+
+	// Actually available balance, i.e. RouterAvailBalance - RouterUnsettledBalance
+	AvailableBalance string `db:"-" json:"available_balance"`
+}
+
+func (a *WebRPC) PSClientWallets(ctx context.Context) ([]*ProofShareClientWallet, error) {
+	out := []*ProofShareClientWallet{}
+	err := a.deps.DB.Select(ctx, &out, `
+		SELECT wallet
+		FROM proofshare_client_wallets
+		ORDER BY wallet ASC
+	`)
+	if err != nil {
+		return nil, xerrors.Errorf("PSClientWallets: query error: %w", err)
+	}
+
+	for _, w := range out {
+		w.Address, err = address.NewIDAddress(uint64(w.Wallet))
+		if err != nil {
+			return nil, xerrors.Errorf("PSClientWallets: invalid address: %w", err)
+		}
+
+		wb, err := a.deps.Chain.WalletBalance(ctx, w.Address)
+		if err != nil {
+			return nil, xerrors.Errorf("PSClientWallets: failed to get chain balance: %w", err)
+		}
+		w.ChainBalance = types.FIL(wb).Short()
+
+		clientState, err := common.GetClientState(ctx, a.deps.Chain, uint64(w.Wallet))
+		if err != nil {
+			return nil, xerrors.Errorf("PSClientWallets: failed to get client state: %w", err)
+		}
+		w.RouterAvailBalance = types.FIL(clientState.Balance).Short()
+		w.RouterUnsettledBalance = types.FIL(clientState.WithdrawAmount).Short()
+		w.AvailableBalance = types.FIL(types.BigSub(types.BigInt(clientState.Balance), types.BigInt(clientState.WithdrawAmount))).Short()
+	}
+
+	return out, nil
+}
+
+func (a *WebRPC) PSClientAddWallet(ctx context.Context, wallet string) error {
+	addr, err := address.NewFromString(wallet)
+	if err != nil {
+		return xerrors.Errorf("PSClientAddWallet: invalid address: %w", err)
+	}
+
+	ida, err := a.deps.Chain.StateLookupID(ctx, addr, types.EmptyTSK)
+	if err != nil {
+		return err
+	}
+
+	id, err := address.IDFromAddress(ida)
+	if err != nil {
+		return err
+	}
+
+	_, err = a.deps.DB.Exec(ctx, `
+		INSERT INTO proofshare_client_wallets (wallet)
+		VALUES ($1)
+	`, id)
+	return err
 }

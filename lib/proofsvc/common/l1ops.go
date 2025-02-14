@@ -587,29 +587,37 @@ func VerifyVoucherUpdate(best, proposed *ClientVoucher) (*big.Int, error) {
 	return increment, nil
 }
 
-func GetClientState(ctx context.Context, full api.FullNode, router address.Address, clientID uint64) (fbig.Int, fbig.Int, uint64, fbig.Int, fbig.Int, error) {
+type ClientState struct {
+	Balance           fbig.Int
+	VoucherRedeemed   fbig.Int
+	LastNonce         uint64
+	WithdrawAmount    fbig.Int
+	WithdrawTimestamp fbig.Int
+}
+
+func GetClientState(ctx context.Context, full api.FullNode, clientID uint64) (*ClientState, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(GetClientStateABI))
 	if err != nil {
-		return fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fbig.Int{}, fmt.Errorf("failed to parse getClientState ABI: %w", err)
+		return nil, fmt.Errorf("failed to parse getClientState ABI: %w", err)
 	}
 	data, err := parsedABI.Pack("getClientState", clientID)
 	if err != nil {
-		return fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fbig.Int{}, fmt.Errorf("failed to pack getClientState call: %w", err)
+		return nil, fmt.Errorf("failed to pack getClientState call: %w", err)
 	}
 	res, err := full.StateCall(ctx, &types.Message{
-		To:     router,
+		To:     Router(),
 		From:   builtin.SystemActorAddr,
 		Value:  abi.NewTokenAmount(0),
 		Method: builtin.MethodsEVM.InvokeContract,
 		Params: mustSerializeCBOR(data),
 	}, types.EmptyTSK)
 	if err != nil {
-		return fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fbig.Int{}, fmt.Errorf("StateCall failed: %w", err)
+		return nil, fmt.Errorf("StateCall failed: %w", err)
 	}
 
 	var rawBytes abi.CborBytes
 	if err := rawBytes.UnmarshalCBOR(bytes.NewReader(res.MsgRct.Return)); err != nil {
-		return fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fbig.Int{}, fmt.Errorf("failed to unmarshal getClientState result: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal getClientState result: %w", err)
 	}
 
 	var out struct {
@@ -619,11 +627,17 @@ func GetClientState(ctx context.Context, full api.FullNode, router address.Addre
 		WithdrawAmount    *big.Int `abi:"withdrawAmount"`
 		WithdrawTimestamp *big.Int `abi:"withdrawTimestamp"`
 	}
-	err = parsedABI.UnpackIntoInterface(&out, "getClientState", rawBytes)
-	if err != nil {
-		return fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fbig.Int{}, fmt.Errorf("failed to unpack getClientState result: %w", err)
+	if err := parsedABI.UnpackIntoInterface(&out, "getClientState", rawBytes); err != nil {
+		return nil, fmt.Errorf("failed to unpack getClientState result: %w", err)
 	}
-	return fbig.NewFromGo(out.Balance), fbig.NewFromGo(out.VoucherRedeemed), out.LastNonce, fbig.NewFromGo(out.WithdrawAmount), fbig.NewFromGo(out.WithdrawTimestamp), nil
+
+	return &ClientState{
+		Balance:           fbig.NewFromGo(out.Balance),
+		VoucherRedeemed:   fbig.NewFromGo(out.VoucherRedeemed),
+		LastNonce:         out.LastNonce,
+		WithdrawAmount:    fbig.NewFromGo(out.WithdrawAmount),
+		WithdrawTimestamp: fbig.NewFromGo(out.WithdrawTimestamp),
+	}, nil
 }
 
 func GetProviderState(ctx context.Context, full api.FullNode, router address.Address, providerID uint64) (fbig.Int, uint64, error) {
