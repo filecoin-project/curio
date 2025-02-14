@@ -6,6 +6,8 @@ class ProofShareClient extends LitElement {
     settingsList: { type: Array },
     spRequests: { type: Object },
     showRequests: { type: Object },
+
+    wallets: { type: Array },
   };
 
   constructor() {
@@ -19,7 +21,15 @@ class ProofShareClient extends LitElement {
     // For each sp_id => boolean whether we’re showing requests
     this.showRequests = {};
 
+    // All proofshare_client_wallets rows
+    this.wallets = [];
+
+    // Initial load of settings and wallets
     this.loadAllSettings();
+
+    // Set up an auto-refresh to call loadAllSettings every 30 seconds.
+    // This avoids scheduling additional timers when loadAllSettings is invoked by other functions.
+    this.refreshIntervalId = setInterval(() => this.loadAllSettings(), 30000);
   }
 
   createRenderRoot() {
@@ -35,9 +45,12 @@ class ProofShareClient extends LitElement {
       const list = await RPCCall('PSClientGet', []);
       // If server returns null or not an array, default to []
       this.settingsList = Array.isArray(list) ? list : [];
+
+      this.wallets = await RPCCall('PSClientWallets', []);
     } catch (err) {
-      console.error('Error loading proofshare client settings:', err);
+      console.error('Error loading proofshare client data:', err);
       this.settingsList = [];
+      this.wallets = [];
     }
     // Re-render
     this.requestUpdate();
@@ -124,8 +137,46 @@ class ProofShareClient extends LitElement {
     }
   }
 
+  async clientAddWallet() {
+    const address = prompt('Enter new client wallet address:');
+    if (!address) return; // user cancelled
+    await RPCCall('PSClientAddWallet', [address]);
+    await this.loadAllSettings();
+  }
+
+  async promptForAmount(action, address) {
+    const rawAmount = prompt(`Enter balance in FIL to ${action} (e.g., "1.23"):`);
+    if (!rawAmount) return null; // user cancelled input
+
+    const amount = rawAmount.trim();
+    const amountRegex = /^[0-9]+(\.[0-9]+)?$/;
+    if (!amountRegex.test(amount)) {
+      alert(`Invalid amount: "${amount}". Please enter a valid numeric value (e.g., "1.23").`);
+      return null;
+    }
+
+    if (!confirm(`Are you sure you want to ${action} ${amount} FIL for ${address}?`)) return null;
+    return amount;
+  }
+
+  async clientRouterAddBalance(address) {
+    const amount = await this.promptForAmount('add', address);
+    if (amount === null) return;
+    await RPCCall('PSClientRouterAddBalance', [address, amount]);
+    await this.loadAllSettings();
+  }
+
+  async clientRouterRequestWithdrawal(address) {
+    const amount = await this.promptForAmount('withdraw', address);
+    if (amount === null) return;
+    await RPCCall('PSClientRouterRequestWithdrawal', [address, amount]);
+    await this.loadAllSettings();
+  }
+
+
   /**
    * Remove a row (sp_id != 0).
+   * Calls a new server method: PSClientRemove(spId).
    * Calls a new server method: PSClientRemove(spId).
    */
   async removeRow(spId, address) {
@@ -276,6 +327,45 @@ class ProofShareClient extends LitElement {
                   </td>
                 </tr>
               ` : ''}
+            `)}
+          </tbody>
+        </table>
+
+        <h2>💰 Client Wallets</h2>
+        <p>Wallets that are used for client payments.</p>
+        <div class="mb-2">
+          <button class="btn btn-primary" @click=${this.clientAddWallet}>
+            Add Wallet
+          </button>
+        </div>
+        <table class="table table-dark">
+          <thead>
+            <tr>
+              <th>Wallet</th>
+              <th>Chain FIL</th>
+              <th>Router FIL</th>
+              <th>Unsettled FIL</th>
+              <th>Available FIL</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${this.wallets.map(wallet => html`
+              <tr>
+                <td>${wallet.address}</td>
+                <td>${wallet.chain_balance}</td>
+                <td>${wallet.router_avail_balance}</td>
+                <td>${wallet.router_unsettled_balance}</td>
+                <td>${wallet.available_balance}</td>
+                <td>
+                  <button class="btn btn-info btn-sm" @click=${() => this.clientRouterAddBalance(wallet.address)}>
+                    Add Balance
+                  </button>
+                  <button class="btn btn-info btn-sm" @click=${() => this.clientRouterRequestWithdrawal(wallet.address)}>
+                    Request Withdrawal
+                  </button>
+                </td>
+              </tr>
             `)}
           </tbody>
         </table>

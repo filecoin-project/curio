@@ -1,3 +1,5 @@
+-- Proofshare queue
+
 CREATE TABLE proofshare_queue (
     service_id BIGINT NOT NULL,
     
@@ -28,6 +30,8 @@ CREATE TABLE proofshare_meta (
 );
 
 INSERT INTO proofshare_meta (singleton, enabled, wallet) VALUES (TRUE, FALSE, NULL);
+
+-- Client settings
 
 CREATE TABLE proofshare_client_settings (
     enabled BOOLEAN NOT NULL DEFAULT FALSE,
@@ -60,4 +64,21 @@ CREATE TABLE proofshare_client_requests (
     done_at TIMESTAMP WITH TIME ZONE,
 
     PRIMARY KEY (task_id)
+);
+
+CREATE TABLE proofshare_client_wallets (
+    wallet BIGINT NOT NULL PRIMARY KEY
+);
+
+CREATE TABLE proofshare_client_payments (
+    wallet BIGINT NOT NULL,
+
+    nonce BIGINT NOT NULL,
+    cumulative_amount TEXT NOT NULL,
+
+    signature BYTEA NOT NULL,
+
+    consumed BOOLEAN NOT NULL DEFAULT FALSE,
+
+    PRIMARY KEY (wallet, nonce)
 );

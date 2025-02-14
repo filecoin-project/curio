@@ -533,17 +533,16 @@ func getClientStateAction(cctx *cli.Context) error {
 		return fmt.Errorf("get client id failed: %w", err)
 	}
 
-	routerAddr := common.Router()
-	balance, voucherRedeemed, lastNonce, withdrawAmount, withdrawTimestamp, err := common.GetClientState(ctx, full, routerAddr, clientID)
+	clientState, err := common.GetClientState(ctx, full, clientID)
 	if err != nil {
 		return fmt.Errorf("get client state failed: %w", err)
 	}
 	fmt.Printf("Client: %s\n", clientAddrStr)
-	fmt.Printf("Balance: %s\n", types.FIL(balance).String())
-	fmt.Printf("VoucherRedeemed: %s\n", types.FIL(voucherRedeemed).String())
-	fmt.Printf("LastNonce: %d\n", lastNonce)
-	fmt.Printf("WithdrawAmount: %s\n", types.FIL(withdrawAmount).String())
-	ts := withdrawTimestamp.Int.Uint64()
+	fmt.Printf("Balance: %s\n", types.FIL(clientState.Balance).String())
+	fmt.Printf("VoucherRedeemed: %s\n", types.FIL(clientState.VoucherRedeemed).String())
+	fmt.Printf("LastNonce: %d\n", clientState.LastNonce)
+	fmt.Printf("WithdrawAmount: %s\n", types.FIL(clientState.WithdrawAmount).String())
+	ts := clientState.WithdrawTimestamp.Int.Uint64()
 	wt := time.Unix(int64(ts), 0)
 	diff := time.Until(wt)
 	var diffStr string
@@ -651,17 +650,19 @@ func createClientVoucherAction(cctx *cli.Context) error {
 
 	var nonce uint64
 	{
-		routerAddr := common.Router()
-
-		balance, voucherRedeemed, lastNonce, withdrawAmount, withdrawTimestamp, err := common.GetClientState(cctx.Context, full, routerAddr, clientID)
+		clientState, err := common.GetClientState(cctx.Context, full, clientID)
 		if err != nil {
 			return fmt.Errorf("get client state failed: %w", err)
 		}
 		fmt.Printf("Client %s: Balance: %s, VoucherRedeemed: %s, LastNonce: %d, WithdrawAmount: %s, WithdrawTimestamp: %d\n",
-			clientAddr.String(), types.FIL(balance).String(), types.FIL(voucherRedeemed).String(), lastNonce, types.FIL(withdrawAmount).String(), withdrawTimestamp)
-
-		nonce = lastNonce + 1
-		cumulativeAmount = types.FIL(types.BigAdd(types.BigInt(voucherRedeemed), types.BigInt(cumulativeAmount)))
+			clientAddr.String(),
+			types.FIL(clientState.Balance).String(),
+			types.FIL(clientState.VoucherRedeemed).String(),
+			clientState.LastNonce,
+			types.FIL(clientState.WithdrawAmount).String(),
+			types.BigInt(clientState.WithdrawTimestamp).Int64())
+		nonce = clientState.LastNonce + 1
+		cumulativeAmount = types.FIL(types.BigAdd(types.BigInt(clientState.VoucherRedeemed), types.BigInt(cumulativeAmount)))
 	}
 
 	fmt.Printf("Creating client voucher for client %s with cumulative amount %s and nonce %d\n",
