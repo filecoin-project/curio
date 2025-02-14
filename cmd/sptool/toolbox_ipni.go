@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 
@@ -124,25 +125,40 @@ var deletePeer = &cli.Command{
 			return fmt.Errorf("state call failed: %s", res.MsgRct.ExitCode.String())
 		}
 
-		var params []byte
+		var evmReturn abi.CborBytes
+		err = evmReturn.UnmarshalCBOR(bytes.NewReader(res.MsgRct.Return))
+		if err != nil {
+			return xerrors.Errorf("failed to unmarshal evm return: %w", err)
+		}
 
-		if len(res.MsgRct.Return) == 0 {
+		if len(evmReturn) == 0 {
 			if err != nil {
 				return xerrors.Errorf("failed to get spark params for %s: %w", maddr.String(), err)
 			}
 		} else {
-			pd := struct {
-				PeerID        string
-				SignedMessage []byte
-			}{}
+			// Define a struct that represents the tuple from the ABI
+			type PeerData struct {
+				PeerID    string `abi:"peerID"`
+				Signature []byte `abi:"signature"`
+			}
 
-			err = parsedABI.UnpackIntoInterface(&pd, "getPeerData", res.MsgRct.Return)
+			// Define a wrapper struct that will be used for unpacking
+			type WrappedPeerData struct {
+				Result PeerData `abi:""`
+			}
+
+			// Create an instance of the wrapper struct
+			var result WrappedPeerData
+
+			err = parsedABI.UnpackIntoInterface(&result, "getPeerData", evmReturn)
 			if err != nil {
 				return xerrors.Errorf("Failed to unpack result: %w", err)
 			}
 
+			pd := result.Result
+
 			// Check if peerID is empty, indicating no data found
-			if pd.PeerID == "" && len(pd.SignedMessage) == 0 {
+			if pd.PeerID == "" && len(pd.Signature) == 0 {
 				return xerrors.Errorf("no data found for minerID in MinerPeerIDMapping contract: %s", maddr.String())
 			}
 		}
@@ -158,6 +174,8 @@ var deletePeer = &cli.Command{
 		if err != nil {
 			return xerrors.Errorf("Failed to pack the `deletePeerData()` function call: %v", err)
 		}
+
+		var params []byte
 
 		param := abi.CborBytes(data)
 		params, err = actors.SerializeParams(&param)

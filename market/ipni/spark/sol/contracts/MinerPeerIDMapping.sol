@@ -9,7 +9,7 @@ import "filecoin-solidity-api/contracts/v0.8/utils/FilAddresses.sol";
 contract MinerPeerIDMapping {
     struct PeerData {
         string peerID;
-        bytes signedMessage;
+        bytes signature;
     }
 
     mapping(uint64 => PeerData) public minerToPeerData;
@@ -27,18 +27,18 @@ contract MinerPeerIDMapping {
      * @notice Add a new PeerID and signed message for a MinerID in the contract.
      * @param minerID The MinerID to associate with the new PeerID.
      * @param newPeerID The new PeerID to bind to the MinerID.
-     * @param signedMessage The signed message to store.
+     * @param signature The signature to verify the peerID as signer.
      */
     function addPeerData(
         uint64 minerID,
         string memory newPeerID,
-        bytes memory signedMessage
+        bytes memory signature
     ) public {
         require(bytes(minerToPeerData[minerID].peerID).length == 0, "Peer data already exists for this MinerID");
 
         require(isControllingAddress(msg.sender, minerID), "Caller is not the controlling address");
 
-        minerToPeerData[minerID] = PeerData(newPeerID, signedMessage);
+        minerToPeerData[minerID] = PeerData(newPeerID, signature);
 
         emit PeerDataAdded(minerID, newPeerID);
     }
@@ -47,19 +47,19 @@ contract MinerPeerIDMapping {
      * @notice Update an existing PeerID and signed message for a MinerID in the contract.
      * @param minerID The MinerID whose PeerID will be updated.
      * @param newPeerID The new PeerID to bind to the MinerID.
-     * @param signedMessage The new signed message to store.
+     * @param signature The signature to verify the peerID as signer.
      */
     function updatePeerData(
         uint64 minerID,
         string memory newPeerID,
-        bytes memory signedMessage
+        bytes memory signature
     ) public {
         require(bytes(minerToPeerData[minerID].peerID).length > 0, "No peer data exists for this MinerID");
 
         require(isControllingAddress(msg.sender, minerID), "Caller is not the controlling address");
 
         string memory oldPeerID = minerToPeerData[minerID].peerID;
-        minerToPeerData[minerID] = PeerData(newPeerID, signedMessage);
+        minerToPeerData[minerID] = PeerData(newPeerID, signature);
 
         emit PeerDataUpdated(minerID, oldPeerID, newPeerID);
     }

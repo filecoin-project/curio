@@ -19,7 +19,7 @@ func GetContractAddress() (string, error) {
 		return "", errors.New("not supported on this network")
 	}
 
-	return "0x40721e8Ef366375492ee63c54e881068b15C8633", nil
+	return "0x07cd2Ac3a2404eFac0f2EF15731773fe3F85a4b9", nil
 }
 
 const AddPeerAbi = `[
@@ -37,7 +37,7 @@ const AddPeerAbi = `[
         },
         {
           "internalType": "bytes",
-          "name": "signedMessage",
+          "name": "signature",
           "type": "bytes"
         }
       ],
@@ -63,7 +63,7 @@ const UpdatePeerAbi = `[
         },
         {
           "internalType": "bytes",
-          "name": "signedMessage",
+          "name": "signature",
           "type": "bytes"
         }
       ],
@@ -110,7 +110,7 @@ const GetPeerAbi = `[
             },
             {
               "internalType": "bytes",
-              "name": "signedMessage",
+              "name": "signature",
               "type": "bytes"
             }
           ],

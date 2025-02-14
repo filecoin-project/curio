@@ -99,8 +99,8 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 
 			// Define a struct that represents the tuple from the ABI
 			type PeerData struct {
-				PeerID        string `abi:"peerID"`
-				SignedMessage []byte `abi:"signedMessage"`
+				PeerID    string `abi:"peerID"`
+				Signature []byte `abi:"signature"`
 			}
 
 			// Define a wrapper struct that will be used for unpacking
@@ -120,9 +120,9 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 
 			// Check if peerID is empty
 			if pd.PeerID != "" {
-				// check if signed message is zero bytes
-				if len(pd.SignedMessage) == 0 {
-					log.Warnf("no signed message found for minerID in MinerPeerIDMapping contract: %d", pInfo.SPID)
+				// check if signature is zero bytes
+				if len(pd.Signature) == 0 {
+					log.Warnf("no signature found for minerID in MinerPeerIDMapping contract: %d", pInfo.SPID)
 					continue
 				}
 
@@ -137,9 +137,9 @@ func (p *Provider) updateSparkContract(ctx context.Context) error {
 						return xerrors.Errorf("failed to marshal spark message: %w", err)
 					}
 
-					ok, err := pInfo.Key.GetPublic().Verify(jdetail, pd.SignedMessage)
+					ok, err := pInfo.Key.GetPublic().Verify(jdetail, pd.Signature)
 					if err != nil {
-						return xerrors.Errorf("failed to verify signed message: %w", err)
+						return xerrors.Errorf("failed to verify signature: %w", err)
 					}
 					if ok {
 						log.Infof("not updating peerID for minerID in MinerPeerIDMapping contract: %d", pInfo.SPID)

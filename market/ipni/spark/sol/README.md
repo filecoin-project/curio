@@ -165,7 +165,7 @@ import * as multihashes from "multihashes"; // For decoding PeerID
 
 async function verifyMinerSignature(minerID, peerID, signature) {
   // Step 1: Reconstruct the message that was signed
-  const message = JSON.stringify({miner: `f0${minerID}`, peer: peerID})
+  const message = JSON.stringify({miner: minerID, peer: peerID})
 
   // Step 2: Decode PeerID to obtain the public key
   const decodedPeerID = multihashes.decode(Buffer.from(peerID, "base64"));
@@ -205,6 +205,7 @@ The contract can be interacted with using Go by encoding ABI calls. Below is an 
 package main
 
 import (
+	"bytes"
   "encoding/json"
   "fmt"
   "log"
@@ -212,6 +213,7 @@ import (
 
   "github.com/ethereum/go-ethereum/accounts/abi"
   "github.com/filecoin-project/go-state-types/builtin"
+  fabi "github.com/filecoin-project/go-state-types/abi"
   "github.com/filecoin-project/lotus/chain/types"
   "github.com/filecoin-project/lotus/chain/types/ethtypes"
   "github.com/filecoin-project/lotus/cli"
@@ -220,7 +222,7 @@ import (
 // Define a struct that represents the tuple from the ABI
 type PeerData struct {
   PeerID        string `abi:"peerID"`
-  SignedMessage []byte `abi:"signedMessage"`
+  Signature []byte `abi:"signature"`
 }
 
 // Define a wrapper struct for proper ABI decoding
@@ -240,7 +242,7 @@ func main() {
   ctx := cctx.Context
 
   // ABI definition for the function getPeerData(uint64) -> tuple(string,bytes)
-  const abiJSON = `[{"name":"getPeerData","type":"function","inputs":[{"name":"minerID","type":"uint64"}],"outputs":[{"name":"","type":"tuple","components":[{"name":"peerID","type":"string"},{"name":"signedMessage","type":"bytes"}]}]}]`
+  const abiJSON = `[{"name":"getPeerData","type":"function","inputs":[{"name":"minerID","type":"uint64"}],"outputs":[{"name":"","type":"tuple","components":[{"name":"peerID","type":"string"},{"name":"signature","type":"bytes"}]}]}]`
 
   // Parse ABI properly
   parsedABI, err := abi.JSON(strings.NewReader(abiJSON))
@@ -292,9 +294,16 @@ func main() {
     log.Fatalf("Smart contract call failed with exit code: %s", res.MsgRct.ExitCode.String())
   }
 
+  var evmReturn fabi.CborBytes
+  err = evmReturn.UnmarshalCBOR(bytes.NewReader(res.MsgRct.Return))
+  if err != nil {
+    fmt.Println("failed to unmarshal evm return:", err)
+	return
+  }
+
   // Decode the response correctly (tuple unpacking)
   var result WrappedPeerData
-  err = parsedABI.UnpackIntoInterface(&result, "getPeerData", res.MsgRct.Return)
+  err = parsedABI.UnpackIntoInterface(&result, "getPeerData", evmReturn)
   if err != nil {
     log.Fatalf("Failed to unpack ABI data: %v", err)
   }
