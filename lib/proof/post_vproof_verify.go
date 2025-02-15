@@ -3,20 +3,22 @@ package proof
 import (
 	"bytes"
 	"fmt"
-	poseidondst "github.com/filecoin-project/curio/lib/proof/poseidon"
-	logging "github.com/ipfs/go-log/v2"
-	"golang.org/x/sync/errgroup"
 	"math"
 	"math/big"
 	"sync"
 
+	logging "github.com/ipfs/go-log/v2"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
+
+	poseidondst "github.com/filecoin-project/curio/lib/proof/poseidon"
 
 	// Example Poseidon library (a stand-in for your actual Poseidon):
 	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
+	"github.com/triplewz/poseidon"
+
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/proof"
-	"github.com/triplewz/poseidon"
 )
 
 var log = logging.Logger("proof")

@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 	proof2 "github.com/filecoin-project/go-state-types/proof"
-	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"

@@ -3,11 +3,11 @@ package common
 import (
 	"bytes"
 	"fmt"
-	logging "github.com/ipfs/go-log/v2"
 	"os/exec"
 	"regexp"
 	"strconv"
 
+	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"

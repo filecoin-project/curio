@@ -2,13 +2,16 @@ package common
 
 import (
 	"context"
-	"github.com/filecoin-project/curio/lib/genadt"
-	"github.com/filecoin-project/go-state-types/crypto"
-	"github.com/filecoin-project/lotus/chain/types"
+
 	"github.com/ipfs/go-cid"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/crypto"
+
+	"github.com/filecoin-project/curio/lib/genadt"
+
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 //go:generate cbor-gen-for --map-encoding Message Messages VoucherTable BlockHeader

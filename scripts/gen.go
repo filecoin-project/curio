@@ -1,8 +1,9 @@
 package main
 
 import (
-	"github.com/filecoin-project/curio/lib/proofsvc/common"
 	cbg "github.com/whyrusleeping/cbor-gen"
+
+	"github.com/filecoin-project/curio/lib/proofsvc/common"
 )
 
 func main() {

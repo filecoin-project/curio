@@ -3,21 +3,21 @@ package genadt
 import (
 	"context"
 	"fmt"
-	"github.com/filecoin-project/lotus/blockstore"
-	cbornode "github.com/ipfs/go-ipld-cbor"
 	"io"
 	"sort"
 	"testing"
 
 	"github.com/ipfs/go-cid"
+	cbornode "github.com/ipfs/go-ipld-cbor"
 	"github.com/stretchr/testify/require"
+	typegen "github.com/whyrusleeping/cbor-gen"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin/v14/util/adt"
 	"github.com/filecoin-project/go-state-types/cbor"
 
-	"github.com/whyrusleeping/cbor-gen"
+	"github.com/filecoin-project/lotus/blockstore"
 )
 
 // ----------------------------------------------------------------------

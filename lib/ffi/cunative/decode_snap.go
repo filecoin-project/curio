@@ -34,7 +34,6 @@ void snap_decode_loop(const uint8_t *replica, const uint8_t *key, const uint8_t 
 import "C"
 
 import (
-	poseidondst "github.com/filecoin-project/curio/lib/proof/poseidon"
 	"io"
 	"math/big"
 	"math/bits"
@@ -52,6 +51,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/lib/proof"
+	poseidondst "github.com/filecoin-project/curio/lib/proof/poseidon"
 )
 
 type B32le = [32]byte

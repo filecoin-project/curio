@@ -50,40 +50,40 @@ const (
 )
 
 /*
+// These numbers must match those used for Window PoSt scheduling in the miner actor.
+// Please coordinate changes with actor code.
+// https://github.com/filecoin-project/specs-actors/blob/master/actors/abi/sector.go
+pub static ref WINDOW_POST_SECTOR_COUNT: RwLock<HashMap<u64, usize>> = RwLock::new(
 
-    // These numbers must match those used for Window PoSt scheduling in the miner actor.
-    // Please coordinate changes with actor code.
-    // https://github.com/filecoin-project/specs-actors/blob/master/actors/abi/sector.go
-    pub static ref WINDOW_POST_SECTOR_COUNT: RwLock<HashMap<u64, usize>> = RwLock::new(
-        [
-            (SECTOR_SIZE_2_KIB, 2),
-            (SECTOR_SIZE_4_KIB, 2),
-            (SECTOR_SIZE_16_KIB, 2),
-            (SECTOR_SIZE_32_KIB, 2),
-            (SECTOR_SIZE_8_MIB, 2),
-            (SECTOR_SIZE_16_MIB, 2),
-            (SECTOR_SIZE_512_MIB, 2),
-            (SECTOR_SIZE_1_GIB, 2),
-            (SECTOR_SIZE_32_GIB, 2349), // this gives 125,279,217 constraints, fitting in a single partition
-            (SECTOR_SIZE_64_GIB, 2300), // this gives 129,887,900 constraints, fitting in a single partition
-        ]
-        .iter()
-        .copied()
-        .collect()
-    );
+	[
+	    (SECTOR_SIZE_2_KIB, 2),
+	    (SECTOR_SIZE_4_KIB, 2),
+	    (SECTOR_SIZE_16_KIB, 2),
+	    (SECTOR_SIZE_32_KIB, 2),
+	    (SECTOR_SIZE_8_MIB, 2),
+	    (SECTOR_SIZE_16_MIB, 2),
+	    (SECTOR_SIZE_512_MIB, 2),
+	    (SECTOR_SIZE_1_GIB, 2),
+	    (SECTOR_SIZE_32_GIB, 2349), // this gives 125,279,217 constraints, fitting in a single partition
+	    (SECTOR_SIZE_64_GIB, 2300), // this gives 129,887,900 constraints, fitting in a single partition
+	]
+	.iter()
+	.copied()
+	.collect()
 
+);
 */
 var windowPostSectorCount = map[abi.SectorSize]int{
-	2 << 10: 2,
-	4 << 10: 2,
-	16 << 10: 2,
-	32 << 10: 2,
-	8 << 20: 2,
-	16 << 20: 2,
+	2 << 10:   2,
+	4 << 10:   2,
+	16 << 10:  2,
+	32 << 10:  2,
+	8 << 20:   2,
+	16 << 20:  2,
 	512 << 20: 2,
-	1 << 30: 2,
-	32 << 30: 2349,
-	64 << 30: 2300,
+	1 << 30:   2,
+	32 << 30:  2349,
+	64 << 30:  2300,
 }
 
 /*
@@ -109,24 +109,24 @@ type PoStConfig struct {
 }
 
 /*
-fn window_post_info(sector_size: u64, api_version: ApiVersion) -> CircuitInfo {
-    with_shape!(
-        sector_size,
-        get_window_post_info,
-        &PoStConfig {
-            sector_size: SectorSize(sector_size),
-            challenge_count: WINDOW_POST_CHALLENGE_COUNT,
-            sector_count: *WINDOW_POST_SECTOR_COUNT
-                .read()
-                .expect("WINDOW_POST_SECTOR_COUNT poisoned")
-                .get(&sector_size)
-                .expect("unknown sector size"),
-            typ: PoStType::Window,
-            priority: true,
-            api_version,
-        }
-    )
-}
+	fn window_post_info(sector_size: u64, api_version: ApiVersion) -> CircuitInfo {
+	    with_shape!(
+	        sector_size,
+	        get_window_post_info,
+	        &PoStConfig {
+	            sector_size: SectorSize(sector_size),
+	            challenge_count: WINDOW_POST_CHALLENGE_COUNT,
+	            sector_count: *WINDOW_POST_SECTOR_COUNT
+	                .read()
+	                .expect("WINDOW_POST_SECTOR_COUNT poisoned")
+	                .get(&sector_size)
+	                .expect("unknown sector size"),
+	            typ: PoStType::Window,
+	            priority: true,
+	            api_version,
+	        }
+	    )
+	}
 */
 func GetPoStConfig(sectorSize abi.SectorSize) *PoStConfig {
 	return &PoStConfig{

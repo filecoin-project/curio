@@ -7,24 +7,23 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/filecoin-project/lotus/chain/types/ethtypes"
-	"github.com/ipfs/go-cid"
-
 	eabi "github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ipfs/go-cid"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	fbig "github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
 	"github.com/filecoin-project/go-state-types/exitcode"
+
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors"
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/chain/types/ethtypes"
 )
 
 // RouterMainnet is the Ethereum form of the router address. This is just an example.
 const RouterMainnet = "0x5D2Ce039F95AaF167DEcef2028F48f6bAcC5a586"
-
 
 // Router returns the Filecoin address of the router.
 func Router() address.Address {
@@ -271,8 +270,8 @@ const AcceptServiceActorABI = `[
 ]`
 
 type Service struct {
-	router address.Address
-	full   api.FullNode
+	router      address.Address
+	full        api.FullNode
 	sendMessage func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error)
 }
 
