@@ -2,10 +2,11 @@ package poseidondst
 
 import (
 	"encoding/hex"
+	"math/big"
+
 	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 	"github.com/snadrus/must"
 	"github.com/triplewz/poseidon"
-	"math/big"
 )
 
 // Neptune-style domain separation.

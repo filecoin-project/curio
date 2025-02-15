@@ -543,6 +543,7 @@ USAGE:
 
 COMMANDS:
    ipni-piece-chunks  generate ipni chunks from a file
+   debug-snsvc        
    help, h            Shows a list of commands or help for one command
 
 OPTIONS:
@@ -559,6 +560,275 @@ USAGE:
 
 OPTIONS:
    --help, -h  show help
+```
+
+#### curio test debug debug-snsvc
+```
+NAME:
+   curio test debug debug-snsvc
+
+USAGE:
+   curio test debug debug-snsvc command [command options]
+
+COMMANDS:
+   deposit                      Deposit FIL into the Router contract (client)
+   client-initiate-withdrawal   Initiate a withdrawal request from the client's deposit
+   client-complete-withdrawal   Complete a pending client withdrawal after the withdrawal window elapses
+   client-cancel-withdrawal     Cancel a pending client withdrawal request
+   redeem-client                Redeem a client voucher (service role)
+   redeem-provider              Redeem a provider voucher (provider role)
+   service-initiate-withdrawal  Initiate a withdrawal request from the service pool
+   service-complete-withdrawal  Complete a pending service withdrawal after the withdrawal window elapses
+   service-cancel-withdrawal    Cancel a pending service withdrawal request
+   service-deposit              Deposit funds into the service pool (service role)
+   get-client-state             Query the state of a client
+   get-provider-state           Query the state of a provider
+   get-service-state            Query the service state
+   create-client-voucher        Create a client voucher
+   create-provider-voucher      Create a provider voucher
+   propose-service-actor        Propose a new service actor
+   accept-service-actor         Accept a proposed service actor
+   help, h                      Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+##### curio test debug debug-snsvc deposit
+```
+NAME:
+   curio test debug debug-snsvc deposit - Deposit FIL into the Router contract (client)
+
+USAGE:
+   curio test debug debug-snsvc deposit [command options]
+
+OPTIONS:
+   --from value    Sender address
+   --amount value  Amount in FIL
+   --help, -h      show help
+```
+
+##### curio test debug debug-snsvc client-initiate-withdrawal
+```
+NAME:
+   curio test debug debug-snsvc client-initiate-withdrawal - Initiate a withdrawal request from the client's deposit
+
+USAGE:
+   curio test debug debug-snsvc client-initiate-withdrawal [command options]
+
+OPTIONS:
+   --from value    Client sender address
+   --amount value  Withdrawal amount (in FIL)
+   --help, -h      show help
+```
+
+##### curio test debug debug-snsvc client-complete-withdrawal
+```
+NAME:
+   curio test debug debug-snsvc client-complete-withdrawal - Complete a pending client withdrawal after the withdrawal window elapses
+
+USAGE:
+   curio test debug debug-snsvc client-complete-withdrawal [command options]
+
+OPTIONS:
+   --from value  Client sender address
+   --help, -h    show help
+```
+
+##### curio test debug debug-snsvc client-cancel-withdrawal
+```
+NAME:
+   curio test debug debug-snsvc client-cancel-withdrawal - Cancel a pending client withdrawal request
+
+USAGE:
+   curio test debug debug-snsvc client-cancel-withdrawal [command options]
+
+OPTIONS:
+   --from value  Client sender address
+   --help, -h    show help
+```
+
+##### curio test debug debug-snsvc redeem-client
+```
+NAME:
+   curio test debug debug-snsvc redeem-client - Redeem a client voucher (service role)
+
+USAGE:
+   curio test debug debug-snsvc redeem-client [command options]
+
+OPTIONS:
+   --from value    Service sender address
+   --client value  Client actor
+   --amount value  Cumulative amount (FIL)
+   --nonce value   Voucher nonce (default: 0)
+   --sig value     Voucher signature (hex)
+   --help, -h      show help
+```
+
+##### curio test debug debug-snsvc redeem-provider
+```
+NAME:
+   curio test debug debug-snsvc redeem-provider - Redeem a provider voucher (provider role)
+
+USAGE:
+   curio test debug debug-snsvc redeem-provider [command options]
+
+OPTIONS:
+   --from value      Provider sender address
+   --provider value  Provider actor
+   --amount value    Cumulative amount (FIL)
+   --nonce value     Voucher nonce (default: 0)
+   --sig value       Voucher signature (hex)
+   --help, -h        show help
+```
+
+##### curio test debug debug-snsvc service-initiate-withdrawal
+```
+NAME:
+   curio test debug debug-snsvc service-initiate-withdrawal - Initiate a withdrawal request from the service pool
+
+USAGE:
+   curio test debug debug-snsvc service-initiate-withdrawal [command options]
+
+OPTIONS:
+   --amount value  Withdrawal amount (in FIL)
+   --from value    Service sender address
+   --help, -h      show help
+```
+
+##### curio test debug debug-snsvc service-complete-withdrawal
+```
+NAME:
+   curio test debug debug-snsvc service-complete-withdrawal - Complete a pending service withdrawal after the withdrawal window elapses
+
+USAGE:
+   curio test debug debug-snsvc service-complete-withdrawal [command options]
+
+OPTIONS:
+   --from value  Service sender address
+   --help, -h    show help
+```
+
+##### curio test debug debug-snsvc service-cancel-withdrawal
+```
+NAME:
+   curio test debug debug-snsvc service-cancel-withdrawal - Cancel a pending service withdrawal request
+
+USAGE:
+   curio test debug debug-snsvc service-cancel-withdrawal [command options]
+
+OPTIONS:
+   --from value  Service sender address
+   --help, -h    show help
+```
+
+##### curio test debug debug-snsvc service-deposit
+```
+NAME:
+   curio test debug debug-snsvc service-deposit - Deposit funds into the service pool (service role)
+
+USAGE:
+   curio test debug debug-snsvc service-deposit [command options]
+
+OPTIONS:
+   --from value    Service sender address
+   --amount value  Amount to deposit (FIL)
+   --help, -h      show help
+```
+
+##### curio test debug debug-snsvc get-client-state
+```
+NAME:
+   curio test debug debug-snsvc get-client-state - Query the state of a client
+
+USAGE:
+   curio test debug debug-snsvc get-client-state [command options]
+
+OPTIONS:
+   --client value  Client actor address
+   --help, -h      show help
+```
+
+##### curio test debug debug-snsvc get-provider-state
+```
+NAME:
+   curio test debug debug-snsvc get-provider-state - Query the state of a provider
+
+USAGE:
+   curio test debug debug-snsvc get-provider-state [command options]
+
+OPTIONS:
+   --provider value  Provider actor address
+   --help, -h        show help
+```
+
+##### curio test debug debug-snsvc get-service-state
+```
+NAME:
+   curio test debug debug-snsvc get-service-state - Query the service state
+
+USAGE:
+   curio test debug debug-snsvc get-service-state [command options]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+##### curio test debug debug-snsvc create-client-voucher
+```
+NAME:
+   curio test debug debug-snsvc create-client-voucher - Create a client voucher
+
+USAGE:
+   curio test debug debug-snsvc create-client-voucher [command options]
+
+OPTIONS:
+   --client value  Client actor address
+   --amount value  Amount to redeem (FIL)
+   --help, -h      show help
+```
+
+##### curio test debug debug-snsvc create-provider-voucher
+```
+NAME:
+   curio test debug debug-snsvc create-provider-voucher - Create a provider voucher
+
+USAGE:
+   curio test debug debug-snsvc create-provider-voucher [command options]
+
+OPTIONS:
+   --provider value  Provider actor address
+   --amount value    Amount to redeem (FIL)
+   --nonce value     Voucher nonce (default: 0)
+   --service value   Service sender address
+   --help, -h        show help
+```
+
+##### curio test debug debug-snsvc propose-service-actor
+```
+NAME:
+   curio test debug debug-snsvc propose-service-actor - Propose a new service actor
+
+USAGE:
+   curio test debug debug-snsvc propose-service-actor [command options]
+
+OPTIONS:
+   --from value               Service sender address
+   --new-service-actor value  New service actor address
+   --help, -h                 show help
+```
+
+##### curio test debug debug-snsvc accept-service-actor
+```
+NAME:
+   curio test debug debug-snsvc accept-service-actor - Accept a proposed service actor
+
+USAGE:
+   curio test debug debug-snsvc accept-service-actor [command options]
+
+OPTIONS:
+   --from value  Service sender address
+   --help, -h    show help
 ```
 
 ## curio web

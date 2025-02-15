@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/filecoin-project/curio/lib/proofsvc/common"
+	"github.com/urfave/cli/v2"
+
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/proofsvc/common"
+
 	"github.com/filecoin-project/lotus/chain/types"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
-	"github.com/urfave/cli/v2"
 )
 
 var debugSNSvc = &cli.Command{
@@ -105,16 +108,16 @@ var debugSNSvc = &cli.Command{
 			Action: serviceInitiateWithdrawalAction,
 		},
 		{
-			Name:   "service-complete-withdrawal",
-			Usage:  "Complete a pending service withdrawal after the withdrawal window elapses",
+			Name:  "service-complete-withdrawal",
+			Usage: "Complete a pending service withdrawal after the withdrawal window elapses",
 			Flags: []cli.Flag{
 				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
 			},
 			Action: serviceCompleteWithdrawalAction,
 		},
 		{
-			Name:   "service-cancel-withdrawal",
-			Usage:  "Cancel a pending service withdrawal request",
+			Name:  "service-cancel-withdrawal",
+			Usage: "Cancel a pending service withdrawal request",
 			Flags: []cli.Flag{
 				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
 			},
@@ -152,18 +155,18 @@ var debugSNSvc = &cli.Command{
 			Action: getServiceStateAction,
 		},
 		{
-			Name:   "create-client-voucher",
-			Usage:  "Create a client voucher",
-			Flags:  []cli.Flag{
+			Name:  "create-client-voucher",
+			Usage: "Create a client voucher",
+			Flags: []cli.Flag{
 				&cli.StringFlag{Name: "client", Usage: "Client actor address", Required: true},
 				&cli.StringFlag{Name: "amount", Usage: "Amount to redeem (FIL)", Required: true},
 			},
 			Action: createClientVoucherAction,
 		},
 		{
-			Name:   "create-provider-voucher",
-			Usage:  "Create a provider voucher",
-			Flags:  []cli.Flag{
+			Name:  "create-provider-voucher",
+			Usage: "Create a provider voucher",
+			Flags: []cli.Flag{
 				&cli.StringFlag{Name: "provider", Usage: "Provider actor address", Required: true},
 				&cli.StringFlag{Name: "amount", Usage: "Amount to redeem (FIL)", Required: true},
 				&cli.Uint64Flag{Name: "nonce", Usage: "Voucher nonce", Required: true},
@@ -172,18 +175,18 @@ var debugSNSvc = &cli.Command{
 			Action: createProviderVoucherAction,
 		},
 		{
-			Name:   "propose-service-actor",
-			Usage:  "Propose a new service actor",
-			Flags:  []cli.Flag{
+			Name:  "propose-service-actor",
+			Usage: "Propose a new service actor",
+			Flags: []cli.Flag{
 				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
 				&cli.StringFlag{Name: "new-service-actor", Usage: "New service actor address", Required: true},
 			},
 			Action: proposeServiceActorAction,
 		},
 		{
-			Name:   "accept-service-actor",
-			Usage:  "Accept a proposed service actor",
-			Flags:  []cli.Flag{
+			Name:  "accept-service-actor",
+			Usage: "Accept a proposed service actor",
+			Flags: []cli.Flag{
 				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
 			},
 			Action: acceptServiceActorAction,
@@ -330,7 +333,6 @@ func redeemProviderAction(cctx *cli.Context) error {
 	fmt.Println("Redeem provider voucher succeeded")
 	return nil
 }
-
 
 // clientInitiateWithdrawalAction submits a transaction to call `initiateClientWithdrawal(amount)`.
 // It deducts the withdrawal amount from the client’s deposit (subject to the withdrawal window).

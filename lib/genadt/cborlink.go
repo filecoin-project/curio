@@ -3,12 +3,12 @@ package genadt
 import (
 	"context"
 	"errors"
-	cbg "github.com/whyrusleeping/cbor-gen"
 	"io"
 	"reflect"
 
 	"github.com/ipfs/go-cid"
 	ipldcbor "github.com/ipfs/go-ipld-cbor"
+	cbg "github.com/whyrusleeping/cbor-gen"
 )
 
 // Store is a small interface that merges ipldcbor.IpldStore with a context.

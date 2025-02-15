@@ -5,14 +5,17 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/filecoin-project/curio/lib/proofsvc/common"
-	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/ipfs/go-cid"
 	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/proofsvc/common"
+
+	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 // ProofShareMeta holds the data from the proofshare_meta table.
@@ -317,4 +320,3 @@ func (a *WebRPC) PSClientRouterAddBalance(ctx context.Context, wallet string, am
 
 	return depositCid, nil
 }
-
