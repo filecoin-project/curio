@@ -82,3 +82,39 @@ CREATE TABLE proofshare_client_payments (
 
     PRIMARY KEY (wallet, nonce)
 );
+
+-- Table tracking user-router interactions (deposit, withdraw-request/complete)
+CREATE TABLE proofshare_client_messages (
+    started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp,
+    signed_cid TEXT NOT NULL,
+
+    wallet BIGINT NOT NULL,
+    action TEXT,
+
+    success BOOLEAN,
+    completed_at TIMESTAMP WITH TIME ZONE,
+
+    PRIMARY KEY (started_at, signed_cid)
+);
+
+CREATE INDEX proofshare_client_messages_signed_cid ON proofshare_client_messages (signed_cid);
+
+CREATE OR REPLACE FUNCTION update_proofshare_client_messages_from_message_waits()
+RETURNS trigger AS $$
+BEGIN
+  IF OLD.executed_tsk_epoch IS NULL AND NEW.executed_tsk_epoch IS NOT NULL THEN
+    UPDATE proofshare_client_messages
+      SET success = (NEW.executed_rcpt_exitcode = 0),
+          completed_at = current_timestamp
+    WHERE signed_cid = NEW.signed_message_cid;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER tr_update_proofshare_client_messages
+AFTER UPDATE ON message_waits
+FOR EACH ROW
+WHEN (OLD.executed_tsk_epoch IS NULL AND NEW.executed_tsk_epoch IS NOT NULL)
+EXECUTE FUNCTION update_proofshare_client_messages_from_message_waits();
+

@@ -7,7 +7,10 @@ import (
 
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/ipfs/go-cid"
 	"github.com/snadrus/must"
 	"golang.org/x/xerrors"
 )
@@ -243,7 +246,8 @@ func (a *WebRPC) PSClientWallets(ctx context.Context) ([]*ProofShareClientWallet
 		}
 		w.ChainBalance = types.FIL(wb).Short()
 
-		clientState, err := common.GetClientState(ctx, a.deps.Chain, uint64(w.Wallet))
+		svc := common.NewService(a.deps.Chain)
+		clientState, err := svc.GetClientState(ctx, uint64(w.Wallet))
 		if err != nil {
 			return nil, xerrors.Errorf("PSClientWallets: failed to get client state: %w", err)
 		}
@@ -277,3 +281,40 @@ func (a *WebRPC) PSClientAddWallet(ctx context.Context, wallet string) error {
 	`, id)
 	return err
 }
+
+func (a *WebRPC) PSClientRouterAddBalance(ctx context.Context, wallet string, amountStr string) (cid.Cid, error) {
+	addr, err := address.NewFromString(wallet)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: invalid address: %w", err)
+	}
+
+	amountFIL, err := types.ParseFIL(amountStr)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: invalid amount: %w", err)
+	}
+
+	availBalance, err := a.deps.Chain.WalletBalance(ctx, addr)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: failed to get chain balance: %w", err)
+	}
+
+	amount := abi.TokenAmount(amountFIL)
+
+	if availBalance.LessThan(amount) {
+		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: not enough balance: %s < %s", types.FIL(availBalance).Short(), amountFIL.Short())
+	}
+
+	svc := common.NewServiceCustomSend(a.deps.Chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
+		return a.deps.Sender.Send(ctx, msg, mss, "ps-client-deposit")
+	})
+
+	depositCid, err := svc.ClientDeposit(ctx, addr, amount)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: failed to deposit: %w", err)
+	}
+
+	log.Infow("PSClientRouterAddBalance", "deposit_cid", depositCid)
+
+	return depositCid, nil
+}
+

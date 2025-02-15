@@ -44,6 +44,7 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
+	"github.com/filecoin-project/curio/tasks/message"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -193,6 +194,7 @@ type Deps struct {
 	PieceProvider     *pieceprovider.PieceProvider
 	CachedPieceReader *cachedreader.CachedPieceReader
 	ServeChunker      *chunker.ServeChunker
+	Sender            *message.Sender
 }
 
 const (

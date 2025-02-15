@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/filecoin-project/lotus/chain/types/ethtypes"
+	"github.com/ipfs/go-cid"
 
 	eabi "github.com/ethereum/go-ethereum/accounts/abi"
 
@@ -269,30 +270,48 @@ const AcceptServiceActorABI = `[
 	}
 ]`
 
-// ClientDeposit calls `deposit()` with a pay value = the deposit amount in attoFIL
-func ClientDeposit(
+type Service struct {
+	router address.Address
+	full   api.FullNode
+	sendMessage func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error)
+}
+
+func NewServiceCustomSend(full api.FullNode, sendMessage func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error)) *Service {
+	return &Service{router: Router(), full: full, sendMessage: sendMessage}
+}
+
+func NewService(full api.FullNode) *Service {
+	return &Service{router: Router(), full: full, sendMessage: func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
+		sm, err := full.MpoolPushMessage(ctx, msg, mss)
+		if err != nil {
+			return cid.Undef, err
+		}
+		return sm.Cid(), nil
+	}}
+}
+
+// ClientDeposit calls `deposit()` with a pay value = the deposit amount in attoFIL and returns the deposit cid
+func (s *Service) ClientDeposit(
 	ctx context.Context,
-	full api.FullNode,
 	from address.Address,
 	amount fbig.Int,
-) error {
+) (cid.Cid, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(DepositABI))
 	if err != nil {
-		return fmt.Errorf("parse deposit ABI: %w", err)
+		return cid.Undef, fmt.Errorf("parse deposit ABI: %w", err)
 	}
 	data, err := parsedABI.Pack("deposit")
 	if err != nil {
-		return fmt.Errorf("pack deposit call: %w", err)
+		return cid.Undef, fmt.Errorf("pack deposit call: %w", err)
 	}
-	router := Router()
-	_, err = sendEVMMessage(ctx, full, from, router, amount, data)
+	depositCid, err := s.sendEVMMessage(ctx, from, s.router, amount, data)
 	if err != nil {
-		return fmt.Errorf("deposit message failed: %w", err)
+		return cid.Undef, fmt.Errorf("deposit message failed: %w", err)
 	}
-	return nil
+	return depositCid, nil
 }
 
-func ClientInitiateWithdrawal(ctx context.Context, full api.FullNode, from address.Address, amount fbig.Int) error {
+func (s *Service) ClientInitiateWithdrawal(ctx context.Context, from address.Address, amount fbig.Int) error {
 	parsedABI, err := eabi.JSON(strings.NewReader(InitiateClientWithdrawalABI))
 	if err != nil {
 		return fmt.Errorf("parse initiateClientWithdrawal ABI: %w", err)
@@ -302,16 +321,14 @@ func ClientInitiateWithdrawal(ctx context.Context, full api.FullNode, from addre
 		return fmt.Errorf("pack initiateClientWithdrawal: %w", err)
 	}
 
-	router := Router()
-
-	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	_, err = s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
 	if err != nil {
 		return fmt.Errorf("initiateClientWithdrawal message failed: %w", err)
 	}
 	return nil
 }
 
-func ClientCompleteWithdrawal(ctx context.Context, full api.FullNode, from address.Address) error {
+func (s *Service) ClientCompleteWithdrawal(ctx context.Context, from address.Address) error {
 	parsedABI, err := eabi.JSON(strings.NewReader(CompleteClientWithdrawalABI))
 	if err != nil {
 		return fmt.Errorf("parse completeClientWithdrawal ABI: %w", err)
@@ -321,16 +338,14 @@ func ClientCompleteWithdrawal(ctx context.Context, full api.FullNode, from addre
 		return fmt.Errorf("pack completeClientWithdrawal: %w", err)
 	}
 
-	router := Router()
-
-	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	_, err = s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
 	if err != nil {
 		return fmt.Errorf("completeClientWithdrawal message failed: %w", err)
 	}
 	return nil
 }
 
-func ClientCancelWithdrawal(ctx context.Context, full api.FullNode, from address.Address) error {
+func (s *Service) ClientCancelWithdrawal(ctx context.Context, from address.Address) error {
 	parsedABI, err := eabi.JSON(strings.NewReader(CancelClientWithdrawalABI))
 	if err != nil {
 		return fmt.Errorf("parse cancelClientWithdrawal ABI: %w", err)
@@ -340,9 +355,7 @@ func ClientCancelWithdrawal(ctx context.Context, full api.FullNode, from address
 		return fmt.Errorf("pack cancelClientWithdrawal: %w", err)
 	}
 
-	router := Router()
-
-	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	_, err = s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
 	if err != nil {
 		return fmt.Errorf("cancelClientWithdrawal message failed: %w", err)
 	}
@@ -350,10 +363,9 @@ func ClientCancelWithdrawal(ctx context.Context, full api.FullNode, from address
 }
 
 // ServiceRedeemClientVoucher calls `redeemClientVoucher(clientID, cumulativeAmount, nonce, signature)`.
-func ServiceRedeemClientVoucher(
+func (s *Service) ServiceRedeemClientVoucher(
 	ctx context.Context,
-	full api.FullNode,
-	from, router address.Address,
+	from address.Address,
 	clientID uint64,
 	cumulativeAmount fbig.Int,
 	nonce uint64,
@@ -367,7 +379,7 @@ func ServiceRedeemClientVoucher(
 	if err != nil {
 		return fmt.Errorf("pack redeemClientVoucher: %w", err)
 	}
-	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	_, err = s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
 	if err != nil {
 		return fmt.Errorf("redeemClientVoucher message failed: %w", err)
 	}
@@ -375,10 +387,9 @@ func ServiceRedeemClientVoucher(
 }
 
 // ServiceRedeemProviderVoucher calls `redeemProviderVoucher(providerID, cumulativeAmount, nonce, signature)`.
-func ServiceRedeemProviderVoucher(
+func (s *Service) ServiceRedeemProviderVoucher(
 	ctx context.Context,
-	full api.FullNode,
-	from, router address.Address,
+	from address.Address,
 	providerID uint64,
 	cumulativeAmount fbig.Int,
 	nonce uint64,
@@ -395,14 +406,14 @@ func ServiceRedeemProviderVoucher(
 
 	fmt.Printf("redeemProviderVoucher(%d, %d, %d, %x) data: %x\n", providerID, cumulativeAmount.Int, nonce, sig, data)
 
-	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	_, err = s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
 	if err != nil {
 		return fmt.Errorf("redeemProviderVoucher message failed: %w", err)
 	}
 	return nil
 }
 
-func ServiceInitiateWithdrawal(ctx context.Context, full api.FullNode, from address.Address, amount fbig.Int) error {
+func (s *Service) ServiceInitiateWithdrawal(ctx context.Context, from address.Address, amount fbig.Int) error {
 	parsedABI, err := eabi.JSON(strings.NewReader(InitiateServiceWithdrawalABI))
 	if err != nil {
 		return fmt.Errorf("parse initiateServiceWithdrawal ABI: %w", err)
@@ -412,16 +423,14 @@ func ServiceInitiateWithdrawal(ctx context.Context, full api.FullNode, from addr
 		return fmt.Errorf("pack initiateServiceWithdrawal: %w", err)
 	}
 
-	router := Router()
-
-	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	_, err = s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
 	if err != nil {
 		return fmt.Errorf("initiateServiceWithdrawal message failed: %w", err)
 	}
 	return nil
 }
 
-func ServiceCompleteWithdrawal(ctx context.Context, full api.FullNode, from address.Address) error {
+func (s *Service) ServiceCompleteWithdrawal(ctx context.Context, from address.Address) error {
 	parsedABI, err := eabi.JSON(strings.NewReader(CompleteServiceWithdrawalABI))
 	if err != nil {
 		return fmt.Errorf("parse completeServiceWithdrawal ABI: %w", err)
@@ -431,16 +440,14 @@ func ServiceCompleteWithdrawal(ctx context.Context, full api.FullNode, from addr
 		return fmt.Errorf("pack completeServiceWithdrawal: %w", err)
 	}
 
-	router := Router()
-
-	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	_, err = s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
 	if err != nil {
 		return fmt.Errorf("completeServiceWithdrawal message failed: %w", err)
 	}
 	return nil
 }
 
-func ServiceCancelWithdrawal(ctx context.Context, full api.FullNode, from address.Address) error {
+func (s *Service) ServiceCancelWithdrawal(ctx context.Context, from address.Address) error {
 	parsedABI, err := eabi.JSON(strings.NewReader(CancelServiceWithdrawalABI))
 	if err != nil {
 		return fmt.Errorf("parse cancelServiceWithdrawal ABI: %w", err)
@@ -450,17 +457,14 @@ func ServiceCancelWithdrawal(ctx context.Context, full api.FullNode, from addres
 		return fmt.Errorf("pack cancelServiceWithdrawal: %w", err)
 	}
 
-	router := Router()
-
-	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	_, err = s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
 	if err != nil {
 		return fmt.Errorf("cancelServiceWithdrawal message failed: %w", err)
 	}
 	return nil
 }
 
-// ServiceDeposit calls `serviceDeposit()`.
-func ServiceDeposit(ctx context.Context, full api.FullNode, from address.Address, amount fbig.Int) error {
+func (s *Service) ServiceDeposit(ctx context.Context, from address.Address, amount fbig.Int) error {
 	parsedABI, err := eabi.JSON(strings.NewReader(ServiceDepositABI))
 	if err != nil {
 		return fmt.Errorf("parse serviceDeposit ABI: %w", err)
@@ -470,9 +474,7 @@ func ServiceDeposit(ctx context.Context, full api.FullNode, from address.Address
 		return fmt.Errorf("pack serviceDeposit: %w", err)
 	}
 
-	router := Router()
-
-	_, err = sendEVMMessage(ctx, full, from, router, amount, data)
+	_, err = s.sendEVMMessage(ctx, from, s.router, amount, data)
 	if err != nil {
 		return fmt.Errorf("serviceDeposit message failed: %w", err)
 	}
@@ -497,7 +499,7 @@ type ProviderVoucher struct {
 	Signature        []byte
 }
 
-func CreateClientVoucher(ctx context.Context, full api.FullNode, clientID uint64, cumulativeAmount *big.Int, nonce uint64) ([]byte, error) {
+func (s *Service) CreateClientVoucher(ctx context.Context, clientID uint64, cumulativeAmount *big.Int, nonce uint64) ([]byte, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(CreateClientVoucherABI))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse CreateClientVoucher ABI: %w", err)
@@ -508,17 +510,15 @@ func CreateClientVoucher(ctx context.Context, full api.FullNode, clientID uint64
 		return nil, fmt.Errorf("failed to pack createClientVoucher call: %w", err)
 	}
 
-	router := Router()
-
 	msg := &types.Message{
-		To:     router,
+		To:     s.router,
 		From:   builtin.SystemActorAddr,
 		Value:  abi.NewTokenAmount(0),
 		Method: builtin.MethodsEVM.InvokeContract,
 		Params: mustSerializeCBOR(data),
 	}
 
-	res, err := full.StateCall(ctx, msg, types.EmptyTSK)
+	res, err := s.full.StateCall(ctx, msg, types.EmptyTSK)
 	if err != nil {
 		return nil, fmt.Errorf("StateCall for createClientVoucher failed: %w", err)
 	}
@@ -536,7 +536,7 @@ func CreateClientVoucher(ctx context.Context, full api.FullNode, clientID uint64
 	return voucher, nil
 }
 
-func CreateProviderVoucher(ctx context.Context, full api.FullNode, providerID uint64, cumulativeAmount *big.Int, nonce uint64) ([]byte, error) {
+func (s *Service) CreateProviderVoucher(ctx context.Context, providerID uint64, cumulativeAmount *big.Int, nonce uint64) ([]byte, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(CreateProviderVoucherABI))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse CreateProviderVoucher ABI: %w", err)
@@ -547,17 +547,15 @@ func CreateProviderVoucher(ctx context.Context, full api.FullNode, providerID ui
 		return nil, fmt.Errorf("failed to pack createProviderVoucher call: %w", err)
 	}
 
-	router := Router()
-
 	msg := &types.Message{
-		To:     router,
+		To:     s.router,
 		From:   builtin.SystemActorAddr,
 		Value:  abi.NewTokenAmount(0),
 		Method: builtin.MethodsEVM.InvokeContract,
 		Params: mustSerializeCBOR(data),
 	}
 
-	res, err := full.StateCall(ctx, msg, types.EmptyTSK)
+	res, err := s.full.StateCall(ctx, msg, types.EmptyTSK)
 	if err != nil {
 		return nil, fmt.Errorf("StateCall for createProviderVoucher failed: %w", err)
 	}
@@ -575,8 +573,7 @@ func CreateProviderVoucher(ctx context.Context, full api.FullNode, providerID ui
 	return voucher, nil
 }
 
-// VerifyVoucherUpdate ...
-func VerifyVoucherUpdate(best, proposed *ClientVoucher) (*big.Int, error) {
+func (s *Service) VerifyVoucherUpdate(best, proposed *ClientVoucher) (*big.Int, error) {
 	if proposed.Nonce <= best.Nonce {
 		return nil, fmt.Errorf("proposed voucher nonce is not higher than best accepted: %d <= %d", proposed.Nonce, best.Nonce)
 	}
@@ -595,7 +592,7 @@ type ClientState struct {
 	WithdrawTimestamp fbig.Int
 }
 
-func GetClientState(ctx context.Context, full api.FullNode, clientID uint64) (*ClientState, error) {
+func (s *Service) GetClientState(ctx context.Context, clientID uint64) (*ClientState, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(GetClientStateABI))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse getClientState ABI: %w", err)
@@ -604,8 +601,8 @@ func GetClientState(ctx context.Context, full api.FullNode, clientID uint64) (*C
 	if err != nil {
 		return nil, fmt.Errorf("failed to pack getClientState call: %w", err)
 	}
-	res, err := full.StateCall(ctx, &types.Message{
-		To:     Router(),
+	res, err := s.full.StateCall(ctx, &types.Message{
+		To:     s.router,
 		From:   builtin.SystemActorAddr,
 		Value:  abi.NewTokenAmount(0),
 		Method: builtin.MethodsEVM.InvokeContract,
@@ -640,7 +637,7 @@ func GetClientState(ctx context.Context, full api.FullNode, clientID uint64) (*C
 	}, nil
 }
 
-func GetProviderState(ctx context.Context, full api.FullNode, router address.Address, providerID uint64) (fbig.Int, uint64, error) {
+func (s *Service) GetProviderState(ctx context.Context, providerID uint64) (fbig.Int, uint64, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(GetProviderStateABI))
 	if err != nil {
 		return fbig.Int{}, 0, fmt.Errorf("failed to parse getProviderState ABI: %w", err)
@@ -649,8 +646,8 @@ func GetProviderState(ctx context.Context, full api.FullNode, router address.Add
 	if err != nil {
 		return fbig.Int{}, 0, fmt.Errorf("failed to pack getProviderState call: %w", err)
 	}
-	res, err := full.StateCall(ctx, &types.Message{
-		To:     router,
+	res, err := s.full.StateCall(ctx, &types.Message{
+		To:     s.router,
 		From:   builtin.SystemActorAddr,
 		Value:  abi.NewTokenAmount(0),
 		Method: builtin.MethodsEVM.InvokeContract,
@@ -669,14 +666,13 @@ func GetProviderState(ctx context.Context, full api.FullNode, router address.Add
 		VoucherRedeemed *big.Int `abi:"voucherRedeemed"`
 		LastNonce       uint64   `abi:"lastNonce"`
 	}
-	err = parsedABI.UnpackIntoInterface(&out, "getProviderState", rawBytes)
-	if err != nil {
+	if err := parsedABI.UnpackIntoInterface(&out, "getProviderState", rawBytes); err != nil {
 		return fbig.Int{}, 0, fmt.Errorf("failed to unpack getProviderState: %w", err)
 	}
 	return fbig.NewFromGo(out.VoucherRedeemed), out.LastNonce, nil
 }
 
-func GetServiceState(ctx context.Context, full api.FullNode, router address.Address) (uint64, fbig.Int, fbig.Int, fbig.Int, uint64, fbig.Int, error) {
+func (s *Service) GetServiceState(ctx context.Context) (uint64, fbig.Int, fbig.Int, fbig.Int, uint64, fbig.Int, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(GetServiceStateABI))
 	if err != nil {
 		return 0, fbig.Int{}, fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fmt.Errorf("failed to parse getServiceState ABI: %w", err)
@@ -685,8 +681,8 @@ func GetServiceState(ctx context.Context, full api.FullNode, router address.Addr
 	if err != nil {
 		return 0, fbig.Int{}, fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fmt.Errorf("failed to pack getServiceState call: %w", err)
 	}
-	res, err := full.StateCall(ctx, &types.Message{
-		To:     router,
+	res, err := s.full.StateCall(ctx, &types.Message{
+		To:     s.router,
 		From:   builtin.SystemActorAddr,
 		Value:  abi.NewTokenAmount(0),
 		Method: builtin.MethodsEVM.InvokeContract,
@@ -713,22 +709,19 @@ func GetServiceState(ctx context.Context, full api.FullNode, router address.Addr
 		ActorChangeTimestamp       *big.Int `abi:"actorChangeTimestamp"`
 	}
 
-	err = parsedABI.UnpackIntoInterface(&out, "getServiceState", rawBytes)
-	if err != nil {
+	if err := parsedABI.UnpackIntoInterface(&out, "getServiceState", rawBytes); err != nil {
 		return 0, fbig.Int{}, fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fmt.Errorf("failed to unpack getServiceState: %w (%x)", err, rawBytes)
 	}
 	return out.ServiceActor, fbig.NewFromGo(out.ServicePool), fbig.NewFromGo(out.PendingWithdrawalAmount), fbig.NewFromGo(out.PendingWithdrawalTimestamp), out.ProposedServiceActor, fbig.NewFromGo(out.ActorChangeTimestamp), nil
 }
 
-
-// ProposeServiceActor calls `proposeServiceActor(newServiceActor)`.
-func ProposeServiceActor(ctx context.Context, full api.FullNode, from address.Address, newServiceActor address.Address) error {
+func (s *Service) ProposeServiceActor(ctx context.Context, from address.Address, newServiceActor address.Address) error {
 	parsedABI, err := eabi.JSON(strings.NewReader(ProposeServiceActorABI))
 	if err != nil {
 		return fmt.Errorf("parse proposeServiceActor ABI: %w", err)
 	}
 
-	resolv, err := full.StateLookupID(ctx, newServiceActor, types.EmptyTSK)
+	resolv, err := s.full.StateLookupID(ctx, newServiceActor, types.EmptyTSK)
 	if err != nil {
 		return fmt.Errorf("StateLookupID failed: %w", err)
 	}
@@ -742,16 +735,14 @@ func ProposeServiceActor(ctx context.Context, full api.FullNode, from address.Ad
 	if err != nil {
 		return fmt.Errorf("pack proposeServiceActor: %w", err)
 	}
-	router := Router()
-	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	_, err = s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
 	if err != nil {
 		return fmt.Errorf("proposeServiceActor message failed: %w", err)
 	}
 	return nil
 }
 
-// AcceptServiceActor calls `acceptServiceActor()`.
-func AcceptServiceActor(ctx context.Context, full api.FullNode, from address.Address) error {
+func (s *Service) AcceptServiceActor(ctx context.Context, from address.Address) error {
 	parsedABI, err := eabi.JSON(strings.NewReader(AcceptServiceActorABI))
 	if err != nil {
 		return fmt.Errorf("parse acceptServiceActor ABI: %w", err)
@@ -760,8 +751,7 @@ func AcceptServiceActor(ctx context.Context, full api.FullNode, from address.Add
 	if err != nil {
 		return fmt.Errorf("pack acceptServiceActor: %w", err)
 	}
-	router := Router()
-	_, err = sendEVMMessage(ctx, full, from, router, fbig.Zero(), data)
+	_, err = s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
 	if err != nil {
 		return fmt.Errorf("acceptServiceActor message failed: %w", err)
 	}
@@ -770,17 +760,16 @@ func AcceptServiceActor(ctx context.Context, full api.FullNode, from address.Add
 
 // --- EVM invocation helper ---
 
-func sendEVMMessage(
+func (s *Service) sendEVMMessage(
 	ctx context.Context,
-	full api.FullNode,
 	from, to address.Address,
 	value fbig.Int,
 	data []byte,
-) (*types.Message, error) {
+) (cid.Cid, error) {
 	param := abi.CborBytes(data)
 	ser, aerr := actors.SerializeParams(&param)
 	if aerr != nil {
-		return nil, fmt.Errorf("failed to serialize params: %w", aerr)
+		return cid.Undef, fmt.Errorf("failed to serialize params: %w", aerr)
 	}
 	msg := &types.Message{
 		To:     to,
@@ -789,18 +778,14 @@ func sendEVMMessage(
 		Method: builtin.MethodsEVM.InvokeContract,
 		Params: ser,
 	}
-	signedMsg, err := full.MpoolPushMessage(ctx, msg, nil)
+	mcid, err := s.sendMessage(ctx, msg, &api.MessageSendSpec{
+		MaxFee: abi.TokenAmount(types.MustParseFIL("0.1")),
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to push message: %w", err)
+		return cid.Undef, fmt.Errorf("failed to push message: %w", err)
 	}
 
-	fmt.Printf("Pushed message: %s\n", signedMsg.Cid())
-
-	_, err = full.StateWaitMsg(ctx, signedMsg.Cid(), 2, 600, true)
-	if err != nil {
-		return nil, fmt.Errorf("failed to wait for message: %w", err)
-	}
-	return signedMsg.VMMessage(), nil
+	return mcid, nil
 }
 
 // mustSerializeCBOR is a helper that wraps call data in a CBOR byte array.
