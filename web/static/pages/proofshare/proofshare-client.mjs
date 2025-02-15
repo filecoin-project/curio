@@ -162,7 +162,8 @@ class ProofShareClient extends LitElement {
   async clientRouterAddBalance(address) {
     const amount = await this.promptForAmount('add', address);
     if (amount === null) return;
-    await RPCCall('PSClientRouterAddBalance', [address, amount]);
+    let cid = await RPCCall('PSClientRouterAddBalance', [address, amount]);
+    alert(`Deposit message sent: ${cid['/']}`);
     await this.loadAllSettings();
   }
 

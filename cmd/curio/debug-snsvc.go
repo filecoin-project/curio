@@ -200,6 +200,8 @@ func depositAction(cctx *cli.Context) error {
 	}
 	defer closer()
 
+	svc := common.NewService(full)
+
 	fromStr := cctx.String("from")
 	fromAddr, err := address.NewFromString(fromStr)
 	if err != nil {
@@ -212,11 +214,12 @@ func depositAction(cctx *cli.Context) error {
 		return fmt.Errorf("invalid amount: %w", err)
 	}
 
-	if err := common.ClientDeposit(ctx, full, fromAddr, abi.TokenAmount(filAmount)); err != nil {
+	depositCid, err := svc.ClientDeposit(ctx, fromAddr, abi.TokenAmount(filAmount))
+	if err != nil {
 		return fmt.Errorf("deposit failed: %w", err)
 	}
 
-	fmt.Println("Deposit succeeded")
+	fmt.Println("Deposit succeeded", depositCid)
 	return nil
 }
 
@@ -228,6 +231,8 @@ func redeemClientAction(cctx *cli.Context) error {
 		return err
 	}
 	defer closer()
+
+	svc := common.NewService(full)
 
 	fromStr := cctx.String("from")
 	fromAddr, err := address.NewFromString(fromStr)
@@ -265,8 +270,7 @@ func redeemClientAction(cctx *cli.Context) error {
 		return fmt.Errorf("invalid signature: %w", err)
 	}
 
-	routerAddr := common.Router()
-	if err := common.ServiceRedeemClientVoucher(ctx, full, fromAddr, routerAddr, clientID, abi.TokenAmount(filAmount), nonce, sig); err != nil {
+	if err := svc.ServiceRedeemClientVoucher(ctx, fromAddr, clientID, abi.TokenAmount(filAmount), nonce, sig); err != nil {
 		return fmt.Errorf("redeem client voucher failed: %w", err)
 	}
 	fmt.Println("Redeem client voucher succeeded")
@@ -281,6 +285,8 @@ func redeemProviderAction(cctx *cli.Context) error {
 		return err
 	}
 	defer closer()
+
+	svc := common.NewService(full)
 
 	fromStr := cctx.String("from")
 	fromAddr, err := address.NewFromString(fromStr)
@@ -318,8 +324,7 @@ func redeemProviderAction(cctx *cli.Context) error {
 		return fmt.Errorf("invalid signature: %w", err)
 	}
 
-	routerAddr := common.Router()
-	if err := common.ServiceRedeemProviderVoucher(ctx, full, fromAddr, routerAddr, providerID, abi.TokenAmount(filAmount), nonce, sig); err != nil {
+	if err := svc.ServiceRedeemProviderVoucher(ctx, fromAddr, providerID, abi.TokenAmount(filAmount), nonce, sig); err != nil {
 		return fmt.Errorf("redeem provider voucher failed: %w", err)
 	}
 	fmt.Println("Redeem provider voucher succeeded")
@@ -337,6 +342,8 @@ func clientInitiateWithdrawalAction(cctx *cli.Context) error {
 	}
 	defer closer()
 
+	svc := common.NewService(full)
+
 	fromStr := cctx.String("from")
 	fromAddr, err := address.NewFromString(fromStr)
 	if err != nil {
@@ -349,8 +356,7 @@ func clientInitiateWithdrawalAction(cctx *cli.Context) error {
 		return fmt.Errorf("invalid withdrawal amount: %w", err)
 	}
 
-	// Call the common function to initiate a client withdrawal.
-	if err := common.ClientInitiateWithdrawal(ctx, full, fromAddr, abi.TokenAmount(filAmount)); err != nil {
+	if err := svc.ClientInitiateWithdrawal(ctx, fromAddr, abi.TokenAmount(filAmount)); err != nil {
 		return fmt.Errorf("client initiate withdrawal failed: %w", err)
 	}
 
@@ -367,13 +373,15 @@ func clientCompleteWithdrawalAction(cctx *cli.Context) error {
 	}
 	defer closer()
 
+	svc := common.NewService(full)
+
 	fromStr := cctx.String("from")
 	fromAddr, err := address.NewFromString(fromStr)
 	if err != nil {
 		return fmt.Errorf("invalid client from address: %w", err)
 	}
 
-	if err := common.ClientCompleteWithdrawal(ctx, full, fromAddr); err != nil {
+	if err := svc.ClientCompleteWithdrawal(ctx, fromAddr); err != nil {
 		return fmt.Errorf("client complete withdrawal failed: %w", err)
 	}
 
@@ -390,13 +398,15 @@ func clientCancelWithdrawalAction(cctx *cli.Context) error {
 	}
 	defer closer()
 
+	svc := common.NewService(full)
+
 	fromStr := cctx.String("from")
 	fromAddr, err := address.NewFromString(fromStr)
 	if err != nil {
 		return fmt.Errorf("invalid client from address: %w", err)
 	}
 
-	if err := common.ClientCancelWithdrawal(ctx, full, fromAddr); err != nil {
+	if err := svc.ClientCancelWithdrawal(ctx, fromAddr); err != nil {
 		return fmt.Errorf("client cancel withdrawal failed: %w", err)
 	}
 
@@ -414,6 +424,8 @@ func serviceInitiateWithdrawalAction(cctx *cli.Context) error {
 	}
 	defer closer()
 
+	svc := common.NewService(full)
+
 	amountStr := cctx.String("amount")
 	filAmount, err := types.ParseFIL(amountStr)
 	if err != nil {
@@ -426,7 +438,7 @@ func serviceInitiateWithdrawalAction(cctx *cli.Context) error {
 		return fmt.Errorf("invalid service from address: %w", err)
 	}
 
-	if err := common.ServiceInitiateWithdrawal(ctx, full, fromAddr, abi.TokenAmount(filAmount)); err != nil {
+	if err := svc.ServiceInitiateWithdrawal(ctx, fromAddr, abi.TokenAmount(filAmount)); err != nil {
 		return fmt.Errorf("service initiate withdrawal failed: %w", err)
 	}
 
@@ -443,13 +455,15 @@ func serviceCompleteWithdrawalAction(cctx *cli.Context) error {
 	}
 	defer closer()
 
+	svc := common.NewService(full)
+
 	fromStr := cctx.String("from")
 	fromAddr, err := address.NewFromString(fromStr)
 	if err != nil {
 		return fmt.Errorf("invalid service from address: %w", err)
 	}
 
-	if err := common.ServiceCompleteWithdrawal(ctx, full, fromAddr); err != nil {
+	if err := svc.ServiceCompleteWithdrawal(ctx, fromAddr); err != nil {
 		return fmt.Errorf("service complete withdrawal failed: %w", err)
 	}
 
@@ -466,13 +480,15 @@ func serviceCancelWithdrawalAction(cctx *cli.Context) error {
 	}
 	defer closer()
 
+	svc := common.NewService(full)
+
 	fromStr := cctx.String("from")
 	fromAddr, err := address.NewFromString(fromStr)
 	if err != nil {
 		return fmt.Errorf("invalid service from address: %w", err)
 	}
 
-	if err := common.ServiceCancelWithdrawal(ctx, full, fromAddr); err != nil {
+	if err := svc.ServiceCancelWithdrawal(ctx, fromAddr); err != nil {
 		return fmt.Errorf("service cancel withdrawal failed: %w", err)
 	}
 
@@ -489,6 +505,8 @@ func serviceDepositAction(cctx *cli.Context) error {
 	}
 	defer closer()
 
+	svc := common.NewService(full)
+
 	amountStr := cctx.String("amount")
 	filAmount, err := types.ParseFIL(amountStr)
 	if err != nil {
@@ -501,7 +519,7 @@ func serviceDepositAction(cctx *cli.Context) error {
 		return fmt.Errorf("invalid service from address: %w", err)
 	}
 
-	if err := common.ServiceDeposit(ctx, full, fromAddr, abi.TokenAmount(filAmount)); err != nil {
+	if err := svc.ServiceDeposit(ctx, fromAddr, abi.TokenAmount(filAmount)); err != nil {
 		return fmt.Errorf("service deposit failed: %w", err)
 	}
 	fmt.Println("Service deposit succeeded")
@@ -516,6 +534,8 @@ func getClientStateAction(cctx *cli.Context) error {
 		return err
 	}
 	defer closer()
+
+	svc := common.NewService(full)
 
 	clientAddrStr := cctx.String("client")
 	clientAddr, err := address.NewFromString(clientAddrStr)
@@ -533,7 +553,7 @@ func getClientStateAction(cctx *cli.Context) error {
 		return fmt.Errorf("get client id failed: %w", err)
 	}
 
-	clientState, err := common.GetClientState(ctx, full, clientID)
+	clientState, err := svc.GetClientState(ctx, clientID)
 	if err != nil {
 		return fmt.Errorf("get client state failed: %w", err)
 	}
@@ -564,6 +584,8 @@ func getProviderStateAction(cctx *cli.Context) error {
 	}
 	defer closer()
 
+	svc := common.NewService(full)
+
 	providerAddrStr := cctx.String("provider")
 	providerAddr, err := address.NewFromString(providerAddrStr)
 	if err != nil {
@@ -580,8 +602,7 @@ func getProviderStateAction(cctx *cli.Context) error {
 		return fmt.Errorf("get provider id failed: %w", err)
 	}
 
-	routerAddr := common.Router()
-	voucherRedeemed, lastNonce, err := common.GetProviderState(ctx, full, routerAddr, providerID)
+	voucherRedeemed, lastNonce, err := svc.GetProviderState(ctx, providerID)
 	if err != nil {
 		return fmt.Errorf("get provider state failed: %w", err)
 	}
@@ -599,8 +620,9 @@ func getServiceStateAction(cctx *cli.Context) error {
 	}
 	defer closer()
 
-	routerAddr := common.Router()
-	serviceActor, pool, pendingWithdrawalAmount, pendingWithdrawalTimestamp, proposedServiceActor, actorChangeTimestamp, err := common.GetServiceState(ctx, full, routerAddr)
+	svc := common.NewService(full)
+
+	serviceActor, pool, pendingWithdrawalAmount, pendingWithdrawalTimestamp, proposedServiceActor, actorChangeTimestamp, err := svc.GetServiceState(ctx)
 	if err != nil {
 		return fmt.Errorf("get service state failed: %w", err)
 	}
@@ -624,6 +646,8 @@ func createClientVoucherAction(cctx *cli.Context) error {
 		return err
 	}
 	defer closer()
+
+	svc := common.NewService(full)
 
 	// Parse the client Filecoin address.
 	clientAddr, err := address.NewFromString(clientStr)
@@ -650,7 +674,7 @@ func createClientVoucherAction(cctx *cli.Context) error {
 
 	var nonce uint64
 	{
-		clientState, err := common.GetClientState(cctx.Context, full, clientID)
+		clientState, err := svc.GetClientState(cctx.Context, clientID)
 		if err != nil {
 			return fmt.Errorf("get client state failed: %w", err)
 		}
@@ -669,7 +693,7 @@ func createClientVoucherAction(cctx *cli.Context) error {
 		clientAddr.String(), types.FIL(cumulativeAmount).String(), nonce)
 
 	// Create the voucher message using the common implementation.
-	voucher, err := common.CreateClientVoucher(cctx.Context, full, clientID, cumulativeAmount.Int, nonce)
+	voucher, err := svc.CreateClientVoucher(cctx.Context, clientID, cumulativeAmount.Int, nonce)
 	if err != nil {
 		return fmt.Errorf("create client voucher failed: %w", err)
 	}
@@ -698,6 +722,8 @@ func createProviderVoucherAction(cctx *cli.Context) error {
 		return err
 	}
 	defer closer()
+
+	svc := common.NewService(full)
 
 	// Retrieve command-line flags.
 	providerStr := cctx.String("provider")
@@ -729,7 +755,7 @@ func createProviderVoucherAction(cctx *cli.Context) error {
 	}
 
 	// Create the voucher message using the common implementation.
-	voucher, err := common.CreateProviderVoucher(cctx.Context, full, providerID, cumulativeAmount.Int, nonce)
+	voucher, err := svc.CreateProviderVoucher(cctx.Context, providerID, cumulativeAmount.Int, nonce)
 	if err != nil {
 		return fmt.Errorf("create provider voucher failed: %w", err)
 	}
@@ -769,6 +795,8 @@ func proposeServiceActorAction(cctx *cli.Context) error {
 	}
 	defer closer()
 
+	svc := common.NewService(full)
+
 	fromStr := cctx.String("from")
 	fromAddr, err := address.NewFromString(fromStr)
 	if err != nil {
@@ -781,7 +809,7 @@ func proposeServiceActorAction(cctx *cli.Context) error {
 		return fmt.Errorf("invalid new service actor address: %w", err)
 	}
 
-	if err := common.ProposeServiceActor(cctx.Context, full, fromAddr, newServiceActorAddr); err != nil {
+	if err := svc.ProposeServiceActor(cctx.Context, fromAddr, newServiceActorAddr); err != nil {
 		return fmt.Errorf("propose service actor failed: %w", err)
 	}
 
@@ -796,13 +824,15 @@ func acceptServiceActorAction(cctx *cli.Context) error {
 	}
 	defer closer()
 
+	svc := common.NewService(full)
+
 	fromStr := cctx.String("from")
 	fromAddr, err := address.NewFromString(fromStr)
 	if err != nil {
 		return fmt.Errorf("invalid service from address: %w", err)
 	}
 
-	if err := common.AcceptServiceActor(cctx.Context, full, fromAddr); err != nil {
+	if err := svc.AcceptServiceActor(cctx.Context, fromAddr); err != nil {
 		return fmt.Errorf("accept service actor failed: %w", err)
 	}
 

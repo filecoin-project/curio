@@ -105,6 +105,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 	sender, sendTask := message.NewSender(full, full, db)
 	activeTasks = append(activeTasks, sendTask)
+	dependencies.Sender = sender
 
 	chainSched := chainsched.New(full)
 
