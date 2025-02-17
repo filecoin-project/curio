@@ -1,13 +1,14 @@
 import { LitElement, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import { formatDate } from '/lib/dateutil.mjs';
 
 class ProofShareClient extends LitElement {
   static properties = {
     settingsList: { type: Array },
     spRequests: { type: Object },
     showRequests: { type: Object },
-
     wallets: { type: Array },
+    messages: { type: Array },
   };
 
   constructor() {
@@ -23,8 +24,11 @@ class ProofShareClient extends LitElement {
 
     // All proofshare_client_wallets rows
     this.wallets = [];
+    
+    // All proofshare_client_messages rows
+    this.messages = [];
 
-    // Initial load of settings and wallets
+    // Initial load of settings, wallets, and client messages
     this.loadAllSettings();
 
     // Set up an auto-refresh to call loadAllSettings every 30 seconds.
@@ -38,7 +42,8 @@ class ProofShareClient extends LitElement {
   }
 
   /**
-   * Fetch all rows from PSClientGet (which returns a list of settings).
+   * Fetch all rows from PSClientGet (which returns a list of settings)
+   * and also pull the client messages.
    */
   async loadAllSettings() {
     try {
@@ -47,14 +52,19 @@ class ProofShareClient extends LitElement {
       this.settingsList = Array.isArray(list) ? list : [];
 
       this.wallets = await RPCCall('PSClientWallets', []);
+      
+      // Pull client messages from the server
+      this.messages = await RPCCall('PSClientListMessages', []);
     } catch (err) {
       console.error('Error loading proofshare client data:', err);
       this.settingsList = [];
       this.wallets = [];
+      this.messages = [];
     }
     // Re-render
     this.requestUpdate();
   }
+
 
   /**
    * Toggle whether to show requests for a particular spId.
@@ -360,12 +370,39 @@ class ProofShareClient extends LitElement {
                 <td>${wallet.available_balance}</td>
                 <td>
                   <button class="btn btn-info btn-sm" @click=${() => this.clientRouterAddBalance(wallet.address)}>
-                    Add Balance
+                    Deposit
                   </button>
                   <button class="btn btn-info btn-sm" @click=${() => this.clientRouterRequestWithdrawal(wallet.address)}>
-                    Request Withdrawal
+                    Withdraw
                   </button>
                 </td>
+              </tr>
+            `)}
+          </tbody>
+        </table>
+
+        <h2>Client Messages</h2>
+        <p>Client messages sent to the router.</p>
+        <table class="table table-dark">
+          <thead>
+            <tr>
+              <th>Started At</th>
+              <th>Action</th>
+              <th>Wallet</th>
+              <th>Signed CID</th>
+              <th>Status</th>
+              <th>Completed At</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${this.messages.map(msg => html`
+              <tr>
+                <td>${msg.started_at ? formatDate(msg.started_at) : ''}</td>
+                <td>${msg.action}</td>
+                <td>${msg.address}</td>
+                <td>${msg.signed_cid ? html`<abbr title="${msg.signed_cid}">${msg.signed_cid.slice(0, 3) + '..' + msg.signed_cid.slice(-5)}</abbr>` : ''}</td>
+                <td>${msg.success == null ? '⏳ Pending' : (msg.success ? '✅ Success' : '❌ Failed')}</td>
+                <td>${msg.completed_at ? formatDate(msg.completed_at) : ''}</td>
               </tr>
             `)}
           </tbody>

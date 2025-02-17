@@ -12,6 +12,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
 
 	"github.com/filecoin-project/lotus/api"
@@ -307,6 +308,16 @@ func (a *WebRPC) PSClientRouterAddBalance(ctx context.Context, wallet string, am
 		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: not enough balance: %s < %s", types.FIL(availBalance).Short(), amountFIL.Short())
 	}
 
+	idaddr, err := a.deps.Chain.StateLookupID(ctx, addr, types.EmptyTSK)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: failed to lookup id: %w", err)
+	}
+
+	id, err := address.IDFromAddress(idaddr)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: failed to get id: %w", err)
+	}
+
 	svc := common.NewServiceCustomSend(a.deps.Chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
 		return a.deps.Sender.Send(ctx, msg, mss, "ps-client-deposit")
 	})
@@ -316,7 +327,120 @@ func (a *WebRPC) PSClientRouterAddBalance(ctx context.Context, wallet string, am
 		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: failed to deposit: %w", err)
 	}
 
+	/*
+	create table message_waits (
+    signed_message_cid text primary key,
+    waiter_machine_id int references harmony_machines (id) on delete set null,
+
+    executed_tsk_cid text,
+    executed_tsk_epoch bigint,
+    executed_msg_cid text,
+    executed_msg_data jsonb,
+
+    executed_rcpt_exitcode bigint,
+    executed_rcpt_return bytea,
+    executed_rcpt_gas_used bigint
+)
+
+
+-- Table tracking user-router interactions (deposit, withdraw-request/complete)
+CREATE TABLE proofshare_client_messages (
+    started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp,
+    signed_cid TEXT NOT NULL,
+
+    wallet BIGINT NOT NULL,
+    action TEXT,
+
+    success BOOLEAN,
+    completed_at TIMESTAMP WITH TIME ZONE,
+
+    PRIMARY KEY (started_at, signed_cid)
+);
+	*/
+
 	log.Infow("PSClientRouterAddBalance", "deposit_cid", depositCid)
+
+	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// instert wait
+		_, err := tx.Exec(`
+			INSERT INTO message_waits (signed_message_cid)
+			VALUES ($1)
+		`, depositCid)
+		if err != nil {
+			return false, xerrors.Errorf("PSClientRouterAddBalance: failed to insert message_waits: %w", err)
+		}
+
+		// insert proofshare_client_messages
+		_, err = tx.Exec(`
+			INSERT INTO proofshare_client_messages (signed_cid, wallet, action)
+			VALUES ($1, $2, 'deposit')
+		`, depositCid, id)
+		if err != nil {
+			return false, xerrors.Errorf("PSClientRouterAddBalance: failed to insert proofshare_client_messages: %w", err)
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: failed to insert message_waits: %w", err)
+	}
 
 	return depositCid, nil
 }
+
+// Define a struct to represent a client message.
+type ClientMessage struct {
+	StartedAt   time.Time  `json:"started_at"`
+	SignedCID   string     `json:"signed_cid"`
+	Wallet      int64      `json:"wallet"`
+	Action      string     `json:"action"`
+	Success     *bool      `json:"success,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+
+	Address address.Address `json:"address" db:"-"`
+}
+
+// PSClientListMessages queries and returns the 10 most recently started client messages.
+func (a *WebRPC) PSClientListMessages(ctx context.Context) ([]ClientMessage, error) {
+	const query = `
+		SELECT started_at, signed_cid, wallet, action, success, completed_at
+		FROM proofshare_client_messages
+		ORDER BY started_at DESC
+		LIMIT 10
+	`
+	rows, err := a.deps.DB.Query(ctx, query)
+	if err != nil {
+		return nil, xerrors.Errorf("PSClientListMessages: failed to execute query: %w", err)
+	}
+	defer rows.Close()
+
+	messages := []ClientMessage{}
+	for rows.Next() {
+		var msg ClientMessage
+		var success sql.NullBool
+		var completedAt sql.NullTime
+
+		if err := rows.Scan(&msg.StartedAt, &msg.SignedCID, &msg.Wallet, &msg.Action, &success, &completedAt); err != nil {
+			return nil, xerrors.Errorf("PSClientListMessages: failed to scan row: %w", err)
+		}
+		if success.Valid {
+			msg.Success = &success.Bool
+		}
+		if completedAt.Valid {
+			msg.CompletedAt = &completedAt.Time
+		}
+
+		msg.Address, err = address.NewIDAddress(uint64(msg.Wallet))
+		if err != nil {
+			return nil, xerrors.Errorf("PSClientListMessages: failed to get address: %w", err)
+		}
+
+		messages = append(messages, msg)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, xerrors.Errorf("PSClientListMessages: row iteration error: %w", err)
+	}
+
+	return messages, nil
+}
+
