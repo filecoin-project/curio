@@ -22,7 +22,9 @@ class ProofShareClient extends LitElement {
     // For each sp_id => boolean whether we’re showing requests
     this.showRequests = {};
 
-    // All proofshare_client_wallets rows
+    // All proofshare_client_wallets rows.
+    // Note: each wallet object is now expected to include a new field, "withdraw_timestamp",
+    // which is a numeric string (unix seconds) showing when the withdrawal can be completed.
     this.wallets = [];
     
     // All proofshare_client_messages rows
@@ -31,9 +33,17 @@ class ProofShareClient extends LitElement {
     // Initial load of settings, wallets, and client messages
     this.loadAllSettings();
 
-    // Set up an auto-refresh to call loadAllSettings every 30 seconds.
-    // This avoids scheduling additional timers when loadAllSettings is invoked by other functions.
-    this.refreshIntervalId = setInterval(() => this.loadAllSettings(), 30000);
+    // Refresh settings every 10 seconds
+    this.refreshIntervalId = setInterval(() => this.loadAllSettings(), 10000);
+
+    // Refresh UI every second to update any countdowns
+    this.countdownIntervalId = setInterval(() => this.requestUpdate(), 1000);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    clearInterval(this.refreshIntervalId);
+    clearInterval(this.countdownIntervalId);
   }
 
   createRenderRoot() {
@@ -42,8 +52,7 @@ class ProofShareClient extends LitElement {
   }
 
   /**
-   * Fetch all rows from PSClientGet (which returns a list of settings)
-   * and also pull the client messages.
+   * Fetch all rows from PSClientGet (settings), wallets, and client messages.
    */
   async loadAllSettings() {
     try {
@@ -65,17 +74,15 @@ class ProofShareClient extends LitElement {
     this.requestUpdate();
   }
 
-
   /**
-   * Toggle whether to show requests for a particular spId.
-   * If turning on, fetch them first if we haven’t yet.
+   * Toggle whether to show requests for a particular sp_id.
    */
   async toggleRequests(spId, address) {
     const wasShown = !!this.showRequests[spId];
     // Flip boolean
     this.showRequests[spId] = !wasShown;
 
-    // If we *just* turned it on, and we don’t have requests loaded, fetch them.
+    // If turning on and no requests loaded yet, fetch them.
     if (!wasShown && !this.spRequests[spId]) {
       try {
         const reqs = await RPCCall('PSClientRequests', [spId]);
@@ -85,14 +92,11 @@ class ProofShareClient extends LitElement {
         this.spRequests[spId] = [];
       }
     }
-
-    // Re-render after toggling or fetching
     this.requestUpdate();
   }
 
   /**
-   * Update a single field (key) in the row object (settings).
-   * We store changes in this.settingsList directly so user can press Save later.
+   * Update a field in a settings row.
    */
   onChange(row, field, value) {
     row[field] = value;
@@ -100,7 +104,7 @@ class ProofShareClient extends LitElement {
   }
 
   /**
-   * Saves the given row by calling PSClientSet.
+   * Saves a settings row.
    */
   async saveRow(row) {
     try {
@@ -120,14 +124,12 @@ class ProofShareClient extends LitElement {
   }
 
   /**
-   * Add a new sp_id row. 
-   * Prompts the user for sp_id, then sets some defaults & calls PSClientSet.
+   * Add a new SP row.
    */
   async addSP() {
     const address = prompt('Enter new SP address:');
-    if (!address) return; // user cancelled
+    if (!address) return; // cancelled
 
-    // Use some defaults for new row
     const newRow = {
       address,
       enabled: false,
@@ -149,15 +151,14 @@ class ProofShareClient extends LitElement {
 
   async clientAddWallet() {
     const address = prompt('Enter new client wallet address:');
-    if (!address) return; // user cancelled
+    if (!address) return;
     await RPCCall('PSClientAddWallet', [address]);
     await this.loadAllSettings();
   }
 
   async promptForAmount(action, address) {
     const rawAmount = prompt(`Enter balance in FIL to ${action} (e.g., "1.23"):`);
-    if (!rawAmount) return null; // user cancelled input
-
+    if (!rawAmount) return null;
     const amount = rawAmount.trim();
     const amountRegex = /^[0-9]+(\.[0-9]+)?$/;
     if (!amountRegex.test(amount)) {
@@ -184,28 +185,20 @@ class ProofShareClient extends LitElement {
     await this.loadAllSettings();
   }
 
+  async clientRouterCancelWithdrawal(address) {
+    if (!confirm(`Are you sure you want to cancel withdrawal for ${address}?`)) return;
+    await RPCCall('PSClientRouterCancelWithdrawal', [address]);
+    await this.loadAllSettings();
+  }
 
-  /**
-   * Remove a row (sp_id != 0).
-   * Calls a new server method: PSClientRemove(spId).
-   * Calls a new server method: PSClientRemove(spId).
-   */
-  async removeRow(spId, address) {
-    if (!confirm(`Are you sure you want to remove ${address}?`)) {
-      return;
-    }
-    try {
-      await RPCCall('PSClientRemove', [spId]);
-      console.log(`Removed ${address}`);
-      await this.loadAllSettings();
-    } catch (err) {
-      console.error(`Error removing ${address}:`, err);
-      alert(`Failed to remove ${address}. See console for details.`);
-    }
+  async clientRouterCompleteWithdrawal(address) {
+    if (!confirm(`Are you sure you want to complete withdrawal for ${address}?`)) return;
+    await RPCCall('PSClientRouterCompleteWithdrawal', [address]);
+    await this.loadAllSettings();
   }
 
   /**
-   * Render the sub-table of requests for a given sp_id, if loaded.
+   * Render a sub-table of requests for a given SP.
    */
   renderRequestsFor(spId, address) {
     const list = this.spRequests[spId] || [];
@@ -318,7 +311,6 @@ class ProofShareClient extends LitElement {
                   <button class="btn btn-info btn-sm" @click=${() => this.toggleRequests(row.sp_id, row.address)}>
                     ${this.showRequests[row.sp_id] ? 'Hide' : 'View'} Requests
                   </button>
-                  <!-- Remove is not shown for sp_id=0 -->
                   ${row.sp_id !== 0 ? html`
                     <button
                       class="btn btn-danger btn-sm"
@@ -330,7 +322,6 @@ class ProofShareClient extends LitElement {
                 </td>
               </tr>
 
-              <!-- If showRequests[sp_id], render requests table in a sub-row -->
               ${this.showRequests[row.sp_id] ? html`
                 <tr>
                   <td colspan="7">
@@ -355,29 +346,50 @@ class ProofShareClient extends LitElement {
               <th>Wallet</th>
               <th>Chain FIL</th>
               <th>Router FIL</th>
-              <th>Unsettled FIL</th>
+              <th>Unlocked FIL</th>
               <th>Available FIL</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            ${this.wallets.map(wallet => html`
-              <tr>
-                <td>${wallet.address}</td>
-                <td>${wallet.chain_balance}</td>
-                <td>${wallet.router_avail_balance}</td>
-                <td>${wallet.router_unsettled_balance}</td>
-                <td>${wallet.available_balance}</td>
-                <td>
-                  <button class="btn btn-info btn-sm" @click=${() => this.clientRouterAddBalance(wallet.address)}>
-                    Deposit
+            ${this.wallets.map(wallet => {
+              // Parse the withdraw timestamp (a unix second value returned as a string)
+              const withdrawTs = parseInt(wallet.withdraw_timestamp || "0", 10);
+              const now = Math.floor(Date.now() / 1000);
+              let withdrawalActions;
+              if (withdrawTs > 0) {
+                const countdown = withdrawTs - now;
+                withdrawalActions = html`
+                  <button class="btn btn-warning btn-sm" @click=${() => this.clientRouterCancelWithdrawal(wallet.address)}>
+                    Cancel Withdrawal
                   </button>
+                  <button class="btn btn-secondary btn-sm" ?disabled=${countdown > 0} @click=${() => this.clientRouterCompleteWithdrawal(wallet.address)}>
+                    Complete Withdrawal ${countdown > 0 ? '(' + countdown + 's)' : ''}
+                  </button>
+                `;
+              } else {
+                withdrawalActions = html`
                   <button class="btn btn-info btn-sm" @click=${() => this.clientRouterRequestWithdrawal(wallet.address)}>
                     Withdraw
                   </button>
-                </td>
-              </tr>
-            `)}
+                `;
+              }
+              return html`
+                <tr>
+                  <td>${wallet.address}</td>
+                  <td>${wallet.chain_balance}</td>
+                  <td>${wallet.router_avail_balance}</td>
+                  <td>${wallet.router_unlocked_balance}</td>
+                  <td>${wallet.available_balance}</td>
+                  <td>
+                    <button class="btn btn-info btn-sm" @click=${() => this.clientRouterAddBalance(wallet.address)}>
+                      Deposit
+                    </button>
+                    ${withdrawalActions}
+                  </td>
+                </tr>
+              `;
+            })}
           </tbody>
         </table>
 
@@ -412,5 +424,4 @@ class ProofShareClient extends LitElement {
   }
 }
 
-// Register the custom element
 customElements.define('proof-share-client', ProofShareClient);

@@ -3,6 +3,7 @@ package webrpc
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -223,8 +224,13 @@ type ProofShareClientWallet struct {
 	// balance "to settle" in the router on-chain (service has vouches for those payments, but didn't settle on-chain yet)
 	RouterUnsettledBalance string `db:"-" json:"router_unsettled_balance"`
 
+	// balance "unlocked" (withdrawable)
+	RouterUnlockedBalance string `db:"-" json:"router_unlocked_balance"`
+
 	// Actually available balance, i.e. RouterAvailBalance - RouterUnsettledBalance
 	AvailableBalance string `db:"-" json:"available_balance"`
+
+	WithdrawTimestamp *time.Time `db:"-" json:"withdraw_timestamp"`
 }
 
 func (a *WebRPC) PSClientWallets(ctx context.Context) ([]*ProofShareClientWallet, error) {
@@ -255,9 +261,29 @@ func (a *WebRPC) PSClientWallets(ctx context.Context) ([]*ProofShareClientWallet
 		if err != nil {
 			return nil, xerrors.Errorf("PSClientWallets: failed to get client state: %w", err)
 		}
+
+		if !clientState.WithdrawTimestamp.IsZero() {
+			// unix seconds
+			wtime := time.Unix(clientState.WithdrawTimestamp.Int64(), 0).Add(common.WithdrawWindow)
+			w.WithdrawTimestamp = &wtime
+		}
+
 		w.RouterAvailBalance = types.FIL(clientState.Balance).Short()
-		w.RouterUnsettledBalance = types.FIL(clientState.WithdrawAmount).Short()
-		w.AvailableBalance = types.FIL(types.BigSub(types.BigInt(clientState.Balance), types.BigInt(clientState.WithdrawAmount))).Short()
+
+		w.AvailableBalance = types.FIL(clientState.Balance).Short()
+		w.RouterUnlockedBalance = "0"
+
+		log.Infow("PSClientWallets", "clientState", clientState, "wtime", w.WithdrawTimestamp)
+
+		if w.WithdrawTimestamp != nil {
+			if time.Now().After(*w.WithdrawTimestamp) {
+				w.RouterUnlockedBalance = types.FIL(clientState.WithdrawAmount).Short()
+				w.AvailableBalance = types.FIL(types.BigSub(types.BigInt(clientState.Balance), types.BigInt(clientState.WithdrawAmount))).Short()
+			} else {
+				w.RouterUnlockedBalance = fmt.Sprintf("(%s in %s)", types.FIL(clientState.WithdrawAmount).Short(), time.Until(*w.WithdrawTimestamp).Round(time.Second).String())
+			}
+		}
+
 	}
 
 	return out, nil
@@ -284,108 +310,6 @@ func (a *WebRPC) PSClientAddWallet(ctx context.Context, wallet string) error {
 		VALUES ($1)
 	`, id)
 	return err
-}
-
-func (a *WebRPC) PSClientRouterAddBalance(ctx context.Context, wallet string, amountStr string) (cid.Cid, error) {
-	addr, err := address.NewFromString(wallet)
-	if err != nil {
-		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: invalid address: %w", err)
-	}
-
-	amountFIL, err := types.ParseFIL(amountStr)
-	if err != nil {
-		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: invalid amount: %w", err)
-	}
-
-	availBalance, err := a.deps.Chain.WalletBalance(ctx, addr)
-	if err != nil {
-		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: failed to get chain balance: %w", err)
-	}
-
-	amount := abi.TokenAmount(amountFIL)
-
-	if availBalance.LessThan(amount) {
-		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: not enough balance: %s < %s", types.FIL(availBalance).Short(), amountFIL.Short())
-	}
-
-	idaddr, err := a.deps.Chain.StateLookupID(ctx, addr, types.EmptyTSK)
-	if err != nil {
-		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: failed to lookup id: %w", err)
-	}
-
-	id, err := address.IDFromAddress(idaddr)
-	if err != nil {
-		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: failed to get id: %w", err)
-	}
-
-	svc := common.NewServiceCustomSend(a.deps.Chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
-		return a.deps.Sender.Send(ctx, msg, mss, "ps-client-deposit")
-	})
-
-	depositCid, err := svc.ClientDeposit(ctx, addr, amount)
-	if err != nil {
-		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: failed to deposit: %w", err)
-	}
-
-	/*
-	create table message_waits (
-    signed_message_cid text primary key,
-    waiter_machine_id int references harmony_machines (id) on delete set null,
-
-    executed_tsk_cid text,
-    executed_tsk_epoch bigint,
-    executed_msg_cid text,
-    executed_msg_data jsonb,
-
-    executed_rcpt_exitcode bigint,
-    executed_rcpt_return bytea,
-    executed_rcpt_gas_used bigint
-)
-
-
--- Table tracking user-router interactions (deposit, withdraw-request/complete)
-CREATE TABLE proofshare_client_messages (
-    started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp,
-    signed_cid TEXT NOT NULL,
-
-    wallet BIGINT NOT NULL,
-    action TEXT,
-
-    success BOOLEAN,
-    completed_at TIMESTAMP WITH TIME ZONE,
-
-    PRIMARY KEY (started_at, signed_cid)
-);
-	*/
-
-	log.Infow("PSClientRouterAddBalance", "deposit_cid", depositCid)
-
-	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// instert wait
-		_, err := tx.Exec(`
-			INSERT INTO message_waits (signed_message_cid)
-			VALUES ($1)
-		`, depositCid)
-		if err != nil {
-			return false, xerrors.Errorf("PSClientRouterAddBalance: failed to insert message_waits: %w", err)
-		}
-
-		// insert proofshare_client_messages
-		_, err = tx.Exec(`
-			INSERT INTO proofshare_client_messages (signed_cid, wallet, action)
-			VALUES ($1, $2, 'deposit')
-		`, depositCid, id)
-		if err != nil {
-			return false, xerrors.Errorf("PSClientRouterAddBalance: failed to insert proofshare_client_messages: %w", err)
-		}
-
-		return true, nil
-	}, harmonydb.OptionRetry())
-	if err != nil {
-		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: failed to insert message_waits: %w", err)
-	}
-
-	return depositCid, nil
 }
 
 // Define a struct to represent a client message.
@@ -442,5 +366,160 @@ func (a *WebRPC) PSClientListMessages(ctx context.Context) ([]ClientMessage, err
 	}
 
 	return messages, nil
+}
+func (a *WebRPC) addMessageTracking(ctx context.Context, messageCid cid.Cid, wallet string, action string) error {
+	addr, err := address.NewFromString(wallet)
+	if err != nil {
+		return xerrors.Errorf("addMessageTracking: invalid wallet address: %w", err)
+	}
+
+	idAddr, err := a.deps.Chain.StateLookupID(ctx, addr, types.EmptyTSK)
+	if err != nil {
+		return xerrors.Errorf("addMessageTracking: failed to lookup id: %w", err)
+	}
+
+	walletID, err := address.IDFromAddress(idAddr)
+	if err != nil {
+		return xerrors.Errorf("addMessageTracking: failed to get wallet id: %w", err)
+	}
+
+	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		_, err := tx.Exec(`
+			INSERT INTO message_waits (signed_message_cid)
+			VALUES ($1)
+		`, messageCid)
+		if err != nil {
+			return false, xerrors.Errorf("addMessageTracking: failed to insert message_waits: %w", err)
+		}
+
+		_, err = tx.Exec(`
+			INSERT INTO proofshare_client_messages (signed_cid, wallet, action)
+			VALUES ($1, $2, $3)
+		`, messageCid, walletID, action)
+		if err != nil {
+			return false, xerrors.Errorf("addMessageTracking: failed to insert proofshare_client_messages: %w", err)
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return xerrors.Errorf("addMessageTracking: transaction failed: %w", err)
+	}
+
+	return nil
+}
+
+func (a *WebRPC) PSClientRouterAddBalance(ctx context.Context, wallet string, amountStr string) (cid.Cid, error) {
+	addr, err := address.NewFromString(wallet)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: invalid address: %w", err)
+	}
+
+	amountFIL, err := types.ParseFIL(amountStr)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: invalid amount: %w", err)
+	}
+
+	availBalance, err := a.deps.Chain.WalletBalance(ctx, addr)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: failed to get chain balance: %w", err)
+	}
+
+	amount := abi.TokenAmount(amountFIL)
+
+	if availBalance.LessThan(amount) {
+		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: not enough balance: %s < %s",
+			types.FIL(availBalance).Short(), amountFIL.Short())
+	}
+
+	svc := common.NewServiceCustomSend(a.deps.Chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
+		return a.deps.Sender.Send(ctx, msg, mss, "ps-client-deposit")
+	})
+
+	depositCid, err := svc.ClientDeposit(ctx, addr, amount)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: failed to deposit: %w", err)
+	}
+
+	log.Infow("PSClientRouterAddBalance", "deposit_cid", depositCid)
+
+	if err := a.addMessageTracking(ctx, depositCid, wallet, "deposit"); err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: failed to track message: %w", err)
+	}
+
+	return depositCid, nil
+}
+
+func (a *WebRPC) PSClientRouterRequestWithdrawal(ctx context.Context, wallet string, amountStr string) (cid.Cid, error) {
+	addr, err := address.NewFromString(wallet)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterRequestWithdrawal: invalid address: %w", err)
+	}
+
+	svc := common.NewServiceCustomSend(a.deps.Chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
+		return a.deps.Sender.Send(ctx, msg, mss, "ps-client-withdraw")
+	})
+
+	amountFIL, err := types.ParseFIL(amountStr)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterRequestWithdrawal: invalid amount: %w", err)
+	}
+
+	amount := abi.TokenAmount(amountFIL)
+
+	withdrawCid, err := svc.ClientInitiateWithdrawal(ctx, addr, amount)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterRequestWithdrawal: failed to withdraw: %w", err)
+	}
+
+	if err := a.addMessageTracking(ctx, withdrawCid, wallet, "withdraw-request"); err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterRequestWithdrawal: failed to track message: %w", err)
+	}
+
+	return withdrawCid, nil
+}
+
+func (a *WebRPC) PSClientRouterCancelWithdrawal(ctx context.Context, wallet string) (cid.Cid, error) {
+	addr, err := address.NewFromString(wallet)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterCancelWithdrawal: invalid address: %w", err)
+	}
+
+	svc := common.NewServiceCustomSend(a.deps.Chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
+		return a.deps.Sender.Send(ctx, msg, mss, "ps-client-cancel-withdrawal")
+	})
+
+	cancelCid, err := svc.ClientCancelWithdrawal(ctx, addr)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterCancelWithdrawal: failed to cancel withdrawal: %w", err)
+	}
+
+	if err := a.addMessageTracking(ctx, cancelCid, wallet, "withdraw-cancel"); err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterCancelWithdrawal: failed to track message: %w", err)
+	}
+
+	return cancelCid, nil
+}
+
+func (a *WebRPC) PSClientRouterCompleteWithdrawal(ctx context.Context, wallet string) (cid.Cid, error) {
+	addr, err := address.NewFromString(wallet)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterCompleteWithdrawal: invalid address: %w", err)
+	}
+
+	svc := common.NewServiceCustomSend(a.deps.Chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
+		return a.deps.Sender.Send(ctx, msg, mss, "ps-client-complete-withdrawal")
+	})
+
+	completeCid, err := svc.ClientCompleteWithdrawal(ctx, addr)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterCompleteWithdrawal: failed to complete withdrawal: %w", err)
+	}
+
+	if err := a.addMessageTracking(ctx, completeCid, wallet, "withdraw-complete"); err != nil {
+		return cid.Undef, xerrors.Errorf("PSClientRouterCompleteWithdrawal: failed to track message: %w", err)
+	}
+
+	return completeCid, nil
 }
 

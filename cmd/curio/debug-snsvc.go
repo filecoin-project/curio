@@ -358,11 +358,12 @@ func clientInitiateWithdrawalAction(cctx *cli.Context) error {
 		return fmt.Errorf("invalid withdrawal amount: %w", err)
 	}
 
-	if err := svc.ClientInitiateWithdrawal(ctx, fromAddr, abi.TokenAmount(filAmount)); err != nil {
+	initiateCid, err := svc.ClientInitiateWithdrawal(ctx, fromAddr, abi.TokenAmount(filAmount))
+	if err != nil {
 		return fmt.Errorf("client initiate withdrawal failed: %w", err)
 	}
 
-	fmt.Println("Client withdrawal initiated successfully")
+	fmt.Println("Client withdrawal initiated successfully", initiateCid)
 	return nil
 }
 
@@ -383,11 +384,12 @@ func clientCompleteWithdrawalAction(cctx *cli.Context) error {
 		return fmt.Errorf("invalid client from address: %w", err)
 	}
 
-	if err := svc.ClientCompleteWithdrawal(ctx, fromAddr); err != nil {
+	completeCid, err := svc.ClientCompleteWithdrawal(ctx, fromAddr)
+	if err != nil {
 		return fmt.Errorf("client complete withdrawal failed: %w", err)
 	}
 
-	fmt.Println("Client withdrawal completed successfully")
+	fmt.Println("Client withdrawal completed successfully", completeCid)
 	return nil
 }
 
@@ -408,11 +410,12 @@ func clientCancelWithdrawalAction(cctx *cli.Context) error {
 		return fmt.Errorf("invalid client from address: %w", err)
 	}
 
-	if err := svc.ClientCancelWithdrawal(ctx, fromAddr); err != nil {
+	cancelCid, err := svc.ClientCancelWithdrawal(ctx, fromAddr)
+	if err != nil {
 		return fmt.Errorf("client cancel withdrawal failed: %w", err)
 	}
 
-	fmt.Println("Client withdrawal canceled successfully")
+	fmt.Println("Client withdrawal canceled successfully", cancelCid)
 	return nil
 }
 
