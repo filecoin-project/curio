@@ -321,7 +321,7 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return false, xerrors.Errorf("get network version: %w", err)
 	}
 
-	lb := policy.GetWinningPoStSectorSetLookback(nv) - builtin.EpochsInDay - 1
+	lb := policy.GetWinningPoStSectorSetLookback(nv) + builtin.EpochsInDay + 1
 
 	finalityHeight := head.Height() - lb
 
