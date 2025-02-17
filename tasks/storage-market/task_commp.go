@@ -196,17 +196,12 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			return false, xerrors.Errorf("commP mismatch calculated %s and supplied %s", pcid, calculatedCommp.PieceCID)
 		}
 
-		n, err := c.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET after_commp = TRUE, commp_task_id = NULL WHERE commp_task_id = $1`, taskID)
+		n, err := c.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET after_commp = TRUE, psd_wait_time = NOW(), commp_task_id = NULL WHERE commp_task_id = $1`, taskID)
 		if err != nil {
 			return false, xerrors.Errorf("store commp success: updating deal pipeline: %w", err)
 		}
 		if n != 1 {
 			return false, xerrors.Errorf("store commp success: updated %d rows", n)
-		}
-
-		_, err = c.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET psd_wait_time = NOW() AT TIME ZONE 'UTC' WHERE uuid = $1`, piece.UUID)
-		if err != nil {
-			return false, xerrors.Errorf("store psd time: updating deal pipeline: %w", err)
 		}
 
 		return true, nil

@@ -307,7 +307,7 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 	if deal.Started && !deal.AfterCommp && deal.CommTaskID == nil {
 		// Skip commP is configured to do so
 		if d.cfg.Market.StorageMarketConfig.MK12.SkipCommP {
-			_, err := d.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET after_commp = TRUE, commp_task_id = NULL WHERE uuid = $1`, deal.UUID)
+			_, err := d.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET after_commp = TRUE, psd_wait_time = NOW(), commp_task_id = NULL WHERE uuid = $1`, deal.UUID)
 			if err != nil {
 				return xerrors.Errorf("UUID: %s: updating deal pipeline: %w", deal.UUID, err)
 			}
