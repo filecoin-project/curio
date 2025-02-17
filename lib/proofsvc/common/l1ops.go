@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"time"
 
 	eabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ipfs/go-cid"
@@ -24,6 +25,8 @@ import (
 
 // RouterMainnet is the Ethereum form of the router address. This is just an example.
 const RouterMainnet = "0x5D2Ce039F95AaF167DEcef2028F48f6bAcC5a586"
+
+const WithdrawWindow = 5 * time.Minute
 
 // Router returns the Filecoin address of the router.
 func Router() address.Address {
@@ -310,55 +313,55 @@ func (s *Service) ClientDeposit(
 	return depositCid, nil
 }
 
-func (s *Service) ClientInitiateWithdrawal(ctx context.Context, from address.Address, amount fbig.Int) error {
+func (s *Service) ClientInitiateWithdrawal(ctx context.Context, from address.Address, amount abi.TokenAmount) (cid.Cid, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(InitiateClientWithdrawalABI))
 	if err != nil {
-		return fmt.Errorf("parse initiateClientWithdrawal ABI: %w", err)
+		return cid.Undef, fmt.Errorf("parse initiateClientWithdrawal ABI: %w", err)
 	}
 	data, err := parsedABI.Pack("initiateClientWithdrawal", amount.Int)
 	if err != nil {
-		return fmt.Errorf("pack initiateClientWithdrawal: %w", err)
+		return cid.Undef, fmt.Errorf("pack initiateClientWithdrawal: %w", err)
 	}
 
-	_, err = s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
+	initiateCid, err := s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
 	if err != nil {
-		return fmt.Errorf("initiateClientWithdrawal message failed: %w", err)
+		return cid.Undef, fmt.Errorf("initiateClientWithdrawal message failed: %w", err)
 	}
-	return nil
+	return initiateCid, nil
 }
 
-func (s *Service) ClientCompleteWithdrawal(ctx context.Context, from address.Address) error {
+func (s *Service) ClientCompleteWithdrawal(ctx context.Context, from address.Address) (cid.Cid, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(CompleteClientWithdrawalABI))
 	if err != nil {
-		return fmt.Errorf("parse completeClientWithdrawal ABI: %w", err)
+		return cid.Undef, fmt.Errorf("parse completeClientWithdrawal ABI: %w", err)
 	}
 	data, err := parsedABI.Pack("completeClientWithdrawal")
 	if err != nil {
-		return fmt.Errorf("pack completeClientWithdrawal: %w", err)
+		return cid.Undef, fmt.Errorf("pack completeClientWithdrawal: %w", err)
 	}
 
-	_, err = s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
+	completeCid, err := s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
 	if err != nil {
-		return fmt.Errorf("completeClientWithdrawal message failed: %w", err)
+		return cid.Undef, fmt.Errorf("completeClientWithdrawal message failed: %w", err)
 	}
-	return nil
+	return completeCid, nil
 }
 
-func (s *Service) ClientCancelWithdrawal(ctx context.Context, from address.Address) error {
+func (s *Service) ClientCancelWithdrawal(ctx context.Context, from address.Address) (cid.Cid, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(CancelClientWithdrawalABI))
 	if err != nil {
-		return fmt.Errorf("parse cancelClientWithdrawal ABI: %w", err)
+		return cid.Undef, fmt.Errorf("parse cancelClientWithdrawal ABI: %w", err)
 	}
 	data, err := parsedABI.Pack("cancelClientWithdrawal")
 	if err != nil {
-		return fmt.Errorf("pack cancelClientWithdrawal: %w", err)
+		return cid.Undef, fmt.Errorf("pack cancelClientWithdrawal: %w", err)
 	}
 
-	_, err = s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
+	cancelCid, err := s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
 	if err != nil {
-		return fmt.Errorf("cancelClientWithdrawal message failed: %w", err)
+		return cid.Undef, fmt.Errorf("cancelClientWithdrawal message failed: %w", err)
 	}
-	return nil
+	return cancelCid, nil
 }
 
 // ServiceRedeemClientVoucher calls `redeemClientVoucher(clientID, cumulativeAmount, nonce, signature)`.
