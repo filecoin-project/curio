@@ -86,6 +86,7 @@ type SealingStates struct {
 	Name    string `json:"Name"`
 	Pending int64  `json:"Pending"`
 	Running int64  `json:"Running"`
+	Failed  int64  `json:"Failed"`
 }
 
 type cidGravityResponse struct {
@@ -303,15 +304,19 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 
 			EncodePending int64 `db:"encode_pending"`
 			EncodeRunning int64 `db:"encode_running"`
+			EncodeFailed  int64 `db:"encode_failed"`
 
 			ProvePending int64 `db:"prove_pending"`
 			ProveRunning int64 `db:"prove_running"`
+			ProveFailed  int64 `db:"prove_failed"`
 
 			SubmitPending int64 `db:"submit_pending"`
 			SubmitRunning int64 `db:"submit_running"`
+			SubmitFailed  int64 `db:"submit_failed"`
 
 			MoveStoragePending int64 `db:"move_storage_pending"`
 			MoveStorageRunning int64 `db:"move_storage_running"`
+			MoveStorageFailed  int64 `db:"move_storage_failed"`
 		}
 
 		err = m.db.Select(ctx, &cts, `WITH pipeline_data AS (
@@ -320,6 +325,13 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 												   pt.owner_id AS prove_owner,
 												   st.owner_id AS submit_owner,
 												   mt.owner_id AS move_storage_owner
+
+													(sp.task_id_encode IS NOT NULL AND et.id IS NULL) AS encode_missing,
+													(sp.task_id_prove IS NOT NULL AND pt.id IS NULL) AS prove_missing,
+													(sp.task_id_submit IS NOT NULL AND st.id IS NULL) AS submit_missing,
+													(sp.task_id_move_storage IS NOT NULL AND mt.id IS NULL) AS move_storage_missing
+
+
 											FROM sectors_snap_pipeline sp
 											LEFT JOIN harmony_task et ON et.id = sp.task_id_encode
 											LEFT JOIN harmony_task pt ON pt.id = sp.task_id_prove
@@ -345,6 +357,12 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 												-- Move Storage stage
 												COUNT(*) FILTER (WHERE after_submit = true AND after_move_storage = false AND task_id_move_storage IS NOT NULL AND move_storage_owner IS NULL) AS move_storage_pending,
 												COUNT(*) FILTER (WHERE after_submit = true AND after_move_storage = false AND task_id_move_storage IS NOT NULL AND move_storage_owner IS NOT NULL) AS move_storage_running
+
+												COUNT(*) FILTER (WHERE encode_missing) AS encode_failed,
+												COUNT(*) FILTER (WHERE prove_missing) AS prove_failed,
+												COUNT(*) FILTER (WHERE submit_missing) AS submit_failed,
+												COUNT(*) FILTER (WHERE move_storage_missing) AS move_storage_failed
+
 											FROM pipeline_data`)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to run snap pipeline stage query: %w", err)
@@ -361,21 +379,25 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 				Name:    "Encode",
 				Running: ct.EncodeRunning,
 				Pending: ct.EncodePending,
+				Failed:  ct.EncodeFailed,
 			},
 			{
 				Name:    "ProveUpdate",
 				Running: ct.ProveRunning,
 				Pending: ct.ProvePending,
+				Failed:  ct.ProveFailed,
 			},
 			{
 				Name:    "SubmitUpdate",
 				Running: ct.SubmitRunning,
 				Pending: ct.SubmitPending,
+				Failed:  ct.SubmitFailed,
 			},
 			{
 				Name:    "MoveStorage",
 				Running: ct.MoveStorageRunning,
 				Pending: ct.MoveStoragePending,
+				Failed:  ct.MoveStorageFailed,
 			},
 		}
 
@@ -385,16 +407,21 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 
 			SDRPending          int64 `db:"sdr_pending"`
 			SDRRunning          int64 `db:"sdr_running"`
+			SDRFailed           int64 `db:"sdr_failed"`
 			TreesPending        int64 `db:"trees_pending"`
 			TreesRunning        int64 `db:"trees_running"`
+			TreesFailed         int64 `db:"trees_failed"`
 			PrecommitMsgPending int64 `db:"precommit_msg_pending"`
 			PrecommitMsgRunning int64 `db:"precommit_msg_running"`
+			PrecommitMsgFailed  int64 `db:"precommit_msg_failed"`
 			WaitSeedPending     int64 `db:"wait_seed_pending"`
 			WaitSeedRunning     int64 `db:"wait_seed_running"`
 			PoRepPending        int64 `db:"porep_pending"`
 			PoRepRunning        int64 `db:"porep_running"`
+			PoRepFailed         int64 `db:"porep_failed"`
 			CommitMsgPending    int64 `db:"commit_msg_pending"`
 			CommitMsgRunning    int64 `db:"commit_msg_running"`
+			CommitMsgFailed     int64 `db:"commit_msg_failed"`
 		}
 
 		err = m.db.Select(ctx, &cts, `WITH pipeline_data AS (
@@ -407,6 +434,17 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 													pmt.owner_id AS precommit_msg_owner,
 													pot.owner_id AS porep_owner,
 													cmt.owner_id AS commit_msg_owner
+
+													-- Detect missing task entries (task exists in pipeline but not in harmony_task)
+													(sp.task_id_sdr IS NOT NULL AND sdrt.id IS NULL) AS sdr_missing,
+													(
+														(sp.task_id_tree_d IS NOT NULL AND tdt.id IS NULL) OR
+														(sp.task_id_tree_c IS NOT NULL AND tct.id IS NULL) OR
+														(sp.task_id_tree_r IS NOT NULL AND trt.id IS NULL)
+													) AS trees_missing,
+													(sp.task_id_precommit_msg IS NOT NULL AND pmt.id IS NULL) AS precommit_msg_missing,
+													(sp.task_id_porep IS NOT NULL AND pot.id IS NULL) AS porep_missing,
+													(sp.task_id_commit_msg IS NOT NULL AND cmt.id IS NULL) AS commit_msg_missing
 												FROM sectors_sdr_pipeline sp
 												LEFT JOIN harmony_task sdrt ON sdrt.id = sp.task_id_sdr
 												LEFT JOIN harmony_task tdt ON tdt.id = sp.task_id_tree_d
@@ -481,6 +519,13 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 												-- CommitMsg stage
 												COUNT(*) FILTER (WHERE at_commit_msg AND task_id_commit_msg IS NOT NULL AND commit_msg_owner IS NULL) AS commit_msg_pending,
 												COUNT(*) FILTER (WHERE at_commit_msg AND task_id_commit_msg IS NOT NULL AND commit_msg_owner IS NOT NULL) AS commit_msg_running
+
+												-- Failure Count for Missing Tasks
+												COUNT(*) FILTER (WHERE sdr_missing) AS sdr_failed,
+												COUNT(*) FILTER (WHERE trees_missing) AS trees_failed,
+												COUNT(*) FILTER (WHERE precommit_msg_missing) AS precommit_msg_failed,
+												COUNT(*) FILTER (WHERE porep_missing) AS porep_failed,
+												COUNT(*) FILTER (WHERE commit_msg_missing) AS commit_msg_failed
 											
 											FROM stages`)
 		if err != nil {
@@ -498,31 +543,37 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 				Name:    "SDR",
 				Running: ct.SDRRunning,
 				Pending: ct.SDRPending,
+				Failed:  ct.SDRFailed,
 			},
 			{
 				Name:    "Trees",
 				Running: ct.TreesRunning,
 				Pending: ct.TreesPending,
+				Failed:  ct.TreesFailed,
 			},
 			{
 				Name:    "PrecommitMsg",
 				Running: ct.PrecommitMsgRunning,
 				Pending: ct.PrecommitMsgPending,
+				Failed:  ct.PrecommitMsgFailed,
 			},
 			{
 				Name:    "WaitSeed",
 				Running: ct.WaitSeedRunning,
 				Pending: ct.WaitSeedPending,
+				Failed:  0,
 			},
 			{
 				Name:    "PoRep",
 				Running: ct.PoRepRunning,
 				Pending: ct.PoRepPending,
+				Failed:  ct.PoRepFailed,
 			},
 			{
 				Name:    "CommitMsg",
 				Running: ct.CommitMsgRunning,
 				Pending: ct.CommitMsgPending,
+				Failed:  ct.CommitMsgFailed,
 			},
 		}
 	}
