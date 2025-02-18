@@ -90,12 +90,39 @@ commands:
   check-go-version:
     steps:
       - run: |
-          v=`go version | { read _ _ v _; echo ${v#go}; }`
-          if [[ $v != `cat GO_VERSION_MIN` ]]; then
-            echo "GO_VERSION_MIN file does not match the go version being used."
-            echo "Please update image to cimg/go:`cat GO_VERSION_MIN` or update GO_VERSION_MIN to $v."
-            exit 1
+          v=$(go version | { read _ _ v _; echo ${v#go}; })
+          go_min=$(cat GO_VERSION_MIN | tr -d ' \n')  # Remove spaces/newlines
+          
+          # Extract major, minor, and full versions
+          v_major=$(echo "$v" | cut -d. -f1)
+          v_major_minor=$(echo "$v" | cut -d. -f1,2)
+          v_full=$(echo "$v" | cut -d. -f1,2,3)
+
+          go_min_major=$(echo "$go_min" | cut -d. -f1)
+          go_min_major_minor=$(echo "$go_min" | cut -d. -f1,2)
+          go_min_full=$(echo "$go_min" | cut -d. -f1,2,3)
+
+          # Ensure major version is allowed
+          if [[ "$v_major" != "1" && "$v_major" != "23" && "$v_major" != "6" ]]; then
+          echo "Go version mismatch! Allowed major versions: 1, 23, 6, but found Go $v."
+          exit 1
           fi
+
+          # If GO_VERSION_MIN specifies a patch version, check full match
+          if [[ "$go_min" == *.*.* ]]; then
+          if [[ "$v_full" != "$go_min_full" ]]; then
+          echo "Go version mismatch! Expected Go $go_min but found $v."
+          exit 1
+          fi
+          # If GO_VERSION_MIN specifies only major.minor, check that exactly
+          elif [[ "$go_min" == *.* ]]; then
+          if [[ "$v_major_minor" != "$go_min_major_minor" ]]; then
+          echo "Go version mismatch! Expected Go $go_min but found $v."
+          exit 1
+          fi
+          fi
+
+          echo "Go version matches: $v"
 
 jobs:
   build-debug:
