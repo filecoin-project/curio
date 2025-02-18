@@ -38,6 +38,7 @@ type StorageAsk struct {
 	CreatedAt     int64 `db:"created_at"`
 	Expiry        int64 `db:"expiry"`
 	Sequence      int64 `db:"sequence"`
+	Miner         string
 }
 
 func (a *WebRPC) GetStorageAsk(ctx context.Context, spID int64) (*StorageAsk, error) {
@@ -53,6 +54,11 @@ func (a *WebRPC) GetStorageAsk(ctx context.Context, spID int64) (*StorageAsk, er
 	if len(asks) == 0 {
 		return nil, fmt.Errorf("no storage ask found for sp_id %d", spID)
 	}
+	addr, err := address.NewIDAddress(uint64(spID))
+	if err != nil {
+		return nil, err
+	}
+	asks[0].Miner = addr.String()
 	return &asks[0], nil
 }
 

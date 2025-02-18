@@ -7,12 +7,12 @@ executors:
   golang:
     docker:
       # Must match GO_VERSION_MIN in project root
-      - image: cimg/go:1.22.8
+      - image: cimg/go:1.23
     resource_class: medium+
   golang-2xl:
     docker:
       # Must match GO_VERSION_MIN in project root
-      - image: cimg/go:1.22.8
+      - image: cimg/go:1.23
     resource_class: 2xlarge
   ubuntu:
     docker:
@@ -189,7 +189,7 @@ jobs:
         default: unit
         description: Test suite name to report to CircleCI.
     docker:
-      - image: cimg/go:1.22
+      - image: cimg/go:1.23
         environment:
           CURIO_HARMONYDB_HOSTS: yugabyte
           LOTUS_HARMONYDB_HOSTS: yugabyte
@@ -244,7 +244,7 @@ jobs:
         description: |
           Arguments to pass to golangci-lint
     docker:
-      - image: cimg/go:1.21
+      - image: cimg/go:1.23
     resource_class: medium+
     steps:
       - checkout

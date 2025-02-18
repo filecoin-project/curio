@@ -226,6 +226,15 @@ func getCfg(ctx context.Context, db *harmonydb.DB, httpConf config.HTTPConfig, m
 			return nil, xerrors.Errorf("creating public address: %w", err)
 		}
 
+		// Switch to pain HTTP for devnets
+		if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
+			ls := strings.Split(httpConf.ListenAddress, ":")
+			publicAddr, err = multiaddr.NewMultiaddr(fmt.Sprintf("/dns/%s/tcp/%s/ws", httpConf.DomainName, ls[1]))
+			if err != nil {
+				return nil, xerrors.Errorf("creating public address: %w", err)
+			}
+		}
+
 		ret.AnnounceAddr = publicAddr
 	}
 
@@ -233,6 +242,15 @@ func getCfg(ctx context.Context, db *harmonydb.DB, httpConf config.HTTPConfig, m
 		publicAddr, err := multiaddr.NewMultiaddr(fmt.Sprintf("/dns/%s/tcp/%d/https", httpConf.DomainName, 443))
 		if err != nil {
 			return nil, xerrors.Errorf("creating public address: %w", err)
+		}
+
+		// Switch to pain HTTP for devnets
+		if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
+			ls := strings.Split(httpConf.ListenAddress, ":")
+			publicAddr, err = multiaddr.NewMultiaddr(fmt.Sprintf("/dns/%s/tcp/%s/http", httpConf.DomainName, ls[1]))
+			if err != nil {
+				return nil, xerrors.Errorf("creating public address: %w", err)
+			}
 		}
 
 		ret.HttpAddr = publicAddr
