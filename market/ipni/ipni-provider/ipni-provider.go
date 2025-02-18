@@ -158,6 +158,15 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 		if err != nil {
 			return nil, xerrors.Errorf("parsing announce address domain: %w", err)
 		}
+
+		if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
+			ls := strings.Split(d.Cfg.HTTP.ListenAddress, ":")
+			u, err = url.Parse(fmt.Sprintf("https://%s:%s", d.Cfg.HTTP.DomainName, ls[1]))
+			if err != nil {
+				return nil, xerrors.Errorf("parsing announce address domain: %w", err)
+			}
+		}
+
 		u.Path = path.Join(u.Path, IPNIRoutePath)
 
 		for pid := range keyMap {
@@ -455,11 +464,25 @@ func Routes(r *chi.Mux, p *Provider) {
 	r.Get(IPNIRoutePath+"{providerId}"+IPNIPath+"{cid}", p.handleGet)
 }
 
+func RemoveCidContact(slice []*url.URL) []*url.URL {
+	target := "cid.contact"
+	for i, str := range slice {
+		if strings.Contains(str.String(), target) {
+			return append(slice[:i], slice[i+1:]...)
+		}
+	}
+	return slice
+}
+
 // StartPublishing starts a poller which publishes the head for each provider every 10 minutes.
 func (p *Provider) StartPublishing(ctx context.Context) {
-	// Do not publish for any network except mainnet
+	// Do not publish for any network except mainnet to cid.contact
 	if build.BuildType != build.BuildMainnet {
-		return
+		// Check if there are any other URLs except cid.contact
+		urls := RemoveCidContact(p.announceURLs)
+		if len(urls) == 0 {
+			return
+		}
 	}
 
 	// A poller which publishes head for each provider

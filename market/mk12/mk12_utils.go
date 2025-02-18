@@ -116,7 +116,7 @@ func (m *MK12) GetAsk(ctx context.Context, miner address.Address) (*legacytypes.
 
 }
 
-func (m *MK12) SetAsk(ctx context.Context, price abi.TokenAmount, verifiedPrice abi.TokenAmount, duration abi.ChainEpoch, miner address.Address, options ...legacytypes.StorageAskOption) error {
+func (m *MK12) SetAsk(ctx context.Context, price abi.TokenAmount, verifiedPrice abi.TokenAmount, miner address.Address, options ...legacytypes.StorageAskOption) error {
 
 	spid, err := address.IDFromAddress(miner)
 	if err != nil {
@@ -131,8 +131,14 @@ func (m *MK12) SetAsk(ctx context.Context, price abi.TokenAmount, verifiedPrice 
 		return xerrors.Errorf("getting sequence from DB: %w", err)
 	}
 
+	if len(seqnos) == 0 {
+		seqnos = []uint64{0}
+	}
+
 	minPieceSize := DefaultMinPieceSize
 	maxPieceSize := DefaultMaxPieceSize
+
+	duration := abi.ChainEpoch(builtin.EpochsInYear * 10)
 
 	ts, err := m.api.ChainHead(ctx)
 	if err != nil {
@@ -153,10 +159,20 @@ func (m *MK12) SetAsk(ctx context.Context, price abi.TokenAmount, verifiedPrice 
 		option(ask)
 	}
 
-	n, err := m.db.Exec(ctx, `UPDATE market_mk12_storage_ask SET create_at = $1, expiry = $2, sequence = $3, 
-                                   price = $4, verified_price = $5, min_size = $6, max_size = $7 
-                                   WHERE sp_id = $8`, ask.Timestamp, ask.Expiry, int64(ask.SeqNo), ask.Price, ask.VerifiedPrice,
-		ask.MinPieceSize, ask.MaxPieceSize, spid)
+	n, err := m.db.Exec(ctx, `INSERT INTO market_mk12_storage_ask (
+										sp_id, price, verified_price, min_size, max_size, created_at, expiry, sequence
+									) VALUES (
+										$1, $2, $3, $4, $5, $6, $7, $8
+									)
+									ON CONFLICT (sp_id) DO UPDATE SET
+										price = EXCLUDED.price,
+										verified_price = EXCLUDED.verified_price,
+										min_size = EXCLUDED.min_size,
+										max_size = EXCLUDED.max_size,
+										created_at = EXCLUDED.created_at,
+										expiry = EXCLUDED.expiry,
+										sequence = EXCLUDED.sequence`,
+		spid, ask.Price, ask.VerifiedPrice, ask.MinPieceSize, ask.MaxPieceSize, ask.Timestamp, ask.Expiry, int64(ask.SeqNo))
 
 	if err != nil {
 		return xerrors.Errorf("store ask success: updating pipeline: %w", err)

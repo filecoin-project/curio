@@ -90,5 +90,6 @@ var toolboxCmd = &cli.Command{
 	Usage: "some tools to fix some problems",
 	Subcommands: []*cli.Command{
 		sparkCmd,
+		mk12Clientcmd,
 	},
 }

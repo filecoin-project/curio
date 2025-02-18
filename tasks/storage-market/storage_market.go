@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -22,12 +23,14 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/market/mk12"
+	"github.com/filecoin-project/curio/market/mk12/legacytypes"
 	"github.com/filecoin-project/curio/market/storageingest"
 
 	"github.com/filecoin-project/lotus/chain/proofs"
@@ -131,6 +134,29 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 			d.MK12Handler, err = mk12.NewMK12Handler(miners, d.db, d.sc, d.api, d.cfg)
 			if err != nil {
 				return err
+			}
+
+			if d.MK12Handler != nil {
+				for _, miner := range miners {
+					_, err = d.MK12Handler.GetAsk(ctx, miner)
+					if err != nil {
+						if strings.Contains(err.Error(), "no ask found") {
+							if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
+								err = d.MK12Handler.SetAsk(ctx, abi.NewTokenAmount(0), abi.NewTokenAmount(0), miner, legacytypes.MinPieceSize(abi.PaddedPieceSize(128)), legacytypes.MaxPieceSize(abi.PaddedPieceSize(8<<20)))
+								if err != nil {
+									return xerrors.Errorf("failed to set ask for miner %s: %w", miner, err)
+								}
+							} else {
+								err = d.MK12Handler.SetAsk(ctx, abi.NewTokenAmount(45211226852), abi.NewTokenAmount(0), miner)
+								if err != nil {
+									return xerrors.Errorf("failed to set ask for miner %s: %w", miner, err)
+								}
+							}
+						} else {
+							return xerrors.Errorf("failed to get miner ask %s: %w", miner, err)
+						}
+					}
+				}
 			}
 
 			if d.cfg.Ingest.DoSnap {

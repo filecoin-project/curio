@@ -42,7 +42,17 @@ make clean docker/devnet
 make devnet/up
 ```
 
-* It will spin up `lotus`, `lotus-miner`, `yugabyte` and `curio` containers. All temporary data will be saved in `./docker/data` folder.
+* It will spin up `lotus`, `lotus-miner`, `yugabyte`, `curio` and `piece-server` containers. All temporary data will be saved in `./docker/data` folder.
 * The initial setup could take up to 5 min or more as it needs to download Filecoin proof parameters. During the initial setup, it is normal to see error messages in the log. Containers are waiting for the lotus to be ready. It may timeout several times. Restart is expected to be managed by `docker`.
 * Try opening the Curio GUI [http://localhost:4701](http://localhost:4701) . Devnet is ready to operate when the URL opens and indicates no errors on the startup page.
 * You can inspect the status using `cd docker/devnet && docker compose logs -f`.
+
+## Make a deal in devnet
+1. Login to `piece-server` container either via docker desktop UI or with below command
+    ```shell
+    docker exec -it piece-server /bin/bash
+    ```
+2. Run the below command to make a deal and follow the on-screen instructions.
+    ```shell
+    ./sample/make-a-deal.sh
+    ```

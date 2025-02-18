@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"path"
 	"strings"
 	"time"
 
@@ -27,6 +26,7 @@ import (
 
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -38,7 +38,6 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
-	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
 )
 
@@ -195,7 +194,13 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 			if err != nil {
 				return false, xerrors.Errorf("parsing announce address domain: %w", err)
 			}
-			u.Path = path.Join(u.Path, ipni_provider.IPNIRoutePath, task.Prov)
+			if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
+				ls := strings.Split(I.cfg.HTTP.ListenAddress, ":")
+				u, err = url.Parse(fmt.Sprintf("http://%s:%s", I.cfg.HTTP.DomainName, ls[1]))
+				if err != nil {
+					return false, xerrors.Errorf("parsing announce address domain: %w", err)
+				}
+			}
 
 			addr, err := maurl.FromURL(u)
 			if err != nil {
