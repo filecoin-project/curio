@@ -514,7 +514,7 @@ func (p *DealProvider) checkMinerInfos(ctx context.Context, sender *message.Send
 		}
 
 		var chainma multiaddr.Multiaddr
-		if mi.Multiaddrs != nil && len(mi.Multiaddrs) == 1 { // == 1 because if it's not then we really have no reason to check further
+		if len(mi.Multiaddrs) == 1 { // == 1 because if it's not then we really have no reason to check further
 			chainma, err = multiaddr.NewMultiaddrBytes(mi.Multiaddrs[0])
 			if err != nil {
 				log.Errorw("failed to parse miner multiaddr", "miner", m, "error", err)
