@@ -121,3 +121,26 @@ services:
     networks:
       curio-net:
         ipv4_address: 172.20.0.6
+
+  indexer:
+    container_name: indexer
+    image: ${INDEXER_IMAGE}
+    init: true
+    ports:
+      - "3000:3000"
+      - "3001:3001"
+      - "3002:3002"
+      - "3003:3003"
+    environment:
+      - STORETHEINDEX_PATH=/var/lib/indexer
+    restart: unless-stopped
+    logging: *default-logging
+    volumes:
+      - ./data/indexer:/var/lib/indexer:rw
+      - ./data/curio:/var/lib/curio:ro
+      - ./data/lotus:/var/lib/lotus:ro
+      - ./data/lotus-miner:/var/lib/lotus-miner:ro
+      - ${FIL_PROOFS_PARAMETER_CACHE}:/var/tmp/filecoin-proof-parameters:rw
+    networks:
+      curio-net:
+        ipv4_address: 172.20.0.7

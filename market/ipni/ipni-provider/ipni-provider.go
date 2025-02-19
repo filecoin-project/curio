@@ -50,7 +50,7 @@ const IPNIPath = "/ipni/v1/ad/"
 // publishInterval represents the time interval between each publishing operation.
 // It is set to 10 minutes.
 const publishInterval = 10 * time.Minute
-const publishProviderSpacing = 5 * time.Minute
+const publishProviderSpacing = 10 * time.Second
 
 var (
 	log = logging.Logger("ipni-provider")
@@ -161,7 +161,7 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 
 		if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
 			ls := strings.Split(d.Cfg.HTTP.ListenAddress, ":")
-			u, err = url.Parse(fmt.Sprintf("https://%s:%s", d.Cfg.HTTP.DomainName, ls[1]))
+			u, err = url.Parse(fmt.Sprintf("http://%s:%s", d.Cfg.HTTP.DomainName, ls[1]))
 			if err != nil {
 				return nil, xerrors.Errorf("parsing announce address domain: %w", err)
 			}
@@ -476,18 +476,23 @@ func RemoveCidContact(slice []*url.URL) []*url.URL {
 
 // StartPublishing starts a poller which publishes the head for each provider every 10 minutes.
 func (p *Provider) StartPublishing(ctx context.Context) {
+	// A poller which publishes head for each provider
+	// every 10 minutes
+	ticker := time.NewTicker(publishInterval)
+
 	// Do not publish for any network except mainnet to cid.contact
 	if build.BuildType != build.BuildMainnet {
 		// Check if there are any other URLs except cid.contact
 		urls := RemoveCidContact(p.announceURLs)
 		if len(urls) == 0 {
+			log.Warn("Not starting IPNI provider publishing as there are no other URLs except cid.contact for testnet build")
 			return
+		}
+		if build.BuildType != build.BuildCalibnet {
+			ticker = time.NewTicker(time.Second * 10)
 		}
 	}
 
-	// A poller which publishes head for each provider
-	// every 10 minutes
-	ticker := time.NewTicker(publishInterval)
 	go func() {
 		for {
 			select {
@@ -530,13 +535,14 @@ func (p *Provider) publishHead(ctx context.Context) {
 	var i int
 	for provider := range p.keys {
 		if i > 0 {
-			time.Sleep(publishProviderSpacing)
+			p.publishProviderSpacingWait()
 		}
 		c, err := p.getHeadCID(ctx, provider)
 		if err != nil {
 			log.Errorw("failed to get head CID", "provider", provider, "error", err)
 			continue
 		}
+		log.Infow("Publishing head for provider", "provider", provider, "cid", c.String())
 		err = p.publishhttp(ctx, c, provider)
 		if err != nil {
 			log.Errorw("failed to publish head for provide", "provider", provider, "error", err)
@@ -544,6 +550,14 @@ func (p *Provider) publishHead(ctx context.Context) {
 
 		i++
 	}
+}
+
+func (p *Provider) publishProviderSpacingWait() {
+	if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
+		time.Sleep(time.Second)
+		return
+	}
+	time.Sleep(publishProviderSpacing)
 }
 
 // publishhttp sends an HTTP announce message for the given advertisement CID and peer ID.

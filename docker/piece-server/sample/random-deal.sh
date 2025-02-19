@@ -17,8 +17,8 @@ miner_actor=$(lotus state list-miners | grep -v t01000)
 
 ###################################################################################
 printf "${ci}sptool --actor t01000 toolbox mk12-client deal --verified=false --provider=$miner_actor \
---http-url=http://demo-http-server/$FILE \
+--http-url=http://piece-server:12320/pieces?id=$PAYLOAD_CID \
 --commp=$COMMP_CID --car-size=$CAR --piece-size=$PIECE \
 --payload-cid=$PAYLOAD_CID --storage-price 20000000000\n\n${cn}"
 
-sptool --actor t01000 toolbox mk12-client deal --verified=false --provider=$miner_actor --http-url=http://piece-server:12320/pieces?id=$COMMP_CID --commp=$COMMP_CID --car-size=$CAR --piece-size=$PIECE --payload-cid=$PAYLOAD_CID --storage-price 20000000000
+sptool --actor t01000 toolbox mk12-client deal --verified=false --provider=$miner_actor --http-url=http://piece-server:12320/pieces?id=$PAYLOAD_CID --commp=$COMMP_CID --car-size=$CAR --piece-size=$PIECE --payload-cid=$PAYLOAD_CID --storage-price 20000000000

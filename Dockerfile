@@ -56,6 +56,9 @@ RUN go install github.com/ipld/go-car/cmd/car@latest \
 RUN go install github.com/LexLuthr/piece-server@latest \
  && cp $GOPATH/bin/piece-server /usr/local/bin/
 
+RUN go install github.com/ipni/storetheindex@latest \
+ && cp $GOPATH/bin/storetheindex /usr/local/bin/
+
 #####################################
 FROM ubuntu:22.04 AS curio-all-in-one
 
@@ -82,7 +85,8 @@ ENV FIL_PROOFS_PARAMETER_CACHE=/var/tmp/filecoin-proof-parameters \
     LOTUS_MINER_PATH=/var/lib/lotus-miner \
     LOTUS_PATH=/var/lib/lotus \
     CURIO_REPO_PATH=/var/lib/curio \
-    CURIO_MK12_CLIENT_REPO=/var/lib/curio-client
+    CURIO_MK12_CLIENT_REPO=/var/lib/curio-client \
+    STORETHEINDEX_PATH=/var/lib/indexer
 
 # Copy binaries and scripts
 COPY --from=lotus-test /usr/local/bin/lotus /usr/local/bin/
@@ -93,19 +97,21 @@ COPY --from=curio-builder /opt/curio/curio /usr/local/bin/
 COPY --from=curio-builder /opt/curio/sptool /usr/local/bin/
 COPY --from=piece-server-builder /usr/local/bin/piece-server /usr/local/bin/
 COPY --from=piece-server-builder /usr/local/bin/car /usr/local/bin/
+COPY --from=piece-server-builder /usr/local/bin/storetheindex /usr/local/bin/
 
 # Set up directories and permissions
 RUN mkdir /var/tmp/filecoin-proof-parameters \
            /var/lib/lotus \
            /var/lib/lotus-miner \
            /var/lib/curio \
-           /var/lib/curio-client && \
-    chown fc: /var/tmp/filecoin-proof-parameters /var/lib/lotus /var/lib/lotus-miner /var/lib/curio /var/lib/curio-client
+           /var/lib/curio-client \
+           /var/lib/indexer && \
+    chown fc: /var/tmp/filecoin-proof-parameters /var/lib/lotus /var/lib/lotus-miner /var/lib/curio /var/lib/curio-client /var/lib/indexer
 
 # Define volumes
-VOLUME ["/var/tmp/filecoin-proof-parameters", "/var/lib/lotus", "/var/lib/lotus-miner", "/var/lib/curio", "/var/lib/curio-client"]
+VOLUME ["/var/tmp/filecoin-proof-parameters", "/var/lib/lotus", "/var/lib/lotus-miner", "/var/lib/curio", "/var/lib/curio-client", "/var/lib/indexer"]
 
 # Expose necessary ports
-EXPOSE 1234 2345 12300 4701 32100 12310 12320
+EXPOSE 1234 2345 12300 4701 32100 12310 12320 3000 3001 3002 3003
 
 CMD ["/bin/bash"]

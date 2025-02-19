@@ -47,6 +47,9 @@ if [ ! -f $CURIO_REPO_PATH/.init.curio ]; then
 
   [Market]
     [Market.StorageMarketConfig]
+      [Market.StorageMarketConfig.IPNI]
+        DirectAnnounceURLs = ["http://indexer:3001"]
+        ServiceURL = ["http://indexer:3000"]
       [Market.StorageMarketConfig.MK12]
           ExpectedPoRepSealDuration = "0h1m0s"
           ExpectedSnapSealDuration = "0h1m0s"

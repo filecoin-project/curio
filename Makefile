@@ -324,7 +324,12 @@ docker/piece-server:
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/piece-server
 
-docker/devnet: $(lotus_build_cmd) docker/curio-all-in-one docker/lotus docker/lotus-miner docker/curio docker/piece-server
+docker/indexer:
+	cd docker/indexer && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/indexer-dev:dev \
+		--build-arg BUILD_VERSION=dev .
+.PHONY: docker/indexer
+
+docker/devnet: $(lotus_build_cmd) docker/curio-all-in-one docker/lotus docker/lotus-miner docker/curio docker/piece-server docker/indexer
 .PHONY: docker/devnet
 
 devnet/up:
