@@ -25,6 +25,7 @@ type ProofShareMeta struct {
 	Enabled       bool    `db:"enabled" json:"enabled"`
 	Wallet        *string `db:"wallet" json:"wallet"`
 	RequestTaskID *int64  `db:"request_task_id" json:"request_task_id"`
+	Price         string  `db:"pprice"         json:"price"`
 }
 
 // ProofShareQueueItem represents each row in proofshare_queue.
@@ -35,6 +36,7 @@ type ProofShareQueueItem struct {
 	ComputeDone   bool      `db:"compute_done"   json:"compute_done"`
 	SubmitTaskID  *int64    `db:"submit_task_id" json:"submit_task_id"`
 	SubmitDone    bool      `db:"submit_done"    json:"submit_done"`
+	Price         string    `db:"pprice"         json:"price"`
 }
 
 // PSGetMeta returns the current meta row from proofshare_meta (always a single row).
@@ -42,25 +44,36 @@ func (a *WebRPC) PSGetMeta(ctx context.Context) (ProofShareMeta, error) {
 	var meta ProofShareMeta
 
 	err := a.deps.DB.QueryRow(ctx, `
-        SELECT enabled, wallet, request_task_id
+        SELECT enabled, wallet, request_task_id, pprice
         FROM proofshare_meta
         WHERE singleton = TRUE
-    `).Scan(&meta.Enabled, &meta.Wallet, &meta.RequestTaskID)
+    `).Scan(&meta.Enabled, &meta.Wallet, &meta.RequestTaskID, &meta.Price)
 	if err != nil {
 		return meta, xerrors.Errorf("PSGetMeta: failed to query proofshare_meta: %w", err)
 	}
+
+	pta, err := types.BigFromString(meta.Price)
+	if err != nil {
+		return meta, xerrors.Errorf("PSGetMeta: invalid price: %w", err)
+	}
+	meta.Price = types.FIL(pta).Unitless()
 
 	return meta, nil
 }
 
 // PSSetMeta updates proofshare_meta with new "enabled" flag and "wallet" address.
 // If you want to allow a NULL wallet, you could accept a pointer or do conditional logic.
-func (a *WebRPC) PSSetMeta(ctx context.Context, enabled bool, wallet string) error {
-	_, err := a.deps.DB.Exec(ctx, `
+func (a *WebRPC) PSSetMeta(ctx context.Context, enabled bool, wallet string, price string) error {
+	ta, err := types.ParseFIL(price)
+	if err != nil {
+		return xerrors.Errorf("PSSetMeta: invalid price: %w", err)
+	}
+
+	_, err = a.deps.DB.Exec(ctx, `
         UPDATE proofshare_meta
-        SET enabled = $1, wallet = $2
+        SET enabled = $1, wallet = $2, pprice = $3
         WHERE singleton = TRUE
-    `, enabled, wallet)
+    `, enabled, wallet, abi.TokenAmount(ta).String())
 	if err != nil {
 		return xerrors.Errorf("PSSetMeta: failed to update proofshare_meta: %w", err)
 	}
@@ -100,8 +113,10 @@ type ProofShareClientSettings struct {
 	MinimumPendingSecs int64   `db:"minimum_pending_seconds" json:"minimum_pending_seconds"`
 	DoPoRep            bool    `db:"do_porep"              json:"do_porep"`
 	DoSnap             bool    `db:"do_snap"               json:"do_snap"`
+	Price              string   `db:"pprice"`
 
 	Address string `db:"-" json:"address"`
+	FilPerP string  `db:"-" json:"price"`
 }
 
 // ProofShareClientRequest model
@@ -120,7 +135,7 @@ type ProofShareClientRequest struct {
 func (a *WebRPC) PSClientGet(ctx context.Context) ([]ProofShareClientSettings, error) {
 	var out []ProofShareClientSettings
 	err := a.deps.DB.Select(ctx, &out, `
-        SELECT sp_id, enabled, wallet, minimum_pending_seconds, do_porep, do_snap
+        SELECT sp_id, enabled, wallet, minimum_pending_seconds, do_porep, do_snap, pprice
         FROM proofshare_client_settings
         ORDER BY sp_id ASC
     `)
@@ -130,6 +145,12 @@ func (a *WebRPC) PSClientGet(ctx context.Context) ([]ProofShareClientSettings, e
 
 	for i := range out {
 		out[i].Address = must.One(address.NewIDAddress(uint64(out[i].SpID))).String()
+
+		pta, err := types.BigFromString(out[i].Price)
+		if err != nil {
+			return nil, xerrors.Errorf("PSClientGet: invalid price: %w", err)
+		}
+		out[i].FilPerP = types.FIL(pta).Unitless()
 	}
 
 	return out, nil
@@ -150,15 +171,21 @@ func (a *WebRPC) PSClientSet(ctx context.Context, s ProofShareClientSettings) er
 
 	s.SpID = int64(mid)
 
+	filamt, err := types.ParseFIL(s.FilPerP)
+	if err != nil {
+		return xerrors.Errorf("PSClientSet: invalid price: %w", err)
+	}
+
 	_, err = a.deps.DB.Exec(ctx, `
-        INSERT INTO proofshare_client_settings (sp_id, enabled, wallet, minimum_pending_seconds, do_porep, do_snap)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO proofshare_client_settings (sp_id, enabled, wallet, minimum_pending_seconds, do_porep, do_snap, pprice)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         ON CONFLICT (sp_id) DO UPDATE
           SET enabled = EXCLUDED.enabled,
               wallet  = EXCLUDED.wallet,
               minimum_pending_seconds = EXCLUDED.minimum_pending_seconds,
               do_porep = EXCLUDED.do_porep,
-              do_snap = EXCLUDED.do_snap
+              do_snap = EXCLUDED.do_snap,
+              pprice = EXCLUDED.pprice
     `,
 		s.SpID,
 		s.Enabled,
@@ -166,6 +193,7 @@ func (a *WebRPC) PSClientSet(ctx context.Context, s ProofShareClientSettings) er
 		s.MinimumPendingSecs,
 		s.DoPoRep,
 		s.DoSnap,
+		abi.TokenAmount(filamt).String(),
 	)
 	if err != nil {
 		return xerrors.Errorf("PSClientSet: upsert error: %w", err)

@@ -7,6 +7,7 @@ class ProofShareElement extends LitElement {
   static properties = {
     enabled: { type: Boolean },
     wallet: { type: String },
+    price: { type: String },
     queue: { type: Array },
   };
 
@@ -14,6 +15,7 @@ class ProofShareElement extends LitElement {
     super();
     this.enabled = false;
     this.wallet = '';
+    this.price = '';
     this.queue = [];
     this.loadData();
   }
@@ -30,7 +32,7 @@ class ProofShareElement extends LitElement {
       const meta = await RPCCall('PSGetMeta', []);
       this.enabled = meta.enabled;
       this.wallet = meta.wallet || '';
-
+      this.price = meta.price || '';
       // 2) Get the queue
       const queue = await RPCCall('PSListQueue', []);
       this.queue = queue;
@@ -39,16 +41,13 @@ class ProofShareElement extends LitElement {
     }
     // Re-render
     this.requestUpdate();
-
-    // Auto-refresh every N seconds (adjust as desired)
-    setTimeout(() => this.loadData(), 5000);
   }
 
   // Update meta info on the server
   async setMeta() {
     try {
-      // Call PSSetMeta(enabled, wallet)
-      await RPCCall('PSSetMeta', [this.enabled, this.wallet]);
+      // Call PSSetMeta(enabled, wallet, price)
+      await RPCCall('PSSetMeta', [this.enabled, this.wallet, this.price]);
       console.log('Updated proofshare meta successfully');
     } catch (err) {
       console.error('Failed to update proofshare meta:', err);
@@ -89,6 +88,18 @@ class ProofShareElement extends LitElement {
             style="max-width: 400px;"
           />
         </div>
+        <div class="mb-2">
+          <label>Price:</label>
+          <input
+            type="number"
+            step="0.0001"
+            placeholder="0.0001"
+            .value=${this.price}
+            @input=${(e) => (this.price = e.target.value)}
+            style="max-width: 100px;"
+          />
+        </div>
+
         <button class="btn btn-primary" @click=${this.setMeta}>Update Settings</button>
 
         <hr />
