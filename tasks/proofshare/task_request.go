@@ -159,10 +159,11 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	}
 
 	var pshareMeta []struct {
-		Wallet string
+		Wallet string `db:"wallet"`
+		Price  string `db:"pprice"`
 	}
 	err = t.db.Select(ctx, &pshareMeta, `
-		SELECT wallet 
+		SELECT wallet, pprice 
 		FROM proofshare_meta 
 		WHERE singleton = true
 	`)
@@ -243,7 +244,7 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		log.Infow("checking if more asks needed", "neededAsks", neededAsks, "toRequest", toRequest, "activeAsks", len(work.ActiveAsks))
 
 		for i := 0; i < neededAsks; i++ {
-			askID, askErr := proofsvc.CreateWorkAsk(meta.Wallet)
+			askID, askErr := proofsvc.CreateWorkAsk(meta.Wallet, meta.Price)
 			if askErr != nil {
 				return false, xerrors.Errorf("failed to create work ask: %w", askErr)
 			}

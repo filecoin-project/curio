@@ -16,8 +16,8 @@ var log = logging.Logger("proofsvc")
 
 const marketUrl = "https://svc0.fsp.sh/v0/proofs"
 
-func CreateWorkAsk(address string) (int64, error) {
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/provider/work/ask/%s", marketUrl, address), nil)
+func CreateWorkAsk(address string, price string) (int64, error) {
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/provider/work/ask/%s?price=%s", marketUrl, address, price), nil)
 	if err != nil {
 		return 0, xerrors.Errorf("failed to create request: %w", err)
 	}

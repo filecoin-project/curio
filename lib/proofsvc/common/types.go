@@ -11,11 +11,18 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/big"
+	"github.com/filecoin-project/lotus/chain/types"
 
 	"github.com/filecoin-project/curio/lib/proof"
 )
 
+//go:generate cbor-gen-for --map-encoding ProofRequest
+
 var log = logging.Logger("psvcommon")
+
+var PriceResolution = types.NewInt(1_000_000_000) // 1nFIL
+var MaxPriceNfil = types.NewInt(1_000_000_000) // 1 FIL
 
 type WorkRequest struct {
 	ID int64 `json:"id" db:"id"`
@@ -46,15 +53,21 @@ type ProofRequest struct {
 
 	// proof request enum
 	PoRep *proof.Commit1OutRaw
+
+	MaxPriceNfil abi.TokenAmount
 }
 
 func (p *ProofRequest) Validate() error {
+	if err := p.validatePrice(); err != nil {
+		return xerrors.Errorf("failed to validate price: %w", err)
+	}
+
 	if p.PoRep != nil {
 		if p.SectorID == nil {
 			return xerrors.Errorf("sector id is required for PoRep")
 		}
 
-		if err := validatePoRep(p); err != nil {
+		if err := p.validatePoRep(); err != nil {
 			return xerrors.Errorf("failed to validate PoRep: %w", err)
 		}
 
@@ -63,22 +76,42 @@ func (p *ProofRequest) Validate() error {
 	return xerrors.Errorf("invalid proof request: no proof request")
 }
 
-func validatePoRep(req *ProofRequest) error {
+func (p *ProofRequest) validatePrice() error {
+	if p.MaxPriceNfil.IsZero() {
+		return xerrors.Errorf("max price is required")
+	}
+
+	if p.MaxPriceNfil.Sign() <= 0 {
+		return xerrors.Errorf("max price must be positive")
+	}
+
+	if big.Mod(p.MaxPriceNfil, PriceResolution).Sign() != 0 {
+		return xerrors.Errorf("max price must be a multiple of 1nFIL")
+	}
+
+	if big.Cmp(p.MaxPriceNfil, MaxPriceNfil) > 0 {
+		return xerrors.Errorf("max price must be less than 1 FIL")
+	}
+
+	return nil
+}
+
+func (p *ProofRequest) validatePoRep() error {
 	// Make sure we actually have PoRep data
-	if req.PoRep == nil {
+	if p.PoRep == nil {
 		return xerrors.Errorf("no PoRep (Commit1OutRaw) data in request")
 	}
 
 	// 1) Bincode-encode the commit1 proof data
 	var bincodeBuf bytes.Buffer
-	if err := proof.EncodeCommit1OutRaw(&bincodeBuf, *req.PoRep); err != nil {
+	if err := proof.EncodeCommit1OutRaw(&bincodeBuf, *p.PoRep); err != nil {
 		return xerrors.Errorf("failed to bincode-encode PoRep: %w", err)
 	}
 
 	// 2) From PoRep.RegisteredProof, figure out sector size and PoRep ID
 	//    (In a real system, you'd likely call something like sp.SectorSize(), sp.PoRepID(), etc.)
 	//    For example:
-	sp, err := req.PoRep.RegisteredProof.ToABI()
+	sp, err := p.PoRep.RegisteredProof.ToABI()
 	if err != nil {
 		return xerrors.Errorf("invalid RegisteredProof string: %w", err)
 	}
