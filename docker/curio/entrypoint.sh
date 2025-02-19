@@ -56,7 +56,7 @@ if [ ! -f $CURIO_REPO_PATH/.init.curio ]; then
           PublishMsgPeriod = "0h0m10s"
 
       [[Market.StorageMarketConfig.PieceLocator]]
-        URL = "http://piece-server:12320"
+        URL = "http://piece-server:12320/pieces"
 
   [Subsystems]
     EnableCommP = true
