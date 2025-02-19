@@ -548,8 +548,6 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 				Hash:  parent,
 			}
 
-			log.Debugw("computing partial tree:", "parentLevel", parentLevel, "parentOffset", parentOffset, "hash", hex.EncodeToString(parent[:]), "elem", hex.EncodeToString(curElem.Hash[:]), "rightElem", hex.EncodeToString(rightSibling.Hash[:]))
-
 			// move to the parent
 			level = parentLevel
 			offset = parentOffset
@@ -568,11 +566,6 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 			}
 			return partialTreeList[i].ElemOffset < partialTreeList[j].ElemOffset
 		})
-		for _, k := range partialTreeList {
-			v := partialTree[k]
-			log.Debugw("partialTree", "index", k, "hash", hex.EncodeToString(v.Hash[:]))
-		}
-		log.Debugw("partialTree", "partialTree", partialTreeList)
 
 	}
 
@@ -613,8 +606,6 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 			log.Debugw("Proof", "position", index, "left-s", hex.EncodeToString(siblingElem.Hash[:]), "right-c", hex.EncodeToString(elem.Hash[:]), "out", hex.EncodeToString(shabytes(append(siblingElem.Hash[:], elem.Hash[:]...))[:]))
 		}
 
-		//log.Debugw("siblingElem", "siblingElem", siblingElem, "siblinbgIndex", siblingIndex, "currentLevel", currentLevel, "currentOffset", currentOffset, "siblingOffset", siblingOffset)
-
 		// Append the sibling's hash to the proof
 		out.Proof = append(out.Proof, siblingElem.Hash)
 
@@ -635,7 +626,6 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 	}
 	var cr [LeafSize]byte
 	copy(cr[:], commRoot)
-	log.Debugw("Verify", "root", hex.EncodeToString(cr[:]))
 
 	if !Verify(out, cr, uint64(challengedLeaf)) {
 		return contract.PDPVerifierProof{}, xerrors.Errorf("proof verification failed")

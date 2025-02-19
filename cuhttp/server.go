@@ -173,7 +173,6 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 		}
 
 		server.TLSConfig = certManager.TLSConfig()
-		log.Infof("server.TLSConfig NextProtos: %v", server.TLSConfig.NextProtos)
 	}
 
 	// We don't need to run an HTTP server. Any HTTP request should simply be handled as HTTPS.
@@ -183,7 +182,6 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 		log.Infof("Starting HTTPS server for https://%s on %s", cfg.DomainName, cfg.ListenAddress)
 		var serr error
 		if !cfg.DelegateTLS {
-			log.Infof("serving like we should")
 			serr = server.ListenAndServeTLS("", "")
 		} else {
 			serr = server.ListenAndServe()
