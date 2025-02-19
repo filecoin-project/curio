@@ -539,53 +539,54 @@ func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context) error {
 	publishPeriod := time.Duration(d.cfg.Market.StorageMarketConfig.MK12.PublishMsgPeriod)
 	maxDeals := d.cfg.Market.StorageMarketConfig.MK12.MaxDealsPerPublishMsg
 
-	d.adders[pollerPSD].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
-		n, err := tx.Exec(`WITH grouped_deals AS (
-									-- Step 1: Group by sp_id and get the earliest psd_wait_time for each sp_id
-									SELECT 
-										sp_id,
-										MIN(psd_wait_time) AS earliest_wait_time
+	var eligibleSpIDs []struct {
+		SpID             int64     `db:"sp_id"`
+		EarliestWaitTime time.Time `db:"earliest_wait_time"`
+	}
+
+	err := d.db.Select(ctx, &eligibleSpIDs, `SELECT sp_id, MIN(psd_wait_time) AS earliest_wait_time
 									FROM market_mk12_deal_pipeline
 									WHERE started = TRUE
 									  AND after_commp = TRUE
 									  AND psd_task_id IS NULL
 									  AND after_psd = FALSE
-									GROUP BY sp_id
-								),
-								eligible_sp_ids AS (
-									-- Step 2: Select sp_ids where at least one deal has waited past publishPeriod
-									SELECT sp_id
-									FROM grouped_deals
-									WHERE earliest_wait_time + INTERVAL '1 second' * $1 < NOW()
-								),
-								eligible_deals AS (
-									-- Step 3: Select all deals for those sp_ids, ensuring selection is ordered by earliest psd_wait_time
-									SELECT d.uuid, d.sp_id, d.psd_wait_time
-									FROM market_mk12_deal_pipeline d
-									JOIN eligible_sp_ids e ON d.sp_id = e.sp_id
-									WHERE d.started = TRUE
-									  AND d.after_commp = TRUE
-									  AND d.psd_task_id IS NULL
-									  AND d.after_psd = FALSE
-									ORDER BY d.psd_wait_time ASC -- Ensures deals are selected based on the earliest time first
-								),
-								deals_to_update AS (
-									-- Step 4: Select only the first maxDeals deals (ensuring no more than maxDeals are updated)
-									SELECT uuid
-									FROM eligible_deals
-									LIMIT $2
-								)
-								-- Step 5: Update only the selected maxDeals
-								UPDATE market_mk12_deal_pipeline
-								SET psd_task_id = $3
-								WHERE uuid IN (SELECT uuid FROM deals_to_update);
-								`, publishPeriod.Seconds(), maxDeals, id)
-		if err != nil {
-			return false, xerrors.Errorf("creating psd tasks: %w", err)
-		}
+									GROUP BY sp_id;`)
+	if err != nil {
+		return xerrors.Errorf("getting eligible SPs for psd tasks: %w", err)
+	}
 
-		return n > 0, nil
-	})
+	if len(eligibleSpIDs) == 0 {
+		return nil
+	}
+
+	for _, sp := range eligibleSpIDs {
+		if sp.EarliestWaitTime.Add(publishPeriod).Before(time.Now()) {
+			continue
+		}
+		d.adders[pollerPSD].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
+			n, err := tx.Exec(`WITH deals_to_update AS (
+										-- Select only deals that have not been assigned yet
+										SELECT uuid
+										FROM market_mk12_deal_pipeline
+										WHERE sp_id = $1
+										  AND started = TRUE
+										  AND after_commp = TRUE
+										  AND psd_task_id IS NULL  -- Ensures only unassigned deals are selected
+										  AND after_psd = FALSE
+										ORDER BY psd_wait_time ASC
+										LIMIT $2  -- Limit by maxDeals
+									)
+									UPDATE market_mk12_deal_pipeline
+									SET psd_task_id = $3
+									WHERE uuid IN (SELECT uuid FROM deals_to_update)
+									AND psd_task_id IS NULL;  -- Ensures no overwrite in case another node updated
+									`, sp.SpID, maxDeals, id)
+			if err != nil {
+				return false, xerrors.Errorf("creating psd task: %w", err)
+			}
+			return n > 0, nil
+		})
+	}
 
 	return nil
 }
