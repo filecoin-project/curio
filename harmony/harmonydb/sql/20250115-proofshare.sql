@@ -23,6 +23,7 @@ CREATE TABLE proofshare_meta (
     enabled BOOLEAN NOT NULL DEFAULT FALSE,
 
     wallet TEXT,
+    pprice TEXT NOT NULL DEFAULT '0',
 
     request_task_id BIGINT,
 
@@ -43,6 +44,8 @@ CREATE TABLE proofshare_client_settings (
     
     do_porep BOOLEAN NOT NULL DEFAULT FALSE,
     do_snap BOOLEAN NOT NULL DEFAULT FALSE,
+
+    pprice TEXT NOT NULL DEFAULT '0', -- attofil/proof
 
     PRIMARY KEY (sp_id)
 );

@@ -34,7 +34,7 @@ class ProofShareClient extends LitElement {
     this.loadAllSettings();
 
     // Refresh settings every 10 seconds
-    this.refreshIntervalId = setInterval(() => this.loadAllSettings(), 10000);
+    this.refreshIntervalId = setInterval(() => this.loadMessages(), 10000);
 
     // Refresh UI every second to update any countdowns
     this.countdownIntervalId = setInterval(() => this.requestUpdate(), 1000);
@@ -55,22 +55,13 @@ class ProofShareClient extends LitElement {
    * Fetch all rows from PSClientGet (settings), wallets, and client messages.
    */
   async loadAllSettings() {
-    try {
-      const list = await RPCCall('PSClientGet', []);
-      // If server returns null or not an array, default to []
-      this.settingsList = Array.isArray(list) ? list : [];
+    this.settingsList = await RPCCall('PSClientGet', []);
+    this.wallets = await RPCCall('PSClientWallets', []);
+    this.loadMessages();
+  }
 
-      this.wallets = await RPCCall('PSClientWallets', []);
-      
-      // Pull client messages from the server
-      this.messages = await RPCCall('PSClientListMessages', []);
-    } catch (err) {
-      console.error('Error loading proofshare client data:', err);
-      this.settingsList = [];
-      this.wallets = [];
-      this.messages = [];
-    }
-    // Re-render
+  async loadMessages() {
+    this.messages = await RPCCall('PSClientListMessages', []);
     this.requestUpdate();
   }
 
@@ -116,6 +107,7 @@ class ProofShareClient extends LitElement {
         minimum_pending_seconds: row.minimum_pending_seconds,
         do_porep: row.do_porep,
         do_snap: row.do_snap,
+        price: row.price,
       }]);
       console.log(`Saved row for sp_id=${row.sp_id}`);
     } catch (err) {
@@ -137,6 +129,7 @@ class ProofShareClient extends LitElement {
       minimum_pending_seconds: 0,
       do_porep: false,
       do_snap: false,
+      price: 0,
     };
 
     try {
@@ -244,6 +237,17 @@ class ProofShareClient extends LitElement {
       <div class="container">
         <h2>🛒 Client Settings</h2>
         <p>Buy proof compute from a market. Select which SP pipelines should use the market.</p>
+        <div class="pricing-info">
+          <p>
+            <strong>FIL/P</strong> is the price of proof compute in FIL per approximately 130M constraints.
+          </p>
+          <ul>
+            <li><strong>PoRep Proof:</strong> 10x 130M constraints.</li>
+            <li><strong>NI-PoRep:</strong> 126x 130M constraints.</li>
+            <li><strong>SnapDeals Proof:</strong> 16x 130M constraints.</li>
+            <li><strong>WindowPoSt:</strong> 1x 130M constraints.</li>
+          </ul>
+        </div>
 
         <div class="mb-2">
           <button class="btn btn-primary" @click=${this.addSP}>
@@ -260,6 +264,7 @@ class ProofShareClient extends LitElement {
               <th><abbr title="Delay before outsourcing work, allowing time for local compute to be used first">buy_delay_secs</abbr></th>
               <th>do_porep</th>
               <th>do_snap</th>
+              <th>FIL/P</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -302,6 +307,15 @@ class ProofShareClient extends LitElement {
                     type="checkbox"
                     .checked=${row.do_snap}
                     @change=${(e) => this.onChange(row, 'do_snap', e.target.checked)}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    style="width:100px"
+                    .value=${row.price}
+                    @input=${(e) => this.onChange(row, 'price', e.target.value === '' ? "0" : e.target.value)}
                   />
                 </td>
                 <td>
