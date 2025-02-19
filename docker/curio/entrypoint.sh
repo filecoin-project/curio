@@ -35,14 +35,40 @@ if [ ! -f $CURIO_REPO_PATH/.init.curio ]; then
 	echo "New Miner is $newminer"
 	echo Initiating a new Curio cluster ...
 	curio config new-cluster $newminer
-	echo Enabling market ...
-  curio config get seal | sed -e $'$a\\\n  EnableParkPiece = true' | curio config set --title seal
+	echo Creating market config...
   curio config get base | sed -e 's/#Miners = \[\]/Miners = ["'"$newminer"'"]/g' | curio config set --title base
+  CONFIG_CONTENT='[HTTP]
+    DelegateTLS = true
+    DomainName = "curio"
+    Enable = true
+
+  [Ingest]
+    MaxDealWaitTime = "0h0m30s"
+
+  [Market]
+    [Market.StorageMarketConfig]
+      [Market.StorageMarketConfig.IPNI]
+        DirectAnnounceURLs = ["http://indexer:3001"]
+        ServiceURL = ["http://indexer:3000"]
+      [Market.StorageMarketConfig.MK12]
+          ExpectedPoRepSealDuration = "0h1m0s"
+          ExpectedSnapSealDuration = "0h1m0s"
+          PublishMsgPeriod = "0h0m10s"
+
+      [[Market.StorageMarketConfig.PieceLocator]]
+        URL = "http://piece-server:12320/pieces"
+
+  [Subsystems]
+    EnableCommP = true
+    EnableDealMarket = true
+    EnableParkPiece = true
+  '
+  echo "$CONFIG_CONTENT" | curio config create --title market
   touch $CURIO_REPO_PATH/.init.config
   fi
 
   echo Starting Curio node to attach storage ...
-  curio run --nosync --layers seal,post,gui &
+  curio run --nosync --layers seal,post,market,gui &
   CURIO_PID=`echo $!`
   until curio cli --machine $myip:12300 wait-api; do
     echo "Waiting for the curio CLI to become ready..."
@@ -57,5 +83,5 @@ if [ ! -f $CURIO_REPO_PATH/.init.curio ]; then
 fi
 
 echo Starting curio node ...
-exec curio run --nosync --name devnet --layers seal,post,gui
+exec curio run --nosync --name devnet --layers seal,post,market,gui
 

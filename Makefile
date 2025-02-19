@@ -319,7 +319,17 @@ docker/curio:
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/curio
 
-docker/devnet: $(lotus_build_cmd) docker/curio-all-in-one docker/lotus docker/lotus-miner docker/curio docker/yugabyte
+docker/piece-server:
+	cd docker/piece-server && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/piece-server-dev:dev \
+		--build-arg BUILD_VERSION=dev .
+.PHONY: docker/piece-server
+
+docker/indexer:
+	cd docker/indexer && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/indexer-dev:dev \
+		--build-arg BUILD_VERSION=dev .
+.PHONY: docker/indexer
+
+docker/devnet: $(lotus_build_cmd) docker/curio-all-in-one docker/lotus docker/lotus-miner docker/curio docker/piece-server docker/indexer
 .PHONY: docker/devnet
 
 devnet/up:

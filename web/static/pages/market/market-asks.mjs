@@ -190,7 +190,7 @@ class MarketAsks extends LitElement {
             const ask = this.spAsks.get(spID);
             return html`
                 <tr>
-                  <td>f0${spID}</td>
+                  <td>${ask ? ask.Miner : ''}</td>
                   <td>${ask ? this.attoFilToFilPerTiBPerMonth(ask.Price) : '-'}</td>
                   <td>${ask ? ask.Price : '-'}</td>
                   <td>${ask ? this.attoFilToFilPerTiBPerMonth(ask.VerifiedPrice) : '-'}</td>

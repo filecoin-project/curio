@@ -278,8 +278,10 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 					break
 				}
 			}
-			if pam.VerifiedAllocationKey != nil || pam.VerifiedAllocationKey.ID != verifreg13.NoAllocationID {
-				verifiedSize += pam.Size
+			if pam.VerifiedAllocationKey != nil {
+				if pam.VerifiedAllocationKey.ID != verifreg13.NoAllocationID {
+					verifiedSize += pam.Size
+				}
 			}
 
 			pams = append(pams, *pam)
