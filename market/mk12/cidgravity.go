@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 
 	"golang.org/x/xerrors"
 
@@ -69,8 +70,8 @@ type CidGravityPayload struct {
 			Sealing                 int `json:"Sealing"`
 		} `json:"DealStagingStates"`
 		Pipeline struct {
-			IsSnap bool          `json:"IsSnap"`
-			States SealingStates `json:"States"`
+			IsSnap bool                   `json:"IsSnap"`
+			States map[string]interface{} `json:"States"`
 		}
 	}
 
@@ -83,36 +84,36 @@ type CidGravityPayload struct {
 }
 
 type SealingStates struct {
-	SDRPending          int64 `db:"sdr_pending" json:"SDRPending,omitempty"`
-	SDRRunning          int64 `db:"sdr_running"  json:"SDRRunning,omitempty"`
-	SDRFailed           int64 `db:"sdr_failed" json:"SDRFailed,omitempty"`
-	TreesPending        int64 `db:"trees_pending" json:"TreesPending,omitempty"`
-	TreesRunning        int64 `db:"trees_running" json:"TreesRunning,omitempty"`
-	TreesFailed         int64 `db:"trees_failed" json:"TreesFailed,omitempty"`
-	PrecommitMsgPending int64 `db:"precommit_msg_pending" json:"PrecommitMsgPending,omitempty"`
-	PrecommitMsgRunning int64 `db:"precommit_msg_running" json:"PrecommitMsgRunning,omitempty"`
-	PrecommitMsgFailed  int64 `db:"precommit_msg_failed" json:"PrecommitMsgFailed,omitempty"`
-	WaitSeedPending     int64 `db:"wait_seed_pending" json:"WaitSeedPending,omitempty"`
-	WaitSeedRunning     int64 `db:"wait_seed_running" json:"WaitSeedRunning,omitempty"`
-	WaitSeedFailed      int64 `db:"wait_seed_failed" json:"WaitSeedFailed,omitempty"`
-	PoRepPending        int64 `db:"porep_pending" json:"PoRepPending,omitempty"`
-	PoRepRunning        int64 `db:"porep_running" json:"PoRepRunning,omitempty"`
-	PoRepFailed         int64 `db:"porep_failed" json:"PoRepFailed,omitempty"`
-	CommitMsgPending    int64 `db:"commit_msg_pending" json:"CommitMsgPending,omitempty"`
-	CommitMsgRunning    int64 `db:"commit_msg_running" json:"CommitMsgRunning,omitempty"`
-	CommitMsgFailed     int64 `db:"commit_msg_failed" json:"CommitMsgFailed,omitempty"`
-	EncodeRunning       int64 `db:"encode_running" json:"EncodeRunning,omitempty"`
-	EncodePending       int64 `db:"encode_pending" json:"EncodePending,omitempty"`
-	EncodeFailed        int64 `db:"encode_failed" json:"EncodeFailed,omitempty"`
-	ProveRunning        int64 `db:"prove_running" json:"ProveRunning,omitempty"`
-	ProvePending        int64 `db:"prove_pending" json:"ProvePending,omitempty"`
-	ProveFailed         int64 `db:"prove_failed" json:"ProveFailed,omitempty"`
-	SubmitRunning       int64 `db:"submit_running" json:"SubmitRunning,omitempty"`
-	SubmitPending       int64 `db:"submit_pending" json:"SubmitPending,omitempty"`
-	SubmitFailed        int64 `db:"submit_failed" json:"SubmitFailed,omitempty"`
-	MoveStorageRunning  int64 `db:"move_storage_running" json:"MoveStorageRunning,omitempty"`
-	MoveStoragePending  int64 `db:"move_storage_pending" json:"MoveStoragePending,omitempty"`
-	MoveStorageFailed   int64 `db:"move_storage_failed" json:"MoveStorageFailed,omitempty"`
+	SDRPending          int64 `db:"sdr_pending"`
+	SDRRunning          int64 `db:"sdr_running"`
+	SDRFailed           int64 `db:"sdr_failed"`
+	TreesPending        int64 `db:"trees_pending"`
+	TreesRunning        int64 `db:"trees_running"`
+	TreesFailed         int64 `db:"trees_failed"`
+	PrecommitMsgPending int64 `db:"precommit_msg_pending"`
+	PrecommitMsgRunning int64 `db:"precommit_msg_running"`
+	PrecommitMsgFailed  int64 `db:"precommit_msg_failed"`
+	WaitSeedPending     int64 `db:"wait_seed_pending"`
+	WaitSeedRunning     int64 `db:"wait_seed_running"`
+	WaitSeedFailed      int64 `db:"wait_seed_failed"`
+	PoRepPending        int64 `db:"porep_pending"`
+	PoRepRunning        int64 `db:"porep_running"`
+	PoRepFailed         int64 `db:"porep_failed"`
+	CommitMsgPending    int64 `db:"commit_msg_pending"`
+	CommitMsgRunning    int64 `db:"commit_msg_running"`
+	CommitMsgFailed     int64 `db:"commit_msg_failed"`
+	EncodeRunning       int64 `db:"encode_running"`
+	EncodePending       int64 `db:"encode_pending"`
+	EncodeFailed        int64 `db:"encode_failed"`
+	ProveRunning        int64 `db:"prove_running"`
+	ProvePending        int64 `db:"prove_pending"`
+	ProveFailed         int64 `db:"prove_failed"`
+	SubmitRunning       int64 `db:"submit_running"`
+	SubmitPending       int64 `db:"submit_pending"`
+	SubmitFailed        int64 `db:"submit_failed"`
+	MoveStorageRunning  int64 `db:"move_storage_running"`
+	MoveStoragePending  int64 `db:"move_storage_pending"`
+	MoveStorageFailed   int64 `db:"move_storage_failed"`
 }
 
 type cidGravityResponse struct {
@@ -378,7 +379,9 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 			return nil, xerrors.Errorf("expected 1 row, got 0")
 		}
 
-		data.SealingPipelineState.Pipeline.States = cts[0]
+		ct := cts[0]
+
+		data.SealingPipelineState.Pipeline.States = structToMap(ct)
 
 	} else {
 
@@ -493,8 +496,23 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 			return nil, xerrors.Errorf("expected 1 row, got 0")
 		}
 
-		data.SealingPipelineState.Pipeline.States = cts[0]
+		ct := cts[0]
+
+		data.SealingPipelineState.Pipeline.States = structToMap(ct)
 	}
 
 	return json.Marshal(data)
+}
+
+func structToMap(input interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+	v := reflect.ValueOf(input)
+	t := v.Type()
+
+	for i := 0; i < v.NumField(); i++ {
+		fieldName := t.Field(i).Name // Get field name
+		fieldValue := v.Field(i).Interface()
+		result[fieldName] = fieldValue
+	}
+	return result
 }
