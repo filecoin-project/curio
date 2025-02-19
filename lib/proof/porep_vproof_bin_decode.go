@@ -1,12 +1,10 @@
 package proof
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
 
-	"github.com/filecoin-project/go-state-types/abi"
 	"golang.org/x/xerrors"
 )
 
@@ -413,23 +411,4 @@ func DecodeCommitment(r io.Reader) (Commitment, error) {
 		return out, fmt.Errorf("failed to decode Commitment: %w", err)
 	}
 	return out, nil
-}
-
-// unmarshal from bincoded cborbytes
-func (c *Commit1OutRaw) UnmarshalCBOR(r io.Reader) error {
-	var cbb abi.CborBytes
-	err := cbb.UnmarshalCBOR(r)
-	if err != nil {
-		return err
-	}
-
-	var buf bytes.Buffer
-	buf.Write(cbb)
-
-	*c, err = DecodeCommit1OutRaw(&buf)
-	if err != nil {	
-		return err
-	}
-
-	return nil
 }

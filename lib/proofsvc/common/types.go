@@ -17,8 +17,6 @@ import (
 	"github.com/filecoin-project/curio/lib/proof"
 )
 
-//go:generate cbor-gen-for --map-encoding ProofRequest
-
 var log = logging.Logger("psvcommon")
 
 var PriceResolution = types.NewInt(1_000_000_000) // 1nFIL
@@ -27,8 +25,8 @@ var MaxPriceNfil = types.NewInt(1_000_000_000) // 1 FIL
 type WorkRequest struct {
 	ID int64 `json:"id" db:"id"`
 
-	Data *string `json:"data" db:"request_data"`
-	Done *bool   `json:"done" db:"done"`
+	RequestCid *string `json:"request_cid" db:"request_cid"`
+	Done       *bool   `json:"done" db:"done"`
 
 	WorkAskID int64 `json:"work_ask_id" db:"work_ask_id"`
 }

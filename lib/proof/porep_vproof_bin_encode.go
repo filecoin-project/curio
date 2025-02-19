@@ -1,12 +1,9 @@
 package proof
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
-
-	"github.com/filecoin-project/go-state-types/abi"
 )
 
 // EncodeCommit1OutRaw serializes Commit1OutRaw into w in the same bincode style
@@ -357,16 +354,4 @@ func EncodeCommitment(w io.Writer, c Commitment) error {
 		return fmt.Errorf("writing commitment: %w", err)
 	}
 	return nil
-}
-
-// cbor marshal to bincoded cborbytes
-func (c *Commit1OutRaw) MarshalCBOR(w io.Writer) error {
-	var buf bytes.Buffer
-	err := EncodeCommit1OutRaw(&buf, *c)
-	if err != nil {
-		return err
-	}
-
-	var cbb abi.CborBytes = buf.Bytes()
-	return cbb.MarshalCBOR(w)
 }
