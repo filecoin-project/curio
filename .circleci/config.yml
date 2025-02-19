@@ -220,7 +220,7 @@ jobs:
         environment:
           CURIO_HARMONYDB_HOSTS: yugabyte
           LOTUS_HARMONYDB_HOSTS: yugabyte
-      - image: yugabytedb/yugabyte:2.21.0.1-b1
+      - image: yugabytedb/yugabyte:2024.2.1.0-b185
         command: bin/yugabyted start --daemon=false
         name: yugabyte
     resource_class: << parameters.resource_class >>

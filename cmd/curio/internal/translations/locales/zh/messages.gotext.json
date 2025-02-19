@@ -1983,6 +1983,36 @@
       "translation": "CLI 命令中的 --machine 标志应指向连接了要重新声明存储的节点",
       "message": "--machine flag in cli command should point to the node where storage to redeclare is attached",
       "placeholder": null
+    },
+    {
+      "id": "Create a new offline verified DDO deal for Curio",
+      "translation": "为 Curio 创建新的离线验证 DDO 交易。",
+      "message": "Create a new offline verified DDO deal for Curio",
+      "placeholder": null
+    },
+    {
+      "id": "Specify actor address for the deal",
+      "translation": "请指定此交易的参与者地址。",
+      "message": "Specify actor address for the deal",
+      "placeholder": null
+    },
+    {
+      "id": "Remove unsealed copies of sector containing this deal",
+      "translation": "删除包含此交易的扇区的未密封副本。",
+      "message": "Remove unsealed copies of sector containing this deal",
+      "placeholder": null
+    },
+    {
+      "id": "indicates that deal index should not be announced to the IPNI",
+      "translation": "表示交易索引不应向 IPNI 公布。",
+      "message": "indicates that deal index should not be announced to the IPNI",
+      "placeholder": null
+    },
+    {
+      "id": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
+      "translation": "交易应由提供者在链上证明的起始 epoch。（默认值：从现在起 2 天）",
+      "message": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
+      "placeholder": null
     }
   ]
 }

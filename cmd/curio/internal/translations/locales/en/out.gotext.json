@@ -429,6 +429,41 @@
             "fuzzy": true
         },
         {
+            "id": "Create a new offline verified DDO deal for Curio",
+            "message": "Create a new offline verified DDO deal for Curio",
+            "translation": "Create a new offline verified DDO deal for Curio",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Specify actor address for the deal",
+            "message": "Specify actor address for the deal",
+            "translation": "Specify actor address for the deal",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Remove unsealed copies of sector containing this deal",
+            "message": "Remove unsealed copies of sector containing this deal",
+            "translation": "Remove unsealed copies of sector containing this deal",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "indicates that deal index should not be announced to the IPNI",
+            "message": "indicates that deal index should not be announced to the IPNI",
+            "translation": "indicates that deal index should not be announced to the IPNI",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
+            "message": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
+            "translation": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Start a Curio process",
             "message": "Start a Curio process",
             "translation": "Start a Curio process",
