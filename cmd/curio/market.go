@@ -464,8 +464,8 @@ var ddoCmd = &cli.Command{
 
 		id := uuid.New().String()
 
-		fastRetrieval := cctx.Bool("remove-unsealed-copy")
-		announce := cctx.Bool("skip-ipni-announce")
+		fastRetrieval := !cctx.Bool("remove-unsealed-copy")
+		announce := !cctx.Bool("skip-ipni-announce")
 
 		// Add the deal to DB
 		comm, err := dep.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {

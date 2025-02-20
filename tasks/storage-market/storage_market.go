@@ -596,6 +596,7 @@ func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context) error {
 									  AND after_commp = TRUE
 									  AND psd_task_id IS NULL
 									  AND after_psd = FALSE
+									  AND is_ddo = FALSE
 									GROUP BY sp_id;`)
 	if err != nil {
 		return xerrors.Errorf("getting eligible SPs for psd tasks: %w", err)
@@ -619,6 +620,7 @@ func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context) error {
 										  AND after_commp = TRUE
 										  AND psd_task_id IS NULL  -- Ensures only unassigned deals are selected
 										  AND after_psd = FALSE
+										  AND is_ddo = FALSE
 										ORDER BY psd_wait_time ASC
 										LIMIT $2  -- Limit by maxDeals
 									)

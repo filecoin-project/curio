@@ -17,18 +17,22 @@ func SingletonTaskAdder(minInterval time.Duration, task TaskInterface) func(AddT
 		add(func(taskID TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
 			var existingTaskID *int64
 			var lastRunTime time.Time
+			var shouldRun bool
+
+			now := time.Now()
 
 			// Query to check the existing task entry
 			err = tx.QueryRow(`SELECT task_id, last_run_time FROM harmony_task_singletons WHERE task_name = $1`, taskName).Scan(&existingTaskID, &lastRunTime)
-			if err != nil {
-				if !errors.Is(err, pgx.ErrNoRows) {
-					return false, err // return error if query failed and it's not because of missing row
-				}
+			if errors.Is(err, pgx.ErrNoRows) {
+				// No existing record → Task should run
+				shouldRun = true
+			} else if err != nil {
+				return false, err // Return actual error
+			} else {
+				// Should run if no existing ID or last time is 0
+				shouldRun = existingTaskID == nil || lastRunTime.Add(minInterval).Before(now)
 			}
 
-			now := time.Now().UTC()
-			// Determine if the task should run based on the absence of a record or outdated last_run_time
-			shouldRun := err == pgx.ErrNoRows || (existingTaskID == nil && lastRunTime.Add(minInterval).Before(now))
 			if !shouldRun {
 				return false, nil
 			}
@@ -36,12 +40,25 @@ func SingletonTaskAdder(minInterval time.Duration, task TaskInterface) func(AddT
 			// Conditionally insert or update the task entry
 			n, err := tx.Exec(`
                 INSERT INTO harmony_task_singletons (task_name, task_id, last_run_time)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (task_name) DO UPDATE
-                SET task_id = COALESCE(harmony_task_singletons.task_id, $2),
-                    last_run_time = $3
-                WHERE harmony_task_singletons.task_id IS NULL
-            `, taskName, taskID, now)
+				VALUES ($1, $2, $3)
+				ON CONFLICT (task_name) DO UPDATE
+				SET task_id = 
+					CASE 
+						-- If task_id is NULL, or if it exists but does not match an active task_name, update it
+						WHEN harmony_task_singletons.task_id IS NULL 
+						OR NOT EXISTS (
+							SELECT 1 FROM harmony_task 
+							WHERE id = harmony_task_singletons.task_id 
+							  AND name = harmony_task_singletons.task_name
+						) 
+						THEN $2
+						ELSE harmony_task_singletons.task_id -- Otherwise, keep the existing task_id
+					END,
+					last_run_time = 
+					CASE 
+						WHEN harmony_task_singletons.task_id IS DISTINCT FROM $2 THEN $3 -- Only update when task_id changes
+						ELSE harmony_task_singletons.last_run_time -- Keep the existing value
+					END`, taskName, taskID, now)
 			if err != nil {
 				return false, err
 			}

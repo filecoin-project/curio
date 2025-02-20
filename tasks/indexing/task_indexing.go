@@ -253,6 +253,7 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		SpID         int64              `db:"sp_id"`
 		SectorNumber int64              `db:"sector"`
 		StorageID    string             `db:"storage_id"`
+		ShouldIndex  bool               `db:"should_index"`
 	}
 
 	if storiface.FTUnsealed != 1 {
@@ -267,7 +268,7 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 	}
 
 	err := i.db.Select(ctx, &tasks, `
-		SELECT dp.indexing_task_id, dp.sp_id, dp.sector, l.storage_id FROM market_mk12_deal_pipeline dp
+		SELECT dp.indexing_task_id, dp.sp_id, dp.sector, dp.should_index, l.storage_id FROM market_mk12_deal_pipeline dp
 			INNER JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
 			WHERE dp.indexing_task_id = ANY ($1) AND l.sector_filetype = 1
 `, indIDs)
@@ -289,6 +290,12 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 	for _, t := range tasks {
 		if _, ok := acceptables[t.TaskID]; !ok {
 			continue
+		}
+
+		// Accept any task which should not be indexed as
+		// it does not require storage access
+		if !t.ShouldIndex {
+			return &t.TaskID, nil
 		}
 
 		for _, l := range ls {
@@ -330,6 +337,9 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 				UUID string `db:"uuid"`
 			}
 
+			// Indexing job must be created for every deal to make sure piece details are inserted in DB
+			// even if we don't want to index it. If piece is not supposed to be indexed then it will handled
+			// by the Do()
 			err := i.db.Select(ctx, &pendings, `SELECT uuid FROM market_mk12_deal_pipeline 
             										WHERE sealed = TRUE
             										AND indexing_task_id IS NULL

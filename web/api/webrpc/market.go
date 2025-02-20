@@ -843,15 +843,15 @@ func (a *WebRPC) MK12DealDetail(ctx context.Context, pieceCid string) ([]MK12Dea
 											start_epoch,
 											end_epoch,
 											'' AS client_peer_id,            -- Empty string for missing client_peer_id
-											chain_deal_id,                   -- NULL handled by Go (sql.NullInt64)
-											publish_cid,                      -- NULL handled by Go (sql.NullString)
+											NULL AS chain_deal_id,           -- NULL handled by Go (sql.NullInt64)
+											NULL AS publish_cid,             -- NULL handled by Go (sql.NullString)
 											piece_cid,
 											piece_size,
 											fast_retrieval,
 											announce_to_ipni,
-											url,                             -- NULL handled by Go (sql.NullString)
+											NULL AS url,                     -- NULL handled by Go (sql.NullString)
 											'{}'::JSONB AS url_headers,      -- Empty JSON object for url_headers
-											error                            -- NULL handled by Go (sql.NullString)
+											NULL AS error                    -- NULL handled by Go (sql.NullString)
 										FROM market_direct_deals
 										WHERE piece_cid = $1`, pieceCid)
 	if err != nil {
