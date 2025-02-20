@@ -567,57 +567,6 @@ func removeUnknownEntries(array1, array2 []toml.Key) []toml.Key {
 	return result
 }
 
-//func extractUnknownFields(knownKeys []toml.Key, originalConfig string) map[string]interface{} {
-//	// Parse the original config into a raw map
-//	var rawConfig map[string]interface{}
-//	err := toml.Unmarshal([]byte(originalConfig), &rawConfig)
-//	if err != nil {
-//		log.Warnw("Failed to parse original config for unknown fields", "error", err)
-//		return nil
-//	}
-//
-//	fmt.Println("Raw Config: ")
-//	fmt.Println(rawConfig)
-//
-//	// Collect recognized keys
-//	recognizedKeys := map[string]struct{}{}
-//	for _, key := range knownKeys {
-//		fmt.Println("RECOGNIZED KEY: ", strings.Join(key, "."))
-//		recognizedKeys[strings.Join(key, ".")] = struct{}{}
-//	}
-//
-//	// Recursively identify unrecognized fields
-//	var extract func(map[string]interface{}, string) map[string]interface{}
-//	extract = func(cfg map[string]interface{}, parent string) map[string]interface{} {
-//		unrecognized := map[string]interface{}{}
-//
-//		for key, value := range cfg {
-//			fullKey := key
-//			if parent != "" {
-//				fullKey = parent + "." + key
-//			}
-//
-//			// ✅ The fix: Only treat a key as recognized if it's actually in the struct
-//			if _, recognized := recognizedKeys[fullKey]; recognized {
-//				// If it's a nested map, check deeper
-//				if nestedMap, ok := value.(map[string]interface{}); ok {
-//					nestedUnknown := extract(nestedMap, fullKey)
-//					if len(nestedUnknown) > 0 {
-//						unrecognized[key] = nestedUnknown
-//					}
-//				}
-//			} else {
-//				// Unknown key detected
-//				fmt.Println("UNRECOGNIZED KEY:", fullKey)
-//				unrecognized[key] = value
-//			}
-//		}
-//		return unrecognized
-//	}
-//
-//	return extract(rawConfig, "")
-//}
-
 func mergeUnknownFields(updatedConfig string, unrecognizedFields map[string]interface{}) (string, error) {
 	// Parse the updated config into a raw map
 	var updatedConfigMap map[string]interface{}
