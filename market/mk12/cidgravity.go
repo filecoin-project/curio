@@ -305,8 +305,7 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 		AfterFindDealSectorNotNull int `db:"after_find_deal_sector_not_null"`
 	}
 
-	err = m.db.Select(ctx, &stats, `SELECT 
-										COUNT(*) FILTER (WHERE started = FALSE AND offline = TRUE) AS not_started_offline,
+	err = m.db.Select(ctx, &pipelineStats, `SELECT COUNT(*) FILTER (WHERE started = FALSE AND offline = TRUE) AS not_started_offline,
 										COUNT(*) FILTER (WHERE started = FALSE AND offline = FALSE) AS not_started_online,
 										COUNT(*) FILTER (WHERE after_commp = TRUE AND after_psd = FALSE) AS after_commp_not_after_psd,
 										COUNT(*) FILTER (WHERE after_find_deal = TRUE AND sector IS NOT NULL) AS after_find_deal_sector_not_null
