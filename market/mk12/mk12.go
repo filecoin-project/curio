@@ -139,7 +139,7 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 	// Apply backpressure
 	wait, err := m.maybeApplyBackpressure(ctx, ds.ClientDealProposal.Proposal.Provider)
 	if err != nil {
-		log.Errorf("applying backpressure: %w", err)
+		log.Errorf("applying backpressure: %s", err.Error())
 		return &ProviderDealRejectionInfo{
 			Reason: "internal server error: failed to apply backpressure",
 		}, nil
@@ -155,7 +155,7 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 	if m.cfg.Market.StorageMarketConfig.MK12.CIDGravityToken != "" {
 		accept, msg, err := m.cidGravityCheck(ctx, ds)
 		if err != nil {
-			log.Errorf("failed to check cid gravity: %w", err)
+			log.Errorf("failed to check cid gravity: %s", err.Error())
 			return &ProviderDealRejectionInfo{
 				Reason: "internal server error: failed to check cid gravity",
 			}, nil
@@ -199,7 +199,7 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 
 		valid := m.applyFilters(ctx, ds)
 		if valid != nil && valid.error != nil {
-			log.Errorf("failed to apply filetrs: %w", valid.error)
+			log.Errorf("failed to apply filetrs: %s", valid.error.Error())
 			return &ProviderDealRejectionInfo{
 				Reason: "internal server error: failed to apply filters",
 			}, nil
