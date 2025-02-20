@@ -133,12 +133,6 @@ const cidGravityMinerCheckUrl = "https://service.cidgravity.com/private/v1/miner
 const cidGravityMinerCheckLabel = "cidg-miner-status-check"
 const agentName = "curio"
 
-var commonHeaders = http.Header{
-	"X-CIDgravity-Agent":   []string{"CIDgravity-storage-Connector"},
-	"X-CIDgravity-Version": []string{"1.0"},
-	"Content-Type":         []string{"application/json"},
-}
-
 func (m *MK12) cidGravityCheck(ctx context.Context, deal *ProviderDealState) (bool, string, error) {
 
 	data, err := m.prepareCidGravityPayload(ctx, deal)
@@ -150,7 +144,11 @@ func (m *MK12) cidGravityCheck(ctx context.Context, deal *ProviderDealState) (bo
 	client := &http.Client{}
 
 	// Create the new request
-	var req *http.Request
+	req, err := http.NewRequest("POST", cidGravityDealCheckUrl, bytes.NewBuffer(data))
+	if err != nil {
+		return false, "", xerrors.Errorf("Error creating request: %w", err)
+	}
+
 	if deal.ClientDealProposal.Proposal.Label.IsString() {
 		lableStr, err := deal.ClientDealProposal.Proposal.Label.ToString()
 		if err != nil {
@@ -162,15 +160,15 @@ func (m *MK12) cidGravityCheck(ctx context.Context, deal *ProviderDealState) (bo
 				return false, "", xerrors.Errorf("Error creating request: %w", err)
 			}
 		}
-	} else {
-		req, err = http.NewRequest("POST", cidGravityDealCheckUrl, bytes.NewBuffer(data))
-		if err != nil {
-			return false, "", xerrors.Errorf("Error creating request: %w", err)
-		}
 	}
 
 	// Add necessary headers
-	req.Header = commonHeaders
+	req.Header = http.Header{
+		"X-CIDgravity-Agent":   []string{"CIDgravity-storage-Connector"},
+		"X-CIDgravity-Version": []string{"1.0"},
+		"Content-Type":         []string{"application/json"},
+	}
+
 	req.Header.Set("X-API-KEY", m.cfg.Market.StorageMarketConfig.MK12.CIDGravityToken)
 	req.Header.Set("X-Address-ID", deal.ClientDealProposal.Proposal.Provider.String())
 	req.Header.Set("Authorization", m.cfg.Market.StorageMarketConfig.MK12.CIDGravityToken)
