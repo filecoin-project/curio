@@ -209,6 +209,8 @@ var mk12Clientcmd = &cli.Command{
 		initCmd,
 		dealCmd,
 		offlineDealCmd,
+		allocateCmd,
+		listAllocationsCmd,
 		marketAddCmd,
 		marketWithdrawCmd,
 		commpCmd,

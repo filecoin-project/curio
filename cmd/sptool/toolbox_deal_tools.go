@@ -1,15 +1,23 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/builtin"
+	"github.com/filecoin-project/go-state-types/builtin/v13/datacap"
+	"github.com/filecoin-project/lotus/build"
+	"github.com/filecoin-project/lotus/chain/actors/builtin/verifreg"
+	"github.com/filecoin-project/lotus/lib/tablewriter"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-cidutil/cidenc"
 	"github.com/ipfs/go-datastore"
@@ -17,19 +25,24 @@ import (
 	carv2 "github.com/ipld/go-car/v2"
 	"github.com/ipld/go-car/v2/blockstore"
 	"github.com/manifoldco/promptui"
+	"github.com/mitchellh/go-homedir"
 	"github.com/multiformats/go-multibase"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-commp-utils/writer"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
+	verifreg13 "github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 	markettypes "github.com/filecoin-project/go-state-types/builtin/v9/market"
+	verifreg9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 
 	"github.com/filecoin-project/curio/lib/testutils"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors"
+	datacap2 "github.com/filecoin-project/lotus/chain/actors/builtin/datacap"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/market"
 	"github.com/filecoin-project/lotus/chain/messagesigner"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -396,4 +409,575 @@ func SignAndPushToMpool(cctx *cli.Context, ctx context.Context, api lapi.Gateway
 	fmt.Println("sent message: ", cid)
 	sent = true
 	return
+}
+
+var allocateCmd = &cli.Command{
+	Name:        "allocate",
+	Usage:       "Create new allocation[s] for verified deals",
+	Description: "The command can accept a CSV formatted file in the format 'pieceCid,pieceSize,miner,tmin,tmax,expiration'",
+	Flags: []cli.Flag{
+		&cli.StringSliceFlag{
+			Name:    "miner",
+			Usage:   "storage provider address[es]",
+			Aliases: []string{"m", "provider", "p"},
+		},
+		&cli.StringSliceFlag{
+			Name:    "piece-info",
+			Usage:   "data piece-info[s] to create the allocation. The format must be --piece-info pieceCid1=pieceSize1 --piece-info pieceCid2=pieceSize2",
+			Aliases: []string{"pi"},
+		},
+		&cli.StringFlag{
+			Name:  "wallet",
+			Usage: "the wallet address that will used create the allocation",
+		},
+		&cli.BoolFlag{
+			Name:  "quiet",
+			Usage: "do not print the allocation list",
+			Value: false,
+		},
+		&cli.Int64Flag{
+			Name: "term-min",
+			Usage: "The minimum duration which the provider must commit to storing the piece to avoid early-termination penalties (epochs).\n" +
+				"Default is 180 days.",
+			Aliases: []string{"tmin"},
+			Value:   verifreg13.MinimumVerifiedAllocationTerm,
+		},
+		&cli.Int64Flag{
+			Name: "term-max",
+			Usage: "The maximum period for which a provider can earn quality-adjusted power for the piece (epochs).\n" +
+				"Default is 5 years.",
+			Aliases: []string{"tmax"},
+			Value:   verifreg13.MaximumVerifiedAllocationTerm,
+		},
+		&cli.Int64Flag{
+			Name: "expiration",
+			Usage: "The latest epoch by which a provider must commit data before the allocation expires (epochs).\n" +
+				"Default is 60 days.",
+			Value: verifreg13.MaximumVerifiedAllocationExpiration,
+		},
+		&cli.StringFlag{
+			Name:    "piece-file",
+			Usage:   "file containing piece-info[s] to create the allocation. Each line in the file should be in the format 'pieceCid,pieceSize,miner,tmin,tmax,expiration'",
+			Aliases: []string{"pf"},
+		},
+		&cli.IntFlag{
+			Name:  "batch-size",
+			Usage: "number of extend requests per batch. If set incorrectly, this will lead to out of gas error",
+			Value: 500,
+		},
+		&cli.IntFlag{
+			Name:  "confidence",
+			Usage: "number of block confirmations to wait for",
+			Value: int(build.MessageConfidence),
+		},
+		&cli.BoolFlag{
+			Name:    "assume-yes",
+			Usage:   "automatic yes to prompts; assume 'yes' as answer to all prompts and run non-interactively",
+			Aliases: []string{"y", "yes"},
+		},
+		&cli.StringFlag{
+			Name:  "evm-client-contract",
+			Usage: "f4 address of EVM contract to spend DataCap from",
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		ctx := cctx.Context
+
+		pieceFile := cctx.String("piece-file")
+		miners := cctx.StringSlice("miner")
+		pinfos := cctx.StringSlice("piece-info")
+
+		if pieceFile == "" && len(pinfos) < 1 {
+			return fmt.Errorf("must provide at least one --piece-info or use --piece-file")
+		}
+
+		if pieceFile == "" && len(miners) < 1 {
+			return fmt.Errorf("must provide at least one miner address or use --piece-file")
+		}
+
+		if pieceFile != "" && len(pinfos) > 0 {
+			return fmt.Errorf("cannot use both --piece-info and --piece-file flags at once")
+		}
+
+		var pieceInfos []PieceInfos
+
+		if pieceFile != "" {
+			// Read file line by line
+			loc, err := homedir.Expand(pieceFile)
+			if err != nil {
+				return err
+			}
+			file, err := os.Open(loc)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+			scanner := bufio.NewScanner(file)
+			for scanner.Scan() {
+				line := scanner.Text()
+				// Extract pieceCid, pieceSize and MinerAddr from line
+				parts := strings.Split(line, ",")
+				if len(parts) != 6 {
+					return fmt.Errorf("invalid line format. Expected pieceCid, pieceSize, MinerAddr, TMin, TMax, Exp at %s", line)
+				}
+				if parts[0] == "" || parts[1] == "" || parts[2] == "" || parts[3] == "" || parts[4] == "" || parts[5] == "" {
+					return fmt.Errorf("empty column value in the input file at %s", line)
+				}
+
+				pieceCid, err := cid.Parse(parts[0])
+				if err != nil {
+					return fmt.Errorf("failed to parse CID: %w", err)
+				}
+				pieceSize, err := strconv.ParseInt(parts[1], 10, 64)
+				if err != nil {
+					return fmt.Errorf("failed to parse size %w", err)
+				}
+				maddr, err := address.NewFromString(parts[2])
+				if err != nil {
+					return fmt.Errorf("failed to parse miner address %w", err)
+				}
+
+				mid, err := address.IDFromAddress(maddr)
+				if err != nil {
+					return fmt.Errorf("failed to convert miner address %w", err)
+				}
+
+				tmin, err := strconv.ParseUint(parts[3], 10, 64)
+				if err != nil {
+					return fmt.Errorf("failed to tmin %w", err)
+				}
+
+				tmax, err := strconv.ParseUint(parts[4], 10, 64)
+				if err != nil {
+					return fmt.Errorf("failed to tmax %w", err)
+				}
+
+				exp, err := strconv.ParseUint(parts[5], 10, 64)
+				if err != nil {
+					return fmt.Errorf("failed to expiration %w", err)
+				}
+
+				if tmax < tmin {
+					return fmt.Errorf("maximum duration %d cannot be smaller than minimum duration %d", tmax, tmin)
+				}
+
+				pieceInfos = append(pieceInfos, PieceInfos{
+					Cid:       pieceCid,
+					Size:      pieceSize,
+					Miner:     abi.ActorID(mid),
+					MinerAddr: maddr,
+					Tmin:      abi.ChainEpoch(tmin),
+					Tmax:      abi.ChainEpoch(tmax),
+					Exp:       abi.ChainEpoch(exp),
+				})
+				if err := scanner.Err(); err != nil {
+					return err
+				}
+			}
+		} else {
+			for _, miner := range miners {
+				maddr, err := address.NewFromString(miner)
+				if err != nil {
+					return fmt.Errorf("failed to parse miner address %w", err)
+				}
+
+				mid, err := address.IDFromAddress(maddr)
+				if err != nil {
+					return fmt.Errorf("failed to convert miner address %w", err)
+				}
+				for _, p := range cctx.StringSlice("piece-info") {
+					pieceDetail := strings.Split(p, "=")
+					if len(pieceDetail) != 2 {
+						return fmt.Errorf("incorrect pieceInfo format: %s", pieceDetail)
+					}
+
+					size, err := strconv.ParseInt(pieceDetail[1], 10, 64)
+					if err != nil {
+						return fmt.Errorf("failed to parse the piece size for %s for pieceCid %s: %w", pieceDetail[0], pieceDetail[1], err)
+					}
+					pcid, err := cid.Parse(pieceDetail[0])
+					if err != nil {
+						return fmt.Errorf("failed to parse the pieceCid for %s: %w", pieceDetail[0], err)
+					}
+
+					tmin := abi.ChainEpoch(cctx.Int64("term-min"))
+
+					tmax := abi.ChainEpoch(cctx.Int64("term-max"))
+
+					exp := abi.ChainEpoch(cctx.Int64("expiration"))
+
+					if tmax < tmin {
+						return fmt.Errorf("maximum duration %d cannot be smaller than minimum duration %d", tmax, tmin)
+					}
+
+					pieceInfos = append(pieceInfos, PieceInfos{
+						Cid:       pcid,
+						Size:      size,
+						Miner:     abi.ActorID(mid),
+						MinerAddr: maddr,
+						Tmin:      tmin,
+						Tmax:      tmax,
+						Exp:       exp,
+					})
+				}
+			}
+		}
+
+		n, err := Setup(cctx.String(mk12_client_repo.Name))
+		if err != nil {
+			return err
+		}
+
+		gapi, closer, err := lcli.GetGatewayAPI(cctx)
+		if err != nil {
+			return fmt.Errorf("can't setup gateway connection: %w", err)
+		}
+		defer closer()
+
+		// Get wallet address from input
+		walletAddr, err := n.GetProvidedOrDefaultWallet(ctx, cctx.String("wallet"))
+		if err != nil {
+			return err
+		}
+
+		log.Debugw("selected wallet", "wallet", walletAddr)
+
+		var msgs []*types.Message
+		var allocationsAddr address.Address
+		if cctx.IsSet("evm-client-contract") {
+			evmContract := cctx.String("evm-client-contract")
+			if evmContract == "" {
+				return fmt.Errorf("evm-client-contract can't be empty")
+			}
+			evmContractAddr, err := address.NewFromString(evmContract)
+			if err != nil {
+				return err
+			}
+			allocationsAddr = evmContractAddr
+			msgs, err = CreateAllocationViaEVMMsg(ctx, gapi, pieceInfos, walletAddr, evmContractAddr, cctx.Int("batch-size"))
+			if err != nil {
+				return err
+			}
+		} else {
+			allocationsAddr = walletAddr
+			msgs, err = CreateAllocationMsg(ctx, gapi, pieceInfos, walletAddr, cctx.Int("batch-size"))
+			if err != nil {
+				return err
+			}
+		}
+
+		oldallocations, err := gapi.StateGetAllocations(ctx, allocationsAddr, types.EmptyTSK)
+		if err != nil {
+			return fmt.Errorf("failed to get allocations: %w", err)
+		}
+
+		var mcids []cid.Cid
+
+		ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
+		for _, msg := range msgs {
+			mcid, sent, err := SignAndPushToMpool(cctx, ctx, gapi, n, ds, msg)
+			if err != nil {
+				return err
+			}
+			if !sent {
+				fmt.Printf("message %s with method %s not sent\n", msg.Cid(), msg.Method.String())
+				continue
+			}
+			mcids = append(mcids, mcid)
+		}
+
+		var mcidStr []string
+		for _, c := range mcids {
+			mcidStr = append(mcidStr, c.String())
+		}
+
+		log.Infow("submitted data cap allocation message[s]", "CID", mcidStr)
+		log.Info("waiting for message to be included in a block")
+
+		// wait for msgs to get mined into a block
+		eg := errgroup.Group{}
+		eg.SetLimit(10)
+		for _, msg := range mcids {
+			m := msg
+			eg.Go(func() error {
+				wait, err := gapi.StateWaitMsg(ctx, m, uint64(cctx.Int("confidence")), 2000, true)
+				if err != nil {
+					return fmt.Errorf("timeout waiting for message to land on chain %s", m.String())
+
+				}
+
+				if wait.Receipt.ExitCode.IsError() {
+					return fmt.Errorf("failed to execute message %s: %w", m.String(), wait.Receipt.ExitCode)
+				}
+				return nil
+			})
+		}
+		err = eg.Wait()
+		if err != nil {
+			return err
+		}
+
+		// Return early of quiet flag is set
+		if cctx.Bool("quiet") {
+			return nil
+		}
+
+		newallocations, err := gapi.StateGetAllocations(ctx, allocationsAddr, types.EmptyTSK)
+		if err != nil {
+			return fmt.Errorf("failed to get allocations: %w", err)
+		}
+
+		// Generate a diff to find new allocations
+		for i := range newallocations {
+			_, ok := oldallocations[i]
+			if ok {
+				delete(newallocations, i)
+			}
+		}
+
+		return printAllocation(newallocations, cctx.Bool("json"))
+	},
+}
+
+var listAllocationsCmd = &cli.Command{
+	Name:  "list-allocations",
+	Usage: "Lists all allocations for a client address(wallet)",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:    "miner",
+			Usage:   "Storage provider address. If provided, only allocations against this minerID will be printed",
+			Aliases: []string{"m", "provider", "p"},
+		},
+		&cli.StringFlag{
+			Name:  "wallet",
+			Usage: "the wallet address that will used create the allocation",
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		ctx := cctx.Context
+
+		n, err := Setup(cctx.String(mk12_client_repo.Name))
+		if err != nil {
+			return err
+		}
+
+		gapi, closer, err := lcli.GetGatewayAPI(cctx)
+		if err != nil {
+			return fmt.Errorf("cant setup gateway connection: %w", err)
+		}
+		defer closer()
+
+		// Get wallet address from input
+		walletAddr, err := n.GetProvidedOrDefaultWallet(ctx, cctx.String("wallet"))
+		if err != nil {
+			return err
+		}
+
+		log.Debugw("selected wallet", "wallet", walletAddr)
+
+		allocations, err := gapi.StateGetAllocations(ctx, walletAddr, types.EmptyTSK)
+		if err != nil {
+			return fmt.Errorf("failed to get allocations: %w", err)
+		}
+
+		if cctx.String("miner") != "" {
+			// Get all minerIDs from input
+			minerId := cctx.String("miner")
+			maddr, err := address.NewFromString(minerId)
+			if err != nil {
+				return err
+			}
+
+			// Verify that minerID exists
+			_, err = gapi.StateMinerInfo(ctx, maddr, types.EmptyTSK)
+			if err != nil {
+				return err
+			}
+
+			mid, err := address.IDFromAddress(maddr)
+			if err != nil {
+				return err
+			}
+
+			for i, v := range allocations {
+				if v.Provider != abi.ActorID(mid) {
+					delete(allocations, i)
+				}
+			}
+		}
+
+		return printAllocation(allocations, cctx.Bool("json"))
+	},
+}
+
+func printAllocation(allocations map[verifreg.AllocationId]verifreg.Allocation, json bool) error {
+	// Map Keys. Corresponds to the standard tablewriter output
+	allocationID := "AllocationID"
+	client := "Client"
+	provider := "Miner"
+	pieceCid := "PieceCid"
+	pieceSize := "PieceSize"
+	tMin := "TermMin"
+	tMax := "TermMax"
+	expr := "Expiration"
+
+	var allocs []map[string]interface{}
+
+	for key, val := range allocations {
+		alloc := map[string]interface{}{
+			allocationID: key,
+			client:       val.Client,
+			provider:     val.Provider,
+			pieceCid:     val.Data,
+			pieceSize:    val.Size,
+			tMin:         val.TermMin,
+			tMax:         val.TermMax,
+			expr:         val.Expiration,
+		}
+		allocs = append(allocs, alloc)
+	}
+
+	if json {
+		type jalloc struct {
+			Client     abi.ActorID         `json:"client"`
+			Provider   abi.ActorID         `json:"provider"`
+			Data       cid.Cid             `json:"data"`
+			Size       abi.PaddedPieceSize `json:"size"`
+			TermMin    abi.ChainEpoch      `json:"term_min"`
+			TermMax    abi.ChainEpoch      `json:"term_max"`
+			Expiration abi.ChainEpoch      `json:"expiration"`
+		}
+		allocMap := make(map[verifreg13.AllocationId]jalloc, len(allocations))
+		for id, allocation := range allocations {
+			allocMap[verifreg13.AllocationId(id)] = jalloc{
+				Provider:   allocation.Provider,
+				Client:     allocation.Client,
+				Data:       allocation.Data,
+				Size:       allocation.Size,
+				TermMin:    allocation.TermMin,
+				TermMax:    allocation.TermMax,
+				Expiration: allocation.Expiration,
+			}
+		}
+		return PrintJson(map[string]any{"allocations": allocations})
+	} else {
+		// Init the tablewriter's columns
+		tw := tablewriter.New(
+			tablewriter.Col(allocationID),
+			tablewriter.Col(client),
+			tablewriter.Col(provider),
+			tablewriter.Col(pieceCid),
+			tablewriter.Col(pieceSize),
+			tablewriter.Col(tMin),
+			tablewriter.Col(tMax),
+			tablewriter.NewLineCol(expr))
+		// populate it with content
+		for _, alloc := range allocs {
+			tw.Write(alloc)
+		}
+		// return the corresponding string
+		return tw.Flush(os.Stdout)
+	}
+}
+
+type PieceInfos struct {
+	Cid       cid.Cid
+	Size      int64
+	MinerAddr address.Address
+	Miner     abi.ActorID
+	Tmin      abi.ChainEpoch
+	Tmax      abi.ChainEpoch
+	Exp       abi.ChainEpoch
+}
+
+func CreateAllocationMsg(ctx context.Context, api lapi.Gateway, infos []PieceInfos, wallet address.Address, batchSize int) ([]*types.Message, error) {
+	// Create allocation requests
+	rDataCap, allocationRequests, err := CreateAllocationRequests(ctx, api, infos)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get datacap balance
+	aDataCap, err := api.StateVerifiedClientStatus(ctx, wallet, types.EmptyTSK)
+	if err != nil {
+		return nil, err
+	}
+
+	if aDataCap == nil {
+		return nil, fmt.Errorf("wallet %s does not have any datacap", wallet)
+	}
+
+	// Check that we have enough data cap to make the allocation
+	if rDataCap.GreaterThan(big.NewInt(aDataCap.Int64())) {
+		return nil, fmt.Errorf("requested datacap %s is greater then the available datacap %s", rDataCap, aDataCap)
+	}
+
+	// Batch allocationRequests to create message
+	var messages []*types.Message
+	for i := 0; i < len(allocationRequests); i += batchSize {
+		end := i + batchSize
+		if end > len(allocationRequests) {
+			end = len(allocationRequests)
+		}
+		batch := allocationRequests[i:end]
+		arequest := &verifreg9.AllocationRequests{
+			Allocations: batch,
+		}
+		bDataCap := big.NewInt(0)
+		for _, bd := range batch {
+			bDataCap.Add(big.NewInt(int64(bd.Size)).Int, bDataCap.Int)
+		}
+
+		receiverParams, err := actors.SerializeParams(arequest)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize the parameters: %w", err)
+		}
+
+		transferParams, err := actors.SerializeParams(&datacap.TransferParams{
+			To:           builtin.VerifiedRegistryActorAddr,
+			Amount:       big.Mul(bDataCap, builtin.TokenPrecision),
+			OperatorData: receiverParams,
+		})
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize transfer parameters: %w", err)
+		}
+		msg := &types.Message{
+			To:     builtin.DatacapActorAddr,
+			From:   wallet,
+			Method: datacap2.Methods.TransferExported,
+			Params: transferParams,
+			Value:  big.Zero(),
+		}
+		messages = append(messages, msg)
+	}
+	return messages, nil
+}
+
+func CreateAllocationRequests(ctx context.Context, api lapi.Gateway, infos []PieceInfos) (*big.Int, []verifreg9.AllocationRequest, error) {
+	var allocationRequests []verifreg9.AllocationRequest
+	rDataCap := big.NewInt(0)
+	head, err := api.ChainHead(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, info := range infos {
+		minfo, err := api.StateMinerInfo(ctx, info.MinerAddr, types.EmptyTSK)
+		if err != nil {
+			return nil, nil, err
+		}
+		if uint64(minfo.SectorSize) < uint64(info.Size) {
+			return nil, nil, fmt.Errorf("specified piece size %d is bigger than miner's sector size %s", info.Size, minfo.SectorSize.String())
+		}
+		allocationRequests = append(allocationRequests, verifreg9.AllocationRequest{
+			Provider:   info.Miner,
+			Data:       info.Cid,
+			Size:       abi.PaddedPieceSize(info.Size),
+			TermMin:    info.Tmin,
+			TermMax:    info.Tmax,
+			Expiration: head.Height() + info.Exp,
+		})
+		rDataCap.Add(big.NewInt(info.Size).Int, rDataCap.Int)
+	}
+	return &rDataCap, allocationRequests, nil
 }
