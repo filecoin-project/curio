@@ -250,7 +250,7 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 	// Fund details
 	mbal, err := m.api.StateMarketBalance(ctx, deal.ClientDealProposal.Proposal.Provider, types.EmptyTSK)
 	if err != nil {
-		return nil, err
+		return nil, xerrors.Errorf("getting provider market balance: %w", err)
 	}
 
 	data.FundsState.Escrow.Tagged = big.NewInt(0)
@@ -283,7 +283,7 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 
 	err = m.db.Select(ctx, &stats, `SELECT SUM(available) as available, SUM(capacity) as capacity FROM storage_path WHERE can_seal = true`)
 	if err != nil {
-		return nil, err
+		return nil, xerrors.Errorf("failed to run storage query: %w", err)
 	}
 
 	if len(stats) == 0 {
