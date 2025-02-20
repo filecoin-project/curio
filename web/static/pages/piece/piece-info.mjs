@@ -147,6 +147,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                         <tr><td>UUID</td><td><a href="/pages/mk12-deal/?id=${entry.deal.uuid}">${entry.deal.uuid}</a></td></tr>
                         <tr><td>Provider (sp_id)</td><td>${entry.deal.addr}</td></tr>
                         <tr><td>Signed Proposal CID</td><td>${entry.deal.signed_proposal_cid}</td></tr>
+                        <tr><td>Is DDO</td><td>${entry.deal.is_ddo}</td></tr>
                         <tr><td>Proposal CID</td><td>${entry.deal.proposal_cid}</td></tr>
 
                         <tr><th colspan="2"><h5>Proposal 📝</h5></th></tr>

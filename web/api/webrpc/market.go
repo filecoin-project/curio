@@ -734,7 +734,7 @@ func (a *WebRPC) PieceSummary(ctx context.Context) (*PieceSummary, error) {
 	return &s, nil
 }
 
-// MK12Deal represents a record from market_mk12_deals table
+// MK12Deal represents a record from market_mk12_deals or market_direct_deals table
 type MK12Deal struct {
 	UUID              string          `db:"uuid" json:"uuid"`
 	SpId              int64           `db:"sp_id" json:"sp_id"`
@@ -790,6 +790,7 @@ type MK12DealPipeline struct {
 	Announce          sql.NullBool    `db:"announce" json:"announce"`
 	Complete          bool            `db:"complete" json:"complete"`
 	CreatedAt         time.Time       `db:"created_at" json:"created_at"`
+	IsDDO             bool            `db:"is_ddo" json:"is_ddo"`
 }
 
 // MK12DealDetailEntry combines a deal and its pipeline
@@ -800,32 +801,59 @@ type MK12DealDetailEntry struct {
 
 func (a *WebRPC) MK12DealDetail(ctx context.Context, pieceCid string) ([]MK12DealDetailEntry, error) {
 	var mk12Deals []*MK12Deal
+
 	err := a.deps.DB.Select(ctx, &mk12Deals, `
-        SELECT
-            uuid,
-            sp_id,
-            created_at,
-            signed_proposal_cid,
-            proposal_signature,
-            proposal,
-            proposal_cid,
-            offline,
-            verified,
-            start_epoch,
-            end_epoch,
-            client_peer_id,
-            chain_deal_id,
-            publish_cid,
-            piece_cid,
-            piece_size,
-            fast_retrieval,
-            announce_to_ipni,
-            url,
-            url_headers,
-            error
-        FROM market_mk12_deals
-        WHERE piece_cid = $1
-    `, pieceCid)
+										SELECT
+											uuid,
+											sp_id,
+											created_at,
+											signed_proposal_cid,
+											proposal_signature,
+											proposal,
+											proposal_cid,
+											offline,
+											verified,
+											start_epoch,
+											end_epoch,
+											client_peer_id,
+											chain_deal_id,
+											publish_cid,
+											piece_cid,
+											piece_size,
+											fast_retrieval,
+											announce_to_ipni,
+											url,
+											url_headers,
+											error
+										FROM market_mk12_deals
+										WHERE piece_cid = $1
+									
+										UNION ALL
+									
+										SELECT
+											uuid,
+											sp_id,
+											created_at,
+											'' AS signed_proposal_cid,       -- Empty string for missing string field
+											''::BYTEA AS proposal_signature, -- Empty byte array for missing proposal signature
+											'{}'::JSONB AS proposal,         -- Empty JSON object for proposal
+											'' AS proposal_cid,              -- Empty string for missing proposal_cid
+											offline,
+											verified,
+											start_epoch,
+											end_epoch,
+											'' AS client_peer_id,            -- Empty string for missing client_peer_id
+											chain_deal_id,                   -- NULL handled by Go (sql.NullInt64)
+											publish_cid,                      -- NULL handled by Go (sql.NullString)
+											piece_cid,
+											piece_size,
+											fast_retrieval,
+											announce_to_ipni,
+											url,                             -- NULL handled by Go (sql.NullString)
+											'{}'::JSONB AS url_headers,      -- Empty JSON object for url_headers
+											error                            -- NULL handled by Go (sql.NullString)
+										FROM market_direct_deals
+										WHERE piece_cid = $1`, pieceCid)
 	if err != nil {
 		return nil, err
 	}
@@ -869,7 +897,8 @@ func (a *WebRPC) MK12DealDetail(ctx context.Context, pieceCid string) ([]MK12Dea
                 indexed,
                 announce,
                 complete,
-                created_at
+                created_at,
+                is_ddo
             FROM market_mk12_deal_pipeline
             WHERE uuid = ANY($1)
         `, uuids)
@@ -959,7 +988,16 @@ func (a *WebRPC) MK12DealPipelineRemove(ctx context.Context, uuid string) error 
 		}
 
 		//Mark failure for deal
-		n, err := tx.Exec(`UPDATE market_mk12_deals SET error = $1 WHERE uuid = $2`, "Deal pipeline removed by SP", uuid)
+		n, err := tx.Exec(`WITH updated AS (
+									UPDATE market_mk12_deals
+									SET error = $1
+									WHERE uuid = $2
+									RETURNING uuid
+								)
+								UPDATE market_direct_deals
+								SET error = $1
+								WHERE uuid = $2 AND NOT EXISTS (SELECT 1 FROM updated)`,
+			"Deal pipeline removed by SP", uuid)
 		if err != nil {
 			return false, xerrors.Errorf("failed to mark deal %s as failed", uuid)
 		}
@@ -1359,6 +1397,19 @@ func (a *WebRPC) BulkRemoveFailedMarketPipelines(ctx context.Context, taskType s
 				}
 			}
 
+			_, err = tx.Exec(`WITH updated AS (
+									UPDATE market_mk12_deals
+									SET error = $1
+									WHERE uuid = $2
+									RETURNING uuid
+								)
+								UPDATE market_direct_deals
+								SET error = $1
+								WHERE uuid = $2 AND NOT EXISTS (SELECT 1 FROM updated)`, "Deal pipeline removed by SP", p.uuid)
+			if err != nil {
+				return false, xerrors.Errorf("store deal failure: updating deal pipeline: %w", err)
+			}
+
 			_, err = tx.Exec(`DELETE FROM market_mk12_deal_pipeline WHERE uuid = $1`, p.uuid)
 			if err != nil {
 				return false, err
@@ -1394,4 +1445,33 @@ func (a *WebRPC) BulkRemoveFailedMarketPipelines(ctx context.Context, taskType s
 	}
 
 	return nil
+}
+
+func (a *WebRPC) MK12DDOStorageDealList(ctx context.Context, limit int, offset int) ([]*StorageDealList, error) {
+	var mk12Summaries []*StorageDealList
+
+	err := a.deps.DB.Select(ctx, &mk12Summaries, `SELECT 
+									md.uuid,
+									md.sp_id,
+									md.created_at,
+									md.piece_cid,
+									md.piece_size,
+									coalesce(mm12dp.complete, true) as complete
+									FROM market_direct_deals md
+									LEFT JOIN market_mk12_deal_pipeline mm12dp ON md.uuid = mm12dp.uuid
+									ORDER BY created_at DESC
+											LIMIT $1 OFFSET $2;`, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch deal list: %w", err)
+	}
+
+	for i := range mk12Summaries {
+		addr, err := address.NewIDAddress(uint64(mk12Summaries[i].MinerID))
+		if err != nil {
+			return nil, err
+		}
+		mk12Summaries[i].Miner = addr.String()
+	}
+	return mk12Summaries, nil
+
 }
