@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"regexp"
 
 	"golang.org/x/xerrors"
 
@@ -70,8 +71,8 @@ type CidGravityPayload struct {
 			Sealing                 int `json:"Sealing"`
 		} `json:"DealStagingStates"`
 		Pipeline struct {
-			IsSnap bool                   `json:"IsSnap"`
-			States map[string]interface{} `json:"States"`
+			IsSnap bool                        `json:"IsSnap"`
+			States map[string]map[string]int64 `json:"States"`
 		}
 	}
 
@@ -143,7 +144,7 @@ func (m *MK12) cidGravityCheck(ctx context.Context, deal *ProviderDealState) (bo
 
 	data, err := m.prepareCidGravityPayload(ctx, deal)
 	if err != nil {
-		return false, "", xerrors.Errorf("Error preparing cid gravity payload: %v", err)
+		return false, "", xerrors.Errorf("Error preparing cid gravity payload: %w", err)
 	}
 
 	// Creating a new HTTP client
@@ -154,18 +155,18 @@ func (m *MK12) cidGravityCheck(ctx context.Context, deal *ProviderDealState) (bo
 	if deal.ClientDealProposal.Proposal.Label.IsString() {
 		lableStr, err := deal.ClientDealProposal.Proposal.Label.ToString()
 		if err != nil {
-			return false, "", xerrors.Errorf("Error getting label string: %v", err)
+			return false, "", xerrors.Errorf("Error getting label string: %w", err)
 		}
 		if lableStr == cidGravityMinerCheckLabel {
 			req, err = http.NewRequest("POST", cidGravityMinerCheckUrl, bytes.NewBuffer(data))
 			if err != nil {
-				return false, "", xerrors.Errorf("Error creating request: %v", err)
+				return false, "", xerrors.Errorf("Error creating request: %w", err)
 			}
 		}
 	} else {
 		req, err = http.NewRequest("POST", cidGravityDealCheckUrl, bytes.NewBuffer(data))
 		if err != nil {
-			return false, "", xerrors.Errorf("Error creating request: %v", err)
+			return false, "", xerrors.Errorf("Error creating request: %w", err)
 		}
 	}
 
@@ -178,12 +179,12 @@ func (m *MK12) cidGravityCheck(ctx context.Context, deal *ProviderDealState) (bo
 	// Execute the request
 	resp, err := client.Do(req)
 	if err != nil {
-		return false, "", xerrors.Errorf("Error making request: %v", err)
+		return false, "", xerrors.Errorf("Error making request: %w", err)
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
 		if err != nil {
-			log.Errorf("Error closing response body: %v", err)
+			log.Errorf("Error closing response body: %w", err)
 		}
 	}(resp.Body)
 
@@ -198,14 +199,14 @@ func (m *MK12) cidGravityCheck(ctx context.Context, deal *ProviderDealState) (bo
 	body := new(bytes.Buffer)
 	_, err = body.ReadFrom(resp.Body)
 	if err != nil {
-		return false, "", xerrors.Errorf("Error reading response body: %v", err)
+		return false, "", xerrors.Errorf("Error reading response body: %w", err)
 	}
 
 	response := cidGravityResponse{}
 	err = json.Unmarshal(body.Bytes(), &response)
 
 	if err != nil {
-		return false, "", xerrors.Errorf("Error parsing response body: %v", err)
+		return false, "", xerrors.Errorf("Error parsing response body: %w", err)
 	}
 
 	log.Debugw("cid gravity response",
@@ -381,7 +382,7 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 
 		ct := cts[0]
 
-		data.SealingPipelineState.Pipeline.States = structToMap(ct)
+		data.SealingPipelineState.Pipeline.States = structToNestedMap(ct)
 
 	} else {
 
@@ -498,21 +499,43 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 
 		ct := cts[0]
 
-		data.SealingPipelineState.Pipeline.States = structToMap(ct)
+		data.SealingPipelineState.Pipeline.States = structToNestedMap(ct)
 	}
 
 	return json.Marshal(data)
 }
 
-func structToMap(input interface{}) map[string]interface{} {
-	result := make(map[string]interface{})
+func structToNestedMap(input interface{}) map[string]map[string]int64 {
+	result := map[string]map[string]int64{
+		"Running": {},
+		"Pending": {},
+		"Failed":  {},
+	}
+
 	v := reflect.ValueOf(input)
 	t := v.Type()
 
+	// Regular expression to extract category names (e.g., "SDR", "Prove", "Submit", "MoveStorage")
+	re := regexp.MustCompile(`(.*?)(Pending|Running|Failed)$`)
+
 	for i := 0; i < v.NumField(); i++ {
-		fieldName := t.Field(i).Name // Get field name
-		fieldValue := v.Field(i).Interface()
-		result[fieldName] = fieldValue
+		fieldName := t.Field(i).Name
+		fieldValue := v.Field(i).Interface().(int64) // Cast to int64
+
+		// Extract base name and category
+		matches := re.FindStringSubmatch(fieldName)
+		if len(matches) != 3 {
+			continue // Skip if the name doesn't match expected pattern
+		}
+		category := matches[1] // Extract base category name (e.g., "SDR", "Prove")
+		state := matches[2]    // Extract state (e.g., "Running", "Pending", "Failed")
+
+		// Ensure category key exists in result
+		if _, exists := result[state]; !exists {
+			result[state] = make(map[string]int64)
+		}
+		result[state][category] = fieldValue
 	}
+
 	return result
 }
