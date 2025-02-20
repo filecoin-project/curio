@@ -281,7 +281,7 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 
 	var stats []StorageUseStats
 
-	err = m.db.Select(ctx, &stats, `SELECT SUM(available) as available, SUM(capacity) as capacity FROM storage_path WHERE can_seal = true`)
+	err = m.db.Select(ctx, &stats, `SELECT COALESCE(SUM(available), 0) as available, COALESCE(SUM(capacity), 0) as capacity FROM storage_path WHERE can_seal = true`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to run storage query: %w", err)
 	}
