@@ -18,7 +18,6 @@ import (
 	"github.com/filecoin-project/go-state-types/crypto"
 
 	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/chain/types"
 )
 
 const FormatVersion = "1.0"
@@ -229,6 +228,12 @@ func (m *MK12) cidGravityCheck(ctx context.Context, deal *ProviderDealState) (bo
 }
 
 func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealState) ([]byte, error) {
+
+	head, err := m.api.ChainHead(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("getting chain head: %w", err)
+	}
+
 	data := CidGravityPayload{
 		Agent:         agentName,
 		FormatVersion: FormatVersion,
@@ -248,7 +253,7 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 	data.DealDataRoot.CID = deal.DealDataRoot.String()
 
 	// Fund details
-	mbal, err := m.api.StateMarketBalance(ctx, deal.ClientDealProposal.Proposal.Provider, types.EmptyTSK)
+	mbal, err := m.api.StateMarketBalance(ctx, deal.ClientDealProposal.Proposal.Provider, head.Key())
 	if err != nil {
 		return nil, xerrors.Errorf("getting provider market balance: %w", err)
 	}
@@ -260,7 +265,7 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 	data.FundsState.Collateral.Address = deal.ClientDealProposal.Proposal.Provider
 	data.FundsState.Collateral.Balance = big.Sub(mbal.Escrow, mbal.Locked)
 
-	mi, err := m.api.StateMinerInfo(ctx, deal.ClientDealProposal.Proposal.Provider, types.EmptyTSK)
+	mi, err := m.api.StateMinerInfo(ctx, deal.ClientDealProposal.Proposal.Provider, head.Key())
 	if err != nil {
 		return nil, xerrors.Errorf("getting provider info: %w", err)
 	}
@@ -329,24 +334,24 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 		var cts []SealingStates
 
 		err = m.db.Select(ctx, &cts, `WITH pipeline_data AS (
-											SELECT sp.*,
-												   et.owner_id AS encode_owner, 
-												   pt.owner_id AS prove_owner,
-												   st.owner_id AS submit_owner,
-												   mt.owner_id AS move_storage_owner
-
-													(sp.task_id_encode IS NOT NULL AND et.id IS NULL) AS encode_missing,
-													(sp.task_id_prove IS NOT NULL AND pt.id IS NULL) AS prove_missing,
-													(sp.task_id_submit IS NOT NULL AND st.id IS NULL) AS submit_missing,
-													(sp.task_id_move_storage IS NOT NULL AND mt.id IS NULL) AS move_storage_missing
-
-
-											FROM sectors_snap_pipeline sp
-											LEFT JOIN harmony_task et ON et.id = sp.task_id_encode
-											LEFT JOIN harmony_task pt ON pt.id = sp.task_id_prove
-											LEFT JOIN harmony_task st ON st.id = sp.task_id_submit
-											LEFT JOIN harmony_task mt ON mt.id = sp.task_id_move_storage
-											WHERE after_move_storage = false
+												SELECT sp.*,
+													   et.owner_id AS encode_owner, 
+													   pt.owner_id AS prove_owner,
+													   st.owner_id AS submit_owner,
+													   mt.owner_id AS move_storage_owner,
+											
+													   -- Detect missing task entries (use CASE WHEN instead of direct boolean expression)
+													   CASE WHEN (sp.task_id_encode IS NOT NULL AND et.id IS NULL) THEN TRUE ELSE FALSE END AS encode_missing,
+													   CASE WHEN (sp.task_id_prove IS NOT NULL AND pt.id IS NULL) THEN TRUE ELSE FALSE END AS prove_missing,
+													   CASE WHEN (sp.task_id_submit IS NOT NULL AND st.id IS NULL) THEN TRUE ELSE FALSE END AS submit_missing,
+													   CASE WHEN (sp.task_id_move_storage IS NOT NULL AND mt.id IS NULL) THEN TRUE ELSE FALSE END AS move_storage_missing
+											
+												FROM sectors_snap_pipeline sp
+												LEFT JOIN harmony_task et ON et.id = sp.task_id_encode
+												LEFT JOIN harmony_task pt ON pt.id = sp.task_id_prove
+												LEFT JOIN harmony_task st ON st.id = sp.task_id_submit
+												LEFT JOIN harmony_task mt ON mt.id = sp.task_id_move_storage
+												WHERE after_move_storage = false
 											)
 											SELECT
 												-- Encode stage
@@ -363,13 +368,14 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 											
 												-- Move Storage stage
 												COUNT(*) FILTER (WHERE after_submit = true AND after_move_storage = false AND task_id_move_storage IS NOT NULL AND move_storage_owner IS NULL) AS move_storage_pending,
-												COUNT(*) FILTER (WHERE after_submit = true AND after_move_storage = false AND task_id_move_storage IS NOT NULL AND move_storage_owner IS NOT NULL) AS move_storage_running
-
+												COUNT(*) FILTER (WHERE after_submit = true AND after_move_storage = false AND task_id_move_storage IS NOT NULL AND move_storage_owner IS NOT NULL) AS move_storage_running,
+											
+												-- Failure counts
 												COUNT(*) FILTER (WHERE encode_missing) AS encode_failed,
 												COUNT(*) FILTER (WHERE prove_missing) AS prove_failed,
 												COUNT(*) FILTER (WHERE submit_missing) AS submit_failed,
 												COUNT(*) FILTER (WHERE move_storage_missing) AS move_storage_failed
-
+											
 											FROM pipeline_data`)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to run snap pipeline stage query: %w", err)
@@ -388,106 +394,98 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 		var cts []SealingStates
 
 		err = m.db.Select(ctx, &cts, `WITH pipeline_data AS (
-												SELECT
-													sp.*,
-													sdrt.owner_id AS sdr_owner,
-													tdt.owner_id AS tree_d_owner,
-													tct.owner_id AS tree_c_owner,
-													trt.owner_id AS tree_r_owner,
-													pmt.owner_id AS precommit_msg_owner,
-													pot.owner_id AS porep_owner,
-													cmt.owner_id AS commit_msg_owner
-
-													-- Detect missing task entries (task exists in pipeline but not in harmony_task)
-													(sp.task_id_sdr IS NOT NULL AND sdrt.id IS NULL) AS sdr_missing,
-													(
-														(sp.task_id_tree_d IS NOT NULL AND tdt.id IS NULL) OR
-														(sp.task_id_tree_c IS NOT NULL AND tct.id IS NULL) OR
-														(sp.task_id_tree_r IS NOT NULL AND trt.id IS NULL)
-													) AS trees_missing,
-													(sp.task_id_precommit_msg IS NOT NULL AND pmt.id IS NULL) AS precommit_msg_missing,
-													(sp.task_id_porep IS NOT NULL AND pot.id IS NULL) AS porep_missing,
-													(sp.task_id_commit_msg IS NOT NULL AND cmt.id IS NULL) AS commit_msg_missing
-												FROM sectors_sdr_pipeline sp
-												LEFT JOIN harmony_task sdrt ON sdrt.id = sp.task_id_sdr
-												LEFT JOIN harmony_task tdt ON tdt.id = sp.task_id_tree_d
-												LEFT JOIN harmony_task tct ON tct.id = sp.task_id_tree_c
-												LEFT JOIN harmony_task trt ON trt.id = sp.task_id_tree_r
-												LEFT JOIN harmony_task pmt ON pmt.id = sp.task_id_precommit_msg
-												LEFT JOIN harmony_task pot ON pot.id = sp.task_id_porep
-												LEFT JOIN harmony_task cmt ON cmt.id = sp.task_id_commit_msg
-											),
-											stages AS (
-												SELECT
-													*,
-													-- Determine stage membership booleans
-													(after_sdr = false) AS at_sdr,
-													(
-													  after_sdr = true
-													  AND (
-														after_tree_d = false
-														OR after_tree_c = false
-														OR after_tree_r = false
-													  )
-													) AS at_trees,
-													(after_tree_r = true AND after_precommit_msg = false) AS at_precommit_msg,
-													(after_precommit_msg_success = true AND seed_epoch > $1) AS at_wait_seed,
-													(after_porep = false AND after_precommit_msg_success = true AND seed_epoch < $1) AS at_porep,
-													(after_commit_msg_success = false AND after_porep = true) AS at_commit_msg,
-													(after_commit_msg_success = true) AS at_done,
-													(failed = true) AS at_failed
-												FROM pipeline_data
-											)
 											SELECT
-												-- SDR stage pending/running
-												COUNT(*) FILTER (WHERE at_sdr AND task_id_sdr IS NOT NULL AND sdr_owner IS NULL) AS sdr_pending,
-												COUNT(*) FILTER (WHERE at_sdr AND task_id_sdr IS NOT NULL AND sdr_owner IS NOT NULL) AS sdr_running,
-											
-												-- Trees stage pending/running
-												-- A pipeline at the trees stage may have up to three tasks.
-												-- Pending if ANY tree task that is not completed is present with no owner
-												-- Running if ANY tree task that is not completed is present with owner
-												COUNT(*) FILTER (
-													WHERE at_trees
-													  AND (
-														  (task_id_tree_d IS NOT NULL AND tree_d_owner IS NULL AND after_tree_d = false)
-													   OR (task_id_tree_c IS NOT NULL AND tree_c_owner IS NULL AND after_tree_c = false)
-													   OR (task_id_tree_r IS NOT NULL AND tree_r_owner IS NULL AND after_tree_r = false)
-													  )
-												) AS trees_pending,
-												COUNT(*) FILTER (
-													WHERE at_trees
-													  AND (
-														  (task_id_tree_d IS NOT NULL AND tree_d_owner IS NOT NULL AND after_tree_d = false)
-													   OR (task_id_tree_c IS NOT NULL AND tree_c_owner IS NOT NULL AND after_tree_c = false)
-													   OR (task_id_tree_r IS NOT NULL AND tree_r_owner IS NOT NULL AND after_tree_r = false)
-													  )
-												) AS trees_running,
-											
-												-- PrecommitMsg stage
-												COUNT(*) FILTER (WHERE at_precommit_msg AND task_id_precommit_msg IS NOT NULL AND precommit_msg_owner IS NULL) AS precommit_msg_pending,
-												COUNT(*) FILTER (WHERE at_precommit_msg AND task_id_precommit_msg IS NOT NULL AND precommit_msg_owner IS NOT NULL) AS precommit_msg_running,
-											
-												-- WaitSeed stage (no tasks)
-												0 AS wait_seed_pending,
-												0 AS wait_seed_running,
-											
-												-- PoRep stage
-												COUNT(*) FILTER (WHERE at_porep AND task_id_porep IS NOT NULL AND porep_owner IS NULL) AS porep_pending,
-												COUNT(*) FILTER (WHERE at_porep AND task_id_porep IS NOT NULL AND porep_owner IS NOT NULL) AS porep_running,
-											
-												-- CommitMsg stage
-												COUNT(*) FILTER (WHERE at_commit_msg AND task_id_commit_msg IS NOT NULL AND commit_msg_owner IS NULL) AS commit_msg_pending,
-												COUNT(*) FILTER (WHERE at_commit_msg AND task_id_commit_msg IS NOT NULL AND commit_msg_owner IS NOT NULL) AS commit_msg_running
-
-												-- Failure Count for Missing Tasks
-												COUNT(*) FILTER (WHERE sdr_missing) AS sdr_failed,
-												COUNT(*) FILTER (WHERE trees_missing) AS trees_failed,
-												COUNT(*) FILTER (WHERE precommit_msg_missing) AS precommit_msg_failed,
-												COUNT(*) FILTER (WHERE porep_missing) AS porep_failed,
-												COUNT(*) FILTER (WHERE commit_msg_missing) AS commit_msg_failed
-											
-											FROM stages`)
+												sp.*,
+												sdrt.owner_id AS sdr_owner,
+												tdt.owner_id AS tree_d_owner,
+												tct.owner_id AS tree_c_owner,
+												trt.owner_id AS tree_r_owner,
+												pmt.owner_id AS precommit_msg_owner,
+												pot.owner_id AS porep_owner,
+												cmt.owner_id AS commit_msg_owner,
+										
+												-- Detect missing task entries
+												CASE WHEN (sp.task_id_sdr IS NOT NULL AND sdrt.id IS NULL) THEN TRUE ELSE FALSE END AS sdr_missing,
+												CASE 
+													WHEN (sp.task_id_tree_d IS NOT NULL AND tdt.id IS NULL)
+													  OR (sp.task_id_tree_c IS NOT NULL AND tct.id IS NULL)
+													  OR (sp.task_id_tree_r IS NOT NULL AND trt.id IS NULL)
+													THEN TRUE ELSE FALSE
+												END AS trees_missing,
+												CASE WHEN (sp.task_id_precommit_msg IS NOT NULL AND pmt.id IS NULL) THEN TRUE ELSE FALSE END AS precommit_msg_missing,
+												CASE WHEN (sp.task_id_porep IS NOT NULL AND pot.id IS NULL) THEN TRUE ELSE FALSE END AS porep_missing,
+												CASE WHEN (sp.task_id_commit_msg IS NOT NULL AND cmt.id IS NULL) THEN TRUE ELSE FALSE END AS commit_msg_missing
+										
+											FROM sectors_sdr_pipeline sp
+											LEFT JOIN harmony_task sdrt ON sdrt.id = sp.task_id_sdr
+											LEFT JOIN harmony_task tdt ON tdt.id = sp.task_id_tree_d
+											LEFT JOIN harmony_task tct ON tct.id = sp.task_id_tree_c
+											LEFT JOIN harmony_task trt ON trt.id = sp.task_id_tree_r
+											LEFT JOIN harmony_task pmt ON pmt.id = sp.task_id_precommit_msg
+											LEFT JOIN harmony_task pot ON pot.id = sp.task_id_porep
+											LEFT JOIN harmony_task cmt ON cmt.id = sp.task_id_commit_msg
+										),
+										stages AS (
+											SELECT
+												*,
+												(after_sdr = FALSE) AS at_sdr,
+												(after_sdr = TRUE AND (after_tree_d = FALSE OR after_tree_c = FALSE OR after_tree_r = FALSE)) AS at_trees,
+												(after_tree_r = TRUE AND after_precommit_msg = FALSE) AS at_precommit_msg,
+												(after_precommit_msg_success = TRUE AND seed_epoch > $1) AS at_wait_seed,
+												(after_porep = FALSE AND after_precommit_msg_success = TRUE AND seed_epoch < $1) AS at_porep,
+												(after_commit_msg_success = FALSE AND after_porep = TRUE) AS at_commit_msg,
+												(after_commit_msg_success = TRUE) AS at_done,
+												(failed = TRUE) AS at_failed
+											FROM pipeline_data
+										)
+										SELECT
+											-- SDR Stage
+											COUNT(*) FILTER (WHERE (at_sdr AND task_id_sdr IS NOT NULL AND sdr_owner IS NULL)) AS sdr_pending,
+											COUNT(*) FILTER (WHERE (at_sdr AND task_id_sdr IS NOT NULL AND sdr_owner IS NOT NULL)) AS sdr_running,
+										
+											-- Trees Stage
+											COUNT(*) FILTER (
+												WHERE at_trees
+												  AND (
+													  (task_id_tree_d IS NOT NULL AND tree_d_owner IS NULL AND after_tree_d = FALSE)
+												   OR (task_id_tree_c IS NOT NULL AND tree_c_owner IS NULL AND after_tree_c = FALSE)
+												   OR (task_id_tree_r IS NOT NULL AND tree_r_owner IS NULL AND after_tree_r = FALSE)
+												  )
+											) AS trees_pending,
+											COUNT(*) FILTER (
+												WHERE at_trees
+												  AND (
+													  (task_id_tree_d IS NOT NULL AND tree_d_owner IS NOT NULL AND after_tree_d = FALSE)
+												   OR (task_id_tree_c IS NOT NULL AND tree_c_owner IS NOT NULL AND after_tree_c = FALSE)
+												   OR (task_id_tree_r IS NOT NULL AND tree_r_owner IS NOT NULL AND after_tree_r = FALSE)
+												  )
+											) AS trees_running,
+										
+											-- PrecommitMsg Stage
+											COUNT(*) FILTER (WHERE (at_precommit_msg AND task_id_precommit_msg IS NOT NULL AND precommit_msg_owner IS NULL)) AS precommit_msg_pending,
+											COUNT(*) FILTER (WHERE (at_precommit_msg AND task_id_precommit_msg IS NOT NULL AND precommit_msg_owner IS NOT NULL)) AS precommit_msg_running,
+										
+											-- WaitSeed Stage
+											0 AS wait_seed_pending,
+											COUNT(*) FILTER (WHERE (at_wait_seed)) AS wait_seed_running,
+											0 AS wait_seed_failed,
+										
+											-- PoRep Stage
+											COUNT(*) FILTER (WHERE (at_porep AND task_id_porep IS NOT NULL AND porep_owner IS NULL)) AS porep_pending,
+											COUNT(*) FILTER (WHERE (at_porep AND task_id_porep IS NOT NULL AND porep_owner IS NOT NULL)) AS porep_running,
+										
+											-- CommitMsg Stage
+											COUNT(*) FILTER (WHERE (at_commit_msg AND task_id_commit_msg IS NOT NULL AND commit_msg_owner IS NULL)) AS commit_msg_pending,
+											COUNT(*) FILTER (WHERE (at_commit_msg AND task_id_commit_msg IS NOT NULL AND commit_msg_owner IS NOT NULL)) AS commit_msg_running,
+										
+											-- Failure Counts
+											COUNT(*) FILTER (WHERE sdr_missing) AS sdr_failed,
+											COUNT(*) FILTER (WHERE trees_missing) AS trees_failed,
+											COUNT(*) FILTER (WHERE precommit_msg_missing) AS precommit_msg_failed,
+											COUNT(*) FILTER (WHERE porep_missing) AS porep_failed,
+											COUNT(*) FILTER (WHERE commit_msg_missing) AS commit_msg_failed
+										
+										FROM stages`, head.Height())
 		if err != nil {
 			return nil, xerrors.Errorf("failed to run sdr pipeline stage query: %w", err)
 		}
