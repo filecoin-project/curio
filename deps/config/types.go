@@ -693,6 +693,14 @@ type MK12Config struct {
 
 	// DenyOfflineDeals determines if the storage provider will accept offline deals
 	DenyOfflineDeals bool
+
+	// CIDGravityToken is the authorization token to use for CIDGravity filters.
+	// If empty then CIDGravity filters are not called.
+	CIDGravityToken string
+
+	// DefaultCIDGravityAccept when set to true till accept deals when CIDGravity service is not available.
+	// Default behaviors is to reject the deals
+	DefaultCIDGravityAccept bool
 }
 
 type PieceLocatorConfig struct {

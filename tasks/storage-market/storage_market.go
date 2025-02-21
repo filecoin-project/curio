@@ -28,7 +28,8 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
-	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/multictladdr"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/market/mk12"
 	"github.com/filecoin-project/curio/market/mk12/legacytypes"
@@ -68,9 +69,10 @@ type CurioStorageDealMarket struct {
 	miners      map[string][]address.Address
 	api         storageMarketAPI
 	MK12Handler *mk12.MK12
-	sc          *ffi.SealCalls
+	si          paths.SectorIndex
 	urls        map[string]http.Header
 	adders      [numPollers]promise.Promise[harmonytask.AddTaskFunc]
+	as          *multictladdr.MultiAddressSelector
 }
 
 type MK12Pipeline struct {
@@ -107,7 +109,7 @@ type MK12Pipeline struct {
 	Offset *int64 `db:"sector_offset"`
 }
 
-func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, sc *ffi.SealCalls, mapi storageMarketAPI) *CurioStorageDealMarket {
+func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector) *CurioStorageDealMarket {
 
 	moduleMap := make(map[string][]address.Address)
 	moduleMap[mk12Str] = append(moduleMap[mk12Str], miners...)
@@ -122,8 +124,9 @@ func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *
 		db:     db,
 		api:    mapi,
 		miners: moduleMap,
-		sc:     sc,
+		si:     si,
 		urls:   urls,
+		as:     as,
 	}
 }
 
@@ -136,7 +139,7 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 				// Do not start the poller if no minerID present
 				return nil
 			}
-			d.MK12Handler, err = mk12.NewMK12Handler(miners, d.db, d.sc, d.api, d.cfg)
+			d.MK12Handler, err = mk12.NewMK12Handler(miners, d.db, d.si, d.api, d.cfg, d.as)
 			if err != nil {
 				return err
 			}
