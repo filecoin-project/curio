@@ -228,7 +228,6 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		log.Infof("PDP Prove Task: proofSetID: %d, taskID: %d, proofs: %s", proofSetID, taskID, proofStr)
 	} */
 
-	
 	// If gas used is 0 fee is maximized
 	gasFee := big.NewInt(0)
 	proofFee, err := pdpVerifier.CalculateProofFee(callOpts, big.NewInt(proofSetID), gasFee)
@@ -254,7 +253,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		data,
 	)
 
-	log.Infow("PDP Prove Task", 
+	log.Infow("PDP Prove Task",
 		"proofSetID", proofSetID,
 		"taskID", taskID,
 		"proofs", proofs,
@@ -552,6 +551,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 			// move to the parent
 			level = parentLevel
 			offset = parentOffset
+			curElem = partialTree[elemIndex{Level: level, ElemOffset: offset}]
 		}
 	}
 
@@ -566,7 +566,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 			}
 			return partialTreeList[i].ElemOffset < partialTreeList[j].ElemOffset
 		})
-		log.Debugw("partialTree", "partialTree", partialTreeList)
+
 	}
 
 	challLevel := proof.NodeLevel(challSubRoot.SubrootSize/LeafSize, arity)
@@ -591,12 +591,20 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 
 		// Retrieve sibling hash from partialTree or use zero hash
 		siblingIndex := elemIndex{Level: currentLevel, ElemOffset: siblingOffset}
+		index := elemIndex{Level: currentLevel, ElemOffset: currentOffset}
 		siblingElem, ok := partialTree[siblingIndex]
 		if !ok {
 			return contract.PDPVerifierProof{}, xerrors.Errorf("missing sibling at level %d, offset %d", currentLevel, siblingOffset)
 		}
-
-		log.Debugw("siblingElem", "siblingElem", siblingElem, "siblingIndex", siblingIndex, "currentLevel", currentLevel, "currentOffset", currentOffset, "siblingOffset", siblingOffset)
+		elem, ok := partialTree[index]
+		if !ok {
+			return contract.PDPVerifierProof{}, xerrors.Errorf("missing element at level %d, offset %d", currentLevel, currentOffset)
+		}
+		if currentOffset < siblingOffset { // left
+			log.Debugw("Proof", "position", index, "left-c", hex.EncodeToString(elem.Hash[:]), "right-s", hex.EncodeToString(siblingElem.Hash[:]), "out", hex.EncodeToString(shabytes(append(elem.Hash[:], siblingElem.Hash[:]...))[:]))
+		} else { // right
+			log.Debugw("Proof", "position", index, "left-s", hex.EncodeToString(siblingElem.Hash[:]), "right-c", hex.EncodeToString(elem.Hash[:]), "out", hex.EncodeToString(shabytes(append(siblingElem.Hash[:], elem.Hash[:]...))[:]))
+		}
 
 		// Append the sibling's hash to the proof
 		out.Proof = append(out.Proof, siblingElem.Hash)
@@ -737,11 +745,11 @@ func Verify(proof contract.PDPVerifierProof, root [32]byte, position uint64) boo
 		sibling := proof.Proof[i]
 
 		if position%2 == 0 {
-			log.Debugw("Verify", "position", position, "left-c", hex.EncodeToString(computedHash[:]), "right-s", hex.EncodeToString(sibling[:]), "ouh", hex.EncodeToString(shabytes(append(computedHash[:], sibling[:]...))[:]))
+			log.Debugw("Verify", "position", position, "left-c", hex.EncodeToString(computedHash[:]), "right-s", hex.EncodeToString(sibling[:]), "out", hex.EncodeToString(shabytes(append(computedHash[:], sibling[:]...))[:]))
 			// If position is even, current node is on the left
 			computedHash = sha256.Sum256(append(computedHash[:], sibling[:]...))
 		} else {
-			log.Debugw("Verify", "position", position, "left-s", hex.EncodeToString(sibling[:]), "right-c", hex.EncodeToString(computedHash[:]), "ouh", hex.EncodeToString(shabytes(append(sibling[:], computedHash[:]...))[:]))
+			log.Debugw("Verify", "position", position, "left-s", hex.EncodeToString(sibling[:]), "right-c", hex.EncodeToString(computedHash[:]), "out", hex.EncodeToString(shabytes(append(sibling[:], computedHash[:]...))[:]))
 			// If position is odd, current node is on the right
 			computedHash = sha256.Sum256(append(sibling[:], computedHash[:]...))
 		}

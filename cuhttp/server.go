@@ -2,7 +2,6 @@ package cuhttp
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net/http"
 	"strings"
@@ -173,9 +172,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 			HostPolicy: autocert.HostWhitelist(cfg.DomainName),
 		}
 
-		server.TLSConfig = &tls.Config{
-			GetCertificate: certManager.GetCertificate,
-		}
+		server.TLSConfig = certManager.TLSConfig()
 	}
 
 	// We don't need to run an HTTP server. Any HTTP request should simply be handled as HTTPS.
