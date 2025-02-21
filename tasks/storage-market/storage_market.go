@@ -607,7 +607,7 @@ func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context) error {
 	}
 
 	for _, sp := range eligibleSpIDs {
-		if sp.EarliestWaitTime.Add(publishPeriod).Before(time.Now()) {
+		if sp.EarliestWaitTime.Add(publishPeriod).After(time.Now().UTC()) {
 			continue
 		}
 		d.adders[pollerPSD].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {

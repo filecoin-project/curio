@@ -26,6 +26,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -466,14 +467,11 @@ func Routes(r *chi.Mux, p *Provider) {
 
 func RemoveCidContact(slice []*url.URL) []*url.URL {
 	target := "cid.contact"
-	var filtered []*url.URL
 
-	for _, u := range slice {
-		if !strings.Contains(u.String(), target) {
-			filtered = append(filtered, u)
-		}
-	}
-	return filtered
+	return lo.Filter(slice, func(item *url.URL, index int) bool {
+		return !strings.Contains(item.String(), target)
+
+	})
 }
 
 // StartPublishing starts a poller which publishes the head for each provider every 10 minutes.
