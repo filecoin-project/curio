@@ -2,6 +2,7 @@
 package deps
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -429,6 +430,11 @@ func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *config.CurioCo
 	return meta, err
 }
 func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.CurioConfig, error) {
+	err := updateBaseLayer(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+
 	curioConfig := config.DefaultCurioConfig()
 	have := []string{}
 	layers = append([]string{"base"}, layers...) // Always stack on top of "base" layer
@@ -460,6 +466,131 @@ func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.
 	// 3rd-parties can dynamically include config requirements and we can
 	// validate the config. Because of layering, we must validate @ startup.
 	return curioConfig, nil
+}
+
+func updateBaseLayer(ctx context.Context, db *harmonydb.DB) error {
+	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		// Get existing base from DB
+		text := ""
+		err = tx.QueryRow(`SELECT config FROM harmony_config WHERE title=$1`, "base").Scan(&text)
+		if err != nil {
+			if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
+				return false, fmt.Errorf("missing layer 'base' ")
+			}
+			return false, fmt.Errorf("could not read layer 'base': %w", err)
+		}
+
+		// Load the existing configuration
+		cfg := config.DefaultCurioConfig()
+		metadata, err := LoadConfigWithUpgrades(text, cfg)
+		if err != nil {
+			return false, fmt.Errorf("could not read base layer, bad toml %s: %w", text, err)
+		}
+
+		// Capture unknown fields
+		keys := removeUnknownEntries(metadata.Keys(), metadata.Undecoded())
+		unrecognizedFields := extractUnknownFields(keys, text)
+
+		// Convert the updated config back to TOML string
+		cb, err := config.ConfigUpdate(cfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
+		if err != nil {
+			return false, xerrors.Errorf("cannot update base config: %w", err)
+		}
+
+		// Merge unknown fields back into the updated config
+		finalConfig, err := mergeUnknownFields(string(cb), unrecognizedFields)
+		if err != nil {
+			return false, xerrors.Errorf("cannot merge unknown fields: %w", err)
+		}
+
+		// Check if we need to update the DB
+		if text == finalConfig {
+			return false, nil
+		}
+
+		// Save the updated base with merged comments
+		_, err = tx.Exec("UPDATE harmony_config SET config=$1 WHERE title='base'", finalConfig)
+		if err != nil {
+			return false, xerrors.Errorf("cannot update base config: %w", err)
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func extractUnknownFields(knownKeys []toml.Key, originalConfig string) map[string]interface{} {
+	// Parse the original config into a raw map
+	var rawConfig map[string]interface{}
+	err := toml.Unmarshal([]byte(originalConfig), &rawConfig)
+	if err != nil {
+		log.Warnw("Failed to parse original config for unknown fields", "error", err)
+		return nil
+	}
+
+	// Collect all recognized keys
+	recognizedKeys := map[string]struct{}{}
+	for _, key := range knownKeys {
+		recognizedKeys[strings.Join(key, ".")] = struct{}{}
+	}
+
+	// Identify unrecognized fields
+	unrecognizedFields := map[string]interface{}{}
+	for key, value := range rawConfig {
+		if _, recognized := recognizedKeys[key]; !recognized {
+			unrecognizedFields[key] = value
+		}
+	}
+	return unrecognizedFields
+}
+
+func removeUnknownEntries(array1, array2 []toml.Key) []toml.Key {
+	// Create a set from array2 for fast lookup
+	toRemove := make(map[string]struct{}, len(array2))
+	for _, key := range array2 {
+		toRemove[key.String()] = struct{}{}
+	}
+
+	// Filter array1, keeping only elements not in toRemove
+	var result []toml.Key
+	for _, key := range array1 {
+		if _, exists := toRemove[key.String()]; !exists {
+			result = append(result, key)
+		}
+	}
+
+	return result
+}
+
+func mergeUnknownFields(updatedConfig string, unrecognizedFields map[string]interface{}) (string, error) {
+	// Parse the updated config into a raw map
+	var updatedConfigMap map[string]interface{}
+	err := toml.Unmarshal([]byte(updatedConfig), &updatedConfigMap)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse updated config: %w", err)
+	}
+
+	// Merge unrecognized fields
+	for key, value := range unrecognizedFields {
+		if _, exists := updatedConfigMap[key]; !exists {
+			updatedConfigMap[key] = value
+		}
+	}
+
+	// Convert back into TOML
+	b := new(bytes.Buffer)
+	encoder := toml.NewEncoder(b)
+	err = encoder.Encode(updatedConfigMap)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal final config: %w", err)
+	}
+
+	return b.String(), nil
 }
 
 func GetDefaultConfig(comment bool) (string, error) {
