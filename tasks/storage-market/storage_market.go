@@ -21,6 +21,7 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 
 	"github.com/filecoin-project/curio/build"
@@ -33,6 +34,7 @@ import (
 	"github.com/filecoin-project/curio/market/mk12/legacytypes"
 	"github.com/filecoin-project/curio/market/storageingest"
 
+	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/proofs"
 	"github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
@@ -83,6 +85,9 @@ type MK12Pipeline struct {
 	RawSize   sql.NullInt64       `db:"raw_size"`
 	URL       *string             `db:"url"`
 	Headers   json.RawMessage     `db:"headers"`
+
+	//DDO
+	IsDDO bool `db:"is_ddo"`
 
 	// commP task
 	CommTaskID *int64 `db:"commp_task_id"`
@@ -234,32 +239,38 @@ func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
 	var deals []MK12Pipeline
 
 	err := d.db.Select(ctx, &deals, `SELECT 
-									p.uuid as uuid,
-									p.sp_id as sp_id,
-									p.started as started,
-									p.piece_cid as piece_cid,
-									p.piece_size as piece_size,
-									p.raw_size as raw_size,
-									
-									p.offline as offline,
-									p.url as url,
-									p.headers as headers,
-									
-									p.commp_task_id as commp_task_id,
-									p.after_commp as after_commp,
-									p.psd_task_id as psd_task_id,
-									p.after_psd as after_psd,
-									p.find_deal_task_id as find_deal_task_id,
-									p.after_find_deal as after_find_deal,
-									p.psd_wait_time as psd_wait_time,
-									
-									p.sector as sector,
-									p.sector_offset as sector_offset
-								FROM 
-									market_mk12_deal_pipeline p
-								LEFT JOIN 
-									market_mk12_deals b ON p.uuid = b.uuid
-								ORDER BY b.start_epoch ASC;`)
+											p.uuid AS uuid,
+											p.sp_id AS sp_id,
+											p.started AS started,
+											p.piece_cid AS piece_cid,
+											p.piece_size AS piece_size,
+											p.raw_size AS raw_size,
+										
+											p.offline AS offline,
+											p.url AS url,
+											p.headers AS headers,
+										
+											p.is_ddo AS is_ddo,
+										
+											p.commp_task_id AS commp_task_id,
+											p.after_commp AS after_commp,
+											p.psd_task_id AS psd_task_id,
+											p.after_psd AS after_psd,
+											p.find_deal_task_id AS find_deal_task_id,
+											p.after_find_deal AS after_find_deal,
+											p.psd_wait_time AS psd_wait_time,
+										
+											p.sector AS sector,
+											p.sector_offset AS sector_offset
+										FROM 
+											market_mk12_deal_pipeline p
+										LEFT JOIN 
+											market_mk12_deals b ON p.uuid = b.uuid
+										LEFT JOIN 
+											market_direct_deals d ON p.uuid = d.uuid
+										ORDER BY 
+											COALESCE(b.start_epoch, d.start_epoch) ASC;
+										`)
 
 	if err != nil {
 		log.Errorf("failed to get deal pipeline status from DB: %w", err)
@@ -357,6 +368,15 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 		}
 
 		return nil
+	}
+
+	// Mark DDO Deal ready for ingestion
+	if deal.IsDDO && deal.AfterCommp && !deal.AfterPSD && !deal.AfterFindDeal {
+		_, err := d.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET after_psd = TRUE, after_find_deal = TRUE, psd_wait_time = NOW() 
+									WHERE uuid = $1 AND after_commp = TRUE AND after_psd = FALSE AND after_find_deal = FALSE`, deal.UUID)
+		if err != nil {
+			return xerrors.Errorf("UUID: %s: marking DDO deal ready for ingestion: %w", deal.UUID, err)
+		}
 	}
 
 	// Create Find Deal task
@@ -576,6 +596,7 @@ func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context) error {
 									  AND after_commp = TRUE
 									  AND psd_task_id IS NULL
 									  AND after_psd = FALSE
+									  AND is_ddo = FALSE
 									GROUP BY sp_id;`)
 	if err != nil {
 		return xerrors.Errorf("getting eligible SPs for psd tasks: %w", err)
@@ -586,7 +607,7 @@ func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context) error {
 	}
 
 	for _, sp := range eligibleSpIDs {
-		if sp.EarliestWaitTime.Add(publishPeriod).Before(time.Now()) {
+		if sp.EarliestWaitTime.Add(publishPeriod).After(time.Now().UTC()) {
 			continue
 		}
 		d.adders[pollerPSD].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
@@ -599,6 +620,7 @@ func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context) error {
 										  AND after_commp = TRUE
 										  AND psd_task_id IS NULL  -- Ensures only unassigned deals are selected
 										  AND after_psd = FALSE
+										  AND is_ddo = FALSE
 										ORDER BY psd_wait_time ASC
 										LIMIT $2  -- Limit by maxDeals
 									)
@@ -621,10 +643,72 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 	var sector *abi.SectorNumber
 
 	comm, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		// Prepare a variable to hold the result
-		var dbdeals []MarketMK12Deal
+		var pdi piece.PieceDealInfo
 
-		err = tx.Select(&dbdeals, `SELECT 
+		if deal.IsDDO {
+			var dbdeals []MarketDirectDeal
+
+			err = tx.Select(&dbdeals, `SELECT 
+												uuid,
+												created_at,
+												client,
+												offline,
+												verified,
+												sp_id,
+												start_epoch,
+												end_epoch,
+												allocation_id,
+												piece_cid,
+												piece_size,
+												fast_retrieval,
+												announce_to_ipni
+											FROM market_direct_deals
+											WHERE uuid = $1;`, deal.UUID)
+			if err != nil {
+				return false, xerrors.Errorf("failed to get ddo deals from DB: %w", err)
+			}
+
+			if len(dbdeals) != 1 {
+				return false, xerrors.Errorf("expected 1 deal, got %d for UUID %s", len(dbdeals), deal.UUID)
+			}
+
+			dbdeal := dbdeals[0]
+
+			pcid, err := cid.Parse(dbdeal.PieceCid)
+			if err != nil {
+				return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
+			}
+
+			clientAddr, err := address.NewFromString(dbdeal.Client)
+			if err != nil {
+				return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
+			}
+			clientId, err := address.IDFromAddress(clientAddr)
+			if err != nil {
+				return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
+			}
+
+			pdi = piece.PieceDealInfo{
+				DealSchedule: piece.DealSchedule{
+					StartEpoch: abi.ChainEpoch(dbdeal.StartEpoch),
+					EndEpoch:   abi.ChainEpoch(dbdeal.EndEpoch),
+				},
+				PieceActivationManifest: &miner.PieceActivationManifest{
+					CID:  pcid,
+					Size: abi.PaddedPieceSize(dbdeal.PieceSize),
+					VerifiedAllocationKey: &miner.VerifiedAllocationKey{
+						Client: abi.ActorID(clientId),
+						ID:     verifreg.AllocationId(dbdeal.AllocationID),
+					},
+					Notify: nil,
+				},
+				KeepUnsealed: dbdeal.FastRetrieval,
+			}
+
+		} else {
+			var dbdeals []MarketMK12Deal
+
+			err = tx.Select(&dbdeals, `SELECT 
 										uuid,
 										created_at,
 										signed_proposal_cid,
@@ -646,52 +730,53 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 										label
 									FROM market_mk12_deals
 									WHERE uuid = $1;`, deal.UUID)
-		if err != nil {
-			return false, xerrors.Errorf("failed to get MK12 deals from DB: %w", err)
+			if err != nil {
+				return false, xerrors.Errorf("failed to get MK12 deals from DB: %w", err)
+			}
+
+			if len(dbdeals) != 1 {
+				return false, xerrors.Errorf("expected 1 deal, got %d for UUID %s", len(dbdeals), deal.UUID)
+			}
+
+			dbdeal := dbdeals[0]
+
+			var prop market.DealProposal
+			err = json.Unmarshal(dbdeal.Proposal, &prop)
+			if err != nil {
+				return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
+			}
+
+			// Unmarshal Label from cbor and replace in proposal. This fixes the problem where non-string
+			// labels are saved as "" in json in DB
+			var l market.DealLabel
+			lr := bytes.NewReader(dbdeal.Label)
+			err = l.UnmarshalCBOR(lr)
+			if err != nil {
+				return false, xerrors.Errorf("unmarshal label: %w", err)
+			}
+			prop.Label = l
+
+			pcid, err := cid.Parse(dbdeal.PublishCid)
+			if err != nil {
+				return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
+			}
+
+			pdi = piece.PieceDealInfo{
+				PublishCid:   &pcid,
+				DealID:       abi.DealID(dbdeal.ChainDealID),
+				DealProposal: &prop,
+				DealSchedule: piece.DealSchedule{
+					StartEpoch: abi.ChainEpoch(dbdeal.StartEpoch),
+					EndEpoch:   abi.ChainEpoch(dbdeal.EndEpoch),
+				},
+				PieceActivationManifest: nil,
+				KeepUnsealed:            true,
+			}
 		}
 
-		if len(dbdeals) != 1 {
-			return false, xerrors.Errorf("expected 1 deal, got %d for UUID %s", len(dbdeals), deal.UUID)
-		}
-
-		dbdeal := dbdeals[0]
-
-		maddr, err := address.NewIDAddress(uint64(dbdeal.SpID))
+		maddr, err := address.NewIDAddress(uint64(deal.SpID))
 		if err != nil {
 			return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
-		}
-
-		var prop market.DealProposal
-		err = json.Unmarshal(dbdeal.Proposal, &prop)
-		if err != nil {
-			return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
-		}
-
-		// Unmarshal Label from cbor and replace in proposal. This fixes the problem where non-string
-		// labels are saved as "" in json in DB
-		var l market.DealLabel
-		lr := bytes.NewReader(dbdeal.Label)
-		err = l.UnmarshalCBOR(lr)
-		if err != nil {
-			return false, xerrors.Errorf("unmarshal label: %w", err)
-		}
-		prop.Label = l
-
-		pcid, err := cid.Parse(dbdeal.PublishCid)
-		if err != nil {
-			return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
-		}
-
-		pi := piece.PieceDealInfo{
-			PublishCid:   &pcid,
-			DealID:       abi.DealID(dbdeal.ChainDealID),
-			DealProposal: &prop,
-			DealSchedule: piece.DealSchedule{
-				StartEpoch: abi.ChainEpoch(dbdeal.StartEpoch),
-				EndEpoch:   abi.ChainEpoch(dbdeal.EndEpoch),
-			},
-			PieceActivationManifest: nil,
-			KeepUnsealed:            true,
 		}
 
 		dealUrl, err := url.Parse(*deal.URL)
@@ -718,7 +803,7 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 		}
 
 		var sp *abi.RegisteredSealProof
-		sector, sp, err = d.pin.AllocatePieceToSector(ctx, tx, maddr, pi, deal.RawSize.Int64, *dealUrl, headers)
+		sector, sp, err = d.pin.AllocatePieceToSector(ctx, tx, maddr, pdi, deal.RawSize.Int64, *dealUrl, headers)
 		if err != nil {
 			return false, xerrors.Errorf("UUID: %s: failed to add deal to a sector: %w", deal.UUID, err)
 		}
@@ -754,4 +839,20 @@ func (d *CurioStorageDealMarket) createIndexingTaskForMigratedDeals(ctx context.
 		return
 	}
 	log.Debugf("Successfully created indexing tasks for %d migrated deals", rowsMoved)
+}
+
+type MarketDirectDeal struct {
+	UUID           string    `db:"uuid"`
+	SpID           int64     `db:"sp_id"`
+	CreatedAt      time.Time `db:"created_at"`
+	Client         string    `db:"client"`
+	Offline        bool      `db:"offline"`
+	Verified       bool      `db:"verified"`
+	StartEpoch     int64     `db:"start_epoch"`
+	EndEpoch       int64     `db:"end_epoch"`
+	AllocationID   int64     `db:"allocation_id"`
+	PieceCid       string    `db:"piece_cid"`
+	PieceSize      int64     `db:"piece_size"`
+	FastRetrieval  bool      `db:"fast_retrieval"`
+	AnnounceToIpni bool      `db:"announce_to_ipni"`
 }

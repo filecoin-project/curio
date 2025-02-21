@@ -26,6 +26,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -466,34 +467,35 @@ func Routes(r *chi.Mux, p *Provider) {
 
 func RemoveCidContact(slice []*url.URL) []*url.URL {
 	target := "cid.contact"
-	for i, str := range slice {
-		if strings.Contains(str.String(), target) {
-			return append(slice[:i], slice[i+1:]...)
-		}
-	}
-	return slice
+
+	return lo.Filter(slice, func(item *url.URL, index int) bool {
+		return !strings.Contains(item.String(), target)
+
+	})
 }
 
 // StartPublishing starts a poller which publishes the head for each provider every 10 minutes.
 func (p *Provider) StartPublishing(ctx context.Context) {
-	// A poller which publishes head for each provider
-	// every 10 minutes
-	ticker := time.NewTicker(publishInterval)
+	var ticker *time.Ticker
 
-	// Do not publish for any network except mainnet to cid.contact
-	if build.BuildType != build.BuildMainnet {
-		// Check if there are any other URLs except cid.contact
+	// A poller which publishes head for each provider
+	// every 10 minutes for mainnet build
+	if build.BuildType == build.BuildMainnet {
+		ticker = time.NewTicker(publishInterval)
+	} else {
 		urls := RemoveCidContact(p.announceURLs)
 		if len(urls) == 0 {
 			log.Warn("Not starting IPNI provider publishing as there are no other URLs except cid.contact for testnet build")
 			return
 		}
+		log.Info("Starting IPNI provider publishing for testnet build")
 		if build.BuildType != build.BuildCalibnet {
 			ticker = time.NewTicker(time.Second * 10)
+			log.Info("Resetting IPNI provider publishing ticker to 10 seconds for devnet build")
 		}
 	}
 
-	go func() {
+	go func(ticker *time.Ticker) {
 		for {
 			select {
 			case <-ticker.C:
@@ -508,7 +510,7 @@ func (p *Provider) StartPublishing(ctx context.Context) {
 				return
 			}
 		}
-	}()
+	}(ticker)
 }
 
 // getHeadCID queries the database to retrieve the head CID for a specific provider.

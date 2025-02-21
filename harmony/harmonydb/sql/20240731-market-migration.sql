@@ -147,6 +147,8 @@ CREATE TABLE market_mk12_deal_pipeline (
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
 
+    -- is_ddo bool (Added in 20250220-mk12-ddo.sql)
+
     constraint market_mk12_deal_pipeline_identity_key unique (uuid)
 );
 
@@ -228,6 +230,10 @@ CREATE TABLE market_direct_deals (
 
     fast_retrieval BOOLEAN NOT NULL,
     announce_to_ipni BOOLEAN NOT NULL,
+
+    -- error TEXT DEFAULT NULL (Added in 20250220-mk12-ddo.sql)
+
+    --  unique_sp_allocation UNIQUE (sp_id, allocation_id) (Added in 20250220-mk12-ddo.sql)
 
     unique (uuid)
 );

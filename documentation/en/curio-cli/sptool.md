@@ -549,6 +549,8 @@ COMMANDS:
    init               Initialise curio mk12 client repo
    deal               Make an online deal with Curio
    offline-deal       Make an offline deal with Curio
+   allocate           Create new allocation[s] for verified deals
+   list-allocations   Lists all allocations for a client address(wallet)
    market-add         Add funds to the Storage Market actor
    market-withdraw    Withdraw funds from the Storage Market actor
    commp              
@@ -594,7 +596,7 @@ OPTIONS:
    --duration value                               duration of the deal in epochs (default: 518400)
    --provider-collateral value                    deal collateral that storage miner must put in escrow; if empty, the min collateral for the given piece size will be used (default: 0)
    --storage-price value                          storage price in attoFIL per epoch per GiB (default: 1)
-   --verified                                     whether the deal funds should come from verified client data-cap (default: true)
+   --verified                                     whether the deal funds should come from verified client data-cap (default: false)
    --remove-unsealed-copy                         indicates that an unsealed copy of the sector in not required for fast retrieval (default: false)
    --wallet value                                 wallet address to be used to initiate the deal
    --skip-ipni-announce                           indicates that deal index should not be announced to the IPNI(Network Indexer) (default: false)
@@ -619,11 +621,57 @@ OPTIONS:
    --duration value                 duration of the deal in epochs (default: 518400)
    --provider-collateral value      deal collateral that storage miner must put in escrow; if empty, the min collateral for the given piece size will be used (default: 0)
    --storage-price value            storage price in attoFIL per epoch per GiB (default: 1)
-   --verified                       whether the deal funds should come from verified client data-cap (default: true)
+   --verified                       whether the deal funds should come from verified client data-cap (default: false)
    --remove-unsealed-copy           indicates that an unsealed copy of the sector in not required for fast retrieval (default: false)
    --wallet value                   wallet address to be used to initiate the deal
    --skip-ipni-announce             indicates that deal index should not be announced to the IPNI(Network Indexer) (default: false)
    --help, -h                       show help
+```
+
+#### sptool toolbox mk12-client allocate
+```
+NAME:
+   sptool toolbox mk12-client allocate - Create new allocation[s] for verified deals
+
+USAGE:
+   sptool toolbox mk12-client allocate [command options]
+
+DESCRIPTION:
+   The command can accept a CSV formatted file in the format 'pieceCid,pieceSize,miner,tmin,tmax,expiration'
+
+OPTIONS:
+   --miner value, -m value, --provider value, -p value [ --miner value, -m value, --provider value, -p value ]  storage provider address[es]
+   --piece-info value, --pi value [ --piece-info value, --pi value ]                                            data piece-info[s] to create the allocation. The format must be --piece-info pieceCid1=pieceSize1 --piece-info pieceCid2=pieceSize2
+   --wallet value                                                                                               the wallet address that will used create the allocation
+   --quiet                                                                                                      do not print the allocation list (default: false)
+   --term-min value, --tmin value                                                                               The minimum duration which the provider must commit to storing the piece to avoid early-termination penalties (epochs).
+      Default is 180 days. (default: 518400)
+   --term-max value, --tmax value  The maximum period for which a provider can earn quality-adjusted power for the piece (epochs).
+      Default is 5 years. (default: 5256000)
+   --expiration value  The latest epoch by which a provider must commit data before the allocation expires (epochs).
+      Default is 60 days. (default: 172800)
+   --piece-file value, --pf value  file containing piece-info[s] to create the allocation. Each line in the file should be in the format 'pieceCid,pieceSize,miner,tmin,tmax,expiration'
+   --batch-size value              number of extend requests per batch. If set incorrectly, this will lead to out of gas error (default: 500)
+   --confidence value              number of block confirmations to wait for (default: 5)
+   --assume-yes, -y, --yes         automatic yes to prompts; assume 'yes' as answer to all prompts and run non-interactively (default: false)
+   --evm-client-contract value     f4 address of EVM contract to spend DataCap from
+   --json, -j                      print output in JSON format (default: false)
+   --help, -h                      show help
+```
+
+#### sptool toolbox mk12-client list-allocations
+```
+NAME:
+   sptool toolbox mk12-client list-allocations - Lists all allocations for a client address(wallet)
+
+USAGE:
+   sptool toolbox mk12-client list-allocations [command options]
+
+OPTIONS:
+   --miner value, -m value, --provider value, -p value  Storage provider address. If provided, only allocations against this minerID will be printed
+   --wallet value                                       the wallet address that will used create the allocation
+   --json, -j                                           print output in JSON format (default: false)
+   --help, -h                                           show help
 ```
 
 #### sptool toolbox mk12-client market-add

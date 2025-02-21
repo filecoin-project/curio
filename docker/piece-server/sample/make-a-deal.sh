@@ -45,14 +45,14 @@ Car size = $CAR \n \
 ###################################################################################
 miner_actor=$(lotus state list-miners | grep -v t01000)
 printf "8. That's it. We are ready to make the deal. \n \
- : ${ci}sptool --actor t01000 toolbox mk12-client deal --verified=false --provider=$miner_actor \
+ : ${ci}sptool --actor t01000 toolbox mk12-client deal --provider=$miner_actor \
 --http-url=http://demo-http-server/sample.car \
 --commp=$COMMP_CID --car-size=$CAR --piece-size=$PIECE \
 --payload-cid=$PAYLOAD_CID --storage-price 20000000000\n\n${cn}"
 read -rsp $'Press any key to make the deal...\n\n' -n1 key
 
 
-until sptool --actor t01000 toolbox mk12-client deal --verified=false \
+until sptool --actor t01000 toolbox mk12-client deal \
            --provider=$miner_actor \
            --http-url=http://piece-server:12320/pieces?id=$COMMP_CID \
            --commp=$COMMP_CID \
@@ -66,22 +66,4 @@ done
 
 printf "\n\n   ${cb}Congrats! You have made it.${cn}\n\n \
 ###################################################################################\n"
-####################################################################################
-#printf "10. To retrieve the file from the ${cb}storage provider${cn} system you can use \n\
-#${ci}boost retrieve${cn} command.\n\
-#: ${ci}boost retrieve -p t01000 -o /app/output $PAYLOAD_CID ${cn}\n\n"
-#
-#read -rsp $'Press any key to show the file content...\n\n' -n1 key
-#until boost retrieve -p t01000 -o /app/output $PAYLOAD_CID
-#cat /app/output/sample.txt
-#do
-#    printf "\nFile publishing may take time, please wait some time until the deal is finished and try again.\n\n"
-#    read -rsp $'Press any key to try again...\n' -n1 key
-#done
-#
-#printf "\n\nIf you see a file content you have just completed the demo. You have succesfully:\n\n\
-#  1) initiated the boost client\n\
-#  2) prepared sample file\n\
-#  3) sent the sample file to the Filecoin devnet\n\
-#  4) retrieved the content of the file from it.\n\n\
-#More info at ${cb}https://boost.filecoin.io${cn} or ${cb}https://github.com/filecoin-project/boost${cn}.\n\n\n"
+

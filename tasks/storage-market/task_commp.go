@@ -344,7 +344,15 @@ var _ = harmonytask.Reg(&CommpTask{})
 var _ harmonytask.TaskInterface = &CommpTask{}
 
 func failDeal(ctx context.Context, db *harmonydb.DB, deal string, updatePipeline bool, reason string) error {
-	n, err := db.Exec(ctx, `UPDATE market_mk12_deals SET error = $1 WHERE uuid = $2`, reason, deal)
+	n, err := db.Exec(ctx, `WITH updated AS (
+									UPDATE market_mk12_deals
+									SET error = $1
+									WHERE uuid = $2
+									RETURNING uuid
+								)
+								UPDATE market_direct_deals
+								SET error = $1
+								WHERE uuid = $2 AND NOT EXISTS (SELECT 1 FROM updated)`, reason, deal)
 	if err != nil {
 		return xerrors.Errorf("store deal failure: updating deal pipeline: %w", err)
 	}
@@ -371,7 +379,10 @@ func checkExpiry(ctx context.Context, db *harmonydb.DB, api headAPI, deal string
 	var starts []struct {
 		StartEpoch int64 `db:"start_epoch"`
 	}
-	err := db.Select(ctx, &starts, `SELECT start_epoch FROM market_mk12_deals WHERE uuid = $1`, deal)
+	err := db.Select(ctx, &starts, `SELECT start_epoch FROM market_mk12_deals WHERE uuid = $1
+										UNION ALL
+										SELECT start_epoch FROM market_direct_deals WHERE uuid = $1
+										LIMIT 1`, deal)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get start epoch from DB: %w", err)
 	}

@@ -3,7 +3,7 @@ import RPCCall from '/lib/jsonrpc.mjs';
 import { formatDate } from '/lib/dateutil.mjs';
 import '/ux/yesno.mjs';
 
-class MK12DealList extends LitElement {
+class MK12DDODealList extends LitElement {
     static properties = {
         deals: { type: Array },
         limit: { type: Number },
@@ -23,10 +23,10 @@ class MK12DealList extends LitElement {
     async loadData() {
         try {
             const params = [this.limit, this.offset];
-            this.deals = await RPCCall('MK12StorageDealList', params);
+            this.deals = await RPCCall('MK12DDOStorageDealList', params);
             this.requestUpdate();
         } catch (error) {
-            console.error('Failed to load mk12 deals:', error);
+            console.error('Failed to load ddo deals:', error);
         }
     }
 
@@ -49,7 +49,7 @@ class MK12DealList extends LitElement {
         if (!this.deals || this.deals.length === 0) {
             return html``; // Return an empty template if there's no data to render
         }
-        
+
         return html`
       <link
         href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
@@ -59,7 +59,7 @@ class MK12DealList extends LitElement {
       <link rel="stylesheet" href="/ux/main.css" />
 
       <div>
-        <h2>MK12 Deal List
+        <h2>DDO Deal List
                 <button class="info-btn">
                     <!-- Inline SVG icon for the info button -->
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle" viewBox="0 0 16 16">
@@ -67,7 +67,7 @@ class MK12DealList extends LitElement {
                         <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0"/>
                     </svg>
                     <span class="tooltip-text">
-              List of all MK12 deals including the deals currently in pipeline. Use the pagination controls to navigate through the list.
+              List of all DDO deals including the deals currently in pipeline. Use the pagination controls to navigate through the list.
             </span>
                 </button>
             </h2>
@@ -173,4 +173,4 @@ class MK12DealList extends LitElement {
   `;
 }
 
-customElements.define('mk12-deal-list', MK12DealList);
+customElements.define('mk12ddo-deal-list', MK12DDODealList);

@@ -2013,6 +2013,36 @@
             "translation": "CLI 명령의 --machine 플래그는 다시 선언할 스토리지가 연결된 노드를 가리켜야 합니다",
             "message": "--machine flag in cli command should point to the node where storage to redeclare is attached",
             "placeholder": null
+        },
+        {
+            "id": "Create a new offline verified DDO deal for Curio",
+            "translation": "Curio에 대한 새로운 오프라인 검증된 DDO 거래를 생성합니다.",
+            "message": "Create a new offline verified DDO deal for Curio",
+            "placeholder": null
+        },
+        {
+            "id": "Specify actor address for the deal",
+            "translation": "거래에 사용할 액터 주소를 지정하세요.",
+            "message": "Specify actor address for the deal",
+            "placeholder": null
+        },
+        {
+            "id": "Remove unsealed copies of sector containing this deal",
+            "translation": "이 거래를 포함하는 섹터의 봉인되지 않은 복사본을 제거합니다.",
+            "message": "Remove unsealed copies of sector containing this deal",
+            "placeholder": null
+        },
+        {
+            "id": "indicates that deal index should not be announced to the IPNI",
+            "translation": "거래 인덱스가 IPNI에 발표되지 않아야 함을 나타냅니다.",
+            "message": "indicates that deal index should not be announced to the IPNI",
+            "placeholder": null
+        },
+        {
+            "id": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
+            "translation": "거래가 제공업체에 의해 온체인에서 입증되어야 하는 시작 에포크입니다. (기본값: 현재로부터 2일 후)",
+            "message": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
+            "placeholder": null
         }
     ]
 }

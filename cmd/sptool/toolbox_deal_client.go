@@ -209,6 +209,8 @@ var mk12Clientcmd = &cli.Command{
 		initCmd,
 		dealCmd,
 		offlineDealCmd,
+		allocateCmd,
+		listAllocationsCmd,
 		marketAddCmd,
 		marketWithdrawCmd,
 		commpCmd,
@@ -263,7 +265,7 @@ var dealFlags = []cli.Flag{
 	&cli.BoolFlag{
 		Name:  "verified",
 		Usage: "whether the deal funds should come from verified client data-cap",
-		Value: true,
+		Value: false,
 	},
 	&cli.BoolFlag{
 		Name:  "remove-unsealed-copy",
