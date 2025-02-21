@@ -22,14 +22,13 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/ipfs/go-cid"
 	"github.com/minio/sha256-simd"
+	"github.com/schollz/progressbar/v3"
 	"github.com/urfave/cli/v2"
 
 	"github.com/filecoin-project/go-commp-utils/nonffi"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
-
-	"github.com/schollz/progressbar/v3"
 
 	curiobuild "github.com/filecoin-project/curio/build"
 )
@@ -732,7 +731,9 @@ var uploadFileCmd = &cli.Command{
 			orderedPieces = append(orderedPieces, abi.PieceInfo{Size: abi.PaddedPieceSize(paddedPieceSize), PieceCID: commP})
 			subrootStr = fmt.Sprintf("%s+%s", subrootStr, commP)
 			counter++
-			bar.Set(int(counter))
+			if err := bar.Set(int(counter)); err != nil {
+				return fmt.Errorf("failed to update progress bar: %v", err)
+			}
 		}
 		subrootStr = subrootStr[1:]
 
