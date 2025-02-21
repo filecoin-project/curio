@@ -12,12 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-state-types/builtin"
-	"github.com/filecoin-project/go-state-types/builtin/v13/datacap"
-	"github.com/filecoin-project/lotus/build"
-	"github.com/filecoin-project/lotus/chain/actors/builtin/verifreg"
-	"github.com/filecoin-project/lotus/lib/tablewriter"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-cidutil/cidenc"
 	"github.com/ipfs/go-datastore"
@@ -31,9 +25,12 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-commp-utils/writer"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
+	"github.com/filecoin-project/go-state-types/builtin"
+	"github.com/filecoin-project/go-state-types/builtin/v13/datacap"
 	verifreg13 "github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 	markettypes "github.com/filecoin-project/go-state-types/builtin/v9/market"
 	verifreg9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
@@ -41,12 +38,15 @@ import (
 	"github.com/filecoin-project/curio/lib/testutils"
 
 	lapi "github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/actors"
 	datacap2 "github.com/filecoin-project/lotus/chain/actors/builtin/datacap"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/market"
+	"github.com/filecoin-project/lotus/chain/actors/builtin/verifreg"
 	"github.com/filecoin-project/lotus/chain/messagesigner"
 	"github.com/filecoin-project/lotus/chain/types"
 	lcli "github.com/filecoin-project/lotus/cli"
+	"github.com/filecoin-project/lotus/lib/tablewriter"
 	"github.com/filecoin-project/lotus/node/modules"
 )
 
@@ -479,6 +479,11 @@ var allocateCmd = &cli.Command{
 			Name:  "evm-client-contract",
 			Usage: "f4 address of EVM contract to spend DataCap from",
 		},
+		&cli.BoolFlag{
+			Name:    "json",
+			Usage:   "print output in JSON format",
+			Aliases: []string{"j"},
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 		ctx := cctx.Context
@@ -605,6 +610,9 @@ var allocateCmd = &cli.Command{
 					tmax := abi.ChainEpoch(cctx.Int64("term-max"))
 
 					exp := abi.ChainEpoch(cctx.Int64("expiration"))
+					if exp == verifreg13.MaximumVerifiedAllocationExpiration {
+						exp -= 5
+					}
 
 					if tmax < tmin {
 						return fmt.Errorf("maximum duration %d cannot be smaller than minimum duration %d", tmax, tmin)
@@ -751,6 +759,11 @@ var listAllocationsCmd = &cli.Command{
 		&cli.StringFlag{
 			Name:  "wallet",
 			Usage: "the wallet address that will used create the allocation",
+		},
+		&cli.BoolFlag{
+			Name:    "json",
+			Usage:   "print output in JSON format",
+			Aliases: []string{"j"},
 		},
 	},
 	Action: func(cctx *cli.Context) error {

@@ -191,6 +191,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                                         <thead>
                                             <tr>
                                                 <th>ID</th>
+                                                <th>Deal Type</th>
                                                 <th>Miner</th>
                                                 <th>Chain Deal ID</th>
                                                 <th>Sector</th>
@@ -203,6 +204,7 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                                             ${matchingPieceDeals.map((item) => html`
                                                 <tr>
                                                     <td><a href="/pages/mk12-deal/?id=${item.id}">${item.id}</a></td>
+                                                    <td>${item.boost_deal ? 'Boost' : (item.legacy_deal ? 'Legacy' : 'DDO')}</td>
                                                     <td>${item.miner}</td>
                                                     <td>${item.chain_deal_id}</td>
                                                     <td><a href="/pages/sector/?sp=${item.miner}&id=${item.sector}">${item.sector}</a></td>

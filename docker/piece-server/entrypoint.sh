@@ -64,6 +64,7 @@ if [ ! -f $CURIO_MK12_CLIENT_REPO/.init.filplus ]; then
   echo Send 10 FIL to NOTARY_1
   lotus send $NOTARY_1 10
   touch $CURIO_MK12_CLIENT_REPO/.init.filplus
+  sleep 10
 fi
 
 ## Grant datacap to client

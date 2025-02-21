@@ -26,4 +26,11 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER check_duplicate_successful_mk12ddo_deals
     BEFORE INSERT ON market_direct_deals
     FOR EACH ROW
-    EXECUTE FUNCTION prevent_duplicate_successful_mk12ddo_deals()
+    EXECUTE FUNCTION prevent_duplicate_successful_mk12ddo_deals();
+
+-- Attach trigger to regenerate announced count after an IPNI task
+-- Otherwise, Announced count stays behind indexed count
+CREATE TRIGGER trigger_update_piece_summary_ipni
+    AFTER INSERT OR UPDATE ON ipni
+                        FOR EACH ROW
+                        EXECUTE FUNCTION update_piece_summary();

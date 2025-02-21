@@ -757,6 +757,7 @@ type MK12Deal struct {
 	URL               sql.NullString  `db:"url" json:"url"`
 	URLHeaders        json.RawMessage `db:"url_headers" json:"url_headers"`
 	Error             sql.NullString  `db:"error" json:"error"`
+	IsDDO             bool            `db:"is_ddo" json:"is_ddo"`
 
 	Addr string `db:"-" json:"addr"`
 }
@@ -790,7 +791,6 @@ type MK12DealPipeline struct {
 	Announce          sql.NullBool    `db:"announce" json:"announce"`
 	Complete          bool            `db:"complete" json:"complete"`
 	CreatedAt         time.Time       `db:"created_at" json:"created_at"`
-	IsDDO             bool            `db:"is_ddo" json:"is_ddo"`
 }
 
 // MK12DealDetailEntry combines a deal and its pipeline
@@ -824,7 +824,8 @@ func (a *WebRPC) MK12DealDetail(ctx context.Context, pieceCid string) ([]MK12Dea
 											announce_to_ipni,
 											url,
 											url_headers,
-											error
+											error,
+											FALSE AS is_ddo
 										FROM market_mk12_deals
 										WHERE piece_cid = $1
 									
@@ -851,7 +852,8 @@ func (a *WebRPC) MK12DealDetail(ctx context.Context, pieceCid string) ([]MK12Dea
 											announce_to_ipni,
 											NULL AS url,                     -- NULL handled by Go (sql.NullString)
 											'{}'::JSONB AS url_headers,      -- Empty JSON object for url_headers
-											NULL AS error                    -- NULL handled by Go (sql.NullString)
+											NULL AS error,                    -- NULL handled by Go (sql.NullString)
+										    TRUE AS is_ddo
 										FROM market_direct_deals
 										WHERE piece_cid = $1`, pieceCid)
 	if err != nil {
@@ -897,8 +899,7 @@ func (a *WebRPC) MK12DealDetail(ctx context.Context, pieceCid string) ([]MK12Dea
                 indexed,
                 announce,
                 complete,
-                created_at,
-                is_ddo
+                created_at
             FROM market_mk12_deal_pipeline
             WHERE uuid = ANY($1)
         `, uuids)
