@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"reflect"
 	"regexp"
+	"strings"
 
 	"golang.org/x/xerrors"
 
@@ -128,7 +129,7 @@ type cidGravityResponse struct {
 	MatchingRule            int    `json:"matchingRule"`
 }
 
-const cidGravityDealCheckUrl = "https://service.cidgravity.com/api/proposal/check"
+const cidGravityDealCheckUrl = "https://api.cidgravity.com/api/proposal/check"
 const cidGravityMinerCheckUrl = "https://service.cidgravity.com/private/v1/miner-status-checker/check"
 const cidGravityMinerCheckLabel = "cidg-miner-status-check"
 const agentName = "curio"
@@ -154,7 +155,7 @@ func (m *MK12) cidGravityCheck(ctx context.Context, deal *ProviderDealState) (bo
 		if err != nil {
 			return false, "", xerrors.Errorf("Error getting label string: %w", err)
 		}
-		if lableStr == cidGravityMinerCheckLabel {
+		if strings.HasPrefix(lableStr, cidGravityMinerCheckLabel) {
 			req, err = http.NewRequest("POST", cidGravityMinerCheckUrl, bytes.NewBuffer(data))
 			if err != nil {
 				return false, "", xerrors.Errorf("Error creating request: %w", err)
@@ -172,6 +173,12 @@ func (m *MK12) cidGravityCheck(ctx context.Context, deal *ProviderDealState) (bo
 	req.Header.Set("X-API-KEY", m.cfg.Market.StorageMarketConfig.MK12.CIDGravityToken)
 	req.Header.Set("X-Address-ID", deal.ClientDealProposal.Proposal.Provider.String())
 	req.Header.Set("Authorization", m.cfg.Market.StorageMarketConfig.MK12.CIDGravityToken)
+
+	hdr, err := json.Marshal(req.Header)
+	if err != nil {
+		return false, "", xerrors.Errorf("Error marshaling headers: %w", err)
+	}
+	log.Debugw("cid gravity request ", "url", req.URL.String(), "headers", string(hdr), "body", string(data))
 
 	// Execute the request
 	resp, err := client.Do(req)
