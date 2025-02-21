@@ -515,7 +515,7 @@ func updateBaseLayer(ctx context.Context, db *harmonydb.DB) error {
 		}
 
 		return true, nil
-	})
+	}, harmonydb.OptionRetry())
 
 	if err != nil {
 		return err
