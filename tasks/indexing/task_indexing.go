@@ -261,32 +261,19 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 	for x, id := range ids {
 		indIDs[x] = int64(id)
 	}
-	acceptables := map[harmonytask.TaskID]bool{}
 
-	for _, t := range ids {
-		acceptables[t] = true
-	}
-
-	var ac []struct {
-		TaskID      harmonytask.TaskID `db:"indexing_task_id"`
-		ShouldIndex bool               `db:"should_index"`
-	}
-
-	err := i.db.Select(ctx, &ac, `select indexing_task_id, should_index from market_mk12_deal_pipeline where indexing_task_id = ANY ($1)`, indIDs)
-	if err != nil {
-		return nil, xerrors.Errorf("getting pending indexing tasks: %w", err)
-	}
-
-	for _, t := range ac {
-		if _, ok := acceptables[t.TaskID]; !ok {
-			continue
-		}
-
-		// Accept any task which should not be indexed as
-		// it does not require storage access
-		if !t.ShouldIndex {
-			return &t.TaskID, nil
-		}
+	// Accept any task which should not be indexed as
+	// it does not require storage access
+	var id int64
+	err := i.db.QueryRow(ctx, `SELECT indexing_task_id 
+										FROM market_mk12_deal_pipeline 
+										WHERE should_index = FALSE AND 
+										      indexing_task_id = ANY ($1) ORDER BY indexing_task_id LIMIT 1`, indIDs).Scan(&id)
+	if err == nil {
+		ret := harmonytask.TaskID(id)
+		return &ret, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, xerrors.Errorf("getting pending indexing task: %w", err)
 	}
 
 	var tasks []struct {
@@ -314,15 +301,14 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		return nil, xerrors.Errorf("getting local storage: %w", err)
 	}
 
-	for _, t := range tasks {
-		if _, ok := acceptables[t.TaskID]; !ok {
-			continue
-		}
+	localStorageMap := make(map[string]bool, len(ls))
+	for _, l := range ls {
+		localStorageMap[string(l.ID)] = true
+	}
 
-		for _, l := range ls {
-			if string(l.ID) == t.StorageID {
-				return &t.TaskID, nil
-			}
+	for _, t := range tasks {
+		if found, ok := localStorageMap[t.StorageID]; ok && found {
+			return &t.TaskID, nil
 		}
 	}
 
