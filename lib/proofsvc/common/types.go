@@ -11,7 +11,6 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/lotus/chain/types"
 
 	"github.com/filecoin-project/curio/lib/proof"
@@ -20,7 +19,7 @@ import (
 var log = logging.Logger("psvcommon")
 
 var PriceResolution = types.NewInt(1_000_000_000) // 1nFIL
-var MaxPriceNfil = types.NewInt(1_000_000_000) // 1 FIL
+var MaxPrice = types.FromFil(1)
 
 type WorkRequest struct {
 	ID int64 `json:"id" db:"id"`
@@ -52,14 +51,15 @@ type ProofRequest struct {
 	// proof request enum
 	PoRep *proof.Commit1OutRaw
 
-	MaxPriceNfil abi.TokenAmount
+	PriceEpoch int64 `json:"price_epoch"`
+	
+	PaymentClientID int64 `json:"payment_client_id"`
+	PaymentNonce     int64  `json:"payment_nonce"`
+	PaymentCumulativeAmount abi.TokenAmount  `json:"payment_cumulative_amount"`
+	PaymentSignature []byte `json:"payment_signature"`
 }
 
 func (p *ProofRequest) Validate() error {
-	if err := p.validatePrice(); err != nil {
-		return xerrors.Errorf("failed to validate price: %w", err)
-	}
-
 	if p.PoRep != nil {
 		if p.SectorID == nil {
 			return xerrors.Errorf("sector id is required for PoRep")
@@ -72,26 +72,6 @@ func (p *ProofRequest) Validate() error {
 		return nil
 	}
 	return xerrors.Errorf("invalid proof request: no proof request")
-}
-
-func (p *ProofRequest) validatePrice() error {
-	if p.MaxPriceNfil.IsZero() {
-		return xerrors.Errorf("max price is required")
-	}
-
-	if p.MaxPriceNfil.Sign() <= 0 {
-		return xerrors.Errorf("max price must be positive")
-	}
-
-	if big.Mod(p.MaxPriceNfil, PriceResolution).Sign() != 0 {
-		return xerrors.Errorf("max price must be a multiple of 1nFIL")
-	}
-
-	if big.Cmp(p.MaxPriceNfil, MaxPriceNfil) > 0 {
-		return xerrors.Errorf("max price must be less than 1 FIL")
-	}
-
-	return nil
 }
 
 func (p *ProofRequest) validatePoRep() error {

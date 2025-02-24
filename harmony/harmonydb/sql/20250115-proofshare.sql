@@ -5,7 +5,7 @@ CREATE TABLE proofshare_queue (
     
     obtained_at TIMESTAMP WITH TIME ZONE NOT NULL,
 
-    request_data JSONB NOT NULL,
+    request_cid TEXT NOT NULL,
     response_data BYTEA,
 
     compute_task_id BIGINT,
