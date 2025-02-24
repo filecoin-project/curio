@@ -495,9 +495,9 @@ var allocateCmd = &cli.Command{
 
 		pieceFile := cctx.String("piece-file")
 		miners := cctx.StringSlice("miner")
-		pcids := cctx.StringSlice("piece-cid")
+		pcids := cctx.String("piece-cid")
 
-		if pieceFile == "" && len(pcids) < 1 {
+		if pieceFile == "" && pcids == "" {
 			return fmt.Errorf("must provide at least one --piece-cid or use --piece-file")
 		}
 
@@ -505,7 +505,7 @@ var allocateCmd = &cli.Command{
 			return fmt.Errorf("must provide at least one miner address or use --piece-file")
 		}
 
-		if pieceFile != "" && len(pcids) > 0 {
+		if pieceFile != "" && pcids != "" {
 			return fmt.Errorf("cannot use both --piece-cid and --piece-file flags at once")
 		}
 
