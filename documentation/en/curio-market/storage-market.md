@@ -239,3 +239,23 @@ curio market seal --actor <actor address> <sector>
 * **--actor**: Specifies the actor address.
 
 Consequences: Sealing early can speed up the process, but it may result in inefficiencies if all deals are not batched correctly.
+
+## Offline Verified DDO deals
+Curio only supports offline verified DDO deals as of now. The allocation must be created by the client for the piece and handed over to the SP alongside the data.
+
+
+### How to create allocation
+Clients can create allocation using the `sptool toolbox` or other methods.
+
+```shell
+sptool --actor t01000 toolbox mk12-client allocate -p <MINER ID> --piece-cid <COMMP> --piece-size <PIECE SIZE>
+```
+
+### Start a DDO deal
+Storage providers can onboard the DDO deal using the below command.
+
+```shell
+curio market ddo --actor <MINER ID> <client-address> <allocation-id>
+```
+
+Since this is an offline deal, user must either make the data available via PieceLocator or add a data URL for this offline deal.

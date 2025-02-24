@@ -8,6 +8,7 @@ package mk12
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,6 +50,7 @@ type MK12API interface {
 	StateMarketBalance(context.Context, address.Address, types.TipSetKey) (api.MarketBalance, error)
 	StateMinerInfo(context.Context, address.Address, types.TipSetKey) (api.MinerInfo, error)
 	StateVerifiedClientStatus(ctx context.Context, addr address.Address, tsk types.TipSetKey) (*abi.StoragePower, error)
+	StateLookupID(context.Context, address.Address, types.TipSetKey) (address.Address, error)
 	WalletSign(context.Context, address.Address, []byte) (*crypto.Signature, error)
 }
 
@@ -780,14 +782,18 @@ FROM joined
 func (m *MK12) applyFilters(ctx context.Context, deal *ProviderDealState) *validationError {
 
 	var clientRules []struct {
+		Name               string   `db:"name"`
 		Wallets            []string `db:"wallets"`
-		PeerIDs            []string `db:"peer_id"`
+		PeerIDs            []string `db:"peer_ids"`
 		PricingFilters     []string `db:"pricing_filters"`
 		MaxDealsPerHour    int64    `db:"max_deals_per_hour"`
 		MaxDealSizePerHour int64    `db:"max_deal_size_per_hour"`
 	}
 
+	var skipDefaultAsk bool
+
 	err := m.db.Select(ctx, &clientRules, `SELECT 
+    												name,
 													wallets, 
 													peer_ids, 
 													pricing_filters, 
@@ -799,9 +805,15 @@ func (m *MK12) applyFilters(ctx context.Context, deal *ProviderDealState) *valid
 		return &validationError{error: xerrors.Errorf("failed to query the client rules from DB:  %w", err)}
 	}
 
+	log.Debugw("Applicable Deal Client Filters", "Deal", deal.DealUuid.String(), "Client rules", "client_rules", clientRules)
+
 	// Check if we have any client rules and match them to client details
 	for i := range clientRules {
-		if lo.Contains(clientRules[i].Wallets, deal.ClientDealProposal.Proposal.Client.String()) || lo.Contains(clientRules[i].PeerIDs, deal.ClientPeerID.String()) {
+		client, err := m.api.StateLookupID(ctx, deal.ClientDealProposal.Proposal.Client, types.EmptyTSK)
+		if err != nil {
+			return &validationError{error: xerrors.Errorf("wallet not found: %w", err)}
+		}
+		if lo.Contains(clientRules[i].Wallets, deal.ClientDealProposal.Proposal.Client.String()) || lo.Contains(clientRules[i].PeerIDs, deal.ClientPeerID.String()) || lo.Contains(clientRules[i].Wallets, client.String()) {
 			// Check if Cumulative Storage size has not exceeded the specified limit
 			if clientRules[i].MaxDealSizePerHour > 0 {
 				var size int64
@@ -809,12 +821,14 @@ func (m *MK12) applyFilters(ctx context.Context, deal *ProviderDealState) *valid
 												FROM market_mk12_deals
 												WHERE created_at >= NOW() - INTERVAL '1 hour'
 												  AND (
-													  client_peer_id = 'provided_client_peer_id'
-													  OR proposal->>'Client' = 'desired_client_value'
-												  )`).Scan(&size)
+													  client_peer_id = $1
+													  OR proposal->>'Client' = $2
+													  OR proposal->>'Client' = $3
+												  )`, deal.ClientPeerID.String(), deal.ClientDealProposal.Proposal.Client.String(), client.String()).Scan(&size)
 				if err != nil {
 					return &validationError{error: xerrors.Errorf("failed to query the cummulative size from DB:  %w", err)}
 				}
+				log.Debugw("MaxDealSizePerHour Check", "Deal", deal.DealUuid.String(), "Client Rule", clientRules[i].Name, "MaxDealSizePerHour", "size", size, "max", clientRules[i].MaxDealSizePerHour)
 				if size > clientRules[i].MaxDealSizePerHour {
 					return &validationError{reason: "deal rejected as cumulative size of deals in past 1 hour has reached the maximum allowed for the client, please retry in some time"}
 				}
@@ -826,17 +840,21 @@ func (m *MK12) applyFilters(ctx context.Context, deal *ProviderDealState) *valid
 										WHERE created_at >= NOW() - INTERVAL '1 hour'
 										AND (
 										  client_peer_id = $1
-										  OR proposal->>'Client' = $2)`, deal.ClientPeerID.String(),
-					deal.ClientDealProposal.Proposal.Client.String()).Scan(&dealCount)
+										  OR proposal->>'Client' = $2
+										  OR proposal->>'Client' = $3)`, deal.ClientPeerID.String(), deal.ClientDealProposal.Proposal.Client.String(),
+					client.String()).Scan(&dealCount)
 				if err != nil {
 					return &validationError{error: xerrors.Errorf("failed to query the deal count from DB: %w", err)}
 				}
+				log.Debugw("MaxDealsPerHour Check", "Deal", deal.DealUuid.String(), "Client Rule", clientRules[i].Name, "MaxDealsPerHour", "count", dealCount, "max", clientRules[i].MaxDealsPerHour)
 				if dealCount >= clientRules[i].MaxDealsPerHour {
 					return &validationError{reason: "deal rejected as maximum allowed deals per hour limit has been reached for the client, please retry in some time"}
 				}
 			}
 			// Apply pricing filters
 			if len(clientRules[i].PricingFilters) > 0 {
+				log.Debugw("Applicable Pricing Filters", "Deal", deal.DealUuid.String(), "Client Rule", clientRules[i].Name, "Pricing Filters", clientRules[i].PricingFilters)
+				skipDefaultAsk = true
 				var priceFilters []struct {
 					MinDur   int64 `db:"min_duration_days"`
 					MaxDur   int64 `db:"max_duration_days"`
@@ -859,58 +877,70 @@ func (m *MK12) applyFilters(ctx context.Context, deal *ProviderDealState) *valid
 				}
 				ret := new(validationError)
 				for j := range priceFilters {
+					log.Debugw("Applying Pricing Filter", "Deal", deal.DealUuid.String(), "Client Rule", clientRules[i].Name,
+						"Filter Verified", priceFilters[j].Verified, "Filter MinSize", priceFilters[j].MinSize, "Filter MaxSize", priceFilters[j].MaxSize,
+						"Filter MinDur", priceFilters[j].MinDur, "Filter MaxDur", priceFilters[j].MaxDur, "Filter Price", priceFilters[j].Price,
+						"Deal Verified", deal.ClientDealProposal.Proposal.VerifiedDeal, "Deal PieceSize", deal.ClientDealProposal.Proposal.PieceSize,
+						"Deal Duration", deal.ClientDealProposal.Proposal.Duration, "Deal Price", deal.ClientDealProposal.Proposal.StoragePricePerEpoch)
 					// Skip filters which are not meant for verified/unverified deals
-					if !(deal.ClientDealProposal.Proposal.VerifiedDeal && priceFilters[j].Verified) {
+					if deal.ClientDealProposal.Proposal.VerifiedDeal != priceFilters[j].Verified {
 						continue
 					}
 					if deal.ClientDealProposal.Proposal.PieceSize > abi.PaddedPieceSize(priceFilters[j].MaxSize) {
 						ret.reason = "deal rejected as piece size is greater than the maximum allowed by the pricing filter"
-						continue
+						return ret
 					}
 					if deal.ClientDealProposal.Proposal.PieceSize < abi.PaddedPieceSize(priceFilters[j].MinSize) {
 						ret.reason = "deal rejected as piece size is smaller than the minimum allowed by the pricing filter"
-						continue
+						return ret
 					}
 					if deal.ClientDealProposal.Proposal.Duration() > abi.ChainEpoch(builtin.EpochsInDay*priceFilters[j].MaxDur) {
 						ret.reason = "deal rejected as duration is greater than the maximum allowed by the pricing filter"
-						continue
+						return ret
 					}
 					if deal.ClientDealProposal.Proposal.Duration() < abi.ChainEpoch(builtin.EpochsInDay*priceFilters[j].MinDur) {
 						ret.reason = "deal rejected as duration is smaller than the minimum allowed by the pricing filter"
-						continue
+						return ret
 					}
 					if deal.ClientDealProposal.Proposal.StoragePricePerEpoch.LessThan(big.NewInt(priceFilters[j].Price)) {
 						ret.reason = "deal rejected as storage price per epoch is less than the amount allowed by the pricing filter"
-						continue
+						return ret
 					}
-					// Accept the deal if any price filter reaches here
-					return nil
-				}
-				// If none of the deal filters matched then we should reject the deal instead if going to default
-				if ret.reason != "" {
-					return ret
 				}
 			}
 		}
 	}
 
 	// If no client/pricing rules are found or match the client then apply default Ask validation
-	if err := m.validateAsk(ctx, deal); err != nil {
-		return &validationError{error: err}
+	if !skipDefaultAsk {
+		if err := m.validateAsk(ctx, deal); err != nil {
+			return &validationError{error: err}
+		}
 	}
+
 	return nil
 }
 
 // applyAllowList checks if the client making the deal proposal is allowed by the provider
 // based on the market_mk12_allow_list table in the database
 func (m *MK12) applyAllowList(ctx context.Context, deal *ProviderDealState) (bool, error) {
-	var allowed bool
-	err := m.db.QueryRow(ctx, `SELECT status FROM market_allow_list WHERE wallet = $1`, deal.ClientDealProposal.Proposal.Client.String()).Scan(&allowed)
+	client, err := m.api.StateLookupID(ctx, deal.ClientDealProposal.Proposal.Client, types.EmptyTSK)
+	if err != nil {
+		return false, xerrors.Errorf("wallet not found: %w", err)
+	}
+
+	var allowed sql.NullBool
+	err = m.db.QueryRow(ctx, `SELECT status FROM market_allow_list WHERE wallet = $1 OR wallet = $2`, deal.ClientDealProposal.Proposal.Client.String(), client.String()).Scan(&allowed)
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return false, xerrors.Errorf("failed to query the allow list status from DB: %w", err)
 		}
 		return !m.cfg.Market.StorageMarketConfig.MK12.DenyUnknownClients, nil
 	}
-	return allowed, nil
+
+	if allowed.Valid {
+		return allowed.Bool, nil
+	}
+
+	return false, nil
 }

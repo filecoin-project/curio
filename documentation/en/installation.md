@@ -98,7 +98,7 @@ To build Curio, you need a working installation of [Go](https://golang.org/dl/):
 Example of an OLD version's CLI download:
 
 ```shell
-wget -c https://golang.org/dl/go1.22.3.linux-amd64.tar.gz -O - | sudo tar -xz -C /usr/local
+wget -c https://golang.org/dl/go1.23.6.linux-amd64.tar.gz -O - | sudo tar -xz -C /usr/local
 ```
 
 {% hint style="info" %}
@@ -181,9 +181,9 @@ This will put `curio` in `/usr/local/bin`. `curio` will use the `$HOME/.curio` f
 Run `curio --version`
 
 ```md
-curio version 1.23.0+mainnet+git_ae625a5_2024-08-21T15:21:45+04:00
+curio version 1.24.5-rc1+mainnet+git_214226e7_2025-02-19T17:02:54+04:00
 # or
-curio version 1.23.0+calibnet+git_ae625a5_2024-08-21T15:21:45+04:00
+curio version 1.24.5-rc1+calibnet+git_214226e7_2025-02-19T17:02:54+04:00
 ```
 
 1. You should now have Curio installed. You can now [finish setting up the Curio node](https://lotus.filecoin.io/storage-providers/curio/setup/).
@@ -291,9 +291,9 @@ The installation instructions are different depending on which CPU is in your Ma
 6.  Run `curio --version`
 
     ```md
-    curio version 1.23.0+mainnet+git_ae625a5_2024-08-21T15:21:45+04:00
+    curio version 1.24.5-rc1+mainnet+git_214226e7_2025-02-19T17:02:54+04:00
     # or
-    curio version 1.23.0+calibnet+git_ae625a5_2024-08-21T15:21:45+04:00
+    curio version 1.24.5-rc1+calibnet+git_214226e7_2025-02-19T17:02:54+04:00
     ```
 7. You should now have Curio installed. You can now [set up a new Curio cluster or migrating from Lotus-Miner](https://lotus.filecoin.io/storage-providers/curio/setup/).
 

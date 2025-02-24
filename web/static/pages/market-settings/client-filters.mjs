@@ -227,9 +227,10 @@ class ClientFilters extends LitElement {
                                         class="form-control"
                                         .value="${(this.editingClientFilter.wallets || []).join(', ')}"
                                         @input="${(e) =>
-            (this.editingClientFilter.wallets = e.target.value
-                .split(',')
-                .map((w) => w.trim()))}"
+                                                (this.editingClientFilter.wallets = e.target.value
+                                                        .split(',')
+                                                        .map((w) => w.trim())
+                                                        .filter((w) => w.length > 0))}"
                                     />
                                 </div>
                                 <div class="mb-3">
@@ -239,9 +240,10 @@ class ClientFilters extends LitElement {
                                         class="form-control"
                                         .value="${(this.editingClientFilter.peers || []).join(', ')}"
                                         @input="${(e) =>
-            (this.editingClientFilter.peers = e.target.value
-                .split(',')
-                .map((p) => p.trim()))}"
+                                                (this.editingClientFilter.peers = e.target.value
+                                                        .split(',')
+                                                        .map((p) => p.trim())
+                                                        .filter((p) => p.length > 0))}"
                                     />
                                 </div>
                                 <div class="mb-3">
