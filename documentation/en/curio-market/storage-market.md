@@ -117,6 +117,21 @@ To enable the Curio market on a Curio node, the following configuration changes 
      * `MaxDealsPerPublishMsg` for the maximum number of deals per message.
      * `MaxPublishDealFee` to set the fee limit for publishing deals.
    * If handling offline deals, configure `PieceLocator` to specify the endpoints for piece retrieval.
+8.  Verify that HTTP server is working:
+
+    * Curl to your domain name and verify that server is reachable from outside\
+
+
+    ```shell
+    curl https://<Domain name>
+
+    Hello, World!
+     -Curio
+    ```
+
+{% hint style="warning" %}
+If you do not get above output then something went wrong with configuration and you should not proceed with migration from Boost or Deal making.
+{% endhint %}
 
 By applying these changes, the Curio market subsystem will be activated on the specified node(s), enabling storage deals, IPNI synchronization, and retrieval functionality.
 
@@ -241,10 +256,11 @@ curio market seal --actor <actor address> <sector>
 Consequences: Sealing early can speed up the process, but it may result in inefficiencies if all deals are not batched correctly.
 
 ## Offline Verified DDO deals
+
 Curio only supports offline verified DDO deals as of now. The allocation must be created by the client for the piece and handed over to the SP alongside the data.
 
-
 ### How to create allocation
+
 Clients can create allocation using the `sptool toolbox` or other methods.
 
 ```shell
@@ -252,6 +268,7 @@ sptool --actor t01000 toolbox mk12-client allocate -p <MINER ID> --piece-cid <CO
 ```
 
 ### Start a DDO deal
+
 Storage providers can onboard the DDO deal using the below command.
 
 ```shell
