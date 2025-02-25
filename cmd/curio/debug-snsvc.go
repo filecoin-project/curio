@@ -191,6 +191,28 @@ var debugSNSvc = &cli.Command{
 			},
 			Action: acceptServiceActorAction,
 		},
+		{
+			Name:  "validate-client-voucher",
+			Usage: "Validate a client voucher signature",
+			Flags: []cli.Flag{
+				&cli.StringFlag{Name: "client", Usage: "Client actor address", Required: true},
+				&cli.StringFlag{Name: "amount", Usage: "Cumulative amount (FIL)", Required: true},
+				&cli.Uint64Flag{Name: "nonce", Usage: "Voucher nonce", Required: true},
+				&cli.StringFlag{Name: "sig", Usage: "Voucher signature (hex)", Required: true},
+			},
+			Action: validateClientVoucherAction,
+		},
+		{
+			Name:  "validate-provider-voucher",
+			Usage: "Validate a provider voucher signature",
+			Flags: []cli.Flag{
+				&cli.StringFlag{Name: "provider", Usage: "Provider actor address", Required: true},
+				&cli.StringFlag{Name: "amount", Usage: "Cumulative amount (FIL)", Required: true},
+				&cli.Uint64Flag{Name: "nonce", Usage: "Voucher nonce", Required: true},
+				&cli.StringFlag{Name: "sig", Usage: "Voucher signature (hex)", Required: true},
+			},
+			Action: validateProviderVoucherAction,
+		},
 	},
 }
 
@@ -842,5 +864,117 @@ func acceptServiceActorAction(cctx *cli.Context) error {
 	}
 
 	fmt.Println("Service actor accepted successfully")
+	return nil
+}
+
+func validateClientVoucherAction(cctx *cli.Context) error {
+	// Retrieve command-line flags.
+	clientStr := cctx.String("client")
+	amountStr := cctx.String("amount")
+	nonce := cctx.Uint64("nonce")
+	sigHex := cctx.String("sig")
+
+	full, closer, err := cliutil.GetFullNodeAPIV1(cctx)
+	if err != nil {
+		return err
+	}
+	defer closer()
+
+	svc := common.NewService(full)
+
+	// Parse the client Filecoin address.
+	clientAddr, err := address.NewFromString(clientStr)
+	if err != nil {
+		return fmt.Errorf("invalid client address: %w", err)
+	}
+
+	// Parse the FIL amount (expected in attoFIL).
+	cumulativeAmount, err := types.ParseFIL(amountStr)
+	if err != nil {
+		return fmt.Errorf("invalid amount: %w", err)
+	}
+
+	clientIDAddr, err := full.StateLookupID(cctx.Context, clientAddr, types.EmptyTSK)
+	if err != nil {
+		return fmt.Errorf("get client id failed: %w", err)
+	}
+
+	// Convert the client address to its actor ID.
+	clientID, err := address.IDFromAddress(clientIDAddr)
+	if err != nil {
+		return fmt.Errorf("failed to get client actor ID: %w", err)
+	}
+
+	fmt.Printf("Validating client voucher for client %s with cumulative amount %s and nonce %d\n",
+		clientAddr.String(), types.FIL(cumulativeAmount).String(), nonce)
+
+	sig, err := hex.DecodeString(sigHex)
+	if err != nil {
+		return fmt.Errorf("invalid signature: %w", err)
+	}
+
+	// Use the ValidateClientVoucher method from the Service struct
+	isValid, err := svc.ValidateClientVoucher(cctx.Context, clientID, cumulativeAmount.Int, nonce, sig)
+	if err != nil {
+		return fmt.Errorf("validate client voucher failed: %w", err)
+	}
+
+	fmt.Println("Validation result:", isValid)
+	return nil
+}
+
+func validateProviderVoucherAction(cctx *cli.Context) error {
+	// Retrieve command-line flags.
+	providerStr := cctx.String("provider")
+	amountStr := cctx.String("amount")
+	nonce := cctx.Uint64("nonce")
+	sigHex := cctx.String("sig")
+
+	full, closer, err := cliutil.GetFullNodeAPIV1(cctx)
+	if err != nil {
+		return err
+	}
+	defer closer()
+
+	svc := common.NewService(full)
+
+	// Parse the provider Filecoin address.
+	providerAddr, err := address.NewFromString(providerStr)
+	if err != nil {
+		return fmt.Errorf("invalid provider address: %w", err)
+	}
+
+	providerIDAddr, err := full.StateLookupID(cctx.Context, providerAddr, types.EmptyTSK)
+	if err != nil {
+		return fmt.Errorf("get provider id failed: %w", err)
+	}
+
+	// Parse the FIL amount (expected in attoFIL).
+	cumulativeAmount, err := types.ParseFIL(amountStr)
+	if err != nil {
+		return fmt.Errorf("invalid amount: %w", err)
+	}
+
+	// Convert the provider address to its actor ID.
+	providerID, err := address.IDFromAddress(providerIDAddr)
+	if err != nil {
+		return fmt.Errorf("failed to get provider actor ID: %w", err)
+	}
+
+	fmt.Printf("Validating provider voucher for provider %d with cumulative amount %s and nonce %d\n",
+		providerID, types.FIL(cumulativeAmount).String(), nonce)
+
+	sig, err := hex.DecodeString(sigHex)
+	if err != nil {
+		return fmt.Errorf("invalid signature: %w", err)
+	}
+
+	// Use the ValidateProviderVoucher method from the Service struct
+	isValid, err := svc.ValidateProviderVoucher(cctx.Context, providerID, cumulativeAmount.Int, nonce, sig)
+	if err != nil {
+		return fmt.Errorf("validate provider voucher failed: %w", err)
+	}
+
+	fmt.Println("Validation result:", isValid)
 	return nil
 }

@@ -250,6 +250,40 @@ const CreateProviderVoucherABI = `[
 	}
 ]`
 
+const ValidateClientVoucherABI = `[
+	{
+		"inputs": [
+			{ "internalType": "uint64", "name": "clientID", "type": "uint64" },
+			{ "internalType": "uint256", "name": "cumulativeAmount", "type": "uint256" },
+			{ "internalType": "uint64", "name": "nonce", "type": "uint64" },
+			{ "internalType": "bytes", "name": "signature", "type": "bytes" }
+		],
+		"name": "validateClientVoucher",
+		"outputs": [
+			{ "internalType": "bool", "name": "", "type": "bool" }
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+]`
+
+const ValidateProviderVoucherABI = `[
+	{
+		"inputs": [
+			{ "internalType": "uint64", "name": "providerID", "type": "uint64" },
+			{ "internalType": "uint256", "name": "cumulativeAmount", "type": "uint256" },
+			{ "internalType": "uint64", "name": "nonce", "type": "uint64" },
+			{ "internalType": "bytes", "name": "signature", "type": "bytes" }
+		],
+		"name": "validateProviderVoucher",
+		"outputs": [
+			{ "internalType": "bool", "name": "", "type": "bool" }
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+]`
+
 const ProposeServiceActorABI = `[
 	{
 		"inputs": [
@@ -573,6 +607,80 @@ func (s *Service) CreateProviderVoucher(ctx context.Context, providerID uint64, 
 	}
 
 	return voucher, nil
+}
+
+func (s *Service) ValidateClientVoucher(ctx context.Context, clientID uint64, cumulativeAmount *big.Int, nonce uint64, signature []byte) (bool, error) {
+	parsedABI, err := eabi.JSON(strings.NewReader(ValidateClientVoucherABI))
+	if err != nil {
+		return false, fmt.Errorf("failed to parse ValidateClientVoucher ABI: %w", err)
+	}
+
+	data, err := parsedABI.Pack("validateClientVoucher", clientID, cumulativeAmount, nonce, signature)
+	if err != nil {
+		return false, fmt.Errorf("failed to pack validateClientVoucher call: %w", err)
+	}
+
+	msg := &types.Message{
+		To:     s.router,
+		From:   builtin.SystemActorAddr,
+		Value:  abi.NewTokenAmount(0),
+		Method: builtin.MethodsEVM.InvokeContract,
+		Params: mustSerializeCBOR(data),
+	}
+
+	res, err := s.full.StateCall(ctx, msg, types.EmptyTSK)
+	if err != nil {
+		return false, fmt.Errorf("StateCall for validateClientVoucher failed: %w", err)
+	}
+
+	var rawBytes abi.CborBytes
+	if err := rawBytes.UnmarshalCBOR(bytes.NewReader(res.MsgRct.Return)); err != nil {
+		return false, fmt.Errorf("failed to unmarshal validateClientVoucher result: %w", err)
+	}
+
+	var isValid bool
+	if err := parsedABI.UnpackIntoInterface(&isValid, "validateClientVoucher", rawBytes); err != nil {
+		return false, fmt.Errorf("failed to unpack validateClientVoucher result: %w", err)
+	}
+
+	return isValid, nil
+}
+
+func (s *Service) ValidateProviderVoucher(ctx context.Context, providerID uint64, cumulativeAmount *big.Int, nonce uint64, signature []byte) (bool, error) {
+	parsedABI, err := eabi.JSON(strings.NewReader(ValidateProviderVoucherABI))
+	if err != nil {
+		return false, fmt.Errorf("failed to parse ValidateProviderVoucher ABI: %w", err)
+	}
+
+	data, err := parsedABI.Pack("validateProviderVoucher", providerID, cumulativeAmount, nonce, signature)
+	if err != nil {
+		return false, fmt.Errorf("failed to pack validateProviderVoucher call: %w", err)
+	}
+
+	msg := &types.Message{
+		To:     s.router,
+		From:   builtin.SystemActorAddr,
+		Value:  abi.NewTokenAmount(0),
+		Method: builtin.MethodsEVM.InvokeContract,
+		Params: mustSerializeCBOR(data),
+	}
+
+	res, err := s.full.StateCall(ctx, msg, types.EmptyTSK)
+	if err != nil {
+		return false, fmt.Errorf("StateCall for validateProviderVoucher failed: %w", err)
+	}
+
+	var rawBytes abi.CborBytes
+	if err := rawBytes.UnmarshalCBOR(bytes.NewReader(res.MsgRct.Return)); err != nil {
+		return false, fmt.Errorf("failed to unmarshal validateProviderVoucher result: %w", err)
+	}
+
+	var isValid bool
+	if err := parsedABI.UnpackIntoInterface(&isValid, "validateProviderVoucher", rawBytes); err != nil {
+		return false, fmt.Errorf("failed to unpack validateProviderVoucher result: %w", err)
+	}
+
+	return isValid, nil
 }
 
 func (s *Service) VerifyVoucherUpdate(best, proposed *ClientVoucher) (*big.Int, error) {
