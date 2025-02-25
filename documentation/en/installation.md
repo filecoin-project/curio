@@ -15,7 +15,7 @@ Debain packages are only available for mainnet right now. For any other network 
 1.  Install prerequisites\\
 
     ```shell
-    sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git bzr jq pkg-config curl clang build-essential hwloc libhwloc-dev wget libarchive-dev -y && sudo apt upgrade -y
+    sudo apt install mesa-opencl-icd ocl-icd-opencl-dev gcc git jq pkg-config curl clang build-essential hwloc libhwloc-dev wget libarchive-dev -y && sudo apt upgrade -y
     ```
 2.  Enable Curio package repo\\
 
@@ -238,7 +238,7 @@ We recommend that macOS users use [Homebrew](https://brew.sh/) to install each o
 Use the command `brew install` to install the following packages:
 
 ```shell
-brew install go bzr jq pkg-config hwloc coreutils
+brew install go jq pkg-config hwloc coreutils
 ```
 
 Next up is cloning the Lotus repository and building the executables.

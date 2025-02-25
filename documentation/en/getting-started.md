@@ -47,9 +47,9 @@ Following port must be opened on each Curio node for API and GUI access
 | 4701  | Default GUI port. Not all Curio nodes are required to enable GUI                              |
 | 32100 | Market Port. This port is determined by the user when enabling Boost access in configuration. |
 
-## Boost Compatibility
+## Boost Compatibility (Deprecated)
 
-Boost is fully compatible with Curio and can be used for making deals and retrieving the data same as `lotus-miner`. The version compatibility guide can be found in [Boost documentation](https://boost.filecoin.io/getting-started#boost-and-lotus-compatibility-matrix).
+Boost is no longer compatible with latest Curio releases. Boost adapter is no longer shipped with our main branch and we recommend users to migrate to Curio markets.
 
 ## Installing Curio and creating a Curio cluster
 

@@ -51,7 +51,12 @@ CURIO_NODE_NAME=ChangeMe
 FIL_PROOFS_USE_MULTICORE_SDR=1
 ```
 
-Ensure all variables are correctly set according to your environment.
+Ensure all variables are correctly set according to your environment. Additionally you can also export the following variable for cache location.
+
+```sh
+FIL_PROOFS_PARAMETER_CACHE=/path/to/folder/in/fast/disk
+FIL_PROOFS_PARENT_CACHE=/path/to/folder/in/fast/disk2
+```
 
 ## Starting the Curio Service
 

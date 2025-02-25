@@ -38,7 +38,7 @@ When switching between Snap and PoRep deal pipeline, you must ensure that no sec
 
 #### Curio Market
 
-1. Enable snap deals on base layer
+1. Enable snap deals on base layer. Enabling it on base layer is very important so that no node in the cluster accidentally forwards deal to PoRep pipeline.
 2. Save the layer and exit. [Enable snap tasks](snap-deals.md#enable-snap-tasks) and restart all the nodes.
 
 ```
@@ -47,6 +47,10 @@ When switching between Snap and PoRep deal pipeline, you must ensure that no sec
 ```
 
 #### Boost Adapter (Deprecated)
+
+{% hint style="warning" %}
+Boost adapter is no longer supported with new Curio releases.
+{% endhint %}
 
 1.  Create or update the market layer ([if one is already created](enabling-market.md#enable-market-adapter-in-curio)) for the minerID where you wish to use snap deals pipeline.\
 
