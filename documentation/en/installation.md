@@ -181,9 +181,9 @@ This will put `curio` in `/usr/local/bin`. `curio` will use the `$HOME/.curio` f
 Run `curio --version`
 
 ```md
-curio version 1.24.5-rc1+mainnet+git_214226e7_2025-02-19T17:02:54+04:00
+curio version 1.24.5+mainnet+git_214226e7_2025-02-19T17:02:54+04:00
 # or
-curio version 1.24.5-rc1+calibnet+git_214226e7_2025-02-19T17:02:54+04:00
+curio version 1.24.5+calibnet+git_214226e7_2025-02-19T17:02:54+04:00
 ```
 
 1. You should now have Curio installed. You can now [finish setting up the Curio node](https://lotus.filecoin.io/storage-providers/curio/setup/).
@@ -291,9 +291,9 @@ The installation instructions are different depending on which CPU is in your Ma
 6.  Run `curio --version`
 
     ```md
-    curio version 1.24.5-rc1+mainnet+git_214226e7_2025-02-19T17:02:54+04:00
+    curio version 1.24.5+mainnet+git_214226e7_2025-02-19T17:02:54+04:00
     # or
-    curio version 1.24.5-rc1+calibnet+git_214226e7_2025-02-19T17:02:54+04:00
+    curio version 1.24.5+calibnet+git_214226e7_2025-02-19T17:02:54+04:00
     ```
 7. You should now have Curio installed. You can now [set up a new Curio cluster or migrating from Lotus-Miner](https://lotus.filecoin.io/storage-providers/curio/setup/).
 
