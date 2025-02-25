@@ -421,10 +421,15 @@ var allocateCmd = &cli.Command{
 			Usage:   "storage provider address[es]",
 			Aliases: []string{"m", "provider", "p"},
 		},
-		&cli.StringSliceFlag{
-			Name:    "piece-info",
-			Usage:   "data piece-info[s] to create the allocation. The format must be --piece-info pieceCid1=pieceSize1 --piece-info pieceCid2=pieceSize2",
-			Aliases: []string{"pi"},
+		&cli.StringFlag{
+			Name:    "piece-cid",
+			Usage:   "data piece-cid to create the allocation",
+			Aliases: []string{"piece"},
+		},
+		&cli.Int64Flag{
+			Name:    "piece-size",
+			Usage:   "piece size to create the allocation",
+			Aliases: []string{"size"},
 		},
 		&cli.StringFlag{
 			Name:  "wallet",
@@ -457,7 +462,7 @@ var allocateCmd = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:    "piece-file",
-			Usage:   "file containing piece-info[s] to create the allocation. Each line in the file should be in the format 'pieceCid,pieceSize,miner,tmin,tmax,expiration'",
+			Usage:   "file containing piece information to create the allocation. Each line in the file should be in the format 'pieceCid,pieceSize,miner,tmin,tmax,expiration'",
 			Aliases: []string{"pf"},
 		},
 		&cli.IntFlag{
@@ -490,18 +495,18 @@ var allocateCmd = &cli.Command{
 
 		pieceFile := cctx.String("piece-file")
 		miners := cctx.StringSlice("miner")
-		pinfos := cctx.StringSlice("piece-info")
+		pcids := cctx.String("piece-cid")
 
-		if pieceFile == "" && len(pinfos) < 1 {
-			return fmt.Errorf("must provide at least one --piece-info or use --piece-file")
+		if pieceFile == "" && pcids == "" {
+			return fmt.Errorf("must provide at least one --piece-cid or use --piece-file")
 		}
 
 		if pieceFile == "" && len(miners) < 1 {
 			return fmt.Errorf("must provide at least one miner address or use --piece-file")
 		}
 
-		if pieceFile != "" && len(pinfos) > 0 {
-			return fmt.Errorf("cannot use both --piece-info and --piece-file flags at once")
+		if pieceFile != "" && pcids != "" {
+			return fmt.Errorf("cannot use both --piece-cid and --piece-file flags at once")
 		}
 
 		var pieceInfos []PieceInfos
@@ -590,44 +595,30 @@ var allocateCmd = &cli.Command{
 				if err != nil {
 					return fmt.Errorf("failed to convert miner address %w", err)
 				}
-				for _, p := range cctx.StringSlice("piece-info") {
-					pieceDetail := strings.Split(p, "=")
-					if len(pieceDetail) != 2 {
-						return fmt.Errorf("incorrect pieceInfo format: %s", pieceDetail)
-					}
-
-					size, err := strconv.ParseInt(pieceDetail[1], 10, 64)
-					if err != nil {
-						return fmt.Errorf("failed to parse the piece size for %s for pieceCid %s: %w", pieceDetail[0], pieceDetail[1], err)
-					}
-					pcid, err := cid.Parse(pieceDetail[0])
-					if err != nil {
-						return fmt.Errorf("failed to parse the pieceCid for %s: %w", pieceDetail[0], err)
-					}
-
-					tmin := abi.ChainEpoch(cctx.Int64("term-min"))
-
-					tmax := abi.ChainEpoch(cctx.Int64("term-max"))
-
-					exp := abi.ChainEpoch(cctx.Int64("expiration"))
-					if exp == verifreg13.MaximumVerifiedAllocationExpiration {
-						exp -= 5
-					}
-
-					if tmax < tmin {
-						return fmt.Errorf("maximum duration %d cannot be smaller than minimum duration %d", tmax, tmin)
-					}
-
-					pieceInfos = append(pieceInfos, PieceInfos{
-						Cid:       pcid,
-						Size:      size,
-						Miner:     abi.ActorID(mid),
-						MinerAddr: maddr,
-						Tmin:      tmin,
-						Tmax:      tmax,
-						Exp:       exp,
-					})
+				pcid, err := cid.Parse(cctx.String("piece-cid"))
+				if err != nil {
+					return fmt.Errorf("failed to parse pieceCid %w", err)
 				}
+				size := cctx.Int64("piece-size")
+
+				tmin := abi.ChainEpoch(cctx.Int64("term-min"))
+
+				tmax := abi.ChainEpoch(cctx.Int64("term-max"))
+
+				exp := abi.ChainEpoch(cctx.Int64("expiration"))
+				if exp == verifreg13.MaximumVerifiedAllocationExpiration {
+					exp -= 5
+				}
+
+				pieceInfos = append(pieceInfos, PieceInfos{
+					Cid:       pcid,
+					Size:      size,
+					Miner:     abi.ActorID(mid),
+					MinerAddr: maddr,
+					Tmin:      tmin,
+					Tmax:      tmax,
+					Exp:       exp,
+				})
 			}
 		}
 

@@ -641,7 +641,8 @@ DESCRIPTION:
 
 OPTIONS:
    --miner value, -m value, --provider value, -p value [ --miner value, -m value, --provider value, -p value ]  storage provider address[es]
-   --piece-info value, --pi value [ --piece-info value, --pi value ]                                            data piece-info[s] to create the allocation. The format must be --piece-info pieceCid1=pieceSize1 --piece-info pieceCid2=pieceSize2
+   --piece-cid value, --piece value                                                                             data piece-cid to create the allocation
+   --piece-size value, --size value                                                                             piece size to create the allocation (default: 0)
    --wallet value                                                                                               the wallet address that will used create the allocation
    --quiet                                                                                                      do not print the allocation list (default: false)
    --term-min value, --tmin value                                                                               The minimum duration which the provider must commit to storing the piece to avoid early-termination penalties (epochs).
@@ -650,7 +651,7 @@ OPTIONS:
       Default is 5 years. (default: 5256000)
    --expiration value  The latest epoch by which a provider must commit data before the allocation expires (epochs).
       Default is 60 days. (default: 172800)
-   --piece-file value, --pf value  file containing piece-info[s] to create the allocation. Each line in the file should be in the format 'pieceCid,pieceSize,miner,tmin,tmax,expiration'
+   --piece-file value, --pf value  file containing piece information to create the allocation. Each line in the file should be in the format 'pieceCid,pieceSize,miner,tmin,tmax,expiration'
    --batch-size value              number of extend requests per batch. If set incorrectly, this will lead to out of gas error (default: 500)
    --confidence value              number of block confirmations to wait for (default: 5)
    --assume-yes, -y, --yes         automatic yes to prompts; assume 'yes' as answer to all prompts and run non-interactively (default: false)
