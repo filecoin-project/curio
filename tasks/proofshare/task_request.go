@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/curio/lib/proofsvc"
 	"github.com/filecoin-project/curio/tasks/seal"
 	"github.com/filecoin-project/curio/tasks/snap"
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 var log = logging.Logger("proofshare")
@@ -206,15 +207,15 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		newlyAdded := 0
 		for _, r := range work.Requests {
 			if !existingSet[r.WorkAskID] {
-				if r.Data == nil {
+				if r.RequestCid == nil {
 					return false, xerrors.Errorf("request data cannot be nil for work ask %d", r.WorkAskID)
 				}
-				requestData := *r.Data
+				requestCid := *r.RequestCid
 				_, insertErr := t.db.Exec(ctx, `
 					INSERT INTO proofshare_queue (
 						service_id,
 						obtained_at,
-						request_data,
+						request_cid,
 						compute_done,
 						submit_done
 					)
@@ -225,7 +226,7 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 						FALSE,
 						FALSE
 					)
-				`, r.WorkAskID, requestData)
+				`, r.WorkAskID, requestCid)
 				if insertErr != nil {
 					return false, xerrors.Errorf("failed to insert new request: %w", insertErr)
 				}
@@ -244,7 +245,12 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		log.Infow("checking if more asks needed", "neededAsks", neededAsks, "toRequest", toRequest, "activeAsks", len(work.ActiveAsks))
 
 		for i := 0; i < neededAsks; i++ {
-			askID, askErr := proofsvc.CreateWorkAsk(meta.Wallet, meta.Price)
+			price, err := types.BigFromString(meta.Price)
+			if err != nil {
+				return false, xerrors.Errorf("failed to parse price: %w", err)
+			}
+
+			askID, askErr := proofsvc.CreateWorkAsk(meta.Wallet, price)
 			if askErr != nil {
 				return false, xerrors.Errorf("failed to create work ask: %w", askErr)
 			}

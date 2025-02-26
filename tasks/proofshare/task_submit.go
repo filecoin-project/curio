@@ -3,7 +3,6 @@ package proofshare
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"strconv"
 	"time"
 
@@ -96,14 +95,14 @@ func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool
 	// 1) Look up the row assigned to this submit_task_id
 	var row struct {
 		ServiceID    int64           `db:"service_id"`
-		RequestData  json.RawMessage `db:"request_data"`
+		RequestCid  string          `db:"request_cid"`
 		ResponseData []byte          `db:"response_data"`
 	}
 	err := t.db.QueryRow(ctx, `
-		SELECT service_id, request_data, response_data
+		SELECT service_id, request_cid, response_data
 		FROM proofshare_queue
 		WHERE submit_task_id = $1
-	`, taskID).Scan(&row.ServiceID, &row.RequestData, &row.ResponseData)
+	`, taskID).Scan(&row.ServiceID, &row.RequestCid, &row.ResponseData)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			log.Errorf("no row found for submit_task_id=%d, ignoring", taskID)
@@ -136,7 +135,8 @@ func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool
 	}
 
 	// 4) Submit the proof to the remote service
-	if err := proofsvc.RespondWork(wallet, wreq, proofResp); err != nil {
+	reward, err := proofsvc.RespondWork(wallet, wreq, proofResp)
+	if err != nil {
 		return false, xerrors.Errorf("failed to respond to work: %w", err)
 	}
 
@@ -148,6 +148,15 @@ func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool
 	`, row.ServiceID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to update row after submit: %w", err)
+	}
+
+	// 6) Insert the payment into the DB
+	_, err = t.db.Exec(ctx, `
+		INSERT INTO proofshare_provider_payments (provider_id, request_cid, payment_nonce, payment_cumulative_amount, payment_signature)
+		VALUES ($1, $2, $3, $4, $5)
+	`, row.ServiceID, row.RequestCid, reward.Nonce, reward.CumulativeAmount, reward.Signature)
+	if err != nil {
+		return false, xerrors.Errorf("failed to insert payment into DB: %w", err)
 	}
 
 	log.Infof("successfully submitted proof for service_id=%d", row.ServiceID)

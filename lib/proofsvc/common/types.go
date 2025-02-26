@@ -10,10 +10,13 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
+	ffi "github.com/filecoin-project/filecoin-ffi"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/lotus/chain/types"
 
 	"github.com/filecoin-project/curio/lib/proof"
+	sproof "github.com/filecoin-project/go-state-types/proof"
 )
 
 var log = logging.Logger("psvcommon")
@@ -36,6 +39,15 @@ type ProofResponse struct {
 	Error string `json:"error"`
 }
 
+type ProofReward struct {
+	Status string `json:"status"`
+
+	Nonce            uint64          `json:"nonce"`
+	Amount           abi.TokenAmount `json:"amount"`
+	CumulativeAmount abi.TokenAmount `json:"cumulative_amount"`
+	Signature        []byte          `json:"signature"`
+}
+
 type WorkResponse struct {
 	Requests   []WorkRequest `json:"requests"`
 	ActiveAsks []int64       `json:"active_asks"`
@@ -52,11 +64,11 @@ type ProofRequest struct {
 	PoRep *proof.Commit1OutRaw
 
 	PriceEpoch int64 `json:"price_epoch"`
-	
-	PaymentClientID int64 `json:"payment_client_id"`
-	PaymentNonce     int64  `json:"payment_nonce"`
-	PaymentCumulativeAmount abi.TokenAmount  `json:"payment_cumulative_amount"`
-	PaymentSignature []byte `json:"payment_signature"`
+
+	PaymentClientID         int64           `json:"payment_client_id"`
+	PaymentNonce            int64           `json:"payment_nonce"`
+	PaymentCumulativeAmount abi.TokenAmount `json:"payment_cumulative_amount"`
+	PaymentSignature        []byte          `json:"payment_signature"`
 }
 
 func (p *ProofRequest) Validate() error {
@@ -142,4 +154,45 @@ func (p *ProofRequest) validatePoRep() error {
 	}
 
 	return xerrors.Errorf("PoRep validation reported is_valid=false:\n%s", output)
+}
+
+func (p *ProofRequest) CheckOutput(pb []byte) error {
+	if p.PoRep != nil {
+		spt, err := p.PoRep.RegisteredProof.ToABI()
+		if err != nil {
+			return xerrors.Errorf("failed to convert RegisteredProof to ABI: %w", err)
+		}
+
+		sealed, err := commcid.ReplicaCommitmentV1ToCID(p.PoRep.CommR[:])
+		if err != nil {
+			return xerrors.Errorf("failed to convert CommR to CID: %w", err)
+		}
+
+		unsealed, err := commcid.DataCommitmentV1ToCID(p.PoRep.CommD[:])
+		if err != nil {
+			return xerrors.Errorf("failed to convert CommD to CID: %w", err)
+		}
+
+		svi := sproof.SealVerifyInfo{
+			SealProof:             spt,
+			SectorID:              *p.SectorID,
+			Proof:                 pb,
+			Randomness:            p.PoRep.Ticket[:],
+			InteractiveRandomness: p.PoRep.Seed[:],
+			SealedCID:             sealed,
+			UnsealedCID:           unsealed,
+			DealIDs:               []abi.DealID{},
+		}
+
+		valid, err := ffi.VerifySeal(svi)
+		if err != nil {
+			return xerrors.Errorf("failed to verify seal: %w", err)
+		}
+
+		if !valid {
+			return xerrors.Errorf("invalid proof")
+		}
+	}
+
+	return nil
 }

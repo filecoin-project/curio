@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/ipfs/go-cid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	"github.com/filecoin-project/curio/lib/proof"
+	"github.com/filecoin-project/curio/lib/proofsvc"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
 	"github.com/filecoin-project/curio/tasks/seal"
 )
@@ -92,49 +94,16 @@ func (t *TaskProvideSnark) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 	return &id, nil
 }
 
-/*
-CREATE TABLE proofshare_queue (
-    service_id BIGINT NOT NULL,
-
-    obtained_at TIMESTAMPZ NOT NULL,
-
-    request_data JSONB NOT NULL,
-    response_data JSONB,
-
-    compute_task_id BIGINT,
-    compute_done BOOLEAN NOT NULL DEFAULT FALSE,
-
-    submit_task_id BIGINT,
-    submit_done BOOLEAN NOT NULL DEFAULT FALSE,
-
-    PRIMARY KEY (service_id, obtained_at)
-);
-
-CREATE TABLE proofshare_meta (
-    singleton BOOLEAN NOT NULL DEFAULT TRUE CHECK (singleton = TRUE) UNIQUE,
-
-    enabled BOOLEAN NOT NULL DEFAULT FALSE,
-
-    wallet TEXT,
-
-    request_task_id BIGINT,
-
-    PRIMARY KEY (singleton)
-);
-
-INSERT INTO proofshare_meta (singleton, enabled, wallet) VALUES (TRUE, FALSE, NULL);
-*/
-
 // Do implements harmonytask.TaskInterface.
 func (t *TaskProvideSnark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 
 	// fetch by compute_task_id
 	var tasks []struct {
-		RequestData json.RawMessage
+		RequestCid string
 	}
 
-	err = t.db.Select(ctx, &tasks, "SELECT request_data FROM proofshare_queue WHERE compute_task_id = $1", taskID)
+	err = t.db.Select(ctx, &tasks, "SELECT request_cid FROM proofshare_queue WHERE compute_task_id = $1", taskID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to fetch task: %w", err)
 	}
@@ -143,8 +112,18 @@ func (t *TaskProvideSnark) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	}
 	task := tasks[0]
 
+	rcid, err := cid.Parse(task.RequestCid)
+	if err != nil {
+		return false, xerrors.Errorf("failed to parse request cid: %w", err)
+	}
+
+	requestData, err := proofsvc.GetProof(rcid)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get proof: %w", err)
+	}
+
 	var request common.ProofRequest
-	err = json.Unmarshal(task.RequestData, &request)
+	err = json.Unmarshal(requestData, &request)
 	if err != nil {
 		return false, xerrors.Errorf("failed to unmarshal request: %w", err)
 	}
@@ -152,6 +131,11 @@ func (t *TaskProvideSnark) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	proof, err := computeProof(ctx, request)
 	if err != nil {
 		return false, xerrors.Errorf("failed to compute proof: %w", err)
+	}
+
+	err = request.CheckOutput(proof)
+	if err != nil {
+		return false, xerrors.Errorf("proof check failed: %w", err)
 	}
 
 	// store proof, mark as done
@@ -198,31 +182,6 @@ func computeProof(ctx context.Context, request common.ProofRequest) ([]byte, err
 	return nil, xerrors.Errorf("unknown proof request type")
 }
 
-/*
-	type Commit1OutRaw struct {
-		CommD           Commitment                `json:"comm_d"`
-		CommR           Commitment                `json:"comm_r"`
-		RegisteredProof StringRegisteredProofType `json:"registered_proof"`
-		ReplicaID       Commitment                `json:"replica_id"`
-		Seed            Ticket                    `json:"seed"`
-		Ticket          Ticket                    `json:"ticket"`
-
-		// ProofType -> [partitions] -> [challenge_index?] -> Proof
-		VanillaProofs map[StringRegisteredProofType][][]VanillaStackedProof `json:"vanilla_proofs"`
-	}
-
-	type SealVerifyInfo struct {
-		SealProof abi.RegisteredSealProof
-		abi.SectorID
-		Randomness            abi.SealRandomness
-		InteractiveRandomness abi.InteractiveSealRandomness
-		Proof                 []byte
-
-		// Safe because we get those from the miner actor
-		SealedCID   cid.Cid `checked:"true"` // CommR
-		UnsealedCID cid.Cid `checked:"true"` // CommD
-	}
-*/
 func computePoRep(ctx context.Context, request *proof.Commit1OutRaw, sectorID abi.SectorID) ([]byte, error) {
 	// Serialize the commit1out to JSON to pass as vanilla proof
 	vproof, err := json.Marshal(request)

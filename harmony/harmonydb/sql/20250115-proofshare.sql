@@ -32,6 +32,27 @@ CREATE TABLE proofshare_meta (
 
 INSERT INTO proofshare_meta (singleton, enabled, wallet) VALUES (TRUE, FALSE, NULL);
 
+CREATE TABLE proofshare_provider_payments (
+    provider_id BIGINT NOT NULL,
+    request_cid TEXT NOT NULL,
+
+    payment_nonce BIGINT NOT NULL,
+    payment_cumulative_amount TEXT NOT NULL,
+    payment_signature BYTEA NOT NULL,
+
+    PRIMARY KEY (provider_id, payment_nonce)
+);
+
+CREATE TABLE proofshare_provider_payments_settlement (
+    provider_id BIGINT NOT NULL,
+    payment_nonce BIGINT NOT NULL,
+
+    settled_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    settle_message_cid TEXT NOT NULL,
+
+    PRIMARY KEY (provider_id, payment_nonce)
+);
+
 -- Client settings
 
 CREATE TABLE proofshare_client_settings (
