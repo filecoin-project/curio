@@ -18,7 +18,9 @@ CREATE TABLE harmony_task (
     added_by INTEGER NOT NULL,
     previous_task INTEGER,
     name varchar(16) NOT NULL
-    -- retries INTEGER NOT NULL DEFAULT 0 -- added later
+    -- retries INTEGER NOT NULL DEFAULT 0  (added in 20240927-task-retrywait.sql)
+    -- wait_accumulated INTERVAL DEFAULT '0 seconds' (added in 20250226-harmonytask-waittime.sql)
+
 );
 COMMENT ON COLUMN harmony_task.initiated_by IS 'The task ID whose completion occasioned this task.';
 COMMENT ON COLUMN harmony_task.owner_id IS 'The foreign key to harmony_machines.';

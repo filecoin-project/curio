@@ -236,38 +236,28 @@ func (h *taskTypeHandler) recordCompletion(tID TaskID, sectorID *abi.SectorID, w
 	workEnd := time.Now()
 	retryWait := time.Millisecond * 100
 
-	{
-		// metrics
-
-		_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
-			tag.Upsert(taskNameTag, h.Name),
-		}, TaskMeasures.ActiveTasks.M(int64(h.Max.ActiveThis())))
-
-		duration := workEnd.Sub(workStart).Seconds()
-		TaskMeasures.TaskDuration.Observe(duration)
-
-		if done {
-			_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
-				tag.Upsert(taskNameTag, h.Name),
-			}, TaskMeasures.TasksCompleted.M(1))
-		} else {
-			_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
-				tag.Upsert(taskNameTag, h.Name),
-			}, TaskMeasures.TasksFailed.M(1))
-		}
-	}
+	var totalWaitTime time.Duration
+	var failedExecutionTime time.Duration
 
 retryRecordCompletion:
 	cm, err := h.TaskEngine.db.BeginTransaction(h.TaskEngine.ctx, func(tx *harmonydb.Tx) (bool, error) {
 		var postedTime time.Time
 		var retries uint
-		err := tx.QueryRow(`SELECT posted_time, retries FROM harmony_task WHERE id=$1`, tID).Scan(&postedTime, &retries)
+		var waitAccumulated time.Duration
+		err := tx.QueryRow(`SELECT posted_time, wait_accumulated, retries FROM harmony_task WHERE id=$1`, tID).Scan(&postedTime, &waitAccumulated, &retries)
 
 		if err != nil {
 			return false, fmt.Errorf("could not log completion: %w ", err)
 		}
+
+		currentWait := workStart.Sub(postedTime)
+		newWaitAccumulated := waitAccumulated + currentWait
+
+		taskExecutionTime := workEnd.Sub(workStart)
+
 		result := "unspecified error"
 		if done {
+			totalWaitTime = newWaitAccumulated
 			_, err = tx.Exec("DELETE FROM harmony_task WHERE id=$1", tID)
 			if err != nil {
 
@@ -281,6 +271,9 @@ retryRecordCompletion:
 			if doErr != nil {
 				result = "error: " + doErr.Error()
 			}
+
+			failedExecutionTime = taskExecutionTime
+
 			var deleteTask bool
 			if h.MaxFailures > 0 && retries >= h.MaxFailures-1 {
 				deleteTask = true
@@ -292,7 +285,7 @@ retryRecordCompletion:
 				}
 				// Note: Extra Info is left laying around for later review & clean-up
 			} else {
-				_, err := tx.Exec(`UPDATE harmony_task SET owner_id=NULL, retries=$1, update_time=CURRENT_TIMESTAMP  WHERE id=$2`, retries+1, tID)
+				_, err := tx.Exec(`UPDATE harmony_task SET owner_id=NULL, retries=$1, wait_accumulated=$2, update_time=CURRENT_TIMESTAMP  WHERE id=$3`, retries+1, newWaitAccumulated, tID)
 				if err != nil {
 					return false, fmt.Errorf("could not disown failed task: %v %v", tID, err)
 				}
@@ -300,9 +293,9 @@ retryRecordCompletion:
 		}
 
 		var hid int
-		err = tx.QueryRow(`INSERT INTO harmony_task_history 
-									 (task_id, name, posted, work_start, work_end, result, completed_by_host_and_port, err)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.UTC(), workStart.UTC(), workEnd.UTC(), done, h.TaskEngine.hostAndPort, result).Scan(&hid)
+		err = tx.QueryRow(`INSERT INTO harmony_task_history (task_id, name, posted, work_start, work_end, result, completed_by_host_and_port, err)
+								VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+			tID, h.Name, postedTime.UTC(), workStart.UTC(), workEnd.UTC(), done, h.TaskEngine.hostAndPort, result).Scan(&hid)
 		if err != nil {
 			return false, fmt.Errorf("could not write history: %w", err)
 		}
@@ -326,6 +319,36 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`, tID, h.Name, postedTime.U
 	}
 	if !cm {
 		log.Error("Committing the task records failed")
+	}
+
+	{
+		// metrics
+
+		_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
+			tag.Upsert(taskNameTag, h.Name),
+		}, TaskMeasures.ActiveTasks.M(int64(h.Max.ActiveThis())))
+
+		duration := workEnd.Sub(workStart).Seconds()
+		TaskMeasures.TaskDuration.Observe(duration)
+
+		if done {
+			_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
+				tag.Upsert(taskNameTag, h.Name),
+			}, TaskMeasures.TasksCompleted.M(1))
+
+			// Record total wait time and task duration in Prometheus only for successful tasks
+			TaskMeasures.PerTaskDuration.WithLabelValues(h.Name).Observe(duration)
+
+			TaskMeasures.PerTaskWaitTime.WithLabelValues(h.Name).Observe(totalWaitTime.Seconds())
+			TaskMeasures.TaskWaitTime.Observe(totalWaitTime.Seconds())
+		} else {
+			_ = stats.RecordWithTags(context.Background(), []tag.Mutator{
+				tag.Upsert(taskNameTag, h.Name),
+			}, TaskMeasures.TasksFailed.M(1))
+
+			TaskMeasures.PerTaskFailedDuration.WithLabelValues(h.Name).Observe(failedExecutionTime.Seconds())
+			TaskMeasures.TaskFailedDuration.Observe(failedExecutionTime.Seconds())
+		}
 	}
 }
 
