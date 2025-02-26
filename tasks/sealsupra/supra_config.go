@@ -54,6 +54,8 @@ type SupraSealConfig struct {
 	P2WrRdOverlap   bool
 	P2HsP1WrOverlap bool
 	P2HcP2RdOverlap bool
+
+	HashersPerThread int
 }
 
 type AdditionalSystemInfo struct {
@@ -151,18 +153,19 @@ func GenerateSupraSealConfig(info SystemInfo, dualHashers bool, batchSize int, n
 		P2WrRdOverlap:   true,
 		P2HsP1WrOverlap: true,
 		P2HcP2RdOverlap: true,
+
+		HashersPerThread: 1,
 	}
 
-	sectorsPerThread := 1
 	if dualHashers {
-		sectorsPerThread = 2
+		config.HashersPerThread = 2
 	}
 
 	ccxFreeCores := info.CoresPerL3 - 1 // one core per ccx goes to the coordinator
 	ccxFreeThreads := ccxFreeCores * info.ThreadsPerCore
-	sectorsPerCCX := ccxFreeThreads * sectorsPerThread
+	sectorsPerCCX := ccxFreeThreads * config.HashersPerThread
 
-	config.RequiredThreads = batchSize / sectorsPerThread
+	config.RequiredThreads = batchSize / config.HashersPerThread
 	config.RequiredCCX = (batchSize + sectorsPerCCX - 1) / sectorsPerCCX
 	config.RequiredCores = config.RequiredCCX + config.RequiredThreads/info.ThreadsPerCore
 
@@ -306,7 +309,12 @@ func FormatSupraSealConfig(config SupraSealConfig, system SystemInfo, additional
 	w("    qpair_writer = 1;")
 	w("    reader_sleep_time = 250;")
 	w("    writer_sleep_time = 500;")
-	w("    hashers_per_core = 2;")
+
+	if config.HashersPerThread == 2 {
+		w("    hashers_per_core = 2;")
+	} else {
+		w("    hashers_per_core = 1;")
+	}
 	w("")
 	w("    sector_configs: (")
 
