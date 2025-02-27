@@ -239,7 +239,7 @@ func GenerateSupraSealConfig(info SystemInfo, dualHashers bool, batchSize int, n
 
 		sectorConfig.Coordinators = append(sectorConfig.Coordinators, CoordinatorConfig{
 			Core:    coreNum,
-			Hashers: (toAssign - 1) * info.ThreadsPerCore,
+			Hashers: (toAssign - 1) * config.HashersPerCore,
 		})
 
 		i -= toAssign
