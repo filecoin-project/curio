@@ -86,7 +86,7 @@ class MarketAsks extends LitElement {
             VerifiedPrice: existingAsk.VerifiedPrice || '',
             MinSize: existingAsk.MinSize || 4 * 1024 ** 3, // Default to 4 GiB
             MaxSize: existingAsk.MaxSize || 32 * 1024 ** 3, // Default to 32 GiB
-            PriceFIL: '1',
+            PriceFIL: '0',
             VerifiedPriceFIL: '0',
             CreatedAt: '',
             Expiry: '',

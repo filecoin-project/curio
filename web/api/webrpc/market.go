@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
+	"github.com/samber/lo"
 	"github.com/snadrus/must"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
@@ -477,7 +478,7 @@ func (a *WebRPC) MarketBalance(ctx context.Context) ([]MarketBalanceStatus, erro
 		return nil, err
 	}
 
-	for _, m := range miners {
+	for _, m := range lo.Uniq(miners) {
 		balance, err := a.deps.Chain.StateMarketBalance(ctx, m, types.EmptyTSK)
 		if err != nil {
 			return nil, err
