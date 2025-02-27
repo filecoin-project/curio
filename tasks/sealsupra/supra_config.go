@@ -11,6 +11,8 @@ import (
 	"github.com/samber/lo"
 )
 
+const SectorsPerHasher = 2
+
 type SystemInfo struct {
 	ProcessorCount int
 	CoreCount      int
@@ -55,7 +57,7 @@ type SupraSealConfig struct {
 	P2HsP1WrOverlap bool
 	P2HcP2RdOverlap bool
 
-	HashersPerThread int
+	HashersPerCore int
 }
 
 type AdditionalSystemInfo struct {
@@ -154,20 +156,20 @@ func GenerateSupraSealConfig(info SystemInfo, dualHashers bool, batchSize int, n
 		P2HsP1WrOverlap: true,
 		P2HcP2RdOverlap: true,
 
-		HashersPerThread: 1,
+		HashersPerCore: 1,
 	}
 
 	if dualHashers {
-		config.HashersPerThread = 2
+		config.HashersPerCore = 2
 	}
 
 	ccxFreeCores := info.CoresPerL3 - 1 // one core per ccx goes to the coordinator
-	ccxFreeThreads := ccxFreeCores * info.ThreadsPerCore
-	sectorsPerCCX := ccxFreeThreads * config.HashersPerThread
+	ccxFreeThreads := ccxFreeCores * config.HashersPerCore
+	sectorsPerCCX := ccxFreeThreads * SectorsPerHasher
 
-	config.RequiredThreads = batchSize / config.HashersPerThread
+	config.RequiredThreads = batchSize / SectorsPerHasher
 	config.RequiredCCX = (batchSize + sectorsPerCCX - 1) / sectorsPerCCX
-	config.RequiredCores = config.RequiredCCX + config.RequiredThreads/info.ThreadsPerCore
+	config.RequiredCores = config.RequiredCCX + config.RequiredThreads/config.HashersPerCore
 
 	if config.RequiredCores > info.CoreCount {
 		return config, fmt.Errorf("not enough cores available for hashers")
@@ -310,7 +312,7 @@ func FormatSupraSealConfig(config SupraSealConfig, system SystemInfo, additional
 	w("    reader_sleep_time = 250;")
 	w("    writer_sleep_time = 500;")
 
-	if config.HashersPerThread == 2 {
+	if config.HashersPerCore == 2 {
 		w("    hashers_per_core = 2;")
 	} else {
 		w("    hashers_per_core = 1;")
