@@ -6,7 +6,7 @@ description: How to setup and use storage deal filters
 
 ## Overview
 
-Curio provides a flexible filtering system to manage storage deals effectively. The filters allow you to:
+Curio provides a flexible filtering system to manage storage deals effectively. User have an option to choose from external filter like [CIDGravity](#cidgravity-filter) and built-in filters. The built-in filters allow you to:
 
 * Set pricing rules based on deal duration, size, and whether the data is verified.
 * Define client-specific rules, including rate limits and acceptable wallets or peers.
@@ -172,3 +172,72 @@ DenyUnknownClients bool
   * Verify the order and specificity of your filters.
   * Check the Allow/Deny List for conflicting entries.
   * Review client filters to ensure they are active and correctly configured.
+
+# CIDGravity Filter
+
+## What is CIDGravity?
+
+[CIDGravity](https://www.cidgravity.com/) is a powerful pricing and client management tool designed for Filecoin storage providers. It enables storage providers to efficiently filter storage and retrieval deals through a user-friendly interface. With CIDGravity, providers can set rules and policies for accepting or rejecting deals based on their business preferences, ensuring better control over their storage operations.
+
+For more details, refer to the [CIDGravity documentation](https://docs.cidgravity.com/).
+
+## How to Enable CIDGravity in Curio
+
+CIDGravity integration in Curio is controlled through Curio configuration. To enable CIDGravity, you need to set the below parameters in the configuration.
+We highly recommend setting these values in "market" layer or a layer used by all market nodes to control the market behaviour.
+
+```toml
+        # CIDGravityToken is the authorization token to use for CIDGravity filters.
+        # If empty then CIDGravity filters are not called.
+        #
+        # type: string
+        #CIDGravityToken = ""
+        
+        # DefaultCIDGravityAccept when set to true till accept deals when CIDGravity service is not available.
+        # Default behaviors is to reject the deals
+        #
+        # type: bool
+        #DefaultCIDGravityAccept = false
+```
+
+### Configuration Options:
+
+#### 1. `CIDGravityToken`
+- **Description**: This is the authorization token required to use CIDGravity filters.
+- **Default Behavior**: If left empty, CIDGravity filters will not be applied.
+- **Type**: `string`
+
+**Example Configuration:**
+```toml
+CIDGravityToken = "your-auth-token-here"
+```
+
+{% hint style="info" %}
+To generate a CIDGravity token [claim your miner](https://docs.cidgravity.com/storage-providers/get-started/claim-a-miner/) in CIDGravity. If you already have an existing miner then you can use the same token.
+{% endhint %}
+
+#### 2. `DefaultCIDGravityAccept`
+- **Description**: Defines the default behavior when the CIDGravity service is unavailable.
+- **Default Behavior**: If set to `false`, deals will be rejected when CIDGravity is not reachable. If set to `true`, deals will be accepted even if CIDGravity is not available.
+- **Type**: `bool`
+
+**Example Configuration:**
+```toml
+DefaultCIDGravityAccept = false
+```
+
+### Steps to Enable CIDGravity in Curio:
+1. Obtain a **CIDGravityToken** from the [CIDGravity platform](https://app.cidgravity.com/).
+2. Add the token to the Curio configuration file under `CIDGravityToken`.
+3. Set `DefaultCIDGravityAccept` based on your preference:
+    - `true` to accept deals when CIDGravity is unreachable.
+    - `false` to reject deals when CIDGravity is unreachable.
+   <figure><img src="../.gitbook/assets/cid_gravity_disabled.png" alt=""><figcaption><p>CID Gravity Disabled</p></figcaption></figure>
+4. Restart Curio for the changes to take effect.
+5. Verify that CIDGravity is enabled via UI Market Settings page.
+
+<figure><img src="../.gitbook/assets/cid_gravity_enabled.png" alt=""><figcaption><p>CID Gravity Enabled</p></figcaption></figure>
+
+Once enabled, Curio will automatically interact with CIDGravity to apply deal filtering and pricing rules according to the policies set in your CIDGravity account.
+
+

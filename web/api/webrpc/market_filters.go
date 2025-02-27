@@ -361,7 +361,18 @@ func (a *WebRPC) RemoveAllowFilter(ctx context.Context, wallet string) error {
 	return nil
 }
 
-func (a *WebRPC) DefaultAllowBehaviour(ctx context.Context) (bool, error) {
-	ret := !a.deps.Cfg.Market.StorageMarketConfig.MK12.DenyUnknownClients
-	return ret, nil
+type DefaultFilterBehaviourResponse struct {
+	AllowDealsFromUnknownClients             bool `json:"allow_deals_from_unknown_clients"`
+	IsCidGravityEnabled                      bool `json:"is_cid_gravity_enabled"`
+	IsDealRejectedWhenCidGravityNotReachable bool `json:"is_deal_rejected_when_cid_gravity_not_reachable"`
+}
+
+func (a *WebRPC) DefaultFilterBehaviour(ctx context.Context) (*DefaultFilterBehaviourResponse, error) {
+
+	return &DefaultFilterBehaviourResponse{
+		AllowDealsFromUnknownClients:             !a.deps.Cfg.Market.StorageMarketConfig.MK12.DenyUnknownClients,
+		IsCidGravityEnabled:                      a.deps.Cfg.Market.StorageMarketConfig.MK12.CIDGravityToken != "",
+		IsDealRejectedWhenCidGravityNotReachable: !a.deps.Cfg.Market.StorageMarketConfig.MK12.DefaultCIDGravityAccept,
+	}, nil
+
 }
