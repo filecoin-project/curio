@@ -11,6 +11,8 @@ import (
 	"github.com/samber/lo"
 )
 
+const SectorsPerHasher = 2
+
 type SystemInfo struct {
 	ProcessorCount int
 	CoreCount      int
@@ -54,6 +56,8 @@ type SupraSealConfig struct {
 	P2WrRdOverlap   bool
 	P2HsP1WrOverlap bool
 	P2HcP2RdOverlap bool
+
+	HashersPerCore int
 }
 
 type AdditionalSystemInfo struct {
@@ -151,20 +155,21 @@ func GenerateSupraSealConfig(info SystemInfo, dualHashers bool, batchSize int, n
 		P2WrRdOverlap:   true,
 		P2HsP1WrOverlap: true,
 		P2HcP2RdOverlap: true,
+
+		HashersPerCore: 1,
 	}
 
-	sectorsPerThread := 1
 	if dualHashers {
-		sectorsPerThread = 2
+		config.HashersPerCore = 2
 	}
 
 	ccxFreeCores := info.CoresPerL3 - 1 // one core per ccx goes to the coordinator
-	ccxFreeThreads := ccxFreeCores * info.ThreadsPerCore
-	sectorsPerCCX := ccxFreeThreads * sectorsPerThread
+	ccxFreeThreads := ccxFreeCores * config.HashersPerCore
+	sectorsPerCCX := ccxFreeThreads * SectorsPerHasher
 
-	config.RequiredThreads = batchSize / sectorsPerThread
+	config.RequiredThreads = batchSize / SectorsPerHasher
 	config.RequiredCCX = (batchSize + sectorsPerCCX - 1) / sectorsPerCCX
-	config.RequiredCores = config.RequiredCCX + config.RequiredThreads/info.ThreadsPerCore
+	config.RequiredCores = config.RequiredCCX + config.RequiredThreads/config.HashersPerCore
 
 	if config.RequiredCores > info.CoreCount {
 		return config, fmt.Errorf("not enough cores available for hashers")
@@ -234,7 +239,7 @@ func GenerateSupraSealConfig(info SystemInfo, dualHashers bool, batchSize int, n
 
 		sectorConfig.Coordinators = append(sectorConfig.Coordinators, CoordinatorConfig{
 			Core:    coreNum,
-			Hashers: (toAssign - 1) * info.ThreadsPerCore,
+			Hashers: (toAssign - 1) * config.HashersPerCore,
 		})
 
 		i -= toAssign
@@ -306,7 +311,12 @@ func FormatSupraSealConfig(config SupraSealConfig, system SystemInfo, additional
 	w("    qpair_writer = 1;")
 	w("    reader_sleep_time = 250;")
 	w("    writer_sleep_time = 500;")
-	w("    hashers_per_core = 2;")
+
+	if config.HashersPerCore == 2 {
+		w("    hashers_per_core = 2;")
+	} else {
+		w("    hashers_per_core = 1;")
+	}
 	w("")
 	w("    sector_configs: (")
 
