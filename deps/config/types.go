@@ -447,25 +447,6 @@ type CurioProvingConfig struct {
 	PartitionCheckTimeout time.Duration
 }
 
-// Duration is a wrapper type for time.Duration
-// for decoding and encoding from/to TOML
-type Duration time.Duration
-
-func (dur Duration) MarshalText() ([]byte, error) {
-	d := time.Duration(dur)
-	return []byte(d.String()), nil
-}
-
-// UnmarshalText implements interface for TOML decoding
-func (dur *Duration) UnmarshalText(text []byte) error {
-	d, err := time.ParseDuration(string(text))
-	if err != nil {
-		return err
-	}
-	*dur = Duration(d)
-	return err
-}
-
 type CurioIngestConfig struct {
 	// MaxMarketRunningPipelines is the maximum number of market pipelines that can be actively running tasks.
 	// A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).

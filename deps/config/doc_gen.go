@@ -766,26 +766,6 @@ also be bounded by resources available on the machine. (Default: 0 - unlimited)`
 also be bounded by resources available on the machine. (Default: 8 - unlimited)`,
 		},
 	},
-	"Duration time.Duration": {
-		{
-			Name: "func",
-			Type: "(dur",
-
-			Comment: ``,
-		},
-		{
-			Name: "d",
-			Type: ":=",
-
-			Comment: ``,
-		},
-		{
-			Name: "return",
-			Type: "[]byte(d.String()),",
-
-			Comment: ``,
-		},
-	},
 	"HTTPConfig": {
 		{
 			Name: "Enable",

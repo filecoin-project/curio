@@ -257,7 +257,7 @@ var generateRandCar = &cli.Command{
 	Usage:     "creates a randomly generated dense car",
 	ArgsUsage: "<outputPath>",
 	Flags: []cli.Flag{
-		&cli.IntFlag{
+		&cli.Int64Flag{
 			Name:    "size",
 			Aliases: []string{"s"},
 			Usage:   "The size of the data to turn into a car",
@@ -282,11 +282,11 @@ var generateRandCar = &cli.Command{
 		}
 
 		outPath := cctx.Args().Get(0)
-		size := cctx.Int("size")
+		size := cctx.Int64("size")
 		cs := cctx.Int64("chunksize")
 		ml := cctx.Int("maxlinks")
 
-		rf, err := testutils.CreateRandomFile(outPath, int(time.Now().Unix()), size)
+		rf, err := testutils.CreateRandomFile(outPath, time.Now().Unix(), size)
 		if err != nil {
 			return err
 		}
