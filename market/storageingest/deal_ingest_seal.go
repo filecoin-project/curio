@@ -139,14 +139,14 @@ func NewPieceIngester(ctx context.Context, db *harmonydb.DB, api PieceIngesterAp
 		idToAddr[abi.ActorID(mid)] = maddr
 	}
 
-	epochs := time.Duration(cfg.Market.StorageMarketConfig.MK12.ExpectedPoRepSealDuration).Seconds() / float64(build.BlockDelaySecs)
+	epochs := cfg.Market.StorageMarketConfig.MK12.ExpectedPoRepSealDuration.Seconds() / float64(build.BlockDelaySecs)
 	expectedEpochs := math.Ceil(epochs)
 
 	pi := &PieceIngester{
 		ctx:                  ctx,
 		db:                   db,
 		api:                  api,
-		maxWaitTime:          time.Duration(cfg.Ingest.MaxDealWaitTime),
+		maxWaitTime:          cfg.Ingest.MaxDealWaitTime,
 		addToID:              addToID,
 		minerDetails:         minerDetails,
 		idToAddr:             idToAddr,

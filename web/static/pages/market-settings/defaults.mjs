@@ -35,9 +35,9 @@ class DefaultMarketFilters extends LitElement {
                     CID Gravity is
                     ${this.data.is_cid_gravity_enabled ? 'Enabled' : 'Disabled'}
                 </h4>
-                <h4 class=${this.data.is_deal_rejected_when_cid_gravity_not_reachable ? 'text-danger' : 'text-success'}>
+                <h4 class=${this.data.is_deal_rejected_when_cid_gravity_not_reachable ? 'text-success' : 'text-danger'}>
                     When CID Gravity is not reachable, deals are
-                    ${this.data.is_deal_rejected_when_cid_gravity_not_reachable ? 'Accepted' : 'Rejected'}
+                    ${this.data.is_deal_rejected_when_cid_gravity_not_reachable ? 'Rejected' : 'Accepted'}
                 </h4>
             </div>
         `;

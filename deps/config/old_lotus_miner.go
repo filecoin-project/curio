@@ -85,7 +85,7 @@ type DAGStoreConfig struct {
 	// The time between calls to periodic dagstore GC, in time.Duration string
 	// representation, e.g. 1m, 5m, 1h.
 	// Default value: 1 minute.
-	GCInterval Duration
+	GCInterval time.Duration
 }
 
 type MinerAddressConfig struct {
@@ -203,11 +203,11 @@ type SealingConfig struct {
 	// CommittedCapacitySectorLifetime is the duration a Committed Capacity (CC) sector will
 	// live before it must be extended or converted into sector containing deals before it is
 	// terminated. Value must be between 180-1278 days (1278 in nv21, 540 before nv21).
-	CommittedCapacitySectorLifetime Duration
+	CommittedCapacitySectorLifetime time.Duration
 
 	// Period of time that a newly created sector will wait for more deals to be packed in to before it starts to seal.
 	// Sectors which are fully filled will start sealing immediately
-	WaitDealsDelay Duration
+	WaitDealsDelay time.Duration
 
 	// Whether to keep unsealed copies of deal data regardless of whether the client requested that. This lets the miner
 	// avoid the relatively high cost of unsealing the data later, at the cost of more storage space
@@ -234,9 +234,9 @@ type SealingConfig struct {
 	// maximum precommit batch size - batches will be sent immediately above this size
 	MaxPreCommitBatch int
 	// how long to wait before submitting a batch after crossing the minimum batch size
-	PreCommitBatchWait Duration
+	PreCommitBatchWait time.Duration
 	// time buffer for forceful batch submission before sectors/deal in batch would start expiring
-	PreCommitBatchSlack Duration
+	PreCommitBatchSlack time.Duration
 
 	// enable / disable commit aggregation (takes effect after nv13)
 	AggregateCommits bool
@@ -245,9 +245,9 @@ type SealingConfig struct {
 	// maximum batched commit size - batches will be sent immediately above this size
 	MaxCommitBatch int
 	// how long to wait before submitting a batch after crossing the minimum batch size
-	CommitBatchWait Duration
+	CommitBatchWait time.Duration
 	// time buffer for forceful batch submission before sectors/deals in batch would start expiring
-	CommitBatchSlack Duration
+	CommitBatchSlack time.Duration
 
 	// network BaseFee below which to stop doing precommit batching, instead
 	// sending precommit messages to the chain individually. When the basefee is
@@ -267,7 +267,7 @@ type SealingConfig struct {
 
 	TerminateBatchMax  uint64
 	TerminateBatchMin  uint64
-	TerminateBatchWait Duration
+	TerminateBatchWait time.Duration
 
 	// Keep this many sectors in sealing pipeline, start CC if needed
 	// todo TargetSealingSectors uint64
@@ -304,7 +304,7 @@ type ProvingConfig struct {
 	// test challenge took longer than this timeout
 	// WARNING: Setting this value too high risks missing PoSt deadline in case IO operations related to this sector are
 	// blocked (e.g. in case of disconnected NFS mount)
-	SingleCheckTimeout Duration
+	SingleCheckTimeout time.Duration
 
 	// Maximum amount of time a proving pre-check can take for an entire partition. If the check times out, sectors in
 	// the partition which didn't get checked on time will be skipped
@@ -313,7 +313,7 @@ type ProvingConfig struct {
 	// test challenge took longer than this timeout
 	// WARNING: Setting this value too high risks missing PoSt deadline in case IO operations related to this partition are
 	// blocked or slow
-	PartitionCheckTimeout Duration
+	PartitionCheckTimeout time.Duration
 
 	// Disable Window PoSt computation on the lotus-miner process even if no window PoSt workers are present.
 	//
@@ -434,12 +434,12 @@ type DealmakingConfig struct {
 	// Maximum expected amount of time getting the deal into a sealed sector will take
 	// This includes the time the deal will need to get transferred and published
 	// before being assigned to a sector
-	ExpectedSealDuration Duration
+	ExpectedSealDuration time.Duration
 	// Maximum amount of time proposed deal StartEpoch can be in future
-	MaxDealStartDelay Duration
+	MaxDealStartDelay time.Duration
 	// When a deal is ready to publish, the amount of time to wait for more
 	// deals to be ready to publish before publishing them all as a batch
-	PublishMsgPeriod Duration
+	PublishMsgPeriod time.Duration
 	// The maximum number of deals to include in a single PublishStorageDeals
 	// message
 	MaxDealsPerPublishMsg uint64
@@ -537,7 +537,7 @@ func DefaultStorageMiner() *StorageMiner {
 			MaxWaitDealsSectors:       2, // 64G with 32G sectors
 			MaxSealingSectors:         0,
 			MaxSealingSectorsForDeals: 0,
-			WaitDealsDelay:            Duration(time.Hour * 6),
+			WaitDealsDelay:            time.Hour * 6,
 			AlwaysKeepUnsealedCopy:    true,
 			FinalizeEarly:             false,
 			MakeNewSectorForDeals:     true,
@@ -547,32 +547,32 @@ func DefaultStorageMiner() *StorageMiner {
 			DisableCollateralFallback:  false,
 
 			MaxPreCommitBatch:  miner5.PreCommitSectorBatchMaxSize, // up to 256 sectors
-			PreCommitBatchWait: Duration(24 * time.Hour),           // this should be less than 31.5 hours, which is the expiration of a precommit ticket
+			PreCommitBatchWait: 24 * time.Hour,                     // this should be less than 31.5 hours, which is the expiration of a precommit ticket
 			// XXX snap deals wait deals slack if first
-			PreCommitBatchSlack: Duration(3 * time.Hour), // time buffer for forceful batch submission before sectors/deals in batch would start expiring, higher value will lower the chances for message fail due to expiration
+			PreCommitBatchSlack: 3 * time.Hour, // time buffer for forceful batch submission before sectors/deals in batch would start expiring, higher value will lower the chances for message fail due to expiration
 
-			CommittedCapacitySectorLifetime: Duration(builtin.EpochDurationSeconds * uint64(maxSectorExtentsion) * uint64(time.Second)),
+			CommittedCapacitySectorLifetime: time.Duration(builtin.EpochDurationSeconds * uint64(maxSectorExtentsion) * uint64(time.Second)),
 
 			AggregateCommits: true,
 			MinCommitBatch:   miner5.MinAggregatedSectors, // per FIP13, we must have at least four proofs to aggregate, where 4 is the cross over point where aggregation wins out on single provecommit gas costs
 			MaxCommitBatch:   miner5.MaxAggregatedSectors, // maximum 819 sectors, this is the maximum aggregation per FIP13
-			CommitBatchWait:  Duration(24 * time.Hour),    // this can be up to 30 days
-			CommitBatchSlack: Duration(1 * time.Hour),     // time buffer for forceful batch submission before sectors/deals in batch would start expiring, higher value will lower the chances for message fail due to expiration
+			CommitBatchWait:  24 * time.Hour,              // this can be up to 30 days
+			CommitBatchSlack: 1 * time.Hour,               // time buffer for forceful batch submission before sectors/deals in batch would start expiring, higher value will lower the chances for message fail due to expiration
 
 			BatchPreCommitAboveBaseFee: types.FIL(types.BigMul(types.PicoFil, types.NewInt(320))), // 0.32 nFIL
 			AggregateAboveBaseFee:      types.FIL(types.BigMul(types.PicoFil, types.NewInt(320))), // 0.32 nFIL
 
 			TerminateBatchMin:                      1,
 			TerminateBatchMax:                      100,
-			TerminateBatchWait:                     Duration(5 * time.Minute),
+			TerminateBatchWait:                     5 * time.Minute,
 			MaxSectorProveCommitsSubmittedPerEpoch: 20,
 			UseSyntheticPoRep:                      false,
 		},
 
 		Proving: ProvingConfig{
 			ParallelCheckLimit:    32,
-			PartitionCheckTimeout: Duration(20 * time.Minute),
-			SingleCheckTimeout:    Duration(10 * time.Minute),
+			PartitionCheckTimeout: 20 * time.Minute,
+			SingleCheckTimeout:    10 * time.Minute,
 		},
 
 		Storage: SealerConfig{
@@ -605,9 +605,9 @@ func DefaultStorageMiner() *StorageMiner {
 			ConsiderUnverifiedStorageDeals: true,
 			PieceCidBlocklist:              []cid.Cid{},
 			// TODO: It'd be nice to set this based on sector size
-			MaxDealStartDelay:               Duration(time.Hour * 24 * 14),
-			ExpectedSealDuration:            Duration(time.Hour * 24),
-			PublishMsgPeriod:                Duration(time.Hour),
+			MaxDealStartDelay:               time.Hour * 24 * 14,
+			ExpectedSealDuration:            time.Hour * 24,
+			PublishMsgPeriod:                time.Hour,
 			MaxDealsPerPublishMsg:           8,
 			MaxProviderCollateralMultiplier: 2,
 
@@ -678,7 +678,7 @@ func DefaultStorageMiner() *StorageMiner {
 			MaxConcurrentIndex:         5,
 			MaxConcurrencyStorageCalls: 100,
 			MaxConcurrentUnseals:       5,
-			GCInterval:                 Duration(1 * time.Minute),
+			GCInterval:                 time.Minute,
 		},
 		HarmonyDB: HarmonyDB{
 			Hosts:    []string{"127.0.0.1"},
@@ -698,7 +698,7 @@ func defCommon() Common {
 	return Common{
 		API: API{
 			ListenAddress: "/ip4/127.0.0.1/tcp/1234/http",
-			Timeout:       Duration(30 * time.Second),
+			Timeout:       30 * time.Second,
 		},
 		Logging: Logging{
 			SubsystemLevels: map[string]string{
@@ -722,7 +722,7 @@ func defCommon() Common {
 
 			ConnMgrLow:   150,
 			ConnMgrHigh:  180,
-			ConnMgrGrace: Duration(20 * time.Second),
+			ConnMgrGrace: 20 * time.Second,
 		},
 		Pubsub: Pubsub{
 			Bootstrapper: false,

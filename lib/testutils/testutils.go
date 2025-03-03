@@ -27,17 +27,23 @@ import (
 
 const defaultHashFunction = uint64(multihash.BLAKE2B_MIN + 31)
 
-func CreateRandomFile(dir string, rseed, size int) (string, error) {
-	source := io.LimitReader(rand.New(rand.NewSource(int64(rseed))), int64(size))
+func CreateRandomFile(dir string, rseed int64, size int64) (string, error) {
+	source := io.LimitReader(rand.New(rand.NewSource(rseed)), size)
 
 	file, err := os.CreateTemp(dir, "sourcefile.dat")
 	if err != nil {
 		return "", err
 	}
 
-	_, err = io.Copy(file, source)
+	buff := make([]byte, 4<<20)
+
+	n, err := io.CopyBuffer(file, source, buff)
 	if err != nil {
 		return "", err
+	}
+
+	if n != size {
+		return "", fmt.Errorf("incorrect file size: written %d != expected %d", n, size)
 	}
 
 	//

@@ -106,8 +106,8 @@ func NewSubmitTask(db *harmonydb.DB, api SubmitTaskNodeAPI, bstore curiochain.Cu
 				// snap has 16x192 snarks + 50 or so bytes of other message overhead,
 				// so we can only really fit ~20-16 updates in a message
 				MaxUpdateBatch:   16,
-				Slack:            time.Duration(cfg.Batching.Update.Slack),
-				Timeout:          time.Duration(cfg.Batching.Update.Timeout),
+				Slack:            cfg.Batching.Update.Slack,
+				Timeout:          cfg.Batching.Update.Timeout,
 				BaseFeeThreshold: abi.TokenAmount(cfg.Batching.Update.BaseFeeThreshold),
 			},
 			feeCfg:                     &cfg.Fees,

@@ -585,7 +585,7 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 }
 
 func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context) error {
-	publishPeriod := time.Duration(d.cfg.Market.StorageMarketConfig.MK12.PublishMsgPeriod)
+	publishPeriod := d.cfg.Market.StorageMarketConfig.MK12.PublishMsgPeriod
 	maxDeals := d.cfg.Market.StorageMarketConfig.MK12.MaxDealsPerPublishMsg
 
 	var eligibleSpIDs []struct {

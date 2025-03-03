@@ -16,9 +16,11 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/web/api/apihelper"
+
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
-var log = logging.Logger("curio/web/config")
+var log = logging.Logger("config-ui")
 
 type cfg struct {
 	*deps.Deps
@@ -59,10 +61,16 @@ func (c *cfg) addLayer(w http.ResponseWriter, r *http.Request) {
 func getSch(w http.ResponseWriter, r *http.Request) {
 	ref := jsonschema.Reflector{
 		Mapper: func(i reflect.Type) *jsonschema.Schema {
-			if i == reflect.TypeOf(config.Duration(time.Second)) {
+			if i == reflect.TypeOf(types.MustParseFIL("1 Fil")) { // Override the Pattern for types.FIL
 				return &jsonschema.Schema{
-					Type:   "string",
-					Format: "duration",
+					Type:    "string",
+					Pattern: "1 fil/0.03 fil/0.31/1 attofil",
+				}
+			}
+			if i == reflect.TypeOf(time.Second) { // Override the Pattern for types.FIL
+				return &jsonschema.Schema{
+					Type:    "string",
+					Pattern: "0h0m0s",
 				}
 			}
 			return nil
@@ -147,14 +155,15 @@ func (c *cfg) setLayer(w http.ResponseWriter, r *http.Request) {
 
 	configStr := tomlData.String()
 
+	curioCfg := config.DefaultCurioConfig()
+	_, err = deps.LoadConfigWithUpgrades(tomlData.String(), curioCfg)
+	apihelper.OrHTTPFail(w, err)
+
+	cb, err := config.ConfigUpdate(curioCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
+	apihelper.OrHTTPFail(w, err)
+
 	// Generate a full commented string if this is base layer
 	if layer == "base" {
-		// Parse the into CurioConfig TOML
-		curioCfg := config.DefaultCurioConfig()
-		_, err = deps.LoadConfigWithUpgrades(tomlData.String(), curioCfg)
-		apihelper.OrHTTPFail(w, err)
-		cb, err := config.ConfigUpdate(curioCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
-		apihelper.OrHTTPFail(w, err)
 		configStr = string(cb)
 	}
 

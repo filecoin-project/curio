@@ -89,14 +89,14 @@ func NewPoller(db *harmonydb.DB, api SealPollerAPI, cfg *config.CurioConfig) (*S
 		commit: commitBatchingConfig{
 			MinCommitBatch:   miner.MinAggregatedSectors,
 			MaxCommitBatch:   256,
-			Slack:            time.Duration(cfg.Batching.Commit.Slack),
-			Timeout:          time.Duration(cfg.Batching.Commit.Timeout),
+			Slack:            cfg.Batching.Commit.Slack,
+			Timeout:          cfg.Batching.Commit.Timeout,
 			BaseFeeThreshold: abi.TokenAmount(cfg.Batching.Commit.BaseFeeThreshold),
 		},
 		preCommit: preCommitBatchingConfig{
 			MaxPreCommitBatch: miner15.PreCommitSectorBatchMaxSize,
-			Slack:             time.Duration(cfg.Batching.PreCommit.Slack),
-			Timeout:           time.Duration(cfg.Batching.PreCommit.Timeout),
+			Slack:             cfg.Batching.PreCommit.Slack,
+			Timeout:           cfg.Batching.PreCommit.Timeout,
 			BaseFeeThreshold:  abi.TokenAmount(cfg.Batching.PreCommit.BaseFeeThreshold),
 		},
 	}
