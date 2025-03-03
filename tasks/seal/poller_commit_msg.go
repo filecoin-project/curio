@@ -111,7 +111,10 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context, tasks []pollTa
 				cutoff := abi.ChainEpoch(0)
 				earliest := time.Now()
 				for _, pt := range pts[i:end] {
-
+                                        if pt.SectorNumber == 0 { // Assuming SectorNumber is always set for valid pollTask
+                                                log.Warnf("Skipping uninitialized pollTask in batch processing")
+                                                continue
+                                        }
 					if cutoff == 0 || pt.StartEpoch < cutoff {
 						cutoff = pt.StartEpoch
 					}
