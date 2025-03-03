@@ -344,8 +344,24 @@ func ConfigUpdate(cfgCur, cfgDef interface{}, opts ...UpdateCfgOpt) ([]byte, err
 					}
 					section = string(m[1])
 
+					pad := strings.Repeat(" ", len(line)-len(strings.TrimLeftFunc(line, unicode.IsSpace)))
+
+					// Find documentation for the section
+					doc := findDoc(cfgCur, section, "")
+					if doc != nil {
+						// Add section documentation comments
+						if len(doc.Comment) > 0 {
+							for _, docLine := range strings.Split(doc.Comment, "\n") {
+								outLines = append(outLines, pad+"# "+docLine)
+							}
+							outLines = append(outLines, pad+"#")
+						}
+						outLines = append(outLines, pad+"# type: "+doc.Type)
+					}
+
 					// never comment sections
 					outLines = append(outLines, line)
+					outLines = append(outLines, "")
 					continue
 				}
 			}
@@ -439,21 +455,42 @@ func findDoc(root interface{}, section, name string) *DocField {
 func findDocSect(root, section, name string) *DocField {
 	path := strings.Split(section, ".")
 
-	docSection := Doc[root]
+	docSection, exists := Doc[root]
+	if !exists {
+		return nil
+	}
+
+	var lastField *DocField
+
 	for _, e := range path {
 		if docSection == nil {
 			return nil
 		}
 
+		// Remove [e] brackets from e if required
+		e = strings.Trim(e, "[]")
+
+		found := false
 		for _, field := range docSection {
 			if field.Name == e {
-				docSection = Doc[field.Type]
+				lastField = &field                               // Store reference to the section field
+				docSection = Doc[strings.Trim(field.Type, "[]")] // Move to the next section
+				found = true
 				break
 			}
+		}
 
+		if !found {
+			return nil
 		}
 	}
 
+	// If name is empty, return the last field (which represents the section itself)
+	if name == "" {
+		return lastField
+	}
+
+	// Otherwise, return the specific field
 	for _, df := range docSection {
 		if df.Name == name {
 			return &df

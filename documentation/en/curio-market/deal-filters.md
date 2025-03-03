@@ -184,7 +184,7 @@ For more details, refer to the [CIDGravity documentation](https://docs.cidgravit
 ## How to Enable CIDGravity in Curio
 
 CIDGravity integration in Curio is controlled through Curio configuration. To enable CIDGravity, you need to set the below parameters in the configuration.
-We highly recommend setting these values in "market" layer or a layer used by all market nodes to control the market behaviour.
+We highly recommend setting these values in "base" layer or a layer used by all market nodes to control the market behaviour.
 
 ```toml
         # CIDGravityToken is the authorization token to use for CIDGravity filters.
