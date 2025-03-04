@@ -73,3 +73,30 @@ class DoneNotDone extends LitElement {
 
 customElements.define('done-not-done', DoneNotDone);
 
+class ErrorOrNot extends LitElement {
+    static properties = {
+        value: { type: Object }
+    };
+
+    static styles = css`
+    .no-error {
+      color: var(--color-success-main);
+    }
+    .error {
+      color: var(--color-warning-main);
+    }
+  `;
+
+    render() {
+        const isValidValue = this.value?.Valid && this.value?.String !== '';
+        const result = isValidValue ? 'Yes' : 'No';
+
+        return html`
+            <span class="${isValidValue ? 'error' : 'no-error'}">
+        ${result}</span>
+        `;
+    }
+}
+
+customElements.define('error-or-not', ErrorOrNot);
+

@@ -382,13 +382,14 @@ func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDeal
 }
 
 type StorageDealList struct {
-	ID        string    `db:"uuid" json:"id"`
-	MinerID   int64     `db:"sp_id" json:"sp_id"`
-	CreatedAt time.Time `db:"created_at" json:"created_at"`
-	PieceCid  string    `db:"piece_cid" json:"piece_cid"`
-	PieceSize int64     `db:"piece_size" json:"piece_size"`
-	Complete  bool      `db:"complete" json:"complete"`
-	Miner     string    `json:"miner"`
+	ID        string         `db:"uuid" json:"id"`
+	MinerID   int64          `db:"sp_id" json:"sp_id"`
+	CreatedAt time.Time      `db:"created_at" json:"created_at"`
+	PieceCid  string         `db:"piece_cid" json:"piece_cid"`
+	PieceSize int64          `db:"piece_size" json:"piece_size"`
+	Processed bool           `db:"processed" json:"processed"`
+	Error     sql.NullString `db:"error" json:"error"`
+	Miner     string         `json:"miner"`
 }
 
 func (a *WebRPC) MK12StorageDealList(ctx context.Context, limit int, offset int) ([]*StorageDealList, error) {
@@ -400,7 +401,8 @@ func (a *WebRPC) MK12StorageDealList(ctx context.Context, limit int, offset int)
 									md.created_at,
 									md.piece_cid,
 									md.piece_size,
-									coalesce(mm12dp.complete, true) as complete
+									md.error,
+									coalesce(mm12dp.complete, true) as processed
 									FROM market_mk12_deals md
 									LEFT JOIN market_mk12_deal_pipeline mm12dp ON md.uuid = mm12dp.uuid
 									ORDER BY created_at DESC
@@ -428,7 +430,9 @@ func (a *WebRPC) LegacyStorageDealList(ctx context.Context, limit int, offset in
 									sp_id,
 									created_at,
 									piece_cid,
-									piece_size 
+									piece_size,
+									NULL AS error,
+									TRUE AS processed
 									FROM market_legacy_deals
 									ORDER BY created_at DESC
 									LIMIT $1 OFFSET $2;`, limit, offset)
@@ -990,7 +994,7 @@ func (a *WebRPC) MK12DealPipelineRemove(ctx context.Context, uuid string) error 
 		}
 
 		//Mark failure for deal
-		n, err := tx.Exec(`WITH updated AS (
+		_, err = tx.Exec(`WITH updated AS (
 									UPDATE market_mk12_deals
 									SET error = $1
 									WHERE uuid = $2
@@ -1002,9 +1006,6 @@ func (a *WebRPC) MK12DealPipelineRemove(ctx context.Context, uuid string) error 
 			"Deal pipeline removed by SP", uuid)
 		if err != nil {
 			return false, xerrors.Errorf("failed to mark deal %s as failed", uuid)
-		}
-		if n != 1 {
-			return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
 		}
 
 		// Remove market_mk12_deal_pipeline entry
@@ -1458,7 +1459,8 @@ func (a *WebRPC) MK12DDOStorageDealList(ctx context.Context, limit int, offset i
 									md.created_at,
 									md.piece_cid,
 									md.piece_size,
-									coalesce(mm12dp.complete, true) as complete
+									md.error,
+									coalesce(mm12dp.complete, true) as processed
 									FROM market_direct_deals md
 									LEFT JOIN market_mk12_deal_pipeline mm12dp ON md.uuid = mm12dp.uuid
 									ORDER BY created_at DESC
