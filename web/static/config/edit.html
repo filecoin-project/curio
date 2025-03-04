@@ -3,6 +3,7 @@
 <head>
     <title>JSON Schema Editor</title>
     <script type="module" src="/ux/curio-ux.mjs"></script>
+    <script type="module" src="/ux/components/Drawer.mjs"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js" integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/popper.js@1.12.9/dist/umd/popper.min.js" integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q" crossorigin="anonymous"></script>
@@ -92,6 +93,9 @@
 
             <div id="editor" data-bs-theme="dark"></div>
             <script>
+                console.log(document.querySelector('ui-drawer'));
+                console.log(document.querySelector('curio-ux'));
+
                 var editor;
                 var urlParams = new URLSearchParams(window.location.search);
                 var layer = urlParams.get('layer');
