@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gbrlsnchs/jwt/v3"
@@ -59,6 +61,7 @@ func CurioHandler(
 	authv func(ctx context.Context, token string) ([]auth.Permission, error),
 	remote http.HandlerFunc,
 	a api.Curio,
+	prometheusSD http.Handler,
 	permissioned bool) http.Handler {
 	mux := mux.NewRouter()
 	readerHandler, readerServerOpt := rpcenc.ReaderParamDecoder()
@@ -78,6 +81,7 @@ func CurioHandler(
 	mux.Handle("/rpc/streams/v0/push/{uuid}", readerHandler)
 	mux.PathPrefix("/remote").HandlerFunc(remote)
 	mux.Handle("/debug/metrics", metrics.Exporter())
+	mux.Handle("/debug/service-discovery", prometheusSD)
 	mux.PathPrefix("/").Handler(http.DefaultServeMux) // pprof
 
 	if !permissioned {
@@ -349,7 +353,7 @@ func (p *CurioAPI) Uncordon(ctx context.Context) error {
 func (p *CurioAPI) Info(ctx context.Context) (*ltypes.NodeInfo, error) {
 	var ni ltypes.NodeInfo
 	err := p.DB.QueryRow(ctx, `
-		SELECT 
+		SELECT
 			hm.id,
 			hm.cpu,
 			hm.ram,
@@ -362,11 +366,11 @@ func (p *CurioAPI) Info(ctx context.Context) (*ltypes.NodeInfo, error) {
 			hmd.tasks,
 			hmd.layers,
 			hmd.miners
-		FROM 
+		FROM
 			harmony_machines hm
-		LEFT JOIN 
+		LEFT JOIN
 			harmony_machine_details hmd ON hm.id = hmd.machine_id
-		WHERE 
+		WHERE
 		    hm.id=$1;
 		`, p.MachineID).Scan(&ni.ID, &ni.CPU, &ni.RAM, &ni.GPU, &ni.HostPort, &ni.LastContact, &ni.Unschedulable, &ni.Name, &ni.StartupTime, &ni.Tasks, &ni.Layers, &ni.Miners)
 	if err != nil {
@@ -409,6 +413,7 @@ func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan c
 			authVerify,
 			remoteHandler,
 			&CurioAPI{dependencies, dependencies.Si, shutdownChan},
+			prometheusServiceDiscovery(ctx, dependencies),
 			permissioned),
 		ReadHeaderTimeout: time.Minute * 3,
 		BaseContext: func(listener net.Listener) context.Context {
@@ -471,4 +476,55 @@ func GetCurioAPI(ctx *cli.Context) (api.Curio, jsonrpc.ClientCloser, error) {
 	addr = u.String()
 
 	return client.NewCurioRpc(ctx.Context, addr, headers)
+}
+
+func prometheusServiceDiscovery(ctx context.Context, deps *deps.Deps) http.HandlerFunc {
+
+	type host struct {
+		Host   string `db:"host_and_port"`
+		Layers string `db:"layers"`
+	}
+
+	type service struct {
+		Targets []string          `json:"targets"`
+		Labels  map[string]string `json:"labels"`
+	}
+
+	hnd := func(resp http.ResponseWriter, req *http.Request) {
+
+		resp.Header().Set("Content-Type", "application/json")
+		resp.Header().Set("X-Prometheus-Refresh-Interval-Seconds", "30")
+
+		var hosts []host
+		err := deps.DB.Select(ctx, &hosts, `
+			SELECT
+			    m.host_and_port,
+			    md.layers
+			FROM
+			    harmony_machines m
+			JOIN
+			    harmony_machine_details md ON m.id = md.machine_id;`)
+		if err != nil {
+			log.Errorf("failed to fetch hosts: %s", err)
+			resp.Write([]byte("[]"))
+		} else {
+			var services []service
+			for _, h := range hosts {
+				ss := service{
+					Targets: []string{path.Join(h.Host, "/debug/metrics")},
+					Labels:  map[string]string{},
+				}
+				for _, layer := range strings.Split(h.Layers, ",") {
+					ss.Labels["layer_"+layer] = "true"
+				}
+				services = append(services, ss)
+			}
+			enc := json.NewEncoder(resp)
+			if err := enc.Encode(services); err != nil {
+				log.Errorf("failed to encode response: %s", err)
+			}
+		}
+		resp.WriteHeader(http.StatusOK)
+	}
+	return hnd
 }
