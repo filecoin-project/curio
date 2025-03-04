@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -511,7 +510,7 @@ func prometheusServiceDiscovery(ctx context.Context, deps *deps.Deps) http.Handl
 			var services []service
 			for _, h := range hosts {
 				ss := service{
-					Targets: []string{path.Join(h.Host, "/debug/metrics")},
+					Targets: []string{h.Host},
 					Labels:  map[string]string{},
 				}
 				for _, layer := range strings.Split(h.Layers, ",") {
