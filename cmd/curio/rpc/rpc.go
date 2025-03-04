@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/gbrlsnchs/jwt/v3"
@@ -509,14 +508,12 @@ func prometheusServiceDiscovery(ctx context.Context, deps *deps.Deps) http.Handl
 		} else {
 			var services []service
 			for _, h := range hosts {
-				ss := service{
+				services = append(services, service{
 					Targets: []string{h.Host},
-					Labels:  map[string]string{},
-				}
-				for _, layer := range strings.Split(h.Layers, ",") {
-					ss.Labels["layer_"+layer] = "true"
-				}
-				services = append(services, ss)
+					Labels: map[string]string{
+						"layers": h.Layers,
+					},
+				})
 			}
 			enc := json.NewEncoder(resp)
 			if err := enc.Encode(services); err != nil {
