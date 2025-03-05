@@ -114,7 +114,7 @@ Drawer.styles = [
       color: var(--color-text-primary);
       background-color: var(--color-secondary-light);
       border-radius: 8px 8px 0 0;
-      padding: 0.75rem 1.2rem;
+      padding: 0.5rem 0.75rem;
       font-size: 0.9rem;
       
       &[anchor="right"] {
@@ -125,7 +125,7 @@ Drawer.styles = [
       }
       
       &[anchor="left"] {
-        top: 30%;
+        top: 40%;
         left: 0;
         transform: rotate(90deg); 
         transform-origin: bottom left;
