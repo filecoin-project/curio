@@ -491,7 +491,6 @@ func prometheusServiceDiscovery(ctx context.Context, deps *deps.Deps) http.Handl
 	hnd := func(resp http.ResponseWriter, req *http.Request) {
 
 		resp.Header().Set("Content-Type", "application/json")
-		resp.Header().Set("X-Prometheus-Refresh-Interval-Seconds", "30")
 
 		var hosts []host
 		err := deps.DB.Select(ctx, &hosts, `
