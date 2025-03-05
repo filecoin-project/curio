@@ -79,7 +79,14 @@ CREATE TABLE proofshare_client_requests (
     sp_id BIGINT NOT NULL,
     sector_num BIGINT NOT NULL,
 
-    service_id BIGINT NOT NULL,
+    request_cid TEXT,
+    request_uploaded BOOLEAN NOT NULL DEFAULT FALSE,
+
+    payment_wallet BIGINT,
+    payment_nonce BIGINT,
+
+    request_sent BOOLEAN,
+
     response_data BYTEA,
 
     done BOOLEAN NOT NULL DEFAULT FALSE,

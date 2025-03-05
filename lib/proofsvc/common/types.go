@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 
+	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
@@ -27,7 +28,7 @@ var MaxPrice = types.FromFil(1)
 type WorkRequest struct {
 	ID int64 `json:"id" db:"id"`
 
-	RequestCid *string `json:"request_cid" db:"request_cid"`
+	RequestCid *string `json:"request_cid" db:"request_cid"` // CID of the ProofData
 	Done       *bool   `json:"done" db:"done"`
 
 	WorkAskID int64 `json:"work_ask_id" db:"work_ask_id"`
@@ -57,11 +58,15 @@ type WorkAsk struct {
 	ID int64 `json:"id"`
 }
 
-type ProofRequest struct {
+type ProofData struct {
 	SectorID *abi.SectorID
 
 	// proof request enum
 	PoRep *proof.Commit1OutRaw
+}
+
+type ProofRequest struct {
+	Data cid.Cid `json:"data"`
 
 	PriceEpoch int64 `json:"price_epoch"`
 
@@ -71,7 +76,7 @@ type ProofRequest struct {
 	PaymentSignature        []byte          `json:"payment_signature"`
 }
 
-func (p *ProofRequest) Validate() error {
+func (p *ProofData) Validate() error {
 	if p.PoRep != nil {
 		if p.SectorID == nil {
 			return xerrors.Errorf("sector id is required for PoRep")
@@ -86,7 +91,7 @@ func (p *ProofRequest) Validate() error {
 	return xerrors.Errorf("invalid proof request: no proof request")
 }
 
-func (p *ProofRequest) validatePoRep() error {
+func (p *ProofData) validatePoRep() error {
 	// Make sure we actually have PoRep data
 	if p.PoRep == nil {
 		return xerrors.Errorf("no PoRep (Commit1OutRaw) data in request")
@@ -156,7 +161,7 @@ func (p *ProofRequest) validatePoRep() error {
 	return xerrors.Errorf("PoRep validation reported is_valid=false:\n%s", output)
 }
 
-func (p *ProofRequest) CheckOutput(pb []byte) error {
+func (p *ProofData) CheckOutput(pb []byte) error {
 	if p.PoRep != nil {
 		spt, err := p.PoRep.RegisteredProof.ToABI()
 		if err != nil {

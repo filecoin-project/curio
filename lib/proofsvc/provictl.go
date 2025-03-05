@@ -117,8 +117,6 @@ func PollWork(address string) (common.WorkResponse, error) {
 	})
 }
 
-// 	r.HandleFunc("/provider/proof/{proof-cid}", ps.HandleGetVanillaProof).Methods("GET")
-
 func GetProof(cid cid.Cid) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), MaxRetryTime)
 	defer cancel()

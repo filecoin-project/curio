@@ -122,7 +122,7 @@ func (t *TaskProvideSnark) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("failed to get proof: %w", err)
 	}
 
-	var request common.ProofRequest
+	var request common.ProofData
 	err = json.Unmarshal(requestData, &request)
 	if err != nil {
 		return false, xerrors.Errorf("failed to unmarshal request: %w", err)
@@ -171,7 +171,7 @@ func (t *TaskProvideSnark) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func computeProof(ctx context.Context, request common.ProofRequest) ([]byte, error) {
+func computeProof(ctx context.Context, request common.ProofData) ([]byte, error) {
 	if request.PoRep != nil {
 		if request.SectorID == nil {
 			return nil, xerrors.Errorf("sector id is required")
