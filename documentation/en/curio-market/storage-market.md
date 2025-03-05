@@ -40,12 +40,19 @@ type MK12Config struct {
     PublishMsgPeriod        Duration
     MaxDealsPerPublishMsg   uint64
     MaxPublishDealFee       types.FIL
+    DealCollateralWallet string
+    CollateralAddThreshold types.FIL
+    CollateralAddAmount types.FIL
     ExpectedPoRepSealDuration Duration
     ExpectedSnapSealDuration Duration
     SkipCommP               bool
     DisabledMiners          []string
     MaxConcurrentDealSizeGiB int64
     DenyUnknownClients bool
+    DenyOnlineDeals bool
+    DenyOfflineDeals bool
+    CIDGravityToken string
+    DefaultCIDGravityAccept bool
 }
 ```
 
@@ -69,6 +76,19 @@ type MK12Config struct {
    MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector when the cumulative size of all deals in process reaches this number, new deals will be rejected. (Default: 0 = unlimited)
 9. **DenyUnknownClients:**\
    DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list. If True then all deals coming from unknown clients will be rejected.
+10. **DealCollateralWallet**:\
+    The wallet used to fund the miner’s market balance for **deal collateral** in Filecoin market (`f05`) deals. If this wallet is not set, the **worker wallet** will be used instead.
+11. **CollateralAddThreshold**:\
+    Defines the **minimum required balance** in the miner’s market account. If the available balance falls below this threshold, additional funds will be added to prevent deal failures due to insufficient collateral.
+12. **CollateralAddAmount**:\
+    The **amount of FIL** to be added to the miner’s market balance when it drops below `CollateralAddThreshold`.This prevents frequent small top-ups and ensures enough collateral for multiple deals.
+13. **DenyOnlineDeals**: Determines whether the storage provider **accepts online deals**.
+14. **DenyOfflineDeals**: Determines whether the storage provider **accepts offline deals**.
+15. **CIDGravityToken**:\
+    The authorization token used for **CIDGravity filters**, a service that filters deal proposals based on custom policies. If empty (`""`), **CIDGravity filtering is disabled**. If set, the miner will **query CIDGravity** for each deal proposal before accepting it.
+16. **DefaultCIDGravityAccept**:\
+    Defines what happens if the **CIDGravity service is unavailable**. If`true`: **Accepts deals** even if CIDGravity is unreachable. If`false`: **Rejects deals** when CIDGravity is unavailable (**default**).
+
 
 ### **PieceLocator Configuration**
 
@@ -98,26 +118,31 @@ To enable the Curio market on a Curio node, the following configuration changes 
    * Set `EnableDealMarket` to `true` in the `CurioSubsystemsConfig` for at least one node. This enables deal-making capabilities on the node.
 2. **Enable CommP**:
    * On one of the nodes where `EnableDealMarket` is set to `true`, ensure that `EnableCommP` is also set to `true`. This allows the node to compute piece commitments (CommP) before publishing storage deal messages.
-3. **Enable HTTP**:
+3. **Enable MarketBalanceManager (Optional)**:
+   * On one of the nodes where `EnableDealMarket` is set to `true`, ensure that `EnableMarketBalanceManager` is also set to `true`.
+   * This allows Curio to ensure that miner's market actor always have balance available for deal collaterals. 
+   * If enabled, users must designate a wallet to be used to send the balance
+     * Update `DealCollateralWallet` under the `MK12Config` settings under `StorageMarketConfig` is set.
+4. **Enable HTTP**:
    * At least one node must have HTTP enabled to support:
      * Retrievals.
      * IPNI sync.
      * Handling storage deals.
    * To enable HTTP, set the `Enable` flag in the `HTTPConfig` to `true` and specify the `ListenAddress` for the HTTP server.
-4. **Set a Domain Name**:
+5. **Set a Domain Name**:
    * Ensure that a valid `DomainName` is specified in the `HTTPConfig`. This is mandatory for proper HTTP server functionality and essential for enabling TLS. The domain name cannot be an IP address.
-5. **HTTP Configuration Details**:
+6. **HTTP Configuration Details**:
    * If TLS is managed by a reverse proxy, enable `DelegateTLS` in the `HTTPConfig` to allow the HTTP server to run without handling TLS directly.
    * Configure additional parameters such as `ReadTimeout`, `IdleTimeout`, and `CompressionLevels` to ensure the server operates efficiently.
-6. **Libp2p Activation**:
+7. **Libp2p Activation**:
    * The `libp2p` service will automatically start on one of the servers running the HTTP server where `EnableDealMarket` is set to `true`. If more than 1 node satsifies the condition and the node running libp2p goes down then it will switch over to another node after 5 minutes.
-7. **Other Considerations**:
+8. **Other Considerations**:
    * Ensure the `MK12Config` settings under `StorageMarketConfig` are properly configured for deal publishing. Key parameters include:
      * `PublishMsgPeriod` for deal batching frequency.
      * `MaxDealsPerPublishMsg` for the maximum number of deals per message.
      * `MaxPublishDealFee` to set the fee limit for publishing deals.
    * If handling offline deals, configure `PieceLocator` to specify the endpoints for piece retrieval.
-8.  Verify that HTTP server is working:
+9. Verify that HTTP server is working:
 
     * Curl to your domain name and verify that server is reachable from outside\
 

@@ -267,6 +267,11 @@ description: The default curio configuration
   # type: int
   #IndexingMaxTasks = 8
 
+  # EnableMarketBalanceManager enabled the task to automatically manage the market balance of the miner's market actor (Default: false)
+  #
+  # type: bool
+  #EnableMarketBalanceManager = false
+
 
 # Fees holds the fee-related configuration parameters for various operations in the Curio node.
 #
@@ -530,6 +535,24 @@ description: The default curio configuration
       #
       # type: types.FIL
       #MaxPublishDealFee = "0.5 FIL"
+
+      # DealCollateralWallet is the wallet used to add balance to Miner's market balance. This balance is
+      # utilized for deal collateral in market (f05) deals. If no wallet is set, worker wallet will be used for this.
+      #
+      # type: string
+      #DealCollateralWallet = ""
+
+      # CollateralAddThreshold is the balance below which more balance will be added to miner's market balance
+      # Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")
+      #
+      # type: types.FIL
+      #CollateralAddThreshold = "5 FIL"
+
+      # CollateralAddAmount is the amount added to miner's market balance when it falls below CollateralAddThreshold
+      # Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")
+      #
+      # type: types.FIL
+      #CollateralAddAmount = "5 FIL"
 
       # ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
       # This will be used to fail the deals which cannot be sealed on time.

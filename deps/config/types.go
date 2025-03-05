@@ -105,6 +105,8 @@ func DefaultCurioConfig() *CurioConfig {
 					PublishMsgPeriod:          5 * time.Minute,
 					MaxDealsPerPublishMsg:     8,
 					MaxPublishDealFee:         types.MustParseFIL("0.5 FIL"),
+					CollateralAddThreshold:    types.MustParseFIL("5 FIL"),
+					CollateralAddAmount:       types.MustParseFIL("5 FIL"),
 					ExpectedPoRepSealDuration: 8 * time.Hour,
 					ExpectedSnapSealDuration:  2 * time.Hour,
 					CIDGravityTokens:          []string{},
@@ -366,6 +368,9 @@ type CurioSubsystemsConfig struct {
 	// The maximum amount of indexing and IPNI tasks that can run simultaneously. Note that the maximum number of tasks will
 	// also be bounded by resources available on the machine. (Default: 8)
 	IndexingMaxTasks int
+
+	// EnableMarketBalanceManager enabled the task to automatically manage the market balance of the miner's market actor (Default: false)
+	EnableMarketBalanceManager bool
 }
 type CurioFees struct {
 	// maxBatchFee = maxBase + maxPerSector * nSectors
@@ -691,6 +696,18 @@ type MK12Config struct {
 	// The maximum fee to pay per deal when sending the PublishStorageDeals message
 	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.5 FIL")
 	MaxPublishDealFee types.FIL
+
+	// DealCollateralWallet is the wallet used to add balance to Miner's market balance. This balance is
+	// utilized for deal collateral in market (f05) deals. If no wallet is set, worker wallet will be used for this.
+	DealCollateralWallet string
+
+	// CollateralAddThreshold is the balance below which more balance will be added to miner's market balance
+	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")
+	CollateralAddThreshold types.FIL
+
+	// CollateralAddAmount is the amount added to miner's market balance when it falls below CollateralAddThreshold
+	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")
+	CollateralAddAmount types.FIL
 
 	// ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
 	// This will be used to fail the deals which cannot be sealed on time.
