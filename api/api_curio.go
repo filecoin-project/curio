@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/ipfs/go-cid"
+	"github.com/multiformats/go-multihash"
+
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
@@ -20,11 +23,12 @@ type Curio interface {
 	// MethodGroup: Curio
 	//The common method group contains administration methods
 
-	Version(context.Context) ([]int, error)             //perm:admin
-	Shutdown(context.Context) error                     //perm:admin
-	Cordon(context.Context) error                       //perm:admin
-	Uncordon(context.Context) error                     //perm:admin
-	Info(ctx context.Context) (*ltypes.NodeInfo, error) //perm:read
+	Version(context.Context) ([]int, error)                                        //perm:admin
+	Shutdown(context.Context) error                                                //perm:admin
+	Cordon(context.Context) error                                                  //perm:admin
+	Uncordon(context.Context) error                                                //perm:admin
+	Info(ctx context.Context) (*ltypes.NodeInfo, error)                            //perm:read
+	IndexSamples(ctx context.Context, pcid cid.Cid) ([]multihash.Multihash, error) //perm:admin
 
 	// MethodGroup: Deal
 	//The deal method group contains method for adding deals to sector
