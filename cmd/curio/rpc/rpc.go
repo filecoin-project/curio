@@ -503,7 +503,10 @@ func prometheusServiceDiscovery(ctx context.Context, deps *deps.Deps) http.Handl
 			    harmony_machine_details md ON m.id = md.machine_id;`)
 		if err != nil {
 			log.Errorf("failed to fetch hosts: %s", err)
-			resp.Write([]byte("[]"))
+			_, err = resp.Write([]byte("[]"))
+			if err != nil {
+				log.Errorf("failed to write response: %s", err)
+			}
 		} else {
 			var services []service
 			for _, h := range hosts {
