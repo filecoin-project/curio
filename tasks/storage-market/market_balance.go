@@ -23,7 +23,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
-const MarketBalanceCheckInterval = 10 * time.Minute
+const MarketBalanceCheckInterval = 5 * time.Minute
 
 type mbalanceApi interface {
 	ChainHead(ctx context.Context) (*types.TipSet, error)
@@ -173,7 +173,7 @@ func (m *MarketBalanceManager) CanAccept(ids []harmonytask.TaskID, engine *harmo
 func (m *MarketBalanceManager) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(1),
-		Name: "MarketBalanceManager",
+		Name: "MarketBalanceMgr",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,
