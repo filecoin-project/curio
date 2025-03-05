@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -16,8 +17,10 @@ import (
 	"github.com/gbrlsnchs/jwt/v3"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/mitchellh/go-homedir"
+	"github.com/multiformats/go-multihash"
 	"github.com/urfave/cli/v2"
 	"go.opencensus.io/tag"
 	"golang.org/x/sync/errgroup"
@@ -374,6 +377,49 @@ func (p *CurioAPI) Info(ctx context.Context) (*ltypes.NodeInfo, error) {
 	}
 
 	return &ni, nil
+}
+
+func (p *CurioAPI) IndexSamples(ctx context.Context, pcid cid.Cid) ([]multihash.Multihash, error) {
+	var indexed bool
+	err := p.DB.QueryRow(ctx, `SELECT indexed FROM market_piece_metadata WHERE piece_cid=$1`, pcid.String()).Scan(&indexed)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get piece metadata: %w", err)
+	}
+	if !indexed {
+		return nil, xerrors.Errorf("piece %s is not indexed", pcid.String())
+	}
+	var chunks []struct {
+		FirstCidStr    string `db:"first_cid"`
+		NumberOfBlocks int64  `db:"num_blocks"`
+	}
+
+	err = p.DB.Select(ctx, &chunks, `SELECT 
+    										first_cid, 
+											num_blocks 
+										FROM ipni_chunks 
+										WHERE piece_cid = $1
+										AND from_car= FALSE
+										ORDER BY RANDOM()
+										LIMIT 1`, pcid.String())
+
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get piece chunks: %w", err)
+	}
+
+	if len(chunks) == 0 {
+		return nil, xerrors.Errorf("no chunks found for piece %s", pcid.String())
+	}
+
+	chunk := chunks[0]
+
+	cb, err := hex.DecodeString(chunk.FirstCidStr)
+	if err != nil {
+		return nil, xerrors.Errorf("decoding first CID: %w", err)
+	}
+
+	firstHash := multihash.Multihash(cb)
+
+	return p.IndexStore.GetPieceHashRange(ctx, pcid, firstHash, chunk.NumberOfBlocks)
 }
 
 func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) error {

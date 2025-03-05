@@ -2013,6 +2013,24 @@
       "translation": "交易应由提供者在链上证明的起始 epoch。（默认值：从现在起 2 天）",
       "message": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
       "placeholder": null
+    },
+    {
+      "id": "Provides a sample of CIDs from an indexed piece",
+      "translation": "提供索引片段的 CID 示例。",
+      "message": "Provides a sample of CIDs from an indexed piece",
+      "placeholder": null
+    },
+    {
+      "id": "piece-cid",
+      "translation": "片段 CID",
+      "message": "piece-cid",
+      "placeholder": null
+    },
+    {
+      "id": "output in json format",
+      "translation": "以 JSON 格式输出",
+      "message": "output in json format",
+      "placeholder": null
     }
   ]
 }

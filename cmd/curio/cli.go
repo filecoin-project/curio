@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/gbrlsnchs/jwt/v3"
+	"github.com/ipfs/go-cid"
 	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
@@ -24,6 +26,7 @@ import (
 	"github.com/filecoin-project/curio/lib/reqcontext"
 
 	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/lib/tablewriter"
 )
 
 const providerEnvVar = "CURIO_API_INFO"
@@ -208,6 +211,7 @@ var cliCmd = &cli.Command{
 		stopCmd,
 		cordonCmd,
 		uncordonCmd,
+		indexSampleCmd,
 	},
 }
 
@@ -252,4 +256,88 @@ var waitApiCmd = &cli.Command{
 
 		return ctx.Err()
 	},
+}
+
+var indexSampleCmd = &cli.Command{
+	Name:      "index-sample",
+	Usage:     translations.T("Provides a sample of CIDs from an indexed piece"),
+	ArgsUsage: translations.T("piece-cid"),
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:  "json",
+			Usage: translations.T("output in json format"),
+			Value: false,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		capi, closer, err := rpc.GetCurioAPI(cctx)
+		if err != nil {
+			return err
+		}
+
+		defer closer()
+		ctx := reqcontext.ReqContext(cctx)
+
+		pieceCid, err := cid.Parse(cctx.Args().First())
+		if err != nil {
+			return xerrors.Errorf("parsing piece cid: %w", err)
+		}
+
+		samples, err := capi.IndexSamples(ctx, pieceCid)
+		if err != nil {
+			return xerrors.Errorf("getting samples: %w", err)
+		}
+
+		MhHex := "Multihash HEX"
+		MhB58 := "Multihash B58"
+		CID := "CID v1"
+
+		type mhJson struct {
+			B58 string `json:"b58"`
+			CID string `json:"cid"`
+		}
+
+		mhMap := make([]map[string]interface{}, 0, len(samples))
+		jsonMap := make(map[string]mhJson, len(samples))
+		for _, sample := range samples {
+			cidv1 := cid.NewCidV1(cid.DagProtobuf, sample)
+			m := map[string]interface{}{
+				MhHex: sample.HexString(),
+				MhB58: sample.B58String(),
+				CID:   cidv1.String(),
+			}
+			mhMap = append(mhMap, m)
+
+			jsonMap[sample.HexString()] = mhJson{
+				B58: sample.B58String(),
+				CID: cidv1.String(),
+			}
+		}
+
+		if cctx.Bool("json") {
+			return PrintJson(jsonMap)
+		}
+
+		tw := tablewriter.New(
+			tablewriter.Col(MhHex),
+			tablewriter.Col(MhB58),
+			tablewriter.Col(CID),
+		)
+
+		for i := range mhMap {
+			tw.Write(mhMap[i])
+		}
+
+		return tw.Flush(os.Stdout)
+	},
+}
+
+func PrintJson(obj interface{}) error {
+	resJson, err := json.MarshalIndent(obj, "", "  ")
+	if err != nil {
+		return xerrors.Errorf("marshalling json: %w", err)
+	}
+
+	fmt.Println(string(resJson))
+	return nil
 }

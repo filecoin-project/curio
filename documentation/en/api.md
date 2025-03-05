@@ -14,6 +14,8 @@ description: Curio API references
   * [Shutdown](api.md#Shutdown)
   * [Uncordon](api.md#Uncordon)
   * [Version](api.md#Version)
+* [Index](api.md#Index)
+  * [IndexSamples](api.md#IndexSamples)
 * [Log](api.md#Log)
   * [LogList](api.md#LogList)
   * [LogSetLevel](api.md#LogSetLevel)
@@ -178,6 +180,30 @@ Response:
 ```json
 [
   123
+]
+```
+
+### Index
+
+
+#### IndexSamples
+
+
+Perms: admin
+
+Inputs:
+```json
+[
+  {
+    "/": "bafy2bzacea3wsdh6y3a36tb3skempjoxqpuyompjbmfeyf34fi3uy6uue42v4"
+  }
+]
+```
+
+Response:
+```json
+[
+  "Bw=="
 ]
 ```
 

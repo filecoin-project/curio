@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
+	"github.com/multiformats/go-multihash"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -45,6 +46,8 @@ type CurioMethods struct {
 	AllocatePieceToSector func(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (api.SectorOffset, error) `perm:"write"`
 
 	Cordon func(p0 context.Context) error `perm:"admin"`
+
+	IndexSamples func(p0 context.Context, p1 cid.Cid) ([]multihash.Multihash, error) `perm:"admin"`
 
 	Info func(p0 context.Context) (*ltypes.NodeInfo, error) `perm:"read"`
 
@@ -251,6 +254,17 @@ func (s *CurioStruct) Cordon(p0 context.Context) error {
 
 func (s *CurioStub) Cordon(p0 context.Context) error {
 	return ErrNotSupported
+}
+
+func (s *CurioStruct) IndexSamples(p0 context.Context, p1 cid.Cid) ([]multihash.Multihash, error) {
+	if s.Internal.IndexSamples == nil {
+		return *new([]multihash.Multihash), ErrNotSupported
+	}
+	return s.Internal.IndexSamples(p0, p1)
+}
+
+func (s *CurioStub) IndexSamples(p0 context.Context, p1 cid.Cid) ([]multihash.Multihash, error) {
+	return *new([]multihash.Multihash), ErrNotSupported
 }
 
 func (s *CurioStruct) Info(p0 context.Context) (*ltypes.NodeInfo, error) {
