@@ -2,8 +2,10 @@ package webrpc
 
 import (
 	"context"
+	"strings"
 
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -12,6 +14,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v15/market"
 
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/node/modules/dtypes"
 )
 
 type PriceFilter struct {
@@ -417,16 +420,47 @@ func (a *WebRPC) RemoveAllowFilter(ctx context.Context, wallet string) error {
 }
 
 type DefaultFilterBehaviourResponse struct {
-	AllowDealsFromUnknownClients             bool `json:"allow_deals_from_unknown_clients"`
-	IsCidGravityEnabled                      bool `json:"is_cid_gravity_enabled"`
-	IsDealRejectedWhenCidGravityNotReachable bool `json:"is_deal_rejected_when_cid_gravity_not_reachable"`
+	AllowDealsFromUnknownClients             bool            `json:"allow_deals_from_unknown_clients"`
+	IsDealRejectedWhenCidGravityNotReachable bool            `json:"is_deal_rejected_when_cid_gravity_not_reachable"`
+	IsCidGravityEnabled                      map[string]bool `json:"cid_gravity_status"`
 }
 
 func (a *WebRPC) DefaultFilterBehaviour(ctx context.Context) (*DefaultFilterBehaviourResponse, error) {
 
+	var cfgminers []address.Address
+	var cgminer []address.Address
+
+	lo.ForEach(lo.Keys(a.deps.Maddrs), func(item dtypes.MinerAddress, _ int) {
+		cfgminers = append(cfgminers, address.Address(item))
+	})
+
+	cgMap := make(map[string]bool)
+
+	if len(a.deps.Cfg.Market.StorageMarketConfig.MK12.CIDGravityTokens) > 0 {
+		for _, token := range a.deps.Cfg.Market.StorageMarketConfig.MK12.CIDGravityTokens {
+			st := strings.SplitN(token, ":", 2)
+			m, err := address.NewFromString(st[0])
+			if err != nil {
+				return nil, xerrors.Errorf("invalid miner in CIDGravity token: %w", err)
+			}
+			if st[1] == "" || len(st[1]) == 0 {
+				return nil, xerrors.Errorf("invalid CIDGravity token for miner %s: %s", m.String(), st[1])
+			}
+			if lo.Contains(cfgminers, m) {
+				cgminer = append(cgminer, m)
+				cgMap[m.String()] = true
+			}
+		}
+	}
+
+	noCG, _ := lo.Difference(cfgminers, cgminer)
+	for _, m := range noCG {
+		cgMap[m.String()] = false
+	}
+
 	return &DefaultFilterBehaviourResponse{
 		AllowDealsFromUnknownClients:             !a.deps.Cfg.Market.StorageMarketConfig.MK12.DenyUnknownClients,
-		IsCidGravityEnabled:                      a.deps.Cfg.Market.StorageMarketConfig.MK12.CIDGravityToken != "",
+		IsCidGravityEnabled:                      cgMap,
 		IsDealRejectedWhenCidGravityNotReachable: !a.deps.Cfg.Market.StorageMarketConfig.MK12.DefaultCIDGravityAccept,
 	}, nil
 

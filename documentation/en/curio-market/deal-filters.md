@@ -184,32 +184,33 @@ For more details, refer to the [CIDGravity documentation](https://docs.cidgravit
 ## How to Enable CIDGravity in Curio
 
 CIDGravity integration in Curio is controlled through Curio configuration. To enable CIDGravity, you need to set the below parameters in the configuration.
-We highly recommend setting these values in "base" layer or a layer used by all market nodes to control the market behaviour.
+We highly recommend setting these values in "base" layer to control the market behaviour and correct UI rendering.
 
 ```toml
-        # CIDGravityToken is the authorization token to use for CIDGravity filters.
-        # If empty then CIDGravity filters are not called.
-        #
-        # type: string
-        #CIDGravityToken = ""
+        # CIDGravityTokens is the list of authorization tokens to use for CIDGravity filters. 
+        # These should be in the format "minerID1:Token1", "minerID2:Token2".
+        # If a token for a minerID within the cluster is not provided, CIDGravity filters will not be applied to deals associated with that miner ID.
+        # 
+        # type: []string
+        #CIDGravityTokens = []
         
-        # DefaultCIDGravityAccept when set to true till accept deals when CIDGravity service is not available.
-        # Default behaviors is to reject the deals
-        #
+        # DefaultCIDGravityAccept when set to true will accept deals when CIDGravity service is not available.
+        # Default behavior is to reject the deals (Default: false)
+        # 
         # type: bool
         #DefaultCIDGravityAccept = false
 ```
 
 ### Configuration Options:
 
-#### 1. `CIDGravityToken`
-- **Description**: This is the authorization token required to use CIDGravity filters.
-- **Default Behavior**: If left empty, CIDGravity filters will not be applied.
-- **Type**: `string`
+#### 1. `CIDGravityTokens`
+- **Description**: A list of authorization tokens used for CIDGravity filters. Each entry should be formatted as `"minerID:Token"`.
+- **Default Behavior**: If no token is provided for a `minerID`, CIDGravity filters will **not** be applied to deals associated with that miner ID.
+- **Type**: `[]string`
 
 **Example Configuration:**
 ```toml
-CIDGravityToken = "your-auth-token-here"
+CIDGravityTokens = ["t01234:your-auth-token1", "t05678:your-auth-token2"]
 ```
 
 {% hint style="info" %}
@@ -228,16 +229,15 @@ DefaultCIDGravityAccept = false
 
 ### Steps to Enable CIDGravity in Curio:
 1. Obtain a **CIDGravityToken** from the [CIDGravity platform](https://app.cidgravity.com/).
-2. Add the token to the Curio configuration file under `CIDGravityToken`.
+2. Add the token(s) to the Curio configuration file under `CIDGravityTokens` in the format `"minerID:Token"`.
+    <figure><img src="../.gitbook/assets/cid_gravity_disabled.png" alt=""><figcaption><p>CID Gravity Disabled</p></figcaption></figure>
 3. Set `DefaultCIDGravityAccept` based on your preference:
     - `true` to accept deals when CIDGravity is unreachable.
     - `false` to reject deals when CIDGravity is unreachable.
-   <figure><img src="../.gitbook/assets/cid_gravity_disabled.png" alt=""><figcaption><p>CID Gravity Disabled</p></figcaption></figure>
+   <figure><img src="../.gitbook/assets/cid_gravity_deny_unrechable.png" alt=""><figcaption><p>Reject Deals when CID Gravity is unreachable</p></figcaption></figure>
 4. Restart Curio for the changes to take effect.
 5. Verify that CIDGravity is enabled via UI Market Settings page.
 
-<figure><img src="../.gitbook/assets/cid_gravity_enabled.png" alt=""><figcaption><p>CID Gravity Enabled</p></figcaption></figure>
+<figure><img src="../.gitbook/assets/cid_gravity_disabled.png" alt=""><figcaption><p>CID Gravity Enabled</p></figcaption></figure>
 
 Once enabled, Curio will automatically interact with CIDGravity to apply deal filtering and pricing rules according to the policies set in your CIDGravity account.
-
-

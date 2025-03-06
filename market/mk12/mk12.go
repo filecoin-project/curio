@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -58,13 +59,14 @@ type MK12API interface {
 }
 
 type MK12 struct {
-	miners []address.Address
-	db     *harmonydb.DB
-	api    MK12API
-	si     paths.SectorIndex
-	cfg    *config.CurioConfig
-	sm     map[address.Address]abi.SectorSize
-	as     *multictladdr.MultiAddressSelector
+	miners     []address.Address
+	db         *harmonydb.DB
+	api        MK12API
+	si         paths.SectorIndex
+	cfg        *config.CurioConfig
+	sm         map[address.Address]abi.SectorSize
+	as         *multictladdr.MultiAddressSelector
+	cidGravity map[address.Address]string
 }
 
 type validationError struct {
@@ -88,14 +90,33 @@ func NewMK12Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorI
 		}
 	}
 
+	cgMap := make(map[address.Address]string)
+
+	if len(cfg.Market.StorageMarketConfig.MK12.CIDGravityTokens) > 0 {
+		for _, token := range cfg.Market.StorageMarketConfig.MK12.CIDGravityTokens {
+			st := strings.SplitN(token, ":", 2)
+			m, err := address.NewFromString(st[0])
+			if err != nil {
+				return nil, xerrors.Errorf("invalid miner in CIDGravity token: %w", err)
+			}
+			if st[1] == "" || len(st[1]) == 0 {
+				return nil, xerrors.Errorf("invalid CIDGravity token for miner %s: %s", m.String(), st[1])
+			}
+			if lo.Contains(miners, m) {
+				cgMap[m] = st[1]
+			}
+		}
+	}
+
 	return &MK12{
-		miners: miners,
-		db:     db,
-		api:    mapi,
-		si:     si,
-		sm:     sm,
-		cfg:    cfg,
-		as:     as,
+		miners:     miners,
+		db:         db,
+		api:        mapi,
+		si:         si,
+		sm:         sm,
+		cfg:        cfg,
+		as:         as,
+		cidGravity: cgMap,
 	}, nil
 }
 
@@ -154,7 +175,7 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 	}
 
 	// Either use CIDGravity Filters or internal filters
-	if m.cfg.Market.StorageMarketConfig.MK12.CIDGravityToken != "" {
+	if _, ok := m.cidGravity[ds.ClientDealProposal.Proposal.Provider]; ok {
 		accept, msg, err := m.cidGravityCheck(ctx, ds)
 		if err != nil {
 			log.Errorf("failed to check cid gravity: %s", err.Error())
