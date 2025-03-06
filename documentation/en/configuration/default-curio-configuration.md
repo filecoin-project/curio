@@ -575,11 +575,12 @@ description: The default curio configuration
       # type: bool
       #DenyOfflineDeals = false
 
-      # CIDGravityToken is the authorization token to use for CIDGravity filters.
-      # If empty then CIDGravity filters are not called.
+      # CIDGravityTokens is the list of authorization token to use for CIDGravity filters. These should be in format
+      # "minerID1:Token1", "minerID2:Token2". If a token for a minerID within the cluster is not provided,
+      # CIDGravity filters will not be applied to deals associated with that miner ID.
       #
-      # type: string
-      #CIDGravityToken = ""
+      # type: []string
+      #CIDGravityTokens = []
 
       # DefaultCIDGravityAccept when set to true till accept deals when CIDGravity service is not available.
       # Default behaviors is to reject the deals (Default: false)

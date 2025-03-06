@@ -945,11 +945,12 @@ If True then all deals coming from unknown clients will be rejected. (Default: f
 			Comment: `DenyOfflineDeals determines if the storage provider will accept offline deals (Default: false)`,
 		},
 		{
-			Name: "CIDGravityToken",
-			Type: "string",
+			Name: "CIDGravityTokens",
+			Type: "[]string",
 
-			Comment: `CIDGravityToken is the authorization token to use for CIDGravity filters.
-If empty then CIDGravity filters are not called.`,
+			Comment: `CIDGravityTokens is the list of authorization token to use for CIDGravity filters. These should be in format
+"minerID1:Token1", "minerID2:Token2". If a token for a minerID within the cluster is not provided,
+CIDGravity filters will not be applied to deals associated with that miner ID.`,
 		},
 		{
 			Name: "DefaultCIDGravityAccept",
