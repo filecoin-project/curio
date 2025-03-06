@@ -118,32 +118,27 @@ To enable the Curio market on a Curio node, the following configuration changes 
    * Set `EnableDealMarket` to `true` in the `CurioSubsystemsConfig` for at least one node. This enables deal-making capabilities on the node.
 2. **Enable CommP**:
    * On one of the nodes where `EnableDealMarket` is set to `true`, ensure that `EnableCommP` is also set to `true`. This allows the node to compute piece commitments (CommP) before publishing storage deal messages.
-3. **Enable MarketBalanceManager (Optional)**:
-   * On one of the nodes where `EnableDealMarket` is set to `true`, ensure that `EnableMarketBalanceManager` is also set to `true`.
-   * This allows Curio to ensure that miner's market actor always have balance available for deal collaterals. 
-   * If enabled, users must designate a wallet to be used to send the balance
-     * Update `DealCollateralWallet` under the `MK12Config` settings under `StorageMarketConfig` is set.
-4. **Enable HTTP**:
+3. **Enable HTTP**:
    * At least one node must have HTTP enabled to support:
      * Retrievals.
      * IPNI sync.
      * Handling storage deals.
    * To enable HTTP, set the `Enable` flag in the `HTTPConfig` to `true` and specify the `ListenAddress` for the HTTP server.
-5. **Set a Domain Name**:
+4. **Set a Domain Name**:
    * Ensure that a valid `DomainName` is specified in the `HTTPConfig`. This is mandatory for proper HTTP server functionality and essential for enabling TLS. The domain name cannot be an IP address.
    * Domain name should be specified in the base layer
-6. **HTTP Configuration Details**:
+5. **HTTP Configuration Details**:
    * If TLS is managed by a reverse proxy, enable `DelegateTLS` in the `HTTPConfig` to allow the HTTP server to run without handling TLS directly.
    * Configure additional parameters such as `ReadTimeout`, `IdleTimeout`, and `CompressionLevels` to ensure the server operates efficiently.
-7. **Libp2p Activation**:
+6. **Libp2p Activation**:
    * The `libp2p` service will automatically start on one of the servers running the HTTP server where `EnableDealMarket` is set to `true`. If more than 1 node satsifies the condition and the node running libp2p goes down then it will switch over to another node after 5 minutes.
-8. **Other Considerations**:
+7. **Other Considerations**:
    * Ensure the `MK12Config` settings under `StorageMarketConfig` are properly configured for deal publishing. Key parameters include:
      * `PublishMsgPeriod` for deal batching frequency.
      * `MaxDealsPerPublishMsg` for the maximum number of deals per message.
      * `MaxPublishDealFee` to set the fee limit for publishing deals.
    * If handling offline deals, configure `PieceLocator` to specify the endpoints for piece retrieval.
-9. Verify that HTTP server is working:
+8. Verify that HTTP server is working:
 
     * Curl to your domain name and verify that server is reachable from outside\
 

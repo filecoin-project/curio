@@ -23,6 +23,14 @@ var Doc = map[string][]DocField{
 			Comment: `API auth secret for the Curio nodes to use. This value should only be set on the bade layer.`,
 		},
 	},
+	"BalanceManagerConfig": {
+		{
+			Name: "MK12Collateral",
+			Type: "MK12CollateralConfig",
+
+			Comment: `MK12Collateral defines the configuration for managing collateral and related balance thresholds in the miner's market.`,
+		},
+	},
 	"BatchFeeConfig": {
 		{
 			Name: "Base",
@@ -284,6 +292,13 @@ Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffi
 			Type: "bool",
 
 			Comment: `Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)`,
+		},
+		{
+			Name: "BalanceManager",
+			Type: "BalanceManagerConfig",
+
+			Comment: `BalanceManagerConfig specifies the configuration parameters for managing wallet balances and actor-related funds,
+including collateral and other operational resources.`,
 		},
 	},
 	"CurioIngestConfig": {
@@ -766,10 +781,10 @@ also be bounded by resources available on the machine. (Default: 0 - unlimited)`
 also be bounded by resources available on the machine. (Default: 8)`,
 		},
 		{
-			Name: "EnableMarketBalanceManager",
+			Name: "EnableBalanceManager",
 			Type: "bool",
 
-			Comment: `EnableMarketBalanceManager enabled the task to automatically manage the market balance of the miner's market actor (Default: false)`,
+			Comment: `EnableBalanceManager enables the task to automatically manage the market balance of the miner's market actor (Default: false)`,
 		},
 	},
 	"HTTPConfig": {
@@ -870,6 +885,30 @@ heads.`,
 			Comment: `Number of concurrent inserts to split AddIndex calls to`,
 		},
 	},
+	"MK12CollateralConfig": {
+		{
+			Name: "DealCollateralWallet",
+			Type: "string",
+
+			Comment: `DealCollateralWallet is the wallet used to add balance to Miner's market balance. This balance is
+utilized for deal collateral in market (f05) deals.`,
+		},
+		{
+			Name: "CollateralLowThreshold",
+			Type: "types.FIL",
+
+			Comment: `CollateralLowThreshold is the balance below which more balance will be added to miner's market balance
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")`,
+		},
+		{
+			Name: "CollateralHighThreshold",
+			Type: "types.FIL",
+
+			Comment: `CollateralHighThreshold is the target balance to which the miner's market balance will be topped up
+when it drops below CollateralLowThreshold.
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "20 FIL")`,
+		},
+	},
 	"MK12Config": {
 		{
 			Name: "PublishMsgPeriod",
@@ -892,27 +931,6 @@ message (Default: 8)`,
 
 			Comment: `The maximum fee to pay per deal when sending the PublishStorageDeals message
 Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.5 FIL")`,
-		},
-		{
-			Name: "DealCollateralWallet",
-			Type: "string",
-
-			Comment: `DealCollateralWallet is the wallet used to add balance to Miner's market balance. This balance is
-utilized for deal collateral in market (f05) deals. If no wallet is set, worker wallet will be used for this.`,
-		},
-		{
-			Name: "CollateralAddThreshold",
-			Type: "types.FIL",
-
-			Comment: `CollateralAddThreshold is the balance below which more balance will be added to miner's market balance
-Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")`,
-		},
-		{
-			Name: "CollateralAddAmount",
-			Type: "types.FIL",
-
-			Comment: `CollateralAddAmount is the amount added to miner's market balance when it falls below CollateralAddThreshold
-Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")`,
 		},
 		{
 			Name: "ExpectedPoRepSealDuration",
