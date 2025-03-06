@@ -170,9 +170,14 @@ func (m *MK12) cidGravityCheck(ctx context.Context, deal *ProviderDealState) (bo
 		"Content-Type":         []string{"application/json"},
 	}
 
-	req.Header.Set("X-API-KEY", m.cfg.Market.StorageMarketConfig.MK12.CIDGravityToken)
+	token, ok := m.cidGravity[deal.ClientDealProposal.Proposal.Provider]
+	if !ok {
+		return false, "", xerrors.Errorf("No cid gravity token for provider %s", deal.ClientDealProposal.Proposal.Provider)
+	}
+
+	req.Header.Set("X-API-KEY", token)
 	req.Header.Set("X-Address-ID", deal.ClientDealProposal.Proposal.Provider.String())
-	req.Header.Set("Authorization", m.cfg.Market.StorageMarketConfig.MK12.CIDGravityToken)
+	req.Header.Set("Authorization", token)
 
 	hdr, err := json.Marshal(req.Header)
 	if err != nil {
