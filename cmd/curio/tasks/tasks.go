@@ -216,6 +216,14 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		miners = append(miners, address.Address(k))
 	}
 
+	if cfg.Subsystems.EnableBalanceManager {
+		balMgrTask, err := storage_market.NewBalanceManager(full, miners, cfg, sender)
+		if err != nil {
+			return nil, err
+		}
+		activeTasks = append(activeTasks, balMgrTask)
+	}
+
 	{
 		// Market tasks
 		if cfg.Subsystems.EnableDealMarket {
@@ -229,14 +237,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			if cfg.Subsystems.EnableCommP {
 				commpTask := storage_market.NewCommpTask(dm, db, must.One(slrLazy.Val()), full, cfg.Subsystems.CommPMaxTasks)
 				activeTasks = append(activeTasks, commpTask)
-			}
-
-			if cfg.Subsystems.EnableMarketBalanceManager {
-				balMgrTask, err := storage_market.NewMarketBalanceManager(full, miners, cfg, sender)
-				if err != nil {
-					return nil, err
-				}
-				activeTasks = append(activeTasks, balMgrTask)
 			}
 
 			// PSD and Deal find task do not require many resources. They can run on all machines
