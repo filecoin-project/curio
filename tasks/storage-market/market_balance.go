@@ -102,7 +102,6 @@ var _ = harmonytask.Reg(&BalanceManager{})
 func (m *BalanceManager) dealMarketBalance(ctx context.Context) error {
 	lowthreshold := abi.TokenAmount(m.cfg.Fees.BalanceManager.MK12Collateral.CollateralLowThreshold)
 	highthreshold := abi.TokenAmount(m.cfg.Fees.BalanceManager.MK12Collateral.CollateralHighThreshold)
-	amount := big.Sub(highthreshold, lowthreshold)
 
 	if m.cfg.Fees.BalanceManager.MK12Collateral.DealCollateralWallet == "" {
 		return xerrors.Errorf("Deal collateral wallet is not set")
@@ -144,6 +143,8 @@ func (m *BalanceManager) dealMarketBalance(ctx context.Context) error {
 				blog.Debugf("Skipping add balance for miner %s, available balance is %s, threshold is %s", miner.String(), avail.String(), lowthreshold.String())
 				continue
 			}
+
+			amount := big.Sub(highthreshold, avail)
 
 			if wbal.LessThan(amount) {
 				return xerrors.Errorf("Worker wallet balance %s is lower than specified amount %s", wbal.String(), amount.String())
