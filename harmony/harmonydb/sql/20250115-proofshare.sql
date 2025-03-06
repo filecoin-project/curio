@@ -85,7 +85,7 @@ CREATE TABLE proofshare_client_requests (
     payment_wallet BIGINT,
     payment_nonce BIGINT,
 
-    request_sent BOOLEAN,
+    request_sent BOOLEAN NOT NULL DEFAULT FALSE,
 
     response_data BYTEA,
 

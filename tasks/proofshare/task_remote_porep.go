@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -147,42 +148,103 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	ctx := context.Background()
 
 	// Get sector info
-	var request struct {
-		SpID         int64  `db:"sp_id"`
-		SectorNumber int64  `db:"sector_number"`
-		RegSealProof int    `db:"reg_seal_proof"`
-		TicketEpoch  int64  `db:"ticket_epoch"`
-		TicketValue  []byte `db:"ticket_value"`
-		SeedEpoch    int64  `db:"seed_epoch"`
-		SealedCID    string `db:"tree_r_cid"`
-		UnsealedCID  string `db:"tree_d_cid"`
-	}
-
-	err = t.db.QueryRow(ctx, `
-		SELECT sp_id, sector_number, reg_seal_proof, ticket_epoch, ticket_value, seed_epoch, tree_r_cid, tree_d_cid
-		FROM sectors_sdr_pipeline
-		WHERE task_id_porep = $1
-	`, taskID).Scan(
-		&request.SpID, &request.SectorNumber, &request.RegSealProof,
-		&request.TicketEpoch, &request.TicketValue, &request.SeedEpoch,
-		&request.SealedCID, &request.UnsealedCID,
-	)
+	sectorInfo, err := t.getSectorInfo(ctx, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get sector info: %w", err)
 	}
 
-	// Check if we already have a client request for this task
-	var clientRequest struct {
-		RequestCID      *string `db:"request_cid"`
-		RequestUploaded bool    `db:"request_uploaded"`
-		PaymentWallet   *int64  `db:"payment_wallet"`
-		PaymentNonce    *int64  `db:"payment_nonce"`
-		RequestSent     *bool   `db:"request_sent"`
-		ResponseData    []byte  `db:"response_data"`
-		Done            bool    `db:"done"`
+	// Main state machine loop
+	for {
+		if !stillOwned() {
+			return false, xerrors.Errorf("task no longer owned")
+		}
+
+		// Get the current state of the client request
+		clientRequest, err := t.getClientRequest(ctx, taskID)
+		if err != nil {
+			return false, err
+		}
+
+		// If the request is already done, update the sector and return
+		if clientRequest.Done && clientRequest.ResponseData != nil {
+			log.Infow("finalizing sector proof", "taskID", taskID, "sectorID", sectorInfo.SectorNumber, "spID", sectorInfo.SpID)
+			return t.finalizeSector(ctx, sectorInfo, clientRequest.ResponseData)
+		}
+
+		// Process the request based on its current state
+		var stateChanged bool
+		var inState string
+
+		if clientRequest.RequestCID == nil || !clientRequest.RequestUploaded {
+			// Step 1: Upload proof data
+			inState = "uploading proof data"
+			stateChanged, err = t.uploadProofData(ctx, taskID, sectorInfo, clientRequest)
+		} else if clientRequest.PaymentWallet == nil || clientRequest.PaymentNonce == nil {
+			// Step 2: Create payment
+			inState = "creating payment"
+			stateChanged, err = t.createPayment(ctx, taskID, sectorInfo, clientRequest)
+		} else if !clientRequest.RequestSent {
+			// Step 3: Send request
+			inState = "sending request"
+			stateChanged, err = t.sendRequest(ctx, taskID, clientRequest)
+		} else {
+			// Step 4: Poll for proof
+			inState = "polling for proof"
+			stateChanged, err = t.pollForProof(ctx, taskID, sectorInfo, clientRequest)
+		}
+
+		if err != nil {
+			return false, err
+		}
+
+		// If the state didn't change, wait before trying again
+		if !stateChanged {
+			select {
+			case <-time.After(10 * time.Second):
+				// Continue polling
+			case <-ctx.Done():
+				return false, ctx.Err()
+			}
+		} else {
+			log.Infow("state changed", "state", inState, "taskID", taskID, "sectorID", sectorInfo.SectorNumber, "spID", sectorInfo.SpID)
+		}
+	}
+}
+
+// getSectorInfo retrieves the sector information from the database
+func (t *TaskRemotePoRep) getSectorInfo(ctx context.Context, taskID harmonytask.TaskID) (*SectorInfo, error) {
+	var info SectorInfo
+	err := t.db.QueryRow(ctx, `
+		SELECT sp_id, sector_number, reg_seal_proof, ticket_epoch, ticket_value, seed_epoch, tree_r_cid, tree_d_cid
+		FROM sectors_sdr_pipeline
+		WHERE task_id_porep = $1
+	`, taskID).Scan(
+		&info.SpID, &info.SectorNumber, &info.RegSealProof,
+		&info.TicketEpoch, &info.TicketValue, &info.SeedEpoch,
+		&info.SealedCID, &info.UnsealedCID,
+	)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get sector info: %w", err)
 	}
 
-	err = t.db.QueryRow(ctx, `
+	// Parse CIDs
+	var err1, err2 error
+	info.Sealed, err1 = cid.Parse(info.SealedCID)
+	info.Unsealed, err2 = cid.Parse(info.UnsealedCID)
+	if err1 != nil {
+		return nil, xerrors.Errorf("failed to parse sealed cid: %w", err1)
+	}
+	if err2 != nil {
+		return nil, xerrors.Errorf("failed to parse unsealed cid: %w", err2)
+	}
+
+	return &info, nil
+}
+
+// getClientRequest retrieves or creates a client request record
+func (t *TaskRemotePoRep) getClientRequest(ctx context.Context, taskID harmonytask.TaskID) (*ClientRequest, error) {
+	var clientRequest ClientRequest
+	err := t.db.QueryRow(ctx, `
 		SELECT request_cid, request_uploaded, payment_wallet, payment_nonce, request_sent, response_data, done
 		FROM proofshare_client_requests
 		WHERE task_id = $1
@@ -191,17 +253,22 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		&clientRequest.PaymentNonce, &clientRequest.RequestSent, &clientRequest.ResponseData, &clientRequest.Done,
 	)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return false, xerrors.Errorf("failed to get client request: %w", err)
+		return nil, xerrors.Errorf("failed to get client request: %w", err)
 	}
 
 	// If we don't have a client request yet, create one
 	if errors.Is(err, pgx.ErrNoRows) {
+		sectorInfo, err := t.getSectorInfo(ctx, taskID)
+		if err != nil {
+			return nil, err
+		}
+
 		_, err = t.db.Exec(ctx, `
 			INSERT INTO proofshare_client_requests (task_id, sp_id, sector_num, created_at)
 			VALUES ($1, $2, $3, NOW())
-		`, taskID, request.SpID, request.SectorNumber)
+		`, taskID, sectorInfo.SpID, sectorInfo.SectorNumber)
 		if err != nil {
-			return false, xerrors.Errorf("failed to create client request: %w", err)
+			return nil, xerrors.Errorf("failed to create client request: %w", err)
 		}
 
 		// Reload the client request
@@ -214,89 +281,80 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 			&clientRequest.PaymentNonce, &clientRequest.RequestSent, &clientRequest.ResponseData, &clientRequest.Done,
 		)
 		if err != nil {
-			return false, xerrors.Errorf("failed to reload client request: %w", err)
+			return nil, xerrors.Errorf("failed to reload client request: %w", err)
 		}
 	}
 
-	// If the request is already done, update the sector and return
-	if clientRequest.Done && clientRequest.ResponseData != nil {
-		// Get chain head for randomness
-		ts, err := t.api.ChainHead(ctx)
-		if err != nil {
-			return false, xerrors.Errorf("failed to get chain head: %w", err)
-		}
+	return &clientRequest, nil
+}
 
-		// Create miner address
-		maddr, err := address.NewIDAddress(uint64(request.SpID))
-		if err != nil {
-			return false, xerrors.Errorf("failed to create miner address: %w", err)
-		}
-
-		// Get randomness
-		buf := new(bytes.Buffer)
-		if err := maddr.MarshalCBOR(buf); err != nil {
-			return false, xerrors.Errorf("failed to marshal miner address: %w", err)
-		}
-
-		rand, err := t.api.StateGetRandomnessFromBeacon(ctx, crypto.DomainSeparationTag_InteractiveSealChallengeSeed, abi.ChainEpoch(request.SeedEpoch), buf.Bytes(), ts.Key())
-		if err != nil {
-			return false, xerrors.Errorf("failed to get randomness for computing seal proof: %w", err)
-		}
-
-		// Update sector with proof
-		_, err = t.db.Exec(ctx, `
-			UPDATE sectors_sdr_pipeline
-			SET after_porep = TRUE, 
-				seed_value = $3, 
-				porep_proof = $4, 
-				task_id_porep = NULL
-			WHERE sp_id = $1 AND sector_number = $2
-		`, request.SpID, request.SectorNumber, rand, clientRequest.ResponseData)
-		if err != nil {
-			return false, xerrors.Errorf("failed to update sector: %w", err)
-		}
-
-		log.Infow("remote porep completed successfully",
-			"spID", request.SpID,
-			"sectorNumber", request.SectorNumber,
-			"proofSize", len(clientRequest.ResponseData))
-		return true, nil
-	}
-
-	// Parse CIDs
-	sealed, err := cid.Parse(request.SealedCID)
-	if err != nil {
-		return false, xerrors.Errorf("failed to parse sealed cid: %w", err)
-	}
-
-	unsealed, err := cid.Parse(request.UnsealedCID)
-	if err != nil {
-		return false, xerrors.Errorf("failed to parse unsealed cid: %w", err)
-	}
-
-	// Get chain head
-	ts, err := t.api.ChainHead(ctx)
-	if err != nil {
-		return false, xerrors.Errorf("failed to get chain head: %w", err)
-	}
-
-	// Create miner address
-	maddr, err := address.NewIDAddress(uint64(request.SpID))
-	if err != nil {
-		return false, xerrors.Errorf("failed to create miner address: %w", err)
-	}
-
+// uploadProofData generates and uploads the proof data
+func (t *TaskRemotePoRep) uploadProofData(ctx context.Context, taskID harmonytask.TaskID, sectorInfo *SectorInfo, clientRequest *ClientRequest) (bool, error) {
 	// Get randomness
-	buf := new(bytes.Buffer)
-	if err := maddr.MarshalCBOR(buf); err != nil {
-		return false, xerrors.Errorf("failed to marshal miner address: %w", err)
-	}
-
-	rand, err := t.api.StateGetRandomnessFromBeacon(ctx, crypto.DomainSeparationTag_InteractiveSealChallengeSeed, abi.ChainEpoch(request.SeedEpoch), buf.Bytes(), ts.Key())
+	randomness, err := t.getRandomness(ctx, sectorInfo)
 	if err != nil {
-		return false, xerrors.Errorf("failed to get randomness for computing seal proof: %w", err)
+		return false, err
 	}
 
+	// Create PoRep request
+	spt := abi.RegisteredSealProof(sectorInfo.RegSealProof)
+	p, err := t.storage.GeneratePoRepVanillaProof(ctx, storiface.SectorRef{
+		ID: abi.SectorID{
+			Miner:  abi.ActorID(sectorInfo.SpID),
+			Number: abi.SectorNumber(sectorInfo.SectorNumber),
+		},
+		ProofType: spt,
+	}, sectorInfo.Unsealed, sectorInfo.Sealed, sectorInfo.TicketValue, abi.InteractiveSealRandomness(randomness))
+	if err != nil {
+		return false, xerrors.Errorf("failed to generate porep vanilla proof: %w", err)
+	}
+
+	proofDec, err := proof.DecodeCommit1OutRaw(bytes.NewReader(p))
+	if err != nil {
+		return false, xerrors.Errorf("failed to decode proof: %w", err)
+	}
+
+	// Create ProofData
+	proofData := common.ProofData{
+		SectorID: &abi.SectorID{
+			Miner:  abi.ActorID(sectorInfo.SpID),
+			Number: abi.SectorNumber(sectorInfo.SectorNumber),
+		},
+		PoRep: &proofDec,
+	}
+
+	// Validate the ProofData
+	if err := proofData.Validate(); err != nil {
+		return false, xerrors.Errorf("invalid proof data: %w", err)
+	}
+
+	// Serialize the ProofData
+	proofDataBytes, err := json.Marshal(proofData)
+	if err != nil {
+		return false, xerrors.Errorf("failed to marshal proof data: %w", err)
+	}
+
+	// Upload the ProofData
+	proofDataCid, err := proofsvc.UploadProofData(ctx, proofDataBytes)
+	if err != nil {
+		return false, xerrors.Errorf("failed to upload proof data: %w", err)
+	}
+
+	// Update the client request with the ProofData CID
+	_, err = t.db.Exec(ctx, `
+		UPDATE proofshare_client_requests
+		SET request_cid = $2, request_uploaded = TRUE
+		WHERE task_id = $1
+	`, taskID, proofDataCid.String())
+	if err != nil {
+		return false, xerrors.Errorf("failed to update client request with proof data CID: %w", err)
+	}
+
+	return true, nil
+}
+
+// createPayment creates a payment for the proof request
+func (t *TaskRemotePoRep) createPayment(ctx context.Context, taskID harmonytask.TaskID, sectorInfo *SectorInfo, clientRequest *ClientRequest) (bool, error) {
 	// Get client ID from wallet address
 	clientIDAddr, err := t.api.StateLookupID(ctx, t.wallet, types.EmptyTSK)
 	if err != nil {
@@ -308,94 +366,30 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		return false, xerrors.Errorf("failed to get client ID from address: %w", err)
 	}
 
-	ticket := request.TicketValue
-	seed := rand
-
-	// Step 1: Upload ProofData if not already uploaded
-	if clientRequest.RequestCID == nil || !clientRequest.RequestUploaded {
-		// Create PoRep request
-		spt := abi.RegisteredSealProof(request.RegSealProof)
-
-		p, err := t.storage.GeneratePoRepVanillaProof(ctx, storiface.SectorRef{
-			ID: abi.SectorID{
-				Miner:  abi.ActorID(request.SpID),
-				Number: abi.SectorNumber(request.SectorNumber),
-			},
-			ProofType: spt,
-		}, unsealed, sealed, ticket, abi.InteractiveSealRandomness(seed))
-		if err != nil {
-			return false, xerrors.Errorf("failed to generate porep vanilla proof: %w", err)
-		}
-
-		proofDec, err := proof.DecodeCommit1OutRaw(bytes.NewReader(p))
-		if err != nil {
-			return false, xerrors.Errorf("failed to decode proof: %w", err)
-		}
-
-		// Create ProofData
-		proofData := common.ProofData{
-			SectorID: &abi.SectorID{
-				Miner:  abi.ActorID(request.SpID),
-				Number: abi.SectorNumber(request.SectorNumber),
-			},
-			PoRep: &proofDec,
-		}
-
-		// Validate the ProofData
-		if err := proofData.Validate(); err != nil {
-			return false, xerrors.Errorf("invalid proof data: %w", err)
-		}
-
-		// Serialize the ProofData
-		proofDataBytes, err := json.Marshal(proofData)
-		if err != nil {
-			return false, xerrors.Errorf("failed to marshal proof data: %w", err)
-		}
-
-		// Upload the ProofData
-		proofDataCid, err := proofsvc.UploadProofData(ctx, proofDataBytes)
-		if err != nil {
-			return false, xerrors.Errorf("failed to upload proof data: %w", err)
-		}
-
-		// Update the client request with the ProofData CID
-		_, err = t.db.Exec(ctx, `
-			UPDATE proofshare_client_requests
-			SET request_cid = $2, request_uploaded = TRUE
-			WHERE task_id = $1
-		`, taskID, proofDataCid.String())
-		if err != nil {
-			return false, xerrors.Errorf("failed to update client request with proof data CID: %w", err)
-		}
-
-		// Reload the client request
-		err = t.db.QueryRow(ctx, `
-			SELECT request_cid, request_uploaded, payment_wallet, payment_nonce, request_sent, response_data, done
-			FROM proofshare_client_requests
-			WHERE task_id = $1
-		`, taskID).Scan(
-			&clientRequest.RequestCID, &clientRequest.RequestUploaded, &clientRequest.PaymentWallet,
-			&clientRequest.PaymentNonce, &clientRequest.RequestSent, &clientRequest.ResponseData, &clientRequest.Done,
-		)
-		if err != nil {
-			return false, xerrors.Errorf("failed to reload client request: %w", err)
-		}
+	// Get current price for the proof
+	price, err := proofsvc.GetCurrentPrice()
+	if err != nil {
+		return false, xerrors.Errorf("failed to get current price: %w", err)
 	}
 
-	// Step 2: Create payment if not already created
-	if clientRequest.PaymentWallet == nil || clientRequest.PaymentNonce == nil {
+	// Create payment in a transaction
+	var nextNonce int64
+	_, err = t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		// Check if there's an unconsumed payment
 		var unconsumedPayment struct {
-			Wallet int64 `db:"wallet"`
-			Nonce  int64 `db:"nonce"`
+			Wallet          int64 `db:"wallet"`
+			Nonce           int64 `db:"nonce"`
+			CumulativeAmount string `db:"cumulative_amount"`
+			Consumed         bool   `db:"consumed"`
 		}
 
-		err = t.db.QueryRow(ctx, `
-			SELECT wallet, nonce
+		err = tx.QueryRow(`
+			SELECT wallet, nonce, cumulative_amount, consumed
 			FROM proofshare_client_payments
-			WHERE wallet = $1 AND consumed = FALSE
+			WHERE wallet = $1
+			ORDER BY nonce DESC
 			LIMIT 1
-		`, clientID).Scan(&unconsumedPayment.Wallet, &unconsumedPayment.Nonce)
+		`, clientID).Scan(&unconsumedPayment.Wallet, &unconsumedPayment.Nonce, &unconsumedPayment.CumulativeAmount, &unconsumedPayment.Consumed)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return false, xerrors.Errorf("failed to check for unconsumed payments: %w", err)
 		}
@@ -408,15 +402,21 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 			return false, nil
 		}
 
-		// Get current price for the proof
-		price, err := proofsvc.GetCurrentPrice()
+		if !unconsumedPayment.Consumed {
+			log.Infow("previous payment not consumed, waiting",
+				"wallet", unconsumedPayment.Wallet,
+				"nonce", unconsumedPayment.Nonce)
+			return false, nil
+		}
+
+		// Parse the cumulative amount
+		cumulativeAmount, err := types.BigFromString(unconsumedPayment.CumulativeAmount)
 		if err != nil {
-			return false, xerrors.Errorf("failed to get current price: %w", err)
+			return false, xerrors.Errorf("failed to parse cumulative amount: %w", err)
 		}
 
 		// Get the next nonce for this wallet
-		var nextNonce int64
-		err = t.db.QueryRow(ctx, `
+		err = tx.QueryRow(`
 			SELECT COALESCE(MAX(nonce) + 1, 0)
 			FROM proofshare_client_payments
 			WHERE wallet = $1
@@ -425,28 +425,31 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 			return false, xerrors.Errorf("failed to get next nonce: %w", err)
 		}
 
+		// calculate new cumulative amount
+		cumulativeAmount = types.BigAdd(cumulativeAmount, price)
+
 		// Create voucher
-		voucher, err := t.router.CreateClientVoucher(ctx, clientID, cumulativeAmount, clientRequest.PaymentNonce)
+		voucher, err := t.router.CreateClientVoucher(ctx, uint64(clientID), cumulativeAmount.Int, uint64(nextNonce))
 		if err != nil {
 			return false, xerrors.Errorf("failed to create voucher: %w", err)
 		}
 
-		sig, err := t.api.WalletSign(ctx, clientID, voucher)
+		sig, err := t.api.WalletSign(ctx, t.wallet, voucher)
 		if err != nil {
 			return false, xerrors.Errorf("failed to sign voucher: %w", err)
 		}
 
 		// Insert the payment
-		_, err = t.db.Exec(ctx, `
+		_, err = tx.Exec(`
 			INSERT INTO proofshare_client_payments (wallet, nonce, cumulative_amount, signature, consumed)
 			VALUES ($1, $2, $3, $4, FALSE)
-		`, clientID, nextNonce, price.String(), paymentSignature)
+		`, clientID, nextNonce, cumulativeAmount.String(), sig.Data)
 		if err != nil {
 			return false, xerrors.Errorf("failed to insert payment: %w", err)
 		}
 
 		// Update the client request with the payment info
-		_, err = t.db.Exec(ctx, `
+		_, err = tx.Exec(`
 			UPDATE proofshare_client_requests
 			SET payment_wallet = $2, payment_nonce = $3
 			WHERE task_id = $1
@@ -455,102 +458,98 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 			return false, xerrors.Errorf("failed to update client request with payment info: %w", err)
 		}
 
-		// Reload the client request
-		err = t.db.QueryRow(ctx, `
-			SELECT request_cid, request_uploaded, payment_wallet, payment_nonce, request_sent, response_data, done
-			FROM proofshare_client_requests
-			WHERE task_id = $1
-		`, taskID).Scan(
-			&clientRequest.RequestCID, &clientRequest.RequestUploaded, &clientRequest.PaymentWallet,
-			&clientRequest.PaymentNonce, &clientRequest.RequestSent, &clientRequest.ResponseData, &clientRequest.Done,
-		)
-		if err != nil {
-			return false, xerrors.Errorf("failed to reload client request: %w", err)
-		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+
+	if err != nil {
+		return false, xerrors.Errorf("transaction failed: %w", err)
 	}
 
-	// Step 3: Send the request if not already sent
-	if clientRequest.RequestSent == nil || !*clientRequest.RequestSent {
+	return true, nil
+}
 
-		// Get the payment details
-		var payment struct {
-			CumulativeAmount string `db:"cumulative_amount"`
-			Signature        []byte `db:"signature"`
-		}
-
-		err = t.db.QueryRow(ctx, `
-			SELECT cumulative_amount, signature
-			FROM proofshare_client_payments
-			WHERE wallet = $1 AND nonce = $2
-		`, clientRequest.PaymentWallet, clientRequest.PaymentNonce).Scan(
-			&payment.CumulativeAmount, &payment.Signature,
-		)
-		if err != nil {
-			return false, xerrors.Errorf("failed to get payment details: %w", err)
-		}
-
-
-		// Parse the request CID
-		requestCid, err := cid.Parse(*clientRequest.RequestCID)
-		if err != nil {
-			return false, xerrors.Errorf("failed to parse request CID: %w", err)
-		}
-
-		// Create the ProofRequest
-		proofRequest := common.ProofRequest{
-			Data: requestCid,
-
-			PriceEpoch: int64(ts.Height()),
-
-			PaymentClientID:         *clientRequest.PaymentWallet,
-			PaymentNonce:            *clientRequest.PaymentNonce,
-			PaymentCumulativeAmount: cumulativeAmount,
-			PaymentSignature:        payment.Signature,
-		}
-
-		// Submit the request
-		err = proofsvc.RequestProof(proofRequest)
-		if err != nil {
-			return false, xerrors.Errorf("failed to submit proof request: %w", err)
-		}
-
-		// Mark the request as sent
-		requestSent := true
-		_, err = t.db.Exec(ctx, `
-			UPDATE proofshare_client_requests
-			SET request_sent = $2
-			WHERE task_id = $1
-		`, taskID, requestSent)
-		if err != nil {
-			return false, xerrors.Errorf("failed to mark request as sent: %w", err)
-		}
-
-		// Mark the payment as consumed
-		_, err = t.db.Exec(ctx, `
-			UPDATE proofshare_client_payments
-			SET consumed = TRUE
-			WHERE wallet = $1 AND nonce = $2
-		`, clientRequest.PaymentWallet, clientRequest.PaymentNonce)
-		if err != nil {
-			return false, xerrors.Errorf("failed to mark payment as consumed: %w", err)
-		}
-
-		// Reload the client request
-		err = t.db.QueryRow(ctx, `
-			SELECT request_cid, request_uploaded, payment_wallet, payment_nonce, request_sent, response_data, done
-			FROM proofshare_client_requests
-			WHERE task_id = $1
-		`, taskID).Scan(
-			&clientRequest.RequestCID, &clientRequest.RequestUploaded, &clientRequest.PaymentWallet,
-			&clientRequest.PaymentNonce, &clientRequest.RequestSent, &clientRequest.ResponseData, &clientRequest.Done,
-		)
-		if err != nil {
-			return false, xerrors.Errorf("failed to reload client request: %w", err)
-		}
+// sendRequest sends the proof request to the service
+func (t *TaskRemotePoRep) sendRequest(ctx context.Context, taskID harmonytask.TaskID, clientRequest *ClientRequest) (bool, error) {
+	// Get the payment details
+	var payment struct {
+		CumulativeAmount string `db:"cumulative_amount"`
+		Signature        []byte `db:"signature"`
 	}
 
-	// Step 4: Poll for the proof
-	// Try to get the proof status from the service using the request CID
+	err := t.db.QueryRow(ctx, `
+		SELECT cumulative_amount, signature
+		FROM proofshare_client_payments
+		WHERE wallet = $1 AND nonce = $2
+	`, clientRequest.PaymentWallet, clientRequest.PaymentNonce).Scan(
+		&payment.CumulativeAmount, &payment.Signature,
+	)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get payment details: %w", err)
+	}
+
+	// Parse the cumulative amount
+	cumulativeAmount, err := types.BigFromString(payment.CumulativeAmount)
+	if err != nil {
+		return false, xerrors.Errorf("failed to parse cumulative amount: %w", err)
+	}
+
+	// Parse the request CID
+	requestCid, err := cid.Parse(*clientRequest.RequestCID)
+	if err != nil {
+		return false, xerrors.Errorf("failed to parse request CID: %w", err)
+	}
+
+	// Get chain head for price epoch
+	ts, err := t.api.ChainHead(ctx)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get chain head: %w", err)
+	}
+
+	// Create the ProofRequest
+	proofRequest := common.ProofRequest{
+		Data: requestCid,
+
+		PriceEpoch: int64(ts.Height()),
+
+		PaymentClientID:         *clientRequest.PaymentWallet,
+		PaymentNonce:            *clientRequest.PaymentNonce,
+		PaymentCumulativeAmount: abi.NewTokenAmount(cumulativeAmount.Int64()),
+		PaymentSignature:        payment.Signature,
+	}
+
+	// Submit the request
+	err = proofsvc.RequestProof(proofRequest)
+	if err != nil {
+		return false, xerrors.Errorf("failed to submit proof request: %w", err)
+	}
+
+	// Mark the payment as consumed
+	_, err = t.db.Exec(ctx, `
+		UPDATE proofshare_client_payments
+		SET consumed = TRUE
+		WHERE wallet = $1 AND nonce = $2
+	`, clientRequest.PaymentWallet, clientRequest.PaymentNonce)
+	if err != nil {
+		return false, xerrors.Errorf("failed to mark payment as consumed: %w", err)
+	}
+
+	// Mark the request as sent
+	requestSent := true
+	_, err = t.db.Exec(ctx, `
+		UPDATE proofshare_client_requests
+		SET request_sent = $2
+		WHERE task_id = $1
+	`, taskID, requestSent)
+	if err != nil {
+		return false, xerrors.Errorf("failed to mark request as sent: %w", err)
+	}
+
+	return true, nil
+}
+
+// pollForProof polls for the proof status
+func (t *TaskRemotePoRep) pollForProof(ctx context.Context, taskID harmonytask.TaskID, sectorInfo *SectorInfo, clientRequest *ClientRequest) (bool, error) {
+	// Parse the request CID
 	requestCid, err := cid.Parse(*clientRequest.RequestCID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to parse request CID: %w", err)
@@ -558,46 +557,106 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 
 	// Get proof status by CID
 	proofResp, err := proofsvc.GetProofStatus(requestCid)
-	if err == nil && proofResp.Proof != nil {
-		// We got a valid proof response, update the database
-		_, err = t.db.Exec(ctx, `
-			UPDATE proofshare_client_requests
-			SET done = TRUE, response_data = $2, done_at = NOW()
-			WHERE task_id = $1
-		`, taskID, proofResp.Proof)
-		if err != nil {
-			return false, xerrors.Errorf("failed to update client request with proof: %w", err)
-		}
-
-		// Update sector with proof
-		_, err = t.db.Exec(ctx, `
-			UPDATE sectors_sdr_pipeline
-			SET after_porep = TRUE, 
-				seed_value = $3, 
-				porep_proof = $4, 
-				task_id_porep = NULL
-			WHERE sp_id = $1 AND sector_number = $2
-		`, request.SpID, request.SectorNumber, seed, proofResp.Proof)
-		if err != nil {
-			return false, xerrors.Errorf("failed to update sector: %w", err)
-		}
-
-		log.Infow("remote porep completed successfully",
-			"spID", request.SpID,
-			"sectorNumber", request.SectorNumber,
-			"proofSize", len(proofResp.Proof))
-		return true, nil
+	if err != nil || proofResp.Proof == nil {
+		// Not ready yet, continue polling
+		return false, nil
 	}
 
-	// Wait before polling again
-	select {
-	case <-time.After(30 * time.Second):
-		// Continue polling
-	case <-ctx.Done():
-		return false, ctx.Err()
+	// We got a valid proof response, update the database
+	_, err = t.db.Exec(ctx, `
+		UPDATE proofshare_client_requests
+		SET done = TRUE, response_data = $2, done_at = NOW()
+		WHERE task_id = $1
+	`, taskID, proofResp.Proof)
+	if err != nil {
+		return false, xerrors.Errorf("failed to update client request with proof: %w", err)
 	}
 
-	return false, nil
+	return true, nil
+}
+
+// finalizeSector updates the sector with the proof and marks the task as done
+func (t *TaskRemotePoRep) finalizeSector(ctx context.Context, sectorInfo *SectorInfo, proofData []byte) (bool, error) {
+	// Get randomness
+	randomness, err := t.getRandomness(ctx, sectorInfo)
+	if err != nil {
+		return false, err
+	}
+
+	// Update sector with proof
+	_, err = t.db.Exec(ctx, `
+		UPDATE sectors_sdr_pipeline
+		SET after_porep = TRUE, 
+			seed_value = $3, 
+			porep_proof = $4, 
+			task_id_porep = NULL
+		WHERE sp_id = $1 AND sector_number = $2
+	`, sectorInfo.SpID, sectorInfo.SectorNumber, randomness, proofData)
+	if err != nil {
+		return false, xerrors.Errorf("failed to update sector: %w", err)
+	}
+
+	log.Infow("remote porep completed successfully",
+		"spID", sectorInfo.SpID,
+		"sectorNumber", sectorInfo.SectorNumber,
+		"proofSize", len(proofData))
+	return true, nil
+}
+
+// getRandomness gets the randomness for the sector
+func (t *TaskRemotePoRep) getRandomness(ctx context.Context, sectorInfo *SectorInfo) ([]byte, error) {
+	// Get chain head
+	ts, err := t.api.ChainHead(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get chain head: %w", err)
+	}
+
+	// Create miner address
+	maddr, err := address.NewIDAddress(uint64(sectorInfo.SpID))
+	if err != nil {
+		return nil, xerrors.Errorf("failed to create miner address: %w", err)
+	}
+
+	// Get randomness
+	buf := new(bytes.Buffer)
+	if err := maddr.MarshalCBOR(buf); err != nil {
+		return nil, xerrors.Errorf("failed to marshal miner address: %w", err)
+	}
+
+	rand, err := t.api.StateGetRandomnessFromBeacon(ctx, crypto.DomainSeparationTag_InteractiveSealChallengeSeed, abi.ChainEpoch(sectorInfo.SeedEpoch), buf.Bytes(), ts.Key())
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get randomness for computing seal proof: %w", err)
+	}
+
+	return rand, nil
+}
+
+// SectorInfo holds the sector information
+type SectorInfo struct {
+	SpID         int64  `db:"sp_id"`
+	SectorNumber int64  `db:"sector_number"`
+	RegSealProof int    `db:"reg_seal_proof"`
+	TicketEpoch  int64  `db:"ticket_epoch"`
+	TicketValue  []byte `db:"ticket_value"`
+	SeedEpoch    int64  `db:"seed_epoch"`
+	SealedCID    string `db:"tree_r_cid"`
+	UnsealedCID  string `db:"tree_d_cid"`
+	Sealed       cid.Cid
+	Unsealed     cid.Cid
+}
+
+// ClientRequest holds the client request information
+type ClientRequest struct {
+	RequestCID      *string `db:"request_cid"`
+	RequestUploaded bool    `db:"request_uploaded"`
+
+	PaymentWallet   *int64  `db:"payment_wallet"`
+	PaymentNonce    *int64  `db:"payment_nonce"`
+
+	RequestSent     bool   `db:"request_sent"`
+	ResponseData    []byte  `db:"response_data"`
+
+	Done            bool    `db:"done"`
 }
 
 // TypeDetails implements harmonytask.TaskInterface
@@ -609,7 +668,7 @@ func (t *TaskRemotePoRep) TypeDetails() harmonytask.TaskTypeDetails {
 			Gpu: 0,
 			Ram: 32 << 20, // 32MB - minimal resources since computation is remote
 		},
-		MaxFailures: 5,
+		MaxFailures: 15,
 		RetryWait: func(retries int) time.Duration {
 			return time.Second * 10 * time.Duration(retries)
 		},
