@@ -168,53 +168,63 @@ func (s *SealPoller) sendCommitBatch(ctx context.Context, spid int64, sectors []
 
 func (s *SealPoller) pollCommitMsgLanded(ctx context.Context, task pollTask) error {
 	if task.AfterCommitMsg && !task.AfterCommitMsgSuccess && s.pollers[pollerCommitMsg].IsSet() {
-		var execResult []dbExecResult
 
-		err := s.db.Select(ctx, &execResult, `SELECT spipeline.precommit_msg_cid, spipeline.commit_msg_cid, executed_tsk_cid, executed_tsk_epoch, executed_msg_cid, executed_rcpt_exitcode, executed_rcpt_gas_used
+		comm, err := s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			var execResult []dbExecResult
+			err = tx.Select(&execResult, `SELECT spipeline.precommit_msg_cid, spipeline.commit_msg_cid, executed_tsk_cid, executed_tsk_epoch, executed_msg_cid, executed_rcpt_exitcode, executed_rcpt_gas_used
 					FROM sectors_sdr_pipeline spipeline
 					JOIN message_waits ON spipeline.commit_msg_cid = message_waits.signed_message_cid
 					WHERE sp_id = $1 AND sector_number = $2 AND executed_tsk_epoch IS NOT NULL`, task.SpID, task.SectorNumber)
-		if err != nil {
-			log.Errorw("failed to query message_waits", "error", err)
-		}
-
-		if len(execResult) > 0 {
-			maddr, err := address.NewIDAddress(uint64(task.SpID))
 			if err != nil {
-				return err
+				return false, xerrors.Errorf("failed to query message_waits: %w", err)
 			}
 
-			if exitcode.ExitCode(execResult[0].ExecutedRcptExitCode) != exitcode.Ok {
-				if err := s.pollCommitMsgFail(ctx, maddr, task, execResult[0]); err != nil {
-					return err
+			if len(execResult) > 0 {
+				maddr, err := address.NewIDAddress(uint64(task.SpID))
+				if err != nil {
+					return false, xerrors.Errorf("failed to create miner address: %w", err)
 				}
-			}
 
-			si, err := s.api.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(task.SectorNumber), types.EmptyTSK)
-			if err != nil {
-				return xerrors.Errorf("get sector info: %w", err)
-			}
+				if exitcode.ExitCode(execResult[0].ExecutedRcptExitCode) != exitcode.Ok {
+					if err := s.pollCommitMsgFail(ctx, maddr, task, execResult[0]); err != nil {
+						return false, xerrors.Errorf("failed to handle commit message failure: %w", err)
+					}
+				}
 
-			if si == nil {
-				log.Errorw("todo handle missing sector info (not found after cron)", "sp", task.SpID, "sector", task.SectorNumber, "exec_epoch", execResult[0].ExecutedTskEpoch, "exec_tskcid", execResult[0].ExecutedTskCID, "msg_cid", execResult[0].ExecutedMsgCID)
-				// todo handdle missing sector info (not found after cron)
-			} else {
-				// yay!
+				si, err := s.api.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(task.SectorNumber), types.EmptyTSK)
+				if err != nil {
+					return false, xerrors.Errorf("get sector info: %w", err)
+				}
 
-				_, err := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET
+				if si == nil {
+					log.Errorw("todo handle missing sector info (not found after cron)", "sp", task.SpID, "sector", task.SectorNumber, "exec_epoch", execResult[0].ExecutedTskEpoch, "exec_tskcid", execResult[0].ExecutedTskCID, "msg_cid", execResult[0].ExecutedMsgCID)
+					return false, nil
+				} else {
+					// yay!
+
+					_, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET
 						after_commit_msg_success = TRUE, commit_msg_tsk = $1
 						WHERE sp_id = $2 AND sector_number = $3 AND after_commit_msg_success = FALSE`,
-					execResult[0].ExecutedTskCID, task.SpID, task.SectorNumber)
-				if err != nil {
-					return xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
-				}
+						execResult[0].ExecutedTskCID, task.SpID, task.SectorNumber)
+					if err != nil {
+						return false, xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
+					}
 
-				n, err := s.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET sealed = TRUE WHERE sp_id = $1 AND sector = $2 AND sealed = FALSE`, task.SpID, task.SectorNumber)
-				if err != nil {
-					return xerrors.Errorf("update market_mk12_deal_pipeline: %w", err)
+					n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET sealed = TRUE WHERE sp_id = $1 AND sector = $2 AND sealed = FALSE`, task.SpID, task.SectorNumber)
+					if err != nil {
+						return false, xerrors.Errorf("update market_mk12_deal_pipeline: %w", err)
+					}
+					log.Debugw("marked deals as sealed", "sp", task.SpID, "sector", task.SectorNumber, "count", n)
+					return true, nil
 				}
-				log.Debugw("marked deals as sealed", "sp", task.SpID, "sector", task.SectorNumber, "count", n)
 			}
+			return false, nil
+		}, harmonydb.OptionRetry())
+		if err != nil {
+			return xerrors.Errorf("failed to commit transaction: %w", err)
+		}
+		if !comm {
+			return xerrors.Errorf("failed to commit transaction")
 		}
 	}
 
