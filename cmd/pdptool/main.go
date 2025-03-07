@@ -393,7 +393,9 @@ func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtT
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
-		fmt.Println("http.StatusOK")
+		if verbose {
+			fmt.Println("http.StatusOK")
+		}
 		// Piece already exists, get the pieceCID from the response
 		var respData map[string]string
 		err = json.NewDecoder(resp.Body).Decode(&respData)
