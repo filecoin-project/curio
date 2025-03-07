@@ -700,7 +700,7 @@ var uploadFileCmd = &cli.Command{
 			pieces:     make([]abi.PieceInfo, 0),
 			subrootStr: "",
 		})
-		rootSize := 0
+		rootSize := uint64(0)
 		maxRootSize, err := abi.RegisteredSealProof_StackedDrg64GiBV1_1.SectorSize()
 		if err != nil {
 			return fmt.Errorf("failed to get sector size: %v", err)
@@ -714,13 +714,13 @@ var uploadFileCmd = &cli.Command{
 			if err != nil && err != io.EOF {
 				return fmt.Errorf("failed to read file chunk: %v", err)
 			}
-			rootSize += n
 			// Prepare the piece
 			chunkReader := bytes.NewReader(buf[:n])
 			commP, paddedPieceSize, commpDigest, shadigest, err := preparePiece(chunkReader)
 			if err != nil {
 				return fmt.Errorf("failed to prepare piece: %v", err)
 			}
+			rootSize += paddedPieceSize
 			// Prepare the request data
 			var checkData map[string]interface{}
 			switch hashType {
@@ -756,7 +756,7 @@ var uploadFileCmd = &cli.Command{
 			if err != nil {
 				return fmt.Errorf("failed to upload piece: %v", err)
 			}
-			if uint64(rootSize) > uint64(maxRootSize) {
+			if rootSize > uint64(maxRootSize) {
 				rootSets = append(rootSets, rootSetInfo{
 					pieces:     make([]abi.PieceInfo, 0),
 					subrootStr: "",
