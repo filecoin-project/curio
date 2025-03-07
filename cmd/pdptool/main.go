@@ -378,7 +378,7 @@ func startLocalNotifyServer() (string, chan struct{}, error) {
 	return serverAddr, notifyReceived, nil
 }
 
-func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtToken string, r io.ReadSeeker, pieceSize int64, localNotifWait bool, notifyReceived chan struct{}) error {
+func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtToken string, r io.ReadSeeker, pieceSize int64, localNotifWait bool, notifyReceived chan struct{}, verbose bool) error {
 	req, err := http.NewRequest("POST", serviceURL+"/pdp/piece", bytes.NewReader(reqBody))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
@@ -401,10 +401,14 @@ func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtT
 			return fmt.Errorf("failed to parse response: %v", err)
 		}
 		pieceCID := respData["pieceCID"]
-		fmt.Printf("Piece already exists on the server. Piece CID: %s\n", pieceCID)
+		if verbose {
+			fmt.Printf("Piece already exists on the server. Piece CID: %s\n", pieceCID)
+		}
 		return nil
 	} else if resp.StatusCode == http.StatusCreated {
-		fmt.Println("http.StatusCreated")
+		if verbose {
+			fmt.Println("http.StatusCreated")
+		}
 		// Get the upload URL from the Location header
 		uploadURL := resp.Header.Get("Location")
 		if uploadURL == "" {
@@ -435,7 +439,9 @@ func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtT
 			return fmt.Errorf("upload failed with status code %d: %s", uploadResp.StatusCode, string(body))
 		}
 		if localNotifWait {
-			fmt.Println("Waiting for server notification...")
+			if verbose {
+				fmt.Println("Waiting for server notification...")
+			}
 			<-notifyReceived
 		}
 
@@ -578,7 +584,7 @@ var pieceUploadCmd = &cli.Command{
 			return fmt.Errorf("failed to marshal request data: %v", err)
 		}
 		client := &http.Client{}
-		if err := uploadOnePiece(client, serviceURL, reqBody, jwtToken, file, pieceSize, localNotifWait, notifyReceived); err != nil {
+		if err := uploadOnePiece(client, serviceURL, reqBody, jwtToken, file, pieceSize, localNotifWait, notifyReceived, true); err != nil {
 			return fmt.Errorf("failed to upload piece: %v", err)
 		}
 
@@ -619,6 +625,11 @@ var uploadFileCmd = &cli.Command{
 			Name:  "local-notif-wait",
 			Usage: "Wait for server notification by spawning a temporary local HTTP server",
 		},
+		&cli.BoolFlag{
+			Name:  "verbose",
+			Usage: "Verbose output",
+			Value: false,
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 
@@ -633,6 +644,7 @@ var uploadFileCmd = &cli.Command{
 		hashType := cctx.String("hash-type")
 		localNotifWait := cctx.Bool("local-notif-wait")
 		notifyURL := cctx.String("notify-url")
+		verbose := cctx.Bool("verbose")
 
 		if jwtToken == "" {
 			if serviceName == "" {
@@ -676,9 +688,22 @@ var uploadFileCmd = &cli.Command{
 			}
 		}
 
-		orderedPieces := []abi.PieceInfo{}
+		// group piece aggregations for tracking as onchain roots into sector size chunks
+		type rootSetInfo struct {
+			pieces     []abi.PieceInfo
+			subrootStr string
+		}
+		rootSets := []rootSetInfo{}
+		rootSets = append(rootSets, rootSetInfo{
+			pieces:     make([]abi.PieceInfo, 0),
+			subrootStr: "",
+		})
+		rootSize := 0
+		maxRootSize, err := abi.RegisteredSealProof_StackedDrg64GiBV1_1.SectorSize()
+		if err != nil {
+			return fmt.Errorf("failed to get sector size: %v", err)
+		}
 		counter := 0
-		subrootStr := ""
 		client := &http.Client{}
 		for idx := int64(0); idx < fileSize; idx += chunkSize {
 			// Read the chunk
@@ -687,6 +712,7 @@ var uploadFileCmd = &cli.Command{
 			if err != nil && err != io.EOF {
 				return fmt.Errorf("failed to read file chunk: %v", err)
 			}
+			rootSize += n
 			// Prepare the piece
 			chunkReader := bytes.NewReader(buf[:n])
 			commP, paddedPieceSize, commpDigest, shadigest, err := preparePiece(chunkReader)
@@ -724,26 +750,34 @@ var uploadFileCmd = &cli.Command{
 			}
 
 			// Upload the piece
-			err = uploadOnePiece(client, serviceURL, reqBody, jwtToken, chunkReader, int64(n), localNotifWait, notifyReceived)
+			err = uploadOnePiece(client, serviceURL, reqBody, jwtToken, chunkReader, int64(n), localNotifWait, notifyReceived, verbose)
 			if err != nil {
 				return fmt.Errorf("failed to upload piece: %v", err)
 			}
-			orderedPieces = append(orderedPieces, abi.PieceInfo{Size: abi.PaddedPieceSize(paddedPieceSize), PieceCID: commP})
-			subrootStr = fmt.Sprintf("%s+%s", subrootStr, commP)
+			if uint64(rootSize) > uint64(maxRootSize) {
+				rootSets = append(rootSets, rootSetInfo{
+					pieces:     make([]abi.PieceInfo, 0),
+					subrootStr: "",
+				})
+				rootSize = 0
+			}
+			rootSets[len(rootSets)-1].pieces = append(rootSets[len(rootSets)-1].pieces, abi.PieceInfo{Size: abi.PaddedPieceSize(paddedPieceSize), PieceCID: commP})
+			rootSets[len(rootSets)-1].subrootStr = fmt.Sprintf("%s+%s", rootSets[len(rootSets)-1].subrootStr, commP)
 			counter++
 			if err := bar.Set(int(counter)); err != nil {
 				return fmt.Errorf("failed to update progress bar: %v", err)
 			}
 		}
-		subrootStr = subrootStr[1:]
 
-		root, err := nonffi.GenerateUnsealedCID(abi.RegisteredSealProof_StackedDrg64GiBV1_1, orderedPieces)
-		if err != nil {
-			return fmt.Errorf("failed to generate unsealed CID: %v", err)
+		for _, rootSet := range rootSets {
+			root, err := nonffi.GenerateUnsealedCID(abi.RegisteredSealProof_StackedDrg64GiBV1_1, rootSet.pieces)
+			if err != nil {
+				return fmt.Errorf("failed to generate unsealed CID: %v", err)
+			}
+			s := fmt.Sprintf("%s:%s\n", root, rootSet.subrootStr[1:])
+			fmt.Printf("%s\n", s)
 		}
 
-		s := fmt.Sprintf("%s:%s\n", root, subrootStr)
-		fmt.Printf("%s\n", s)
 		return nil
 	},
 }
