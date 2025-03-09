@@ -134,6 +134,7 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
 			// as we already have the proofset ID from the database
 
 			// Parse the non-indexed parameter (rootIds array) from the data
+			fmt.Printf("vLog.Data:%x\n", vLog.Data)
 			unpacked, err := event.Inputs.Unpack(vLog.Data)
 			if err != nil {
 				return fmt.Errorf("failed to unpack log data: %w", err)
