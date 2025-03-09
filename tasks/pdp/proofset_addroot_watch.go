@@ -122,25 +122,43 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
 	if !exists {
 		return fmt.Errorf("RootsAdded event not found in ABI")
 	}
-	for name, event := range pdpABI.Events {
-		fmt.Printf("Event %s: ID %v\n", name, event.ID)
-	}
 
-	var firstAdded *big.Int
+	var rootIds []uint64
 	eventFound := false
 
 	// Iterate over the logs in the receipt
 	for _, vLog := range receipt.Logs {
 		// Check if the log corresponds to the RootsAdded event
-		fmt.Printf("vLog.Topics: %v\n", vLog.Topics)
 		if len(vLog.Topics) > 0 && vLog.Topics[0] == event.ID {
-			// Since 'firstAdded' is an indexed parameter, it's in Topics[1]
-			if len(vLog.Topics) < 2 {
-				return fmt.Errorf("log does not contain firstAdded topic")
+			// The setId is an indexed parameter in Topics[1], but we don't need it here
+			// as we already have the proofset ID from the database
+
+			// Parse the non-indexed parameter (rootIds array) from the data
+			unpacked, err := event.Inputs.Unpack(vLog.Data)
+			if err != nil {
+				return fmt.Errorf("failed to unpack log data: %w", err)
 			}
 
-			// Convert the topic to a big.Int
-			firstAdded = new(big.Int).SetBytes(vLog.Topics[1].Bytes())
+			// Extract the rootIds array
+			if len(unpacked) == 0 {
+				return fmt.Errorf("no unpacked data found in log")
+			}
+
+			// Convert the unpacked rootIds ([]interface{} containing *big.Int) to []uint64
+			bigIntRootIds, ok := unpacked[0].([]interface{})
+			if !ok {
+				return fmt.Errorf("failed to convert unpacked data to array")
+			}
+
+			rootIds = make([]uint64, len(bigIntRootIds))
+			for i, id := range bigIntRootIds {
+				bigInt, ok := id.(*big.Int)
+				if !ok {
+					return fmt.Errorf("failed to convert root ID to *big.Int at index %d", i)
+				}
+				rootIds[i] = bigInt.Uint64()
+			}
+
 			eventFound = true
 			// We found the event, so we can break the loop
 			break
@@ -167,10 +185,20 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
 			return false, fmt.Errorf("failed to select from pdp_proofset_root_adds: %w", err)
 		}
 
-		// For each entry, calculate root_id and insert into pdp_proofset_roots
-		for _, entry := range rootAddEntries {
-			rootId := firstAdded.Uint64() + entry.AddMessageIndex
+		// Verify we have the right number of entries
+		if len(rootAddEntries) != len(rootIds) {
+			return false, fmt.Errorf("mismatch between number of entries (%d) and number of rootIds (%d)",
+				len(rootAddEntries), len(rootIds))
+		}
 
+		// For each entry, use the corresponding rootId from the event
+		for i, entry := range rootAddEntries {
+			if i >= len(rootIds) {
+				return false, fmt.Errorf("index out of bounds: entry index %d exceeds rootIds length %d",
+					i, len(rootIds))
+			}
+
+			rootId := rootIds[i]
 			// Insert into pdp_proofset_roots
 			_, err := tx.Exec(`
                 INSERT INTO pdp_proofset_roots (
