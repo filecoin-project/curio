@@ -122,7 +122,7 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
 	if !exists {
 		return fmt.Errorf("RootsAdded event not found in ABI")
 	}
-	fmt.Printf("RootsAdded event id: %v\n", event.ID)
+	fmt.Printf("pdp events: %v\n", pdpABI.Events)
 
 	var firstAdded *big.Int
 	eventFound := false
