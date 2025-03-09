@@ -720,7 +720,6 @@ var uploadFileCmd = &cli.Command{
 			if err != nil {
 				return fmt.Errorf("failed to prepare piece: %v", err)
 			}
-			rootSize += paddedPieceSize
 			// Prepare the request data
 			var checkData map[string]interface{}
 			switch hashType {
@@ -762,13 +761,14 @@ var uploadFileCmd = &cli.Command{
 			_ = client
 			_ = verbose
 			_ = serviceURL
-			if rootSize > uint64(maxRootSize) {
+			if rootSize+paddedPieceSize > uint64(maxRootSize) {
 				rootSets = append(rootSets, rootSetInfo{
 					pieces:     make([]abi.PieceInfo, 0),
 					subrootStr: "",
 				})
 				rootSize = 0
 			}
+			rootSize += paddedPieceSize
 			rootSets[len(rootSets)-1].pieces = append(rootSets[len(rootSets)-1].pieces, abi.PieceInfo{Size: abi.PaddedPieceSize(paddedPieceSize), PieceCID: commP})
 			rootSets[len(rootSets)-1].subrootStr = fmt.Sprintf("%s+%s", rootSets[len(rootSets)-1].subrootStr, commP)
 			counter++
