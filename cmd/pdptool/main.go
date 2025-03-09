@@ -745,22 +745,17 @@ var uploadFileCmd = &cli.Command{
 			if notifyURL != "" {
 				reqData["notify"] = notifyURL
 			}
-			/*
-				reqBody, err := json.Marshal(reqData)
-				if err != nil {
-					return fmt.Errorf("failed to marshal request data: %v", err)
-				}
+			reqBody, err := json.Marshal(reqData)
+			if err != nil {
+				return fmt.Errorf("failed to marshal request data: %v", err)
+			}
 
-				// Upload the piece
-					err = uploadOnePiece(client, serviceURL, reqBody, jwtToken, chunkReader, int64(n), localNotifWait, notifyReceived, verbose)
-					if err != nil {
-						return fmt.Errorf("failed to upload piece: %v", err)
-					}
-			*/
-			_ = notifyReceived
-			_ = client
-			_ = verbose
-			_ = serviceURL
+			// Upload the piece
+			err = uploadOnePiece(client, serviceURL, reqBody, jwtToken, chunkReader, int64(n), localNotifWait, notifyReceived, verbose)
+			if err != nil {
+				return fmt.Errorf("failed to upload piece: %v", err)
+			}
+
 			if rootSize+paddedPieceSize > uint64(maxRootSize) {
 				rootSets = append(rootSets, rootSetInfo{
 					pieces:     make([]abi.PieceInfo, 0),
