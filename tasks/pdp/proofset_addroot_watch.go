@@ -122,6 +122,7 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
 	if !exists {
 		return fmt.Errorf("RootsAdded event not found in ABI")
 	}
+	fmt.Printf("RootsAdded event id: %v\n", event.ID)
 
 	var firstAdded *big.Int
 	eventFound := false
@@ -129,6 +130,7 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
 	// Iterate over the logs in the receipt
 	for _, vLog := range receipt.Logs {
 		// Check if the log corresponds to the RootsAdded event
+		fmt.Printf("vLog.Topics: %v\n", vLog.Topics)
 		if len(vLog.Topics) > 0 && vLog.Topics[0] == event.ID {
 			// Since 'firstAdded' is an indexed parameter, it's in Topics[1]
 			if len(vLog.Topics) < 2 {
