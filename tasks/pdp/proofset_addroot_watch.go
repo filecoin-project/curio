@@ -181,20 +181,14 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
 			return false, fmt.Errorf("failed to select from pdp_proofset_root_adds: %w", err)
 		}
 
-		// Verify we have the right number of entries
-		if len(rootAddEntries) != len(rootIds) {
-			return false, fmt.Errorf("mismatch between number of entries (%d) and number of rootIds (%d)",
-				len(rootAddEntries), len(rootIds))
-		}
-
 		// For each entry, use the corresponding rootId from the event
-		for i, entry := range rootAddEntries {
-			if i >= len(rootIds) {
+		for _, entry := range rootAddEntries {
+			if entry.AddMessageIndex >= uint64(len(rootIds)) {
 				return false, fmt.Errorf("index out of bounds: entry index %d exceeds rootIds length %d",
-					i, len(rootIds))
+					entry.AddMessageIndex, len(rootIds))
 			}
 
-			rootId := rootIds[i]
+			rootId := rootIds[entry.AddMessageIndex]
 			// Insert into pdp_proofset_roots
 			_, err := tx.Exec(`
                 INSERT INTO pdp_proofset_roots (
