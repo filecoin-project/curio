@@ -134,7 +134,6 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
 			// as we already have the proofset ID from the database
 
 			// Parse the non-indexed parameter (rootIds array) from the data
-			fmt.Printf("vLog.Data:%x\n", vLog.Data)
 			unpacked, err := event.Inputs.Unpack(vLog.Data)
 			if err != nil {
 				return fmt.Errorf("failed to unpack log data: %w", err)
@@ -146,18 +145,14 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
 			}
 
 			// Convert the unpacked rootIds ([]interface{} containing *big.Int) to []uint64
-			bigIntRootIds, ok := unpacked[0].([]interface{})
+			bigIntRootIds, ok := unpacked[0].([]*big.Int)
 			if !ok {
 				return fmt.Errorf("failed to convert unpacked data to array")
 			}
 
 			rootIds = make([]uint64, len(bigIntRootIds))
-			for i, id := range bigIntRootIds {
-				bigInt, ok := id.(*big.Int)
-				if !ok {
-					return fmt.Errorf("failed to convert root ID to *big.Int at index %d", i)
-				}
-				rootIds[i] = bigInt.Uint64()
+			for i := range bigIntRootIds {
+				rootIds[i] = bigIntRootIds[i].Uint64()
 			}
 
 			eventFound = true
