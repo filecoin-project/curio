@@ -2,8 +2,7 @@ package seal
 
 import (
 	"context"
-	"sort"
-	"time"
+	"math"
 
 	"golang.org/x/xerrors"
 
@@ -20,149 +19,104 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
-func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context, tasks []pollTask) {
-	// Make batches based on Proof types
+func (s *SealPoller) pollerAddStartEpoch(ctx context.Context, task pollTask) error {
+	if !task.StartEpoch.Valid {
+		ts, err := s.api.ChainHead(ctx)
+		if err != nil {
+			return xerrors.Errorf("failed to get chain head: %w", err)
+		}
+
+		nv, err := s.api.StateNetworkVersion(ctx, ts.Key())
+		if err != nil {
+			return xerrors.Errorf("failed to get network version: %w", err)
+		}
+
+		av, err := actorstypes.VersionForNetwork(nv)
+		if err != nil {
+			return xerrors.Errorf("unsupported network version: %w", err)
+		}
+
+		maddr, err := address.NewIDAddress(uint64(task.SpID))
+		if err != nil {
+			return xerrors.Errorf("failed to create miner address: %w", err)
+		}
+		pci, err := s.api.StateSectorPreCommitInfo(ctx, maddr, abi.SectorNumber(task.SectorNumber), ts.Key())
+		if err != nil {
+			return xerrors.Errorf("failed to get precommit info: %w", err)
+		}
+		if pci == nil {
+			return xerrors.Errorf("precommit info not found for sp %s and sector %d", maddr.String(), task.SectorNumber)
+		}
+		mpcd, err := policy.GetMaxProveCommitDuration(av, task.RegisteredSealProof)
+		if err != nil {
+			return xerrors.Errorf("failed to get max prove commit duration: %w", err)
+		}
+		startEpoch := pci.PreCommitEpoch + mpcd
+		_, err = s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline p
+										SET start_epoch = COALESCE(
+											(SELECT MIN(LEAST(s.f05_deal_start_epoch, s.direct_start_epoch))
+											 FROM sectors_sdr_initial_pieces s
+											 WHERE s.sp_id = $2 
+											   AND s.sector_number = $3
+											), 
+											$1
+										)
+										WHERE p.sp_id = $2
+										  AND p.sector_number = $3
+										  AND p.after_porep = TRUE 
+										  AND p.after_commit_msg = FALSE 
+										  AND p.start_epoch IS NULL`, startEpoch, task.SpID, task.SectorNumber)
+		if err != nil {
+			return xerrors.Errorf("failed to update start epoch: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context) {
 	ts, err := s.api.ChainHead(ctx)
 	if err != nil {
 		log.Errorf("error getting chain head: %s", err)
 		return
 	}
 
-	nv, err := s.api.StateNetworkVersion(ctx, ts.Key())
-	if err != nil {
-		log.Errorf("getting network version: %s", err)
-		return
+	slackEpoch := int64(math.Ceil(s.cfg.commit.Slack.Seconds() / float64(build.BlockDelaySecs)))
+	feeOk := false
+	if ts.MinTicketBlock().ParentBaseFee.LessThan(s.cfg.commit.BaseFeeThreshold) {
+		feeOk = true
 	}
 
-	av, err := actorstypes.VersionForNetwork(nv)
-	if err != nil {
-		log.Errorf("unsupported network version: %s", err)
-		return
-	}
-
-	var tsks []pollTask
-
-	for i := range tasks {
-		if tasks[i].afterPoRep() && len(tasks[i].PoRepProof) > 0 && tasks[i].TaskCommitMsg == nil && !tasks[i].AfterCommitMsg && s.pollers[pollerCommitMsg].IsSet() {
-			// If CC sector set StartEpoch/CutOff
-			if tasks[i].StartEpoch == 0 {
-				maddr, err := address.NewIDAddress(uint64(tasks[i].SpID))
-				if err != nil {
-					log.Errorf("error creating miner address: %s", err)
-					return
-				}
-
-				pci, err := s.api.StateSectorPreCommitInfo(ctx, maddr, abi.SectorNumber(tasks[i].SectorNumber), ts.Key())
-				if err != nil {
-					log.Errorf("getting precommit info: %s", err)
-					return
-				}
-
-				if pci == nil {
-					log.Errorf("precommit info not found for sp %s and sector %d", maddr.String(), tasks[i].SectorNumber)
-					return
-				}
-
-				mpcd, err := policy.GetMaxProveCommitDuration(av, tasks[i].RegisteredSealProof)
-				if err != nil {
-					log.Errorf("getting max prove commit duration: %s", err)
-					return
-				}
-
-				tasks[i].StartEpoch = pci.PreCommitEpoch + mpcd
-			}
-			tsks = append(tsks, tasks[i])
-		}
-	}
-
-	sort.Slice(tsks, func(i, j int) bool {
-		return tsks[i].StartEpoch < tsks[j].StartEpoch
-	})
-
-	batchMap := make(map[int64]map[abi.RegisteredSealProof][]pollTask)
-	for i := range tsks {
-		// Check if SpID exists in batchMap
-		v, ok := batchMap[tsks[i].SpID]
-		if !ok {
-			// If not, initialize a new map for the RegisteredSealProof
-			v = make(map[abi.RegisteredSealProof][]pollTask)
-			batchMap[tsks[i].SpID] = v
-		}
-		// Append the task to the correct RegisteredSealProof
-		v[tsks[i].RegisteredSealProof] = append(v[tsks[i].RegisteredSealProof], tsks[i])
-	}
-
-	// Send batches per MinerID and per Proof type based on the following logic:
-	// 1. Check if Slack for any sector is reaching, if yes then send full batch
-	// 2. Check if timeout is reaching for any sector in the batch, if yes, then send the batch
-	// 3. Check if baseFee below set threshold. If yes then send all batches
-
-	for spid, sealProofMap := range batchMap {
-		for _, pts := range sealProofMap {
-			// Break into batches
-			var batches []sectorBatch
-			for i := 0; i < len(pts); i += s.cfg.commit.MaxCommitBatch {
-				// Create a batch of size `maxBatchSize` or smaller for the last batch
-				end := i + s.cfg.commit.MaxCommitBatch
-				if end > len(pts) {
-					end = len(pts)
-				}
-				var batch []int64
-				cutoff := abi.ChainEpoch(0)
-				earliest := time.Now()
-				for _, pt := range pts[i:end] {
-
-					if cutoff == 0 || pt.StartEpoch < cutoff {
-						cutoff = pt.StartEpoch
-					}
-
-					if pt.CommitReadyAt.Before(earliest) {
-						earliest = *pt.CommitReadyAt
-					}
-
-					batch = append(batch, pt.SectorNumber)
-				}
-
-				batches = append(batches, sectorBatch{
-					cutoff:  cutoff,
-					sectors: batch,
-				})
-			}
-
-			for i := range batches {
-				batch := batches[i]
-				//sectors := batch.sectors
-				// Process batch if slack has reached
-				if (time.Duration(batch.cutoff-ts.Height()) * time.Duration(build.BlockDelaySecs) * time.Second) < s.cfg.commit.Slack {
-					s.sendCommitBatch(ctx, spid, batch.sectors)
-					continue
-				}
-				// Process batch if timeout has reached
-				if batch.earliest.Add(s.cfg.commit.Timeout).After(time.Now()) {
-					s.sendCommitBatch(ctx, spid, batch.sectors)
-					continue
-				}
-				// Process batch if base fee is low enough for us to send
-				if ts.MinTicketBlock().ParentBaseFee.LessThan(s.cfg.commit.BaseFeeThreshold) {
-					s.sendCommitBatch(ctx, spid, batch.sectors)
-					continue
-				}
-			}
-		}
-	}
-}
-
-func (s *SealPoller) sendCommitBatch(ctx context.Context, spid int64, sectors []int64) {
 	s.pollers[pollerCommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-		n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_commit_msg = $1 WHERE sp_id = $2 AND sector_number = ANY($3) AND task_id_commit_msg IS NULL AND after_commit_msg = FALSE`, id, spid, sectors)
+		var updatedCount int64
+		var reason string
+
+		log.Infow("Trying to assign a commit batch",
+			"slack_epoch", slackEpoch,
+			"current_height", ts.Height(),
+			"max_batch", s.cfg.commit.MaxCommitBatch,
+			"new_task_id", id,
+			"basefee_ok", feeOk,
+			"timeout_secs", s.cfg.commit.Timeout.Seconds())
+
+		err = tx.QueryRow(`SELECT updated_count, reason FROM poll_start_batch_commit_msg($1, $2, $3, $4, $5, $6)`,
+			slackEpoch,                          // p_slack_epoch
+			ts.Height(),                         // p_current_height
+			s.cfg.commit.MaxCommitBatch,         // p_max_batch
+			id,                                  // p_new_task_id
+			feeOk,                               // p_basefee_ok
+			int(s.cfg.commit.Timeout.Seconds()), // p_timeout_secs
+		).Scan(&updatedCount, &reason)
 		if err != nil {
-			return false, xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
-		}
-		if n > len(sectors) {
-			return false, xerrors.Errorf("expected to update at most %d rows, updated %d", len(sectors), n)
+			return false, err
 		}
 
-		return true, nil
+		if updatedCount > 0 {
+			log.Debugf("Assigned %d sectors to commit batch with taskID %d with reason %s", updatedCount, id, reason)
+			return true, nil
+		} else {
+			log.Debugf("No commit batch assigned")
+		}
+		return false, nil
 	})
 }
 
