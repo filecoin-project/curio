@@ -69,6 +69,7 @@ create table sectors_sdr_pipeline (
     after_move_storage bool not null default false,
 
     -- commit_ready_at (Added in 20241210-sdr-batching.sql)
+    -- start_epoch bigint default null (Added in 20250312-batching-functions.sql)
 
     -- Commit message sending
     commit_msg_cid text,
