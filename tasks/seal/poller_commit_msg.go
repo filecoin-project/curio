@@ -169,8 +169,9 @@ func (s *SealPoller) sendCommitBatch(ctx context.Context, spid int64, sectors []
 func (s *SealPoller) pollCommitMsgLanded(ctx context.Context, task pollTask) error {
 	if task.AfterCommitMsg && !task.AfterCommitMsgSuccess && s.pollers[pollerCommitMsg].IsSet() {
 
+		var execResult []dbExecResult
+
 		comm, err := s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			var execResult []dbExecResult
 			err = tx.Select(&execResult, `SELECT spipeline.precommit_msg_cid, spipeline.commit_msg_cid, executed_tsk_cid, executed_tsk_epoch, executed_msg_cid, executed_rcpt_exitcode, executed_rcpt_gas_used
 					FROM sectors_sdr_pipeline spipeline
 					JOIN message_waits ON spipeline.commit_msg_cid = message_waits.signed_message_cid
@@ -197,8 +198,7 @@ func (s *SealPoller) pollCommitMsgLanded(ctx context.Context, task pollTask) err
 				}
 
 				if si == nil {
-					log.Errorw("todo handle missing sector info (not found after cron)", "sp", task.SpID, "sector", task.SectorNumber, "exec_epoch", execResult[0].ExecutedTskEpoch, "exec_tskcid", execResult[0].ExecutedTskCID, "msg_cid", execResult[0].ExecutedMsgCID)
-					return false, nil
+					return false, xerrors.Errorf("todo handle missing sector info (not found after cron), sp %d, sector %d, exec_epoch %d, exec_tskcid %s, msg_cid %s", task.SpID, task.SectorNumber, execResult[0].ExecutedTskEpoch, execResult[0].ExecutedTskCID, execResult[0].ExecutedMsgCID)
 				} else {
 					// yay!
 
@@ -223,8 +223,10 @@ func (s *SealPoller) pollCommitMsgLanded(ctx context.Context, task pollTask) err
 		if err != nil {
 			return xerrors.Errorf("failed to commit transaction: %w", err)
 		}
-		if !comm {
-			return xerrors.Errorf("failed to commit transaction")
+		if len(execResult) > 0 {
+			if !comm {
+				return xerrors.Errorf("failed to commit transaction")
+			}
 		}
 	}
 
