@@ -45,14 +45,15 @@ USAGE:
    curio cli command [command options]
 
 COMMANDS:
-   info      Get Curio node info
-   storage   manage sector storage
-   log       Manage logging
-   wait-api  Wait for Curio api to come online
-   stop      Stop a running Curio process
-   cordon    Cordon a machine, set it to maintenance mode
-   uncordon  Uncordon a machine, resume scheduling
-   help, h   Shows a list of commands or help for one command
+   info          Get Curio node info
+   storage       manage sector storage
+   log           Manage logging
+   wait-api      Wait for Curio api to come online
+   stop          Stop a running Curio process
+   cordon        Cordon a machine, set it to maintenance mode
+   uncordon      Uncordon a machine, resume scheduling
+   index-sample  Provides a sample of CIDs from an indexed piece
+   help, h       Shows a list of commands or help for one command
 
 OPTIONS:
    --machine value  machine host:port (curio run --listen address)
@@ -317,6 +318,19 @@ USAGE:
    curio cli uncordon [command options]
 
 OPTIONS:
+   --help, -h  show help
+```
+
+### curio cli index-sample
+```
+NAME:
+   curio cli index-sample - Provides a sample of CIDs from an indexed piece
+
+USAGE:
+   curio cli index-sample [command options] piece-cid
+
+OPTIONS:
+   --json      output in json format (default: false)
    --help, -h  show help
 ```
 

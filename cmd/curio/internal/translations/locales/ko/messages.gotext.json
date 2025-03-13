@@ -2043,6 +2043,24 @@
             "translation": "거래가 제공업체에 의해 온체인에서 입증되어야 하는 시작 에포크입니다. (기본값: 현재로부터 2일 후)",
             "message": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
             "placeholder": null
+        },
+        {
+            "id": "Provides a sample of CIDs from an indexed piece",
+            "translation": "색인된 조각에서 CID 샘플을 제공합니다.",
+            "message": "Provides a sample of CIDs from an indexed piece",
+            "placeholder": null
+        },
+        {
+            "id": "piece-cid",
+            "translation": "조각 CID",
+            "message": "piece-cid",
+            "placeholder": null
+        },
+        {
+            "id": "output in json format",
+            "translation": "JSON 형식으로 출력",
+            "message": "output in json format",
+            "placeholder": null
         }
     ]
 }
