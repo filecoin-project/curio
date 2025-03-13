@@ -262,7 +262,7 @@ description: The default curio configuration
   #CommPMaxTasks = 0
 
   # The maximum amount of indexing and IPNI tasks that can run simultaneously. Note that the maximum number of tasks will
-  # also be bounded by resources available on the machine. (Default: 8 - unlimited)
+  # also be bounded by resources available on the machine. (Default: 8)
   #
   # type: int
   #IndexingMaxTasks = 8
