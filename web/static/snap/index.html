@@ -1,37 +1,38 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+    <head>
+        <title>Upgrade Pipeline</title>
+        <script type="module" src="/ux/curio-ux.mjs"></script>
+        <script type="module" src="/ux/components/Drawer.mjs"></script>
+        <script type="module" src="upgrade-sectors.mjs"></script>
+        <script type="module" src="restart-all-snap-button.mjs"></script>
+    </head>
 
-<head>
-    <title>Upgrade Pipeline</title>
-    <script type="module" src="/ux/curio-ux.mjs"></script>
-    <script type="module" src="upgrade-sectors.mjs"></script>
-    <script type="module" src="restart-all-snap-button.mjs"></script>
-</head>
-
-<body style="visibility:hidden" data-bs-theme="dark">
-<curio-ux>
-    <section class="section">
-        <div class="app-head">
-            <div class="head-left">
-                <h1>Upgrading Sectors</h1>
+    <body style="visibility:hidden" data-bs-theme="dark">
+        <curio-ux>
+            <div class="page" style="margin-left: 20px; margin-right: 10px">
+                <section class="section">
+                    <div class="app-head">
+                        <div class="head-left">
+                            <h1>Upgrading Sectors</h1>
+                        </div>
+                        <hr />
+                    </div>
+                    <div class="row">
+                        <div class="row-md-auto" style="width: 50%">
+                            <div class="info-block">
+                                <restart-all-snap-button></restart-all-snap-button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-auto" style="max-width: 95%">
+                            <upgrade-sectors></upgrade-sectors>
+                        </div>
+                    </div>
+                </section>
             </div>
-            <hr />
-        </div>
-        <div class="row">
-            <div class="row-md-auto" style="width: 50%">
-                <div class="info-block">
-                    <restart-all-snap-button></restart-all-snap-button>
-                </div>
-            </div>
-        </div>
-        <div class="row">
-            <div class="col-md-auto" style="max-width: 95%">
-                <upgrade-sectors></upgrade-sectors>
-            </div>
-        </div>
-    </section>
-
-</curio-ux>
-</body>
+        </curio-ux>
+    </body>
 
 </html>

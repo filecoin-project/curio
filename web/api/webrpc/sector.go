@@ -2,7 +2,6 @@ package webrpc
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -194,8 +193,6 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 		return nil, xerrors.Errorf("invalid sp")
 	}
 
-	fmt.Println("SPID", spid)
-
 	si := &SectorInfo{
 		SpID:         spid,
 		Miner:        maddr.String(),
@@ -224,10 +221,6 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
     FROM sectors_sdr_pipeline WHERE sp_id = $1 AND sector_number = $2`, spid, intid)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch pipeline task info: %w", err)
-	}
-
-	if len(tasks) == 0 {
-		fmt.Println("NO PIPELINE")
 	}
 
 	// Fetch SnapDeals pipeline data
@@ -265,7 +258,6 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 
 	var sle *sectorListEntry
 	if len(tasks) > 0 {
-		fmt.Println("FOUND THE PIPELINE")
 		task := tasks[0]
 		if task.PreCommitMsgCid != nil {
 			si.PreCommitMsg = *task.PreCommitMsgCid
