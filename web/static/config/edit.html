@@ -147,7 +147,12 @@
                                         window.location.href = '/pages/config/list/';
                                     })
                                     .catch(error => {
-                                        alert('Error saving data:', error);
+                                        console.error('Error saving data:', error);
+                                        if (error.response && error.response.data) {
+                                            alert('Error saving data: ' + error.response.data.message);
+                                        } else {
+                                            alert('An unexpected error occurred. Please try again.');
+                                        }
                                     });
                             }
                         });
