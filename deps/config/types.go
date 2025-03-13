@@ -107,6 +107,7 @@ func DefaultCurioConfig() *CurioConfig {
 					MaxPublishDealFee:         types.MustParseFIL("0.5 FIL"),
 					ExpectedPoRepSealDuration: 8 * time.Hour,
 					ExpectedSnapSealDuration:  2 * time.Hour,
+					CIDGravityTokens:          []string{},
 				},
 				IPNI: IPNIConfig{
 					ServiceURL:         []string{"https://cid.contact"},
@@ -724,9 +725,10 @@ type MK12Config struct {
 	// DenyOfflineDeals determines if the storage provider will accept offline deals (Default: false)
 	DenyOfflineDeals bool
 
-	// CIDGravityToken is the authorization token to use for CIDGravity filters.
-	// If empty then CIDGravity filters are not called.
-	CIDGravityToken string
+	// CIDGravityTokens is the list of authorization token to use for CIDGravity filters. These should be in format
+	// "minerID1:Token1", "minerID2:Token2". If a token for a minerID within the cluster is not provided,
+	// CIDGravity filters will not be applied to deals associated with that miner ID.
+	CIDGravityTokens []string
 
 	// DefaultCIDGravityAccept when set to true till accept deals when CIDGravity service is not available.
 	// Default behaviors is to reject the deals (Default: false)
