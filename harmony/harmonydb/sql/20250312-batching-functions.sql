@@ -2,18 +2,13 @@ ALTER TABLE sectors_sdr_pipeline
     ADD COLUMN start_epoch BIGINT DEFAULT NULL;
 
 /*
-  This revised function removes any named temporary tables and instead uses a
-  single CTE chain plus a loop in PL/pgSQL. This way, multiple pollers can run
-  concurrently without hitting errors about existing temp tables.
-
-  Steps:
-    1) Lock all rows needing a commit message:
+  Logic:
+    1) Select all rows needing a commit message:
          - after_porep = TRUE
          - porep_proof IS NOT NULL
          - task_id_commit_msg IS NULL
          - after_commit_msg = FALSE
          - start_epoch IS NOT NULL
-       We do so with "FOR UPDATE SKIP LOCKED" to avoid collisions among pollers.
 
     2) In the same query, number these rows per group (sp_id, reg_seal_proof),
        chunk them by p_max_batch size, and group them to get each batch's:
@@ -41,11 +36,6 @@ ALTER TABLE sectors_sdr_pipeline
       basefee_ok_boolean,
       timeout_secs
     );
-
-  Important:
-    - Call this function in a transaction.
-    - Because we do "FOR UPDATE SKIP LOCKED," multiple pollers do not process
-      the same rows simultaneously.
 */
 
 CREATE OR REPLACE FUNCTION poll_start_batch_commit_msg(
@@ -75,7 +65,7 @@ BEGIN
     reason        := 'NONE';
     /*
       Single query logic:
-        (1) Lock rows that need commit assignment (FOR UPDATE SKIP LOCKED).
+        (1) Select the rows that need commit assignment.
         (2) Partition them by (sp_id, reg_seal_proof), using ROW_NUMBER() to break
             them into sub-batches of size p_max_batch.
         (3) GROUP those sub-batches to get:
@@ -100,7 +90,6 @@ BEGIN
               AND after_commit_msg   = FALSE
               AND start_epoch        IS NOT NULL
             ORDER BY sp_id, reg_seal_proof, start_epoch
-            FOR UPDATE SKIP LOCKED
         ),
         numbered AS (
             SELECT
@@ -180,19 +169,15 @@ END;
 $$;
 
 /*
-  This function replicates the "batching" logic for sending PreCommit messages,
-  fully in SQL/PLpgSQL.
-
-  Logic in brief:
-    1) Lock all rows that need a precommit message:
+  Logic:
+    1) Select all rows that need a precommit message:
          - after_synth           = TRUE
          - task_id_precommit_msg = NULL
          - after_precommit_msg   = FALSE
        For each row, we compute a "start_epoch" via COALESCE of any deal-based
-       epoch (in sectors_sdr_initial_pieces) or fallback to (ticket_epoch + 0).
-       You can replace that "0" with your actual fallback if needed.
+       epoch (in sectors_sdr_initial_pieces) or fallback to (ticket_epoch + p_randomnessLookBack (900)).
 
-    2) Within the same query, we group the locked rows by (sp_id, reg_seal_proof),
+    2) Within the same query, we group the rows by (sp_id, reg_seal_proof),
        chunk them into sub-batches of size up to p_max_batch. For each chunk/batch,
        we record:
          - sp_id, reg_seal_proof
@@ -208,16 +193,7 @@ $$;
        we update those sectors in sectors_sdr_pipeline => task_id_precommit_msg = p_new_task_id,
        then return the number of rows updated.
 
-    4) If no batch meets the conditions, return 0. The locked rows will remain
-       without task_id_precommit_msg until the next polling iteration. Because
-       we do "FOR UPDATE SKIP LOCKED," other pollers can still operate on rows
-       that we haven't locked.
-
-  IMPORTANT:
-    - Call this function inside a single transaction.
-    - "FOR UPDATE SKIP LOCKED" ensures multiple pollers do not process the same
-      rows concurrently. Whichever poller locks them first "wins," while others
-      skip them.
+    4) If no batch meets the conditions, return 0
 
   Example usage:
 
@@ -264,7 +240,7 @@ BEGIN
     reason        := 'NONE';
     /*
       We'll do all logic in a single CTE chain, which:
-        (1) Locks relevant rows in "sectors_sdr_pipeline".
+        (1) Select relevant rows in "sectors_sdr_pipeline".
         (2) Computes each row's "start_epoch" by coalescing data from
             sectors_sdr_initial_pieces or fallback.
         (3) Numbers them per group, forming sub-batches of size p_max_batch.
@@ -296,7 +272,6 @@ BEGIN
               AND p.task_id_precommit_msg IS NULL
               AND p.after_precommit_msg = FALSE
             ORDER BY p.sp_id, p.reg_seal_proof
-            FOR UPDATE SKIP LOCKED
         ),
         numbered AS (
             SELECT
