@@ -1,3 +1,5 @@
+-- This functions rearranges the pieces in open sector based on piece_size and then
+-- inserts them into the SDR pipeline table. This is done to align the inter piece padding.
 CREATE OR REPLACE FUNCTION transfer_and_delete_sorted_open_piece(v_sp_id bigint, v_sector_number bigint)
 RETURNS void AS $$
 DECLARE
@@ -72,7 +74,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-
+-- This functions rearranges the pieces in open sector based on piece_size and then
+-- inserts them into the Snap pipeline table. This is done to align the inter piece padding.
 CREATE OR REPLACE FUNCTION transfer_and_delete_sorted_open_piece_snap(v_sp_id bigint, v_sector_number bigint)
 RETURNS void AS $$
 DECLARE
