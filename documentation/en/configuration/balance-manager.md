@@ -31,10 +31,10 @@ EnableBalanceManager = true  # Set to true to activate Balance Manager
 ```
 
 ### **Balance Manager Settings**
-The Balance Manager's configuration is located under `Fees`:
+The Balance Manager's configuration is located under `Addresses`:
 
 ```toml
-[Fees.BalanceManager.MK12Collateral]
+[Addresses.BalanceManager.MK12Collateral]
 DealCollateralWallet = "t3xyz..."  # The wallet used to fund market balance
 CollateralLowThreshold = "5 FIL"    # If market balance drops below this, a top-up is triggered
 CollateralHighThreshold = "20 FIL"   # The target balance after a top-up
@@ -52,9 +52,9 @@ CollateralHighThreshold = "20 FIL"   # The target balance after a top-up
 [Subsystems]
   EnableBalanceManager = true
 
-[Fees]
-  [Fees.BalanceManager]
-    [Fees.BalanceManager.MK12Collateral]
+[Addresses]
+  [Addresses.BalanceManager]
+    [Addresses.BalanceManager.MK12Collateral]
       DealCollateralWallet = "t3xyz..."
       CollateralLowThreshold = "5 FIL"
       CollateralHighThreshold = "20 FIL"

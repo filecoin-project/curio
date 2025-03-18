@@ -39,6 +39,7 @@ type BalanceManager struct {
 	miners map[string][]address.Address
 	cfg    *config.CurioConfig
 	sender *message.Sender
+	bmcfg  map[address.Address]config.BalanceManagerConfig
 }
 
 func NewBalanceManager(api mbalanceApi, miners []address.Address, cfg *config.CurioConfig, sender *message.Sender) (*BalanceManager, error) {
@@ -56,12 +57,25 @@ func NewBalanceManager(api mbalanceApi, miners []address.Address, cfg *config.Cu
 
 	mmap := make(map[string][]address.Address)
 	mmap[mk12Str] = enabled
+	bmcfg := make(map[address.Address]config.BalanceManagerConfig)
+	for _, a := range cfg.Addresses {
+		if len(a.MinerAddresses) > 0 {
+			for _, m := range a.MinerAddresses {
+				maddr, err := address.NewFromString(m)
+				if err != nil {
+					return nil, xerrors.Errorf("failed to parse miner string: %s", err)
+				}
+				bmcfg[maddr] = a.BalanceManager
+			}
+		}
+	}
 
 	return &BalanceManager{
 		api:    api,
 		cfg:    cfg,
 		miners: mmap,
 		sender: sender,
+		bmcfg:  bmcfg,
 	}, nil
 }
 
@@ -100,24 +114,6 @@ var _ harmonytask.TaskInterface = &BalanceManager{}
 var _ = harmonytask.Reg(&BalanceManager{})
 
 func (m *BalanceManager) dealMarketBalance(ctx context.Context) error {
-	lowthreshold := abi.TokenAmount(m.cfg.Fees.BalanceManager.MK12Collateral.CollateralLowThreshold)
-	highthreshold := abi.TokenAmount(m.cfg.Fees.BalanceManager.MK12Collateral.CollateralHighThreshold)
-
-	if m.cfg.Fees.BalanceManager.MK12Collateral.DealCollateralWallet == "" {
-		return xerrors.Errorf("Deal collateral wallet is not set")
-	}
-
-	wallet, err := address.NewFromString(m.cfg.Fees.BalanceManager.MK12Collateral.DealCollateralWallet)
-	if err != nil {
-		return xerrors.Errorf("failed to parse deal collateral wallet: %w", err)
-	}
-
-	w, err := m.api.StateGetActor(ctx, wallet, types.EmptyTSK)
-	if err != nil {
-		return xerrors.Errorf("failed to get wallet actor: %w", err)
-	}
-
-	wbal := w.Balance
 
 	for module, miners := range m.miners {
 		if module != mk12Str {
@@ -125,6 +121,26 @@ func (m *BalanceManager) dealMarketBalance(ctx context.Context) error {
 		}
 		for _, miner := range miners {
 			miner := miner
+
+			lowthreshold := abi.TokenAmount(m.bmcfg[miner].MK12Collateral.CollateralLowThreshold)
+			highthreshold := abi.TokenAmount(m.bmcfg[miner].MK12Collateral.CollateralHighThreshold)
+
+			if m.bmcfg[miner].MK12Collateral.DealCollateralWallet == "" {
+				blog.Errorf("Deal collateral wallet is not set for miner %s", miner.String())
+				continue
+			}
+
+			wallet, err := address.NewFromString(m.bmcfg[miner].MK12Collateral.DealCollateralWallet)
+			if err != nil {
+				return xerrors.Errorf("failed to parse deal collateral wallet: %w", err)
+			}
+
+			w, err := m.api.StateGetActor(ctx, wallet, types.EmptyTSK)
+			if err != nil {
+				return xerrors.Errorf("failed to get wallet actor: %w", err)
+			}
+
+			wbal := w.Balance
 
 			// Check head in loop in case it changes and wallet balance changes
 			head, err := m.api.ChainHead(ctx)
@@ -176,8 +192,6 @@ func (m *BalanceManager) dealMarketBalance(ctx context.Context) error {
 			if err != nil {
 				return xerrors.Errorf("failed to send message: %w", err)
 			}
-
-			wbal = big.Sub(wbal, amount)
 
 			blog.Debugf("sent message %s to add collateral to miner %s", mcid.String(), miner.String())
 		}

@@ -345,12 +345,42 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 			if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
 				return nil, nil, xerrors.Errorf("missing layer '%s' ", layer)
 			}
-			return nil, nil, fmt.Errorf("could not read layer '%s': %w", layer, err)
+			return nil, nil, xerrors.Errorf("could not read layer '%s': %w", layer, err)
+		}
+
+		// This is a workaround to set the length of [[Addresses]] correctly before we do toml.Decode.
+		// The reason this is required is that toml libraries create nil pointer to uninitialized structs.
+		// This in turn causes failure to decode types like types.FIL which are struct with unexported pointer inside
+		type AddressLengthDetector struct {
+			Addresses []struct{} `toml:"Addresses"`
+		}
+
+		var lengthDetector AddressLengthDetector
+		_, err = toml.Decode(text, &lengthDetector)
+		if err != nil {
+			return nil, nil, xerrors.Errorf("Error decoding TOML for length detection: %w", err)
+		}
+
+		l := len(lengthDetector.Addresses)
+		il := len(cfg.Addresses)
+
+		for l > il {
+			cfg.Addresses = append(cfg.Addresses, config.CurioAddresses{
+				PreCommitControl:      []string{},
+				CommitControl:         []string{},
+				DealPublishControl:    []string{},
+				TerminateControl:      []string{},
+				DisableOwnerFallback:  false,
+				DisableWorkerFallback: false,
+				MinerAddresses:        []string{},
+				BalanceManager:        config.DefaultBalanceManager(),
+			})
+			il++
 		}
 
 		_, err = toml.Decode(text, cfg)
 		if err != nil {
-			return nil, nil, fmt.Errorf("could not read layer, bad toml %s: %w", layer, err)
+			return nil, nil, xerrors.Errorf("could not read layer, bad toml %s: %w", layer, err)
 		}
 
 		for i := range cfg.Addresses {
