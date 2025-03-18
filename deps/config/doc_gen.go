@@ -135,6 +135,13 @@ over the worker address if this flag is set.`,
 
 			Comment: `MinerAddresses are the addresses of the miner actors`,
 		},
+		{
+			Name: "BalanceManager",
+			Type: "BalanceManagerConfig",
+
+			Comment: `BalanceManagerConfig specifies the configuration parameters for managing wallet balances and actor-related funds,
+including collateral and other operational resources.`,
+		},
 	},
 	"CurioAlertingConfig": {
 		{
@@ -292,13 +299,6 @@ Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffi
 			Type: "bool",
 
 			Comment: `Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)`,
-		},
-		{
-			Name: "BalanceManager",
-			Type: "BalanceManagerConfig",
-
-			Comment: `BalanceManagerConfig specifies the configuration parameters for managing wallet balances and actor-related funds,
-including collateral and other operational resources.`,
 		},
 	},
 	"CurioIngestConfig": {

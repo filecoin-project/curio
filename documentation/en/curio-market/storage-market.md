@@ -40,9 +40,6 @@ type MK12Config struct {
     PublishMsgPeriod        Duration
     MaxDealsPerPublishMsg   uint64
     MaxPublishDealFee       types.FIL
-    DealCollateralWallet string
-    CollateralAddThreshold types.FIL
-    CollateralAddAmount types.FIL
     ExpectedPoRepSealDuration Duration
     ExpectedSnapSealDuration Duration
     SkipCommP               bool
@@ -76,17 +73,11 @@ type MK12Config struct {
    MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector when the cumulative size of all deals in process reaches this number, new deals will be rejected. (Default: 0 = unlimited)
 9. **DenyUnknownClients:**\
    DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list. If True then all deals coming from unknown clients will be rejected.
-10. **DealCollateralWallet**:\
-    The wallet used to fund the miner’s market balance for **deal collateral** in Filecoin market (`f05`) deals. If this wallet is not set, the **worker wallet** will be used instead.
-11. **CollateralAddThreshold**:\
-    Defines the **minimum required balance** in the miner’s market account. If the available balance falls below this threshold, additional funds will be added to prevent deal failures due to insufficient collateral.
-12. **CollateralAddAmount**:\
-    The **amount of FIL** to be added to the miner’s market balance when it drops below `CollateralAddThreshold`.This prevents frequent small top-ups and ensures enough collateral for multiple deals.
-13. **DenyOnlineDeals**: Determines whether the storage provider **accepts online deals**.
-14. **DenyOfflineDeals**: Determines whether the storage provider **accepts offline deals**.
-15. **CIDGravityToken**:\
+10. **DenyOnlineDeals**: Determines whether the storage provider **accepts online deals**.
+11. **DenyOfflineDeals**: Determines whether the storage provider **accepts offline deals**.
+12. **CIDGravityToken**:\
     The authorization token used for **CIDGravity filters**, a service that filters deal proposals based on custom policies. If empty (`""`), **CIDGravity filtering is disabled**. If set, the miner will **query CIDGravity** for each deal proposal before accepting it.
-16. **DefaultCIDGravityAccept**:\
+13. **DefaultCIDGravityAccept**:\
     Defines what happens if the **CIDGravity service is unavailable**. If`true`: **Accepts deals** even if CIDGravity is unreachable. If`false`: **Rejects deals** when CIDGravity is unavailable (**default**).
 
 

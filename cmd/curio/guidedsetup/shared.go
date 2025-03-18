@@ -158,6 +158,7 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 		TerminateControl:      smCfg.Addresses.TerminateControl,
 		DisableOwnerFallback:  smCfg.Addresses.DisableOwnerFallback,
 		DisableWorkerFallback: smCfg.Addresses.DisableWorkerFallback,
+		BalanceManager:        config.DefaultBalanceManager(),
 	}}
 
 	ks, err := lr.KeyStore()

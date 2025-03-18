@@ -388,23 +388,40 @@ func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *config.CurioCo
 		}
 		return line
 	}), "\n")
-	meta, err := toml.Decode(newText, &curioConfigWithDefaults)
-	for i := range curioConfigWithDefaults.Addresses {
-		if curioConfigWithDefaults.Addresses[i].PreCommitControl == nil {
-			curioConfigWithDefaults.Addresses[i].PreCommitControl = []string{}
-		}
-		if curioConfigWithDefaults.Addresses[i].CommitControl == nil {
-			curioConfigWithDefaults.Addresses[i].CommitControl = []string{}
-		}
-		if curioConfigWithDefaults.Addresses[i].DealPublishControl == nil {
-			curioConfigWithDefaults.Addresses[i].DealPublishControl = []string{}
-		}
-		if curioConfigWithDefaults.Addresses[i].TerminateControl == nil {
-			curioConfigWithDefaults.Addresses[i].TerminateControl = []string{}
-		}
+
+	// This is a workaround to set the length of [[Addresses]] correctly before we do toml.Decode.
+	// The reason this is required is that toml libraries create nil pointer to uninitialized structs.
+	// This in turn causes failure to decode types like types.FIL which are struct with unexported pointer inside
+	type AddressLengthDetector struct {
+		Addresses []struct{} `toml:"Addresses"`
 	}
-	return meta, err
+
+	var lengthDetector AddressLengthDetector
+	_, err := toml.Decode(newText, &lengthDetector)
+	if err != nil {
+		return toml.MetaData{}, xerrors.Errorf("Error decoding TOML for length detection: %w", err)
+	}
+
+	l := len(lengthDetector.Addresses)
+	il := len(curioConfigWithDefaults.Addresses)
+
+	for l > il {
+		curioConfigWithDefaults.Addresses = append(curioConfigWithDefaults.Addresses, config.CurioAddresses{
+			PreCommitControl:      []string{},
+			CommitControl:         []string{},
+			DealPublishControl:    []string{},
+			TerminateControl:      []string{},
+			DisableOwnerFallback:  false,
+			DisableWorkerFallback: false,
+			MinerAddresses:        []string{},
+			BalanceManager:        config.DefaultBalanceManager(),
+		})
+		il++
+	}
+
+	return toml.Decode(newText, &curioConfigWithDefaults)
 }
+
 func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.CurioConfig, error) {
 	err := updateBaseLayer(ctx, db)
 	if err != nil {
@@ -662,6 +679,7 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 			DisableOwnerFallback:  false,
 			DisableWorkerFallback: false,
 			MinerAddresses:        []string{addr},
+			BalanceManager:        config.DefaultBalanceManager(),
 		})
 	}
 

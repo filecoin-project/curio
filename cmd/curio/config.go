@@ -10,7 +10,6 @@ import (
 	"path"
 	"strings"
 
-	"github.com/BurntSushi/toml"
 	"github.com/fatih/color"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
@@ -292,7 +291,7 @@ var configEditCmd = &cli.Command{
 
 		if cctx.IsSet("source") && source != layer && !cctx.Bool("no-interpret-source") {
 			curioCfg := config.DefaultCurioConfig()
-			if _, err := toml.Decode(sourceConfig, curioCfg); err != nil {
+			if _, err := deps.LoadConfigWithUpgrades(sourceConfig, curioCfg); err != nil {
 				return xerrors.Errorf("parsing source config: %w", err)
 			}
 
@@ -358,12 +357,12 @@ func diff(sourceConf, newConf string) (string, error) {
 	fromSrc := config.DefaultCurioConfig()
 	fromNew := config.DefaultCurioConfig()
 
-	_, err := toml.Decode(sourceConf, fromSrc)
+	_, err := deps.LoadConfigWithUpgrades(sourceConf, fromSrc)
 	if err != nil {
 		return "", xerrors.Errorf("decoding source config: %w", err)
 	}
 
-	_, err = toml.Decode(newConf, fromNew)
+	_, err = deps.LoadConfigWithUpgrades(newConf, fromNew)
 	if err != nil {
 		return "", xerrors.Errorf("decoding new config: %w", err)
 	}

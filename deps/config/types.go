@@ -35,12 +35,6 @@ func DefaultCurioConfig() *CurioConfig {
 			MaxWindowPoStGasFee:        types.MustParseFIL("5"),
 			CollateralFromMinerBalance: false,
 			DisableCollateralFallback:  false,
-			BalanceManager: BalanceManagerConfig{
-				MK12Collateral: MK12CollateralConfig{
-					CollateralLowThreshold:  types.MustParseFIL("5 FIL"),
-					CollateralHighThreshold: types.MustParseFIL("20 FIL"),
-				},
-			},
 		},
 		Addresses: []CurioAddresses{{
 			PreCommitControl:   []string{},
@@ -48,6 +42,7 @@ func DefaultCurioConfig() *CurioConfig {
 			DealPublishControl: []string{},
 			TerminateControl:   []string{},
 			MinerAddresses:     []string{},
+			BalanceManager:     DefaultBalanceManager(),
 		}},
 		Proving: CurioProvingConfig{
 			ParallelCheckLimit:    32,
@@ -133,6 +128,16 @@ func DefaultCurioConfig() *CurioConfig {
 				BrotliLevel:  4,
 				DeflateLevel: 6,
 			},
+		},
+	}
+}
+
+func DefaultBalanceManager() BalanceManagerConfig {
+	return BalanceManagerConfig{
+		MK12Collateral: MK12CollateralConfig{
+			DealCollateralWallet:    "",
+			CollateralLowThreshold:  types.MustParseFIL("5 FIL"),
+			CollateralHighThreshold: types.MustParseFIL("20 FIL"),
 		},
 	}
 }
@@ -398,10 +403,6 @@ type CurioFees struct {
 
 	// Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)
 	DisableCollateralFallback bool
-
-	// BalanceManagerConfig specifies the configuration parameters for managing wallet balances and actor-related funds,
-	// including collateral and other operational resources.
-	BalanceManager BalanceManagerConfig
 }
 
 type CurioAddresses struct {
@@ -429,6 +430,10 @@ type CurioAddresses struct {
 
 	// MinerAddresses are the addresses of the miner actors
 	MinerAddresses []string
+
+	// BalanceManagerConfig specifies the configuration parameters for managing wallet balances and actor-related funds,
+	// including collateral and other operational resources.
+	BalanceManager BalanceManagerConfig
 }
 
 type CurioProvingConfig struct {
