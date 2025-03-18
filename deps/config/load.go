@@ -8,6 +8,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -457,20 +458,15 @@ func ConfigUpdate(cfgCur, cfgDef interface{}, opts ...UpdateCfgOpt) ([]byte, err
 		opts := []cmp.Option{
 			// This equality function compares big.Int
 			cmpopts.IgnoreUnexported(big.Int{}),
-			//cmp.Comparer(func(x, y []string) bool {
-			//	tx, ty := reflect.TypeOf(x), reflect.TypeOf(y)
-			//	if tx.Kind() == reflect.Slice && ty.Kind() == reflect.Slice && tx.Elem().Kind() == reflect.String && ty.Elem().Kind() == reflect.String {
-			//		sort.Strings(x)
-			//		sort.Strings(y)
-			//		return strings.Join(x, "\n") == strings.Join(y, "\n")
-			//	}
-			//	return false
-			//}),
-		}
-
-		diff := cmp.Diff(cfgUpdated, cfgCur, opts...)
-		if diff != "" {
-			return nil, xerrors.Errorf("updated config didn't match current config:\n%s", diff)
+			cmp.Comparer(func(x, y []string) bool {
+				tx, ty := reflect.TypeOf(x), reflect.TypeOf(y)
+				if tx.Kind() == reflect.Slice && ty.Kind() == reflect.Slice && tx.Elem().Kind() == reflect.String && ty.Elem().Kind() == reflect.String {
+					sort.Strings(x)
+					sort.Strings(y)
+					return strings.Join(x, "\n") == strings.Join(y, "\n")
+				}
+				return false
+			}),
 		}
 
 		if !cmp.Equal(cfgUpdated, cfgCur, opts...) {
