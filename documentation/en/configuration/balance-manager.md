@@ -66,4 +66,3 @@ Currently, the Balance Manager is only used for deal collateral top-ups, but it 
 - Monitor and maintain additional operation-specific balances.
 
 By enabling the Balance Manager, miners can **automate their collateral management**, reducing the risk of **deal failures due to insufficient balance** while optimizing operational efficiency.
-```
