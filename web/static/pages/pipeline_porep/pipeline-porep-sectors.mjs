@@ -93,7 +93,7 @@ class PipelinePorepSectors extends LitElement {
         // Count how many are "waiting for precommit":
         // (PreCommitReadyAt != null && !AfterPrecommitMsg && !TaskPrecommitMsg)
         const waitingForPrecommitCount = this.data.filter(
-            (s) => s.PreCommitReadyAt && !s.AfterPrecommitMsg && !s.TaskPrecommitMsg
+            (s) => s.AfterSynthetic && s.PreCommitReadyAt && !s.AfterPrecommitMsg && !s.TaskPrecommitMsg
         ).length;
 
         // Count how many are "waiting for commit":

@@ -40,256 +40,261 @@ func init() {
 }
 
 var messageKeyToIndex = map[string]int{
-	"(debug tool) Copy LM sector metadata into Curio DB":                           87,
-	"(for init) limit storage space for sectors (expensive for very large paths!)": 104,
-	"(for init) path weight":                    101,
-	"(for init) use path for long-term storage": 103,
-	"(for init) use path for sealing":           102,
-	"--machine flag in cli command should point to the node where storage to redeclare is attached": 114,
-	"1278 (3.5 years)":          86,
-	"2 KiB":                     209,
-	"32 GiB":                    207,
-	"64 GiB":                    206,
-	"8 MiB":                     208,
-	"<sector>":                  56,
-	"Aborting migration.":       147,
-	"Aborting remaining steps.": 144,
-	"Add URL to fetch data for offline deals":                          57,
-	"Additional info is at http://docs.curiostorage.org":               152,
-	"Address to listen for the GUI on":                                 79,
-	"Aggregate-Anonymous: version, chain, and Miner power (bucketed).": 165,
+	"(debug tool) Copy LM sector metadata into Curio DB":                           92,
+	"(for init) limit storage space for sectors (expensive for very large paths!)": 109,
+	"(for init) path weight":                    106,
+	"(for init) use path for long-term storage": 108,
+	"(for init) use path for sealing":           107,
+	"--machine flag in cli command should point to the node where storage to redeclare is attached": 119,
+	"1278 (3.5 years)":          91,
+	"2 KiB":                     214,
+	"32 GiB":                    212,
+	"64 GiB":                    211,
+	"8 MiB":                     213,
+	"<sector>":                  61,
+	"Aborting migration.":       152,
+	"Aborting remaining steps.": 149,
+	"Add URL to fetch data for offline deals":                          62,
+	"Additional info is at http://docs.curiostorage.org":               157,
+	"Address to listen for the GUI on":                                 84,
+	"Aggregate-Anonymous: version, chain, and Miner power (bucketed).": 170,
 	"Analyze and display the layout of batch sealer threads":           1,
 	"Analyze and display the layout of batch sealer threads on your CPU.\n\nIt provides detailed information about CPU utilization for batch sealing operations, including core allocation, thread\ndistribution for different batch sizes.": 2,
-	"CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'":                                                                                                 58,
-	"Cannot reach the DB: %s": 214,
-	"Cannot read the config.toml file in the provided directory, Error: %s": 188,
-	"Check data integrity in unsealed sector files":                         133,
-	"Collection of debugging utilities":                                     125,
+	"CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'":                                                                                                 63,
+	"Cannot reach the DB: %s": 219,
+	"Cannot read the config.toml file in the provided directory, Error: %s": 193,
+	"Check data integrity in unsealed sector files":                         138,
+	"Collection of debugging utilities":                                     130,
 	"Command separated list of hostnames for yugabyte cluster":              49,
-	"Compare the configurations %s to %s. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.": 242,
-	"Compute WindowPoSt for performance and configuration testing.":                                                                                          120,
-	"Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.":                                    116,
-	"Configuration 'base' was created to resemble this lotus-miner's config.toml .":                                                                          243,
-	"Configuration 'base' was updated to include this miner's address":                                                                                       223,
-	"Configuration 'base' was updated to include this miner's address (%s) and its wallet setup.":                                                            241,
-	"Connected to Yugabyte":                                                          182,
-	"Connected to Yugabyte. Schema is current.":                                      181,
-	"Continue to connect and update schema.":                                         233,
-	"Continue to verify the addresses and create a new miner actor.":                 199,
+	"Compare the configurations %s to %s. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.": 247,
+	"Compute WindowPoSt for performance and configuration testing.":                                                                                          125,
+	"Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.":                                    121,
+	"Configuration 'base' was created to resemble this lotus-miner's config.toml .":                                                                          248,
+	"Configuration 'base' was updated to include this miner's address":                                                                                       228,
+	"Configuration 'base' was updated to include this miner's address (%s) and its wallet setup.":                                                            246,
+	"Connected to Yugabyte":                                                          187,
+	"Connected to Yugabyte. Schema is current.":                                      186,
+	"Continue to connect and update schema.":                                         238,
+	"Continue to verify the addresses and create a new miner actor.":                 204,
 	"Cordon a machine, set it to maintenance mode":                                   36,
-	"Could not create repo from directory: %s. Aborting migration":                   189,
-	"Could not lock miner repo. Your miner must be stopped: %s\n Aborting migration": 190,
-	"Create a check task for a specific sector, wait for its completion, and output the result.\n   <miner-id>: The storage provider ID\n   <sector-number>: The sector number": 134,
-	"Create a new miner": 143,
-	"Create a new offline verified DDO deal for Curio":          64,
+	"Could not create repo from directory: %s. Aborting migration":                   194,
+	"Could not lock miner repo. Your miner must be stopped: %s\n Aborting migration": 195,
+	"Create a check task for a specific sector, wait for its completion, and output the result.\n   <miner-id>: The storage provider ID\n   <sector-number>: The sector number": 139,
+	"Create a new miner": 148,
+	"Create a new offline verified DDO deal for Curio":          69,
 	"Create new configuration for a new cluster":                34,
-	"Ctrl+C pressed in Terminal":                                140,
-	"Custom `HEADER` to include in the HTTP request":            59,
-	"Database config error occurred, abandoning migration: %s ": 234,
-	"Database: %s":    232,
-	"Documentation: ": 175,
-	"Each step needs your confirmation and can be reversed. Press Ctrl+C to exit at any time.": 139,
-	"Enter %s address":                    204,
-	"Enter the Yugabyte database %s":      237,
-	"Enter the Yugabyte database host(s)": 235,
-	"Enter the info to connect to your Yugabyte database installation (https://download.yugabyte.com/)": 227,
-	"Enter the info to create a new miner":                             194,
-	"Enter the owner address":                                          201,
-	"Enter the path to the configuration directory used by %s":         186,
-	"Error connecting to Yugabyte database: %s":                        239,
-	"Error connecting to full node API: %s":                            215,
-	"Error getting API: %s":                                            155,
-	"Error getting miner info: %s":                                     170,
-	"Error getting miner power: %s":                                    168,
-	"Error getting token: %s":                                          157,
-	"Error marshalling message: %s":                                    169,
-	"Error saving config to layer: %s. Aborting Migration":             161,
-	"Error sending message: %s":                                        172,
-	"Error sending message: Status %s, Message: ":                      173,
-	"Error signing message: %s":                                        171,
-	"Error writing file: %s":                                           148,
+	"Ctrl+C pressed in Terminal":                                145,
+	"Custom `HEADER` to include in the HTTP request":            64,
+	"Database config error occurred, abandoning migration: %s ": 239,
+	"Database: %s":    237,
+	"Documentation: ": 180,
+	"Each step needs your confirmation and can be reversed. Press Ctrl+C to exit at any time.": 144,
+	"Enter %s address":                    209,
+	"Enter the Yugabyte database %s":      242,
+	"Enter the Yugabyte database host(s)": 240,
+	"Enter the info to connect to your Yugabyte database installation (https://download.yugabyte.com/)": 232,
+	"Enter the info to create a new miner":                             199,
+	"Enter the owner address":                                          206,
+	"Enter the path to the configuration directory used by %s":         191,
+	"Error connecting to Yugabyte database: %s":                        244,
+	"Error connecting to full node API: %s":                            220,
+	"Error getting API: %s":                                            160,
+	"Error getting miner info: %s":                                     175,
+	"Error getting miner power: %s":                                    173,
+	"Error getting token: %s":                                          162,
+	"Error marshalling message: %s":                                    174,
+	"Error saving config to layer: %s. Aborting Migration":             166,
+	"Error sending message: %s":                                        177,
+	"Error sending message: Status %s, Message: ":                      178,
+	"Error signing message: %s":                                        176,
+	"Error writing file: %s":                                           153,
 	"Execute cli commands":                                             6,
-	"Failed to create the miner actor: %s":                             212,
-	"Failed to generate default config: %s":                            221,
-	"Failed to generate random bytes for secret: %s":                   217,
-	"Failed to get API info for FullNode: %w":                          219,
-	"Failed to insert 'base' config layer in database: %s":             222,
-	"Failed to load base config from database: %s":                     224,
-	"Failed to parse base config: %s":                                  225,
-	"Failed to parse sector size: %s":                                  211,
-	"Failed to parse the address: %s":                                  203,
-	"Failed to regenerate base config: %s":                             226,
-	"Failed to verify the auth token from daemon node: %s":             220,
-	"Fetch proving parameters":                                         51,
-	"Filecoin %s channels: %s and %s":                                  178,
+	"Failed to create the miner actor: %s":                             217,
+	"Failed to generate default config: %s":                            226,
+	"Failed to generate random bytes for secret: %s":                   222,
+	"Failed to get API info for FullNode: %w":                          224,
+	"Failed to insert 'base' config layer in database: %s":             227,
+	"Failed to load base config from database: %s":                     229,
+	"Failed to parse base config: %s":                                  230,
+	"Failed to parse sector size: %s":                                  216,
+	"Failed to parse the address: %s":                                  208,
+	"Failed to regenerate base config: %s":                             231,
+	"Failed to verify the auth token from daemon node: %s":             225,
+	"Fetch proving parameters":                                         56,
+	"Filecoin %s channels: %s and %s":                                  183,
 	"Filecoin decentralized storage network provider":                  46,
-	"Filter by storage provider ID":                                    129,
-	"Filter events by actor address; lists all if not specified":       91,
-	"Filter events by sector number; requires --actor to be specified": 92,
-	"For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.": 150,
+	"Filter by storage provider ID":                                    134,
+	"Filter events by actor address; lists all if not specified":       96,
+	"Filter events by sector number; requires --actor to be specified": 97,
+	"For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.": 155,
 	"Generate a supra_seal configuration": 3,
 	"Generate a supra_seal configuration for a given batch size.\n\nThis command outputs a configuration expected by SupraSeal. Main purpose of this command is for debugging and testing.\nThe config can be used directly with SupraSeal binaries to test it without involving Curio.": 4,
 	"Get Curio node info": 39,
 	"Get a config layer by name. You may want to pipe the output to a file, or use 'less'": 19,
-	"Get information about unsealed data":                                                  127,
-	"Hint: I am someone running Curio on whichever chain.":                                 166,
-	"Host: %s":                               228,
-	"How long to commit sectors for":         85,
-	"I want to:":                             141,
-	"Ignore sectors that cannot be migrated": 89,
-	"Increase reliability using redundancy: start multiple machines with at-least the post layer: 'curio run --layers=post'": 179,
-	"Individual Data: Miner ID, Curio version, chain (%s or %s). Signed.":                                                    164,
-	"Initializing a new miner actor.": 193,
+	"Get information about unsealed data":                                                  132,
+	"Hint: I am someone running Curio on whichever chain.":                                 171,
+	"Host: %s":                               233,
+	"How long to commit sectors for":         90,
+	"I want to:":                             146,
+	"Ignore sectors that cannot be migrated": 94,
+	"Increase reliability using redundancy: start multiple machines with at-least the post layer: 'curio run --layers=post'": 184,
+	"Individual Data: Miner ID, Curio version, chain (%s or %s). Signed.":                                                    169,
+	"Initializing a new miner actor.": 198,
 	"Interpret stacked config layers by this version of curio, with system-generated comments.": 23,
-	"Layer %s created. ":                                                 244,
-	"Limit output to the last N events":                                  93,
+	"Layer %s created. ":                                                 249,
+	"Limit output to the last N events":                                  98,
 	"List config layers present in the DB.":                              21,
-	"List data from the sectors_unseal_pipeline and sectors_meta tables": 128,
+	"List data from the sectors_unseal_pipeline and sectors_meta tables": 133,
 	"List log systems":                                                   41,
-	"List pipeline events":                                               90,
-	"Lotus-Miner to Curio Migration.":                                    145,
+	"List pipeline events":                                               95,
+	"Lotus-Miner to Curio Migration.":                                    150,
 	"Manage logging":                                                     40,
 	"Manage node config by layers. The layer 'base' will always be applied at Curio start-up.": 13,
-	"Manage the sealing pipeline":       80,
-	"Manage unsealed data":              126,
+	"Manage the sealing pipeline":       85,
+	"Manage unsealed data":              131,
 	"Math Utils":                        0,
-	"Message sent.":                     174,
-	"Migrate from existing Lotus-Miner": 142,
-	"Migrating lotus-miner config.toml to Curio in-database configuration.":                 154,
-	"Migrating metadata for %d sectors.":                                                    240,
-	"Miner %s created successfully":                                                         213,
-	"Miner creation error occurred: %s ":                                                    200,
-	"Moves funds from the deal collateral wallet into escrow with the storage market actor": 61,
-	"New Miner initialization complete.":                                                    153,
-	"No address provided":                                                                   202,
-	"No host provided":                                                                      236,
-	"No path provided, abandoning migration ":                                               187,
-	"No value provided":                                                                     238,
-	"No, abort":                                                                             160,
-	"Note: This command is intended to be used to verify PoSt compute performance.\nIt will not send any messages to the chain. Since it can compute any deadline, output may be incorrectly timed for the chain.": 121,
-	"Nothing.":                   167,
-	"Number of sectors to start": 84,
-	"One database can serve multiple miner IDs: Run a migration for each lotus-miner.": 180,
-	"Other":                              185,
-	"Output file path (default: stdout)": 130,
-	"Owner Wallet: %s":                   195,
-	"Password: %s":                       231,
-	"Path to miner repo":                 88,
-	"Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration": 218,
-	"Port: %s":                                              229,
-	"Pre-initialization steps complete":                     216,
+	"Message sent.":                     179,
+	"Migrate from existing Lotus-Miner": 147,
+	"Migrating lotus-miner config.toml to Curio in-database configuration.":                 159,
+	"Migrating metadata for %d sectors.":                                                    245,
+	"Miner %s created successfully":                                                         218,
+	"Miner creation error occurred: %s ":                                                    205,
+	"Moves funds from the deal collateral wallet into escrow with the storage market actor": 66,
+	"Name of the Postgres database in Yugabyte cluster":                                     50,
+	"New Miner initialization complete.":                                                    158,
+	"No address provided":                                                                   207,
+	"No host provided":                                                                      241,
+	"No path provided, abandoning migration ":                                               192,
+	"No value provided":                                                                     243,
+	"No, abort":                                                                             165,
+	"Note: This command is intended to be used to verify PoSt compute performance.\nIt will not send any messages to the chain. Since it can compute any deadline, output may be incorrectly timed for the chain.": 126,
+	"Nothing.":                   172,
+	"Number of sectors to start": 89,
+	"One database can serve multiple miner IDs: Run a migration for each lotus-miner.": 185,
+	"Other":                              190,
+	"Output file path (default: stdout)": 135,
+	"Owner Wallet: %s":                   200,
+	"Password for connecting to the Postgres database in Yugabyte cluster": 52,
+	"Password: %s":       236,
+	"Path to miner repo": 93,
+	"Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration": 223,
+	"Port for connecting to the Cassandra database in Yugabyte cluster":                                                                                   54,
+	"Port for connecting to the Postgres database in Yugabyte cluster":                                                                                    53,
+	"Port: %s":                                              234,
+	"Pre-initialization steps complete":                     221,
 	"Print default node config":                             14,
 	"Provides a sample of CIDs from an indexed piece":       10,
-	"Read Miner Config":                                     191,
+	"Read Miner Config":                                     196,
 	"Remove a named config layer.":                          22,
-	"Remove unsealed copies of sector containing this deal": 66,
-	"SP ID to compute WindowPoSt for":                       119,
-	"Sector Size: %s":                                       198,
-	"Sector selection failed: %s ":                          210,
-	"Sectors can be stored across many filesystem paths. These\ncommands provide ways to manage the storage a Curio node will use to store sectors\nlong term for proving (references as 'store') as well as how sectors will be\nstored while moving through the sealing pipeline (references as 'seal').": 96,
-	"Select the Sector Size":                                           205,
-	"Select the location of your lotus-miner config directory?":        184,
-	"Select what you want to share with the Curio team.":               163,
-	"Sender Wallet: %s":                                                197,
+	"Remove unsealed copies of sector containing this deal": 71,
+	"SP ID to compute WindowPoSt for":                       124,
+	"Sector Size: %s":                                       203,
+	"Sector selection failed: %s ":                          215,
+	"Sectors can be stored across many filesystem paths. These\ncommands provide ways to manage the storage a Curio node will use to store sectors\nlong term for proving (references as 'store') as well as how sectors will be\nstored while moving through the sealing pipeline (references as 'seal').": 101,
+	"Select the Sector Size":                                           210,
+	"Select the location of your lotus-miner config directory?":        189,
+	"Select what you want to share with the Curio team.":               168,
+	"Sender Wallet: %s":                                                202,
 	"Set a config layer or the base by providing a filename or stdin.": 16,
 	"Set log level": 42,
 	"Set the log level for logging systems:\n\n   The system flag can be specified multiple times.\n\n   eg) log set-level --system chain --system chainxchg debug\n\n   Available Levels:\n   debug\n   info\n   warn\n   error\n\n   Environment Variables:\n   GOLOG_LOG_LEVEL - Default log level for all log systems\n   GOLOG_LOG_FMT   - Change output log format (json, nocolor)\n   GOLOG_FILE      - Write logs to file\n   GOLOG_OUTPUT    - Specify whether to output to file, stderr, stdout or a combination, i.e. file+stderr\n": 44,
-	"Set the target unseal state for a sector": 131,
-	"Set the target unseal state for a specific sector.\n   <miner-id>: The storage provider ID\n   <sector-number>: The sector number\n   <target-state>: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.\n": 132,
-	"Specify actor address for the deal":                 65,
-	"Specify actor address to start sealing sectors for": 54,
-	"Specify wallet address to send the funds from":      63,
-	"Start Curio web interface":                          77,
-	"Start a Curio process":                              69,
-	"Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.": 78,
-	"Start new sealing operations manually":                      81,
-	"Start sealing new CC sectors":                               83,
-	"Start sealing sectors for all actors now (not on schedule)": 82,
-	"Step Complete: %s\n":                                        192,
-	"Stop a running Curio process":                               94,
-	"Storage can be attached to a Curio node using this command. The storage volume\nlist is stored local to the Curio node in storage.json set in curio run. We do not\nrecommend manually modifying this value without further understanding of the\nstorage system.\n\nEach storage volume contains a configuration file which describes the\ncapabilities of the volume. When the '--init' flag is provided, this file will\nbe created using the additional flags.\n\nWeight\nA high weight value means data will be more likely to be stored in this path\n\nSeal\nData for the sealing process will be stored here\n\nStore\nFinalized sectors that will be moved here for long term storage and be proven\nover time\n   ": 99,
-	"Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.":                                                               117,
-	"The '%s' layer stores common configuration. All curio instances can include it in their %s argument.":                                                                                               176,
-	"The Curio team wants to improve the software you use. Tell the team you're using `%s`.":                                                                                                             162,
-	"This interactive tool creates a new miner actor and creates the basic configuration layer for it.":                                                                                                  136,
-	"This interactive tool migrates lotus-miner to Curio in 5 minutes.":                                                                                                                                  138,
-	"This process is partially idempotent. Once a new miner actor has been created and subsequent steps fail, the user need to run 'curio config new-cluster < miner ID >' to finish the configuration.": 137,
-	"To run Curio: With machine or cgroup isolation, use the command (with example layer selection):":                                                                                                    246,
-	"To start, ensure your sealing pipeline is drained and shut-down lotus-miner.":                                                                                                                       183,
-	"To work with the config: ":                            245,
-	"Try the web interface with %s ":                       149,
-	"Uncordon a machine, resume scheduling":                37,
-	"Unmigratable sectors found. Do you want to continue?": 158,
-	"Use synthetic PoRep":                                  55,
-	"Use the arrow keys to navigate: ↓ ↑ → ← ":             135,
-	"Username: %s":                                    230,
-	"Utility functions for testing":                   115,
+	"Set the target unseal state for a sector": 136,
+	"Set the target unseal state for a specific sector.\n   <miner-id>: The storage provider ID\n   <sector-number>: The sector number\n   <target-state>: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.\n": 137,
+	"Specify actor address for the deal":                 70,
+	"Specify actor address to start sealing sectors for": 59,
+	"Specify wallet address to send the funds from":      68,
+	"Start Curio web interface":                          82,
+	"Start a Curio process":                              74,
+	"Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.": 83,
+	"Start new sealing operations manually":                      86,
+	"Start sealing new CC sectors":                               88,
+	"Start sealing sectors for all actors now (not on schedule)": 87,
+	"Step Complete: %s\n":                                        197,
+	"Stop a running Curio process":                               99,
+	"Storage can be attached to a Curio node using this command. The storage volume\nlist is stored local to the Curio node in storage.json set in curio run. We do not\nrecommend manually modifying this value without further understanding of the\nstorage system.\n\nEach storage volume contains a configuration file which describes the\ncapabilities of the volume. When the '--init' flag is provided, this file will\nbe created using the additional flags.\n\nWeight\nA high weight value means data will be more likely to be stored in this path\n\nSeal\nData for the sealing process will be stored here\n\nStore\nFinalized sectors that will be moved here for long term storage and be proven\nover time\n   ": 104,
+	"Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.":                                                               122,
+	"The '%s' layer stores common configuration. All curio instances can include it in their %s argument.":                                                                                               181,
+	"The Curio team wants to improve the software you use. Tell the team you're using `%s`.":                                                                                                             167,
+	"This interactive tool creates a new miner actor and creates the basic configuration layer for it.":                                                                                                  141,
+	"This interactive tool migrates lotus-miner to Curio in 5 minutes.":                                                                                                                                  143,
+	"This process is partially idempotent. Once a new miner actor has been created and subsequent steps fail, the user need to run 'curio config new-cluster < miner ID >' to finish the configuration.": 142,
+	"To run Curio: With machine or cgroup isolation, use the command (with example layer selection):":                                                                                                    251,
+	"To start, ensure your sealing pipeline is drained and shut-down lotus-miner.":                                                                                                                       188,
+	"To work with the config: ":                                            250,
+	"Try the web interface with %s ":                                       154,
+	"Uncordon a machine, resume scheduling":                                37,
+	"Unmigratable sectors found. Do you want to continue?":                 163,
+	"Use synthetic PoRep":                                                  60,
+	"Use the arrow keys to navigate: ↓ ↑ → ← ":                             140,
+	"Username for connecting to the Postgres database in Yugabyte cluster": 51,
+	"Username: %s":                                    235,
+	"Utility functions for testing":                   120,
 	"Wait for Curio api to come online":               8,
-	"Where should we save your database config file?": 146,
-	"Worker Wallet: %s":                               196,
-	"Yes, continue":                                   159,
-	"You can add other layers for per-machine configuration changes.":             177,
-	"You can now migrate your market node (%s), if applicable.":                   151,
+	"Where should we save your database config file?": 151,
+	"Worker Wallet: %s":                               201,
+	"Yes, continue":                                   164,
+	"You can add other layers for per-machine configuration changes.":             182,
+	"You can now migrate your market node (%s), if applicable.":                   156,
 	"Zen3 and later supports two sectors per thread, set to false for older CPUs": 5,
 	"[SP actor address...]":           35,
-	"[deadline index]":                122,
+	"[deadline index]":                127,
 	"[layer name]":                    27,
 	"[level]":                         43,
-	"[miner address] [sector number]": 111,
-	"[path]":                          98,
-	"[sectorSize]":                    52,
-	"`URL` to send the request to":    60,
+	"[miner address] [sector number]": 116,
+	"[path]":                          103,
+	"[sectorSize]":                    57,
+	"`URL` to send the request to":    65,
 	"a layer's file name":             17,
 	"a list of layers to be interpreted as the final config":                             24,
 	"allow overwrite of existing layer if source is a different layer":                   30,
-	"attach local storage path":                                                          97,
+	"attach local storage path":                                                          102,
 	"comma or space separated list of layers to be interpreted (base is always applied)": 25,
-	"could not get API info for FullNode: %w":                                            156,
-	"custom node name":                                                76,
-	"deadline to compute WindowPoSt for ":                             118,
+	"could not get API info for FullNode: %w":                                            161,
+	"custom node name":                                                81,
+	"deadline to compute WindowPoSt for ":                             123,
 	"depends on output being a TTY":                                   48,
-	"detach local storage path":                                       107,
+	"detach local storage path":                                       112,
 	"do not interpret source layer":                                   32,
-	"don't check full-node sync status":                               72,
+	"don't check full-node sync status":                               77,
 	"don't comment default values":                                    15,
 	"duration to wait till fail":                                      9,
 	"edit a config layer":                                             26,
 	"editor to use":                                                   28,
-	"enables very verbose mode, useful for debugging the CLI":         50,
-	"find sector in the storage system":                               110,
+	"enables very verbose mode, useful for debugging the CLI":         55,
+	"find sector in the storage system":                               115,
 	"generate ipni chunks from a file":                                38,
-	"generate vanilla proof for a sector":                             112,
-	"host address and port the gui will listen on":                    71,
-	"host address and port the worker api will listen on":             70,
-	"indicates that deal index should not be announced to the IPNI":   67,
-	"initialize the path first":                                       100,
+	"generate vanilla proof for a sector":                             117,
+	"host address and port the gui will listen on":                    76,
+	"host address and port the worker api will listen on":             75,
+	"indicates that deal index should not be announced to the IPNI":   72,
+	"initialize the path first":                                       105,
 	"layer name":                                                      20,
 	"limit to log system":                                             45,
-	"list local storage paths":                                        108,
-	"list of layers to be interpreted (atop defaults). Default: base": 75,
+	"list local storage paths":                                        113,
+	"list of layers to be interpreted (atop defaults). Default: base": 80,
 	"machine host:port (curio run --listen address)":                  7,
-	"manage open file limit":                                          74,
-	"manage sector storage":                                           95,
-	"maximum fee in FIL user is willing to pay for this message":      62,
-	"only list local storage paths":                                   109,
-	"only run init, then return":                                      73,
+	"manage open file limit":                                          79,
+	"manage sector storage":                                           100,
+	"maximum fee in FIL user is willing to pay for this message":      67,
+	"only list local storage paths":                                   114,
+	"only run init, then return":                                      78,
 	"output in json format":                                           12,
-	"partition to compute WindowPoSt for":                             124,
-	"path group names":                                                105,
-	"path groups allowed to pull data from this path (allow all if not specified)": 106,
-	"path to json file containing storage config":                                  123,
+	"partition to compute WindowPoSt for":                             129,
+	"path group names":                                                110,
+	"path groups allowed to pull data from this path (allow all if not specified)": 111,
+	"path to json file containing storage config":                                  128,
 	"piece-cid": 11,
-	"redeclare sectors in a local storage path":               113,
+	"redeclare sectors in a local storage path":               118,
 	"save the whole config into the layer, not just the diff": 31,
 	"source config layer":                                     29,
-	"start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)": 68,
-	"start sealing a deal sector early":           53,
+	"start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)": 73,
+	"start sealing a deal sector early":           58,
 	"title of the config layer (req'd for stdin)": 18,
 	"true if --source is set":                     33,
 	"use color in display output":                 47,
 }
 
-var enIndex = []uint32{ // 248 elements
+var enIndex = []uint32{ // 253 elements
 	// Entry 0 - 1F
 	0x00000000, 0x0000000b, 0x00000042, 0x00000126,
 	0x0000014a, 0x0000025a, 0x000002a6, 0x000002bb,
@@ -304,65 +309,67 @@ var enIndex = []uint32{ // 248 elements
 	0x00000742, 0x0000076f, 0x00000795, 0x000007b6,
 	0x000007ca, 0x000007d9, 0x000007ea, 0x000007f8,
 	0x00000800, 0x000009fe, 0x00000a12, 0x00000a42,
-	0x00000a5e, 0x00000a7c, 0x00000ab5, 0x00000aed,
-	0x00000b06, 0x00000b13, 0x00000b35, 0x00000b68,
-	0x00000b7c, 0x00000b85, 0x00000bad, 0x00000c34,
-	0x00000c63, 0x00000c80, 0x00000cd6, 0x00000d11,
+	0x00000a5e, 0x00000a7c, 0x00000ab5, 0x00000ae7,
+	0x00000b2c, 0x00000b71, 0x00000bb2, 0x00000bf4,
+	0x00000c2c, 0x00000c45, 0x00000c52, 0x00000c74,
+	0x00000ca7, 0x00000cbb, 0x00000cc4, 0x00000cec,
 	// Entry 40 - 5F
-	0x00000d3f, 0x00000d70, 0x00000d93, 0x00000dc9,
-	0x00000e07, 0x00000e65, 0x00000e7b, 0x00000eaf,
-	0x00000edc, 0x00000efe, 0x00000f19, 0x00000f30,
-	0x00000f70, 0x00000f81, 0x00000f9b, 0x0000101a,
-	0x0000103b, 0x00001057, 0x0000107d, 0x000010b8,
-	0x000010d5, 0x000010f0, 0x0000110f, 0x00001120,
-	0x00001153, 0x00001166, 0x0000118d, 0x000011a2,
-	0x000011dd, 0x0000121e, 0x00001240, 0x0000125d,
+	0x00000d73, 0x00000da2, 0x00000dbf, 0x00000e15,
+	0x00000e50, 0x00000e7e, 0x00000eaf, 0x00000ed2,
+	0x00000f08, 0x00000f46, 0x00000fa4, 0x00000fba,
+	0x00000fee, 0x0000101b, 0x0000103d, 0x00001058,
+	0x0000106f, 0x000010af, 0x000010c0, 0x000010da,
+	0x00001159, 0x0000117a, 0x00001196, 0x000011bc,
+	0x000011f7, 0x00001214, 0x0000122f, 0x0000124e,
+	0x0000125f, 0x00001292, 0x000012a5, 0x000012cc,
 	// Entry 60 - 7F
-	0x00001273, 0x00001396, 0x000013b0, 0x000013b7,
-	0x00001667, 0x00001681, 0x00001698, 0x000016b8,
-	0x000016e2, 0x0000172f, 0x00001740, 0x0000178d,
-	0x000017a7, 0x000017c0, 0x000017de, 0x00001800,
-	0x00001820, 0x00001844, 0x0000186e, 0x000018cc,
-	0x000018ea, 0x0000195e, 0x000019e3, 0x00001a0b,
-	0x00001a2b, 0x00001a69, 0x00001b35, 0x00001b46,
-	0x00001b72, 0x00001b96, 0x00001bb8, 0x00001bcd,
+	0x000012e1, 0x0000131c, 0x0000135d, 0x0000137f,
+	0x0000139c, 0x000013b2, 0x000014d5, 0x000014ef,
+	0x000014f6, 0x000017a6, 0x000017c0, 0x000017d7,
+	0x000017f7, 0x00001821, 0x0000186e, 0x0000187f,
+	0x000018cc, 0x000018e6, 0x000018ff, 0x0000191d,
+	0x0000193f, 0x0000195f, 0x00001983, 0x000019ad,
+	0x00001a0b, 0x00001a29, 0x00001a9d, 0x00001b22,
+	0x00001b4a, 0x00001b6a, 0x00001ba8, 0x00001c74,
 	// Entry 80 - 9F
-	0x00001bf1, 0x00001c34, 0x00001c52, 0x00001c75,
-	0x00001c9e, 0x00002024, 0x00002052, 0x000020fa,
-	0x0000212f, 0x00002191, 0x00002254, 0x00002296,
-	0x000022ef, 0x0000230a, 0x00002315, 0x00002337,
-	0x0000234a, 0x00002364, 0x00002384, 0x000023b4,
-	0x000023c8, 0x000023e2, 0x00002408, 0x0000247f,
-	0x000024bc, 0x000024ef, 0x00002512, 0x00002558,
-	0x00002571, 0x0000259c, 0x000025b7, 0x000025ec,
+	0x00001c85, 0x00001cb1, 0x00001cd5, 0x00001cf7,
+	0x00001d0c, 0x00001d30, 0x00001d73, 0x00001d91,
+	0x00001db4, 0x00001ddd, 0x00002163, 0x00002191,
+	0x00002239, 0x0000226e, 0x000022d0, 0x00002393,
+	0x000023d5, 0x0000242e, 0x00002449, 0x00002454,
+	0x00002476, 0x00002489, 0x000024a3, 0x000024c3,
+	0x000024f3, 0x00002507, 0x00002521, 0x00002547,
+	0x000025be, 0x000025fb, 0x0000262e, 0x00002651,
 	// Entry A0 - BF
-	0x000025fa, 0x00002604, 0x0000263c, 0x00002696,
-	0x000026c9, 0x00002713, 0x00002754, 0x00002789,
-	0x00002792, 0x000027b3, 0x000027d4, 0x000027f4,
-	0x00002811, 0x0000282e, 0x00002861, 0x0000286f,
-	0x00002883, 0x000028ee, 0x0000292e, 0x00002957,
-	0x000029ce, 0x00002a1f, 0x00002a49, 0x00002a5f,
-	0x00002aac, 0x00002ae6, 0x00002aec, 0x00002b28,
-	0x00002b54, 0x00002b9d, 0x00002bdd, 0x00002c2e,
+	0x00002697, 0x000026b0, 0x000026db, 0x000026f6,
+	0x0000272b, 0x00002739, 0x00002743, 0x0000277b,
+	0x000027d5, 0x00002808, 0x00002852, 0x00002893,
+	0x000028c8, 0x000028d1, 0x000028f2, 0x00002913,
+	0x00002933, 0x00002950, 0x0000296d, 0x000029a0,
+	0x000029ae, 0x000029c2, 0x00002a2d, 0x00002a6d,
+	0x00002a96, 0x00002b0d, 0x00002b5e, 0x00002b88,
+	0x00002b9e, 0x00002beb, 0x00002c25, 0x00002c2b,
 	// Entry C0 - DF
-	0x00002c40, 0x00002c5a, 0x00002c7a, 0x00002c9f,
-	0x00002cb3, 0x00002cc8, 0x00002cdd, 0x00002cf0,
-	0x00002d2f, 0x00002d59, 0x00002d71, 0x00002d85,
-	0x00002da8, 0x00002dbc, 0x00002dd3, 0x00002dda,
-	0x00002de1, 0x00002de7, 0x00002ded, 0x00002e11,
-	0x00002e34, 0x00002e5c, 0x00002e7d, 0x00002e98,
-	0x00002ec1, 0x00002ee3, 0x00002f15, 0x00002fac,
-	0x00002fd7, 0x0000300f, 0x00003038, 0x00003070,
+	0x00002c67, 0x00002c93, 0x00002cdc, 0x00002d1c,
+	0x00002d6d, 0x00002d7f, 0x00002d99, 0x00002db9,
+	0x00002dde, 0x00002df2, 0x00002e07, 0x00002e1c,
+	0x00002e2f, 0x00002e6e, 0x00002e98, 0x00002eb0,
+	0x00002ec4, 0x00002ee7, 0x00002efb, 0x00002f12,
+	0x00002f19, 0x00002f20, 0x00002f26, 0x00002f2c,
+	0x00002f50, 0x00002f73, 0x00002f9b, 0x00002fbc,
+	0x00002fd7, 0x00003000, 0x00003022, 0x00003054,
 	// Entry E0 - FF
-	0x000030b1, 0x000030e1, 0x00003104, 0x0000312c,
-	0x0000318e, 0x0000319a, 0x000031a6, 0x000031b6,
-	0x000031c6, 0x000031d6, 0x000031fd, 0x0000323e,
-	0x00003262, 0x00003273, 0x00003295, 0x000032a7,
-	0x000032d4, 0x000032fa, 0x00003359, 0x000033f6,
-	0x00003444, 0x0000345e, 0x0000347c, 0x000034dc,
-} // Size: 1016 bytes
+	0x000030eb, 0x00003116, 0x0000314e, 0x00003177,
+	0x000031af, 0x000031f0, 0x00003220, 0x00003243,
+	0x0000326b, 0x000032cd, 0x000032d9, 0x000032e5,
+	0x000032f5, 0x00003305, 0x00003315, 0x0000333c,
+	0x0000337d, 0x000033a1, 0x000033b2, 0x000033d4,
+	0x000033e6, 0x00003413, 0x00003439, 0x00003498,
+	0x00003535, 0x00003583, 0x0000359d, 0x000035bb,
+	0x0000361b,
+} // Size: 1036 bytes
 
-const enData string = "" + // Size: 13532 bytes
+const enData string = "" + // Size: 13851 bytes
 	"\x02Math Utils\x02Analyze and display the layout of batch sealer threads" +
 	"\x02Analyze and display the layout of batch sealer threads on your CPU." +
 	"\x0a\x0aIt provides detailed information about CPU utilization for batch" +
@@ -404,171 +411,176 @@ const enData string = "" + // Size: 13532 bytes
 	"derr, stdout or a combination, i.e. file+stderr\x02limit to log system" +
 	"\x02Filecoin decentralized storage network provider\x02use color in disp" +
 	"lay output\x02depends on output being a TTY\x02Command separated list of" +
-	" hostnames for yugabyte cluster\x02enables very verbose mode, useful for" +
-	" debugging the CLI\x02Fetch proving parameters\x02[sectorSize]\x02start " +
-	"sealing a deal sector early\x02Specify actor address to start sealing se" +
-	"ctors for\x02Use synthetic PoRep\x02<sector>\x02Add URL to fetch data fo" +
-	"r offline deals\x02CSV file location to use for multiple deal input. Eac" +
-	"h line in the file should be in the format 'uuid,raw size,url,header1,he" +
-	"ader2...'\x02Custom `HEADER` to include in the HTTP request\x02`URL` to " +
-	"send the request to\x02Moves funds from the deal collateral wallet into " +
-	"escrow with the storage market actor\x02maximum fee in FIL user is willi" +
-	"ng to pay for this message\x02Specify wallet address to send the funds f" +
-	"rom\x02Create a new offline verified DDO deal for Curio\x02Specify actor" +
-	" address for the deal\x02Remove unsealed copies of sector containing thi" +
-	"s deal\x02indicates that deal index should not be announced to the IPNI" +
-	"\x02start epoch by when the deal should be proved by provider on-chain (" +
-	"default: 2 days from now)\x02Start a Curio process\x02host address and p" +
-	"ort the worker api will listen on\x02host address and port the gui will " +
-	"listen on\x02don't check full-node sync status\x02only run init, then re" +
-	"turn\x02manage open file limit\x02list of layers to be interpreted (atop" +
-	" defaults). Default: base\x02custom node name\x02Start Curio web interfa" +
-	"ce\x02Start an instance of Curio web interface. \x0a\x09This creates the" +
-	" 'web' layer if it does not exist, then calls run with that layer.\x02Ad" +
-	"dress to listen for the GUI on\x02Manage the sealing pipeline\x02Start n" +
-	"ew sealing operations manually\x02Start sealing sectors for all actors n" +
-	"ow (not on schedule)\x02Start sealing new CC sectors\x02Number of sector" +
-	"s to start\x02How long to commit sectors for\x021278 (3.5 years)\x02(deb" +
-	"ug tool) Copy LM sector metadata into Curio DB\x02Path to miner repo\x02" +
-	"Ignore sectors that cannot be migrated\x02List pipeline events\x02Filter" +
-	" events by actor address; lists all if not specified\x02Filter events by" +
-	" sector number; requires --actor to be specified\x02Limit output to the " +
-	"last N events\x02Stop a running Curio process\x02manage sector storage" +
-	"\x02Sectors can be stored across many filesystem paths. These\x0acommand" +
-	"s provide ways to manage the storage a Curio node will use to store sect" +
-	"ors\x0along term for proving (references as 'store') as well as how sect" +
-	"ors will be\x0astored while moving through the sealing pipeline (referen" +
-	"ces as 'seal').\x02attach local storage path\x02[path]\x04\x00\x04\x0a  " +
-	" \xa7\x05\x02Storage can be attached to a Curio node using this command." +
-	" The storage volume\x0alist is stored local to the Curio node in storage" +
-	".json set in curio run. We do not\x0arecommend manually modifying this v" +
-	"alue without further understanding of the\x0astorage system.\x0a\x0aEach" +
-	" storage volume contains a configuration file which describes the\x0acap" +
-	"abilities of the volume. When the '--init' flag is provided, this file w" +
-	"ill\x0abe created using the additional flags.\x0a\x0aWeight\x0aA high we" +
-	"ight value means data will be more likely to be stored in this path\x0a" +
-	"\x0aSeal\x0aData for the sealing process will be stored here\x0a\x0aStor" +
-	"e\x0aFinalized sectors that will be moved here for long term storage and" +
-	" be proven\x0aover time\x02initialize the path first\x02(for init) path " +
-	"weight\x02(for init) use path for sealing\x02(for init) use path for lon" +
-	"g-term storage\x02(for init) limit storage space for sectors (expensive " +
-	"for very large paths!)\x02path group names\x02path groups allowed to pul" +
-	"l data from this path (allow all if not specified)\x02detach local stora" +
-	"ge path\x02list local storage paths\x02only list local storage paths\x02" +
-	"find sector in the storage system\x02[miner address] [sector number]\x02" +
-	"generate vanilla proof for a sector\x02redeclare sectors in a local stor" +
-	"age path\x02--machine flag in cli command should point to the node where" +
-	" storage to redeclare is attached\x02Utility functions for testing\x02Co" +
-	"mpute a proof-of-spacetime for a sector (requires the sector to be pre-s" +
-	"ealed). These will not send to the chain.\x02Test the windowpost schedul" +
-	"er by running it on the next available curio. If tasks fail all retries," +
-	" you will need to ctrl+c to exit.\x04\x00\x01 #\x02deadline to compute W" +
-	"indowPoSt for\x02SP ID to compute WindowPoSt for\x02Compute WindowPoSt f" +
-	"or performance and configuration testing.\x02Note: This command is inten" +
-	"ded to be used to verify PoSt compute performance.\x0aIt will not send a" +
-	"ny messages to the chain. Since it can compute any deadline, output may " +
-	"be incorrectly timed for the chain.\x02[deadline index]\x02path to json " +
-	"file containing storage config\x02partition to compute WindowPoSt for" +
-	"\x02Collection of debugging utilities\x02Manage unsealed data\x02Get inf" +
-	"ormation about unsealed data\x02List data from the sectors_unseal_pipeli" +
-	"ne and sectors_meta tables\x02Filter by storage provider ID\x02Output fi" +
-	"le path (default: stdout)\x02Set the target unseal state for a sector" +
-	"\x04\x00\x01\x0a\x80\x07\x02Set the target unseal state for a specific s" +
-	"ector.\x0a   <miner-id>: The storage provider ID\x0a   <sector-number>: " +
-	"The sector number\x0a   <target-state>: The target state (true, false, o" +
-	"r none)\x0a\x0a   The unseal target state indicates to curio how an unse" +
-	"aled copy of the sector should be maintained.\x0a\x09   If the target st" +
-	"ate is true, curio will ensure that the sector is unsealed.\x0a\x09   If" +
-	" the target state is false, curio will ensure that there is no unsealed " +
-	"copy of the sector.\x0a\x09   If the target state is none, curio will no" +
-	"t change the current state of the sector.\x0a\x0a   Currently when the c" +
-	"urio will only start new unseal processes when the target state changes " +
-	"from another state to true.\x0a\x0a   When the target state is false, an" +
-	"d an unsealed sector file exists, the GC mark step will create a removal" +
-	" mark\x0a   for the unsealed sector file. The file will only be removed " +
-	"after the removal mark is accepted.\x02Check data integrity in unsealed " +
-	"sector files\x02Create a check task for a specific sector, wait for its " +
-	"completion, and output the result.\x0a   <miner-id>: The storage provide" +
-	"r ID\x0a   <sector-number>: The sector number\x04\x00\x01 0\x02Use the a" +
-	"rrow keys to navigate: ↓ ↑ → ←\x02This interactive tool creates a new mi" +
-	"ner actor and creates the basic configuration layer for it.\x02This proc" +
-	"ess is partially idempotent. Once a new miner actor has been created and" +
-	" subsequent steps fail, the user need to run 'curio config new-cluster <" +
-	" miner ID >' to finish the configuration.\x02This interactive tool migra" +
-	"tes lotus-miner to Curio in 5 minutes.\x02Each step needs your confirmat" +
-	"ion and can be reversed. Press Ctrl+C to exit at any time.\x02Ctrl+C pre" +
-	"ssed in Terminal\x02I want to:\x02Migrate from existing Lotus-Miner\x02C" +
-	"reate a new miner\x02Aborting remaining steps.\x02Lotus-Miner to Curio M" +
-	"igration.\x02Where should we save your database config file?\x02Aborting" +
-	" migration.\x02Error writing file: %[1]s\x04\x00\x01 !\x02Try the web in" +
-	"terface with %[1]s\x02For more servers, make /etc/curio.env with the cur" +
-	"io.env database env and add the CURIO_LAYERS env to assign purposes.\x02" +
-	"You can now migrate your market node (%[1]s), if applicable.\x02Addition" +
-	"al info is at http://docs.curiostorage.org\x02New Miner initialization c" +
-	"omplete.\x02Migrating lotus-miner config.toml to Curio in-database confi" +
-	"guration.\x02Error getting API: %[1]s\x02could not get API info for Full" +
-	"Node: %[1]w\x02Error getting token: %[1]s\x02Unmigratable sectors found." +
-	" Do you want to continue?\x02Yes, continue\x02No, abort\x02Error saving " +
-	"config to layer: %[1]s. Aborting Migration\x02The Curio team wants to im" +
-	"prove the software you use. Tell the team you're using `%[1]s`.\x02Selec" +
-	"t what you want to share with the Curio team.\x02Individual Data: Miner " +
-	"ID, Curio version, chain (%[1]s or %[2]s). Signed.\x02Aggregate-Anonymou" +
-	"s: version, chain, and Miner power (bucketed).\x02Hint: I am someone run" +
-	"ning Curio on whichever chain.\x02Nothing.\x02Error getting miner power:" +
-	" %[1]s\x02Error marshalling message: %[1]s\x02Error getting miner info: " +
-	"%[1]s\x02Error signing message: %[1]s\x02Error sending message: %[1]s" +
-	"\x04\x00\x01 .\x02Error sending message: Status %[1]s, Message:\x02Messa" +
-	"ge sent.\x04\x00\x01 \x0f\x02Documentation:\x02The '%[1]s' layer stores " +
-	"common configuration. All curio instances can include it in their %[2]s " +
-	"argument.\x02You can add other layers for per-machine configuration chan" +
-	"ges.\x02Filecoin %[1]s channels: %[2]s and %[3]s\x02Increase reliability" +
-	" using redundancy: start multiple machines with at-least the post layer:" +
-	" 'curio run --layers=post'\x02One database can serve multiple miner IDs:" +
-	" Run a migration for each lotus-miner.\x02Connected to Yugabyte. Schema " +
-	"is current.\x02Connected to Yugabyte\x02To start, ensure your sealing pi" +
-	"peline is drained and shut-down lotus-miner.\x02Select the location of y" +
-	"our lotus-miner config directory?\x02Other\x02Enter the path to the conf" +
-	"iguration directory used by %[1]s\x04\x00\x01 '\x02No path provided, aba" +
-	"ndoning migration\x02Cannot read the config.toml file in the provided di" +
-	"rectory, Error: %[1]s\x02Could not create repo from directory: %[1]s. Ab" +
-	"orting migration\x02Could not lock miner repo. Your miner must be stoppe" +
-	"d: %[1]s\x0a Aborting migration\x02Read Miner Config\x04\x00\x01\x0a\x15" +
-	"\x02Step Complete: %[1]s\x02Initializing a new miner actor.\x02Enter the" +
-	" info to create a new miner\x02Owner Wallet: %[1]s\x02Worker Wallet: %[1" +
-	"]s\x02Sender Wallet: %[1]s\x02Sector Size: %[1]s\x02Continue to verify t" +
-	"he addresses and create a new miner actor.\x04\x00\x01 %\x02Miner creati" +
-	"on error occurred: %[1]s\x02Enter the owner address\x02No address provid" +
-	"ed\x02Failed to parse the address: %[1]s\x02Enter %[1]s address\x02Selec" +
-	"t the Sector Size\x0264 GiB\x0232 GiB\x028 MiB\x022 KiB\x04\x00\x01 \x1f" +
-	"\x02Sector selection failed: %[1]s\x02Failed to parse sector size: %[1]s" +
-	"\x02Failed to create the miner actor: %[1]s\x02Miner %[1]s created succe" +
-	"ssfully\x02Cannot reach the DB: %[1]s\x02Error connecting to full node A" +
-	"PI: %[1]s\x02Pre-initialization steps complete\x02Failed to generate ran" +
-	"dom bytes for secret: %[1]s\x02Please do not run guided-setup again as m" +
-	"iner creation is not idempotent. You need to run 'curio config new-clust" +
-	"er %[1]s' to finish the configuration\x02Failed to get API info for Full" +
-	"Node: %[1]w\x02Failed to verify the auth token from daemon node: %[1]s" +
-	"\x02Failed to generate default config: %[1]s\x02Failed to insert 'base' " +
-	"config layer in database: %[1]s\x02Configuration 'base' was updated to i" +
-	"nclude this miner's address\x02Failed to load base config from database:" +
-	" %[1]s\x02Failed to parse base config: %[1]s\x02Failed to regenerate bas" +
-	"e config: %[1]s\x02Enter the info to connect to your Yugabyte database i" +
-	"nstallation (https://download.yugabyte.com/)\x02Host: %[1]s\x02Port: %[1" +
-	"]s\x02Username: %[1]s\x02Password: %[1]s\x02Database: %[1]s\x02Continue " +
-	"to connect and update schema.\x04\x00\x01 <\x02Database config error occ" +
-	"urred, abandoning migration: %[1]s\x02Enter the Yugabyte database host(s" +
-	")\x02No host provided\x02Enter the Yugabyte database %[1]s\x02No value p" +
-	"rovided\x02Error connecting to Yugabyte database: %[1]s\x02Migrating met" +
-	"adata for %[1]d sectors.\x02Configuration 'base' was updated to include " +
-	"this miner's address (%[1]s) and its wallet setup.\x02Compare the config" +
-	"urations %[1]s to %[2]s. Changes between the miner IDs other than wallet" +
-	" addreses should be a new, minimal layer for runners that need it.\x02Co" +
-	"nfiguration 'base' was created to resemble this lotus-miner's config.tom" +
-	"l .\x04\x00\x01 \x15\x02Layer %[1]s created.\x04\x00\x01 \x19\x02To work" +
-	" with the config:\x02To run Curio: With machine or cgroup isolation, use" +
-	" the command (with example layer selection):"
+	" hostnames for yugabyte cluster\x02Name of the Postgres database in Yuga" +
+	"byte cluster\x02Username for connecting to the Postgres database in Yuga" +
+	"byte cluster\x02Password for connecting to the Postgres database in Yuga" +
+	"byte cluster\x02Port for connecting to the Postgres database in Yugabyte" +
+	" cluster\x02Port for connecting to the Cassandra database in Yugabyte cl" +
+	"uster\x02enables very verbose mode, useful for debugging the CLI\x02Fetc" +
+	"h proving parameters\x02[sectorSize]\x02start sealing a deal sector earl" +
+	"y\x02Specify actor address to start sealing sectors for\x02Use synthetic" +
+	" PoRep\x02<sector>\x02Add URL to fetch data for offline deals\x02CSV fil" +
+	"e location to use for multiple deal input. Each line in the file should " +
+	"be in the format 'uuid,raw size,url,header1,header2...'\x02Custom `HEADE" +
+	"R` to include in the HTTP request\x02`URL` to send the request to\x02Mov" +
+	"es funds from the deal collateral wallet into escrow with the storage ma" +
+	"rket actor\x02maximum fee in FIL user is willing to pay for this message" +
+	"\x02Specify wallet address to send the funds from\x02Create a new offlin" +
+	"e verified DDO deal for Curio\x02Specify actor address for the deal\x02R" +
+	"emove unsealed copies of sector containing this deal\x02indicates that d" +
+	"eal index should not be announced to the IPNI\x02start epoch by when the" +
+	" deal should be proved by provider on-chain (default: 2 days from now)" +
+	"\x02Start a Curio process\x02host address and port the worker api will l" +
+	"isten on\x02host address and port the gui will listen on\x02don't check " +
+	"full-node sync status\x02only run init, then return\x02manage open file " +
+	"limit\x02list of layers to be interpreted (atop defaults). Default: base" +
+	"\x02custom node name\x02Start Curio web interface\x02Start an instance o" +
+	"f Curio web interface. \x0a\x09This creates the 'web' layer if it does n" +
+	"ot exist, then calls run with that layer.\x02Address to listen for the G" +
+	"UI on\x02Manage the sealing pipeline\x02Start new sealing operations man" +
+	"ually\x02Start sealing sectors for all actors now (not on schedule)\x02S" +
+	"tart sealing new CC sectors\x02Number of sectors to start\x02How long to" +
+	" commit sectors for\x021278 (3.5 years)\x02(debug tool) Copy LM sector m" +
+	"etadata into Curio DB\x02Path to miner repo\x02Ignore sectors that canno" +
+	"t be migrated\x02List pipeline events\x02Filter events by actor address;" +
+	" lists all if not specified\x02Filter events by sector number; requires " +
+	"--actor to be specified\x02Limit output to the last N events\x02Stop a r" +
+	"unning Curio process\x02manage sector storage\x02Sectors can be stored a" +
+	"cross many filesystem paths. These\x0acommands provide ways to manage th" +
+	"e storage a Curio node will use to store sectors\x0along term for provin" +
+	"g (references as 'store') as well as how sectors will be\x0astored while" +
+	" moving through the sealing pipeline (references as 'seal').\x02attach l" +
+	"ocal storage path\x02[path]\x04\x00\x04\x0a   \xa7\x05\x02Storage can be" +
+	" attached to a Curio node using this command. The storage volume\x0alist" +
+	" is stored local to the Curio node in storage.json set in curio run. We " +
+	"do not\x0arecommend manually modifying this value without further unders" +
+	"tanding of the\x0astorage system.\x0a\x0aEach storage volume contains a " +
+	"configuration file which describes the\x0acapabilities of the volume. Wh" +
+	"en the '--init' flag is provided, this file will\x0abe created using the" +
+	" additional flags.\x0a\x0aWeight\x0aA high weight value means data will " +
+	"be more likely to be stored in this path\x0a\x0aSeal\x0aData for the sea" +
+	"ling process will be stored here\x0a\x0aStore\x0aFinalized sectors that " +
+	"will be moved here for long term storage and be proven\x0aover time\x02i" +
+	"nitialize the path first\x02(for init) path weight\x02(for init) use pat" +
+	"h for sealing\x02(for init) use path for long-term storage\x02(for init)" +
+	" limit storage space for sectors (expensive for very large paths!)\x02pa" +
+	"th group names\x02path groups allowed to pull data from this path (allow" +
+	" all if not specified)\x02detach local storage path\x02list local storag" +
+	"e paths\x02only list local storage paths\x02find sector in the storage s" +
+	"ystem\x02[miner address] [sector number]\x02generate vanilla proof for a" +
+	" sector\x02redeclare sectors in a local storage path\x02--machine flag i" +
+	"n cli command should point to the node where storage to redeclare is att" +
+	"ached\x02Utility functions for testing\x02Compute a proof-of-spacetime f" +
+	"or a sector (requires the sector to be pre-sealed). These will not send " +
+	"to the chain.\x02Test the windowpost scheduler by running it on the next" +
+	" available curio. If tasks fail all retries, you will need to ctrl+c to " +
+	"exit.\x04\x00\x01 #\x02deadline to compute WindowPoSt for\x02SP ID to co" +
+	"mpute WindowPoSt for\x02Compute WindowPoSt for performance and configura" +
+	"tion testing.\x02Note: This command is intended to be used to verify PoS" +
+	"t compute performance.\x0aIt will not send any messages to the chain. Si" +
+	"nce it can compute any deadline, output may be incorrectly timed for the" +
+	" chain.\x02[deadline index]\x02path to json file containing storage conf" +
+	"ig\x02partition to compute WindowPoSt for\x02Collection of debugging uti" +
+	"lities\x02Manage unsealed data\x02Get information about unsealed data" +
+	"\x02List data from the sectors_unseal_pipeline and sectors_meta tables" +
+	"\x02Filter by storage provider ID\x02Output file path (default: stdout)" +
+	"\x02Set the target unseal state for a sector\x04\x00\x01\x0a\x80\x07\x02" +
+	"Set the target unseal state for a specific sector.\x0a   <miner-id>: The" +
+	" storage provider ID\x0a   <sector-number>: The sector number\x0a   <tar" +
+	"get-state>: The target state (true, false, or none)\x0a\x0a   The unseal" +
+	" target state indicates to curio how an unsealed copy of the sector shou" +
+	"ld be maintained.\x0a\x09   If the target state is true, curio will ensu" +
+	"re that the sector is unsealed.\x0a\x09   If the target state is false, " +
+	"curio will ensure that there is no unsealed copy of the sector.\x0a\x09 " +
+	"  If the target state is none, curio will not change the current state o" +
+	"f the sector.\x0a\x0a   Currently when the curio will only start new uns" +
+	"eal processes when the target state changes from another state to true." +
+	"\x0a\x0a   When the target state is false, and an unsealed sector file e" +
+	"xists, the GC mark step will create a removal mark\x0a   for the unseale" +
+	"d sector file. The file will only be removed after the removal mark is a" +
+	"ccepted.\x02Check data integrity in unsealed sector files\x02Create a ch" +
+	"eck task for a specific sector, wait for its completion, and output the " +
+	"result.\x0a   <miner-id>: The storage provider ID\x0a   <sector-number>:" +
+	" The sector number\x04\x00\x01 0\x02Use the arrow keys to navigate: ↓ ↑ " +
+	"→ ←\x02This interactive tool creates a new miner actor and creates the" +
+	" basic configuration layer for it.\x02This process is partially idempote" +
+	"nt. Once a new miner actor has been created and subsequent steps fail, t" +
+	"he user need to run 'curio config new-cluster < miner ID >' to finish th" +
+	"e configuration.\x02This interactive tool migrates lotus-miner to Curio " +
+	"in 5 minutes.\x02Each step needs your confirmation and can be reversed. " +
+	"Press Ctrl+C to exit at any time.\x02Ctrl+C pressed in Terminal\x02I wan" +
+	"t to:\x02Migrate from existing Lotus-Miner\x02Create a new miner\x02Abor" +
+	"ting remaining steps.\x02Lotus-Miner to Curio Migration.\x02Where should" +
+	" we save your database config file?\x02Aborting migration.\x02Error writ" +
+	"ing file: %[1]s\x04\x00\x01 !\x02Try the web interface with %[1]s\x02For" +
+	" more servers, make /etc/curio.env with the curio.env database env and a" +
+	"dd the CURIO_LAYERS env to assign purposes.\x02You can now migrate your " +
+	"market node (%[1]s), if applicable.\x02Additional info is at http://docs" +
+	".curiostorage.org\x02New Miner initialization complete.\x02Migrating lot" +
+	"us-miner config.toml to Curio in-database configuration.\x02Error gettin" +
+	"g API: %[1]s\x02could not get API info for FullNode: %[1]w\x02Error gett" +
+	"ing token: %[1]s\x02Unmigratable sectors found. Do you want to continue?" +
+	"\x02Yes, continue\x02No, abort\x02Error saving config to layer: %[1]s. A" +
+	"borting Migration\x02The Curio team wants to improve the software you us" +
+	"e. Tell the team you're using `%[1]s`.\x02Select what you want to share " +
+	"with the Curio team.\x02Individual Data: Miner ID, Curio version, chain " +
+	"(%[1]s or %[2]s). Signed.\x02Aggregate-Anonymous: version, chain, and Mi" +
+	"ner power (bucketed).\x02Hint: I am someone running Curio on whichever c" +
+	"hain.\x02Nothing.\x02Error getting miner power: %[1]s\x02Error marshalli" +
+	"ng message: %[1]s\x02Error getting miner info: %[1]s\x02Error signing me" +
+	"ssage: %[1]s\x02Error sending message: %[1]s\x04\x00\x01 .\x02Error send" +
+	"ing message: Status %[1]s, Message:\x02Message sent.\x04\x00\x01 \x0f" +
+	"\x02Documentation:\x02The '%[1]s' layer stores common configuration. All" +
+	" curio instances can include it in their %[2]s argument.\x02You can add " +
+	"other layers for per-machine configuration changes.\x02Filecoin %[1]s ch" +
+	"annels: %[2]s and %[3]s\x02Increase reliability using redundancy: start " +
+	"multiple machines with at-least the post layer: 'curio run --layers=post" +
+	"'\x02One database can serve multiple miner IDs: Run a migration for each" +
+	" lotus-miner.\x02Connected to Yugabyte. Schema is current.\x02Connected " +
+	"to Yugabyte\x02To start, ensure your sealing pipeline is drained and shu" +
+	"t-down lotus-miner.\x02Select the location of your lotus-miner config di" +
+	"rectory?\x02Other\x02Enter the path to the configuration directory used " +
+	"by %[1]s\x04\x00\x01 '\x02No path provided, abandoning migration\x02Cann" +
+	"ot read the config.toml file in the provided directory, Error: %[1]s\x02" +
+	"Could not create repo from directory: %[1]s. Aborting migration\x02Could" +
+	" not lock miner repo. Your miner must be stopped: %[1]s\x0a Aborting mig" +
+	"ration\x02Read Miner Config\x04\x00\x01\x0a\x15\x02Step Complete: %[1]s" +
+	"\x02Initializing a new miner actor.\x02Enter the info to create a new mi" +
+	"ner\x02Owner Wallet: %[1]s\x02Worker Wallet: %[1]s\x02Sender Wallet: %[1" +
+	"]s\x02Sector Size: %[1]s\x02Continue to verify the addresses and create " +
+	"a new miner actor.\x04\x00\x01 %\x02Miner creation error occurred: %[1]s" +
+	"\x02Enter the owner address\x02No address provided\x02Failed to parse th" +
+	"e address: %[1]s\x02Enter %[1]s address\x02Select the Sector Size\x0264 " +
+	"GiB\x0232 GiB\x028 MiB\x022 KiB\x04\x00\x01 \x1f\x02Sector selection fai" +
+	"led: %[1]s\x02Failed to parse sector size: %[1]s\x02Failed to create the" +
+	" miner actor: %[1]s\x02Miner %[1]s created successfully\x02Cannot reach " +
+	"the DB: %[1]s\x02Error connecting to full node API: %[1]s\x02Pre-initial" +
+	"ization steps complete\x02Failed to generate random bytes for secret: %[" +
+	"1]s\x02Please do not run guided-setup again as miner creation is not ide" +
+	"mpotent. You need to run 'curio config new-cluster %[1]s' to finish the " +
+	"configuration\x02Failed to get API info for FullNode: %[1]w\x02Failed to" +
+	" verify the auth token from daemon node: %[1]s\x02Failed to generate def" +
+	"ault config: %[1]s\x02Failed to insert 'base' config layer in database: " +
+	"%[1]s\x02Configuration 'base' was updated to include this miner's addres" +
+	"s\x02Failed to load base config from database: %[1]s\x02Failed to parse " +
+	"base config: %[1]s\x02Failed to regenerate base config: %[1]s\x02Enter t" +
+	"he info to connect to your Yugabyte database installation (https://downl" +
+	"oad.yugabyte.com/)\x02Host: %[1]s\x02Port: %[1]s\x02Username: %[1]s\x02P" +
+	"assword: %[1]s\x02Database: %[1]s\x02Continue to connect and update sche" +
+	"ma.\x04\x00\x01 <\x02Database config error occurred, abandoning migratio" +
+	"n: %[1]s\x02Enter the Yugabyte database host(s)\x02No host provided\x02E" +
+	"nter the Yugabyte database %[1]s\x02No value provided\x02Error connectin" +
+	"g to Yugabyte database: %[1]s\x02Migrating metadata for %[1]d sectors." +
+	"\x02Configuration 'base' was updated to include this miner's address (%[" +
+	"1]s) and its wallet setup.\x02Compare the configurations %[1]s to %[2]s." +
+	" Changes between the miner IDs other than wallet addreses should be a ne" +
+	"w, minimal layer for runners that need it.\x02Configuration 'base' was c" +
+	"reated to resemble this lotus-miner's config.toml .\x04\x00\x01 \x15\x02" +
+	"Layer %[1]s created.\x04\x00\x01 \x19\x02To work with the config:\x02To " +
+	"run Curio: With machine or cgroup isolation, use the command (with examp" +
+	"le layer selection):"
 
-var koIndex = []uint32{ // 248 elements
+var koIndex = []uint32{ // 253 elements
 	// Entry 0 - 1F
 	0x00000000, 0x00000014, 0x0000004e, 0x00000168,
 	0x00000181, 0x000002b1, 0x00000328, 0x0000033a,
@@ -583,65 +595,67 @@ var koIndex = []uint32{ // 248 elements
 	0x000008ac, 0x000008e2, 0x00000914, 0x00000934,
 	0x00000955, 0x00000963, 0x0000097b, 0x00000990,
 	0x00000999, 0x00000bc1, 0x00000bdf, 0x00000c13,
-	0x00000c3b, 0x00000c53, 0x00000ca2, 0x00000ce5,
-	0x00000d06, 0x00000d16, 0x00000d3f, 0x00000d68,
-	0x00000d7c, 0x00000d85, 0x00000dbb, 0x00000e50,
-	0x00000e83, 0x00000e9a, 0x00000ef4, 0x00000f41,
+	0x00000c3b, 0x00000c53, 0x00000ca2, 0x00000cde,
+	0x00000d3b, 0x00000d94, 0x00000de7, 0x00000e3b,
+	0x00000e7e, 0x00000e9f, 0x00000eaf, 0x00000ed8,
+	0x00000f01, 0x00000f15, 0x00000f1e, 0x00000f54,
 	// Entry 40 - 5F
-	0x00000f67, 0x00000fb7, 0x00000fed, 0x00001044,
-	0x0000108f, 0x00001118, 0x00001132, 0x0000116f,
-	0x000011a2, 0x000011cd, 0x000011ec, 0x00001208,
-	0x00001247, 0x00001266, 0x00001287, 0x00001329,
-	0x00001348, 0x00001366, 0x0000138c, 0x000013d3,
-	0x000013ef, 0x00001404, 0x0000141f, 0x0000142d,
-	0x00001470, 0x0000148b, 0x000014ae, 0x000014cf,
-	0x00001530, 0x0000156c, 0x0000159c, 0x000015c4,
+	0x00000fe9, 0x0000101c, 0x00001033, 0x0000108d,
+	0x000010da, 0x00001100, 0x00001150, 0x00001186,
+	0x000011dd, 0x00001228, 0x000012b1, 0x000012cb,
+	0x00001308, 0x0000133b, 0x00001366, 0x00001385,
+	0x000013a1, 0x000013e0, 0x000013ff, 0x00001420,
+	0x000014c2, 0x000014e1, 0x000014ff, 0x00001525,
+	0x0000156c, 0x00001588, 0x0000159d, 0x000015b8,
+	0x000015c6, 0x00001609, 0x00001624, 0x00001647,
 	// Entry 60 - 7F
-	0x000015df, 0x0000172b, 0x0000174d, 0x00001756,
-	0x00001a8f, 0x00001aaa, 0x00001aca, 0x00001af1,
-	0x00001b1f, 0x00001b87, 0x00001b9c, 0x00001c04,
-	0x00001c26, 0x00001c48, 0x00001c6d, 0x00001c98,
-	0x00001cbb, 0x00001ce4, 0x00001d1d, 0x00001d8e,
-	0x00001daf, 0x00001e25, 0x00001ecf, 0x00001ef3,
-	0x00001f15, 0x00001f4e, 0x00002040, 0x00002053,
-	0x00002091, 0x000020b3, 0x000020d1, 0x000020ef,
+	0x00001668, 0x000016c9, 0x00001705, 0x00001735,
+	0x0000175d, 0x00001778, 0x000018c4, 0x000018e6,
+	0x000018ef, 0x00001c28, 0x00001c43, 0x00001c63,
+	0x00001c8a, 0x00001cb8, 0x00001d20, 0x00001d35,
+	0x00001d9d, 0x00001dbf, 0x00001de1, 0x00001e06,
+	0x00001e31, 0x00001e54, 0x00001e7d, 0x00001eb6,
+	0x00001f27, 0x00001f48, 0x00001fbe, 0x00002068,
+	0x0000208c, 0x000020ae, 0x000020e7, 0x000021d9,
 	// Entry 80 - 9F
-	0x00002121, 0x00002168, 0x0000218f, 0x000021bf,
-	0x000021e8, 0x000025c8, 0x000025fe, 0x000026b2,
-	0x000026f6, 0x00002773, 0x00002873, 0x000028c0,
-	0x0000293b, 0x0000295c, 0x0000296e, 0x00002997,
-	0x000029b2, 0x000029d7, 0x000029fa, 0x00002a40,
-	0x00002a5b, 0x00002a77, 0x00002ab6, 0x00002b6c,
-	0x00002bbc, 0x00002bfc, 0x00002c22, 0x00002c7b,
-	0x00002c9a, 0x00002cd6, 0x00002d06, 0x00002d56,
+	0x000021ec, 0x0000222a, 0x0000224c, 0x0000226a,
+	0x00002288, 0x000022ba, 0x00002301, 0x00002328,
+	0x00002358, 0x00002381, 0x00002761, 0x00002797,
+	0x0000284b, 0x0000288f, 0x0000290c, 0x00002a0c,
+	0x00002a59, 0x00002ad4, 0x00002af5, 0x00002b07,
+	0x00002b30, 0x00002b4b, 0x00002b70, 0x00002b93,
+	0x00002bd9, 0x00002bf4, 0x00002c10, 0x00002c4f,
+	0x00002d05, 0x00002d55, 0x00002d95, 0x00002dbb,
 	// Entry A0 - BF
-	0x00002d62, 0x00002d74, 0x00002dcc, 0x00002e58,
-	0x00002e91, 0x00002ee7, 0x00002f25, 0x00002f73,
-	0x00002f8e, 0x00002fc8, 0x00002ffb, 0x00003035,
-	0x0000305f, 0x00003089, 0x000030cb, 0x000030ef,
-	0x000030fc, 0x00003182, 0x000031d4, 0x000031fb,
-	0x00003297, 0x00003329, 0x0000336a, 0x00003380,
-	0x000033eb, 0x0000343a, 0x00003441, 0x00003489,
-	0x000034db, 0x00003535, 0x0000359f, 0x00003630,
+	0x00002e14, 0x00002e33, 0x00002e6f, 0x00002e9f,
+	0x00002eef, 0x00002efb, 0x00002f0d, 0x00002f65,
+	0x00002ff1, 0x0000302a, 0x00003080, 0x000030be,
+	0x0000310c, 0x00003127, 0x00003161, 0x00003194,
+	0x000031ce, 0x000031f8, 0x00003222, 0x00003264,
+	0x00003288, 0x00003295, 0x0000331b, 0x0000336d,
+	0x00003394, 0x00003430, 0x000034c2, 0x00003503,
+	0x00003519, 0x00003584, 0x000035d3, 0x000035da,
 	// Entry C0 - DF
-	0x00003648, 0x00003662, 0x00003686, 0x000036b9,
-	0x000036d1, 0x000036e9, 0x00003701, 0x00003716,
-	0x0000376d, 0x00003798, 0x000037b0, 0x000037d7,
-	0x000037fa, 0x0000380e, 0x00003823, 0x0000382a,
-	0x00003831, 0x00003837, 0x0000383d, 0x0000385e,
-	0x00003888, 0x000038ae, 0x000038e7, 0x0000391f,
-	0x00003957, 0x00003976, 0x000039c2, 0x00003a80,
-	0x00003acc, 0x00003b1a, 0x00003b3d, 0x00003b99,
+	0x00003622, 0x00003674, 0x000036ce, 0x00003738,
+	0x000037c9, 0x000037e1, 0x000037fb, 0x0000381f,
+	0x00003852, 0x0000386a, 0x00003882, 0x0000389a,
+	0x000038af, 0x00003906, 0x00003931, 0x00003949,
+	0x00003970, 0x00003993, 0x000039a7, 0x000039bc,
+	0x000039c3, 0x000039ca, 0x000039d0, 0x000039d6,
+	0x000039f7, 0x00003a21, 0x00003a47, 0x00003a80,
+	0x00003ab8, 0x00003af0, 0x00003b0f, 0x00003b5b,
 	// Entry E0 - FF
-	0x00003be9, 0x00003c3e, 0x00003c81, 0x00003cc0,
-	0x00003d2e, 0x00003d3f, 0x00003d4d, 0x00003d65,
-	0x00003d79, 0x00003d93, 0x00003dbd, 0x00003e20,
-	0x00003e5c, 0x00003e86, 0x00003ebe, 0x00003ee2,
-	0x00003f36, 0x00003f6e, 0x00003fe7, 0x000040a1,
-	0x000040f8, 0x00004127, 0x0000414e, 0x000041da,
-} // Size: 1016 bytes
+	0x00003c19, 0x00003c65, 0x00003cb3, 0x00003cd6,
+	0x00003d32, 0x00003d82, 0x00003dd7, 0x00003e1a,
+	0x00003e59, 0x00003ec7, 0x00003ed8, 0x00003ee6,
+	0x00003efe, 0x00003f12, 0x00003f2c, 0x00003f56,
+	0x00003fb9, 0x00003ff5, 0x0000401f, 0x00004057,
+	0x0000407b, 0x000040cf, 0x00004107, 0x00004180,
+	0x0000423a, 0x00004291, 0x000042c0, 0x000042e7,
+	0x00004373,
+} // Size: 1036 bytes
 
-const koData string = "" + // Size: 16858 bytes
+const koData string = "" + // Size: 17267 bytes
 	"\x02수학 유틸리티\x02배치 실러 스레드의 레이아웃 분석 및 표시\x02CPU에서 배치 실러 스레드의 레이아웃을 분석하고 표시" +
 	"합니다.\x0a\x0a이 작업은 배치 실링 작업의 CPU 사용량에 대한 자세한 정보를 제공하며, 여기에는 코어 할당 및 다양한" +
 	" 배치 크기에 대한 스레드 분포가 포함됩니다.\x02supra_seal 구성 생성\x02주어진 배치 크기에 대한 supra_sea" +
@@ -667,114 +681,117 @@ const koData string = "" + // Size: 16858 bytes
 	"   GOLOG_LOG_FMT   - 출력 로그 형식 변경 (json, nocolor)\x0a   GOLOG_FILE      -" +
 	" 로그를 파일에 기록\x0a   GOLOG_OUTPUT    - 출력 위치 지정 (파일, stderr, stdout 또는 조합, " +
 	"예: file+stderr)\x02로그 시스템으로 제한\x02Filecoin 분산 스토리지 네트워크 제공자\x02디스플레이 출" +
-	"력에 색상 사용\x02출력이 TTY에 의존\x02유가바이트 클러스터의 호스트 이름을 쉼표로 구분한 목록\x02매우 상세한 모드" +
-	"를 활성화하여 CLI 디버깅에 유용\x02증명 매개변수 가져오기\x02[섹터 크기]\x02거래 섹터를 조기에 실링 시작\x02" +
-	"실링할 섹터의 액터 주소 지정\x02합성 PoRep 사용\x02<섹터>\x02오프라인 거래 데이터를 가져올 URL 추가\x02" +
-	"여러 거래 입력에 사용할 CSV 파일 위치. 파일의 각 행은 'uuid, 원시 크기, url, header1, header2." +
-	"..' 형식이어야 합니다.\x02HTTP 요청에 포함할 사용자 정의 `HEADER`\x02요청을 보낼 `URL`\x02거래 담보 " +
-	"지갑에서 자금을 스토리지 시장 액터의 에스크로로 이동\x02사용자가 이 메시지에 대해 지불하려는 FIL의 최대 수수료\x02자" +
-	"금을 보낼 지갑 주소 지정\x02Curio에 대한 새로운 오프라인 검증된 DDO 거래를 생성합니다.\x02거래에 사용할 액터 " +
-	"주소를 지정하세요.\x02이 거래를 포함하는 섹터의 봉인되지 않은 복사본을 제거합니다.\x02거래 인덱스가 IPNI에 발표되지" +
-	" 않아야 함을 나타냅니다.\x02거래가 제공업체에 의해 온체인에서 입증되어야 하는 시작 에포크입니다. (기본값: 현재로부터 2일 " +
-	"후)\x02Curio 프로세스 시작\x02작업자 API가 수신 대기할 호스트 주소와 포트\x02GUI가 수신 대기할 호스트 주" +
-	"소와 포트\x02풀 노드 동기화 상태 확인 안 함\x02init만 실행하고 돌아옴\x02열린 파일 제한 관리\x02해석될 레이" +
-	"어 목록 (기본값 위에). 기본값: base\x02사용자 지정 노드 이름\x02Curio 웹 인터페이스 시작\x02Curio " +
-	"웹 인터페이스 인스턴스를 시작합니다.\x0a\x09존재하지 않으면 'web' 레이어를 생성하고 해당 레이어로 실행을 호출합니다" +
-	".\x02GUI가 수신 대기할 주소\x02실링 파이프라인 관리\x02새로운 실링 작업 수동 시작\x02모든 액터에 대한 섹터 실링" +
-	" 즉시 시작 (일정에 없음)\x02새 CC 섹터 실링 시작\x02시작할 섹터 수\x02섹터를 커밋할 기간\x021278 (3.5년" +
-	")\x02(디버그 도구) LM 섹터 메타데이터를 Curio DB로 복사\x02마이너 저장소 경로\x02이동할 수 없는 섹터 무시" +
-	"\x02파이프라인 이벤트 목록\x02액터 주소로 이벤트 필터링; 지정하지 않으면 모든 이벤트를 나열합니다\x02섹터 번호로 이벤트" +
-	" 필터링; --actor 지정 필요\x02출력을 마지막 N개의 이벤트로 제한\x02실행 중인 Curio 프로세스 중지\x02섹터 " +
-	"스토리지 관리\x02섹터는 여러 파일 시스템 경로에 걸쳐 저장될 수 있습니다.\x0a이 명령은 Curio 노드가 섹터를 장기 " +
-	"저장(증명용, 'store'로 참조)하는 스토리지를 관리하는 방법과\x0a실링 파이프라인을 통해 이동하는 동안 섹터가 어떻게 " +
-	"저장될지를 관리합니다('seal'로 참조).\x02로컬 스토리지 경로 연결\x02[경로]\x04\x00\x04\x0a   " +
-	"\xb0\x06\x02이 명령을 사용하여 Curio 노드에 스토리지를 연결할 수 있습니다. 스토리지 볼륨 목록은 curio run" +
-	"에 설정된 storage.json에 로컬로 저장됩니다.\x0a스토리지 시스템에 대한 추가 이해 없이 수동으로 이 값을 수정하는" +
-	" 것은 권장하지 않습니다.\x0a\x0a각 스토리지 볼륨에는 볼륨의 기능을 설명하는 구성 파일이 포함되어 있습니다. '--init" +
-	"' 플래그가 제공되면 이 파일은 추가 플래그를 사용하여 생성됩니다.\x0a\x0aWeight\x0a높은 가중치 값은 데이터가 이 " +
-	"경로에 저장될 가능성이 더 높다는 것을 의미합니다\x0a\x0aSeal\x0a실링 프로세스 데이터를 여기에 저장합니다\x0a" +
-	"\x0aStore\x0a완료된 섹터는 장기 저장을 위해 여기로 이동되며 시간이 지남에 따라 증명됩니다\x02경로를 먼저 초기화" +
-	"\x02(초기화용) 경로 가중치\x02(초기화용) 실링에 경로 사용\x02(초기화용) 장기 저장에 경로 사용\x02(초기화용) 섹" +
-	"터에 대한 저장 공간 제한 (매우 큰 경로에서는 비용이 많이 듦!)\x02경로 그룹 이름\x02이 경로에서 데이터를 가져올 수" +
-	" 있는 경로 그룹 (지정하지 않으면 모두 허용)\x02로컬 스토리지 경로 분리\x02로컬 스토리지 경로 목록\x02로컬 스토리지 " +
-	"경로만 나열\x02스토리지 시스템에서 섹터 찾기\x02[마이너 주소] [섹터 번호]\x02섹터에 대한 바닐라 증명 생성\x02" +
-	"로컬 스토리지 경로에서 섹터를 다시 선언\x02CLI 명령의 --machine 플래그는 다시 선언할 스토리지가 연결된 노드를 " +
-	"가리켜야 합니다\x02테스트용 유틸리티 기능\x02섹터에 대한 증명 계산 (섹터가 사전 실링되어야 함). 이는 체인으로 전송되" +
-	"지 않습니다.\x02다음 사용 가능한 Curio에서 windowpost 스케줄러를 실행하여 테스트합니다. 모든 재시도가 실패하" +
-	"면 ctrl+c를 눌러 종료해야 합니다.\x04\x00\x01 \x1f\x02WindowPoSt를 계산할 기한\x02Windo" +
-	"wPoSt 계산을 위한 SP ID\x02성능 및 구성 테스트를 위한 WindowPoSt 계산.\x02참고: 이 명령은 PoSt 계" +
-	"산 성능을 검증하기 위해 사용됩니다.\x0a체인으로 메시지를 전송하지 않습니다. 모든 기한을 계산할 수 있으므로 출력이 체인과" +
-	" 부정확하게 일치할 수 있습니다.\x02[기한 인덱스]\x02스토리지 구성 파일이 포함된 JSON 파일의 경로\x02WindowP" +
-	"oSt를 계산할 파티션\x02디버깅 유틸리티 모음\x02미봉인 데이터를 관리\x02미봉인 데이터에 대한 정보 가져오기\x02sec" +
-	"tors_unseal_pipeline 및 sectors_meta 테이블의 데이터 나열\x02스토리지 제공자 ID로 필터링\x02출" +
-	"력 파일 경로 (기본값: 표준 출력)\x02섹터의 목표 미봉인 상태 설정\x04\x00\x01\x0a\xda\x07\x02특정" +
-	" 섹터의 목표 미봉인 상태를 설정합니다.\x0a   <miner-id>: 스토리지 제공자 ID\x0a   <sector-numbe" +
-	"r>: 섹터 번호\x0a   <target-state>: 목표 상태 (true, false, none 중 하나)\x0a\x0a  " +
-	" 미봉인 목표 상태는 Curio가 섹터의 미봉인 복사본을 어떻게 유지할지를 나타냅니다.\x0a\x09   목표 상태가 true이면" +
-	" Curio는 섹터가 미봉인 상태로 유지되도록 보장합니다.\x0a\x09   목표 상태가 false이면 Curio는 섹터에 미봉인" +
-	" 복사본이 없도록 보장합니다.\x0a\x09   목표 상태가 none이면 Curio는 섹터의 현재 상태를 변경하지 않습니다." +
-	"\x0a\x0a   현재, 목표 상태가 다른 상태에서 true로 변경될 때만 Curio는 새로운 미봉인 프로세스를 시작합니다." +
-	"\x0a\x0a   목표 상태가 false이고 미봉인 섹터 파일이 존재하는 경우, GC 마크 단계는 미봉인 섹터 파일에 대한 제거" +
-	" 마크를 생성합니다. 파일은 제거 마크가 승인된 후에만 제거됩니다.\x02미봉인 섹터 파일의 데이터 무결성 확인\x02특정 섹터에" +
-	" 대한 검사 작업을 생성하고 완료를 기다린 후 결과를 출력합니다.\x0a   <miner-id>: 스토리지 제공자 ID\x0a  " +
-	" <sector-number>: 섹터 번호\x04\x00\x01 ?\x02화살표 키를 사용하여 이동하세요: ↓ ↑ → ←\x02이" +
-	" 대화형 도구는 새로운 채굴자 액터를 생성하고 그에 대한 기본 구성 레이어를 생성합니다.\x02이 프로세스는 부분적으로 항등원적입" +
-	"니다. 새로운 채굴자 액터가 생성되었고 후속 단계가 실패하는 경우 사용자는 구성을 완료하기 위해 'curio config ne" +
-	"w-cluster < 채굴자 ID >'를 실행해야 합니다.\x02이 대화형 도구는 5분 안에 lotus-miner를 Curio로 " +
-	"이주합니다.\x02각 단계는 확인이 필요하며 되돌릴 수 있습니다. 언제든지 Ctrl+C를 눌러 종료할 수 있습니다.\x02터미" +
-	"널에서 Ctrl+C가 눌림\x02나는 원한다:\x02기존의 Lotus-Miner에서 이전하기\x02새로운 채굴자 생성\x02나" +
-	"머지 단계를 중단합니다.\x02Lotus-Miner에서 Curio로 이주.\x02데이터베이스 구성 파일을 어디에 저장해야 하나" +
-	"요?\x02마이그레이션 중단.\x02파일 쓰기 오류: %[1]s\x04\x00\x01 :\x02%[1]s와 함께 웹 인터페이스" +
-	"를 시도해보세요\x02더 많은 서버를 위해 /etc/curio.env 파일을 curio.env 데이터베이스 환경으로 만들고 목" +
-	"적을 할당하기 위해 CURIO_LAYERS 환경 변수를 추가하세요.\x02해당하는 경우 이제 시장 노드를 이주할 수 있습니다 " +
-	"(%[1]s).\x02추가 정보는 http://docs.curiostorage.org 에 있습니다.\x02새로운 채굴자 초기화 완" +
-	"료.\x02lotus-miner config.toml을 Curio의 데이터베이스 구성으로 이전 중입니다.\x02API 가져오기" +
-	" 오류: %[1]s\x02FullNode의 API 정보를 가져올 수 없습니다: %[1]w\x02토큰을 가져오는 중 오류 발생: %" +
-	"[1]s\x02이동할 수 없는 섹터가 발견되었습니다. 계속하시겠습니까?\x02예, 계속\x02아니오, 중단\x02레이어에 구성을 " +
-	"저장하는 중 오류 발생: %[1]s. 마이그레이션 중단\x02Curio 팀은 당신이 사용하는 소프트웨어를 개선하고자 합니다. " +
-	"팀에게 `%[1]s`를 사용 중이라고 알려주세요.\x02Curio 팀과 공유하고 싶은 것을 선택하세요.\x02개별 데이터: 채" +
-	"굴자 ID, Curio 버전, 체인 (%[1]s 또는 %[2]s). 서명됨.\x02집계-익명: 버전, 체인, 및 채굴자 파워 " +
-	"(버킷).\x02힌트: 나는 어떤 체인에서든 Curio를 실행 중인 사람입니다.\x02아무것도 없습니다.\x02마이너 파워를 가져" +
-	"오는 중 오류 발생: %[1]s\x02메시지를 마샬하는 중 오류 발생: %[1]s\x02마이너 정보를 가져오는 중 오류 발생:" +
-	" %[1]s\x02메시지 서명 중 오류 발생: %[1]s\x02메시지 전송 중 오류 발생: %[1]s\x04\x00\x01 =" +
-	"\x02메시지 전송 중 오류 발생: 상태 %[1]s, 메시지:\x02메시지가 전송되었습니다.\x04\x00\x01 \x08\x02" +
-	"문서:\x02'%[1]s' 레이어에는 공통 구성이 저장됩니다. 모든 Curio 인스턴스는 %[2]s 인수에 포함시킬 수 있습니" +
-	"다.\x02기계별 구성 변경을 위해 다른 레이어를 추가할 수 있습니다.\x02Filecoin %[1]s 채널: %[2]s 및 " +
-	"%[3]s\x02신뢰성 향상을 위한 중복성 사용: 적어도 post 레이어를 사용하여 여러 대의 기계를 시작하십시오: 'curio " +
-	"run --layers=post'\x02한 개의 데이터베이스는 여러 광부 ID를 제공할 수 있습니다: 각 lotus-miner에 " +
-	"대해 마이그레이션을 실행하세요.\x02Yugabyte에 연결되었습니다. 스키마가 현재입니다.\x02Yugabyte에 연결됨" +
-	"\x02시작하려면 밀봉 파이프라인이 비어 있고 lotus-miner가 종료되었는지 확인하세요.\x02로터스 마이너 구성 디렉토리의" +
-	" 위치를 선택하시겠습니까?\x02기타\x02%[1]s에서 사용하는 구성 디렉터리 경로를 입력하세요.\x04\x00\x01 M" +
-	"\x02경로가 제공되지 않았으므로 마이그레이션을 포기합니다\x02제공된 디렉토리에서 config.toml 파일을 읽을 수 없습니다" +
-	". 오류: %[1]s\x02디렉토리에서 저장소를 생성할 수 없습니다: %[1]s. 마이그레이션을 중단합니다.\x02광부 저장소를 " +
-	"잠금 해제할 수 없습니다. 귀하의 광부를 중지해야 합니다: %[1]s\x0a 마이그레이션을 중단합니다.\x02마이너 구성 읽기" +
-	"\x04\x00\x01\x0a\x15\x02단계 완료: %[1]s\x02새 채굴자 액터 초기화 중.\x02새 채굴자를 생성하기 위" +
-	"한 정보 입력\x02소유자 지갑: %[1]s\x02작업자 지갑: %[1]s\x02발송자 지갑: %[1]s\x02섹터 크기: %" +
-	"[1]s\x02주소를 확인하고 새 채굴자 액터를 생성하려면 계속 진행하세요.\x04\x00\x01 &\x02채굴자 생성 오류 발생" +
-	": %[1]s\x02소유자 주소 입력\x02주소가 제공되지 않았습니다\x02주소 구문 분석 실패: %[1]s\x02%[1]s 주소" +
-	" 입력\x02섹터 크기 선택\x0264 GiB\x0232 GiB\x028 MiB\x022 KiB\x04\x00\x01 \x1c" +
-	"\x02섹터 선택 실패: %[1]s\x02섹터 크기 구문 분석 실패: %[1]s\x02채굴자 액터 생성 실패: %[1]s\x02%" +
-	"[1]s 채굴자가 성공적으로 생성되었습니다\x02데이터베이스에 연결할 수 없습니다: %[1]s\x02풀 노드 API에 연결하는 중" +
-	" 오류 발생: %[1]s\x02사전 초기화 단계 완료\x02비밀번호를 위한 랜덤 바이트 생성에 실패했습니다: %[1]s\x02마이" +
-	"너 생성은 idempotent하지 않으므로 가이드 설정을 다시 실행하지 마십시오. 구성을 완료하려면 'curio config " +
-	"new-cluster %[1]s'를 실행해야 합니다.\x02FullNode에 대한 API 정보를 가져오는 데 실패했습니다: %[1" +
-	"]w\x02데몬 노드로부터 인증 토큰을 확인하는 중 오류 발생: %[1]s\x02기본 구성 생성 실패: %[1]s\x02데이터베이" +
-	"스에 'base' 구성 레이어를 삽입하는 데 실패했습니다: %[1]s\x02이 마이너 주소를 포함한 구성 'base'가 업데이" +
-	"트되었습니다.\x02데이터베이스에서 기본 구성을 로드하는 데 실패했습니다: %[1]s\x02기본 구성을 구문 분석하는 데 실패" +
-	"했습니다: %[1]s\x02기본 구성을 재생성하는 데 실패했습니다: %[1]s\x02Yugabyte 데이터베이스 설치에 연결할" +
-	" 정보를 입력하십시오 (https://download.yugabyte.com/)\x02호스트: %[1]s\x02포트: %[1]s" +
-	"\x02사용자 이름: %[1]s\x02비밀번호: %[1]s\x02데이터베이스: %[1]s\x02계속 연결 및 스키마 업데이트." +
-	"\x04\x00\x01 ^\x02데이터베이스 구성 오류가 발생하여 마이그레이션을 포기합니다: %[1]s\x02Yugabyte 데이" +
-	"터베이스 호스트를 입력하십시오\x02호스트가 제공되지 않았습니다\x02Yugabyte 데이터베이스 %[1]s을 입력하십시오" +
-	"\x02값이 제공되지 않았습니다\x02Yugabyte 데이터베이스에 연결하는 중 오류가 발생했습니다: %[1]s\x02%[1]d " +
-	"섹터의 메타데이터를 이동 중입니다.\x02기본 설정 'base'가 이 마이너의 주소(%[1]s) 및 지갑 설정을 포함하도록 업" +
-	"데이트되었습니다.\x02구성 %[1]s를 %[2]s과 비교하세요. 지갑 주소 이외의 마이너 ID 사이의 변경 사항은 필요한 실" +
-	"행자를 위한 새로운 최소한의 레이어여야 합니다.\x02'base' 설정이 이 lotus-miner의 config.toml과 유" +
-	"사하게 만들어졌습니다.\x04\x00\x01 *\x02레이어 %[1]s가 생성되었습니다.\x04\x00\x01 \x22\x02" +
-	"구성 파일을 사용하려면:\x02Curio를 실행하려면: 기계 또는 cgroup 격리를 사용하여 다음 명령을 사용하세요 (예제 " +
-	"레이어 선택과 함께):"
+	"력에 색상 사용\x02출력이 TTY에 의존\x02유가바이트 클러스터의 호스트 이름을 쉼표로 구분한 목록\x02Yugabyte " +
+	"클러스터의 Postgres 데이터베이스 이름\x02Yugabyte 클러스터의 Postgres 데이터베이스에 연결하기 위한 사용" +
+	"자 이름\x02Yugabyte 클러스터의 Postgres 데이터베이스에 연결하기 위한 비밀번호\x02Yugabyte 클러스터의" +
+	" Postgres 데이터베이스에 연결하기 위한 포트\x02Yugabyte 클러스터의 Cassandra 데이터베이스에 연결하기 위한" +
+	" 포트\x02매우 상세한 모드를 활성화하여 CLI 디버깅에 유용\x02증명 매개변수 가져오기\x02[섹터 크기]\x02거래 섹터를" +
+	" 조기에 실링 시작\x02실링할 섹터의 액터 주소 지정\x02합성 PoRep 사용\x02<섹터>\x02오프라인 거래 데이터를 가져" +
+	"올 URL 추가\x02여러 거래 입력에 사용할 CSV 파일 위치. 파일의 각 행은 'uuid, 원시 크기, url, heade" +
+	"r1, header2...' 형식이어야 합니다.\x02HTTP 요청에 포함할 사용자 정의 `HEADER`\x02요청을 보낼 `UR" +
+	"L`\x02거래 담보 지갑에서 자금을 스토리지 시장 액터의 에스크로로 이동\x02사용자가 이 메시지에 대해 지불하려는 FIL의 최" +
+	"대 수수료\x02자금을 보낼 지갑 주소 지정\x02Curio에 대한 새로운 오프라인 검증된 DDO 거래를 생성합니다.\x02거" +
+	"래에 사용할 액터 주소를 지정하세요.\x02이 거래를 포함하는 섹터의 봉인되지 않은 복사본을 제거합니다.\x02거래 인덱스가 " +
+	"IPNI에 발표되지 않아야 함을 나타냅니다.\x02거래가 제공업체에 의해 온체인에서 입증되어야 하는 시작 에포크입니다. (기본값:" +
+	" 현재로부터 2일 후)\x02Curio 프로세스 시작\x02작업자 API가 수신 대기할 호스트 주소와 포트\x02GUI가 수신 대" +
+	"기할 호스트 주소와 포트\x02풀 노드 동기화 상태 확인 안 함\x02init만 실행하고 돌아옴\x02열린 파일 제한 관리" +
+	"\x02해석될 레이어 목록 (기본값 위에). 기본값: base\x02사용자 지정 노드 이름\x02Curio 웹 인터페이스 시작" +
+	"\x02Curio 웹 인터페이스 인스턴스를 시작합니다.\x0a\x09존재하지 않으면 'web' 레이어를 생성하고 해당 레이어로 실" +
+	"행을 호출합니다.\x02GUI가 수신 대기할 주소\x02실링 파이프라인 관리\x02새로운 실링 작업 수동 시작\x02모든 액터" +
+	"에 대한 섹터 실링 즉시 시작 (일정에 없음)\x02새 CC 섹터 실링 시작\x02시작할 섹터 수\x02섹터를 커밋할 기간" +
+	"\x021278 (3.5년)\x02(디버그 도구) LM 섹터 메타데이터를 Curio DB로 복사\x02마이너 저장소 경로\x02이" +
+	"동할 수 없는 섹터 무시\x02파이프라인 이벤트 목록\x02액터 주소로 이벤트 필터링; 지정하지 않으면 모든 이벤트를 나열합니" +
+	"다\x02섹터 번호로 이벤트 필터링; --actor 지정 필요\x02출력을 마지막 N개의 이벤트로 제한\x02실행 중인 Cur" +
+	"io 프로세스 중지\x02섹터 스토리지 관리\x02섹터는 여러 파일 시스템 경로에 걸쳐 저장될 수 있습니다.\x0a이 명령은 Cu" +
+	"rio 노드가 섹터를 장기 저장(증명용, 'store'로 참조)하는 스토리지를 관리하는 방법과\x0a실링 파이프라인을 통해 이동하" +
+	"는 동안 섹터가 어떻게 저장될지를 관리합니다('seal'로 참조).\x02로컬 스토리지 경로 연결\x02[경로]\x04\x00" +
+	"\x04\x0a   \xb0\x06\x02이 명령을 사용하여 Curio 노드에 스토리지를 연결할 수 있습니다. 스토리지 볼륨 목록" +
+	"은 curio run에 설정된 storage.json에 로컬로 저장됩니다.\x0a스토리지 시스템에 대한 추가 이해 없이 수동으" +
+	"로 이 값을 수정하는 것은 권장하지 않습니다.\x0a\x0a각 스토리지 볼륨에는 볼륨의 기능을 설명하는 구성 파일이 포함되어 " +
+	"있습니다. '--init' 플래그가 제공되면 이 파일은 추가 플래그를 사용하여 생성됩니다.\x0a\x0aWeight\x0a높은" +
+	" 가중치 값은 데이터가 이 경로에 저장될 가능성이 더 높다는 것을 의미합니다\x0a\x0aSeal\x0a실링 프로세스 데이터를 여" +
+	"기에 저장합니다\x0a\x0aStore\x0a완료된 섹터는 장기 저장을 위해 여기로 이동되며 시간이 지남에 따라 증명됩니다" +
+	"\x02경로를 먼저 초기화\x02(초기화용) 경로 가중치\x02(초기화용) 실링에 경로 사용\x02(초기화용) 장기 저장에 경로 " +
+	"사용\x02(초기화용) 섹터에 대한 저장 공간 제한 (매우 큰 경로에서는 비용이 많이 듦!)\x02경로 그룹 이름\x02이 경" +
+	"로에서 데이터를 가져올 수 있는 경로 그룹 (지정하지 않으면 모두 허용)\x02로컬 스토리지 경로 분리\x02로컬 스토리지 경" +
+	"로 목록\x02로컬 스토리지 경로만 나열\x02스토리지 시스템에서 섹터 찾기\x02[마이너 주소] [섹터 번호]\x02섹터에 " +
+	"대한 바닐라 증명 생성\x02로컬 스토리지 경로에서 섹터를 다시 선언\x02CLI 명령의 --machine 플래그는 다시 선언" +
+	"할 스토리지가 연결된 노드를 가리켜야 합니다\x02테스트용 유틸리티 기능\x02섹터에 대한 증명 계산 (섹터가 사전 실링되어야" +
+	" 함). 이는 체인으로 전송되지 않습니다.\x02다음 사용 가능한 Curio에서 windowpost 스케줄러를 실행하여 테스트합니" +
+	"다. 모든 재시도가 실패하면 ctrl+c를 눌러 종료해야 합니다.\x04\x00\x01 \x1f\x02WindowPoSt를 계" +
+	"산할 기한\x02WindowPoSt 계산을 위한 SP ID\x02성능 및 구성 테스트를 위한 WindowPoSt 계산.\x02" +
+	"참고: 이 명령은 PoSt 계산 성능을 검증하기 위해 사용됩니다.\x0a체인으로 메시지를 전송하지 않습니다. 모든 기한을 계산" +
+	"할 수 있으므로 출력이 체인과 부정확하게 일치할 수 있습니다.\x02[기한 인덱스]\x02스토리지 구성 파일이 포함된 JSON" +
+	" 파일의 경로\x02WindowPoSt를 계산할 파티션\x02디버깅 유틸리티 모음\x02미봉인 데이터를 관리\x02미봉인 데이터에" +
+	" 대한 정보 가져오기\x02sectors_unseal_pipeline 및 sectors_meta 테이블의 데이터 나열\x02스토리" +
+	"지 제공자 ID로 필터링\x02출력 파일 경로 (기본값: 표준 출력)\x02섹터의 목표 미봉인 상태 설정\x04\x00\x01" +
+	"\x0a\xda\x07\x02특정 섹터의 목표 미봉인 상태를 설정합니다.\x0a   <miner-id>: 스토리지 제공자 ID" +
+	"\x0a   <sector-number>: 섹터 번호\x0a   <target-state>: 목표 상태 (true, false, " +
+	"none 중 하나)\x0a\x0a   미봉인 목표 상태는 Curio가 섹터의 미봉인 복사본을 어떻게 유지할지를 나타냅니다.\x0a" +
+	"\x09   목표 상태가 true이면 Curio는 섹터가 미봉인 상태로 유지되도록 보장합니다.\x0a\x09   목표 상태가 fa" +
+	"lse이면 Curio는 섹터에 미봉인 복사본이 없도록 보장합니다.\x0a\x09   목표 상태가 none이면 Curio는 섹터의 " +
+	"현재 상태를 변경하지 않습니다.\x0a\x0a   현재, 목표 상태가 다른 상태에서 true로 변경될 때만 Curio는 새로운" +
+	" 미봉인 프로세스를 시작합니다.\x0a\x0a   목표 상태가 false이고 미봉인 섹터 파일이 존재하는 경우, GC 마크 단계는" +
+	" 미봉인 섹터 파일에 대한 제거 마크를 생성합니다. 파일은 제거 마크가 승인된 후에만 제거됩니다.\x02미봉인 섹터 파일의 데이터" +
+	" 무결성 확인\x02특정 섹터에 대한 검사 작업을 생성하고 완료를 기다린 후 결과를 출력합니다.\x0a   <miner-id>: " +
+	"스토리지 제공자 ID\x0a   <sector-number>: 섹터 번호\x04\x00\x01 ?\x02화살표 키를 사용하여 " +
+	"이동하세요: ↓ ↑ → ←\x02이 대화형 도구는 새로운 채굴자 액터를 생성하고 그에 대한 기본 구성 레이어를 생성합니다." +
+	"\x02이 프로세스는 부분적으로 항등원적입니다. 새로운 채굴자 액터가 생성되었고 후속 단계가 실패하는 경우 사용자는 구성을 완료하" +
+	"기 위해 'curio config new-cluster < 채굴자 ID >'를 실행해야 합니다.\x02이 대화형 도구는 5분 " +
+	"안에 lotus-miner를 Curio로 이주합니다.\x02각 단계는 확인이 필요하며 되돌릴 수 있습니다. 언제든지 Ctrl+" +
+	"C를 눌러 종료할 수 있습니다.\x02터미널에서 Ctrl+C가 눌림\x02나는 원한다:\x02기존의 Lotus-Miner에서 이전" +
+	"하기\x02새로운 채굴자 생성\x02나머지 단계를 중단합니다.\x02Lotus-Miner에서 Curio로 이주.\x02데이터베" +
+	"이스 구성 파일을 어디에 저장해야 하나요?\x02마이그레이션 중단.\x02파일 쓰기 오류: %[1]s\x04\x00\x01 :" +
+	"\x02%[1]s와 함께 웹 인터페이스를 시도해보세요\x02더 많은 서버를 위해 /etc/curio.env 파일을 curio.en" +
+	"v 데이터베이스 환경으로 만들고 목적을 할당하기 위해 CURIO_LAYERS 환경 변수를 추가하세요.\x02해당하는 경우 이제 시" +
+	"장 노드를 이주할 수 있습니다 (%[1]s).\x02추가 정보는 http://docs.curiostorage.org 에 있습니" +
+	"다.\x02새로운 채굴자 초기화 완료.\x02lotus-miner config.toml을 Curio의 데이터베이스 구성으로 이" +
+	"전 중입니다.\x02API 가져오기 오류: %[1]s\x02FullNode의 API 정보를 가져올 수 없습니다: %[1]w" +
+	"\x02토큰을 가져오는 중 오류 발생: %[1]s\x02이동할 수 없는 섹터가 발견되었습니다. 계속하시겠습니까?\x02예, 계속" +
+	"\x02아니오, 중단\x02레이어에 구성을 저장하는 중 오류 발생: %[1]s. 마이그레이션 중단\x02Curio 팀은 당신이 사" +
+	"용하는 소프트웨어를 개선하고자 합니다. 팀에게 `%[1]s`를 사용 중이라고 알려주세요.\x02Curio 팀과 공유하고 싶은 " +
+	"것을 선택하세요.\x02개별 데이터: 채굴자 ID, Curio 버전, 체인 (%[1]s 또는 %[2]s). 서명됨.\x02집계" +
+	"-익명: 버전, 체인, 및 채굴자 파워 (버킷).\x02힌트: 나는 어떤 체인에서든 Curio를 실행 중인 사람입니다.\x02아무" +
+	"것도 없습니다.\x02마이너 파워를 가져오는 중 오류 발생: %[1]s\x02메시지를 마샬하는 중 오류 발생: %[1]s" +
+	"\x02마이너 정보를 가져오는 중 오류 발생: %[1]s\x02메시지 서명 중 오류 발생: %[1]s\x02메시지 전송 중 오류 " +
+	"발생: %[1]s\x04\x00\x01 =\x02메시지 전송 중 오류 발생: 상태 %[1]s, 메시지:\x02메시지가 전송되었" +
+	"습니다.\x04\x00\x01 \x08\x02문서:\x02'%[1]s' 레이어에는 공통 구성이 저장됩니다. 모든 Curio 인" +
+	"스턴스는 %[2]s 인수에 포함시킬 수 있습니다.\x02기계별 구성 변경을 위해 다른 레이어를 추가할 수 있습니다.\x02Fi" +
+	"lecoin %[1]s 채널: %[2]s 및 %[3]s\x02신뢰성 향상을 위한 중복성 사용: 적어도 post 레이어를 사용하여 " +
+	"여러 대의 기계를 시작하십시오: 'curio run --layers=post'\x02한 개의 데이터베이스는 여러 광부 ID를 " +
+	"제공할 수 있습니다: 각 lotus-miner에 대해 마이그레이션을 실행하세요.\x02Yugabyte에 연결되었습니다. 스키마" +
+	"가 현재입니다.\x02Yugabyte에 연결됨\x02시작하려면 밀봉 파이프라인이 비어 있고 lotus-miner가 종료되었는지" +
+	" 확인하세요.\x02로터스 마이너 구성 디렉토리의 위치를 선택하시겠습니까?\x02기타\x02%[1]s에서 사용하는 구성 디렉터리 " +
+	"경로를 입력하세요.\x04\x00\x01 M\x02경로가 제공되지 않았으므로 마이그레이션을 포기합니다\x02제공된 디렉토리에서" +
+	" config.toml 파일을 읽을 수 없습니다. 오류: %[1]s\x02디렉토리에서 저장소를 생성할 수 없습니다: %[1]s. " +
+	"마이그레이션을 중단합니다.\x02광부 저장소를 잠금 해제할 수 없습니다. 귀하의 광부를 중지해야 합니다: %[1]s\x0a 마" +
+	"이그레이션을 중단합니다.\x02마이너 구성 읽기\x04\x00\x01\x0a\x15\x02단계 완료: %[1]s\x02새 채굴" +
+	"자 액터 초기화 중.\x02새 채굴자를 생성하기 위한 정보 입력\x02소유자 지갑: %[1]s\x02작업자 지갑: %[1]s" +
+	"\x02발송자 지갑: %[1]s\x02섹터 크기: %[1]s\x02주소를 확인하고 새 채굴자 액터를 생성하려면 계속 진행하세요." +
+	"\x04\x00\x01 &\x02채굴자 생성 오류 발생: %[1]s\x02소유자 주소 입력\x02주소가 제공되지 않았습니다\x02" +
+	"주소 구문 분석 실패: %[1]s\x02%[1]s 주소 입력\x02섹터 크기 선택\x0264 GiB\x0232 GiB\x028" +
+	" MiB\x022 KiB\x04\x00\x01 \x1c\x02섹터 선택 실패: %[1]s\x02섹터 크기 구문 분석 실패: %[1" +
+	"]s\x02채굴자 액터 생성 실패: %[1]s\x02%[1]s 채굴자가 성공적으로 생성되었습니다\x02데이터베이스에 연결할 수 없" +
+	"습니다: %[1]s\x02풀 노드 API에 연결하는 중 오류 발생: %[1]s\x02사전 초기화 단계 완료\x02비밀번호를 위" +
+	"한 랜덤 바이트 생성에 실패했습니다: %[1]s\x02마이너 생성은 idempotent하지 않으므로 가이드 설정을 다시 실행하" +
+	"지 마십시오. 구성을 완료하려면 'curio config new-cluster %[1]s'를 실행해야 합니다.\x02FullN" +
+	"ode에 대한 API 정보를 가져오는 데 실패했습니다: %[1]w\x02데몬 노드로부터 인증 토큰을 확인하는 중 오류 발생: %[" +
+	"1]s\x02기본 구성 생성 실패: %[1]s\x02데이터베이스에 'base' 구성 레이어를 삽입하는 데 실패했습니다: %[1]s" +
+	"\x02이 마이너 주소를 포함한 구성 'base'가 업데이트되었습니다.\x02데이터베이스에서 기본 구성을 로드하는 데 실패했습니다" +
+	": %[1]s\x02기본 구성을 구문 분석하는 데 실패했습니다: %[1]s\x02기본 구성을 재생성하는 데 실패했습니다: %[1]" +
+	"s\x02Yugabyte 데이터베이스 설치에 연결할 정보를 입력하십시오 (https://download.yugabyte.com/)" +
+	"\x02호스트: %[1]s\x02포트: %[1]s\x02사용자 이름: %[1]s\x02비밀번호: %[1]s\x02데이터베이스: %" +
+	"[1]s\x02계속 연결 및 스키마 업데이트.\x04\x00\x01 ^\x02데이터베이스 구성 오류가 발생하여 마이그레이션을 포기" +
+	"합니다: %[1]s\x02Yugabyte 데이터베이스 호스트를 입력하십시오\x02호스트가 제공되지 않았습니다\x02Yugaby" +
+	"te 데이터베이스 %[1]s을 입력하십시오\x02값이 제공되지 않았습니다\x02Yugabyte 데이터베이스에 연결하는 중 오류가 " +
+	"발생했습니다: %[1]s\x02%[1]d 섹터의 메타데이터를 이동 중입니다.\x02기본 설정 'base'가 이 마이너의 주소(" +
+	"%[1]s) 및 지갑 설정을 포함하도록 업데이트되었습니다.\x02구성 %[1]s를 %[2]s과 비교하세요. 지갑 주소 이외의 마이" +
+	"너 ID 사이의 변경 사항은 필요한 실행자를 위한 새로운 최소한의 레이어여야 합니다.\x02'base' 설정이 이 lotus-" +
+	"miner의 config.toml과 유사하게 만들어졌습니다.\x04\x00\x01 *\x02레이어 %[1]s가 생성되었습니다." +
+	"\x04\x00\x01 \x22\x02구성 파일을 사용하려면:\x02Curio를 실행하려면: 기계 또는 cgroup 격리를 사용하" +
+	"여 다음 명령을 사용하세요 (예제 레이어 선택과 함께):"
 
-var zhIndex = []uint32{ // 248 elements
+var zhIndex = []uint32{ // 253 elements
 	// Entry 0 - 1F
 	0x00000000, 0x0000000d, 0x00000038, 0x000000e6,
 	0x000000ff, 0x000001d8, 0x00000229, 0x0000023b,
@@ -789,65 +806,67 @@ var zhIndex = []uint32{ // 248 elements
 	0x00000655, 0x00000686, 0x000006ae, 0x000006c7,
 	0x000006e1, 0x000006f4, 0x00000707, 0x0000071a,
 	0x00000723, 0x000008f0, 0x00000906, 0x00000931,
-	0x00000950, 0x0000096c, 0x0000099a, 0x000009cc,
-	0x000009df, 0x000009ee, 0x00000a0d, 0x00000a35,
-	0x00000a48, 0x00000a51, 0x00000a7b, 0x00000af8,
-	0x00000b23, 0x00000b39, 0x00000b85, 0x00000bb8,
+	0x00000950, 0x0000096c, 0x0000099a, 0x000009c9,
+	0x00000a02, 0x00000a38, 0x00000a6e, 0x00000aa5,
+	0x00000ad7, 0x00000aea, 0x00000af9, 0x00000b18,
+	0x00000b40, 0x00000b53, 0x00000b5c, 0x00000b86,
 	// Entry 40 - 5F
-	0x00000bda, 0x00000c0b, 0x00000c33, 0x00000c67,
-	0x00000c92, 0x00000ced, 0x00000d01, 0x00000d2b,
-	0x00000d4e, 0x00000d6d, 0x00000d8f, 0x00000dab,
-	0x00000de9, 0x00000dff, 0x00000e19, 0x00000e98,
-	0x00000eac, 0x00000ec2, 0x00000ee1, 0x00000f1b,
-	0x00000f38, 0x00000f51, 0x00000f6d, 0x00000f7c,
-	0x00000fbe, 0x00000fd1, 0x00000fed, 0x00001003,
-	0x00001040, 0x00001073, 0x00001098, 0x000010bb,
+	0x00000c03, 0x00000c2e, 0x00000c44, 0x00000c90,
+	0x00000cc3, 0x00000ce5, 0x00000d16, 0x00000d3e,
+	0x00000d72, 0x00000d9d, 0x00000df8, 0x00000e0c,
+	0x00000e36, 0x00000e59, 0x00000e78, 0x00000e9a,
+	0x00000eb6, 0x00000ef4, 0x00000f0a, 0x00000f24,
+	0x00000fa3, 0x00000fb7, 0x00000fcd, 0x00000fec,
+	0x00001026, 0x00001043, 0x0000105c, 0x00001078,
+	0x00001087, 0x000010c9, 0x000010dc, 0x000010f8,
 	// Entry 60 - 7F
-	0x000010ce, 0x000011b7, 0x000011d0, 0x000011d9,
-	0x0000142c, 0x0000143f, 0x00001461, 0x00001489,
-	0x000014b7, 0x00001518, 0x00001528, 0x0000157a,
-	0x00001593, 0x000015ac, 0x000015c8, 0x000015e7,
-	0x00001605, 0x00001627, 0x00001652, 0x000016a4,
-	0x000016ba, 0x00001718, 0x0000179d, 0x000017c4,
-	0x000017f2, 0x00001826, 0x000018d3, 0x000018e8,
-	0x00001913, 0x0000192f, 0x00001942, 0x0000195b,
+	0x0000110e, 0x0000114b, 0x0000117e, 0x000011a3,
+	0x000011c6, 0x000011d9, 0x000012c2, 0x000012db,
+	0x000012e4, 0x00001537, 0x0000154a, 0x0000156c,
+	0x00001594, 0x000015c2, 0x00001623, 0x00001633,
+	0x00001685, 0x0000169e, 0x000016b7, 0x000016d3,
+	0x000016f2, 0x00001710, 0x00001732, 0x0000175d,
+	0x000017af, 0x000017c5, 0x00001823, 0x000018a8,
+	0x000018cf, 0x000018fd, 0x00001931, 0x000019de,
 	// Entry 80 - 9F
-	0x0000197a, 0x000019bd, 0x000019da, 0x00001a08,
-	0x00001a2a, 0x00001d2b, 0x00001d5c, 0x00001de2,
-	0x00001e15, 0x00001e6d, 0x00001f16, 0x00001f5e,
-	0x00001fad, 0x00001fc6, 0x00001fd3, 0x00001ff3,
-	0x0000200c, 0x00002022, 0x0000203f, 0x0000207c,
-	0x0000208c, 0x000020a6, 0x000020cc, 0x00002153,
-	0x00002194, 0x000021c7, 0x000021e3, 0x00002228,
-	0x00002245, 0x0000226e, 0x0000228c, 0x000022c0,
+	0x000019f3, 0x00001a1e, 0x00001a3a, 0x00001a4d,
+	0x00001a66, 0x00001a85, 0x00001ac8, 0x00001ae5,
+	0x00001b13, 0x00001b35, 0x00001e36, 0x00001e67,
+	0x00001eed, 0x00001f20, 0x00001f78, 0x00002021,
+	0x00002069, 0x000020b8, 0x000020d1, 0x000020de,
+	0x000020fe, 0x00002117, 0x0000212d, 0x0000214a,
+	0x00002187, 0x00002197, 0x000021b1, 0x000021d7,
+	0x0000225e, 0x0000229f, 0x000022d2, 0x000022ee,
 	// Entry A0 - BF
-	0x000022d0, 0x000022dd, 0x00002316, 0x0000236a,
-	0x00002397, 0x000023e6, 0x00002421, 0x00002456,
-	0x00002460, 0x00002484, 0x000024a2, 0x000024c6,
-	0x000024e4, 0x00002502, 0x00002537, 0x0000254a,
-	0x00002559, 0x000025b3, 0x000025f0, 0x00002618,
-	0x00002677, 0x000026c7, 0x000026f4, 0x00002709,
-	0x00002754, 0x00002784, 0x0000278b, 0x000027b5,
-	0x000027d9, 0x0000281d, 0x0000284f, 0x00002898,
+	0x00002333, 0x00002350, 0x00002379, 0x00002397,
+	0x000023cb, 0x000023db, 0x000023e8, 0x00002421,
+	0x00002475, 0x000024a2, 0x000024f1, 0x0000252c,
+	0x00002561, 0x0000256b, 0x0000258f, 0x000025ad,
+	0x000025d1, 0x000025ef, 0x0000260d, 0x00002642,
+	0x00002655, 0x00002664, 0x000026be, 0x000026fb,
+	0x00002723, 0x00002782, 0x000027d2, 0x000027ff,
+	0x00002814, 0x0000285f, 0x0000288f, 0x00002896,
 	// Entry C0 - DF
-	0x000028ab, 0x000028c5, 0x000028e4, 0x00002909,
-	0x00002920, 0x00002934, 0x0000294b, 0x0000295f,
-	0x00002990, 0x000029b5, 0x000029cb, 0x000029db,
-	0x000029f5, 0x00002a09, 0x00002a1c, 0x00002a23,
-	0x00002a2a, 0x00002a30, 0x00002a36, 0x00002a55,
-	0x00002a75, 0x00002a95, 0x00002aaf, 0x00002acc,
-	0x00002afd, 0x00002b16, 0x00002b3f, 0x00002bcc,
-	0x00002bf8, 0x00002c33, 0x00002c53, 0x00002c84,
+	0x000028c0, 0x000028e4, 0x00002928, 0x0000295a,
+	0x000029a3, 0x000029b6, 0x000029d0, 0x000029ef,
+	0x00002a14, 0x00002a2b, 0x00002a3f, 0x00002a56,
+	0x00002a6a, 0x00002a9b, 0x00002ac0, 0x00002ad6,
+	0x00002ae6, 0x00002b00, 0x00002b14, 0x00002b27,
+	0x00002b2e, 0x00002b35, 0x00002b3b, 0x00002b41,
+	0x00002b60, 0x00002b80, 0x00002ba0, 0x00002bba,
+	0x00002bd7, 0x00002c08, 0x00002c21, 0x00002c4a,
 	// Entry E0 - FF
-	0x00002cb7, 0x00002ce4, 0x00002d05, 0x00002d2b,
-	0x00002d85, 0x00002d94, 0x00002da3, 0x00002db5,
-	0x00002dc4, 0x00002dd6, 0x00002df5, 0x00002e2d,
-	0x00002e52, 0x00002e62, 0x00002e80, 0x00002e8d,
-	0x00002eb9, 0x00002ee3, 0x00002f34, 0x00002fb6,
-	0x00002ffd, 0x00003017, 0x0000302f, 0x00003086,
-} // Size: 1016 bytes
+	0x00002cd7, 0x00002d03, 0x00002d3e, 0x00002d5e,
+	0x00002d8f, 0x00002dc2, 0x00002def, 0x00002e10,
+	0x00002e36, 0x00002e90, 0x00002e9f, 0x00002eae,
+	0x00002ec0, 0x00002ecf, 0x00002ee1, 0x00002f00,
+	0x00002f38, 0x00002f5d, 0x00002f6d, 0x00002f8b,
+	0x00002f98, 0x00002fc4, 0x00002fee, 0x0000303f,
+	0x000030c1, 0x00003108, 0x00003122, 0x0000313a,
+	0x00003191,
+} // Size: 1036 bytes
 
-const zhData string = "" + // Size: 12422 bytes
+const zhData string = "" + // Size: 12689 bytes
 	"\x02数学工具\x02分析并显示批量封装线程的布局\x02分析并显示CPU上批量封装线程的布局。\x0a\x0a提供有关批量封装操作的CPU利" +
 	"用率的详细信息，包括核心分配和不同批量大小的线程分布。\x02生成 supra_seal 配置\x02为指定的批量大小生成 supra_se" +
 	"al 配置。\x0a\x0a此命令输出 SupraSeal 所需的配置，主要用于调试和测试。配置可以直接用于 SupraSeal 二进制文件进行" +
@@ -867,82 +886,85 @@ const zhData string = "" + // Size: 12422 bytes
 	"_LEVEL - 所有日志系统的默认日志级别\x0a GOLOG_LOG_FMT   - 更改输出日志格式 (json, nocolor)" +
 	"\x0a GOLOG_FILE      - 将日志写入文件\x0a GOLOG_OUTPUT    - 指定是否输出到文件、stderr、st" +
 	"dout 或组合，例如 file+stderr\x02限制到日志系统\x02Filecoin 去中心化存储网络提供商\x02在显示输出中使用颜色" +
-	"\x02取决于输出是否为TTY\x02Yugabyte 集群的主机名命令分隔列表\x02启用非常详细的模式，有助于调试 CLI\x02获取证明参" +
-	"数\x02[扇区大小]\x02提前开始封装交易扇区\x02指定演员地址以开始封装扇区\x02使用合成 PoRep\x02<扇区>\x02添加" +
-	" URL 以获取离线交易的数据\x02用于多交易输入的 CSV 文件位置。文件中的每一行应为格式 'uuid, 原始大小, URL, heade" +
-	"r1, header2...'\x02在 HTTP 请求中包含自定义 `HEADER`\x02发送请求的 `URL`\x02将资金从交易抵押钱包" +
-	"转移到存储市场参与者的托管账户\x02用户愿意为此消息支付的最大 FIL 费用\x02指定发送资金的钱包地址\x02为 Curio 创建新的" +
-	"离线验证 DDO 交易。\x02请指定此交易的参与者地址。\x02删除包含此交易的扇区的未密封副本。\x02表示交易索引不应向 IPNI 公" +
-	"布。\x02交易应由提供者在链上证明的起始 epoch。（默认值：从现在起 2 天）\x02启动 Curio 进程\x02worker AP" +
-	"I 监听的主机地址和端口\x02GUI 监听的主机地址和端口\x02不检查全节点同步状态\x02仅运行初始化，然后返回\x02管理打开文件的限制" +
-	"\x02要解释的层列表（在默认值之上）。默认：base\x02自定义节点名称\x02启动 Curio 网络界面\x02启动 Curio 网络界面" +
-	"的一个实例。\x0a\x09如果“web”层不存在，则创建该层，然后使用该层调用运行。\x02GUI 监听的地址\x02管理封装流水线" +
-	"\x02手动开始新的封装操作\x02立即为所有演员开始封装扇区（非计划内）\x02开始封装新的 CC 扇区\x02要开始的扇区数量\x02承诺扇" +
-	"区的时间长度\x021278 (3.5 年)\x02（调试工具）将 LM 扇区元数据复制到 Curio 数据库\x02矿工库的路径\x02忽" +
-	"略无法迁移的扇区\x02列出流水线事件\x02按演员地址过滤事件；如果未指定则列出所有\x02按扇区编号过滤事件；需要指定 --actor" +
-	"\x02将输出限制为最后 N 个事件\x02停止正在运行的 Curio 进程\x02管理扇区存储\x02扇区可以存储在多个文件系统路径中。这些命" +
-	"令提供了管理 Curio 节点用于长期存储和证明的存储方法（参考为“store”），以及封装过程中扇区的存储方式（参考为“seal”）。" +
-	"\x02附加本地存储路径\x02[路径]\x04\x00\x04\x0a   \xca\x04\x02可以使用此命令将存储附加到 Curio 节" +
-	"点。存储卷列表存储在本地 Curio 节点中的 storage.json 文件中，通过 curio run 设置。建议在了解存储系统之前，不" +
-	"要手动修改此值。\x0a\x0a每个存储卷包含一个配置文件，该文件描述了该卷的功能。提供 '--init' 标志时，将使用其他标志创建此文件" +
-	"。\x0a\x0a权重\x0a较高的权重值意味着数据更有可能存储在此路径中\x0a\x0a封装\x0a封装过程的数据将存储在这里\x0a" +
-	"\x0a存储\x0a已完成的扇区将移至此处进行长期存储，并随着时间推移进行证明\x02先初始化路径\x02（用于初始化）路径权重\x02（用于初" +
-	"始化）路径用于封装\x02（用于初始化）路径用于长期存储\x02（用于初始化）限制扇区的存储空间（对非常大的路径来说成本较高！）\x02路径" +
-	"组名称\x02允许从此路径提取数据的路径组（如果未指定，则允许所有）\x02分离本地存储路径\x02列出本地存储路径\x02仅列出本地存储路" +
-	"径\x02在存储系统中查找扇区\x02[矿工地址] [扇区编号]\x02为一个扇区生成原始证明\x02在本地存储路径中重新声明扇区\x02C" +
-	"LI 命令中的 --machine 标志应指向连接了要重新声明存储的节点\x02测试的实用功能\x02为扇区计算时空证明（需要预封装的扇区）。这" +
-	"些将不会发送到链上。\x02通过在下一个可用的 Curio 上运行来测试窗口后调度器。如果所有重试都失败，则需要按 ctrl+c 退出。" +
-	"\x04\x00\x01 \x22\x02计算 WindowPoSt 的截止日期\x02用于计算 WindowPoSt 的存储提供者 ID" +
-	"\x02计算 WindowPoSt 以进行性能和配置测试。\x02注意：此命令旨在用于验证 PoSt 计算性能。\x0a它不会向链发送任何消息。" +
-	"由于它可以计算任何截止日期，输出的时间可能与链不符。\x02[截止日期索引]\x02包含存储配置的 JSON 文件的路径\x02计算 Win" +
-	"dowPoSt 的分区\x02调试工具集合\x02管理未密封的数据\x02获取未密封数据的信息\x02列出来自 sectors_unseal_p" +
-	"ipeline 和 sectors_meta 表的数据\x02按存储提供者 ID 过滤\x02输出文件路径（默认：标准输出）\x02设置扇区的目" +
-	"标解封状态\x04\x00\x01\x0a\xfb\x05\x02为特定扇区设置目标解封状态。\x0a   <miner-id>: 存储提供" +
-	"者 ID\x0a   <sector-number>: 扇区号\x0a   <target-state>: 目标状态（true、false " +
-	"或 none）\x0a\x0a   解封目标状态表示 Curio 应如何维护扇区的未密封副本。\x0a\x09   如果目标状态为 true" +
-	"，Curio 将确保扇区未密封。\x0a\x09   如果目标状态为 false，Curio 将确保扇区没有未密封副本。\x0a\x09  " +
-	" 如果目标状态为 none，Curio 将不会更改扇区的当前状态。\x0a\x0a   当前，Curio 仅在目标状态从其他状态更改为 true" +
-	" 时启动新的解封进程。\x0a\x0a   当目标状态为 false 且存在未密封的扇区文件时，GC 标记步骤将为未密封的扇区文件创建一个删除标" +
-	"记。文件将在删除标记被接受后才会被移除。\x02检查未密封扇区文件中的数据完整性\x02为特定扇区创建检查任务，等待其完成并输出结果。" +
-	"\x0a   <miner-id>: 存储提供者 ID\x0a   <sector-number>: 扇区号\x04\x00\x01 .\x02" +
-	"使用箭头键进行导航：↓ ↑ → ←\x02此交互式工具将创建一个新的矿工角色，并为其创建基本配置层。\x02该过程部分幂等。一旦创建了新的矿" +
-	"工角色，并且随后的步骤失败，用户需要运行 'curio config new-cluster < 矿工 ID >' 来完成配置。\x02这个" +
-	"交互式工具可以在5分钟内将lotus-miner迁移到Curio。\x02每一步都需要您的确认，并且可以撤销。随时按Ctrl+C退出。" +
-	"\x02在终端中按下Ctrl+C\x02我想要：\x02从现有的 Lotus-Miner 迁移\x02创建一个新的矿工\x02中止剩余步骤。" +
-	"\x02Lotus-Miner到Curio迁移。\x02我们应该把你的数据库配置文件保存在哪里？\x02中止迁移。\x02写入文件错误: %[1" +
-	"]s\x04\x00\x01 !\x02尝试使用%[1]s的网页界面\x02对于更多服务器，请使用 curio.env 数据库环境创建 /etc" +
-	"/curio.env 并添加 CURIO_LAYERS 环境变量以分配用途。\x02如果适用，您现在可以迁移您的市场节点(%[1]s)。\x02" +
-	"更多信息请访问 http://docs.curiostorage.org\x02新矿工初始化完成。\x02将 lotus-miner con" +
-	"fig.toml 迁移到 Curio 的数据库配置中。\x02获取 API 时出错：%[1]s\x02无法获取FullNode的API信息：%[" +
-	"1]w\x02获取令牌时出错：%[1]s\x02发现无法迁移的扇区。您想要继续吗？\x02是的，继续\x02不，中止\x02保存配置到层时出错：" +
-	"%[1]s。正在中止迁移\x02Curio 团队希望改进您使用的软件。告诉团队您正在使用 `%[1]s`。\x02选择您想与Curio团队分享的" +
-	"内容。\x02个人数据：矿工 ID，Curio 版本，链（%[1]s 或 %[2]s）。签名。\x02聚合-匿名：版本，链和矿工算力（分桶）" +
-	"。\x02提示：我是在任何链上运行 Curio 的人。\x02没有。\x02获取矿工功率时出错：%[1]s\x02整理消息时出错：%[1]s" +
-	"\x02获取矿工信息时出错：%[1]s\x02签署消息时出错：%[1]s\x02发送消息时出错：%[1]s\x04\x00\x01 0\x02发" +
-	"送消息时出错：状态%[1]s，消息：\x02消息已发送。\x04\x00\x01 \x0a\x02文档：\x02'%[1]s'层存储通用配置" +
-	"。所有Curio实例都可以在其%[2]s参数中包含它。\x02您可以添加其他层进行每台机器的配置更改。\x02Filecoin %[1]s " +
-	"频道：%[2]s 和 %[3]s\x02通过冗余增加可靠性：使用至少后层启动多台机器：'curio run --layers=post'" +
-	"\x02一个数据库可以服务多个矿工ID：为每个lotus-miner运行迁移。\x02已连接到Yugabyte。模式是当前的。\x02已连接到Y" +
-	"ugabyte\x02开始之前，请确保您的密封管道已排空并关闭lotus-miner。\x02选择您的lotus-miner配置目录的位置？" +
-	"\x02其他\x02输入%[1]s使用的配置目录的路径\x04\x00\x01 \x1f\x02未提供路径，放弃迁移\x02无法读取提供的目录中" +
-	"的config.toml文件，错误：%[1]s\x02无法从目录创建repo：%[1]s。 中止迁移\x02无法锁定矿工repo。 您的矿工" +
-	"必须停止：%[1]s\x0a 中止迁移\x02读取矿工配置\x04\x00\x01\x0a\x15\x02步骤完成：%[1]s\x02初始化" +
-	"新的矿工角色。\x02输入创建新矿工所需的信息\x02所有者钱包: %[1]s\x02工人钱包: %[1]s\x02发送者钱包: %[1]s" +
-	"\x02扇区大小: %[1]s\x02继续验证地址并创建新的矿工角色。\x04\x00\x01  \x02矿工创建错误发生: %[1]s\x02" +
-	"输入所有者地址\x02未提供地址\x02解析地址失败: %[1]s\x02输入 %[1]s 地址\x02选择扇区大小\x0264 GiB" +
-	"\x0232 GiB\x028 MiB\x022 KiB\x04\x00\x01 \x1a\x02扇区选择失败: %[1]s\x02解析扇区大小" +
-	"失败: %[1]s\x02创建矿工角色失败: %[1]s\x02矿工 %[1]s 创建成功\x02无法访问数据库: %[1]s\x02连接到" +
-	"完整节点 API 时发生错误: %[1]s\x02预初始化步骤完成\x02生成密码的随机字节失败: %[1]s\x02请不要再次运行引导设置" +
-	"，因为矿工创建不是幂等的。 您需要运行 'curio config new-cluster %[1]s' 来完成配置。\x02无法获取 Fu" +
-	"llNode 的 API 信息: %[1]w\x02无法验证来自守护进程节点的授权令牌: %[1]s\x02无法生成默认配置: %[1]s" +
-	"\x02无法将 'base' 配置层插入数据库: %[1]s\x02配置 'base' 已更新以包含此矿工的地址\x02从数据库加载基本配置失败" +
-	"：%[1]s\x02解析基本配置失败：%[1]s\x02重新生成基本配置失败: %[1]s\x02输入连接到您的Yugabyte数据库安装的" +
-	"信息（https://download.yugabyte.com/）\x02主机：%[1]s\x02端口：%[1]s\x02用户名：%[1]" +
-	"s\x02密码：%[1]s\x02数据库：%[1]s\x02继续连接和更新架构。\x04\x00\x01 3\x02发生数据库配置错误，放弃迁移" +
-	"：%[1]s\x02输入Yugabyte数据库主机（S）\x02未提供主机\x02输入Yugabyte数据库 %[1]s\x02未提供值" +
-	"\x02连接到Yugabyte数据库时出错：%[1]s\x02正在迁移%[1]d个扇区的元数据。\x02'base'配置已更新，包括该矿工的地址" +
-	"（%[1]s）及其钱包设置。\x02比较配置%[1]s和%[2]s。矿工ID之间除了钱包地址的变化应该是需要的运行者的一个新的、最小的层。" +
-	"\x02'base'配置已创建，以类似于这个lotus-miner的config.toml。\x04\x00\x01 \x15\x02层%[1]" +
-	"s已创建。\x04\x00\x01 \x13\x02要使用配置：\x02运行Curio：使用机器或cgroup隔离，使用命令（附带示例层选择）："
+	"\x02取决于输出是否为TTY\x02Yugabyte 集群的主机名命令分隔列表\x02Yugabyte 集群中 Postgres 数据库的名称" +
+	"\x02连接 Yugabyte 集群中 Postgres 数据库的用户名\x02连接 Yugabyte 集群中 Postgres 数据库的密码" +
+	"\x02连接 Yugabyte 集群中 Postgres 数据库的端口\x02连接 Yugabyte 集群中 Cassandra 数据库的端口" +
+	"\x02启用非常详细的模式，有助于调试 CLI\x02获取证明参数\x02[扇区大小]\x02提前开始封装交易扇区\x02指定演员地址以开始封装" +
+	"扇区\x02使用合成 PoRep\x02<扇区>\x02添加 URL 以获取离线交易的数据\x02用于多交易输入的 CSV 文件位置。文件中" +
+	"的每一行应为格式 'uuid, 原始大小, URL, header1, header2...'\x02在 HTTP 请求中包含自定义 `HE" +
+	"ADER`\x02发送请求的 `URL`\x02将资金从交易抵押钱包转移到存储市场参与者的托管账户\x02用户愿意为此消息支付的最大 FIL 费" +
+	"用\x02指定发送资金的钱包地址\x02为 Curio 创建新的离线验证 DDO 交易。\x02请指定此交易的参与者地址。\x02删除包含此" +
+	"交易的扇区的未密封副本。\x02表示交易索引不应向 IPNI 公布。\x02交易应由提供者在链上证明的起始 epoch。（默认值：从现在起 " +
+	"2 天）\x02启动 Curio 进程\x02worker API 监听的主机地址和端口\x02GUI 监听的主机地址和端口\x02不检查全节点" +
+	"同步状态\x02仅运行初始化，然后返回\x02管理打开文件的限制\x02要解释的层列表（在默认值之上）。默认：base\x02自定义节点名称" +
+	"\x02启动 Curio 网络界面\x02启动 Curio 网络界面的一个实例。\x0a\x09如果“web”层不存在，则创建该层，然后使用该层" +
+	"调用运行。\x02GUI 监听的地址\x02管理封装流水线\x02手动开始新的封装操作\x02立即为所有演员开始封装扇区（非计划内）\x02" +
+	"开始封装新的 CC 扇区\x02要开始的扇区数量\x02承诺扇区的时间长度\x021278 (3.5 年)\x02（调试工具）将 LM 扇区" +
+	"元数据复制到 Curio 数据库\x02矿工库的路径\x02忽略无法迁移的扇区\x02列出流水线事件\x02按演员地址过滤事件；如果未指定则" +
+	"列出所有\x02按扇区编号过滤事件；需要指定 --actor\x02将输出限制为最后 N 个事件\x02停止正在运行的 Curio 进程" +
+	"\x02管理扇区存储\x02扇区可以存储在多个文件系统路径中。这些命令提供了管理 Curio 节点用于长期存储和证明的存储方法（参考为“stor" +
+	"e”），以及封装过程中扇区的存储方式（参考为“seal”）。\x02附加本地存储路径\x02[路径]\x04\x00\x04\x0a   " +
+	"\xca\x04\x02可以使用此命令将存储附加到 Curio 节点。存储卷列表存储在本地 Curio 节点中的 storage.json 文件" +
+	"中，通过 curio run 设置。建议在了解存储系统之前，不要手动修改此值。\x0a\x0a每个存储卷包含一个配置文件，该文件描述了该卷的" +
+	"功能。提供 '--init' 标志时，将使用其他标志创建此文件。\x0a\x0a权重\x0a较高的权重值意味着数据更有可能存储在此路径中" +
+	"\x0a\x0a封装\x0a封装过程的数据将存储在这里\x0a\x0a存储\x0a已完成的扇区将移至此处进行长期存储，并随着时间推移进行证明" +
+	"\x02先初始化路径\x02（用于初始化）路径权重\x02（用于初始化）路径用于封装\x02（用于初始化）路径用于长期存储\x02（用于初始化）" +
+	"限制扇区的存储空间（对非常大的路径来说成本较高！）\x02路径组名称\x02允许从此路径提取数据的路径组（如果未指定，则允许所有）\x02分" +
+	"离本地存储路径\x02列出本地存储路径\x02仅列出本地存储路径\x02在存储系统中查找扇区\x02[矿工地址] [扇区编号]\x02为一个" +
+	"扇区生成原始证明\x02在本地存储路径中重新声明扇区\x02CLI 命令中的 --machine 标志应指向连接了要重新声明存储的节点" +
+	"\x02测试的实用功能\x02为扇区计算时空证明（需要预封装的扇区）。这些将不会发送到链上。\x02通过在下一个可用的 Curio 上运行来测试" +
+	"窗口后调度器。如果所有重试都失败，则需要按 ctrl+c 退出。\x04\x00\x01 \x22\x02计算 WindowPoSt 的截止" +
+	"日期\x02用于计算 WindowPoSt 的存储提供者 ID\x02计算 WindowPoSt 以进行性能和配置测试。\x02注意：此命令" +
+	"旨在用于验证 PoSt 计算性能。\x0a它不会向链发送任何消息。由于它可以计算任何截止日期，输出的时间可能与链不符。\x02[截止日期索引" +
+	"]\x02包含存储配置的 JSON 文件的路径\x02计算 WindowPoSt 的分区\x02调试工具集合\x02管理未密封的数据\x02获取" +
+	"未密封数据的信息\x02列出来自 sectors_unseal_pipeline 和 sectors_meta 表的数据\x02按存储提供者" +
+	" ID 过滤\x02输出文件路径（默认：标准输出）\x02设置扇区的目标解封状态\x04\x00\x01\x0a\xfb\x05\x02为特定扇" +
+	"区设置目标解封状态。\x0a   <miner-id>: 存储提供者 ID\x0a   <sector-number>: 扇区号\x0a  " +
+	" <target-state>: 目标状态（true、false 或 none）\x0a\x0a   解封目标状态表示 Curio 应如何维护扇" +
+	"区的未密封副本。\x0a\x09   如果目标状态为 true，Curio 将确保扇区未密封。\x0a\x09   如果目标状态为 fals" +
+	"e，Curio 将确保扇区没有未密封副本。\x0a\x09   如果目标状态为 none，Curio 将不会更改扇区的当前状态。\x0a\x0a" +
+	"   当前，Curio 仅在目标状态从其他状态更改为 true 时启动新的解封进程。\x0a\x0a   当目标状态为 false 且存在未密封" +
+	"的扇区文件时，GC 标记步骤将为未密封的扇区文件创建一个删除标记。文件将在删除标记被接受后才会被移除。\x02检查未密封扇区文件中的数据完整" +
+	"性\x02为特定扇区创建检查任务，等待其完成并输出结果。\x0a   <miner-id>: 存储提供者 ID\x0a   <sector-" +
+	"number>: 扇区号\x04\x00\x01 .\x02使用箭头键进行导航：↓ ↑ → ←\x02此交互式工具将创建一个新的矿工角色，并为其" +
+	"创建基本配置层。\x02该过程部分幂等。一旦创建了新的矿工角色，并且随后的步骤失败，用户需要运行 'curio config new-clu" +
+	"ster < 矿工 ID >' 来完成配置。\x02这个交互式工具可以在5分钟内将lotus-miner迁移到Curio。\x02每一步都需要您" +
+	"的确认，并且可以撤销。随时按Ctrl+C退出。\x02在终端中按下Ctrl+C\x02我想要：\x02从现有的 Lotus-Miner 迁移" +
+	"\x02创建一个新的矿工\x02中止剩余步骤。\x02Lotus-Miner到Curio迁移。\x02我们应该把你的数据库配置文件保存在哪里？" +
+	"\x02中止迁移。\x02写入文件错误: %[1]s\x04\x00\x01 !\x02尝试使用%[1]s的网页界面\x02对于更多服务器，请使" +
+	"用 curio.env 数据库环境创建 /etc/curio.env 并添加 CURIO_LAYERS 环境变量以分配用途。\x02如果适用" +
+	"，您现在可以迁移您的市场节点(%[1]s)。\x02更多信息请访问 http://docs.curiostorage.org\x02新矿工初" +
+	"始化完成。\x02将 lotus-miner config.toml 迁移到 Curio 的数据库配置中。\x02获取 API 时出错：%[" +
+	"1]s\x02无法获取FullNode的API信息：%[1]w\x02获取令牌时出错：%[1]s\x02发现无法迁移的扇区。您想要继续吗？" +
+	"\x02是的，继续\x02不，中止\x02保存配置到层时出错：%[1]s。正在中止迁移\x02Curio 团队希望改进您使用的软件。告诉团队您正" +
+	"在使用 `%[1]s`。\x02选择您想与Curio团队分享的内容。\x02个人数据：矿工 ID，Curio 版本，链（%[1]s 或 %[" +
+	"2]s）。签名。\x02聚合-匿名：版本，链和矿工算力（分桶）。\x02提示：我是在任何链上运行 Curio 的人。\x02没有。\x02获取矿" +
+	"工功率时出错：%[1]s\x02整理消息时出错：%[1]s\x02获取矿工信息时出错：%[1]s\x02签署消息时出错：%[1]s\x02发" +
+	"送消息时出错：%[1]s\x04\x00\x01 0\x02发送消息时出错：状态%[1]s，消息：\x02消息已发送。\x04\x00" +
+	"\x01 \x0a\x02文档：\x02'%[1]s'层存储通用配置。所有Curio实例都可以在其%[2]s参数中包含它。\x02您可以添加其他" +
+	"层进行每台机器的配置更改。\x02Filecoin %[1]s 频道：%[2]s 和 %[3]s\x02通过冗余增加可靠性：使用至少后层启动" +
+	"多台机器：'curio run --layers=post'\x02一个数据库可以服务多个矿工ID：为每个lotus-miner运行迁移。" +
+	"\x02已连接到Yugabyte。模式是当前的。\x02已连接到Yugabyte\x02开始之前，请确保您的密封管道已排空并关闭lotus-mi" +
+	"ner。\x02选择您的lotus-miner配置目录的位置？\x02其他\x02输入%[1]s使用的配置目录的路径\x04\x00\x01 " +
+	"\x1f\x02未提供路径，放弃迁移\x02无法读取提供的目录中的config.toml文件，错误：%[1]s\x02无法从目录创建repo：%" +
+	"[1]s。 中止迁移\x02无法锁定矿工repo。 您的矿工必须停止：%[1]s\x0a 中止迁移\x02读取矿工配置\x04\x00\x01" +
+	"\x0a\x15\x02步骤完成：%[1]s\x02初始化新的矿工角色。\x02输入创建新矿工所需的信息\x02所有者钱包: %[1]s\x02" +
+	"工人钱包: %[1]s\x02发送者钱包: %[1]s\x02扇区大小: %[1]s\x02继续验证地址并创建新的矿工角色。\x04\x00" +
+	"\x01  \x02矿工创建错误发生: %[1]s\x02输入所有者地址\x02未提供地址\x02解析地址失败: %[1]s\x02输入 %[1" +
+	"]s 地址\x02选择扇区大小\x0264 GiB\x0232 GiB\x028 MiB\x022 KiB\x04\x00\x01 \x1a" +
+	"\x02扇区选择失败: %[1]s\x02解析扇区大小失败: %[1]s\x02创建矿工角色失败: %[1]s\x02矿工 %[1]s 创建成功" +
+	"\x02无法访问数据库: %[1]s\x02连接到完整节点 API 时发生错误: %[1]s\x02预初始化步骤完成\x02生成密码的随机字节失" +
+	"败: %[1]s\x02请不要再次运行引导设置，因为矿工创建不是幂等的。 您需要运行 'curio config new-cluster %" +
+	"[1]s' 来完成配置。\x02无法获取 FullNode 的 API 信息: %[1]w\x02无法验证来自守护进程节点的授权令牌: %[1]" +
+	"s\x02无法生成默认配置: %[1]s\x02无法将 'base' 配置层插入数据库: %[1]s\x02配置 'base' 已更新以包含此矿" +
+	"工的地址\x02从数据库加载基本配置失败：%[1]s\x02解析基本配置失败：%[1]s\x02重新生成基本配置失败: %[1]s\x02输" +
+	"入连接到您的Yugabyte数据库安装的信息（https://download.yugabyte.com/）\x02主机：%[1]s\x02" +
+	"端口：%[1]s\x02用户名：%[1]s\x02密码：%[1]s\x02数据库：%[1]s\x02继续连接和更新架构。\x04\x00" +
+	"\x01 3\x02发生数据库配置错误，放弃迁移：%[1]s\x02输入Yugabyte数据库主机（S）\x02未提供主机\x02输入Yugab" +
+	"yte数据库 %[1]s\x02未提供值\x02连接到Yugabyte数据库时出错：%[1]s\x02正在迁移%[1]d个扇区的元数据。\x02" +
+	"'base'配置已更新，包括该矿工的地址（%[1]s）及其钱包设置。\x02比较配置%[1]s和%[2]s。矿工ID之间除了钱包地址的变化应该是" +
+	"需要的运行者的一个新的、最小的层。\x02'base'配置已创建，以类似于这个lotus-miner的config.toml。\x04" +
+	"\x00\x01 \x15\x02层%[1]s已创建。\x04\x00\x01 \x13\x02要使用配置：\x02运行Curio：使用机器或c" +
+	"group隔离，使用命令（附带示例层选择）："
 
-	// Total table size 45860 bytes (44KiB); checksum: A0629696
+	// Total table size 46915 bytes (45KiB); checksum: 4B43D06C

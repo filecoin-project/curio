@@ -71,7 +71,7 @@ func isNotFoundErr(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "not found")
 }
 
-func NewIndexStore(hosts []string, cfg *config.CurioConfig) (*IndexStore, error) {
+func NewIndexStore(hosts []string, port int, cfg *config.CurioConfig) (*IndexStore, error) {
 	if len(hosts) == 0 {
 		return nil, xerrors.Errorf("no hosts provided for cassandra")
 	}
@@ -80,6 +80,7 @@ func NewIndexStore(hosts []string, cfg *config.CurioConfig) (*IndexStore, error)
 	cluster.Timeout = 5 * time.Minute
 	cluster.Consistency = gocql.One
 	cluster.NumConns = cfg.Market.StorageMarketConfig.Indexing.InsertConcurrency * 8
+	cluster.Port = port
 
 	store := &IndexStore{
 		cluster: cluster,

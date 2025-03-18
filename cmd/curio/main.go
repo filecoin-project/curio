@@ -133,22 +133,32 @@ func main() {
 			&cli.StringFlag{
 				Name:    "db-name",
 				EnvVars: []string{"CURIO_DB_NAME", "CURIO_HARMONYDB_NAME"},
+				Usage:   translations.T("Name of the Postgres database in Yugabyte cluster"),
 				Value:   "yugabyte",
 			},
 			&cli.StringFlag{
 				Name:    "db-user",
+				Usage:   translations.T("Username for connecting to the Postgres database in Yugabyte cluster"),
 				EnvVars: []string{"CURIO_DB_USER", "CURIO_HARMONYDB_USERNAME"},
 				Value:   "yugabyte",
 			},
 			&cli.StringFlag{
 				Name:    "db-password",
+				Usage:   translations.T("Password for connecting to the Postgres database in Yugabyte cluster"),
 				EnvVars: []string{"CURIO_DB_PASSWORD", "CURIO_HARMONYDB_PASSWORD"},
 				Value:   "yugabyte",
 			},
 			&cli.StringFlag{
 				Name:    "db-port",
+				Usage:   translations.T("Port for connecting to the Postgres database in Yugabyte cluster"),
 				EnvVars: []string{"CURIO_DB_PORT", "CURIO_HARMONYDB_PORT"},
 				Value:   "5433",
+			},
+			&cli.IntFlag{
+				Name:    "db-cassandra-port",
+				Usage:   translations.T("Port for connecting to the Cassandra database in Yugabyte cluster"),
+				EnvVars: []string{"CURIO_DB_CASSANDRA_PORT", "CURIO_INDEXDB_PORT"},
+				Value:   9042,
 			},
 			&cli.StringFlag{
 				Name:    deps.FlagRepoPath,

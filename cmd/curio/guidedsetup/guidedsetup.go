@@ -208,14 +208,11 @@ func complete(d *MigrationData) {
 	stepCompleted(d, d.T("Lotus-Miner to Curio Migration."))
 }
 
-var EnvFiles = []string{"/etc/curio.env", "./curio/curio.env", "~/config/curio.env"}
-
 func afterRan(d *MigrationData) {
-	// Write curio.env file.
-	// Inform users they need to copy this to /etc/curio.env or ~/.config/curio.env to run Curio.
-	places := append([]string{"/tmp/curio.env",
+	// Write curio.env file for user's reference
+	places := []string{"/tmp/curio.env",
 		must.One(os.Getwd()) + "/curio.env",
-		must.One(os.UserHomeDir()) + "/curio.env"}, EnvFiles...)
+		must.One(os.UserHomeDir()) + "/curio.env"}
 saveConfigFile:
 	_, where, err := (&promptui.Select{
 		Label:     d.T("Where should we save your database config file?"),
@@ -227,15 +224,16 @@ saveConfigFile:
 		os.Exit(1)
 	}
 
-	args := []string{fmt.Sprintf("CURIO_DB=postgres://%s:%s@%s:%s/%s",
-		d.HarmonyCfg.Username,
-		d.HarmonyCfg.Password,
-		d.HarmonyCfg.Hosts[0],
-		d.HarmonyCfg.Port,
-		d.HarmonyCfg.Database)}
+	lines := []string{
+		fmt.Sprintf("export CURIO_DB_HOST=%s", strings.Join(d.HarmonyCfg.Hosts, ",")),
+		fmt.Sprintf("export CURIO_DB_USER=%s", d.HarmonyCfg.Username),
+		fmt.Sprintf("export CURIO_DB_PASSWORD=%s", d.HarmonyCfg.Password),
+		fmt.Sprintf("export CURIO_DB_PORT=%s", d.HarmonyCfg.Port),
+		fmt.Sprintf("export CURIO_DB_NAME=%s", d.HarmonyCfg.Database),
+	}
 
 	// Write the file
-	err = os.WriteFile(where, []byte(strings.Join(args, "\n")), 0644)
+	err = os.WriteFile(where, []byte(strings.Join(lines, "\n")), 0644)
 	if err != nil {
 		d.say(notice, "Error writing file: %s", err.Error())
 		goto saveConfigFile

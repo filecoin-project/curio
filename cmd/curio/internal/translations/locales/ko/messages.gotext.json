@@ -2061,6 +2061,36 @@
             "translation": "JSON 형식으로 출력",
             "message": "output in json format",
             "placeholder": null
+        },
+        {
+            "id": "Name of the Postgres database in Yugabyte cluster",
+            "translation": "Yugabyte 클러스터의 Postgres 데이터베이스 이름",
+            "message": "Name of the Postgres database in Yugabyte cluster",
+            "placeholder": null
+        },
+        {
+            "id": "Username for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Yugabyte 클러스터의 Postgres 데이터베이스에 연결하기 위한 사용자 이름",
+            "message": "Username for connecting to the Postgres database in Yugabyte cluster",
+            "placeholder": null
+        },
+        {
+            "id": "Password for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Yugabyte 클러스터의 Postgres 데이터베이스에 연결하기 위한 비밀번호",
+            "message": "Password for connecting to the Postgres database in Yugabyte cluster",
+            "placeholder": null
+        },
+        {
+            "id": "Port for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Yugabyte 클러스터의 Postgres 데이터베이스에 연결하기 위한 포트",
+            "message": "Port for connecting to the Postgres database in Yugabyte cluster",
+            "placeholder": null
+        },
+        {
+            "id": "Port for connecting to the Cassandra database in Yugabyte cluster",
+            "translation": "Yugabyte 클러스터의 Cassandra 데이터베이스에 연결하기 위한 포트",
+            "message": "Port for connecting to the Cassandra database in Yugabyte cluster",
+            "placeholder": null
         }
     ]
 }
