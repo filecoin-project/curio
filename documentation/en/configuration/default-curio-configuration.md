@@ -267,6 +267,13 @@ description: The default curio configuration
   # type: int
   #IndexingMaxTasks = 8
 
+  # BindSDRTreeToNode forces the TreeD and TreeRC tasks to be executed on the same node where SDR task was executed
+  # for the sector. Please ensure that TreeD and TreeRC task are enabled and relevant resources are available before
+  # enabling this option. (Default: false)
+  #
+  # type: bool
+  #BindSDRTreeToNode = false
+
 
 # Fees holds the fee-related configuration parameters for various operations in the Curio node.
 #

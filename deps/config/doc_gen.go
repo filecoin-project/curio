@@ -765,6 +765,14 @@ also be bounded by resources available on the machine. (Default: 0 - unlimited)`
 			Comment: `The maximum amount of indexing and IPNI tasks that can run simultaneously. Note that the maximum number of tasks will
 also be bounded by resources available on the machine. (Default: 8)`,
 		},
+		{
+			Name: "BindSDRTreeToNode",
+			Type: "bool",
+
+			Comment: `BindSDRTreeToNode forces the TreeD and TreeRC tasks to be executed on the same node where SDR task was executed
+for the sector. Please ensure that TreeD and TreeRC task are enabled and relevant resources are available before
+enabling this option. (Default: false)`,
+		},
 	},
 	"HTTPConfig": {
 		{
