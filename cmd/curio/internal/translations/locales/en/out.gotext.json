@@ -352,6 +352,41 @@
             "fuzzy": true
         },
         {
+            "id": "Name of the Postgres database in Yugabyte cluster",
+            "message": "Name of the Postgres database in Yugabyte cluster",
+            "translation": "Name of the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Username for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Username for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Username for connecting to the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Password for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Password for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Password for connecting to the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Port for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Port for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Port for connecting to the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Port for connecting to the Cassandra database in Yugabyte cluster",
+            "message": "Port for connecting to the Cassandra database in Yugabyte cluster",
+            "translation": "Port for connecting to the Cassandra database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "enables very verbose mode, useful for debugging the CLI",
             "message": "enables very verbose mode, useful for debugging the CLI",
             "translation": "enables very verbose mode, useful for debugging the CLI",

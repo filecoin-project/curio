@@ -24,16 +24,17 @@ COMMANDS:
    help, h       Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-   --color              use color in display output (default: depends on output being a TTY)
-   --db-host value      Command separated list of hostnames for yugabyte cluster (default: "127.0.0.1") [$CURIO_DB_HOST, $CURIO_HARMONYDB_HOSTS]
-   --db-name value      (default: "yugabyte") [$CURIO_DB_NAME, $CURIO_HARMONYDB_NAME]
-   --db-user value      (default: "yugabyte") [$CURIO_DB_USER, $CURIO_HARMONYDB_USERNAME]
-   --db-password value  (default: "yugabyte") [$CURIO_DB_PASSWORD, $CURIO_HARMONYDB_PASSWORD]
-   --db-port value      (default: "5433") [$CURIO_DB_PORT, $CURIO_HARMONYDB_PORT]
-   --repo-path value    (default: "~/.curio") [$CURIO_REPO_PATH]
-   --vv                 enables very verbose mode, useful for debugging the CLI (default: false)
-   --help, -h           show help
-   --version, -v        print the version
+   --color                    use color in display output (default: depends on output being a TTY)
+   --db-host value            Command separated list of hostnames for yugabyte cluster (default: "127.0.0.1") [$CURIO_DB_HOST, $CURIO_HARMONYDB_HOSTS]
+   --db-name value            Name of the Postgres database in Yugabyte cluster (default: "yugabyte") [$CURIO_DB_NAME, $CURIO_HARMONYDB_NAME]
+   --db-user value            Username for connecting to the Postgres database in Yugabyte cluster (default: "yugabyte") [$CURIO_DB_USER, $CURIO_HARMONYDB_USERNAME]
+   --db-password value        Password for connecting to the Postgres database in Yugabyte cluster (default: "yugabyte") [$CURIO_DB_PASSWORD, $CURIO_HARMONYDB_PASSWORD]
+   --db-port value            Port for connecting to the Postgres database in Yugabyte cluster (default: "5433") [$CURIO_DB_PORT, $CURIO_HARMONYDB_PORT]
+   --db-cassandra-port value  Port for connecting to the Cassandra database in Yugabyte cluster (default: 9042) [$CURIO_DB_CASSANDRA_PORT, $CURIO_INDEXDB_PORT]
+   --repo-path value          (default: "~/.curio") [$CURIO_REPO_PATH]
+   --vv                       enables very verbose mode, useful for debugging the CLI (default: false)
+   --help, -h                 show help
+   --version, -v              print the version
 ```
 
 ## curio cli

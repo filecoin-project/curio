@@ -2031,6 +2031,36 @@
       "translation": "以 JSON 格式输出",
       "message": "output in json format",
       "placeholder": null
+    },
+    {
+      "id": "Name of the Postgres database in Yugabyte cluster",
+      "translation": "Yugabyte 集群中 Postgres 数据库的名称",
+      "message": "Name of the Postgres database in Yugabyte cluster",
+      "placeholder": null
+    },
+    {
+      "id": "Username for connecting to the Postgres database in Yugabyte cluster",
+      "translation": "连接 Yugabyte 集群中 Postgres 数据库的用户名",
+      "message": "Username for connecting to the Postgres database in Yugabyte cluster",
+      "placeholder": null
+    },
+    {
+      "id": "Password for connecting to the Postgres database in Yugabyte cluster",
+      "translation": "连接 Yugabyte 集群中 Postgres 数据库的密码",
+      "message": "Password for connecting to the Postgres database in Yugabyte cluster",
+      "placeholder": null
+    },
+    {
+      "id": "Port for connecting to the Postgres database in Yugabyte cluster",
+      "translation": "连接 Yugabyte 集群中 Postgres 数据库的端口",
+      "message": "Port for connecting to the Postgres database in Yugabyte cluster",
+      "placeholder": null
+    },
+    {
+      "id": "Port for connecting to the Cassandra database in Yugabyte cluster",
+      "translation": "连接 Yugabyte 集群中 Cassandra 数据库的端口",
+      "message": "Port for connecting to the Cassandra database in Yugabyte cluster",
+      "placeholder": null
     }
   ]
 }

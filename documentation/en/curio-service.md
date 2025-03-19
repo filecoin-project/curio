@@ -46,12 +46,28 @@ CURIO_DB_USER=yugabyte
 CURIO_DB_PASSWORD=yugabyte
 CURIO_DB_PORT=5433
 CURIO_DB_NAME=yugabyte
+CURIO_DB_CASSANDRA_PORT=9042
 CURIO_REPO_PATH=~/.curio
 CURIO_NODE_NAME=ChangeMe
 FIL_PROOFS_USE_MULTICORE_SDR=1
 ```
 
-Ensure all variables are correctly set according to your environment. Additionally you can also export the following variable for cache location.
+| Variable | Description                                                                                                                                          | Example Value |
+|----------|------------------------------------------------------------------------------------------------------------------------------------------------------|----------------|
+| `CURIO_LAYERS` | Config layers to be stacked and used for this Curio node                                                                                             | `gui,post` |
+| `CURIO_ALL_REMAINING_FIELDS_ARE_OPTIONAL` | Allows optional fields to use defaults. This ensures that missing configurations are not treated as errors, instead, they will be assigned defaults  | `true` |
+| `CURIO_DB_HOST` | Database hosts (comma-separated) for the YugabyteDB cluster                                                                                          | `yugabyte1,yugabyte2,yugabyte3` |
+| `CURIO_DB_USER` | Username for authenticating with YugabyteDB's Postgres Database defined by `CURIO_DB_NAME`                                                           | `yugabyte` |
+| `CURIO_DB_PASSWORD` | Password for the specified CURIO_DB_USER                                                                                                             | `yugabyte` |
+| `CURIO_DB_PORT` | Port for YugabyteDB Postgres connection                                                                                                              | `5433` |
+| `CURIO_DB_NAME` | Name of the PostgreSQL database in YugabyteDB                                                                                                        | `yugabyte` |
+| `CURIO_DB_CASSANDRA_PORT` | Port for YugabyteDB Cassandra connection                                                                                                             | `9042` |
+| `CURIO_REPO_PATH` | Directory for Curio storage configuration `json` file                                                                                                | `~/.curio` |
+| `CURIO_NODE_NAME` | Name of the Curio node                                                                                                                               | `ChangeMe` |
+| `FIL_PROOFS_USE_MULTICORE_SDR` | Enables multi-core SDR in Filecoin                                                                                                                   | `1` |
+
+
+Ensure all variables are correctly set according to your environment. Additionally, you can also export the following variable for cache location.
 
 ```sh
 FIL_PROOFS_PARAMETER_CACHE=/path/to/folder/in/fast/disk
