@@ -71,8 +71,9 @@ type CidGravityPayload struct {
 			Sealing                 int `json:"Sealing"`
 		} `json:"DealStagingStates"`
 		Pipeline struct {
-			IsSnap bool                        `json:"IsSnap"`
-			States map[string]map[string]int64 `json:"States"`
+			IsSnap            bool                        `json:"IsSnap"`
+			UnderBackPressure bool                        `json:"UnderBackPressure"`
+			States            map[string]map[string]int64 `json:"States"`
 		}
 	}
 
@@ -508,6 +509,14 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 
 		data.SealingPipelineState.Pipeline.States = structToNestedMap(ct)
 	}
+
+	// Apply backpressure
+	wait, err := m.maybeApplyBackpressure(ctx, deal.ClientDealProposal.Proposal.Provider)
+	if err != nil {
+		return nil, xerrors.Errorf("applying backpressure: %w", err)
+	}
+
+	data.SealingPipelineState.Pipeline.UnderBackPressure = wait
 
 	return json.Marshal(data)
 }
