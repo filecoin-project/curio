@@ -27,7 +27,7 @@ Debain packages are only available for mainnet right now. For any other network 
     sudo apt update
     ```
 3.  Install Curio binaries based on your GPU.
-    
+
     For NVIDIA GPUs:
 
     ```bash
@@ -119,64 +119,72 @@ sudo sysctl -w net.core.rmem_max=2097152
 sudo sysctl -w net.core.rmem_default=2097152
 ```
 
+To persist the UDP buffer size across the reboot, update the `/etc/sysctl.conf` file.
+
+```bash
+echo 'net.core.rmem_max=2097152' | sudo tee -a /etc/sysctl.conf
+echo 'net.core.rmem_default=2097152' | sudo tee -a /etc/sysctl.conf
+```
+
 ### Build and install Curio
 
 Once all the dependencies are installed, you can build and install Curio.
 
-1. Clone the repository:
+1.  Clone the repository:\
 
-    ```shell
+
+    ```bash
     git clone https://github.com/filecoin-project/curio.git
     cd curio/
     ```
+2.  Switch to the latest stable release branch:\
 
-2. Switch to the latest stable release branch:
 
-    ```shell
+    ```bash
     git checkout <release version>
     ```
+3.  Enable the use of SHA extensions by adding these two environment variables:
 
-3. Depending on your CPU model, you will want to export additional environment variables:
-   1.  If you have **an AMD Zen or Intel Ice Lake CPU (or later)**, enable the use of SHA extensions by adding these two environment variables:
 
-       ```shell
-       export RUSTFLAGS="-C target-cpu=native -g"
-       export FFI_BUILD_FROM_SOURCE=1
-       ```
 
-       See the [Native Filecoin FFI section](#native-filecoin-ffi) for more details about this process.
-   2.  Some older Intel and AMD processors without the ADX instruction support may panic with illegal instruction errors. To solve this, add the `CGO_CFLAGS` environment variable:
+    <pre class="language-bash"><code class="lang-bash">export RUSTFLAGS="-C target-cpu=native -g"
+    export FFI_BUILD_FROM_SOURCE=1
 
-       ```shell
-       export CGO_CFLAGS_ALLOW="-D__BLST_PORTABLE__"
-       export CGO_CFLAGS="-D__BLST_PORTABLE__"
-       ```
-   3.  By default, a ‘multicore-sdr’ option is used in the proofs library. This feature is also used in FFI unless explicitly disabled. To disable building with the ‘multicore-sdr’ dependency, set `FFI_USE_MULTICORE_SDR` to `0`:
+    <strong>echo 'export RUSTFLAGS="-C target-cpu=native -g"' >> ~/.bashrc
+    </strong>echo 'export FFI_BUILD_FROM_SOURCE=1' >> ~/.bashrc
+    source ~/.bashrc
+    </code></pre>
+4.  If you are using a **Nvidia GPU**, please set the below environment variables.\
 
-       ```shell
-       export FFI_USE_MULTICORE_SDR=0
-       ```
-4. Build and install Curio:\
-   Curio is compiled to operate on a single network.\
-   Choose the network you want to join, then run the corresponding command to build the Curio node:
+
+    ```bash
+    export FFI_USE_CUDA=1
+    export FFI_USE_CUDA_SUPRASEAL=1
+
+    echo 'export FFI_USE_CUDA=1' >> ~/.bashrc
+    echo 'export FFI_USE_CUDA_SUPRASEAL=1' >> ~/.bashrc
+    source ~/.bashrc
+    ```
+5.  Curio is compiled to operate on a single network. Choose the network you want to join, then run the corresponding command to build the Curio node:\
+
 
     ```shell
     # For Mainnet:
     make clean build
-    
+
     # For Calibration Testnet:
     make clean calibnet
     ```
 
-Install Curio:
 
-```shell
-sudo make install
-```
+6.  Install Curio. This will put `curio` in `/usr/local/bin`. `curio` will use the `$HOME/.curio` folder by default.
 
-This will put `curio` in `/usr/local/bin`. `curio` will use the `$HOME/.curio` folder by default.
 
-Run `curio --version`
+
+    ```shell
+    sudo make install
+    ```
+7. Run `curio --version`
 
 ```md
 curio version 1.24.5+mainnet+git_214226e7_2025-02-19T17:02:54+04:00
@@ -184,18 +192,7 @@ curio version 1.24.5+mainnet+git_214226e7_2025-02-19T17:02:54+04:00
 curio version 1.24.5+calibnet+git_214226e7_2025-02-19T17:02:54+04:00
 ```
 
-1. You should now have Curio installed. You can now [finish setting up the Curio node](setup.md).
-
-### Native Filecoin FFI
-
-Some newer CPU architectures like AMD’s Zen and Intel’s Ice Lake have support for SHA extensions. Having these extensions enabled significantly speeds up your Curio node. To make full use of your processor’s capabilities, make sure you set the following variables **before building from source**:
-
-```shell
-export RUSTFLAGS="-C target-cpu=native -g"
-export FFI_BUILD_FROM_SOURCE=1
-```
-
-This method of building does not produce portable binaries. Make sure you run the binary on the same computer as you built it.
+You should now have Curio installed. You can now [finish setting up the Curio node](setup.md).
 
 ## MacOS Build from source
 
@@ -221,7 +218,7 @@ This should output something like:
 /Library/Developer/CommandLineTools
 ```
 
-If this command returns a path, then you have Xcode already installed! You can [move on to installing dependencies with Homebrew](#homebrew). If the above command doesn’t return a path, install Xcode:
+If this command returns a path, then you have Xcode already installed! You can [move on to installing dependencies with Homebrew](installation.md#homebrew). If the above command doesn’t return a path, install Xcode:
 
 ```shell
 xcode-select --install
@@ -236,7 +233,8 @@ We recommend that macOS users use [Homebrew](https://brew.sh/) to install each o
 Use the command `brew install` to install the following packages:
 
 ```shell
-brew install go jq pkg-config hwloc coreutils
+brew install jq pkg-config hwloc coreutils
+brew install go@1.23
 ```
 
 Next up is cloning the Lotus repository and building the executables.
@@ -253,8 +251,8 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 The installation instructions are different depending on which CPU is in your Mac:
 
-* [ARM-based CPUs (M1, M2, M3)](#arm-based-cpus)
-* [Intel CPUs](#intel-cpus)
+* [ARM-based CPUs (M1, M2, M3)](installation.md#arm-based-cpus)
+* [Intel CPUs](installation.md#intel-cpus)
 
 #### **Arm based CPUs**
 
@@ -293,11 +291,11 @@ The installation instructions are different depending on which CPU is in your Ma
     # or
     curio version 1.24.5+calibnet+git_214226e7_2025-02-19T17:02:54+04:00
     ```
-7. You should now have Curio installed. You can now [set up a new Curio cluster or migrating from Lotus-Miner](setup.md).
+7. You should now have Curio installed. You can now [finish setting up the Curio node](setup.md).
 
 #### **Intel CPUs**
 
-❗These instructions are for installing Curio on an Intel Mac. If you have an Arm-based CPU, use the [Arm-based CPU instructions ↑](#arm-based-cpus)
+❗These instructions are for installing Curio on an Intel Mac. If you have an Arm-based CPU, use the [Arm-based CPU instructions ↑](installation.md#arm-based-cpus)
 
 1.  Clone the repository:
 
@@ -324,4 +322,4 @@ The installation instructions are different depending on which CPU is in your Ma
     curio version 1.23.0+calibnet+git_ae625a5_2024-08-21T15:21:45+04:00
     ```
 
-    You can now [finish setting up the Curio node](setup.md).
+You can now [finish setting up the Curio node](setup.md).
