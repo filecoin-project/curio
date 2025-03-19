@@ -67,7 +67,47 @@ func FromReader(reader io.Reader, def interface{}, opts ...LoadCfgOpt) (interfac
 		return nil, err
 	}
 	cfg := def
-	md, err := toml.NewDecoder(reader).Decode(cfg)
+	var buf bytes.Buffer
+	_, err = io.Copy(&buf, reader)
+	if err != nil {
+		return toml.MetaData{}, err
+	}
+
+	// This is a workaround to set the length of [[Addresses]] correctly before we do toml.Decode.
+	// The reason this is required is that toml libraries create nil pointer to uninitialized structs.
+	// This in turn causes failure to decode types like types.FIL which are struct with unexported pointer inside
+	if ccfg, ok := cfg.(*CurioConfig); ok {
+
+		type AddressLengthDetector struct {
+			Addresses []struct{} `toml:"Addresses"`
+		}
+
+		var lengthDetector AddressLengthDetector
+		_, err := toml.Decode(buf.String(), &lengthDetector)
+		if err != nil {
+			return toml.MetaData{}, xerrors.Errorf("Error decoding TOML for length detection: %w", err)
+		}
+
+		l := len(lengthDetector.Addresses)
+		il := len(ccfg.Addresses)
+
+		for l > il {
+			ccfg.Addresses = append(ccfg.Addresses, CurioAddresses{
+				PreCommitControl:      []string{},
+				CommitControl:         []string{},
+				DealPublishControl:    []string{},
+				TerminateControl:      []string{},
+				DisableOwnerFallback:  false,
+				DisableWorkerFallback: false,
+				MinerAddresses:        []string{},
+				BalanceManager:        DefaultBalanceManager(),
+			})
+			il++
+		}
+		cfg = ccfg
+	}
+
+	md, err := toml.Decode(buf.String(), cfg)
 	if err != nil {
 		return nil, err
 	}

@@ -627,6 +627,7 @@ func stepNewMinerConfig(d *MigrationData) {
 		DisableOwnerFallback:  false,
 		DisableWorkerFallback: false,
 		MinerAddresses:        []string{d.MinerID.String()},
+		BalanceManager:        config.DefaultBalanceManager(),
 	})
 
 	sk, err := io.ReadAll(io.LimitReader(rand.Reader, 32))
