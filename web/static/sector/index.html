@@ -65,14 +65,19 @@
     </section>
   </curio-ux>
   <script>
-
     let dt = new DataTable('#sectorTable', {
-      ajax: '/api/sector/all',
+      processing: true,         // show "processing" indicator
+      serverSide: true,         // DataTables will send pagination parameters
+      ajax: {
+        url: '/api/sector/all',  // match your route
+        type: 'POST'
+      },
       columns: [
         { title: "", data: null },
-        { title: "Miner", data: 'MinerAddress',  },
+        { title: "Miner", data: 'MinerAddress' },
         {
-          title: "Sector", data: 'SectorNum', render: function (data, type, row) {
+          title: "Sector", data: 'SectorNum',
+          render: function (data, type, row) {
             if (type === 'display') {
               return `<a href="/pages/sector/?sp=${row.MinerAddress}&id=${data}">${data}</a>`;
             }
@@ -91,48 +96,13 @@
         { title: "Size", data: "SealInfo" },
         { title: "Flag", data: "Flag" }
       ],
-      layout: {
-        topStart: 'buttons',
-        bottomStart: 'info',
+      select: {
+        style: 'multi',
+        selector: 'td:first-child',
+        items: 'row',
+        rows: '%d rows selected',
+        headerCheckbox: true,
       },
-      buttons: [
-        {
-          extend: 'copy',
-          text: '📋'
-        },
-        'csv',
-        {
-          extend: 'selected',
-          text: 'Terminate & Delete',
-          action: function (e, dt, button, config) {
-            var res = dt.rows({ selected: true }).data().toArray().map(function (row) {
-              return { MinerAddress: row.MinerAddress, Sector: row.SectorNum };
-            });
-            console.log(res);
-            var confirmMessage = res.map(obj => `MinerAddress: ${obj.MinerAddress}, Sector: ${obj.Sector}`).join(", ");
-
-            if (confirm("Terminate & Delete: " + confirmMessage)) {
-              axios.post('/api/sector/terminate', res)
-                .then(function (response) {
-                  console.log(response);
-                  document.cookie = "sector_refresh=true; path=/";
-                  location.reload();
-                })
-                .catch(function (error) {
-                  console.log(error);
-                });
-            }
-          }
-        },
-        {
-          text: 'Refresh',
-          action: function (e, dt, button, config) {
-            document.cookie = "sector_refresh=true; path=/";
-            location.reload();
-          }
-        },
-      ],
-      responsive: true,
       columnDefs: [
         {
           orderable: false,
@@ -141,68 +111,49 @@
         },
         {
           targets: 13,
-          visible: false, // Make the "Flag" column hidden
+          visible: false,
           searchable: false,
         }
       ],
       order: [[13, 'desc'], [1, 'asc'], [2, 'asc']],
-      select: {
-        style: 'multi',
-        selector: 'td:first-child',
-        items: 'row',
-        rows: '%d rows selected',
-        headerCheckbox: true,
-      },
       scrollY: window.innerHeight - 250,
       deferRender: true,
       scroller: true,
-      initComplete: function () {
-        // all cols with class 'dd' will have a dropdown filter
-        // Add dropdown filters to columns with class 'dd'
-        $('.dd').each(function () {
-          var column = dt.column($(this).index());
-            var select = $('<br><select><option value="">All</option></select>')
-            .appendTo($(this))
-            .on('change', function () {
-              var val = $.fn.dataTable.util.escapeRegex($(this).val());
-              column
-                .search(val ? '^' + val + '$' : '', true, false)
-                .draw();
-            });
-
-          column
-            .data()
-            .sort()
-            .unique()
-            .each(function (d, j) {
-              select.append('<option value="' + d + '">' + d + '</option>');
-            });
-        });
-
-        // Apply the search
-        /*
-        this.api().columns().every(function () {
-          var that = this;
-          var column = this;
-          var select = $('select', column.header());
-          if (select.length === 0) {
-            column.data().unique().sort().each(function (d, j) {
-              select.append('<option value="' + d + '">' + d + '</option>');
-            });
-          }
-          // Apply the search on dropdown change
-          select.on('change', function () {
-            var val = $.fn.dataTable.util.escapeRegex($(this).val());
-            column.search(val ? '^' + val + '$' : '', true, false).draw();
-          });
-
-          $('input', this.header()).on('keyup change clear', function () {
-            if (that.search() !== this.value) {
-              that.search(this.value).draw();
+      // If you still want your "Terminate & Delete" or "Refresh" buttons, you
+      // can re-add them, but be aware that with server-side, you won't see all
+      // rows at once. Only the current page is selected. That might require
+      // different UI logic. Example:
+      buttons: [
+        {
+          extend: 'selected',
+          text: 'Terminate & Delete',
+          action: function (e, dt, button, config) {
+            let selectedRows = dt.rows({ selected: true }).data().toArray();
+            let confirmMessage = selectedRows.map(obj => {
+              return `Miner: ${obj.MinerAddress}, Sector: ${obj.SectorNum}`;
+            }).join(", ");
+            if (confirm("Terminate & Delete: " + confirmMessage)) {
+              axios.post('/api/sector/terminate', selectedRows)
+                      .then(function (response) {
+                        console.log(response);
+                        document.cookie = "sector_refresh=true; path=/";
+                        // Force table reload, so new data is fetched from server
+                        dt.ajax.reload(null, false);
+                      })
+                      .catch(function (error) {
+                        console.log(error);
+                      });
             }
-          });
-        });*/
-      }
+          }
+        },
+        {
+          text: 'Refresh',
+          action: function (e, dt, button, config) {
+            document.cookie = "sector_refresh=true; path=/";
+            dt.ajax.reload(null, false);
+          }
+        },
+      ]
     });
   </script>
 </body>
