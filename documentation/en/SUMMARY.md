@@ -16,7 +16,6 @@
   * [Alert Manager](configuration/alert-manager.md)
   * [Balance Manager](configuration/balance-manager.md)
   * [Default Curio Configuration](configuration/default-curio-configuration.md)
-* [Enabling market (Boost) (deprecated)](enabling-market.md)
 * [Curio Market](curio-market/README.md)
   * [Storage Market](curio-market/storage-market.md)
   * [Deal filters](curio-market/deal-filters.md)
