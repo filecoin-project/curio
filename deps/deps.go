@@ -388,23 +388,15 @@ func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *config.CurioCo
 		}
 		return line
 	}), "\n")
-	meta, err := toml.Decode(newText, &curioConfigWithDefaults)
-	for i := range curioConfigWithDefaults.Addresses {
-		if curioConfigWithDefaults.Addresses[i].PreCommitControl == nil {
-			curioConfigWithDefaults.Addresses[i].PreCommitControl = []string{}
-		}
-		if curioConfigWithDefaults.Addresses[i].CommitControl == nil {
-			curioConfigWithDefaults.Addresses[i].CommitControl = []string{}
-		}
-		if curioConfigWithDefaults.Addresses[i].DealPublishControl == nil {
-			curioConfigWithDefaults.Addresses[i].DealPublishControl = []string{}
-		}
-		if curioConfigWithDefaults.Addresses[i].TerminateControl == nil {
-			curioConfigWithDefaults.Addresses[i].TerminateControl = []string{}
-		}
+
+	err := config.FixTOML(newText, curioConfigWithDefaults)
+	if err != nil {
+		return toml.MetaData{}, err
 	}
-	return meta, err
+
+	return toml.Decode(newText, &curioConfigWithDefaults)
 }
+
 func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.CurioConfig, error) {
 	err := updateBaseLayer(ctx, db)
 	if err != nil {
@@ -662,6 +654,7 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 			DisableOwnerFallback:  false,
 			DisableWorkerFallback: false,
 			MinerAddresses:        []string{addr},
+			BalanceManager:        config.DefaultBalanceManager(),
 		})
 	}
 

@@ -46,6 +46,10 @@ type MK12Config struct {
     DisabledMiners          []string
     MaxConcurrentDealSizeGiB int64
     DenyUnknownClients bool
+    DenyOnlineDeals bool
+    DenyOfflineDeals bool
+    CIDGravityToken string
+    DefaultCIDGravityAccept bool
 }
 ```
 
@@ -69,6 +73,13 @@ type MK12Config struct {
    MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector when the cumulative size of all deals in process reaches this number, new deals will be rejected. (Default: 0 = unlimited)
 9. **DenyUnknownClients:**\
    DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list. If True then all deals coming from unknown clients will be rejected.
+10. **DenyOnlineDeals**: Determines whether the storage provider **accepts online deals**.
+11. **DenyOfflineDeals**: Determines whether the storage provider **accepts offline deals**.
+12. **CIDGravityToken**:\
+    The authorization token used for **CIDGravity filters**, a service that filters deal proposals based on custom policies. If empty (`""`), **CIDGravity filtering is disabled**. If set, the miner will **query CIDGravity** for each deal proposal before accepting it.
+13. **DefaultCIDGravityAccept**:\
+    Defines what happens if the **CIDGravity service is unavailable**. If`true`: **Accepts deals** even if CIDGravity is unreachable. If`false`: **Rejects deals** when CIDGravity is unavailable (**default**).
+
 
 ### **PieceLocator Configuration**
 
@@ -106,6 +117,7 @@ To enable the Curio market on a Curio node, the following configuration changes 
    * To enable HTTP, set the `Enable` flag in the `HTTPConfig` to `true` and specify the `ListenAddress` for the HTTP server.
 4. **Set a Domain Name**:
    * Ensure that a valid `DomainName` is specified in the `HTTPConfig`. This is mandatory for proper HTTP server functionality and essential for enabling TLS. The domain name cannot be an IP address.
+   * Domain name should be specified in the base layer
 5. **HTTP Configuration Details**:
    * If TLS is managed by a reverse proxy, enable `DelegateTLS` in the `HTTPConfig` to allow the HTTP server to run without handling TLS directly.
    * Configure additional parameters such as `ReadTimeout`, `IdleTimeout`, and `CompressionLevels` to ensure the server operates efficiently.
@@ -117,7 +129,7 @@ To enable the Curio market on a Curio node, the following configuration changes 
      * `MaxDealsPerPublishMsg` for the maximum number of deals per message.
      * `MaxPublishDealFee` to set the fee limit for publishing deals.
    * If handling offline deals, configure `PieceLocator` to specify the endpoints for piece retrieval.
-8.  Verify that HTTP server is working:
+8. Verify that HTTP server is working:
 
     * Curl to your domain name and verify that server is reachable from outside\
 

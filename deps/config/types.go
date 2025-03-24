@@ -42,6 +42,7 @@ func DefaultCurioConfig() *CurioConfig {
 			DealPublishControl: []string{},
 			TerminateControl:   []string{},
 			MinerAddresses:     []string{},
+			BalanceManager:     DefaultBalanceManager(),
 		}},
 		Proving: CurioProvingConfig{
 			ParallelCheckLimit:    32,
@@ -127,6 +128,16 @@ func DefaultCurioConfig() *CurioConfig {
 				BrotliLevel:  4,
 				DeflateLevel: 6,
 			},
+		},
+	}
+}
+
+func DefaultBalanceManager() BalanceManagerConfig {
+	return BalanceManagerConfig{
+		MK12Collateral: MK12CollateralConfig{
+			DealCollateralWallet:    "",
+			CollateralLowThreshold:  types.MustParseFIL("5 FIL"),
+			CollateralHighThreshold: types.MustParseFIL("20 FIL"),
 		},
 	}
 }
@@ -367,6 +378,9 @@ type CurioSubsystemsConfig struct {
 	// also be bounded by resources available on the machine. (Default: 8)
 	IndexingMaxTasks int
 
+	// EnableBalanceManager enables the task to automatically manage the market balance of the miner's market actor (Default: false)
+	EnableBalanceManager bool
+
 	// BindSDRTreeToNode forces the TreeD and TreeRC tasks to be executed on the same node where SDR task was executed
 	// for the sector. Please ensure that TreeD and TreeRC task are enabled and relevant resources are available before
 	// enabling this option. (Default: false)
@@ -421,6 +435,10 @@ type CurioAddresses struct {
 
 	// MinerAddresses are the addresses of the miner actors
 	MinerAddresses []string
+
+	// BalanceManagerConfig specifies the configuration parameters for managing wallet balances and actor-related funds,
+	// including collateral and other operational resources.
+	BalanceManager BalanceManagerConfig
 }
 
 type CurioProvingConfig struct {
@@ -807,4 +825,24 @@ type CompressionConfig struct {
 	GzipLevel    int
 	BrotliLevel  int
 	DeflateLevel int
+}
+
+type BalanceManagerConfig struct {
+	// MK12Collateral defines the configuration for managing collateral and related balance thresholds in the miner's market.
+	MK12Collateral MK12CollateralConfig
+}
+
+type MK12CollateralConfig struct {
+	// DealCollateralWallet is the wallet used to add balance to Miner's market balance. This balance is
+	// utilized for deal collateral in market (f05) deals.
+	DealCollateralWallet string
+
+	// CollateralLowThreshold is the balance below which more balance will be added to miner's market balance
+	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")
+	CollateralLowThreshold types.FIL
+
+	// CollateralHighThreshold is the target balance to which the miner's market balance will be topped up
+	// when it drops below CollateralLowThreshold.
+	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "20 FIL")
+	CollateralHighThreshold types.FIL
 }

@@ -267,6 +267,11 @@ description: The default curio configuration
   # type: int
   #IndexingMaxTasks = 8
 
+  # EnableBalanceManager enables the task to automatically manage the market balance of the miner's market actor (Default: false)
+  #
+  # type: bool
+  #EnableBalanceManager = false
+
   # BindSDRTreeToNode forces the TreeD and TreeRC tasks to be executed on the same node where SDR task was executed
   # for the sector. Please ensure that TreeD and TreeRC task are enabled and relevant resources are available before
   # enabling this option. (Default: false)
@@ -388,6 +393,36 @@ description: The default curio configuration
   #
   # type: []string
   #MinerAddresses = []
+
+  # BalanceManagerConfig specifies the configuration parameters for managing wallet balances and actor-related funds,
+  # including collateral and other operational resources.
+  #
+  # type: BalanceManagerConfig
+  [Addresses.BalanceManager]
+
+    # MK12Collateral defines the configuration for managing collateral and related balance thresholds in the miner's market.
+    #
+    # type: MK12CollateralConfig
+    [Addresses.BalanceManager.MK12Collateral]
+
+      # DealCollateralWallet is the wallet used to add balance to Miner's market balance. This balance is
+      # utilized for deal collateral in market (f05) deals.
+      #
+      # type: string
+      #DealCollateralWallet = ""
+
+      # CollateralLowThreshold is the balance below which more balance will be added to miner's market balance
+      # Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")
+      #
+      # type: types.FIL
+      #CollateralLowThreshold = "5 FIL"
+
+      # CollateralHighThreshold is the target balance to which the miner's market balance will be topped up
+      # when it drops below CollateralLowThreshold.
+      # Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "20 FIL")
+      #
+      # type: types.FIL
+      #CollateralHighThreshold = "20 FIL"
 
 
 # Proving defines the configuration settings related to proving functionality within the Curio node.

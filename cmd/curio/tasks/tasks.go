@@ -216,6 +216,14 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		miners = append(miners, address.Address(k))
 	}
 
+	if cfg.Subsystems.EnableBalanceManager {
+		balMgrTask, err := storage_market.NewBalanceManager(full, miners, cfg, sender)
+		if err != nil {
+			return nil, err
+		}
+		activeTasks = append(activeTasks, balMgrTask)
+	}
+
 	{
 		// Market tasks
 		if cfg.Subsystems.EnableDealMarket {

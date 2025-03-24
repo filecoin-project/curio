@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -555,14 +556,17 @@ func TestConfig(t *testing.T) {
 	addr1 := config.CurioAddresses{
 		PreCommitControl:      []string{},
 		CommitControl:         []string{},
+		DealPublishControl:    []string{},
 		TerminateControl:      []string{"t3qroiebizgkz7pvj26reg5r5mqiftrt5hjdske2jzjmlacqr2qj7ytjncreih2mvujxoypwpfusmwpipvxncq"},
 		DisableOwnerFallback:  false,
 		DisableWorkerFallback: false,
 		MinerAddresses:        []string{"t01000"},
+		BalanceManager:        config.DefaultBalanceManager(),
 	}
 
 	addr2 := config.CurioAddresses{
 		MinerAddresses: []string{"t01001"},
+		BalanceManager: config.DefaultBalanceManager(),
 	}
 
 	_, err := deps.LoadConfigWithUpgrades(baseText, baseCfg)
@@ -603,4 +607,67 @@ func TestCustomConfigDurationJson(t *testing.T) {
 	prop, ok := definitions.Properties.Get("SingleCheckTimeout")
 	require.True(t, ok)
 	require.Equal(t, prop.Type, "string")
+}
+
+func TestTOMLDecoding(t *testing.T) {
+
+	def1 := config.DefaultCurioConfig()
+
+	text := `
+[[Addresses]]
+  MinerAddresses = ["t01002"]
+  [Addresses.BalanceManager]
+	[Addresses.BalanceManager.MK12Collateral]
+	  CollateralLowThreshold = "100 FIL"
+
+[[Addresses]]
+  MinerAddresses = ["t01007"]
+  [Addresses.BalanceManager]
+	[Addresses.BalanceManager.MK12Collateral]
+	  CollateralLowThreshold = "50 fil"
+
+[Alerting]
+  [Alerting.PagerDuty]
+  [Alerting.PrometheusAlertManager]
+  [Alerting.SlackWebhook]
+
+[Apis]
+  ChainApiInfo = ["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBbGxvdyI6WyJyZWFkIiwid3JpdGUiLCJzaWduIiwiYWRtaW4iXX0.Er4BD7iisZ6KwdkjbXrxRlgvOnf_KClzo9Q6V7fvUYs:/dns/lotus/tcp/1234/http"]
+  StorageRPCSecret = "E/RAavP4YYHzKqa+eGXE6LtYTrT5YpToCEHugbTXOoI="
+
+[Batching]
+  [Batching.Commit]
+  [Batching.PreCommit]
+  [Batching.Update]
+
+[Fees]
+  [Fees.MaxCommitBatchGasFee]
+  [Fees.MaxPreCommitBatchGasFee]
+  [Fees.MaxUpdateBatchGasFee]
+
+[HTTP]
+  [HTTP.CompressionLevels]
+
+[Ingest]
+
+[Market]
+  [Market.StorageMarketConfig]
+	[Market.StorageMarketConfig.IPNI]
+	[Market.StorageMarketConfig.Indexing]
+	[Market.StorageMarketConfig.MK12]
+
+[Proving]
+
+[Seal]
+
+[Subsystems]
+`
+
+	_, err := deps.LoadConfigWithUpgrades(text, def1)
+	require.NoError(t, err)
+
+	cb, err := config.ConfigUpdate(def1, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
+	require.NoError(t, err)
+
+	fmt.Println(string(cb))
 }
