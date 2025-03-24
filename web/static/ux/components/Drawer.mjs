@@ -78,7 +78,7 @@ class Drawer extends StyledLitElement {
   render() {
     return html`
       <div>
-        <button class="open-btn" @click=${this.handleToggle}>${this.label}</button>
+        <button class="open-btn" anchor=${this.anchor} @click=${this.handleToggle}>${this.label}</button>
         <dialog
           class="dialog"
           aria-label=${this.label}
@@ -111,15 +111,40 @@ Drawer.styles = [
     
     .open-btn {
       position: fixed;
-      top: 0;
-      right: 0;
-      transform-origin: bottom right;
-      transform: rotate(-90deg);
       color: var(--color-text-primary);
       background-color: var(--color-secondary-light);
       border-radius: 8px 8px 0 0;
-      padding: 0.75rem 1.2rem;
+      padding: 0.5rem 0.75rem;
       font-size: 0.9rem;
+      
+      &[anchor="right"] {
+        top: 0;
+        right: 0;
+        transform-origin: bottom right;
+        transform: rotate(-90deg);
+      }
+      
+      &[anchor="left"] {
+        top: 40%;
+        left: 0;
+        transform: rotate(90deg); 
+        transform-origin: bottom left;
+      }
+      
+      &[anchor="top"] {
+        top: 0;
+        left: 50%;
+        border-radius: 0 0 8px 8px;
+        transform: rotate(0deg);
+        transform-origin: top center;
+      }
+      
+      &[anchor="bottom"] {
+        bottom: 0;
+        left: 50%;
+        transform: rotate(0deg);
+        transform-origin: bottom center;
+      }
 
       &:hover, &:active {
         cursor: pointer;
@@ -152,7 +177,7 @@ Drawer.styles = [
         bottom: 0;
         right: auto;
         left: 0;
-        width: 40rem;
+        width: 20rem;
         min-height: 100vh;
         max-height: 100vh;
         box-shadow: 8px 0 20px 4px var(--color-shadow-main);
