@@ -669,5 +669,5 @@ func TestTOMLDecoding(t *testing.T) {
 	cb, err := config.ConfigUpdate(def1, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
 	require.NoError(t, err)
 
-	fmt.Println(cb)
+	fmt.Println(string(cb))
 }
