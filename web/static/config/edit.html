@@ -139,6 +139,17 @@
                                 alert('Error: cannot edit defaults');
                             } else {
                                 const value = editor.getValue();
+                                function cleanEmptyArrays(json) {
+                                    if (Array.isArray(json)) {
+                                        return json.filter(item => item !== ""); // Remove empty strings from arrays
+                                    } else if (typeof json === "object" && json !== null) {
+                                        Object.keys(json).forEach(key => {
+                                            json[key] = cleanEmptyArrays(json[key]); // Recursively clean nested structures
+                                        });
+                                    }
+                                    return json;
+                                }
+                                cleanEmptyArrays(value);
                                 console.log(value)
                                 axios.post('/api/config/layers/' + layer, value)
                                     .then(response => {

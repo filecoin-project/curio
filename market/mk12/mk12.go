@@ -24,6 +24,7 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	cborutil "github.com/filecoin-project/go-cbor-util"
+	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
@@ -159,21 +160,6 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 		}, nil
 	}
 
-	// Apply backpressure
-	wait, err := m.maybeApplyBackpressure(ctx, ds.ClientDealProposal.Proposal.Provider)
-	if err != nil {
-		log.Errorf("applying backpressure: %s", err.Error())
-		return &ProviderDealRejectionInfo{
-			Reason: "internal server error: failed to apply backpressure",
-		}, nil
-	}
-	if wait {
-		log.Infof("Rejected deal %s due to backpressure", ds.DealUuid.String())
-		return &ProviderDealRejectionInfo{
-			Reason: "deal rejected due to backpressure. Please retry in some time.",
-		}, nil
-	}
-
 	// Either use CIDGravity Filters or internal filters
 	if _, ok := m.cidGravity[ds.ClientDealProposal.Proposal.Provider]; ok {
 		accept, msg, err := m.cidGravityCheck(ctx, ds)
@@ -217,6 +203,21 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 			log.Infow("client not allowed by provider", "client", ds.ClientDealProposal.Proposal.Client)
 			return &ProviderDealRejectionInfo{
 				Reason: "client not allowed by provider",
+			}, nil
+		}
+
+		// Apply backpressure
+		wait, err := m.maybeApplyBackpressure(ctx, ds.ClientDealProposal.Proposal.Provider)
+		if err != nil {
+			log.Errorf("applying backpressure: %s", err.Error())
+			return &ProviderDealRejectionInfo{
+				Reason: "internal server error: failed to apply backpressure",
+			}, nil
+		}
+		if wait {
+			log.Infof("Rejected deal %s due to backpressure", ds.DealUuid.String())
+			return &ProviderDealRejectionInfo{
+				Reason: "deal rejected due to backpressure. Please retry in some time.",
 			}, nil
 		}
 
@@ -488,6 +489,12 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 	tInfo := &HttpRequest{}
 
 	if !deal.IsOffline {
+		// Reject incorrect sized online deals
+		if deal.ClientDealProposal.Proposal.PieceSize != padreader.PaddedSize(deal.Transfer.Size).Padded() {
+			return &ProviderDealRejectionInfo{
+				Reason: fmt.Sprintf("deal proposal piece size %d doesn't match padded piece size %d", deal.ClientDealProposal.Proposal.PieceSize, padreader.PaddedSize(deal.Transfer.Size).Padded()),
+			}, nil
+		}
 		// de-serialize transport opaque token
 		if err := json.Unmarshal(deal.Transfer.Params, tInfo); err != nil {
 			return &ProviderDealRejectionInfo{
