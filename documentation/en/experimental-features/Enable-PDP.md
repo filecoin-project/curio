@@ -55,7 +55,7 @@ Copy the above toml to a file `pdp-layer` and then run `curio config create pdp-
 
 Then start up curio `./curio run --layers gui,pdp-layer`.
 
-Alternatively you can start curio with `./curio run --layers gui`, navigate to localhost:4701 -> Configurations -> Add Layer (pdp-layer) and then manually update the necessary subsystems and HTTP options.  Then restart with the new config layer applied `./curio run --layers gui,pdp-layer`
+Alternatively, you can start curio with `./curio run --layers gui`, navigate to localhost:4701 -> Configurations -> Add Layer (pdp-layer) and then manually update the necessary subsystems and HTTP options.  Then restart with the new config layer applied `./curio run --layers gui,pdp-layer`
 
 To set your curio configuration values you will need to create a new pdp specific configuration layer.
 
@@ -67,8 +67,8 @@ Running a PDP SP means storing data. Curio requires manually adding data storage
 
 To interact with the curio PDP api clients need to have authentication to access a PDP API Service. PDP SPs must create PDP Services for clients to use their API. Here is the creation flow.
 
-1. Client creates local authentication token offline, they then send PEM public key to curio PDP SP
-2. In curio web ui (localhost:4701) navigate to PDP and click "Add Service" 
+1. Client creates a local authentication token offline, they then send PEM public key to curio PDP SP
+2. In the Curio web UI (localhost:4701) navigate to PDP and click "Add Service" 
 3. Fill out service name (i.e. clientX) and paste their public key
 
 ## PDP owner
@@ -76,7 +76,7 @@ To interact with the curio PDP api clients need to have authentication to access
 To interact with the PDP smart contracts the curio SP must import a private key owning their PDP proof sets.  
 
 1. Obtain private key bytes
-2. In curio web ui (localhost:4701) navigate to PDP and click "Import Key"
+2. In the Curio web UI (localhost:4701) navigate to PDP and click "Import Key"
 3. Paste key bytes
 
 There are many ways to obtain key bytes. Any method of exporting an ETH private key will work. Filecoin native address private keys can be extracted with
