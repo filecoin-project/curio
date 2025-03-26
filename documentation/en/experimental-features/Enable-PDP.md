@@ -29,10 +29,10 @@ Curio PDP requires specific configuration options. Briefly you will need to modi
 [HTTP]
   DomainName = "your.domain.name.com"
   Enable = true
-  IdleTimeout = 7200000000000
+  IdleTimeout = "2h0m0s"
   ListenAddress = "0.0.0.0:443"
-  ReadHeaderTimeout = 7200000000000
-  ReadTimeout = 7200000000000
+  ReadHeaderTimeout = "2h0m0s"
+  ReadTimeout = "2h0m0s"
 
 [Subsystems]
   EnableCommP = true
