@@ -11,6 +11,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/filecoin-project/go-address"
+	lotustypes "github.com/filecoin-project/lotus/chain/types"
 	"go.uber.org/multierr"
 	"golang.org/x/xerrors"
 
@@ -25,8 +27,13 @@ type SenderETH struct {
 	client *ethclient.Client
 
 	sendTask *SendTaskETH
+	fil      SenderETHLotusAPI
 
 	db *harmonydb.DB
+}
+
+type SenderETHLotusAPI interface {
+	GasEstimateGasPremium(_ context.Context, nblocksincl uint64, sender address.Address, gaslimit int64, tsk lotustypes.TipSetKey) (lotustypes.BigInt, error)
 }
 
 type SendTaskETH struct {
@@ -298,10 +305,21 @@ func (s *SenderETH) Send(ctx context.Context, fromAddress common.Address, tx *ty
 			return common.Hash{}, fmt.Errorf("base fee not available; network might not support EIP-1559")
 		}
 
+		// TODO hack
+		// lotus api barely looks at anything we pass it here so make stuff up
+		dummyAddr, err := address.NewIDAddress(42)
+		if err != nil {
+			return common.Hash{}, xerrors.Errorf("creating dummy address: %w", err)
+		}
+
 		// Set GasTipCap (maxPriorityFeePerGas)
-		gasTipCap := big.NewInt(1e9) // 1 nanoFIL or 1 Gwei
+		gasTipCap, err := s.fil.GasEstimateGasPremium(ctx, 5, dummyAddr, int64(gasLimit), lotustypes.EmptyTSK)
+		if err != nil {
+			return common.Hash{}, xerrors.Errorf("estimating gas premium: %w", err)
+		}
+
 		// Calculate GasFeeCap (maxFeePerGas)
-		gasFeeCap := new(big.Int).Add(baseFee, gasTipCap)
+		gasFeeCap := new(big.Int).Add(baseFee, gasTipCap.Int)
 
 		chainID, err := s.client.NetworkID(ctx)
 		if err != nil {
@@ -313,7 +331,7 @@ func (s *SenderETH) Send(ctx context.Context, fromAddress common.Address, tx *ty
 			ChainID:   chainID,
 			Nonce:     0, // nonce will be set later
 			GasFeeCap: gasFeeCap,
-			GasTipCap: gasTipCap,
+			GasTipCap: gasTipCap.Int,
 			Gas:       gasLimit,
 			To:        tx.To(),
 			Value:     tx.Value(),
