@@ -63,6 +63,8 @@ To set your curio configuration values you will need to create a new pdp specifi
 
 Running a PDP SP means storing data. Curio requires manually adding data storage paths to actually store data. Run `./curio cli storage attach --init --store /path/to/storage ` to setup a storage path. Now your curio node can store PDP files.
 
+For more detailed instructions on configuring storage, refer to the [Storage Configuration guide](../storage-configuration.md).
+
 ## PDP Service
 
 To interact with the curio PDP api clients need to have authentication to access a PDP API Service. PDP SPs must create PDP Services for clients to use their API. Here is the creation flow.
