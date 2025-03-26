@@ -4,7 +4,7 @@ description: This page explains how to setup a Curio PDP SP
 
 # Curio PDP
 
-This guide is focused on running a PDP-only SP.  Most of the same instructions will apply for running a curio node providing both PoRep and PDP storage though you will likely need to modify the configuration defaults specified here to keep the sealing pipeline running smoothly.
+This guide is focused on running a Curio PDP SP.  Most of the same instructions will apply for running a curio node providing both PoRep and PDP storage though you will likely need to modify the configuration defaults specified here to keep the sealing pipeline running smoothly.
 
 ## Setup curio 
 
