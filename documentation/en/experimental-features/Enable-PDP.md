@@ -8,7 +8,7 @@ This guide is focused on running a PDP-only SP.  Most of the same instructions w
 
 ## Setup curio 
 
-The first step to running a curio PDP SP is to install and setup curio.
+The first step to running a curio PDP SP is to install and setup curio. You can find detailed instructions on how to [install Curio](../installation.md) and [set up the Curio node](../setup.md).
 
 Some important callouts departing from the ordinary curio setup instructions
 * You MUST check out `feat/pdp` branch and build curio from source on this branch. PDP code is not yet on `main`
