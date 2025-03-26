@@ -257,7 +257,7 @@ var _ harmonytask.TaskInterface = &SendTaskETH{}
 var _ = harmonytask.Reg(&SendTaskETH{})
 
 // NewSenderETH creates a new SenderETH.
-func NewSenderETH(client *ethclient.Client, db *harmonydb.DB) (*SenderETH, *SendTaskETH) {
+func NewSenderETH(client *ethclient.Client, fil SenderETHLotusAPI, db *harmonydb.DB) (*SenderETH, *SendTaskETH) {
 	st := &SendTaskETH{
 		client: client,
 		db:     db,
@@ -266,6 +266,7 @@ func NewSenderETH(client *ethclient.Client, db *harmonydb.DB) (*SenderETH, *Send
 	return &SenderETH{
 		client:   client,
 		db:       db,
+		fil:      fil,
 		sendTask: st,
 	}, st
 }

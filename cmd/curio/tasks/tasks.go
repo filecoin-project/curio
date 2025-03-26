@@ -152,7 +152,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			}
 
 			var ethSenderTask *message.SendTaskETH
-			senderEth, ethSenderTask = message.NewSenderETH(ec, db)
+			senderEth, ethSenderTask = message.NewSenderETH(ec, full, db)
 			activeTasks = append(activeTasks, ethSenderTask)
 		})
 		return senderEth
