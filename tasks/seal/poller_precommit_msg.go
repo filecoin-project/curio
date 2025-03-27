@@ -21,6 +21,10 @@ import (
 )
 
 func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
+	if !s.pollers[pollerPrecommitMsg].IsSet() {
+		return
+	}
+
 	ts, err := s.api.ChainHead(ctx)
 	if err != nil {
 		log.Errorf("error getting chain head: %s", err)
@@ -37,7 +41,7 @@ func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
 		var updatedCount int64
 		var reason string
 
-		log.Infow("Trying to assign a precommit batch",
+		log.Debugw("Trying to assign a precommit batch",
 			"slack_epoch", slackEpoch,
 			"current_height", ts.Height(),
 			"max_batch", s.cfg.preCommit.MaxPreCommitBatch,
@@ -66,7 +70,7 @@ func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
 			log.Debugf("Assigned %d sectors to precommit batch with taskID %d with reason %s", updatedCount, id, reason)
 			return true, nil
 		} else {
-			log.Debugf("No precommit batch assigned")
+			log.Debugf("No precommit batch assigned for ID %d", id)
 		}
 		return false, nil
 	})

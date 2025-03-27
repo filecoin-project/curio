@@ -174,7 +174,7 @@ func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		MaxFailures: 10,
 		RetryWait: func(retries int) time.Duration {
-			return max(time.Second<<retries, 2*time.Minute)
+			return min(time.Second<<retries, 2*time.Minute)
 		},
 		Follows: nil,
 	}

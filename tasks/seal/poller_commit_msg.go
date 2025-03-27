@@ -74,6 +74,10 @@ func (s *SealPoller) pollerAddStartEpoch(ctx context.Context, task pollTask) err
 }
 
 func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context) {
+	if !s.pollers[pollerCommitMsg].IsSet() {
+		return
+	}
+
 	ts, err := s.api.ChainHead(ctx)
 	if err != nil {
 		log.Errorf("error getting chain head: %s", err)
@@ -90,7 +94,7 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context) {
 		var updatedCount int64
 		var reason string
 
-		log.Infow("Trying to assign a commit batch",
+		log.Debugw("Trying to assign a commit batch",
 			"slack_epoch", slackEpoch,
 			"current_height", ts.Height(),
 			"max_batch", s.cfg.commit.MaxCommitBatch,
@@ -114,7 +118,7 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context) {
 			log.Debugf("Assigned %d sectors to commit batch with taskID %d with reason %s", updatedCount, id, reason)
 			return true, nil
 		} else {
-			log.Debugf("No commit batch assigned")
+			log.Debugf("No commit batch assigned for ID %d", id)
 		}
 		return false, nil
 	})

@@ -388,7 +388,7 @@ func (e *TaskEngine) pollerTryAllWork() bool {
 		}
 
 		unownedTasks := lo.FlatMap(allUnownedTasks, func(t task, _ int) []TaskID {
-			if v.RetryWait == nil {
+			if v.RetryWait == nil || t.Retries == 0 {
 				return []TaskID{t.ID}
 			}
 			if time.Since(t.UpdateTime) > v.RetryWait(t.Retries) {
