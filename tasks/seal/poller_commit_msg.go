@@ -20,7 +20,7 @@ import (
 )
 
 func (s *SealPoller) pollerAddStartEpoch(ctx context.Context, task pollTask) error {
-	if !task.StartEpoch.Valid {
+	if task.AfterPrecommitMsgSuccess && !task.StartEpoch.Valid {
 		ts, err := s.api.ChainHead(ctx)
 		if err != nil {
 			return xerrors.Errorf("failed to get chain head: %w", err)
@@ -69,7 +69,9 @@ func (s *SealPoller) pollerAddStartEpoch(ctx context.Context, task pollTask) err
 		if err != nil {
 			return xerrors.Errorf("failed to update start epoch: %w", err)
 		}
+		log.Debugw("updated start epoch", "sp", task.SpID, "sector", task.SectorNumber, "start_epoch", startEpoch)
 	}
+
 	return nil
 }
 
