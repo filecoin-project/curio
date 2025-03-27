@@ -299,7 +299,11 @@ func (s *SenderETH) Send(ctx context.Context, fromAddress common.Address, tx *ty
 		}
 
 		// Set GasTipCap (maxPriorityFeePerGas)
-		gasTipCap := big.NewInt(1e9) // 1 nanoFIL or 1 Gwei
+		gasTipCap, err := s.client.SuggestGasTipCap(ctx)
+		if err != nil {
+			return common.Hash{}, xerrors.Errorf("estimating gas premium: %w", err)
+		}
+
 		// Calculate GasFeeCap (maxFeePerGas)
 		gasFeeCap := new(big.Int).Add(baseFee, gasTipCap)
 
