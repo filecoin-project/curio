@@ -30,6 +30,9 @@ type HarmonyDB struct {
 
 	// The port to find Yugabyte. Blank for default.
 	Port string
+
+	// Load Balance the connection over multiple nodes
+	LoadBalance bool
 }
 
 // StorageMiner is a miner config
