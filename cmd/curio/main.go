@@ -160,6 +160,12 @@ func main() {
 				EnvVars: []string{"CURIO_DB_CASSANDRA_PORT", "CURIO_INDEXDB_PORT"},
 				Value:   9042,
 			},
+			&cli.BoolFlag{
+				Name:    "db-load-balance",
+				Usage:   translations.T("Enable load balancing for connecting to the Postgres database in Yugabyte cluster"),
+				EnvVars: []string{"CURIO_DB_LOAD_BALANCE", "CURIO_HARMONYDB_LOAD_BALANCE"},
+				Value:   true,
+			},
 			&cli.StringFlag{
 				Name:    deps.FlagRepoPath,
 				EnvVars: []string{"CURIO_REPO_PATH"},

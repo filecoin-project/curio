@@ -59,11 +59,12 @@ func MakeDB(cctx *cli.Context) (*harmonydb.DB, error) {
 	// #1 CLI opts
 	fromCLI := func() (*harmonydb.DB, error) {
 		dbConfig := config.HarmonyDB{
-			Username: cctx.String("db-user"),
-			Password: cctx.String("db-password"),
-			Hosts:    strings.Split(cctx.String("db-host"), ","),
-			Database: cctx.String("db-name"),
-			Port:     cctx.String("db-port"),
+			Username:    cctx.String("db-user"),
+			Password:    cctx.String("db-password"),
+			Hosts:       strings.Split(cctx.String("db-host"), ","),
+			Database:    cctx.String("db-name"),
+			Port:        cctx.String("db-port"),
+			LoadBalance: cctx.Bool("db-load-balance"),
 		}
 		return harmonydb.NewFromConfig(dbConfig)
 	}

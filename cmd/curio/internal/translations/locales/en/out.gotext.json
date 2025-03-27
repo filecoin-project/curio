@@ -387,6 +387,13 @@
             "fuzzy": true
         },
         {
+            "id": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "enables very verbose mode, useful for debugging the CLI",
             "message": "enables very verbose mode, useful for debugging the CLI",
             "translation": "enables very verbose mode, useful for debugging the CLI",

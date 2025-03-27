@@ -31,6 +31,7 @@ GLOBAL OPTIONS:
    --db-password value        Password for connecting to the Postgres database in Yugabyte cluster (default: "yugabyte") [$CURIO_DB_PASSWORD, $CURIO_HARMONYDB_PASSWORD]
    --db-port value            Port for connecting to the Postgres database in Yugabyte cluster (default: "5433") [$CURIO_DB_PORT, $CURIO_HARMONYDB_PORT]
    --db-cassandra-port value  Port for connecting to the Cassandra database in Yugabyte cluster (default: 9042) [$CURIO_DB_CASSANDRA_PORT, $CURIO_INDEXDB_PORT]
+   --db-load-balance          Enable load balancing for connecting to the Postgres database in Yugabyte cluster (default: true) [$CURIO_DB_LOAD_BALANCE, $CURIO_HARMONYDB_LOAD_BALANCE]
    --repo-path value          (default: "~/.curio") [$CURIO_REPO_PATH]
    --vv                       enables very verbose mode, useful for debugging the CLI (default: false)
    --help, -h                 show help

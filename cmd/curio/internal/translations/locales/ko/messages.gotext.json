@@ -2091,6 +2091,12 @@
             "translation": "Yugabyte 클러스터의 Cassandra 데이터베이스에 연결하기 위한 포트",
             "message": "Port for connecting to the Cassandra database in Yugabyte cluster",
             "placeholder": null
+        },
+        {
+            "id": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "",
+            "message": "Yugabyte 클러스터의 Postgres 데이터베이스에 연결할 때 로드 밸런싱을 활성화하세요",
+            "placeholder": null
         }
     ]
 }
