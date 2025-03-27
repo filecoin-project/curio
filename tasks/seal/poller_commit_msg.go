@@ -68,6 +68,7 @@ func (s *SealPoller) pollerAddStartEpoch(ctx context.Context, task pollTask) err
 }
 
 func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context) {
+	// Exit early if the poller is set i.e. Commit task is not enabled on the node
 	if !s.pollers[pollerCommitMsg].IsSet() {
 		return
 	}

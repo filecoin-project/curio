@@ -21,6 +21,7 @@ import (
 )
 
 func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
+	// Exit early if the poller is set i.e. precommit task is not enabled on the node
 	if !s.pollers[pollerPrecommitMsg].IsSet() {
 		return
 	}
