@@ -29,6 +29,7 @@ type CidGravityPayload struct {
 	FormatVersion string `json:"FormatVersion"`
 	DealType      string `json:"DealType"`
 
+	DealTransferType   string `json:"DealTransferType"`
 	DealUUID           string `json:"DealUUID"`
 	IsOffline          bool   `json:"IsOffline"`
 	Size               int64  `json:"Size"`
@@ -258,6 +259,7 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 		data.Size = int64(deal.Transfer.Size)
 	}
 
+	data.DealTransferType = deal.Transfer.Type
 	data.ClientDealProposal.ClientSignature.Data = deal.ClientDealProposal.ClientSignature.Data
 	data.ClientDealProposal.ClientSignature.Type = deal.ClientDealProposal.ClientSignature.Type
 	data.ClientDealProposal.Proposal = deal.ClientDealProposal.Proposal
