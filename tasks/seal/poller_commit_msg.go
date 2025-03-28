@@ -20,7 +20,7 @@ import (
 )
 
 func (s *SealPoller) pollerAddStartEpoch(ctx context.Context, task pollTask) error {
-	if !task.StartEpoch.Valid {
+	if task.AfterPrecommitMsgSuccess && !task.StartEpoch.Valid {
 		ts, err := s.api.ChainHead(ctx)
 		if err != nil {
 			return xerrors.Errorf("failed to get chain head: %w", err)
@@ -52,28 +52,27 @@ func (s *SealPoller) pollerAddStartEpoch(ctx context.Context, task pollTask) err
 			return xerrors.Errorf("failed to get max prove commit duration: %w", err)
 		}
 		startEpoch := pci.PreCommitEpoch + mpcd
-		_, err = s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline p
-										SET start_epoch = COALESCE(
-											(SELECT MIN(LEAST(s.f05_deal_start_epoch, s.direct_start_epoch))
-											 FROM sectors_sdr_initial_pieces s
-											 WHERE s.sp_id = $2 
-											   AND s.sector_number = $3
-											), 
-											$1
-										)
-										WHERE p.sp_id = $2
-										  AND p.sector_number = $3
-										  AND p.after_porep = TRUE 
-										  AND p.after_commit_msg = FALSE 
-										  AND p.start_epoch IS NULL`, startEpoch, task.SpID, task.SectorNumber)
+		_, err = s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET start_epoch =  $1
+										WHERE sp_id = $2
+										  AND sector_number = $3
+										  AND after_precommit_msg_success = TRUE 
+										  AND after_commit_msg = FALSE 
+										  AND start_epoch IS NULL`, startEpoch, task.SpID, task.SectorNumber)
 		if err != nil {
 			return xerrors.Errorf("failed to update start epoch: %w", err)
 		}
+		log.Debugw("updated start epoch", "sp", task.SpID, "sector", task.SectorNumber, "start_epoch", startEpoch)
 	}
+
 	return nil
 }
 
 func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context) {
+	// Exit early if the poller is set i.e. Commit task is not enabled on the node
+	if !s.pollers[pollerCommitMsg].IsSet() {
+		return
+	}
+
 	ts, err := s.api.ChainHead(ctx)
 	if err != nil {
 		log.Errorf("error getting chain head: %s", err)
@@ -90,7 +89,7 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context) {
 		var updatedCount int64
 		var reason string
 
-		log.Infow("Trying to assign a commit batch",
+		log.Debugw("Trying to assign a commit batch",
 			"slack_epoch", slackEpoch,
 			"current_height", ts.Height(),
 			"max_batch", s.cfg.commit.MaxCommitBatch,
@@ -114,7 +113,7 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context) {
 			log.Debugf("Assigned %d sectors to commit batch with taskID %d with reason %s", updatedCount, id, reason)
 			return true, nil
 		} else {
-			log.Debugf("No commit batch assigned")
+			log.Debugf("No commit batch assigned for ID %d", id)
 		}
 		return false, nil
 	})
