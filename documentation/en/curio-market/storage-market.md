@@ -80,7 +80,6 @@ type MK12Config struct {
 13. **DefaultCIDGravityAccept**:\
     Defines what happens if the **CIDGravity service is unavailable**. If`true`: **Accepts deals** even if CIDGravity is unreachable. If`false`: **Rejects deals** when CIDGravity is unavailable (**default**).
 
-
 ### **PieceLocator Configuration**
 
 This configuration allows you to set up remote HTTP servers that provide piece data for offline deals. A `PieceLocator` config is a combination of a URL and headers for fetching pieces when requested by the miner. This is crucial for handling offline deals where data is not available immediately and must be retrieved during the commP and sealing phase.
@@ -117,6 +116,7 @@ To enable the Curio market on a Curio node, the following configuration changes 
    * To enable HTTP, set the `Enable` flag in the `HTTPConfig` to `true` and specify the `ListenAddress` for the HTTP server.
 4. **Set a Domain Name**:
    * Ensure that a valid `DomainName` is specified in the `HTTPConfig`. This is mandatory for proper HTTP server functionality and essential for enabling TLS. The domain name cannot be an IP address.
+   * In case `DelegateTLS`  is `False` , the domain name must point to the public IP address your curio node is listening on. The purpose of setting this field is to allow lets encrypt ACME protocol to automatically issue a certificate to use TLS for encrypting access to the curio api. For let's encrypt policy reasons this will only work if curio listens on port 443.
    * Domain name should be specified in the base layer
 5. **HTTP Configuration Details**:
    * If TLS is managed by a reverse proxy, enable `DelegateTLS` in the `HTTPConfig` to allow the HTTP server to run without handling TLS directly.
@@ -129,10 +129,9 @@ To enable the Curio market on a Curio node, the following configuration changes 
      * `MaxDealsPerPublishMsg` for the maximum number of deals per message.
      * `MaxPublishDealFee` to set the fee limit for publishing deals.
    * If handling offline deals, configure `PieceLocator` to specify the endpoints for piece retrieval.
-8. Verify that HTTP server is working:
+8.  Verify that HTTP server is working:
 
-    * Curl to your domain name and verify that server is reachable from outside\
-
+    * Curl to your domain name and verify that server is reachable from outside\\
 
     ```shell
     curl https://<Domain name>

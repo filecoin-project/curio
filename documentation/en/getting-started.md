@@ -41,11 +41,11 @@ Curio requires access to at least one Filecoin chain node like [Lotus](https://l
 
 Following port must be opened on each Curio node for API and GUI access
 
-| Port  | Details                                                                                       |
-| ----- | --------------------------------------------------------------------------------------------- |
-| 12300 | Default API port                                                                              |
-| 4701  | Default GUI port. Not all Curio nodes are required to enable GUI                              |
-| 32100 | Market Port. This port is determined by the user when enabling Boost access in configuration. |
+| Port  | Details                                                          |
+| ----- | ---------------------------------------------------------------- |
+| 12300 | Default API port                                                 |
+| 4701  | Default GUI port. Not all Curio nodes are required to enable GUI |
+| 12310 | HTTP server port                                                 |
 
 ## Boost Compatibility (Deprecated)
 
