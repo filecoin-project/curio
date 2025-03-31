@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"context"
 	"sort"
-	"sync"
 
 	"github.com/multiformats/go-multiaddr"
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -106,9 +104,10 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 			return
 		}
 		for name, aset := range map[string][]string{
-			layer + ":Commit":    cAddrs.PreCommitControl,
-			layer + ":Control":   cAddrs.CommitControl,
-			layer + ":Terminate": cAddrs.TerminateControl,
+			layer + ":PreCommit":    cAddrs.PreCommitControl,
+			layer + ":Commit":       cAddrs.CommitControl,
+			layer + ":DealPublish:": cAddrs.DealPublishControl,
+			layer + ":Terminate":    cAddrs.TerminateControl,
 		} {
 			for _, addrStr := range aset {
 				addr, err := address.NewFromString(addrStr)
@@ -190,10 +189,6 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 	processedAddrs := make(map[address.Address]struct{})
 
 	var wallets []WalletInfo
-	var akm, bcm, mu sync.Mutex
-
-	// Use errgroup for error handling with goroutines
-	g, ctx := errgroup.WithContext(ctx)
 
 	// Helper functions
 	getAccountKey := func(addr address.Address) (address.Address, error) {
@@ -204,9 +199,7 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 		if err != nil {
 			return address.Undef, err
 		}
-		akm.Lock()
 		accountKeyMap[addr] = ak
-		akm.Unlock()
 		return ak, nil
 	}
 
@@ -218,9 +211,7 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 		if err != nil {
 			return big.Int{}, err
 		}
-		bcm.Lock()
 		balanceCache[addr] = bal
-		bcm.Unlock()
 		return bal, nil
 	}
 
@@ -234,8 +225,6 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 			return err
 		}
 
-		mu.Lock()
-		defer mu.Unlock()
 		if _, exists := processedAddrs[ak]; !exists {
 			processedAddrs[ak] = struct{}{}
 			wallets = append(wallets, WalletInfo{
@@ -250,25 +239,22 @@ func (a *WebRPC) ActorInfo(ctx context.Context, ActorIDstr string) (*ActorDetail
 	// Process minerWallets
 	for name, addrs := range minerWallets {
 		for _, addr := range addrs {
-			addr := addr // Avoid closure issues
+			addr := addr
 			name := name
-			g.Go(func() error {
-				return processAddress(addr, name)
-			})
+			err = processAddress(addr, name)
+			if err != nil {
+				return nil, xerrors.Errorf("processing address: %w", err)
+			}
 		}
 	}
 
 	// Process ControlAddresses
 	for _, addr := range append(info.ControlAddresses, info.Worker, info.Owner, info.Beneficiary) {
-		addr := addr // Avoid closure issues
-		g.Go(func() error {
-			return processAddress(addr, "Control")
-		})
-	}
-
-	// Wait for all goroutines to complete
-	if err := g.Wait(); err != nil {
-		return nil, xerrors.Errorf("processing addresses: %w", err)
+		addr := addr
+		err = processAddress(addr, "Control")
+		if err != nil {
+			return nil, xerrors.Errorf("processing address: %w", err)
+		}
 	}
 
 	wbal, err := getWalletBalance(accountKeyMap[info.Worker])
