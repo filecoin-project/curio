@@ -339,6 +339,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- replaced by function of same name in 20250331-fix-bulk-restart-func.sql
 CREATE OR REPLACE FUNCTION unset_task_id_snap(sp_id_param bigint, sector_number_param bigint)
     RETURNS void AS $$
 DECLARE
