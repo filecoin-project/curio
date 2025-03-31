@@ -258,6 +258,8 @@ func (m *MK12) prepareCidGravityPayload(ctx context.Context, deal *ProviderDealS
 	if !deal.IsOffline {
 		data.Size = int64(deal.Transfer.Size)
 	}
+	data.SkipIPNIAnnounce = !deal.AnnounceToIPNI
+	data.RemoveUnsealedCopy = !deal.FastRetrieval
 
 	data.DealTransferType = deal.Transfer.Type
 	data.ClientDealProposal.ClientSignature.Data = deal.ClientDealProposal.ClientSignature.Data
