@@ -2094,8 +2094,8 @@
         },
         {
             "id": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
-            "translation": "",
-            "message": "Yugabyte 클러스터의 Postgres 데이터베이스에 연결할 때 로드 밸런싱을 활성화하세요",
+            "translation": "Yugabyte 클러스터의 Postgres 데이터베이스에 연결할 때 로드 밸런싱을 활성화하세요",
+            "message": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
             "placeholder": null
         }
     ]
