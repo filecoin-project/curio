@@ -279,7 +279,7 @@ func (c *CheckIndexesTask) checkIPNI(ctx context.Context, taskID harmonytask.Tas
 	}
 	err = c.db.Select(ctx, &toCheck, `SELECT DISTINCT piece_cid, sp_id, piece_size,
                 uuid, offline, url, url_headers, created_at
-                FROM market_mk12_deals WHERE announce_to_ipni=true`)
+                FROM market_mk12_deals WHERE fast_retrieval=true AND announce_to_ipni=true`)
 	if err != nil {
 		return xerrors.Errorf("getting ipni tasks: %w", err)
 	}
