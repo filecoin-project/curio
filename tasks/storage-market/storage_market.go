@@ -773,7 +773,7 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 					EndEpoch:   abi.ChainEpoch(dbdeal.EndEpoch),
 				},
 				PieceActivationManifest: nil,
-				KeepUnsealed:            true,
+				KeepUnsealed:            dbdeal.FastRetrieval,
 			}
 		}
 
