@@ -106,6 +106,7 @@ class PricingFilters extends LitElement {
                 rel="stylesheet"
                 crossorigin="anonymous"
             />
+            <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'" />
             <div class="container">
                 <h2>Pricing Filters
                     <button class="info-btn">

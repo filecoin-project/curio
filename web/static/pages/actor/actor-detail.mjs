@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import '/actor-summary.mjs'; // <sector-expirations>
 import RPCCall from '/lib/jsonrpc.mjs';
+import '/lib/cu-wallet.mjs';
 
 customElements.define('actor-detail', class Actor extends LitElement {
     connectedCallback() {
@@ -138,19 +139,19 @@ customElements.define('actor-detail', class Actor extends LitElement {
                                                     </tr>
                                                     <tr>
                                                         <td>Owner Address:</td>
-                                                        <td>${actorInfo.OwnerAddress}</td>
+                                                        <td><cu-wallet wallet_id=${actorInfo.OwnerAddress}></cu-wallet></td>
                                                     </tr>
                                                     <tr>
                                                         <td>Beneficiary:</td>
-                                                        <td>${actorInfo.Beneficiary}</td>
+                                                        <td><cu-wallet wallet_id=${actorInfo.Beneficiary}></cu-wallet></td>
                                                     </tr>
                                                     <tr>
                                                         <td>Worker Address:</td>
-                                                        <td>${actorInfo.WorkerAddress}</td>
+                                                        <td><cu-wallet wallet_id=${actorInfo.WorkerAddress}></cu-wallet></td>
                                                     </tr>
                                                     <tr>
                                                         <td>Peer ID:</td>
-                                                        <td>${actorInfo.PeerID}</td>
+                                                        <td><cu-wallet wallet_id=${actorInfo.PeerID}></cu-wallet></td>
                                                     </tr>
 
                                                     <tr>
@@ -206,7 +207,7 @@ customElements.define('actor-detail', class Actor extends LitElement {
                                                     ${actorInfo.PendingOwnerAddress ? html`
                                                                         <tr>
                                                                             <td>PendingOwnerAddress:</td>
-                                                                            <td>${actorInfo.PendingOwnerAddress}</td>
+                                                                            <td><cu-wallet wallet_id=${actorInfo.PendingOwnerAddress}></cu-wallet></td>
                                                                         </tr>
                                                                     `
                                                                     : null
@@ -265,7 +266,7 @@ customElements.define('actor-detail', class Actor extends LitElement {
                                                 ${actorInfo.Wallets.map(wallet => html`
                                                     <tr>
                                                       <td>${wallet.Type}</td>
-                                                      <td>${wallet.Address}</td>
+                                                      <td><cu-wallet wallet_id=${wallet.Address}></cu-wallet></td>
                                                       <td>${wallet.Balance}</td>
                                                     </tr>
                                                   `)

@@ -1,5 +1,6 @@
 import { html, css, LitElement } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import '/lib/cu-wallet.mjs';
 
 class IpniStatus extends LitElement {
     static properties = {
@@ -107,7 +108,7 @@ class IpniStatus extends LitElement {
                         data-bs-parent="#ipniStatusAccordion"
                       >
                         <div class="accordion-body">
-                          <p><strong>PeerID:</strong> ${provider.peer_id}</p>
+                            <p><strong>PeerID:</strong><cu-wallet wallet_id=${provider.peer_id}></cu-wallet></p>
                           <p><strong>Head:</strong> <a href="/pages/ipni/?ad_cid=${provider.head}">${provider.head}</a></p>
                           ${provider.sync_status && provider.sync_status.length > 0 ? provider.sync_status.map((status) => html`
                                   <div class="sync-status">
