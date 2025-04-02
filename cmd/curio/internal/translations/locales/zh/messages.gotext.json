@@ -2064,8 +2064,8 @@
     },
     {
       "id": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
-      "translation": "",
-      "message": "为连接到 Yugabyte 集群中的 Postgres 数据库启用负载均衡",
+      "translation": "为连接到 Yugabyte 集群中的 Postgres 数据库启用负载均衡",
+      "message": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
       "placeholder": null
     }
   ]
