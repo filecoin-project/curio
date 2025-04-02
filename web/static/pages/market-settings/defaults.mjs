@@ -33,6 +33,7 @@ class DefaultMarketFilters extends LitElement {
                     rel="stylesheet"
                     crossorigin="anonymous"
             />
+            <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'" />
             <div class="container">
                 <h2>Filter Settings</h2>
             <table class="table table-dark table-striped">

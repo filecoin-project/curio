@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import '/lib/cu-wallet.mjs';
 
 class AllowList extends LitElement {
     static properties = {
@@ -89,8 +90,10 @@ class AllowList extends LitElement {
             <link
                 href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
                 rel="stylesheet"
+                integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3"
                 crossorigin="anonymous"
             />
+            <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'" />
             <div class="container">
                 <h2>Allow/Deny List
                     <button class="info-btn">
@@ -125,9 +128,10 @@ class AllowList extends LitElement {
                     ${this.allowList.map(
             (entry) => html`
                             <tr>
-                                <td>${entry.wallet}</td>
+                                <td><cu-wallet wallet_id=${entry.wallet}></cu-wallet></td>
                                 <td>${entry.status ? 'Allow' : 'Deny'}</td>
                                 <td>
+                                    <div class="d-flex gap-2">
                                     <button
                                         class="btn btn-secondary btn-sm"
                                         @click="${() => this.editAllowListEntry(entry)}"
@@ -140,6 +144,7 @@ class AllowList extends LitElement {
                                     >
                                         Remove
                                     </button>
+                                    </div>
                                 </td>
                             </tr>
                         `

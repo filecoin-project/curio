@@ -13,7 +13,6 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin"
 	"github.com/filecoin-project/go-state-types/builtin/v15/market"
 
-	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 )
 
@@ -112,11 +111,7 @@ func (a *WebRPC) SetClientFilters(ctx context.Context, name string, active bool,
 			if err != nil {
 				return xerrors.Errorf("invalid wallet address: %w", err)
 			}
-			client, err := a.deps.Chain.StateLookupID(ctx, w, types.EmptyTSK)
-			if err != nil {
-				return xerrors.Errorf("wallet not found: %w", err)
-			}
-			clients = append(clients, client.String())
+			clients = append(clients, w.String())
 		}
 	}
 
@@ -258,11 +253,7 @@ func (a *WebRPC) AddClientFilters(ctx context.Context, name string, active bool,
 			if err != nil {
 				return xerrors.Errorf("invalid wallet address: %w", err)
 			}
-			client, err := a.deps.Chain.StateLookupID(ctx, w, types.EmptyTSK)
-			if err != nil {
-				return xerrors.Errorf("wallet not found: %w", err)
-			}
-			clients = append(clients, client.String())
+			clients = append(clients, w.String())
 		}
 	}
 
@@ -382,12 +373,7 @@ func (a *WebRPC) AddAllowDenyList(ctx context.Context, wallet string, status boo
 		return xerrors.Errorf("invalid wallet address: %w", err)
 	}
 
-	client, err := a.deps.Chain.StateLookupID(ctx, w, types.EmptyTSK)
-	if err != nil {
-		return xerrors.Errorf("wallet not found: %w", err)
-	}
-
-	n, err := a.deps.DB.Exec(ctx, "INSERT INTO market_allow_list (wallet, status) VALUES ($1, $2)", client.String(), status)
+	n, err := a.deps.DB.Exec(ctx, "INSERT INTO market_allow_list (wallet, status) VALUES ($1, $2)", w.String(), status)
 	if err != nil {
 		return err
 	}
