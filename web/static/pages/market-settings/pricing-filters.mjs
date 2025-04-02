@@ -154,6 +154,7 @@ class PricingFilters extends LitElement {
                                 <td>${this.attoFilToFilPerTiBPerMonth(filter.price)}</td>
                                 <td>${filter.verified ? 'Yes' : 'No'}</td>
                                 <td>
+                                    <div class="d-flex gap-2">
                                     <button
                                         class="btn btn-secondary btn-sm"
                                         @click="${() => this.editPricingFilter(filter)}"
@@ -166,6 +167,7 @@ class PricingFilters extends LitElement {
                                     >
                                         Remove
                                     </button>
+                                    </div>
                                 </td>
                             </tr>
                         `

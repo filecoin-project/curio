@@ -175,6 +175,7 @@ class ClientFilters extends LitElement {
                                 <td>${this.formatBytes(filter.max_deal_size_per_hour)}</td>
                                 <td>${filter.info || ''}</td>
                                 <td>
+                                    <div class="d-flex gap-2">
                                     <button
                                         class="btn btn-secondary btn-sm"
                                         @click="${() => this.editClientFilter(filter)}"
@@ -187,6 +188,7 @@ class ClientFilters extends LitElement {
                                     >
                                         Remove
                                     </button>
+                                    </div>
                                 </td>
                             </tr>
                         `

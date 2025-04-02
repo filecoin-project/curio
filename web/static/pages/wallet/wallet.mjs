@@ -123,7 +123,7 @@ class WalletNames extends LitElement {
             <input
               type="text"
               placeholder="Wallet address"
-              .value="${this.newWallet}"
+              .value="${this.newWallet.trim()}"
               @input="${(e) => (this.newWallet = e.target.value)}"
               required
             />
@@ -132,7 +132,7 @@ class WalletNames extends LitElement {
             <input
               type="text"
               placeholder="Friendly name"
-              .value="${this.newName}"
+              .value="${this.newName.trim()}"
               @input="${(e) => (this.newName = e.target.value)}"
               required
             />
@@ -172,7 +172,7 @@ class WalletNames extends LitElement {
                 ? html`<input
                                 class="form-control form-control-sm"
                                 type="text"
-                                .value="${this.editingName}"
+                                .value="${this.editingName.trim()}"
                                 @input="${(e) => (this.editingName = e.target.value)}"
                               />`
                 : name}

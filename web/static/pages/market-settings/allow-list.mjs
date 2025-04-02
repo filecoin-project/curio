@@ -131,6 +131,7 @@ class AllowList extends LitElement {
                                 <td><cu-wallet wallet_id=${entry.wallet}></cu-wallet></td>
                                 <td>${entry.status ? 'Allow' : 'Deny'}</td>
                                 <td>
+                                    <div class="d-flex gap-2">
                                     <button
                                         class="btn btn-secondary btn-sm"
                                         @click="${() => this.editAllowListEntry(entry)}"
@@ -143,6 +144,7 @@ class AllowList extends LitElement {
                                     >
                                         Remove
                                     </button>
+                                    </div>
                                 </td>
                             </tr>
                         `

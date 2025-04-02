@@ -1,5 +1,6 @@
 import { LitElement, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import '/lib/clipboard-copy.mjs';
 
 class CuWallet extends LitElement {
   static properties = {
@@ -41,7 +42,12 @@ class CuWallet extends LitElement {
 
   render() {
     if (!this.havename){
-      return html`${this.wallet_id}`;
+      const shortened = `${this.wallet_id.slice(0, 6)}...${this.wallet_id.slice(-6)}`;
+      return html`
+        <span title="${this.wallet_id}">${shortened}</span>
+        <clipboard-copy .text=${this.wallet_id}></clipboard-copy>
+      </span>
+    `;
     }
     return html`
       <a href="/pages/wallet/?id=${this.wallet_id}"><span title="${this.wallet_id}">${this.name}</span></a>
