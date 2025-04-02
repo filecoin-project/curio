@@ -16,7 +16,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1
 	github.com/elastic/go-sysinfo v1.7.0
 	github.com/etclabscore/go-openrpc-reflect v0.0.36
-	github.com/ethereum/go-ethereum v1.14.12
+	github.com/ethereum/go-ethereum v1.14.13
 	github.com/fatih/color v1.18.0
 	github.com/filecoin-project/filecoin-ffi v1.32.0
 	github.com/filecoin-project/go-address v1.2.0
