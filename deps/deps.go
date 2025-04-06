@@ -282,7 +282,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	if deps.EthClient == nil {
 		deps.EthClient = lazy.MakeLazy[*ethclient.Client](func() (*ethclient.Client, error) {
 			// todo: this is a hack, just use the lotus chain api client above
-			return ethclient.Dial("https://api.calibration.node.glif.io/rpc/v1")
+			return ethclient.Dial("https://api.node.glif.io/rpc/v1")
 		})
 	}
 
