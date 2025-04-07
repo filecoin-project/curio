@@ -43,12 +43,16 @@ func NewTaskRequestProofs(db *harmonydb.DB, paramck func() (bool, error)) *TaskR
 // - snap/porep tasks were bored recently
 func (t *TaskRequestProofs) Adder(taskTx harmonytask.AddTaskFunc) {
 	ticker := time.NewTicker(ProofRequestPollInterval)
+
+	log.Infow("TaskRequestProofs.Adder() started")
+
 	go func() {
 		for range ticker.C {
 			// check if snap/porep tasks were bored recently
 			porepWasBored := derefTime(seal.PorepLastBored.Load()).After(time.Now().Add(-BoredBeforeToStart))
 			snapWasBored := derefTime(snap.ProveLastBored.Load()).After(time.Now().Add(-BoredBeforeToStart))
 			if !porepWasBored && !snapWasBored {
+				log.Infow("TaskRequestProofs.Adder() no snap/porep tasks were bored recently, skipping")
 				continue
 			}
 
