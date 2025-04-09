@@ -526,7 +526,7 @@ func changePathType(path string, newType storiface.SectorFileType) (string, erro
 	return newPath, nil
 }
 
-func (sb *SealCalls) GenerateUnsealedSector(ctx context.Context, sector storiface.SectorRef, sectorPaths, pathIDs storiface.SectorPaths, keepUnsealed bool) error {
+func (sb *SealCalls) GenerateUnsealedSector(ctx context.Context, sector storiface.SectorRef, sectorPaths, pathIDs *storiface.SectorPaths, keepUnsealed bool) error {
 	ssize, err := sector.ProofType.SectorSize()
 	if err != nil {
 		return xerrors.Errorf("getting sector size: %w", err)
@@ -653,7 +653,7 @@ func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface.Sector
 			return xerrors.Errorf("Unable to delete Synth cache: %w", err)
 		}
 	} else {
-		if err := sb.GenerateUnsealedSector(ctx, sector, sectorPaths, pathIDs, keepUnsealed); err != nil {
+		if err := sb.GenerateUnsealedSector(ctx, sector, &sectorPaths, &pathIDs, keepUnsealed); err != nil {
 			return xerrors.Errorf("generating unsealed copy of the sector: %w", err)
 		}
 	}
@@ -666,6 +666,8 @@ func (sb *SealCalls) FinalizeSector(ctx context.Context, sector storiface.Sector
 	if !keepUnsealed {
 		maybeUns = storiface.FTNone
 	}
+
+	log.Debugw("finalizing sector", "sector", sector.ID, "cache", sectorPaths.Cache, "unsealed", sectorPaths.Unsealed, "maybeUnsealed", maybeUns, "keepUnsealed", keepUnsealed, "pathIDs", pathIDs)
 
 	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, storiface.FTCache|maybeUns); err != nil {
 		return xerrors.Errorf("ensure one copy: %w", err)
@@ -807,7 +809,7 @@ func (sb *SealCalls) SyntheticProofs(ctx context.Context, task *harmonytask.Task
 	}
 
 	// Generate unsealed copy before clearing cache
-	if err = sb.GenerateUnsealedSector(ctx, sector, fspaths, pathIDs, keepUnsealed); err != nil {
+	if err = sb.GenerateUnsealedSector(ctx, sector, &fspaths, &pathIDs, keepUnsealed); err != nil {
 		return xerrors.Errorf("generating unsealed sector: %w", err)
 	}
 

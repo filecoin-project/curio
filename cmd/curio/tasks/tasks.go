@@ -65,9 +65,9 @@ func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.Cur
 	stor paths.Store, idx paths.SectorIndex, max int) (*window2.WdPostTask, *window2.WdPostSubmitTask, *window2.WdPostRecoverDeclareTask, error) {
 
 	// todo config
-	ft := window2.NewSimpleFaultTracker(stor, idx, pc.ParallelCheckLimit, time.Duration(pc.SingleCheckTimeout), time.Duration(pc.PartitionCheckTimeout))
+	ft := window2.NewSimpleFaultTracker(stor, idx, pc.ParallelCheckLimit, pc.SingleCheckTimeout, pc.PartitionCheckTimeout)
 
-	computeTask, err := window2.NewWdPostTask(db, api, ft, stor, verif, paramck, chainSched, addresses, max, pc.ParallelCheckLimit, time.Duration(pc.SingleCheckTimeout))
+	computeTask, err := window2.NewWdPostTask(db, api, ft, stor, verif, paramck, chainSched, addresses, max, pc.ParallelCheckLimit, pc.SingleCheckTimeout)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -235,17 +235,20 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		miners = append(miners, address.Address(k))
 	}
 
-	{
-		// Market tasks
-		sc, err := slrLazy.Val()
+	if cfg.Subsystems.EnableBalanceManager {
+		balMgrTask, err := storage_market.NewBalanceManager(full, miners, cfg, sender)
 		if err != nil {
 			return nil, err
 		}
+		activeTasks = append(activeTasks, balMgrTask)
+	}
 
+	{
+		// Market tasks
 		if cfg.Subsystems.EnableDealMarket {
 			// Main market poller should run on all nodes
-			dm := storage_market.NewCurioStorageDealMarket(miners, db, cfg, sc, full)
-			err = dm.StartMarket(ctx)
+			dm := storage_market.NewCurioStorageDealMarket(miners, db, cfg, si, full, as)
+			err := dm.StartMarket(ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -267,7 +270,10 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			// instead of returning the error. This design is to allow libp2p take over if required
 			go libp2p.NewDealProvider(ctx, db, cfg, dm.MK12Handler, full, sender, miners, machine, shutdownChan)
 		}
-
+		sc, err := slrLazy.Val()
+		if err != nil {
+			return nil, err
+		}
 		var sdeps cuhttp.ServiceDeps
 
 		if cfg.Subsystems.EnablePDP {
@@ -396,7 +402,7 @@ func addSealingTasks(
 		activeTasks = append(activeTasks, sdrTask, keyTask)
 	}
 	if cfg.Subsystems.EnableSealSDRTrees {
-		treeDTask := seal.NewTreeDTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
+		treeDTask := seal.NewTreeDTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks, cfg.Subsystems.BindSDRTreeToNode)
 		treeRCTask := seal.NewTreeRCTask(sp, db, slr, cfg.Subsystems.SealSDRTreesMaxTasks)
 		synthTask := seal.NewSyntheticProofTask(sp, db, slr, cfg.Subsystems.SyntheticPoRepMaxTasks)
 		activeTasks = append(activeTasks, treeDTask, synthTask, treeRCTask)

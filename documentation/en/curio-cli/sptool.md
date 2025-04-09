@@ -7,13 +7,14 @@ USAGE:
    sptool [global options] command [command options]
 
 VERSION:
-   1.24.4
+   1.25.0
 
 COMMANDS:
    actor    Manage Filecoin Miner Actor Metadata
    info     Print miner actor info
    sectors  interact with sector store
    proving  View proving information
+   toolbox  some tools to fix some problems
    help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
@@ -485,6 +486,384 @@ NAME:
 
 USAGE:
    sptool proving faults [command options]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+## sptool toolbox
+```
+NAME:
+   sptool toolbox - some tools to fix some problems
+
+USAGE:
+   sptool toolbox command [command options]
+
+COMMANDS:
+   spark        Manage Smart Contract PeerID used by Spark
+   mk12-client  mk12 client for Curio
+   help, h      Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### sptool toolbox spark
+```
+NAME:
+   sptool toolbox spark - Manage Smart Contract PeerID used by Spark
+
+USAGE:
+   sptool toolbox spark command [command options]
+
+COMMANDS:
+   delete-peer  Delete PeerID from Spark Smart Contract
+   help, h      Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+#### sptool toolbox spark delete-peer
+```
+NAME:
+   sptool toolbox spark delete-peer - Delete PeerID from Spark Smart Contract
+
+USAGE:
+   sptool toolbox spark delete-peer [command options] <Miner ID>
+
+OPTIONS:
+   --really-do-it  Send the message to the smart contract (default: false)
+   --help, -h      show help
+```
+
+### sptool toolbox mk12-client
+```
+NAME:
+   sptool toolbox mk12-client - mk12 client for Curio
+
+USAGE:
+   sptool toolbox mk12-client command [command options]
+
+COMMANDS:
+   init               Initialise curio mk12 client repo
+   deal               Make an online deal with Curio
+   offline-deal       Make an offline deal with Curio
+   allocate           Create new allocation[s] for verified deals
+   list-allocations   Lists all allocations for a client address(wallet)
+   market-add         Add funds to the Storage Market actor
+   market-withdraw    Withdraw funds from the Storage Market actor
+   commp              
+   generate-rand-car  creates a randomly generated dense car
+   wallet             Manage mk12 client wallets
+   help, h            Shows a list of commands or help for one command
+
+OPTIONS:
+   --mk12-client-repo value  repo directory for mk12 client (default: "~/.curio-client") [$CURIO_MK12_CLIENT_REPO]
+   --help, -h                show help
+```
+
+#### sptool toolbox mk12-client init
+```
+NAME:
+   sptool toolbox mk12-client init - Initialise curio mk12 client repo
+
+USAGE:
+   sptool toolbox mk12-client init [command options]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+#### sptool toolbox mk12-client deal
+```
+NAME:
+   sptool toolbox mk12-client deal - Make an online deal with Curio
+
+USAGE:
+   sptool toolbox mk12-client deal [command options]
+
+OPTIONS:
+   --http-url value                               http url to CAR file
+   --http-headers value [ --http-headers value ]  http headers to be passed with the request (e.g key=value)
+   --car-size value                               size of the CAR file: required for online deals (default: 0)
+   --provider value                               storage provider on-chain address
+   --commp value                                  commp of the CAR file
+   --piece-size value                             size of the CAR file as a padded piece (default: 0)
+   --payload-cid value                            root CID of the CAR file
+   --start-epoch-head-offset value                start epoch by when the deal should be proved by provider on-chain after current chain head (default: 0)
+   --start-epoch value                            start epoch by when the deal should be proved by provider on-chain (default: 0)
+   --duration value                               duration of the deal in epochs (default: 518400)
+   --provider-collateral value                    deal collateral that storage miner must put in escrow; if empty, the min collateral for the given piece size will be used (default: 0)
+   --storage-price value                          storage price in attoFIL per epoch per GiB (default: 1)
+   --verified                                     whether the deal funds should come from verified client data-cap (default: false)
+   --remove-unsealed-copy                         indicates that an unsealed copy of the sector in not required for fast retrieval (default: false)
+   --wallet value                                 wallet address to be used to initiate the deal
+   --skip-ipni-announce                           indicates that deal index should not be announced to the IPNI(Network Indexer) (default: false)
+   --help, -h                                     show help
+```
+
+#### sptool toolbox mk12-client offline-deal
+```
+NAME:
+   sptool toolbox mk12-client offline-deal - Make an offline deal with Curio
+
+USAGE:
+   sptool toolbox mk12-client offline-deal [command options]
+
+OPTIONS:
+   --provider value                 storage provider on-chain address
+   --commp value                    commp of the CAR file
+   --piece-size value               size of the CAR file as a padded piece (default: 0)
+   --payload-cid value              root CID of the CAR file
+   --start-epoch-head-offset value  start epoch by when the deal should be proved by provider on-chain after current chain head (default: 0)
+   --start-epoch value              start epoch by when the deal should be proved by provider on-chain (default: 0)
+   --duration value                 duration of the deal in epochs (default: 518400)
+   --provider-collateral value      deal collateral that storage miner must put in escrow; if empty, the min collateral for the given piece size will be used (default: 0)
+   --storage-price value            storage price in attoFIL per epoch per GiB (default: 1)
+   --verified                       whether the deal funds should come from verified client data-cap (default: false)
+   --remove-unsealed-copy           indicates that an unsealed copy of the sector in not required for fast retrieval (default: false)
+   --wallet value                   wallet address to be used to initiate the deal
+   --skip-ipni-announce             indicates that deal index should not be announced to the IPNI(Network Indexer) (default: false)
+   --help, -h                       show help
+```
+
+#### sptool toolbox mk12-client allocate
+```
+NAME:
+   sptool toolbox mk12-client allocate - Create new allocation[s] for verified deals
+
+USAGE:
+   sptool toolbox mk12-client allocate [command options]
+
+DESCRIPTION:
+   The command can accept a CSV formatted file in the format 'pieceCid,pieceSize,miner,tmin,tmax,expiration'
+
+OPTIONS:
+   --miner value, -m value, --provider value, -p value [ --miner value, -m value, --provider value, -p value ]  storage provider address[es]
+   --piece-cid value, --piece value                                                                             data piece-cid to create the allocation
+   --piece-size value, --size value                                                                             piece size to create the allocation (default: 0)
+   --wallet value                                                                                               the wallet address that will used create the allocation
+   --quiet                                                                                                      do not print the allocation list (default: false)
+   --term-min value, --tmin value                                                                               The minimum duration which the provider must commit to storing the piece to avoid early-termination penalties (epochs).
+      Default is 180 days. (default: 518400)
+   --term-max value, --tmax value  The maximum period for which a provider can earn quality-adjusted power for the piece (epochs).
+      Default is 5 years. (default: 5256000)
+   --expiration value  The latest epoch by which a provider must commit data before the allocation expires (epochs).
+      Default is 60 days. (default: 172800)
+   --piece-file value, --pf value  file containing piece information to create the allocation. Each line in the file should be in the format 'pieceCid,pieceSize,miner,tmin,tmax,expiration'
+   --batch-size value              number of extend requests per batch. If set incorrectly, this will lead to out of gas error (default: 500)
+   --confidence value              number of block confirmations to wait for (default: 5)
+   --assume-yes, -y, --yes         automatic yes to prompts; assume 'yes' as answer to all prompts and run non-interactively (default: false)
+   --evm-client-contract value     f4 address of EVM contract to spend DataCap from
+   --json, -j                      print output in JSON format (default: false)
+   --help, -h                      show help
+```
+
+#### sptool toolbox mk12-client list-allocations
+```
+NAME:
+   sptool toolbox mk12-client list-allocations - Lists all allocations for a client address(wallet)
+
+USAGE:
+   sptool toolbox mk12-client list-allocations [command options]
+
+OPTIONS:
+   --miner value, -m value, --provider value, -p value  Storage provider address. If provided, only allocations against this minerID will be printed
+   --wallet value                                       the wallet address that will used create the allocation
+   --json, -j                                           print output in JSON format (default: false)
+   --help, -h                                           show help
+```
+
+#### sptool toolbox mk12-client market-add
+```
+NAME:
+   sptool toolbox mk12-client market-add - Add funds to the Storage Market actor
+
+USAGE:
+   sptool toolbox mk12-client market-add [command options] <amount>
+
+DESCRIPTION:
+   Send signed message to add funds for the default wallet to the Storage Market actor. Uses 2x current BaseFee and a maximum fee of 1 nFIL. This is an experimental utility, do not use in production.
+
+OPTIONS:
+   --assume-yes, -y, --yes  automatic yes to prompts; assume 'yes' as answer to all prompts and run non-interactively (default: false)
+   --wallet value           move balance from this wallet address to its market actor
+   --help, -h               show help
+```
+
+#### sptool toolbox mk12-client market-withdraw
+```
+NAME:
+   sptool toolbox mk12-client market-withdraw - Withdraw funds from the Storage Market actor
+
+USAGE:
+   sptool toolbox mk12-client market-withdraw [command options] <amount>
+
+OPTIONS:
+   --assume-yes, -y, --yes  automatic yes to prompts; assume 'yes' as answer to all prompts and run non-interactively (default: false)
+   --wallet value           move balance to this wallet address from its market actor
+   --help, -h               show help
+```
+
+#### sptool toolbox mk12-client commp
+```
+NAME:
+   sptool toolbox mk12-client commp
+
+USAGE:
+   sptool toolbox mk12-client commp [command options] <inputPath>
+
+OPTIONS:
+   --help, -h  show help
+```
+
+#### sptool toolbox mk12-client generate-rand-car
+```
+NAME:
+   sptool toolbox mk12-client generate-rand-car - creates a randomly generated dense car
+
+USAGE:
+   sptool toolbox mk12-client generate-rand-car [command options] <outputPath>
+
+OPTIONS:
+   --size value, -s value       The size of the data to turn into a car (default: 8000000)
+   --chunksize value, -c value  Size of chunking that should occur (default: 512)
+   --maxlinks value, -l value   Max number of leaves per level (default: 8)
+   --help, -h                   show help
+```
+
+#### sptool toolbox mk12-client wallet
+```
+NAME:
+   sptool toolbox mk12-client wallet - Manage mk12 client wallets
+
+USAGE:
+   sptool toolbox mk12-client wallet command [command options]
+
+COMMANDS:
+   new                   Generate a new key of the given type
+   list                  List wallet address
+   balance               Get account balance
+   export                export keys
+   import                import keys
+   default, get-default  Get default wallet address
+   set-default           Set default wallet address
+   delete                Delete an account from the wallet
+   sign                  Sign a message
+   help, h               Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+##### sptool toolbox mk12-client wallet new
+```
+NAME:
+   sptool toolbox mk12-client wallet new - Generate a new key of the given type
+
+USAGE:
+   sptool toolbox mk12-client wallet new [command options] [bls|secp256k1|delegated (default secp256k1)]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+##### sptool toolbox mk12-client wallet list
+```
+NAME:
+   sptool toolbox mk12-client wallet list - List wallet address
+
+USAGE:
+   sptool toolbox mk12-client wallet list [command options]
+
+OPTIONS:
+   --addr-only, -a  Only print addresses (default: false)
+   --id, -i         Output ID addresses (default: false)
+   --help, -h       show help
+```
+
+##### sptool toolbox mk12-client wallet balance
+```
+NAME:
+   sptool toolbox mk12-client wallet balance - Get account balance
+
+USAGE:
+   sptool toolbox mk12-client wallet balance [command options] [address]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+##### sptool toolbox mk12-client wallet export
+```
+NAME:
+   sptool toolbox mk12-client wallet export - export keys
+
+USAGE:
+   sptool toolbox mk12-client wallet export [command options] [address]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+##### sptool toolbox mk12-client wallet import
+```
+NAME:
+   sptool toolbox mk12-client wallet import - import keys
+
+USAGE:
+   sptool toolbox mk12-client wallet import [command options] [<path> (optional, will read from stdin if omitted)]
+
+OPTIONS:
+   --format value  specify input format for key (default: "hex-lotus")
+   --as-default    import the given key as your new default key (default: false)
+   --help, -h      show help
+```
+
+##### sptool toolbox mk12-client wallet default
+```
+NAME:
+   sptool toolbox mk12-client wallet default - Get default wallet address
+
+USAGE:
+   sptool toolbox mk12-client wallet default [command options]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+##### sptool toolbox mk12-client wallet set-default
+```
+NAME:
+   sptool toolbox mk12-client wallet set-default - Set default wallet address
+
+USAGE:
+   sptool toolbox mk12-client wallet set-default [command options] [address]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+##### sptool toolbox mk12-client wallet delete
+```
+NAME:
+   sptool toolbox mk12-client wallet delete - Delete an account from the wallet
+
+USAGE:
+   sptool toolbox mk12-client wallet delete [command options] <address> 
+
+OPTIONS:
+   --help, -h  show help
+```
+
+##### sptool toolbox mk12-client wallet sign
+```
+NAME:
+   sptool toolbox mk12-client wallet sign - Sign a message
+
+USAGE:
+   sptool toolbox mk12-client wallet sign [command options] <signing address> <hexMessage>
 
 OPTIONS:
    --help, -h  show help

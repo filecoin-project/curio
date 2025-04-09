@@ -9,8 +9,7 @@ Migrating from Boost to Curio involves transitioning all deal data, including Bo
 ## Build the `migrate-curio` CLI Tool
 
 * First, you need to build the `migrate-curio` tool, which is part of the Boost code base. This tool will handle the migration of deals.
-*   Run the following command to build the tool.\
-
+*   Run the following command to build the tool.\\
 
     ```bash
     git checkout feat/curio-migration
@@ -18,6 +17,10 @@ Migrating from Boost to Curio involves transitioning all deal data, including Bo
     ```
 
 ## Preparation for Migration
+
+{% hint style="warning" %}
+Please read the [Curio market documentation](storage-market.md) carefully before proceeding. Curio market should be fully [configured](storage-market.md#enabling-storage-market) before proceeding with migration.
+{% endhint %}
 
 * Ensure that both Boost and Curio setups are ready for the migration. **Boost must be shutdown and no deal should be in process**. You will need the following details:
   * Path to the Boost repository (default is `~/.boost`)
@@ -90,21 +93,18 @@ For all deals that have been migrated and are in unsealed sectors, Curio handles
 
 ## Cleanup of Local Index Directory (LID) (optional)
 
-*   After the migration, you can clean up the old LevelDB (`LID`) data that was used by Boost:\
-
+*   After the migration, you can clean up the old LevelDB (`LID`) data that was used by Boost:\\
 
     ```bash
-    migrate-curio cleanup leveldb --boost-repo <boost-repo-path>
+    migrate-curio --boost-repo <boost-repo-path> cleanup leveldb
     ```
-*   If the `LID` store was using YugabyteDB for storing indexes, use the following command\
-
+*   If the `LID` store was using YugabyteDB for storing indexes, use the following command\\
 
     ```bash
     ./migrate-curio cleanup yugabyte \
-        --db-host "127.0.0.1" \
-        --db-user "yugabyte" \
-        --db-password "yugabyte" \
-        --db-port "5433" \
+        --hosts "127.0.0.1" \
+        --username "yugabyte" \
+        --password "yugabyte" \
         --connect-string "postgresql://postgres:postgres@localhost" \
         --i-know-what-i-am-doing
     ```

@@ -21,7 +21,7 @@ import (
 	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/cmd/curio/rpc"
 	"github.com/filecoin-project/curio/lib/reqcontext"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/sealer/fsutil"
@@ -40,8 +40,9 @@ stored while moving through the sealing pipeline (references as 'seal').`),
 		storageDetachCmd,
 		storageListCmd,
 		storageFindCmd,
-		/*storageDetachCmd,
+		storageGenerateVanillaProofCmd,
 		storageRedeclareCmd,
+		/*storageDetachCmd,
 		storageCleanupCmd,
 		storageLocks,*/
 	},
@@ -544,6 +545,90 @@ var storageFindCmd = &cli.Command{
 			for _, l := range info.store.URLs {
 				fmt.Printf("\tURL: %s\n", l)
 			}
+		}
+
+		return nil
+	},
+}
+
+var storageGenerateVanillaProofCmd = &cli.Command{
+	Name:      "generate-vanilla-proof",
+	Usage:     translations.T("generate vanilla proof for a sector"),
+	ArgsUsage: translations.T("[miner address] [sector number]"),
+	Action: func(cctx *cli.Context) error {
+		api, closer, err := rpc.GetCurioAPI(cctx)
+		if err != nil {
+			return err
+		}
+		defer closer()
+		ctx := reqcontext.ReqContext(cctx)
+		if cctx.NArg() != 2 {
+			return fmt.Errorf("incorrect number of arguments, got %d", cctx.NArg())
+		}
+		ma := cctx.Args().First()
+		maddr, err := address.NewFromString(ma)
+		if err != nil {
+			return xerrors.Errorf("parsing miner address: %w", err)
+		}
+		snum, err := strconv.ParseUint(cctx.Args().Get(1), 10, 64)
+		if err != nil {
+			return xerrors.Errorf("parsing sector number: %w", err)
+		}
+
+		proof, err := api.StorageGenerateVanillaProof(ctx, maddr, abi.SectorNumber(snum))
+		if err != nil {
+			return xerrors.Errorf("generating proof: %w", err)
+		}
+		fmt.Println(proof)
+		return nil
+	},
+}
+
+var storageRedeclareCmd = &cli.Command{
+	Name:        "redeclare",
+	Usage:       translations.T("redeclare sectors in a local storage path"),
+	Description: translations.T("--machine flag in cli command should point to the node where storage to redeclare is attached"),
+	ArgsUsage:   "[id]",
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:  "all",
+			Usage: "redeclare all storage paths",
+		},
+		&cli.BoolFlag{
+			Name:  "drop-missing",
+			Usage: "Drop index entries with missing files",
+			Value: true,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		api, closer, err := rpc.GetCurioAPI(cctx)
+		if err != nil {
+			return err
+		}
+		defer closer()
+		ctx := reqcontext.ReqContext(cctx)
+
+		// check if no argument and no --id or --all flag is provided
+		if cctx.NArg() == 0 && !cctx.Bool("all") {
+			return xerrors.Errorf("You must specify a storage id, or --all")
+		}
+
+		if cctx.Bool("all") && cctx.NArg() > 0 {
+			return xerrors.Errorf("No additional arguments are expected when --all is set")
+		}
+
+		if !cctx.Bool("all") {
+			id := storiface.ID(strings.TrimSpace(cctx.Args().First()))
+			return api.StorageRedeclare(ctx, &id, cctx.Bool("drop-missing"))
+		}
+
+		local, err := api.StorageLocal(ctx)
+		if err != nil {
+			return err
+		}
+
+		for l := range local {
+			return api.StorageRedeclare(ctx, &l, cctx.Bool("drop-missing"))
 		}
 
 		return nil

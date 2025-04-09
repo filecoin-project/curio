@@ -7,7 +7,7 @@ USAGE:
    curio [global options] command [command options]
 
 VERSION:
-   1.24.4
+   1.25.0
 
 COMMANDS:
    cli           Execute cli commands
@@ -24,16 +24,18 @@ COMMANDS:
    help, h       Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-   --color              use color in display output (default: depends on output being a TTY)
-   --db-host value      Command separated list of hostnames for yugabyte cluster (default: "127.0.0.1") [$CURIO_DB_HOST, $CURIO_HARMONYDB_HOSTS]
-   --db-name value      (default: "yugabyte") [$CURIO_DB_NAME, $CURIO_HARMONYDB_NAME]
-   --db-user value      (default: "yugabyte") [$CURIO_DB_USER, $CURIO_HARMONYDB_USERNAME]
-   --db-password value  (default: "yugabyte") [$CURIO_DB_PASSWORD, $CURIO_HARMONYDB_PASSWORD]
-   --db-port value      (default: "5433") [$CURIO_DB_PORT, $CURIO_HARMONYDB_PORT]
-   --repo-path value    (default: "~/.curio") [$CURIO_REPO_PATH]
-   --vv                 enables very verbose mode, useful for debugging the CLI (default: false)
-   --help, -h           show help
-   --version, -v        print the version
+   --color                    use color in display output (default: depends on output being a TTY)
+   --db-host value            Command separated list of hostnames for yugabyte cluster (default: "127.0.0.1") [$CURIO_DB_HOST, $CURIO_HARMONYDB_HOSTS]
+   --db-name value            Name of the Postgres database in Yugabyte cluster (default: "yugabyte") [$CURIO_DB_NAME, $CURIO_HARMONYDB_NAME]
+   --db-user value            Username for connecting to the Postgres database in Yugabyte cluster (default: "yugabyte") [$CURIO_DB_USER, $CURIO_HARMONYDB_USERNAME]
+   --db-password value        Password for connecting to the Postgres database in Yugabyte cluster (default: "yugabyte") [$CURIO_DB_PASSWORD, $CURIO_HARMONYDB_PASSWORD]
+   --db-port value            Port for connecting to the Postgres database in Yugabyte cluster (default: "5433") [$CURIO_DB_PORT, $CURIO_HARMONYDB_PORT]
+   --db-cassandra-port value  Port for connecting to the Cassandra database in Yugabyte cluster (default: 9042) [$CURIO_DB_CASSANDRA_PORT, $CURIO_INDEXDB_PORT]
+   --db-load-balance          Enable load balancing for connecting to the Postgres database in Yugabyte cluster (default: true) [$CURIO_DB_LOAD_BALANCE, $CURIO_HARMONYDB_LOAD_BALANCE]
+   --repo-path value          (default: "~/.curio") [$CURIO_REPO_PATH]
+   --vv                       enables very verbose mode, useful for debugging the CLI (default: false)
+   --help, -h                 show help
+   --version, -v              print the version
 ```
 
 ## curio cli
@@ -45,14 +47,15 @@ USAGE:
    curio cli command [command options]
 
 COMMANDS:
-   info      Get Curio node info
-   storage   manage sector storage
-   log       Manage logging
-   wait-api  Wait for Curio api to come online
-   stop      Stop a running Curio process
-   cordon    Cordon a machine, set it to maintenance mode
-   uncordon  Uncordon a machine, resume scheduling
-   help, h   Shows a list of commands or help for one command
+   info          Get Curio node info
+   storage       manage sector storage
+   log           Manage logging
+   wait-api      Wait for Curio api to come online
+   stop          Stop a running Curio process
+   cordon        Cordon a machine, set it to maintenance mode
+   uncordon      Uncordon a machine, resume scheduling
+   index-sample  Provides a sample of CIDs from an indexed piece
+   help, h       Shows a list of commands or help for one command
 
 OPTIONS:
    --machine value  machine host:port (curio run --listen address)
@@ -86,11 +89,13 @@ DESCRIPTION:
    stored while moving through the sealing pipeline (references as 'seal').
 
 COMMANDS:
-   attach   attach local storage path
-   detach   detach local storage path
-   list     list local storage paths
-   find     find sector in the storage system
-   help, h  Shows a list of commands or help for one command
+   attach                  attach local storage path
+   detach                  detach local storage path
+   list                    list local storage paths
+   find                    find sector in the storage system
+   generate-vanilla-proof  generate vanilla proof for a sector
+   redeclare               redeclare sectors in a local storage path
+   help, h                 Shows a list of commands or help for one command
 
 OPTIONS:
    --help, -h  show help
@@ -176,6 +181,35 @@ USAGE:
 
 OPTIONS:
    --help, -h  show help
+```
+
+#### curio cli storage generate-vanilla-proof
+```
+NAME:
+   curio cli storage generate-vanilla-proof - generate vanilla proof for a sector
+
+USAGE:
+   curio cli storage generate-vanilla-proof [command options] [miner address] [sector number]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+#### curio cli storage redeclare
+```
+NAME:
+   curio cli storage redeclare - redeclare sectors in a local storage path
+
+USAGE:
+   curio cli storage redeclare [command options] [id]
+
+DESCRIPTION:
+   --machine flag in cli command should point to the node where storage to redeclare is attached
+
+OPTIONS:
+   --all           redeclare all storage paths (default: false)
+   --drop-missing  Drop index entries with missing files (default: true)
+   --help, -h      show help
 ```
 
 ### curio cli log
@@ -286,6 +320,19 @@ USAGE:
    curio cli uncordon [command options]
 
 OPTIONS:
+   --help, -h  show help
+```
+
+### curio cli index-sample
+```
+NAME:
+   curio cli index-sample - Provides a sample of CIDs from an indexed piece
+
+USAGE:
+   curio cli index-sample [command options] piece-cid
+
+OPTIONS:
+   --json      output in json format (default: false)
    --help, -h  show help
 ```
 
@@ -498,6 +545,7 @@ USAGE:
 OPTIONS:
    --deadline value                   deadline to compute WindowPoSt for  (default: 0)
    --layers value [ --layers value ]  list of layers to be interpreted (atop defaults). Default: base
+   --addr value                       SP ID to compute WindowPoSt for
    --help, -h                         show help
 ```
 
@@ -714,6 +762,7 @@ COMMANDS:
    seal            start sealing a deal sector early
    add-url         Add URL to fetch data for offline deals
    move-to-escrow  Moves funds from the deal collateral wallet into escrow with the storage market actor
+   ddo             Create a new offline verified DDO deal for Curio
    help, h         Shows a list of commands or help for one command
 
 OPTIONS:
@@ -762,6 +811,22 @@ OPTIONS:
    --max-fee value  maximum fee in FIL user is willing to pay for this message (default: "0.5")
    --wallet value   Specify wallet address to send the funds from
    --help, -h       show help
+```
+
+### curio market ddo
+```
+NAME:
+   curio market ddo - Create a new offline verified DDO deal for Curio
+
+USAGE:
+   curio market ddo [command options] <client-address> <allocation-id>
+
+OPTIONS:
+   --actor value           Specify actor address for the deal
+   --remove-unsealed-copy  Remove unsealed copies of sector containing this deal (default: false)
+   --skip-ipni-announce    indicates that deal index should not be announced to the IPNI (default: false)
+   --start-epoch value     start epoch by when the deal should be proved by provider on-chain (default: 2 days from now) (default: 0)
+   --help, -h              show help
 ```
 
 ## curio fetch-params

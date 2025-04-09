@@ -95,14 +95,14 @@ func NewPieceIngesterSnap(ctx context.Context, db *harmonydb.DB, api PieceIngest
 		idToAddr[abi.ActorID(mid)] = maddr
 	}
 
-	epochs := time.Duration(cfg.Market.StorageMarketConfig.MK12.ExpectedSnapSealDuration).Seconds() / float64(build.BlockDelaySecs)
+	epochs := cfg.Market.StorageMarketConfig.MK12.ExpectedSnapSealDuration.Seconds() / float64(build.BlockDelaySecs)
 	expectedEpochs := math.Ceil(epochs)
 
 	pi := &PieceIngesterSnap{
 		ctx:                  ctx,
 		db:                   db,
 		api:                  api,
-		maxWaitTime:          time.Duration(cfg.Ingest.MaxDealWaitTime),
+		maxWaitTime:          cfg.Ingest.MaxDealWaitTime,
 		addToID:              addToID,
 		minerDetails:         minerDetails,
 		idToAddr:             idToAddr,

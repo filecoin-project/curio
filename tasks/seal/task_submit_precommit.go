@@ -111,14 +111,6 @@ func (s *SubmitPrecommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		return false, xerrors.Errorf("expected at least 1 sector params, got 0")
 	}
 
-	//if s.batching {
-	//	if len(sectorParamsArr) != 1 {
-	//		return false, xerrors.Errorf("expected 1 sector params, got %d", len(sectorParamsArr))
-	//	}
-	//} else {
-	//
-	//}
-
 	head, err := s.api.ChainHead(ctx)
 	if err != nil {
 		return false, xerrors.Errorf("getting chain head: %w", err)

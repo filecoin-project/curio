@@ -196,17 +196,12 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			return false, xerrors.Errorf("commP mismatch calculated %s and supplied %s", pcid, calculatedCommp.PieceCID)
 		}
 
-		n, err := c.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET after_commp = TRUE, commp_task_id = NULL WHERE commp_task_id = $1`, taskID)
+		n, err := c.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET after_commp = TRUE, psd_wait_time = NOW(), commp_task_id = NULL WHERE commp_task_id = $1`, taskID)
 		if err != nil {
 			return false, xerrors.Errorf("store commp success: updating deal pipeline: %w", err)
 		}
 		if n != 1 {
 			return false, xerrors.Errorf("store commp success: updated %d rows", n)
-		}
-
-		_, err = c.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET psd_wait_time = NOW() AT TIME ZONE 'UTC' WHERE uuid = $1`, piece.UUID)
-		if err != nil {
-			return false, xerrors.Errorf("store psd time: updating deal pipeline: %w", err)
 		}
 
 		return true, nil
@@ -349,7 +344,15 @@ var _ = harmonytask.Reg(&CommpTask{})
 var _ harmonytask.TaskInterface = &CommpTask{}
 
 func failDeal(ctx context.Context, db *harmonydb.DB, deal string, updatePipeline bool, reason string) error {
-	n, err := db.Exec(ctx, `UPDATE market_mk12_deals SET error = $1 WHERE uuid = $2`, reason, deal)
+	n, err := db.Exec(ctx, `WITH updated AS (
+									UPDATE market_mk12_deals
+									SET error = $1
+									WHERE uuid = $2
+									RETURNING uuid
+								)
+								UPDATE market_direct_deals
+								SET error = $1
+								WHERE uuid = $2 AND NOT EXISTS (SELECT 1 FROM updated)`, reason, deal)
 	if err != nil {
 		return xerrors.Errorf("store deal failure: updating deal pipeline: %w", err)
 	}
@@ -376,7 +379,10 @@ func checkExpiry(ctx context.Context, db *harmonydb.DB, api headAPI, deal string
 	var starts []struct {
 		StartEpoch int64 `db:"start_epoch"`
 	}
-	err := db.Select(ctx, &starts, `SELECT start_epoch FROM market_mk12_deals WHERE uuid = $1`, deal)
+	err := db.Select(ctx, &starts, `SELECT start_epoch FROM market_mk12_deals WHERE uuid = $1
+										UNION ALL
+										SELECT start_epoch FROM market_direct_deals WHERE uuid = $1
+										LIMIT 1`, deal)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get start epoch from DB: %w", err)
 	}

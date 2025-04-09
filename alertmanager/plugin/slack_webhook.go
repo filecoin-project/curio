@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/samber/lo"
@@ -50,10 +51,10 @@ func (s *SlackWebhook) SendAlert(data *AlertPayload) error {
 	payload := Payload{
 		Blocks: []Block{
 			{
-				Type: "section",
+				Type: "header",
 				Text: &TextBlock{
-					Type: "mrkdwn",
-					Text: ":alert: " + data.Summary,
+					Type: "plain_text",
+					Text: "🚨 " + data.Summary,
 				},
 			},
 			{
@@ -64,19 +65,23 @@ func (s *SlackWebhook) SendAlert(data *AlertPayload) error {
 
 	// Iterate through the map to construct the remaining blocks
 	for key, value := range data.Details {
+		// Split value into sentences by period followed by space
+		sentences := strings.Split(value.(string), ". ")
+		formattedValue := fmt.Sprintf("• *%s*\n", key)
+
+		// Add a bullet point before each trimmed sentence
+		for _, sentence := range sentences {
+			trimmedSentence := strings.TrimSpace(sentence) // Trim leading and trailing spaces
+			if trimmedSentence != "" {
+				formattedValue += fmt.Sprintf("• %s.\n", trimmedSentence) // Add period back and newline
+			}
+		}
 		payload.Blocks = append(payload.Blocks,
-			Block{
-				Type: "header",
-				Text: &TextBlock{
-					Type: "plain_text",
-					Text: key,
-				},
-			},
 			Block{
 				Type: "section",
 				Text: &TextBlock{
-					Type: "plain_text",
-					Text: fmt.Sprintf("%v", value),
+					Type: "mrkdwn",
+					Text: formattedValue,
 				},
 			},
 			Block{

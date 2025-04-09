@@ -24,7 +24,7 @@ func main() {
 		spcli.InfoCmd(SPTActorGetter),
 		sectorsCmd,
 		provingCmd,
-		//multiSigCmd,
+		toolboxCmd,
 	}
 
 	app := &cli.App{
@@ -83,4 +83,13 @@ func SPTActorGetter(cctx *cli.Context) (address.Address, error) {
 		return address.Undef, fmt.Errorf("parsing address: %w", err)
 	}
 	return addr, nil
+}
+
+var toolboxCmd = &cli.Command{
+	Name:  "toolbox",
+	Usage: "some tools to fix some problems",
+	Subcommands: []*cli.Command{
+		sparkCmd,
+		mk12Clientcmd,
+	},
 }

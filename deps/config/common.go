@@ -1,5 +1,9 @@
 package config
 
+import (
+	"time"
+)
+
 type Common struct {
 	API     API
 	Backup  Backup
@@ -13,7 +17,7 @@ type API struct {
 	// Binding address for the Binary's API
 	ListenAddress       string
 	RemoteListenAddress string
-	Timeout             Duration
+	Timeout             time.Duration
 }
 
 // // Common
@@ -63,7 +67,7 @@ type Libp2p struct {
 	ConnMgrHigh uint
 	// ConnMgrGrace is a time duration that new connections are immune from being
 	// closed by the connection manager.
-	ConnMgrGrace Duration
+	ConnMgrGrace time.Duration
 }
 
 type Pubsub struct {

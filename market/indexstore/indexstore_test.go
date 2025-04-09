@@ -32,7 +32,7 @@ func TestNewIndexStore(t *testing.T) {
 	ctx := context.Background()
 	cfg := config.DefaultCurioConfig()
 
-	idxStore, err := NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, cfg)
+	idxStore, err := NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
 	require.NoError(t, err)
 
 	// Create a car file and calculate commP
@@ -42,7 +42,7 @@ func TestNewIndexStore(t *testing.T) {
 		_ = os.RemoveAll(dir)
 	}()
 
-	rf, err := testutils.CreateRandomFile(dir, int(time.Now().Unix()), 8000000)
+	rf, err := testutils.CreateRandomFile(dir, time.Now().Unix(), 8000000)
 	require.NoError(t, err)
 
 	caropts := []carv2.Option{

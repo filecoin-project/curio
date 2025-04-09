@@ -345,12 +345,17 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 			if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
 				return nil, nil, xerrors.Errorf("missing layer '%s' ", layer)
 			}
-			return nil, nil, fmt.Errorf("could not read layer '%s': %w", layer, err)
+			return nil, nil, xerrors.Errorf("could not read layer '%s': %w", layer, err)
+		}
+
+		err = config.FixTOML(text, cfg)
+		if err != nil {
+			return nil, nil, err
 		}
 
 		_, err = toml.Decode(text, cfg)
 		if err != nil {
-			return nil, nil, fmt.Errorf("could not read layer, bad toml %s: %w", layer, err)
+			return nil, nil, xerrors.Errorf("could not read layer, bad toml %s: %w", layer, err)
 		}
 
 		for i := range cfg.Addresses {
@@ -598,11 +603,12 @@ func wnPostCheck(al *alerts) {
 		return
 	}
 
+	const slack = 4
+	slackTasks := slack * int64(len(miners))
+
 	expected = expected * int64(len(miners)) // Multiply epochs by number of miner IDs
 
-	// If expected + 3*no of miner >= count >= expected - 3*no of miner i.e. count is off by 3 entries per miner then not a problem
-	// Example: (120 epochs * 3 miners) + 3 * (3 miners) i.e. 369 < 366 < (120 epochs * 3 miners) - 3 * (3 miners) i.e. 351
-	if expected+int64(3*len(miners)) >= count && count >= expected-int64(3*len(miners)) {
+	if count < expected-slackTasks || count > expected+slackTasks {
 		al.alertMap[Name].alertString += fmt.Sprintf("Expected %d WinningPost task and found %d in DB. ", expected, count)
 	}
 

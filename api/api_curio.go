@@ -5,11 +5,14 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/ipfs/go-cid"
+	"github.com/multiformats/go-multihash"
+
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	ltypes "github.com/filecoin-project/curio/api/types"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/api"
 	lpiece "github.com/filecoin-project/lotus/storage/pipeline/piece"
@@ -20,11 +23,12 @@ type Curio interface {
 	// MethodGroup: Curio
 	//The common method group contains administration methods
 
-	Version(context.Context) ([]int, error)             //perm:admin
-	Shutdown(context.Context) error                     //perm:admin
-	Cordon(context.Context) error                       //perm:admin
-	Uncordon(context.Context) error                     //perm:admin
-	Info(ctx context.Context) (*ltypes.NodeInfo, error) //perm:read
+	Version(context.Context) ([]int, error)                                        //perm:admin
+	Shutdown(context.Context) error                                                //perm:admin
+	Cordon(context.Context) error                                                  //perm:admin
+	Uncordon(context.Context) error                                                //perm:admin
+	Info(ctx context.Context) (*ltypes.NodeInfo, error)                            //perm:read
+	IndexSamples(ctx context.Context, pcid cid.Cid) ([]multihash.Multihash, error) //perm:admin
 
 	// MethodGroup: Deal
 	//The deal method group contains method for adding deals to sector
@@ -42,6 +46,8 @@ type Curio interface {
 	StorageStat(ctx context.Context, id storiface.ID) (fsutil.FsStat, error)                                                                                               //perm:admin
 	StorageInfo(context.Context, storiface.ID) (storiface.StorageInfo, error)                                                                                              //perm:admin
 	StorageFindSector(ctx context.Context, sector abi.SectorID, ft storiface.SectorFileType, ssize abi.SectorSize, allowFetch bool) ([]storiface.SectorStorageInfo, error) //perm:admin
+	StorageGenerateVanillaProof(ctx context.Context, maddr address.Address, sector abi.SectorNumber) ([]byte, error)                                                       //perm:admin
+	StorageRedeclare(ctx context.Context, filterId *storiface.ID, dropMissing bool) error                                                                                  //perm:admin
 
 	// MethodGroup: Log
 	//The log method group has logging methods

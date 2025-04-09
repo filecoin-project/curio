@@ -302,7 +302,7 @@ var sectorsListCmd = &cli.Command{
 			}
 
 			var deals int
-			for _, deal := range st.DealIDs {
+			for _, deal := range st.DeprecatedDealIDs {
 				if deal != 0 {
 					deals++
 				}
@@ -607,7 +607,7 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 				return xerrors.Errorf("sector %d is not active", id)
 			}
 
-			isCC := len(si.DealIDs) == 0 && si.DealWeight.IsZero() && si.VerifiedDealWeight.IsZero()
+			isCC := len(si.DeprecatedDealIDs) == 0 && si.DealWeight.IsZero() && si.VerifiedDealWeight.IsZero()
 			if !isCC && cctx.Bool("only-cc") {
 				continue
 			}

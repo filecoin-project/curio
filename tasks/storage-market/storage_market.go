@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -20,16 +21,21 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/builtin/v13/verifreg"
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
-	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/multictladdr"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/market/mk12"
+	"github.com/filecoin-project/curio/market/mk12/legacytypes"
 	"github.com/filecoin-project/curio/market/storageingest"
 
+	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/proofs"
 	"github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
@@ -63,9 +69,10 @@ type CurioStorageDealMarket struct {
 	miners      map[string][]address.Address
 	api         storageMarketAPI
 	MK12Handler *mk12.MK12
-	sc          *ffi.SealCalls
+	si          paths.SectorIndex
 	urls        map[string]http.Header
 	adders      [numPollers]promise.Promise[harmonytask.AddTaskFunc]
+	as          *multictladdr.MultiAddressSelector
 }
 
 type MK12Pipeline struct {
@@ -80,6 +87,9 @@ type MK12Pipeline struct {
 	RawSize   sql.NullInt64       `db:"raw_size"`
 	URL       *string             `db:"url"`
 	Headers   json.RawMessage     `db:"headers"`
+
+	//DDO
+	IsDDO bool `db:"is_ddo"`
 
 	// commP task
 	CommTaskID *int64 `db:"commp_task_id"`
@@ -99,7 +109,7 @@ type MK12Pipeline struct {
 	Offset *int64 `db:"sector_offset"`
 }
 
-func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, sc *ffi.SealCalls, mapi storageMarketAPI) *CurioStorageDealMarket {
+func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector) *CurioStorageDealMarket {
 
 	moduleMap := make(map[string][]address.Address)
 	moduleMap[mk12Str] = append(moduleMap[mk12Str], miners...)
@@ -114,8 +124,9 @@ func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *
 		db:     db,
 		api:    mapi,
 		miners: moduleMap,
-		sc:     sc,
+		si:     si,
 		urls:   urls,
+		as:     as,
 	}
 }
 
@@ -128,9 +139,32 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 				// Do not start the poller if no minerID present
 				return nil
 			}
-			d.MK12Handler, err = mk12.NewMK12Handler(miners, d.db, d.sc, d.api, d.cfg)
+			d.MK12Handler, err = mk12.NewMK12Handler(miners, d.db, d.si, d.api, d.cfg, d.as)
 			if err != nil {
 				return err
+			}
+
+			if d.MK12Handler != nil {
+				for _, miner := range miners {
+					_, err = d.MK12Handler.GetAsk(ctx, miner)
+					if err != nil {
+						if strings.Contains(err.Error(), "no ask found") {
+							if build.BuildType != build.BuildMainnet && build.BuildType != build.BuildCalibnet {
+								err = d.MK12Handler.SetAsk(ctx, abi.NewTokenAmount(0), abi.NewTokenAmount(0), miner, legacytypes.MinPieceSize(abi.PaddedPieceSize(128)), legacytypes.MaxPieceSize(abi.PaddedPieceSize(8<<20)))
+								if err != nil {
+									return xerrors.Errorf("failed to set ask for miner %s: %w", miner, err)
+								}
+							} else {
+								err = d.MK12Handler.SetAsk(ctx, abi.NewTokenAmount(45211226852), abi.NewTokenAmount(0), miner)
+								if err != nil {
+									return xerrors.Errorf("failed to set ask for miner %s: %w", miner, err)
+								}
+							}
+						} else {
+							return xerrors.Errorf("failed to get miner ask %s: %w", miner, err)
+						}
+					}
+				}
 			}
 
 			if d.cfg.Ingest.DoSnap {
@@ -208,32 +242,38 @@ func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
 	var deals []MK12Pipeline
 
 	err := d.db.Select(ctx, &deals, `SELECT 
-									p.uuid as uuid,
-									p.sp_id as sp_id,
-									p.started as started,
-									p.piece_cid as piece_cid,
-									p.piece_size as piece_size,
-									p.raw_size as raw_size,
-									
-									p.offline as offline,
-									p.url as url,
-									p.headers as headers,
-									
-									p.commp_task_id as commp_task_id,
-									p.after_commp as after_commp,
-									p.psd_task_id as psd_task_id,
-									p.after_psd as after_psd,
-									p.find_deal_task_id as find_deal_task_id,
-									p.after_find_deal as after_find_deal,
-									p.psd_wait_time as psd_wait_time,
-									
-									p.sector as sector,
-									p.sector_offset as sector_offset
-								FROM 
-									market_mk12_deal_pipeline p
-								LEFT JOIN 
-									market_mk12_deals b ON p.uuid = b.uuid
-								ORDER BY b.start_epoch ASC;`)
+											p.uuid AS uuid,
+											p.sp_id AS sp_id,
+											p.started AS started,
+											p.piece_cid AS piece_cid,
+											p.piece_size AS piece_size,
+											p.raw_size AS raw_size,
+										
+											p.offline AS offline,
+											p.url AS url,
+											p.headers AS headers,
+										
+											p.is_ddo AS is_ddo,
+										
+											p.commp_task_id AS commp_task_id,
+											p.after_commp AS after_commp,
+											p.psd_task_id AS psd_task_id,
+											p.after_psd AS after_psd,
+											p.find_deal_task_id AS find_deal_task_id,
+											p.after_find_deal AS after_find_deal,
+											p.psd_wait_time AS psd_wait_time,
+										
+											p.sector AS sector,
+											p.sector_offset AS sector_offset
+										FROM 
+											market_mk12_deal_pipeline p
+										LEFT JOIN 
+											market_mk12_deals b ON p.uuid = b.uuid
+										LEFT JOIN 
+											market_direct_deals d ON p.uuid = d.uuid
+										ORDER BY 
+											COALESCE(b.start_epoch, d.start_epoch) ASC;
+										`)
 
 	if err != nil {
 		log.Errorf("failed to get deal pipeline status from DB: %w", err)
@@ -241,7 +281,7 @@ func (d *CurioStorageDealMarket) processMK12Deals(ctx context.Context) {
 
 	// Add PSD task - PSD is an exception which is processed for multiple deals at once to save
 	// gas cost for PSD messages
-	err = d.addPSDTask(ctx, deals)
+	err = d.addPSDTask(ctx)
 	if err != nil {
 		log.Errorf("%w", err)
 	}
@@ -307,7 +347,7 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 	if deal.Started && !deal.AfterCommp && deal.CommTaskID == nil {
 		// Skip commP is configured to do so
 		if d.cfg.Market.StorageMarketConfig.MK12.SkipCommP {
-			_, err := d.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET after_commp = TRUE, commp_task_id = NULL WHERE uuid = $1`, deal.UUID)
+			_, err := d.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET after_commp = TRUE, psd_wait_time = NOW(), commp_task_id = NULL WHERE uuid = $1`, deal.UUID)
 			if err != nil {
 				return xerrors.Errorf("UUID: %s: updating deal pipeline: %w", deal.UUID, err)
 			}
@@ -331,6 +371,15 @@ func (d *CurioStorageDealMarket) processMk12Deal(ctx context.Context, deal MK12P
 		}
 
 		return nil
+	}
+
+	// Mark DDO Deal ready for ingestion
+	if deal.IsDDO && deal.AfterCommp && !deal.AfterPSD && !deal.AfterFindDeal {
+		_, err := d.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET after_psd = TRUE, after_find_deal = TRUE, psd_wait_time = NOW() 
+									WHERE uuid = $1 AND after_commp = TRUE AND after_psd = FALSE AND after_find_deal = FALSE`, deal.UUID)
+		if err != nil {
+			return xerrors.Errorf("UUID: %s: marking DDO deal ready for ingestion: %w", deal.UUID, err)
+		}
 	}
 
 	// Create Find Deal task
@@ -476,8 +525,8 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 		// Check if We can find the URL for this piece on remote servers
 		for rUrl, headers := range d.urls {
 			// Create a new HTTP request
-			urlString := fmt.Sprintf("%s/pieces?id=%s", rUrl, pcid)
-			req, err := http.NewRequest(http.MethodGet, urlString, nil)
+			urlString := fmt.Sprintf("%s?id=%s", rUrl, pcid)
+			req, err := http.NewRequest(http.MethodHead, urlString, nil)
 			if err != nil {
 				return false, xerrors.Errorf("error creating request: %w", err)
 			}
@@ -485,7 +534,9 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 			req.Header = headers
 
 			// Create a client and make the request
-			client := &http.Client{}
+			client := &http.Client{
+				Timeout: 10 * time.Second,
+			}
 			resp, err := client.Do(req)
 			if err != nil {
 				return false, xerrors.Errorf("error making GET request: %w", err)
@@ -513,10 +564,8 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 				return false, xerrors.Errorf("failed to parse the raw size: %w", err)
 			}
 
-			dataUrl := fmt.Sprintf("%s/data?id=%s", rUrl, pcid)
-
 			_, err = tx.Exec(`UPDATE market_mk12_deal_pipeline SET url = $1, headers = $2, raw_size = $3, started = TRUE 
-                           WHERE uuid = $4 AND started = FALSE`, dataUrl, hdrs, rawSize, deal)
+                           WHERE uuid = $4 AND started = FALSE`, urlString, hdrs, rawSize, deal)
 			if err != nil {
 				return false, xerrors.Errorf("store url for piece %s: updating pipeline: %w", pcid, err)
 			}
@@ -535,66 +584,61 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 	return nil
 }
 
-func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context, deals []MK12Pipeline) error {
-	type queue struct {
-		deals []string
-		t     time.Time
-	}
-
-	dm := make(map[int64]queue)
-
-	for _, deal := range deals {
-		if deal.Started && deal.AfterCommp && deal.PSDWaitTime != nil && !deal.AfterPSD && deal.PSDTaskID == nil {
-			// Check if the spID is already in the map
-			if q, exists := dm[deal.SpID]; exists {
-				// Append the UUID to the deals list
-				q.deals = append(q.deals, deal.UUID)
-
-				// Update the time if the current deal's time is older
-				if deal.PSDWaitTime.Before(q.t) {
-					q.t = *deal.PSDWaitTime
-				}
-
-				// Update the map with the new queue
-				dm[deal.SpID] = q
-			} else {
-				// Add a new entry to the map if spID is not present
-				dm[deal.SpID] = queue{
-					deals: []string{deal.UUID},
-					t:     *deal.PSDWaitTime,
-				}
-			}
-		}
-	}
-
+func (d *CurioStorageDealMarket) addPSDTask(ctx context.Context) error {
 	publishPeriod := d.cfg.Market.StorageMarketConfig.MK12.PublishMsgPeriod
 	maxDeals := d.cfg.Market.StorageMarketConfig.MK12.MaxDealsPerPublishMsg
 
-	for _, q := range dm {
-		if q.t.Add(time.Duration(publishPeriod)).Before(time.Now()) || uint64(len(q.deals)) > maxDeals {
-			d.adders[pollerPSD].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
-				// update
-				var n int
-				for _, deal := range q.deals {
-					u, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET psd_task_id = $1 
-								 WHERE uuid = $2 AND started = TRUE AND after_commp = TRUE 
-								   AND psd_task_id IS NULL`, id, deal)
-					if err != nil {
-						return false, xerrors.Errorf("updating deal pipeline: %w", err)
-					}
-					n += u
-				}
-
-				if n > 0 {
-					log.Infof("PSD task created for %d deals %s", n, q.deals)
-				}
-
-				return n > 0, nil
-			})
-		} else {
-			log.Infow("PSD task not created as the time is not yet reached", "time", q.t.Add(time.Duration(publishPeriod)), "deals", q.deals)
-		}
+	var eligibleSpIDs []struct {
+		SpID             int64     `db:"sp_id"`
+		EarliestWaitTime time.Time `db:"earliest_wait_time"`
 	}
+
+	err := d.db.Select(ctx, &eligibleSpIDs, `SELECT sp_id, MIN(psd_wait_time) AS earliest_wait_time
+									FROM market_mk12_deal_pipeline
+									WHERE started = TRUE
+									  AND after_commp = TRUE
+									  AND psd_task_id IS NULL
+									  AND after_psd = FALSE
+									  AND is_ddo = FALSE
+									GROUP BY sp_id;`)
+	if err != nil {
+		return xerrors.Errorf("getting eligible SPs for psd tasks: %w", err)
+	}
+
+	if len(eligibleSpIDs) == 0 {
+		return nil
+	}
+
+	for _, sp := range eligibleSpIDs {
+		if sp.EarliestWaitTime.Add(publishPeriod).After(time.Now().UTC()) {
+			continue
+		}
+		d.adders[pollerPSD].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
+			n, err := tx.Exec(`WITH deals_to_update AS (
+										-- Select only deals that have not been assigned yet
+										SELECT uuid
+										FROM market_mk12_deal_pipeline
+										WHERE sp_id = $1
+										  AND started = TRUE
+										  AND after_commp = TRUE
+										  AND psd_task_id IS NULL  -- Ensures only unassigned deals are selected
+										  AND after_psd = FALSE
+										  AND is_ddo = FALSE
+										ORDER BY psd_wait_time ASC
+										LIMIT $2  -- Limit by maxDeals
+									)
+									UPDATE market_mk12_deal_pipeline
+									SET psd_task_id = $3
+									WHERE uuid IN (SELECT uuid FROM deals_to_update)
+									AND psd_task_id IS NULL;  -- Ensures no overwrite in case another node updated
+									`, sp.SpID, maxDeals, id)
+			if err != nil {
+				return false, xerrors.Errorf("creating psd task: %w", err)
+			}
+			return n > 0, nil
+		})
+	}
+
 	return nil
 }
 
@@ -602,10 +646,72 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 	var sector *abi.SectorNumber
 
 	comm, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		// Prepare a variable to hold the result
-		var dbdeals []MarketMK12Deal
+		var pdi piece.PieceDealInfo
 
-		err = tx.Select(&dbdeals, `SELECT 
+		if deal.IsDDO {
+			var dbdeals []MarketDirectDeal
+
+			err = tx.Select(&dbdeals, `SELECT 
+												uuid,
+												created_at,
+												client,
+												offline,
+												verified,
+												sp_id,
+												start_epoch,
+												end_epoch,
+												allocation_id,
+												piece_cid,
+												piece_size,
+												fast_retrieval,
+												announce_to_ipni
+											FROM market_direct_deals
+											WHERE uuid = $1;`, deal.UUID)
+			if err != nil {
+				return false, xerrors.Errorf("failed to get ddo deals from DB: %w", err)
+			}
+
+			if len(dbdeals) != 1 {
+				return false, xerrors.Errorf("expected 1 deal, got %d for UUID %s", len(dbdeals), deal.UUID)
+			}
+
+			dbdeal := dbdeals[0]
+
+			pcid, err := cid.Parse(dbdeal.PieceCid)
+			if err != nil {
+				return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
+			}
+
+			clientAddr, err := address.NewFromString(dbdeal.Client)
+			if err != nil {
+				return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
+			}
+			clientId, err := address.IDFromAddress(clientAddr)
+			if err != nil {
+				return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
+			}
+
+			pdi = piece.PieceDealInfo{
+				DealSchedule: piece.DealSchedule{
+					StartEpoch: abi.ChainEpoch(dbdeal.StartEpoch),
+					EndEpoch:   abi.ChainEpoch(dbdeal.EndEpoch),
+				},
+				PieceActivationManifest: &miner.PieceActivationManifest{
+					CID:  pcid,
+					Size: abi.PaddedPieceSize(dbdeal.PieceSize),
+					VerifiedAllocationKey: &miner.VerifiedAllocationKey{
+						Client: abi.ActorID(clientId),
+						ID:     verifreg.AllocationId(dbdeal.AllocationID),
+					},
+					Notify: nil,
+				},
+				KeepUnsealed: dbdeal.FastRetrieval,
+			}
+
+		} else {
+			var dbdeals []MarketMK12Deal
+
+			err = tx.Select(&dbdeals, `SELECT 
 										uuid,
 										created_at,
 										signed_proposal_cid,
@@ -627,52 +733,53 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 										label
 									FROM market_mk12_deals
 									WHERE uuid = $1;`, deal.UUID)
-		if err != nil {
-			return false, xerrors.Errorf("failed to get MK12 deals from DB: %w", err)
+			if err != nil {
+				return false, xerrors.Errorf("failed to get MK12 deals from DB: %w", err)
+			}
+
+			if len(dbdeals) != 1 {
+				return false, xerrors.Errorf("expected 1 deal, got %d for UUID %s", len(dbdeals), deal.UUID)
+			}
+
+			dbdeal := dbdeals[0]
+
+			var prop market.DealProposal
+			err = json.Unmarshal(dbdeal.Proposal, &prop)
+			if err != nil {
+				return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
+			}
+
+			// Unmarshal Label from cbor and replace in proposal. This fixes the problem where non-string
+			// labels are saved as "" in json in DB
+			var l market.DealLabel
+			lr := bytes.NewReader(dbdeal.Label)
+			err = l.UnmarshalCBOR(lr)
+			if err != nil {
+				return false, xerrors.Errorf("unmarshal label: %w", err)
+			}
+			prop.Label = l
+
+			pcid, err := cid.Parse(dbdeal.PublishCid)
+			if err != nil {
+				return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
+			}
+
+			pdi = piece.PieceDealInfo{
+				PublishCid:   &pcid,
+				DealID:       abi.DealID(dbdeal.ChainDealID),
+				DealProposal: &prop,
+				DealSchedule: piece.DealSchedule{
+					StartEpoch: abi.ChainEpoch(dbdeal.StartEpoch),
+					EndEpoch:   abi.ChainEpoch(dbdeal.EndEpoch),
+				},
+				PieceActivationManifest: nil,
+				KeepUnsealed:            dbdeal.FastRetrieval,
+			}
 		}
 
-		if len(dbdeals) != 1 {
-			return false, xerrors.Errorf("expected 1 deal, got %d for UUID %s", len(dbdeals), deal.UUID)
-		}
-
-		dbdeal := dbdeals[0]
-
-		maddr, err := address.NewIDAddress(uint64(dbdeal.SpID))
+		maddr, err := address.NewIDAddress(uint64(deal.SpID))
 		if err != nil {
 			return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
-		}
-
-		var prop market.DealProposal
-		err = json.Unmarshal(dbdeal.Proposal, &prop)
-		if err != nil {
-			return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
-		}
-
-		// Unmarshal Label from cbor and replace in proposal. This fixes the problem where non-string
-		// labels are saved as "" in json in DB
-		var l market.DealLabel
-		lr := bytes.NewReader(dbdeal.Label)
-		err = l.UnmarshalCBOR(lr)
-		if err != nil {
-			return false, xerrors.Errorf("unmarshal label: %w", err)
-		}
-		prop.Label = l
-
-		pcid, err := cid.Parse(dbdeal.PublishCid)
-		if err != nil {
-			return false, xerrors.Errorf("UUID: %s: %w", deal.UUID, err)
-		}
-
-		pi := piece.PieceDealInfo{
-			PublishCid:   &pcid,
-			DealID:       abi.DealID(dbdeal.ChainDealID),
-			DealProposal: &prop,
-			DealSchedule: piece.DealSchedule{
-				StartEpoch: abi.ChainEpoch(dbdeal.StartEpoch),
-				EndEpoch:   abi.ChainEpoch(dbdeal.EndEpoch),
-			},
-			PieceActivationManifest: nil,
-			KeepUnsealed:            true,
 		}
 
 		dealUrl, err := url.Parse(*deal.URL)
@@ -699,7 +806,7 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 		}
 
 		var sp *abi.RegisteredSealProof
-		sector, sp, err = d.pin.AllocatePieceToSector(ctx, tx, maddr, pi, deal.RawSize.Int64, *dealUrl, headers)
+		sector, sp, err = d.pin.AllocatePieceToSector(ctx, tx, maddr, pdi, deal.RawSize.Int64, *dealUrl, headers)
 		if err != nil {
 			return false, xerrors.Errorf("UUID: %s: failed to add deal to a sector: %w", deal.UUID, err)
 		}
@@ -735,4 +842,20 @@ func (d *CurioStorageDealMarket) createIndexingTaskForMigratedDeals(ctx context.
 		return
 	}
 	log.Debugf("Successfully created indexing tasks for %d migrated deals", rowsMoved)
+}
+
+type MarketDirectDeal struct {
+	UUID           string    `db:"uuid"`
+	SpID           int64     `db:"sp_id"`
+	CreatedAt      time.Time `db:"created_at"`
+	Client         string    `db:"client"`
+	Offline        bool      `db:"offline"`
+	Verified       bool      `db:"verified"`
+	StartEpoch     int64     `db:"start_epoch"`
+	EndEpoch       int64     `db:"end_epoch"`
+	AllocationID   int64     `db:"allocation_id"`
+	PieceCid       string    `db:"piece_cid"`
+	PieceSize      int64     `db:"piece_size"`
+	FastRetrieval  bool      `db:"fast_retrieval"`
+	AnnounceToIpni bool      `db:"announce_to_ipni"`
 }

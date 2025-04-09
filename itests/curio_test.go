@@ -2,6 +2,7 @@ package itests
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"flag"
 	"fmt"
@@ -44,56 +45,6 @@ import (
 	"github.com/filecoin-project/lotus/node"
 )
 
-func TestCurioNewActor(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	full, miner, ensemble := kit.EnsembleMinimal(t,
-		kit.LatestActorsAt(-1),
-		kit.MockProofs(),
-	)
-
-	ensemble.Start()
-	blockTime := 100 * time.Millisecond
-	ensemble.BeginMiningMustPost(blockTime)
-
-	addr := miner.OwnerKey.Address
-	sectorSizeInt, err := units.RAMInBytes("8MiB")
-	require.NoError(t, err)
-
-	sharedITestID := harmonydb.ITestNewID()
-	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
-	require.NoError(t, err)
-
-	var titles []string
-	err = db.Select(ctx, &titles, `SELECT title FROM harmony_config WHERE LENGTH(config) > 0`)
-	require.NoError(t, err)
-	require.NotEmpty(t, titles)
-	require.NotContains(t, titles, "base")
-
-	maddr, err := createminer.CreateStorageMiner(ctx, full, addr, addr, addr, abi.SectorSize(sectorSizeInt), 0)
-	require.NoError(t, err)
-
-	err = deps.CreateMinerConfig(ctx, full, db, []string{maddr.String()}, "FULL NODE API STRING")
-	require.NoError(t, err)
-
-	err = db.Select(ctx, &titles, `SELECT title FROM harmony_config WHERE LENGTH(config) > 0`)
-	require.NoError(t, err)
-	require.Contains(t, titles, "base")
-	baseCfg := config.DefaultCurioConfig()
-	var baseText string
-
-	err = db.QueryRow(ctx, "SELECT config FROM harmony_config WHERE title='base'").Scan(&baseText)
-	require.NoError(t, err)
-	_, err = deps.LoadConfigWithUpgrades(baseText, baseCfg)
-	require.NoError(t, err)
-
-	require.NotNil(t, baseCfg.Addresses)
-	require.GreaterOrEqual(t, len(baseCfg.Addresses), 1)
-
-	require.Contains(t, baseCfg.Addresses[0].MinerAddresses, maddr.String())
-}
-
 func TestCurioHappyPath(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -122,13 +73,14 @@ func TestCurioHappyPath(t *testing.T) {
 	fapi := fmt.Sprintf("%s:%s", string(token), full.ListenAddr)
 
 	sharedITestID := harmonydb.ITestNewID()
+	t.Logf("sharedITestID: %s", sharedITestID)
 
 	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
 	require.NoError(t, err)
 
 	defer db.ITestDeleteAll()
 
-	idxStore, err := indexstore.NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, config.DefaultCurioConfig())
+	idxStore, err := indexstore.NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, config.DefaultCurioConfig())
 	require.NoError(t, err)
 
 	var titles []string
@@ -163,8 +115,8 @@ func TestCurioHappyPath(t *testing.T) {
 
 	require.Contains(t, baseCfg.Addresses[0].MinerAddresses, maddr.String())
 
-	baseCfg.Batching.PreCommit.Timeout = config.Duration(5 * time.Second)
-	baseCfg.Batching.Commit.Timeout = config.Duration(5 * time.Minute)
+	baseCfg.Batching.PreCommit.Timeout = 5 * time.Second
+	baseCfg.Batching.Commit.Timeout = 5 * time.Minute
 
 	temp := os.TempDir()
 	dir, err := os.MkdirTemp(temp, "curio")
@@ -240,9 +192,57 @@ func TestCurioHappyPath(t *testing.T) {
 
 	// TODO: add DDO deal, f05 deal 2 MiB each in the sector
 
-	var sectorParamsArr []struct {
-		SpID         int64 `db:"sp_id"`
-		SectorNumber int64 `db:"sector_number"`
+	var pollTask []struct {
+		SpID                int64                   `db:"sp_id"`
+		SectorNumber        int64                   `db:"sector_number"`
+		RegisteredSealProof abi.RegisteredSealProof `db:"reg_seal_proof"`
+
+		TicketEpoch *int64 `db:"ticket_epoch"`
+
+		TaskSDR  *int64 `db:"task_id_sdr"`
+		AfterSDR bool   `db:"after_sdr"`
+
+		TaskTreeD  *int64 `db:"task_id_tree_d"`
+		AfterTreeD bool   `db:"after_tree_d"`
+
+		TaskTreeC  *int64 `db:"task_id_tree_c"`
+		AfterTreeC bool   `db:"after_tree_c"`
+
+		TaskTreeR  *int64 `db:"task_id_tree_r"`
+		AfterTreeR bool   `db:"after_tree_r"`
+
+		TaskSynth  *int64 `db:"task_id_synth"`
+		AfterSynth bool   `db:"after_synth"`
+
+		PreCommitReadyAt *time.Time `db:"precommit_ready_at"`
+
+		TaskPrecommitMsg  *int64 `db:"task_id_precommit_msg"`
+		AfterPrecommitMsg bool   `db:"after_precommit_msg"`
+
+		AfterPrecommitMsgSuccess bool   `db:"after_precommit_msg_success"`
+		SeedEpoch                *int64 `db:"seed_epoch"`
+
+		TaskPoRep  *int64 `db:"task_id_porep"`
+		PoRepProof []byte `db:"porep_proof"`
+		AfterPoRep bool   `db:"after_porep"`
+
+		TaskFinalize  *int64 `db:"task_id_finalize"`
+		AfterFinalize bool   `db:"after_finalize"`
+
+		TaskMoveStorage  *int64 `db:"task_id_move_storage"`
+		AfterMoveStorage bool   `db:"after_move_storage"`
+
+		CommitReadyAt *time.Time `db:"commit_ready_at"`
+
+		TaskCommitMsg  *int64 `db:"task_id_commit_msg"`
+		AfterCommitMsg bool   `db:"after_commit_msg"`
+
+		AfterCommitMsgSuccess bool `db:"after_commit_msg_success"`
+
+		Failed       bool   `db:"failed"`
+		FailedReason string `db:"failed_reason"`
+
+		StartEpoch sql.NullInt64 `db:"start_epoch"`
 	}
 
 	require.Eventuallyf(t, func() bool {
@@ -250,18 +250,89 @@ func TestCurioHappyPath(t *testing.T) {
 		require.NoError(t, err)
 		t.Logf("head: %d", h.Height())
 
-		err = db.Select(ctx, &sectorParamsArr, `
-		SELECT sp_id, sector_number
-		FROM sectors_sdr_pipeline
-		WHERE after_commit_msg_success = True`)
+		err = db.Select(ctx, &pollTask, `
+											SELECT 
+												sp_id, 
+												sector_number, 
+												reg_seal_proof, 
+												ticket_epoch,
+												task_id_sdr, 
+												after_sdr,
+												task_id_tree_d, 
+												after_tree_d,
+												task_id_tree_c, 
+												after_tree_c,
+												task_id_tree_r, 
+												after_tree_r,
+												task_id_synth, 
+												after_synth,
+												precommit_ready_at,
+												task_id_precommit_msg, 
+												after_precommit_msg,
+												after_precommit_msg_success, 
+												seed_epoch,
+												task_id_porep, 
+												porep_proof, 
+												after_porep,
+												task_id_finalize, 
+												after_finalize,
+												task_id_move_storage, 
+												after_move_storage,
+												commit_ready_at,
+												task_id_commit_msg, 
+												after_commit_msg,
+												after_commit_msg_success,
+												failed, 
+												failed_reason,
+												start_epoch
+											FROM 
+												sectors_sdr_pipeline;`)
 		require.NoError(t, err)
-		return len(sectorParamsArr) == 2
-	}, 10*time.Minute, 1*time.Second, "sector did not finish sealing in 5 minutes")
+		for i, task := range pollTask {
+			t.Logf("Task %d: SpID=%d, SectorNumber=%d, RegisteredSealProof=%d, TicketEpoch=%s, TaskSDR=%s, AfterSDR=%t, TaskTreeD=%s, AfterTreeD=%t, TaskTreeC=%s, AfterTreeC=%t, TaskTreeR=%s, AfterTreeR=%t, TaskSynth=%s, AfterSynth=%t, PreCommitReadyAt=%s, TaskPrecommitMsg=%s, AfterPrecommitMsg=%t, AfterPrecommitMsgSuccess=%t, SeedEpoch=%s, TaskPoRep=%s, PoRepProof=%v, AfterPoRep=%t, TaskFinalize=%s, AfterFinalize=%t, TaskMoveStorage=%s, AfterMoveStorage=%t, CommitReadyAt=%s, TaskCommitMsg=%s, AfterCommitMsg=%t, AfterCommitMsgSuccess=%t, Failed=%t, FailedReason=%s, StartEpoch=%s",
+				i,
+				task.SpID,
+				task.SectorNumber,
+				task.RegisteredSealProof,
+				valueOrNA(task.TicketEpoch),
+				valueOrNA(task.TaskSDR),
+				task.AfterSDR,
+				valueOrNA(task.TaskTreeD),
+				task.AfterTreeD,
+				valueOrNA(task.TaskTreeC),
+				task.AfterTreeC,
+				valueOrNA(task.TaskTreeR),
+				task.AfterTreeR,
+				valueOrNA(task.TaskSynth),
+				task.AfterSynth,
+				timeValueOrNA(task.PreCommitReadyAt),
+				valueOrNA(task.TaskPrecommitMsg),
+				task.AfterPrecommitMsg,
+				task.AfterPrecommitMsgSuccess,
+				valueOrNA(task.SeedEpoch),
+				valueOrNA(task.TaskPoRep),
+				task.PoRepProof,
+				task.AfterPoRep,
+				valueOrNA(task.TaskFinalize),
+				task.AfterFinalize,
+				valueOrNA(task.TaskMoveStorage),
+				task.AfterMoveStorage,
+				timeValueOrNA(task.CommitReadyAt),
+				valueOrNA(task.TaskCommitMsg),
+				task.AfterCommitMsg,
+				task.AfterCommitMsgSuccess,
+				task.Failed,
+				task.FailedReason,
+				nullInt64OrNA(task.StartEpoch),
+			)
+		}
+		return pollTask[0].AfterCommitMsgSuccess && pollTask[1].AfterCommitMsgSuccess
+	}, 10*time.Minute, 1*time.Second, "sector did not finish sealing in 10 minutes")
 
-	require.Equal(t, sectorParamsArr[0].SectorNumber, int64(0))
-	require.Equal(t, sectorParamsArr[0].SpID, int64(mid))
-	require.Equal(t, sectorParamsArr[1].SectorNumber, int64(1))
-	require.Equal(t, sectorParamsArr[1].SpID, int64(mid))
+	require.Equal(t, pollTask[0].SectorNumber, int64(0))
+	require.Equal(t, pollTask[0].SpID, int64(mid))
+	require.Equal(t, pollTask[1].SectorNumber, int64(1))
+	require.Equal(t, pollTask[1].SpID, int64(mid))
 
 	_ = capi.Shutdown(ctx)
 
@@ -448,4 +519,26 @@ func envElse(env, els string) string {
 		return v
 	}
 	return els
+}
+
+// Helper functions to handle nil or null values
+func valueOrNA(ptr *int64) string {
+	if ptr == nil {
+		return "NA"
+	}
+	return fmt.Sprintf("%d", *ptr)
+}
+
+func timeValueOrNA(t *time.Time) string {
+	if t == nil {
+		return "NA"
+	}
+	return t.Format(time.RFC3339)
+}
+
+func nullInt64OrNA(nullInt sql.NullInt64) string {
+	if !nullInt.Valid {
+		return "NA"
+	}
+	return fmt.Sprintf("%d", nullInt.Int64)
 }

@@ -1,8 +1,8 @@
 #####################################
 ARG LOTUS_TEST_IMAGE=curio/lotus-all-in-one:latest
 FROM ${LOTUS_TEST_IMAGE} AS lotus-test
-FROM golang:1.22.8-bullseye AS curio-builder
-LABEL Maintainer = "Curio Development Team"
+FROM golang:1.23-bullseye AS curio-builder
+LABEL Maintainer="Curio Development Team"
 
 RUN apt-get update && apt-get install -y ca-certificates build-essential clang ocl-icd-opencl-dev ocl-icd-libopencl1 jq libhwloc-dev
 
@@ -47,10 +47,22 @@ ARG CURIO_TAGS=""
 
 RUN make build
 
+####################################
+FROM golang:1.23-bullseye AS piece-server-builder
+
+RUN go install github.com/ipld/go-car/cmd/car@latest \
+ && cp $GOPATH/bin/car /usr/local/bin/
+
+RUN go install github.com/LexLuthr/piece-server@latest \
+ && cp $GOPATH/bin/piece-server /usr/local/bin/
+
+RUN go install github.com/ipni/storetheindex@v0.8.38 \
+ && cp $GOPATH/bin/storetheindex /usr/local/bin/
+
 #####################################
 FROM ubuntu:22.04 AS curio-all-in-one
 
-RUN apt-get update && apt-get install -y dnsutils vim curl aria2
+RUN apt-get update && apt-get install -y dnsutils vim curl aria2 jq
 
 # Copy libraries and binaries from curio-builder
 COPY --from=curio-builder /etc/ssl/certs /etc/ssl/certs
@@ -69,10 +81,12 @@ RUN useradd -r -u 532 -U fc && \
     echo "libnvidia-opencl.so.1" > /etc/OpenCL/vendors/nvidia.icd
 
 # Environment setup
-ENV FILECOIN_PARAMETER_CACHE=/var/tmp/filecoin-proof-parameters \
+ENV FIL_PROOFS_PARAMETER_CACHE=/var/tmp/filecoin-proof-parameters \
     LOTUS_MINER_PATH=/var/lib/lotus-miner \
     LOTUS_PATH=/var/lib/lotus \
-    CURIO_REPO_PATH=/var/lib/curio
+    CURIO_REPO_PATH=/var/lib/curio \
+    CURIO_MK12_CLIENT_REPO=/var/lib/curio-client \
+    STORETHEINDEX_PATH=/var/lib/indexer
 
 # Copy binaries and scripts
 COPY --from=lotus-test /usr/local/bin/lotus /usr/local/bin/
@@ -81,18 +95,23 @@ COPY --from=lotus-test /usr/local/bin/lotus-shed /usr/local/bin/
 COPY --from=lotus-test /usr/local/bin/lotus-miner /usr/local/bin/
 COPY --from=curio-builder /opt/curio/curio /usr/local/bin/
 COPY --from=curio-builder /opt/curio/sptool /usr/local/bin/
+COPY --from=piece-server-builder /usr/local/bin/piece-server /usr/local/bin/
+COPY --from=piece-server-builder /usr/local/bin/car /usr/local/bin/
+COPY --from=piece-server-builder /usr/local/bin/storetheindex /usr/local/bin/
 
 # Set up directories and permissions
 RUN mkdir /var/tmp/filecoin-proof-parameters \
            /var/lib/lotus \
            /var/lib/lotus-miner \
-           /var/lib/curio && \
-    chown fc: /var/tmp/filecoin-proof-parameters /var/lib/lotus /var/lib/lotus-miner /var/lib/curio
+           /var/lib/curio \
+           /var/lib/curio-client \
+           /var/lib/indexer && \
+    chown fc: /var/tmp/filecoin-proof-parameters /var/lib/lotus /var/lib/lotus-miner /var/lib/curio /var/lib/curio-client /var/lib/indexer
 
 # Define volumes
-VOLUME ["/var/tmp/filecoin-proof-parameters", "/var/lib/lotus", "/var/lib/lotus-miner", "/var/lib/curio"]
+VOLUME ["/var/tmp/filecoin-proof-parameters", "/var/lib/lotus", "/var/lib/lotus-miner", "/var/lib/curio", "/var/lib/curio-client", "/var/lib/indexer"]
 
 # Expose necessary ports
-EXPOSE 1234 2345 12300 4701 32100
+EXPOSE 1234 2345 12300 4701 32100 12310 12320 3000 3001 3002 3003
 
 CMD ["/bin/bash"]

@@ -5,7 +5,9 @@ description: This page explains how to setup supraseal batch sealer in Curio
 # Batch Sealing with SupraSeal
 
 {% hint style="danger" %}
-**Disclaimer:** SupraSeal batch sealing is currently in **BETA**. Use with caution and expect potential issues or changes in future versions. Currently some additional manual system configuration is required.
+**Disclaimer:** SupraSeal batch sealing is currently in **BETA**. Use with caution and expect potential issues or changes in future versions. Currently some additional manual system configuration is required.\
+\
+Batch Sealing only supports "CC" sectors as of now. Please make sure that "SnapDeals" are enabled in the cluster if you wish to onboard data with SupraSeal enabled. If SnapDeals are not enabled, deals will be routed to SupraSeal pipeline which will discard the actual data and seal empty sectors.
 {% endhint %}
 
 SupraSeal is an optimized batch sealing implementation for Filecoin that allows sealing multiple sectors in parallel. It can significantly improve sealing throughput compared to sealing sectors individually.
@@ -43,6 +45,19 @@ You need 2 sets of NVMe drives:
    * Fast with sufficient capacity (\~70G x batchSize x pipelines)
    * Can be remote storage if fast enough (\~500MiB/s/GPU)
 
+The following table shows the number of NVMe drives required for different batch sizes. The drive count column indicates `N + M` where `N` is the number of drives for layer data (SPDK) and `M` is the number of drives for P2 output (filesystem). The iops/drive column shows the minimum iops **per drive** required for the batch size. Batch size indicated with `2x` means dual-pipeline drive setup. IOPS requirements are calculated simply by dividing total target 10M IOPS by the number of drives. In reality, depending on CPU core speed this may be too low or higher than neccesary. When ordering a system with barely enough IOPS plan to have free drive slots in case you need to add more drives later.
+
+| Batch Size   | 3.84TB | 7.68TB | 12.8TB | 15.36TB | 30.72TB |
+| ------------ | ------ | ------ | ------ | ------- | ------- |
+| 32           | 4 + 1  | 2 + 1  | 1 + 1  | 1 + 1   | 1 + 1   |
+| ^ iops/drive | 2500K  | 5000K  | 10000K | 10000K  | 10000K  |
+| 64 (2x 32)   | 7 + 2  | 4 + 1  | 2 + 1  | 2 + 1   | 1 + 1   |
+| ^ iops/drive | 1429K  | 2500K  | 5000K  | 5000K   | 10000K  |
+| 128 (2x 64)  | 13 + 3 | 7 + 2  | 4 + 1  | 4 + 1   | 2 + 1   |
+| ^ iops/drive | 770K   | 1429K  | 2500K  | 2500K   | 5000K   |
+| 2x 128       | 26 + 6 | 13 + 3 | 8 + 2  | 7 + 2   | 4 + 1   |
+| ^ iops/drive | 385K   | 770K   | 1250K  | 1429K   | 2500K   |
+
 ## Hardware Recommendations
 
 Currently, the community is trying to determine the best hardware configurations for batch sealing. Some general observations are:
@@ -59,9 +74,94 @@ Currently, the community is trying to determine the best hardware configurations
 Please consider contributing to the [SupraSeal hardware examples](https://github.com/filecoin-project/curio/discussions/140).
 {% endhint %}
 
+## Setup
+
+### Check NUMA setup:
+
+```bash
+numactl --hardware
+```
+
+You should expect to see `available: 1 nodes (0)`. If you see more than one node you need to go into your UEFI and set `NUMA Per Socket` (or a similar setting) to 1.
+
+### Configure hugepages:
+
+This can be done by adding the following to `/etc/default/grub`. You need 36 1G hugepages for the batch sealer.
+
+```bash
+GRUB_CMDLINE_LINUX_DEFAULT="hugepages=36 default_hugepagesz=1G hugepagesz=1G"
+```
+
+Then run `sudo update-grub` and reboot the machine.
+
+Or at runtime:
+
+```bash
+sudo sysctl -w vm.nr_hugepages=36
+```
+
+Then check /proc/meminfo to verify the hugepages are available:
+
+```bash
+cat /proc/meminfo | grep Huge
+```
+
+Expect output like:
+
+```
+AnonHugePages:         0 kB
+ShmemHugePages:        0 kB
+FileHugePages:         0 kB
+HugePages_Total:      36
+HugePages_Free:       36
+HugePages_Rsvd:        0
+HugePages_Surp:        0
+Hugepagesize:    1048576 kB
+```
+
+Check that `HugePages_Free` is equal to 36, the kernel can sometimes use some of the hugepages for other purposes.
+
+### Dependencies
+
+CUDA 12.x is required, 11.x won't work. The build process depends on GCC 11.x system-wide or gcc-11/g++-11 installed locally.
+
+* On Arch install https://aur.archlinux.org/packages/gcc11
+* Ubuntu 22.04 has GCC 11.x by default
+* On newer Ubuntu install `gcc-11` and `g++-11` packages
+* In addtion to general build dependencies (listed on the [installation page](installation.md)), you need `libgmp-dev` and `libconfig++-dev`
+
+### Building
+
+Build the batch-capable Curio binary:
+
+```bash
+make batch
+```
+
+For calibnet
+
+```bash
+make batch-calibnet
+```
+
+{% hint style="warning" %}
+The build should be run on the target machine. Binaries won't be portable between CPU generations due to different AVX512 support.
+{% endhint %}
+
+### Setup NVMe devices for SPDK:
+
+{% hint style="info" %}
+This is only needed while batch sealing is in beta, future versions of Curio will handle this automatically.
+{% endhint %}
+
+```bash
+cd extern/supraseal/deps/spdk-v24.05/
+env NRHUGE=36 ./scripts/setup.sh
+```
+
 ### Benchmark NVME IOPS
 
-Please make sure to benchmark the raw NVME IOPS before proceeding with further configuration to verify that IOPS requirements are fulfilled.&#x20;
+Please make sure to benchmark the raw NVME IOPS before proceeding with further configuration to verify that IOPS requirements are fulfilled.
 
 ```bash
 cd extern/supraseal/deps/spdk-v24.05/
@@ -92,32 +192,27 @@ Total                                  : 8006785.90   31276.51      71.91      1
 
 With ideally >10M IOPS total for all devices.
 
-## Setup
+### PC2 output storage
 
-### Dependencies
+Attach scratch space storage for PC2 output (batch sealer needs \~70GB per sector in batch - 32GiB for the sealed sector, and 36GiB for the cache directory with TreeC/TreeR and aux files)
 
-CUDA 12.x is required, 11.x won't work. The build process depends on GCC 11.x system-wide or gcc-11/g++-11 installed locally.
+## Usage
 
-* On Arch install https://aur.archlinux.org/packages/gcc11
-* Ubuntu 22.04 has GCC 11.x by default
-* On newer Ubuntu install `gcc-11` and `g++-11` packages
+1. Start the Curio node with the batch sealer layer
 
 ```bash
-### Building
-
-Build the batch-capable Curio binary:
-make batch
+curio run --layers batch-machine1
 ```
 
-For calibnet
+2. Add a batch of CC sectors:
 
 ```bash
-make batch-calibnet
+curio seal start --now --cc --count 32 --actor f01234 --duration-days 365
 ```
 
-{% hint style="warning" %}
-The build should be run on the target machine. Binaries won't be portable between CPU generations due to different AVX512 support.
-{% endhint %}
+3. Monitor progress - you should see a "Batch..." task running in the [Curio GUI](curio-gui.md)
+4. PC1 will take 3.5-5 hours, followed by PC2 on GPU
+5. After batch completion, the storage will be released for the next batch
 
 ## Configuration
 
@@ -253,76 +348,6 @@ BatchSealPipelines = 2
 SingleHasherPerThread = false
 ```
 
-### Configure hugepages:
-
-This can be done by adding the following to `/etc/default/grub`. You need 36 1G hugepages for the batch sealer.
-
-```bash
-GRUB_CMDLINE_LINUX_DEFAULT="hugepages=36 default_hugepagesz=1G hugepagesz=1G"
-```
-
-Then run `sudo update-grub` and reboot the machine.
-
-Or at runtime:
-
-```bash
-sudo sysctl -w vm.nr_hugepages=36
-```
-
-Then check /proc/meminfo to verify the hugepages are available:
-
-```bash
-cat /proc/meminfo | grep Huge
-```
-
-Expect output like:
-
-```
-AnonHugePages:         0 kB
-ShmemHugePages:        0 kB
-FileHugePages:         0 kB
-HugePages_Total:      36
-HugePages_Free:       36
-HugePages_Rsvd:        0
-HugePages_Surp:        0
-Hugepagesize:    1048576 kB
-```
-
-Check that `HugePages_Free` is equal to 36, the kernel can sometimes use some of the hugepages for other purposes.
-
-### Setup NVMe devices for SPDK:
-
-{% hint style="info" %}
-This is only needed while batch sealing is in beta, future versions of Curio will handle this automatically.
-{% endhint %}
-
-```bash
-cd extern/supraseal/deps/spdk-v24.05/
-env NRHUGE=36 ./scripts/setup.sh
-```
-
-### PC2 output storage
-
-Attach scratch space storage for PC2 output (batch sealer needs \~70GB per sector in batch - 32GiB for the sealed sector, and 36GiB for the cache directory with TreeC/TreeR and aux files)
-
-## Usage
-
-1. Start the Curio node with the batch sealer layer
-
-```bash
-curio run --layers batch-machine1
-```
-
-2. Add a batch of CC sectors:
-
-```bash
-curio seal start --now --cc --count 32 --actor f01234 --duration-days 365
-```
-
-3. Monitor progress - you should see a "Batch..." task running in the [Curio GUI](curio-gui.md)
-4. PC1 will take 3.5-5 hours, followed by PC2 on GPU
-5. After batch completion, the storage will be released for the next batch
-
 ## Optimization
 
 * Balance batch size, CPU cores, and NVMe drives to keep PC1 running constantly
@@ -404,6 +429,7 @@ cd extern/supraseal/deps/spdk-v24.05/
 ```
 
 Go through the menus like this
+
 ```
 NVMe Management Options
 	[1: list controllers]
@@ -453,10 +479,10 @@ y
 ```
 
 Then you might see a difference in performance like this:
+
 ```
                                                                            Latency(us)
 Device Information                     :       IOPS      MiB/s    Average        min        max
 PCIE (0000:c1:00.0) NSID 1 from core  0:  721383.71    2817.91      88.68      11.20     591.51  ## before
 PCIE (0000:86:00.0) NSID 1 from core  0: 1205271.62    4708.09      53.07      11.87     446.84  ## after
 ```
-

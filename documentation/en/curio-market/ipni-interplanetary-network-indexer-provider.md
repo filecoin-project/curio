@@ -8,6 +8,26 @@ description: >-
 
 The IPNI provider in Curio is designed to manage HTTP-based content announcements and indexing for decentralized discovery through external indexing nodes. It facilitates content chunking, advertisement generation, and HTTP-based announcements to indexers. The following sections explain the provider design, configuration, tasks, advertisements, and the synchronization process based on the [IPNI HTTP Provider specification](https://github.com/ipni/specs/blob/main/IPNI_HTTP_PROVIDER.md).
 
+## IPNI Provider Identification
+
+**Curio's Approach to PeerID Management**
+
+In Curio, a **single PeerID is used across all MinerIDs** and is maintained on-chain. This ensures a consistent identity for all interactions and prevents unauthorized modifications. If the PeerID is changed manually on-chain, Curio will revert it to the expected value upon restart, ensuring stability and automation. This peerID is used only for mk1.2 deals which use Graphsync protocol.
+
+For **IPNI integration**, Curio assigns **unique PeerIDs per MinerID**, but these are **not stored on-chain**. These unique PeerIDs are essential for retrieval verification. Spark uses them to correctly identify miners and validate retrieval operations. This dual approach—using a **single on-chain PeerID for general operations** and **unique off-chain PeerIDs for IPNI**—ensures compatibility across different systems while maintaining efficiency.
+
+**Implementation Details**
+
+To support this architecture, the **MinerPeerIDMapping** smart contract has been deployed at **0x40721e8Ef366375492ee63c54e881068b15C8633**. This contract provides a decentralized and secure way to manage MinerID-to-PeerID mappings, ensuring that only authorized entities can modify these associations.
+
+* **Public State Mapping**: The contract maintains a **gas-free lookup table** mapping Filecoin MinerIDs (`uint64`) to PeerIDs.
+* **Secure Update Mechanism**: Mappings can be modified through three operations using one of the control addresses:
+  * **Add**: Associates a new PeerID with a MinerID.
+  * **Update**: Replaces an existing PeerID with a new one.
+  * **Delete**: Removes the binding between a MinerID and a PeerID.
+* **Signed Message Verification**: Updates require a JSON-encoded signed message, ensuring authenticity. The message is signed using the on-chain PeerID.
+* **Automated Integration with Curio**: Curio ensures that the on-chain PeerID remains updated automatically, preventing unauthorized changes. This allows Spark to correctly associate Ads with MinerIDs, even when different PeerIDs are used in other systems.
+
 ## Provider Design
 
 The Curio IPNI provider operates over HTTP, managing content updates through advertisement creation and announcement. It does not use libp2p; instead, it interacts with indexing nodes by sending HTTP requests to announce content and expose the advertisement chain for indexing.
@@ -48,7 +68,7 @@ The behaviour of the Curio IPNI provider is controlled through the `IPNIConfig` 
 
 ### **IPNIConfig Fields**
 
-* **Disable**: Disables indexing announcements if set to `true`. Default: `false`.
+* **Disable**: Disables indexing announcements if set to `true`. Default: `false`. IPNI should be disabled on base layer.
 * **ServiceURL**: URLs for accessing the indexer web UI to view published advertisements.
 * **DirectAnnounceURLs**: URLs of indexing nodes where the provider sends HTTP announcements of new advertisements.
 

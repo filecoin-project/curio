@@ -14,6 +14,8 @@ description: Curio API references
   * [Shutdown](api.md#Shutdown)
   * [Uncordon](api.md#Uncordon)
   * [Version](api.md#Version)
+* [Index](api.md#Index)
+  * [IndexSamples](api.md#IndexSamples)
 * [Log](api.md#Log)
   * [LogList](api.md#LogList)
   * [LogSetLevel](api.md#LogSetLevel)
@@ -21,10 +23,12 @@ description: Curio API references
   * [StorageAddLocal](api.md#StorageAddLocal)
   * [StorageDetachLocal](api.md#StorageDetachLocal)
   * [StorageFindSector](api.md#StorageFindSector)
+  * [StorageGenerateVanillaProof](api.md#StorageGenerateVanillaProof)
   * [StorageInfo](api.md#StorageInfo)
   * [StorageInit](api.md#StorageInit)
   * [StorageList](api.md#StorageList)
   * [StorageLocal](api.md#StorageLocal)
+  * [StorageRedeclare](api.md#StorageRedeclare)
   * [StorageStat](api.md#StorageStat)
 ### Allocate
 
@@ -179,6 +183,30 @@ Response:
 ]
 ```
 
+### Index
+
+
+#### IndexSamples
+
+
+Perms: admin
+
+Inputs:
+```json
+[
+  {
+    "/": "bafy2bzacea3wsdh6y3a36tb3skempjoxqpuyompjbmfeyf34fi3uy6uue42v4"
+  }
+]
+```
+
+Response:
+```json
+[
+  "Bw=="
+]
+```
+
 ### Log
 The log method group has logging methods
 
@@ -292,6 +320,21 @@ Response:
   }
 ]
 ```
+
+#### StorageGenerateVanillaProof
+
+
+Perms: admin
+
+Inputs:
+```json
+[
+  "f01234",
+  9
+]
+```
+
+Response: `"Ynl0ZSBhcnJheQ=="`
 
 #### StorageInfo
 
@@ -409,6 +452,21 @@ Response:
   "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8": "/data/path"
 }
 ```
+
+#### StorageRedeclare
+
+
+Perms: admin
+
+Inputs:
+```json
+[
+  "string value",
+  true
+]
+```
+
+Response: `{}`
 
 #### StorageStat
 

@@ -7,9 +7,7 @@
 <h1 align="center">Curio Storage - 储存</h1>
 
 <p align="center">
-  <a href="https://app.circleci.com/pipelines/github/filecoin-project/curio"><img src="https://circleci.com/gh/filecoin-project/curio.svg?style=svg" alt="CircleCI"></a>
   <a href="https://goreportcard.com/report/github.com/filecoin-project/curio"><img src="https://goreportcard.com/badge/github.com/filecoin-project/curio" /></a>
-  <a href=""><img src="https://img.shields.io/badge/golang-%3E%3D1.22.3-blue.svg" /></a>
   <br>
 </p>
 

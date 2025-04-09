@@ -132,8 +132,8 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("getting sector params: %w", err)
 	}
 
-	if len(sectorParamsArr) == 0 || (len(sectorParamsArr) < 4 && len(sectorParamsArr) != 1) {
-		return false, xerrors.Errorf("expected either 1 or at least 4 sector params, got %d", len(sectorParamsArr))
+	if len(sectorParamsArr) == 0 {
+		return false, xerrors.Errorf("expected at least 1 sector params, got 0")
 	}
 
 	maddr, err := address.NewIDAddress(uint64(sectorParamsArr[0].SpID))
@@ -278,8 +278,10 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 					break
 				}
 			}
-			if pam.VerifiedAllocationKey != nil || pam.VerifiedAllocationKey.ID != verifreg13.NoAllocationID {
-				verifiedSize += pam.Size
+			if pam.VerifiedAllocationKey != nil {
+				if pam.VerifiedAllocationKey.ID != verifreg13.NoAllocationID {
+					verifiedSize += pam.Size
+				}
 			}
 
 			pams = append(pams, *pam)

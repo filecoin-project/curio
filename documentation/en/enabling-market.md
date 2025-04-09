@@ -2,6 +2,10 @@
 description: How to enable the market submodule and connect to Boost
 ---
 
+{% hint style="danger" %}
+Boost is no longer compatible with Curio. Please migrate to Curio market.
+{% endhint %}
+
 # Enabling market (Boost) (deprecated)
 
 ## Introduction

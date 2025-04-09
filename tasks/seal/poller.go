@@ -2,6 +2,7 @@ package seal
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -89,14 +90,14 @@ func NewPoller(db *harmonydb.DB, api SealPollerAPI, cfg *config.CurioConfig) (*S
 		commit: commitBatchingConfig{
 			MinCommitBatch:   miner.MinAggregatedSectors,
 			MaxCommitBatch:   256,
-			Slack:            time.Duration(cfg.Batching.Commit.Slack),
-			Timeout:          time.Duration(cfg.Batching.Commit.Timeout),
+			Slack:            cfg.Batching.Commit.Slack,
+			Timeout:          cfg.Batching.Commit.Timeout,
 			BaseFeeThreshold: abi.TokenAmount(cfg.Batching.Commit.BaseFeeThreshold),
 		},
 		preCommit: preCommitBatchingConfig{
 			MaxPreCommitBatch: miner15.PreCommitSectorBatchMaxSize,
-			Slack:             time.Duration(cfg.Batching.PreCommit.Slack),
-			Timeout:           time.Duration(cfg.Batching.PreCommit.Timeout),
+			Slack:             cfg.Batching.PreCommit.Slack,
+			Timeout:           cfg.Batching.PreCommit.Timeout,
 			BaseFeeThreshold:  abi.TokenAmount(cfg.Batching.PreCommit.BaseFeeThreshold),
 		},
 	}
@@ -183,7 +184,7 @@ type pollTask struct {
 	Failed       bool   `db:"failed"`
 	FailedReason string `db:"failed_reason"`
 
-	StartEpoch abi.ChainEpoch `db:"smallest_start_epoch"`
+	StartEpoch sql.NullInt64 `db:"start_epoch"`
 }
 
 func (s *SealPoller) poll(ctx context.Context) error {
@@ -222,14 +223,7 @@ func (s *SealPoller) poll(ctx context.Context) error {
 												p.after_commit_msg_success,
 												p.failed, 
 												p.failed_reason,
-												COALESCE(
-													(SELECT 
-														MIN(LEAST(s.f05_deal_start_epoch, s.direct_start_epoch))
-													 FROM sectors_sdr_initial_pieces s
-													 WHERE s.sp_id = p.sp_id AND s.sector_number = p.sector_number
-													), 
-													0
-												) AS smallest_start_epoch
+												p.start_epoch
 											FROM 
 												sectors_sdr_pipeline p
 											WHERE 
@@ -257,14 +251,15 @@ func (s *SealPoller) poll(ctx context.Context) error {
 		s.pollStartSynth(ctx, task)
 		s.mustPoll(s.pollPrecommitMsgLanded(ctx, task))
 		s.pollStartPoRep(ctx, task, ts)
+		s.mustPoll(s.pollerAddStartEpoch(ctx, task))
 		s.pollStartFinalize(ctx, task, ts)
 		s.pollStartMoveStorage(ctx, task)
 		s.mustPoll(s.pollCommitMsgLanded(ctx, task))
 	}
 
 	// Aggregate/Batch PreCommit and Commit
-	s.pollStartBatchPrecommitMsg(ctx, tasks)
-	s.pollStartBatchCommitMsg(ctx, tasks)
+	s.pollStartBatchPrecommitMsg(ctx)
+	s.pollStartBatchCommitMsg(ctx)
 
 	return nil
 }

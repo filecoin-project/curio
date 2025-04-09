@@ -2,14 +2,18 @@ package webrpc
 
 import (
 	"context"
+	"strings"
 
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin"
 	"github.com/filecoin-project/go-state-types/builtin/v15/market"
+
+	"github.com/filecoin-project/lotus/node/modules/dtypes"
 )
 
 type PriceFilter struct {
@@ -93,23 +97,35 @@ func (a *WebRPC) GetAllowDenyList(ctx context.Context) ([]AllowDeny, error) {
 }
 
 func (a *WebRPC) SetClientFilters(ctx context.Context, name string, active bool, wallets, peers []string, filters []string, maxDealPerHour, maxDealSizePerHour int64, info string) error {
-	for i := range wallets {
-		if wallets[i] == "" {
-			return xerrors.Errorf("wallet address cannot be empty")
-		}
-		_, err := address.NewFromString(wallets[i])
-		if err != nil {
-			return xerrors.Errorf("invalid wallet address: %w", err)
+	if len(wallets) == 0 && len(peers) == 0 {
+		return xerrors.Errorf("either wallets or peers must be provided")
+	}
+
+	var clients []string
+	if len(wallets) > 0 {
+		for i := range wallets {
+			if wallets[i] == "" {
+				continue
+			}
+			w, err := address.NewFromString(wallets[i])
+			if err != nil {
+				return xerrors.Errorf("invalid wallet address: %w", err)
+			}
+			clients = append(clients, w.String())
 		}
 	}
 
-	for i := range peers {
-		if peers[i] == "" {
-			return xerrors.Errorf("peer ID cannot be empty")
-		}
-		_, err := peer.Decode(peers[i])
-		if err != nil {
-			return xerrors.Errorf("invalid peer ID: %w", err)
+	var peerIds []string
+	if len(peers) > 0 {
+		for i := range peers {
+			if peers[i] == "" {
+				continue
+			}
+			_, err := peer.Decode(peers[i])
+			if err != nil {
+				return xerrors.Errorf("invalid peer ID: %w", err)
+			}
+			peerIds = append(peerIds, peers[i])
 		}
 	}
 
@@ -133,6 +149,10 @@ func (a *WebRPC) SetClientFilters(ctx context.Context, name string, active bool,
 		return xerrors.Errorf("name length exceeds maximum limit of 64 characters")
 	}
 
+	if len(name) == 0 {
+		return xerrors.Errorf("name cannot be empty")
+	}
+
 	if len(info) > 256 {
 		return xerrors.Errorf("info length exceeds maximum limit of 256 characters")
 	}
@@ -147,7 +167,7 @@ func (a *WebRPC) SetClientFilters(ctx context.Context, name string, active bool,
 	}
 	n, err := a.deps.DB.Exec(ctx, `UPDATE market_mk12_client_filters SET active = $2, wallets = $3, peer_ids = $4, pricing_filters = $5, 
                                       max_deals_per_hour = $6, max_deal_size_per_hour = $7, additional_info = $8 WHERE name = $1`, name,
-		active, wallets, peers, filters, maxDealPerHour, maxDealSizePerHour, info)
+		active, clients, peerIds, filters, maxDealPerHour, maxDealSizePerHour, info)
 	if err != nil {
 		return xerrors.Errorf("updating client filter: %w", err)
 	}
@@ -186,6 +206,10 @@ func (a *WebRPC) SetPriceFilters(ctx context.Context, name string, minDur, maxDu
 		return xerrors.Errorf("name length exceeds maximum limit of 64 characters")
 	}
 
+	if len(name) == 0 {
+		return xerrors.Errorf("name cannot be empty")
+	}
+
 	n, err := a.deps.DB.Exec(ctx, `UPDATE market_mk12_pricing_filters SET min_duration_days = $2, max_duration_days = $3, 
                                        min_size = $4, max_size = $5, price= $6, verified = $7 WHERE name = $1`,
 		name, minDur, maxDur, minSize, maxSize, price, verified)
@@ -215,23 +239,35 @@ func (a *WebRPC) SetAllowDenyList(ctx context.Context, wallet string, status boo
 }
 
 func (a *WebRPC) AddClientFilters(ctx context.Context, name string, active bool, wallets, peers []string, filters []string, maxDealPerHour, maxDealSizePerHour int64, info string) error {
-	for i := range wallets {
-		if wallets[i] == "" {
-			return xerrors.Errorf("wallet address cannot be empty")
-		}
-		_, err := address.NewFromString(wallets[i])
-		if err != nil {
-			return xerrors.Errorf("invalid wallet address: %w", err)
+	if len(wallets) == 0 && len(peers) == 0 {
+		return xerrors.Errorf("either wallets or peers must be provided")
+	}
+
+	var clients []string
+	if len(wallets) > 0 {
+		for i := range wallets {
+			if wallets[i] == "" {
+				continue
+			}
+			w, err := address.NewFromString(wallets[i])
+			if err != nil {
+				return xerrors.Errorf("invalid wallet address: %w", err)
+			}
+			clients = append(clients, w.String())
 		}
 	}
 
-	for i := range peers {
-		if peers[i] == "" {
-			return xerrors.Errorf("peer ID cannot be empty")
-		}
-		_, err := peer.Decode(peers[i])
-		if err != nil {
-			return xerrors.Errorf("invalid peer ID: %w", err)
+	var peerIds []string
+	if len(peers) > 0 {
+		for i := range peers {
+			if peers[i] == "" {
+				continue
+			}
+			_, err := peer.Decode(peers[i])
+			if err != nil {
+				return xerrors.Errorf("invalid peer ID: %w", err)
+			}
+			peerIds = append(peerIds, peers[i])
 		}
 	}
 
@@ -255,6 +291,10 @@ func (a *WebRPC) AddClientFilters(ctx context.Context, name string, active bool,
 		return xerrors.Errorf("name length exceeds maximum limit of 64 characters")
 	}
 
+	if len(name) == 0 {
+		return xerrors.Errorf("name cannot be empty")
+	}
+
 	if len(info) > 256 {
 		return xerrors.Errorf("info length exceeds maximum limit of 256 characters")
 	}
@@ -271,7 +311,7 @@ func (a *WebRPC) AddClientFilters(ctx context.Context, name string, active bool,
 	n, err := a.deps.DB.Exec(ctx, `INSERT INTO market_mk12_client_filters (name, active, wallets, 
                                         peer_ids, pricing_filters, max_deals_per_hour, max_deal_size_per_hour, additional_info) 
 										VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		name, active, wallets, peers, filters, maxDealPerHour, maxDealSizePerHour, info)
+		name, active, clients, peerIds, filters, maxDealPerHour, maxDealSizePerHour, info)
 	if err != nil {
 		return xerrors.Errorf("failed to add client filters: %w", err)
 	}
@@ -310,6 +350,10 @@ func (a *WebRPC) AddPriceFilters(ctx context.Context, name string, minDur, maxDu
 		return xerrors.Errorf("name length exceeds maximum limit of 64 characters")
 	}
 
+	if len(name) == 0 {
+		return xerrors.Errorf("name cannot be empty")
+	}
+
 	n, err := a.deps.DB.Exec(ctx, `INSERT INTO market_mk12_pricing_filters (name, 
                                          min_duration_days, max_duration_days, min_size, max_size, price, 
                                          verified) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -324,12 +368,12 @@ func (a *WebRPC) AddPriceFilters(ctx context.Context, name string, minDur, maxDu
 }
 
 func (a *WebRPC) AddAllowDenyList(ctx context.Context, wallet string, status bool) error {
-	_, err := address.NewFromString(wallet)
+	w, err := address.NewFromString(wallet)
 	if err != nil {
 		return xerrors.Errorf("invalid wallet address: %w", err)
 	}
 
-	n, err := a.deps.DB.Exec(ctx, "INSERT INTO market_allow_list (wallet, status) VALUES ($1, $2)", wallet, status)
+	n, err := a.deps.DB.Exec(ctx, "INSERT INTO market_allow_list (wallet, status) VALUES ($1, $2)", w.String(), status)
 	if err != nil {
 		return err
 	}
@@ -361,7 +405,49 @@ func (a *WebRPC) RemoveAllowFilter(ctx context.Context, wallet string) error {
 	return nil
 }
 
-func (a *WebRPC) DefaultAllowBehaviour(ctx context.Context) *bool {
-	ret := !a.deps.Cfg.Market.StorageMarketConfig.MK12.DenyUnknownClients
-	return &ret
+type DefaultFilterBehaviourResponse struct {
+	AllowDealsFromUnknownClients             bool            `json:"allow_deals_from_unknown_clients"`
+	IsDealRejectedWhenCidGravityNotReachable bool            `json:"is_deal_rejected_when_cid_gravity_not_reachable"`
+	IsCidGravityEnabled                      map[string]bool `json:"cid_gravity_status"`
+}
+
+func (a *WebRPC) DefaultFilterBehaviour(ctx context.Context) (*DefaultFilterBehaviourResponse, error) {
+
+	var cfgminers []address.Address
+	var cgminer []address.Address
+
+	lo.ForEach(lo.Keys(a.deps.Maddrs), func(item dtypes.MinerAddress, _ int) {
+		cfgminers = append(cfgminers, address.Address(item))
+	})
+
+	cgMap := make(map[string]bool)
+
+	if len(a.deps.Cfg.Market.StorageMarketConfig.MK12.CIDGravityTokens) > 0 {
+		for _, token := range a.deps.Cfg.Market.StorageMarketConfig.MK12.CIDGravityTokens {
+			st := strings.SplitN(token, ":", 2)
+			m, err := address.NewFromString(st[0])
+			if err != nil {
+				return nil, xerrors.Errorf("invalid miner in CIDGravity token: %w", err)
+			}
+			if st[1] == "" || len(st[1]) == 0 {
+				return nil, xerrors.Errorf("invalid CIDGravity token for miner %s: %s", m.String(), st[1])
+			}
+			if lo.Contains(cfgminers, m) {
+				cgminer = append(cgminer, m)
+				cgMap[m.String()] = true
+			}
+		}
+	}
+
+	noCG, _ := lo.Difference(cfgminers, cgminer)
+	for _, m := range noCG {
+		cgMap[m.String()] = false
+	}
+
+	return &DefaultFilterBehaviourResponse{
+		AllowDealsFromUnknownClients:             !a.deps.Cfg.Market.StorageMarketConfig.MK12.DenyUnknownClients,
+		IsCidGravityEnabled:                      cgMap,
+		IsDealRejectedWhenCidGravityNotReachable: !a.deps.Cfg.Market.StorageMarketConfig.MK12.DefaultCIDGravityAccept,
+	}, nil
+
 }
