@@ -267,17 +267,6 @@ description: The default curio configuration
   # type: int
   #IndexingMaxTasks = 8
 
-  # EnableProofShare enables the proof share tasks on the node.
-  #
-  # type: bool
-  #EnableProofShare = false
-
-  # The maximum amount of ProofShare tasks that can run simultaneously. Note that the maximum number of tasks will
-  # also be bounded by resources available on the machine.
-  #
-  # type: int
-  #ProofShareMaxTasks = 0
-
   # EnableBalanceManager enables the task to automatically manage the market balance of the miner's market actor (Default: false)
   #
   # type: bool
@@ -289,6 +278,17 @@ description: The default curio configuration
   #
   # type: bool
   #BindSDRTreeToNode = false
+
+  # EnableProofShare enables the proof share tasks on the node.
+  #
+  # type: bool
+  #EnableProofShare = false
+
+  # The maximum amount of ProofShare tasks that can run simultaneously. Note that the maximum number of tasks will
+  # also be bounded by resources available on the machine.
+  #
+  # type: int
+  #ProofShareMaxTasks = 0
 
 
 # Fees holds the fee-related configuration parameters for various operations in the Curio node.

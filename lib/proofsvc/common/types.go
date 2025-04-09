@@ -14,10 +14,11 @@ import (
 	ffi "github.com/filecoin-project/filecoin-ffi"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/lotus/chain/types"
+	sproof "github.com/filecoin-project/go-state-types/proof"
 
 	"github.com/filecoin-project/curio/lib/proof"
-	sproof "github.com/filecoin-project/go-state-types/proof"
+
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 var log = logging.Logger("psvcommon")

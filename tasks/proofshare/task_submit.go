@@ -94,9 +94,9 @@ func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool
 
 	// 1) Look up the row assigned to this submit_task_id
 	var row struct {
-		ServiceID    int64           `db:"service_id"`
-		RequestCid  string          `db:"request_cid"`
-		ResponseData []byte          `db:"response_data"`
+		ServiceID    int64  `db:"service_id"`
+		RequestCid   string `db:"request_cid"`
+		ResponseData []byte `db:"response_data"`
 	}
 	err := t.db.QueryRow(ctx, `
 		SELECT service_id, request_cid, response_data

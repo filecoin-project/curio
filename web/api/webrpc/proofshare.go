@@ -113,10 +113,10 @@ type ProofShareClientSettings struct {
 	MinimumPendingSecs int64   `db:"minimum_pending_seconds" json:"minimum_pending_seconds"`
 	DoPoRep            bool    `db:"do_porep"              json:"do_porep"`
 	DoSnap             bool    `db:"do_snap"               json:"do_snap"`
-	Price              string   `db:"pprice"`
+	Price              string  `db:"pprice"`
 
 	Address string `db:"-" json:"address"`
-	FilPerP string  `db:"-" json:"price"`
+	FilPerP string `db:"-" json:"price"`
 }
 
 // ProofShareClientRequest model
@@ -550,4 +550,3 @@ func (a *WebRPC) PSClientRouterCompleteWithdrawal(ctx context.Context, wallet st
 
 	return completeCid, nil
 }
-

@@ -604,6 +604,8 @@ COMMANDS:
    create-provider-voucher      Create a provider voucher
    propose-service-actor        Propose a new service actor
    accept-service-actor         Accept a proposed service actor
+   validate-client-voucher      Validate a client voucher signature
+   validate-provider-voucher    Validate a provider voucher signature
    help, h                      Shows a list of commands or help for one command
 
 OPTIONS:
@@ -845,6 +847,38 @@ USAGE:
 OPTIONS:
    --from value  Service sender address
    --help, -h    show help
+```
+
+##### curio test debug debug-snsvc validate-client-voucher
+```
+NAME:
+   curio test debug debug-snsvc validate-client-voucher - Validate a client voucher signature
+
+USAGE:
+   curio test debug debug-snsvc validate-client-voucher [command options]
+
+OPTIONS:
+   --client value  Client actor address
+   --amount value  Cumulative amount (FIL)
+   --nonce value   Voucher nonce (default: 0)
+   --sig value     Voucher signature (hex)
+   --help, -h      show help
+```
+
+##### curio test debug debug-snsvc validate-provider-voucher
+```
+NAME:
+   curio test debug debug-snsvc validate-provider-voucher - Validate a provider voucher signature
+
+USAGE:
+   curio test debug debug-snsvc validate-provider-voucher [command options]
+
+OPTIONS:
+   --provider value  Provider actor address
+   --amount value    Cumulative amount (FIL)
+   --nonce value     Voucher nonce (default: 0)
+   --sig value       Voucher signature (hex)
+   --help, -h        show help
 ```
 
 ## curio web

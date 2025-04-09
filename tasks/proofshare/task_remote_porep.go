@@ -14,8 +14,6 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/crypto"
-	"github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/chain/types"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -25,6 +23,9 @@ import (
 	"github.com/filecoin-project/curio/lib/proofsvc"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
 	"github.com/filecoin-project/curio/lib/storiface"
+
+	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 // ClientServiceAPI defines the interface for interacting with the client service
@@ -376,8 +377,8 @@ func (t *TaskRemotePoRep) createPayment(ctx context.Context, taskID harmonytask.
 	_, err = t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		// Check if there's an unconsumed payment
 		var unconsumedPayment struct {
-			Wallet          int64 `db:"wallet"`
-			Nonce           int64 `db:"nonce"`
+			Wallet           int64  `db:"wallet"`
+			Nonce            int64  `db:"nonce"`
 			CumulativeAmount string `db:"cumulative_amount"`
 			Consumed         bool   `db:"consumed"`
 		}
@@ -649,13 +650,13 @@ type ClientRequest struct {
 	RequestCID      *string `db:"request_cid"`
 	RequestUploaded bool    `db:"request_uploaded"`
 
-	PaymentWallet   *int64  `db:"payment_wallet"`
-	PaymentNonce    *int64  `db:"payment_nonce"`
+	PaymentWallet *int64 `db:"payment_wallet"`
+	PaymentNonce  *int64 `db:"payment_nonce"`
 
-	RequestSent     bool   `db:"request_sent"`
-	ResponseData    []byte  `db:"response_data"`
+	RequestSent  bool   `db:"request_sent"`
+	ResponseData []byte `db:"response_data"`
 
-	Done            bool    `db:"done"`
+	Done bool `db:"done"`
 }
 
 // TypeDetails implements harmonytask.TaskInterface

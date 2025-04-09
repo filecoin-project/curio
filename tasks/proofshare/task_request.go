@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/curio/lib/proofsvc"
 	"github.com/filecoin-project/curio/tasks/seal"
 	"github.com/filecoin-project/curio/tasks/snap"
+
 	"github.com/filecoin-project/lotus/chain/types"
 )
 

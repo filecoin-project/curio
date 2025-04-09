@@ -9,14 +9,15 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/lotus/chain/types"
-
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
+
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 var MaxRetryTime = 15 * time.Minute
