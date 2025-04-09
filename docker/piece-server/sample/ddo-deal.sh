@@ -17,7 +17,7 @@ miner_actor=$(lotus state list-miners | grep -v t01000)
 
 mv /var/lib/curio-client/data/$PAYLOAD_CID.car /var/lib/curio-client/data/$COMMP_CID
 
-sptool --actor t01000 toolbox mk12-client allocate -y -p $miner_actor --pi $COMMP_CID=$PIECE --confidence 0
+sptool --actor t01000 toolbox mk12-client allocate -y -p $miner_actor --piece-cid $COMMP_CID --piece-size $PIECE --confidence 0
 
 CLIENT=$(sptool --actor t01000 toolbox mk12-client wallet default)
 

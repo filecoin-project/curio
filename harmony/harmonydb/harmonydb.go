@@ -54,6 +54,7 @@ func NewFromConfig(cfg config.HarmonyDB) (*DB, error) {
 		cfg.Password,
 		cfg.Database,
 		cfg.Port,
+		cfg.LoadBalance,
 		"",
 	)
 }
@@ -73,6 +74,7 @@ func NewFromConfigWithITestID(t *testing.T, id ITestID) (*DB, error) {
 		"yugabyte",
 		"yugabyte",
 		"5433",
+		false,
 		id,
 	)
 	if err != nil {
@@ -87,16 +89,26 @@ func NewFromConfigWithITestID(t *testing.T, id ITestID) (*DB, error) {
 // New is to be called once per binary to establish the pool.
 // log() is for errors. It returns an upgraded database's connection.
 // This entry point serves both production and integration tests, so it's more DI.
-func New(hosts []string, username, password, database, port string, itestID ITestID) (*DB, error) {
+func New(hosts []string, username, password, database, port string, loadBalance bool, itestID ITestID) (*DB, error) {
 	itest := string(itestID)
-	connString := ""
-	if len(hosts) > 0 {
-		connString = "host=" + hosts[0] + " "
+
+	// Join hosts with the port
+	hostPortPairs := make([]string, len(hosts))
+	for i, host := range hosts {
+		hostPortPairs[i] = fmt.Sprintf("%s:%s", host, port)
 	}
-	for k, v := range map[string]string{"user": username, "password": password, "dbname": database, "port": port} {
-		if strings.TrimSpace(v) != "" {
-			connString += k + "=" + v + " "
-		}
+
+	// Construct the connection string
+	connString := fmt.Sprintf(
+		"postgresql://%s:%s@%s/%s?sslmode=disable",
+		username,
+		password,
+		strings.Join(hostPortPairs, ","),
+		database,
+	)
+
+	if loadBalance {
+		connString += "&load_balance=true"
 	}
 
 	schema := "curio"
@@ -107,14 +119,9 @@ func New(hosts []string, username, password, database, port string, itestID ITes
 	if err := ensureSchemaExists(connString, schema); err != nil {
 		return nil, err
 	}
-	cfg, err := pgxpool.ParseConfig(connString + "search_path=" + schema)
+	cfg, err := pgxpool.ParseConfig(connString + "&search_path=" + schema)
 	if err != nil {
 		return nil, err
-	}
-
-	// enable multiple fallback hosts.
-	for _, h := range hosts[1:] {
-		cfg.ConnConfig.Fallbacks = append(cfg.ConnConfig.Fallbacks, &pgconn.FallbackConfig{Host: h})
 	}
 
 	cfg.ConnConfig.OnNotice = func(conn *pgconn.PgConn, n *pgconn.Notice) {

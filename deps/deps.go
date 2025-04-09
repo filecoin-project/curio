@@ -12,7 +12,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -61,11 +60,12 @@ func MakeDB(cctx *cli.Context) (*harmonydb.DB, error) {
 	// #1 CLI opts
 	fromCLI := func() (*harmonydb.DB, error) {
 		dbConfig := config.HarmonyDB{
-			Username: cctx.String("db-user"),
-			Password: cctx.String("db-password"),
-			Hosts:    strings.Split(cctx.String("db-host"), ","),
-			Database: cctx.String("db-name"),
-			Port:     cctx.String("db-port"),
+			Username:    cctx.String("db-user"),
+			Password:    cctx.String("db-password"),
+			Hosts:       strings.Split(cctx.String("db-host"), ","),
+			Database:    cctx.String("db-name"),
+			Port:        cctx.String("db-port"),
+			LoadBalance: cctx.Bool("db-load-balance"),
 		}
 		return harmonydb.NewFromConfig(dbConfig)
 	}
@@ -98,40 +98,17 @@ func MakeDB(cctx *cli.Context) (*harmonydb.DB, error) {
 		}
 		return readToml(filepath.Join(u, ".lotusminer/config.toml"))
 	}
-	fromEnv := func() (*harmonydb.DB, error) {
-		// #3 Try env
-		u, err := url.Parse(os.Getenv("CURIO_DB"))
-		if err != nil {
-			return nil, errors.New("no db connection string found in CURIO_DB env")
-		}
-		cfg := config.DefaultStorageMiner().HarmonyDB
-		if u.User.Username() != "" {
-			cfg.Username = u.User.Username()
-		}
-		if p, ok := u.User.Password(); ok && p != "" {
-			cfg.Password = p
-		}
-		if u.Hostname() != "" {
-			cfg.Hosts = []string{u.Hostname()}
-		}
-		if u.Port() != "" {
-			cfg.Port = u.Port()
-		}
-		if strings.TrimPrefix(u.Path, "/") != "" {
-			cfg.Database = strings.TrimPrefix(u.Path, "/")
-		}
 
-		return harmonydb.NewFromConfig(cfg)
-	}
-
-	for _, f := range []func() (*harmonydb.DB, error){fromCLI, fromMinerEnv, fromMiner, fromEnv} {
+	for _, f := range []func() (*harmonydb.DB, error){fromCLI, fromMinerEnv, fromMiner} {
 		db, err := f()
 		if err != nil {
 			continue
 		}
 		return db, nil
 	}
-	log.Error("No db connection string found. User CLI args or env var: set CURIO_DB=postgres://USER:PASSWORD@HOST:PORT/DATABASE")
+	log.Error("Could not connect to db. Please verify that your YugabyteDB is running and the env vars or CLI args are correct.")
+	log.Error("If running as a service, please ensure that the service is running with the correct env vars in /etc/curio.env file.")
+	log.Error("If running locally, please ensure that the env vars are set correctly in your shell. Run `curio --help` for more info.")
 	return fromCLI() //in-case it's not about bad config.
 }
 
@@ -367,7 +344,7 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 	}
 
 	if deps.IndexStore == nil {
-		deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(cctx.String("db-host"), ","), deps.Cfg)
+		deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(cctx.String("db-host"), ","), cctx.Int("db-cassandra-port"), deps.Cfg)
 		if err != nil {
 			return xerrors.Errorf("failed to start index store: %w", err)
 		}
@@ -414,23 +391,15 @@ func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *config.CurioCo
 		}
 		return line
 	}), "\n")
-	meta, err := toml.Decode(newText, &curioConfigWithDefaults)
-	for i := range curioConfigWithDefaults.Addresses {
-		if curioConfigWithDefaults.Addresses[i].PreCommitControl == nil {
-			curioConfigWithDefaults.Addresses[i].PreCommitControl = []string{}
-		}
-		if curioConfigWithDefaults.Addresses[i].CommitControl == nil {
-			curioConfigWithDefaults.Addresses[i].CommitControl = []string{}
-		}
-		if curioConfigWithDefaults.Addresses[i].DealPublishControl == nil {
-			curioConfigWithDefaults.Addresses[i].DealPublishControl = []string{}
-		}
-		if curioConfigWithDefaults.Addresses[i].TerminateControl == nil {
-			curioConfigWithDefaults.Addresses[i].TerminateControl = []string{}
-		}
+
+	err := config.FixTOML(newText, curioConfigWithDefaults)
+	if err != nil {
+		return toml.MetaData{}, err
 	}
-	return meta, err
+
+	return toml.Decode(newText, &curioConfigWithDefaults)
 }
+
 func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.CurioConfig, error) {
 	err := updateBaseLayer(ctx, db)
 	if err != nil {
@@ -688,6 +657,7 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 			DisableOwnerFallback:  false,
 			DisableWorkerFallback: false,
 			MinerAddresses:        []string{addr},
+			BalanceManager:        config.DefaultBalanceManager(),
 		})
 	}
 

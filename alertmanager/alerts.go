@@ -345,12 +345,17 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 			if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
 				return nil, nil, xerrors.Errorf("missing layer '%s' ", layer)
 			}
-			return nil, nil, fmt.Errorf("could not read layer '%s': %w", layer, err)
+			return nil, nil, xerrors.Errorf("could not read layer '%s': %w", layer, err)
+		}
+
+		err = config.FixTOML(text, cfg)
+		if err != nil {
+			return nil, nil, err
 		}
 
 		_, err = toml.Decode(text, cfg)
 		if err != nil {
-			return nil, nil, fmt.Errorf("could not read layer, bad toml %s: %w", layer, err)
+			return nil, nil, xerrors.Errorf("could not read layer, bad toml %s: %w", layer, err)
 		}
 
 		for i := range cfg.Addresses {

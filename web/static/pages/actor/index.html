@@ -5,11 +5,15 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
     <script type="module" src="/ux/curio-ux.mjs"></script>
+    <script type="module" src="/ux/components/Drawer.mjs"></script>
     <script type="module" src="actor-detail.mjs"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+          integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw=="
+          crossorigin="anonymous" />
 </head>
 <body style="visibility:hidden" data-bs-theme="dark">
     <curio-ux>
-        <div class="page">
+        <div class="page" style="margin-left: 20px; margin-right: 10px">
             <section class="section">
                 <div class="row">
                     <h1>Miner Info</h1>
@@ -24,10 +28,5 @@
             </section>
         </div>
     </curio-ux>
-<!--<script>-->
-<!--    let d = document.createElement('actor-detail');-->
-<!--    d.id = new URLSearchParams(window.location.search).get('id');-->
-<!--    document.querySelector('curio-ux').appendChild(d);-->
-<!--</script>-->
 </body>
 </html>

@@ -81,6 +81,20 @@ curio guided-setup
 
 Once the migration is complete, you can shut down all of your workers and miner processes. You can start `curio` process to replace them with correct [configuration layer](configuration/#configuration-layers).
 
+If you entered non-default in step 3 then please export the relevant details in your `~/.bashrc` file as Curio command needs access to the Database. This step is different from the \
+
+
+| Env Variable        | UseCase                   |
+| ------------------- | ------------------------- |
+| CURIO\_DB\_HOST     | YugabyteDB SQL IP         |
+| CURIO\_DB\_NAME     | YugabyteDB Name           |
+| CURIO\_DB\_USER     | DB user for connection    |
+| CURIO\_DB\_PASSWORD | User’s password           |
+| CURIO\_DB\_PORT     | YugabyteDB’s SQL port     |
+| CURIO\_REPO\_PATH   | Curio’s default repo path |
+
+Please proceed to [curio service configuration](curio-service.md) for the first node. Once you have completed the service and storage configuration, you can come back to this page and proceed with testing the setup.
+
 ### Testing the setup&#x20;
 
 You can confirm that the `curio` process is able to schedule and compute WindowPoSt by running a WindowPoSt test computation:
@@ -90,8 +104,6 @@ curio test window-post task
 ```
 
 From the output we can confirm that a WindowPoSt gets inserted to the database, and is being picked up by the Curio process running with the _wdpost_ configuration layer.
-
-Once the test is successful, please proceed to [curio service configuration](curio-service.md).
 
 ## Initiating a new Curio cluster&#x20;
 
@@ -215,21 +227,22 @@ Curio provides a utility for users to onboard quickly. Please run the below comm
 
     Try the web interface with curio run --layers=gui for further guided improvements.
     ```
-8.  If you entered non-default in step 3 then please export the relevant details before running the Curio command.\
+
+    1.  If you entered non-default in step 3 then please export the relevant details via your `~/.bashrc` file before running the Curio command.\
 
 
-    | Env Variable        | UseCase                   |
-    | ------------------- | ------------------------- |
-    | CURIO\_DB\_HOST     | YugabyteDB SQL IP         |
-    | CURIO\_DB\_NAME     | YugabyteDB Name           |
-    | CURIO\_DB\_USER     | DB user for connection    |
-    | CURIO\_DB\_PASSWORD | User’s password           |
-    | CURIO\_DB\_PORT     | YugabyteDB’s SQL port     |
-    | CURIO\_REPO\_PATH   | Curio’s default repo path |
-9.  Try running Curio with only `GUI` first.\
+        | Env Variable        | UseCase                   |
+        | ------------------- | ------------------------- |
+        | CURIO\_DB\_HOST     | YugabyteDB SQL IP         |
+        | CURIO\_DB\_NAME     | YugabyteDB Name           |
+        | CURIO\_DB\_USER     | DB user for connection    |
+        | CURIO\_DB\_PASSWORD | User’s password           |
+        | CURIO\_DB\_PORT     | YugabyteDB’s SQL port     |
+        | CURIO\_REPO\_PATH   | Curio’s default repo path |
+8.  Try running Curio with only `GUI` first.\
 
 
     ```shell
     curio run --layers gui
     ```
-10. If the `curio` process starts successfully, please proceed with GUI and verify that you can access all the pages. Once, verified, please proceed to [curio service configuration](curio-service.md).&#x20;
+9. If the `curio` process starts successfully, please proceed with GUI and verify that you can access all the pages. Once, verified, please proceed to [curio service configuration](curio-service.md).&#x20;

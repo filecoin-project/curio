@@ -179,6 +179,7 @@ func (t *TaskUnsealDecode) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 
 	if isDevnet {
+		res.Cost.Cpu = 1
 		res.Cost.Ram = 1 << 30
 	}
 

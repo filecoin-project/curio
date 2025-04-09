@@ -7,7 +7,7 @@ USAGE:
    curio [global options] command [command options]
 
 VERSION:
-   1.24.5-rc1
+   1.25.0
 
 COMMANDS:
    cli           Execute cli commands
@@ -24,16 +24,18 @@ COMMANDS:
    help, h       Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-   --color              use color in display output (default: depends on output being a TTY)
-   --db-host value      Command separated list of hostnames for yugabyte cluster (default: "127.0.0.1") [$CURIO_DB_HOST, $CURIO_HARMONYDB_HOSTS]
-   --db-name value      (default: "yugabyte") [$CURIO_DB_NAME, $CURIO_HARMONYDB_NAME]
-   --db-user value      (default: "yugabyte") [$CURIO_DB_USER, $CURIO_HARMONYDB_USERNAME]
-   --db-password value  (default: "yugabyte") [$CURIO_DB_PASSWORD, $CURIO_HARMONYDB_PASSWORD]
-   --db-port value      (default: "5433") [$CURIO_DB_PORT, $CURIO_HARMONYDB_PORT]
-   --repo-path value    (default: "~/.curio") [$CURIO_REPO_PATH]
-   --vv                 enables very verbose mode, useful for debugging the CLI (default: false)
-   --help, -h           show help
-   --version, -v        print the version
+   --color                    use color in display output (default: depends on output being a TTY)
+   --db-host value            Command separated list of hostnames for yugabyte cluster (default: "127.0.0.1") [$CURIO_DB_HOST, $CURIO_HARMONYDB_HOSTS]
+   --db-name value            Name of the Postgres database in Yugabyte cluster (default: "yugabyte") [$CURIO_DB_NAME, $CURIO_HARMONYDB_NAME]
+   --db-user value            Username for connecting to the Postgres database in Yugabyte cluster (default: "yugabyte") [$CURIO_DB_USER, $CURIO_HARMONYDB_USERNAME]
+   --db-password value        Password for connecting to the Postgres database in Yugabyte cluster (default: "yugabyte") [$CURIO_DB_PASSWORD, $CURIO_HARMONYDB_PASSWORD]
+   --db-port value            Port for connecting to the Postgres database in Yugabyte cluster (default: "5433") [$CURIO_DB_PORT, $CURIO_HARMONYDB_PORT]
+   --db-cassandra-port value  Port for connecting to the Cassandra database in Yugabyte cluster (default: 9042) [$CURIO_DB_CASSANDRA_PORT, $CURIO_INDEXDB_PORT]
+   --db-load-balance          Enable load balancing for connecting to the Postgres database in Yugabyte cluster (default: true) [$CURIO_DB_LOAD_BALANCE, $CURIO_HARMONYDB_LOAD_BALANCE]
+   --repo-path value          (default: "~/.curio") [$CURIO_REPO_PATH]
+   --vv                       enables very verbose mode, useful for debugging the CLI (default: false)
+   --help, -h                 show help
+   --version, -v              print the version
 ```
 
 ## curio cli
@@ -45,14 +47,15 @@ USAGE:
    curio cli command [command options]
 
 COMMANDS:
-   info      Get Curio node info
-   storage   manage sector storage
-   log       Manage logging
-   wait-api  Wait for Curio api to come online
-   stop      Stop a running Curio process
-   cordon    Cordon a machine, set it to maintenance mode
-   uncordon  Uncordon a machine, resume scheduling
-   help, h   Shows a list of commands or help for one command
+   info          Get Curio node info
+   storage       manage sector storage
+   log           Manage logging
+   wait-api      Wait for Curio api to come online
+   stop          Stop a running Curio process
+   cordon        Cordon a machine, set it to maintenance mode
+   uncordon      Uncordon a machine, resume scheduling
+   index-sample  Provides a sample of CIDs from an indexed piece
+   help, h       Shows a list of commands or help for one command
 
 OPTIONS:
    --machine value  machine host:port (curio run --listen address)
@@ -317,6 +320,19 @@ USAGE:
    curio cli uncordon [command options]
 
 OPTIONS:
+   --help, -h  show help
+```
+
+### curio cli index-sample
+```
+NAME:
+   curio cli index-sample - Provides a sample of CIDs from an indexed piece
+
+USAGE:
+   curio cli index-sample [command options] piece-cid
+
+OPTIONS:
+   --json      output in json format (default: false)
    --help, -h  show help
 ```
 

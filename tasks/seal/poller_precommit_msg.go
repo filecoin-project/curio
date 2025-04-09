@@ -3,7 +3,7 @@ package seal
 import (
 	"context"
 	"database/sql"
-	"sort"
+	"math"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -20,47 +20,11 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
-type sectorBatch struct {
-	cutoff   abi.ChainEpoch
-	earliest time.Time
-	sectors  []int64
-}
-
-func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context, tasks []pollTask) {
-	// Make batches based on Proof types
-	var tsks []pollTask
-	for i := range tasks {
-		if tasks[i].TaskPrecommitMsg == nil && !tasks[i].AfterPrecommitMsg && tasks[i].afterSynth() && s.pollers[pollerPrecommitMsg].IsSet() {
-			// If CC sector set StartEpoch/CutOff
-			if tasks[i].StartEpoch == 0 {
-				tasks[i].StartEpoch = abi.ChainEpoch(*tasks[i].TicketEpoch) + policy.MaxPreCommitRandomnessLookback
-			}
-			tsks = append(tsks, tasks[i])
-		}
+func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context) {
+	// Exit early if the poller is set i.e. precommit task is not enabled on the node
+	if !s.pollers[pollerPrecommitMsg].IsSet() {
+		return
 	}
-
-	// Sort in ascending order to allow maximum time for sectors to wait for base free drop
-	sort.Slice(tsks, func(i, j int) bool {
-		return tsks[i].StartEpoch < tsks[j].StartEpoch
-	})
-
-	batchMap := make(map[int64]map[abi.RegisteredSealProof][]pollTask)
-	for i := range tsks {
-		// Check if SpID exists in batchMap
-		v, ok := batchMap[tsks[i].SpID]
-		if !ok {
-			// If not, initialize a new map for the RegisteredSealProof
-			v = make(map[abi.RegisteredSealProof][]pollTask)
-			batchMap[tsks[i].SpID] = v
-		}
-		// Append the task to the correct RegisteredSealProof
-		v[tsks[i].RegisteredSealProof] = append(v[tsks[i].RegisteredSealProof], tsks[i])
-	}
-
-	// Send batches per MinerID and per Proof type based on the following logic:
-	// 1. Check if Slack for any sector is reaching, if yes then send full batch
-	// 2. Check if timeout is reaching for any sector in the batch, if yes, then send the batch
-	// 3. Check if baseFee below set threshold. If yes then send all batches
 
 	ts, err := s.api.ChainHead(ctx)
 	if err != nil {
@@ -68,69 +32,48 @@ func (s *SealPoller) pollStartBatchPrecommitMsg(ctx context.Context, tasks []pol
 		return
 	}
 
-	for spid, sealProofMap := range batchMap {
-		for _, pts := range sealProofMap {
-			// Break into batches
-			var batches []sectorBatch
-			for i := 0; i < len(pts); i += s.cfg.preCommit.MaxPreCommitBatch {
-				// Create a batch of size `maxBatchSize` or smaller for the last batch
-				end := i + s.cfg.preCommit.MaxPreCommitBatch
-				if end > len(pts) {
-					end = len(pts)
-				}
-				var batch []int64
-				cutoff := abi.ChainEpoch(0)
-				earliest := time.Now()
-				for _, pt := range pts[i:end] {
-					batch = append(batch, pt.SectorNumber)
-					if cutoff == 0 || pt.StartEpoch < cutoff {
-						cutoff = pt.StartEpoch
-					}
-					if pt.PreCommitReadyAt.Before(earliest) {
-						earliest = *pt.PreCommitReadyAt
-					}
-				}
-
-				batches = append(batches, sectorBatch{
-					cutoff:  cutoff,
-					sectors: batch,
-				})
-			}
-
-			for i := range batches {
-				batch := batches[i]
-				//sectors := batch.sectors
-				// Process batch if slack has reached
-				if (time.Duration(batch.cutoff-ts.Height()) * time.Duration(build.BlockDelaySecs) * time.Second) < s.cfg.preCommit.Slack {
-					s.sendPreCommitBatch(ctx, spid, batch.sectors)
-					continue
-				}
-				// Process batch if timeout has reached
-				if batch.earliest.Add(s.cfg.preCommit.Timeout).After(time.Now()) {
-					s.sendPreCommitBatch(ctx, spid, batch.sectors)
-					continue
-				}
-				// Process batch if base fee is low enough for us to send
-				if ts.MinTicketBlock().ParentBaseFee.LessThan(s.cfg.preCommit.BaseFeeThreshold) {
-					s.sendPreCommitBatch(ctx, spid, batch.sectors)
-					continue
-				}
-			}
-		}
+	slackEpoch := int64(math.Ceil(s.cfg.preCommit.Slack.Seconds() / float64(build.BlockDelaySecs)))
+	feeOk := false
+	if ts.MinTicketBlock().ParentBaseFee.LessThan(s.cfg.preCommit.BaseFeeThreshold) {
+		feeOk = true
 	}
-}
 
-func (s *SealPoller) sendPreCommitBatch(ctx context.Context, spid int64, sectors []int64) {
 	s.pollers[pollerPrecommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-		n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_precommit_msg = $1 WHERE sp_id = $2 AND sector_number = ANY($3) AND task_id_precommit_msg IS NULL AND after_synth = TRUE AND after_precommit_msg = FALSE`, id, spid, sectors)
+		var updatedCount int64
+		var reason string
+
+		log.Debugw("Trying to assign a precommit batch",
+			"slack_epoch", slackEpoch,
+			"current_height", ts.Height(),
+			"max_batch", s.cfg.preCommit.MaxPreCommitBatch,
+			"new_task_id", id,
+			"baseFee", ts.MinTicketBlock().ParentBaseFee.String(),
+			"basefee_ok", feeOk,
+			"timeout_secs", s.cfg.preCommit.Timeout.Seconds(),
+			"timeout_at", time.Now().Add(s.cfg.preCommit.Timeout).UTC().Format(time.RFC3339),
+			"randomness_lookback", policy.MaxPreCommitRandomnessLookback,
+		)
+
+		err = tx.QueryRow(`SELECT updated_count, reason FROM poll_start_batch_precommit_msg($1, $2, $3, $4, $5, $6, $7)`,
+			policy.MaxPreCommitRandomnessLookback,  // p_randomnessLookBack BIGINT,  -- policy.MaxPreCommitRandomnessLookback
+			slackEpoch,                             // p_slack_epoch        BIGINT,  -- "Slack" epoch to compare against a sector's start_epoch
+			ts.Height(),                            // p_current_height     BIGINT,  -- Current on-chain height
+			s.cfg.preCommit.MaxPreCommitBatch,      // p_max_batch          INT,     -- Max number of sectors per batch
+			id,                                     // p_new_task_id        BIGINT,  -- Task ID to assign if a batch is chosen
+			feeOk,                                  // p_basefee_ok 		   BOOLEAN, -- If TRUE, fee-based condition is considered met
+			int(s.cfg.preCommit.Timeout.Seconds()), // p_timeout_secs  	   INT      -- Timeout in seconds for earliest_ready_at check
+		).Scan(&updatedCount, &reason)
 		if err != nil {
-			return false, xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
-		}
-		if n > len(sectors) {
-			return false, xerrors.Errorf("expected to update at most %d rows, updated %d", len(sectors), n)
+			return false, err
 		}
 
-		return true, nil
+		if updatedCount > 0 {
+			log.Debugf("Assigned %d sectors to precommit batch with taskID %d with reason %s", updatedCount, id, reason)
+			return true, nil
+		} else {
+			log.Debugf("No precommit batch assigned for ID %d", id)
+		}
+		return false, nil
 	})
 }
 

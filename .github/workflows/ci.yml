@@ -6,7 +6,7 @@ on:
       - main
   pull_request:
     branches:
-      - main
+      - '**'
 
 env:
   GO_VERSION: 1.23
@@ -311,9 +311,9 @@ jobs:
         run: go install github.com/hannahhoward/cbor-gen-for
         shell: bash
 
-      - name: Install gotext
-        run: go install golang.org/x/text/cmd/gotext
-        shell: bash
+#      - name: Install gotext
+#        run: go install golang.org/x/text/cmd/gotext
+#        shell: bash
 
       - name: Install FFI
         env:

@@ -20,14 +20,15 @@ setup_github_runner() {
     git clone https://github.com/filecoin-project/boost.git
 
     # Copy necessary files
-    cp -r boost/.github/utils/* .
+    cp -r curio/.github/utils/* .
 
     # Copy the Dockerfile
-    cp boost/.github/image/Dockerfile .
+    cp curio/.github/image/Dockerfile .
 
     # Build the Docker image
     docker buildx build -t curio/github-runner:latest .
 }
 
 # Execute the function
+docker system prune -a -f
 setup_github_runner

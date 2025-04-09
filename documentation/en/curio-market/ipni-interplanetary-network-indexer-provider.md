@@ -68,7 +68,7 @@ The behaviour of the Curio IPNI provider is controlled through the `IPNIConfig` 
 
 ### **IPNIConfig Fields**
 
-* **Disable**: Disables indexing announcements if set to `true`. Default: `false`.
+* **Disable**: Disables indexing announcements if set to `true`. Default: `false`. IPNI should be disabled on base layer.
 * **ServiceURL**: URLs for accessing the indexer web UI to view published advertisements.
 * **DirectAnnounceURLs**: URLs of indexing nodes where the provider sends HTTP announcements of new advertisements.
 

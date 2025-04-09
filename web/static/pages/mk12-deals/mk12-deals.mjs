@@ -80,7 +80,8 @@ class MK12DealList extends LitElement {
                 <th>Provider</th>
                 <th>Piece CID</th>
                 <th>Piece Size</th>
-                <th>Stored</th>
+                <th>Processed</th>
+                <th>Error</th>
               <!-- Add more columns as needed -->
             </tr>
           </thead>
@@ -93,7 +94,8 @@ class MK12DealList extends LitElement {
                   <td>${deal.miner}</td>
                   <td><a href="/pages/piece/?id=${deal.piece_cid}">${deal.piece_cid}</a></td>
                   <td>${this.formatBytes(deal.piece_size)}</td>
-                  <td><done-not-done .value=${deal.complete}></done-not-done></td>
+                  <td><done-not-done .value=${deal.processed}></done-not-done></td>
+                  <td><error-or-not .value=${deal.error}></error-or-not></td>
                 </tr>
               `
         )}

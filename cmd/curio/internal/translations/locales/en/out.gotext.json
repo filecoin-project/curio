@@ -72,6 +72,27 @@
             "fuzzy": true
         },
         {
+            "id": "Provides a sample of CIDs from an indexed piece",
+            "message": "Provides a sample of CIDs from an indexed piece",
+            "translation": "Provides a sample of CIDs from an indexed piece",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "piece-cid",
+            "message": "piece-cid",
+            "translation": "piece-cid",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "output in json format",
+            "message": "output in json format",
+            "translation": "output in json format",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Manage node config by layers. The layer 'base' will always be applied at Curio start-up.",
             "message": "Manage node config by layers. The layer 'base' will always be applied at Curio start-up.",
             "translation": "Manage node config by layers. The layer 'base' will always be applied at Curio start-up.",
@@ -327,6 +348,48 @@
             "id": "Command separated list of hostnames for yugabyte cluster",
             "message": "Command separated list of hostnames for yugabyte cluster",
             "translation": "Command separated list of hostnames for yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Name of the Postgres database in Yugabyte cluster",
+            "message": "Name of the Postgres database in Yugabyte cluster",
+            "translation": "Name of the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Username for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Username for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Username for connecting to the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Password for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Password for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Password for connecting to the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Port for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Port for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Port for connecting to the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Port for connecting to the Cassandra database in Yugabyte cluster",
+            "message": "Port for connecting to the Cassandra database in Yugabyte cluster",
+            "translation": "Port for connecting to the Cassandra database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },

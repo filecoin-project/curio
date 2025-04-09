@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import '/lib/cu-wallet.mjs';
 
 class ClientFilters extends LitElement {
     static properties = {
@@ -108,6 +109,7 @@ class ClientFilters extends LitElement {
                 rel="stylesheet"
                 crossorigin="anonymous"
             />
+            <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'" />
             <div class="container">
                 <h2>Client Filters
                     <button class="info-btn">
@@ -150,13 +152,30 @@ class ClientFilters extends LitElement {
                             <tr>
                                 <td>${filter.name}</td>
                                 <td>${filter.active ? 'Yes' : 'No'}</td>
-                                <td>${(filter.wallets || []).join(', ')}</td>
-                                <td>${(filter.peers || []).join(', ')}</td>
+                                <td>
+                                    ${(filter.wallets || []).length === 0
+                                            ? html`-`
+                                            : filter.wallets.map(
+                                                    (w, i, arr) => html`
+                                                        <cu-wallet wallet_id="${w}"></cu-wallet>${i < arr.length - 1 ? ', ' : ''}
+                                                    `
+                                            )}
+                                </td>
+                                <td>
+                                    ${(filter.peers || []).length === 0
+                                            ? html`-`
+                                            : filter.peers.map(
+                                                    (p, i, arr) => html`
+                                                      <cu-wallet wallet_id="${p}"></cu-wallet>${i < arr.length - 1 ? ', ' : ''}
+                                                    `
+                                            )}
+                                </td>
                                 <td>${(filter.pricing_filters || []).join(', ')}</td>
                                 <td>${filter.max_deals_per_hour}</td>
                                 <td>${this.formatBytes(filter.max_deal_size_per_hour)}</td>
                                 <td>${filter.info || ''}</td>
                                 <td>
+                                    <div class="d-flex gap-2">
                                     <button
                                         class="btn btn-secondary btn-sm"
                                         @click="${() => this.editClientFilter(filter)}"
@@ -169,6 +188,7 @@ class ClientFilters extends LitElement {
                                     >
                                         Remove
                                     </button>
+                                    </div>
                                 </td>
                             </tr>
                         `
@@ -227,9 +247,10 @@ class ClientFilters extends LitElement {
                                         class="form-control"
                                         .value="${(this.editingClientFilter.wallets || []).join(', ')}"
                                         @input="${(e) =>
-            (this.editingClientFilter.wallets = e.target.value
-                .split(',')
-                .map((w) => w.trim()))}"
+                                                (this.editingClientFilter.wallets = e.target.value
+                                                        .split(',')
+                                                        .map((w) => w.trim())
+                                                        .filter((w) => w.length > 0))}"
                                     />
                                 </div>
                                 <div class="mb-3">
@@ -239,9 +260,10 @@ class ClientFilters extends LitElement {
                                         class="form-control"
                                         .value="${(this.editingClientFilter.peers || []).join(', ')}"
                                         @input="${(e) =>
-            (this.editingClientFilter.peers = e.target.value
-                .split(',')
-                .map((p) => p.trim()))}"
+                                                (this.editingClientFilter.peers = e.target.value
+                                                        .split(',')
+                                                        .map((p) => p.trim())
+                                                        .filter((p) => p.length > 0))}"
                                     />
                                 </div>
                                 <div class="mb-3">

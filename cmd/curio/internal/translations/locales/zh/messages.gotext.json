@@ -2013,6 +2013,60 @@
       "translation": "交易应由提供者在链上证明的起始 epoch。（默认值：从现在起 2 天）",
       "message": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
       "placeholder": null
+    },
+    {
+      "id": "Provides a sample of CIDs from an indexed piece",
+      "translation": "提供索引片段的 CID 示例。",
+      "message": "Provides a sample of CIDs from an indexed piece",
+      "placeholder": null
+    },
+    {
+      "id": "piece-cid",
+      "translation": "片段 CID",
+      "message": "piece-cid",
+      "placeholder": null
+    },
+    {
+      "id": "output in json format",
+      "translation": "以 JSON 格式输出",
+      "message": "output in json format",
+      "placeholder": null
+    },
+    {
+      "id": "Name of the Postgres database in Yugabyte cluster",
+      "translation": "Yugabyte 集群中 Postgres 数据库的名称",
+      "message": "Name of the Postgres database in Yugabyte cluster",
+      "placeholder": null
+    },
+    {
+      "id": "Username for connecting to the Postgres database in Yugabyte cluster",
+      "translation": "连接 Yugabyte 集群中 Postgres 数据库的用户名",
+      "message": "Username for connecting to the Postgres database in Yugabyte cluster",
+      "placeholder": null
+    },
+    {
+      "id": "Password for connecting to the Postgres database in Yugabyte cluster",
+      "translation": "连接 Yugabyte 集群中 Postgres 数据库的密码",
+      "message": "Password for connecting to the Postgres database in Yugabyte cluster",
+      "placeholder": null
+    },
+    {
+      "id": "Port for connecting to the Postgres database in Yugabyte cluster",
+      "translation": "连接 Yugabyte 集群中 Postgres 数据库的端口",
+      "message": "Port for connecting to the Postgres database in Yugabyte cluster",
+      "placeholder": null
+    },
+    {
+      "id": "Port for connecting to the Cassandra database in Yugabyte cluster",
+      "translation": "连接 Yugabyte 集群中 Cassandra 数据库的端口",
+      "message": "Port for connecting to the Cassandra database in Yugabyte cluster",
+      "placeholder": null
+    },
+    {
+      "id": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
+      "translation": "为连接到 Yugabyte 集群中的 Postgres 数据库启用负载均衡",
+      "message": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
+      "placeholder": null
     }
   ]
 }
