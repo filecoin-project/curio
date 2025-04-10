@@ -13,7 +13,7 @@ This is the compatibility matrix for the latest free Curio releases.
 | v1.24.3                                                  | v1.32.0-rcX   | MainNet | v2.4.1     | 2.20.x / Automatic  | 0.21 / Automatic |
 | v1.24.4                                                  | v1.32.0-rcX   | MainNet | v2.4.1     | 2.20.x / Automatic  | 0.23 / Automatic |
 | v1.24.5                                                  | v1.32.0-rcX   | Mainnet | v2.4.1     | v2024.2 / Automatic | 0.23 / Automatic |
-| v1.25.0                                                  | v1.32.1       | Mainnet | NA         | v2024.2 / Automatic | 0.25 / Automatic |
+| v1.25.0                                                  | v1.32.2       | Mainnet | NA         | v2024.2 / Automatic | 0.25 / Automatic |
 
 {% hint style="danger" %}
 Releases in <mark style="color:red;">red color</mark> are **not recommended**. Please proceed with the next stable release.
