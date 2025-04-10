@@ -31,6 +31,8 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
+var errEmptyPartition = xerrors.New("empty partition")
+
 func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr address.Address, di *dline.Info, partIdx uint64, test bool) (out *miner2.SubmitWindowedPoStParams, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -64,6 +66,14 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 	}
 
 	partition := parts[partIdx]
+	empty, err := partition.LiveSectors.IsEmpty()
+	if err != nil {
+		return nil, xerrors.Errorf("checking if partition is empty: %w", err)
+	}
+	if empty {
+		log.Infow("partition is empty", "Miner", maddr.String(), "Deadline", di.Index, "Partition", partIdx, "Height", ts.Height())
+		return nil, errEmptyPartition
+	}
 
 	params := miner2.SubmitWindowedPoStParams{
 		Deadline:   di.Index,
