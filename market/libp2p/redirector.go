@@ -3,6 +3,7 @@ package libp2p
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
@@ -91,9 +92,19 @@ func (rp *Redirector) handleLibp2pWebsocket(w http.ResponseWriter, r *http.Reque
 // proxyWebSocket copies messages from src to dst WebSocket connections
 func proxyWebSocket(src, dst *websocket.Conn, errc chan error) {
 	for {
+		err := src.SetReadDeadline(time.Now().Add(15 * time.Second))
+		if err != nil {
+			errc <- xerrors.Errorf("error setting read deadline: %w", err)
+			break
+		}
 		messageType, message, err := src.ReadMessage()
 		if err != nil {
 			errc <- err
+			break
+		}
+		err = dst.SetWriteDeadline(time.Now().Add(15 * time.Second))
+		if err != nil {
+			errc <- xerrors.Errorf("error setting write deadline: %w", err)
 			break
 		}
 		err = dst.WriteMessage(messageType, message)

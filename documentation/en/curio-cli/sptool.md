@@ -20,6 +20,7 @@ COMMANDS:
 GLOBAL OPTIONS:
    --log-level value  (default: "info")
    --actor value      miner actor to manage [$SP_ADDRESS]
+   --verbose, --vv    enable verbose logging (default: false)
    --help, -h         show help
    --version, -v      print the version
 ```
@@ -548,6 +549,7 @@ USAGE:
 COMMANDS:
    init               Initialise curio mk12 client repo
    deal               Make an online deal with Curio
+   deal-status        
    offline-deal       Make an offline deal with Curio
    allocate           Create new allocation[s] for verified deals
    list-allocations   Lists all allocations for a client address(wallet)
@@ -600,7 +602,24 @@ OPTIONS:
    --remove-unsealed-copy                         indicates that an unsealed copy of the sector in not required for fast retrieval (default: false)
    --wallet value                                 wallet address to be used to initiate the deal
    --skip-ipni-announce                           indicates that deal index should not be announced to the IPNI(Network Indexer) (default: false)
+   --http                                         make the deal over HTTP instead of libp2p (default: false)
    --help, -h                                     show help
+```
+
+#### sptool toolbox mk12-client deal-status
+```
+NAME:
+   sptool toolbox mk12-client deal-status
+
+USAGE:
+   sptool toolbox mk12-client deal-status [command options]
+
+OPTIONS:
+   --provider value   storage provider on-chain address
+   --deal-uuid value  
+   --wallet value     the wallet address that was used to sign the deal proposal
+   --http             make the deal over HTTP instead of libp2p (default: false)
+   --help, -h         show help
 ```
 
 #### sptool toolbox mk12-client offline-deal
@@ -625,6 +644,7 @@ OPTIONS:
    --remove-unsealed-copy           indicates that an unsealed copy of the sector in not required for fast retrieval (default: false)
    --wallet value                   wallet address to be used to initiate the deal
    --skip-ipni-announce             indicates that deal index should not be announced to the IPNI(Network Indexer) (default: false)
+   --http                           make the deal over HTTP instead of libp2p (default: false)
    --help, -h                       show help
 ```
 

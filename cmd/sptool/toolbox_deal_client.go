@@ -9,15 +9,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
+	"github.com/ipni/go-libipni/maurl"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -208,6 +212,7 @@ var mk12Clientcmd = &cli.Command{
 	Subcommands: []*cli.Command{
 		initCmd,
 		dealCmd,
+		dealStatusCmd,
 		offlineDealCmd,
 		allocateCmd,
 		listAllocationsCmd,
@@ -281,6 +286,10 @@ var dealFlags = []cli.Flag{
 		Usage: "indicates that deal index should not be announced to the IPNI(Network Indexer)",
 		Value: false,
 	},
+	&cli.BoolFlag{
+		Name:  "http",
+		Usage: "make the deal over HTTP instead of libp2p",
+	},
 }
 
 var dealCmd = &cli.Command{
@@ -337,6 +346,8 @@ func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 
 	log.Debugw("selected wallet", "wallet", walletAddr)
 
+	httpDeal := cctx.Bool("http")
+
 	maddr, err := address.NewFromString(cctx.String("provider"))
 	if err != nil {
 		return err
@@ -369,17 +380,36 @@ func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 
 	log.Debugw("found storage provider", "id", addrInfo.ID, "multiaddrs", addrInfo.Addrs, "addr", maddr)
 
-	if err := n.Host.Connect(ctx, *addrInfo); err != nil {
-		return xerrors.Errorf("failed to connect to peer %s: %w", addrInfo.ID, err)
-	}
+	var hurls []*url.URL
 
-	x, err := n.Host.Peerstore().FirstSupportedProtocol(addrInfo.ID, mk12_libp2p.DealProtocolv121ID)
-	if err != nil {
-		return xerrors.Errorf("getting protocols for peer %s: %w", addrInfo.ID, err)
-	}
+	if httpDeal {
+		for _, ma := range addrInfo.Addrs {
+			hurl, err := maurl.ToURL(ma)
+			if err != nil {
+				return xerrors.Errorf("failed to convert multiaddr %s to URL: %w", ma, err)
+			}
+			if hurl.Scheme == "ws" {
+				hurl.Scheme = "http"
+			}
+			if hurl.Scheme == "wss" {
+				hurl.Scheme = "https"
+			}
+			log.Debugw("converted multiaddr to URL", "url", hurl, "multiaddr", ma.String())
+			hurls = append(hurls, hurl)
+		}
+	} else {
+		if err := n.Host.Connect(ctx, *addrInfo); err != nil {
+			return xerrors.Errorf("failed to connect to peer %s: %w", addrInfo.ID, err)
+		}
 
-	if len(x) == 0 {
-		return xerrors.Errorf("curio client cannot make a deal with storage provider %s because it does not support protocol version 1.2.0", maddr)
+		x, err := n.Host.Peerstore().FirstSupportedProtocol(addrInfo.ID, mk12_libp2p.DealProtocolv121ID)
+		if err != nil {
+			return xerrors.Errorf("getting protocols for peer %s: %w", addrInfo.ID, err)
+		}
+
+		if len(x) == 0 {
+			return xerrors.Errorf("curio client cannot make a deal with storage provider %s because it does not support protocol version 1.2.0", maddr)
+		}
 	}
 
 	dealUuid := uuid.New()
@@ -487,15 +517,22 @@ func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 
 	log.Debugw("about to submit deal proposal", "uuid", dealUuid.String())
 
-	s, err := n.Host.NewStream(ctx, addrInfo.ID, mk12_libp2p.DealProtocolv121ID)
-	if err != nil {
-		return xerrors.Errorf("failed to open stream to peer %s: %w", addrInfo.ID, err)
-	}
-	defer s.Close()
-
 	var resp mk12.DealResponse
-	if err := doRpc(ctx, s, &dealParams, &resp); err != nil {
-		return xerrors.Errorf("send proposal rpc: %w", err)
+
+	if cctx.Bool("http") {
+		if err := doHttp(hurls, &dealParams, &resp); err != nil {
+			return xerrors.Errorf("send proposal http: %w", err)
+		}
+	} else {
+		s, err := n.Host.NewStream(ctx, addrInfo.ID, mk12_libp2p.DealProtocolv121ID)
+		if err != nil {
+			return xerrors.Errorf("failed to open stream to peer %s: %w", addrInfo.ID, err)
+		}
+		defer s.Close()
+
+		if err := doRpc(ctx, s, &dealParams, &resp); err != nil {
+			return xerrors.Errorf("send proposal rpc: %w", err)
+		}
 	}
 
 	if !resp.Accepted {
@@ -600,6 +637,46 @@ func doRpc(ctx context.Context, s inet.Stream, req interface{}, resp interface{}
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func doHttp(urls []*url.URL, deal interface{}, response interface{}) error {
+	reqbuf := new(bytes.Buffer)
+	err := cborutil.WriteCborRPC(reqbuf, deal)
+	if err != nil {
+		return xerrors.Errorf("failed to marshal request: %w", err)
+	}
+
+	body := reqbuf.Bytes()
+
+	// Try to request all URLs one by one and exit after first success
+	for _, u := range urls {
+		s := u.String() + "/market/mk12/store"
+		log.Debugw("trying to send request to", "url", u.String())
+		req, err := http.NewRequest("POST", s, bytes.NewReader(body))
+		if err != nil {
+			return xerrors.Errorf("failed to create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/cbor")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			log.Warnw("failed to send request", "url", s, "error", err)
+			continue
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			log.Warnw("failed to send request", "url", s, "status", resp.StatusCode)
+			continue
+		}
+		if resp.ContentLength == 0 {
+			log.Warnw("failed to send request", "url", s, "content length", resp.ContentLength)
+			continue
+		}
+		if err := cborutil.ReadCborRPC(resp.Body, response); err != nil {
+			return xerrors.Errorf("failed to unmarshal response: %w", err)
+		}
+		return nil
+	}
+	return xerrors.Errorf("failed to send request to any of the URLs")
 }
 
 var initCmd = &cli.Command{
@@ -1237,6 +1314,249 @@ var walletSign = &cli.Command{
 		} else {
 			fmt.Println(hex.EncodeToString(sigBytes))
 		}
+
+		return nil
+	},
+}
+
+var dealStatusCmd = &cli.Command{
+	Name:  "deal-status",
+	Usage: "",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "provider",
+			Usage:    "storage provider on-chain address",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "deal-uuid",
+			Usage:    "",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:  "wallet",
+			Usage: "the wallet address that was used to sign the deal proposal",
+		},
+		&cli.BoolFlag{
+			Name:  "http",
+			Usage: "make the deal over HTTP instead of libp2p",
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		ctx := lcli.ReqContext(cctx)
+
+		dealUUID, err := uuid.Parse(cctx.String("deal-uuid"))
+		if err != nil {
+			return err
+		}
+
+		n, err := Setup(cctx.String(mk12_client_repo.Name))
+		if err != nil {
+			return err
+		}
+
+		gapi, closer, err := lcli.GetGatewayAPI(cctx)
+		if err != nil {
+			return fmt.Errorf("cant setup gateway connection: %w", err)
+		}
+		defer closer()
+
+		walletAddr, err := n.GetProvidedOrDefaultWallet(ctx, cctx.String("wallet"))
+		if err != nil {
+			return err
+		}
+
+		log.Debugw("selected wallet", "wallet", walletAddr)
+
+		httpDeal := cctx.Bool("http")
+
+		maddr, err := address.NewFromString(cctx.String("provider"))
+		if err != nil {
+			return err
+		}
+
+		minfo, err := gapi.StateMinerInfo(ctx, maddr, chain_types.EmptyTSK)
+		if err != nil {
+			return err
+		}
+		if minfo.PeerId == nil {
+			return xerrors.Errorf("storage provider %s has no peer ID set on-chain", maddr)
+		}
+
+		var maddrs []multiaddr.Multiaddr
+		for _, mma := range minfo.Multiaddrs {
+			ma, err := multiaddr.NewMultiaddrBytes(mma)
+			if err != nil {
+				return xerrors.Errorf("storage provider %s had invalid multiaddrs in their info: %w", maddr, err)
+			}
+			maddrs = append(maddrs, ma)
+		}
+		if len(maddrs) == 0 {
+			return xerrors.Errorf("storage provider %s has no multiaddrs set on-chain", maddr)
+		}
+
+		addrInfo := &peer.AddrInfo{
+			ID:    *minfo.PeerId,
+			Addrs: maddrs,
+		}
+
+		log.Debugw("found storage provider", "id", addrInfo.ID, "multiaddrs", addrInfo.Addrs, "addr", maddr)
+
+		uuidBytes, err := dealUUID.MarshalBinary()
+		if err != nil {
+			return fmt.Errorf("getting uuid bytes: %w", err)
+		}
+
+		sig, err := n.Wallet.WalletSign(ctx, walletAddr, uuidBytes, api.MsgMeta{Type: api.MTDealProposal})
+		if err != nil {
+			return fmt.Errorf("signing uuid bytes: %w", err)
+		}
+
+		var resp mk12.DealStatusResponse
+		payload := mk12.DealStatusRequest{DealUUID: dealUUID, Signature: *sig}
+
+		if httpDeal {
+			reBuf := new(bytes.Buffer)
+			err := cborutil.WriteCborRPC(reBuf, &payload)
+			if err != nil {
+				return err
+			}
+			payloadbytes := reBuf.Bytes()
+			for _, ma := range addrInfo.Addrs {
+				hurl, err := maurl.ToURL(ma)
+				if err != nil {
+					return xerrors.Errorf("failed to convert multiaddr %s to URL: %w", ma, err)
+				}
+				if hurl.Scheme == "ws" {
+					hurl.Scheme = "http"
+				}
+				if hurl.Scheme == "wss" {
+					hurl.Scheme = "https"
+				}
+				log.Debugw("converted multiaddr to URL", "url", hurl, "multiaddr", ma.String())
+
+				req, err := http.NewRequest("GET", hurl.String()+"/market/mk12/status", bytes.NewReader(payloadbytes))
+				if err != nil {
+					return xerrors.Errorf("failed to create HTTP request: %w", err)
+				}
+				req.Header.Set("Content-Type", "application/cbor")
+				req.Header.Set("Accept", "application/cbor")
+				hresp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return xerrors.Errorf("failed to make HTTP request: %w", err)
+				}
+				defer hresp.Body.Close()
+				if hresp.StatusCode != http.StatusOK {
+					return xerrors.Errorf("HTTP request failed with status %d", hresp.StatusCode)
+				}
+				if err := resp.UnmarshalCBOR(hresp.Body); err != nil {
+					return fmt.Errorf("reading deal status response: %w", err)
+				}
+			}
+		} else {
+			if err := n.Host.Connect(ctx, *addrInfo); err != nil {
+				return xerrors.Errorf("failed to connect to peer %s: %w", addrInfo.ID, err)
+			}
+
+			x, err := n.Host.Peerstore().FirstSupportedProtocol(addrInfo.ID, mk12_libp2p.DealProtocolv121ID)
+			if err != nil {
+				return xerrors.Errorf("getting protocols for peer %s: %w", addrInfo.ID, err)
+			}
+
+			if len(x) == 0 {
+				return xerrors.Errorf("curio client cannot make a deal with storage provider %s because it does not support protocol version 1.2.0", maddr)
+			}
+
+			// Create a libp2p stream to the provider
+			s, err := n.Host.NewStream(ctx, addrInfo.ID, mk12_libp2p.DealStatusV12ProtocolID)
+			if err != nil {
+				return err
+			}
+
+			defer s.Close() // nolint
+
+			// Set a deadline on writing to the stream so it doesn't hang
+			_ = s.SetWriteDeadline(time.Now().Add(time.Second * 10))
+			defer s.SetWriteDeadline(time.Time{}) // nolint
+
+			// Write the deal status request to the stream
+			if err = cborutil.WriteCborRPC(s, &payload); err != nil {
+				return fmt.Errorf("sending deal status req: %w", err)
+			}
+
+			// Set a deadline on reading from the stream so it doesn't hang
+			_ = s.SetReadDeadline(time.Now().Add(time.Second * 30))
+			defer s.SetReadDeadline(time.Time{}) // nolint
+
+			// Read the response from the stream
+			if err := resp.UnmarshalCBOR(s); err != nil {
+				return fmt.Errorf("reading deal status response: %w", err)
+			}
+		}
+
+		log.Debugw("received deal status response", "id", resp.DealUUID, "status", resp.DealStatus)
+
+		var lstr string
+		if resp.DealStatus != nil {
+			label := resp.DealStatus.Proposal.Label
+			if label.IsString() {
+				lstr, err = label.ToString()
+				if err != nil {
+					lstr = "could not marshall deal label"
+				}
+			} else {
+				lbz, err := label.ToBytes()
+				if err != nil {
+					lstr = "could not marshall deal label"
+				} else {
+					lstr = "bytes: " + hex.EncodeToString(lbz)
+				}
+			}
+		}
+
+		if cctx.Bool("json") {
+			out := map[string]interface{}{}
+			if resp.Error != "" {
+				out["error"] = resp.Error
+			} else {
+				out = map[string]interface{}{
+					"dealUuid":     resp.DealUUID.String(),
+					"provider":     maddr.String(),
+					"clientWallet": walletAddr.String(),
+				}
+				// resp.DealStatus should always be present if there's no error,
+				// but check just in case
+				if resp.DealStatus != nil {
+					out["label"] = lstr
+					out["chainDealId"] = resp.DealStatus.ChainDealID
+					out["status"] = resp.DealStatus.Status
+					out["sealingStatus"] = resp.DealStatus.SealingStatus
+					out["statusMessage"] = resp.DealStatus.Status
+					out["publishCid"] = nil
+					if resp.DealStatus.PublishCid != nil {
+						out["publishCid"] = resp.DealStatus.PublishCid.String()
+					}
+				}
+			}
+			return PrintJson(out)
+		}
+
+		msg := "got deal status response"
+		msg += "\n"
+
+		if resp.Error != "" {
+			msg += fmt.Sprintf("  error: %s\n", resp.Error)
+			fmt.Println(msg)
+
+			return nil
+		}
+
+		msg += fmt.Sprintf("  deal uuid: %s\n", resp.DealUUID)
+		msg += fmt.Sprintf("  deal status: %s\n", resp.DealStatus.Status)
+		msg += fmt.Sprintf("  deal label: %s\n", lstr)
+		msg += fmt.Sprintf("  publish cid: %s\n", resp.DealStatus.PublishCid)
+		msg += fmt.Sprintf("  chain deal id: %d\n", resp.DealStatus.ChainDealID)
+		fmt.Println(msg)
 
 		return nil
 	},

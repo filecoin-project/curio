@@ -40,6 +40,7 @@ require (
 	github.com/gbrlsnchs/jwt/v3 v3.0.1
 	github.com/georgysavva/scany/v2 v2.1.3
 	github.com/go-chi/chi/v5 v5.2.1
+	github.com/go-chi/httprate v0.15.0
 	github.com/golang/mock v1.6.0
 	github.com/google/go-cmp v0.6.0
 	github.com/google/uuid v1.6.0
@@ -238,7 +239,7 @@ require (
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/kilic/bls12-381 v0.1.1-0.20220929213557-ca162e8a70f4 // indirect
 	github.com/klauspost/compress v1.17.11 // indirect
-	github.com/klauspost/cpuid/v2 v2.2.9 // indirect
+	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/koron/go-ssdp v0.0.5 // indirect
 	github.com/libp2p/go-cidranger v1.1.0 // indirect
 	github.com/libp2p/go-flow-metrics v0.2.0 // indirect
@@ -331,6 +332,7 @@ require (
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
+	github.com/zeebo/xxh3 v1.0.2 // indirect
 	github.com/zondax/hid v0.9.2 // indirect
 	github.com/zondax/ledger-filecoin-go v0.11.1 // indirect
 	github.com/zondax/ledger-go v0.14.3 // indirect
