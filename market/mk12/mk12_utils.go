@@ -3,8 +3,11 @@ package mk12
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 
+	"github.com/ipfs/go-cid"
+	"go.uber.org/zap"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -13,9 +16,11 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin"
 	"github.com/filecoin-project/go-state-types/builtin/v9/account"
+	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 	"github.com/filecoin-project/go-state-types/crypto"
 	"github.com/filecoin-project/go-state-types/exitcode"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/market/mk12/legacytypes"
 
 	ctypes "github.com/filecoin-project/lotus/chain/types"
@@ -233,4 +238,228 @@ func (m *MK12) verifyContractSignature(ctx context.Context, sig crypto.Signature
 	}
 
 	return res.MsgRct.ExitCode == exitcode.Ok, nil
+}
+
+func GetDealStatus(ctx context.Context, db *harmonydb.DB, req DealStatusRequest, reqLog *zap.SugaredLogger) DealStatusResponse {
+	errResp := func(err string) DealStatusResponse {
+		return DealStatusResponse{DealUUID: req.DealUUID, Error: err}
+	}
+
+	var pdeals []struct {
+		AfterPSD bool `db:"after_psd"`
+		Sealed   bool `db:"sealed"`
+		Indexed  bool `db:"indexed"`
+	}
+
+	err := db.Select(ctx, &pdeals, `SELECT 
+									after_psd,
+									sealed,
+									indexed
+								FROM 
+									market_mk12_deal_pipeline
+								WHERE 
+									uuid = $1;`, req.DealUUID)
+
+	if err != nil {
+		return errResp(fmt.Sprintf("failed to query the db for deal status: %s", err))
+	}
+
+	if len(pdeals) > 1 {
+		return errResp("found multiple entries for the same UUID, inform the storage provider")
+	}
+
+	// If deal is still in pipeline
+	if len(pdeals) == 1 {
+		pdeal := pdeals[0]
+		// If PSD is done
+		if pdeal.AfterPSD {
+			st, err := getSealedDealStatus(ctx, db, req.DealUUID.String(), true)
+			if err != nil {
+				reqLog.Errorw("failed to get sealed deal status", "err", err)
+				return errResp("failed to get sealed deal status")
+			}
+			ret := DealStatusResponse{
+				DealUUID: req.DealUUID,
+				DealStatus: &DealStatus{
+					Error:             st.Error,
+					Status:            "Sealing",
+					SealingStatus:     "Sealed",
+					Proposal:          st.Proposal,
+					SignedProposalCid: st.SignedProposalCID,
+					PublishCid:        cidOrNil(st.PublishCID),
+					ChainDealID:       st.ChainDealID,
+				},
+				IsOffline:      st.Offline,
+				TransferSize:   1,
+				NBytesReceived: 1,
+			}
+			if pdeal.Sealed {
+				ret.DealStatus.Status = "Sealed"
+			}
+			if pdeal.Indexed {
+				ret.DealStatus.Status = "Sealed and Indexed"
+			}
+		}
+		// Anything before PSD is processing
+		st, err := getSealedDealStatus(ctx, db, req.DealUUID.String(), false)
+		if err != nil {
+			reqLog.Errorw("failed to get sealed deal status", "err", err)
+			return errResp("failed to get sealed deal status")
+		}
+		return DealStatusResponse{
+			DealUUID: req.DealUUID,
+			DealStatus: &DealStatus{
+				Error:             st.Error,
+				Status:            "Processing",
+				SealingStatus:     "Not assigned to sector",
+				Proposal:          st.Proposal,
+				SignedProposalCid: st.SignedProposalCID,
+				PublishCid:        cidOrNil(st.PublishCID),
+				ChainDealID:       st.ChainDealID,
+			},
+			IsOffline:      st.Offline,
+			TransferSize:   1,
+			NBytesReceived: 1,
+		}
+	}
+
+	// If deal is not in deal pipeline
+	st, err := getSealedDealStatus(ctx, db, req.DealUUID.String(), true)
+	if err != nil {
+		reqLog.Errorw("failed to get sealed deal status", "err", err)
+		return errResp("failed to get sealed deal status")
+	}
+
+	return DealStatusResponse{
+		DealUUID: req.DealUUID,
+		DealStatus: &DealStatus{
+			Error:             st.Error,
+			Status:            "Sealed",
+			SealingStatus:     "Sealed and Indexed",
+			Proposal:          st.Proposal,
+			SignedProposalCid: st.SignedProposalCID,
+			PublishCid:        cidOrNil(st.PublishCID),
+			ChainDealID:       st.ChainDealID,
+		},
+		IsOffline:      st.Offline,
+		TransferSize:   1,
+		NBytesReceived: 1,
+	}
+}
+
+type dealInfo struct {
+	Offline           bool
+	Error             string
+	Proposal          market.DealProposal
+	SignedProposalCID cid.Cid
+	ChainDealID       abi.DealID
+	PublishCID        cid.Cid
+}
+
+func cidOrNil(c cid.Cid) *cid.Cid {
+	if c == cid.Undef {
+		return nil
+	}
+
+	return &c
+}
+
+func getSealedDealStatus(ctx context.Context, db *harmonydb.DB, id string, onChain bool) (dealInfo, error) {
+	var dealInfos []struct {
+		Offline           bool            `db:"offline"`
+		Error             *string         `db:"error"`
+		Proposal          json.RawMessage `db:"proposal"`
+		SignedProposalCID string          `db:"signed_proposal_cid"`
+		Label             []byte          `db:"label"`
+	}
+	err := db.Select(ctx, &dealInfos, `SELECT
+    										offline,
+											error,
+											proposal,
+											signed_proposal_cid,
+											label
+										FROM 
+											market_mk12_deals
+										WHERE 
+											uuid = $1;`, id)
+
+	if err != nil {
+		return dealInfo{}, xerrors.Errorf("failed to get deal details from DB: %w", err)
+	}
+
+	if len(dealInfos) != 1 {
+		return dealInfo{}, xerrors.Errorf("expected 1 row but got %d", len(dealInfos))
+	}
+
+	di := dealInfos[0]
+
+	var prop market.DealProposal
+	err = json.Unmarshal(di.Proposal, &prop)
+	if err != nil {
+		return dealInfo{}, xerrors.Errorf("failed to unmarshal deal proposal: %w", err)
+	}
+
+	// Unmarshal Label from cbor and replace in proposal. This fixes the problem where non-string
+	// labels are saved as "" in json in DB
+	var l market.DealLabel
+	lr := bytes.NewReader(di.Label)
+	err = l.UnmarshalCBOR(lr)
+	if err != nil {
+		return dealInfo{}, xerrors.Errorf("unmarshal label: %w", err)
+	}
+	prop.Label = l
+
+	spc, err := cid.Parse(di.SignedProposalCID)
+	if err != nil {
+		return dealInfo{}, xerrors.Errorf("failed to parse signed proposal CID: %w", err)
+	}
+
+	if di.Error == nil {
+		di.Error = new(string)
+	}
+
+	ret := dealInfo{
+		Offline:           di.Offline,
+		Error:             *di.Error,
+		Proposal:          prop,
+		SignedProposalCID: spc,
+		ChainDealID:       abi.DealID(0),
+		PublishCID:        cid.Undef,
+	}
+
+	if !onChain {
+		return ret, nil
+	}
+
+	var cInfos []struct {
+		ChainDealID int64  `db:"chain_deal_id"`
+		PublishCID  string `db:"publish_cid"`
+	}
+	err = db.Select(ctx, &cInfos, `SELECT 
+											chain_deal_id,
+											publish_cid
+										FROM 
+											market_mk12_deals
+										WHERE 
+											uuid = $1;`, id)
+
+	if err != nil {
+		return dealInfo{}, xerrors.Errorf("failed to get deal details from DB: %w", err)
+	}
+
+	if len(cInfos) != 1 {
+		return dealInfo{}, xerrors.Errorf("expected 1 row but got %d", len(dealInfos))
+	}
+
+	ci := cInfos[0]
+
+	pc, err := cid.Parse(ci.PublishCID)
+	if err != nil {
+		return dealInfo{}, xerrors.Errorf("failed to parse publish CID: %w", err)
+	}
+
+	ret.PublishCID = pc
+	ret.ChainDealID = abi.DealID(ci.ChainDealID)
+
+	return ret, nil
 }

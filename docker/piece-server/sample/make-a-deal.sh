@@ -46,7 +46,7 @@ Car size = $CAR \n \
 miner_actor=$(lotus state list-miners | grep -v t01000)
 printf "8. That's it. We are ready to make the deal. \n \
  : ${ci}sptool --actor t01000 toolbox mk12-client deal --provider=$miner_actor \
---http-url=http://demo-http-server/sample.car \
+--http-url=http://piece-server:12320/pieces?id=$COMMP_CID \
 --commp=$COMMP_CID --car-size=$CAR --piece-size=$PIECE \
 --payload-cid=$PAYLOAD_CID --storage-price 20000000000\n\n${cn}"
 read -rsp $'Press any key to make the deal...\n\n' -n1 key

@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/curio/build"
 
 	"github.com/filecoin-project/lotus/cli/spcli"
+	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
 
 var log = logging.Logger("sptool")
@@ -50,9 +51,18 @@ func main() {
 				Usage:    "miner actor to manage",
 				EnvVars:  []string{"SP_ADDRESS"},
 			},
+			&cli.BoolFlag{
+				Name:    "verbose",
+				Usage:   "enable verbose logging",
+				Aliases: []string{"vv"},
+			},
 		},
 		Before: func(cctx *cli.Context) error {
-			return logging.SetLogLevel("sptool", cctx.String("sptool"))
+			if cctx.IsSet("verbose") {
+				cliutil.IsVeryVerbose = true
+				return logging.SetLogLevel("sptool", "DEBUG")
+			}
+			return logging.SetLogLevel("sptool", "INFO")
 		},
 	}
 
