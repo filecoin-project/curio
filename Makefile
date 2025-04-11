@@ -108,14 +108,14 @@ batchdep: $(BUILD_DEPS)
 
 batch: CURIO_TAGS+= supraseal
 batch: CGO_LDFLAGS_ALLOW='.*'
-batch: batchdep build
+batch: batchdep batch-build
 .PHONY: batch
 
 
 batch-calibnet: CURIO_TAGS+= supraseal
 batch-calibnet: CURIO_TAGS+= calibnet
 batch-calibnet: CGO_LDFLAGS_ALLOW='.*'
-batch-calibnet: batchdep build
+batch-calibnet: batchdep batch-build
 .PHONY: batch-calibnet
 
 else
@@ -145,6 +145,12 @@ build: curio sptool
 an existing curio binary in your PATH. This may cause problems if you don't run 'sudo make install'" || true
 
 .PHONY: build
+
+batch-build: curio
+.PHONY: batch-build
+
+calibnet-sptool: CURIO_TAGS+= calibnet
+calibnet-sptool: sptool
 
 install: install-curio install-sptool
 .PHONY: install
