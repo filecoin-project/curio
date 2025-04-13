@@ -288,7 +288,7 @@ class DealPipelines extends LitElement {
             return '(#######..) Indexed';
         } else if (deal.sector) {
             return '(######...) Sealing And Indexing';
-        } else if (deal.after_find_deal) {
+        } else if (deal.after_find_deal && !deal.sector) {
             return '(#####....) Assigning Sector';
         } else if (deal.after_psd) {
             return '(####.....) Waiting for DealID';

@@ -41,11 +41,23 @@ func BuildTypeString() string {
 }
 
 // Intent: Major.Network.Patch
-var BuildVersionArray = [3]int{1, 24, 4}
+var BuildVersionArray = [3]int{1, 25, 0}
 
-// Ex: "1.2.3"
-var BuildVersion = strings.Join(lo.Map(BuildVersionArray[:],
-	func(i int, _ int) string { return strconv.Itoa(i) }), ".")
+// RC
+var BuildVersionRC = 0
+
+// Ex: "1.2.3" or "1.2.3-rcX"
+var BuildVersion string
+
+func init() {
+	version := strings.Join(lo.Map(BuildVersionArray[:],
+		func(i int, _ int) string { return strconv.Itoa(i) }), ".")
+
+	if BuildVersionRC > 0 {
+		version += "-rc" + strconv.Itoa(BuildVersionRC)
+	}
+	BuildVersion = version
+}
 
 func UserVersion() string {
 	if os.Getenv("CURIO_VERSION_IGNORE_COMMIT") == "1" {

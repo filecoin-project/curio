@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
+	"github.com/multiformats/go-multihash"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -24,7 +25,7 @@ import (
 	"github.com/filecoin-project/go-state-types/network"
 
 	ltypes "github.com/filecoin-project/curio/api/types"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -46,6 +47,8 @@ type CurioMethods struct {
 
 	Cordon func(p0 context.Context) error `perm:"admin"`
 
+	IndexSamples func(p0 context.Context, p1 cid.Cid) ([]multihash.Multihash, error) `perm:"admin"`
+
 	Info func(p0 context.Context) (*ltypes.NodeInfo, error) `perm:"read"`
 
 	LogList func(p0 context.Context) ([]string, error) `perm:"read"`
@@ -60,6 +63,8 @@ type CurioMethods struct {
 
 	StorageFindSector func(p0 context.Context, p1 abi.SectorID, p2 storiface.SectorFileType, p3 abi.SectorSize, p4 bool) ([]storiface.SectorStorageInfo, error) `perm:"admin"`
 
+	StorageGenerateVanillaProof func(p0 context.Context, p1 address.Address, p2 abi.SectorNumber) ([]byte, error) `perm:"admin"`
+
 	StorageInfo func(p0 context.Context, p1 storiface.ID) (storiface.StorageInfo, error) `perm:"admin"`
 
 	StorageInit func(p0 context.Context, p1 string, p2 storiface.LocalStorageMeta) error `perm:"admin"`
@@ -67,6 +72,8 @@ type CurioMethods struct {
 	StorageList func(p0 context.Context) (map[storiface.ID][]storiface.Decl, error) `perm:"admin"`
 
 	StorageLocal func(p0 context.Context) (map[storiface.ID]string, error) `perm:"admin"`
+
+	StorageRedeclare func(p0 context.Context, p1 *storiface.ID, p2 bool) error `perm:"admin"`
 
 	StorageStat func(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) `perm:"admin"`
 
@@ -249,6 +256,17 @@ func (s *CurioStub) Cordon(p0 context.Context) error {
 	return ErrNotSupported
 }
 
+func (s *CurioStruct) IndexSamples(p0 context.Context, p1 cid.Cid) ([]multihash.Multihash, error) {
+	if s.Internal.IndexSamples == nil {
+		return *new([]multihash.Multihash), ErrNotSupported
+	}
+	return s.Internal.IndexSamples(p0, p1)
+}
+
+func (s *CurioStub) IndexSamples(p0 context.Context, p1 cid.Cid) ([]multihash.Multihash, error) {
+	return *new([]multihash.Multihash), ErrNotSupported
+}
+
 func (s *CurioStruct) Info(p0 context.Context) (*ltypes.NodeInfo, error) {
 	if s.Internal.Info == nil {
 		return nil, ErrNotSupported
@@ -326,6 +344,17 @@ func (s *CurioStub) StorageFindSector(p0 context.Context, p1 abi.SectorID, p2 st
 	return *new([]storiface.SectorStorageInfo), ErrNotSupported
 }
 
+func (s *CurioStruct) StorageGenerateVanillaProof(p0 context.Context, p1 address.Address, p2 abi.SectorNumber) ([]byte, error) {
+	if s.Internal.StorageGenerateVanillaProof == nil {
+		return *new([]byte), ErrNotSupported
+	}
+	return s.Internal.StorageGenerateVanillaProof(p0, p1, p2)
+}
+
+func (s *CurioStub) StorageGenerateVanillaProof(p0 context.Context, p1 address.Address, p2 abi.SectorNumber) ([]byte, error) {
+	return *new([]byte), ErrNotSupported
+}
+
 func (s *CurioStruct) StorageInfo(p0 context.Context, p1 storiface.ID) (storiface.StorageInfo, error) {
 	if s.Internal.StorageInfo == nil {
 		return *new(storiface.StorageInfo), ErrNotSupported
@@ -368,6 +397,17 @@ func (s *CurioStruct) StorageLocal(p0 context.Context) (map[storiface.ID]string,
 
 func (s *CurioStub) StorageLocal(p0 context.Context) (map[storiface.ID]string, error) {
 	return *new(map[storiface.ID]string), ErrNotSupported
+}
+
+func (s *CurioStruct) StorageRedeclare(p0 context.Context, p1 *storiface.ID, p2 bool) error {
+	if s.Internal.StorageRedeclare == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.StorageRedeclare(p0, p1, p2)
+}
+
+func (s *CurioStub) StorageRedeclare(p0 context.Context, p1 *storiface.ID, p2 bool) error {
+	return ErrNotSupported
 }
 
 func (s *CurioStruct) StorageStat(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) {

@@ -6,10 +6,10 @@ on:
       - main
   pull_request:
     branches:
-      - main
+      - '**'
 
 env:
-  GO_VERSION: 1.22.8
+  GO_VERSION: 1.23
 
 jobs:
   ci-lint:
@@ -257,7 +257,7 @@ jobs:
 
       - name: Install golangci-lint
         run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.58.1
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.60.1
         shell: bash
 
       - name: Lint
@@ -311,9 +311,9 @@ jobs:
         run: go install github.com/hannahhoward/cbor-gen-for
         shell: bash
 
-      - name: Install gotext
-        run: go install golang.org/x/text/cmd/gotext
-        shell: bash
+#      - name: Install gotext
+#        run: go install golang.org/x/text/cmd/gotext
+#        shell: bash
 
       - name: Install FFI
         env:

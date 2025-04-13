@@ -86,7 +86,7 @@ class MarketAsks extends LitElement {
             VerifiedPrice: existingAsk.VerifiedPrice || '',
             MinSize: existingAsk.MinSize || 4 * 1024 ** 3, // Default to 4 GiB
             MaxSize: existingAsk.MaxSize || 32 * 1024 ** 3, // Default to 32 GiB
-            PriceFIL: '1',
+            PriceFIL: '0',
             VerifiedPriceFIL: '0',
             CreatedAt: '',
             Expiry: '',
@@ -190,7 +190,7 @@ class MarketAsks extends LitElement {
             const ask = this.spAsks.get(spID);
             return html`
                 <tr>
-                  <td>f0${spID}</td>
+                  <td>${ask ? ask.Miner : ''}</td>
                   <td>${ask ? this.attoFilToFilPerTiBPerMonth(ask.Price) : '-'}</td>
                   <td>${ask ? ask.Price : '-'}</td>
                   <td>${ask ? this.attoFilToFilPerTiBPerMonth(ask.VerifiedPrice) : '-'}</td>

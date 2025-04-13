@@ -183,7 +183,7 @@ install-completions:
 	install -C ./scripts/completion/bash_autocomplete /usr/share/bash-completion/completions/curio
 	install -C ./scripts/completion/zsh_autocomplete /usr/local/share/zsh/site-functions/_curio
 
-cu2k: GOFLAGS+=-tags=2k
+cu2k: CURIO_TAGS+= 2k
 cu2k: curio
 
 cfgdoc-gen:
@@ -251,7 +251,7 @@ go-generate:
 gen: gensimple
 .PHONY: gen
 
-gensimple: go-generate cfgdoc-gen api-gen docsgen docsgen-cli
+gensimple: api-gen go-generate cfgdoc-gen docsgen docsgen-cli
 	$(GOCC) run ./scripts/fiximports
 	go mod tidy
 .PHONY: gen
@@ -264,7 +264,7 @@ build_lotus?=0
 curio_docker_user?=curio
 curio_base_image=$(curio_docker_user)/curio-all-in-one:latest-debug
 ffi_from_source?=0
-lotus_version?=v1.32.0-rc1
+lotus_version?=v1.32.1
 
 ifeq ($(build_lotus),1)
 # v1: building lotus image with provided lotus version
@@ -319,7 +319,17 @@ docker/curio:
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/curio
 
-docker/devnet: $(lotus_build_cmd) docker/curio-all-in-one docker/lotus docker/lotus-miner docker/curio docker/yugabyte
+docker/piece-server:
+	cd docker/piece-server && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/piece-server-dev:dev \
+		--build-arg BUILD_VERSION=dev .
+.PHONY: docker/piece-server
+
+docker/indexer:
+	cd docker/indexer && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/indexer-dev:dev \
+		--build-arg BUILD_VERSION=dev .
+.PHONY: docker/indexer
+
+docker/devnet: $(lotus_build_cmd) docker/curio-all-in-one docker/lotus docker/lotus-miner docker/curio docker/piece-server docker/indexer
 .PHONY: docker/devnet
 
 devnet/up:

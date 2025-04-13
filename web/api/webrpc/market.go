@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
+	"github.com/samber/lo"
 	"github.com/snadrus/must"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
@@ -38,6 +39,7 @@ type StorageAsk struct {
 	CreatedAt     int64 `db:"created_at"`
 	Expiry        int64 `db:"expiry"`
 	Sequence      int64 `db:"sequence"`
+	Miner         string
 }
 
 func (a *WebRPC) GetStorageAsk(ctx context.Context, spID int64) (*StorageAsk, error) {
@@ -53,6 +55,11 @@ func (a *WebRPC) GetStorageAsk(ctx context.Context, spID int64) (*StorageAsk, er
 	if len(asks) == 0 {
 		return nil, fmt.Errorf("no storage ask found for sp_id %d", spID)
 	}
+	addr, err := address.NewIDAddress(uint64(spID))
+	if err != nil {
+		return nil, err
+	}
+	asks[0].Miner = addr.String()
 	return &asks[0], nil
 }
 
@@ -375,13 +382,14 @@ func (a *WebRPC) StorageDealInfo(ctx context.Context, deal string) (*StorageDeal
 }
 
 type StorageDealList struct {
-	ID        string    `db:"uuid" json:"id"`
-	MinerID   int64     `db:"sp_id" json:"sp_id"`
-	CreatedAt time.Time `db:"created_at" json:"created_at"`
-	PieceCid  string    `db:"piece_cid" json:"piece_cid"`
-	PieceSize int64     `db:"piece_size" json:"piece_size"`
-	Complete  bool      `db:"complete" json:"complete"`
-	Miner     string    `json:"miner"`
+	ID        string         `db:"uuid" json:"id"`
+	MinerID   int64          `db:"sp_id" json:"sp_id"`
+	CreatedAt time.Time      `db:"created_at" json:"created_at"`
+	PieceCid  string         `db:"piece_cid" json:"piece_cid"`
+	PieceSize int64          `db:"piece_size" json:"piece_size"`
+	Processed bool           `db:"processed" json:"processed"`
+	Error     sql.NullString `db:"error" json:"error"`
+	Miner     string         `json:"miner"`
 }
 
 func (a *WebRPC) MK12StorageDealList(ctx context.Context, limit int, offset int) ([]*StorageDealList, error) {
@@ -393,7 +401,8 @@ func (a *WebRPC) MK12StorageDealList(ctx context.Context, limit int, offset int)
 									md.created_at,
 									md.piece_cid,
 									md.piece_size,
-									coalesce(mm12dp.complete, true) as complete
+									md.error,
+									coalesce(mm12dp.complete, true) as processed
 									FROM market_mk12_deals md
 									LEFT JOIN market_mk12_deal_pipeline mm12dp ON md.uuid = mm12dp.uuid
 									ORDER BY created_at DESC
@@ -421,7 +430,9 @@ func (a *WebRPC) LegacyStorageDealList(ctx context.Context, limit int, offset in
 									sp_id,
 									created_at,
 									piece_cid,
-									piece_size 
+									piece_size,
+									NULL AS error,
+									TRUE AS processed
 									FROM market_legacy_deals
 									ORDER BY created_at DESC
 									LIMIT $1 OFFSET $2;`, limit, offset)
@@ -471,7 +482,7 @@ func (a *WebRPC) MarketBalance(ctx context.Context) ([]MarketBalanceStatus, erro
 		return nil, err
 	}
 
-	for _, m := range miners {
+	for _, m := range lo.Uniq(miners) {
 		balance, err := a.deps.Chain.StateMarketBalance(ctx, m, types.EmptyTSK)
 		if err != nil {
 			return nil, err
@@ -728,7 +739,7 @@ func (a *WebRPC) PieceSummary(ctx context.Context) (*PieceSummary, error) {
 	return &s, nil
 }
 
-// MK12Deal represents a record from market_mk12_deals table
+// MK12Deal represents a record from market_mk12_deals or market_direct_deals table
 type MK12Deal struct {
 	UUID              string          `db:"uuid" json:"uuid"`
 	SpId              int64           `db:"sp_id" json:"sp_id"`
@@ -751,6 +762,7 @@ type MK12Deal struct {
 	URL               sql.NullString  `db:"url" json:"url"`
 	URLHeaders        json.RawMessage `db:"url_headers" json:"url_headers"`
 	Error             sql.NullString  `db:"error" json:"error"`
+	IsDDO             bool            `db:"is_ddo" json:"is_ddo"`
 
 	Addr string `db:"-" json:"addr"`
 }
@@ -794,32 +806,61 @@ type MK12DealDetailEntry struct {
 
 func (a *WebRPC) MK12DealDetail(ctx context.Context, pieceCid string) ([]MK12DealDetailEntry, error) {
 	var mk12Deals []*MK12Deal
+
 	err := a.deps.DB.Select(ctx, &mk12Deals, `
-        SELECT
-            uuid,
-            sp_id,
-            created_at,
-            signed_proposal_cid,
-            proposal_signature,
-            proposal,
-            proposal_cid,
-            offline,
-            verified,
-            start_epoch,
-            end_epoch,
-            client_peer_id,
-            chain_deal_id,
-            publish_cid,
-            piece_cid,
-            piece_size,
-            fast_retrieval,
-            announce_to_ipni,
-            url,
-            url_headers,
-            error
-        FROM market_mk12_deals
-        WHERE piece_cid = $1
-    `, pieceCid)
+										SELECT
+											uuid,
+											sp_id,
+											created_at,
+											signed_proposal_cid,
+											proposal_signature,
+											proposal,
+											proposal_cid,
+											offline,
+											verified,
+											start_epoch,
+											end_epoch,
+											client_peer_id,
+											chain_deal_id,
+											publish_cid,
+											piece_cid,
+											piece_size,
+											fast_retrieval,
+											announce_to_ipni,
+											url,
+											url_headers,
+											error,
+											FALSE AS is_ddo
+										FROM market_mk12_deals
+										WHERE piece_cid = $1
+									
+										UNION ALL
+									
+										SELECT
+											uuid,
+											sp_id,
+											created_at,
+											'' AS signed_proposal_cid,       -- Empty string for missing string field
+											''::BYTEA AS proposal_signature, -- Empty byte array for missing proposal signature
+											'{}'::JSONB AS proposal,         -- Empty JSON object for proposal
+											'' AS proposal_cid,              -- Empty string for missing proposal_cid
+											offline,
+											verified,
+											start_epoch,
+											end_epoch,
+											'' AS client_peer_id,            -- Empty string for missing client_peer_id
+											NULL AS chain_deal_id,           -- NULL handled by Go (sql.NullInt64)
+											NULL AS publish_cid,             -- NULL handled by Go (sql.NullString)
+											piece_cid,
+											piece_size,
+											fast_retrieval,
+											announce_to_ipni,
+											NULL AS url,                     -- NULL handled by Go (sql.NullString)
+											'{}'::JSONB AS url_headers,      -- Empty JSON object for url_headers
+											NULL AS error,                    -- NULL handled by Go (sql.NullString)
+										    TRUE AS is_ddo
+										FROM market_direct_deals
+										WHERE piece_cid = $1`, pieceCid)
 	if err != nil {
 		return nil, err
 	}
@@ -953,12 +994,18 @@ func (a *WebRPC) MK12DealPipelineRemove(ctx context.Context, uuid string) error 
 		}
 
 		//Mark failure for deal
-		n, err := tx.Exec(`UPDATE market_mk12_deals SET error = $1 WHERE uuid = $2`, "Deal pipeline removed by SP", uuid)
+		_, err = tx.Exec(`WITH updated AS (
+									UPDATE market_mk12_deals
+									SET error = $1
+									WHERE uuid = $2
+									RETURNING uuid
+								)
+								UPDATE market_direct_deals
+								SET error = $1
+								WHERE uuid = $2 AND NOT EXISTS (SELECT 1 FROM updated)`,
+			"Deal pipeline removed by SP", uuid)
 		if err != nil {
 			return false, xerrors.Errorf("failed to mark deal %s as failed", uuid)
-		}
-		if n != 1 {
-			return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
 		}
 
 		// Remove market_mk12_deal_pipeline entry
@@ -1353,6 +1400,19 @@ func (a *WebRPC) BulkRemoveFailedMarketPipelines(ctx context.Context, taskType s
 				}
 			}
 
+			_, err = tx.Exec(`WITH updated AS (
+									UPDATE market_mk12_deals
+									SET error = $1
+									WHERE uuid = $2
+									RETURNING uuid
+								)
+								UPDATE market_direct_deals
+								SET error = $1
+								WHERE uuid = $2 AND NOT EXISTS (SELECT 1 FROM updated)`, "Deal pipeline removed by SP", p.uuid)
+			if err != nil {
+				return false, xerrors.Errorf("store deal failure: updating deal pipeline: %w", err)
+			}
+
 			_, err = tx.Exec(`DELETE FROM market_mk12_deal_pipeline WHERE uuid = $1`, p.uuid)
 			if err != nil {
 				return false, err
@@ -1388,4 +1448,34 @@ func (a *WebRPC) BulkRemoveFailedMarketPipelines(ctx context.Context, taskType s
 	}
 
 	return nil
+}
+
+func (a *WebRPC) MK12DDOStorageDealList(ctx context.Context, limit int, offset int) ([]*StorageDealList, error) {
+	var mk12Summaries []*StorageDealList
+
+	err := a.deps.DB.Select(ctx, &mk12Summaries, `SELECT 
+									md.uuid,
+									md.sp_id,
+									md.created_at,
+									md.piece_cid,
+									md.piece_size,
+									md.error,
+									coalesce(mm12dp.complete, true) as processed
+									FROM market_direct_deals md
+									LEFT JOIN market_mk12_deal_pipeline mm12dp ON md.uuid = mm12dp.uuid
+									ORDER BY created_at DESC
+											LIMIT $1 OFFSET $2;`, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch deal list: %w", err)
+	}
+
+	for i := range mk12Summaries {
+		addr, err := address.NewIDAddress(uint64(mk12Summaries[i].MinerID))
+		if err != nil {
+			return nil, err
+		}
+		mk12Summaries[i].Miner = addr.String()
+	}
+	return mk12Summaries, nil
+
 }

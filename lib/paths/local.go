@@ -725,10 +725,11 @@ func (st *Local) AcquireSector(ctx context.Context, sid storiface.SectorRef, exi
 			if allocate.Has(fileType) {
 				ok, err := allocPathOk(info.CanSeal, info.CanStore, info.AllowTypes, info.DenyTypes, info.AllowMiners, info.DenyMiners, fileType, sid.ID.Miner)
 				if err != nil {
-					log.Debug(err)
+					log.Warnw("checking path eligibility failed", "id", sid, "type", fileType, "pathType", pathType, "op", op, "info", info, "err", err)
 					continue
 				}
 				if !ok {
+					log.Debugw("cannot allocate for", "id", sid, "type", fileType, "pathType", pathType, "op", op, "info", info)
 					continue // allocate request for a path of different type
 				}
 			}
@@ -770,11 +771,12 @@ func (st *Local) AcquireSector(ctx context.Context, sid storiface.SectorRef, exi
 			alloc, err := allocPathOk(si.CanSeal, si.CanStore, si.AllowTypes, si.DenyTypes, si.AllowMiners, si.DenyMiners, fileType, sid.ID.Miner)
 
 			if err != nil {
-				log.Debug(err)
+				log.Warnw("checking path eligibility failed", "id", sid, "type", fileType, "pathType", pathType, "op", op, "info", si, "err", err)
 				continue
 			}
 
 			if !alloc {
+				log.Debugw("cannot allocate for", "id", sid, "type", fileType, "pathType", pathType, "op", op, "info", si)
 				continue
 			}
 

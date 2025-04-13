@@ -10,6 +10,8 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/builtin"
+	"github.com/filecoin-project/go-state-types/network"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -21,6 +23,7 @@ import (
 
 	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
@@ -28,6 +31,9 @@ const StorageGCInterval = 9 * time.Minute
 
 type StorageGCMarkNodeAPI interface {
 	StateGetActor(ctx context.Context, actor address.Address, tsk types.TipSetKey) (*types.Actor, error)
+	StateNetworkVersion(ctx context.Context, tsk types.TipSetKey) (network.Version, error)
+	ChainHead(ctx context.Context) (*types.TipSet, error)
+	ChainGetTipSetByHeight(ctx context.Context, height abi.ChainEpoch, tsk types.TipSetKey) (*types.TipSet, error)
 }
 
 type StorageGCMark struct {
@@ -226,10 +232,13 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 							return false, xerrors.Errorf("checking if sector is set: %w", err)
 						}
 						if set {
-							_, err := tx.Exec(`INSERT INTO storage_removal_marks (sp_id, sector_num, sector_filetype, storage_id)
+							n, err := tx.Exec(`INSERT INTO storage_removal_marks (sp_id, sector_num, sector_filetype, storage_id)
 							VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`, decl.Miner, decl.Number, filetype, storageId)
 							if err != nil {
 								return false, xerrors.Errorf("insert storage_removal_marks: %w", err)
+							}
+							if n > 0 {
+								log.Infow("file marked for GC", "miner", decl.Miner, "sector", decl.Number, "filetype", filetype, "storage_id", storageId, "reason", "not-in-use")
 							}
 						}
 					}
@@ -269,10 +278,13 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		}
 
 		for _, sector := range unsealedSectors {
-			_, err := tx.Exec(`INSERT INTO storage_removal_marks (sp_id, sector_num, sector_filetype, storage_id)
+			n, err := tx.Exec(`INSERT INTO storage_removal_marks (sp_id, sector_num, sector_filetype, storage_id)
 				VALUES ($1, $2, 1, $3) ON CONFLICT DO NOTHING`, sector.SpID, sector.SectorNum, sector.StorageID)
 			if err != nil {
 				return false, xerrors.Errorf("insert storage_removal_marks: %w", err)
+			}
+			if n > 0 {
+				log.Infow("file marked for GC", "miner", sector.SpID, "sector", sector.SectorNum, "filetype", 1, "storage_id", sector.StorageID, "reason", "unseal-target-state")
 			}
 		}
 
@@ -280,6 +292,139 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	}, harmonydb.OptionRetry())
 	if err != nil {
 		return false, xerrors.Errorf("unseal stage transaction: %w", err)
+	}
+
+	/*
+		STAGE 3: Mark "sealed" files which are sector-keys in snap sectors
+	*/
+	// First as a paranoid sanity check we'll get a filter map with sectors which have update, update-cache files
+	// so that we never mark sealed files for sectors without update files
+
+	sectorsWithUpdate := map[abi.SectorID]storiface.SectorFileType{}
+	for _, decls := range storageSectors {
+		for _, decl := range decls {
+			if decl.SectorFileType&(storiface.FTUpdate|storiface.FTUpdateCache) == 0 {
+				continue
+			}
+
+			sectorsWithUpdate[decl.SectorID] |= decl.SectorFileType & (storiface.FTUpdate | storiface.FTUpdateCache)
+		}
+	}
+
+	// get a tipset 1.5 finality-ago; we only want to take sectors which were snapped for a while
+	head, err := s.api.ChainHead(ctx)
+	if err != nil {
+		return false, xerrors.Errorf("get chain head: %w", err)
+	}
+	nv, err := s.api.StateNetworkVersion(ctx, head.Key())
+	if err != nil {
+		return false, xerrors.Errorf("get network version: %w", err)
+	}
+
+	lb := policy.GetWinningPoStSectorSetLookback(nv) + builtin.EpochsInDay + 1
+
+	finalityHeight := head.Height() - lb
+
+	finalityTipset, err := s.api.ChainGetTipSetByHeight(ctx, finalityHeight, head.Key())
+	if err != nil {
+		return false, xerrors.Errorf("get finality tipset: %w", err)
+	}
+
+	var minerIDs []int64
+	if err = s.db.Select(ctx, &minerIDs, `SELECT DISTINCT sp_id FROM sectors_meta WHERE orig_unsealed_cid != cur_sealed_cid`); err != nil {
+		return false, xerrors.Errorf("distinct miners from snap sectors: %w", err)
+	}
+
+	finalityMinerStates := make(map[abi.ActorID]miner.State)
+	for _, mID := range minerIDs {
+		maddr, err := address.NewIDAddress(uint64(mID))
+		if err != nil {
+			return false, xerrors.Errorf("creating miner address for %d: %w", mID, err)
+		}
+
+		mact, err := s.api.StateGetActor(ctx, maddr, finalityTipset.Key())
+		if err != nil {
+			return false, xerrors.Errorf("get miner actor %s at finality: %w", maddr, err)
+		}
+
+		mState, err := miner.Load(astor, mact)
+		if err != nil {
+			return false, xerrors.Errorf("load miner actor state %s at finality: %w", maddr, err)
+		}
+
+		finalityMinerStates[abi.ActorID(mID)] = mState
+	}
+
+	// SELECT sp_id, sector_num FROM sectors_meta WHERE orig_unsealed_cid != cur_sealed_cid
+	var snapSectors []struct {
+		SpID      int64 `db:"sp_id"`
+		SectorNum int64 `db:"sector_num"`
+	}
+	err = s.db.Select(ctx, &snapSectors, `SELECT sp_id, sector_num FROM sectors_meta WHERE orig_unsealed_cid != cur_sealed_cid ORDER BY sp_id, sector_num`)
+	if err != nil {
+		return false, xerrors.Errorf("select snap sectors: %w", err)
+	}
+	marks := map[abi.SectorID]struct{}{}
+
+	for _, sector := range snapSectors {
+		mstate, ok := finalityMinerStates[abi.ActorID(sector.SpID)]
+		if !ok {
+			continue
+		}
+
+		s, err := mstate.GetSector(abi.SectorNumber(sector.SectorNum))
+		if err != nil {
+			return false, xerrors.Errorf("get sector %d: %w", sector.SectorNum, err)
+		}
+		if s == nil {
+			log.Warnw("sector is nil", "miner", sector.SpID, "sector", sector.SectorNum)
+			continue
+		}
+
+		if s.SectorKeyCID == nil {
+			continue
+		}
+
+		si := abi.SectorID{
+			Miner:  abi.ActorID(sector.SpID),
+			Number: abi.SectorNumber(sector.SectorNum),
+		}
+
+		if u := sectorsWithUpdate[si]; u != (storiface.FTUpdate | storiface.FTUpdateCache) {
+			log.Warnw("sector has no update files", "miner", sector.SpID, "sector", sector.SectorNum)
+			continue
+		}
+
+		marks[si] = struct{}{}
+	}
+
+	_, err = s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+
+		for storageId, decls := range storageSectors {
+			for _, decl := range decls {
+				if !decl.SectorFileType.Has(storiface.FTSealed) {
+					continue
+				}
+
+				if _, ok := marks[decl.SectorID]; !ok {
+					continue
+				}
+
+				n, err := tx.Exec(`INSERT INTO storage_removal_marks (sp_id, sector_num, sector_filetype, storage_id)
+				VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`, decl.Miner, decl.Number, int64(storiface.FTSealed), string(storageId))
+				if err != nil {
+					return false, xerrors.Errorf("insert storage_removal_marks: %w", err)
+				}
+				if n > 0 {
+					log.Infow("file marked for GC", "miner", decl.Miner, "sector", decl.Number, "filetype", storiface.FTSealed, "storage_id", string(storageId), "reason", "snap-sector-key")
+				}
+			}
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return false, err
 	}
 
 	return true, nil

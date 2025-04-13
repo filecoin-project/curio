@@ -82,7 +82,7 @@ func (handler *FetchHandler) remoteStatFs(w http.ResponseWriter, r *http.Request
 		break
 	default:
 		w.WriteHeader(500)
-		log.Errorf("%+v", err)
+		log.Errorf("error getting stat for ID %s: %s", id, err.Error())
 		return
 	}
 
@@ -98,14 +98,14 @@ func (handler *FetchHandler) remoteGetSector(w http.ResponseWriter, r *http.Requ
 
 	id, err := storiface.ParseSectorID(vars["id"])
 	if err != nil {
-		log.Errorf("%+v", err)
+		log.Errorf("parsing sectorID: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
 
 	ft, err := FileTypeFromString(vars["type"])
 	if err != nil {
-		log.Errorf("%+v", err)
+		log.Errorf("parsing fileType: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
@@ -119,7 +119,7 @@ func (handler *FetchHandler) remoteGetSector(w http.ResponseWriter, r *http.Requ
 
 	paths, _, err := handler.Local.AcquireSector(r.Context(), si, ft, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
 	if err != nil {
-		log.Errorf("AcquireSector: %+v", err)
+		log.Errorf("acquiring sector from local storage: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
@@ -135,7 +135,7 @@ func (handler *FetchHandler) remoteGetSector(w http.ResponseWriter, r *http.Requ
 
 	stat, err := os.Stat(path)
 	if err != nil {
-		log.Errorf("os.Stat: %+v", err)
+		log.Errorf("failed to stat path %s: %s", path, err.Error())
 		w.WriteHeader(500)
 		return
 	}
@@ -157,7 +157,7 @@ func (handler *FetchHandler) remoteGetSector(w http.ResponseWriter, r *http.Requ
 
 		err := tarutil.TarDirectory(constraints, path, w, make([]byte, CopyBuf))
 		if err != nil {
-			log.Errorf("send tar: %+v", err)
+			log.Errorf("failed to tar and send the directory %s: %s", path, err.Error())
 			return
 		}
 	} else {
@@ -166,7 +166,7 @@ func (handler *FetchHandler) remoteGetSector(w http.ResponseWriter, r *http.Requ
 		http.ServeFile(w, r, path)
 	}
 
-	log.Debugf("served sector file/dir, sectorID=%+v, fileType=%s, path=%s", id, ft, path)
+	log.Debugw("served sector file/dir", "sectorID", id, "fileType", ft, "path", path)
 }
 
 func (handler *FetchHandler) remoteDeleteSector(w http.ResponseWriter, r *http.Request) {
@@ -175,20 +175,20 @@ func (handler *FetchHandler) remoteDeleteSector(w http.ResponseWriter, r *http.R
 
 	id, err := storiface.ParseSectorID(vars["id"])
 	if err != nil {
-		log.Errorf("%+v", err)
+		log.Errorf("parsing sectorID: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
 
 	ft, err := FileTypeFromString(vars["type"])
 	if err != nil {
-		log.Errorf("%+v", err)
+		log.Errorf("parsing fileType: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
 
 	if err := handler.Local.Remove(r.Context(), id, ft, false, storiface.ParseIDList(r.FormValue("keep"))); err != nil {
-		log.Errorf("%+v", err)
+		log.Errorf("removing sector: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
@@ -210,7 +210,7 @@ func (handler *FetchHandler) remoteGetAllocated(w http.ResponseWriter, r *http.R
 
 	ft, err := FileTypeFromString(vars["type"])
 	if err != nil {
-		log.Errorf("FileTypeFromString: %+v", err)
+		log.Errorf("parsing fileType: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
@@ -222,27 +222,27 @@ func (handler *FetchHandler) remoteGetAllocated(w http.ResponseWriter, r *http.R
 
 	spti, err := strconv.ParseInt(vars["spt"], 10, 64)
 	if err != nil {
-		log.Errorf("parsing spt: %+v", err)
+		log.Errorf("parsing registered seal proof type: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
 	spt := abi.RegisteredSealProof(spti)
 	ssize, err := spt.SectorSize()
 	if err != nil {
-		log.Errorf("spt.SectorSize(): %+v", err)
+		log.Errorf("spt.SectorSize(): %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
 
 	offi, err := strconv.ParseInt(vars["offset"], 10, 64)
 	if err != nil {
-		log.Errorf("parsing offset: %+v", err)
+		log.Errorf("parsing offset: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
 	szi, err := strconv.ParseInt(vars["size"], 10, 64)
 	if err != nil {
-		log.Errorf("parsing size: %+v", err)
+		log.Errorf("parsing size: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
@@ -259,7 +259,7 @@ func (handler *FetchHandler) remoteGetAllocated(w http.ResponseWriter, r *http.R
 	// return error if we do NOT have it.
 	paths, _, err := handler.Local.AcquireSector(r.Context(), si, ft, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
 	if err != nil {
-		log.Errorf("AcquireSector: %+v", err)
+		log.Errorf("acquiring sector on local storage: %s", err.Error())
 		w.WriteHeader(500)
 		return
 	}
@@ -346,6 +346,7 @@ func (handler *FetchHandler) generateSingleVanillaProof(w http.ResponseWriter, r
 
 	vanilla, err := handler.Local.GenerateSingleVanillaProof(r.Context(), params.Miner, params.Sector, params.ProofType)
 	if err != nil {
+		log.Errorw("failed to generate single vanilla proof:", "miner", params.Miner, "sector", params.Sector, "proofType", params.ProofType, "err", err)
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -371,6 +372,14 @@ func (handler *FetchHandler) generatePoRepVanillaProof(w http.ResponseWriter, r 
 
 	vanilla, err := handler.Local.GeneratePoRepVanillaProof(r.Context(), params.Sector, params.Sealed, params.Unsealed, params.Ticket, params.Seed)
 	if err != nil {
+		log.Errorw(
+			"failed to generate porep vanilla proof",
+			"sector", params.Sector,
+			"sealed", params.Sealed,
+			"unsealed", params.Unsealed,
+			"ticket", params.Ticket,
+			"seed", params.Seed,
+			"err", err)
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -392,6 +401,7 @@ func (handler *FetchHandler) readSnapVanillaProof(w http.ResponseWriter, r *http
 
 	vanilla, err := handler.Local.ReadSnapVanillaProof(r.Context(), params.Sector)
 	if err != nil {
+		log.Errorw("failed to read snap vanilla proof", "sector", params.Sector, "err", err)
 		http.Error(w, err.Error(), 500)
 		return
 	}

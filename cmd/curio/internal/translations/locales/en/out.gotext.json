@@ -72,6 +72,27 @@
             "fuzzy": true
         },
         {
+            "id": "Provides a sample of CIDs from an indexed piece",
+            "message": "Provides a sample of CIDs from an indexed piece",
+            "translation": "Provides a sample of CIDs from an indexed piece",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "piece-cid",
+            "message": "piece-cid",
+            "translation": "piece-cid",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "output in json format",
+            "message": "output in json format",
+            "translation": "output in json format",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Manage node config by layers. The layer 'base' will always be applied at Curio start-up.",
             "message": "Manage node config by layers. The layer 'base' will always be applied at Curio start-up.",
             "translation": "Manage node config by layers. The layer 'base' will always be applied at Curio start-up.",
@@ -331,6 +352,48 @@
             "fuzzy": true
         },
         {
+            "id": "Name of the Postgres database in Yugabyte cluster",
+            "message": "Name of the Postgres database in Yugabyte cluster",
+            "translation": "Name of the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Username for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Username for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Username for connecting to the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Password for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Password for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Password for connecting to the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Port for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Port for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Port for connecting to the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Port for connecting to the Cassandra database in Yugabyte cluster",
+            "message": "Port for connecting to the Cassandra database in Yugabyte cluster",
+            "translation": "Port for connecting to the Cassandra database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "enables very verbose mode, useful for debugging the CLI",
             "message": "enables very verbose mode, useful for debugging the CLI",
             "translation": "enables very verbose mode, useful for debugging the CLI",
@@ -425,6 +488,41 @@
             "id": "Specify wallet address to send the funds from",
             "message": "Specify wallet address to send the funds from",
             "translation": "Specify wallet address to send the funds from",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Create a new offline verified DDO deal for Curio",
+            "message": "Create a new offline verified DDO deal for Curio",
+            "translation": "Create a new offline verified DDO deal for Curio",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Specify actor address for the deal",
+            "message": "Specify actor address for the deal",
+            "translation": "Specify actor address for the deal",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Remove unsealed copies of sector containing this deal",
+            "message": "Remove unsealed copies of sector containing this deal",
+            "translation": "Remove unsealed copies of sector containing this deal",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "indicates that deal index should not be announced to the IPNI",
+            "message": "indicates that deal index should not be announced to the IPNI",
+            "translation": "indicates that deal index should not be announced to the IPNI",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
+            "message": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
+            "translation": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },
@@ -730,6 +828,27 @@
             "fuzzy": true
         },
         {
+            "id": "generate vanilla proof for a sector",
+            "message": "generate vanilla proof for a sector",
+            "translation": "generate vanilla proof for a sector",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "redeclare sectors in a local storage path",
+            "message": "redeclare sectors in a local storage path",
+            "translation": "redeclare sectors in a local storage path",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "--machine flag in cli command should point to the node where storage to redeclare is attached",
+            "message": "--machine flag in cli command should point to the node where storage to redeclare is attached",
+            "translation": "--machine flag in cli command should point to the node where storage to redeclare is attached",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Utility functions for testing",
             "message": "Utility functions for testing",
             "translation": "Utility functions for testing",
@@ -754,6 +873,13 @@
             "id": "deadline to compute WindowPoSt for",
             "message": "deadline to compute WindowPoSt for",
             "translation": "deadline to compute WindowPoSt for",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "SP ID to compute WindowPoSt for",
+            "message": "SP ID to compute WindowPoSt for",
+            "translation": "SP ID to compute WindowPoSt for",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },

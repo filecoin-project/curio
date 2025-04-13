@@ -46,6 +46,10 @@ type MK12Config struct {
     DisabledMiners          []string
     MaxConcurrentDealSizeGiB int64
     DenyUnknownClients bool
+    DenyOnlineDeals bool
+    DenyOfflineDeals bool
+    CIDGravityToken string
+    DefaultCIDGravityAccept bool
 }
 ```
 
@@ -69,6 +73,12 @@ type MK12Config struct {
    MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector when the cumulative size of all deals in process reaches this number, new deals will be rejected. (Default: 0 = unlimited)
 9. **DenyUnknownClients:**\
    DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list. If True then all deals coming from unknown clients will be rejected.
+10. **DenyOnlineDeals**: Determines whether the storage provider **accepts online deals**.
+11. **DenyOfflineDeals**: Determines whether the storage provider **accepts offline deals**.
+12. **CIDGravityToken**:\
+    The authorization token used for **CIDGravity filters**, a service that filters deal proposals based on custom policies. If empty (`""`), **CIDGravity filtering is disabled**. If set, the miner will **query CIDGravity** for each deal proposal before accepting it.
+13. **DefaultCIDGravityAccept**:\
+    Defines what happens if the **CIDGravity service is unavailable**. If`true`: **Accepts deals** even if CIDGravity is unreachable. If`false`: **Rejects deals** when CIDGravity is unavailable (**default**).
 
 ### **PieceLocator Configuration**
 
@@ -83,6 +93,10 @@ type PieceLocatorConfig struct {
 
 * **URL**: The endpoint where the piece data can be located.
 * **Headers**: Any custom headers needed for the HTTP request, such as authorization tokens.
+
+{% hint style="warning" %}
+PieceLocator service will allow Curio to lookup details of a piece automatically for an offline deal. The `add-url` command should not be used for deal which are expected to fetch the data from PieceLocator services.
+{% endhint %}
 
 Consequences: If the piece data is not available at the specified URL, the offline deal will fail. Make sure that the remote server is properly configured and available.
 
@@ -102,6 +116,8 @@ To enable the Curio market on a Curio node, the following configuration changes 
    * To enable HTTP, set the `Enable` flag in the `HTTPConfig` to `true` and specify the `ListenAddress` for the HTTP server.
 4. **Set a Domain Name**:
    * Ensure that a valid `DomainName` is specified in the `HTTPConfig`. This is mandatory for proper HTTP server functionality and essential for enabling TLS. The domain name cannot be an IP address.
+   * In case `DelegateTLS`  is `False` , the domain name must point to the public IP address your curio node is listening on. The purpose of setting this field is to allow lets encrypt ACME protocol to automatically issue a certificate to use TLS for encrypting access to the curio api. For let's encrypt policy reasons this will only work if curio listens on port 443.
+   * Domain name should be specified in the base layer
 5. **HTTP Configuration Details**:
    * If TLS is managed by a reverse proxy, enable `DelegateTLS` in the `HTTPConfig` to allow the HTTP server to run without handling TLS directly.
    * Configure additional parameters such as `ReadTimeout`, `IdleTimeout`, and `CompressionLevels` to ensure the server operates efficiently.
@@ -113,6 +129,20 @@ To enable the Curio market on a Curio node, the following configuration changes 
      * `MaxDealsPerPublishMsg` for the maximum number of deals per message.
      * `MaxPublishDealFee` to set the fee limit for publishing deals.
    * If handling offline deals, configure `PieceLocator` to specify the endpoints for piece retrieval.
+8.  Verify that HTTP server is working:
+
+    * Curl to your domain name and verify that server is reachable from outside\\
+
+    ```shell
+    curl https://<Domain name>
+
+    Hello, World!
+     -Curio
+    ```
+
+{% hint style="warning" %}
+If you do not get above output then something went wrong with configuration and you should not proceed with migration from Boost or Deal making.
+{% endhint %}
 
 By applying these changes, the Curio market subsystem will be activated on the specified node(s), enabling storage deals, IPNI synchronization, and retrieval functionality.
 
@@ -166,6 +196,10 @@ Tasks refer to operations that the system performs on deals to ensure their succ
 
 The `add-url` command allows you to specify a URL from which the miner can fetch piece data for offline deals. This is essential for deals where the client does not transfer the data immediately upon deal acceptance.
 
+{% hint style="warning" %}
+The `add-url` command should not be used for deal which are expected to fetch the data from PieceLocator services.
+{% endhint %}
+
 ```bash
 curio market add-url [command options] <deal UUID> <raw size/car size>
 ```
@@ -174,6 +208,14 @@ curio market add-url [command options] <deal UUID> <raw size/car size>
 
 ```bash
 curio market add-url --url "https://data.server/pieces?id=pieceCID" --header "Authorization: Bearer token" <UUID> <raw size>
+
+OR
+
+curio market add-url --url "https://data.server/filename" --header "Authorization: Bearer token" <UUID> <raw size>
+
+OR
+
+curio market add-url --url "https://data.server/filename" <UUID> <raw size>
 ```
 
 **Options**:
@@ -223,3 +265,25 @@ curio market seal --actor <actor address> <sector>
 * **--actor**: Specifies the actor address.
 
 Consequences: Sealing early can speed up the process, but it may result in inefficiencies if all deals are not batched correctly.
+
+## Offline Verified DDO deals
+
+Curio only supports offline verified DDO deals as of now. The allocation must be created by the client for the piece and handed over to the SP alongside the data.
+
+### How to create allocation
+
+Clients can create allocation using the `sptool toolbox` or other methods.
+
+```shell
+sptool --actor t01000 toolbox mk12-client allocate -p <MINER ID> --piece-cid <COMMP> --piece-size <PIECE SIZE>
+```
+
+### Start a DDO deal
+
+Storage providers can onboard the DDO deal using the below command.
+
+```shell
+curio market ddo --actor <MINER ID> <client-address> <allocation-id>
+```
+
+Since this is an offline deal, user must either make the data available via PieceLocator or add a data URL for this offline deal.

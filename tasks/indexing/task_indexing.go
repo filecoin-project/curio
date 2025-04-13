@@ -68,6 +68,7 @@ type itask struct {
 	ShouldIndex bool                    `db:"should_index"`
 	Announce    bool                    `db:"announce"`
 	ChainDealId abi.DealID              `db:"chain_deal_id"`
+	IsDDO       bool                    `db:"is_ddo"`
 }
 
 func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
@@ -87,13 +88,19 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 											p.raw_size,
 											p.should_index,
 											p.announce,
-											d.chain_deal_id
+											p.is_ddo,
+											COALESCE(d.chain_deal_id, 0) AS chain_deal_id  -- If NULL, return 0
 										FROM 
 											market_mk12_deal_pipeline p
 										LEFT JOIN 
-											market_mk12_deals d ON p.uuid = d.uuid AND p.sp_id = d.sp_id
+											market_mk12_deals d 
+											ON p.uuid = d.uuid AND p.sp_id = d.sp_id
+										LEFT JOIN 
+											market_direct_deals md 
+											ON p.uuid = md.uuid AND p.sp_id = md.sp_id
 										WHERE 
-											p.indexing_task_id = $1;`, taskID)
+											p.indexing_task_id = $1;
+										;`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting indexing params: %w", err)
 	}
@@ -218,7 +225,7 @@ loop:
 // records the completion of an indexing task in the database
 func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID harmonytask.TaskID, indexed bool) error {
 	_, err := i.db.Exec(ctx, `SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-		task.UUID, task.PieceCid, true, task.SpID, task.Sector, task.Offset, task.Size, task.RawSize, indexed, false, task.ChainDealId)
+		task.UUID, task.PieceCid, !task.IsDDO, task.SpID, task.Sector, task.Offset, task.Size, task.RawSize, indexed, false, task.ChainDealId)
 	if err != nil {
 		return xerrors.Errorf("failed to update piece metadata and piece deal for deal %s: %w", task.UUID, err)
 	}
@@ -248,6 +255,27 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 }
 
 func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+	ctx := context.Background()
+
+	indIDs := make([]int64, len(ids))
+	for x, id := range ids {
+		indIDs[x] = int64(id)
+	}
+
+	// Accept any task which should not be indexed as
+	// it does not require storage access
+	var id int64
+	err := i.db.QueryRow(ctx, `SELECT indexing_task_id 
+										FROM market_mk12_deal_pipeline 
+										WHERE should_index = FALSE AND 
+										      indexing_task_id = ANY ($1) ORDER BY indexing_task_id LIMIT 1`, indIDs).Scan(&id)
+	if err == nil {
+		ret := harmonytask.TaskID(id)
+		return &ret, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, xerrors.Errorf("getting pending indexing task: %w", err)
+	}
+
 	var tasks []struct {
 		TaskID       harmonytask.TaskID `db:"indexing_task_id"`
 		SpID         int64              `db:"sp_id"`
@@ -259,14 +287,7 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		panic("storiface.FTUnsealed != 1")
 	}
 
-	ctx := context.Background()
-
-	indIDs := make([]int64, len(ids))
-	for i, id := range ids {
-		indIDs[i] = int64(id)
-	}
-
-	err := i.db.Select(ctx, &tasks, `
+	err = i.db.Select(ctx, &tasks, `
 		SELECT dp.indexing_task_id, dp.sp_id, dp.sector, l.storage_id FROM market_mk12_deal_pipeline dp
 			INNER JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
 			WHERE dp.indexing_task_id = ANY ($1) AND l.sector_filetype = 1
@@ -280,21 +301,14 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		return nil, xerrors.Errorf("getting local storage: %w", err)
 	}
 
-	acceptables := map[harmonytask.TaskID]bool{}
-
-	for _, t := range ids {
-		acceptables[t] = true
+	localStorageMap := make(map[string]bool, len(ls))
+	for _, l := range ls {
+		localStorageMap[string(l.ID)] = true
 	}
 
 	for _, t := range tasks {
-		if _, ok := acceptables[t.TaskID]; !ok {
-			continue
-		}
-
-		for _, l := range ls {
-			if string(l.ID) == t.StorageID {
-				return &t.TaskID, nil
-			}
+		if found, ok := localStorageMap[t.StorageID]; ok && found {
+			return &t.TaskID, nil
 		}
 	}
 
@@ -330,6 +344,9 @@ func (i *IndexingTask) schedule(ctx context.Context, taskFunc harmonytask.AddTas
 				UUID string `db:"uuid"`
 			}
 
+			// Indexing job must be created for every deal to make sure piece details are inserted in DB
+			// even if we don't want to index it. If piece is not supposed to be indexed then it will handled
+			// by the Do()
 			err := i.db.Select(ctx, &pendings, `SELECT uuid FROM market_mk12_deal_pipeline 
             										WHERE sealed = TRUE
             										AND indexing_task_id IS NULL

@@ -15,14 +15,26 @@ Upon initialization of a storage location, a `<path-to-storage>/sectorstorage.js
 Before adding your sealing storage location you will need to consider where the sealing tasks are going to be performed. This command must be run locally from the Curio node where you want to attach the storage.
 
 ```sh
+curio cli storage attach --init --seal <PATH_FOR_SEALING_STORAGE>
+
+OR
+
 curio cli --machine <Machine IP:Port> storage attach --init --seal <PATH_FOR_SEALING_STORAGE>
 ```
+
+{% hint style="info" %}
+The `--machine` flag accepts an `<IP:Port>` input, specifying the machine on which the command should be executed. The **IP** refers to the address of the machine where the Curio process is running, and the **Port** indicates the port on which the Curio process is listening. By default, Curio operates on **port 12300**. This flag enables Curio commands to be executed on remote nodes, facilitating centralized administration from a single node.
+{% endhint %}
 
 ## Adding long-term storage location&#x20;
 
 **Custom location for storing:** After the _sealing_ process is completed, sealed sectors are moved to the _store_ location, which can be specified as follows:
 
 ```sh
+curio cli storage attach --init --store <PATH_FOR_LONG_TERM_STORAGE>
+
+OR
+
 curio cli --machine <Machine IP:Port> storage attach --init --store <PATH_FOR_LONG_TERM_STORAGE>
 ```
 
@@ -32,7 +44,11 @@ This command must be run locally from the Curio node where you want to attach th
 
 The storage location used by `lotus-miner` or `lotus-worker` can be reused by the Curio cluster. It can be attached once the migrated `lotus-miner` or `lotus-worker` is already running a Curio service.
 
-```
+```sh
+curio cli storage attach <PATH_FOR_LONG_TERM_STORAGE>
+
+OR
+
 curio cli --machine <Machine IP:Port> storage attach <PATH_FOR_LONG_TERM_STORAGE>
 ```
 
