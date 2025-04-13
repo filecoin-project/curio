@@ -786,7 +786,9 @@ var uploadFileCmd = &cli.Command{
 				}
 			}
 			if chunkFile != nil {
-				chunkFile.Write([]byte(fmt.Sprintf("%s\n", commP)))
+				if _, err := chunkFile.Write([]byte(fmt.Sprintf("%s\n", commP))); err != nil {
+					return fmt.Errorf("failed to write chunk to file: %v", err)
+				}
 			}
 			if rootSize+paddedPieceSize > uint64(maxRootSize) {
 				rootSets = append(rootSets, rootSetInfo{
