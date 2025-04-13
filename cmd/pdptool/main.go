@@ -31,6 +31,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	curiobuild "github.com/filecoin-project/curio/build"
+	curioproof "github.com/filecoin-project/curio/lib/proof"
 )
 
 func main() {
@@ -676,7 +677,9 @@ var uploadFileCmd = &cli.Command{
 			return fmt.Errorf("failed to stat input file: %v", err)
 		}
 		fileSize := fi.Size()
-		chunkSize := int64(1024 * 1024 * 100) // 100 MiB chunks
+		// Make padded chunk size as big as allowed
+		paddedChunkSize := curioproof.MaxMemtreeSize
+		chunkSize := int64(paddedChunkSize * (127 / 128)) // make room for padding
 
 		// Progress bar
 		bar := progressbar.NewOptions(int(fileSize/chunkSize), progressbar.OptionSetDescription("Uploading..."))
