@@ -682,7 +682,10 @@ var uploadFileCmd = &cli.Command{
 		chunkSize := int64((paddedChunkSize * 127) / 128) // make room for padding
 
 		// Progress bar
-		bar := progressbar.NewOptions(int(fileSize/chunkSize), progressbar.OptionSetDescription("Uploading..."))
+		bar := progressbar.NewOptions(1, progressbar.OptionSetDescription("Uploading..."))
+		if int(fileSize/chunkSize) >= 0 {
+			bar = progressbar.NewOptions(int(fileSize/chunkSize), progressbar.OptionSetDescription("Uploading..."))
+		}
 
 		// Setup local server if needed
 		var notifyReceived chan struct{}
