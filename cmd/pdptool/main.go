@@ -679,7 +679,7 @@ var uploadFileCmd = &cli.Command{
 		fileSize := fi.Size()
 		// Make padded chunk size as big as allowed
 		paddedChunkSize := curioproof.MaxMemtreeSize
-		chunkSize := int64(paddedChunkSize * (127 / 128)) // make room for padding
+		chunkSize := int64((paddedChunkSize * 127) / 128)) // make room for padding
 
 		// Progress bar
 		bar := progressbar.NewOptions(int(fileSize/chunkSize), progressbar.OptionSetDescription("Uploading..."))
