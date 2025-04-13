@@ -633,6 +633,16 @@ var uploadFileCmd = &cli.Command{
 			Usage: "Verbose output",
 			Value: false,
 		},
+		&cli.BoolFlag{
+			Name:  "dry-run",
+			Usage: "Calculate chunks but don't upload",
+			Value: false,
+		},
+		&cli.StringFlag{
+			Name:  "chunk-file",
+			Usage: "Output file to write chunks to",
+			Value: "",
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 
@@ -648,7 +658,17 @@ var uploadFileCmd = &cli.Command{
 		localNotifWait := cctx.Bool("local-notif-wait")
 		notifyURL := cctx.String("notify-url")
 		verbose := cctx.Bool("verbose")
-
+		dryRun := cctx.Bool("dry-run")
+		chunkFileName := cctx.String("chunk-file")
+		var chunkFile *os.File
+		if chunkFileName != "" {
+			var err error
+			chunkFile, err = os.Create(chunkFileName)
+			if err != nil {
+				return fmt.Errorf("failed to create chunk file: %v", err)
+			}
+			defer chunkFile.Close()
+		}
 		if jwtToken == "" {
 			if serviceName == "" {
 				return fmt.Errorf("either --jwt-token or --service-name must be provided")
@@ -726,42 +746,46 @@ var uploadFileCmd = &cli.Command{
 			if err != nil {
 				return fmt.Errorf("failed to prepare piece: %v", err)
 			}
-			// Prepare the request data
-			var checkData map[string]interface{}
-			switch hashType {
-			case "sha256":
-				checkData = map[string]interface{}{
-					"name": "sha2-256",
-					"hash": hex.EncodeToString(shadigest),
-					"size": n,
+			if !dryRun {
+				// Prepare the request data
+				var checkData map[string]interface{}
+				switch hashType {
+				case "sha256":
+					checkData = map[string]interface{}{
+						"name": "sha2-256",
+						"hash": hex.EncodeToString(shadigest),
+						"size": n,
+					}
+				case "commp":
+					checkData = map[string]interface{}{
+						"name": "sha2-256-trunc254-padded",
+						"hash": hex.EncodeToString(commpDigest),
+						"size": n,
+					}
+				default:
+					return fmt.Errorf("unsupported hash type: %s", hashType)
 				}
-			case "commp":
-				checkData = map[string]interface{}{
-					"name": "sha2-256-trunc254-padded",
-					"hash": hex.EncodeToString(commpDigest),
-					"size": n,
+
+				reqData := map[string]interface{}{
+					"check": checkData,
 				}
-			default:
-				return fmt.Errorf("unsupported hash type: %s", hashType)
-			}
+				if notifyURL != "" {
+					reqData["notify"] = notifyURL
+				}
+				reqBody, err := json.Marshal(reqData)
+				if err != nil {
+					return fmt.Errorf("failed to marshal request data: %v", err)
+				}
 
-			reqData := map[string]interface{}{
-				"check": checkData,
+				// Upload the piece
+				err = uploadOnePiece(client, serviceURL, reqBody, jwtToken, chunkReader, int64(n), localNotifWait, notifyReceived, verbose)
+				if err != nil {
+					return fmt.Errorf("failed to upload piece: %v", err)
+				}
 			}
-			if notifyURL != "" {
-				reqData["notify"] = notifyURL
+			if chunkFile != nil {
+				chunkFile.Write([]byte(fmt.Sprintf("%s\n", commP)))
 			}
-			reqBody, err := json.Marshal(reqData)
-			if err != nil {
-				return fmt.Errorf("failed to marshal request data: %v", err)
-			}
-
-			// Upload the piece
-			err = uploadOnePiece(client, serviceURL, reqBody, jwtToken, chunkReader, int64(n), localNotifWait, notifyReceived, verbose)
-			if err != nil {
-				return fmt.Errorf("failed to upload piece: %v", err)
-			}
-
 			if rootSize+paddedPieceSize > uint64(maxRootSize) {
 				rootSets = append(rootSets, rootSetInfo{
 					pieces:     make([]abi.PieceInfo, 0),
