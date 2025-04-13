@@ -683,7 +683,7 @@ var uploadFileCmd = &cli.Command{
 
 		// Progress bar
 		bar := progressbar.NewOptions(1, progressbar.OptionSetDescription("Uploading..."))
-		if int(fileSize/chunkSize) >= 0 {
+		if int(fileSize/chunkSize) > 0 {
 			bar = progressbar.NewOptions(int(fileSize/chunkSize), progressbar.OptionSetDescription("Uploading..."))
 		}
 
