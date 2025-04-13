@@ -128,20 +128,36 @@ CUDA 12.x is required, 11.x won't work. The build process depends on GCC 11.x sy
 * On Arch install https://aur.archlinux.org/packages/gcc11
 * Ubuntu 22.04 has GCC 11.x by default
 * On newer Ubuntu install `gcc-11` and `g++-11` packages
+    ```shell
+    sudo apt install gcc-11 g++-11
+    ```
 * In addtion to general build dependencies (listed on the [installation page](installation.md)), you need `libgmp-dev` and `libconfig++-dev`
+    ```shell
+    sudo apt install libgmp-dev libconfig++-dev
+    ```
 
 ### Building
 
-Build the batch-capable Curio binary:
+Build and install the batch-capable Curio binary:
 
 ```bash
 make batch
+make sptool
+```
+
+```shell
+make install
 ```
 
 For calibnet
 
 ```bash
 make batch-calibnet
+make batch-sptool
+```
+
+```shell
+make install
 ```
 
 {% hint style="warning" %}
