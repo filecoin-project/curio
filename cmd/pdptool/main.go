@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -48,6 +49,7 @@ func main() {
 			piecePrepareCmd, // hash a piece to get a piece cid
 			pieceUploadCmd,  // upload a piece to a pdp service
 			uploadFileCmd,   // upload a file to a pdp service in many chunks
+			downloadFileCmd, // download a file from curio
 
 			createProofSetCmd,    // create a new proof set on the PDP service
 			getProofSetStatusCmd, // get the status of a proof set creation on the PDP service
@@ -1231,6 +1233,108 @@ var addRootsCmd = &cli.Command{
 			return fmt.Errorf("failed to add roots, status code %d: %s", resp.StatusCode, bodyString)
 		}
 
+		return nil
+	},
+}
+
+var downloadFileCmd = &cli.Command{
+	Name:  "download-file",
+	Usage: "Download a file from the PDP service",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "service-url",
+			Usage:    "URL of the PDP service",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "chunk-file",
+			Usage:    "File to read ordered chunk list for retrieving",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "output-file",
+			Usage:    "File to write downloaded data to",
+			Required: true,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		serviceURL := cctx.String("service-url")
+		chunkFileName := cctx.String("chunk-file")
+		outputFileName := cctx.String("output-file")
+
+		// Open the chunk file for reading
+		chunkFile, err := os.Open(chunkFileName)
+		if err != nil {
+			return fmt.Errorf("failed to open chunk file: %v", err)
+		}
+		defer chunkFile.Close()
+
+		// Open the output file for writing
+		outputFile, err := os.Create(outputFileName)
+		if err != nil {
+			return fmt.Errorf("failed to create output file: %v", err)
+		}
+		defer outputFile.Close()
+
+		// Read all CIDs from the chunk file
+		var cids []string
+		scanner := bufio.NewScanner(chunkFile)
+		for scanner.Scan() {
+			cid := strings.TrimSpace(scanner.Text())
+			if cid != "" {
+				cids = append(cids, cid)
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("error reading chunk file: %v", err)
+		}
+
+		// Create HTTP client
+		client := &http.Client{}
+
+		// Create progress bar
+		bar := progressbar.NewOptions(len(cids),
+			progressbar.OptionSetDescription("Downloading..."),
+			progressbar.OptionShowBytes(true),
+			progressbar.OptionShowCount())
+
+		// Download each piece and write it to the output file
+		for i, cidString := range cids {
+			// Create the download URL
+			downloadURL := fmt.Sprintf("%s/piece/%s", serviceURL, cidString)
+
+			// Create the GET request
+			req, err := http.NewRequest("GET", downloadURL, nil)
+			if err != nil {
+				return fmt.Errorf("failed to create request for CID %s: %v", cidString, err)
+			}
+
+			// Send the request
+			resp, err := client.Do(req)
+			if err != nil {
+				return fmt.Errorf("failed to download piece %s: %v", cidString, err)
+			}
+
+			// Check response status
+			if resp.StatusCode != http.StatusOK {
+				resp.Body.Close()
+				return fmt.Errorf("failed to download piece %s: status code %d", cidString, resp.StatusCode)
+			}
+
+			// Stream the response body to the output file
+			_, err = io.Copy(outputFile, resp.Body)
+			resp.Body.Close()
+			if err != nil {
+				return fmt.Errorf("failed to write piece %s to output file: %v", cidString, err)
+			}
+
+			// Update progress bar
+			if err := bar.Set(i + 1); err != nil {
+				return fmt.Errorf("failed to update progress bar: %v", err)
+			}
+		}
+
+		fmt.Printf("\nDownload completed successfully. Saved to %s\n", outputFileName)
 		return nil
 	},
 }
