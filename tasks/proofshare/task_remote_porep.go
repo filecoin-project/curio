@@ -44,17 +44,15 @@ type ClientServiceAPI interface {
 type TaskRemotePoRep struct {
 	db      *harmonydb.DB
 	api     ClientServiceAPI
-	wallet  address.Address
 	storage *paths.Remote
 	router  *common.Service
 }
 
 // NewTaskRemotePoRep creates a new TaskRemotePoRep
-func NewTaskRemotePoRep(db *harmonydb.DB, api api.FullNode, wallet address.Address, storage *paths.Remote) *TaskRemotePoRep {
+func NewTaskRemotePoRep(db *harmonydb.DB, api api.FullNode, storage *paths.Remote) *TaskRemotePoRep {
 	return &TaskRemotePoRep{
 		db:      db,
 		api:     api,
-		wallet:  wallet,
 		storage: storage,
 		router:  common.NewServiceCustomSend(api, nil),
 	}
@@ -72,11 +70,12 @@ func (t *TaskRemotePoRep) Adder(add harmonytask.AddTaskFunc) {
 			add(func(taskID harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 				// Check if client settings are enabled for PoRep
 				var enabledFor []struct {
-					SpID                  int64 `db:"sp_id"`
-					MinimumPendingSeconds int64 `db:"minimum_pending_seconds"`
+					SpID                  int64  `db:"sp_id"`
+					MinimumPendingSeconds int64  `db:"minimum_pending_seconds"`
+					Wallet                string `db:"wallet"`
 				}
 				err := tx.Select(&enabledFor, `
-					SELECT sp_id, minimum_pending_seconds
+					SELECT sp_id, minimum_pending_seconds, wallet
 					FROM proofshare_client_settings
 					WHERE enabled = TRUE AND do_porep = TRUE
 				`)
@@ -108,6 +107,8 @@ func (t *TaskRemotePoRep) Adder(add harmonytask.AddTaskFunc) {
 				if len(sectors) == 0 {
 					return false, nil
 				}
+
+				log.Infow("TaskRemotePoRep.Adder() creating task", "taskID", taskID, "spID", sectors[0].SpID, "sectorNumber", sectors[0].SectorNumber)
 
 				// Create task
 				_, err = tx.Exec(`
@@ -153,7 +154,6 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		return false, xerrors.Errorf("failed to get sector info: %w", err)
 	}
 
-	// Main state machine loop
 	for {
 		if !stillOwned() {
 			return false, xerrors.Errorf("task no longer owned")
@@ -355,8 +355,37 @@ func (t *TaskRemotePoRep) uploadProofData(ctx context.Context, taskID harmonytas
 
 // createPayment creates a payment for the proof request
 func (t *TaskRemotePoRep) createPayment(ctx context.Context, taskID harmonytask.TaskID, sectorInfo *SectorInfo, clientRequest *ClientRequest) (bool, error) {
+	// Get the wallet address from client settings for this SP ID
+	var walletStr string
+	err := t.db.QueryRow(ctx, `
+		SELECT wallet FROM proofshare_client_settings 
+		WHERE sp_id = $1 AND enabled = TRUE AND do_porep = TRUE
+	`, sectorInfo.SpID).Scan(&walletStr)
+
+	// If no specific settings for this SP ID, try the default (sp_id = 0)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = t.db.QueryRow(ctx, `
+			SELECT wallet FROM proofshare_client_settings 
+			WHERE sp_id = 0 AND enabled = TRUE AND do_porep = TRUE
+		`).Scan(&walletStr)
+	}
+
+	if err != nil {
+		return false, xerrors.Errorf("failed to get wallet from client settings: %w", err)
+	}
+
+	if walletStr == "" {
+		return false, xerrors.Errorf("no wallet configured for SP ID %d", sectorInfo.SpID)
+	}
+
+	// Parse the wallet address
+	wallet, err := address.NewFromString(walletStr)
+	if err != nil {
+		return false, xerrors.Errorf("failed to parse wallet address: %w", err)
+	}
+
 	// Get client ID from wallet address
-	clientIDAddr, err := t.api.StateLookupID(ctx, t.wallet, types.EmptyTSK)
+	clientIDAddr, err := t.api.StateLookupID(ctx, wallet, types.EmptyTSK)
 	if err != nil {
 		return false, xerrors.Errorf("failed to lookup client ID: %w", err)
 	}
@@ -434,7 +463,7 @@ func (t *TaskRemotePoRep) createPayment(ctx context.Context, taskID harmonytask.
 			return false, xerrors.Errorf("failed to create voucher: %w", err)
 		}
 
-		sig, err := t.api.WalletSign(ctx, t.wallet, voucher)
+		sig, err := t.api.WalletSign(ctx, wallet, voucher)
 		if err != nil {
 			return false, xerrors.Errorf("failed to sign voucher: %w", err)
 		}
