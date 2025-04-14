@@ -33,6 +33,7 @@ import (
 	"github.com/filecoin-project/curio/alertmanager"
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/api"
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
@@ -260,7 +261,15 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	if deps.EthClient == nil {
 		deps.EthClient = lazy.MakeLazy[*ethclient.Client](func() (*ethclient.Client, error) {
 			// todo: this is a hack, just use the lotus chain api client above
-			return ethclient.Dial("https://api.node.glif.io/rpc/v1")
+			switch build.BuildType {
+			case build.BuildCalibnet:
+				return ethclient.Dial("https://api.calibration.node.glif.io/rpc/v1")
+			case build.BuildMainnet:
+				return ethclient.Dial("https://api.node.glif.io/rpc/v1")
+			default:
+				panic("fevm rpc url unknown for this network")
+			}
+
 		})
 	}
 
