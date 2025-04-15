@@ -47,6 +47,19 @@ func secureHeaders(next http.Handler) http.Handler {
 	})
 }
 
+func corsHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, Accept-Encoding")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // Logging middleware, attaches logger to the request context for easier debugging
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -120,6 +133,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 	chiRouter.Use(middleware.Recoverer)
 	chiRouter.Use(handlers.ProxyHeaders) // Handle reverse proxy headers like X-Forwarded-For
 	chiRouter.Use(secureHeaders)
+	chiRouter.Use(corsHeaders)
 
 	if cfg.EnableCORS {
 		chiRouter.Use(handlers.CORS(handlers.AllowedOrigins([]string{"https://" + cfg.DomainName})))
