@@ -378,9 +378,7 @@ func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr addres
 
 	balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)
 	if err != nil {
-		if err != nil {
-			return nil, xerrors.Errorf("getting miner balance: %w", err)
-		}
+		return nil, xerrors.Errorf("getting miner balance: %w", err)
 	}
 
 	mi, err := s.api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
@@ -418,7 +416,7 @@ func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr addres
 		aggCollateral = s.calculateCollateral(balance, aggCollateral)
 		goodFunds := big.Add(maxFee, aggCollateral)
 		enc := new(bytes.Buffer)
-		if err := params.MarshalCBOR(enc); err != nil {
+		if err := aggParams.MarshalCBOR(enc); err != nil {
 			return nil, xerrors.Errorf("could not serialize commit params: %w", err)
 		}
 		aggMsg, err = s.gasEstimateCommit(ctx, maddr, enc.Bytes(), mi, goodFunds, aggCollateral, maxFee, ts.Key())
