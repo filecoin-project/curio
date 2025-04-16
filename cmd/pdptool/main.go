@@ -843,19 +843,36 @@ var createProofSetCmd = &cli.Command{
 			Usage:    "Service Name to include in the JWT token",
 			Required: true,
 		},
+		&cli.StringFlag{
+			Name:     "extra-data",
+			Usage:    "Optional ABI-encoded extra data as a hex string to pass to the listener contract (max 2048 bytes)",
+			Required: false,
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
 		serviceName := cctx.String("service-name")
 		recordKeeper := cctx.String("recordkeeper")
+		extraDataHexStr := cctx.String("extra-data")
 
-		// Load the private key (implement `loadPrivateKey` according to your setup)
+		// Validate extraData hex string and its decoded length
+		if extraDataHexStr != "" {
+			decoded, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
+			if err != nil {
+				return fmt.Errorf("failed to decode hex in --extra-data: %v", err)
+			}
+			if len(decoded) > 2048 {
+				return fmt.Errorf("decoded extra-data exceeds maximum size of 2048 bytes (decoded length: %d)", len(decoded))
+			}
+		}
+
+		// Load the private key
 		privKey, err := loadPrivateKey()
 		if err != nil {
 			return fmt.Errorf("failed to load private key: %v", err)
 		}
 
-		// Create the JWT token (implement `createJWTToken` according to your setup)
+		// Create the JWT token
 		jwtToken, err := createJWTToken(serviceName, privKey)
 		if err != nil {
 			return fmt.Errorf("failed to create JWT token: %v", err)
@@ -865,6 +882,10 @@ var createProofSetCmd = &cli.Command{
 		requestBody := map[string]string{
 			"recordKeeper": recordKeeper,
 		}
+		if extraDataHexStr != "" {
+			requestBody["extraData"] = extraDataHexStr
+		}
+
 		requestBodyBytes, err := json.Marshal(requestBody)
 		if err != nil {
 			return fmt.Errorf("failed to marshal request body: %v", err)
@@ -1140,20 +1161,37 @@ var addRootsCmd = &cli.Command{
 			Usage:    "Root CID and its subroots. Format: rootCID:subrootCID1+subrootCID2,...",
 			Required: true,
 		},
+		&cli.StringFlag{
+			Name:     "extra-data",
+			Usage:    "Optional ABI-encoded extra data as a hex string to pass to the listener contract (max 2048 bytes)",
+			Required: false,
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
 		serviceName := cctx.String("service-name")
 		proofSetID := cctx.Uint64("proof-set-id")
 		rootInputs := cctx.StringSlice("root")
+		extraDataHexStr := cctx.String("extra-data")
 
-		// Load the private key (implement `loadPrivateKey` according to your setup)
+		// Validate extraData hex string and its decoded length
+		if extraDataHexStr != "" {
+			decoded, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
+			if err != nil {
+				return fmt.Errorf("invalid hex format for --extra-data (after removing 0x prefix): %v", err)
+			}
+			if len(decoded) > 2048 {
+				return fmt.Errorf("decoded extra-data exceeds maximum size of 2048 bytes (decoded length: %d)", len(decoded))
+			}
+		}
+
+		// Load the private key
 		privKey, err := loadPrivateKey()
 		if err != nil {
 			return fmt.Errorf("failed to load private key: %v", err)
 		}
 
-		// Create the JWT token (implement `createJWTToken` according to your setup)
+		// Create the JWT token
 		jwtToken, err := createJWTToken(serviceName, privKey)
 		if err != nil {
 			return fmt.Errorf("failed to create JWT token: %v", err)
@@ -1196,8 +1234,21 @@ var addRootsCmd = &cli.Command{
 			})
 		}
 
-		// Construct the request payload
-		requestBodyBytes, err := json.Marshal(addRootRequests)
+		// Construct the full request payload including extraData
+		type AddRootsPayload struct {
+			Roots     []AddRootRequest `json:"roots"`
+			ExtraData *string          `json:"extraData,omitempty"`
+		}
+
+		payload := AddRootsPayload{
+			Roots: addRootRequests,
+		}
+		if extraDataHexStr != "" {
+			// Pass the validated 0x-prefixed hex string directly
+			payload.ExtraData = &extraDataHexStr
+		}
+
+		requestBodyBytes, err := json.Marshal(payload)
 		if err != nil {
 			return fmt.Errorf("failed to marshal request body: %v", err)
 		}

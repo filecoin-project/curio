@@ -136,9 +136,10 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Step 2: Parse the request body to get the 'recordKeeper' address
+	// Step 2: Parse the request body to get the 'recordKeeper' address and extraData
 	type RequestBody struct {
-		RecordKeeper string `json:"recordKeeper"`
+		RecordKeeper string  `json:"recordKeeper"`
+		ExtraData    *string `json:"extraData,omitempty"`
 	}
 
 	body, err := io.ReadAll(r.Body)
@@ -165,6 +166,21 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Decode extraData if provided
+	var extraDataBytes []byte
+	if reqBody.ExtraData != nil {
+		extraDataHexStr := *reqBody.ExtraData
+		decodedBytes, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
+		if err != nil {
+			log.Errorf("Failed to decode hex extraData: %v", err)
+			http.Error(w, "Invalid extraData format (must be hex encoded)", http.StatusBadRequest)
+			return
+		}
+		extraDataBytes = decodedBytes
+	} else {
+		extraDataBytes = []byte{}
+	}
+
 	// Step 3: Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
 	fromAddress, err := p.getSenderAddress(ctx)
 	if err != nil {
@@ -181,7 +197,7 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 	}
 
 	// Pack the method call data
-	data, err := abiData.Pack("createProofSet", recordKeeperAddr, []byte{})
+	data, err := abiData.Pack("createProofSet", recordKeeperAddr, extraDataBytes)
 	if err != nil {
 		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -575,22 +591,42 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		Subroots []SubrootEntry `json:"subroots"`
 	}
 
-	var req []AddRootRequest // array because we can add multiple roots in one request
-	err = json.NewDecoder(r.Body).Decode(&req)
+	// AddRootsPayload defines the structure for the entire add roots request payload
+	type AddRootsPayload struct {
+		Roots     []AddRootRequest `json:"roots"`
+		ExtraData *string          `json:"extraData,omitempty"`
+	}
+
+	var payload AddRootsPayload
+	err = json.NewDecoder(r.Body).Decode(&payload)
 	if err != nil {
 		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	defer r.Body.Close()
 
-	if len(req) == 0 {
+	if len(payload.Roots) == 0 {
 		http.Error(w, "At least one root must be provided", http.StatusBadRequest)
 		return
 	}
 
+	var extraDataBytes []byte
+	if payload.ExtraData != nil {
+		extraDataHexStr := *payload.ExtraData
+		decodedBytes, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
+		if err != nil {
+			log.Errorf("Failed to decode hex extraData: %v", err)
+			http.Error(w, "Invalid extraData format (must be hex encoded)", http.StatusBadRequest)
+			return
+		}
+		extraDataBytes = decodedBytes
+	} else {
+		extraDataBytes = []byte{} // Ensure it's an empty byte slice if not provided
+	}
+
 	// Collect all subrootCIDs to fetch their info in a batch
 	subrootCIDsSet := make(map[string]struct{})
-	for _, addRootReq := range req {
+	for _, addRootReq := range payload.Roots {
 		if addRootReq.RootCID == "" {
 			http.Error(w, "RootCID is required for each root", http.StatusBadRequest)
 			return
@@ -686,7 +722,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		}
 
 		// Now, for each AddRootRequest, validate RootCID and prepare data for ETH transaction
-		for _, addRootReq := range req {
+		for _, addRootReq := range payload.Roots {
 			// Collect pieceInfos for subroots
 			pieceInfos := make([]abi.PieceInfo, len(addRootReq.Subroots))
 
@@ -749,7 +785,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 
 	var rootDataArray []RootData
 
-	for _, addRootReq := range req {
+	for _, addRootReq := range payload.Roots {
 		// Convert RootCID to bytes
 		rootCID, err := cid.Decode(addRootReq.RootCID)
 		if err != nil {
@@ -783,7 +819,8 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 
 	// Step 6: Prepare the Ethereum transaction
 	// Pack the method call data
-	data, err := abiData.Pack("addRoots", proofSetID, rootDataArray, []byte{})
+	// The extraDataBytes variable is now correctly populated above
+	data, err := abiData.Pack("addRoots", proofSetID, rootDataArray, extraDataBytes)
 	if err != nil {
 		http.Error(w, "Failed to pack method call: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -837,7 +874,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 
 		// Insert into pdp_proofset_roots
 
-		for addMessageIndex, addRootReq := range req {
+		for addMessageIndex, addRootReq := range payload.Roots {
 			for _, subrootEntry := range addRootReq.Subroots {
 				subrootInfo := subrootInfoMap[subrootEntry.SubrootCID]
 
