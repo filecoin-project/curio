@@ -290,11 +290,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask)
 		}
 
-		sc, err := slrLazy.Val()
-		if err != nil {
-			return nil, err
-		}
-
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 
 		indexingTask := indexing.NewIndexingTask(db, sc, iStore, pp, cfg, idxMax)
