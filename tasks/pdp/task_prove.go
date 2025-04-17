@@ -238,7 +238,13 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	// Add 2x buffer for certainty
 	proofFee = new(big.Int).Mul(proofFee, big.NewInt(3))
 
-	fromAddress, err := p.getSenderAddress(ctx)
+	// Get the sender address for this proofset
+	owner, _, err := pdpVerifier.GetProofSetOwner(callOpts, big.NewInt(proofSetID))
+	if err != nil {
+		return false, xerrors.Errorf("failed to get owner: %w", err)
+	}
+
+	fromAddress, err := p.getSenderAddress(ctx, owner)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get sender address: %w", err)
 	}
@@ -635,11 +641,9 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 	return out, nil
 }
 
-func (p *ProveTask) getSenderAddress(ctx context.Context) (common.Address, error) {
-	// todo do based on proofset
-
+func (p *ProveTask) getSenderAddress(ctx context.Context, match common.Address) (common.Address, error) {
 	var addressStr string
-	err := p.db.QueryRow(ctx, `SELECT address FROM eth_keys WHERE role = 'pdp' LIMIT 1`).Scan(&addressStr)
+	err := p.db.QueryRow(ctx, `SELECT address FROM eth_keys WHERE role = 'pdp' AND address = $1 LIMIT 1`, match.Hex()).Scan(&addressStr)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return common.Address{}, errors.New("no sender address with role 'pdp' found")
