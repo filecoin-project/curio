@@ -719,3 +719,47 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 	fmt.Printf("The base layer has been updated with miner[s] %s\n", miners)
 	return nil
 }
+func CreatePDPConfig(ctx context.Context, db *harmonydb.DB, info string) error {
+	var titles []string
+	err := db.Select(ctx, &titles, `SELECT title FROM harmony_config WHERE LENGTH(config) > 0`)
+	if err != nil {
+		return fmt.Errorf("cannot reach the db. Ensure that Yugabyte flags are set correctly to"+
+			" reach Yugabyte: %s", err.Error())
+	}
+
+	// setup config
+	curioConfig := config.DefaultCurioConfig()
+	curioConfig.Addresses = append(curioConfig.Addresses, config.CurioAddresses{
+		PreCommitControl:      []string{},
+		CommitControl:         []string{},
+		DealPublishControl:    []string{},
+		TerminateControl:      []string{},
+		DisableOwnerFallback:  false,
+		DisableWorkerFallback: false,
+		MinerAddresses:        []string{},
+		BalanceManager:        config.DefaultBalanceManager(),
+	})
+
+	sk, err := io.ReadAll(io.LimitReader(rand.Reader, 32))
+	if err != nil {
+		return err
+	}
+
+	curioConfig.Apis.StorageRPCSecret = base64.StdEncoding.EncodeToString(sk)
+
+	curioConfig.Apis.ChainApiInfo = append(curioConfig.Apis.ChainApiInfo, info)
+	if !lo.Contains(titles, "base") {
+		cb, err := config.ConfigUpdate(curioConfig, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
+		if err != nil {
+			return xerrors.Errorf("Failed to generate default config: %w", err)
+		}
+		cfg := string(cb)
+		_, err = db.Exec(ctx, "INSERT INTO harmony_config (title, config) VALUES ('base', $1)", cfg)
+		if err != nil {
+			return xerrors.Errorf("failed to insert the 'base' into the database: %w", err)
+		}
+		fmt.Println("The base layer has been created for PDP only provider")
+		return nil
+	}
+	return xerrors.Errorf("base layer already exists")
+}

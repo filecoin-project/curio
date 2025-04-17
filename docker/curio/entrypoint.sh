@@ -83,5 +83,5 @@ if [ ! -f $CURIO_REPO_PATH/.init.curio ]; then
 fi
 
 echo Starting curio node ...
-exec curio run --nosync --name devnet --layers seal,post,market,gui
+exec curio run --nosync --name devnet --layers market,gui
 
