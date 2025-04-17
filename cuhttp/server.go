@@ -19,9 +19,11 @@ import (
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	mhttp "github.com/filecoin-project/curio/market/http"
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/market/retrieval"
+	storage_market "github.com/filecoin-project/curio/tasks/storage-market"
 )
 
 var log = logging.Logger("cu-http")
@@ -101,7 +103,7 @@ func isWebSocketUpgrade(r *http.Request) bool {
 	return true
 }
 
-func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
+func StartHTTPServer(ctx context.Context, d *deps.Deps, dm *storage_market.CurioStorageDealMarket) error {
 	cfg := d.Cfg.HTTP
 
 	// Setup the Chi router for more complex routing (if needed in the future)
@@ -142,7 +144,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps) error {
 		fmt.Fprintf(w, "Service is up and running")
 	})
 
-	chiRouter, err = attachRouters(ctx, chiRouter, d)
+	chiRouter, err = attachRouters(ctx, chiRouter, d, dm)
 	if err != nil {
 		return xerrors.Errorf("failed to attach routers: %w", err)
 	}
@@ -234,7 +236,7 @@ func (c cache) Delete(ctx context.Context, key string) error {
 
 var _ autocert.Cache = cache{}
 
-func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps) (*chi.Mux, error) {
+func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, dm *storage_market.CurioStorageDealMarket) (*chi.Mux, error) {
 	// Attach retrievals
 	rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader)
 	retrieval.Router(r, rp)
@@ -251,6 +253,13 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps) (*chi.Mux, err
 	// Attach LibP2P redirector
 	rd := libp2p.NewRedirector(d.DB)
 	libp2p.Router(r, rd)
+
+	// Attach the market handler
+	dh, err := mhttp.NewMarketHandler(d.DB, d.Cfg, dm)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to create new market handler: %w", err)
+	}
+	mhttp.Router(r, dh)
 
 	return r, nil
 }

@@ -3,6 +3,7 @@ package libp2p
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
@@ -52,6 +53,16 @@ func (rp *Redirector) handleLibp2pWebsocket(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Connect to the target WebSocket server first as any error after upgrading the websocket
+	// can be sent with simply HTTP methods
+	targetConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		http.Error(w, "Bad Gateway", http.StatusBadGateway)
+		log.Infof("Error connecting to target WebSocket server: %v", err)
+		return
+	}
+	defer targetConn.Close()
+
 	// Upgrade the client connection to a WebSocket connection
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
@@ -65,15 +76,6 @@ func (rp *Redirector) handleLibp2pWebsocket(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	defer clientConn.Close()
-
-	// Connect to the target WebSocket server
-	targetConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		http.Error(w, "Bad Gateway", http.StatusBadGateway)
-		log.Infof("Error connecting to target WebSocket server: %v", err)
-		return
-	}
-	defer targetConn.Close()
 
 	// Proxy data between clientConn and targetConn
 	errc := make(chan error, 2)
@@ -91,9 +93,19 @@ func (rp *Redirector) handleLibp2pWebsocket(w http.ResponseWriter, r *http.Reque
 // proxyWebSocket copies messages from src to dst WebSocket connections
 func proxyWebSocket(src, dst *websocket.Conn, errc chan error) {
 	for {
+		err := src.SetReadDeadline(time.Now().Add(15 * time.Second))
+		if err != nil {
+			errc <- xerrors.Errorf("error setting read deadline: %w", err)
+			break
+		}
 		messageType, message, err := src.ReadMessage()
 		if err != nil {
 			errc <- err
+			break
+		}
+		err = dst.SetWriteDeadline(time.Now().Add(15 * time.Second))
+		if err != nil {
+			errc <- xerrors.Errorf("error setting write deadline: %w", err)
 			break
 		}
 		err = dst.WriteMessage(messageType, message)
