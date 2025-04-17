@@ -39,6 +39,8 @@ var log = logging.Logger("curio/window")
 
 var EpochsPerDeadline = miner.WPoStProvingPeriod() / abi.ChainEpoch(miner.WPoStPeriodDeadlines)
 
+const daemonFailureGracePeriod = 5 * time.Minute
+
 type WdPostTaskDetails struct {
 	Ts       *types.TipSet
 	Deadline *dline.Info
@@ -193,7 +195,6 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 
 	// Monitor the current height to cancel the task with correct error
 	go func(stAPI WDPoStAPI, cancel context.CancelCauseFunc, finish chan struct{}) {
-		counter := 0
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 
@@ -204,14 +205,20 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 			case <-ticker.C:
 				h, err := stAPI.ChainHead(context.Background())
 				if err != nil {
-					counter++
-					if counter < 5 {
-						log.Warnf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to get chain head: %w", spID, dlIdx, partIdx, err)
+					log.Warnf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to get chain head: %w", spID, dlIdx, partIdx, err)
+					failed_at := time.Now()
+					for time.Now().After(failed_at.Add(daemonFailureGracePeriod)) { // In case daemon not reachable temporarily, allow 5 minutes grace period
+						h, err = stAPI.ChainHead(context.Background())
+						if err == nil {
+							break
+						}
+						time.Sleep(2 * time.Second)
 					}
-					cancel(xerrors.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to get chain head: %w", spID, dlIdx, partIdx, err))
-					return
+					if err != nil {
+						cancel(xerrors.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to get chain head: %w", spID, dlIdx, partIdx, err))
+						return
+					}
 				}
-				counter = 0
 				if h.Height() > deadline.Challenge {
 					cancel(xerrors.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d cancelling context as head %d is greater then deadline close %d", spID, dlIdx, partIdx, h.Height(), deadline.Close))
 					return
