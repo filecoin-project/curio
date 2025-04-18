@@ -167,7 +167,7 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 	}
 
 	// Decode extraData if provided
-	var extraDataBytes []byte
+	var extraDataBytes = []byte{}
 	if reqBody.ExtraData != nil {
 		extraDataHexStr := *reqBody.ExtraData
 		decodedBytes, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
@@ -177,8 +177,6 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 			return
 		}
 		extraDataBytes = decodedBytes
-	} else {
-		extraDataBytes = []byte{}
 	}
 
 	// Step 3: Get the sender address from 'eth_keys' table where role = 'pdp' limit 1
@@ -610,7 +608,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	var extraDataBytes []byte
+	var extraDataBytes = []byte{}
 	if payload.ExtraData != nil {
 		extraDataHexStr := *payload.ExtraData
 		decodedBytes, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
@@ -620,8 +618,6 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		extraDataBytes = decodedBytes
-	} else {
-		extraDataBytes = []byte{} // Ensure it's an empty byte slice if not provided
 	}
 
 	// Collect all subrootCIDs to fetch their info in a batch

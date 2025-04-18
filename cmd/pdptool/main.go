@@ -35,6 +35,21 @@ import (
 	curioproof "github.com/filecoin-project/curio/lib/proof"
 )
 
+// validateExtraData checks if the provided hex string is valid and within the size limit.
+func validateExtraData(extraDataHexStr string) error {
+	if extraDataHexStr == "" {
+		return nil // No data to validate
+	}
+	decoded, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
+	if err != nil {
+		return fmt.Errorf("failed to decode hex in extra-data: %w", err)
+	}
+	if len(decoded) > 2048 {
+		return fmt.Errorf("decoded extra-data exceeds maximum size of 2048 bytes (decoded length: %d)", len(decoded))
+	}
+	return nil
+}
+
 func main() {
 	app := &cli.App{
 		Name:    "pdptool",
@@ -856,14 +871,8 @@ var createProofSetCmd = &cli.Command{
 		extraDataHexStr := cctx.String("extra-data")
 
 		// Validate extraData hex string and its decoded length
-		if extraDataHexStr != "" {
-			decoded, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
-			if err != nil {
-				return fmt.Errorf("failed to decode hex in --extra-data: %v", err)
-			}
-			if len(decoded) > 2048 {
-				return fmt.Errorf("decoded extra-data exceeds maximum size of 2048 bytes (decoded length: %d)", len(decoded))
-			}
+		if err := validateExtraData(extraDataHexStr); err != nil {
+			return err
 		}
 
 		// Load the private key
@@ -1175,14 +1184,8 @@ var addRootsCmd = &cli.Command{
 		extraDataHexStr := cctx.String("extra-data")
 
 		// Validate extraData hex string and its decoded length
-		if extraDataHexStr != "" {
-			decoded, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
-			if err != nil {
-				return fmt.Errorf("invalid hex format for --extra-data (after removing 0x prefix): %v", err)
-			}
-			if len(decoded) > 2048 {
-				return fmt.Errorf("decoded extra-data exceeds maximum size of 2048 bytes (decoded length: %d)", len(decoded))
-			}
+		if err := validateExtraData(extraDataHexStr); err != nil {
+			return err
 		}
 
 		// Load the private key
