@@ -11,10 +11,12 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/dustin/go-humanize"
+	cbor "github.com/ipfs/go-ipld-cbor"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
@@ -24,6 +26,8 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
+	"github.com/filecoin-project/lotus/blockstore"
+	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
@@ -714,6 +718,84 @@ func chainSyncCheck(al *alerts) {
 			log.Debugf("Chain Sync status: %s: slow (%s behind)", addr, time.Since(time.Unix(int64(head.MinTimestamp()), 0)).Truncate(time.Second))
 		default:
 			al.alertMap[Name].alertString += fmt.Sprintf("behind (%s behind)", time.Since(time.Unix(int64(head.MinTimestamp()), 0)).Truncate(time.Second))
+		}
+	}
+}
+
+func missingSectorCheck(al *alerts) {
+	Name := "MissingSectors"
+	al.alertMap[Name] = &alertOut{}
+
+	var sectors []struct {
+		MinerID  int64 `db:"miner_id"`
+		SectorID int64 `db:"sector_num"`
+	}
+
+	err := al.db.Select(al.ctx, &sectors, `SELECT miner_id, sector_num  FROM sector_location WHERE sector_filetype = 2 GROUP BY miner_id, sector_num ORDER BY miner_id, sector_num`)
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("getting sealed sectors from database: %w", err)
+		return
+	}
+
+	dbMap := map[address.Address]*bitfield.BitField{}
+	minerMap := map[int64]address.Address{}
+
+	for _, sector := range sectors {
+		m, ok := minerMap[sector.MinerID]
+		if !ok {
+			m, err = address.NewIDAddress(uint64(sector.MinerID))
+			if err != nil {
+				al.alertMap[Name].err = xerrors.Errorf("parsing miner address: %w", err)
+				return
+			}
+			minerMap[sector.MinerID] = m
+		}
+		bf, ok := dbMap[m]
+		if !ok {
+			newbf := bitfield.New()
+			newbf.Set(uint64(sector.SectorID))
+			dbMap[m] = &newbf
+			continue
+		}
+		bf.Set(uint64(sector.SectorID))
+	}
+
+	head, err := al.api.ChainHead(al.ctx)
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("ChainHead: %w", err)
+		return
+	}
+
+	for _, m := range minerMap {
+		mact, err := al.api.StateGetActor(al.ctx, m, head.Key())
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("getting miner actor %s: %w", m.String(), err)
+			return
+		}
+		tbs := blockstore.NewTieredBstore(blockstore.NewAPIBlockstore(al.api), blockstore.NewMemory())
+		mas, err := miner.Load(adt.WrapStore(al.ctx, cbor.NewCborStore(tbs)), mact)
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("loading miner %s: %w", m.String(), err)
+			return
+		}
+
+		liveSectors, err := miner.AllPartSectors(mas, miner.Partition.LiveSectors)
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("getting live sectors for miner %s: %w", m.String(), err)
+			return
+		}
+
+		diff, err := bitfield.SubtractBitField(liveSectors, *dbMap[m])
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("subtracting live sectors for miner %s: %w", m.String(), err)
+		}
+		err = diff.ForEach(func(i uint64) error {
+			al.alertMap[Name].alertString += fmt.Sprintf("Missing sector %d in storage for miner %s. ", i, m.String())
+			return nil
+		})
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("getting missing sectors for miner %s: %w", m.String(), err)
+			return
 		}
 	}
 }
