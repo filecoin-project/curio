@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"time"
 
+	blocks "github.com/ipfs/go-block-format"
+	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 
 	"github.com/filecoin-project/go-address"
@@ -32,11 +34,15 @@ var log = logging.Logger("curio/alertmanager")
 
 type AlertAPI interface {
 	ctladdr.NodeApi
+	ChainReadObj(context.Context, cid.Cid) ([]byte, error)
+	ChainHasObj(context.Context, cid.Cid) (bool, error)
+	ChainPutObj(context.Context, blocks.Block) error
 	ChainHead(context.Context) (*types.TipSet, error)
 	ChainGetTipSet(context.Context, types.TipSetKey) (*types.TipSet, error)
 	StateMinerInfo(ctx context.Context, actor address.Address, tsk types.TipSetKey) (api.MinerInfo, error)
 	StateMinerProvingDeadline(context.Context, address.Address, types.TipSetKey) (*dline.Info, error)
 	StateMinerPartitions(context.Context, address.Address, uint64, types.TipSetKey) ([]api.Partition, error)
+	StateGetActor(ctx context.Context, actor address.Address, tsk types.TipSetKey) (*types.Actor, error)
 }
 
 type AlertTask struct {
@@ -70,6 +76,7 @@ var AlertFuncs = []AlertFunc{
 	wnPostCheck,
 	NowCheck,
 	chainSyncCheck,
+	missingSectorCheck,
 }
 
 func NewAlertTask(
