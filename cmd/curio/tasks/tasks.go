@@ -41,6 +41,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/metadata"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
+	"github.com/filecoin-project/curio/tasks/proofshare"
 	"github.com/filecoin-project/curio/tasks/scrub"
 	"github.com/filecoin-project/curio/tasks/seal"
 	"github.com/filecoin-project/curio/tasks/sealsupra"
@@ -104,6 +105,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 	sender, sendTask := message.NewSender(full, full, db)
 	activeTasks = append(activeTasks, sendTask)
+	dependencies.Sender = sender
 
 	chainSched := chainsched.New(full)
 
@@ -189,7 +191,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		cfg.Subsystems.EnableUpdateEncode ||
 		cfg.Subsystems.EnableUpdateProve ||
 		cfg.Subsystems.EnableUpdateSubmit ||
-		cfg.Subsystems.EnableCommP
+		cfg.Subsystems.EnableCommP ||
+		cfg.Subsystems.EnableProofShare
 
 	if hasAnySealingTask {
 		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover)
@@ -278,10 +281,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	log.Infow("This Curio instance handles",
 		"miner_addresses", miners,
 		"tasks", lo.Map(activeTasks, func(t harmonytask.TaskInterface, _ int) string { return t.TypeDetails().Name }))
-
-	// harmony treats the first task as highest priority, so reverse the order
-	// (we could have just appended to this list in the reverse order, but defining
-	//  tasks in pipeline order is more intuitive)
 
 	ht, err := harmonytask.New(db, activeTasks, dependencies.ListenAddr)
 	if err != nil {
@@ -407,6 +406,22 @@ func addSealingTasks(
 		submitTask := snap.NewSubmitTask(db, full, bstore, sender, as, cfg)
 		activeTasks = append(activeTasks, submitTask)
 	}
+
+	if cfg.Subsystems.EnableProofShare {
+		requestProofsTask := proofshare.NewTaskRequestProofs(db, asyncParams())
+		provideSnarkTask := proofshare.NewTaskProvideSnark(db, asyncParams(), cfg.Subsystems.ProofShareMaxTasks)
+		submitTask := proofshare.NewTaskSubmit(db)
+		activeTasks = append(activeTasks, requestProofsTask, provideSnarkTask, submitTask)
+	}
+
+	if cfg.Subsystems.EnableRemoteProofs {
+		remoteProofsTask := proofshare.NewTaskRemotePoRep(db, full, stor)
+		activeTasks = append(activeTasks, remoteProofsTask)
+	}
+
+	// harmony treats the first task as highest priority, so reverse the order
+	// (we could have just appended to this list in the reverse order, but defining
+	//  tasks in pipeline order is more intuitive)
 	activeTasks = lo.Reverse(activeTasks)
 
 	if hasAnySealingTask {
