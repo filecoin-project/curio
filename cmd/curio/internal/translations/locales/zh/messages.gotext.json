@@ -2067,6 +2067,24 @@
       "translation": "为连接到 Yugabyte 集群中的 Postgres 数据库启用负载均衡",
       "message": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
       "placeholder": null
+    },
+    {
+      "id": "Tool Box for Curio",
+      "translation": "Curio 工具箱",
+      "message": "Tool Box for Curio",
+      "placeholder": null
+    },
+    {
+      "id": "Updated DB with message data missing from chain node",
+      "translation": "已使用链节点中缺失的消息数据更新数据库",
+      "message": "Updated DB with message data missing from chain node",
+      "placeholder": null
+    },
+    {
+      "id": "Update data for messages in wait queue",
+      "translation": "更新等待队列中的消息数据",
+      "message": "Update data for messages in wait queue",
+      "placeholder": null
     }
   ]
 }

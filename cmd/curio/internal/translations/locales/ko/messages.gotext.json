@@ -2097,6 +2097,24 @@
             "translation": "Yugabyte 클러스터의 Postgres 데이터베이스에 연결할 때 로드 밸런싱을 활성화하세요",
             "message": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
             "placeholder": null
+        },
+        {
+            "id": "Tool Box for Curio",
+            "translation": "Curio 도구 상자",
+            "message": "Tool Box for Curio",
+            "placeholder": null
+        },
+        {
+            "id": "Updated DB with message data missing from chain node",
+            "translation": "체인 노드에서 누락된 메시지 데이터를 사용하여 데이터베이스를 업데이트함",
+            "message": "Updated DB with message data missing from chain node",
+            "placeholder": null
+        },
+        {
+            "id": "Update data for messages in wait queue",
+            "translation": "대기 큐에 있는 메시지의 데이터를 업데이트",
+            "message": "Update data for messages in wait queue",
+            "placeholder": null
         }
     ]
 }
