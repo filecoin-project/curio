@@ -160,9 +160,9 @@ var fixMsgCmd = &cli.Command{
 				0, ffmsg.Receipt.Return, ffmsg.Receipt.GasUsed,
 				msg.SignedMsgCID)
 			if err != nil {
-				log.Error(err)
-				return err
+				return xerrors.Errorf("failed to update message_waits: %w", err)
 			}
+			fmt.Printf("Updated message_waits for %s\n", msg.SignedMsgCID)
 		}
 
 		return nil
