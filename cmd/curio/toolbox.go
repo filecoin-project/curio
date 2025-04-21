@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -118,7 +119,8 @@ var fixMsgCmd = &cli.Command{
 		for _, msg := range msgs {
 			ffmsg, err := filfoxMessage(msg.SignedMsgCID)
 			if err != nil {
-				return err
+				fmt.Println(err) // Skip errors from FilFox as some msgs may have not landed yet when using --all flag
+				continue
 			}
 
 			var tskey []cid.Cid
