@@ -21,7 +21,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
-const filFoxMsgAPI = "https://filfox.info/api/v1/messages/"
+const filFoxMsgAPI = "https://filfox.info/api/v1/message/"
 
 // Curio toolbox exists to keep `sptool` separated from Curio. Otherwise, `sptool` will require more than
 // chain node to function
@@ -111,8 +111,7 @@ var fixMsgCmd = &cli.Command{
 		}
 
 		if err != nil {
-			log.Errorw("failed to query message_waits", "error", err)
-			return err
+			return xerrors.Errorf("failed to query message_waits: %w", err)
 		}
 
 		// Find the details from FilFox and update the DB
