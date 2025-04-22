@@ -129,9 +129,10 @@ To build the client binary, clone the Curio repo and build the PDP client.&#x20;
 
 ```bash
 git clone https://github.com/filecoin-project/curio.git
-cd curio/
+cd curio
 git checkout feat/pdp
-make pdptool
+cd cmd/pdptool
+go build .
 ```
 
 The `pdptool` command contains utilities for uploading files to a curio node and interacting with the pdp contract to create proofsets, and add and remove roots from proofsets.
