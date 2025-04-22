@@ -77,6 +77,7 @@ var AlertFuncs = []AlertFunc{
 	NowCheck,
 	chainSyncCheck,
 	missingSectorCheck,
+	pendingMessagesCheck,
 }
 
 func NewAlertTask(

@@ -799,3 +799,34 @@ func missingSectorCheck(al *alerts) {
 		}
 	}
 }
+
+func pendingMessagesCheck(al *alerts) {
+	Name := "PendingMessages"
+	al.alertMap[Name] = &alertOut{}
+
+	var messages []struct {
+		MessageCid string    `db:"signed_message_cid"`
+		AddedAt    time.Time `db:"added_at"`
+	}
+
+	err := al.db.Select(al.ctx, &messages, `SELECT signed_message_cid, added_at FROM message_waits WHERE executed_tsk_cid IS NULL ORDER BY added_at DESC`)
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("getting pending messages: %w", err)
+	}
+
+	if len(messages) == 0 {
+		return
+	}
+
+	var msgs []string
+
+	for _, msg := range messages {
+		if time.Since(msg.AddedAt) > time.Hour {
+			msgs = append(msgs, msg.MessageCid)
+		}
+	}
+
+	if len(msgs) > 0 {
+		al.alertMap[Name].alertString += fmt.Sprintf("Messages pending for more than 1 hour: %s", strings.Join(msgs, ", "))
+	}
+}

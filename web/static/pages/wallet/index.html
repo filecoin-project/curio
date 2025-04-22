@@ -5,6 +5,7 @@
     <script type="module" src="/ux/curio-ux.mjs"></script>
     <script type="module" src="/ux/components/Drawer.mjs"></script>
     <script type="module" src="wallet.mjs"></script>
+    <script type="module" src="messages.mjs"></script>
 </head>
 <body style="visibility:hidden; background:rgb(11, 22, 34)" data-bs-theme="dark">
 <curio-ux>
@@ -16,6 +17,11 @@
             <div class="row">
                 <div class="col-md-auto" style="max-width: 95%">
                     <wallet-names></wallet-names>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                    <pending-messages></pending-messages>
                 </div>
             </div>
         </section>

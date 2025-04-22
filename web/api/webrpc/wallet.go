@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
+
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
@@ -98,4 +101,44 @@ func (a *WebRPC) WalletRemove(ctx context.Context, wallet string) error {
 	defer walletFriendlyNamesLock.Unlock()
 	delete(walletFriendlyNames, wallet)
 	return nil
+}
+
+type PendingMessages struct {
+	Messages []PendingMessage `json:"messages"`
+	Total    int              `json:"total"`
+}
+
+type PendingMessage struct {
+	Message string    `json:"message"`
+	AddedAt time.Time `json:"added_at"`
+}
+
+func (a *WebRPC) PendingMessages(ctx context.Context) (PendingMessages, error) {
+
+	var messages []struct {
+		MessageCid string    `db:"signed_message_cid"`
+		AddedAt    time.Time `db:"added_at"`
+	}
+
+	err := a.deps.DB.Select(ctx, &messages, `SELECT signed_message_cid, added_at FROM message_waits WHERE executed_tsk_cid IS NULL ORDER BY added_at DESC`)
+	if err != nil {
+		return PendingMessages{}, xerrors.Errorf("failed to get pending messages: %w", err)
+	}
+
+	var msgs []PendingMessage
+
+	for i := range messages {
+		msg := PendingMessage{
+			Message: messages[i].MessageCid,
+			AddedAt: messages[i].AddedAt,
+		}
+		msgs = append(msgs, msg)
+	}
+
+	ret := PendingMessages{
+		Messages: msgs,
+		Total:    len(msgs),
+	}
+
+	return ret, nil
 }
