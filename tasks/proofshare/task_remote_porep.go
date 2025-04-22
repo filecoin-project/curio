@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/filecoin-project/go-state-types/big"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -65,6 +66,7 @@ func (t *TaskRemotePoRep) Adder(add harmonytask.AddTaskFunc) {
 
 		for range ticker.C {
 			var more bool
+			log.Infow("TaskRemotePoRep.Adder() ticker fired, looking for sectors to process")
 
 		again:
 			add(func(taskID harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
@@ -80,15 +82,18 @@ func (t *TaskRemotePoRep) Adder(add harmonytask.AddTaskFunc) {
 					WHERE enabled = TRUE AND do_porep = TRUE
 				`)
 				if err != nil {
+					log.Errorw("TaskRemotePoRep.Adder() failed to query client settings", "error", err)
 					return false, xerrors.Errorf("failed to query client settings: %w", err)
 				}
 
 				if len(enabledFor) == 0 {
+					log.Infow("TaskRemotePoRep.Adder() no enabled client settings found for PoRep")
 					return false, nil
 				}
 
 				// get the minimum pending seconds
 				minPendingSeconds := enabledFor[0].MinimumPendingSeconds
+				log.Infow("TaskRemotePoRep.Adder() found enabled client settings", "count", len(enabledFor), "minPendingSeconds", minPendingSeconds)
 
 				// claim [sectors] pipeline entries
 				var sectors []struct {
@@ -97,14 +102,19 @@ func (t *TaskRemotePoRep) Adder(add harmonytask.AddTaskFunc) {
 					TaskIDPorep  *int64 `db:"task_id_porep"`
 				}
 
+				cutoffTime := time.Now().Add(-time.Duration(minPendingSeconds) * time.Second)
+				log.Infow("TaskRemotePoRep.Adder() querying for sectors with cutoff time", "cutoffTime", cutoffTime)
+
 				err = tx.Select(&sectors, `SELECT sp_id, sector_number, task_id_porep FROM sectors_sdr_pipeline
 												LEFT JOIN harmony_task ht on sectors_sdr_pipeline.task_id_porep = ht.id
-												WHERE after_sdr = FALSE AND (task_id_porep IS NULL OR (ht.owner_id IS NULL AND ht.name = 'PoRep')) AND ht.posted_time < $1 LIMIT 1`, time.Now().Add(-time.Duration(minPendingSeconds)*time.Second))
+												WHERE after_porep = FALSE AND task_id_porep IS NOT NULL AND ht.owner_id IS NULL AND ht.name = 'PoRep' AND ht.posted_time < $1 LIMIT 1`, cutoffTime)
 				if err != nil {
+					log.Errorw("TaskRemotePoRep.Adder() failed to query sectors", "error", err)
 					return false, xerrors.Errorf("getting tasks: %w", err)
 				}
 
 				if len(sectors) == 0 {
+					log.Infow("TaskRemotePoRep.Adder() no sectors found to process")
 					return false, nil
 				}
 
@@ -117,12 +127,15 @@ func (t *TaskRemotePoRep) Adder(add harmonytask.AddTaskFunc) {
 					WHERE sp_id = $2 AND sector_number = $3
 				`, taskID, sectors[0].SpID, sectors[0].SectorNumber)
 				if err != nil {
+					log.Errorw("TaskRemotePoRep.Adder() failed to update sector", "error", err, "taskID", taskID, "spID", sectors[0].SpID, "sectorNumber", sectors[0].SectorNumber)
 					return false, xerrors.Errorf("failed to update sector: %w", err)
 				}
 
 				if sectors[0].TaskIDPorep != nil {
+					log.Infow("TaskRemotePoRep.Adder() deleting old task", "oldTaskID", *sectors[0].TaskIDPorep, "newTaskID", taskID)
 					_, err := tx.Exec(`DELETE FROM harmony_task WHERE id = $1`, *sectors[0].TaskIDPorep)
 					if err != nil {
+						log.Errorw("TaskRemotePoRep.Adder() failed to delete old task", "error", err, "oldTaskID", *sectors[0].TaskIDPorep)
 						return false, xerrors.Errorf("deleting old task: %w", err)
 					}
 				}
@@ -132,6 +145,8 @@ func (t *TaskRemotePoRep) Adder(add harmonytask.AddTaskFunc) {
 			})
 
 			if more {
+				more = false
+				log.Infow("TaskRemotePoRep.Adder() more sectors to process, continuing")
 				goto again
 			}
 		}
@@ -238,6 +253,7 @@ func (t *TaskRemotePoRep) getSectorInfo(ctx context.Context, taskID harmonytask.
 		return nil, xerrors.Errorf("failed to parse unsealed cid: %w", err2)
 	}
 
+	log.Infow("sector info", "taskID", taskID, "spID", info.SpID, "sectorNumber", info.SectorNumber)
 	return &info, nil
 }
 
@@ -290,6 +306,7 @@ func (t *TaskRemotePoRep) getClientRequest(ctx context.Context, taskID harmonyta
 
 // uploadProofData generates and uploads the proof data
 func (t *TaskRemotePoRep) uploadProofData(ctx context.Context, taskID harmonytask.TaskID, sectorInfo *SectorInfo, clientRequest *ClientRequest) (bool, error) {
+	log.Infow("uploadProofData start", "taskID", taskID, "spID", sectorInfo.SpID, "sectorNumber", sectorInfo.SectorNumber)
 	// Get randomness
 	randomness, err := t.getRandomness(ctx, sectorInfo)
 	if err != nil {
@@ -304,14 +321,15 @@ func (t *TaskRemotePoRep) uploadProofData(ctx context.Context, taskID harmonytas
 			Number: abi.SectorNumber(sectorInfo.SectorNumber),
 		},
 		ProofType: spt,
-	}, sectorInfo.Unsealed, sectorInfo.Sealed, sectorInfo.TicketValue, abi.InteractiveSealRandomness(randomness))
+	}, sectorInfo.Sealed, sectorInfo.Unsealed, sectorInfo.TicketValue, abi.InteractiveSealRandomness(randomness))
 	if err != nil {
 		return false, xerrors.Errorf("failed to generate porep vanilla proof: %w", err)
 	}
 
-	proofDec, err := proof.DecodeCommit1OutRaw(bytes.NewReader(p))
-	if err != nil {
-		return false, xerrors.Errorf("failed to decode proof: %w", err)
+	var proofDec proof.Commit1OutRaw
+	// json unmarshal proof
+	if err := json.Unmarshal(p, &proofDec); err != nil {
+		return false, xerrors.Errorf("failed to unmarshal proof: %w", err)
 	}
 
 	// Create ProofData
@@ -321,11 +339,6 @@ func (t *TaskRemotePoRep) uploadProofData(ctx context.Context, taskID harmonytas
 			Number: abi.SectorNumber(sectorInfo.SectorNumber),
 		},
 		PoRep: &proofDec,
-	}
-
-	// Validate the ProofData
-	if err := proofData.Validate(); err != nil {
-		return false, xerrors.Errorf("invalid proof data: %w", err)
 	}
 
 	// Serialize the ProofData
@@ -350,11 +363,13 @@ func (t *TaskRemotePoRep) uploadProofData(ctx context.Context, taskID harmonytas
 		return false, xerrors.Errorf("failed to update client request with proof data CID: %w", err)
 	}
 
+	log.Infow("uploadProofData complete", "taskID", taskID, "cid", proofDataCid.String())
 	return true, nil
 }
 
 // createPayment creates a payment for the proof request
 func (t *TaskRemotePoRep) createPayment(ctx context.Context, taskID harmonytask.TaskID, sectorInfo *SectorInfo, clientRequest *ClientRequest) (bool, error) {
+	log.Infow("createPayment start", "taskID", taskID, "spID", sectorInfo.SpID, "sectorNumber", sectorInfo.SectorNumber)
 	// Get the wallet address from client settings for this SP ID
 	var walletStr string
 	err := t.db.QueryRow(ctx, `
@@ -405,7 +420,7 @@ func (t *TaskRemotePoRep) createPayment(ctx context.Context, taskID harmonytask.
 	var nextNonce int64
 	_, err = t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		// Check if there's an unconsumed payment
-		var unconsumedPayment struct {
+		var lastPayment struct {
 			Wallet           int64  `db:"wallet"`
 			Nonce            int64  `db:"nonce"`
 			CumulativeAmount string `db:"cumulative_amount"`
@@ -418,30 +433,26 @@ func (t *TaskRemotePoRep) createPayment(ctx context.Context, taskID harmonytask.
 			WHERE wallet = $1
 			ORDER BY nonce DESC
 			LIMIT 1
-		`, clientID).Scan(&unconsumedPayment.Wallet, &unconsumedPayment.Nonce, &unconsumedPayment.CumulativeAmount, &unconsumedPayment.Consumed)
+		`, clientID).Scan(&lastPayment.Wallet, &lastPayment.Nonce, &lastPayment.CumulativeAmount, &lastPayment.Consumed)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return false, xerrors.Errorf("failed to check for unconsumed payments: %w", err)
 		}
 
 		// If there's an unconsumed payment, we need to wait for it to be consumed
-		if err == nil {
+		if err == nil && !lastPayment.Consumed {
 			log.Infow("waiting for previous payment to be consumed",
-				"wallet", unconsumedPayment.Wallet,
-				"nonce", unconsumedPayment.Nonce)
-			return false, nil
-		}
-
-		if !unconsumedPayment.Consumed {
-			log.Infow("previous payment not consumed, waiting",
-				"wallet", unconsumedPayment.Wallet,
-				"nonce", unconsumedPayment.Nonce)
+				"wallet", lastPayment.Wallet,
+				"nonce", lastPayment.Nonce)
 			return false, nil
 		}
 
 		// Parse the cumulative amount
-		cumulativeAmount, err := types.BigFromString(unconsumedPayment.CumulativeAmount)
-		if err != nil {
-			return false, xerrors.Errorf("failed to parse cumulative amount: %w", err)
+		cumulativeAmount := big.Zero()
+		if err == nil {
+			cumulativeAmount, err = types.BigFromString(lastPayment.CumulativeAmount)
+			if err != nil {
+				return false, xerrors.Errorf("failed to parse cumulative amount: %w", err)
+			}
 		}
 
 		// Get the next nonce for this wallet
@@ -494,11 +505,13 @@ func (t *TaskRemotePoRep) createPayment(ctx context.Context, taskID harmonytask.
 		return false, xerrors.Errorf("transaction failed: %w", err)
 	}
 
+	log.Infow("createPayment complete", "taskID", taskID, "wallet", clientID, "nonce", nextNonce)
 	return true, nil
 }
 
 // sendRequest sends the proof request to the service
 func (t *TaskRemotePoRep) sendRequest(ctx context.Context, taskID harmonytask.TaskID, clientRequest *ClientRequest) (bool, error) {
+	log.Infow("sendRequest start", "taskID", taskID, "paymentWallet", clientRequest.PaymentWallet, "paymentNonce", clientRequest.PaymentNonce)
 	// Get the payment details
 	var payment struct {
 		CumulativeAmount string `db:"cumulative_amount"`
@@ -573,11 +586,13 @@ func (t *TaskRemotePoRep) sendRequest(ctx context.Context, taskID harmonytask.Ta
 		return false, xerrors.Errorf("failed to mark request as sent: %w", err)
 	}
 
+	log.Infow("sendRequest complete", "taskID", taskID, "requestCID", clientRequest.RequestCID)
 	return true, nil
 }
 
 // pollForProof polls for the proof status
 func (t *TaskRemotePoRep) pollForProof(ctx context.Context, taskID harmonytask.TaskID, sectorInfo *SectorInfo, clientRequest *ClientRequest) (bool, error) {
+	log.Infow("pollForProof", "taskID", taskID, "requestCID", clientRequest.RequestCID)
 	// Parse the request CID
 	requestCid, err := cid.Parse(*clientRequest.RequestCID)
 	if err != nil {
@@ -587,6 +602,7 @@ func (t *TaskRemotePoRep) pollForProof(ctx context.Context, taskID harmonytask.T
 	// Get proof status by CID
 	proofResp, err := proofsvc.GetProofStatus(requestCid)
 	if err != nil || proofResp.Proof == nil {
+		log.Infow("proof not ready", "taskID", taskID, "spID", sectorInfo.SpID, "sectorNumber", sectorInfo.SectorNumber)
 		// Not ready yet, continue polling
 		return false, nil
 	}
@@ -601,6 +617,7 @@ func (t *TaskRemotePoRep) pollForProof(ctx context.Context, taskID harmonytask.T
 		return false, xerrors.Errorf("failed to update client request with proof: %w", err)
 	}
 
+	log.Infow("proof retrieved", "taskID", taskID, "spID", sectorInfo.SpID, "sectorNumber", sectorInfo.SectorNumber, "proofSize", len(proofResp.Proof))
 	return true, nil
 }
 
@@ -657,6 +674,7 @@ func (t *TaskRemotePoRep) getRandomness(ctx context.Context, sectorInfo *SectorI
 		return nil, xerrors.Errorf("failed to get randomness for computing seal proof: %w", err)
 	}
 
+	log.Infow("got randomness", "spID", sectorInfo.SpID, "sectorNumber", sectorInfo.SectorNumber)
 	return rand, nil
 }
 
@@ -693,7 +711,7 @@ func (t *TaskRemotePoRep) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Name: "RemotePoRep",
 		Cost: resources.Resources{
-			Cpu: 1,
+			Cpu: 0,
 			Gpu: 0,
 			Ram: 32 << 20, // 32MB - minimal resources since computation is remote
 		},

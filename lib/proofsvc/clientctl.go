@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/lotus/chain/types"
 	"io"
 	"net/http"
 
@@ -18,6 +19,27 @@ import (
 )
 
 const clientUrl = "https://svc0.fsp.sh/v0/proofs"
+
+type NFilAmount = int64
+
+const maxNFilAmount = 1_000_000_000 * 2_000_000_000
+const attoPerNano = 1_000_000_000 // 1 nFIL = 10^9 attoFIL
+
+// NfilFromTokenAmount converts a token amount in attoFIL to nanoFIL (nFIL).
+// It returns an error if the token amount is not divisible by 1 nFIL.
+func NfilFromTokenAmount(tokenAmount abi.TokenAmount) (NFilAmount, error) {
+
+	if types.BigMod(tokenAmount, types.NewInt(attoPerNano)).Sign() != 0 {
+		return 0, xerrors.Errorf("token amount %d is not divisible by 1 nFIL", tokenAmount)
+	}
+
+	return types.BigDiv(tokenAmount, types.NewInt(attoPerNano)).Int64(), nil
+}
+
+// TokenAmountFromNfil converts a nanoFIL (nFIL) amount to attoFIL.
+func TokenAmountFromNfil(nfil NFilAmount) abi.TokenAmount {
+	return types.BigMul(types.NewInt(uint64(nfil)), types.NewInt(attoPerNano))
+}
 
 // GetCurrentPrice retrieves the current price for proof generation from the service
 func GetCurrentPrice() (abi.TokenAmount, error) {
@@ -37,13 +59,15 @@ func GetCurrentPrice() (abi.TokenAmount, error) {
 	}
 
 	var priceResp struct {
-		Price abi.TokenAmount `json:"price"`
+		Price int64 `json:"price_nfil"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&priceResp); err != nil {
 		return abi.NewTokenAmount(0), xerrors.Errorf("failed to unmarshal response body: %w", err)
 	}
 
-	return priceResp.Price, nil
+	log.Infow("current price", "price", priceResp.Price)
+
+	return TokenAmountFromNfil(priceResp.Price), nil
 }
 
 // UploadProofData uploads proof data to the service and returns the CID

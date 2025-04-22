@@ -129,7 +129,7 @@ class ProofShareClient extends LitElement {
       minimum_pending_seconds: 0,
       do_porep: false,
       do_snap: false,
-      price: 0,
+      price: "0",
     };
 
     try {
