@@ -125,7 +125,7 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	}
 
 	err = s.db.Select(ctx, &sectorParamsArr, `
-		SELECT sp_id, sector_number, porep_proof, ticket_value, tree_r_cid, tree_d_cid
+		SELECT sp_id, sector_number, reg_seal_proof, porep_proof, ticket_value, tree_r_cid, tree_d_cid, seed_value
 		FROM sectors_sdr_pipeline
 		WHERE task_id_commit_msg = $1 ORDER BY sector_number ASC`, taskID)
 	if err != nil {
@@ -386,12 +386,15 @@ func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr addres
 		return nil, xerrors.Errorf("getting miner info: %w", err)
 	}
 
-	if len(infos) > 4 {
+	if len(infos) >= miner.MinAggregatedSectors {
 		arp, err := aggregateProofType(nv)
 		if err != nil {
 			return nil, xerrors.Errorf("getting aggregate proof type: %w", err)
 		}
 		aggParams.AggregateProofType = &arp
+		if len(aggParams.SectorProofs) != len(infos) {
+			return nil, xerrors.Errorf("mismatched number of proofs and infos")
+		}
 
 		aggParams.AggregateProof, err = s.prover.AggregateSealProofs(proof.AggregateSealVerifyProofAndInfos{
 			Miner:          abi.ActorID(SpID),
@@ -415,11 +418,11 @@ func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr addres
 		aggCollateral := big.Add(collateral, aggFee)
 		aggCollateral = s.calculateCollateral(balance, aggCollateral)
 		goodFunds := big.Add(maxFee, aggCollateral)
-		enc := new(bytes.Buffer)
-		if err := aggParams.MarshalCBOR(enc); err != nil {
+		aggEnc := new(bytes.Buffer)
+		if err := aggParams.MarshalCBOR(aggEnc); err != nil {
 			return nil, xerrors.Errorf("could not serialize commit params: %w", err)
 		}
-		aggMsg, err = s.gasEstimateCommit(ctx, maddr, enc.Bytes(), mi, goodFunds, aggCollateral, maxFee, ts.Key())
+		aggMsg, err = s.gasEstimateCommit(ctx, maddr, aggEnc.Bytes(), mi, goodFunds, aggCollateral, maxFee, ts.Key())
 		if err != nil {
 			return nil, err
 		}
@@ -446,6 +449,8 @@ func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr addres
 		log.Infow("Sending commit message without aggregate", "Batch Cost", cost, "Aggregate Cost", aggCost)
 		return msg, nil
 	}
+
+	log.Infow("Sending commit message with aggregate", "Batch Cost", cost, "Aggregate Cost", aggCost)
 	return aggMsg, nil
 }
 

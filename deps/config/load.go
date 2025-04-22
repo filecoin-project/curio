@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/BurntSushi/toml"
@@ -330,15 +331,25 @@ func ConfigUpdate(cfgCur, cfgDef interface{}, opts ...UpdateCfgOpt) ([]byte, err
 		// create a map of default lines, so we can comment those out later
 		defLines := strings.Split(defStr, "\n")
 		defaults := map[string]struct{}{}
+		currentSection := ""
+
+		defSectionRx := regexp.MustCompile(`\[(.+)]`)
+
 		for i := range defLines {
 			l := strings.TrimSpace(defLines[i])
-			if len(l) == 0 {
+			if len(l) == 0 || l[0] == '#' {
 				continue
 			}
-			if l[0] == '#' || l[0] == '[' {
+			if l[0] == '[' {
+				m := defSectionRx.FindStringSubmatch(l)
+				if len(m) == 2 {
+					currentSection = m[1]
+				}
 				continue
 			}
-			defaults[l] = struct{}{}
+
+			qualifiedKey := currentSection + "." + l
+			defaults[qualifiedKey] = struct{}{}
 		}
 
 		nodeLines := strings.Split(nodeStr, "\n")
@@ -409,7 +420,8 @@ func ConfigUpdate(cfgCur, cfgDef interface{}, opts ...UpdateCfgOpt) ([]byte, err
 			// filter lines from options
 			optsFilter := updateOpts.keepUncommented != nil && updateOpts.keepUncommented(line)
 			// if there is the same line in the default config, comment it out in output
-			if _, found := defaults[strings.TrimSpace(nodeLines[i])]; (cfgDef == nil || found) && len(line) > 0 && !optsFilter {
+			qualifiedKey := section + "." + strings.TrimSpace(line)
+			if _, found := defaults[qualifiedKey]; (cfgDef == nil || found) && len(line) > 0 && !optsFilter {
 				line = pad + "#" + line[len(pad):]
 			}
 			outLines = append(outLines, line)
@@ -440,6 +452,10 @@ func ConfigUpdate(cfgCur, cfgDef interface{}, opts ...UpdateCfgOpt) ([]byte, err
 					return strings.Join(x, "\n") == strings.Join(y, "\n")
 				}
 				return false
+			}),
+			cmp.Comparer(func(x, y time.Duration) bool {
+				tx, ty := reflect.TypeOf(x), reflect.TypeOf(y)
+				return tx.Kind() == ty.Kind()
 			}),
 		}
 
