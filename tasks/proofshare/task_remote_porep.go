@@ -176,6 +176,8 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 			return false, xerrors.Errorf("task no longer owned")
 		}
 
+		log.Infow("PSR CYCLE BEGIN VVVVVVVVVVVVVVVVVVVVVVVVVVV", "taskID", taskID)
+
 		// Get the current state of the client request
 		clientRequest, err := t.getClientRequest(ctx, taskID)
 		if err != nil {
@@ -217,6 +219,8 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 			inState = "polling for proof"
 			stateChanged, err = t.pollForProof(ctx, taskID, sectorInfo, clientRequest)
 		}
+
+		log.Infow("PSR CYCLE END ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^", "taskID", taskID)
 
 		if err != nil {
 			return false, err
@@ -702,9 +706,11 @@ func (t *TaskRemotePoRep) undoPayment(ctx context.Context, taskID harmonytask.Ta
 		return xerrors.Errorf("failed to get payment status: %w", err)
 	}
 
+	log.Infow("considering undoPayment", "taskID", taskID, "paymentWallet", clientRequest.PaymentWallet, "paymentNonce", clientRequest.PaymentNonce, "statusNonce", status.Nonce)
+
 	// If the payment is not consumed, unlock it
 	// Payment is consumed if the backend nonce is less than the client nonce
-	if status.Nonce < *clientRequest.PaymentNonce {
+	if status.Nonce < *clientRequest.PaymentNonce || !status.Found {
 		log.Warnw("undoing payment", "taskID", taskID, "paymentWallet", clientRequest.PaymentWallet, "paymentNonce", clientRequest.PaymentNonce)
 
 		// Unlock the payment
@@ -776,7 +782,7 @@ func (t *TaskRemotePoRep) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		MaxFailures: 15,
 		RetryWait: func(retries int) time.Duration {
-			return time.Second * 10 * time.Duration(retries)
+			return time.Second * 10 // * time.Duration(retries)
 		},
 	}
 }

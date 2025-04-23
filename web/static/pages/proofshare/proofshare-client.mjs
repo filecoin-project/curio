@@ -1,6 +1,7 @@
 import { LitElement, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 import { formatDate } from '/lib/dateutil.mjs';
+import '/ux/yesno.mjs';
 
 class ProofShareClient extends LitElement {
   static properties = {

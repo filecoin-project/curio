@@ -200,6 +200,7 @@ func WaitForProof(request common.ProofRequest) ([]byte, error) {
 // ClientPaymentStatus represents the payment status for a client wallet
 // as returned by the backend /client/payment/status/{wallet-id} endpoint.
 type ClientPaymentStatus struct {
+	Found                bool   `json:"found"`
 	Nonce                int64  `json:"nonce"`
 	CumulativeAmountNFil int64  `json:"cumulative_amount_nfil"`
 	AmountNFil           int64  `json:"amount_nfil"`
