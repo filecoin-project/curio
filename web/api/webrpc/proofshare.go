@@ -119,18 +119,6 @@ type ProofShareClientSettings struct {
 	FilPerP string `db:"-" json:"price"`
 }
 
-// ProofShareClientRequest model
-// Matches proofshare_client_requests table columns
-type ProofShareClientRequest struct {
-	TaskID    int64        `db:"task_id"      json:"task_id"`
-	SpID      int64        `db:"sp_id"        json:"sp_id"`
-	SectorNum int64        `db:"sector_num"   json:"sector_num"`
-	ServiceID int64        `db:"service_id"   json:"service_id"`
-	Done      bool         `db:"done"         json:"done"`
-	CreatedAt time.Time    `db:"created_at"   json:"created_at"`
-	DoneAt    sql.NullTime `db:"done_at"      json:"done_at,omitempty"`
-}
-
 // PSClientGet fetches all proofshare_client_settings rows.
 func (a *WebRPC) PSClientGet(ctx context.Context) ([]ProofShareClientSettings, error) {
 	var out []ProofShareClientSettings
@@ -201,17 +189,34 @@ func (a *WebRPC) PSClientSet(ctx context.Context, s ProofShareClientSettings) er
 	return nil
 }
 
+// ProofShareClientRequest model
+type ProofShareClientRequest struct {
+	TaskID          int64        `db:"task_id"           json:"task_id"`
+	SpID            int64        `db:"sp_id"             json:"sp_id"`
+	SectorNum       int64        `db:"sector_num"        json:"sector_num"`
+	RequestCID      *string      `db:"request_cid"       json:"request_cid,omitempty"`
+	RequestUploaded bool         `db:"request_uploaded"  json:"request_uploaded"`
+	PaymentWallet   *int64       `db:"payment_wallet"    json:"payment_wallet,omitempty"`
+	PaymentNonce    *int64       `db:"payment_nonce"     json:"payment_nonce,omitempty"`
+	RequestSent     bool         `db:"request_sent"      json:"request_sent"`
+	ResponseData    []byte       `db:"response_data"     json:"response_data,omitempty"`
+	Done            bool         `db:"done"              json:"done"`
+	CreatedAt       time.Time    `db:"created_at"        json:"created_at"`
+	DoneAt          sql.NullTime `db:"done_at"           json:"done_at,omitempty"`
+}
+
 // PSClientRequests returns the list of proofshare_client_requests for a given sp_id
-// (or all if sp_id=0 and that’s your convention).
 func (a *WebRPC) PSClientRequests(ctx context.Context, spId int64) ([]ProofShareClientRequest, error) {
 	var rows []ProofShareClientRequest
 
 	// If you want spId=0 to mean "all," you can do logic in WHERE
 	// e.g.: WHERE (sp_id = $1 OR $1=0)
 	err := a.deps.DB.Select(ctx, &rows, `
-        SELECT task_id, sp_id, sector_num, service_id, done, created_at, done_at
+        SELECT task_id, sp_id, sector_num, request_cid, request_uploaded, 
+               payment_wallet, payment_nonce, request_sent, response_data,
+               done, created_at, done_at
         FROM proofshare_client_requests
-        WHERE (sp_id = $1 OR $1=0)
+        WHERE sp_id = $1
         ORDER BY created_at DESC
     `, spId)
 	if err != nil {

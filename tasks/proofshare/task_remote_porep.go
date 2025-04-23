@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/filecoin-project/go-state-types/big"
 	"time"
+
+	"github.com/filecoin-project/go-state-types/big"
+	"github.com/hashicorp/go-multierror"
 
 	"github.com/ipfs/go-cid"
 	"github.com/yugabyte/pgx/v5"
@@ -202,6 +204,14 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 			// Step 3: Send request
 			inState = "sending request"
 			stateChanged, err = t.sendRequest(ctx, taskID, clientRequest)
+			if err != nil {
+				// request failed, see if we can unlock the payment (if not consumed in the market)
+				rerr := t.undoPayment(ctx, taskID, sectorInfo, clientRequest)
+				if rerr != nil {
+					log.Errorw("failed to undo payment", "error", rerr, "taskID", taskID, "sectorID", sectorInfo.SectorNumber, "spID", sectorInfo.SpID)
+					err = multierror.Append(err, rerr)
+				}
+			}
 		} else {
 			// Step 4: Poll for proof
 			inState = "polling for proof"
@@ -566,24 +576,30 @@ func (t *TaskRemotePoRep) sendRequest(ctx context.Context, taskID harmonytask.Ta
 	}
 
 	// Mark the payment as consumed
-	_, err = t.db.Exec(ctx, `
-		UPDATE proofshare_client_payments
-		SET consumed = TRUE
-		WHERE wallet = $1 AND nonce = $2
-	`, clientRequest.PaymentWallet, clientRequest.PaymentNonce)
-	if err != nil {
-		return false, xerrors.Errorf("failed to mark payment as consumed: %w", err)
-	}
+	_, err = t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		_, err = tx.Exec(`
+			UPDATE proofshare_client_payments
+			SET consumed = TRUE
+			WHERE wallet = $1 AND nonce = $2
+		`, clientRequest.PaymentWallet, clientRequest.PaymentNonce)
+		if err != nil {
+			return false, xerrors.Errorf("failed to mark payment as consumed: %w", err)
+		}
 
-	// Mark the request as sent
-	requestSent := true
-	_, err = t.db.Exec(ctx, `
-		UPDATE proofshare_client_requests
-		SET request_sent = $2
-		WHERE task_id = $1
-	`, taskID, requestSent)
+		// Mark the request as sent
+		_, err = tx.Exec(`
+			UPDATE proofshare_client_requests
+			SET request_sent = TRUE
+			WHERE task_id = $1
+		`, taskID)
+		if err != nil {
+			return false, xerrors.Errorf("failed to mark request as sent: %w", err)
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
 	if err != nil {
-		return false, xerrors.Errorf("failed to mark request as sent: %w", err)
+		return false, xerrors.Errorf("transaction failed: %w", err)
 	}
 
 	log.Infow("sendRequest complete", "taskID", taskID, "requestCID", clientRequest.RequestCID)
@@ -676,6 +692,49 @@ func (t *TaskRemotePoRep) getRandomness(ctx context.Context, sectorInfo *SectorI
 
 	log.Infow("got randomness", "spID", sectorInfo.SpID, "sectorNumber", sectorInfo.SectorNumber)
 	return rand, nil
+}
+
+// undoPayment unlocks the payment if the proof request failed
+func (t *TaskRemotePoRep) undoPayment(ctx context.Context, taskID harmonytask.TaskID, sectorInfo *SectorInfo, clientRequest *ClientRequest) error {
+	// Get the payment status
+	status, err := proofsvc.GetClientPaymentStatus(abi.ActorID(*clientRequest.PaymentWallet))
+	if err != nil {
+		return xerrors.Errorf("failed to get payment status: %w", err)
+	}
+
+	// If the payment is not consumed, unlock it
+	// Payment is consumed if the backend nonce is less than the client nonce
+	if status.Nonce < *clientRequest.PaymentNonce {
+		log.Warnw("undoing payment", "taskID", taskID, "paymentWallet", clientRequest.PaymentWallet, "paymentNonce", clientRequest.PaymentNonce)
+
+		// Unlock the payment
+		_, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			// delete the payment
+			_, err = tx.Exec(`
+				DELETE FROM proofshare_client_payments
+				WHERE wallet = $1 AND nonce = $2 AND consumed = FALSE
+			`, clientRequest.PaymentWallet, *clientRequest.PaymentNonce)
+			if err != nil {
+				return false, xerrors.Errorf("failed to delete payment: %w", err)
+			}
+
+			// update request payment fields to NULL
+			_, err = tx.Exec(`
+				UPDATE proofshare_client_requests
+				SET payment_wallet = NULL, payment_nonce = NULL
+				WHERE task_id = $1
+			`, taskID)
+			if err != nil {
+				return false, xerrors.Errorf("failed to update request payment fields: %w", err)
+			}
+			return true, nil
+		}, harmonydb.OptionRetry())
+		if err != nil {
+			return xerrors.Errorf("failed to unlock payment: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // SectorInfo holds the sector information

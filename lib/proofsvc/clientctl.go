@@ -5,9 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/filecoin-project/lotus/chain/types"
 	"io"
 	"net/http"
+
+	"github.com/filecoin-project/lotus/chain/types"
 
 	"github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
@@ -66,6 +67,10 @@ func GetCurrentPrice() (abi.TokenAmount, error) {
 	}
 
 	log.Infow("current price", "price", priceResp.Price)
+
+	// TODO TMRW:
+	// * Task display with correct restart in the UI
+	// * Return unconsumed-by-service payments to not block the nonce
 
 	return TokenAmountFromNfil(priceResp.Price), nil
 }
@@ -190,4 +195,39 @@ func WaitForProof(request common.ProofRequest) ([]byte, error) {
 	}
 
 	return proofResp.Proof, nil
+}
+
+// ClientPaymentStatus represents the payment status for a client wallet
+// as returned by the backend /client/payment/status/{wallet-id} endpoint.
+type ClientPaymentStatus struct {
+	Nonce                int64  `json:"nonce"`
+	CumulativeAmountNFil int64  `json:"cumulative_amount_nfil"`
+	AmountNFil           int64  `json:"amount_nfil"`
+	Signature            []byte `json:"signature"`
+	CreatedAt            string `json:"created_at"`
+}
+
+// GetClientPaymentStatus retrieves the latest payment status for a given wallet ID.
+func GetClientPaymentStatus(walletID abi.ActorID) (*ClientPaymentStatus, error) {
+	url := fmt.Sprintf("%s/client/payment/status/%d", clientUrl, walletID)
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, xerrors.Errorf("no payments found for wallet %d", walletID)
+	}
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, xerrors.Errorf("failed to get payment status: %s - %s", resp.Status, string(bodyBytes))
+	}
+
+	var status ClientPaymentStatus
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		return nil, xerrors.Errorf("failed to decode payment status: %w", err)
+	}
+
+	return &status, nil
 }

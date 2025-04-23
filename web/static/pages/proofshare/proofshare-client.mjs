@@ -19,7 +19,7 @@ class ProofShareClient extends LitElement {
     // For each sp_id => an array of requests (from proofshare_client_requests)
     this.spRequests = {};
 
-    // For each sp_id => boolean whether we’re showing requests
+    // For each sp_id => boolean whether we're showing requests
     this.showRequests = {};
 
     // All proofshare_client_wallets rows.
@@ -200,9 +200,15 @@ class ProofShareClient extends LitElement {
       <table class="table table-dark table-sm table-striped">
         <thead>
           <tr>
-            <th>Task ID</th>
-            <th>Sector</th>
-            <th>Service ID</th>
+            <th>Task</th>
+            <th>SP ID</th>
+            <th>Sector Num</th>
+            <th>Request CID</th>
+            <th>Request Uploaded</th>
+            <th>Payment Wallet</th>
+            <th>Payment Nonce</th>
+            <th>Request Sent</th>
+            <th>Response Data</th>
             <th>Done</th>
             <th>Created At</th>
             <th>Done At</th>
@@ -211,12 +217,20 @@ class ProofShareClient extends LitElement {
         <tbody>
           ${list.map(req => html`
             <tr>
-              <td>${req.task_id}</td>
-              <td>${req.sp_id}:${req.sector_num}</td>
-              <td>${req.service_id}</td>
-              <td>${req.done ? 'Yes' : 'No'}</td>
-              <td>${req.created_at}</td>
-              <td>${req.done_at?.Time || ''}</td>
+              <td>
+                <task-status .taskId=${req.task_id}></task-status>
+              </td>
+              <td>${req.sp_id}</td>
+              <td>${req.sector_num}</td>
+              <td>${req.request_cid ? html`<abbr title="${req.request_cid}">${req.request_cid.slice(0, 5)}...${req.request_cid.slice(-5)}</abbr>` : ''}</td>
+              <td><yes-no .value=${req.request_uploaded}></yes-no></td>
+              <td>${req.payment_wallet ?? ''}</td>
+              <td>${req.payment_nonce ?? ''}</td>
+              <td><yes-no .value=${req.request_sent}></yes-no></td>
+              <td>${req.response_data && req.response_data.length > 0 ? html`<abbr title="${req.response_data.toString()}">[${req.response_data.length} bytes]</abbr>` : ''}</td>
+              <td><yes-no .value=${req.done}></yes-no></td>
+              <td>${req.created_at ? formatDate(req.created_at) : ''}</td>
+              <td>${req.done_at && req.done_at.Time ? formatDate(req.done_at.Time) : ''}</td>
             </tr>
           `)}
         </tbody>
