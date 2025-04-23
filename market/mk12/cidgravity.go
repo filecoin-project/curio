@@ -152,6 +152,8 @@ func (m *MK12) cidGravityCheck(ctx context.Context, deal *ProviderDealState) (bo
 		return false, "", xerrors.Errorf("Error creating request: %w", err)
 	}
 
+	var isCidGravityMinerCheckDeal bool
+
 	if deal.ClientDealProposal.Proposal.Label.IsString() {
 		lableStr, err := deal.ClientDealProposal.Proposal.Label.ToString()
 		if err != nil {
@@ -162,6 +164,7 @@ func (m *MK12) cidGravityCheck(ctx context.Context, deal *ProviderDealState) (bo
 			if err != nil {
 				return false, "", xerrors.Errorf("Error creating request: %w", err)
 			}
+			isCidGravityMinerCheckDeal = true
 		}
 	}
 
@@ -233,6 +236,9 @@ func (m *MK12) cidGravityCheck(ctx context.Context, deal *ProviderDealState) (bo
 		"matchingRule", response.MatchingRule)
 
 	if response.Decision == "accept" {
+		if isCidGravityMinerCheckDeal {
+			return false, "Rejected the CID Gravity Check Deal", nil
+		}
 		return true, "", nil
 	}
 

@@ -493,7 +493,7 @@ type MarketMK12Deal struct {
 
 func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, deal string, pcid string) error {
 
-	comm, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+	_, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		var updated bool
 		err = tx.QueryRow(`
 						WITH selected_data AS (
@@ -578,9 +578,7 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 	if err != nil {
 		return xerrors.Errorf("deal %s: %w", deal, err)
 	}
-	if !comm {
-		return xerrors.Errorf("faile to commit the transaction for deal %s", deal)
-	}
+
 	return nil
 }
 
