@@ -1,0 +1,138 @@
+import { LitElement, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
+import RPCCall from '/lib/jsonrpc.mjs';
+import '/ux/task.mjs';
+import { formatDate } from '/lib/dateutil.mjs';
+
+class ProofShareElement extends LitElement {
+  static properties = {
+    enabled: { type: Boolean },
+    wallet: { type: String },
+    price: { type: String },
+    queue: { type: Array },
+  };
+
+  constructor() {
+    super();
+    this.enabled = false;
+    this.wallet = '';
+    this.price = '';
+    this.queue = [];
+    this.loadData();
+  }
+
+  // Disable shadow DOM, so Bootstrap + your main.css apply naturally.
+  createRenderRoot() {
+    return this;
+  }
+
+  // Periodically load data from the server
+  async loadData() {
+    try {
+      // 1) Get the meta info (enabled/wallet/request_task_id)
+      const meta = await RPCCall('PSGetMeta', []);
+      this.enabled = meta.enabled;
+      this.wallet = meta.wallet || '';
+      this.price = meta.price || '';
+      // 2) Get the queue
+      const queue = await RPCCall('PSListQueue', []);
+      this.queue = queue;
+    } catch (err) {
+      console.error('Failed to load proofshare data:', err);
+    }
+    // Re-render
+    this.requestUpdate();
+  }
+
+  // Update meta info on the server
+  async setMeta() {
+    try {
+      // Call PSSetMeta(enabled, wallet, price)
+      await RPCCall('PSSetMeta', [this.enabled, this.wallet, this.price]);
+      console.log('Updated proofshare meta successfully');
+    } catch (err) {
+      console.error('Failed to update proofshare meta:', err);
+    }
+  }
+
+  render() {
+    return html`
+      <link
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
+        rel="stylesheet"
+        integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3"
+        crossorigin="anonymous"
+      />
+      <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
+
+      <div class="container">
+        <h2>🏗️ Provider Settings</h2>
+        <p>Sell idle compute to a proving market.</p>
+
+        <div class="mb-2">
+          <label class="form-check-label">
+            <input
+              type="checkbox"
+              ?checked=${this.enabled}
+              @change=${(e) => (this.enabled = e.target.checked)}
+            />
+            <span>Enabled</span>
+          </label>
+        </div>
+        <div class="mb-2">
+          <label>Wallet:</label>
+          <input
+            type="text"
+            placeholder="f0/1/2/3..."
+            .value=${this.wallet}
+            @input=${(e) => (this.wallet = e.target.value)}
+            style="max-width: 400px;"
+          />
+        </div>
+        <div class="mb-2">
+          <label>Price:</label>
+          <input
+            type="number"
+            step="0.0001"
+            placeholder="0.0001"
+            .value=${this.price}
+            @input=${(e) => (this.price = e.target.value)}
+            style="max-width: 100px;"
+          />
+        </div>
+
+        <button class="btn btn-primary" @click=${this.setMeta}>Update Settings</button>
+
+        <hr />
+
+        <h2>Queue</h2>
+        <table class="table table-dark">
+          <thead>
+            <tr>
+              <th>Service ID</th>
+              <th>Obtained At</th>
+              <th>Compute Task</th>
+              <th>Compute Done</th>
+              <th>Submit Task</th>
+              <th>Submit Done</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${this.queue.map((item) => html`
+              <tr>
+                <td>${item.service_id}</td>
+                <td>${formatDate(item.obtained_at)}</td>
+                <td>${item.compute_task_id ? html`<task-status .taskId=${item.compute_task_id}></task-status>` : ''}</td>
+                <td>${item.compute_done ? 'Yes' : 'No'}</td>
+                <td>${item.submit_task_id ? html`<task-status .taskId=${item.submit_task_id}></task-status>` : ''}</td>
+                <td>${item.submit_done ? 'Yes' : 'No'}</td>
+              </tr>
+            `)}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+}
+
+// Register the custom element
+customElements.define('proof-share', ProofShareElement);

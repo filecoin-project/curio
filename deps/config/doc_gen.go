@@ -794,6 +794,19 @@ also be bounded by resources available on the machine. (Default: 8)`,
 for the sector. Please ensure that TreeD and TreeRC task are enabled and relevant resources are available before
 enabling this option. (Default: false)`,
 		},
+		{
+			Name: "EnableProofShare",
+			Type: "bool",
+
+			Comment: `EnableProofShare enables the proof share tasks on the node.`,
+		},
+		{
+			Name: "ProofShareMaxTasks",
+			Type: "int",
+
+			Comment: `The maximum amount of ProofShare tasks that can run simultaneously. Note that the maximum number of tasks will
+also be bounded by resources available on the machine.`,
+		},
 	},
 	"HTTPConfig": {
 		{

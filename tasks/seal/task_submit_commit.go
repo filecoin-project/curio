@@ -133,7 +133,7 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	}
 
 	if len(sectorParamsArr) == 0 {
-		return false, xerrors.Errorf("expected at least 1 sector params, got 0")
+		return true, xerrors.Errorf("expected at least 1 sector params, got 0")
 	}
 
 	maddr, err := address.NewIDAddress(uint64(sectorParamsArr[0].SpID))
