@@ -3,7 +3,6 @@ package proofshare
 import (
 	"context"
 	"database/sql"
-	"strconv"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -12,7 +11,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/proofsvc"
-	"github.com/filecoin-project/curio/lib/proofsvc/common"
+	"github.com/filecoin-project/go-address"
 )
 
 var SubmitScheduleInterval = 10 * time.Second
@@ -125,22 +124,19 @@ func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool
 		return false, xerrors.Errorf("no wallet address configured in proofshare_meta")
 	}
 
-	// 3) Prepare the request object for RespondWork
-	wreq := common.WorkRequest{
-		ID: row.ServiceID,
-	}
-	proofResp := common.ProofResponse{
-		ID:    strconv.FormatInt(row.ServiceID, 10),
-		Proof: row.ResponseData,
+	// wallet to id addr
+	addr, err := address.NewFromString(wallet)
+	if err != nil {
+		return false, xerrors.Errorf("failed to parse wallet address: %w", err)
 	}
 
-	// 4) Submit the proof to the remote service
-	reward, err := proofsvc.RespondWork(wallet, wreq, proofResp)
+	// 3) Submit the proof to the remote service
+	reward, err := proofsvc.RespondWork(addr, row.RequestCid, row.ResponseData)
 	if err != nil {
 		return false, xerrors.Errorf("failed to respond to work: %w", err)
 	}
 
-	// 5) Mark the row as submitted in the DB
+	// 4) Mark the row as submitted in the DB
 	_, err = t.db.Exec(ctx, `
 		UPDATE proofshare_queue
 		SET submit_done = TRUE, submit_task_id = NULL
@@ -150,7 +146,7 @@ func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool
 		return false, xerrors.Errorf("failed to update row after submit: %w", err)
 	}
 
-	// 6) Insert the payment into the DB
+	// 5) Insert the payment into the DB
 	_, err = t.db.Exec(ctx, `
 		INSERT INTO proofshare_provider_payments (provider_id, request_cid, payment_nonce, payment_cumulative_amount, payment_signature)
 		VALUES ($1, $2, $3, $4, $5)

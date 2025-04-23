@@ -13,6 +13,7 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
@@ -147,12 +148,12 @@ func GetProof(cid cid.Cid) ([]byte, error) {
 	})
 }
 
-func RespondWork(address string, request common.WorkRequest, proof common.ProofResponse) (common.ProofReward, error) {
+func RespondWork(address address.Address, rcid string, proof []byte) (common.ProofReward, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), MaxRetryTime)
 	defer cancel()
 
 	return retryWithBackoff(ctx, func() (common.ProofReward, error) {
-		req, err := http.NewRequest("POST", fmt.Sprintf("%s/provider/work/complete/%s/%d", marketUrl, address, request.ID), bytes.NewReader(proof.Proof))
+		req, err := http.NewRequest("POST", fmt.Sprintf("%s/provider/work/complete/%s/%s", marketUrl, address.String(), rcid), bytes.NewReader(proof))
 		if err != nil {
 			return common.ProofReward{}, xerrors.Errorf("failed to create request: %w", err)
 		}
@@ -164,6 +165,8 @@ func RespondWork(address string, request common.WorkRequest, proof common.ProofR
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			log.Infow("failed to respond to work", "requestID", rcid, "status", resp.Status, "body", string(body))
 			return common.ProofReward{}, xerrors.Errorf("failed to respond to work: %s", resp.Status)
 		}
 
@@ -173,7 +176,7 @@ func RespondWork(address string, request common.WorkRequest, proof common.ProofR
 		}
 
 		log.Infow("responded to work request",
-			"requestID", request.ID,
+			"request", rcid,
 			"status", reward.Status,
 			"nonce", reward.Nonce,
 			"amount", types.FIL(reward.Amount).String(),

@@ -116,9 +116,15 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	var asyncParams = func() func() (bool, error) {
 		fetchOnce.Do(func() {
 			go func() {
-				for spt := range dependencies.ProofTypes {
+				seenSizes := make(map[uint64]bool)
 
+				for spt := range dependencies.ProofTypes {
 					provingSize := uint64(must.One(spt.SectorSize()))
+					if seenSizes[provingSize] {
+						continue
+					}
+					seenSizes[provingSize] = true
+
 					err := fastparamfetch.GetParams(context.TODO(), proofparams.ParametersJSON(), proofparams.SrsJSON(), provingSize)
 
 					if err != nil {
