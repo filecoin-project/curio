@@ -67,9 +67,12 @@ build/.update-modules:
 # Conditional execution block for Linux
 OS := $(shell uname)
 ifeq ($(OS), Linux)
-    $(eval CUDA_PATH := $(shell dirname $$(dirname $$(which nvcc))))
-    $(eval CUDA_LIB_PATH := $(CUDA_PATH)/lib64)
-    export LIBRARY_PATH := $(LIBRARY_PATH):$(CUDA_LIB_PATH)
+    NVCC_PATH := $(shell which nvcc 2>/dev/null)
+    ifneq ($(NVCC_PATH),)
+        $(eval CUDA_PATH := $(shell dirname $$(dirname $$(which nvcc))))
+        $(eval CUDA_LIB_PATH := $(CUDA_PATH)/lib64)
+        export LIBRARY_PATH := $(LIBRARY_PATH):$(CUDA_LIB_PATH)
+    endif
 endif
 
 ## MAIN BINARIES
@@ -270,7 +273,7 @@ build_lotus?=0
 curio_docker_user?=curio
 curio_base_image=$(curio_docker_user)/curio-all-in-one:latest-debug
 ffi_from_source?=0
-lotus_version?=v1.32.1
+lotus_version?=v1.32.2
 
 ifeq ($(build_lotus),1)
 # v1: building lotus image with provided lotus version

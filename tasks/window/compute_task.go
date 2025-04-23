@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"sort"
 	"time"
 
@@ -25,7 +26,7 @@ import (
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
 
 	"github.com/filecoin-project/lotus/api"
@@ -37,6 +38,8 @@ import (
 var log = logging.Logger("curio/window")
 
 var EpochsPerDeadline = miner.WPoStProvingPeriod() / abi.ChainEpoch(miner.WPoStPeriodDeadlines)
+
+const daemonFailureGracePeriod = 5 * time.Minute
 
 type WdPostTaskDetails struct {
 	Ts       *types.TipSet
@@ -133,14 +136,14 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		&spID, &pps, &dlIdx, &partIdx,
 	)
 	if err != nil {
-		log.Errorf("WdPostTask.Do() failed to queryRow: %v", err)
+		log.Errorf("WdPostTask.Do() failed to queryRow: %w", err)
 		return false, err
 	}
 
 	head, err := t.api.ChainHead(context.Background())
 	if err != nil {
-		log.Errorf("WdPostTask.Do() failed to get chain head: %v", err)
-		return false, err
+		log.Errorf("WdPostTask.Do() for SP %d on Deadline %d and Partition %d failed to get chain head: %w", spID, dlIdx, partIdx, err)
+		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d getting chain head: %w", spID, dlIdx, partIdx, err)
 	}
 
 	deadline := NewDeadlineInfo(abi.ChainEpoch(pps), dlIdx, head.Height())
@@ -154,7 +157,7 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		testTask = new(int)
 		err := t.db.QueryRow(context.Background(), `SELECT COUNT(*) FROM harmony_test WHERE task_id = $1`, taskID).Scan(testTask)
 		if err != nil {
-			log.Errorf("WdPostTask.Do() failed to queryRow: %v", err)
+			log.Errorf("WdPostTask.Do() for SP %d on Deadline %d and Partition %d failed to queryRow: %w", spID, dlIdx, partIdx, err)
 			return false
 		}
 
@@ -162,7 +165,7 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	}
 
 	if deadline.PeriodElapsed() && !isTestTask() {
-		log.Errorf("WdPost removed stale task: %v %v", taskID, deadline)
+		log.Errorf("WdPost SP %d on Deadline %d and Partition %d removed stale task: %v %v", spID, dlIdx, partIdx, taskID, deadline)
 		return true, nil
 	}
 
@@ -175,25 +178,71 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 
 	maddr, err := address.NewIDAddress(spID)
 	if err != nil {
-		log.Errorf("WdPostTask.Do() failed to NewIDAddress: %v", err)
-		return false, err
+		log.Errorf("WdPostTask.Do() failed to NewIDAddress: %w", err)
+		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d getting miner address: %w", spID, dlIdx, partIdx, err)
 	}
 
 	ts, err := t.api.ChainGetTipSetAfterHeight(context.Background(), deadline.Challenge, head.Key())
 	if err != nil {
-		log.Errorf("WdPostTask.Do() failed to ChainGetTipSetAfterHeight: %v", err)
-		return false, err
+		log.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to ChainGetTipSetAfterHeight: %w", spID, dlIdx, partIdx, err)
+		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d getting tipset: %w", spID, dlIdx, partIdx, err)
 	}
 
-	postOut, err := t.DoPartition(context.Background(), ts, maddr, deadline, partIdx, isTestTask())
+	// Set up a context with cancel so we can cancel the task if deadline is closed
+	ctx, cancel := context.WithCancelCause(context.Background())
+	finish := make(chan struct{})
+	defer close(finish)
+
+	// Monitor the current height to cancel the task with correct error
+	go func(stAPI WDPoStAPI, cancel context.CancelCauseFunc, finish chan struct{}) {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-finish:
+				return
+			case <-ticker.C:
+				h, err := stAPI.ChainHead(context.Background())
+				if err != nil {
+					log.Warnf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to get chain head: %w", spID, dlIdx, partIdx, err)
+					failed_at := time.Now()
+					for time.Now().After(failed_at.Add(daemonFailureGracePeriod)) { // In case daemon not reachable temporarily, allow 5 minutes grace period
+						h, err = stAPI.ChainHead(context.Background())
+						if err == nil {
+							break
+						}
+						time.Sleep(2 * time.Second)
+					}
+					if err != nil {
+						cancel(xerrors.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to get chain head: %w", spID, dlIdx, partIdx, err))
+						return
+					}
+				}
+				if h.Height() > deadline.Challenge {
+					cancel(xerrors.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d cancelling context as head %d is greater then deadline close %d", spID, dlIdx, partIdx, h.Height(), deadline.Close))
+					return
+				}
+			}
+		}
+	}(t.api, cancel, finish)
+
+	postOut, err := t.DoPartition(ctx, ts, maddr, deadline, partIdx, isTestTask())
 	if err != nil {
-		log.Errorf("WdPostTask.Do() failed to doPartition: %v", err)
-		return false, err
+		if errors.Is(err, context.Canceled) {
+			return false, context.Cause(ctx)
+		}
+		if errors.Is(err, errEmptyPartition) {
+			log.Warnf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to doPartition: %w", spID, dlIdx, partIdx, err)
+			return false, nil
+		}
+		log.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to doPartition: %w", spID, dlIdx, partIdx, err)
+		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d doing PoSt: %w", spID, dlIdx, partIdx, err)
 	}
 
 	var msgbuf bytes.Buffer
 	if err := postOut.MarshalCBOR(&msgbuf); err != nil {
-		return false, xerrors.Errorf("marshaling PoSt: %w", err)
+		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d marshaling PoSt: %w", spID, dlIdx, partIdx, err)
 	}
 
 	if isTestTask() {
@@ -241,12 +290,12 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	)
 
 	if err != nil {
-		log.Errorf("WdPostTask.Do() failed to insert into wdpost_proofs: %v", err)
-		return false, err
+		log.Errorf("WdPostTask.Do() SP %s on Deadline %d and Partition %d failed to insert into wdpost_proofs: %w", spID, dlIdx, partIdx, err)
+		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d inserting into wdpost_proofs: %w", spID, dlIdx, partIdx, err)
 	}
 	if n != 1 {
-		log.Errorf("WdPostTask.Do() failed to insert into wdpost_proofs: %v", err)
-		return false, err
+		log.Errorf("WdPostTask.Do() SP %s on Deadline %d and Partition %d failed to insert into wdpost_proofs: %w", spID, dlIdx, partIdx, err)
+		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d inserting into wdpost_proofs: %w", spID, dlIdx, partIdx, err)
 	}
 
 	return true, nil
