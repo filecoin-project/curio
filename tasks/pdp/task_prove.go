@@ -105,7 +105,7 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 				}
 
 				// Determine if there might be more proof sets to process
-				more = len(proofSets) == 2
+				more = len(proofSets) > 1
 
 				// Process the first proof set
 				todo := proofSets[0]
