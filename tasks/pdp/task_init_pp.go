@@ -233,6 +233,7 @@ func (ipp *InitProvingPeriodTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Gpu: 0,
 			Ram: 1 << 20,
 		},
+		MaxFailures: 3, // Set retry limit to 3 attempts
 	}
 }
 
