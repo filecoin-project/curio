@@ -199,7 +199,9 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 				}
 				sectors[i].Proving = chainy.active
 				if st.Expiration < head.Height() {
-					sectors[i].Flag = true // Flag expired sectors
+					delete(sectorIdx, sectorID{minerID, uint64(st.SectorNumber)})
+					sectors = append(sectors[:i], sectors[i+1:]...)
+					continue
 				}
 
 				dw, vp := .0, .0
@@ -256,6 +258,9 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 				sectors[i].Deals = fmt.Sprintf("Market: %d, DDO: %d", f05, ddo)
 			} else {
 				// sector is on chain but not in db
+				if st.Expiration < head.Height() {
+					continue // skip expired ones
+				}
 				s := sector{
 					MinerID:      minerID,
 					MinerAddress: maddr,
@@ -271,12 +276,6 @@ func (c *cfg) getSectors(w http.ResponseWriter, r *http.Request) {
 				}
 				sectors = append(sectors, s)
 			}
-			/*
-				info, err := c.Full.StateSectorGetInfo(r.Context(), minerToAddr[s], abi.SectorNumber(uint64(sectors[i].SectorNum)), headKey)
-				if err != nil {
-					sectors[i].IsValid = false
-					continue
-				}*/
 		}
 	}
 

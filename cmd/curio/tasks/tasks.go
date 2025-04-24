@@ -245,9 +245,10 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 	{
 		// Market tasks
+		var dm *storage_market.CurioStorageDealMarket
 		if cfg.Subsystems.EnableDealMarket {
 			// Main market poller should run on all nodes
-			dm := storage_market.NewCurioStorageDealMarket(miners, db, cfg, si, full, as)
+			dm = storage_market.NewCurioStorageDealMarket(miners, db, cfg, si, full, as)
 			err := dm.StartMarket(ctx)
 			if err != nil {
 				return nil, err
@@ -297,7 +298,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		activeTasks = append(activeTasks, ipniTask, indexingTask)
 
 		if cfg.HTTP.Enable {
-			err = cuhttp.StartHTTPServer(ctx, dependencies, &sdeps)
+			err = cuhttp.StartHTTPServer(ctx, dependencies, &sdeps, dm)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to start the HTTP server: %w", err)
 			}
