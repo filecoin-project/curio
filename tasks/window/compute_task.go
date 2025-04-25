@@ -194,20 +194,22 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	defer close(finish)
 
 	// Monitor the current height to cancel the task with correct error
-	go func(stAPI WDPoStAPI, cancel context.CancelCauseFunc, finish chan struct{}) {
+	go func(ctx context.Context, stAPI WDPoStAPI, cancel context.CancelCauseFunc, finish chan struct{}) {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 
 		for {
 			select {
+			case <-ctx.Done(): // To avoid goroutine leaks
+				return
 			case <-finish:
 				return
 			case <-ticker.C:
 				h, err := stAPI.ChainHead(context.Background())
 				if err != nil {
 					log.Warnf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to get chain head: %w", spID, dlIdx, partIdx, err)
-					failed_at := time.Now()
-					for time.Now().After(failed_at.Add(daemonFailureGracePeriod)) { // In case daemon not reachable temporarily, allow 5 minutes grace period
+					failedAt := time.Now()
+					for time.Now().After(failedAt.Add(daemonFailureGracePeriod)) { // In case daemon not reachable temporarily, allow 5 minutes grace period
 						h, err = stAPI.ChainHead(context.Background())
 						if err == nil {
 							break
@@ -220,21 +222,23 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 					}
 				}
 				if h.Height() > deadline.Challenge {
-					cancel(xerrors.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d cancelling context as head %d is greater then deadline close %d", spID, dlIdx, partIdx, h.Height(), deadline.Close))
-					return
+					if !isTestTask() {
+						cancel(xerrors.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d cancelling context as head %d is greater then deadline close %d", spID, dlIdx, partIdx, h.Height(), deadline.Close))
+						return
+					}
 				}
 			}
 		}
-	}(t.api, cancel, finish)
+	}(ctx, t.api, cancel, finish)
 
 	postOut, err := t.DoPartition(ctx, ts, maddr, deadline, partIdx, isTestTask())
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
-			return false, context.Cause(ctx)
+			return false, context.Cause(ctx) // Let's not return true here just in case. This will cause a retry and if deadline is truly closed then deadline check will mark this as complete
 		}
 		if errors.Is(err, errEmptyPartition) {
 			log.Warnf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to doPartition: %w", spID, dlIdx, partIdx, err)
-			return false, nil
+			return true, nil
 		}
 		log.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to doPartition: %w", spID, dlIdx, partIdx, err)
 		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d doing PoSt: %w", spID, dlIdx, partIdx, err)
@@ -261,8 +265,7 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		if err != nil {
 			return false, xerrors.Errorf("marshaling message: %w", err)
 		}
-		ctx := context.Background()
-		_, err = t.db.Exec(ctx, `UPDATE harmony_test SET result=$1 WHERE task_id=$2`, string(data), taskID)
+		_, err = t.db.Exec(context.Background(), `UPDATE harmony_test SET result=$1 WHERE task_id=$2`, string(data), taskID)
 		if err != nil {
 			return false, xerrors.Errorf("updating harmony_test: %w", err)
 		}
