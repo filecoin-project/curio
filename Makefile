@@ -103,6 +103,12 @@ sptool: $(BUILD_DEPS)
 .PHONY: sptool
 BINS+=sptool
 
+pdptool: $(BUILD_DEPS)
+	rm -f pdptool
+	$(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o pdptool ./cmd/pdptool
+.PHONY: pdptool
+BINS+=pdptool
+
 ifeq ($(shell uname),Linux)
 
 batchdep: build/.supraseal-install

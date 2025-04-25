@@ -40,6 +40,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/indexing"
 	"github.com/filecoin-project/curio/tasks/message"
 	"github.com/filecoin-project/curio/tasks/metadata"
+	"github.com/filecoin-project/curio/tasks/pdp"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
 	"github.com/filecoin-project/curio/tasks/scrub"
 	"github.com/filecoin-project/curio/tasks/seal"
@@ -98,7 +99,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	machine := dependencies.ListenAddr
 	prover := dependencies.Prover
 	iStore := dependencies.IndexStore
-	pp := dependencies.PieceProvider
+	pp := dependencies.SectorReader
 
 	var activeTasks []harmonytask.TaskInterface
 
@@ -137,6 +138,24 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			}
 			return res.Value, res.Error
 		}
+	}
+
+	// eth message sender as needed
+	var senderEth *message.SenderETH
+	var senderEthOnce sync.Once
+	var getSenderEth = func() *message.SenderETH {
+		senderEthOnce.Do(func() {
+			ec, err := dependencies.EthClient.Val()
+			if err != nil {
+				log.Errorw("failed to get eth client", "error", err)
+				return
+			}
+
+			var ethSenderTask *message.SendTaskETH
+			senderEth, ethSenderTask = message.NewSenderETH(ec, db)
+			activeTasks = append(activeTasks, ethSenderTask)
+		})
+		return senderEth
 	}
 
 	///////////////////////////////////////////////////////////////////////
@@ -252,10 +271,24 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			// instead of returning the error. This design is to allow libp2p take over if required
 			go libp2p.NewDealProvider(ctx, db, cfg, dm.MK12Handler, full, sender, miners, machine, shutdownChan)
 		}
-
 		sc, err := slrLazy.Val()
 		if err != nil {
 			return nil, err
+		}
+		var sdeps cuhttp.ServiceDeps
+
+		if cfg.Subsystems.EnablePDP {
+			es := getSenderEth()
+			sdeps.EthSender = es
+
+			pdp.NewWatcherCreate(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdp.NewWatcherRootAdd(db, must.One(dependencies.EthClient.Val()), chainSched)
+
+			pdpProveTask := pdp.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), dependencies.Chain, es, dependencies.CachedPieceReader)
+			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
+			pdpInitProvingPeriodTask := pdp.NewInitProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
+			pdpNotifTask := pdp.NewPDPNotifyTask(db)
+			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask)
 		}
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
@@ -265,7 +298,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		activeTasks = append(activeTasks, ipniTask, indexingTask)
 
 		if cfg.HTTP.Enable {
-			err = cuhttp.StartHTTPServer(ctx, dependencies, dm)
+			err = cuhttp.StartHTTPServer(ctx, dependencies, &sdeps, dm)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to start the HTTP server: %w", err)
 			}
@@ -299,7 +332,16 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		_ = watcher
 	}
 
-	if cfg.Subsystems.EnableWindowPost || hasAnySealingTask {
+	if senderEth != nil {
+		watcherEth, err := message.NewMessageWatcherEth(db, ht, chainSched, must.One(dependencies.EthClient.Val()))
+		if err != nil {
+			return nil, err
+		}
+		_ = watcherEth
+
+	}
+
+	if cfg.Subsystems.EnableWindowPost || hasAnySealingTask || senderEth != nil {
 		go chainSched.Run(ctx)
 	}
 
@@ -383,7 +425,18 @@ func addSealingTasks(
 	if cfg.Subsystems.EnableMoveStorage {
 		moveStorageTask := seal.NewMoveStorageTask(sp, slr, db, cfg.Subsystems.MoveStorageMaxTasks)
 		moveStorageSnapTask := snap.NewMoveStorageTask(slr, db, cfg.Subsystems.MoveStorageMaxTasks)
-		activeTasks = append(activeTasks, moveStorageTask, moveStorageSnapTask)
+
+		storePieceTask, err := piece2.NewStorePieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.MoveStorageMaxTasks)
+		if err != nil {
+			return nil, err
+		}
+
+		activeTasks = append(activeTasks, moveStorageTask, moveStorageSnapTask, storePieceTask)
+		if !cfg.Subsystems.EnableParkPiece {
+			// add cleanup if it's not added above with park piece
+			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
+			activeTasks = append(activeTasks, cleanupPieceTask)
+		}
 
 		if !cfg.Subsystems.NoUnsealedDecode {
 			unsealTask := unseal.NewTaskUnsealDecode(slr, db, cfg.Subsystems.MoveStorageMaxTasks, full)

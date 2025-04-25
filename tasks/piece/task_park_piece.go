@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"math"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -18,6 +17,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/dealdata"
 	ffi2 "github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
 )
@@ -30,33 +30,35 @@ const ParkMinFreeStoragePercent = 20
 // ParkPieceTask gets a piece from some origin, and parks it in storage
 // Pieces are always f00, piece ID is mapped to pieceCID in the DB
 type ParkPieceTask struct {
-	db *harmonydb.DB
-	sc *ffi2.SealCalls
+	db     *harmonydb.DB
+	sc     *ffi2.SealCalls
+	remote *paths.Remote
 
 	TF promise.Promise[harmonytask.AddTaskFunc]
 
 	max int
+
+	longTerm bool // Indicates if the task is for long-term pieces
 }
 
 func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, max int) (*ParkPieceTask, error) {
-	pt := &ParkPieceTask{
-		db: db,
-		sc: sc,
+	return newPieceTask(db, sc, nil, max, false)
+}
 
-		max: max,
+func NewStorePieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int) (*ParkPieceTask, error) {
+	return newPieceTask(db, sc, remote, max, true)
+}
+
+func newPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int, longTerm bool) (*ParkPieceTask, error) {
+	pt := &ParkPieceTask{
+		db:       db,
+		sc:       sc,
+		remote:   remote,
+		max:      max,
+		longTerm: longTerm,
 	}
 
 	ctx := context.Background()
-
-	// We should delete all incomplete pieces before we start
-	// as we would have lost reader for these. The RPC caller will get an error
-	// when Curio shuts down before parking a piece. They can always retry.
-	// Leaving these pieces we utilise unnecessary resources in the form of ParkPieceTask
-
-	_, err := db.Exec(ctx, `DELETE FROM parked_pieces WHERE complete = FALSE AND task_id IS NULL`)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to delete incomplete parked pieces: %w", err)
-	}
 
 	go pt.pollPieceTasks(ctx)
 	return pt, nil
@@ -64,12 +66,18 @@ func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, max int) (*ParkPiece
 
 func (p *ParkPieceTask) pollPieceTasks(ctx context.Context) {
 	for {
-		// select parked pieces with no task_id
+		// Select parked pieces with no task_id and matching longTerm flag
 		var pieceIDs []struct {
 			ID storiface.PieceNumber `db:"id"`
 		}
 
-		err := p.db.Select(ctx, &pieceIDs, `SELECT id FROM parked_pieces WHERE complete = FALSE AND task_id IS NULL`)
+		err := p.db.Select(ctx, &pieceIDs, `
+            SELECT id 
+            FROM parked_pieces 
+            WHERE long_term = $1 
+              AND complete = FALSE 
+              AND task_id IS NULL
+        `, p.longTerm)
 		if err != nil {
 			log.Errorf("failed to get parked pieces: %s", err)
 			time.Sleep(PieceParkPollInterval)
@@ -84,15 +92,17 @@ func (p *ParkPieceTask) pollPieceTasks(ctx context.Context) {
 		for _, pieceID := range pieceIDs {
 			pieceID := pieceID
 
-			// create a task for each piece
+			// Create a task for each piece
 			p.TF.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
-				// update
-				n, err := tx.Exec(`UPDATE parked_pieces SET task_id = $1 WHERE id = $2 AND complete = FALSE AND task_id IS NULL`, id, pieceID.ID)
+				// Update
+				n, err := tx.Exec(
+					`UPDATE parked_pieces SET task_id = $1 WHERE id = $2 AND complete = FALSE AND task_id IS NULL AND long_term = $3`,
+					id, pieceID.ID, p.longTerm)
 				if err != nil {
 					return false, xerrors.Errorf("updating parked piece: %w", err)
 				}
 
-				// commit only if we updated the piece
+				// Commit only if we updated the piece
 				return n > 0, nil
 			})
 		}
@@ -102,22 +112,22 @@ func (p *ParkPieceTask) pollPieceTasks(ctx context.Context) {
 func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 
-	// Define a struct to hold piece data.
+	// Fetch piece data
 	var piecesData []struct {
 		PieceID         int64     `db:"id"`
 		PieceCreatedAt  time.Time `db:"created_at"`
 		PieceCID        string    `db:"piece_cid"`
 		Complete        bool      `db:"complete"`
 		PiecePaddedSize int64     `db:"piece_padded_size"`
-		PieceRawSize    string    `db:"piece_raw_size"`
+		PieceRawSize    int64     `db:"piece_raw_size"`
 	}
 
-	// Select the piece data using the task ID.
+	// Select the piece data using the task ID and longTerm flag
 	err = p.db.Select(ctx, &piecesData, `
         SELECT id, created_at, piece_cid, complete, piece_padded_size, piece_raw_size
         FROM parked_pieces
-        WHERE task_id = $1
-    `, taskID)
+        WHERE task_id = $1 AND long_term = $2
+    `, taskID, p.longTerm)
 	if err != nil {
 		return false, xerrors.Errorf("fetching piece data: %w", err)
 	}
@@ -133,13 +143,12 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return true, nil
 	}
 
-	// Define a struct for reference data.
+	// Fetch reference data
 	var refData []struct {
 		DataURL     string          `db:"data_url"`
 		DataHeaders json.RawMessage `db:"data_headers"`
 	}
 
-	// Now, select the first reference data that has a URL.
 	err = p.db.Select(ctx, &refData, `
         SELECT data_url, data_headers
         FROM parked_piece_refs
@@ -152,12 +161,6 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return false, xerrors.Errorf("no refs found for piece_id: %d", pieceData.PieceID)
 	}
 
-	// Convert piece_raw_size from string to int64.
-	pieceRawSize, err := strconv.ParseInt(pieceData.PieceRawSize, 10, 64)
-	if err != nil {
-		return false, xerrors.Errorf("parsing piece raw size: %w", err)
-	}
-
 	var merr error
 
 	for i := range refData {
@@ -167,7 +170,7 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			if err != nil {
 				return false, xerrors.Errorf("unmarshaling reference data headers: %w", err)
 			}
-			upr := dealdata.NewUrlReader(refData[i].DataURL, hdrs, pieceRawSize)
+			upr := dealdata.NewUrlReader(p.remote, refData[i].DataURL, hdrs, pieceData.PieceRawSize)
 
 			defer func() {
 				_ = upr.Close()
@@ -175,7 +178,12 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 			pnum := storiface.PieceNumber(pieceData.PieceID)
 
-			if err := p.sc.WritePiece(ctx, &taskID, pnum, pieceRawSize, upr); err != nil {
+			storageType := storiface.PathSealing
+			if p.longTerm {
+				storageType = storiface.PathStorage
+			}
+
+			if err := p.sc.WritePiece(ctx, &taskID, pnum, pieceData.PieceRawSize, upr, storageType); err != nil {
 				merr = multierror.Append(merr, xerrors.Errorf("write piece: %w", err))
 				continue
 			}
@@ -190,7 +198,7 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		}
 	}
 
-	// If no URL is found, this indicates an issue since at least one URL is expected.
+	// If no suitable data URL is found
 	return false, xerrors.Errorf("no suitable data URL found for piece_id %d: %w", pieceData.PieceID, merr)
 }
 
@@ -202,14 +210,24 @@ func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 func (p *ParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 	const maxSizePiece = 64 << 30
 
+	taskName := "ParkPiece"
+	if p.longTerm {
+		taskName = "StorePiece"
+	}
+
+	storageType := storiface.PathSealing
+	if p.longTerm {
+		storageType = storiface.PathStorage
+	}
+
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(p.max),
-		Name: "ParkPiece",
+		Name: taskName,
 		Cost: resources.Resources{
 			Cpu:     1,
 			Gpu:     0,
 			Ram:     64 << 20,
-			Storage: p.sc.Storage(p.taskToRef, storiface.FTPiece, storiface.FTNone, maxSizePiece, storiface.PathSealing, ParkMinFreeStoragePercent),
+			Storage: p.sc.Storage(p.taskToRef, storiface.FTPiece, storiface.FTNone, maxSizePiece, storageType, ParkMinFreeStoragePercent),
 		},
 		MaxFailures: 10,
 		RetryWait: func(retries int) time.Duration {
@@ -248,4 +266,5 @@ func (p *ParkPieceTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
 var _ harmonytask.TaskInterface = &ParkPieceTask{}
-var _ = harmonytask.Reg(&ParkPieceTask{})
+var _ = harmonytask.Reg(&ParkPieceTask{longTerm: false})
+var _ = harmonytask.Reg(&ParkPieceTask{longTerm: true})
