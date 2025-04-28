@@ -392,7 +392,7 @@ func (t *WdPostTask) generateWindowPoSt(ctx context.Context, ppt abi.RegisteredP
 
 	postChallenges, err := ffi.GeneratePoStFallbackSectorChallenges(ppt, minerID, randomness, sectorNums)
 	if err != nil {
-		return nil, nil, xerrors.Errorf("generating fallback challenges: %v", err)
+		return nil, nil, xerrors.Errorf("generating fallback challenges: %w", err)
 	}
 
 	proofList := make([]ffi.PartitionProof, partitionCount)
@@ -426,12 +426,12 @@ func (t *WdPostTask) generateWindowPoSt(ctx context.Context, ppt abi.RegisteredP
 			sk := pr.Skipped
 
 			if err != nil || len(sk) > 0 {
-				log.Errorf("generateWindowPost part:%d, skipped:%d, sectors: %d, err: %+v", partIdx, len(sk), len(sectors), err)
+				log.Errorf("generateWindowPost part:%d, skipped:%d, sectors: %d, err: %s", partIdx, len(sk), len(sectors), err)
 				flk.Lock()
 				skipped = append(skipped, sk...)
 
 				if err != nil {
-					retErr = multierr.Append(retErr, xerrors.Errorf("partitionIndex:%d err:%+v", partIdx, err))
+					retErr = multierr.Append(retErr, xerrors.Errorf("partitionIndex: %d err: %w", partIdx, err))
 				}
 				flk.Unlock()
 			}
@@ -448,7 +448,7 @@ func (t *WdPostTask) generateWindowPoSt(ctx context.Context, ppt abi.RegisteredP
 
 	postProofs, err := ffi.MergeWindowPoStPartitionProofs(ppt, proofList)
 	if err != nil {
-		return nil, skipped, xerrors.Errorf("merge windowPoSt partition proofs: %v", err)
+		return nil, skipped, xerrors.Errorf("merge windowPoSt partition proofs: %w", err)
 	}
 
 	out = append(out, *postProofs)
@@ -470,7 +470,7 @@ func (t *WdPostTask) GenerateWindowPoStAdv(ctx context.Context, ppt abi.Register
 			select {
 			case t.parallel <- struct{}{}:
 			case <-ctx.Done():
-				return storiface.WindowPoStResult{}, xerrors.Errorf("context error waiting on challengeThrottle")
+				return storiface.WindowPoStResult{}, xerrors.Errorf("context error waiting on challengeThrottle: %w", ctx.Err())
 			}
 		}
 
