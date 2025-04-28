@@ -332,7 +332,7 @@ func (db *DB) upgrade() error {
 		}
 		_, err = db.Exec(context.Background(), rawStringOnly(megaSql))
 		if err != nil {
-			msg := fmt.Sprintf("Could not upgrade! %s", err.Error())
+			msg := fmt.Sprintf("Could not upgrade (%s)! %s", name, err.Error())
 			logger.Error(msg)
 			return xerrors.New(msg) // makes devs lives easier by placing message at the end.
 		}
