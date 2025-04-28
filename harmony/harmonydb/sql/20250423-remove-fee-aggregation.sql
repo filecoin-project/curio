@@ -70,7 +70,7 @@ BEGIN
         (5) If we finish the loop, return 0.
     */
     FOR batch_rec IN
-        WITH locked AS (
+        WITH initial AS (
             SELECT
                 sp_id,
                 sector_number,
@@ -92,7 +92,7 @@ BEGIN
                 PARTITION BY l.sp_id, l.reg_seal_proof
                 ORDER BY l.commit_ready_at
               ) AS rn
-            FROM locked l
+            FROM initial l
         ),
         chunked AS (
             SELECT
@@ -239,7 +239,7 @@ BEGIN
     */
 
     FOR batch_rec IN
-        WITH locked AS (
+        WITH initial AS (
             SELECT
               p.sp_id,
               p.sector_number,
@@ -268,7 +268,7 @@ BEGIN
                 PARTITION BY l.sp_id, l.reg_seal_proof
                 ORDER BY l.start_epoch
               ) AS rn
-            FROM locked l
+            FROM initial l
         ),
         chunked AS (
             SELECT
