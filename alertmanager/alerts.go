@@ -806,10 +806,10 @@ func pendingMessagesCheck(al *alerts) {
 
 	var messages []struct {
 		MessageCid string    `db:"signed_message_cid"`
-		AddedAt    time.Time `db:"added_at"`
+		AddedAt    time.Time `db:"created_at"`
 	}
 
-	err := al.db.Select(al.ctx, &messages, `SELECT signed_message_cid, added_at FROM message_waits WHERE executed_tsk_cid IS NULL ORDER BY added_at DESC`)
+	err := al.db.Select(al.ctx, &messages, `SELECT signed_message_cid, created_at FROM message_waits WHERE executed_tsk_cid IS NULL ORDER BY created_at DESC`)
 	if err != nil {
 		al.alertMap[Name].err = xerrors.Errorf("getting pending messages: %w", err)
 	}

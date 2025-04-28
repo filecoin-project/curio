@@ -117,10 +117,10 @@ func (a *WebRPC) PendingMessages(ctx context.Context) (PendingMessages, error) {
 
 	var messages []struct {
 		MessageCid string    `db:"signed_message_cid"`
-		AddedAt    time.Time `db:"added_at"`
+		AddedAt    time.Time `db:"created_at"`
 	}
 
-	err := a.deps.DB.Select(ctx, &messages, `SELECT signed_message_cid, added_at FROM message_waits WHERE executed_tsk_cid IS NULL ORDER BY added_at DESC`)
+	err := a.deps.DB.Select(ctx, &messages, `SELECT signed_message_cid, created_at FROM message_waits WHERE executed_tsk_cid IS NULL ORDER BY created_at DESC`)
 	if err != nil {
 		return PendingMessages{}, xerrors.Errorf("failed to get pending messages: %w", err)
 	}
