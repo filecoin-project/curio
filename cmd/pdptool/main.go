@@ -12,9 +12,11 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +37,11 @@ import (
 	curioproof "github.com/filecoin-project/curio/lib/proof"
 )
 
+// declare retry count
+const RETRY_INTERVAL = 10 // in seconds
+const MAX_RETIRIES = 18
+const DEFAULT_JWT_VALIDITY = 24 // in hours
+
 // validateExtraData checks if the provided hex string is valid and within the size limit.
 func validateExtraData(extraDataHexStr string) error {
 	if extraDataHexStr == "" {
@@ -48,6 +55,202 @@ func validateExtraData(extraDataHexStr string) error {
 		return fmt.Errorf("decoded extra-data exceeds maximum size of 2048 bytes (decoded length: %d)", len(decoded))
 	}
 	return nil
+}
+
+func addRootsToProofSet(rootCids []string, subrootCids []string, jwtToken string, serviceURL string, proofSetID uint64, extraDataHexStr string) error {
+	var addRootRequests []AddRootRequest
+	for i, subrootsStr := range subrootCids {
+		rootCID := rootCids[i]
+		// subrootsStr := subrootCids[1]
+		subrootCIDStrs := strings.Split(subrootsStr, "+")
+
+		if rootCID == "" || len(subrootCIDStrs) == 0 {
+			return fmt.Errorf("rootCID and at least one subrootCID are required")
+		}
+
+		var subroots []SubrootEntry
+		for _, subrootCID := range subrootCIDStrs {
+			subroots = append(subroots, SubrootEntry{SubrootCID: subrootCID})
+		}
+
+		addRootRequests = append(addRootRequests, AddRootRequest{
+			RootCID:  rootCID,
+			Subroots: subroots,
+		})
+	}
+	// Construct the full request payload including extraData
+	type AddRootsPayload struct {
+		Roots     []AddRootRequest `json:"roots"`
+		ExtraData *string          `json:"extraData,omitempty"`
+	}
+
+	payload := AddRootsPayload{
+		Roots: addRootRequests,
+	}
+	if extraDataHexStr != "" {
+		// Pass the validated 0x-prefixed hex string directly
+		payload.ExtraData = &extraDataHexStr
+	}
+	// Construct the request payload
+	requestBodyBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request body: %v", err)
+	}
+
+	// Construct the POST URL
+	postURL := fmt.Sprintf("%s/pdp/proof-sets/%d/roots", serviceURL, proofSetID)
+
+	// Create the POST request
+	req, err := http.NewRequest("POST", postURL, bytes.NewBuffer(requestBodyBytes))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+jwtToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	// Send the request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Read and display the response
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %v", err)
+	}
+	bodyString := string(bodyBytes)
+
+	if resp.StatusCode == http.StatusCreated {
+		fmt.Printf("Roots added to proof set ID %d successfully.\n", proofSetID)
+		fmt.Printf("Response: %s\n", bodyString)
+	} else {
+		return fmt.Errorf("failed to add roots, status code %d: %s", resp.StatusCode, bodyString)
+	}
+	return nil
+}
+
+func uploadFile(inputFile, serviceURL, jwtToken, notifyURL, chunkFileName, hashType string, notifyReceived chan struct{}, localNotifWait, verbose bool, dryRun bool) ([]rootSetInfo, error) {
+	var chunkFile *os.File
+	if chunkFileName != "" {
+		var err error
+		chunkFile, err = os.Create(chunkFileName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create chunk file: %v", err)
+		}
+		defer chunkFile.Close()
+	}
+
+	// Open input file
+	file, err := os.Open(inputFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open input file: %v", err)
+	}
+	defer file.Close()
+
+	// Get the file size
+	fi, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat input file: %v", err)
+	}
+	fileSize := fi.Size()
+	// Make padded chunk size as big as allowed
+	paddedChunkSize := curioproof.MaxMemtreeSize
+	chunkSize := int64((paddedChunkSize * 127) / 128) // make room for padding
+
+	// Progress bar
+	bar := progressbar.NewOptions(1, progressbar.OptionSetDescription("Uploading..."))
+	if int(fileSize/chunkSize) > 0 {
+		bar = progressbar.NewOptions(int(fileSize/chunkSize), progressbar.OptionSetDescription("Uploading..."))
+	}
+
+	// group piece aggregations for tracking as onchain roots into sector size chunks
+
+	rootSets := []rootSetInfo{}
+	rootSets = append(rootSets, rootSetInfo{
+		pieces:     make([]abi.PieceInfo, 0),
+		subrootStr: "",
+	})
+	rootSize := uint64(0)
+	maxRootSize, err := abi.RegisteredSealProof_StackedDrg64GiBV1_1.SectorSize()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sector size: %v", err)
+	}
+	counter := 0
+	client := &http.Client{}
+	for idx := int64(0); idx < fileSize; idx += chunkSize {
+		// Read the chunk
+		buf := make([]byte, chunkSize)
+		n, err := file.ReadAt(buf, idx)
+		if err != nil && err != io.EOF {
+			return nil, fmt.Errorf("failed to read file chunk: %v", err)
+		}
+		// Prepare the piece
+		chunkReader := bytes.NewReader(buf[:n])
+		commP, paddedPieceSize, commpDigest, shadigest, err := preparePiece(chunkReader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to prepare piece: %v", err)
+		}
+		if !dryRun {
+			// Prepare the request data
+			var checkData map[string]interface{}
+			switch hashType {
+			case "sha256":
+				checkData = map[string]interface{}{
+					"name": "sha2-256",
+					"hash": hex.EncodeToString(shadigest),
+					"size": n,
+				}
+			case "commp":
+				checkData = map[string]interface{}{
+					"name": "sha2-256-trunc254-padded",
+					"hash": hex.EncodeToString(commpDigest),
+					"size": n,
+				}
+			default:
+				return nil, fmt.Errorf("unsupported hash type: %s", hashType)
+			}
+
+			reqData := map[string]interface{}{
+				"check": checkData,
+			}
+			if notifyURL != "" {
+				reqData["notify"] = notifyURL
+			}
+			reqBody, err := json.Marshal(reqData)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal request data: %v", err)
+			}
+
+			// Upload the piece
+			err = uploadOnePiece(client, serviceURL, reqBody, jwtToken, chunkReader, int64(n), localNotifWait, notifyReceived, verbose)
+			if err != nil {
+				return nil, fmt.Errorf("failed to upload piece: %v", err)
+			}
+		}
+		if chunkFile != nil {
+			if _, err := chunkFile.Write([]byte(fmt.Sprintf("%s\n", commP))); err != nil {
+				return nil, fmt.Errorf("failed to write chunk to file: %v", err)
+			}
+		}
+		if rootSize+paddedPieceSize > uint64(maxRootSize) {
+			rootSets = append(rootSets, rootSetInfo{
+				pieces:     make([]abi.PieceInfo, 0),
+				subrootStr: "",
+			})
+			rootSize = 0
+		}
+		rootSize += paddedPieceSize
+		rootSets[len(rootSets)-1].pieces = append(rootSets[len(rootSets)-1].pieces, abi.PieceInfo{Size: abi.PaddedPieceSize(paddedPieceSize), PieceCID: commP})
+		rootSets[len(rootSets)-1].subrootStr = fmt.Sprintf("%s+%s", rootSets[len(rootSets)-1].subrootStr, commP)
+		counter++
+		if err := bar.Set(int(counter)); err != nil {
+			return nil, fmt.Errorf("failed to update progress bar: %v", err)
+		}
+	}
+	return rootSets, nil
 }
 
 func main() {
@@ -72,6 +275,7 @@ func main() {
 
 			addRootsCmd,
 			removeRootsCmd, // schedule roots for removal after next proof submission
+			uploadFolderCmd,
 		},
 	}
 	app.Setup()
@@ -80,6 +284,26 @@ func main() {
 		_, _ = fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		os.Exit(1)
 	}
+}
+
+type rootSetInfo struct {
+	pieces     []abi.PieceInfo
+	subrootStr string
+}
+
+type SubrootEntry struct {
+	SubrootCID string `json:"subrootCid"`
+}
+
+type AddRootRequest struct {
+	RootCID  string         `json:"rootCid"`
+	Subroots []SubrootEntry `json:"subroots"`
+}
+
+// Construct the full request payload including extraData
+type AddRootsPayload struct {
+	Roots     []AddRootRequest `json:"roots"`
+	ExtraData *string          `json:"extraData,omitempty"`
 }
 
 var authCreateServiceSecretCmd = &cli.Command{
@@ -138,6 +362,13 @@ var authCreateJWTTokenCmd = &cli.Command{
 	Name:      "create-jwt-token",
 	Usage:     "Generate a JWT token using the service secret",
 	ArgsUsage: "[service_name]",
+	Flags: []cli.Flag{
+		&cli.IntFlag{
+			Name:  "valid-time",
+			Usage: "Validity time of the JWT token in hours",
+			Value: DEFAULT_JWT_VALIDITY, // Default to 1 day
+		},
+	},
 	Action: func(cctx *cli.Context) error {
 		// Read the private key from pdpservice.json
 		privKey, err := loadPrivateKey()
@@ -151,8 +382,11 @@ var authCreateJWTTokenCmd = &cli.Command{
 			return fmt.Errorf("service_name argument is required")
 		}
 
+		// Get the validity time
+		validTime := cctx.Int("valid-time")
+
 		// Create JWT token using the common function
-		tokenString, err := createJWTToken(serviceName, privKey)
+		tokenString, err := createJWTToken(serviceName, privKey, validTime)
 		if err != nil {
 			return err
 		}
@@ -190,7 +424,7 @@ var pingCmd = &cli.Command{
 			return err
 		}
 		var errCreateToken error
-		jwtToken, errCreateToken := createJWTToken(serviceName, privKey)
+		jwtToken, errCreateToken := createJWTToken(serviceName, privKey, DEFAULT_JWT_VALIDITY)
 		if errCreateToken != nil {
 			return errCreateToken
 		}
@@ -225,11 +459,11 @@ var pingCmd = &cli.Command{
 	},
 }
 
-func createJWTToken(serviceName string, privateKey *ecdsa.PrivateKey) (string, error) {
+func createJWTToken(serviceName string, privateKey *ecdsa.PrivateKey, validTime int) (string, error) {
 	// Create JWT claims
 	claims := jwt.MapClaims{
 		"service_name": serviceName,
-		"exp":          time.Now().Add(time.Hour * 24).Unix(),
+		"exp":          time.Now().Add(time.Duration(validTime) * time.Hour).Unix(),
 	}
 
 	// Create the token
@@ -527,7 +761,7 @@ var pieceUploadCmd = &cli.Command{
 				return err
 			}
 			var errCreateToken error
-			jwtToken, errCreateToken = createJWTToken(serviceName, privKey)
+			jwtToken, errCreateToken = createJWTToken(serviceName, privKey, DEFAULT_JWT_VALIDITY)
 			if errCreateToken != nil {
 				return errCreateToken
 			}
@@ -660,6 +894,19 @@ var uploadFileCmd = &cli.Command{
 			Usage: "Output file to write chunks to",
 			Value: "",
 		},
+		&cli.BoolFlag{
+			Name:  "add-roots",
+			Usage: "Add roots to a proof set after upload",
+		},
+		&cli.Uint64Flag{
+			Name:  "proof-set-id",
+			Usage: "Proof set ID to which roots will be added (required if --add-roots is provided)",
+		},
+		&cli.StringFlag{
+			Name:     "extra-data",
+			Usage:    "Optional ABI-encoded extra data as a hex string to pass to the listener contract (max 2048 bytes)",
+			Required: false,
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 
@@ -677,15 +924,18 @@ var uploadFileCmd = &cli.Command{
 		verbose := cctx.Bool("verbose")
 		dryRun := cctx.Bool("dry-run")
 		chunkFileName := cctx.String("chunk-file")
-		var chunkFile *os.File
-		if chunkFileName != "" {
-			var err error
-			chunkFile, err = os.Create(chunkFileName)
-			if err != nil {
-				return fmt.Errorf("failed to create chunk file: %v", err)
-			}
-			defer chunkFile.Close()
+		addRoots := cctx.Bool("add-roots")
+		proofSetID := cctx.Uint64("proof-set-id")
+		extraDataHexStr := cctx.String("extra-data")
+		// Validate extraData hex string and its decoded length
+		if err := validateExtraData(extraDataHexStr); err != nil {
+			return err
 		}
+
+		if addRoots && proofSetID == 0 {
+			return fmt.Errorf("proof-set-id is required when --add-roots is provided")
+		}
+
 		if jwtToken == "" {
 			if serviceName == "" {
 				return fmt.Errorf("either --jwt-token or --service-name must be provided")
@@ -695,130 +945,26 @@ var uploadFileCmd = &cli.Command{
 				return err
 			}
 			var errCreateToken error
-			jwtToken, errCreateToken = createJWTToken(serviceName, privKey)
+			jwtToken, errCreateToken = createJWTToken(serviceName, privKey, DEFAULT_JWT_VALIDITY)
 			if errCreateToken != nil {
 				return errCreateToken
 			}
 		}
 
-		// Open input file
-		file, err := os.Open(inputFile)
-		if err != nil {
-			return fmt.Errorf("failed to open input file: %v", err)
-		}
-		defer file.Close()
-
-		// Get the file size
-		fi, err := file.Stat()
-		if err != nil {
-			return fmt.Errorf("failed to stat input file: %v", err)
-		}
-		fileSize := fi.Size()
-		// Make padded chunk size as big as allowed
-		paddedChunkSize := curioproof.MaxMemtreeSize
-		chunkSize := int64((paddedChunkSize * 127) / 128) // make room for padding
-
-		// Progress bar
-		bar := progressbar.NewOptions(1, progressbar.OptionSetDescription("Uploading..."))
-		if int(fileSize/chunkSize) > 0 {
-			bar = progressbar.NewOptions(int(fileSize/chunkSize), progressbar.OptionSetDescription("Uploading..."))
-		}
+		var rootLogs []string
 
 		// Setup local server if needed
 		var notifyReceived chan struct{}
+		var err error
 		if localNotifWait {
 			notifyURL, notifyReceived, err = startLocalNotifyServer()
 			if err != nil {
 				return fmt.Errorf("failed to start local HTTP server: %v", err)
 			}
 		}
-
-		// group piece aggregations for tracking as onchain roots into sector size chunks
-		type rootSetInfo struct {
-			pieces     []abi.PieceInfo
-			subrootStr string
-		}
-		rootSets := []rootSetInfo{}
-		rootSets = append(rootSets, rootSetInfo{
-			pieces:     make([]abi.PieceInfo, 0),
-			subrootStr: "",
-		})
-		rootSize := uint64(0)
-		maxRootSize, err := abi.RegisteredSealProof_StackedDrg64GiBV1_1.SectorSize()
+		rootSets, err := uploadFile(inputFile, serviceURL, jwtToken, notifyURL, chunkFileName, hashType, notifyReceived, localNotifWait, verbose, dryRun)
 		if err != nil {
-			return fmt.Errorf("failed to get sector size: %v", err)
-		}
-		counter := 0
-		client := &http.Client{}
-		for idx := int64(0); idx < fileSize; idx += chunkSize {
-			// Read the chunk
-			buf := make([]byte, chunkSize)
-			n, err := file.ReadAt(buf, idx)
-			if err != nil && err != io.EOF {
-				return fmt.Errorf("failed to read file chunk: %v", err)
-			}
-			// Prepare the piece
-			chunkReader := bytes.NewReader(buf[:n])
-			commP, paddedPieceSize, commpDigest, shadigest, err := preparePiece(chunkReader)
-			if err != nil {
-				return fmt.Errorf("failed to prepare piece: %v", err)
-			}
-			if !dryRun {
-				// Prepare the request data
-				var checkData map[string]interface{}
-				switch hashType {
-				case "sha256":
-					checkData = map[string]interface{}{
-						"name": "sha2-256",
-						"hash": hex.EncodeToString(shadigest),
-						"size": n,
-					}
-				case "commp":
-					checkData = map[string]interface{}{
-						"name": "sha2-256-trunc254-padded",
-						"hash": hex.EncodeToString(commpDigest),
-						"size": n,
-					}
-				default:
-					return fmt.Errorf("unsupported hash type: %s", hashType)
-				}
-
-				reqData := map[string]interface{}{
-					"check": checkData,
-				}
-				if notifyURL != "" {
-					reqData["notify"] = notifyURL
-				}
-				reqBody, err := json.Marshal(reqData)
-				if err != nil {
-					return fmt.Errorf("failed to marshal request data: %v", err)
-				}
-
-				// Upload the piece
-				err = uploadOnePiece(client, serviceURL, reqBody, jwtToken, chunkReader, int64(n), localNotifWait, notifyReceived, verbose)
-				if err != nil {
-					return fmt.Errorf("failed to upload piece: %v", err)
-				}
-			}
-			if chunkFile != nil {
-				if _, err := chunkFile.Write([]byte(fmt.Sprintf("%s\n", commP))); err != nil {
-					return fmt.Errorf("failed to write chunk to file: %v", err)
-				}
-			}
-			if rootSize+paddedPieceSize > uint64(maxRootSize) {
-				rootSets = append(rootSets, rootSetInfo{
-					pieces:     make([]abi.PieceInfo, 0),
-					subrootStr: "",
-				})
-				rootSize = 0
-			}
-			rootSize += paddedPieceSize
-			rootSets[len(rootSets)-1].pieces = append(rootSets[len(rootSets)-1].pieces, abi.PieceInfo{Size: abi.PaddedPieceSize(paddedPieceSize), PieceCID: commP})
-			rootSets[len(rootSets)-1].subrootStr = fmt.Sprintf("%s+%s", rootSets[len(rootSets)-1].subrootStr, commP)
-			counter++
-			if err := bar.Set(int(counter)); err != nil {
-				return fmt.Errorf("failed to update progress bar: %v", err)
-			}
+			return fmt.Errorf("failed to upload file: %v", err)
 		}
 
 		for i, rootSet := range rootSets {
@@ -831,10 +977,57 @@ var uploadFileCmd = &cli.Command{
 			if err != nil {
 				return fmt.Errorf("failed to generate unsealed CID: %v", err)
 			}
-			s := fmt.Sprintf("%s:%s\n", root, rootSet.subrootStr[1:])
+			s := fmt.Sprintf("%s:%s", root, rootSet.subrootStr[1:])
+			rootLogs = append(rootLogs, s)
 			fmt.Printf("%s\n", s)
 		}
+		if verbose {
+			fmt.Print("\nRoot logs:\n")
+			for index, rootLog := range rootLogs {
+				fmt.Printf("file %d: %s\n", index, rootLog)
+			}
+		}
 
+		if addRoots {
+			for _, rootInput := range rootLogs {
+				// parse “rootCID:sub1+sub2…”
+				parts := strings.SplitN(rootInput, ":", 2)
+				if len(parts) != 2 {
+					return fmt.Errorf("invalid root input format: %s (%d)", rootInput, len(parts))
+				}
+				rootCID := parts[0]
+				subrootsStr := parts[1]
+
+				// Retry addRootsToProofSet on transient failures as it takes time to validate subroots for freshly uploaded files
+				const retryInterval = RETRY_INTERVAL * time.Second
+				const maxRetries = MAX_RETIRIES // 18 * 10s = 180s = 3m
+				var err error
+				for attempt := 1; attempt <= maxRetries; attempt++ {
+					err = addRootsToProofSet(
+						[]string{rootCID},
+						[]string{subrootsStr},
+						jwtToken,
+						serviceURL,
+						proofSetID,
+						extraDataHexStr,
+					)
+					if err == nil {
+						break // success!
+					}
+					fmt.Printf(
+						"Attempt %d/%d \nadding root %s; failed: %v retrying in %v…\n",
+						attempt, maxRetries, rootCID, err, retryInterval,
+					)
+					time.Sleep(retryInterval)
+				}
+				if err != nil {
+					return fmt.Errorf(
+						"failed to add root %s after %d attempts: %v",
+						rootCID, maxRetries, err,
+					)
+				}
+			}
+		}
 		return nil
 	},
 }
@@ -869,12 +1062,10 @@ var createProofSetCmd = &cli.Command{
 		serviceName := cctx.String("service-name")
 		recordKeeper := cctx.String("recordkeeper")
 		extraDataHexStr := cctx.String("extra-data")
-
 		// Validate extraData hex string and its decoded length
 		if err := validateExtraData(extraDataHexStr); err != nil {
 			return err
 		}
-
 		// Load the private key
 		privKey, err := loadPrivateKey()
 		if err != nil {
@@ -882,7 +1073,7 @@ var createProofSetCmd = &cli.Command{
 		}
 
 		// Create the JWT token
-		jwtToken, err := createJWTToken(serviceName, privKey)
+		jwtToken, err := createJWTToken(serviceName, privKey, DEFAULT_JWT_VALIDITY)
 		if err != nil {
 			return fmt.Errorf("failed to create JWT token: %v", err)
 		}
@@ -971,7 +1162,7 @@ var getProofSetStatusCmd = &cli.Command{
 		}
 
 		// Create the JWT token
-		jwtToken, err := createJWTToken(serviceName, privKey)
+		jwtToken, err := createJWTToken(serviceName, privKey, DEFAULT_JWT_VALIDITY)
 		if err != nil {
 			return fmt.Errorf("failed to create JWT token: %v", err)
 		}
@@ -1081,7 +1272,7 @@ var getProofSetCmd = &cli.Command{
 		}
 
 		// Create the JWT token
-		jwtToken, err := createJWTToken(serviceName, privKey)
+		jwtToken, err := createJWTToken(serviceName, privKey, DEFAULT_JWT_VALIDITY)
 		if err != nil {
 			return fmt.Errorf("failed to create JWT token: %v", err)
 		}
@@ -1195,98 +1386,29 @@ var addRootsCmd = &cli.Command{
 		}
 
 		// Create the JWT token
-		jwtToken, err := createJWTToken(serviceName, privKey)
+		jwtToken, err := createJWTToken(serviceName, privKey, DEFAULT_JWT_VALIDITY)
 		if err != nil {
 			return fmt.Errorf("failed to create JWT token: %v", err)
 		}
 
 		// Parse the root inputs to construct the request payload
-		type SubrootEntry struct {
-			SubrootCID string `json:"subrootCid"`
-		}
-
-		type AddRootRequest struct {
-			RootCID  string         `json:"rootCid"`
-			Subroots []SubrootEntry `json:"subroots"`
-		}
-
-		var addRootRequests []AddRootRequest
-
+		var rootsArr []string
+		var subrootsArr []string
 		for _, rootInput := range rootInputs {
-			// Expected format: rootCID:subrootCID1,subrootCID2,...
+			// Expected format: rootCID:subrootCID1+subrootCID2,...
 			parts := strings.SplitN(rootInput, ":", 2)
 			if len(parts) != 2 {
 				return fmt.Errorf("invalid root input format: %s (%d)", rootInput, len(parts))
 			}
 			rootCID := parts[0]
 			subrootsStr := parts[1]
-			subrootCIDStrs := strings.Split(subrootsStr, "+")
+			rootsArr = append(rootsArr, rootCID)
+			subrootsArr = append(subrootsArr, subrootsStr)
 
-			if rootCID == "" || len(subrootCIDStrs) == 0 {
-				return fmt.Errorf("rootCID and at least one subrootCID are required")
-			}
-
-			var subroots []SubrootEntry
-			for _, subrootCID := range subrootCIDStrs {
-				subroots = append(subroots, SubrootEntry{SubrootCID: subrootCID})
-			}
-
-			addRootRequests = append(addRootRequests, AddRootRequest{
-				RootCID:  rootCID,
-				Subroots: subroots,
-			})
 		}
-
-		// Construct the full request payload including extraData
-		type AddRootsPayload struct {
-			Roots     []AddRootRequest `json:"roots"`
-			ExtraData *string          `json:"extraData,omitempty"`
-		}
-
-		payload := AddRootsPayload{
-			Roots: addRootRequests,
-		}
-		if extraDataHexStr != "" {
-			// Pass the validated 0x-prefixed hex string directly
-			payload.ExtraData = &extraDataHexStr
-		}
-
-		requestBodyBytes, err := json.Marshal(payload)
+		err = addRootsToProofSet(rootsArr, subrootsArr, jwtToken, serviceURL, proofSetID, extraDataHexStr)
 		if err != nil {
-			return fmt.Errorf("failed to marshal request body: %v", err)
-		}
-
-		// Construct the POST URL
-		postURL := fmt.Sprintf("%s/pdp/proof-sets/%d/roots", serviceURL, proofSetID)
-
-		// Create the POST request
-		req, err := http.NewRequest("POST", postURL, bytes.NewBuffer(requestBodyBytes))
-		if err != nil {
-			return fmt.Errorf("failed to create request: %v", err)
-		}
-		req.Header.Set("Authorization", "Bearer "+jwtToken)
-		req.Header.Set("Content-Type", "application/json")
-
-		// Send the request
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			return fmt.Errorf("failed to send request: %v", err)
-		}
-		defer resp.Body.Close()
-
-		// Read and display the response
-		bodyBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("failed to read response body: %v", err)
-		}
-		bodyString := string(bodyBytes)
-
-		if resp.StatusCode == http.StatusCreated {
-			fmt.Printf("Roots added to proof set ID %d successfully.\n", proofSetID)
-			fmt.Printf("Response: %s\n", bodyString)
-		} else {
-			return fmt.Errorf("failed to add roots, status code %d: %s", resp.StatusCode, bodyString)
+			return fmt.Errorf("failed to add roots: %v", err)
 		}
 
 		return nil
@@ -1426,14 +1548,14 @@ var removeRootsCmd = &cli.Command{
 		proofSetID := cctx.Uint64("proof-set-id")
 		rootID := cctx.Uint64("root-id")
 
-		// Load the private key (implement `loadPrivateKey` according to your setup)
+		// Load the private key
 		privKey, err := loadPrivateKey()
 		if err != nil {
 			return fmt.Errorf("failed to load private key: %v", err)
 		}
 
-		// Create the JWT token (implement `createJWTToken` according to your setup)
-		jwtToken, err := createJWTToken(serviceName, privKey)
+		// Create the JWT token
+		jwtToken, err := createJWTToken(serviceName, privKey, DEFAULT_JWT_VALIDITY)
 		if err != nil {
 			return fmt.Errorf("failed to create JWT token: %v", err)
 		}
@@ -1464,6 +1586,206 @@ var removeRootsCmd = &cli.Command{
 			return fmt.Errorf("failed to add roots, status code %d", resp.StatusCode)
 		}
 
+		return nil
+	},
+}
+
+var uploadFolderCmd = &cli.Command{
+	Name:      "upload-folder",
+	Usage:     "Upload all files in a folder to a PDP Service",
+	ArgsUsage: "<folder-path>",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "service-url",
+			Usage:    "URL of the PDP service",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:  "jwt-token",
+			Usage: "JWT token for authentication (optional if --service-name is provided)",
+		},
+		&cli.StringFlag{
+			Name:  "service-name",
+			Usage: "Service Name to include in the JWT token (used if --jwt-token is not provided)",
+		},
+		&cli.StringFlag{
+			Name:     "notify-url",
+			Usage:    "Notification URL",
+			Required: false,
+		},
+		&cli.StringFlag{
+			Name:  "hash-type",
+			Usage: "Hash type to use for verification (sha256 or commp)",
+			Value: "sha256",
+		},
+		&cli.BoolFlag{
+			Name:  "local-notif-wait",
+			Usage: "Wait for server notification by spawning a temporary local HTTP server",
+		},
+		&cli.BoolFlag{
+			Name:  "verbose",
+			Usage: "Verbose output",
+			Value: false,
+		},
+		&cli.BoolFlag{
+			Name:  "dry-run",
+			Usage: "Calculate chunks but don't upload",
+			Value: false,
+		},
+		&cli.BoolFlag{
+			Name:  "add-roots",
+			Usage: "Add roots to a proof set after upload",
+		},
+		&cli.Uint64Flag{
+			Name:  "proof-set-id",
+			Usage: "Proof set ID to which roots will be added (required if --add-roots is provided)",
+		},
+		&cli.StringFlag{
+			Name:     "extra-data",
+			Usage:    "Optional ABI-encoded extra data as a hex string to pass to the listener contract (max 2048 bytes)",
+			Required: false,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		folderPath := cctx.Args().Get(0)
+		if folderPath == "" {
+			return fmt.Errorf("folder path is required")
+		}
+
+		serviceURL := cctx.String("service-url")
+		jwtToken := cctx.String("jwt-token")
+		serviceName := cctx.String("service-name")
+		hashType := cctx.String("hash-type")
+		localNotifWait := cctx.Bool("local-notif-wait")
+		notifyURL := cctx.String("notify-url")
+		verbose := cctx.Bool("verbose")
+		dryRun := cctx.Bool("dry-run")
+		addRoots := cctx.Bool("add-roots")
+		proofSetID := cctx.Uint64("proof-set-id")
+		extraDataHexStr := cctx.String("extra-data")
+		// Validate extraData hex string and its decoded length
+		if err := validateExtraData(extraDataHexStr); err != nil {
+			return err
+		}
+
+		if addRoots && proofSetID == 0 {
+			return fmt.Errorf("proof-set-id is required when --add-roots is provided")
+		}
+
+		if jwtToken == "" {
+			if serviceName == "" {
+				return fmt.Errorf("either --jwt-token or --service-name must be provided")
+			}
+			privKey, err := loadPrivateKey()
+			if err != nil {
+				return err
+			}
+			var errCreateToken error
+			jwtToken, errCreateToken = createJWTToken(serviceName, privKey, DEFAULT_JWT_VALIDITY)
+			if errCreateToken != nil {
+				return errCreateToken
+			}
+		}
+
+		if hashType != "sha256" && hashType != "commp" {
+			return fmt.Errorf("invalid hash type: %s", hashType)
+		}
+
+		var rootLogs []string
+		var notifyReceived chan struct{}
+		var err error
+		if localNotifWait {
+			notifyURL, notifyReceived, err = startLocalNotifyServer()
+			if err != nil {
+				return fmt.Errorf("failed to start local HTTP server: %v", err)
+			}
+		}
+
+		// Recursively walk all files under folderPath
+		err = filepath.WalkDir(folderPath, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			// skip directories
+			if d.IsDir() {
+				return nil
+			}
+
+			rootSets, err := uploadFile(path, serviceURL, jwtToken, notifyURL, "", hashType, notifyReceived, localNotifWait, verbose, dryRun)
+			if err != nil {
+				return fmt.Errorf("failed to upload file %s: %v", path, err)
+			}
+
+			// handle all returned rootSets
+			for i, rootSet := range rootSets {
+				pieceSize := uint64(0)
+				for _, piece := range rootSet.pieces {
+					pieceSize += uint64(piece.Size)
+				}
+				root, err := nonffi.GenerateUnsealedCID(abi.RegisteredSealProof_StackedDrg64GiBV1_1, rootSet.pieces)
+				if err != nil {
+					return fmt.Errorf("failed to generate unsealed CID: %v", err)
+				}
+				fmt.Printf("%d: pieceSize: %d\n", i, pieceSize)
+				s := fmt.Sprintf("%s:%s", root, rootSet.subrootStr[1:])
+				rootLogs = append(rootLogs, s)
+				fmt.Printf("%s\n\n", s)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+
+		if verbose {
+			fmt.Print("\nRoot logs:\n")
+			for index, rootLog := range rootLogs {
+				fmt.Printf("file %d: %s \n", index, rootLog)
+			}
+		}
+
+		if addRoots {
+			for _, rootInput := range rootLogs {
+				// parse “rootCID:sub1+sub2…”
+				parts := strings.SplitN(rootInput, ":", 2)
+				if len(parts) != 2 {
+					return fmt.Errorf("invalid root input format: %s (%d)", rootInput, len(parts))
+				}
+				rootCID := parts[0]
+				subrootsStr := parts[1]
+
+				// Retry addRootsToProofSet on transient failures as it takes time to validate subroots for freshly uploaded files
+				const retryInterval = RETRY_INTERVAL * time.Second
+				const maxRetries = MAX_RETIRIES // 18 * 10s = 180s = 3m
+				var err error
+				for attempt := 1; attempt <= maxRetries; attempt++ {
+					err = addRootsToProofSet(
+						[]string{rootCID},
+						[]string{subrootsStr},
+						jwtToken,
+						serviceURL,
+						proofSetID,
+						extraDataHexStr,
+					)
+					if err == nil {
+						break // success!
+					}
+					fmt.Printf(
+						"Attempt %d/%d \nadding root %s; failed: %v retrying in %v…\n",
+						attempt, maxRetries, rootCID, err, retryInterval,
+					)
+					time.Sleep(retryInterval)
+				}
+				if err != nil {
+					return fmt.Errorf(
+						"failed to add root %s after %d attempts: %v",
+						rootCID, maxRetries, err,
+					)
+				}
+			}
+		}
+
+		fmt.Println("All files in the folder uploaded successfully.")
 		return nil
 	},
 }
