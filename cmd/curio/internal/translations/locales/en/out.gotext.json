@@ -926,6 +926,27 @@
             "fuzzy": true
         },
         {
+            "id": "Tool Box for Curio",
+            "message": "Tool Box for Curio",
+            "translation": "Tool Box for Curio",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Updated DB with message data missing from chain node",
+            "message": "Updated DB with message data missing from chain node",
+            "translation": "Updated DB with message data missing from chain node",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Update data for messages in wait queue",
+            "message": "Update data for messages in wait queue",
+            "translation": "Update data for messages in wait queue",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Manage unsealed data",
             "message": "Manage unsealed data",
             "translation": "Manage unsealed data",
