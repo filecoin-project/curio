@@ -10,4 +10,6 @@ create table message_waits (
     executed_rcpt_exitcode bigint,
     executed_rcpt_return bytea,
     executed_rcpt_gas_used bigint
+
+    -- created_at timestampz (added in 20250422-msg-wait-timestamp.sql)
 )
