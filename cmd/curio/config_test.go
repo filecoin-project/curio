@@ -638,6 +638,7 @@ func TestTOMLDecoding(t *testing.T) {
 [Batching]
   [Batching.Commit]
   [Batching.PreCommit]
+    Timeout = "1h0m0s"
   [Batching.Update]
 
 [Fees]

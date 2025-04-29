@@ -62,6 +62,14 @@ if [ ! -f $CURIO_REPO_PATH/.init.curio ]; then
     EnableCommP = true
     EnableDealMarket = true
     EnableParkPiece = true
+
+  [Batching]
+    [Batching.PreCommit]
+      Timeout = "0h0m5s"
+      Slack = "6h0m0s"
+    [Batching.Commit]
+      Timeout = "0h0m5s"
+      Slack = "1h0m0s"
   '
   echo "$CONFIG_CONTENT" | curio config create --title market
   touch $CURIO_REPO_PATH/.init.config

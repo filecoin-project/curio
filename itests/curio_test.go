@@ -115,8 +115,14 @@ func TestCurioHappyPath(t *testing.T) {
 
 	require.Contains(t, baseCfg.Addresses[0].MinerAddresses, maddr.String())
 
-	baseCfg.Batching.PreCommit.Timeout = 5 * time.Second
-	baseCfg.Batching.Commit.Timeout = 5 * time.Minute
+	baseCfg.Batching.PreCommit.Timeout = time.Second
+	baseCfg.Batching.Commit.Timeout = time.Second
+
+	cb, err := config.ConfigUpdate(baseCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
+	require.NoError(t, err)
+
+	_, err = db.Exec(context.Background(), `INSERT INTO harmony_config (title, config) VALUES ($1, $2) ON CONFLICT (title) DO UPDATE SET config = $2`, "base", string(cb))
+	require.NoError(t, err)
 
 	temp := os.TempDir()
 	dir, err := os.MkdirTemp(temp, "curio")
@@ -289,7 +295,7 @@ func TestCurioHappyPath(t *testing.T) {
 												sectors_sdr_pipeline;`)
 		require.NoError(t, err)
 		for i, task := range pollTask {
-			t.Logf("Task %d: SpID=%d, SectorNumber=%d, RegisteredSealProof=%d, TicketEpoch=%s, TaskSDR=%s, AfterSDR=%t, TaskTreeD=%s, AfterTreeD=%t, TaskTreeC=%s, AfterTreeC=%t, TaskTreeR=%s, AfterTreeR=%t, TaskSynth=%s, AfterSynth=%t, PreCommitReadyAt=%s, TaskPrecommitMsg=%s, AfterPrecommitMsg=%t, AfterPrecommitMsgSuccess=%t, SeedEpoch=%s, TaskPoRep=%s, PoRepProof=%v, AfterPoRep=%t, TaskFinalize=%s, AfterFinalize=%t, TaskMoveStorage=%s, AfterMoveStorage=%t, CommitReadyAt=%s, TaskCommitMsg=%s, AfterCommitMsg=%t, AfterCommitMsgSuccess=%t, Failed=%t, FailedReason=%s, StartEpoch=%s",
+			t.Logf("Task %d: SpID=%d, SectorNumber=%d, RegisteredSealProof=%d, TicketEpoch=%s, TaskSDR=%s, AfterSDR=%t, TaskTreeD=%s, AfterTreeD=%t, TaskTreeC=%s, AfterTreeC=%t, TaskTreeR=%s, AfterTreeR=%t, TaskSynth=%s, AfterSynth=%t, PreCommitReadyAt=%s, TaskPrecommitMsg=%s, AfterPrecommitMsg=%t, AfterPrecommitMsgSuccess=%t, SeedEpoch=%s, TaskPoRep=%s, AfterPoRep=%t, TaskFinalize=%s, AfterFinalize=%t, TaskMoveStorage=%s, AfterMoveStorage=%t, CommitReadyAt=%s, TaskCommitMsg=%s, AfterCommitMsg=%t, AfterCommitMsgSuccess=%t, Failed=%t, FailedReason=%s, StartEpoch=%s",
 				i,
 				task.SpID,
 				task.SectorNumber,
@@ -311,7 +317,6 @@ func TestCurioHappyPath(t *testing.T) {
 				task.AfterPrecommitMsgSuccess,
 				valueOrNA(task.SeedEpoch),
 				valueOrNA(task.TaskPoRep),
-				task.PoRepProof,
 				task.AfterPoRep,
 				valueOrNA(task.TaskFinalize),
 				task.AfterFinalize,
@@ -327,7 +332,7 @@ func TestCurioHappyPath(t *testing.T) {
 			)
 		}
 		return pollTask[0].AfterCommitMsgSuccess && pollTask[1].AfterCommitMsgSuccess
-	}, 10*time.Minute, 1*time.Second, "sector did not finish sealing in 10 minutes")
+	}, 10*time.Minute, 2*time.Second, "sector did not finish sealing in 10 minutes")
 
 	require.Equal(t, pollTask[0].SectorNumber, int64(0))
 	require.Equal(t, pollTask[0].SpID, int64(mid))

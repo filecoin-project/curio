@@ -358,12 +358,8 @@ func addSealingTasks(
 
 	var sp *seal.SealPoller
 	var slr *ffi.SealCalls
-	var err error
 	if hasAnySealingTask {
-		sp, err = seal.NewPoller(db, full, cfg)
-		if err != nil {
-			return nil, xerrors.Errorf("creating seal poller: %w", err)
-		}
+		sp = seal.NewPoller(db, full, cfg)
 		go sp.RunPoller(ctx)
 
 		slr = must.One(slrLazy.Val())

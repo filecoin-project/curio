@@ -80,10 +80,6 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context) {
 	}
 
 	slackEpoch := int64(math.Ceil(s.cfg.commit.Slack.Seconds() / float64(build.BlockDelaySecs)))
-	feeOk := false
-	if ts.MinTicketBlock().ParentBaseFee.LessThan(s.cfg.commit.BaseFeeThreshold) {
-		feeOk = true
-	}
 
 	s.pollers[pollerCommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 		var updatedCount int64
@@ -94,15 +90,13 @@ func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context) {
 			"current_height", ts.Height(),
 			"max_batch", s.cfg.commit.MaxCommitBatch,
 			"new_task_id", id,
-			"basefee_ok", feeOk,
 			"timeout_secs", s.cfg.commit.Timeout.Seconds())
 
-		err = tx.QueryRow(`SELECT updated_count, reason FROM poll_start_batch_commit_msg($1, $2, $3, $4, $5, $6)`,
+		err = tx.QueryRow(`SELECT updated_count, reason FROM poll_start_batch_commit_msgs($1, $2, $3, $4, $5)`,
 			slackEpoch,                          // p_slack_epoch
 			ts.Height(),                         // p_current_height
 			s.cfg.commit.MaxCommitBatch,         // p_max_batch
 			id,                                  // p_new_task_id
-			feeOk,                               // p_basefee_ok
 			int(s.cfg.commit.Timeout.Seconds()), // p_timeout_secs
 		).Scan(&updatedCount, &reason)
 		if err != nil {
