@@ -222,7 +222,7 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 						return
 					}
 				}
-				if h.Height() > deadline.Challenge {
+				if h.Height() > deadline.Close {
 					if !isTestTask() {
 						log.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d deadline closed at %d, cancelling context", spID, dlIdx, partIdx, h.Height())
 						cancel(xerrors.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d cancelling context as head %d is greater then deadline close %d", spID, dlIdx, partIdx, h.Height(), deadline.Close))
