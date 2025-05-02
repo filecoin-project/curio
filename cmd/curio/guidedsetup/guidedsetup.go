@@ -79,12 +79,20 @@ var GuidedsetupCmd = &cli.Command{
 		}
 
 		newOrMigrate(&migrationData)
-		if migrationData.init {
+		if migrationData.init && !migrationData.initPDP {
 			say(header, "This interactive tool creates a new miner actor and creates the basic configuration layer for it.")
 			say(notice, "This process is partially idempotent. Once a new miner actor has been created and subsequent steps fail, the user need to run 'curio config new-cluster < miner ID >' to finish the configuration.")
 			for _, step := range newMinerSteps {
 				step(&migrationData)
 			}
+		} else if !migrationData.init && migrationData.initPDP {
+			say(header, "This interactive tool creates a new PDP only provider and creates the basic configuration layer for it.")
+			for _, step := range newPDPSteps {
+				step(&migrationData)
+			}
+		} else if migrationData.init && migrationData.initPDP {
+			say(header, "This interactive tool does not support creating a new miner and PDP only provider at the same time.")
+			os.Exit(1)
 		} else {
 			say(header, "This interactive tool migrates lotus-miner to Curio in 5 minutes.")
 			say(notice, "Each step needs your confirmation and can be reversed. Press Ctrl+C to exit at any time.")
@@ -149,7 +157,8 @@ func newOrMigrate(d *MigrationData) {
 		Label: d.T("I want to:"),
 		Items: []string{
 			d.T("Migrate from existing Lotus-Miner"),
-			d.T("Create a new miner")},
+			d.T("Create a new miner"),
+			d.T("Create a PDP only provider")},
 		Templates: d.selectTemplates,
 	}).Run()
 	if err != nil {
@@ -158,6 +167,9 @@ func newOrMigrate(d *MigrationData) {
 	}
 	if i == 1 {
 		d.init = true
+	}
+	if i == 2 {
+		d.initPDP = true
 	}
 }
 
@@ -185,6 +197,14 @@ var newMinerSteps = []newMinerStep{
 	afterRan,
 }
 
+type newPDPStep func(data *MigrationData)
+
+var newPDPSteps = []newPDPStep{
+	pdp,
+	doc,
+	afterRan,
+}
+
 type MigrationData struct {
 	T               func(key message.Reference, a ...interface{}) string
 	say             func(style lipgloss.Style, key message.Reference, a ...interface{})
@@ -202,6 +222,7 @@ type MigrationData struct {
 	sender          address.Address
 	ssize           string
 	init            bool
+	initPDP         bool
 }
 
 func complete(d *MigrationData) {
@@ -785,4 +806,101 @@ func getDBDetails(d *MigrationData) {
 			return
 		}
 	}
+}
+
+func pdp(d *MigrationData) {
+	// Setup and connect to YugabyteDB
+	getDBDetails(d)
+
+	// Check that we don't have a miner address
+	var titles []struct {
+		Title  string `db:"title"`
+		Config string `db:"config"`
+	}
+
+	var configs []string
+
+	err := d.DB.Select(d.ctx, &titles, `SELECT title, config FROM harmony_config WHERE LENGTH(config) > 0`)
+	if err != nil {
+		d.say(notice, "Cannot reach the DB: %s", err.Error())
+		os.Exit(1)
+	}
+
+	curioConfig := config.DefaultCurioConfig()
+
+	for _, t := range titles {
+		_, err := deps.LoadConfigWithUpgrades(t.Config, curioConfig)
+		if err != nil {
+			d.say(notice, "Cannot parse config %s: %s", t.Title, err.Error())
+			os.Exit(1)
+		}
+		configs = append(configs, t.Title)
+	}
+
+	if len(curioConfig.Addresses) > 0 {
+		if curioConfig.Addresses[0].MinerAddresses[0] != "" {
+			d.say(notice, "Miner address already exists in the config. Cannot initiate a new PDP only cluster")
+			os.Exit(1)
+		}
+	}
+
+	curioConfig = config.DefaultCurioConfig()
+	curioConfig.Addresses = append(curioConfig.Addresses, config.CurioAddresses{
+		PreCommitControl:      []string{},
+		CommitControl:         []string{},
+		DealPublishControl:    []string{},
+		TerminateControl:      []string{},
+		DisableOwnerFallback:  false,
+		DisableWorkerFallback: false,
+		MinerAddresses:        []string{},
+		BalanceManager:        config.DefaultBalanceManager(),
+	})
+
+	sk, err := io.ReadAll(io.LimitReader(rand.Reader, 32))
+	if err != nil {
+		d.say(notice, "Failed to generate random bytes for secret: %s", err.Error())
+		os.Exit(1)
+	}
+
+	// Get full node API
+	full, closer, err := cliutil.GetFullNodeAPIV1(d.cctx)
+	if err != nil {
+		d.say(notice, "Error connecting to full node API: %s", err.Error())
+		os.Exit(1)
+	}
+	d.full = full
+	d.closers = append(d.closers, closer)
+
+	ainfo, err := cliutil.GetAPIInfo(d.cctx, repo.FullNode)
+	if err != nil {
+		d.say(notice, "Failed to get API info for FullNode: %w", err)
+		d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
+		os.Exit(1)
+	}
+
+	token, err := d.full.AuthNew(d.ctx, lapi.AllPermissions)
+	if err != nil {
+		d.say(notice, "Failed to verify the auth token from daemon node: %s", err.Error())
+		d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
+		os.Exit(1)
+	}
+
+	curioConfig.Apis.StorageRPCSecret = base64.StdEncoding.EncodeToString(sk)
+
+	curioConfig.Apis.ChainApiInfo = append(curioConfig.Apis.ChainApiInfo, fmt.Sprintf("%s:%s", string(token), ainfo.Addr))
+
+	if !lo.Contains(configs, "base") {
+		cb, err := config.ConfigUpdate(curioConfig, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
+		if err != nil {
+			d.say(notice, "Failed to generate default config: %s", err.Error())
+			os.Exit(1)
+		}
+		_, err = d.DB.Exec(d.ctx, "INSERT INTO harmony_config (title, config) VALUES ('base', $1)", string(cb))
+		if err != nil {
+			d.say(notice, "Failed to insert 'base' config layer in database: %s", err.Error())
+			os.Exit(1)
+		}
+	}
+
+	stepCompleted(d, d.T("Initialization steps complete"))
 }
