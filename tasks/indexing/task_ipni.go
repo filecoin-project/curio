@@ -348,6 +348,7 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 	var stop bool
 	for !stop {
 		var markComplete *string
+		var mk20 bool
 
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
@@ -355,20 +356,41 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 			var pendings []itask
 
 			err := tx.Select(&pendings, `SELECT
-    										uuid, 
-											sp_id, 
-											sector,
-											piece_cid, 
-											piece_size, 
-											sector_offset,
-											reg_seal_proof,
-											raw_size,
-											should_index,
-											announce
-											FROM market_mk12_deal_pipeline 
+											  uuid, 
+											  sp_id, 
+											  sector,
+											  piece_cid, 
+											  piece_size, 
+											  sector_offset,
+											  reg_seal_proof,
+											  raw_size,
+											  should_index,
+											  announce,
+											  FALSE as mk20
+											FROM market_mk12_deal_pipeline
 											WHERE sealed = TRUE
-											AND indexed = TRUE 
-											AND complete = FALSE
+											  AND indexed = TRUE 
+											  AND complete = FALSE
+											
+											UNION ALL
+											
+											SELECT
+											  id AS uuid,
+											  sp_id,
+											  sector,
+											  piece_cid,
+											  piece_size,
+											  sector_offset,
+											  reg_seal_proof,
+											  raw_size,
+											  indexing AS should_index,
+											  announce,
+											  TRUE as mk20
+											FROM market_mk20_pipeline
+											WHERE sealed = TRUE
+											  AND indexed = TRUE 
+											  AND complete = FALSE
+											
 											ORDER BY indexing_created_at ASC
 											LIMIT 1;`)
 			if err != nil {
@@ -384,9 +406,14 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 			// Skip IPNI if deal says not to announce or not to index (fast retrievals). If we announce without
 			// indexing, it will cause issue with retrievals.
 			if !p.Announce || !p.ShouldIndex {
-				n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1`, p.UUID)
+				var n int
+				if p.Mk20 {
+					n, err = tx.Exec(`UPDATE market_mk20_pipeline SET complete = TRUE WHERE id = $1`, p.UUID)
+				} else {
+					n, err = tx.Exec(`UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1`, p.UUID)
+				}
 				if err != nil {
-					return false, xerrors.Errorf("store IPNI success: updating pipeline (1): %w", err)
+					return false, xerrors.Errorf("store IPNI success: updating pipeline: %w", err)
 				}
 				if n != 1 {
 					return false, xerrors.Errorf("store IPNI success: updated %d rows", n)
@@ -461,6 +488,7 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 					ilog.Infof("Another IPNI announce task already present for piece %s in deal %s", p.PieceCid, p.UUID)
 					// SET "complete" status to true for this deal, so it is not considered next time
 					markComplete = &p.UUID
+					mk20 = p.Mk20
 					stop = false // we found a sector to work on, keep going
 					return true, nil
 				}
@@ -468,6 +496,7 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 					ilog.Infof("Piece %s in deal %s is already published", p.PieceCid, p.UUID)
 					// SET "complete" status to true for this deal, so it is not considered next time
 					markComplete = &p.UUID
+					mk20 = p.Mk20
 					stop = false // we found a sector to work on, keep going
 					return false, nil
 				}
@@ -479,7 +508,13 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 		})
 
 		if markComplete != nil {
-			n, err := I.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1 AND complete = FALSE`, *markComplete)
+			var n int
+			var err error
+			if mk20 {
+				n, err = I.db.Exec(ctx, `UPDATE market_mk20_pipeline SET complete = TRUE WHERE id = $1 AND complete = FALSE`, *markComplete)
+			} else {
+				n, err = I.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET complete = TRUE WHERE uuid = $1 AND complete = FALSE`, *markComplete)
+			}
 			if err != nil {
 				log.Errorf("store IPNI success: updating pipeline (2): %s", err)
 			}

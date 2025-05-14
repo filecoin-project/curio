@@ -136,10 +136,11 @@ func isWebSocketUpgrade(r *http.Request) bool {
 }
 
 type ServiceDeps struct {
-	EthSender *message.SenderETH
+	EthSender  *message.SenderETH
+	DealMarket *storage_market.CurioStorageDealMarket
 }
 
-func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps, dm *storage_market.CurioStorageDealMarket) error {
+func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps) error {
 	cfg := d.Cfg.HTTP
 
 	// Setup the Chi router for more complex routing (if needed in the future)
@@ -181,7 +182,9 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps, dm *sto
 		fmt.Fprintf(w, "Service is up and running")
 	})
 
-	chiRouter, err = attachRouters(ctx, chiRouter, d, sd, dm)
+	// TODO: Attach a info page here with details about all the service and endpoints
+
+	chiRouter, err = attachRouters(ctx, chiRouter, d, sd)
 	if err != nil {
 		return xerrors.Errorf("failed to attach routers: %w", err)
 	}
@@ -275,7 +278,7 @@ func (c cache) Delete(ctx context.Context, key string) error {
 
 var _ autocert.Cache = cache{}
 
-func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDeps, dm *storage_market.CurioStorageDealMarket) (*chi.Mux, error) {
+func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDeps) (*chi.Mux, error) {
 	// Attach retrievals
 	rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader)
 	retrieval.Router(r, rp)
@@ -299,7 +302,7 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDep
 	}
 
 	// Attach the market handler
-	dh, err := mhttp.NewMarketHandler(d.DB, d.Cfg, dm)
+	dh, err := mhttp.NewMarketHandler(d.DB, d.Cfg, sd.DealMarket)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to create new market handler: %w", err)
 	}

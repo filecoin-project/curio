@@ -50,32 +50,80 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	ctx := context.Background()
 
 	var pieces []struct {
-		Pcid    string          `db:"piece_cid"`
-		Psize   int64           `db:"piece_size"`
-		UUID    string          `db:"uuid"`
-		URL     *string         `db:"url"`
-		Headers json.RawMessage `db:"headers"`
-		RawSize int64           `db:"raw_size"`
+		Pcid       string          `db:"piece_cid"`
+		Psize      int64           `db:"piece_size"`
+		RawSize    int64           `db:"raw_size"`
+		URL        *string         `db:"url"`
+		Headers    json.RawMessage `db:"headers"`
+		UUID       *string         `db:"uuid"` // Nullable because it only exists in market_mk12_deal_pipeline
+		ID         *string         `db:"id"`   // Nullable because it only exists in market_mk20_pipeline
+		IDType     *int            `db:"id_type"`
+		SpID       *int64          `db:"sp_id"`
+		Contract   *string         `db:"contract"`
+		PieceIndex *int            `db:"piece_index"`
+		MK12Piece  bool            `db:"mk12_source_table"`
 	}
 
-	err = c.db.Select(ctx, &pieces, `SELECT uuid, url, headers, raw_size, piece_cid, piece_size
-								FROM market_mk12_deal_pipeline WHERE commp_task_id = $1`, taskID)
-
+	err = c.db.Select(ctx, &pieces, `SELECT 
+											uuid, 
+											url, 
+											headers, 
+											raw_size, 
+											piece_cid, 
+											piece_size, 
+											NULL AS id, 
+											NULL AS id_type, 
+											NULL AS sp_id, 
+											NULL AS contract, 
+											NULL AS piece_index, 
+											TRUE AS mk12_source_table
+										FROM 
+											market_mk12_deal_pipeline 
+										WHERE 
+											commp_task_id = $1
+										
+										UNION ALL
+										
+										SELECT 
+											NULL AS uuid, 
+											url, 
+											headers, 
+											raw_size, 
+											piece_cid, 
+											piece_size, 
+											id, 
+											id_type, 
+											sp_id, 
+											contract, 
+											piece_index, 
+											FALSE AS mk12_source_table
+										FROM 
+											market_mk20_pipeline 
+										WHERE 
+											commp_task_id = $1`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting piece details: %w", err)
 	}
-
 	if len(pieces) != 1 {
 		return false, xerrors.Errorf("expected 1 piece, got %d", len(pieces))
 	}
 	piece := pieces[0]
 
-	expired, err := checkExpiry(ctx, c.db, c.api, piece.UUID, c.sm.pin.GetExpectedSealDuration())
-	if err != nil {
-		return false, xerrors.Errorf("deal %s expired: %w", piece.UUID, err)
-	}
-	if expired {
-		return true, nil
+	if piece.MK12Piece {
+		if piece.UUID == nil {
+			return false, xerrors.Errorf("expected UUID to be non-null for mk12 piece")
+		}
+		expired, err := checkExpiry(ctx, c.db, c.api, *piece.UUID, c.sm.pin.GetExpectedSealDuration())
+		if err != nil {
+			return false, xerrors.Errorf("deal %s expired: %w", *piece.UUID, err)
+		}
+		if expired {
+			return true, nil
+		}
+	} else {
+		if piece.ID == nil || piece.IDType == nil || piece.SpID == nil || piece.Contract == nil || piece.PieceIndex == nil {
+			return false, xerrors.Errorf("expected ID, IDType, SpID, Contract, PieceIndex to be non-null for mk20 piece")
+		}
 	}
 
 	if piece.URL != nil {
@@ -196,7 +244,25 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			return false, xerrors.Errorf("commP mismatch calculated %s and supplied %s", pcid, calculatedCommp.PieceCID)
 		}
 
-		n, err := c.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET after_commp = TRUE, psd_wait_time = NOW(), commp_task_id = NULL WHERE commp_task_id = $1`, taskID)
+		var n int
+
+		if piece.MK12Piece {
+			n, err = c.db.Exec(ctx, `UPDATE market_mk12_deal_pipeline SET after_commp = TRUE, psd_wait_time = NOW(), commp_task_id = NULL WHERE commp_task_id = $1`, taskID)
+		} else {
+			n, err = c.db.Exec(ctx, `UPDATE market_mk20_pipeline SET after_commp = TRUE, commp_task_id = $9
+										 	WHERE id = $1 
+											  AND id_type = $2 
+											  AND sp_id = $3 
+											  AND contract = $4
+											  AND piece_cid = $5
+											  AND piece_size = $6
+											  AND raw_size = $7
+										 	  AND piece_index = $8
+											  AND downloaded = TRUE
+											  AND after_commp = FALSE`,
+				*piece.ID, *piece.IDType, *piece.SpID, *piece.Contract, piece.Pcid, piece.Psize, piece.RawSize, *piece.PieceIndex, taskID)
+		}
+
 		if err != nil {
 			return false, xerrors.Errorf("store commp success: updating deal pipeline: %w", err)
 		}
@@ -207,7 +273,11 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return true, nil
 	}
 
-	return false, xerrors.Errorf("failed to find URL for the piece %s in the db", piece.Pcid)
+	if piece.MK12Piece {
+		return false, xerrors.Errorf("failed to find URL for the piece %s in the db", piece.Pcid)
+	}
+
+	return false, xerrors.Errorf("failed to find URL for the mk20 deal piece with id %s, idType %d, SP %d, Contract %s, Index %d and CID %s in the db", *piece.ID, *piece.IDType, *piece.SpID, *piece.Contract, *piece.PieceIndex, piece.Pcid)
 
 }
 
@@ -218,20 +288,13 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 	// ParkPiece should be scheduled on same node which has the piece
 	// Remote HTTP ones can be scheduled on any node
 
-	if true {
-		// TODO make this a setting
-		id := ids[0]
-		return &id, nil
-	}
-
 	ctx := context.Background()
 
 	var tasks []struct {
-		TaskID       harmonytask.TaskID `db:"commp_task_id"`
-		SpID         int64              `db:"sp_id"`
-		SectorNumber int64              `db:"sector_number"`
-		StorageID    string             `db:"storage_id"`
-		Url          *string            `db:"url"`
+		TaskID    harmonytask.TaskID `db:"commp_task_id"`
+		SpID      int64              `db:"sp_id"`
+		StorageID string             `db:"storage_id"`
+		Url       *string            `db:"url"`
 	}
 
 	indIDs := make([]int64, len(ids))
@@ -240,9 +303,26 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 	}
 
 	comm, err := c.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		err = tx.Select(&tasks, `
-		SELECT commp_task_id, sp_id, sector_number, url FROM market_mk12_deal_pipeline
-			WHERE commp_task_id = ANY ($1)`, indIDs)
+		err = tx.Select(&tasks, `SELECT 
+											commp_task_id, 
+											sp_id, 
+											url
+										FROM 
+											market_mk12_deal_pipeline
+										WHERE 
+											commp_task_id = ANY ($1)
+										
+										UNION ALL
+										
+										SELECT 
+											commp_task_id, 
+											sp_id, 
+											url
+										FROM 
+											market_mk20_pipeline
+										WHERE 
+											commp_task_id = ANY ($1);
+										`, indIDs)
 		if err != nil {
 			return false, xerrors.Errorf("failed to get deal details from DB: %w", err)
 		}
@@ -286,6 +366,7 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 				}
 			}
 		}
+
 		return true, nil
 	}, harmonydb.OptionRetry())
 

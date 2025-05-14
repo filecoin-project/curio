@@ -22,7 +22,7 @@ import (
 	storage_market "github.com/filecoin-project/curio/tasks/storage-market"
 )
 
-var log = logging.Logger("mktdealhdlr")
+var log = logging.Logger("mk12httphdlr")
 
 // Redirector struct with a database connection
 type MK12DealHandler struct {
