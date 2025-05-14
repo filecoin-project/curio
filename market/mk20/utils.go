@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/bits"
-	"net/http"
 	"net/url"
 	"time"
 
@@ -22,23 +21,21 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
-func (d *Deal) Validate(db *harmonydb.DB) (int, error) {
-	code, err := d.Products.Validate(db)
+type productAndDataSource struct {
+	Products []dbProduct
+	Data     []dbDataSource
+}
+
+func (d *Deal) Validate(pad *productAndDataSource) (int, error) {
+	code, err := d.Products.Validate(pad.Products)
 	if err != nil {
 		return code, xerrors.Errorf("products validation failed: %w", err)
 	}
 
-	return d.Data.Validate(db)
+	return d.Data.Validate(pad.Data)
 }
 
-func (d DataSource) Validate(db *harmonydb.DB) (int, error) {
-	var dbDataSources []dbDataSource
-
-	err := db.Select(context.Background(), &dbDataSources, `SELECT name, enabled FROM market_mk20_data_source`)
-	if err != nil {
-		return http.StatusInternalServerError, xerrors.Errorf("getting data sources from DB: %w", err)
-	}
-
+func (d DataSource) Validate(dbDataSources []dbDataSource) (int, error) {
 	if len(dbDataSources) == 0 {
 		return ErrUnsupportedDataSource, xerrors.Errorf("no data sources enabled on the provider")
 	}
@@ -140,7 +137,7 @@ func (d DataSource) Validate(db *harmonydb.DB) (int, error) {
 						return ErrMalformedDataSource, xerrors.Errorf("no urls defined for sub piece in aggregate")
 					}
 
-					for _, u := range d.SourceHTTP.URLs {
+					for _, u := range p.SourceHTTP.URLs {
 						_, err := url.Parse(u.URL)
 						if err != nil {
 							return ErrMalformedDataSource, xerrors.Errorf("invalid url")
@@ -275,14 +272,7 @@ type dbProduct struct {
 	Enabled bool   `db:"enabled"`
 }
 
-func (d Products) Validate(db *harmonydb.DB) (int, error) {
-	var dbProducts []dbProduct
-
-	err := db.Select(context.Background(), &dbProducts, `SELECT name, enabled FROM products`)
-	if err != nil {
-		return http.StatusInternalServerError, xerrors.Errorf("getting products from DB: %w", err)
-	}
-
+func (d Products) Validate(dbProducts []dbProduct) (int, error) {
 	if len(dbProducts) == 0 {
 		return ErrProductNotEnabled, xerrors.Errorf("no products enabled on the provider")
 	}
