@@ -5,6 +5,7 @@ import (
 
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
 )
@@ -46,7 +47,10 @@ type DataSource struct {
 
 	// SourceOffline defines the data source for offline pieces, including raw size information.
 	SourceOffline *DataSourceOffline `json:"sourceoffline"`
-	// SourceHTTPPush // allow clients to push piece data after deal accepted, sort of like offline import
+
+	// SourceHTTPPut // allow clients to push piece data after deal accepted, sort of like offline import
+	SourceHttpPut *DataSourceHttpPut `json:"sourcehttpput"`
+
 	// SourceStorageProvider -> sp IDs/ipni, pieceCids
 }
 
@@ -87,9 +91,41 @@ type DataSourceOffline struct {
 	RawSize uint64 `json:"rawsize"`
 }
 
+func (dso *DataSourceOffline) Name() DataSourceName {
+	return DataSourceNameOffline
+}
+
+func (dso *DataSourceOffline) IsEnabled(dbDataSources []dbDataSource) (int, error) {
+	name := string(dso.Name())
+	for _, p := range dbDataSources {
+		if p.Name == name {
+			if p.Enabled {
+				return Ok, nil
+			}
+		}
+	}
+	return ErrUnsupportedDataSource, xerrors.Errorf("data source %s is not enabled", name)
+}
+
 // DataSourceAggregate represents an aggregated data source containing multiple individual DataSource pieces.
 type DataSourceAggregate struct {
 	Pieces []DataSource `json:"pieces"`
+}
+
+func (dsa *DataSourceAggregate) Name() DataSourceName {
+	return DataSourceNameAggregate
+}
+
+func (dsa *DataSourceAggregate) IsEnabled(dbDataSources []dbDataSource) (int, error) {
+	name := string(dsa.Name())
+	for _, p := range dbDataSources {
+		if p.Name == name {
+			if p.Enabled {
+				return Ok, nil
+			}
+		}
+	}
+	return ErrUnsupportedDataSource, xerrors.Errorf("data source %s is not enabled", name)
 }
 
 // DataSourceHTTP represents an HTTP-based data source for retrieving piece data, including its raw size and associated URLs.
@@ -100,6 +136,22 @@ type DataSourceHTTP struct {
 
 	// URLs lists the HTTP endpoints where the piece data can be fetched.
 	URLs []HttpUrl `json:"urls"`
+}
+
+func (dsh *DataSourceHTTP) Name() DataSourceName {
+	return DataSourceNameHTTP
+}
+
+func (dsh *DataSourceHTTP) IsEnabled(dbDataSources []dbDataSource) (int, error) {
+	name := string(dsh.Name())
+	for _, p := range dbDataSources {
+		if p.Name == name {
+			if p.Enabled {
+				return Ok, nil
+			}
+		}
+	}
+	return ErrUnsupportedDataSource, xerrors.Errorf("data source %s is not enabled", name)
 }
 
 // HttpUrl represents an HTTP endpoint configuration for fetching piece data.
@@ -118,6 +170,26 @@ type HttpUrl struct {
 	Fallback bool `json:"fallback"`
 }
 
+type DataSourceHttpPut struct {
+	RawSize uint64 `json:"rawsize"`
+}
+
+func (dsh *DataSourceHttpPut) Name() DataSourceName {
+	return DataSourceNamePut
+}
+
+func (dsh *DataSourceHttpPut) IsEnabled(dbDataSources []dbDataSource) (int, error) {
+	name := string(dsh.Name())
+	for _, p := range dbDataSources {
+		if p.Name == name {
+			if p.Enabled {
+				return Ok, nil
+			}
+		}
+	}
+	return ErrUnsupportedDataSource, xerrors.Errorf("data source %s is not enabled", name)
+}
+
 // AggregateType represents an unsigned integer used to define the type of aggregation for data pieces in the system.
 type AggregateType uint64
 
@@ -129,26 +201,44 @@ const (
 type ErrCode int
 
 const (
-	Ok                           = 200
-	ErrBadProposal               = 400
-	ErrMalformedDataSource       = 400
-	ErrUnsupportedDataSource     = 422
-	ErrUnsupportedProduct        = 422
-	ErrProductNotEnabled         = 403
-	ErrProductValidationRejected = 409
-	ErrDealRejectedByMarket      = 422
-	ErrServiceMaintenance        = 503
-	ErrServiceOverloaded         = 429
-	ErrMarketNotEnabled          = 440
-	ErrDurationTooShort          = 441
+	Ok                         = 200
+	ErrBadProposal             = 400
+	ErrMalformedDataSource     = 430
+	ErrUnsupportedDataSource   = 422
+	ErrUnsupportedProduct      = 423
+	ErrProductNotEnabled       = 424
+	ErrProductValidationFailed = 425
+	ErrDealRejectedByMarket    = 426
+	ErrServiceMaintenance      = 503
+	ErrServiceOverloaded       = 429
+	ErrMarketNotEnabled        = 440
+	ErrDurationTooShort        = 441
 )
 
-// TODO: Deal Status - HTTP
-// TODO: Supported contractS - HTTP
+type ProductName string
+
+const (
+	ProductNameDDOV1 ProductName = "ddov1"
+)
+
+type DataSourceName string
+
+const (
+	DataSourceNameHTTP            DataSourceName = "http"
+	DataSourceNameAggregate       DataSourceName = "aggregate"
+	DataSourceNameOffline         DataSourceName = "offline"
+	DataSourceNameStorageProvider DataSourceName = "storageprovider"
+	DataSourceNamePDP             DataSourceName = "pdp"
+	DataSourceNamePut             DataSourceName = "put"
+)
+
+type dbDataSource struct {
+	Name    string `db:"name"`
+	Enabled bool   `db:"enabled"`
+}
+
 // TODO: Client facing UI Page for SP
 // TODO: Contract SP details pathway - sptool?
-// TODO: Error codes use
-// TODO: /PUT endpoint
 // TODO: SPID data source
 // TODO: Test contract
 // TODO: ACLv1?
