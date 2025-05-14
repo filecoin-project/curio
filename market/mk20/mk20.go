@@ -75,7 +75,30 @@ func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorI
 
 func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal) *ProviderDealRejectionInfo {
 	// Validate the DataSource TODO: Add error code to validate
-	code, err := deal.Validate(m.db)
+	var dbProducts []dbProduct
+	err := m.db.Select(context.Background(), &dbProducts, `SELECT name, enabled FROM products`)
+	if err != nil {
+		log.Errorw("error getting products from DB", "error", err)
+		return &ProviderDealRejectionInfo{
+			HTTPCode: http.StatusInternalServerError,
+		}
+	}
+
+	var dbDataSources []dbDataSource
+	err = m.db.Select(context.Background(), &dbDataSources, `SELECT name, enabled FROM data_sources`)
+	if err != nil {
+		log.Errorw("error getting data sources from DB", "error", err)
+		return &ProviderDealRejectionInfo{
+			HTTPCode: http.StatusInternalServerError,
+		}
+	}
+
+	vdata := &productAndDataSource{
+		Products: dbProducts,
+		Data:     dbDataSources,
+	}
+
+	code, err := deal.Validate(vdata)
 	if err != nil {
 		log.Errorw("deal rejected", "deal", deal, "error", err)
 		ret := &ProviderDealRejectionInfo{
