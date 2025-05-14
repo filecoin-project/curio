@@ -561,7 +561,7 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 		if !deal.IsOffline {
 			var pieceID int64
 			// Attempt to select the piece ID first
-			err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1`, prop.PieceCID.String()).Scan(&pieceID)
+			err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2`, prop.PieceCID.String(), prop.PieceSize).Scan(&pieceID)
 
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {

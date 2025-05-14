@@ -12,8 +12,6 @@ import (
 	"github.com/ipfs/go-cid"
 	"go.opencensus.io/stats"
 
-	"github.com/filecoin-project/go-state-types/abi"
-
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
 )
@@ -73,15 +71,16 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setHeaders(w, pieceCid, contentType)
-	serveContent(w, r, size, reader)
+	setHeaders(w, pieceCid, contentType, int64(size))
+	serveContent(w, r, reader)
 
 	stats.Record(ctx, remoteblockstore.HttpPieceByCid200ResponseCount.M(1))
 	stats.Record(ctx, remoteblockstore.HttpPieceByCidRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
 }
 
-func setHeaders(w http.ResponseWriter, pieceCid cid.Cid, contentType string) {
+func setHeaders(w http.ResponseWriter, pieceCid cid.Cid, contentType string, size int64) {
 	w.Header().Set("Vary", "Accept-Encoding")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", size))
 	w.Header().Set("Cache-Control", "public, max-age=29030400, immutable")
 	w.Header().Set("Content-Type", contentType)
 	if contentType != "application/octet-stream" {
@@ -98,7 +97,7 @@ func setHeaders(w http.ResponseWriter, pieceCid cid.Cid, contentType string) {
 
 }
 
-func serveContent(res http.ResponseWriter, req *http.Request, size abi.UnpaddedPieceSize, content io.ReadSeeker) {
+func serveContent(res http.ResponseWriter, req *http.Request, content io.ReadSeeker) {
 	// Note that the last modified time is a constant value because the data
 	// in a piece identified by a cid will never change.
 
@@ -109,6 +108,5 @@ func serveContent(res http.ResponseWriter, req *http.Request, size abi.UnpaddedP
 	}
 
 	// Send the content
-	res.Header().Set("Content-Length", fmt.Sprintf("%d", size))
 	http.ServeContent(res, req, "", lastModified, content)
 }
