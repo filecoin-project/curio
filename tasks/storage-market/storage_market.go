@@ -37,7 +37,7 @@ import (
 	"github.com/filecoin-project/curio/market/mk20"
 	"github.com/filecoin-project/curio/market/storageingest"
 
-	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+	lminer "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/proofs"
 	"github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
@@ -78,6 +78,7 @@ type CurioStorageDealMarket struct {
 	urls        map[string]http.Header
 	adders      [numPollers]promise.Promise[harmonytask.AddTaskFunc]
 	as          *multictladdr.MultiAddressSelector
+	stor        paths.StashStore
 }
 
 type MK12Pipeline struct {
@@ -114,7 +115,7 @@ type MK12Pipeline struct {
 	Offset *int64 `db:"sector_offset"`
 }
 
-func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, ethClient *ethclient.Client, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector) *CurioStorageDealMarket {
+func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, ethClient *ethclient.Client, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, stor paths.StashStore) *CurioStorageDealMarket {
 
 	moduleMap := make(map[string][]address.Address)
 	moduleMap[mk12Str] = append(moduleMap[mk12Str], miners...)
@@ -133,6 +134,7 @@ func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *
 		urls:      urls,
 		as:        as,
 		ethClient: ethClient,
+		stor:      stor,
 	}
 }
 
@@ -183,7 +185,7 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 			if len(miners) == 0 {
 				return nil
 			}
-			d.MK20Handler, err = mk20.NewMK20Handler(miners, d.db, d.si, d.api, d.ethClient, d.cfg, d.as)
+			d.MK20Handler, err = mk20.NewMK20Handler(miners, d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.stor)
 			if err != nil {
 				return err
 			}
@@ -719,10 +721,10 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 					StartEpoch: abi.ChainEpoch(dbdeal.StartEpoch),
 					EndEpoch:   abi.ChainEpoch(dbdeal.EndEpoch),
 				},
-				PieceActivationManifest: &miner.PieceActivationManifest{
+				PieceActivationManifest: &lminer.PieceActivationManifest{
 					CID:  pcid,
 					Size: abi.PaddedPieceSize(dbdeal.PieceSize),
-					VerifiedAllocationKey: &miner.VerifiedAllocationKey{
+					VerifiedAllocationKey: &lminer.VerifiedAllocationKey{
 						Client: abi.ActorID(clientId),
 						ID:     verifreg.AllocationId(dbdeal.AllocationID),
 					},

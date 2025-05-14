@@ -15,7 +15,9 @@ CREATE TABLE market_mk20_deal (
     source_offline JSONB NOT NULL DEFAULT 'null',
 
     ddov1 JSONB NOT NULL DEFAULT 'null',
-    market_deal_id TEXT DEFAULT NULL
+    market_deal_id TEXT DEFAULT NULL,
+
+    error TEXT DEFAULT NULL
 );
 
 CREATE TABLE market_mk20_pipeline (
@@ -63,7 +65,10 @@ CREATE TABLE market_mk20_pipeline (
 );
 
 CREATE TABLE market_mk20_pipeline_waiting (
-    id TEXT NOT NULL PRIMARY KEY
+    id TEXT PRIMARY KEY,
+    waiting_for_data BOOLEAN DEFAULT FALSE,
+    started_put BOOLEAN DEFAULT FALSE,
+    start_time TIMESTAMPZ DEFAULT NULL
 );
 
 CREATE TABLE market_mk20_download_pipeline (
@@ -81,11 +86,28 @@ CREATE TABLE market_mk20_offline_urls (
     url TEXT NOT NULL,
     headers jsonb NOT NULL DEFAULT '{}',
     raw_size BIGINT NOT NULL,
+    PRIMARY KEY (id, piece_cid, piece_size),
     CONSTRAINT market_mk20_offline_urls_id_fk FOREIGN KEY (id)
-      REFERENCES market_mk20_deal_pipeline (id)
+      REFERENCES market_mk20_pipeline (id)
       ON DELETE CASCADE,
     CONSTRAINT market_mk20_offline_urls_id_unique UNIQUE (id)
 );
+
+CREATE TABLE market_mk20_products (
+    name TEXT PRIMARY KEY,
+    enabled BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE market_mk20_data_source (
+    name TEXT PRIMARY KEY,
+    enabled BOOLEAN DEFAULT TRUE
+);
+
+INSERT INTO market_mk20_products (name, enabled) VALUES ('ddov1', TRUE);
+INSERT INTO market_mk20_data_source (name, enabled) VALUES ('http', TRUE);
+INSERT INTO market_mk20_data_source (name, enabled) VALUES ('aggregate', TRUE);
+INSERT INTO market_mk20_data_source (name, enabled) VALUES ('offline', TRUE);
+INSERT INTO market_mk20_data_source (name, enabled) VALUES ('put', TRUE);
 
 
 

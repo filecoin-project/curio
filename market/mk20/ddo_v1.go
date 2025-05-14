@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/ethereum/go-ethereum"
@@ -64,63 +65,68 @@ type DDOV1 struct {
 	AnnounceToIPNI bool `json:"announcetoinpni"`
 }
 
-func (d *DDOV1) Validate() error {
+func (d *DDOV1) Validate(dbProducts []dbProduct) (int, error) {
+	code, err := d.IsEnabled(dbProducts)
+	if err != nil {
+		return code, err
+	}
+
 	if d.Provider == address.Undef || d.Provider.Empty() {
-		return xerrors.Errorf("provider address is not set")
+		return ErrProductValidationFailed, xerrors.Errorf("provider address is not set")
 	}
 
 	if d.Client == address.Undef || d.Client.Empty() {
-		return xerrors.Errorf("client address is not set")
+		return ErrProductValidationFailed, xerrors.Errorf("client address is not set")
 	}
 
 	if d.PieceManager == address.Undef || d.PieceManager.Empty() {
-		return xerrors.Errorf("piece manager address is not set")
+		return ErrProductValidationFailed, xerrors.Errorf("piece manager address is not set")
 	}
 
 	if d.AllocationId != nil {
 		if *d.AllocationId == verifreg.NoAllocationID {
-			return xerrors.Errorf("incorrect allocation id")
+			return ErrProductValidationFailed, xerrors.Errorf("incorrect allocation id")
 		}
 	}
 
 	if d.AllocationId == nil {
 		if d.Duration < 518400 {
-			return xerrors.Errorf("duration must be at least 518400")
+			return ErrDurationTooShort, xerrors.Errorf("duration must be at least 518400")
 		}
 	}
 
 	if d.ContractAddress == "" {
-		return xerrors.Errorf("contract address is not set")
+		return ErrProductValidationFailed, xerrors.Errorf("contract address is not set")
 	}
 
 	if d.ContractAddress[0:2] != "0x" {
-		return xerrors.Errorf("contract address must start with 0x")
+		return ErrProductValidationFailed, xerrors.Errorf("contract address must start with 0x")
 	}
 
 	if d.ContractDealIDMethodParams == nil {
-		return xerrors.Errorf("contract deal id method params is not set")
+		return ErrProductValidationFailed, xerrors.Errorf("contract deal id method params is not set")
 	}
 
 	if d.ContractDealIDMethod == "" {
-		return xerrors.Errorf("contract deal id method is not set")
+		return ErrProductValidationFailed, xerrors.Errorf("contract deal id method is not set")
 	}
 
-	return nil
+	return Ok, nil
 }
 
-func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.Client) (string, error) {
+func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.Client) (string, int, error) {
 	var abiStr string
 	err := db.QueryRow(ctx, `SELECT abi FROM ddo_contracts WHERE address = $1`, d.ContractAddress).Scan(&abiStr)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", UnknowContract
+			return "", ErrMarketNotEnabled, UnknowContract
 		}
-		return "", xerrors.Errorf("getting abi: %w", err)
+		return "", http.StatusInternalServerError, xerrors.Errorf("getting abi: %w", err)
 	}
 
 	parsedABI, err := eabi.JSON(strings.NewReader(abiStr))
 	if err != nil {
-		panic(err)
+		return "", http.StatusInternalServerError, xerrors.Errorf("parsing abi: %w", err)
 	}
 
 	to := common.HexToAddress(d.ContractAddress)
@@ -128,18 +134,18 @@ func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.
 	// Get the method
 	method, exists := parsedABI.Methods[d.ContractDealIDMethod]
 	if !exists {
-		return "", fmt.Errorf("method %s not found in ABI", d.ContractDealIDMethod)
+		return "", http.StatusInternalServerError, fmt.Errorf("method %s not found in ABI", d.ContractDealIDMethod)
 	}
 
 	// Enforce method must take exactly one `bytes` parameter
 	if len(method.Inputs) != 1 || method.Inputs[0].Type.String() != "bytes" {
-		return "", fmt.Errorf("method %q must take exactly one argument of type bytes", method.Name)
+		return "", http.StatusInternalServerError, fmt.Errorf("method %q must take exactly one argument of type bytes", method.Name)
 	}
 
 	// ABI-encode method call with input
 	callData, err := parsedABI.Pack(method.Name, d.ContractDealIDMethodParams)
 	if err != nil {
-		return "", fmt.Errorf("failed to encode call data: %w", err)
+		return "", http.StatusInternalServerError, fmt.Errorf("failed to encode call data: %w", err)
 	}
 
 	// Build call message
@@ -151,13 +157,35 @@ func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.
 	// Call contract
 	output, err := eth.CallContract(ctx, msg, nil)
 	if err != nil {
-		return "", fmt.Errorf("eth_call failed: %w", err)
+		return "", http.StatusInternalServerError, fmt.Errorf("eth_call failed: %w", err)
 	}
 
 	// Decode return value (assume string)
 	var result string
 	if err := parsedABI.UnpackIntoInterface(&result, method.Name, output); err != nil {
-		return "", fmt.Errorf("decode result: %w", err)
+		return "", http.StatusInternalServerError, fmt.Errorf("decode result: %w", err)
 	}
-	return result, nil
+
+	if result == "" {
+		return "", ErrDealRejectedByMarket, fmt.Errorf("empty result from contract")
+	}
+
+	return result, Ok, nil
+}
+
+func (d *DDOV1) ProductName() ProductName {
+	return ProductNameDDOV1
+}
+
+func (d *DDOV1) IsEnabled(dbProducts []dbProduct) (int, error) {
+	name := string(d.ProductName())
+	for _, p := range dbProducts {
+		if p.Name == name {
+			if p.Enabled {
+				return Ok, nil
+			}
+			return ErrProductNotEnabled, xerrors.Errorf("product %s is not enabled on the provider", name)
+		}
+	}
+	return ErrUnsupportedProduct, xerrors.Errorf("product %s is not supported on the provider", name)
 }

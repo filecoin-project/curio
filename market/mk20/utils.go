@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/bits"
+	"net/http"
 	"net/url"
 	"time"
 
+	"github.com/filecoin-project/go-state-types/crypto"
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
 	"golang.org/x/xerrors"
@@ -20,30 +22,41 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
-func (d *Deal) Validate() (bool, error) {
-	if d.Products.DDOV1 == nil {
-		return false, xerrors.Errorf("no products")
+func (d *Deal) Validate(db *harmonydb.DB) (int, error) {
+	code, err := d.Products.Validate(db)
+	if err != nil {
+		return code, xerrors.Errorf("products validation failed: %w", err)
 	}
 
-	return d.Data.Validate()
+	return d.Data.Validate(db)
 }
 
-func (d *DataSource) Validate() (bool, error) {
+func (d DataSource) Validate(db *harmonydb.DB) (int, error) {
+	var dbDataSources []dbDataSource
+
+	err := db.Select(context.Background(), &dbDataSources, `SELECT name, enabled FROM market_mk20_data_source`)
+	if err != nil {
+		return http.StatusInternalServerError, xerrors.Errorf("getting data sources from DB: %w", err)
+	}
+
+	if len(dbDataSources) == 0 {
+		return ErrUnsupportedDataSource, xerrors.Errorf("no data sources enabled on the provider")
+	}
 
 	if !d.PieceCID.Defined() {
-		return false, xerrors.Errorf("piece cid is not defined")
+		return ErrBadProposal, xerrors.Errorf("piece cid is not defined")
 	}
 
 	if d.Size == 0 {
-		return false, xerrors.Errorf("piece size is 0")
+		return ErrBadProposal, xerrors.Errorf("piece size is 0")
 	}
 
-	if d.SourceOffline != nil && d.SourceHTTP != nil && d.SourceAggregate != nil {
-		return false, xerrors.Errorf("multiple sources defined for data source")
+	if d.SourceOffline != nil && d.SourceHTTP != nil && d.SourceAggregate != nil && d.SourceHttpPut != nil {
+		return ErrBadProposal, xerrors.Errorf("multiple sources defined for data source")
 	}
 
-	if d.SourceOffline == nil && d.SourceHTTP == nil && d.SourceAggregate == nil {
-		return false, xerrors.Errorf("no source defined for data source")
+	if d.SourceOffline == nil && d.SourceHTTP == nil && d.SourceAggregate == nil && d.SourceHttpPut == nil {
+		return ErrBadProposal, xerrors.Errorf("no source defined for data source")
 	}
 
 	var fcar, fagg, fraw bool
@@ -51,7 +64,7 @@ func (d *DataSource) Validate() (bool, error) {
 	if d.Format.Car != nil {
 		fcar = true
 		if d.Format.Car.Version != 1 && d.Format.Car.Version != 2 {
-			return false, xerrors.Errorf("car version not supported")
+			return ErrMalformedDataSource, xerrors.Errorf("car version not supported")
 		}
 	}
 
@@ -59,21 +72,26 @@ func (d *DataSource) Validate() (bool, error) {
 		fagg = true
 
 		if d.Format.Aggregate.Type != AggregateTypeV1 {
-			return false, xerrors.Errorf("aggregate type not supported")
+			return ErrMalformedDataSource, xerrors.Errorf("aggregate type not supported")
 		}
 
 		if d.SourceAggregate != nil {
+			code, err := d.SourceAggregate.IsEnabled(dbDataSources)
+			if err != nil {
+				return code, err
+			}
+
 			if len(d.SourceAggregate.Pieces) == 0 {
-				return false, xerrors.Errorf("no pieces in aggregate")
+				return ErrMalformedDataSource, xerrors.Errorf("no pieces in aggregate")
 			}
 
 			for _, p := range d.SourceAggregate.Pieces {
 				if !p.PieceCID.Defined() {
-					return false, xerrors.Errorf("piece cid is not defined")
+					return ErrMalformedDataSource, xerrors.Errorf("piece cid is not defined")
 				}
 
 				if p.Size == 0 {
-					return false, xerrors.Errorf("piece size is 0")
+					return ErrMalformedDataSource, xerrors.Errorf("piece size is 0")
 				}
 
 				var ifcar, ifraw bool
@@ -81,12 +99,12 @@ func (d *DataSource) Validate() (bool, error) {
 				if p.Format.Car != nil {
 					ifcar = true
 					if p.Format.Car.Version != 1 && p.Format.Car.Version != 2 {
-						return false, xerrors.Errorf("car version not supported")
+						return ErrMalformedDataSource, xerrors.Errorf("car version not supported")
 					}
 				}
 
 				if p.Format.Aggregate != nil {
-					return false, xerrors.Errorf("aggregate of aggregate is not supported")
+					return ErrMalformedDataSource, xerrors.Errorf("aggregate of aggregate is not supported")
 				}
 
 				if p.Format.Raw != nil {
@@ -94,45 +112,45 @@ func (d *DataSource) Validate() (bool, error) {
 				}
 
 				if !ifcar && !ifraw {
-					return false, xerrors.Errorf("no format defined for sub piece in aggregate")
+					return ErrMalformedDataSource, xerrors.Errorf("no format defined for sub piece in aggregate")
 				}
 
 				if ifcar && ifraw {
-					return false, xerrors.Errorf("multiple formats defined for sub piece in aggregate")
+					return ErrMalformedDataSource, xerrors.Errorf("multiple formats defined for sub piece in aggregate")
 				}
 
 				if p.SourceAggregate != nil {
-					return false, xerrors.Errorf("aggregate of aggregate is not supported")
+					return ErrMalformedDataSource, xerrors.Errorf("aggregate of aggregate is not supported")
 				}
 
 				if p.SourceOffline == nil && p.SourceHTTP == nil {
-					return false, xerrors.Errorf("no source defined for sub piece in aggregate")
+					return ErrMalformedDataSource, xerrors.Errorf("no source defined for sub piece in aggregate")
 				}
 
 				if p.SourceOffline != nil && p.SourceHTTP != nil {
-					return false, xerrors.Errorf("multiple sources defined for sub piece in aggregate")
+					return ErrMalformedDataSource, xerrors.Errorf("multiple sources defined for sub piece in aggregate")
 				}
 
 				if p.SourceHTTP != nil {
 					if p.SourceHTTP.RawSize == 0 {
-						return false, xerrors.Errorf("raw size is 0 for sub piece in aggregate")
+						return ErrMalformedDataSource, xerrors.Errorf("raw size is 0 for sub piece in aggregate")
 					}
 
 					if len(p.SourceHTTP.URLs) == 0 {
-						return false, xerrors.Errorf("no urls defined for sub piece in aggregate")
+						return ErrMalformedDataSource, xerrors.Errorf("no urls defined for sub piece in aggregate")
 					}
 
 					for _, u := range d.SourceHTTP.URLs {
 						_, err := url.Parse(u.URL)
 						if err != nil {
-							return false, xerrors.Errorf("invalid url")
+							return ErrMalformedDataSource, xerrors.Errorf("invalid url")
 						}
 					}
 				}
 
 				if p.SourceOffline != nil {
 					if p.SourceOffline.RawSize == 0 {
-						return false, xerrors.Errorf("raw size is 0 for sub piece in aggregate")
+						return ErrMalformedDataSource, xerrors.Errorf("raw size is 0 for sub piece in aggregate")
 					}
 				}
 
@@ -145,49 +163,69 @@ func (d *DataSource) Validate() (bool, error) {
 	}
 
 	if !fcar && !fagg && !fraw {
-		return false, xerrors.Errorf("no format defined")
+		return ErrBadProposal, xerrors.Errorf("no format defined")
 	}
 
 	if fcar && fagg || fcar && fraw || fagg && fraw {
-		return false, xerrors.Errorf("multiple formats defined")
+		return ErrBadProposal, xerrors.Errorf("multiple formats defined")
 	}
 
 	if d.SourceHTTP != nil {
+		code, err := d.SourceHTTP.IsEnabled(dbDataSources)
+		if err != nil {
+			return code, err
+		}
+
 		if d.SourceHTTP.RawSize == 0 {
-			return false, xerrors.Errorf("raw size is 0")
+			return ErrMalformedDataSource, xerrors.Errorf("raw size is 0")
 		}
 
 		if len(d.SourceHTTP.URLs) == 0 {
-			return false, xerrors.Errorf("no urls defined")
+			return ErrMalformedDataSource, xerrors.Errorf("no urls defined")
 		}
 
 		for _, u := range d.SourceHTTP.URLs {
 			_, err := url.Parse(u.URL)
 			if err != nil {
-				return false, xerrors.Errorf("invalid url")
+				return ErrMalformedDataSource, xerrors.Errorf("invalid url")
 			}
 		}
 	}
 
 	if d.SourceOffline != nil {
+		code, err := d.SourceOffline.IsEnabled(dbDataSources)
+		if err != nil {
+			return code, err
+		}
+
 		if d.SourceOffline.RawSize == 0 {
-			return false, xerrors.Errorf("raw size is 0")
+			return ErrMalformedDataSource, xerrors.Errorf("raw size is 0")
+		}
+	}
+
+	if d.SourceHttpPut != nil {
+		code, err := d.SourceHttpPut.IsEnabled(dbDataSources)
+		if err != nil {
+			return code, err
+		}
+		if d.SourceHttpPut.RawSize == 0 {
+			return ErrMalformedDataSource, xerrors.Errorf("raw size is 0")
 		}
 	}
 
 	raw, err := d.RawSize()
 	if err != nil {
-		return false, err
+		return ErrBadProposal, err
 	}
 
 	if padreader.PaddedSize(raw).Padded() != d.Size {
-		return false, xerrors.Errorf("invalid size")
+		return ErrBadProposal, xerrors.Errorf("invalid size")
 	}
 
-	return true, nil
+	return Ok, nil
 }
 
-func (d *DataSource) RawSize() (uint64, error) {
+func (d DataSource) RawSize() (uint64, error) {
 	if d.Format.Aggregate != nil {
 		if d.Format.Aggregate.Type == AggregateTypeV1 {
 			if d.SourceAggregate != nil {
@@ -224,7 +262,36 @@ func (d *DataSource) RawSize() (uint64, error) {
 	if d.SourceOffline != nil {
 		return d.SourceOffline.RawSize, nil
 	}
+
+	if d.SourceHttpPut != nil {
+		return d.SourceHttpPut.RawSize, nil
+	}
+
 	return 0, xerrors.Errorf("no source defined")
+}
+
+type dbProduct struct {
+	Name    string `db:"name"`
+	Enabled bool   `db:"enabled"`
+}
+
+func (d Products) Validate(db *harmonydb.DB) (int, error) {
+	var dbProducts []dbProduct
+
+	err := db.Select(context.Background(), &dbProducts, `SELECT name, enabled FROM products`)
+	if err != nil {
+		return http.StatusInternalServerError, xerrors.Errorf("getting products from DB: %w", err)
+	}
+
+	if len(dbProducts) == 0 {
+		return ErrProductNotEnabled, xerrors.Errorf("no products enabled on the provider")
+	}
+
+	if d.DDOV1 == nil {
+		return ErrBadProposal, xerrors.Errorf("no products")
+	}
+
+	return d.DDOV1.Validate(dbProducts)
 }
 
 type DBDeal struct {
@@ -430,16 +497,30 @@ type ProviderDealRejectionInfo struct {
 }
 
 type DealStatusRequest struct {
-	Identifier      string `json:"identifier"`
-	IdentifierType  uint64 `json:"identifiertype"`
-	ContractAddress string `json:"contractaddress"`
+	Identifier ulid.ULID        `json:"identifier"`
+	Signature  crypto.Signature `json:"signature"`
 }
 
 type DealStatusResponse struct {
-	Complete bool   `json:"complete"`
-	Error    bool   `json:"error"`
-	ErrorMsg string `json:"errormsg"`
+	State    DealState `json:"status"`
+	ErrorMsg string    `json:"errormsg"`
 }
+
+type DealStatus struct {
+	Response *DealStatusResponse
+	HTTPCode int
+}
+
+type DealState string
+
+const (
+	DealStateAccepted   DealState = "accepted"
+	DealStateProcessing DealState = "processing"
+	DealStateSealing    DealState = "sealing"
+	DealStateIndexing   DealState = "indexing"
+	DealStateFailed     DealState = "failed"
+	DealStateComplete   DealState = "complete"
+)
 
 type SupportedContracts struct {
 	Contracts []string `json:"contracts"`

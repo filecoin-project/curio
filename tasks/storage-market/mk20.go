@@ -101,7 +101,7 @@ func (d *CurioStorageDealMarket) pipelineInsertLoop(ctx context.Context) {
 
 func (d *CurioStorageDealMarket) insertDDODealInPipeline(ctx context.Context) {
 	var deals []string
-	rows, err := d.db.Query(ctx, `SELECT id from market_mk20_pipeline_waiting`)
+	rows, err := d.db.Query(ctx, `SELECT id from market_mk20_pipeline_waiting WHERE waiting_for_data = FALSE`)
 	if err != nil {
 		log.Errorf("querying mk20 pipeline waiting: %s", err)
 		return

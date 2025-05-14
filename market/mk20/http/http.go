@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/httprate"
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/oklog/ulid"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -22,6 +24,8 @@ import (
 )
 
 var log = logging.Logger("mk20httphdlr")
+
+const maxPutBodySize int64 = 64 << 30 // 64 GiB
 
 type MK20DealHandler struct {
 	cfg            *config.CurioConfig
@@ -53,6 +57,7 @@ func Router(mdh *MK20DealHandler) http.Handler {
 	//mux.Get("/ask", mdh.mk20ask)
 	mux.Get("/status", mdh.mk20status)
 	mux.Get("/contracts", mdh.mk20supportedContracts)
+	mux.Put("/data", mdh.mk20UploadDealData)
 	return mux
 }
 
@@ -93,41 +98,30 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
-	ct := r.Header.Get("Content-Type")
-	var request mk20.DealStatusRequest
-
-	if ct != "application/json" {
-		log.Errorf("invalid content type: %s", ct)
+	// Extract id from the URL
+	idStr := chi.URLParam(r, "id")
+	if idStr == "" {
+		log.Errorw("missing id in url", "url", r.URL)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
-	body, err := io.ReadAll(r.Body)
+	id, err := ulid.Parse(idStr)
 	if err != nil {
-		log.Errorf("error reading request body: %s", err)
-		w.WriteHeader(http.StatusBadRequest)
-	}
-	err = json.Unmarshal(body, &request)
-	if err != nil {
-		log.Errorf("error unmarshaling json: %s", err)
+		log.Errorw("invalid id in url", "id", idStr, "err", err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	result, err := mdh.dm.MK20Handler.DealStatus(context.Background(), &request)
-	if err != nil {
-		log.Errorw("failed to get deal status", "id", request.Identifier,
-			"idType", request.IdentifierType,
-			"contractAddress", request.ContractAddress, "err", err)
-		w.WriteHeader(http.StatusInternalServerError)
+	result := mdh.dm.MK20Handler.DealStatus(context.Background(), id)
+
+	if result.HTTPCode != http.StatusOK {
+		w.WriteHeader(result.HTTPCode)
 		return
 	}
 
-	resp, err := json.Marshal(result)
+	resp, err := json.Marshal(result.Response)
 	if err != nil {
-		log.Errorw("failed to marshal deal status response", "id", request.Identifier,
-			"idType", request.IdentifierType,
-			"contractAddress", request.ContractAddress, "err", err)
+		log.Errorw("failed to marshal deal status response", "id", idStr, "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -135,9 +129,7 @@ func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_, err = w.Write(resp)
 	if err != nil {
-		log.Errorw("failed to write deal status response", "id", request.Identifier,
-			"idType", request.IdentifierType,
-			"contractAddress", request.ContractAddress, "err", err)
+		log.Errorw("failed to write deal status response", "id", idStr, "err", err)
 	}
 }
 
@@ -162,4 +154,37 @@ func (mdh *MK20DealHandler) mk20supportedContracts(w http.ResponseWriter, r *htt
 	if err != nil {
 		log.Errorw("failed to write supported contracts", "err", err)
 	}
+}
+
+func (mdh *MK20DealHandler) mk20UploadDealData(w http.ResponseWriter, r *http.Request) {
+	// Extract id from the URL
+	idStr := chi.URLParam(r, "id")
+	if idStr == "" {
+		log.Errorw("missing id in url", "url", r.URL)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	id, err := ulid.Parse(idStr)
+	if err != nil {
+		log.Errorw("invalid id in url", "id", idStr, "err", err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	// Check Content-Type
+	ct := r.Header.Get("Content-Type")
+	if ct == "" || !strings.HasPrefix(ct, "application/octet-stream") {
+		http.Error(w, "invalid or missing Content-Type", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	// validate Content-Length
+	if r.ContentLength <= 0 || r.ContentLength > maxPutBodySize {
+		http.Error(w, fmt.Sprintf("invalid Content-Length: %d", r.ContentLength), http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	// Stream directly to execution logic
+	mdh.dm.MK20Handler.HandlePutRequest(context.Background(), id, r.Body, w)
 }

@@ -42,9 +42,10 @@ type MK20 struct {
 	cfg       *config.CurioConfig
 	sm        map[address.Address]abi.SectorSize
 	as        *multictladdr.MultiAddressSelector
+	stor      paths.StashStore
 }
 
-func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorIndex, mapi MK20API, ethClient *ethclient.Client, cfg *config.CurioConfig, as *multictladdr.MultiAddressSelector) (*MK20, error) {
+func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorIndex, mapi MK20API, ethClient *ethclient.Client, cfg *config.CurioConfig, as *multictladdr.MultiAddressSelector, stor paths.StashStore) (*MK20, error) {
 	ctx := context.Background()
 
 	sm := make(map[address.Address]abi.SectorSize)
@@ -68,23 +69,24 @@ func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorI
 		cfg:       cfg,
 		sm:        sm,
 		as:        as,
+		stor:      stor,
 	}, nil
 }
 
 func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal) *ProviderDealRejectionInfo {
 	// Validate the DataSource TODO: Add error code to validate
-	valid, err := deal.Validate()
+	code, err := deal.Validate(m.db)
 	if err != nil {
-		return &ProviderDealRejectionInfo{
-			HTTPCode: http.StatusBadRequest,
-			Reason:   "Invalid data source",
+		log.Errorw("deal rejected", "deal", deal, "error", err)
+		ret := &ProviderDealRejectionInfo{
+			HTTPCode: code,
 		}
-	}
-	if !valid {
-		return &ProviderDealRejectionInfo{
-			HTTPCode: http.StatusBadRequest,
-			Reason:   "Invalid data source",
+		if code == http.StatusInternalServerError {
+			ret.Reason = "Internal server error"
+		} else {
+			ret.Reason = err.Error()
 		}
+		return ret
 	}
 
 	return m.processDDODeal(ctx, deal)
@@ -101,12 +103,18 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal) *ProviderDealReje
 		return rejection
 	}
 
-	id, err := deal.Products.DDOV1.GetDealID(ctx, m.db, m.ethClient)
+	id, code, err := deal.Products.DDOV1.GetDealID(ctx, m.db, m.ethClient)
 	if err != nil {
 		log.Errorw("error getting deal ID", "deal", deal, "error", err)
-		return &ProviderDealRejectionInfo{
-			HTTPCode: http.StatusInternalServerError,
+		ret := &ProviderDealRejectionInfo{
+			HTTPCode: code,
 		}
+		if code == http.StatusInternalServerError {
+			ret.Reason = "Internal server error"
+		} else {
+			ret.Reason = err.Error()
+		}
+		return ret
 	}
 
 	// TODO: Backpressure, client filter
@@ -123,7 +131,13 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal) *ProviderDealReje
 		if n != 1 {
 			return false, fmt.Errorf("expected 1 row to be updated, got %d", n)
 		}
-		_, err = tx.Exec(`INSERT INTO market_mk20_pipeline_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
+		if deal.Data.SourceHttpPut != nil {
+			_, err = tx.Exec(`INSERT INTO market_mk20_pipeline_waiting (id, waiting_for_data) VALUES ($1, TRUE) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
+
+		} else {
+			_, err = tx.Exec(`INSERT INTO market_mk20_pipeline_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
+		}
+
 		if err != nil {
 			return false, xerrors.Errorf("adding deal to waiting pipeline: %w", err)
 		}
@@ -235,11 +249,6 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}
 	}
 
-	return nil, nil
-}
-
-func (m *MK20) DealStatus(ctx context.Context, statusRequest *DealStatusRequest) (*DealStatusResponse, error) {
-	// TODO: implement this
 	return nil, nil
 }
 
