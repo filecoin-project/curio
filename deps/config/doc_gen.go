@@ -1045,6 +1045,53 @@ CIDGravity filters will not be applied to deals associated with that miner ID.`,
 Default behaviors is to reject the deals (Default: false)`,
 		},
 	},
+	"MK20Config": {
+		{
+			Name: "ExpectedPoRepSealDuration",
+			Type: "time.Duration",
+
+			Comment: `ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
+This will be used to fail the deals which cannot be sealed on time.
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "8h0m0s")`,
+		},
+		{
+			Name: "ExpectedSnapSealDuration",
+			Type: "time.Duration",
+
+			Comment: `ExpectedSnapSealDuration is the expected time it would take to snap the deal sector
+This will be used to fail the deals which cannot be sealed on time.
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "2h0m0s")`,
+		},
+		{
+			Name: "SkipCommP",
+			Type: "bool",
+
+			Comment: `SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
+Warning: If this check is skipped and there is a commP mismatch, all deals in the
+sector will need to be sent again (Default: false)`,
+		},
+		{
+			Name: "DisabledMiners",
+			Type: "[]string",
+
+			Comment: `DisabledMiners is a list of miner addresses that should be excluded from online deal making protocols`,
+		},
+		{
+			Name: "MaxConcurrentDealSizeGiB",
+			Type: "int64",
+
+			Comment: `MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector
+When the cumulative size of all deals in process reaches this number, new deals will be rejected.
+(Default: 0 = unlimited)`,
+		},
+		{
+			Name: "DenyUnknownClients",
+			Type: "bool",
+
+			Comment: `DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
+If True then all deals coming from unknown clients will be rejected. (Default: false)`,
+		},
+	},
 	"MarketConfig": {
 		{
 			Name: "StorageMarketConfig",
@@ -1148,6 +1195,12 @@ Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXX
 			Type: "MK12Config",
 
 			Comment: `MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)`,
+		},
+		{
+			Name: "MK20",
+			Type: "MK20Config",
+
+			Comment: `MK20 encompasses all configuration related to deal protocol mk2.0 i.e. market 2.0`,
 		},
 		{
 			Name: "IPNI",

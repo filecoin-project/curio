@@ -110,6 +110,10 @@ func DefaultCurioConfig() *CurioConfig {
 					ExpectedSnapSealDuration:  2 * time.Hour,
 					CIDGravityTokens:          []string{},
 				},
+				MK20: MK20Config{
+					ExpectedPoRepSealDuration: 8 * time.Hour,
+					ExpectedSnapSealDuration:  2 * time.Hour,
+				},
 				IPNI: IPNIConfig{
 					ServiceURL:         []string{"https://cid.contact"},
 					DirectAnnounceURLs: []string{"https://cid.contact/ingest/announce"},
@@ -693,6 +697,9 @@ type StorageMarketConfig struct {
 	// MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)
 	MK12 MK12Config
 
+	// MK20 encompasses all configuration related to deal protocol mk2.0 i.e. market 2.0
+	MK20 MK20Config
+
 	// IPNI configuration for ipni-provider
 	IPNI IPNIConfig
 
@@ -872,4 +879,33 @@ type MK12CollateralConfig struct {
 	// when it drops below CollateralLowThreshold.
 	// Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "20 FIL")
 	CollateralHighThreshold types.FIL
+}
+
+type MK20Config struct {
+	// ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
+	// This will be used to fail the deals which cannot be sealed on time.
+	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "8h0m0s")
+	ExpectedPoRepSealDuration time.Duration
+
+	// ExpectedSnapSealDuration is the expected time it would take to snap the deal sector
+	// This will be used to fail the deals which cannot be sealed on time.
+	// Time duration string (e.g., "1h2m3s") in TOML format. (Default: "2h0m0s")
+	ExpectedSnapSealDuration time.Duration
+
+	// SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
+	// Warning: If this check is skipped and there is a commP mismatch, all deals in the
+	// sector will need to be sent again (Default: false)
+	SkipCommP bool
+
+	// DisabledMiners is a list of miner addresses that should be excluded from online deal making protocols
+	DisabledMiners []string
+
+	// MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector
+	// When the cumulative size of all deals in process reaches this number, new deals will be rejected.
+	// (Default: 0 = unlimited)
+	MaxConcurrentDealSizeGiB int64
+
+	// DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
+	// If True then all deals coming from unknown clients will be rejected. (Default: false)
+	DenyUnknownClients bool
 }
