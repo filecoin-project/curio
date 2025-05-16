@@ -67,8 +67,16 @@ func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	}
 
 	_, err = m.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		// Create a indexing task
-		_, err = tx.Exec(`SELECT create_indexing_task($1, $2)`, taskID, "sectors_sdr_pipeline")
+		// Set indexing_created_at to Now() to allow new indexing tasks
+		_, err = tx.Exec(`
+							UPDATE market_mk20_pipeline
+							SET indexing_created_at = NOW()
+							WHERE sp_id = $1 AND sector = $2;
+						
+							UPDATE market_mk12_deal_pipeline
+							SET indexing_created_at = NOW()
+							WHERE sp_id = $1 AND sector = $2;
+						`, task.SpID, task.SectorNumber)
 		if err != nil {
 			return false, fmt.Errorf("error creating indexing task: %w", err)
 		}

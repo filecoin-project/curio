@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
@@ -33,9 +34,10 @@ import (
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/market/mk12"
 	"github.com/filecoin-project/curio/market/mk12/legacytypes"
+	"github.com/filecoin-project/curio/market/mk20"
 	"github.com/filecoin-project/curio/market/storageingest"
 
-	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
+	lminer "github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/proofs"
 	"github.com/filecoin-project/lotus/storage/pipeline/piece"
 )
@@ -51,6 +53,7 @@ const (
 	pollerCommP = iota
 	pollerPSD
 	pollerFindDeal
+	pollerAggregate
 
 	numPollers
 )
@@ -69,10 +72,13 @@ type CurioStorageDealMarket struct {
 	miners      map[string][]address.Address
 	api         storageMarketAPI
 	MK12Handler *mk12.MK12
+	MK20Handler *mk20.MK20
+	ethClient   *ethclient.Client
 	si          paths.SectorIndex
 	urls        map[string]http.Header
 	adders      [numPollers]promise.Promise[harmonytask.AddTaskFunc]
 	as          *multictladdr.MultiAddressSelector
+	stor        paths.StashStore
 }
 
 type MK12Pipeline struct {
@@ -109,7 +115,7 @@ type MK12Pipeline struct {
 	Offset *int64 `db:"sector_offset"`
 }
 
-func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector) *CurioStorageDealMarket {
+func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, ethClient *ethclient.Client, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, stor paths.StashStore) *CurioStorageDealMarket {
 
 	moduleMap := make(map[string][]address.Address)
 	moduleMap[mk12Str] = append(moduleMap[mk12Str], miners...)
@@ -120,13 +126,15 @@ func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *
 	}
 
 	return &CurioStorageDealMarket{
-		cfg:    cfg,
-		db:     db,
-		api:    mapi,
-		miners: moduleMap,
-		si:     si,
-		urls:   urls,
-		as:     as,
+		cfg:       cfg,
+		db:        db,
+		api:       mapi,
+		miners:    moduleMap,
+		si:        si,
+		urls:      urls,
+		as:        as,
+		ethClient: ethClient,
+		stor:      stor,
 	}
 }
 
@@ -173,6 +181,15 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 				d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, miners, d.cfg)
 			}
 		}
+		if module == mk20Str && d.pin != nil {
+			if len(miners) == 0 {
+				return nil
+			}
+			d.MK20Handler, err = mk20.NewMK20Handler(miners, d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.stor)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	if err != nil {
@@ -185,6 +202,15 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 }
 
 func (d *CurioStorageDealMarket) runPoller(ctx context.Context) {
+	// Start thread to insert mk20 DDO deals into pipeline
+	for module, miners := range d.miners {
+		if module == mk20Str {
+			if len(miners) > 0 {
+				go d.pipelineInsertLoop(ctx)
+			}
+		}
+	}
+
 	ticker := time.NewTicker(dealPollerInterval)
 	defer ticker.Stop()
 
@@ -222,6 +248,7 @@ func (d *CurioStorageDealMarket) poll(ctx context.Context) {
 		if module == mk12Str {
 			if len(miners) > 0 {
 				d.processMK12Deals(ctx)
+				d.processMK20Deals(ctx)
 			}
 		}
 	}
@@ -694,10 +721,10 @@ func (d *CurioStorageDealMarket) ingestDeal(ctx context.Context, deal MK12Pipeli
 					StartEpoch: abi.ChainEpoch(dbdeal.StartEpoch),
 					EndEpoch:   abi.ChainEpoch(dbdeal.EndEpoch),
 				},
-				PieceActivationManifest: &miner.PieceActivationManifest{
+				PieceActivationManifest: &lminer.PieceActivationManifest{
 					CID:  pcid,
 					Size: abi.PaddedPieceSize(dbdeal.PieceSize),
-					VerifiedAllocationKey: &miner.VerifiedAllocationKey{
+					VerifiedAllocationKey: &lminer.VerifiedAllocationKey{
 						Client: abi.ActorID(clientId),
 						ID:     verifreg.AllocationId(dbdeal.AllocationID),
 					},

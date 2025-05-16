@@ -205,7 +205,7 @@ func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Create a location URL where the piece data can be uploaded via PUT
-		uploadURL = path.Join(PDPRoutePath, "/piece/upload", uploadUUID.String())
+		uploadURL = path.Join(r.URL.Path, "upload", uploadUUID.String())
 		responseStatus = http.StatusCreated
 
 		return true, nil // Commit the transaction
