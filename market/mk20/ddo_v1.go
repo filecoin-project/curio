@@ -65,7 +65,7 @@ type DDOV1 struct {
 	AnnounceToIPNI bool `json:"announcetoinpni"`
 }
 
-func (d *DDOV1) Validate(dbProducts []dbProduct) (int, error) {
+func (d *DDOV1) Validate(dbProducts []dbProduct) (ErrorCode, error) {
 	code, err := d.IsEnabled(dbProducts)
 	if err != nil {
 		return code, err
@@ -114,7 +114,7 @@ func (d *DDOV1) Validate(dbProducts []dbProduct) (int, error) {
 	return Ok, nil
 }
 
-func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.Client) (string, int, error) {
+func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.Client) (string, ErrorCode, error) {
 	var abiStr string
 	err := db.QueryRow(ctx, `SELECT abi FROM ddo_contracts WHERE address = $1`, d.ContractAddress).Scan(&abiStr)
 	if err != nil {
@@ -177,7 +177,7 @@ func (d *DDOV1) ProductName() ProductName {
 	return ProductNameDDOV1
 }
 
-func (d *DDOV1) IsEnabled(dbProducts []dbProduct) (int, error) {
+func (d *DDOV1) IsEnabled(dbProducts []dbProduct) (ErrorCode, error) {
 	name := string(d.ProductName())
 	for _, p := range dbProducts {
 		if p.Name == name {
