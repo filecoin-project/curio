@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -53,14 +54,21 @@ func dealRateLimitMiddleware() func(http.Handler) http.Handler {
 func Router(mdh *MK20DealHandler) http.Handler {
 	mux := chi.NewRouter()
 	mux.Use(dealRateLimitMiddleware())
-	mux.Post("/store", mdh.mk20deal)
-	//mux.Get("/ask", mdh.mk20ask)
-	mux.Get("/status", mdh.mk20status)
-	mux.Get("/contracts", mdh.mk20supportedContracts)
+	mux.Method("POST", "/store", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), 10*time.Second, "timeout reading request"))
+	mux.Method("GET", "/status", http.TimeoutHandler(http.HandlerFunc(mdh.mk20status), 10*time.Second, "timeout reading request"))
+	mux.Method("GET", "/contracts", http.TimeoutHandler(http.HandlerFunc(mdh.mk20supportedContracts), 10*time.Second, "timeout reading request"))
 	mux.Put("/data", mdh.mk20UploadDealData)
+	mux.Method("GET", "/info", http.TimeoutHandler(http.HandlerFunc(mdh.info), 10*time.Second, "timeout reading request"))
+	//mux.Post("/store", mdh.mk20deal)
+	//mux.Get("/status", mdh.mk20status)
+	//mux.Get("/contracts", mdh.mk20supportedContracts)
+	//mux.Get("/info", mdh.info)
 	return mux
 }
 
+// mk20deal handles incoming HTTP POST requests to process MK20 deals.
+// It validates the request's content type and body, then parses and executes the deal logic.
+// Responds with appropriate HTTP status codes and logs detailed information about the process.
 func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 	ct := r.Header.Get("Content-Type")
 	var deal mk20.Deal
@@ -97,6 +105,7 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// mk20status handles HTTP requests to retrieve the status of a deal using its ID, responding with deal status or appropriate error codes.
 func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
 	// Extract id from the URL
 	idStr := chi.URLParam(r, "id")
@@ -133,6 +142,7 @@ func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// mk20supportedContracts retrieves supported contract addresses from the database and returns them as a JSON response.
 func (mdh *MK20DealHandler) mk20supportedContracts(w http.ResponseWriter, r *http.Request) {
 	var contracts mk20.SupportedContracts
 	err := mdh.db.Select(r.Context(), &contracts, "SELECT address FROM contracts")
@@ -156,6 +166,7 @@ func (mdh *MK20DealHandler) mk20supportedContracts(w http.ResponseWriter, r *htt
 	}
 }
 
+// mk20UploadDealData handles uploading deal data to the server using a PUT request with specific validations and streams directly to the logic.
 func (mdh *MK20DealHandler) mk20UploadDealData(w http.ResponseWriter, r *http.Request) {
 	// Extract id from the URL
 	idStr := chi.URLParam(r, "id")
@@ -186,5 +197,22 @@ func (mdh *MK20DealHandler) mk20UploadDealData(w http.ResponseWriter, r *http.Re
 	}
 
 	// Stream directly to execution logic
-	mdh.dm.MK20Handler.HandlePutRequest(context.Background(), id, r.Body, w)
+	mdh.dm.MK20Handler.HandlePutRequest(id, r.Body, w)
+}
+
+// info serves the contents of the info file as a text/markdown response with HTTP 200 or returns an HTTP 500 on read/write failure.
+func (mdh *MK20DealHandler) info(w http.ResponseWriter, r *http.Request) {
+	// Read the info File
+	data, err := os.ReadFile("../info.md")
+	if err != nil {
+		log.Errorw("failed to read info file", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "text/markdown")
+	_, err = w.Write(data)
+	if err != nil {
+		log.Errorw("failed to write info file", "err", err)
+	}
 }
