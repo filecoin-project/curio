@@ -10,15 +10,15 @@ import (
 	"os"
 	"time"
 
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/dealdata"
-	"github.com/filecoin-project/go-address"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
-)
 
-const PutGracePeriod = time.Hour
+	"github.com/filecoin-project/go-address"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/dealdata"
+)
 
 func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 	// Check if we ever accepted this deal
@@ -132,7 +132,8 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 	}
 }
 
-func (m *MK20) HandlePutRequest(ctx context.Context, id ulid.ULID, data io.ReadCloser, w http.ResponseWriter) {
+func (m *MK20) HandlePutRequest(id ulid.ULID, data io.ReadCloser, w http.ResponseWriter) {
+	ctx := context.Background()
 	defer data.Close()
 
 	var waitingDeal []struct {
@@ -153,7 +154,7 @@ func (m *MK20) HandlePutRequest(ctx context.Context, id ulid.ULID, data io.ReadC
 		http.Error(w, "", http.StatusNotFound)
 	}
 
-	if waitingDeal[0].Started && waitingDeal[0].StartTime.Add(PutGracePeriod).Before(time.Now()) {
+	if waitingDeal[0].Started && waitingDeal[0].StartTime.Add(m.cfg.HTTP.ReadTimeout).Before(time.Now()) {
 		http.Error(w, "another /PUT request is in progress for this deal", http.StatusConflict)
 	}
 

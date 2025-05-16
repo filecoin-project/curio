@@ -102,7 +102,7 @@ func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal) *ProviderDealRejecti
 	if err != nil {
 		log.Errorw("deal rejected", "deal", deal, "error", err)
 		ret := &ProviderDealRejectionInfo{
-			HTTPCode: code,
+			HTTPCode: int(code),
 		}
 		if code == http.StatusInternalServerError {
 			ret.Reason = "Internal server error"
@@ -130,7 +130,7 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal) *ProviderDealReje
 	if err != nil {
 		log.Errorw("error getting deal ID", "deal", deal, "error", err)
 		ret := &ProviderDealRejectionInfo{
-			HTTPCode: code,
+			HTTPCode: int(code),
 		}
 		if code == http.StatusInternalServerError {
 			ret.Reason = "Internal server error"
