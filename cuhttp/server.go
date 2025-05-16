@@ -24,7 +24,6 @@ import (
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/market/retrieval"
-	"github.com/filecoin-project/curio/pdp"
 	"github.com/filecoin-project/curio/tasks/message"
 	storage_market "github.com/filecoin-project/curio/tasks/storage-market"
 )
@@ -296,13 +295,13 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDep
 	rd := libp2p.NewRedirector(d.DB)
 	libp2p.Router(r, rd)
 
-	if sd.EthSender != nil {
-		pdsvc := pdp.NewPDPService(d.DB, d.LocalStore, must.One(d.EthClient.Get()), d.Chain, sd.EthSender)
-		pdp.Routes(r, pdsvc)
-	}
+	//if sd.EthSender != nil {
+	//	pdsvc := pdp.NewPDPService(d.DB, d.LocalStore, must.One(d.EthClient.Get()), d.Chain, sd.EthSender)
+	//	pdp.Routes(r, pdsvc)
+	//}
 
 	// Attach the market handler
-	dh, err := mhttp.NewMarketHandler(d.DB, d.Cfg, sd.DealMarket)
+	dh, err := mhttp.NewMarketHandler(d.DB, d.Cfg, sd.DealMarket, must.One(d.EthClient.Get()), d.Chain, sd.EthSender, d.LocalStore)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to create new market handler: %w", err)
 	}

@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/filecoin-project/go-state-types/crypto"
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
 	"golang.org/x/xerrors"
@@ -21,12 +20,17 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
+type dbDataSource struct {
+	Name    string `db:"name"`
+	Enabled bool   `db:"enabled"`
+}
+
 type productAndDataSource struct {
 	Products []dbProduct
 	Data     []dbDataSource
 }
 
-func (d *Deal) Validate(pad *productAndDataSource) (int, error) {
+func (d *Deal) Validate(pad *productAndDataSource) (ErrorCode, error) {
 	code, err := d.Products.Validate(pad.Products)
 	if err != nil {
 		return code, xerrors.Errorf("products validation failed: %w", err)
@@ -35,7 +39,7 @@ func (d *Deal) Validate(pad *productAndDataSource) (int, error) {
 	return d.Data.Validate(pad.Data)
 }
 
-func (d DataSource) Validate(dbDataSources []dbDataSource) (int, error) {
+func (d DataSource) Validate(dbDataSources []dbDataSource) (ErrorCode, error) {
 	if len(dbDataSources) == 0 {
 		return ErrUnsupportedDataSource, xerrors.Errorf("no data sources enabled on the provider")
 	}
@@ -272,7 +276,7 @@ type dbProduct struct {
 	Enabled bool   `db:"enabled"`
 }
 
-func (d Products) Validate(dbProducts []dbProduct) (int, error) {
+func (d Products) Validate(dbProducts []dbProduct) (ErrorCode, error) {
 	if len(dbProducts) == 0 {
 		return ErrProductNotEnabled, xerrors.Errorf("no products enabled on the provider")
 	}
@@ -486,33 +490,53 @@ type ProviderDealRejectionInfo struct {
 	Reason   string
 }
 
-type DealStatusRequest struct {
-	Identifier ulid.ULID        `json:"identifier"`
-	Signature  crypto.Signature `json:"signature"`
-}
-
+// DealStatusResponse represents the response of a deal's status, including its current state and an optional error message.
 type DealStatusResponse struct {
-	State    DealState `json:"status"`
-	ErrorMsg string    `json:"errormsg"`
+
+	// State indicates the current processing state of the deal as a DealState value.
+	State DealState `json:"status"`
+
+	// ErrorMsg is an optional field containing error details associated with the deal's current state if an error occurred.
+	ErrorMsg string `json:"errormsg"`
 }
 
+// DealStatus represents the status of a deal, including the HTTP code and an optional response detailing the deal's state and error message.
 type DealStatus struct {
+
+	// Response provides details about the deal's status, such as its current state and any associated error messages, if available.
 	Response *DealStatusResponse
+
+	// HTTPCode represents the HTTP status code providing additional context about the deal status or possible errors.
 	HTTPCode int
 }
 
+// DealState represents the current status of a deal in the system as a string value.
 type DealState string
 
 const (
-	DealStateAccepted   DealState = "accepted"
+
+	// DealStateAccepted represents the state where a deal has been accepted and is pending further processing in the system.
+	DealStateAccepted DealState = "accepted"
+
+	// DealStateProcessing represents the state of a deal currently being processed in the pipeline.
 	DealStateProcessing DealState = "processing"
-	DealStateSealing    DealState = "sealing"
-	DealStateIndexing   DealState = "indexing"
-	DealStateFailed     DealState = "failed"
-	DealStateComplete   DealState = "complete"
+
+	// DealStateSealing indicates that the deal is currently being sealed in the system.
+	DealStateSealing DealState = "sealing"
+
+	// DealStateIndexing represents the state where a deal is undergoing indexing in the system.
+	DealStateIndexing DealState = "indexing"
+
+	// DealStateFailed indicates that the deal has failed due to an error during processing, sealing, or indexing.
+	DealStateFailed DealState = "failed"
+
+	// DealStateComplete indicates that the deal has successfully completed all processing and is finalized in the system.
+	DealStateComplete DealState = "complete"
 )
 
+// SupportedContracts represents a collection of contract addresses supported by a system or application.
 type SupportedContracts struct {
+	// Contracts represents a list of supported contract addresses in string format.
 	Contracts []string `json:"contracts"`
 }
 

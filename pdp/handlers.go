@@ -33,9 +33,6 @@ import (
 	types2 "github.com/filecoin-project/lotus/chain/types"
 )
 
-// PDPRoutePath is the base path for PDP routes
-const PDPRoutePath = "/pdp"
-
 // PDPService represents the service for managing proof sets and pieces
 type PDPService struct {
 	db      *harmonydb.DB
@@ -63,9 +60,12 @@ func NewPDPService(db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client
 }
 
 // Routes registers the HTTP routes with the provided router
-func Routes(r *chi.Mux, p *PDPService) {
+func Routes(p *PDPService) http.Handler {
+
+	r := chi.NewRouter()
+	
 	// Routes for proof sets
-	r.Route(path.Join(PDPRoutePath, "/proof-sets"), func(r chi.Router) {
+	r.Route("/proof-sets", func(r chi.Router) {
 		// POST /pdp/proof-sets - Create a new proof set
 		r.Post("/", p.handleCreateProofSet)
 
@@ -100,17 +100,18 @@ func Routes(r *chi.Mux, p *PDPService) {
 		})
 	})
 
-	r.Get(path.Join(PDPRoutePath, "/ping"), p.handlePing)
+	r.Get("/ping", p.handlePing)
 
 	// Routes for piece storage and retrieval
 	// POST /pdp/piece
-	r.Post(path.Join(PDPRoutePath, "/piece"), p.handlePiecePost)
+	r.Post("/piece", p.handlePiecePost)
 
 	// GET /pdp/piece/
-	r.Get(path.Join(PDPRoutePath, "/piece/"), p.handleFindPiece)
+	r.Get("/piece/", p.handleFindPiece)
 
 	// PUT /pdp/piece/upload/{uploadUUID}
-	r.Put(path.Join(PDPRoutePath, "/piece/upload/{uploadUUID}"), p.handlePieceUpload)
+	r.Put("/piece/upload/{uploadUUID}", p.handlePieceUpload)
+	return r
 }
 
 // Handler functions

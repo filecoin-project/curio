@@ -266,7 +266,11 @@ go-generate:
 gen: gensimple
 .PHONY: gen
 
-gensimple: api-gen go-generate cfgdoc-gen docsgen docsgen-cli
+marketgen:
+	$(GOCC) run ./market/mk20/mk20gen -pkg ./market/mk20 -output ./market/mk20/info.md
+.PHONY: marketgen
+
+gensimple: api-gen go-generate cfgdoc-gen docsgen marketgen docsgen-cli
 	$(GOCC) run ./scripts/fiximports
 	go mod tidy
 .PHONY: gen

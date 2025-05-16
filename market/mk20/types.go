@@ -24,6 +24,7 @@ type Deal struct {
 }
 
 type Products struct {
+	// DDOV1 represents a product v1 configuration for Direct Data Onboarding (DDO)
 	DDOV1 *DDOV1 `json:"ddov1"`
 }
 
@@ -69,6 +70,7 @@ type PieceDataFormat struct {
 
 // FormatCar represents the CAR (Content Addressable aRchive) format with version metadata for piece data serialization.
 type FormatCar struct {
+	// Version specifies the version of the CAR format used for piece data serialization.
 	Version uint64 `json:"version"`
 }
 
@@ -88,6 +90,7 @@ type FormatBytes struct{}
 
 // DataSourceOffline represents the data source for offline pieces, including metadata such as the raw size of the piece.
 type DataSourceOffline struct {
+	// RawSize specifies the raw size of the data in bytes.
 	RawSize uint64 `json:"rawsize"`
 }
 
@@ -95,7 +98,7 @@ func (dso *DataSourceOffline) Name() DataSourceName {
 	return DataSourceNameOffline
 }
 
-func (dso *DataSourceOffline) IsEnabled(dbDataSources []dbDataSource) (int, error) {
+func (dso *DataSourceOffline) IsEnabled(dbDataSources []dbDataSource) (ErrorCode, error) {
 	name := string(dso.Name())
 	for _, p := range dbDataSources {
 		if p.Name == name {
@@ -116,7 +119,7 @@ func (dsa *DataSourceAggregate) Name() DataSourceName {
 	return DataSourceNameAggregate
 }
 
-func (dsa *DataSourceAggregate) IsEnabled(dbDataSources []dbDataSource) (int, error) {
+func (dsa *DataSourceAggregate) IsEnabled(dbDataSources []dbDataSource) (ErrorCode, error) {
 	name := string(dsa.Name())
 	for _, p := range dbDataSources {
 		if p.Name == name {
@@ -142,7 +145,7 @@ func (dsh *DataSourceHTTP) Name() DataSourceName {
 	return DataSourceNameHTTP
 }
 
-func (dsh *DataSourceHTTP) IsEnabled(dbDataSources []dbDataSource) (int, error) {
+func (dsh *DataSourceHTTP) IsEnabled(dbDataSources []dbDataSource) (ErrorCode, error) {
 	name := string(dsh.Name())
 	for _, p := range dbDataSources {
 		if p.Name == name {
@@ -170,7 +173,9 @@ type HttpUrl struct {
 	Fallback bool `json:"fallback"`
 }
 
+// DataSourceHttpPut represents a data source allowing clients to push piece data after a deal is accepted.
 type DataSourceHttpPut struct {
+	// RawSize specifies the raw size of the data in bytes.
 	RawSize uint64 `json:"rawsize"`
 }
 
@@ -178,7 +183,7 @@ func (dsh *DataSourceHttpPut) Name() DataSourceName {
 	return DataSourceNamePut
 }
 
-func (dsh *DataSourceHttpPut) IsEnabled(dbDataSources []dbDataSource) (int, error) {
+func (dsh *DataSourceHttpPut) IsEnabled(dbDataSources []dbDataSource) (ErrorCode, error) {
 	name := string(dsh.Name())
 	for _, p := range dbDataSources {
 		if p.Name == name {
@@ -194,30 +199,61 @@ func (dsh *DataSourceHttpPut) IsEnabled(dbDataSources []dbDataSource) (int, erro
 type AggregateType uint64
 
 const (
+
+	// AggregateTypeNone represents the default aggregation type, indicating no specific aggregation is applied.
 	AggregateTypeNone AggregateType = iota
+
+	// AggregateTypeV1 represents the first version of the aggregate type in the system.
 	AggregateTypeV1
 )
 
-type ErrCode int
+// ErrorCode represents an error code as an integer value
+type ErrorCode int
 
 const (
-	Ok                         = 200
-	ErrBadProposal             = 400
-	ErrMalformedDataSource     = 430
-	ErrUnsupportedDataSource   = 422
-	ErrUnsupportedProduct      = 423
-	ErrProductNotEnabled       = 424
-	ErrProductValidationFailed = 425
-	ErrDealRejectedByMarket    = 426
-	ErrServiceMaintenance      = 503
-	ErrServiceOverloaded       = 429
-	ErrMarketNotEnabled        = 440
-	ErrDurationTooShort        = 441
+
+	// Ok represents a successful operation with an HTTP status code of 200.
+	Ok ErrorCode = 200
+
+	// ErrBadProposal represents a validation error that indicates an invalid or malformed proposal input in the context of validation logic.
+	ErrBadProposal ErrorCode = 400
+
+	// ErrMalformedDataSource indicates that the provided data source is incorrectly formatted or contains invalid data.
+	ErrMalformedDataSource ErrorCode = 430
+
+	// ErrUnsupportedDataSource indicates the specified data source is not supported or disabled for use in the current context.
+	ErrUnsupportedDataSource ErrorCode = 422
+
+	// ErrUnsupportedProduct indicates that the requested product is not supported by the provider.
+	ErrUnsupportedProduct ErrorCode = 423
+
+	// ErrProductNotEnabled indicates that the requested product is not enabled on the provider.
+	ErrProductNotEnabled ErrorCode = 424
+
+	// ErrProductValidationFailed indicates a failure during product-specific validation due to invalid or missing data.
+	ErrProductValidationFailed ErrorCode = 425
+
+	// ErrDealRejectedByMarket indicates that a proposed deal was rejected by the market for not meeting its acceptance criteria or rules.
+	ErrDealRejectedByMarket ErrorCode = 426
+
+	// ErrServiceMaintenance indicates that the service is temporarily unavailable due to maintenance, corresponding to HTTP status code 503.
+	ErrServiceMaintenance ErrorCode = 503
+
+	// ErrServiceOverloaded indicates that the service is overloaded and cannot process the request at the moment.
+	ErrServiceOverloaded ErrorCode = 429
+
+	// ErrMarketNotEnabled indicates that the market is not enabled for the requested operation.
+	ErrMarketNotEnabled ErrorCode = 440
+
+	// ErrDurationTooShort indicates that the provided duration value does not meet the minimum required threshold.
+	ErrDurationTooShort ErrorCode = 441
 )
 
+// ProductName represents a type for defining the product name identifier used in various operations and validations.
 type ProductName string
 
 const (
+	// ProductNameDDOV1 represents the identifier for the "ddov1" product used in contract operations and validations.
 	ProductNameDDOV1 ProductName = "ddov1"
 )
 
@@ -231,14 +267,3 @@ const (
 	DataSourceNamePDP             DataSourceName = "pdp"
 	DataSourceNamePut             DataSourceName = "put"
 )
-
-type dbDataSource struct {
-	Name    string `db:"name"`
-	Enabled bool   `db:"enabled"`
-}
-
-// TODO: Client facing UI Page for SP
-// TODO: Contract SP details pathway - sptool?
-// TODO: SPID data source
-// TODO: Test contract
-// TODO: ACLv1?

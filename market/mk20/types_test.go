@@ -3,11 +3,12 @@ package mk20
 import (
 	"testing"
 
+	"github.com/ipfs/go-cid"
+	"github.com/stretchr/testify/require"
+
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
-	"github.com/ipfs/go-cid"
-	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -81,7 +82,7 @@ func TestValidate_DDOV1(t *testing.T) {
 		name     string
 		prod     []dbProduct
 		mutate   func(*DDOV1)
-		wantCode int
+		wantCode ErrorCode
 	}{
 		// enabled / disabled / unsupported
 		{"no products on provider",
@@ -156,7 +157,7 @@ func TestValidate_DataSource(t *testing.T) {
 		name        string
 		mutateDS    func(*DataSource)
 		mutateDBSrc func([]dbDataSource) []dbDataSource
-		wantCode    int
+		wantCode    ErrorCode
 	}{
 		// provider‑level enable / disable checks
 		{"no data sources enabled",
@@ -271,7 +272,7 @@ func TestValidate_Deal(t *testing.T) {
 	tests := []struct {
 		name     string
 		mutate   func(*Deal, *productAndDataSource)
-		wantCode int
+		wantCode ErrorCode
 	}{
 		{"happy path",
 			func(d *Deal, _ *productAndDataSource) {},

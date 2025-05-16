@@ -68,7 +68,7 @@ CREATE TABLE market_mk20_pipeline_waiting (
     id TEXT PRIMARY KEY,
     waiting_for_data BOOLEAN DEFAULT FALSE,
     started_put BOOLEAN DEFAULT FALSE,
-    start_time TIMESTAMPZ DEFAULT NULL
+    start_time TIMESTAMPTZ DEFAULT NULL
 );
 
 CREATE TABLE market_mk20_download_pipeline (
