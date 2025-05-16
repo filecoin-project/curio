@@ -11,6 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/ethclient"
+	erpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/gorilla/websocket"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
@@ -316,4 +319,58 @@ func ErrorIsIn(err error, errorTypes []error) bool {
 		}
 	}
 	return false
+}
+
+func GetEthClient(cctx *cli.Context, ainfoCfg []string) (*ethclient.Client, error) {
+	if len(ainfoCfg) == 0 {
+		return nil, xerrors.Errorf("could not get API info: none configured. \nConsider getting base.toml with './curio config get base >/tmp/base.toml' \nthen adding   \n[APIs] \n ChainApiInfo = [\" result_from lotus auth api-info --perm=admin \"]\n  and updating it with './curio config set /tmp/base.toml'")
+	}
+
+	version := "v1"
+	var httpHeads []httpHead
+	for _, i := range ainfoCfg {
+		ainfo := cliutil.ParseApiInfo(i)
+		addr, err := ainfo.DialArgs(version)
+		if err != nil {
+			return nil, xerrors.Errorf("could not get eth DialArgs: %w", err)
+		}
+		httpHeads = append(httpHeads, httpHead{addr: addr, header: ainfo.AuthHeader()})
+	}
+
+	var clients []*ethclient.Client
+
+	for _, head := range httpHeads {
+		if cliutil.IsVeryVerbose {
+			_, _ = fmt.Fprintln(cctx.App.Writer, "using eth client endpoint:", head.addr)
+		}
+
+		d := websocket.Dialer{
+			HandshakeTimeout: 10 * time.Second,
+			ReadBufferSize:   4096,
+			WriteBufferSize:  4096,
+		}
+
+		wopts := erpc.WithWebsocketDialer(d)
+		hopts := erpc.WithHeaders(head.header)
+
+		rpcClient, err := erpc.DialOptions(cctx.Context, head.addr, wopts, hopts)
+		if err != nil {
+			log.Warnf("failed to dial eth client: %s", err)
+			continue
+		}
+		client := ethclient.NewClient(rpcClient)
+		_, err = client.BlockNumber(cctx.Context)
+		if err != nil {
+			log.Warnf("failed to get eth block number: %s", err)
+			continue
+		}
+		clients = append(clients, client)
+	}
+
+	if len(clients) == 0 {
+		return nil, xerrors.Errorf("failed to establish connection with all nodes")
+	}
+
+	return clients[0], nil
+
 }
