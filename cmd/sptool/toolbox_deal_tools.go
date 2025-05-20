@@ -88,7 +88,7 @@ var marketAddCmd = &cli.Command{
 			return err
 		}
 
-		api, closer, err := lcli.GetGatewayAPI(cctx)
+		api, closer, err := lcli.GetGatewayAPIV1(cctx)
 		if err != nil {
 			return fmt.Errorf("cant setup gateway connection: %w", err)
 		}
@@ -167,7 +167,7 @@ var marketWithdrawCmd = &cli.Command{
 			return err
 		}
 
-		api, closer, err := lcli.GetGatewayAPI(cctx)
+		api, closer, err := lcli.GetGatewayAPIV1(cctx)
 		if err != nil {
 			return fmt.Errorf("cant setup gateway connection: %w", err)
 		}
@@ -627,7 +627,7 @@ var allocateCmd = &cli.Command{
 			return err
 		}
 
-		gapi, closer, err := lcli.GetGatewayAPI(cctx)
+		gapi, closer, err := lcli.GetGatewayAPIV1(cctx)
 		if err != nil {
 			return fmt.Errorf("can't setup gateway connection: %w", err)
 		}
@@ -765,7 +765,7 @@ var listAllocationsCmd = &cli.Command{
 			return err
 		}
 
-		gapi, closer, err := lcli.GetGatewayAPI(cctx)
+		gapi, closer, err := lcli.GetGatewayAPIV1(cctx)
 		if err != nil {
 			return fmt.Errorf("cant setup gateway connection: %w", err)
 		}
