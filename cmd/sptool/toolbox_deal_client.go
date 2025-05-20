@@ -333,7 +333,7 @@ func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 		return err
 	}
 
-	api, closer, err := lcli.GetGatewayAPI(cctx)
+	api, closer, err := lcli.GetGatewayAPIV1(cctx)
 	if err != nil {
 		return xerrors.Errorf("cant setup gateway connection: %w", err)
 	}
@@ -697,7 +697,7 @@ var initCmd = &cli.Command{
 			return err
 		}
 
-		api, closer, err := lcli.GetGatewayAPI(cctx)
+		api, closer, err := lcli.GetGatewayAPIV1(cctx)
 		if err != nil {
 			return xerrors.Errorf("can not setup gateway connection: %w", err)
 		}
@@ -807,7 +807,7 @@ var walletList = &cli.Command{
 			return err
 		}
 
-		api, closer, err := lcli.GetGatewayAPI(cctx)
+		api, closer, err := lcli.GetGatewayAPIV1(cctx)
 		if err != nil {
 			return xerrors.Errorf("cant setup gateway connection: %w", err)
 		}
@@ -979,7 +979,7 @@ var walletBalance = &cli.Command{
 			return err
 		}
 
-		api, closer, err := lcli.GetGatewayAPI(cctx)
+		api, closer, err := lcli.GetGatewayAPIV1(cctx)
 		if err != nil {
 			return xerrors.Errorf("cant setup gateway connection: %w", err)
 		}
@@ -1355,7 +1355,7 @@ var dealStatusCmd = &cli.Command{
 			return err
 		}
 
-		gapi, closer, err := lcli.GetGatewayAPI(cctx)
+		gapi, closer, err := lcli.GetGatewayAPIV1(cctx)
 		if err != nil {
 			return fmt.Errorf("cant setup gateway connection: %w", err)
 		}
