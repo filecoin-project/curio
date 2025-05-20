@@ -25,9 +25,13 @@ var configNewCmd = &cli.Command{
 			Hidden:  true,
 			Value:   "~/.lotus",
 		},
+		&cli.BoolFlag{
+			Name:  "pdp",
+			Usage: "initiate a PDP only cluster",
+		},
 	},
 	Action: func(cctx *cli.Context) error {
-		if cctx.Args().Len() < 1 {
+		if !cctx.Bool("pdp") && cctx.Args().Len() < 1 {
 			return xerrors.New("must specify at least one SP actor address. Use 'lotus-shed miner create' or use 'curio guided-setup'")
 		}
 
@@ -52,6 +56,10 @@ var configNewCmd = &cli.Command{
 		token, err := full.AuthNew(ctx, api.AllPermissions)
 		if err != nil {
 			return err
+		}
+
+		if cctx.Bool("pdp") {
+			return deps.CreatePDPConfig(ctx, db, fmt.Sprintf("%s:%s", string(token), ainfo.Addr))
 		}
 
 		return deps.CreateMinerConfig(ctx, full, db, cctx.Args().Slice(), fmt.Sprintf("%s:%s", string(token), ainfo.Addr))
