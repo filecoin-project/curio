@@ -212,7 +212,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 		for _, src := range data.SourceHTTP.URLs {
 			var refID int64
 
-			headers, err := json.Marshal(src.HTTPHeaders)
+			headers, err := json.Marshal(src.Headers)
 			if err != nil {
 				return xerrors.Errorf("marshaling headers: %w", err)
 			}
@@ -377,7 +377,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 			var refIds []int64
 			urls := toDownload[downloadkey{PieceCID: k.PieceCID, Size: k.Size}]
 			for _, src := range urls {
-				headers, err := json.Marshal(src.HTTPHeaders)
+				headers, err := json.Marshal(src.Headers)
 				if err != nil {
 					return xerrors.Errorf("marshal headers: %w", err)
 				}

@@ -75,30 +75,7 @@ func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorI
 
 func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal) *ProviderDealRejectionInfo {
 	// Validate the DataSource TODO: Add error code to validate
-	var dbProducts []dbProduct
-	err := m.db.Select(context.Background(), &dbProducts, `SELECT name, enabled FROM products`)
-	if err != nil {
-		log.Errorw("error getting products from DB", "error", err)
-		return &ProviderDealRejectionInfo{
-			HTTPCode: http.StatusInternalServerError,
-		}
-	}
-
-	var dbDataSources []dbDataSource
-	err = m.db.Select(context.Background(), &dbDataSources, `SELECT name, enabled FROM data_sources`)
-	if err != nil {
-		log.Errorw("error getting data sources from DB", "error", err)
-		return &ProviderDealRejectionInfo{
-			HTTPCode: http.StatusInternalServerError,
-		}
-	}
-
-	vdata := &productAndDataSource{
-		Products: dbProducts,
-		Data:     dbDataSources,
-	}
-
-	code, err := deal.Validate(vdata)
+	code, err := deal.Validate(m.db)
 	if err != nil {
 		log.Errorw("deal rejected", "deal", deal, "error", err)
 		ret := &ProviderDealRejectionInfo{
@@ -197,6 +174,15 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			HTTPCode: http.StatusBadRequest,
 			Reason:   "Deal size is larger than the miner's sector size",
 		}, nil
+	}
+
+	if deal.Data.Format.Raw != nil {
+		if deal.Products.DDOV1.Indexing {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: http.StatusBadRequest,
+				Reason:   "Raw bytes deal cannot be indexed",
+			}, nil
+		}
 	}
 
 	if deal.Products.DDOV1.AllocationId != nil {

@@ -33,40 +33,40 @@ type DDOV1 struct {
 	// Client represents the address of the deal client
 	Client address.Address `json:"client"`
 
-	// Actor able to with AuthorizeMessage (like f1/f3 wallet) able to authorize actions such as managing ACLs
-	PieceManager address.Address `json:"piecemanager"`
+	// Actor providing AuthorizeMessage (like f1/f3 wallet) able to authorize actions such as managing ACLs
+	PieceManager address.Address `json:"piece_manager"`
 
 	// Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.
 	// It must be at least 518400
 	Duration abi.ChainEpoch `json:"duration"`
 
 	// AllocationId represents an aggregated allocation identifier for the deal.
-	AllocationId *verifreg.AllocationId `json:"aggregatedallocationid"`
+	AllocationId *verifreg.AllocationId `json:"allocation_id"`
 
 	// ContractAddress specifies the address of the contract governing the deal
-	ContractAddress string `json:"contractaddress"`
+	ContractAddress string `json:"contract_address"`
 
-	// ContractDealIDMethod specifies the method name to retrieve the deal ID for a contract
-	ContractDealIDMethod string `json:"contractdealidmethod"`
+	// ContractDealIDMethod specifies the method name to verify the deal and retrieve the deal ID for a contract
+	ContractVerifyMethod string `json:"contract_verify_method"`
 
-	// ContractDealIDMethodParams represents encoded parameters for the contract deal ID method if required by the contract
-	ContractDealIDMethodParams []byte `json:"contractdealidmethodparams"`
+	// ContractDealIDMethodParams represents encoded parameters for the contract verify method if required by the contract
+	ContractVerifyMethodParams []byte `json:"contract_verify_method_params"`
 
 	// NotificationAddress specifies the address to which notifications will be relayed to when sector is activated
-	NotificationAddress string `json:"notificationaddress"`
+	NotificationAddress string `json:"notification_address"`
 
 	// NotificationPayload holds the notification data typically in a serialized byte array format.
-	NotificationPayload []byte `json:"notificationpayload"`
+	NotificationPayload []byte `json:"notification_payload"`
 
 	// Indexing indicates if the deal is to be indexed in the provider's system to support CIDs based retrieval
 	Indexing bool `json:"indexing"`
 
 	// AnnounceToIPNI indicates whether the deal should be announced to the Interplanetary Network Indexer (IPNI).
-	AnnounceToIPNI bool `json:"announcetoinpni"`
+	AnnounceToIPNI bool `json:"announce_to_ipni"`
 }
 
-func (d *DDOV1) Validate(dbProducts []dbProduct) (ErrorCode, error) {
-	code, err := d.IsEnabled(dbProducts)
+func (d *DDOV1) Validate(db *harmonydb.DB) (ErrorCode, error) {
+	code, err := IsProductEnabled(db, d.ProductName())
 	if err != nil {
 		return code, err
 	}
@@ -103,12 +103,16 @@ func (d *DDOV1) Validate(dbProducts []dbProduct) (ErrorCode, error) {
 		return ErrProductValidationFailed, xerrors.Errorf("contract address must start with 0x")
 	}
 
-	if d.ContractDealIDMethodParams == nil {
-		return ErrProductValidationFailed, xerrors.Errorf("contract deal id method params is not set")
+	if d.ContractVerifyMethodParams == nil {
+		return ErrProductValidationFailed, xerrors.Errorf("contract verify method params is not set")
 	}
 
-	if d.ContractDealIDMethod == "" {
-		return ErrProductValidationFailed, xerrors.Errorf("contract deal id method is not set")
+	if d.ContractVerifyMethod == "" {
+		return ErrProductValidationFailed, xerrors.Errorf("contract verify method is not set")
+	}
+
+	if !d.Indexing && d.AnnounceToIPNI {
+		return ErrProductValidationFailed, xerrors.Errorf("deal cannot be announced to IPNI without indexing")
 	}
 
 	return Ok, nil
@@ -132,9 +136,9 @@ func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.
 	to := common.HexToAddress(d.ContractAddress)
 
 	// Get the method
-	method, exists := parsedABI.Methods[d.ContractDealIDMethod]
+	method, exists := parsedABI.Methods[d.ContractVerifyMethod]
 	if !exists {
-		return "", http.StatusInternalServerError, fmt.Errorf("method %s not found in ABI", d.ContractDealIDMethod)
+		return "", http.StatusInternalServerError, fmt.Errorf("method %s not found in ABI", d.ContractVerifyMethod)
 	}
 
 	// Enforce method must take exactly one `bytes` parameter
@@ -143,7 +147,7 @@ func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.
 	}
 
 	// ABI-encode method call with input
-	callData, err := parsedABI.Pack(method.Name, d.ContractDealIDMethodParams)
+	callData, err := parsedABI.Pack(method.Name, d.ContractVerifyMethod)
 	if err != nil {
 		return "", http.StatusInternalServerError, fmt.Errorf("failed to encode call data: %w", err)
 	}
@@ -175,17 +179,4 @@ func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.
 
 func (d *DDOV1) ProductName() ProductName {
 	return ProductNameDDOV1
-}
-
-func (d *DDOV1) IsEnabled(dbProducts []dbProduct) (ErrorCode, error) {
-	name := string(d.ProductName())
-	for _, p := range dbProducts {
-		if p.Name == name {
-			if p.Enabled {
-				return Ok, nil
-			}
-			return ErrProductNotEnabled, xerrors.Errorf("product %s is not enabled on the provider", name)
-		}
-	}
-	return ErrUnsupportedProduct, xerrors.Errorf("product %s is not supported on the provider", name)
 }

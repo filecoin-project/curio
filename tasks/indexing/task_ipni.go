@@ -1,17 +1,19 @@
 package indexing
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"errors"
 	"fmt"
-	"io"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/filecoin-project/curio/lib/cachedreader"
+	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	carv2 "github.com/ipld/go-car/v2"
@@ -21,7 +23,9 @@ import (
 	"github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
@@ -34,7 +38,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
-	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
@@ -44,22 +47,22 @@ import (
 var ilog = logging.Logger("ipni")
 
 type IPNITask struct {
-	db            *harmonydb.DB
-	indexStore    *indexstore.IndexStore
-	pieceProvider *pieceprovider.SectorReader
-	sc            *ffi.SealCalls
-	cfg           *config.CurioConfig
-	max           taskhelp.Limiter
+	db         *harmonydb.DB
+	indexStore *indexstore.IndexStore
+	cpr        *cachedreader.CachedPieceReader
+	sc         *ffi.SealCalls
+	cfg        *config.CurioConfig
+	max        taskhelp.Limiter
 }
 
-func NewIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.SectorReader, cfg *config.CurioConfig, max taskhelp.Limiter) *IPNITask {
+func NewIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *IPNITask {
 	return &IPNITask{
-		db:            db,
-		indexStore:    indexStore,
-		pieceProvider: pieceProvider,
-		sc:            sc,
-		cfg:           cfg,
-		max:           max,
+		db:         db,
+		indexStore: indexStore,
+		cpr:        cpr,
+		sc:         sc,
+		cfg:        cfg,
+		max:        max,
 	}
 }
 
@@ -68,6 +71,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 
 	var tasks []struct {
 		SPID     int64                   `db:"sp_id"`
+		ID       sql.NullString          `db:"id"`
 		Sector   abi.SectorNumber        `db:"sector"`
 		Proof    abi.RegisteredSealProof `db:"reg_seal_proof"`
 		Offset   int64                   `db:"sector_offset"`
@@ -78,7 +82,8 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	}
 
 	err = I.db.Select(ctx, &tasks, `SELECT 
-											sp_id, 
+											sp_id,
+											id,
 											sector, 
 											reg_seal_proof,
 											sector_offset,
@@ -111,35 +116,93 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, xerrors.Errorf("unmarshaling piece info: %w", err)
 	}
 
-	reader, err := I.pieceProvider.ReadPiece(ctx, storiface.SectorRef{
-		ID: abi.SectorID{
-			Miner:  abi.ActorID(task.SPID),
-			Number: task.Sector,
-		},
-		ProofType: task.Proof,
-	}, storiface.PaddedByteIndex(task.Offset).Unpadded(), pi.Size.Unpadded(), pi.PieceCID)
+	reader, _, err := I.cpr.GetSharedPieceReader(ctx, pi.PieceCID, pi.Size)
+
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
+	defer reader.Close()
+
+	var isMK20 bool
+
+	if task.ID.Valid {
+		_, err := ulid.Parse(task.ID.String)
+		if err == nil {
+			isMK20 = true
+		} else {
+			_, err := uuid.Parse(task.ID.String)
+			if err != nil {
+				return false, xerrors.Errorf("parsing task id: %w", err)
+			}
+		}
+	}
 
 	opts := []carv2.Option{carv2.ZeroLengthSectionAsEOF(true)}
-	blockReader, err := carv2.NewBlockReader(bufio.NewReaderSize(reader, 4<<20), opts...)
-	if err != nil {
-		return false, fmt.Errorf("getting block reader over piece: %w", err)
-	}
 
+	recs := make(chan indexstore.Record, 1)
+
+	var eg errgroup.Group
+	addFail := make(chan struct{})
+	var interrupted bool
+	var subPieces []mk20.PieceDataFormat
 	chk := chunker.NewInitialChunker()
 
-	blockMetadata, err := blockReader.SkipNext()
-	for err == nil {
-		if err := chk.Accept(blockMetadata.Cid.Hash(), int64(blockMetadata.Offset), blockMetadata.Size+40); err != nil {
-			return false, xerrors.Errorf("accepting block: %w", err)
+	eg.Go(func() error {
+		defer close(addFail)
+		for rec := range recs {
+			serr := chk.Accept(rec.Cid.Hash(), int64(rec.Offset), rec.Size)
+			if serr != nil {
+				addFail <- struct{}{}
+				return serr
+			}
+		}
+		return nil
+	})
+
+	if isMK20 {
+		id, serr := ulid.Parse(task.ID.String)
+		if serr != nil {
+			return false, xerrors.Errorf("parsing task id: %w", serr)
+		}
+		deal, serr := mk20.DealFromDB(ctx, I.db, id)
+		if serr != nil {
+			return false, xerrors.Errorf("getting deal from db: %w", serr)
 		}
 
-		blockMetadata, err = blockReader.SkipNext()
+		if deal.Data.Format.Raw != nil {
+			return false, xerrors.Errorf("raw data not supported")
+		}
+
+		if deal.Data.Format.Car != nil {
+			_, interrupted, err = IndexCAR(reader, 4<<20, opts, recs, addFail)
+		}
+
+		if deal.Data.Format.Aggregate != nil {
+			if deal.Data.Format.Aggregate.Type > 0 {
+				subPieces = deal.Data.Format.Aggregate.Sub
+				_, interrupted, err = IndexAggregate(reader, pi.Size, subPieces, opts, recs, addFail)
+			}
+		}
+
+	} else {
+		_, interrupted, err = IndexCAR(reader, 4<<20, opts, recs, addFail)
 	}
-	if !errors.Is(err, io.EOF) {
-		return false, xerrors.Errorf("reading block: %w", err)
+
+	if err != nil {
+		// Chunking itself failed, stop early
+		close(recs) // still safe to close, chk.Accept() will exit on channel close
+		// wait for chk.Accept() goroutine to finish cleanly
+		_ = eg.Wait()
+		return false, xerrors.Errorf("chunking failed: %w", err)
+	}
+
+	// Close the channel
+	close(recs)
+
+	// Wait till  is finished
+	err = eg.Wait()
+	if err != nil {
+		return false, xerrors.Errorf("adding index to chunk (interrupted %t): %w", interrupted, err)
 	}
 
 	// make sure we still own the task before writing to the database
@@ -160,7 +223,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	_, err = I.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		var prev string
 		err = tx.QueryRow(`SELECT head FROM ipni_head WHERE provider = $1`, task.Prov).Scan(&prev)
-		if err != nil && err != pgx.ErrNoRows {
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return false, xerrors.Errorf("querying previous head: %w", err)
 		}
 
@@ -481,7 +544,7 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 				return false, xerrors.Errorf("marshaling piece info: %w", err)
 			}
 
-			_, err = tx.Exec(`SELECT insert_ipni_task($1, $2, $3, $4, $5, $6, $7, $8)`, p.SpID,
+			_, err = tx.Exec(`SELECT insert_ipni_task($1, $2, $3, $4, $5, $6, $7, $8, $9)`, p.SpID, p.UUID,
 				p.Sector, p.Proof, p.Offset, b.Bytes(), false, pid.String(), id)
 			if err != nil {
 				if harmonydb.IsErrUniqueContraint(err) {

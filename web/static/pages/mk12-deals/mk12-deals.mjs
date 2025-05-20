@@ -92,7 +92,7 @@ class MK12DealList extends LitElement {
                   <td>${formatDate(deal.created_at)}</td>
                   <td><a href="/pages/mk12-deal/?id=${deal.id}">${deal.id}</a></td>
                   <td>${deal.miner}</td>
-                  <td><a href="/pages/piece/?id=${deal.piece_cid}">${deal.piece_cid}</a></td>
+                  <td><a href="/pages/piece/?id=${deal.piece_cid_v2}">${deal.piece_cid}</a></td>
                   <td>${this.formatBytes(deal.piece_size)}</td>
                   <td><done-not-done .value=${deal.processed}></done-not-done></td>
                   <td><error-or-not .value=${deal.error}></error-or-not></td>
