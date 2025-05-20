@@ -6,11 +6,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
+	"sort"
+	"strings"
+	"sync"
 	"time"
 
+	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/go-data-segment/datasegment"
+	"github.com/filecoin-project/go-data-segment/fr32"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	carv2 "github.com/ipld/go-car/v2"
+	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
@@ -22,9 +30,10 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/filecoin-project/curio/lib/cachedreader"
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
-	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 )
@@ -34,7 +43,7 @@ var log = logging.Logger("indexing")
 type IndexingTask struct {
 	db                *harmonydb.DB
 	indexStore        *indexstore.IndexStore
-	pieceProvider     *pieceprovider.SectorReader
+	cpr               *cachedreader.CachedPieceReader
 	sc                *ffi.SealCalls
 	cfg               *config.CurioConfig
 	insertConcurrency int
@@ -42,12 +51,12 @@ type IndexingTask struct {
 	max               taskhelp.Limiter
 }
 
-func NewIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.SectorReader, cfg *config.CurioConfig, max taskhelp.Limiter) *IndexingTask {
+func NewIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *IndexingTask {
 
 	return &IndexingTask{
 		db:                db,
 		indexStore:        indexStore,
-		pieceProvider:     pieceProvider,
+		cpr:               cpr,
 		sc:                sc,
 		cfg:               cfg,
 		insertConcurrency: cfg.Market.StorageMarketConfig.Indexing.InsertConcurrency,
@@ -141,8 +150,31 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return false, xerrors.Errorf("checking if piece %s is already indexed: %w", task.PieceCid, err)
 	}
 
+	var byteData bool
+	var subPieces []mk20.PieceDataFormat
+
+	if task.Mk20 {
+		id, err := ulid.Parse(task.UUID)
+		if err != nil {
+			return false, xerrors.Errorf("parsing id: %w", err)
+		}
+		deal, err := mk20.DealFromDB(ctx, i.db, id)
+		if err != nil {
+			return false, xerrors.Errorf("getting mk20 deal from DB: %w", err)
+		}
+		if deal.Data.Format.Aggregate != nil {
+			if deal.Data.Format.Aggregate.Type > 0 {
+				subPieces = deal.Data.Format.Aggregate.Sub
+			}
+		}
+
+		if deal.Data.Format.Raw != nil {
+			byteData = true
+		}
+	}
+
 	// Return early if already indexed or should not be indexed
-	if indexed || !task.ShouldIndex {
+	if indexed || !task.ShouldIndex || byteData {
 		err = i.recordCompletion(ctx, task, taskID, false)
 		if err != nil {
 			return false, err
@@ -157,13 +189,13 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return false, xerrors.Errorf("parsing piece CID: %w", err)
 	}
 
-	reader, err := i.pieceProvider.ReadPiece(ctx, storiface.SectorRef{
-		ID: abi.SectorID{
-			Miner:  abi.ActorID(task.SpID),
-			Number: task.Sector,
-		},
-		ProofType: task.Proof,
-	}, storiface.PaddedByteIndex(task.Offset).Unpadded(), task.Size.Unpadded(), pieceCid)
+	commp, err := commcidv2.CommPFromPieceInfo(abi.PieceInfo{PieceCID: pieceCid, Size: task.Size})
+	if err != nil {
+		return false, xerrors.Errorf("getting piece commP: %w", err)
+	}
+	pc2 := commp.PCidV2()
+
+	reader, _, err := i.cpr.GetSharedPieceReader(ctx, pieceCid, task.Size)
 
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
@@ -176,50 +208,32 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	dealCfg := i.cfg.Market.StorageMarketConfig
 	chanSize := dealCfg.Indexing.InsertConcurrency * dealCfg.Indexing.InsertBatchSize
 
-	recs := make(chan indexstore.Record, chanSize)
-
-	//recs := make([]indexstore.Record, 0, chanSize)
 	opts := []carv2.Option{carv2.ZeroLengthSectionAsEOF(true)}
-	blockReader, err := carv2.NewBlockReader(bufio.NewReaderSize(reader, 4<<20), opts...)
-	if err != nil {
-		return false, fmt.Errorf("getting block reader over piece: %w", err)
-	}
+
+	recs := make(chan indexstore.Record, chanSize)
+	var blocks int64
 
 	var eg errgroup.Group
 	addFail := make(chan struct{})
 	var interrupted bool
-	var blocks int64
-	start := time.Now()
 
 	eg.Go(func() error {
 		defer close(addFail)
-
-		serr := i.indexStore.AddIndex(ctx, pieceCid, recs)
-		if serr != nil {
-			return xerrors.Errorf("adding index to DB: %w", serr)
-		}
-		return nil
+		return i.indexStore.AddIndex(ctx, pc2, recs)
 	})
 
-	blockMetadata, err := blockReader.SkipNext()
-loop:
-	for err == nil {
-		blocks++
-
-		select {
-		case recs <- indexstore.Record{
-			Cid:    blockMetadata.Cid,
-			Offset: blockMetadata.Offset,
-			Size:   blockMetadata.Size,
-		}:
-		case <-addFail:
-			interrupted = true
-			break loop
-		}
-		blockMetadata, err = blockReader.SkipNext()
+	if task.Mk20 && len(subPieces) > 0 {
+		blocks, interrupted, err = IndexAggregate(reader, task.Size, subPieces, opts, recs, addFail)
+	} else {
+		blocks, interrupted, err = IndexCAR(reader, 4<<20, opts, recs, addFail)
 	}
-	if err != nil && !errors.Is(err, io.EOF) {
-		return false, fmt.Errorf("generating index for piece: %w", err)
+
+	if err != nil {
+		// Indexing itself failed, stop early
+		close(recs) // still safe to close, AddIndex will exit on channel close
+		// wait for AddIndex goroutine to finish cleanly
+		_ = eg.Wait()
+		return false, xerrors.Errorf("indexing failed: %w", err)
 	}
 
 	// Close the channel
@@ -238,10 +252,239 @@ loop:
 		return false, err
 	}
 
-	blocksPerSecond := float64(blocks) / time.Since(start).Seconds()
+	blocksPerSecond := float64(blocks) / time.Since(startTime).Seconds()
 	log.Infow("Piece indexed", "piece_cid", task.PieceCid, "id", task.UUID, "sp_id", task.SpID, "sector", task.Sector, "blocks", blocks, "blocks_per_second", blocksPerSecond)
 
 	return true, nil
+}
+
+// parseDataSegmentIndex is a local more efficient alternative to the method provided by the datasegment library
+func parseDataSegmentIndex(unpaddedReader io.Reader) (datasegment.IndexData, error) {
+	const (
+		unpaddedChunk = 127
+		paddedChunk   = 128
+	)
+
+	// Read all unpadded data (up to 32 MiB Max as per FRC for 64 GiB sector)
+	unpaddedData, err := io.ReadAll(unpaddedReader)
+	if err != nil {
+		return datasegment.IndexData{}, xerrors.Errorf("reading unpadded data: %w", err)
+	}
+
+	// Make sure it's aligned to 127
+	if len(unpaddedData)%unpaddedChunk != 0 {
+		return datasegment.IndexData{}, fmt.Errorf("unpadded data length %d is not a multiple of 127", len(unpaddedData))
+	}
+	numChunks := len(unpaddedData) / unpaddedChunk
+
+	// Prepare padded output buffer
+	paddedData := make([]byte, numChunks*paddedChunk)
+
+	// Parallel pad
+	var wg sync.WaitGroup
+	concurrency := runtime.NumCPU()
+	chunkPerWorker := (numChunks + concurrency - 1) / concurrency
+
+	for w := 0; w < concurrency; w++ {
+		start := w * chunkPerWorker
+		end := (w + 1) * chunkPerWorker
+		if end > numChunks {
+			end = numChunks
+		}
+		wg.Add(1)
+		go func(start, end int) {
+			defer wg.Done()
+			for i := start; i < end; i++ {
+				in := unpaddedData[i*unpaddedChunk : (i+1)*unpaddedChunk]
+				out := paddedData[i*paddedChunk : (i+1)*paddedChunk]
+				fr32.Pad(in, out)
+			}
+		}(start, end)
+	}
+	wg.Wait()
+
+	// Decode entries
+	allEntries := make([]datasegment.SegmentDesc, numChunks*2)
+	for i := 0; i < numChunks; i++ {
+		p := paddedData[i*paddedChunk : (i+1)*paddedChunk]
+
+		if err := allEntries[i*2+0].UnmarshalBinary(p[:datasegment.EntrySize]); err != nil {
+			return datasegment.IndexData{}, xerrors.Errorf("unmarshal entry 1 at chunk %d: %w", i, err)
+		}
+		if err := allEntries[i*2+1].UnmarshalBinary(p[datasegment.EntrySize:]); err != nil {
+			return datasegment.IndexData{}, xerrors.Errorf("unmarshal entry 2 at chunk %d: %w", i, err)
+		}
+	}
+
+	return datasegment.IndexData{Entries: allEntries}, nil
+}
+
+func validateSegments(segments []datasegment.SegmentDesc) []datasegment.SegmentDesc {
+	entryCount := len(segments)
+
+	validCh := make(chan datasegment.SegmentDesc, entryCount)
+	var wg sync.WaitGroup
+
+	workers := runtime.NumCPU()
+	chunkSize := (entryCount + workers - 1) / workers
+
+	for w := 0; w < workers; w++ {
+		start := w * chunkSize
+		end := (w + 1) * chunkSize
+		if end > entryCount {
+			end = entryCount
+		}
+		if start >= end {
+			break
+		}
+
+		wg.Add(1)
+		go func(start, end int) {
+			defer wg.Done()
+			for i := start; i < end; i++ {
+				entry := segments[i]
+				if err := entry.Validate(); err == nil {
+					validCh <- entry
+				}
+				log.Debugw("data segment invalid", "segment", entry)
+			}
+		}(start, end)
+	}
+
+	go func() {
+		wg.Wait()
+		close(validCh)
+	}()
+
+	var validEntries []datasegment.SegmentDesc
+	for entry := range validCh {
+		validEntries = append(validEntries, entry)
+	}
+	sort.Slice(validEntries, func(i, j int) bool {
+		return validEntries[i].Offset < validEntries[j].Offset
+	})
+	return validEntries
+}
+
+func IndexCAR(r io.Reader, buffSize int, opts []carv2.Option, recs chan<- indexstore.Record, addFail <-chan struct{}) (int64, bool, error) {
+	blockReader, err := carv2.NewBlockReader(bufio.NewReaderSize(r, buffSize), opts...)
+	if err != nil {
+		return 0, false, fmt.Errorf("getting block reader over piece: %w", err)
+	}
+
+	var blocks int64
+	var interrupted bool
+
+	for {
+		blockMetadata, err := blockReader.SkipNext()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return blocks, interrupted, fmt.Errorf("generating index for piece: %w", err)
+		}
+
+		blocks++
+
+		select {
+		case recs <- indexstore.Record{
+			Cid:    blockMetadata.Cid,
+			Offset: blockMetadata.Offset,
+			Size:   blockMetadata.Size,
+		}:
+		case <-addFail:
+			interrupted = true
+		}
+
+		if interrupted {
+			break
+		}
+	}
+
+	return blocks, interrupted, nil
+}
+
+type IndexReader interface {
+	io.ReaderAt
+	io.Seeker
+	io.Reader
+}
+
+func IndexAggregate(
+	reader IndexReader,
+	size abi.PaddedPieceSize,
+	subPieces []mk20.PieceDataFormat,
+	opts []carv2.Option,
+	recs chan<- indexstore.Record,
+	addFail <-chan struct{},
+) (int64, bool, error) {
+	dsis := datasegment.DataSegmentIndexStartOffset(size)
+	if _, err := reader.Seek(int64(dsis), io.SeekStart); err != nil {
+		return 0, false, xerrors.Errorf("seeking to data segment index start offset: %w", err)
+	}
+
+	idata, err := parseDataSegmentIndex(reader)
+	if err != nil {
+		return 0, false, xerrors.Errorf("parsing data segment index: %w", err)
+	}
+	if len(idata.Entries) == 0 {
+		return 0, false, xerrors.New("no data segment index entries")
+	}
+
+	valid := validateSegments(idata.Entries)
+	if len(valid) == 0 {
+		return 0, false, xerrors.New("no valid data segment index entries")
+	}
+
+	var haveSubPieces bool
+
+	if len(subPieces) > 0 {
+		if len(valid) != len(subPieces) {
+			return 0, false, xerrors.Errorf("expected %d data segment index entries, got %d", len(subPieces), len(idata.Entries))
+		}
+		haveSubPieces = true
+	}
+
+	var totalBlocks int64
+	for j, entry := range valid {
+		bufferSize := 4 << 20
+		if entry.Size < uint64(bufferSize) {
+			bufferSize = int(entry.Size)
+		}
+		sectionReader := io.NewSectionReader(reader, int64(entry.Offset), int64(entry.Size))
+
+		b, inter, err := IndexCAR(sectionReader, bufferSize, opts, recs, addFail)
+		totalBlocks += b
+
+		if err != nil {
+			if strings.Contains(err.Error(), "invalid car version") {
+				if haveSubPieces {
+					if subPieces[j].Car != nil {
+						return 0, false, xerrors.Errorf("invalid car version for subPiece %d: %w", j, err)
+					}
+					if subPieces[j].Raw != nil {
+						continue
+					}
+					if subPieces[j].Aggregate != nil {
+						b, inter, err = IndexAggregate(sectionReader, abi.PaddedPieceSize(entry.Size), nil, opts, recs, addFail)
+						if err != nil {
+							return totalBlocks, inter, xerrors.Errorf("invalid aggregate for subPiece %d: %w", j, err)
+						}
+						totalBlocks += b
+					}
+				} else {
+					continue
+				}
+			}
+			return totalBlocks, false, xerrors.Errorf("indexing subPiece %d: %w", j, err)
+		}
+
+		if inter {
+			return totalBlocks, true, nil
+		}
+	}
+
+	return totalBlocks, false, nil
 }
 
 // recordCompletion add the piece metadata and piece deal to the DB and

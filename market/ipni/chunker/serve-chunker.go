@@ -21,6 +21,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -49,7 +50,7 @@ type ServeChunker struct {
 
 	entryCache *lru.Cache[cid.Cid, *promise.Promise[result.Result[ipniEntry]]]
 
-	// small cache keeping track of which piece CIDs shouldn't be skipped. Entries expire after NoSkipCacheTTL
+	// small cache keeping track of which piece CIDs (v2) shouldn't be skipped. Entries expire after NoSkipCacheTTL
 	noSkipCache *lru.Cache[cid.Cid, time.Time]
 }
 
@@ -108,7 +109,7 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 		if v.Error == nil {
 			prevChunk = v.Value.Prev
 			return v.Value.Data, nil
-		} else if v.Error == ErrNotFound {
+		} else if errors.Is(v.Error, ErrNotFound) {
 			log.Errorw("Cached promise skip", "block", block, "prev", prevChunk, "err", err)
 			return v.Value.Data, v.Error
 		}
@@ -129,8 +130,8 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 	ctx := context.Background()
 
 	type ipniChunk struct {
-		PieceCID string `db:"piece_cid"`
-		FromCar  bool   `db:"from_car"`
+		PieceCIDv2 string `db:"piece_cid"`
+		FromCar    bool   `db:"from_car"`
 
 		FirstCID    *string `db:"first_cid"`
 		StartOffset *int64  `db:"start_offset"`
@@ -168,12 +169,12 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 	}
 
 	chunk := ipniChunks[0]
-	pieceCid, err := cid.Parse(chunk.PieceCID)
+	pieceCidv2, err := cid.Parse(chunk.PieceCIDv2)
 	if err != nil {
 		return nil, xerrors.Errorf("parsing piece CID: %w", err)
 	}
 
-	if leave, ok := p.noSkipCache.Get(pieceCid); !ok || time.Now().After(leave) {
+	if leave, ok := p.noSkipCache.Get(pieceCidv2); !ok || time.Now().After(leave) {
 		skip, err := p.checkIsEntrySkip(ctx, block)
 		if err != nil {
 			return nil, xerrors.Errorf("checking entry skipped for block %s: %w", block, err)
@@ -184,7 +185,7 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 		}
 	}
 
-	p.noSkipCache.Add(pieceCid, time.Now().Add(NoSkipCacheTTL))
+	p.noSkipCache.Add(pieceCidv2, time.Now().Add(NoSkipCacheTTL))
 
 	var next ipld.Link
 	if chunk.PrevCID != nil {
@@ -208,23 +209,30 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 
 		firstHash := multihash.Multihash(cb)
 
-		return p.reconstructChunkFromDB(ctx, block, pieceCid, firstHash, next, chunk.NumBlocks, speculated)
+		return p.reconstructChunkFromDB(ctx, block, pieceCidv2, firstHash, next, chunk.NumBlocks, speculated)
 	}
 
-	return p.reconstructChunkFromCar(ctx, block, pieceCid, *chunk.StartOffset, next, chunk.NumBlocks, speculated)
+	return p.reconstructChunkFromCar(ctx, block, pieceCidv2, *chunk.StartOffset, next, chunk.NumBlocks, speculated)
 }
 
 // reconstructChunkFromCar reconstructs a chunk from a car file.
-func (p *ServeChunker) reconstructChunkFromCar(ctx context.Context, chunk, piece cid.Cid, startOff int64, next ipld.Link, numBlocks int64, speculate bool) ([]byte, error) {
+func (p *ServeChunker) reconstructChunkFromCar(ctx context.Context, chunk, piecev2 cid.Cid, startOff int64, next ipld.Link, numBlocks int64, speculate bool) ([]byte, error) {
 	start := time.Now()
 
-	reader, _, err := p.cpr.GetSharedPieceReader(ctx, piece)
+	commp, err := commcidv2.CommPFromPCidV2(piecev2)
+	if err != nil {
+		return nil, xerrors.Errorf("getting piece commitment from piece CID v2: %w", err)
+	}
+
+	pi := commp.PieceInfo()
+
+	reader, _, err := p.cpr.GetSharedPieceReader(ctx, pi.PieceCID, pi.Size)
 	defer func(reader storiface.Reader) {
 		_ = reader.Close()
 	}(reader)
 
 	if err != nil {
-		return nil, xerrors.Errorf("failed to read piece %s for ipni chunk %s reconstruction: %w", piece, chunk, err)
+		return nil, xerrors.Errorf("failed to read piece %s of size %d for ipni chunk %s reconstruction: %w", pi.PieceCID, pi.Size, chunk, err)
 	}
 
 	_, err = reader.Seek(startOff, io.SeekStart)
@@ -274,16 +282,23 @@ func (p *ServeChunker) reconstructChunkFromCar(ctx context.Context, chunk, piece
 		return nil, xerrors.Errorf("encoding chunk node: %w", err)
 	}
 
-	log.Infow("Reconstructing chunk from car", "chunk", chunk, "piece", piece, "startOffset", startOff, "numBlocks", numBlocks, "speculated", speculate, "readMiB", float64(curOff-startOff)/1024/1024, "recomputeTime", time.Since(read), "totalTime", time.Since(start), "ents/s", float64(numBlocks)/time.Since(start).Seconds(), "MiB/s", float64(curOff-startOff)/1024/1024/time.Since(start).Seconds())
+	log.Infow("Reconstructing chunk from car", "chunk", chunk, "piece", pi.PieceCID, "size", pi.Size, "startOffset", startOff, "numBlocks", numBlocks, "speculated", speculate, "readMiB", float64(curOff-startOff)/1024/1024, "recomputeTime", time.Since(read), "totalTime", time.Since(start), "ents/s", float64(numBlocks)/time.Since(start).Seconds(), "MiB/s", float64(curOff-startOff)/1024/1024/time.Since(start).Seconds())
 
 	return b.Bytes(), nil
 }
 
 // ReconstructChunkFromDB reconstructs a chunk from the database.
-func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piece cid.Cid, firstHash multihash.Multihash, next ipld.Link, numBlocks int64, speculate bool) ([]byte, error) {
+func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piecev2 cid.Cid, firstHash multihash.Multihash, next ipld.Link, numBlocks int64, speculate bool) ([]byte, error) {
 	start := time.Now()
 
-	mhs, err := p.indexStore.GetPieceHashRange(ctx, piece, firstHash, numBlocks)
+	commp, err := commcidv2.CommPFromPCidV2(piecev2)
+	if err != nil {
+		return nil, xerrors.Errorf("getting piece commitment from piece CID v2: %w", err)
+	}
+
+	pi := commp.PieceInfo()
+
+	mhs, err := p.indexStore.GetPieceHashRange(ctx, piecev2, firstHash, numBlocks)
 	if err != nil {
 		return nil, xerrors.Errorf("getting piece hash range: %w", err)
 	}
@@ -315,7 +330,7 @@ func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piece 
 		return nil, err
 	}
 
-	log.Infow("Reconstructing chunk from DB", "chunk", chunk, "piece", piece, "firstHash", firstHash, "numBlocks", numBlocks, "speculated", speculate, "totalTime", time.Since(start), "ents/s", float64(numBlocks)/time.Since(start).Seconds())
+	log.Infow("Reconstructing chunk from DB", "chunk", chunk, "piece", pi.PieceCID, "size", pi.Size, "firstHash", firstHash, "numBlocks", numBlocks, "speculated", speculate, "totalTime", time.Since(start), "ents/s", float64(numBlocks)/time.Since(start).Seconds())
 
 	return b.Bytes(), nil
 }

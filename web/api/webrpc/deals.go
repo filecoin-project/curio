@@ -4,8 +4,11 @@ import (
 	"context"
 	"time"
 
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/ipfs/go-cid"
+	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/market/storageingest"
 
@@ -22,6 +25,7 @@ type OpenDealInfo struct {
 
 	PieceSizeStr string `db:"-"`
 	CreatedAtStr string `db:"-"`
+	PieceCidV2   string `db:"-"`
 
 	Miner string
 }
@@ -41,6 +45,15 @@ func (a *WebRPC) DealsPending(ctx context.Context) ([]OpenDealInfo, error) {
 			return nil, err
 		}
 		deals[i].Miner = maddr.String()
+		pcid, err := cid.Parse(deals[i].PieceCID)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to parse piece cid: %w", err)
+		}
+		commp, err := commcidv2.CommPFromPieceInfo(abi.PieceInfo{PieceCID: pcid, Size: abi.PaddedPieceSize(deals[i].PieceSize)})
+		if err != nil {
+			return nil, xerrors.Errorf("failed to get commp: %w", err)
+		}
+		deals[i].PieceCidV2 = commp.PCidV2().String()
 	}
 
 	return deals, nil

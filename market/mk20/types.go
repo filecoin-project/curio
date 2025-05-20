@@ -3,11 +3,9 @@ package mk20
 import (
 	"net/http"
 
+	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
-	"golang.org/x/xerrors"
-
-	"github.com/filecoin-project/go-state-types/abi"
 )
 
 // Deal represents a structure defining the details and components of a specific deal in the system.
@@ -25,14 +23,14 @@ type Deal struct {
 
 type Products struct {
 	// DDOV1 represents a product v1 configuration for Direct Data Onboarding (DDO)
-	DDOV1 *DDOV1 `json:"ddov1"`
+	DDOV1 *DDOV1 `json:"ddo_v1"`
 }
 
 // DataSource represents the source of piece data, including metadata and optional methods to fetch or describe the data origin.
 type DataSource struct {
 
 	// PieceCID represents the unique identifier for a piece of data, stored as a CID object.
-	PieceCID cid.Cid `json:"piececid"`
+	PieceCID cid.Cid `json:"piece_cid"`
 
 	// Size represents the size of the padded piece in the data source.
 	Size abi.PaddedPieceSize `json:"size"`
@@ -41,16 +39,16 @@ type DataSource struct {
 	Format PieceDataFormat `json:"format"`
 
 	// SourceHTTP represents the HTTP-based source of piece data within a deal, including raw size and URLs for retrieval.
-	SourceHTTP *DataSourceHTTP `json:"sourcehttp"`
+	SourceHTTP *DataSourceHTTP `json:"source_http"`
 
 	// SourceAggregate represents an aggregated source, comprising multiple data sources as pieces.
-	SourceAggregate *DataSourceAggregate `json:"sourceaggregate"`
+	SourceAggregate *DataSourceAggregate `json:"source_aggregate"`
 
 	// SourceOffline defines the data source for offline pieces, including raw size information.
-	SourceOffline *DataSourceOffline `json:"sourceoffline"`
+	SourceOffline *DataSourceOffline `json:"source_offline"`
 
 	// SourceHTTPPut // allow clients to push piece data after deal accepted, sort of like offline import
-	SourceHttpPut *DataSourceHttpPut `json:"sourcehttpput"`
+	SourceHttpPut *DataSourceHttpPut `json:"source_httpput"`
 
 	// SourceStorageProvider -> sp IDs/ipni, pieceCids
 }
@@ -68,11 +66,8 @@ type PieceDataFormat struct {
 	Raw *FormatBytes `json:"raw"`
 }
 
-// FormatCar represents the CAR (Content Addressable aRchive) format with version metadata for piece data serialization.
-type FormatCar struct {
-	// Version specifies the version of the CAR format used for piece data serialization.
-	Version uint64 `json:"version"`
-}
+// FormatCar represents the CAR (Content Addressable archive) format for piece data serialization.
+type FormatCar struct{}
 
 // FormatAggregate represents the aggregated format for piece data, identified by its type.
 type FormatAggregate struct {
@@ -91,44 +86,12 @@ type FormatBytes struct{}
 // DataSourceOffline represents the data source for offline pieces, including metadata such as the raw size of the piece.
 type DataSourceOffline struct {
 	// RawSize specifies the raw size of the data in bytes.
-	RawSize uint64 `json:"rawsize"`
-}
-
-func (dso *DataSourceOffline) Name() DataSourceName {
-	return DataSourceNameOffline
-}
-
-func (dso *DataSourceOffline) IsEnabled(dbDataSources []dbDataSource) (ErrorCode, error) {
-	name := string(dso.Name())
-	for _, p := range dbDataSources {
-		if p.Name == name {
-			if p.Enabled {
-				return Ok, nil
-			}
-		}
-	}
-	return ErrUnsupportedDataSource, xerrors.Errorf("data source %s is not enabled", name)
+	RawSize uint64 `json:"raw_size"`
 }
 
 // DataSourceAggregate represents an aggregated data source containing multiple individual DataSource pieces.
 type DataSourceAggregate struct {
 	Pieces []DataSource `json:"pieces"`
-}
-
-func (dsa *DataSourceAggregate) Name() DataSourceName {
-	return DataSourceNameAggregate
-}
-
-func (dsa *DataSourceAggregate) IsEnabled(dbDataSources []dbDataSource) (ErrorCode, error) {
-	name := string(dsa.Name())
-	for _, p := range dbDataSources {
-		if p.Name == name {
-			if p.Enabled {
-				return Ok, nil
-			}
-		}
-	}
-	return ErrUnsupportedDataSource, xerrors.Errorf("data source %s is not enabled", name)
 }
 
 // DataSourceHTTP represents an HTTP-based data source for retrieving piece data, including its raw size and associated URLs.
@@ -141,22 +104,6 @@ type DataSourceHTTP struct {
 	URLs []HttpUrl `json:"urls"`
 }
 
-func (dsh *DataSourceHTTP) Name() DataSourceName {
-	return DataSourceNameHTTP
-}
-
-func (dsh *DataSourceHTTP) IsEnabled(dbDataSources []dbDataSource) (ErrorCode, error) {
-	name := string(dsh.Name())
-	for _, p := range dbDataSources {
-		if p.Name == name {
-			if p.Enabled {
-				return Ok, nil
-			}
-		}
-	}
-	return ErrUnsupportedDataSource, xerrors.Errorf("data source %s is not enabled", name)
-}
-
 // HttpUrl represents an HTTP endpoint configuration for fetching piece data.
 type HttpUrl struct {
 
@@ -164,7 +111,7 @@ type HttpUrl struct {
 	URL string `json:"url"`
 
 	// HTTPHeaders represents the HTTP headers associated with the URL.
-	HTTPHeaders http.Header `json:"httpheaders"`
+	Headers http.Header `json:"headers"`
 
 	// Priority indicates the order preference for using the URL in requests, with lower values having higher priority.
 	Priority uint64 `json:"priority"`
@@ -176,23 +123,7 @@ type HttpUrl struct {
 // DataSourceHttpPut represents a data source allowing clients to push piece data after a deal is accepted.
 type DataSourceHttpPut struct {
 	// RawSize specifies the raw size of the data in bytes.
-	RawSize uint64 `json:"rawsize"`
-}
-
-func (dsh *DataSourceHttpPut) Name() DataSourceName {
-	return DataSourceNamePut
-}
-
-func (dsh *DataSourceHttpPut) IsEnabled(dbDataSources []dbDataSource) (ErrorCode, error) {
-	name := string(dsh.Name())
-	for _, p := range dbDataSources {
-		if p.Name == name {
-			if p.Enabled {
-				return Ok, nil
-			}
-		}
-	}
-	return ErrUnsupportedDataSource, xerrors.Errorf("data source %s is not enabled", name)
+	RawSize uint64 `json:"raw_size"`
 }
 
 // AggregateType represents an unsigned integer used to define the type of aggregation for data pieces in the system.
@@ -253,8 +184,8 @@ const (
 type ProductName string
 
 const (
-	// ProductNameDDOV1 represents the identifier for the "ddov1" product used in contract operations and validations.
-	ProductNameDDOV1 ProductName = "ddov1"
+	// ProductNameDDOV1 represents the identifier for the "ddo_v1" product used in contract operations and validations.
+	ProductNameDDOV1 ProductName = "ddo_v1"
 )
 
 type DataSourceName string
@@ -263,7 +194,7 @@ const (
 	DataSourceNameHTTP            DataSourceName = "http"
 	DataSourceNameAggregate       DataSourceName = "aggregate"
 	DataSourceNameOffline         DataSourceName = "offline"
-	DataSourceNameStorageProvider DataSourceName = "storageprovider"
+	DataSourceNameStorageProvider DataSourceName = "storage_provider"
 	DataSourceNamePDP             DataSourceName = "pdp"
 	DataSourceNamePut             DataSourceName = "put"
 )

@@ -3,14 +3,19 @@ package mk20
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/bits"
+	"net/http"
 	"net/url"
 	"time"
 
+	"github.com/filecoin-project/go-address"
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-data-segment/datasegment"
@@ -20,29 +25,16 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
-type dbDataSource struct {
-	Name    string `db:"name"`
-	Enabled bool   `db:"enabled"`
-}
-
-type productAndDataSource struct {
-	Products []dbProduct
-	Data     []dbDataSource
-}
-
-func (d *Deal) Validate(pad *productAndDataSource) (ErrorCode, error) {
-	code, err := d.Products.Validate(pad.Products)
+func (d *Deal) Validate(db *harmonydb.DB) (ErrorCode, error) {
+	code, err := d.Products.Validate(db)
 	if err != nil {
 		return code, xerrors.Errorf("products validation failed: %w", err)
 	}
 
-	return d.Data.Validate(pad.Data)
+	return d.Data.Validate(db)
 }
 
-func (d DataSource) Validate(dbDataSources []dbDataSource) (ErrorCode, error) {
-	if len(dbDataSources) == 0 {
-		return ErrUnsupportedDataSource, xerrors.Errorf("no data sources enabled on the provider")
-	}
+func (d DataSource) Validate(db *harmonydb.DB) (ErrorCode, error) {
 
 	if !d.PieceCID.Defined() {
 		return ErrBadProposal, xerrors.Errorf("piece cid is not defined")
@@ -64,9 +56,6 @@ func (d DataSource) Validate(dbDataSources []dbDataSource) (ErrorCode, error) {
 
 	if d.Format.Car != nil {
 		fcar = true
-		if d.Format.Car.Version != 1 && d.Format.Car.Version != 2 {
-			return ErrMalformedDataSource, xerrors.Errorf("car version not supported")
-		}
 	}
 
 	if d.Format.Aggregate != nil {
@@ -77,7 +66,7 @@ func (d DataSource) Validate(dbDataSources []dbDataSource) (ErrorCode, error) {
 		}
 
 		if d.SourceAggregate != nil {
-			code, err := d.SourceAggregate.IsEnabled(dbDataSources)
+			code, err := IsDataSourceEnabled(db, d.SourceAggregate.Name())
 			if err != nil {
 				return code, err
 			}
@@ -99,9 +88,6 @@ func (d DataSource) Validate(dbDataSources []dbDataSource) (ErrorCode, error) {
 
 				if p.Format.Car != nil {
 					ifcar = true
-					if p.Format.Car.Version != 1 && p.Format.Car.Version != 2 {
-						return ErrMalformedDataSource, xerrors.Errorf("car version not supported")
-					}
 				}
 
 				if p.Format.Aggregate != nil {
@@ -156,6 +142,10 @@ func (d DataSource) Validate(dbDataSources []dbDataSource) (ErrorCode, error) {
 				}
 
 			}
+		} else {
+			if len(d.Format.Aggregate.Sub) == 0 {
+				return ErrMalformedDataSource, xerrors.Errorf("no sub pieces defined under aggregate")
+			}
 		}
 	}
 
@@ -172,7 +162,7 @@ func (d DataSource) Validate(dbDataSources []dbDataSource) (ErrorCode, error) {
 	}
 
 	if d.SourceHTTP != nil {
-		code, err := d.SourceHTTP.IsEnabled(dbDataSources)
+		code, err := IsDataSourceEnabled(db, d.SourceHTTP.Name())
 		if err != nil {
 			return code, err
 		}
@@ -194,7 +184,7 @@ func (d DataSource) Validate(dbDataSources []dbDataSource) (ErrorCode, error) {
 	}
 
 	if d.SourceOffline != nil {
-		code, err := d.SourceOffline.IsEnabled(dbDataSources)
+		code, err := IsDataSourceEnabled(db, d.SourceOffline.Name())
 		if err != nil {
 			return code, err
 		}
@@ -205,7 +195,7 @@ func (d DataSource) Validate(dbDataSources []dbDataSource) (ErrorCode, error) {
 	}
 
 	if d.SourceHttpPut != nil {
-		code, err := d.SourceHttpPut.IsEnabled(dbDataSources)
+		code, err := IsDataSourceEnabled(db, d.SourceHttpPut.Name())
 		if err != nil {
 			return code, err
 		}
@@ -271,42 +261,30 @@ func (d DataSource) RawSize() (uint64, error) {
 	return 0, xerrors.Errorf("no source defined")
 }
 
-type dbProduct struct {
-	Name    string `db:"name"`
-	Enabled bool   `db:"enabled"`
-}
-
-func (d Products) Validate(dbProducts []dbProduct) (ErrorCode, error) {
-	if len(dbProducts) == 0 {
-		return ErrProductNotEnabled, xerrors.Errorf("no products enabled on the provider")
-	}
-
+func (d Products) Validate(db *harmonydb.DB) (ErrorCode, error) {
 	if d.DDOV1 == nil {
 		return ErrBadProposal, xerrors.Errorf("no products")
 	}
 
-	return d.DDOV1.Validate(dbProducts)
+	return d.DDOV1.Validate(db)
 }
 
 type DBDeal struct {
 	Identifier      string          `db:"id"`
+	SpID            int64           `db:"sp_id"`
 	PieceCID        string          `db:"piece_cid"`
 	Size            int64           `db:"size"`
 	Format          json.RawMessage `db:"format"`
 	SourceHTTP      json.RawMessage `db:"source_http"`
 	SourceAggregate json.RawMessage `db:"source_aggregate"`
 	SourceOffline   json.RawMessage `db:"source_offline"`
-	DDOv1           json.RawMessage `db:"ddov1"`
+	SourceHttpPut   json.RawMessage `db:"source_http_put"`
+	DDOv1           json.RawMessage `db:"ddo_v1"`
+	Error           sql.NullString  `db:"error"`
 }
 
 func (d *Deal) ToDBDeal() (*DBDeal, error) {
-
-	// Marshal Format (always present)
-	formatBytes, err := json.Marshal(d.Data.Format)
-	if err != nil {
-		return nil, fmt.Errorf("marshal format: %w", err)
-	}
-
+	var err error
 	// Marshal SourceHTTP (optional)
 	var sourceHTTPBytes []byte
 	if d.Data.SourceHTTP != nil {
@@ -325,6 +303,17 @@ func (d *Deal) ToDBDeal() (*DBDeal, error) {
 		if err != nil {
 			return nil, fmt.Errorf("marshal source_aggregate: %w", err)
 		}
+		if len(d.Data.SourceAggregate.Pieces) > 0 && len(d.Data.SourceAggregate.Pieces) != len(d.Data.Format.Aggregate.Sub) {
+			var subPieces []PieceDataFormat
+			for _, p := range d.Data.SourceAggregate.Pieces {
+				subPieces = append(subPieces, PieceDataFormat{
+					Car:       p.Format.Car,
+					Raw:       p.Format.Raw,
+					Aggregate: p.Format.Aggregate,
+				})
+			}
+			d.Data.Format.Aggregate.Sub = subPieces
+		}
 	} else {
 		sourceAggregateBytes = []byte("null")
 	}
@@ -340,24 +329,49 @@ func (d *Deal) ToDBDeal() (*DBDeal, error) {
 		sourceOfflineBytes = []byte("null")
 	}
 
+	var sourceHttpPutBytes []byte
+	if d.Data.SourceHttpPut != nil {
+		sourceHttpPutBytes, err = json.Marshal(d.Data.SourceHttpPut)
+		if err != nil {
+			return nil, fmt.Errorf("marshal source_http_put: %w", err)
+		}
+	} else {
+		sourceHttpPutBytes = []byte("null")
+	}
+
+	// Marshal Format (always present)
+	formatBytes, err := json.Marshal(d.Data.Format)
+	if err != nil {
+		return nil, fmt.Errorf("marshal format: %w", err)
+	}
+
+	var spid abi.ActorID
+
 	var ddov1 []byte
 	if d.Products.DDOV1 != nil {
 		ddov1, err = json.Marshal(d.Products.DDOV1)
 		if err != nil {
 			return nil, fmt.Errorf("marshal ddov1: %w", err)
 		}
+		spidInt, err := address.IDFromAddress(d.Products.DDOV1.Provider)
+		if err != nil {
+			return nil, fmt.Errorf("parse provider address: %w", err)
+		}
+		spid = abi.ActorID(spidInt)
 	} else {
 		ddov1 = []byte("null")
 	}
 
 	return &DBDeal{
 		Identifier:      d.Identifier.String(),
+		SpID:            int64(spid),
 		PieceCID:        d.Data.PieceCID.String(),
 		Size:            int64(d.Data.Size),
 		Format:          formatBytes,
 		SourceHTTP:      sourceHTTPBytes,
 		SourceAggregate: sourceAggregateBytes,
 		SourceOffline:   sourceOfflineBytes,
+		SourceHttpPut:   sourceHttpPutBytes,
 		DDOv1:           ddov1,
 	}, nil
 }
@@ -368,15 +382,17 @@ func (d *Deal) SaveToDB(tx *harmonydb.Tx) error {
 		return xerrors.Errorf("to db deal: %w", err)
 	}
 
-	n, err := tx.Exec(`INSERT INTO deals (id, piece_cid, size, format, source_http, source_aggregate, source_offline, ddov1) 
-                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+	n, err := tx.Exec(`INSERT INTO deals (id, sp_id, piece_cid, size, format, source_http, source_aggregate, source_offline, source_http_put, ddo_v1) 
+                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		dbDeal.Identifier,
+		dbDeal.SpID,
 		dbDeal.PieceCID,
 		dbDeal.Size,
 		dbDeal.Format,
 		dbDeal.SourceHTTP,
 		dbDeal.SourceAggregate,
 		dbDeal.SourceOffline,
+		dbDeal.SourceHttpPut,
 		dbDeal.DDOv1)
 	if err != nil {
 		return xerrors.Errorf("insert deal: %w", err)
@@ -389,7 +405,7 @@ func (d *Deal) SaveToDB(tx *harmonydb.Tx) error {
 
 func DealFromTX(tx *harmonydb.Tx, id ulid.ULID) (*Deal, error) {
 	var dbDeal []DBDeal
-	err := tx.Select(&dbDeal, `SELECT * FROM deals WHERE id = $1`, id.String())
+	err := tx.Select(&dbDeal, `SELECT * FROM market_mk20_deal WHERE id = $1`, id.String())
 	if err != nil {
 		return nil, xerrors.Errorf("getting deal from DB: %w", err)
 	}
@@ -401,7 +417,7 @@ func DealFromTX(tx *harmonydb.Tx, id ulid.ULID) (*Deal, error) {
 
 func DealFromDB(ctx context.Context, db *harmonydb.DB, id ulid.ULID) (*Deal, error) {
 	var dbDeal []DBDeal
-	err := db.Select(ctx, &dbDeal, `SELECT * FROM deals WHERE id = $1`, id.String())
+	err := db.Select(ctx, &dbDeal, `SELECT * FROM market_mk20_deal WHERE id = $1`, id.String())
 	if err != nil {
 		return nil, xerrors.Errorf("getting deal from DB: %w", err)
 	}
@@ -497,7 +513,7 @@ type DealStatusResponse struct {
 	State DealState `json:"status"`
 
 	// ErrorMsg is an optional field containing error details associated with the deal's current state if an error occurred.
-	ErrorMsg string `json:"errormsg"`
+	ErrorMsg string `json:"error_msg"`
 }
 
 // DealStatus represents the status of a deal, including the HTTP code and an optional response detailing the deal's state and error message.
@@ -542,4 +558,51 @@ type SupportedContracts struct {
 
 func NewULID() (ulid.ULID, error) {
 	return ulid.New(ulid.Timestamp(time.Now()), rand.Reader)
+}
+
+func (dsh *DataSourceHTTP) Name() DataSourceName {
+	return DataSourceNameHTTP
+}
+
+func (dso *DataSourceOffline) Name() DataSourceName {
+	return DataSourceNameOffline
+}
+
+func (dsa *DataSourceAggregate) Name() DataSourceName {
+	return DataSourceNameAggregate
+}
+
+func (dsh *DataSourceHttpPut) Name() DataSourceName {
+	return DataSourceNamePut
+}
+
+func IsDataSourceEnabled(db *harmonydb.DB, name DataSourceName) (ErrorCode, error) {
+	var enabled bool
+
+	err := db.QueryRow(context.Background(), `SELECT enabled FROM market_mk20_data_source WHERE name = $1`, name).Scan(&enabled)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return http.StatusInternalServerError, xerrors.Errorf("data source %s is not enabled", name)
+		}
+	}
+	if !enabled {
+		return ErrUnsupportedDataSource, xerrors.Errorf("data source %s is not enabled", name)
+	}
+	return Ok, nil
+}
+
+func IsProductEnabled(db *harmonydb.DB, name ProductName) (ErrorCode, error) {
+	var enabled bool
+
+	err := db.QueryRow(context.Background(), `SELECT enabled FROM market_mk20_products WHERE name = $1`, name).Scan(&enabled)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return http.StatusInternalServerError, xerrors.Errorf("data source %s is not enabled", name)
+		}
+		return ErrUnsupportedProduct, xerrors.Errorf("product %s is not supported by the provider", name)
+	}
+	if !enabled {
+		return ErrProductNotEnabled, xerrors.Errorf("product %s is not enabled", name)
+	}
+	return Ok, nil
 }

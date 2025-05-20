@@ -130,7 +130,7 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                     ${(this.data.Pieces||[]).map(piece => html`
                         <tr>
                             <td>${piece.PieceIndex}</td>
-                            <td><a href="/pages/piece/?id=${piece.PieceCid}">${piece.PieceCid}</a></td>
+                            <td><a href="/pages/piece/?id=${piece.PieceCidV2}">${piece.PieceCid}</a></td>
                             <td>${piece.PieceSize}</td>
                             <td><a href="/pages/mk12-deal/?id=${piece.DealID}">${piece.DealID}</a></td>
                             <td>${piece.DataUrl}</td>

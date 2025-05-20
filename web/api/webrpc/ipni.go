@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
@@ -36,7 +37,8 @@ type IpniAd struct {
 	EntryCount int64 `json:"entry_count"`
 	CIDCount   int64 `json:"cid_count"`
 
-	AdCids []string `db:"-" json:"ad_cids"`
+	AdCids     []string `db:"-" json:"ad_cids"`
+	PieceCidV2 string   `db:"-" json:"piece_cid_v2"`
 }
 
 func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
@@ -96,9 +98,15 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 		return nil, xerrors.Errorf("failed to unmarshal piece info: %w", err)
 	}
 
+	commp, err := commcidv2.CommPFromPieceInfo(pi)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get commp: %w", err)
+	}
+
 	details.PieceCid = pi.PieceCID.String()
 	size := int64(pi.Size)
 	details.PieceSize = size
+	details.PieceCidV2 = commp.PCidV2().String()
 
 	maddr, err := address.NewIDAddress(uint64(details.SpID))
 	if err != nil {

@@ -3,7 +3,7 @@ import RPCCall from '/lib/jsonrpc.mjs';
 import { formatDate } from '/lib/dateutil.mjs';
 import '/ux/yesno.mjs';
 
-class MK12DDODealList extends LitElement {
+class MK20DDODealList extends LitElement {
     static properties = {
         deals: { type: Array },
         limit: { type: Number },
@@ -23,7 +23,7 @@ class MK12DDODealList extends LitElement {
     async loadData() {
         try {
             const params = [this.limit, this.offset];
-            this.deals = await RPCCall('MK12DDOStorageDealList', params);
+            this.deals = await RPCCall('MK20DDOStorageDeals', params);
             this.requestUpdate();
         } catch (error) {
             console.error('Failed to load ddo deals:', error);
@@ -89,7 +89,7 @@ class MK12DDODealList extends LitElement {
             (deal) => html`
                 <tr>
                   <td>${formatDate(deal.created_at)}</td>
-                  <td><a href="/pages/mk12-deal/?id=${deal.id}">${deal.id}</a></td>
+                  <td><a href="/pages/mk20-deal/?id=${deal.id}">${deal.id}</a></td>
                   <td>${deal.miner}</td>
                   <td><a href="/pages/piece/?id=${deal.piece_cid_v2}">${deal.piece_cid}</a></td>
                   <td>${this.formatBytes(deal.piece_size)}</td>
@@ -174,4 +174,4 @@ class MK12DDODealList extends LitElement {
   `;
 }
 
-customElements.define('mk12ddo-deal-list', MK12DDODealList);
+customElements.define('mk20-ddo-deal-list', MK20DDODealList);
