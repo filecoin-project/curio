@@ -503,6 +503,7 @@ USAGE:
 COMMANDS:
    spark        Manage Smart Contract PeerID used by Spark
    mk12-client  mk12 client for Curio
+   mk20-client  mk20 client for Curio
    help, h      Shows a list of commands or help for one command
 
 OPTIONS:
@@ -887,4 +888,57 @@ USAGE:
 
 OPTIONS:
    --help, -h  show help
+```
+
+### sptool toolbox mk20-client
+```
+NAME:
+   sptool toolbox mk20-client - mk20 client for Curio
+
+USAGE:
+   sptool toolbox mk20-client command [command options]
+
+COMMANDS:
+   init     Initialise curio mk12 client repo
+   deal     Make a mk20 deal with Curio
+   help, h  Shows a list of commands or help for one command
+
+OPTIONS:
+   --mk12-client-repo value  repo directory for mk12 client (default: "~/.curio-client") [$CURIO_MK12_CLIENT_REPO]
+   --help, -h                show help
+```
+
+#### sptool toolbox mk20-client init
+```
+NAME:
+   sptool toolbox mk20-client init - Initialise curio mk12 client repo
+
+USAGE:
+   sptool toolbox mk20-client init [command options]
+
+OPTIONS:
+   --help, -h  show help
+```
+
+#### sptool toolbox mk20-client deal
+```
+NAME:
+   sptool toolbox mk20-client deal - Make a mk20 deal with Curio
+
+USAGE:
+   sptool toolbox mk20-client deal [command options]
+
+OPTIONS:
+   --http-url value                               http url to CAR file
+   --http-headers value [ --http-headers value ]  http headers to be passed with the request (e.g key=value)
+   --car-size value                               size of the CAR file: required for online deals (default: 0)
+   --provider value                               storage provider on-chain address
+   --commp value                                  commp of the CAR file
+   --piece-size value                             size of the CAR file as a padded piece (default: 0)
+   --duration value                               duration of the deal in epochs (default: 518400)
+   --verified                                     whether the deal funds should come from verified client data-cap (default: false)
+   --indexing                                     indicates that an deal should be indexed (default: true)
+   --wallet value                                 wallet address to be used to initiate the deal
+   --announce                                     indicates that deal should be announced to the IPNI(Network Indexer) (default: true)
+   --help, -h                                     show help
 ```

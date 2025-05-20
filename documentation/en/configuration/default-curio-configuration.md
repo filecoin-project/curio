@@ -509,7 +509,7 @@ description: The default curio configuration
   # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")
   #
   # type: time.Duration
-  #IdleTimeout = "2m0s"
+  #IdleTimeout = "1h0m0s"
 
   # ReadHeaderTimeout is amount of time allowed to read request headers
   # Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")

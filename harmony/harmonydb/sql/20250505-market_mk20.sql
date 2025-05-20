@@ -154,10 +154,7 @@ CREATE TABLE market_mk20_offline_urls (
     url TEXT NOT NULL,
     headers jsonb NOT NULL DEFAULT '{}',
     raw_size BIGINT NOT NULL,
-    PRIMARY KEY (id, piece_cid, piece_size),
-    CONSTRAINT market_mk20_offline_urls_id_fk FOREIGN KEY (id)
-      REFERENCES market_mk20_pipeline (id)
-      ON DELETE CASCADE
+    PRIMARY KEY (id, piece_cid, piece_size)
 );
 
 CREATE TABLE market_mk20_products (

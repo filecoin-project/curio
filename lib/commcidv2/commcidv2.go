@@ -3,12 +3,13 @@ package commcidv2
 import (
 	"math/bits"
 
-	filabi "github.com/filecoin-project/go-state-types/abi"
 	"github.com/ipfs/go-cid"
 	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/multiformats/go-multihash"
 	"github.com/multiformats/go-varint"
 	"golang.org/x/xerrors"
+
+	filabi "github.com/filecoin-project/go-state-types/abi"
 )
 
 type CommP struct {

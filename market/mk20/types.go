@@ -3,9 +3,10 @@ package mk20
 import (
 	"net/http"
 
-	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
+
+	"github.com/filecoin-project/go-state-types/abi"
 )
 
 // Deal represents a structure defining the details and components of a specific deal in the system.

@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/filecoin-project/curio/lib/commcidv2"
-	"github.com/filecoin-project/curio/market/mk20"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	"github.com/samber/lo"
@@ -25,6 +23,8 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/commcidv2"
+	"github.com/filecoin-project/curio/market/mk20"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors"

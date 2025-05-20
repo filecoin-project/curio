@@ -4,12 +4,13 @@ import (
 	"context"
 	"time"
 
-	"github.com/filecoin-project/curio/lib/commcidv2"
-	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/market/storageingest"
 
 	"github.com/filecoin-project/lotus/chain/types"

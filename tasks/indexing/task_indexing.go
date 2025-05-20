@@ -12,9 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/filecoin-project/curio/market/mk20"
-	"github.com/filecoin-project/go-data-segment/datasegment"
-	"github.com/filecoin-project/go-data-segment/fr32"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	carv2 "github.com/ipld/go-car/v2"
@@ -23,6 +20,8 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-data-segment/datasegment"
+	"github.com/filecoin-project/go-data-segment/fr32"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/deps/config"
@@ -36,6 +35,7 @@ import (
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
+	"github.com/filecoin-project/curio/market/mk20"
 )
 
 var log = logging.Logger("indexing")

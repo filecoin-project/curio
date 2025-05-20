@@ -5,13 +5,15 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/filecoin-project/curio/lib/commcidv2"
-	"github.com/filecoin-project/curio/market/mk20"
-	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/commcidv2"
+	"github.com/filecoin-project/curio/market/mk20"
 )
 
 type MK20StorageDeal struct {
