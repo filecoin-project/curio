@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
-	"github.com/filecoin-project/curio/market/mk20"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	"github.com/ipni/go-libipni/maurl"
@@ -43,6 +42,8 @@ import (
 	"github.com/filecoin-project/curio/lib/keystore"
 	mk12_libp2p "github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/market/mk12"
+	"github.com/filecoin-project/curio/market/mk20"
+
 	"github.com/filecoin-project/lotus/api"
 	chain_types "github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chain/wallet"
