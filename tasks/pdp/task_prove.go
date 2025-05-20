@@ -392,7 +392,7 @@ func (p *ProveTask) genSubrootMemtree(ctx context.Context, subrootCid string, su
 		return nil, xerrors.Errorf("subroot size exceeds maximum: %d", subrootSize)
 	}
 
-	subrootReader, unssize, err := p.cpr.GetSharedPieceReader(ctx, subrootCidObj)
+	subrootReader, unssize, err := p.cpr.GetSharedPieceReader(ctx, subrootCidObj, subrootSize)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get subroot reader: %w", err)
 	}

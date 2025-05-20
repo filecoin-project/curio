@@ -101,7 +101,7 @@ func (r *cachedSectionReader) Close() error {
 	return nil
 }
 
-func (cpr *CachedPieceReader) getPieceReaderFromSector(ctx context.Context, pieceCid cid.Cid) (storiface.Reader, abi.UnpaddedPieceSize, error) {
+func (cpr *CachedPieceReader) getPieceReaderFromSector(ctx context.Context, pieceCid cid.Cid, pieceSize abi.PaddedPieceSize) (storiface.Reader, abi.UnpaddedPieceSize, error) {
 	// Get all deals containing this piece
 
 	var deals []struct {
@@ -126,7 +126,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromSector(ctx context.Context, piec
 												mpd.sp_id = sm.sp_id 
 												AND mpd.sector_num = sm.sector_num
 											WHERE 
-												mpd.piece_cid = $1;`, pieceCid.String())
+												mpd.piece_cid = $1 AND mpd.piece_length = $2`, pieceCid.String(), pieceSize)
 	if err != nil {
 		return nil, 0, fmt.Errorf("getting piece deals: %w", err)
 	}
@@ -159,7 +159,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromSector(ctx context.Context, piec
 	return nil, 0, merr
 }
 
-func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, pieceCid cid.Cid) (storiface.Reader, abi.UnpaddedPieceSize, error) {
+func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, pieceCid cid.Cid, pieceSize abi.PaddedPieceSize) (storiface.Reader, abi.UnpaddedPieceSize, error) {
 	// Query parked_pieces and parked_piece_refs in one go
 	var pieceData []struct {
 		ID           int64 `db:"id"`
@@ -173,9 +173,9 @@ func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, p
         FROM
             parked_pieces pp
         WHERE
-            pp.piece_cid = $1 AND pp.complete = TRUE AND pp.long_term = TRUE
+            pp.piece_cid = $1 AND pp.piece_padded_size = $2 AND pp.complete = TRUE AND pp.long_term = TRUE
         LIMIT 1;
-    `, pieceCid.String())
+    `, pieceCid.String(), pieceSize)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to query parked_pieces and parked_piece_refs for piece cid %s: %w", pieceCid.String(), err)
 	}
@@ -192,7 +192,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, p
 	return reader, abi.UnpaddedPieceSize(pieceData[0].PieceRawSize), nil
 }
 
-func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid cid.Cid) (storiface.Reader, abi.UnpaddedPieceSize, error) {
+func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid cid.Cid, pieceSize abi.PaddedPieceSize) (storiface.Reader, abi.UnpaddedPieceSize, error) {
 	var r *cachedSectionReader
 
 	// Check if there is already a piece reader in the cache
@@ -214,16 +214,16 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 		readerCtx, readerCtxCancel := context.WithCancel(context.Background())
 		defer close(r.ready)
 
-		reader, size, err := cpr.getPieceReaderFromSector(readerCtx, pieceCid)
+		reader, size, err := cpr.getPieceReaderFromSector(readerCtx, pieceCid, pieceSize)
 		if err != nil {
-			log.Warnw("failed to get piece reader from sector", "piececid", pieceCid, "err", err)
+			log.Warnw("failed to get piece reader from sector", "piececid", pieceCid, "piece size", pieceSize, "err", err)
 
 			serr := err
 
 			// Try getPieceReaderFromPiecePark
-			reader, size, err = cpr.getPieceReaderFromPiecePark(readerCtx, pieceCid)
+			reader, size, err = cpr.getPieceReaderFromPiecePark(readerCtx, pieceCid, pieceSize)
 			if err != nil {
-				log.Errorw("failed to get piece reader from piece park", "piececid", pieceCid, "err", err)
+				log.Errorw("failed to get piece reader from piece park", "piececid", pieceCid, "piece size", pieceSize, "err", err)
 
 				r.err = fmt.Errorf("failed to get piece reader from sector or piece park: %w, %w", err, serr)
 				readerCtxCancel()

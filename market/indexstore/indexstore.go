@@ -134,11 +134,11 @@ func (i *IndexStore) Start(ctx context.Context) error {
 	return nil
 }
 
-// AddIndex adds multihash -> piece cid mappings, along with offset and size information for the piece.
-func (i *IndexStore) AddIndex(ctx context.Context, pieceCid cid.Cid, recordsChan chan Record) error {
+// AddIndex adds multihash -> piece cid (v2) mappings, along with offset and size information for the piece.
+func (i *IndexStore) AddIndex(ctx context.Context, pieceCidv2 cid.Cid, recordsChan chan Record) error {
 	insertPieceBlockOffsetSize := `INSERT INTO PieceBlockOffsetSize (PieceCid, PayloadMultihash, BlockOffset) VALUES (?, ?, ?)`
 	insertPayloadToPieces := `INSERT INTO PayloadToPieces (PayloadMultihash, PieceCid, BlockSize) VALUES (?, ?, ?)`
-	pieceCidBytes := pieceCid.Bytes()
+	pieceCidBytes := pieceCidv2.Bytes()
 
 	var eg errgroup.Group
 
@@ -161,12 +161,12 @@ func (i *IndexStore) AddIndex(ctx context.Context, pieceCid cid.Cid, recordsChan
 
 				if !ok {
 					if len(batchPieceBlockOffsetSize.Entries) > 0 {
-						if err := i.executeBatchWithRetry(ctx, batchPieceBlockOffsetSize, pieceCid); err != nil {
+						if err := i.executeBatchWithRetry(ctx, batchPieceBlockOffsetSize, pieceCidv2); err != nil {
 							return err
 						}
 					}
 					if len(batchPayloadToPieces.Entries) > 0 {
-						if err := i.executeBatchWithRetry(ctx, batchPayloadToPieces, pieceCid); err != nil {
+						if err := i.executeBatchWithRetry(ctx, batchPayloadToPieces, pieceCidv2); err != nil {
 							return err
 						}
 					}
@@ -188,13 +188,13 @@ func (i *IndexStore) AddIndex(ctx context.Context, pieceCid cid.Cid, recordsChan
 				})
 
 				if len(batchPieceBlockOffsetSize.Entries) == i.settings.InsertBatchSize {
-					if err := i.executeBatchWithRetry(ctx, batchPieceBlockOffsetSize, pieceCid); err != nil {
+					if err := i.executeBatchWithRetry(ctx, batchPieceBlockOffsetSize, pieceCidv2); err != nil {
 						return err
 					}
 					batchPieceBlockOffsetSize = nil
 				}
 				if len(batchPayloadToPieces.Entries) == i.settings.InsertBatchSize {
-					if err := i.executeBatchWithRetry(ctx, batchPayloadToPieces, pieceCid); err != nil {
+					if err := i.executeBatchWithRetry(ctx, batchPayloadToPieces, pieceCidv2); err != nil {
 						return err
 					}
 					batchPayloadToPieces = nil
@@ -212,7 +212,7 @@ func (i *IndexStore) AddIndex(ctx context.Context, pieceCid cid.Cid, recordsChan
 }
 
 // executeBatchWithRetry executes a batch with retry logic and exponential backoff
-func (i *IndexStore) executeBatchWithRetry(ctx context.Context, batch *gocql.Batch, pieceCid cid.Cid) error {
+func (i *IndexStore) executeBatchWithRetry(ctx context.Context, batch *gocql.Batch, pieceCidv2 cid.Cid) error {
 	var err error
 	maxRetries := 20
 	backoff := 20 * time.Second
@@ -236,11 +236,11 @@ func (i *IndexStore) executeBatchWithRetry(ctx context.Context, batch *gocql.Bat
 			return ctx.Err()
 		}
 
-		log.Warnf("Batch insert attempt %d failed for piece %s: %v", attempt+1, pieceCid, err)
+		log.Warnf("Batch insert attempt %d failed for piece %s: %v", attempt+1, pieceCidv2, err)
 
 		// If max retries reached, return error
 		if attempt == maxRetries {
-			return xerrors.Errorf("execute batch: executing batch insert for piece %s: %w", pieceCid, err)
+			return xerrors.Errorf("execute batch: executing batch insert for piece %s: %w", pieceCidv2, err)
 		}
 
 		// Sleep for backoff duration before retrying
@@ -262,8 +262,8 @@ func (i *IndexStore) executeBatchWithRetry(ctx context.Context, batch *gocql.Bat
 
 // RemoveIndexes removes all multihash -> piece cid mappings, and all
 // offset information for the piece.
-func (i *IndexStore) RemoveIndexes(ctx context.Context, pieceCid cid.Cid) error {
-	pieceCidBytes := pieceCid.Bytes()
+func (i *IndexStore) RemoveIndexes(ctx context.Context, pieceCidv2 cid.Cid) error {
+	pieceCidBytes := pieceCidv2.Bytes()
 
 	// First, select all PayloadMultihash for the given PieceCid from PieceBlockOffsetSize
 	selectQry := `SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ?`
@@ -278,7 +278,7 @@ func (i *IndexStore) RemoveIndexes(ctx context.Context, pieceCid cid.Cid) error 
 		payloadMultihashes = append(payloadMultihashes, mhCopy)
 	}
 	if err := iter.Close(); err != nil {
-		return xerrors.Errorf("scanning PayloadMultihash for piece %s: %w", pieceCid, err)
+		return xerrors.Errorf("scanning PayloadMultihash for piece %s: %w", pieceCidv2, err)
 	}
 
 	// Prepare batch deletes for PayloadToPieces
@@ -294,16 +294,16 @@ func (i *IndexStore) RemoveIndexes(ctx context.Context, pieceCid cid.Cid) error 
 		})
 
 		if len(batch.Entries) >= batchSize || idx == len(payloadMultihashes)-1 {
-			if err := i.executeBatchWithRetry(ctx, batch, pieceCid); err != nil {
-				return xerrors.Errorf("executing batch delete for PayloadToPieces for piece %s: %w", pieceCid, err)
+			if err := i.executeBatchWithRetry(ctx, batch, pieceCidv2); err != nil {
+				return xerrors.Errorf("executing batch delete for PayloadToPieces for piece %s: %w", pieceCidv2, err)
 			}
 			batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
 		}
 	}
 
 	if len(batch.Entries) >= 0 {
-		if err := i.executeBatchWithRetry(ctx, batch, pieceCid); err != nil {
-			return xerrors.Errorf("executing batch delete for PayloadToPieces for piece %s: %w", pieceCid, err)
+		if err := i.executeBatchWithRetry(ctx, batch, pieceCidv2); err != nil {
+			return xerrors.Errorf("executing batch delete for PayloadToPieces for piece %s: %w", pieceCidv2, err)
 		}
 	}
 
@@ -311,16 +311,16 @@ func (i *IndexStore) RemoveIndexes(ctx context.Context, pieceCid cid.Cid) error 
 	delPieceBlockOffsetSizeQry := `DELETE FROM PieceBlockOffsetSize WHERE PieceCid = ?`
 	err := i.session.Query(delPieceBlockOffsetSizeQry, pieceCidBytes).WithContext(ctx).Exec()
 	if err != nil {
-		return xerrors.Errorf("deleting PieceBlockOffsetSize for piece %s: %w", pieceCid, err)
+		return xerrors.Errorf("deleting PieceBlockOffsetSize for piece %s: %w", pieceCidv2, err)
 	}
 
 	return nil
 }
 
-// PieceInfo contains PieceCid and BlockSize
+// PieceInfo contains PieceCidV2 and BlockSize
 type PieceInfo struct {
-	PieceCid  cid.Cid
-	BlockSize uint64
+	PieceCidV2 cid.Cid
+	BlockSize  uint64
 }
 
 // PiecesContainingMultihash gets all pieces that contain a multihash along with their BlockSize
@@ -337,8 +337,8 @@ func (i *IndexStore) PiecesContainingMultihash(ctx context.Context, m multihash.
 			return nil, fmt.Errorf("parsing piece cid: %w", err)
 		}
 		pieces = append(pieces, PieceInfo{
-			PieceCid:  pcid,
-			BlockSize: blockSize,
+			PieceCidV2: pcid,
+			BlockSize:  blockSize,
 		})
 	}
 	if err := iter.Close(); err != nil {
@@ -352,11 +352,11 @@ func (i *IndexStore) PiecesContainingMultihash(ctx context.Context, m multihash.
 	return pieces, nil
 }
 
-// GetOffset retrieves the offset of a payload in a piece
-func (i *IndexStore) GetOffset(ctx context.Context, pieceCid cid.Cid, hash multihash.Multihash) (uint64, error) {
+// GetOffset retrieves the offset of a payload in a piece(v2)
+func (i *IndexStore) GetOffset(ctx context.Context, pieceCidv2 cid.Cid, hash multihash.Multihash) (uint64, error) {
 	var offset uint64
 	qryOffset := `SELECT BlockOffset FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash = ?`
-	err := i.session.Query(qryOffset, pieceCid.Bytes(), []byte(hash)).WithContext(ctx).Scan(&offset)
+	err := i.session.Query(qryOffset, pieceCidv2.Bytes(), []byte(hash)).WithContext(ctx).Scan(&offset)
 	if err != nil {
 		return 0, fmt.Errorf("getting offset: %w", err)
 	}
@@ -364,9 +364,9 @@ func (i *IndexStore) GetOffset(ctx context.Context, pieceCid cid.Cid, hash multi
 	return offset, nil
 }
 
-func (i *IndexStore) GetPieceHashRange(ctx context.Context, piece cid.Cid, start multihash.Multihash, num int64) ([]multihash.Multihash, error) {
+func (i *IndexStore) GetPieceHashRange(ctx context.Context, piecev2 cid.Cid, start multihash.Multihash, num int64) ([]multihash.Multihash, error) {
 	qry := "SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash >= ? ORDER BY PayloadMultihash ASC LIMIT ?"
-	iter := i.session.Query(qry, piece.Bytes(), []byte(start), num).WithContext(ctx).Iter()
+	iter := i.session.Query(qry, piecev2.Bytes(), []byte(start), num).WithContext(ctx).Iter()
 
 	var hashes []multihash.Multihash
 	var r []byte
@@ -378,7 +378,7 @@ func (i *IndexStore) GetPieceHashRange(ctx context.Context, piece cid.Cid, start
 		r = make([]byte, 0, 36)
 	}
 	if err := iter.Close(); err != nil {
-		return nil, xerrors.Errorf("iterating piece hash range (P:0x%02x, H:0x%02x, n:%d): %w", piece.Bytes(), []byte(start), num, err)
+		return nil, xerrors.Errorf("iterating piece hash range (P:0x%02x, H:0x%02x, n:%d): %w", piecev2.Bytes(), []byte(start), num, err)
 	}
 	if len(hashes) != int(num) {
 		return nil, xerrors.Errorf("expected %d hashes, got %d (possibly missing indexes)", num, len(hashes))
@@ -387,9 +387,9 @@ func (i *IndexStore) GetPieceHashRange(ctx context.Context, piece cid.Cid, start
 	return hashes, nil
 }
 
-func (i *IndexStore) CheckHasPiece(ctx context.Context, piece cid.Cid) (bool, error) {
+func (i *IndexStore) CheckHasPiece(ctx context.Context, piecev2 cid.Cid) (bool, error) {
 	qry := "SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ? AND PayloadMultihash >= ? ORDER BY PayloadMultihash ASC LIMIT ?"
-	iter := i.session.Query(qry, piece.Bytes(), []byte{0}, 1).WithContext(ctx).Iter()
+	iter := i.session.Query(qry, piecev2.Bytes(), []byte{0}, 1).WithContext(ctx).Iter()
 
 	var hashes []multihash.Multihash
 	var r []byte
@@ -401,7 +401,7 @@ func (i *IndexStore) CheckHasPiece(ctx context.Context, piece cid.Cid) (bool, er
 		r = make([]byte, 0, 36)
 	}
 	if err := iter.Close(); err != nil {
-		return false, xerrors.Errorf("iterating piece hash range (P:0x%02x, n:%d): %w", piece.Bytes(), len(hashes), err)
+		return false, xerrors.Errorf("iterating piece hash range (P:0x%02x, n:%d): %w", piecev2.Bytes(), len(hashes), err)
 	}
 
 	return len(hashes) > 0, nil
