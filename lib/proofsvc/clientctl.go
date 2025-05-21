@@ -8,8 +8,6 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/filecoin-project/lotus/chain/types"
-
 	"github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
 	"golang.org/x/xerrors"
@@ -17,6 +15,8 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
+
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 const clientUrl = "https://svc0.fsp.sh/v0/proofs"

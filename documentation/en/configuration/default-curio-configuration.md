@@ -286,7 +286,11 @@ description: The default curio configuration
   # type: bool
   #BindSDRTreeToNode = false
 
-  # EnableProofShare enables the proof share tasks on the node.
+  # EnableProofShare enables the ProofShare tasks on the node. This subsystem will request proof work from a marketplace
+  # whenever local machine can take on more Snark work. ProofShare tasks have priority over local snark tasks, but new
+  # ProofShare work will only be requested if there is no local work to do.
+  # 
+  # This feature is currently experimental and may change in the future.
   #
   # type: bool
   #EnableProofShare = false
@@ -296,6 +300,13 @@ description: The default curio configuration
   #
   # type: int
   #ProofShareMaxTasks = 0
+
+  # EnableRemoteProofs enables the remote proof tasks on the node. Local snark tasks will be transformed into remote
+  # proving tasks when this option is enabled. Details on which SP IDs are allowed to request remote proofs are managed
+  # via Client Settings on the Proofshare webui page. Buy delay can also be set in the Client Settings page.
+  #
+  # type: bool
+  #EnableRemoteProofs = false
 
 
 # Fees holds the fee-related configuration parameters for various operations in the Curio node.

@@ -7,11 +7,12 @@ import (
 
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/proofsvc"
-	"github.com/filecoin-project/go-address"
 )
 
 var SubmitScheduleInterval = 10 * time.Second
