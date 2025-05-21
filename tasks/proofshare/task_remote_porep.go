@@ -3,6 +3,7 @@ package proofshare
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"time"
@@ -423,6 +424,35 @@ func (t *TaskRemotePoRep) createPayment(ctx context.Context, taskID harmonytask.
 		return false, xerrors.Errorf("failed to get client ID from address: %w", err)
 	}
 
+	// Check if the proof service is available
+	// Exponential backoff if not available
+	var available bool
+	backoff := time.Second
+	maxBackoff := 5 * time.Minute
+	for {
+		available, err = proofsvc.CheckAvailability()
+		if err != nil {
+			return false, xerrors.Errorf("failed to check proof service availability: %w", err)
+		}
+		if available {
+			break
+		}
+		// Randomize backoff by ±30%
+		var randVal [2]byte
+		_, _ = rand.Read(randVal[:])
+		// 0-65535 mapped to 0.0-1.0
+		randFrac := float64(uint16(randVal[0])<<8|uint16(randVal[1])) / 65535.0
+		mult := 0.7 + 0.6*randFrac // 0.7 to 1.3
+		randomizedBackoff := time.Duration(float64(backoff) * mult)
+
+		log.Infow("proof service not available, backing off", "backoff", randomizedBackoff)
+		time.Sleep(randomizedBackoff)
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+
 	// Get current price for the proof
 	price, err := proofsvc.GetCurrentPrice()
 	if err != nil {
@@ -572,9 +602,28 @@ func (t *TaskRemotePoRep) sendRequest(ctx context.Context, taskID harmonytask.Ta
 		PaymentSignature:        payment.Signature,
 	}
 
-	// Submit the request
-	err = proofsvc.RequestProof(proofRequest)
-	if err != nil {
+	// Submit the request with exponential backoff if service unavailable, capped at 1 minute
+	var (
+		maxRetries = 500
+		baseDelay  = time.Second
+		maxDelay   = time.Minute
+	)
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		backoff, err := proofsvc.RequestProof(proofRequest)
+		if err == nil {
+			break
+		}
+		// If backoff is true, service is unavailable, so retry with exponential backoff
+		if backoff {
+			delay := baseDelay * (1 << attempt)
+			if delay > maxDelay {
+				delay = maxDelay
+			}
+			log.Warnw("service unavailable, backing off", "attempt", attempt+1, "delay", delay, "taskID", taskID)
+			time.Sleep(delay)
+			continue
+		}
+		// Other errors: return immediately
 		return false, xerrors.Errorf("failed to submit proof request: %w", err)
 	}
 

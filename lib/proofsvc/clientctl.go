@@ -42,6 +42,32 @@ func TokenAmountFromNfil(nfil NFilAmount) abi.TokenAmount {
 	return types.BigMul(types.NewInt(uint64(nfil)), types.NewInt(attoPerNano))
 }
 
+func CheckAvailability() (bool, error) {
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/client/available", clientUrl), nil)
+	if err != nil {
+		return false, xerrors.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false, xerrors.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, xerrors.Errorf("failed to check availability: %s", resp.Status)
+	}
+
+	var available struct {
+		Available bool `json:"available"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&available); err != nil {
+		return false, xerrors.Errorf("failed to decode response body: %w", err)
+	}
+
+	return available.Available, nil
+}
+
 // GetCurrentPrice retrieves the current price for proof generation from the service
 func GetCurrentPrice() (abi.TokenAmount, error) {
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/client/current-price", clientUrl), nil)
@@ -108,41 +134,44 @@ func UploadProofData(ctx context.Context, proofData []byte) (cid.Cid, error) {
 }
 
 // RequestProof submits a proof request to the service
-func RequestProof(request common.ProofRequest) error {
+func RequestProof(request common.ProofRequest) (bool, error) {
 	reqBody, err := json.Marshal(request)
 	if err != nil {
-		return xerrors.Errorf("failed to marshal request: %w", err)
+		return false, xerrors.Errorf("failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", fmt.Sprintf("%s/client/request", clientUrl), bytes.NewReader(reqBody))
 	if err != nil {
-		return xerrors.Errorf("failed to create request: %w", err)
+		return false, xerrors.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return xerrors.Errorf("failed to send request: %w", err)
+		return false, xerrors.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return xerrors.Errorf("failed to submit proof request: %s - %s", resp.Status, string(bodyBytes))
+
+		backoff := resp.StatusCode == http.StatusServiceUnavailable
+
+		return backoff, xerrors.Errorf("failed to submit proof request: %s - %s", resp.Status, string(bodyBytes))
 	}
 
 	var requestResp struct {
 		ID cid.Cid `json:"id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&requestResp); err != nil {
-		return xerrors.Errorf("failed to unmarshal response body: %w", err)
+		return false, xerrors.Errorf("failed to unmarshal response body: %w", err)
 	}
 
 	if requestResp.ID != request.Data {
-		return xerrors.Errorf("proof request ID mismatch: %s != %s", requestResp.ID, request.Data)
+		return false, xerrors.Errorf("proof request ID mismatch: %s != %s", requestResp.ID, request.Data)
 	}
 
-	return nil
+	return true, nil
 }
 
 // GetProofStatus checks the status of a proof request by ID
