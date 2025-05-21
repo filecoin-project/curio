@@ -13,16 +13,19 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/proofsvc"
+	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 var SubmitScheduleInterval = 10 * time.Second
 
 type TaskSubmit struct {
 	db *harmonydb.DB
+	chain api.FullNode
 }
 
-func NewTaskSubmit(db *harmonydb.DB) *TaskSubmit {
-	return &TaskSubmit{db: db}
+func NewTaskSubmit(db *harmonydb.DB, chain api.FullNode) *TaskSubmit {
+	return &TaskSubmit{db: db, chain: chain}
 }
 
 func (t *TaskSubmit) Adder(addTask harmonytask.AddTaskFunc) {
@@ -131,6 +134,16 @@ func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool
 		return false, xerrors.Errorf("failed to parse wallet address: %w", err)
 	}
 
+	actid, err := t.chain.StateLookupID(ctx, addr, types.EmptyTSK)
+	if err != nil {
+		return false, xerrors.Errorf("failed to lookup address: %w", err)
+	}
+
+	walletId, err := address.IDFromAddress(actid)
+	if err != nil {
+		return false, xerrors.Errorf("failed to get wallet id: %w", err)
+	}
+
 	// 3) Submit the proof to the remote service
 	reward, err := proofsvc.RespondWork(addr, row.RequestCid, row.ResponseData)
 	if err != nil {
@@ -151,7 +164,7 @@ func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool
 	_, err = t.db.Exec(ctx, `
 		INSERT INTO proofshare_provider_payments (provider_id, request_cid, payment_nonce, payment_cumulative_amount, payment_signature)
 		VALUES ($1, $2, $3, $4, $5)
-	`, row.ServiceID, row.RequestCid, reward.Nonce, reward.CumulativeAmount, reward.Signature)
+	`, walletId, row.RequestCid, reward.Nonce, reward.CumulativeAmount, reward.Signature)
 	if err != nil {
 		return false, xerrors.Errorf("failed to insert payment into DB: %w", err)
 	}
