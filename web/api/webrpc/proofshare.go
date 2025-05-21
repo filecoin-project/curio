@@ -93,6 +93,7 @@ func (a *WebRPC) PSListQueue(ctx context.Context) ([]ProofShareQueueItem, error)
                submit_done
         FROM proofshare_queue
         ORDER BY obtained_at DESC
+        LIMIT 15
     `)
 	if err != nil {
 		return nil, xerrors.Errorf("PSListQueue: failed to query proofshare_queue: %w", err)
@@ -145,7 +146,7 @@ func (a *WebRPC) PSClientGet(ctx context.Context) ([]ProofShareClientSettings, e
 }
 
 // PSClientSet updates or inserts a row in proofshare_client_settings.
-// If a row for sp_id doesn’t exist, do an INSERT; otherwise do an UPDATE.
+// If a row for sp_id doesn't exist, do an INSERT; otherwise do an UPDATE.
 func (a *WebRPC) PSClientSet(ctx context.Context, s ProofShareClientSettings) error {
 	maddr, err := address.NewFromString(s.Address)
 	if err != nil {
@@ -554,4 +555,281 @@ func (a *WebRPC) PSClientRouterCompleteWithdrawal(ctx context.Context, wallet st
 	}
 
 	return completeCid, nil
+}
+
+// ProviderLastPaymentSummary holds aggregated payment info for a provider.
+type ProviderLastPaymentSummary struct {
+	// Fields directly from SQL
+	WalletID                   int64        `db:"wallet_id" json:"wallet_id"`
+	LastPaymentNonce           int64        `db:"last_payment_nonce" json:"last_payment_nonce"`
+	LatestPaymentValueRaw      *string      `db:"latest_payment_value" json:"-"`       // Raw from DB, not in final JSON
+	LastSettledPaymentValueRaw *string      `db:"last_settled_payment_value" json:"-"` // Raw from DB, not in final JSON
+	SQLLastSettledAt           sql.NullTime `db:"last_settled_at" json:"-"`            // Raw from DB, not in final JSON
+
+	// Derived and formatted fields for JSON output
+	Address                 string     `json:"address"`
+	LastSettledAmountFIL    *string    `json:"last_settled_amount_fil,omitempty"`
+	UnsettledAmountFIL      *string    `json:"unsettled_amount_fil,omitempty"`
+	TimeSinceLastSettlement *string    `json:"time_since_last_settlement,omitempty"`
+	LastSettledAt           *time.Time `json:"last_settled_at,omitempty"`
+
+	ContractSettledFIL *string `json:"contract_settled_fil,omitempty"`
+	ContractLastNonce  *uint64 `json:"contract_last_nonce,omitempty"`
+}
+
+// PSProviderLastPaymentsSummary returns a summary of the last payment and settlement status for each provider.
+func (a *WebRPC) PSProviderLastPaymentsSummary(ctx context.Context) ([]ProviderLastPaymentSummary, error) {
+	var summaries []ProviderLastPaymentSummary
+
+	const query = `
+WITH MaxNonces AS (
+    SELECT
+        provider_id,
+        MAX(payment_nonce) AS max_payment_nonce
+    FROM proofshare_provider_payments
+    GROUP BY provider_id
+),
+LatestPayments AS (
+    SELECT
+        p.provider_id,
+        p.payment_nonce AS last_payment_nonce, -- This is max_payment_nonce
+        p.payment_cumulative_amount AS latest_payment_value
+    FROM proofshare_provider_payments p
+    INNER JOIN MaxNonces mn ON p.provider_id = mn.provider_id AND p.payment_nonce = mn.max_payment_nonce
+),
+MaxSettledNonces AS (
+    SELECT
+        provider_id,
+        MAX(payment_nonce) AS max_settled_nonce
+    FROM proofshare_provider_payments_settlement
+    GROUP BY provider_id
+),
+LatestSettlements AS (
+    SELECT
+        s.provider_id,
+        s.payment_nonce AS last_settled_nonce, -- This is max_settled_nonce
+        s.settled_at,
+        p.payment_cumulative_amount AS last_settled_payment_value
+    FROM proofshare_provider_payments_settlement s
+    INNER JOIN MaxSettledNonces msn ON s.provider_id = msn.provider_id AND s.payment_nonce = msn.max_settled_nonce
+    INNER JOIN proofshare_provider_payments p ON s.provider_id = p.provider_id AND s.payment_nonce = msn.max_settled_nonce -- amount for the settled nonce
+)
+SELECT
+    lp.provider_id AS wallet_id,
+    lp.last_payment_nonce,
+    lp.latest_payment_value,
+    ls.last_settled_payment_value, -- This can be NULL if no settlement for the provider
+    ls.settled_at AS last_settled_at -- This can be NULL
+FROM LatestPayments lp
+LEFT JOIN LatestSettlements ls ON lp.provider_id = ls.provider_id
+ORDER BY lp.provider_id;
+    ` // End of query string
+
+	err := a.deps.DB.Select(ctx, &summaries, query)
+	if err != nil {
+		return nil, xerrors.Errorf("PSProviderLastPaymentsSummary: failed to query payment summaries: %w", err)
+	}
+
+	svc := common.NewService(a.deps.Chain)
+
+	for i := range summaries {
+		item := &summaries[i] // Use pointer to modify in place
+
+		// Resolve Address
+		addr, addrErr := address.NewIDAddress(uint64(item.WalletID))
+		if addrErr != nil {
+			log.Warnw("PSProviderLastPaymentsSummary: failed to create ID address", "walletID", item.WalletID, "error", addrErr)
+			item.Address = fmt.Sprintf("invalid_id_address_%d", item.WalletID)
+		} else {
+			keyAddr, keyAddrErr := a.deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
+			if keyAddrErr != nil {
+				log.Warnw("PSProviderLastPaymentsSummary: failed to get key address", "walletID", item.WalletID, "idAddress", addr.String(), "error", keyAddrErr)
+				item.Address = addr.String() // Fallback to ID address string
+			} else {
+				item.Address = keyAddr.String()
+			}
+		}
+
+		// Process amounts
+		latestPaymentBigInt := types.NewInt(0)
+		if item.LatestPaymentValueRaw != nil && *item.LatestPaymentValueRaw != "" {
+			val, pErr := types.BigFromString(*item.LatestPaymentValueRaw)
+			if pErr != nil {
+				log.Warnw("PSProviderLastPaymentsSummary: failed to parse LatestPaymentValueRaw", "walletID", item.WalletID, "value", *item.LatestPaymentValueRaw, "error", pErr)
+			} else {
+				latestPaymentBigInt = val
+			}
+		}
+
+		lastSettledPaymentBigInt := types.NewInt(0)
+		if item.SQLLastSettledAt.Valid { // Indicates a settlement occurred
+			item.LastSettledAt = &item.SQLLastSettledAt.Time
+			tss := time.Since(item.SQLLastSettledAt.Time).Round(time.Second).String()
+			item.TimeSinceLastSettlement = &tss
+
+			if item.LastSettledPaymentValueRaw != nil && *item.LastSettledPaymentValueRaw != "" {
+				val, pErr := types.BigFromString(*item.LastSettledPaymentValueRaw)
+				if pErr != nil {
+					log.Warnw("PSProviderLastPaymentsSummary: failed to parse LastSettledPaymentValueRaw", "walletID", item.WalletID, "value", *item.LastSettledPaymentValueRaw, "error", pErr)
+					// lastSettledPaymentBigInt remains 0, LastSettledAmountFIL will be "0 FIL" or nil based on formatting choice
+					// Forcing 0 FIL if parsing fails but settlement exists
+					zeroFil := types.FIL(types.NewInt(0)).Short()
+					item.LastSettledAmountFIL = &zeroFil
+				} else {
+					lastSettledPaymentBigInt = val
+					formattedSettled := types.FIL(lastSettledPaymentBigInt).Short()
+					item.LastSettledAmountFIL = &formattedSettled
+				}
+			} else {
+				// LastSettledAt is valid, but LastSettledPaymentValueRaw is nil/empty. Treat as 0 FIL.
+				zeroFil := types.FIL(types.NewInt(0)).Short()
+				item.LastSettledAmountFIL = &zeroFil
+			}
+		} else {
+			// No settlement: LastSettledAmountFIL, TimeSinceLastSettlement, LastSettledAt remain nil.
+			// lastSettledPaymentBigInt is already 0.
+		}
+
+		// Calculate and format UnsettledAmountFIL
+		// Unsettled = LatestPayment - LastSettledPayment (if no settlement, LastSettledPayment is 0)
+		unsettledBigInt := types.BigSub(latestPaymentBigInt, lastSettledPaymentBigInt)
+
+		if unsettledBigInt.Sign() < 0 {
+			log.Warnw("PSProviderLastPaymentsSummary: Unsettled amount is negative, clamping to 0.",
+				"walletID", item.WalletID,
+				"latestFIL", types.FIL(latestPaymentBigInt).Short(),
+				"settledFIL", types.FIL(lastSettledPaymentBigInt).Short(),
+				"unsettledCalculated", types.FIL(unsettledBigInt).Short())
+			unsettledBigInt = types.NewInt(0)
+		}
+		formattedUnsettled := types.FIL(unsettledBigInt).Short()
+		item.UnsettledAmountFIL = &formattedUnsettled
+
+		// Nil out raw fields after processing as they are not part of the final JSON
+		item.LatestPaymentValueRaw = nil
+		item.LastSettledPaymentValueRaw = nil
+		// SQLLastSettledAt is already json:"-"
+
+		// contract state
+		voucherRedeemed, lastNonce, err := svc.GetProviderState(ctx, uint64(item.WalletID))
+		if err != nil {
+			log.Warnw("PSProviderLastPaymentsSummary: failed to get provider state", "walletID", item.WalletID, "error", err)
+		} else {
+			fil := types.FIL(voucherRedeemed).Short()
+			item.ContractSettledFIL = &fil
+			item.ContractLastNonce = &lastNonce
+		}
+	}
+
+	return summaries, nil
+}
+
+// ProofShareSettlementItem holds data for a single settlement event.
+type ProofShareSettlementItem struct {
+	ProviderID                  int64     `db:"provider_id" json:"provider_id"`
+	PaymentNonce                int64     `db:"payment_nonce" json:"payment_nonce"`
+	SettledAt                   time.Time `db:"settled_at" json:"settled_at"`
+	SettleMessageCID            string    `db:"settle_message_cid" json:"settle_message_cid"`
+	CurrentCumulativeAmountRaw  string    `db:"current_cumulative_amount" json:"-"`
+	PreviousCumulativeAmountRaw *string   `db:"previous_cumulative_amount" json:"-"`
+
+	// Derived
+	Address                    string `json:"address"`
+	AmountForThisSettlementFIL string `json:"amount_for_this_settlement_fil"`
+}
+
+// PSListSettlements returns the 8 most recent settlement records, including the amount for that specific transaction.
+func (a *WebRPC) PSListSettlements(ctx context.Context) ([]ProofShareSettlementItem, error) {
+	var items []ProofShareSettlementItem
+
+	const query = `
+WITH RankedSettlements AS (
+    -- Get the 8 most recent settlements along with the cumulative amount for THAT settlement's nonce
+    SELECT
+        s.provider_id,
+        s.payment_nonce, -- This is the nonce of the current settlement
+        s.settled_at,
+        s.settle_message_cid,
+        p.payment_cumulative_amount AS current_cumulative_amount -- Cumulative amount FOR THIS nonce
+    FROM proofshare_provider_payments_settlement s
+    JOIN proofshare_provider_payments p
+        ON s.provider_id = p.provider_id AND s.payment_nonce = p.payment_nonce
+    ORDER BY s.settled_at DESC
+    LIMIT 8
+)
+SELECT
+    rs.provider_id,
+    rs.payment_nonce,
+    rs.settled_at,
+    rs.settle_message_cid,
+    rs.current_cumulative_amount,
+    (
+        SELECT pp_prev.payment_cumulative_amount
+        FROM proofshare_provider_payments pp_prev
+        WHERE pp_prev.provider_id = rs.provider_id
+          AND pp_prev.payment_nonce < rs.payment_nonce -- Nonce strictly less than current settlement's nonce
+        ORDER BY pp_prev.payment_nonce DESC -- Get the highest one among those
+        LIMIT 1
+    ) AS previous_cumulative_amount
+FROM RankedSettlements rs
+ORDER BY rs.settled_at DESC; -- Maintain final order
+    `
+	err := a.deps.DB.Select(ctx, &items, query)
+	if err != nil {
+		return nil, xerrors.Errorf("PSListSettlements: failed to query settlements: %w", err)
+	}
+
+	for i := range items {
+		item := &items[i]
+
+		// Resolve Address
+		addr, addrErr := address.NewIDAddress(uint64(item.ProviderID))
+		if addrErr != nil {
+			log.Warnw("PSListSettlements: failed to create ID address", "providerID", item.ProviderID, "error", addrErr)
+			item.Address = fmt.Sprintf("invalid_id_address_%d", item.ProviderID)
+		} else {
+			keyAddr, keyAddrErr := a.deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
+			if keyAddrErr != nil {
+				log.Warnw("PSListSettlements: failed to get key address", "providerID", item.ProviderID, "idAddress", addr.String(), "error", keyAddrErr)
+				item.Address = addr.String() // Fallback to ID address
+			} else {
+				item.Address = keyAddr.String()
+			}
+		}
+
+		// Calculate AmountForThisSettlementFIL
+		currentAmountBig := types.NewInt(0)
+		if item.CurrentCumulativeAmountRaw != "" {
+			val, pErr := types.BigFromString(item.CurrentCumulativeAmountRaw)
+			if pErr != nil {
+				log.Warnw("PSListSettlements: failed to parse CurrentCumulativeAmountRaw", "providerID", item.ProviderID, "nonce", item.PaymentNonce, "amount", item.CurrentCumulativeAmountRaw, "error", pErr)
+				item.AmountForThisSettlementFIL = "ErrorParsingCurrent"
+				continue // Skip to next item if current amount is unparseable
+			} else {
+				currentAmountBig = val
+			}
+		} else {
+			// This case should ideally not happen if current_cumulative_amount is NOT NULL and fetched correctly.
+			log.Warnw("PSListSettlements: CurrentCumulativeAmountRaw is empty", "providerID", item.ProviderID, "nonce", item.PaymentNonce)
+			item.AmountForThisSettlementFIL = "MissingCurrentAmount"
+			continue
+		}
+
+		previousAmountBig := types.NewInt(0)
+		if item.PreviousCumulativeAmountRaw != nil && *item.PreviousCumulativeAmountRaw != "" {
+			val, pErr := types.BigFromString(*item.PreviousCumulativeAmountRaw)
+			if pErr != nil {
+				log.Warnw("PSListSettlements: failed to parse PreviousCumulativeAmountRaw", "providerID", item.ProviderID, "nonce", item.PaymentNonce-1, "amount", *item.PreviousCumulativeAmountRaw, "error", pErr)
+				// If previous is unparseable, we can still show the current cumulative as the delta,
+				// or an error. For now, let previousAmountBig remain 0.
+			} else {
+				previousAmountBig = val
+			}
+		}
+
+		deltaAmountBig := types.BigSub(currentAmountBig, previousAmountBig)
+		item.AmountForThisSettlementFIL = types.FIL(deltaAmountBig).Short()
+	}
+
+	return items, nil
 }

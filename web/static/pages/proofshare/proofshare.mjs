@@ -9,6 +9,8 @@ class ProofShareElement extends LitElement {
     wallet: { type: String },
     price: { type: String },
     queue: { type: Array },
+    paymentSummaries: { type: Array },
+    settlementHistory: { type: Array },
   };
 
   constructor() {
@@ -17,6 +19,8 @@ class ProofShareElement extends LitElement {
     this.wallet = '';
     this.price = '';
     this.queue = [];
+    this.paymentSummaries = [];
+    this.settlementHistory = [];
     this.loadData();
   }
 
@@ -36,8 +40,16 @@ class ProofShareElement extends LitElement {
       // 2) Get the queue
       const queue = await RPCCall('PSListQueue', []);
       this.queue = queue;
+      // 3) Get provider payment summaries
+      const summaries = await RPCCall('PSProviderLastPaymentsSummary', []);
+      this.paymentSummaries = summaries;
+      // 4) Get recent settlements
+      const settlements = await RPCCall('PSListSettlements', []);
+      this.settlementHistory = settlements;
     } catch (err) {
       console.error('Failed to load proofshare data:', err);
+      this.paymentSummaries = [];
+      this.settlementHistory = [];
     }
     // Re-render
     this.requestUpdate();
@@ -101,6 +113,68 @@ class ProofShareElement extends LitElement {
         </div>
 
         <button class="btn btn-primary" @click=${this.setMeta}>Update Settings</button>
+
+        <hr />
+
+        <h2>💰 Provider Payments Summary</h2>
+        ${this.paymentSummaries && this.paymentSummaries.length > 0 ? html`
+          <table class="table table-dark table-striped table-hover">
+            <thead>
+              <tr>
+                <th>Provider Address</th>
+                <th>Last Nonce</th>
+                <th>Last Settled FIL</th>
+                <th>Unsettled FIL</th>
+                <th>Last Settled At</th>
+                <th>Time Since Settlement</th>
+                <th>Contract Last Nonce</th>
+                <th>Contract Settled FIL</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${this.paymentSummaries.map((summary) => html`
+                <tr>
+                  <td class="text-break">${summary.address}</td>
+                  <td>${summary.last_payment_nonce}</td>
+                  <td>${summary.last_settled_amount_fil || 'N/A'}</td>
+                  <td>${summary.unsettled_amount_fil || '0 FIL'}</td>
+                  <td>${summary.last_settled_at ? formatDate(summary.last_settled_at) : 'N/A'}</td>
+                  <td>${summary.time_since_last_settlement || 'N/A'}</td>
+                  <td>${summary.contract_last_nonce !== null && summary.contract_last_nonce !== undefined ? summary.contract_last_nonce : 'N/A'}</td>
+                  <td>${summary.contract_settled_fil || 'N/A'}</td>
+                </tr>
+              `)}
+            </tbody>
+          </table>
+        ` : html`<p>No payment summary data available.</p>`}
+
+        <hr />
+
+        <h2>📜 Recent Settlements</h2>
+        ${this.settlementHistory && this.settlementHistory.length > 0 ? html`
+          <table class="table table-dark table-striped table-hover">
+            <thead>
+              <tr>
+                <th>Provider Address</th>
+                <th>Nonce</th>
+                <th>Amount Settled in Tx (FIL)</th>
+                <th>Settled At</th>
+                <th>Settle Message CID</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${this.settlementHistory.map((settlement) => html`
+                <tr>
+                  <td class="text-break">${settlement.address}</td>
+                  <td>${settlement.payment_nonce}</td>
+                  <td>${settlement.amount_for_this_settlement_fil}</td>
+                  <td>${formatDate(settlement.settled_at)}</td>
+                  <td class="text-break">${settlement.settle_message_cid}</td>
+                </tr>
+              `)}
+            </tbody>
+          </table>
+        ` : html`<p>No settlement history available.</p>`}
 
         <hr />
 

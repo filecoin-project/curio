@@ -40,6 +40,8 @@ CREATE TABLE proofshare_provider_payments (
     payment_cumulative_amount TEXT NOT NULL,
     payment_signature BYTEA NOT NULL,
 
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp,
+
     PRIMARY KEY (provider_id, payment_nonce)
 );
 
