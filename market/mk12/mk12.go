@@ -569,7 +569,7 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 					err = tx.QueryRow(`
 							INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size)
 							VALUES ($1, $2, $3)
-							ON CONFLICT (piece_cid) DO NOTHING
+							ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
 							RETURNING id`, prop.PieceCID.String(), int64(prop.PieceSize), int64(deal.Transfer.Size)).Scan(&pieceID)
 					if err != nil {
 						return false, xerrors.Errorf("inserting new parked piece and getting id: %w", err)

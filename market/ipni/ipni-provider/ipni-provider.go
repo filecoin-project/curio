@@ -69,7 +69,7 @@ type peerInfo struct {
 type Provider struct {
 	full          api.Chain
 	db            *harmonydb.DB
-	pieceProvider *pieceprovider.PieceProvider
+	pieceProvider *pieceprovider.SectorReader
 	indexStore    *indexstore.IndexStore
 	sc            *chunker.ServeChunker
 	keys          map[string]*peerInfo // map[peerID String]Private_Key
@@ -187,7 +187,7 @@ func NewProvider(d *deps.Deps) (*Provider, error) {
 	return &Provider{
 		full:                d.Chain,
 		db:                  d.DB,
-		pieceProvider:       d.PieceProvider,
+		pieceProvider:       d.SectorReader,
 		indexStore:          d.IndexStore,
 		sc:                  d.ServeChunker,
 		keys:                keyMap,

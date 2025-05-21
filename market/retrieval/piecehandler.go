@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -58,22 +60,45 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setHeaders(w, pieceCid)
+	buf := make([]byte, 512)
+	n, _ := reader.Read(buf)
+	contentType := http.DetectContentType(buf[:n])
+
+	// rewind reader before sending
+	_, err = reader.Seek(0, io.SeekStart)
+	if err != nil {
+		log.Errorf("error rewinding reader for piece CID %s: %s", pieceCid, err)
+		w.WriteHeader(http.StatusInternalServerError)
+		stats.Record(ctx, remoteblockstore.HttpPieceByCid500ResponseCount.M(1))
+		return
+	}
+
+	setHeaders(w, pieceCid, contentType)
 	serveContent(w, r, size, reader)
 
 	stats.Record(ctx, remoteblockstore.HttpPieceByCid200ResponseCount.M(1))
 	stats.Record(ctx, remoteblockstore.HttpPieceByCidRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
 }
 
-func setHeaders(w http.ResponseWriter, pieceCid cid.Cid) {
+func setHeaders(w http.ResponseWriter, pieceCid cid.Cid, contentType string) {
 	w.Header().Set("Vary", "Accept-Encoding")
-	etag := `"` + pieceCid.String() + `.gz"` // must be quoted
-	w.Header().Set("Etag", etag)
-	w.Header().Set("Content-Type", "application/piece")
 	w.Header().Set("Cache-Control", "public, max-age=29030400, immutable")
+	w.Header().Set("Content-Type", contentType)
+	if contentType != "application/octet-stream" {
+		if exts, err := mime.ExtensionsByType(contentType); err == nil && len(exts) > 0 {
+			ext := exts[0]
+			filename := pieceCid.String() + ext
+			encoded := url.PathEscape(filename)
+
+			w.Header().Set("Content-Disposition",
+				fmt.Sprintf(`inline; filename="%s"; filename*=UTF-8''%s`, filename, encoded))
+		}
+	}
+	w.Header().Set("Etag", pieceCid.String())
+
 }
 
-func serveContent(res http.ResponseWriter, req *http.Request, size abi.PaddedPieceSize, content io.ReadSeeker) {
+func serveContent(res http.ResponseWriter, req *http.Request, size abi.UnpaddedPieceSize, content io.ReadSeeker) {
 	// Note that the last modified time is a constant value because the data
 	// in a piece identified by a cid will never change.
 
@@ -84,6 +109,6 @@ func serveContent(res http.ResponseWriter, req *http.Request, size abi.PaddedPie
 	}
 
 	// Send the content
-	res.Header().Set("Content-Length", fmt.Sprintf("%d", size.Unpadded()))
+	res.Header().Set("Content-Length", fmt.Sprintf("%d", size))
 	http.ServeContent(res, req, "", lastModified, content)
 }

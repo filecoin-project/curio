@@ -7,7 +7,6 @@ import (
 	"math/big"
 	"sync"
 
-	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
@@ -20,8 +19,6 @@ import (
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/proof"
 )
-
-var log = logging.Logger("proof")
 
 func VerifyWindowPoStVanilla(pvi proof.WindowPoStVerifyInfo) (bool, error) {
 	var rand [32]byte

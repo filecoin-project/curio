@@ -53,15 +53,13 @@ type preCommitBatchingConfig struct {
 	MaxPreCommitBatch int
 	Slack             time.Duration
 	Timeout           time.Duration
-	BaseFeeThreshold  abi.TokenAmount
 }
 
 type commitBatchingConfig struct {
-	MinCommitBatch   int
-	MaxCommitBatch   int
-	Slack            time.Duration
-	Timeout          time.Duration
-	BaseFeeThreshold abi.TokenAmount
+	MinCommitBatch int
+	MaxCommitBatch int
+	Slack          time.Duration
+	Timeout        time.Duration
 }
 
 type pollerConfig struct {
@@ -77,28 +75,18 @@ type SealPoller struct {
 	pollers [numPollers]promise.Promise[harmonytask.AddTaskFunc]
 }
 
-func NewPoller(db *harmonydb.DB, api SealPollerAPI, cfg *config.CurioConfig) (*SealPoller, error) {
-
-	if cfg.Batching.PreCommit.BaseFeeThreshold == types.MustParseFIL("0") {
-		return nil, xerrors.Errorf("BaseFeeThreshold cannot be 0 for precommit")
-	}
-	if cfg.Batching.Commit.BaseFeeThreshold == types.MustParseFIL("0") {
-		return nil, xerrors.Errorf("BaseFeeThreshold cannot be 0 for commit")
-	}
-
+func NewPoller(db *harmonydb.DB, api SealPollerAPI, cfg *config.CurioConfig) *SealPoller {
 	c := pollerConfig{
 		commit: commitBatchingConfig{
-			MinCommitBatch:   miner.MinAggregatedSectors,
-			MaxCommitBatch:   256,
-			Slack:            cfg.Batching.Commit.Slack,
-			Timeout:          cfg.Batching.Commit.Timeout,
-			BaseFeeThreshold: abi.TokenAmount(cfg.Batching.Commit.BaseFeeThreshold),
+			MinCommitBatch: miner.MinAggregatedSectors,
+			MaxCommitBatch: 256,
+			Slack:          cfg.Batching.Commit.Slack,
+			Timeout:        cfg.Batching.Commit.Timeout,
 		},
 		preCommit: preCommitBatchingConfig{
 			MaxPreCommitBatch: miner15.PreCommitSectorBatchMaxSize,
 			Slack:             cfg.Batching.PreCommit.Slack,
 			Timeout:           cfg.Batching.PreCommit.Timeout,
-			BaseFeeThreshold:  abi.TokenAmount(cfg.Batching.PreCommit.BaseFeeThreshold),
 		},
 	}
 
@@ -106,7 +94,7 @@ func NewPoller(db *harmonydb.DB, api SealPollerAPI, cfg *config.CurioConfig) (*S
 		db:  db,
 		api: api,
 		cfg: c,
-	}, nil
+	}
 }
 
 func (s *SealPoller) RunPoller(ctx context.Context) {

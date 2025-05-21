@@ -14,6 +14,10 @@ If you have already set up a YugabyteDB for Boost then you can reuse the same Yu
 
 For this guide, we’re setting up a single node YugaByteDB. However, you must set up multiple YugaByteDB instances in a cluster to enable high availability.
 
+{% hint style="danger" %}
+**Note:** We do **not recommend** using a single-node YugabyteDB setup in production. The instructions below are intended **only for testing and development purposes**. For production deployments, please refer to the official [YugabyteDB documentation](https://docs.yugabyte.com/preview/deploy/manual-deployment/) for setting up a highly available (HA) cluster.
+{% endhint %}
+
 Ensure that you have the following available before we install and set up YugabyteDB:
 
 {% hint style="danger" %}

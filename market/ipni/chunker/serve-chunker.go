@@ -43,7 +43,7 @@ type ipniEntry struct {
 
 type ServeChunker struct {
 	db            *harmonydb.DB
-	pieceProvider *pieceprovider.PieceProvider
+	pieceProvider *pieceprovider.SectorReader
 	indexStore    *indexstore.IndexStore
 	cpr           *cachedreader.CachedPieceReader
 
@@ -57,7 +57,7 @@ type ServeChunker struct {
 // This cache is only useful in the edge case when entry reads are very slow and time out - this makes retried reads faster
 const EntryCacheSize = 20
 
-func NewServeChunker(db *harmonydb.DB, pieceProvider *pieceprovider.PieceProvider, indexStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader) *ServeChunker {
+func NewServeChunker(db *harmonydb.DB, pieceProvider *pieceprovider.SectorReader, indexStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader) *ServeChunker {
 	return &ServeChunker{
 		db:            db,
 		pieceProvider: pieceProvider,

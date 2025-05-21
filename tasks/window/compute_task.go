@@ -136,13 +136,13 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		&spID, &pps, &dlIdx, &partIdx,
 	)
 	if err != nil {
-		log.Errorf("WdPostTask.Do() failed to queryRow: %w", err)
+		log.Errorf("WdPostTask.Do() failed to queryRow: %s", err.Error())
 		return false, err
 	}
 
 	head, err := t.api.ChainHead(context.Background())
 	if err != nil {
-		log.Errorf("WdPostTask.Do() for SP %d on Deadline %d and Partition %d failed to get chain head: %w", spID, dlIdx, partIdx, err)
+		log.Errorf("WdPostTask.Do() for SP %d on Deadline %d and Partition %d failed to get chain head: %s", spID, dlIdx, partIdx, err.Error())
 		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d getting chain head: %w", spID, dlIdx, partIdx, err)
 	}
 
@@ -157,7 +157,7 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		testTask = new(int)
 		err := t.db.QueryRow(context.Background(), `SELECT COUNT(*) FROM harmony_test WHERE task_id = $1`, taskID).Scan(testTask)
 		if err != nil {
-			log.Errorf("WdPostTask.Do() for SP %d on Deadline %d and Partition %d failed to queryRow: %w", spID, dlIdx, partIdx, err)
+			log.Errorf("WdPostTask.Do() for SP %d on Deadline %d and Partition %d failed to queryRow: %s", spID, dlIdx, partIdx, err.Error())
 			return false
 		}
 
@@ -165,7 +165,7 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	}
 
 	if deadline.PeriodElapsed() && !isTestTask() {
-		log.Errorf("WdPost SP %d on Deadline %d and Partition %d removed stale task: %v %v", spID, dlIdx, partIdx, taskID, deadline)
+		log.Errorf("WdPost SP %d on Deadline %d and Partition %d removed stale task %d: %v", spID, dlIdx, partIdx, taskID, deadline)
 		return true, nil
 	}
 
@@ -178,13 +178,13 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 
 	maddr, err := address.NewIDAddress(spID)
 	if err != nil {
-		log.Errorf("WdPostTask.Do() failed to NewIDAddress: %w", err)
+		log.Errorf("WdPostTask.Do() failed to NewIDAddress: %s", err.Error())
 		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d getting miner address: %w", spID, dlIdx, partIdx, err)
 	}
 
 	ts, err := t.api.ChainGetTipSetAfterHeight(context.Background(), deadline.Challenge, head.Key())
 	if err != nil {
-		log.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to ChainGetTipSetAfterHeight: %w", spID, dlIdx, partIdx, err)
+		log.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to ChainGetTipSetAfterHeight: %s", spID, dlIdx, partIdx, err.Error())
 		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d getting tipset: %w", spID, dlIdx, partIdx, err)
 	}
 
@@ -194,20 +194,22 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	defer close(finish)
 
 	// Monitor the current height to cancel the task with correct error
-	go func(stAPI WDPoStAPI, cancel context.CancelCauseFunc, finish chan struct{}) {
+	go func(ctx context.Context, stAPI WDPoStAPI, cancel context.CancelCauseFunc, finish chan struct{}) {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 
 		for {
 			select {
+			case <-ctx.Done(): // To avoid goroutine leaks if any goes wrong with finish channel
+				return
 			case <-finish:
 				return
 			case <-ticker.C:
 				h, err := stAPI.ChainHead(context.Background())
 				if err != nil {
-					log.Warnf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to get chain head: %w", spID, dlIdx, partIdx, err)
-					failed_at := time.Now()
-					for time.Now().After(failed_at.Add(daemonFailureGracePeriod)) { // In case daemon not reachable temporarily, allow 5 minutes grace period
+					log.Warnf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to get chain head: %s", spID, dlIdx, partIdx, err.Error())
+					failedAt := time.Now()
+					for time.Now().After(failedAt.Add(daemonFailureGracePeriod)) { // In case daemon not reachable temporarily, allow 5 minutes grace period
 						h, err = stAPI.ChainHead(context.Background())
 						if err == nil {
 							break
@@ -215,28 +217,32 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 						time.Sleep(2 * time.Second)
 					}
 					if err != nil {
+						log.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to get chain head, cancelling context: %s", spID, dlIdx, partIdx, err.Error())
 						cancel(xerrors.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to get chain head: %w", spID, dlIdx, partIdx, err))
 						return
 					}
 				}
-				if h.Height() > deadline.Challenge {
-					cancel(xerrors.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d cancelling context as head %d is greater then deadline close %d", spID, dlIdx, partIdx, h.Height(), deadline.Close))
-					return
+				if h.Height() > deadline.Close {
+					if !isTestTask() {
+						log.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d deadline closed at %d, cancelling context", spID, dlIdx, partIdx, h.Height())
+						cancel(xerrors.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d cancelling context as head %d is greater then deadline close %d", spID, dlIdx, partIdx, h.Height(), deadline.Close))
+						return
+					}
 				}
 			}
 		}
-	}(t.api, cancel, finish)
+	}(ctx, t.api, cancel, finish)
 
 	postOut, err := t.DoPartition(ctx, ts, maddr, deadline, partIdx, isTestTask())
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
-			return false, context.Cause(ctx)
+			return false, context.Cause(ctx) // Let's not return true here just in case. This will cause a retry and if deadline is truly closed then deadline check will mark this as complete
 		}
 		if errors.Is(err, errEmptyPartition) {
-			log.Warnf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to doPartition: %w", spID, dlIdx, partIdx, err)
-			return false, nil
+			log.Warnf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to doPartition: %s", spID, dlIdx, partIdx, err.Error())
+			return true, nil
 		}
-		log.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to doPartition: %w", spID, dlIdx, partIdx, err)
+		log.Errorf("WdPostTask.Do() SP %d on Deadline %d and Partition %d failed to doPartition: %s", spID, dlIdx, partIdx, err.Error())
 		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d doing PoSt: %w", spID, dlIdx, partIdx, err)
 	}
 
@@ -261,12 +267,11 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		if err != nil {
 			return false, xerrors.Errorf("marshaling message: %w", err)
 		}
-		ctx := context.Background()
-		_, err = t.db.Exec(ctx, `UPDATE harmony_test SET result=$1 WHERE task_id=$2`, string(data), taskID)
+		_, err = t.db.Exec(context.Background(), `UPDATE harmony_test SET result=$1 WHERE task_id=$2`, string(data), taskID)
 		if err != nil {
 			return false, xerrors.Errorf("updating harmony_test: %w", err)
 		}
-		log.Infof("SKIPPED sending test message to chain. SELECT * FROM harmony_test WHERE task_id= %v", taskID)
+		log.Infof("SKIPPED sending test message to chain. SELECT * FROM harmony_test WHERE task_id= %d", taskID)
 		return true, nil // nothing committed
 	}
 	// Insert into wdpost_proofs table
@@ -290,11 +295,11 @@ func (t *WdPostTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	)
 
 	if err != nil {
-		log.Errorf("WdPostTask.Do() SP %s on Deadline %d and Partition %d failed to insert into wdpost_proofs: %w", spID, dlIdx, partIdx, err)
+		log.Errorf("WdPostTask.Do() SP %s on Deadline %d and Partition %d failed to insert into wdpost_proofs: %s", spID, dlIdx, partIdx, err.Error())
 		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d inserting into wdpost_proofs: %w", spID, dlIdx, partIdx, err)
 	}
 	if n != 1 {
-		log.Errorf("WdPostTask.Do() SP %s on Deadline %d and Partition %d failed to insert into wdpost_proofs: %w", spID, dlIdx, partIdx, err)
+		log.Errorf("WdPostTask.Do() SP %s on Deadline %d and Partition %d failed to insert into wdpost_proofs: %s", spID, dlIdx, partIdx, err.Error())
 		return false, xerrors.Errorf("SP %d on Deadline %d and Partition %d inserting into wdpost_proofs: %w", spID, dlIdx, partIdx, err)
 	}
 
@@ -392,7 +397,7 @@ func (t *WdPostTask) CanAccept(ids []harmonytask.TaskID, te *harmonytask.TaskEng
 		FROM harmony_task_history 
 		WHERE task_id = $1 AND result = false`, d.TaskID).Scan(&r)
 		if err != nil {
-			log.Errorf("WdPostTask.CanAccept() failed to queryRow: %v", err)
+			log.Errorf("WdPostTask.CanAccept() failed to queryRow: %s", err.Error())
 		}
 		return r < 2
 	})
@@ -433,7 +438,7 @@ func (t *WdPostTask) GetSpid(db *harmonydb.DB, taskID int64) string {
 	var spid string
 	err := db.QueryRow(context.Background(), `SELECT sp_id FROM wdpost_partition_tasks WHERE task_id = $1`, taskID).Scan(&spid)
 	if err != nil {
-		log.Errorf("getting spid: %s", err)
+		log.Errorf("getting spid: %s", err.Error())
 		return ""
 	}
 	return spid

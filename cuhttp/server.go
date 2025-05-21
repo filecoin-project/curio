@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/handlers"
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/snadrus/must"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/xerrors"
@@ -23,6 +24,8 @@ import (
 	ipni_provider "github.com/filecoin-project/curio/market/ipni/ipni-provider"
 	"github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/market/retrieval"
+	"github.com/filecoin-project/curio/pdp"
+	"github.com/filecoin-project/curio/tasks/message"
 	storage_market "github.com/filecoin-project/curio/tasks/storage-market"
 )
 
@@ -42,6 +45,19 @@ func secureHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func corsHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, Accept-Encoding")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -103,7 +119,11 @@ func isWebSocketUpgrade(r *http.Request) bool {
 	return true
 }
 
-func StartHTTPServer(ctx context.Context, d *deps.Deps, dm *storage_market.CurioStorageDealMarket) error {
+type ServiceDeps struct {
+	EthSender *message.SenderETH
+}
+
+func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps, dm *storage_market.CurioStorageDealMarket) error {
 	cfg := d.Cfg.HTTP
 
 	// Setup the Chi router for more complex routing (if needed in the future)
@@ -115,6 +135,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, dm *storage_market.Curio
 	chiRouter.Use(middleware.Recoverer)
 	chiRouter.Use(handlers.ProxyHeaders) // Handle reverse proxy headers like X-Forwarded-For
 	chiRouter.Use(secureHeaders)
+	chiRouter.Use(corsHeaders)
 
 	if cfg.EnableCORS {
 		chiRouter.Use(handlers.CORS(handlers.AllowedOrigins([]string{"https://" + cfg.DomainName})))
@@ -144,7 +165,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, dm *storage_market.Curio
 		fmt.Fprintf(w, "Service is up and running")
 	})
 
-	chiRouter, err = attachRouters(ctx, chiRouter, d, dm)
+	chiRouter, err = attachRouters(ctx, chiRouter, d, sd, dm)
 	if err != nil {
 		return xerrors.Errorf("failed to attach routers: %w", err)
 	}
@@ -221,6 +242,7 @@ func (c cache) Put(ctx context.Context, key string, data []byte) error {
 	_, err := c.db.Exec(ctx, `INSERT INTO autocert_cache (k, v) VALUES ($1, $2) 
 						ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v`, key, data)
 	if err != nil {
+		log.Warnf("failed to inset key value pair in DB: %s", err)
 		return xerrors.Errorf("failed to inset key value pair in DB: %w", err)
 	}
 	return nil
@@ -229,6 +251,7 @@ func (c cache) Put(ctx context.Context, key string, data []byte) error {
 func (c cache) Delete(ctx context.Context, key string) error {
 	_, err := c.db.Exec(ctx, `DELETE FROM autocert_cache WHERE k = $1`, key)
 	if err != nil {
+		log.Warnf("failed to delete key value pair from DB: %s", err)
 		return xerrors.Errorf("failed to delete key value pair from DB: %w", err)
 	}
 	return nil
@@ -236,7 +259,7 @@ func (c cache) Delete(ctx context.Context, key string) error {
 
 var _ autocert.Cache = cache{}
 
-func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, dm *storage_market.CurioStorageDealMarket) (*chi.Mux, error) {
+func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, sd *ServiceDeps, dm *storage_market.CurioStorageDealMarket) (*chi.Mux, error) {
 	// Attach retrievals
 	rp := retrieval.NewRetrievalProvider(ctx, d.DB, d.IndexStore, d.CachedPieceReader)
 	retrieval.Router(r, rp)
@@ -253,6 +276,11 @@ func attachRouters(ctx context.Context, r *chi.Mux, d *deps.Deps, dm *storage_ma
 	// Attach LibP2P redirector
 	rd := libp2p.NewRedirector(d.DB)
 	libp2p.Router(r, rd)
+
+	if sd.EthSender != nil {
+		pdsvc := pdp.NewPDPService(d.DB, d.LocalStore, must.One(d.EthClient.Get()), d.Chain, sd.EthSender)
+		pdp.Routes(r, pdsvc)
+	}
 
 	// Attach the market handler
 	dh, err := mhttp.NewMarketHandler(d.DB, d.Cfg, dm)

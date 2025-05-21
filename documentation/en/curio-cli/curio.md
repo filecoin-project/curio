@@ -7,7 +7,7 @@ USAGE:
    curio [global options] command [command options]
 
 VERSION:
-   1.25.0
+   1.25.1
 
 COMMANDS:
    cli           Execute cli commands
@@ -21,6 +21,7 @@ COMMANDS:
    market        
    fetch-params  Fetch proving parameters
    calc          Math Utils
+   toolbox       Tool Box for Curio
    help, h       Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
@@ -1200,4 +1201,33 @@ OPTIONS:
    --dual-hashers                Zen3 and later supports two sectors per thread, set to false for older CPUs (default: true)
    --batch-size value, -b value  (default: 0)
    --help, -h                    show help
+```
+
+## curio toolbox
+```
+NAME:
+   curio toolbox - Tool Box for Curio
+
+USAGE:
+   curio toolbox command [command options]
+
+COMMANDS:
+   fix-msg  Updated DB with message data missing from chain node
+   help, h  Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+### curio toolbox fix-msg
+```
+NAME:
+   curio toolbox fix-msg - Updated DB with message data missing from chain node
+
+USAGE:
+   curio toolbox fix-msg [command options]
+
+OPTIONS:
+   --all       Update data for messages in wait queue (default: false)
+   --help, -h  show help
 ```

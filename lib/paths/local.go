@@ -69,7 +69,10 @@ type BatchMeta struct {
 type Local struct {
 	localStorage LocalStorage
 	index        SectorIndex
-	urls         []string
+
+	// URL which serves this storage, pointing at /remote
+	// http://[...]/remote
+	url string
 
 	paths map[storiface.ID]*path
 
@@ -101,6 +104,8 @@ type path struct {
 
 	Reserved     int64
 	Reservations map[string]int64
+
+	CanSeal bool
 }
 
 // statExistingSectorForReservation is optional parameter for stat method
@@ -247,11 +252,11 @@ func init() {
 	}))
 }
 
-func NewLocal(ctx context.Context, ls LocalStorage, index SectorIndex, urls []string) (*Local, error) {
+func NewLocal(ctx context.Context, ls LocalStorage, index SectorIndex, url string) (*Local, error) {
 	l := &Local{
 		localStorage: newCachedLocalStorage(ls),
 		index:        index,
-		urls:         urls,
+		url:          url,
 
 		paths: map[storiface.ID]*path{},
 	}
@@ -293,6 +298,20 @@ func (st *Local) OpenPath(ctx context.Context, p string) error {
 		MaxStorage:   meta.MaxStorage,
 		Reserved:     0,
 		Reservations: map[string]int64{},
+		CanSeal:      meta.CanSeal,
+	}
+
+	// Remove all stashes on startup
+	if meta.CanSeal {
+		stashDir := filepath.Join(p, StashDirName)
+		err := os.RemoveAll(stashDir)
+		if err != nil && !os.IsNotExist(err) {
+			return xerrors.Errorf("removing stash directory %s: %w", stashDir, err)
+		}
+		// Re-create stash directory
+		if err := os.MkdirAll(stashDir, 0755); err != nil {
+			return xerrors.Errorf("creating stash directory %s: %w", stashDir, err)
+		}
 	}
 
 	fst, _, err := out.stat(st.localStorage)
@@ -302,7 +321,7 @@ func (st *Local) OpenPath(ctx context.Context, p string) error {
 
 	err = st.index.StorageAttach(ctx, storiface.StorageInfo{
 		ID:          meta.ID,
-		URLs:        st.urls,
+		URLs:        []string{st.url},
 		Weight:      meta.Weight,
 		MaxStorage:  meta.MaxStorage,
 		CanSeal:     meta.CanSeal,
@@ -335,10 +354,8 @@ func (st *Local) ClosePath(ctx context.Context, id storiface.ID) error {
 		return xerrors.Errorf("path with ID %s isn't opened", id)
 	}
 
-	for _, url := range st.urls {
-		if err := st.index.StorageDetach(ctx, id, url); err != nil {
-			return xerrors.Errorf("dropping path (id='%s' url='%s'): %w", id, url, err)
-		}
+	if err := st.index.StorageDetach(ctx, id, st.url); err != nil {
+		return xerrors.Errorf("dropping path (id='%s' url='%s'): %w", id, st.url, err)
 	}
 
 	delete(st.paths, id)
@@ -403,7 +420,7 @@ func (st *Local) Redeclare(ctx context.Context, filterId *storiface.ID, dropMiss
 
 		err = st.index.StorageAttach(ctx, storiface.StorageInfo{
 			ID:          id,
-			URLs:        st.urls,
+			URLs:        []string{st.url},
 			Weight:      meta.Weight,
 			MaxStorage:  meta.MaxStorage,
 			CanSeal:     meta.CanSeal,
