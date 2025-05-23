@@ -42,7 +42,7 @@ func TestNewIndexStore(t *testing.T) {
 		_ = os.RemoveAll(dir)
 	}()
 
-	rf, err := testutils.CreateRandomFile(dir, time.Now().Unix(), 8000000)
+	rf, err := testutils.CreateRandomTmpFile(dir, time.Now().Unix(), 8000000)
 	require.NoError(t, err)
 
 	caropts := []carv2.Option{

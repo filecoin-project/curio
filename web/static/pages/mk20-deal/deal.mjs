@@ -8,43 +8,51 @@ import '/ux/yesno.mjs';
 class DealDetails extends LitElement {
     constructor() {
         super();
-        this.loadData();
+        this.loaddata();
     }
 
-    async loadData() {
+    async loaddata() {
         try {
             const params = new URLSearchParams(window.location.search);
             this.data = await RPCCall('MK20DDOStorageDeal', [params.get('id')]);
-            setTimeout(() => this.loadData(), 10000);
             this.requestUpdate();
         } catch (error) {
-            alert('Failed to load deal details: ' + error);
             console.error('Failed to load deal details:', error);
+            alert(`Failed to load deal details: ${error.message}`);
         }
     }
 
     render() {
+        console.log(this.data);
         if (!this.data) return html`<p>No data.</p>`;
 
-        const { Identifier, Data, Products } = this.data.deal;
+        const { identifier, data, products } = this.data.deal;
+
 
         return html`
+            <link
+                    href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
+                    rel="stylesheet"
+                    crossorigin="anonymous"
+            />
+            <link rel="stylesheet" href="/ux/main.css" />
+            
           <div class="table-container">
             <h5>Deal</h5>
-            <table class="table table-bordered">
-                <tr><th>Identifier</th><td>${Identifier}</td></tr>
+            <table class="table table-dark table-striped table-sm">
+                <tr><th>Identifier</th><td>${identifier}</td></tr>
                 <tr><th>Error</th><td><error-or-not .value=${this.data.error}></error-or-not></td></tr>
-                <tr><th>PieceCID</th><td>${Data?.piece_cid['/']}</td></tr>
-                <tr><th>Size</th><td>${Data?.size}</td></tr>
+                <tr><th>PieceCID</th><td><a href="/pages/piece/?id=${this.data.piece_cid_v2}">${data?.piece_cid['/']}</a></td></tr>
+                <tr><th>PieceSize</th><td>${data?.piece_size}</td></tr>
             </table>
 
-            ${this.renderPieceFormat(Data?.format)}
-            ${Data?.source_http ? this.renderSourceHTTP(Data.source_http) : ''}
-            ${Data?.source_aggregate ? this.renderSourceAggregate(Data.source_aggregate) : ''}
-            ${Data?.source_offline ? this.renderSourceOffline(Data.source_offline) : ''}
-            ${Data?.source_httpput ? this.renderSourceHttpPut(Data.source_httpput) : ''}
+            ${this.renderPieceFormat(data?.format)}
+            ${data?.source_http ? this.renderSourceHTTP(data.source_http) : ''}
+            ${data?.source_aggregate ? this.renderSourceAggregate(data.source_aggregate) : ''}
+            ${data?.source_offline ? this.renderSourceOffline(data.source_offline) : ''}
+            ${data?.source_httpput ? this.renderSourceHttpPut(data.source_httpput) : ''}
     
-            ${Products?.ddo_v1 ? this.renderDDOV1(Products.ddo_v1) : ''}
+            ${products?.ddo_v1 ? this.renderDDOV1(products.ddo_v1) : ''}
           </div>
         `;
     }
@@ -53,7 +61,7 @@ class DealDetails extends LitElement {
         if (!format) return '';
         return html`
       <h6>Piece Format</h6>
-      <table class="table table-sm nested-table">
+      <table class="table table-dark table-striped table-sm">
         ${format.car ? html`<tr><th>Car</th><td>Yes</td></tr>` : ''}
         ${format.aggregate
             ? html`
@@ -70,7 +78,7 @@ class DealDetails extends LitElement {
         if (!subs?.length) return '';
         return html`
       <h6>Aggregate Sub Formats</h6>
-      <table class="table table-sm nested-table">
+      <table class="table table-dark table-striped table-sm">
         <thead><tr><th>#</th><th>Car</th><th>Raw</th><th>Aggregate</th></tr></thead>
         <tbody>
           ${subs.map((s, i) => html`
@@ -89,12 +97,11 @@ class DealDetails extends LitElement {
     renderSourceHTTP(src) {
         return html`
       <h6>Source HTTP</h6>
-      <table class="table table-sm nested-table">
+      <table class="table table-dark table-striped table-sm">
         <tr><th>Raw Size</th><td>${src.rawsize}</td></tr>
-        <tr>
-          <td colspan="2">
-            <strong>URLs</strong>
-            <table class="table table-sm">
+        <tr><th>URLs</th>
+          <td>
+            <table class="table table-dark table-striped table-sm">
               <thead><tr><th>URL</th><th>Priority</th><th>Fallback</th></tr></thead>
               <tbody>
                 ${src.urls.map(u => html`
@@ -116,9 +123,9 @@ class DealDetails extends LitElement {
         return html`
       <h6>Source Aggregate</h6>
       ${src.pieces.map((piece, i) => html`
-        <div class="nested-table">
+        <div class="table table-dark table-striped table-sm">
           <strong>Piece ${i + 1}</strong>
-          <table class="table table-sm">
+          <table class="table table-dark table-striped table-sm">
             <tr><th>PieceCID</th><td>${piece.piece_cid['/']}</td></tr>
             <tr><th>Size</th><td>${piece.size}</td></tr>
           </table>
@@ -130,7 +137,7 @@ class DealDetails extends LitElement {
     renderSourceOffline(src) {
         return html`
       <h6>Source Offline</h6>
-      <table class="table table-sm nested-table">
+      <table class="table table-dark table-striped table-sm">
         <tr><th>Raw Size</th><td>${src.raw_size}</td></tr>
       </table>
     `;
@@ -139,7 +146,7 @@ class DealDetails extends LitElement {
     renderSourceHttpPut(src) {
         return html`
       <h6>Source HTTP PUT</h6>
-      <table class="table table-sm nested-table">
+      <table class="table table-dark table-striped table-sm">
         <tr><th>Raw Size</th><td>${src.raw_size}</td></tr>
       </table>
     `;
@@ -148,7 +155,7 @@ class DealDetails extends LitElement {
     renderDDOV1(ddo) {
         return html`
       <h6>DDO v1</h6>
-      <table class="table table-sm nested-table">
+      <table class="table table-dark table-striped table-sm">
         <tr><th>Provider</th><td>${ddo.provider}</td></tr>
         <tr><th>Client</th><td>${ddo.client}</td></tr>
         <tr><th>Piece Manager</th><td>${ddo.piece_manager}</td></tr>
@@ -238,9 +245,9 @@ customElements.define('deal-details', DealDetails);
 //           <tr><td>Identifier</td><td>${this.deal.identifier}</td></tr>
 //           ${this.deal.data ? html`
 //             <tr>
-//               <th colspan="2">Data</th>
+//               <th colspan="2">data</th>
 //             </tr>
-//             ${this.renderNested('Data', this.deal.data)}
+//             ${this.renderNested('data', this.deal.data)}
 //           ` : null}
 //           ${this.deal.products?.ddo_v1 ? html`
 //             <tr>

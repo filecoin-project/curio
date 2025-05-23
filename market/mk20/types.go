@@ -34,7 +34,7 @@ type DataSource struct {
 	PieceCID cid.Cid `json:"piece_cid"`
 
 	// Size represents the size of the padded piece in the data source.
-	Size abi.PaddedPieceSize `json:"size"`
+	Size abi.PaddedPieceSize `json:"piece_size"`
 
 	// Format defines the format of the piece data, which can include CAR, Aggregate, or Raw formats.
 	Format PieceDataFormat `json:"format"`

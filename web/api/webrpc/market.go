@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -624,13 +625,14 @@ type PieceDeal struct {
 }
 
 type PieceInfo struct {
-	PieceCid  string       `json:"piece_cid"`
-	Size      int64        `json:"size"`
-	CreatedAt time.Time    `json:"created_at"`
-	Indexed   bool         `json:"indexed"`
-	IndexedAT time.Time    `json:"indexed_at"`
-	IPNIAd    string       `json:"ipni_ad"`
-	Deals     []*PieceDeal `json:"deals"`
+	PieceCidv2 string       `json:"piece_cid_v2"`
+	PieceCid   string       `json:"piece_cid"`
+	Size       int64        `json:"size"`
+	CreatedAt  time.Time    `json:"created_at"`
+	Indexed    bool         `json:"indexed"`
+	IndexedAT  time.Time    `json:"indexed_at"`
+	IPNIAd     string       `json:"ipni_ad"`
+	Deals      []*PieceDeal `json:"deals"`
 }
 
 func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, error) {
@@ -646,10 +648,12 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 
 	pi := commp.PieceInfo()
 
-	ret := &PieceInfo{}
+	ret := &PieceInfo{
+		PieceCidv2: piece.String(),
+	}
 
 	err = a.deps.DB.QueryRow(ctx, `SELECT created_at, indexed, indexed_at FROM market_piece_metadata WHERE piece_cid = $1 AND piece_size = $2`, pi.PieceCID.String(), pi.Size).Scan(&ret.CreatedAt, &ret.Indexed, &ret.IndexedAT)
-	if err != nil && err != pgx.ErrNoRows {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, xerrors.Errorf("failed to get piece metadata: %w", err)
 	}
 
@@ -680,7 +684,7 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 		ret.Size = pieceDeals[i].Length
 	}
 	ret.Deals = pieceDeals
-	ret.PieceCid = piece.String()
+	ret.PieceCid = pi.PieceCID.String()
 
 	b := new(bytes.Buffer)
 
@@ -893,15 +897,23 @@ type MK20DealPipeline struct {
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
-// PieceDealDetailEntry combines a deal and its pipeline
-type PieceDealDetailEntry struct {
-	MK12Deal         *MK12Deal         `json:"mk12_deal"`
-	MK12Pipeline     *MK12DealPipeline `json:"mk12_pipeline,omitempty"`
-	MK20Deal         *mk20.Deal        `json:"mk20_deal,omitempty"`
-	MK20DealPipeline *MK20DealPipeline `json:"mk20_pipeline,omitempty"`
+type PieceInfoMK12Deals struct {
+	Deal     *MK12Deal         `json:"deal"`
+	Pipeline *MK12DealPipeline `json:"mk12_pipeline,omitempty"`
 }
 
-func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) ([]PieceDealDetailEntry, error) {
+type PieceInfoMK20Deals struct {
+	Deal     *MK20StorageDeal  `json:"deal"`
+	Pipeline *MK20DealPipeline `json:"mk20_pipeline,omitempty"`
+}
+
+// PieceDealDetailEntry combines a deal and its pipeline
+type PieceDealDetailEntry struct {
+	MK12 []PieceInfoMK12Deals `json:"mk12"`
+	MK20 []PieceInfoMK20Deals `json:"mk20"`
+}
+
+func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDealDetailEntry, error) {
 	pcid, err := cid.Parse(pieceCid)
 	if err != nil {
 		return nil, err
@@ -1029,27 +1041,40 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) ([]PieceD
 		pipelineMap[pipeline.UUID] = pipeline
 	}
 
-	var entries []PieceDealDetailEntry
+	ret := &PieceDealDetailEntry{
+		MK12: make([]PieceInfoMK12Deals, len(mk12Deals)),
+	}
+
 	for _, deal := range mk12Deals {
-		entry := PieceDealDetailEntry{
-			MK12Deal: deal,
+		entry := PieceInfoMK12Deals{
+			Deal: deal,
 		}
 		if pipeline, exists := pipelineMap[deal.UUID]; exists {
-			entry.MK12Pipeline = &pipeline
+			entry.Pipeline = &pipeline
 		} else {
-			entry.MK12Pipeline = nil // Pipeline may not exist for processed and active deals
+			entry.Pipeline = nil // Pipeline may not exist for processed and active deals
 		}
-		entries = append(entries, entry)
+		ret.MK12 = append(ret.MK12, entry)
 	}
 
 	var mk20Deals []*mk20.DBDeal
-	err = a.deps.DB.Select(ctx, &mk20Deals, `SELECT * FROM market_mk20_deals WHERE piece_cid = $1 AND piece_size = $2`, pieceCid)
+	err = a.deps.DB.Select(ctx, &mk20Deals, `SELECT 
+													id, 
+													piece_cid, 
+													piece_size, 
+													format, 
+													source_http, 
+													source_aggregate, 
+													source_offline, 
+													source_http_put, 
+													ddo_v1,
+													error FROM market_mk20_deal WHERE piece_cid = $1 AND piece_size = $2`, pieceCid, size)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query mk20 deals: %w", err)
 	}
 
 	ids := make([]string, len(mk20Deals))
-	mk20deals := make([]*mk20.Deal, len(mk20Deals))
+	mk20deals := make([]*MK20StorageDeal, len(mk20Deals))
 
 	for i, dbdeal := range mk20Deals {
 		deal, err := dbdeal.ToDeal()
@@ -1057,10 +1082,13 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) ([]PieceD
 			return nil, err
 		}
 		ids[i] = deal.Identifier.String()
-		mk20deals[i] = deal
+		mk20deals[i] = &MK20StorageDeal{
+			Deal:  deal,
+			Error: dbdeal.Error,
+		}
 	}
 
-	var mk20Pipelines []*MK12DealPipeline
+	var mk20Pipelines []*MK20DealPipeline
 	err = a.deps.DB.Select(ctx, &mk20Pipelines, `
 										SELECT
 										    created_at,
@@ -1094,7 +1122,7 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) ([]PieceD
 											indexed,
 											complete
 										FROM market_mk20_pipeline
-										WHERE id = ANY($1)`)
+										WHERE id = ANY($1)`, ids)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to query mk20 pipelines: %w", err)
 	}
@@ -1106,18 +1134,21 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) ([]PieceD
 	}
 
 	for _, deal := range mk20deals {
-		entry := PieceDealDetailEntry{
-			MK20Deal: deal,
+		entry := PieceInfoMK20Deals{
+			Deal: deal,
 		}
-		if pipeline, exists := mk20pipelineMap[deal.Identifier.String()]; exists {
-			entry.MK20DealPipeline = &pipeline
+		if pipeline, exists := mk20pipelineMap[deal.Deal.Identifier.String()]; exists {
+			entry.Pipeline = &pipeline
 		} else {
-			entry.MK20DealPipeline = nil // Pipeline may not exist for processed and active deals
+			entry.Pipeline = nil // Pipeline may not exist for processed and active deals
 		}
-		entries = append(entries, entry)
+		if ret.MK20 == nil {
+			ret.MK20 = make([]PieceInfoMK20Deals, 0)
+		}
+		ret.MK20 = append(ret.MK20, entry)
 	}
 
-	return entries, nil
+	return ret, nil
 }
 
 func firstOrZero[T any](a []T) T {

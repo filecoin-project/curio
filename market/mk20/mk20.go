@@ -74,8 +74,8 @@ func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorI
 }
 
 func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal) *ProviderDealRejectionInfo {
-	// Validate the DataSource TODO: Add error code to validate
-	code, err := deal.Validate(m.db)
+	// Validate the DataSource
+	code, err := deal.Validate(m.db, &m.cfg.Market.StorageMarketConfig.MK20)
 	if err != nil {
 		log.Errorw("deal rejected", "deal", deal, "error", err)
 		ret := &ProviderDealRejectionInfo{
@@ -158,7 +158,9 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal) *ProviderDealReje
 		}
 	}
 
-	return nil
+	return &ProviderDealRejectionInfo{
+		HTTPCode: http.StatusOK,
+	}
 }
 
 func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRejectionInfo, error) {
