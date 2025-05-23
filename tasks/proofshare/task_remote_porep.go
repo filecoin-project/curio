@@ -828,9 +828,9 @@ func (t *TaskRemotePoRep) TypeDetails() harmonytask.TaskTypeDetails {
 			Gpu: 0,
 			Ram: 32 << 20, // 32MB - minimal resources since computation is remote
 		},
-		MaxFailures: 15,
+		MaxFailures: 0,
 		RetryWait: func(retries int) time.Duration {
-			return time.Second * 10 // * time.Duration(retries)
+			return time.Second * 10 * time.Duration(retries/5)
 		},
 	}
 }

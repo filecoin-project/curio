@@ -406,20 +406,21 @@ func (s *Service) ServiceRedeemClientVoucher(
 	cumulativeAmount fbig.Int,
 	nonce uint64,
 	sig []byte,
-) error {
+	opts ...evmMsgOpt,
+) (cid.Cid, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(RedeemClientVoucherABI))
 	if err != nil {
-		return fmt.Errorf("parse redeemClientVoucher ABI: %w", err)
+		return cid.Undef, fmt.Errorf("parse redeemClientVoucher ABI: %w", err)
 	}
 	data, err := parsedABI.Pack("redeemClientVoucher", clientID, cumulativeAmount.Int, nonce, sig)
 	if err != nil {
-		return fmt.Errorf("pack redeemClientVoucher: %w", err)
+		return cid.Undef, fmt.Errorf("pack redeemClientVoucher: %w", err)
 	}
-	_, err = s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
+	redeemCid, err := s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data, opts...)
 	if err != nil {
-		return fmt.Errorf("redeemClientVoucher message failed: %w", err)
+		return cid.Undef, fmt.Errorf("redeemClientVoucher message failed: %w", err)
 	}
-	return nil
+	return redeemCid, nil
 }
 
 // ServiceRedeemProviderVoucher calls `redeemProviderVoucher(providerID, cumulativeAmount, nonce, signature)`.
@@ -870,12 +871,32 @@ func (s *Service) AcceptServiceActor(ctx context.Context, from address.Address) 
 
 // --- EVM invocation helper ---
 
+type evmMsgOpts struct {
+	maxFee abi.TokenAmount
+}
+
+type evmMsgOpt func(*evmMsgOpts)
+
+func WithMaxFee(maxFee abi.TokenAmount) evmMsgOpt {
+	return func(o *evmMsgOpts) {
+		o.maxFee = maxFee
+	}
+}
+
 func (s *Service) sendEVMMessage(
 	ctx context.Context,
 	from, to address.Address,
 	value fbig.Int,
 	data []byte,
+	opts ...evmMsgOpt,
 ) (cid.Cid, error) {
+	settings := &evmMsgOpts{
+		maxFee: abi.TokenAmount(types.MustParseFIL("0.1")),
+	}
+	for _, opt := range opts {
+		opt(settings)
+	}
+
 	param := abi.CborBytes(data)
 	ser, aerr := actors.SerializeParams(&param)
 	if aerr != nil {
@@ -889,7 +910,7 @@ func (s *Service) sendEVMMessage(
 		Params: ser,
 	}
 	mcid, err := s.sendMessage(ctx, msg, &api.MessageSendSpec{
-		MaxFee: abi.TokenAmount(types.MustParseFIL("0.1")),
+		MaxFee: abi.TokenAmount(settings.maxFee),
 	})
 	if err != nil {
 		return cid.Undef, fmt.Errorf("failed to push message: %w", err)
