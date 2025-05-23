@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
-	carv2 "github.com/ipld/go-car/v2"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/ipni/go-libipni/maurl"
@@ -35,9 +34,9 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/cachedreader"
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
-	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
@@ -137,8 +136,6 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		}
 	}
 
-	opts := []carv2.Option{carv2.ZeroLengthSectionAsEOF(true)}
-
 	recs := make(chan indexstore.Record, 1)
 
 	var eg errgroup.Group
@@ -146,6 +143,11 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	var interrupted bool
 	var subPieces []mk20.PieceDataFormat
 	chk := chunker.NewInitialChunker()
+
+	commp, err := commcidv2.CommPFromPieceInfo(pi)
+	if err != nil {
+		return false, xerrors.Errorf("getting piece commP: %w", err)
+	}
 
 	eg.Go(func() error {
 		defer close(addFail)
@@ -174,18 +176,18 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		}
 
 		if deal.Data.Format.Car != nil {
-			_, interrupted, err = IndexCAR(reader, 4<<20, opts, recs, addFail)
+			_, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
 		}
 
 		if deal.Data.Format.Aggregate != nil {
 			if deal.Data.Format.Aggregate.Type > 0 {
 				subPieces = deal.Data.Format.Aggregate.Sub
-				_, interrupted, err = IndexAggregate(reader, pi.Size, subPieces, opts, recs, addFail)
+				_, interrupted, err = IndexAggregate(reader, pi.Size, subPieces, recs, addFail)
 			}
 		}
 
 	} else {
-		_, interrupted, err = IndexCAR(reader, 4<<20, opts, recs, addFail)
+		_, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
 	}
 
 	if err != nil {
@@ -210,7 +212,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, nil
 	}
 
-	lnk, err := chk.Finish(ctx, I.db, pi.PieceCID)
+	lnk, err := chk.Finish(ctx, I.db, commp.PCidV2())
 	if err != nil {
 		return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
 	}
@@ -331,57 +333,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 }
 
 func (I *IPNITask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	var tasks []struct {
-		TaskID       harmonytask.TaskID `db:"task_id"`
-		SpID         int64              `db:"sp_id"`
-		SectorNumber int64              `db:"sector"`
-		StorageID    string             `db:"storage_id"`
-	}
-
-	if storiface.FTUnsealed != 1 {
-		panic("storiface.FTUnsealed != 1")
-	}
-
-	ctx := context.Background()
-
-	indIDs := make([]int64, len(ids))
-	for i, id := range ids {
-		indIDs[i] = int64(id)
-	}
-
-	err := I.db.Select(ctx, &tasks, `
-		SELECT dp.task_id, dp.sp_id, dp.sector, l.storage_id FROM ipni_task dp
-			INNER JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
-			WHERE dp.task_id = ANY ($1) AND l.sector_filetype = 1
-`, indIDs)
-	if err != nil {
-		return nil, xerrors.Errorf("getting tasks: %w", err)
-	}
-
-	ls, err := I.sc.LocalStorage(ctx)
-	if err != nil {
-		return nil, xerrors.Errorf("getting local storage: %w", err)
-	}
-
-	acceptables := map[harmonytask.TaskID]bool{}
-
-	for _, t := range ids {
-		acceptables[t] = true
-	}
-
-	for _, t := range tasks {
-		if _, ok := acceptables[t.TaskID]; !ok {
-			continue
-		}
-
-		for _, l := range ls {
-			if string(l.ID) == t.StorageID {
-				return &t.TaskID, nil
-			}
-		}
-	}
-
-	return nil, nil
+	return &ids[0], nil
 }
 
 func (I *IPNITask) TypeDetails() harmonytask.TaskTypeDetails {
@@ -429,6 +381,7 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 											  raw_size,
 											  should_index,
 											  announce,
+											  indexing_created_at,
 											  FALSE as mk20
 											FROM market_mk12_deal_pipeline
 											WHERE sealed = TRUE
@@ -448,6 +401,7 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 											  raw_size,
 											  indexing AS should_index,
 											  announce,
+											  indexing_created_at,
 											  TRUE as mk20
 											FROM market_mk20_pipeline
 											WHERE sealed = TRUE
@@ -544,7 +498,7 @@ func (I *IPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFun
 				return false, xerrors.Errorf("marshaling piece info: %w", err)
 			}
 
-			_, err = tx.Exec(`SELECT insert_ipni_task($1, $2, $3, $4, $5, $6, $7, $8, $9)`, p.SpID, p.UUID,
+			_, err = tx.Exec(`SELECT insert_ipni_task($1, $2, $3, $4, $5, $6, $7, $8, $9)`, p.UUID, p.SpID,
 				p.Sector, p.Proof, p.Offset, b.Bytes(), false, pid.String(), id)
 			if err != nil {
 				if harmonydb.IsErrUniqueContraint(err) {

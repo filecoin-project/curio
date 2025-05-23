@@ -1,12 +1,13 @@
 package http
 
 import (
+	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -14,6 +15,10 @@ import (
 	"github.com/go-chi/httprate"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/oklog/ulid"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/renderer/html"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -23,6 +28,9 @@ import (
 	"github.com/filecoin-project/curio/market/mk20"
 	storage_market "github.com/filecoin-project/curio/tasks/storage-market"
 )
+
+//go:embed info.md
+var infoMarkdown []byte
 
 var log = logging.Logger("mk20httphdlr")
 
@@ -74,7 +82,7 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 	var deal mk20.Deal
 	if ct != "application/json" {
 		log.Errorf("invalid content type: %s", ct)
-		w.WriteHeader(http.StatusBadRequest)
+		http.Error(w, "invalid content type", http.StatusBadRequest)
 		return
 	}
 
@@ -82,14 +90,20 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Errorf("error reading request body: %s", err)
-		w.WriteHeader(http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
+
+	log.Infow("received deal proposal", "body", string(body))
+
 	err = json.Unmarshal(body, &deal)
 	if err != nil {
 		log.Errorf("error unmarshaling json: %s", err)
-		w.WriteHeader(http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	log.Infow("received deal proposal", "deal", deal)
 
 	result := mdh.dm.MK20Handler.ExecuteDeal(context.Background(), &deal)
 
@@ -111,13 +125,13 @@ func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	if idStr == "" {
 		log.Errorw("missing id in url", "url", r.URL)
-		w.WriteHeader(http.StatusBadRequest)
+		http.Error(w, "missing id in url", http.StatusBadRequest)
 		return
 	}
 	id, err := ulid.Parse(idStr)
 	if err != nil {
 		log.Errorw("invalid id in url", "id", idStr, "err", err)
-		w.WriteHeader(http.StatusBadRequest)
+		http.Error(w, "invalid id in url", http.StatusBadRequest)
 		return
 	}
 
@@ -202,16 +216,69 @@ func (mdh *MK20DealHandler) mk20UploadDealData(w http.ResponseWriter, r *http.Re
 
 // info serves the contents of the info file as a text/markdown response with HTTP 200 or returns an HTTP 500 on read/write failure.
 func (mdh *MK20DealHandler) info(w http.ResponseWriter, r *http.Request) {
-	// Read the info File
-	data, err := os.ReadFile("../info.md")
-	if err != nil {
-		log.Errorw("failed to read info file", "err", err)
-		w.WriteHeader(http.StatusInternalServerError)
+
+	var mdRenderer = goldmark.New(
+		goldmark.WithExtensions(
+			extension.GFM,
+			extension.Linkify,
+			extension.Table,
+			extension.DefinitionList,
+		),
+		goldmark.WithRendererOptions(
+			html.WithHardWraps(),
+			html.WithXHTML(),
+		),
+		goldmark.WithParserOptions(
+			parser.WithAutoHeadingID(),
+		),
+	)
+
+	var buf bytes.Buffer
+	if err := mdRenderer.Convert(infoMarkdown, &buf); err != nil {
+		http.Error(w, "failed to render markdown", http.StatusInternalServerError)
 		return
 	}
+	//if err := goldmark.Convert(infoMarkdown, &buf); err != nil {
+	//	http.Error(w, "failed to render markdown", http.StatusInternalServerError)
+	//	return
+	//}
+
 	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Content-Type", "text/markdown")
-	_, err = w.Write(data)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	rendered := strings.ReplaceAll(buf.String(), "<table>", `<table class="table table-dark table-striped table-sm table-bordered">`)
+
+	htmlStr := fmt.Sprintf(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Curio Deal Schema</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-4Q6Gf2aSP4eDXB8Miphtr37CMZZQ5oXLH2yaXMJ2w8e2ZtHTl7GptT4jmndRuHDT" crossorigin="anonymous">
+	<style>
+		body {
+			background-color: #f8f9fa;
+			padding: 2rem;
+		}
+		pre, code {
+			background-color: #f1f3f5;
+			border-radius: 4px;
+			padding: 0.25em 0.5em;
+		}
+		table {
+			margin-top: 1rem;
+		}
+	</style>
+</head>
+<body>
+<div class="container">
+%s
+</div>
+</body>
+</html>`, rendered)
+
+	_, err := w.Write([]byte(htmlStr))
 	if err != nil {
 		log.Errorw("failed to write info file", "err", err)
 	}

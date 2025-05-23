@@ -10,7 +10,6 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-cidutil/cidenc"
@@ -286,7 +285,7 @@ var generateRandCar = &cli.Command{
 		cs := cctx.Int64("chunksize")
 		ml := cctx.Int("maxlinks")
 
-		rf, err := testutils.CreateRandomFile(outPath, time.Now().Unix(), size)
+		rf, err := testutils.CreateRandomTmpFile(outPath, size)
 		if err != nil {
 			return err
 		}

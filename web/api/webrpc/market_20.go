@@ -17,18 +17,28 @@ import (
 )
 
 type MK20StorageDeal struct {
-	Deal  *mk20.Deal     `json:"deal"`
-	Error sql.NullString `json:"error"`
+	Deal       *mk20.Deal     `json:"deal"`
+	Error      sql.NullString `json:"error"`
+	PieceCidV2 string         `json:"piece_cid_v2"`
 }
 
-func (a *WebRPC) MK20DDOStorageDeal(ctx context.Context, idStr string) (*MK20StorageDeal, error) {
-	id, err := ulid.Parse(idStr)
+func (a *WebRPC) MK20DDOStorageDeal(ctx context.Context, id string) (*MK20StorageDeal, error) {
+	pid, err := ulid.Parse(id)
 	if err != nil {
 		return nil, xerrors.Errorf("parsing deal ID: %w", err)
 	}
 
 	var dbDeal []mk20.DBDeal
-	err = a.deps.DB.Select(ctx, &dbDeal, `SELECT * FROM market_mk20_deal WHERE id = $1`, id.String())
+	err = a.deps.DB.Select(ctx, &dbDeal, `SELECT id, 
+													piece_cid, 
+													piece_size, 
+													format, 
+													source_http, 
+													source_aggregate, 
+													source_offline, 
+													source_http_put, 
+													ddo_v1,
+													error FROM market_mk20_deal WHERE id = $1`, pid.String())
 	if err != nil {
 		return nil, xerrors.Errorf("getting deal from DB: %w", err)
 	}
@@ -40,30 +50,45 @@ func (a *WebRPC) MK20DDOStorageDeal(ctx context.Context, idStr string) (*MK20Sto
 		return nil, xerrors.Errorf("converting DB deal to struct: %w", err)
 	}
 
-	return &MK20StorageDeal{Deal: deal, Error: dbDeal[0].Error}, nil
+	pi := abi.PieceInfo{
+		PieceCID: deal.Data.PieceCID,
+		Size:     deal.Data.Size,
+	}
+
+	commp, err := commcidv2.CommPFromPieceInfo(pi)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get commp: %w", err)
+	}
+
+	return &MK20StorageDeal{Deal: deal, Error: dbDeal[0].Error, PieceCidV2: commp.PCidV2().String()}, nil
 }
 
 func (a *WebRPC) MK20DDOStorageDeals(ctx context.Context, limit int, offset int) ([]*StorageDealList, error) {
 	var mk20Summaries []*StorageDealList
 
 	err := a.deps.DB.Select(ctx, &mk20Summaries, `SELECT
-															d.id as uuid,
-															d.piece_cid,
-															d.size AS piece_size,
-															d.created_at,
-															d.sp_id,
-															d.error,
-															CASE
-																WHEN w.id IS NOT NULL THEN FALSE
-																WHEN p.id IS NOT NULL THEN p.complete
-																ELSE TRUE
-															END AS processed
-														FROM market_mk20_deal d
-														LEFT JOIN market_mk20_pipeline_waiting w ON d.id = w.id
-														LEFT JOIN market_mk20_pipeline p ON d.id = p.id
-														WHERE d.ddo_v1 IS NOT NULL AND d.ddo_v1 != 'null'
-														ORDER BY d.created_at DESC
-														LIMIT $1 OFFSET $2;`, limit, offset)
+													  d.id AS uuid,
+													  d.piece_cid,
+													  d.piece_size,
+													  d.created_at,
+													  d.sp_id,
+													  d.error,
+													  CASE
+														WHEN EXISTS (
+														  SELECT 1 FROM market_mk20_pipeline_waiting w
+														  WHERE w.id = d.id
+														) THEN FALSE
+														WHEN EXISTS (
+														  SELECT 1 FROM market_mk20_pipeline p
+														  WHERE p.id = d.id AND p.complete = FALSE
+														) THEN FALSE
+														ELSE TRUE
+													  END AS processed
+													FROM market_mk20_deal d
+													WHERE d.ddo_v1 IS NOT NULL AND d.ddo_v1 != 'null'
+													ORDER BY d.created_at DESC
+													LIMIT $1 OFFSET $2;
+													`, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch deal list: %w", err)
 	}

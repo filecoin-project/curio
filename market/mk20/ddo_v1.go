@@ -2,8 +2,10 @@ package mk20
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"strings"
 
@@ -11,6 +13,7 @@ import (
 	eabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/samber/lo"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -18,6 +21,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
@@ -65,7 +69,7 @@ type DDOV1 struct {
 	AnnounceToIPNI bool `json:"announce_to_ipni"`
 }
 
-func (d *DDOV1) Validate(db *harmonydb.DB) (ErrorCode, error) {
+func (d *DDOV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, error) {
 	code, err := IsProductEnabled(db, d.ProductName())
 	if err != nil {
 		return code, err
@@ -73,6 +77,19 @@ func (d *DDOV1) Validate(db *harmonydb.DB) (ErrorCode, error) {
 
 	if d.Provider == address.Undef || d.Provider.Empty() {
 		return ErrProductValidationFailed, xerrors.Errorf("provider address is not set")
+	}
+
+	var mk20disabledMiners []address.Address
+	for _, m := range cfg.DisabledMiners {
+		maddr, err := address.NewFromString(m)
+		if err != nil {
+			return http.StatusInternalServerError, xerrors.Errorf("failed to parse miner string: %s", err)
+		}
+		mk20disabledMiners = append(mk20disabledMiners, maddr)
+	}
+
+	if lo.Contains(mk20disabledMiners, d.Provider) {
+		return ErrProductValidationFailed, xerrors.Errorf("provider is disabled")
 	}
 
 	if d.Client == address.Undef || d.Client.Empty() {
@@ -119,6 +136,14 @@ func (d *DDOV1) Validate(db *harmonydb.DB) (ErrorCode, error) {
 }
 
 func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.Client) (string, ErrorCode, error) {
+	if d.ContractAddress == "0xtest" {
+		v, err := rand.Int(rand.Reader, big.NewInt(10000000))
+		if err != nil {
+			return "", http.StatusInternalServerError, xerrors.Errorf("failed to generate random number: %w", err)
+		}
+		return v.String(), Ok, nil
+	}
+
 	var abiStr string
 	err := db.QueryRow(ctx, `SELECT abi FROM ddo_contracts WHERE address = $1`, d.ContractAddress).Scan(&abiStr)
 	if err != nil {

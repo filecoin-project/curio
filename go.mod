@@ -101,6 +101,7 @@ require (
 	github.com/whyrusleeping/cbor-gen v0.3.1
 	github.com/yugabyte/gocql v1.6.0-yb-1
 	github.com/yugabyte/pgx/v5 v5.5.3-yb-2
+	github.com/yuin/goldmark v1.4.13
 	go.opencensus.io v0.24.0
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.0

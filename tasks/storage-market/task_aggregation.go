@@ -35,17 +35,15 @@ type AggregateTask struct {
 	sc   *ffi.SealCalls
 	stor paths.StashStore
 	api  headAPI
-	max  int
 }
 
-func NewAggregateTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sc *ffi.SealCalls, stor paths.StashStore, api headAPI, max int) *AggregateTask {
+func NewAggregateTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sc *ffi.SealCalls, stor paths.StashStore, api headAPI) *AggregateTask {
 	return &AggregateTask{
 		sm:   sm,
 		db:   db,
 		sc:   sc,
 		stor: stor,
 		api:  api,
-		max:  max,
 	}
 }
 
@@ -53,27 +51,28 @@ func (a *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	ctx := context.Background()
 
 	var pieces []struct {
-		Pcid       string `db:"piece_cid"`
-		Psize      int64  `db:"piece_size"`
-		RawSize    int64  `db:"raw_size"`
-		URL        string `db:"url"`
-		ID         string `db:"id"`
-		SpID       int64  `db:"sp_id"`
-		AggrIndex  int    `db:"aggr_index"`
-		Aggregated bool   `db:"aggregated"`
-		Aggreation int    `db:"deal_aggregation"`
+		Pcid        string `db:"piece_cid"`
+		Psize       int64  `db:"piece_size"`
+		RawSize     int64  `db:"raw_size"`
+		URL         string `db:"url"`
+		ID          string `db:"id"`
+		SpID        int64  `db:"sp_id"`
+		AggrIndex   int    `db:"aggr_index"`
+		Aggregated  bool   `db:"aggregated"`
+		Aggregation int    `db:"deal_aggregation"`
 	}
 
 	err = a.db.Select(ctx, &pieces, `
 										SELECT
+										    piece_cid, 
+											piece_size,
+											raw_size,
 											url, 
-											headers, 
-											raw_size, 
-											piece_cid, 
-											piece_size, 
 											id, 
 											sp_id, 
-											aggr_index
+											aggr_index,
+											aggregated,
+											deal_aggregation
 										FROM 
 											market_mk20_pipeline 
 										WHERE 
@@ -121,11 +120,13 @@ func (a *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	var pinfos []abi.PieceInfo
 	var readers []io.Reader
 
+	var refIDs []int64
+
 	for _, piece := range pieces {
 		if piece.Aggregated {
 			return false, xerrors.Errorf("piece %s for deal %s already aggregated for task %d", piece.Pcid, piece.ID, taskID)
 		}
-		if piece.Aggreation != 1 {
+		if piece.Aggregation != 1 {
 			return false, xerrors.Errorf("incorrect aggregation value for piece %s for deal %s for task %d", piece.Pcid, piece.ID, taskID)
 		}
 		if piece.ID != id || piece.SpID != spid {
@@ -183,6 +184,7 @@ func (a *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 		pReader, _ := padreader.New(reader, uint64(piece.RawSize))
 		readers = append(readers, pReader)
+		refIDs = append(refIDs, refNum)
 	}
 
 	_, aggregatedRawSize, err := datasegment.ComputeDealPlacement(pinfos)
@@ -283,6 +285,11 @@ func (a *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			return false, fmt.Errorf("failed to delete pipeline pieces: %w", err)
 		}
 
+		_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = ANY($1) AND long_term = FALSE`, refIDs)
+		if err != nil {
+			return false, fmt.Errorf("failed to delete parked_piece_refs entries: %w", err)
+		}
+
 		ddo := deal.Products.DDOV1
 		data := deal.Data
 
@@ -298,7 +305,7 @@ func (a *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
             offline, indexing, announce, allocation_id, duration, 
             piece_aggregation, deal_aggregation, started, downloaded, after_commp, aggregated) 
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, TRUE, TRUE, TRUE, TRUE)`,
-			id, spid, ddo.ContractAddress, ddo.Client.String(), data.PieceCID.String(), data.Size, int64(data.SourceHTTP.RawSize), pieceIDUrl.String(),
+			id, spid, ddo.ContractAddress, ddo.Client.String(), data.PieceCID.String(), data.Size, rawSize, pieceIDUrl.String(),
 			false, ddo.Indexing, ddo.AnnounceToIPNI, allocationID, ddo.Duration,
 			data.Format.Aggregate.Type, data.Format.Aggregate.Type)
 		if err != nil {
@@ -326,7 +333,7 @@ func (a *AggregateTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.
 
 func (a *AggregateTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Max:  taskhelp.Max(a.max),
+		Max:  taskhelp.Max(50),
 		Name: "AggregateDeals",
 		Cost: resources.Resources{
 			Cpu: 1,

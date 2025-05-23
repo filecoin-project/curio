@@ -132,7 +132,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 		CIDCount   int64 `db:"cid_count"`
 	}
 
-	err = a.deps.DB.Select(ctx, &adEntryInfo, `SELECT count(1) as entry_count, sum(num_blocks) as cid_count from ipni_chunks where piece_cid=$1`, details.PieceCid)
+	err = a.deps.DB.Select(ctx, &adEntryInfo, `SELECT count(1) as entry_count, sum(num_blocks) as cid_count from ipni_chunks where piece_cid=$1`, details.PieceCidV2)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch the ad entry count from DB: %w", err)
 	}
