@@ -9,6 +9,8 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 var walletOnce sync.Once
@@ -141,4 +143,57 @@ func (a *WebRPC) PendingMessages(ctx context.Context) (PendingMessages, error) {
 	}
 
 	return ret, nil
+}
+
+type WalletInfoShort struct {
+	IDAddress string `json:"id_address"`
+	KeyAddress string `json:"key_address"`
+	Balance   string `json:"balance"`
+	PendingMessages int    `json:"pending_messages"`
+}
+
+func (a *WebRPC) WalletInfoShort(ctx context.Context, walletID string) (WalletInfoShort, error) {
+	waddr, err := address.NewFromString(walletID)
+	if err != nil {
+		return WalletInfoShort{}, xerrors.Errorf("failed to parse wallet ID: %w", err)
+	}
+
+	// balance from chain
+	balance, err := a.deps.Chain.WalletBalance(ctx, waddr)
+	if err != nil {
+		return WalletInfoShort{}, xerrors.Errorf("failed to get balance: %w", err)
+	}
+
+	kaddr, err := a.deps.Chain.StateAccountKey(ctx, waddr, types.EmptyTSK)
+	if err != nil {
+		return WalletInfoShort{}, xerrors.Errorf("failed to get key address: %w", err)
+	}
+
+	iaddr, err := a.deps.Chain.StateLookupID(ctx, kaddr, types.EmptyTSK)
+	if err != nil {
+		return WalletInfoShort{}, xerrors.Errorf("failed to get ID address: %w", err)
+	}
+
+	var pendingMessages int
+	err = a.deps.DB.QueryRow(ctx, `
+		SELECT COUNT(1)
+		FROM message_waits
+		WHERE executed_tsk_cid IS NULL AND executed_msg_data->>'From' = $1
+	`, kaddr.String()).Scan(&pendingMessages)
+	if err != nil {
+		// If there's an error (e.g., no rows), we can assume 0 pending messages,
+		// but log the error for debugging.
+		// Depending on strictness, one might want to return an error here.
+		// For now, let's assume 0 if there's an issue, as the original code for WalletBalance
+		// and StateAccountKey/StateLookupID would have already errored out for critical issues.
+		log.Warnf("failed to get pending messages count for wallet %s (key: %s): %v", walletID, kaddr.String(), err)
+		pendingMessages = 0 // Default to 0 on error
+	}
+
+	return WalletInfoShort{
+		IDAddress: iaddr.String(),
+		KeyAddress: kaddr.String(),
+		Balance: types.FIL(balance).Short(),
+		PendingMessages: pendingMessages,
+	}, nil
 }

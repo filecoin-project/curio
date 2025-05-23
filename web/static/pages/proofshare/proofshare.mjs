@@ -2,6 +2,7 @@ import { LitElement, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit
 import RPCCall from '/lib/jsonrpc.mjs';
 import '/ux/task.mjs';
 import { formatDate } from '/lib/dateutil.mjs';
+import '/lib/cu-wallet.mjs';
 
 class ProofShareElement extends LitElement {
   static properties = {
@@ -134,7 +135,7 @@ class ProofShareElement extends LitElement {
             <tbody>
               ${this.paymentSummaries.map((summary) => html`
                 <tr>
-                  <td class="text-break">${summary.address}</td>
+                  <td class="text-break"><cu-wallet wallet_id=${summary.address}></cu-wallet></td>
                   <td>${summary.last_payment_nonce}</td>
                   <td>${summary.last_settled_amount_fil || 'N/A'}</td>
                   <td>${summary.unsettled_amount_fil || '0 FIL'}</td>
