@@ -58,7 +58,7 @@ const (
 	numPollers
 )
 
-const dealPollerInterval = 30 * time.Second
+const dealPollerInterval = 3 * time.Second
 
 type storageMarketAPI interface {
 	mk12.MK12API
@@ -118,7 +118,8 @@ type MK12Pipeline struct {
 func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, ethClient *ethclient.Client, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, stor paths.StashStore) *CurioStorageDealMarket {
 
 	moduleMap := make(map[string][]address.Address)
-	moduleMap[mk12Str] = append(moduleMap[mk12Str], miners...)
+	moduleMap[mk12Str] = miners
+	moduleMap[mk20Str] = miners
 
 	urls := make(map[string]http.Header)
 	for _, curl := range cfg.Market.StorageMarketConfig.PieceLocator {

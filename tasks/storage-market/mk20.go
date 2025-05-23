@@ -176,11 +176,9 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 		allocationID = nil
 	}
 
-	var aggregation interface{}
+	aggregation := 0
 	if data.Format.Aggregate != nil {
-		aggregation = data.Format.Aggregate.Type
-	} else {
-		aggregation = nil
+		aggregation = int(data.Format.Aggregate.Type)
 	}
 
 	// Insert pipeline when Data source is HTTP
@@ -278,158 +276,199 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 			ID       string
 			PieceCID cid.Cid
 			Size     abi.PaddedPieceSize
+			RawSize  uint64
 		}
 		toDownload := make(map[downloadkey][]mk20.HttpUrl)
-		existing := make(map[downloadkey]*int64)
-		offlinelist := make(map[downloadkey]struct{})
 
 		for _, piece := range deal.Data.SourceAggregate.Pieces {
 			if piece.SourceHTTP != nil {
-				urls, ok := toDownload[downloadkey{ID: dealID, PieceCID: piece.PieceCID, Size: piece.Size}]
+				urls, ok := toDownload[downloadkey{ID: dealID, PieceCID: piece.PieceCID, Size: piece.Size, RawSize: piece.SourceHTTP.RawSize}]
 				if ok {
 					toDownload[downloadkey{ID: dealID, PieceCID: piece.PieceCID, Size: piece.Size}] = append(urls, piece.SourceHTTP.URLs...)
 				} else {
-					toDownload[downloadkey{ID: dealID, PieceCID: piece.PieceCID, Size: piece.Size}] = piece.SourceHTTP.URLs
-					existing[downloadkey{ID: dealID, PieceCID: piece.PieceCID, Size: piece.Size}] = nil
+					toDownload[downloadkey{ID: dealID, PieceCID: piece.PieceCID, Size: piece.Size, RawSize: piece.SourceHTTP.RawSize}] = piece.SourceHTTP.URLs
 				}
-			}
-			if piece.SourceOffline != nil {
-				offlinelist[downloadkey{ID: dealID, PieceCID: piece.PieceCID, Size: piece.Size}] = struct{}{}
 			}
 		}
 
-		pqBatch := &pgx.Batch{}
-		pqBatchSize := 20000
+		batch := &pgx.Batch{}
+		batchSize := 5000
 
-		for k, _ := range toDownload {
-			pqBatch.Queue(`SELECT id FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2`, k.PieceCID.String(), int64(k.Size)).QueryRow(func(row pgx.Row) error {
-				var id int64
-				err = row.Scan(&id)
+		for k, v := range toDownload {
+			for _, src := range v {
+				headers, err := json.Marshal(src.Headers)
 				if err != nil {
-					if errors.Is(err, pgx.ErrNoRows) {
-						return nil
-					}
-					return xerrors.Errorf("scanning parked piece id: %w", err)
+					return xerrors.Errorf("marshal headers: %w", err)
 				}
-				existing[k] = &id
-				return nil
-			})
-			if pqBatch.Len() > pqBatchSize {
-				res := tx.SendBatch(ctx, pqBatch)
+				batch.Queue(`WITH inserted_piece AS (
+									  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+									  VALUES ($1, $2, $3, FALSE)
+									  ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
+									  RETURNING id
+									),
+									selected_piece AS (
+									  SELECT COALESCE(
+										(SELECT id FROM inserted_piece),
+										(SELECT id FROM parked_pieces
+										 WHERE piece_cid = $1 AND piece_padded_size = $2 AND long_term = FALSE AND cleanup_task_id IS NULL)
+									  ) AS id
+									),
+									inserted_ref AS (
+									  INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
+									  SELECT id, $4, $5, FALSE FROM selected_piece
+									  RETURNING ref_id
+									)
+									INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, ref_ids)
+									VALUES ($6, $1, $2, ARRAY[(SELECT ref_id FROM inserted_ref)])
+									ON CONFLICT (id, piece_cid, piece_size) DO UPDATE
+									SET ref_ids = array_append(
+									  market_mk20_download_pipeline.ref_ids,
+									  (SELECT ref_id FROM inserted_ref)
+									)
+									WHERE NOT market_mk20_download_pipeline.ref_ids @> ARRAY[(SELECT ref_id FROM inserted_ref)];`,
+					k.PieceCID.String(), k.Size, k.RawSize, src.URL, headers, k.ID)
+			}
+
+			if batch.Len() > batchSize {
+				res := tx.SendBatch(ctx, batch)
 				if err := res.Close(); err != nil {
 					return xerrors.Errorf("closing parked piece query batch: %w", err)
 				}
-				pqBatch = &pgx.Batch{}
+				batch = &pgx.Batch{}
 			}
 		}
 
-		if pqBatch.Len() > 0 {
-			res := tx.SendBatch(ctx, pqBatch)
+		if batch.Len() > 0 {
+			res := tx.SendBatch(ctx, batch)
 			if err := res.Close(); err != nil {
 				return xerrors.Errorf("closing parked piece query batch: %w", err)
 			}
 		}
 
-		piBatch := &pgx.Batch{}
-		piBatchSize := 10000
-		for k, v := range existing {
-			if v == nil {
-				piBatch.Queue(`INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-				 VALUES ($1, $2, $3, FALSE)
-				 ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
-				 RETURNING id`, k.PieceCID.String(), int64(k.Size), int64(k.Size)).QueryRow(func(row pgx.Row) error {
-					var id int64
-					err = row.Scan(&id)
-					if err != nil {
-						if errors.Is(err, pgx.ErrNoRows) {
-							return nil
-						}
-						return xerrors.Errorf("scanning parked piece id: %w", err)
-					}
-					v = &id
-					return nil
-				})
-				if piBatch.Len() > piBatchSize {
-					res := tx.SendBatch(ctx, piBatch)
-					if err := res.Close(); err != nil {
-						return xerrors.Errorf("closing parked piece insert batch: %w", err)
-					}
-					piBatch = &pgx.Batch{}
-				}
-			}
-		}
+		//existingCount = 0
+		//for _, v := range existing {
+		//	if v != nil {
+		//		existingCount++
+		//	}
+		//}
+		//
+		//log.Infow("Initial Existing after first pass", "Count", existingCount)
+		//
+		//piBatch := &pgx.Batch{}
+		//piBatchSize := 10000
+		//for k, v := range existing {
+		//	if v == nil {
+		//		piBatch.Queue(`WITH inserted_piece AS (
+		//							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+		//							  VALUES ($1, $2, $3, FALSE)
+		//							  ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
+		//							  RETURNING id
+		//							),
+		//							selected_piece AS (
+		//							  SELECT COALESCE(
+		//								(SELECT id FROM inserted_piece),
+		//								(SELECT id FROM parked_pieces
+		//								 WHERE piece_cid = $1 AND piece_padded_size = $2 AND long_term = FALSE AND cleanup_task_id IS NULL)
+		//							  ) AS id
+		//							),
+		//							inserted_ref AS (
+		//							  INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
+		//							  SELECT id, $4, $5, FALSE FROM selected_piece
+		//							  RETURNING ref_id
+		//							)
+		//							INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, ref_ids)
+		//							VALUES ($6, $1, $2, ARRAY[(SELECT ref_id FROM inserted_ref)])
+		//							ON CONFLICT (id, piece_cid, piece_size) DO UPDATE
+		//							SET ref_ids = array_append(
+		//							  market_mk20_download_pipeline.ref_ids,
+		//							  (SELECT ref_id FROM inserted_ref)
+		//							)
+		//							WHERE NOT market_mk20_download_pipeline.ref_ids @> ARRAY[(SELECT ref_id FROM inserted_ref)];`,
+		//			k.PieceCID.String(), k.Size)
+		//		if piBatch.Len() > piBatchSize {
+		//			res := tx.SendBatch(ctx, piBatch)
+		//			if err := res.Close(); err != nil {
+		//				return xerrors.Errorf("closing parked piece insert batch: %w", err)
+		//			}
+		//			piBatch = &pgx.Batch{}
+		//		}
+		//	}
+		//}
+		//
+		//if piBatch.Len() > 0 {
+		//	res := tx.SendBatch(ctx, piBatch)
+		//	if err := res.Close(); err != nil {
+		//		return xerrors.Errorf("closing parked piece insert batch: %w", err)
+		//	}
+		//}
+		//
+		//existingCount = 0
+		//for _, v := range existing {
+		//	if v != nil {
+		//		existingCount++
+		//	}
+		//}
+		//
+		//log.Infow("Initial Existing after second pass", "Count", existingCount)
+		//
+		//prBatch := &pgx.Batch{}
+		//prBatchSize := 10000
+		//
+		//for k, v := range existing {
+		//	if v == nil {
+		//		return xerrors.Errorf("missing parked piece for %s", k.PieceCID.String())
+		//	}
+		//	urls := toDownload[downloadkey{PieceCID: k.PieceCID, Size: k.Size}]
+		//	for _, src := range urls {
+		//		headers, err := json.Marshal(src.Headers)
+		//		if err != nil {
+		//			return xerrors.Errorf("marshal headers: %w", err)
+		//		}
+		//		prBatch.Queue(`WITH inserted_ref AS (
+		//							  INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
+		//							  VALUES ($1, $2, $3, FALSE)
+		//							  RETURNING ref_id
+		//							)
+		//							INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, ref_ids)
+		//							VALUES ($4, $5, $6, ARRAY[(SELECT ref_id FROM inserted_ref)])`,
+		//			*v, src.URL, headers, k.ID, k.PieceCID.String(), k.Size)
+		//	}
+		//
+		//	if prBatch.Len() > 0 {
+		//		res := tx.SendBatch(ctx, prBatch)
+		//		if err := res.Close(); err != nil {
+		//			return xerrors.Errorf("closing parked piece ref insert batch: %w", err)
+		//		}
+		//	}
+		//}
+		//
+		//if prBatch.Len() > prBatchSize {
+		//	res := tx.SendBatch(ctx, prBatch)
+		//	if err := res.Close(); err != nil {
+		//		return xerrors.Errorf("closing parked piece ref insert batch: %w", err)
+		//	}
+		//	prBatch = &pgx.Batch{}
+		//}
 
-		if piBatch.Len() > 0 {
-			res := tx.SendBatch(ctx, piBatch)
-			if err := res.Close(); err != nil {
-				return xerrors.Errorf("closing parked piece insert batch: %w", err)
-			}
-		}
-
-		prBatch := &pgx.Batch{}
-		prBatchSize := 10000
-		downloadMap := make(map[downloadkey][]int64)
-
-		for k, v := range existing {
-			if v == nil {
-				return xerrors.Errorf("missing parked piece for %s", k.PieceCID.String())
-			}
-			var refIds []int64
-			urls := toDownload[downloadkey{PieceCID: k.PieceCID, Size: k.Size}]
-			for _, src := range urls {
-				headers, err := json.Marshal(src.Headers)
-				if err != nil {
-					return xerrors.Errorf("marshal headers: %w", err)
-				}
-				prBatch.Queue(`INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term) VALUES ($1, $2, $3, FALSE) RETURNING ref_id`,
-					*v, src.URL, headers).QueryRow(func(row pgx.Row) error {
-					var id int64
-					err = row.Scan(&id)
-					if err != nil {
-						return xerrors.Errorf("scanning parked piece ref id: %w", err)
-					}
-					refIds = append(refIds, id)
-					return nil
-				})
-
-				if prBatch.Len() > prBatchSize {
-					res := tx.SendBatch(ctx, prBatch)
-					if err := res.Close(); err != nil {
-						return xerrors.Errorf("closing parked piece ref insert batch: %w", err)
-					}
-					prBatch = &pgx.Batch{}
-				}
-			}
-			downloadMap[downloadkey{ID: dealID, PieceCID: k.PieceCID, Size: k.Size}] = refIds
-
-		}
-
-		if prBatch.Len() > 0 {
-			res := tx.SendBatch(ctx, prBatch)
-			if err := res.Close(); err != nil {
-				return xerrors.Errorf("closing parked piece ref insert batch: %w", err)
-			}
-		}
-
-		mdBatch := &pgx.Batch{}
-		mdBatchSize := 20000
-		for k, v := range downloadMap {
-			mdBatch.Queue(`INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, ref_ids) VALUES ($1, $2, $3, $4)`,
-				k.ID, k.PieceCID.String(), k.Size, v)
-			if mdBatch.Len() > mdBatchSize {
-				res := tx.SendBatch(ctx, mdBatch)
-				if err := res.Close(); err != nil {
-					return xerrors.Errorf("closing mk20 download pipeline insert batch: %w", err)
-				}
-				mdBatch = &pgx.Batch{}
-			}
-		}
-		if mdBatch.Len() > 0 {
-			res := tx.SendBatch(ctx, mdBatch)
-			if err := res.Close(); err != nil {
-				return xerrors.Errorf("closing mk20 download pipeline insert batch: %w", err)
-			}
-		}
+		//mdBatch := &pgx.Batch{}
+		//mdBatchSize := 20000
+		//for k, v := range downloadMap {
+		//	mdBatch.Queue(`INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, ref_ids) VALUES ($1, $2, $3, $4)`,
+		//		k.ID, k.PieceCID.String(), k.Size, v)
+		//	if mdBatch.Len() > mdBatchSize {
+		//		res := tx.SendBatch(ctx, mdBatch)
+		//		if err := res.Close(); err != nil {
+		//			return xerrors.Errorf("closing mk20 download pipeline insert batch: %w", err)
+		//		}
+		//		mdBatch = &pgx.Batch{}
+		//	}
+		//}
+		//if mdBatch.Len() > 0 {
+		//	res := tx.SendBatch(ctx, mdBatch)
+		//	if err := res.Close(); err != nil {
+		//		return xerrors.Errorf("closing mk20 download pipeline insert batch: %w", err)
+		//	}
+		//}
 
 		pBatch := &pgx.Batch{}
 		pBatchSize := 4000
@@ -466,6 +505,8 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 		return nil
 	}
 
+	// Insert pipeline when data
+
 	return xerrors.Errorf("unknown data source type")
 }
 
@@ -475,7 +516,7 @@ func (d *CurioStorageDealMarket) processMK20DealPieces(ctx context.Context) {
 											id,
 											sp_id,
 											contract,
-											piece_index,
+											client,
 											piece_cid,
 											piece_size,
 											raw_size,
@@ -483,12 +524,13 @@ func (d *CurioStorageDealMarket) processMK20DealPieces(ctx context.Context) {
 											url,
 											indexing,
 											announce,
-											verified,
 											allocation_id,
 											duration,
 											piece_aggregation,
 											started,
 											downloaded,
+											commp_task_id,
+											after_commp,
 											deal_aggregation,
 											aggr_index,
 											agg_task_id,
@@ -549,7 +591,7 @@ func (d *CurioStorageDealMarket) downloadMk20Deal(ctx context.Context, piece MK2
 	if !piece.Downloaded && piece.Started {
 		_, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 			var refid int64
-			err = tx.QueryRow(`SELECT ref_id FROM (
+			err = tx.QueryRow(`SELECT u.ref_id FROM (
 									  SELECT unnest(dp.ref_ids) AS ref_id
 									  FROM market_mk20_download_pipeline dp
 									  WHERE dp.id = $1 AND dp.piece_cid = $2 AND dp.piece_size = $3
@@ -804,7 +846,7 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 func (d *CurioStorageDealMarket) createCommPMk20Piece(ctx context.Context, piece MK20PipelinePiece) error {
 	if piece.Downloaded && !piece.AfterCommp && piece.CommTaskID == nil {
 		// Skip commP is configured to do so
-		if d.cfg.Market.StorageMarketConfig.MK12.SkipCommP {
+		if d.cfg.Market.StorageMarketConfig.MK20.SkipCommP {
 			_, err := d.db.Exec(ctx, `UPDATE market_mk20_pipeline SET after_commp = TRUE, commp_task_id = NULL
 										 	WHERE id = $1 
 											  AND sp_id = $2 
@@ -817,7 +859,7 @@ func (d *CurioStorageDealMarket) createCommPMk20Piece(ctx context.Context, piece
 			if err != nil {
 				return xerrors.Errorf("marking piece as after commP: %w", err)
 			}
-			log.Infow("commP skipped successfully", "deal piece", piece)
+			log.Debugw("commP skipped successfully", "deal piece", piece)
 			return nil
 		}
 
@@ -833,15 +875,18 @@ func (d *CurioStorageDealMarket) createCommPMk20Piece(ctx context.Context, piece
                                 		  AND aggr_index = $7
 										  AND downloaded = TRUE
 										  AND after_commp = FALSE
-										  AND commp_task_id = NULL`, id, piece.ID, piece.SPID, piece.PieceCID, piece.PieceSize, piece.RawSize, piece.AggregationIndex)
+										  AND commp_task_id IS NULL`, id, piece.ID, piece.SPID, piece.PieceCID, piece.PieceSize, piece.RawSize, piece.AggregationIndex)
 				if err != nil {
 					return false, xerrors.Errorf("creating commP task for deal piece: %w", err)
+				}
+
+				if n > 0 {
+					log.Debugw("commP task created successfully", "deal piece", piece)
 				}
 
 				// commit only if we updated the piece
 				return n > 0, nil
 			})
-			log.Infow("commP task created successfully", "deal piece", piece)
 		}
 
 		return nil
@@ -851,7 +896,7 @@ func (d *CurioStorageDealMarket) createCommPMk20Piece(ctx context.Context, piece
 
 func (d *CurioStorageDealMarket) addDealOffset(ctx context.Context, piece MK20PipelinePiece) error {
 	// Get the deal offset if sector has started sealing
-	if piece.Sector != nil && piece.RegSealProof == nil {
+	if piece.Sector != nil && piece.RegSealProof != nil && piece.SectorOffset == nil {
 		_, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 			type pieces struct {
 				Cid   string              `db:"piece_cid"`
@@ -929,15 +974,21 @@ func (d *CurioStorageDealMarket) processMK20DealAggregation(ctx context.Context)
 	}
 
 	for _, deal := range deals {
+		log.Infow("processing aggregation task", "deal", deal.ID, "count", deal.Count)
 		d.adders[pollerAggregate].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
 			n, err := tx.Exec(`UPDATE market_mk20_pipeline SET agg_task_id = $1 
                             		WHERE id = $2 
                             		  AND after_commp = TRUE 
-                            		  AND NOT aggregated 
+                            		  AND aggregated = FALSE 
                             		  AND agg_task_id IS NULL`, id, deal.ID)
 			if err != nil {
 				return false, xerrors.Errorf("creating aggregation task for deal: %w", err)
 			}
+
+			if n == deal.Count {
+				log.Infow("aggregation task created successfully", "deal", deal.ID)
+			}
+
 			return n == deal.Count, nil
 		})
 	}
@@ -1002,7 +1053,12 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			continue
 		}
 
-		clientId, err := address.IDFromAddress(client)
+		clientIdAddr, err := d.api.StateLookupID(ctx, client, types.EmptyTSK)
+		if err != nil {
+			log.Errorw("failed to lookup client id", "deal", deal, "error", err)
+		}
+
+		clientId, err := address.IDFromAddress(clientIdAddr)
 		if err != nil {
 			log.Errorw("failed to parse client id", "deal", deal, "error", err)
 			continue
@@ -1066,14 +1122,16 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			if err != nil {
 				return false, xerrors.Errorf("failed to allocate piece to sector: %w", err)
 			}
-			n, err := tx.Exec(`UPDATE market_mk20_pipeline SET SET sector = $1, reg_seal_proof = $2 WHERE id = $3`, *sector, *sp, deal.ID)
+
+			n, err := tx.Exec(`UPDATE market_mk20_pipeline SET sector = $1, reg_seal_proof = $2 WHERE id = $3`, *sector, *sp, deal.ID)
 			if err != nil {
 				return false, xerrors.Errorf("failed to update deal: %w", err)
 			}
+
 			return n == 1, nil
 		}, harmonydb.OptionRetry())
 		if err != nil {
-			log.Errorf("failed to commit transaction: %w", err)
+			log.Errorf("failed to commit transaction: %s", err)
 			continue
 		}
 		if comm {

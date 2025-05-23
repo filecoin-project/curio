@@ -22,11 +22,12 @@ import (
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
-func (d *Deal) Validate(db *harmonydb.DB) (ErrorCode, error) {
-	code, err := d.Products.Validate(db)
+func (d *Deal) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, error) {
+	code, err := d.Products.Validate(db, cfg)
 	if err != nil {
 		return code, xerrors.Errorf("products validation failed: %w", err)
 	}
@@ -261,19 +262,19 @@ func (d DataSource) RawSize() (uint64, error) {
 	return 0, xerrors.Errorf("no source defined")
 }
 
-func (d Products) Validate(db *harmonydb.DB) (ErrorCode, error) {
+func (d Products) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, error) {
 	if d.DDOV1 == nil {
 		return ErrBadProposal, xerrors.Errorf("no products")
 	}
 
-	return d.DDOV1.Validate(db)
+	return d.DDOV1.Validate(db, cfg)
 }
 
 type DBDeal struct {
 	Identifier      string          `db:"id"`
 	SpID            int64           `db:"sp_id"`
 	PieceCID        string          `db:"piece_cid"`
-	Size            int64           `db:"size"`
+	Size            int64           `db:"piece_size"`
 	Format          json.RawMessage `db:"format"`
 	SourceHTTP      json.RawMessage `db:"source_http"`
 	SourceAggregate json.RawMessage `db:"source_aggregate"`
@@ -382,7 +383,7 @@ func (d *Deal) SaveToDB(tx *harmonydb.Tx) error {
 		return xerrors.Errorf("to db deal: %w", err)
 	}
 
-	n, err := tx.Exec(`INSERT INTO deals (id, sp_id, piece_cid, size, format, source_http, source_aggregate, source_offline, source_http_put, ddo_v1) 
+	n, err := tx.Exec(`INSERT INTO market_mk20_deal (id, sp_id, piece_cid, piece_size, format, source_http, source_aggregate, source_offline, source_http_put, ddo_v1) 
                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		dbDeal.Identifier,
 		dbDeal.SpID,
@@ -405,7 +406,17 @@ func (d *Deal) SaveToDB(tx *harmonydb.Tx) error {
 
 func DealFromTX(tx *harmonydb.Tx, id ulid.ULID) (*Deal, error) {
 	var dbDeal []DBDeal
-	err := tx.Select(&dbDeal, `SELECT * FROM market_mk20_deal WHERE id = $1`, id.String())
+	err := tx.Select(&dbDeal, `SELECT 
+    								id, 
+    								piece_cid, 
+    								piece_size, 
+    								format, 
+    								source_http, 
+    								source_aggregate, 
+    								source_offline, 
+    								source_http_put, 
+    								ddo_v1,
+    								error FROM market_mk20_deal WHERE id = $1`, id.String())
 	if err != nil {
 		return nil, xerrors.Errorf("getting deal from DB: %w", err)
 	}
@@ -417,7 +428,17 @@ func DealFromTX(tx *harmonydb.Tx, id ulid.ULID) (*Deal, error) {
 
 func DealFromDB(ctx context.Context, db *harmonydb.DB, id ulid.ULID) (*Deal, error) {
 	var dbDeal []DBDeal
-	err := db.Select(ctx, &dbDeal, `SELECT * FROM market_mk20_deal WHERE id = $1`, id.String())
+	err := db.Select(ctx, &dbDeal, `SELECT 
+										id, 
+										piece_cid, 
+										piece_size, 
+										format, 
+										source_http, 
+										source_aggregate, 
+										source_offline, 
+										source_http_put, 
+										ddo_v1,
+										error FROM market_mk20_deal WHERE id = $1`, id.String())
 	if err != nil {
 		return nil, xerrors.Errorf("getting deal from DB: %w", err)
 	}

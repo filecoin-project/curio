@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -66,19 +68,20 @@ func NewIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore
 }
 
 type itask struct {
-	UUID        string                  `db:"uuid"`
-	SpID        int64                   `db:"sp_id"`
-	Sector      abi.SectorNumber        `db:"sector"`
-	Proof       abi.RegisteredSealProof `db:"reg_seal_proof"`
-	PieceCid    string                  `db:"piece_cid"`
-	Size        abi.PaddedPieceSize     `db:"piece_size"`
-	Offset      int64                   `db:"sector_offset"`
-	RawSize     int64                   `db:"raw_size"`
-	ShouldIndex bool                    `db:"should_index"`
-	Announce    bool                    `db:"announce"`
-	ChainDealId abi.DealID              `db:"chain_deal_id"`
-	IsDDO       bool                    `db:"is_ddo"`
-	Mk20        bool                    `db:"mk20"`
+	UUID              string                  `db:"uuid"`
+	SpID              int64                   `db:"sp_id"`
+	Sector            abi.SectorNumber        `db:"sector"`
+	Proof             abi.RegisteredSealProof `db:"reg_seal_proof"`
+	PieceCid          string                  `db:"piece_cid"`
+	Size              abi.PaddedPieceSize     `db:"piece_size"`
+	Offset            int64                   `db:"sector_offset"`
+	RawSize           int64                   `db:"raw_size"`
+	ShouldIndex       bool                    `db:"should_index"`
+	IndexingCreatedAt time.Time               `db:"indexing_created_at"`
+	Announce          bool                    `db:"announce"`
+	ChainDealId       abi.DealID              `db:"chain_deal_id"`
+	IsDDO             bool                    `db:"is_ddo"`
+	Mk20              bool                    `db:"mk20"`
 }
 
 func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
@@ -100,7 +103,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 										  p.announce,
 										  p.is_ddo,
 										  COALESCE(d.chain_deal_id, 0) AS chain_deal_id,
-										  false AS mk20
+										  FALSE AS mk20
 										FROM 
 										  market_mk12_deal_pipeline p
 										LEFT JOIN 
@@ -208,8 +211,6 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	dealCfg := i.cfg.Market.StorageMarketConfig
 	chanSize := dealCfg.Indexing.InsertConcurrency * dealCfg.Indexing.InsertBatchSize
 
-	opts := []carv2.Option{carv2.ZeroLengthSectionAsEOF(true)}
-
 	recs := make(chan indexstore.Record, chanSize)
 	var blocks int64
 
@@ -223,9 +224,9 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	})
 
 	if task.Mk20 && len(subPieces) > 0 {
-		blocks, interrupted, err = IndexAggregate(reader, task.Size, subPieces, opts, recs, addFail)
+		blocks, interrupted, err = IndexAggregate(reader, task.Size, subPieces, recs, addFail)
 	} else {
-		blocks, interrupted, err = IndexCAR(reader, 4<<20, opts, recs, addFail)
+		blocks, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
 	}
 
 	if err != nil {
@@ -366,8 +367,8 @@ func validateSegments(segments []datasegment.SegmentDesc) []datasegment.SegmentD
 	return validEntries
 }
 
-func IndexCAR(r io.Reader, buffSize int, opts []carv2.Option, recs chan<- indexstore.Record, addFail <-chan struct{}) (int64, bool, error) {
-	blockReader, err := carv2.NewBlockReader(bufio.NewReaderSize(r, buffSize), opts...)
+func IndexCAR(r io.Reader, buffSize int, recs chan<- indexstore.Record, addFail <-chan struct{}) (int64, bool, error) {
+	blockReader, err := carv2.NewBlockReader(bufio.NewReaderSize(r, buffSize), carv2.ZeroLengthSectionAsEOF(true))
 	if err != nil {
 		return 0, false, fmt.Errorf("getting block reader over piece: %w", err)
 	}
@@ -414,7 +415,6 @@ func IndexAggregate(
 	reader IndexReader,
 	size abi.PaddedPieceSize,
 	subPieces []mk20.PieceDataFormat,
-	opts []carv2.Option,
 	recs chan<- indexstore.Record,
 	addFail <-chan struct{},
 ) (int64, bool, error) {
@@ -436,6 +436,8 @@ func IndexAggregate(
 		return 0, false, xerrors.New("no valid data segment index entries")
 	}
 
+	log.Infow("Indexing aggregate", "piece_size", size, "num_chunks", len(valid), "num_sub_pieces", len(subPieces))
+
 	var haveSubPieces bool
 
 	if len(subPieces) > 0 {
@@ -451,9 +453,11 @@ func IndexAggregate(
 		if entry.Size < uint64(bufferSize) {
 			bufferSize = int(entry.Size)
 		}
-		sectionReader := io.NewSectionReader(reader, int64(entry.Offset), int64(entry.Size))
+		strt := entry.UnpaddedOffest()
+		leng := entry.UnpaddedLength()
+		sectionReader := io.NewSectionReader(reader, int64(strt), int64(leng))
 
-		b, inter, err := IndexCAR(sectionReader, bufferSize, opts, recs, addFail)
+		b, inter, err := IndexCAR(sectionReader, bufferSize, recs, addFail)
 		totalBlocks += b
 
 		if err != nil {
@@ -466,7 +470,7 @@ func IndexAggregate(
 						continue
 					}
 					if subPieces[j].Aggregate != nil {
-						b, inter, err = IndexAggregate(sectionReader, abi.PaddedPieceSize(entry.Size), nil, opts, recs, addFail)
+						b, inter, err = IndexAggregate(sectionReader, abi.PaddedPieceSize(entry.Size), nil, recs, addFail)
 						if err != nil {
 							return totalBlocks, inter, xerrors.Errorf("invalid aggregate for subPiece %d: %w", j, err)
 						}
@@ -545,60 +549,93 @@ func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID 
 func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
 	ctx := context.Background()
 
+	type task struct {
+		TaskID       harmonytask.TaskID `db:"indexing_task_id"`
+		SpID         int64              `db:"sp_id"`
+		SectorNumber int64              `db:"sector"`
+		StorageID    string             `db:"storage_id"`
+		Url          string             `db:"url"`
+		Indexing     bool               `db:"indexing"`
+	}
+
+	var tasks []*task
+
 	indIDs := make([]int64, len(ids))
 	for x, id := range ids {
 		indIDs[x] = int64(id)
 	}
 
-	// Accept any task which should not be indexed as
-	// it does not require storage access
-	var id int64
-	err := i.db.QueryRow(ctx, `SELECT indexing_task_id
-									FROM market_mk12_deal_pipeline
-									WHERE should_index = FALSE
-									  AND indexing_task_id = ANY ($1)
-									
-									UNION ALL
-									
-									SELECT indexing_task_id
-									FROM market_mk20_pipeline
-									WHERE indexing = FALSE
-									  AND indexing_task_id = ANY ($1)
-									
-									ORDER BY indexing_task_id
-									LIMIT 1;`, indIDs).Scan(&id)
-	if err == nil {
-		ret := harmonytask.TaskID(id)
-		return &ret, nil
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return nil, xerrors.Errorf("getting pending indexing task: %w", err)
+	var mk20tasks []*task
+	if storiface.FTPiece != 32 {
+		panic("storiface.FTPiece != 32")
 	}
 
-	var tasks []struct {
-		TaskID       harmonytask.TaskID `db:"indexing_task_id"`
-		SpID         int64              `db:"sp_id"`
-		SectorNumber int64              `db:"sector"`
-		StorageID    string             `db:"storage_id"`
+	err := i.db.Select(ctx, &mk20tasks, `SELECT indexing_task_id, url, indexing FROM market_mk20_pipeline WHERE indexing_task_id = ANY($1)`, indIDs)
+	if err != nil {
+		return nil, xerrors.Errorf("getting mk20 urls: %w", err)
 	}
+
+	for _, t := range mk20tasks {
+
+		if !t.Indexing {
+			continue
+		}
+
+		goUrl, err := url.Parse(t.Url)
+		if err != nil {
+			return nil, xerrors.Errorf("parsing data URL: %w", err)
+		}
+		if goUrl.Scheme == "pieceref" {
+			refNum, err := strconv.ParseInt(goUrl.Opaque, 10, 64)
+			if err != nil {
+				return nil, xerrors.Errorf("parsing piece reference number: %w", err)
+			}
+
+			// get pieceID
+			var pieceID []struct {
+				PieceID storiface.PieceNumber `db:"piece_id"`
+			}
+			err = i.db.Select(ctx, &pieceID, `SELECT piece_id FROM parked_piece_refs WHERE ref_id = $1`, refNum)
+			if err != nil {
+				return nil, xerrors.Errorf("getting pieceID: %w", err)
+			}
+
+			var sLocation string
+
+			err = i.db.QueryRow(ctx, `
+					SELECT storage_id FROM sector_location 
+						WHERE miner_id = 0 AND sector_num = $1 AND sector_filetype = 32`, pieceID[0].PieceID).Scan(&sLocation)
+
+			if err != nil {
+				return nil, xerrors.Errorf("failed to get storage location from DB: %w", err)
+			}
+
+			t.StorageID = sLocation
+
+		}
+	}
+
+	log.Infow("mk20 tasks", "tasks", mk20tasks)
 
 	if storiface.FTUnsealed != 1 {
 		panic("storiface.FTUnsealed != 1")
 	}
 
-	err = i.db.Select(ctx, &tasks, `SELECT dp.indexing_task_id, dp.sp_id, dp.sector, l.storage_id
+	var mk12tasks []*task
+
+	err = i.db.Select(ctx, &mk12tasks, `SELECT dp.indexing_task_id, dp.should_index AS indexing, dp.sp_id, dp.sector, l.storage_id
 										FROM market_mk12_deal_pipeline dp
-										INNER JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
-										WHERE dp.indexing_task_id = ANY ($1) AND l.sector_filetype = 1
-										
-										UNION ALL
-										
-										SELECT dp.indexing_task_id, dp.sp_id, dp.sector, l.storage_id
-										FROM market_mk20_pipeline dp
 										INNER JOIN sector_location l ON dp.sp_id = l.miner_id AND dp.sector = l.sector_num
 										WHERE dp.indexing_task_id = ANY ($1) AND l.sector_filetype = 1`, indIDs)
 	if err != nil {
-		return nil, xerrors.Errorf("getting tasks: %w", err)
+		return nil, xerrors.Errorf("getting mk12 tasks: %w", err)
 	}
+
+	log.Infow("mk12 tasks", "tasks", mk12tasks)
+
+	tasks = append(mk20tasks, mk12tasks...)
+
+	log.Infow("tasks", "tasks", tasks)
 
 	ls, err := i.sc.LocalStorage(ctx)
 	if err != nil {
@@ -611,6 +648,9 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 	}
 
 	for _, t := range tasks {
+		if !t.Indexing {
+			return &t.TaskID, nil
+		}
 		if found, ok := localStorageMap[t.StorageID]; ok && found {
 			return &t.TaskID, nil
 		}
@@ -710,7 +750,9 @@ func (i *IndexingTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 
 func (i *IndexingTask) GetSpid(db *harmonydb.DB, taskID int64) string {
 	var spid string
-	err := db.QueryRow(context.Background(), `SELECT sp_id FROM market_mk12_deal_pipeline WHERE indexing_task_id = $1`, taskID).Scan(&spid)
+	err := db.QueryRow(context.Background(), `SELECT sp_id FROM market_mk12_deal_pipeline WHERE indexing_task_id = $1
+													UNION ALL
+													SELECT sp_id FROM market_mk20_pipeline WHERE indexing_task_id = $1`, taskID).Scan(&spid)
 	if err != nil {
 		log.Errorf("getting spid: %s", err)
 		return ""

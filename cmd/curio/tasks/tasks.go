@@ -261,6 +261,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 				activeTasks = append(activeTasks, commpTask)
 			}
 
+			aggTask := storage_market.NewAggregateTask(dm, db, must.One(slrLazy.Val()), lstor, full)
+			activeTasks = append(activeTasks, aggTask)
+
 			// PSD and Deal find task do not require many resources. They can run on all machines
 			psdTask := storage_market.NewPSDTask(dm, db, sender, as, &cfg.Market.StorageMarketConfig.MK12, full)
 			dealFindTask := storage_market.NewFindDealTask(dm, db, full, &cfg.Market.StorageMarketConfig.MK12)

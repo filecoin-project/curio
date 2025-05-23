@@ -10,6 +10,57 @@ DROP CONSTRAINT IF EXISTS market_piece_meta_identity_key;
 ALTER TABLE market_piece_metadata
     ADD PRIMARY KEY (piece_cid, piece_size);
 
+-- Drop the current primary key for market_piece_deal
+ALTER TABLE market_piece_deal
+DROP CONSTRAINT market_piece_deal_pkey;
+
+-- Drop the old UNIQUE constraint for market_piece_deal
+ALTER TABLE market_piece_deal
+DROP CONSTRAINT IF EXISTS market_piece_deal_identity_key;
+
+-- Add the new composite primary key for market_piece_deal
+ALTER TABLE market_piece_deal
+    ADD PRIMARY KEY (sp_id, id, piece_cid, piece_length);
+
+
+-- This function is used to insert piece metadata and piece deal (piece indexing)
+-- This makes it easy to keep the logic of how table is updated and fast (in DB).
+CREATE OR REPLACE FUNCTION process_piece_deal(
+    _id TEXT,
+    _piece_cid TEXT,
+    _boost_deal BOOLEAN,
+    _sp_id BIGINT,
+    _sector_num BIGINT,
+    _piece_offset BIGINT,
+    _piece_length BIGINT, -- padded length
+    _raw_size BIGINT,
+    _indexed BOOLEAN,
+    _legacy_deal BOOLEAN DEFAULT FALSE,
+    _chain_deal_id BIGINT DEFAULT 0
+)
+    RETURNS VOID AS $$
+BEGIN
+    -- Insert or update the market_piece_metadata table
+    INSERT INTO market_piece_metadata (piece_cid, piece_size, indexed)
+    VALUES (_piece_cid, _piece_length, _indexed)
+        ON CONFLICT (piece_cid, piece_size) DO UPDATE SET
+        indexed = CASE
+           WHEN market_piece_metadata.indexed = FALSE THEN EXCLUDED.indexed
+           ELSE market_piece_metadata.indexed
+    END;
+
+    -- Insert into the market_piece_deal table
+    INSERT INTO market_piece_deal (
+        id, piece_cid, boost_deal, legacy_deal, chain_deal_id,
+        sp_id, sector_num, piece_offset, piece_length, raw_size
+    ) VALUES (
+         _id, _piece_cid, _boost_deal, _legacy_deal, _chain_deal_id,
+         _sp_id, _sector_num, _piece_offset, _piece_length, _raw_size
+     ) ON CONFLICT (sp_id, id, piece_cid, piece_length) DO NOTHING;
+
+END;
+$$ LANGUAGE plpgsql;
+
 -- Add ID column to ipni_task table
 ALTER TABLE ipni_task
     ADD COLUMN id TEXT;
@@ -74,7 +125,7 @@ CREATE TABLE market_mk20_deal (
 
     id TEXT PRIMARY KEY,
     piece_cid TEXT NOT NULL,
-    size BIGINT NOT NULL,
+    piece_size BIGINT NOT NULL,
 
     format JSONB NOT NULL,
     source_http JSONB NOT NULL DEFAULT 'null',
@@ -103,7 +154,7 @@ CREATE TABLE market_mk20_pipeline (
     announce BOOLEAN NOT NULL,
     allocation_id BIGINT DEFAULT NULL,
     duration BIGINT NOT NULL,
-    piece_aggregation INT DEFAULT 0,
+    piece_aggregation INT NOT NULL DEFAULT 0,
 
     started BOOLEAN DEFAULT FALSE,
 
@@ -112,7 +163,7 @@ CREATE TABLE market_mk20_pipeline (
     commp_task_id BIGINT DEFAULT NULL,
     after_commp BOOLEAN DEFAULT FALSE,
 
-    deal_aggregation INT DEFAULT 0,
+    deal_aggregation INT NOT NULL DEFAULT 0,
     aggr_index BIGINT DEFAULT 0,
     agg_task_id BIGINT DEFAULT NULL,
     aggregated BOOLEAN DEFAULT FALSE,
