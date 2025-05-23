@@ -55,6 +55,22 @@ CREATE TABLE proofshare_provider_payments_settlement (
     PRIMARY KEY (provider_id, payment_nonce)
 );
 
+-- Table tracking provider-router interactions (deposit, withdraw-request/complete)
+CREATE TABLE proofshare_provider_messages (
+    started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp,
+    signed_cid TEXT NOT NULL,
+
+    wallet BIGINT NOT NULL,
+    action TEXT,
+
+    success BOOLEAN,
+    completed_at TIMESTAMP WITH TIME ZONE,
+
+    PRIMARY KEY (started_at, signed_cid)
+);
+
+CREATE INDEX proofshare_provider_messages_signed_cid ON proofshare_provider_messages (signed_cid);
+
 -- Client settings
 
 CREATE TABLE proofshare_client_settings (
@@ -150,4 +166,24 @@ AFTER UPDATE ON message_waits
 FOR EACH ROW
 WHEN (OLD.executed_tsk_epoch IS NULL AND NEW.executed_tsk_epoch IS NOT NULL)
 EXECUTE FUNCTION update_proofshare_client_messages_from_message_waits();
+
+CREATE OR REPLACE FUNCTION update_proofshare_provider_messages_from_message_waits()
+RETURNS trigger AS $$
+BEGIN
+  IF OLD.executed_tsk_epoch IS NULL AND NEW.executed_tsk_epoch IS NOT NULL THEN
+    UPDATE proofshare_provider_messages
+      SET success = (NEW.executed_rcpt_exitcode = 0),
+          completed_at = current_timestamp
+    WHERE signed_cid = NEW.signed_message_cid;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER tr_update_proofshare_provider_messages
+AFTER UPDATE ON message_waits
+FOR EACH ROW
+WHEN (OLD.executed_tsk_epoch IS NULL AND NEW.executed_tsk_epoch IS NOT NULL)
+EXECUTE FUNCTION update_proofshare_provider_messages_from_message_waits();
+
 

@@ -431,23 +431,23 @@ func (s *Service) ServiceRedeemProviderVoucher(
 	cumulativeAmount fbig.Int,
 	nonce uint64,
 	sig []byte,
-) error {
+) (cid.Cid, error) {
 	parsedABI, err := eabi.JSON(strings.NewReader(RedeemProviderVoucherABI))
 	if err != nil {
-		return fmt.Errorf("parse redeemProviderVoucher ABI: %w", err)
+		return cid.Undef, fmt.Errorf("parse redeemProviderVoucher ABI: %w", err)
 	}
 	data, err := parsedABI.Pack("redeemProviderVoucher", providerID, cumulativeAmount.Int, nonce, sig)
 	if err != nil {
-		return fmt.Errorf("pack redeemProviderVoucher: %w", err)
+		return cid.Undef, fmt.Errorf("pack redeemProviderVoucher: %w", err)
 	}
 
 	fmt.Printf("redeemProviderVoucher(%d, %d, %d, %x) data: %x\n", providerID, cumulativeAmount.Int, nonce, sig, data)
 
-	_, err = s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
+	redeemCid, err := s.sendEVMMessage(ctx, from, s.router, fbig.Zero(), data)
 	if err != nil {
-		return fmt.Errorf("redeemProviderVoucher message failed: %w", err)
+		return cid.Undef, fmt.Errorf("redeemProviderVoucher message failed: %w", err)
 	}
-	return nil
+	return redeemCid, nil
 }
 
 func (s *Service) ServiceInitiateWithdrawal(ctx context.Context, from address.Address, amount fbig.Int) error {

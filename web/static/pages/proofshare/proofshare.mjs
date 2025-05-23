@@ -62,8 +62,25 @@ class ProofShareElement extends LitElement {
       // Call PSSetMeta(enabled, wallet, price)
       await RPCCall('PSSetMeta', [this.enabled, this.wallet, this.price]);
       console.log('Updated proofshare meta successfully');
+      this.loadData(); // Refresh data after update
     } catch (err) {
       console.error('Failed to update proofshare meta:', err);
+      alert(`Error updating settings: ${err.message || err}`);
+    }
+  }
+
+  async handleSettleProvider(providerID) {
+    if (!confirm(`Are you sure you want to settle payments for provider ID ${providerID}?`)) {
+      return;
+    }
+    try {
+      // providerID in the summary is summary.wallet_id, which is the numeric ID.
+      const resultCid = await RPCCall('PSProviderSettle', [providerID]);
+      alert(`Settlement message sent successfully! CID: ${resultCid}`);
+      this.loadData(); // Refresh data
+    } catch (err) {
+      console.error('Failed to settle provider payments:', err);
+      alert(`Error settling payments: ${err.message || err}`);
     }
   }
 
@@ -130,6 +147,7 @@ class ProofShareElement extends LitElement {
                 <th>Time Since Settlement</th>
                 <th>Contract Last Nonce</th>
                 <th>Contract Settled FIL</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -143,6 +161,15 @@ class ProofShareElement extends LitElement {
                   <td>${summary.time_since_last_settlement || 'N/A'}</td>
                   <td>${summary.contract_last_nonce !== null && summary.contract_last_nonce !== undefined ? summary.contract_last_nonce : 'N/A'}</td>
                   <td>${summary.contract_settled_fil || 'N/A'}</td>
+                  <td>
+                    <button 
+                      class="btn btn-sm btn-info"
+                      @click=${() => this.handleSettleProvider(summary.wallet_id)}
+                      title="Settle payments for this provider"
+                    >
+                      Settle
+                    </button>
+                  </td>
                 </tr>
               `)}
             </tbody>

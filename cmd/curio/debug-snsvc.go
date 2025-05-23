@@ -349,7 +349,7 @@ func redeemProviderAction(cctx *cli.Context) error {
 		return fmt.Errorf("invalid signature: %w", err)
 	}
 
-	if err := svc.ServiceRedeemProviderVoucher(ctx, fromAddr, providerID, abi.TokenAmount(filAmount), nonce, sig); err != nil {
+	if _, err := svc.ServiceRedeemProviderVoucher(ctx, fromAddr, providerID, abi.TokenAmount(filAmount), nonce, sig); err != nil {
 		return fmt.Errorf("redeem provider voucher failed: %w", err)
 	}
 	fmt.Println("Redeem provider voucher succeeded")

@@ -102,6 +102,154 @@ func (a *WebRPC) PSListQueue(ctx context.Context) ([]ProofShareQueueItem, error)
 	return items, nil
 }
 
+func (a *WebRPC) PSProviderSettle(ctx context.Context, providerID int64) (cid.Cid, error) {
+	providerAddr, err := address.NewIDAddress(uint64(providerID))
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSProviderSettle: failed to create address from provider ID %d: %w", providerID, err)
+	}
+
+	// 2. Fetch the latest payment record for the provider
+	var latestPayment struct {
+		Nonce             int64  `db:"payment_nonce"`
+		CumulativeAmount  string `db:"payment_cumulative_amount"`
+		Signature         []byte `db:"payment_signature"`
+	}
+	err = a.deps.DB.QueryRow(ctx, `
+		SELECT payment_nonce, payment_cumulative_amount, payment_signature
+		FROM proofshare_provider_payments
+		WHERE provider_id = $1
+		ORDER BY payment_nonce DESC
+		LIMIT 1
+	`, providerID).Scan(&latestPayment.Nonce, &latestPayment.CumulativeAmount, &latestPayment.Signature)
+
+	if err != nil {
+		if xerrors.Is(err, sql.ErrNoRows) {
+			return cid.Undef, xerrors.Errorf("PSProviderSettle: no payment records found for provider ID %d, nothing to settle", providerID)
+		}
+		return cid.Undef, xerrors.Errorf("PSProviderSettle: failed to query latest payment for provider ID %d: %w", providerID, err)
+	}
+
+	// 3. Fetch the latest settlement nonce for the provider
+	var lastSettledNonce sql.NullInt64
+	err = a.deps.DB.QueryRow(ctx, `
+		SELECT MAX(payment_nonce)
+		FROM proofshare_provider_payments_settlement
+		WHERE provider_id = $1
+	`, providerID).Scan(&lastSettledNonce)
+	if err != nil && !xerrors.Is(err, sql.ErrNoRows) { // sql.ErrNoRows is fine, means no settlements yet
+		return cid.Undef, xerrors.Errorf("PSProviderSettle: failed to query last settlement nonce for provider ID %d: %w", providerID, err)
+	}
+
+	if lastSettledNonce.Valid && latestPayment.Nonce <= lastSettledNonce.Int64 {
+		return cid.Undef, xerrors.Errorf("PSProviderSettle: latest payment (nonce %d) for provider ID %d is already settled or not newer than last settlement (nonce %d)", latestPayment.Nonce, providerID, lastSettledNonce.Int64)
+	}
+
+	// 4. Prepare data for service call
+	cumulativeAmountBig, err := types.BigFromString(latestPayment.CumulativeAmount)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSProviderSettle: failed to parse cumulative amount '%s' for provider ID %d, nonce %d: %w", latestPayment.CumulativeAmount, providerID, latestPayment.Nonce, err)
+	}
+
+	// Use a custom sender for the service context
+	svc := common.NewServiceCustomSend(a.deps.Chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
+		return a.deps.Sender.Send(ctx, msg, mss, "ps-provider-settle")
+	})
+
+	// 5. Call ServiceRedeemProviderVoucher
+	log.Infow("PSProviderSettle: calling ServiceRedeemProviderVoucher",
+		"provider_id", providerID,
+		"provider_address", providerAddr.String(),
+		"cumulative_amount", cumulativeAmountBig.String(),
+		"nonce", latestPayment.Nonce)
+
+	settleCid, err := svc.ServiceRedeemProviderVoucher(
+		ctx,
+		providerAddr,                 // The address sending the transaction
+		uint64(providerID),           // The ID of the provider to settle with
+		cumulativeAmountBig,          // The cumulative amount to settle
+		uint64(latestPayment.Nonce),  // The nonce of the payment
+		latestPayment.Signature,      // The signature of the payment voucher
+	)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("PSProviderSettle: ServiceRedeemProviderVoucher call for provider %s (ID %d), nonce %d failed: %w", providerAddr.String(), providerID, latestPayment.Nonce, err)
+	}
+
+	// 6. Track the sent message for UI and internal state updates
+	err = a.addMessageTrackingProvider(ctx, settleCid, providerID, "settle", func(tx *harmonydb.Tx) error {
+		_, err := tx.Exec(`
+			INSERT INTO proofshare_provider_payments_settlement (provider_id, payment_nonce, settle_message_cid)
+			VALUES ($1, $2, $3)
+		`, providerID, latestPayment.Nonce, settleCid.String())
+		return err
+	})
+	if err != nil {
+		// If tracking fails, it's usually critical as the system might lose track of an on-chain action.
+		// Log the error but consider if the settlement CID should still be returned or if this failure is terminal.
+		// For now, returning the error as it might indicate a deeper issue with message tracking.
+		log.Errorw("PSProviderSettle: failed to track settlement message, but settlement was sent",
+			"provider_id", providerID,
+			"settlement_cid", settleCid.String(),
+			"tracking_error", err)
+		return cid.Undef, xerrors.Errorf("PSProviderSettle: failed to track settlement message %s for provider %s (ID %d): %w", settleCid.String(), providerAddr.String(), providerID, err)
+	}
+
+	log.Infow("Successfully initiated provider settlement",
+		"provider_id", providerID,
+		"provider_address", providerAddr.String(),
+		"settled_nonce", latestPayment.Nonce,
+		"settled_cumulative_amount", cumulativeAmountBig.String(),
+		"settlement_cid", settleCid.String())
+
+	return settleCid, nil
+}
+
+func (a *WebRPC) addMessageTrackingProvider(ctx context.Context, messageCid cid.Cid, providerID int64, action string, txcb func(tx *harmonydb.Tx) error) error {
+	addr, err := address.NewIDAddress(uint64(providerID))
+	if err != nil {
+		return xerrors.Errorf("addMessageTracking: invalid wallet address: %w", err)
+	}
+
+	idAddr, err := a.deps.Chain.StateLookupID(ctx, addr, types.EmptyTSK)
+	if err != nil {
+		return xerrors.Errorf("addMessageTracking: failed to lookup id: %w", err)
+	}
+
+	walletID, err := address.IDFromAddress(idAddr)
+	if err != nil {
+		return xerrors.Errorf("addMessageTracking: failed to get wallet id: %w", err)
+	}
+
+	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		_, err := tx.Exec(`
+			INSERT INTO message_waits (signed_message_cid)
+			VALUES ($1)
+		`, messageCid)
+		if err != nil {
+			return false, xerrors.Errorf("addMessageTracking: failed to insert message_waits: %w", err)
+		}
+
+		_, err = tx.Exec(`
+			INSERT INTO proofshare_provider_messages (signed_cid, provider_id, action)
+			VALUES ($1, $2, $3)
+		`, messageCid, walletID, action)
+		if err != nil {
+			return false, xerrors.Errorf("addMessageTracking: failed to insert proofshare_provider_messages: %w", err)
+		}
+
+		err = txcb(tx)
+		if err != nil {
+			return false, xerrors.Errorf("addMessageTracking: transaction callback failed: %w", err)
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return xerrors.Errorf("addMessageTracking: transaction failed: %w", err)
+	}
+
+	return nil
+}
+
 ///////
 // CLIENT
 
@@ -401,7 +549,8 @@ func (a *WebRPC) PSClientListMessages(ctx context.Context) ([]ClientMessage, err
 
 	return messages, nil
 }
-func (a *WebRPC) addMessageTracking(ctx context.Context, messageCid cid.Cid, wallet string, action string) error {
+
+func (a *WebRPC) addMessageTrackingClient(ctx context.Context, messageCid cid.Cid, wallet string, action string) error {
 	addr, err := address.NewFromString(wallet)
 	if err != nil {
 		return xerrors.Errorf("addMessageTracking: invalid wallet address: %w", err)
@@ -477,7 +626,7 @@ func (a *WebRPC) PSClientRouterAddBalance(ctx context.Context, wallet string, am
 
 	log.Infow("PSClientRouterAddBalance", "deposit_cid", depositCid)
 
-	if err := a.addMessageTracking(ctx, depositCid, wallet, "deposit"); err != nil {
+	if err := a.addMessageTrackingClient(ctx, depositCid, wallet, "deposit"); err != nil {
 		return cid.Undef, xerrors.Errorf("PSClientRouterAddBalance: failed to track message: %w", err)
 	}
 
@@ -506,7 +655,7 @@ func (a *WebRPC) PSClientRouterRequestWithdrawal(ctx context.Context, wallet str
 		return cid.Undef, xerrors.Errorf("PSClientRouterRequestWithdrawal: failed to withdraw: %w", err)
 	}
 
-	if err := a.addMessageTracking(ctx, withdrawCid, wallet, "withdraw-request"); err != nil {
+	if err := a.addMessageTrackingClient(ctx, withdrawCid, wallet, "withdraw-request"); err != nil {
 		return cid.Undef, xerrors.Errorf("PSClientRouterRequestWithdrawal: failed to track message: %w", err)
 	}
 
@@ -528,7 +677,7 @@ func (a *WebRPC) PSClientRouterCancelWithdrawal(ctx context.Context, wallet stri
 		return cid.Undef, xerrors.Errorf("PSClientRouterCancelWithdrawal: failed to cancel withdrawal: %w", err)
 	}
 
-	if err := a.addMessageTracking(ctx, cancelCid, wallet, "withdraw-cancel"); err != nil {
+	if err := a.addMessageTrackingClient(ctx, cancelCid, wallet, "withdraw-cancel"); err != nil {
 		return cid.Undef, xerrors.Errorf("PSClientRouterCancelWithdrawal: failed to track message: %w", err)
 	}
 
@@ -550,7 +699,7 @@ func (a *WebRPC) PSClientRouterCompleteWithdrawal(ctx context.Context, wallet st
 		return cid.Undef, xerrors.Errorf("PSClientRouterCompleteWithdrawal: failed to complete withdrawal: %w", err)
 	}
 
-	if err := a.addMessageTracking(ctx, completeCid, wallet, "withdraw-complete"); err != nil {
+	if err := a.addMessageTrackingClient(ctx, completeCid, wallet, "withdraw-complete"); err != nil {
 		return cid.Undef, xerrors.Errorf("PSClientRouterCompleteWithdrawal: failed to track message: %w", err)
 	}
 
