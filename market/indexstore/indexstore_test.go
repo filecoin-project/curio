@@ -42,7 +42,7 @@ func TestNewIndexStore(t *testing.T) {
 		_ = os.RemoveAll(dir)
 	}()
 
-	rf, err := testutils.CreateRandomFile(dir, time.Now().Unix(), 8000000)
+	rf, err := testutils.CreateRandomTmpFile(dir, time.Now().Unix(), 8000000)
 	require.NoError(t, err)
 
 	caropts := []carv2.Option{
@@ -111,10 +111,10 @@ func TestNewIndexStore(t *testing.T) {
 	pcids, err := idxStore.PiecesContainingMultihash(ctx, m)
 	require.NoError(t, err)
 	require.Len(t, pcids, 1)
-	require.Equal(t, pcids[0].PieceCid.String(), commp.PieceCID.String())
+	require.Equal(t, pcids[0].PieceCidV2.String(), commp.PieceCID.String())
 
 	// Remove all indexes from the store
-	err = idxStore.RemoveIndexes(ctx, pcids[0].PieceCid)
+	err = idxStore.RemoveIndexes(ctx, pcids[0].PieceCidV2)
 	require.NoError(t, err)
 
 	// Drop the tables

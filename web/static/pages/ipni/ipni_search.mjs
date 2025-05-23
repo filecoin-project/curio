@@ -167,7 +167,7 @@ class IpniSearch extends LitElement {
                       </tr>
                       <tr>
                         <th>Piece CID</th>
-                        <td><a href="/pages/piece/?id=${this.adData.piece_cid}">${this.adData.piece_cid}</a></td>
+                        <td><a href="/pages/piece/?id=${this.adData.piece_cid_v2}">${this.adData.piece_cid}</a></td>
                       </tr>
                       <tr>
                         <th>Piece Size</th>

@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 )
@@ -75,7 +76,7 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
 	err := c.db.Select(ctx, &toCheckList, `
 			SELECT mm.piece_cid, mpd.piece_length, mpd.piece_offset, mpd.sp_id, mpd.sector_num, mpd.raw_size
 			FROM market_piece_metadata mm
-			LEFT JOIN market_piece_deal mpd ON mm.piece_cid = mpd.piece_cid
+			LEFT JOIN market_piece_deal mpd ON mm.piece_cid = mpd.piece_cid AND mm.piece_size = mpd.piece_length
 			WHERE mm.indexed = true
 		`)
 	if err != nil {
@@ -105,10 +106,22 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
 	var have, missing int64
 
 	for p, cent := range toCheck {
-		pieceCid, err := cid.Parse(p)
+		pCid, err := cid.Parse(p)
 		if err != nil {
 			return xerrors.Errorf("parsing piece cid: %w", err)
 		}
+
+		pi := abi.PieceInfo{
+			PieceCID: pCid,
+			Size:     abi.PaddedPieceSize(cent[0].PieceLen),
+		}
+
+		commp, err := commcidv2.CommPFromPieceInfo(pi)
+		if err != nil {
+			return xerrors.Errorf("getting piece commP: %w", err)
+		}
+
+		pieceCid := commp.PCidV2()
 
 		// Check if the piece is present in the index store
 		hasEnt, err := c.indexStore.CheckHasPiece(ctx, pieceCid)
@@ -131,8 +144,8 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
 		err = c.db.Select(ctx, &uuids, `
 			SELECT uuid
 			FROM market_mk12_deals
-			WHERE piece_cid = $1
-		`, pieceCid.String())
+			WHERE piece_cid = $1 AND piece_size = $2
+		`, pCid.String(), pi.Size)
 		if err != nil {
 			return xerrors.Errorf("getting deal uuids: %w", err)
 		}
@@ -260,8 +273,9 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
 
 func (c *CheckIndexesTask) checkIPNI(ctx context.Context, taskID harmonytask.TaskID) (err error) {
 	type pieceSP struct {
-		PieceCid string `db:"piece_cid"`
-		SpID     int64  `db:"sp_id"`
+		PieceCid  string              `db:"piece_cid"`
+		PieceSize abi.PaddedPieceSize `db:"piece_size"`
+		SpID      int64               `db:"sp_id"`
 	}
 
 	// get candidates to check
@@ -301,7 +315,7 @@ func (c *CheckIndexesTask) checkIPNI(ctx context.Context, taskID harmonytask.Tas
 
 	// get already running pipelines with announce=true
 	var announcePiecePipelines []pieceSP
-	err = c.db.Select(ctx, &announcePiecePipelines, `SELECT piece_cid, sp_id FROM market_mk12_deal_pipeline WHERE announce=true`)
+	err = c.db.Select(ctx, &announcePiecePipelines, `SELECT piece_cid, piece_size, sp_id FROM market_mk12_deal_pipeline WHERE announce=true`)
 	if err != nil {
 		return xerrors.Errorf("getting ipni tasks: %w", err)
 	}
@@ -328,7 +342,7 @@ func (c *CheckIndexesTask) checkIPNI(ctx context.Context, taskID harmonytask.Tas
 	}()
 
 	for _, deal := range toCheck {
-		if _, ok := announcablePipelines[pieceSP{deal.PieceCID, deal.SpID}]; ok {
+		if _, ok := announcablePipelines[pieceSP{deal.PieceCID, deal.PieceSize, deal.SpID}]; ok {
 			// pipeline for the piece already running
 			have++
 			continue
@@ -388,7 +402,7 @@ func (c *CheckIndexesTask) checkIPNI(ctx context.Context, taskID harmonytask.Tas
 			PieceOffset int64 `db:"piece_offset"`
 			RawSize     int64 `db:"raw_size"`
 		}
-		err = c.db.Select(ctx, &sourceSector, `SELECT sector_num, piece_offset, raw_size FROM market_piece_deal WHERE piece_cid=$1 AND sp_id = $2`, deal.PieceCID, deal.SpID)
+		err = c.db.Select(ctx, &sourceSector, `SELECT sector_num, piece_offset, raw_size FROM market_piece_deal WHERE piece_cid=$1 AND piece_length = $2 AND sp_id = $3`, deal.PieceCID, deal.PieceSize, deal.SpID)
 		if err != nil {
 			return xerrors.Errorf("getting source sector: %w", err)
 		}

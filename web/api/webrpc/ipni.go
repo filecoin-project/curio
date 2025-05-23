@@ -16,6 +16,8 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/commcidv2"
 )
 
 type IpniAd struct {
@@ -36,7 +38,8 @@ type IpniAd struct {
 	EntryCount int64 `json:"entry_count"`
 	CIDCount   int64 `json:"cid_count"`
 
-	AdCids []string `db:"-" json:"ad_cids"`
+	AdCids     []string `db:"-" json:"ad_cids"`
+	PieceCidV2 string   `db:"-" json:"piece_cid_v2"`
 }
 
 func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
@@ -96,9 +99,15 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 		return nil, xerrors.Errorf("failed to unmarshal piece info: %w", err)
 	}
 
+	commp, err := commcidv2.CommPFromPieceInfo(pi)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get commp: %w", err)
+	}
+
 	details.PieceCid = pi.PieceCID.String()
 	size := int64(pi.Size)
 	details.PieceSize = size
+	details.PieceCidV2 = commp.PCidV2().String()
 
 	maddr, err := address.NewIDAddress(uint64(details.SpID))
 	if err != nil {
@@ -123,7 +132,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 		CIDCount   int64 `db:"cid_count"`
 	}
 
-	err = a.deps.DB.Select(ctx, &adEntryInfo, `SELECT count(1) as entry_count, sum(num_blocks) as cid_count from ipni_chunks where piece_cid=$1`, details.PieceCid)
+	err = a.deps.DB.Select(ctx, &adEntryInfo, `SELECT count(1) as entry_count, sum(num_blocks) as cid_count from ipni_chunks where piece_cid=$1`, details.PieceCidV2)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch the ad entry count from DB: %w", err)
 	}
