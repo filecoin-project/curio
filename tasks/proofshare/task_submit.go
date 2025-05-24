@@ -20,7 +20,7 @@ import (
 var SubmitScheduleInterval = 10 * time.Second
 
 type TaskSubmit struct {
-	db *harmonydb.DB
+	db    *harmonydb.DB
 	chain api.FullNode
 }
 
@@ -181,7 +181,6 @@ func (t *TaskSubmit) TypeDetails() harmonytask.TaskTypeDetails {
 			Gpu: 0,
 			Ram: 1 << 20,
 		},
-		MaxFailures: 5,
 		RetryWait: func(retries int) time.Duration {
 			return time.Second * 10 * time.Duration(retries)
 		},
