@@ -110,9 +110,9 @@ func (a *WebRPC) PSProviderSettle(ctx context.Context, providerID int64) (cid.Ci
 
 	// 2. Fetch the latest payment record for the provider
 	var latestPayment struct {
-		Nonce             int64  `db:"payment_nonce"`
-		CumulativeAmount  string `db:"payment_cumulative_amount"`
-		Signature         []byte `db:"payment_signature"`
+		Nonce            int64  `db:"payment_nonce"`
+		CumulativeAmount string `db:"payment_cumulative_amount"`
+		Signature        []byte `db:"payment_signature"`
 	}
 	err = a.deps.DB.QueryRow(ctx, `
 		SELECT payment_nonce, payment_cumulative_amount, payment_signature
@@ -164,11 +164,11 @@ func (a *WebRPC) PSProviderSettle(ctx context.Context, providerID int64) (cid.Ci
 
 	settleCid, err := svc.ServiceRedeemProviderVoucher(
 		ctx,
-		providerAddr,                 // The address sending the transaction
-		uint64(providerID),           // The ID of the provider to settle with
-		cumulativeAmountBig,          // The cumulative amount to settle
-		uint64(latestPayment.Nonce),  // The nonce of the payment
-		latestPayment.Signature,      // The signature of the payment voucher
+		providerAddr,                // The address sending the transaction
+		uint64(providerID),          // The ID of the provider to settle with
+		cumulativeAmountBig,         // The cumulative amount to settle
+		uint64(latestPayment.Nonce), // The nonce of the payment
+		latestPayment.Signature,     // The signature of the payment voucher
 	)
 	if err != nil {
 		return cid.Undef, xerrors.Errorf("PSProviderSettle: ServiceRedeemProviderVoucher call for provider %s (ID %d), nonce %d failed: %w", providerAddr.String(), providerID, latestPayment.Nonce, err)
@@ -229,7 +229,7 @@ func (a *WebRPC) addMessageTrackingProvider(ctx context.Context, messageCid cid.
 		}
 
 		_, err = tx.Exec(`
-			INSERT INTO proofshare_provider_messages (signed_cid, provider_id, action)
+			INSERT INTO proofshare_provider_messages (signed_cid, wallet, action)
 			VALUES ($1, $2, $3)
 		`, messageCid, walletID, action)
 		if err != nil {
@@ -761,7 +761,7 @@ LatestSettlements AS (
         p.payment_cumulative_amount AS last_settled_payment_value
     FROM proofshare_provider_payments_settlement s
     INNER JOIN MaxSettledNonces msn ON s.provider_id = msn.provider_id AND s.payment_nonce = msn.max_settled_nonce
-    INNER JOIN proofshare_provider_payments p ON s.provider_id = p.provider_id AND s.payment_nonce = msn.max_settled_nonce -- amount for the settled nonce
+    INNER JOIN proofshare_provider_payments p ON s.provider_id = p.provider_id AND p.payment_nonce = msn.max_settled_nonce -- amount for the settled nonce
 )
 SELECT
     lp.provider_id AS wallet_id,
