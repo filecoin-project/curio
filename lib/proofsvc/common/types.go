@@ -64,6 +64,8 @@ type ProofData struct {
 
 	// proof request enum
 	PoRep *proof.Commit1OutRaw
+
+	Snap *proof.Snap
 }
 
 type ProofRequest struct {
@@ -88,6 +90,12 @@ func (p *ProofData) Validate() error {
 		}
 
 		return nil
+	}
+
+	if p.Snap != nil {
+		if err := p.validateSnap(); err != nil {
+			return xerrors.Errorf("failed to validate Snap: %w", err)
+		}
 	}
 	return xerrors.Errorf("invalid proof request: no proof request")
 }
@@ -160,6 +168,38 @@ func (p *ProofData) validatePoRep() error {
 	}
 
 	return xerrors.Errorf("PoRep validation reported is_valid=false:\n%s", output)
+}
+
+func (p *ProofData) validateSnap() error {
+	if p.Snap == nil {
+		return xerrors.Errorf("no Snap data in request")
+	}
+
+	oldR, err := commcid.ReplicaCommitmentV1ToCID(p.Snap.OldR[:])
+	if err != nil {
+		return xerrors.Errorf("failed to convert OldR to CID: %w", err)
+	}
+
+	newR, err := commcid.ReplicaCommitmentV1ToCID(p.Snap.NewR[:])
+	if err != nil {
+		return xerrors.Errorf("failed to convert NewR to CID: %w", err)
+	}
+
+	newD, err := commcid.DataCommitmentV1ToCID(p.Snap.NewD[:])
+	if err != nil {
+		return xerrors.Errorf("failed to convert NewD to CID: %w", err)
+	}
+
+	ok, err := ffi.SectorUpdate.VerifyVanillaProofs(p.Snap.ProofType, oldR, newR, newD, p.Snap.Proofs)
+	if err != nil {
+		return xerrors.Errorf("failed to verify Snap: %w", err)
+	}
+
+	if !ok {
+		return xerrors.Errorf("invalid Snap proof")
+	}
+
+	return nil
 }
 
 func (p *ProofData) CheckOutput(pb []byte) error {
