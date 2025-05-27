@@ -100,6 +100,30 @@ func (p *ProofData) Validate() error {
 	return xerrors.Errorf("invalid proof request: no proof request")
 }
 
+func (p *ProofData) DeciCost() int {
+	if p.PoRep != nil {
+		return 10 // 10x 130M constraints
+	}
+
+	if p.Snap != nil {
+		return 16 // 16x 130M constraints
+	}
+
+	return -1
+}
+
+func (p *ProofData) Type() string {
+	if p.PoRep != nil {
+		return "PoRep"
+	}
+
+	if p.Snap != nil {
+		return "Snap"
+	}
+
+	return "!Unknown!"
+}
+
 func (p *ProofData) validatePoRep() error {
 	// Make sure we actually have PoRep data
 	if p.PoRep == nil {
@@ -237,6 +261,38 @@ func (p *ProofData) CheckOutput(pb []byte) error {
 
 		if !valid {
 			return xerrors.Errorf("invalid proof")
+		}
+	}
+
+	if p.Snap != nil {
+		uinfo := sproof.ReplicaUpdateInfo{
+			UpdateProofType:       p.Snap.ProofType,
+			Proof:                 pb,
+		}
+
+		var err error
+		uinfo.OldSealedSectorCID, err = commcid.ReplicaCommitmentV1ToCID(p.Snap.OldR[:])
+		if err != nil {
+			return xerrors.Errorf("failed to convert OldR to CID: %w", err)
+		}
+
+		uinfo.NewSealedSectorCID, err = commcid.ReplicaCommitmentV1ToCID(p.Snap.NewR[:])
+		if err != nil {
+			return xerrors.Errorf("failed to convert NewR to CID: %w", err)
+		}
+
+		uinfo.NewUnsealedSectorCID, err = commcid.DataCommitmentV1ToCID(p.Snap.NewD[:])
+		if err != nil {
+			return xerrors.Errorf("failed to convert NewD to CID: %w", err)
+		}
+
+		ok, err := ffi.SectorUpdate.VerifyUpdateProof(uinfo)
+		if err != nil {
+			return xerrors.Errorf("failed to verify UpdateProof: %w", err)
+		}
+
+		if !ok {
+			return xerrors.Errorf("invalid UpdateProof")
 		}
 	}
 
