@@ -2,9 +2,12 @@ package indexstore
 
 import (
 	"context"
+	"embed"
 	_ "embed"
 	"errors"
 	"fmt"
+	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,8 +23,8 @@ import (
 
 const keyspace = "curio"
 
-//go:embed create.cql
-var createCQL string
+//go:embed cql/*.cql
+var cqlFiles embed.FS
 
 var log = logging.Logger("indexstore")
 
@@ -71,35 +74,46 @@ func isNotFoundErr(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "not found")
 }
 
-func NewIndexStore(hosts []string, port int, cfg *config.CurioConfig) (*IndexStore, error) {
-	if len(hosts) == 0 {
-		return nil, xerrors.Errorf("no hosts provided for cassandra")
-	}
-
+func NewIndexStore(hosts []string, port int, cfg *config.CurioConfig) *IndexStore {
 	cluster := gocql.NewCluster(hosts...)
 	cluster.Timeout = 5 * time.Minute
 	cluster.Consistency = gocql.One
 	cluster.NumConns = cfg.Market.StorageMarketConfig.Indexing.InsertConcurrency * 8
 	cluster.Port = port
 
-	store := &IndexStore{
+	return &IndexStore{
 		cluster: cluster,
 		settings: settings{
 			InsertBatchSize:   cfg.Market.StorageMarketConfig.Indexing.InsertBatchSize,
 			InsertConcurrency: cfg.Market.StorageMarketConfig.Indexing.InsertConcurrency,
 		},
 	}
-
-	return store, store.Start(context.Background())
 }
 
-func (i *IndexStore) Start(ctx context.Context) error {
+type ITestID string
+
+// ItestNewID see ITestWithID doc
+func ITestNewID() ITestID {
+	return ITestID(strconv.Itoa(rand.Intn(99999)))
+}
+
+func (i *IndexStore) Start(ctx context.Context, test bool) error {
+	if len(i.cluster.Hosts) == 0 {
+		return xerrors.Errorf("no hosts provided for cassandra")
+	}
+
+	keyspaceName := keyspace
+	if test {
+		id := ITestNewID()
+		keyspaceName = fmt.Sprintf("test%s", id)
+	}
+
 	// Create Cassandra keyspace
 	session, err := i.cluster.CreateSession()
 	if err != nil {
 		return xerrors.Errorf("creating cassandra session: %w", err)
 	}
-	query := `CREATE KEYSPACE IF NOT EXISTS ` + keyspace +
+	query := `CREATE KEYSPACE IF NOT EXISTS ` + keyspaceName +
 		` WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 3 }`
 	err = session.Query(query).WithContext(ctx).Exec()
 	if err != nil {
@@ -115,16 +129,32 @@ func (i *IndexStore) Start(ctx context.Context) error {
 		return xerrors.Errorf("creating cassandra session: %w", err)
 	}
 
-	lines := strings.Split(createCQL, ";")
-	for _, line := range lines {
-		line = strings.Trim(line, "\n \t")
-		if line == "" {
+	entries, err := cqlFiles.ReadDir("cql")
+	if err != nil {
+		log.Fatalf("failed to read embedded directory: %v", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
 			continue
 		}
-		log.Debug(line)
-		err := session.Query(line).WithContext(ctx).Exec()
+
+		data, err := cqlFiles.ReadFile("cql/" + entry.Name())
 		if err != nil {
-			return xerrors.Errorf("creating tables: executing\n%s\n%w", line, err)
+			log.Fatalf("failed to read file %s: %v", entry.Name(), err)
+		}
+
+		lines := strings.Split(string(data), ";")
+		for _, line := range lines {
+			line = strings.Trim(line, "\n \t")
+			if line == "" {
+				continue
+			}
+			log.Debug(line)
+			err := session.Query(line).WithContext(ctx).Exec()
+			if err != nil {
+				return xerrors.Errorf("creating tables: executing\n%s\n%w", line, err)
+			}
 		}
 	}
 
@@ -405,4 +435,67 @@ func (i *IndexStore) CheckHasPiece(ctx context.Context, piecev2 cid.Cid) (bool, 
 	}
 
 	return len(hashes) > 0, nil
+}
+
+func (i *IndexStore) InsertAggregateIndex(ctx context.Context, aggregatePieceCid cid.Cid, records []Record) error {
+	insertAggregateIndex := `INSERT INTO PieceToAggregatePiece (PieceCid, AggregatePieceCid, UnpaddedOffset, UnpaddedLength) VALUES (?, ?, ?, ?)`
+	aggregatePieceCidBytes := aggregatePieceCid.Bytes()
+	var batch *gocql.Batch
+	batchSize := i.settings.InsertBatchSize
+
+	if len(records) == 0 {
+		return xerrors.Errorf("no records to insert")
+	}
+
+	for _, r := range records {
+		if batch == nil {
+			batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
+		}
+
+		batch.Entries = append(batch.Entries, gocql.BatchEntry{
+			Stmt:       insertAggregateIndex,
+			Args:       []interface{}{r.Cid.Bytes(), aggregatePieceCidBytes, r.Offset, r.Size},
+			Idempotent: true,
+		})
+
+		if len(batch.Entries) >= batchSize {
+			if err := i.session.ExecuteBatch(batch); err != nil {
+				return xerrors.Errorf("executing batch insert for aggregate piece %s: %w", aggregatePieceCid, err)
+			}
+			batch = nil
+		}
+	}
+
+	if batch != nil {
+		if len(batch.Entries) >= 0 {
+			if err := i.session.ExecuteBatch(batch); err != nil {
+				return xerrors.Errorf("executing batch insert for aggregate piece %s: %w", aggregatePieceCid, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (i *IndexStore) FindPieceInAggregate(ctx context.Context, pieceCid cid.Cid) ([]cid.Cid, error) {
+	qry := `SELECT AggregatePieceCid FROM PieceToAggregatePiece WHERE PieceCid = ?`
+	iter := i.session.Query(qry, pieceCid.Bytes()).WithContext(ctx).Iter()
+	var aggregatePieceCidBytes []cid.Cid
+	var r []byte
+	for iter.Scan(&r) {
+		c, err := cid.Cast(r)
+		if err != nil {
+			return nil, xerrors.Errorf("casting aggregate piece cid: %w", err)
+		}
+		aggregatePieceCidBytes = append(aggregatePieceCidBytes, c)
+
+		r = make([]byte, 0)
+	}
+	if err := iter.Close(); err != nil {
+		return nil, xerrors.Errorf("iterating aggregate piece cid (P:0x%02x): %w", pieceCid.Bytes(), err)
+	}
+	if len(aggregatePieceCidBytes) == 0 {
+		return nil, nil
+	}
+	return aggregatePieceCidBytes, nil
 }

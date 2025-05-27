@@ -481,6 +481,14 @@ func (d *DBDeal) ToDeal() (*Deal, error) {
 		ds.SourceOffline = &so
 	}
 
+	if len(d.SourceHttpPut) > 0 && string(d.SourceHttpPut) != "null" {
+		var shp DataSourceHttpPut
+		if err := json.Unmarshal(d.SourceHttpPut, &shp); err != nil {
+			return nil, fmt.Errorf("unmarshal source_http_put: %w", err)
+		}
+		ds.SourceHttpPut = &shp
+	}
+
 	if len(d.DDOv1) > 0 && string(d.DDOv1) != "null" {
 		if err := json.Unmarshal(d.DDOv1, &products.DDOV1); err != nil {
 			return nil, fmt.Errorf("unmarshal ddov1: %w", err)

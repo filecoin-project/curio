@@ -1650,6 +1650,11 @@ var mk20DealCmd = &cli.Command{
 			Name:  "aggregate",
 			Usage: "aggregate file path for the deal",
 		},
+		&cli.BoolFlag{
+			Name:  "put",
+			Usage: "used HTTP put as data source",
+			Value: false,
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 		ctx := cctx.Context
@@ -1732,11 +1737,6 @@ var mk20DealCmd = &cli.Command{
 		}
 
 		carFileSize := cctx.Uint64("car-size")
-
-		url, err := url.Parse(cctx.String("http-url"))
-		if err != nil {
-			return xerrors.Errorf("parsing http url: %w", err)
-		}
 
 		var headers http.Header
 
@@ -1833,23 +1833,54 @@ var mk20DealCmd = &cli.Command{
 			if carFileSize == 0 {
 				return xerrors.Errorf("size of car file cannot be 0")
 			}
-			d = mk20.DataSource{
-				PieceCID: pieceCid,
-				Size:     abi.PaddedPieceSize(pieceSize),
-				Format: mk20.PieceDataFormat{
-					Car: &mk20.FormatCar{},
-				},
-				SourceHTTP: &mk20.DataSourceHTTP{
-					RawSize: carFileSize,
-					URLs: []mk20.HttpUrl{
-						{
-							URL:      url.String(),
-							Headers:  headers,
-							Priority: 0,
-							Fallback: true,
+
+			if !cctx.IsSet("http-url") {
+				if cctx.Bool("put") {
+					d = mk20.DataSource{
+						PieceCID: pieceCid,
+						Size:     abi.PaddedPieceSize(pieceSize),
+						Format: mk20.PieceDataFormat{
+							Car: &mk20.FormatCar{},
+						},
+						SourceHttpPut: &mk20.DataSourceHttpPut{
+							RawSize: carFileSize,
+						},
+					}
+				} else {
+					d = mk20.DataSource{
+						PieceCID: pieceCid,
+						Size:     abi.PaddedPieceSize(pieceSize),
+						Format: mk20.PieceDataFormat{
+							Car: &mk20.FormatCar{},
+						},
+						SourceOffline: &mk20.DataSourceOffline{
+							RawSize: carFileSize,
+						},
+					}
+				}
+			} else {
+				url, err := url.Parse(cctx.String("http-url"))
+				if err != nil {
+					return xerrors.Errorf("parsing http url: %w", err)
+				}
+				d = mk20.DataSource{
+					PieceCID: pieceCid,
+					Size:     abi.PaddedPieceSize(pieceSize),
+					Format: mk20.PieceDataFormat{
+						Car: &mk20.FormatCar{},
+					},
+					SourceHTTP: &mk20.DataSourceHTTP{
+						RawSize: carFileSize,
+						URLs: []mk20.HttpUrl{
+							{
+								URL:      url.String(),
+								Headers:  headers,
+								Priority: 0,
+								Fallback: true,
+							},
 						},
 					},
-				},
+				}
 			}
 		}
 

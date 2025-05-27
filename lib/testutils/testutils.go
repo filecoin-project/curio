@@ -270,7 +270,7 @@ func CreateAggregateFromCars(files []string, dealSize abi.PaddedPieceSize, aggre
 		defer os.Remove(f.Name())
 	} else {
 		cn := path.Join(p, pcid.String())
-		defer os.Rename(f.Name(), fmt.Sprintf("aggregate_%s.piece", cn))
+		defer os.Rename(f.Name(), fmt.Sprintf("aggregate_%s.piece", cn)) //nolint:errcheck
 	}
 
 	return pcid, abi.PaddedPieceSize(paddedPieceSize), nil

@@ -32,6 +32,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/pdp/contract"
@@ -392,7 +393,12 @@ func (p *ProveTask) genSubrootMemtree(ctx context.Context, subrootCid string, su
 		return nil, xerrors.Errorf("subroot size exceeds maximum: %d", subrootSize)
 	}
 
-	subrootReader, unssize, err := p.cpr.GetSharedPieceReader(ctx, subrootCidObj, subrootSize)
+	commp, err := commcidv2.CommPFromPieceInfo(abi.PieceInfo{PieceCID: subrootCidObj, Size: subrootSize})
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get piece commitment: %w", err)
+	}
+
+	subrootReader, unssize, err := p.cpr.GetSharedPieceReader(ctx, commp.PCidV2())
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get subroot reader: %w", err)
 	}
