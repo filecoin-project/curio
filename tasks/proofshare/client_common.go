@@ -20,15 +20,16 @@ import (
 )
 
 // getClientRequest retrieves or creates a client request record
-func getClientRequest(ctx context.Context, db *harmonydb.DB, taskID harmonytask.TaskID, sector abi.SectorID) (*ClientRequest, error) {
+func getClientRequest(ctx context.Context, db *harmonydb.DB, taskID harmonytask.TaskID, sector abi.SectorID, requestPartitionCost int64) (*ClientRequest, error) {
 	var clientRequest ClientRequest
 	err := db.QueryRow(ctx, `
-		SELECT request_cid, request_uploaded, payment_wallet, payment_nonce, request_sent, response_data, done
+		SELECT request_cid, request_uploaded, payment_wallet, payment_nonce, request_sent, response_data, done, request_partition_cost
 		FROM proofshare_client_requests
 		WHERE task_id = $1
 	`, taskID).Scan(
 		&clientRequest.RequestCID, &clientRequest.RequestUploaded, &clientRequest.PaymentWallet,
 		&clientRequest.PaymentNonce, &clientRequest.RequestSent, &clientRequest.ResponseData, &clientRequest.Done,
+		&clientRequest.RequestPartitionCost,
 	)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, xerrors.Errorf("failed to get client request: %w", err)
@@ -37,21 +38,22 @@ func getClientRequest(ctx context.Context, db *harmonydb.DB, taskID harmonytask.
 	// If we don't have a client request yet, create one
 	if errors.Is(err, pgx.ErrNoRows) {
 		_, err = db.Exec(ctx, `
-			INSERT INTO proofshare_client_requests (task_id, sp_id, sector_num, created_at)
-			VALUES ($1, $2, $3, NOW())
-		`, taskID, sector.Miner, sector.Number)
+			INSERT INTO proofshare_client_requests (task_id, sp_id, sector_num, request_partition_cost, created_at)
+			VALUES ($1, $2, $3, $4, NOW())
+		`, taskID, sector.Miner, sector.Number, requestPartitionCost)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to create client request: %w", err)
 		}
 
 		// Reload the client request
 		err = db.QueryRow(ctx, `
-			SELECT request_cid, request_uploaded, payment_wallet, payment_nonce, request_sent, response_data, done
+			SELECT request_cid, request_uploaded, payment_wallet, payment_nonce, request_sent, response_data, done, request_partition_cost
 			FROM proofshare_client_requests
 			WHERE task_id = $1
 		`, taskID).Scan(
 			&clientRequest.RequestCID, &clientRequest.RequestUploaded, &clientRequest.PaymentWallet,
 			&clientRequest.PaymentNonce, &clientRequest.RequestSent, &clientRequest.ResponseData, &clientRequest.Done,
+			&clientRequest.RequestPartitionCost,
 		)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to reload client request: %w", err)
@@ -63,7 +65,7 @@ func getClientRequest(ctx context.Context, db *harmonydb.DB, taskID harmonytask.
 
 
 // createPayment creates a payment for the proof request
-func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, router *common.Service, taskID harmonytask.TaskID, sectorInfo abi.SectorID) (bool, error) {
+func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, router *common.Service, taskID harmonytask.TaskID, sectorInfo abi.SectorID, requestPartitionCost int64) (bool, error) {
 	log.Infow("createPayment start", "taskID", taskID, "spID", sectorInfo.Miner, "sectorNumber", sectorInfo.Number)
 	// Get the wallet address from client settings for this SP ID
 	var walletStr string
@@ -139,6 +141,10 @@ func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, 
 	if err != nil {
 		return false, xerrors.Errorf("failed to get current price: %w", err)
 	}
+
+	price = big.Div(price, types.NanoFil)
+	price = big.Div(big.Mul(price, big.NewInt(requestPartitionCost)), big.NewInt(10))
+	price = big.Mul(price, types.NanoFil)
 
 	// Create payment in a transaction
 	var nextNonce int64
@@ -229,7 +235,7 @@ func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, 
 		return false, xerrors.Errorf("transaction failed: %w", err)
 	}
 
-	log.Infow("createPayment complete", "taskID", taskID, "wallet", clientID, "nonce", nextNonce)
+	log.Infow("createPayment complete", "taskID", taskID, "wallet", clientID, "nonce", nextNonce, "price", price)
 	return true, nil
 }
 

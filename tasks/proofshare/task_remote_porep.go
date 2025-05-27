@@ -175,7 +175,8 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		log.Infow("PSR CYCLE BEGIN VVVVVVVVVVVVVVVVVVVVVVVVVVV", "taskID", taskID)
 
 		// Get the current state of the client request
-		clientRequest, err := getClientRequest(ctx, t.db, taskID, sectorInfo.SectorID())
+		const partitionCost = 10 // 126 for ni-porep
+		clientRequest, err := getClientRequest(ctx, t.db, taskID, sectorInfo.SectorID(), partitionCost)
 		if err != nil {
 			return false, err
 		}
@@ -197,7 +198,7 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		} else if clientRequest.PaymentWallet == nil || clientRequest.PaymentNonce == nil {
 			// Step 2: Create payment
 			inState = "creating payment"
-			stateChanged, err = createPayment(ctx, t.api, t.db, t.router, taskID, sectorInfo.SectorID())
+			stateChanged, err = createPayment(ctx, t.api, t.db, t.router, taskID, sectorInfo.SectorID(), clientRequest.RequestPartitionCost)
 		} else if !clientRequest.RequestSent {
 			// Step 3: Send request
 			inState = "sending request"
@@ -412,6 +413,7 @@ func (s *SectorInfo) SectorID() abi.SectorID {
 type ClientRequest struct {
 	RequestCID      *string `db:"request_cid"`
 	RequestUploaded bool    `db:"request_uploaded"`
+	RequestPartitionCost int64 `db:"request_partition_cost"`
 
 	PaymentWallet *int64 `db:"payment_wallet"`
 	PaymentNonce  *int64 `db:"payment_nonce"`

@@ -93,9 +93,15 @@ func (p *ProofData) Validate() error {
 	}
 
 	if p.Snap != nil {
+		if p.SectorID == nil {
+			return xerrors.Errorf("sector id is required for Snap")
+		}
+
 		if err := p.validateSnap(); err != nil {
 			return xerrors.Errorf("failed to validate Snap: %w", err)
 		}
+
+		return nil
 	}
 	return xerrors.Errorf("invalid proof request: no proof request")
 }

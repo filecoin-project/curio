@@ -117,6 +117,8 @@ func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 		return nil, nil
 	}
 
+	return nil, nil // TODO THIS IS SNARK MARKET TEMP, REMOVEME
+
 	id := ids[0]
 	return &id, nil
 }

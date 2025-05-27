@@ -99,6 +99,7 @@ CREATE TABLE proofshare_client_requests (
 
     request_cid TEXT,
     request_uploaded BOOLEAN NOT NULL DEFAULT FALSE,
+    request_partition_cost INTEGER NOT NULL DEFAULT 10,
 
     payment_wallet BIGINT,
     payment_nonce BIGINT,

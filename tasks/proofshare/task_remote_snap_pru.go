@@ -213,7 +213,8 @@ func (t *TaskRemoteSnapPRU) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		log.Infow("PSR SNAP PRU CYCLE BEGIN VVVVVVVVVVVVVVVVVVVVVVVVVVV", "taskID", taskID)
 
 		// Get the current state of the client request
-		clientRequest, err := getClientRequest(ctx, t.db, taskID, sectorInfo.SectorID())
+		const partitionCost = 16
+		clientRequest, err := getClientRequest(ctx, t.db, taskID, sectorInfo.SectorID(), partitionCost)
 		if err != nil {
 			return false, err
 		}
@@ -235,7 +236,8 @@ func (t *TaskRemoteSnapPRU) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		} else if clientRequest.PaymentWallet == nil || clientRequest.PaymentNonce == nil {
 			// Step 2: Create payment
 			inState = "creating payment"
-			stateChanged, err = createPayment(ctx, t.api, t.db, t.router, taskID, sectorInfo.SectorID())
+
+			stateChanged, err = createPayment(ctx, t.api, t.db, t.router, taskID, sectorInfo.SectorID(), clientRequest.RequestPartitionCost)
 		} else if !clientRequest.RequestSent {
 			// Step 3: Send request
 			inState = "sending request"
@@ -277,7 +279,7 @@ func (t *TaskRemoteSnapPRU) Do(taskID harmonytask.TaskID, stillOwned func() bool
 type UpdateSectorInfo struct {
 	SpID         int64  `db:"sp_id"`
 	SectorNumber int64  `db:"sector_number"`
-	UpdateProofType abi.RegisteredUpdateProof `db:"update_proof"`
+	UpdateProofType abi.RegisteredUpdateProof `db:"upgrade_proof"`
 	RegSealProof abi.RegisteredSealProof `db:"reg_seal_proof"`
 
 	OldR proof.Commitment
@@ -294,47 +296,46 @@ func (s *UpdateSectorInfo) SectorID() abi.SectorID {
 // getSectorInfo retrieves the sector information from the database
 func (t *TaskRemoteSnapPRU) getSectorInfo(ctx context.Context, taskID harmonytask.TaskID) (*UpdateSectorInfo, error) {
 	var info UpdateSectorInfo
-	var cidOldR, cidNewR, cidNewD cid.Cid
+	var cidOldRs, cidNewRs, cidNewDs string
 
 	err := t.db.QueryRow(ctx, `
-		SELECT sp.sp_id, sp.sector_number, sm.reg_seal_proof, sp.update_proof, sp.update_unsealed_cid, sp.update_sealed_cid, sm.orig_sealed_cid
+		SELECT sp.sp_id, sp.sector_number, sm.reg_seal_proof, sp.upgrade_proof, sp.update_unsealed_cid, sp.update_sealed_cid, sm.orig_sealed_cid
 		FROM sectors_snap_pipeline sp
 		LEFT JOIN sectors_meta sm ON sp.sp_id = sm.sp_id AND sp.sector_number = sm.sector_num
 		WHERE sp.task_id_prove = $1
 	`, taskID).Scan(
 		&info.SpID, &info.SectorNumber, &info.RegSealProof, &info.UpdateProofType,
-		&cidNewD, &cidNewR, &cidOldR,
+		&cidNewDs, &cidNewRs, &cidOldRs,
 	)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get sector info: %w", err)
 	}
 
 	// Parse CIDs
-	var err1, err2, err3 error
-	cidOldR, err1 = cid.Parse(cidOldR)
-	cidNewR, err2 = cid.Parse(cidNewR)
-	cidNewD, err3 = cid.Parse(cidNewD)
+	cidOldR, err1 := cid.Parse(cidOldRs)
+	cidNewR, err2 := cid.Parse(cidNewRs)
+	cidNewD, err3 := cid.Parse(cidNewDs)
 	if err1 != nil {
-		return nil, xerrors.Errorf("failed to parse old r cid: %w", err1)
+		return nil, xerrors.Errorf("failed to parse old r cid (%s): %w", cidOldRs, err1)
 	}
 	if err2 != nil {
-		return nil, xerrors.Errorf("failed to parse new r cid: %w", err2)
+		return nil, xerrors.Errorf("failed to parse new r cid (%s): %w", cidNewRs, err2)
 	}
 	if err3 != nil {
-		return nil, xerrors.Errorf("failed to parse new d cid: %w", err3)
+		return nil, xerrors.Errorf("failed to parse new d cid (%s): %w", cidNewDs, err3)
 	}
 
 	cmOldR, err := commcid.CIDToReplicaCommitmentV1(cidOldR)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to convert old r cid to commitment: %w", err)
+		return nil, xerrors.Errorf("failed to convert old r cid to commitment (%s): %w", cidOldRs, err)
 	}
 	cmNewR, err := commcid.CIDToReplicaCommitmentV1(cidNewR)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to convert new r cid to commitment: %w", err)
+		return nil, xerrors.Errorf("failed to convert new r cid to commitment (%s): %w", cidNewRs, err)
 	}
-	cmNewD, err := commcid.CIDToReplicaCommitmentV1(cidNewD)
+	cmNewD, err := commcid.CIDToDataCommitmentV1(cidNewD)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to convert new d cid to commitment: %w", err)
+		return nil, xerrors.Errorf("failed to convert new d cid to commitment (%s): %w", cidNewDs, err)
 	}
 
 	copy(info.OldR[:], cmOldR)

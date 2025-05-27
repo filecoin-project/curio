@@ -128,7 +128,7 @@ func (t *TaskProvideSnark) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("failed to unmarshal request: %w", err)
 	}
 
-	proof, err := computeProof(ctx, request)
+	proof, err := computeProof(ctx, taskID, request)
 	if err != nil {
 		return false, xerrors.Errorf("failed to compute proof: %w", err)
 	}
@@ -171,7 +171,7 @@ func (t *TaskProvideSnark) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func computeProof(ctx context.Context, request common.ProofData) ([]byte, error) {
+func computeProof(ctx context.Context, taskID harmonytask.TaskID, request common.ProofData) ([]byte, error) {
 	if request.PoRep != nil {
 		if request.SectorID == nil {
 			return nil, xerrors.Errorf("sector id is required")
@@ -185,7 +185,7 @@ func computeProof(ctx context.Context, request common.ProofData) ([]byte, error)
 			return nil, xerrors.Errorf("sector id is required")
 		}
 
-		return computeSnap(ctx, request.Snap, *request.SectorID)
+		return computeSnap(ctx, taskID, request.Snap, *request.SectorID)
 	}
 
 	return nil, xerrors.Errorf("unknown proof request type")
@@ -239,7 +239,7 @@ func computePoRep(ctx context.Context, request *proof.Commit1OutRaw, sectorID ab
 	return proof, nil
 }
 
-func computeSnap(ctx context.Context, request *proof.Snap, sectorID abi.SectorID) ([]byte, error) {
+func computeSnap(ctx context.Context, taskID harmonytask.TaskID, request *proof.Snap, sectorID abi.SectorID) ([]byte, error) {
 	oldR, err := commcid.ReplicaCommitmentV1ToCID(request.OldR[:])
 	if err != nil {
 		return nil, xerrors.Errorf("invalid OldR: %w", err)
@@ -253,6 +253,7 @@ func computeSnap(ctx context.Context, request *proof.Snap, sectorID abi.SectorID
 		return nil, xerrors.Errorf("invalid NewD: %w", err)
 	}
 
+	ctx = ffiselect.WithLogCtx(ctx, "sector", sectorID, "task", taskID, "oldR", oldR, "newR", newR, "newD", newD)
 	proof, err := ffiselect.FFISelect.GenerateUpdateProofWithVanilla(ctx, request.ProofType, oldR, newR, newD, request.Proofs)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to generate update proof: %w", err)
