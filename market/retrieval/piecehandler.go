@@ -13,7 +13,6 @@ import (
 	"go.opencensus.io/stats"
 
 	"github.com/filecoin-project/curio/lib/cachedreader"
-	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
 )
 
@@ -45,18 +44,8 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	commp, err := commcidv2.CommPFromPCidV2(pieceCid)
-	if err != nil {
-		log.Errorf("parsing piece CID '%s': %s", pieceCidStr, err.Error())
-		w.WriteHeader(http.StatusBadRequest)
-		stats.Record(ctx, remoteblockstore.HttpPieceByCid400ResponseCount.M(1))
-		return
-	}
-
-	pi := commp.PieceInfo()
-
 	// Get a reader over the piece
-	reader, size, err := rp.cpr.GetSharedPieceReader(ctx, pi.PieceCID, pi.Size)
+	reader, size, err := rp.cpr.GetSharedPieceReader(ctx, pieceCid)
 	if err != nil {
 		log.Errorf("server error getting content for piece CID %s: %s", pieceCid, err)
 		if errors.Is(err, cachedreader.NoDealErr) {

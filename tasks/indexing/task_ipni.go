@@ -115,7 +115,12 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, xerrors.Errorf("unmarshaling piece info: %w", err)
 	}
 
-	reader, _, err := I.cpr.GetSharedPieceReader(ctx, pi.PieceCID, pi.Size)
+	commp, err := commcidv2.CommPFromPieceInfo(pi)
+	if err != nil {
+		return false, xerrors.Errorf("getting piece commP: %w", err)
+	}
+
+	reader, _, err := I.cpr.GetSharedPieceReader(ctx, commp.PCidV2())
 
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
@@ -143,11 +148,6 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	var interrupted bool
 	var subPieces []mk20.PieceDataFormat
 	chk := chunker.NewInitialChunker()
-
-	commp, err := commcidv2.CommPFromPieceInfo(pi)
-	if err != nil {
-		return false, xerrors.Errorf("getting piece commP: %w", err)
-	}
 
 	eg.Go(func() error {
 		defer close(addFail)
@@ -182,7 +182,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		if deal.Data.Format.Aggregate != nil {
 			if deal.Data.Format.Aggregate.Type > 0 {
 				subPieces = deal.Data.Format.Aggregate.Sub
-				_, interrupted, err = IndexAggregate(reader, pi.Size, subPieces, recs, addFail)
+				_, _, interrupted, err = IndexAggregate(commp.PCidV2(), reader, pi.Size, subPieces, recs, addFail)
 			}
 		}
 

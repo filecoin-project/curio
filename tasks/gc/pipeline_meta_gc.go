@@ -181,12 +181,17 @@ func (s *PipelineGC) cleanupMK20DealPipeline() error {
 
 	_, err := s.db.Exec(ctx, `DELETE FROM market_mk20_offline_urls
 									WHERE id IN (
-										SELECT id FROM market_mk20_pipeline WHERE complete = TRUE
-									);
-									
-									DELETE FROM market_mk20_pipeline
-									WHERE complete = TRUE;
-									`)
+										SELECT id FROM market_mk20_pipeline WHERE complete = TRUE)`)
+	if err != nil {
+		return xerrors.Errorf("failed to clean up offline urls: %w", err)
+	}
+	_, err = s.db.Exec(ctx, `DELETE FROM market_mk20_download_pipeline
+									WHERE id IN (
+										SELECT id FROM market_mk20_pipeline WHERE complete = TRUE)`)
+	if err != nil {
+		return xerrors.Errorf("failed to clean up download pipeline: %w", err)
+	}
+	_, err = s.db.Exec(ctx, `DELETE FROM market_mk20_pipeline WHERE complete = TRUE;`)
 	if err != nil {
 		return xerrors.Errorf("failed to clean up sealed deals: %w", err)
 	}

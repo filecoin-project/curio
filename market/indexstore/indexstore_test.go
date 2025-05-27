@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"testing"
-	"time"
 
 	carv2 "github.com/ipld/go-car/v2"
 	"github.com/ipld/go-car/v2/blockstore"
@@ -32,7 +31,8 @@ func TestNewIndexStore(t *testing.T) {
 	ctx := context.Background()
 	cfg := config.DefaultCurioConfig()
 
-	idxStore, err := NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
+	idxStore := NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
+	err := idxStore.Start(ctx, true)
 	require.NoError(t, err)
 
 	// Create a car file and calculate commP
@@ -42,7 +42,7 @@ func TestNewIndexStore(t *testing.T) {
 		_ = os.RemoveAll(dir)
 	}()
 
-	rf, err := testutils.CreateRandomTmpFile(dir, time.Now().Unix(), 8000000)
+	rf, err := testutils.CreateRandomTmpFile(dir, 8000000)
 	require.NoError(t, err)
 
 	caropts := []carv2.Option{
@@ -115,6 +115,9 @@ func TestNewIndexStore(t *testing.T) {
 
 	// Remove all indexes from the store
 	err = idxStore.RemoveIndexes(ctx, pcids[0].PieceCidV2)
+	require.NoError(t, err)
+
+	err = idxStore.session.Query("SELECT * FROM PieceToAggregatePiece").Exec()
 	require.NoError(t, err)
 
 	// Drop the tables

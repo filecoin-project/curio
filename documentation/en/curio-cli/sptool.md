@@ -899,9 +899,10 @@ USAGE:
    sptool toolbox mk20-client command [command options]
 
 COMMANDS:
-   init     Initialise curio mk12 client repo
-   deal     Make a mk20 deal with Curio
-   help, h  Shows a list of commands or help for one command
+   init       Initialise curio mk12 client repo
+   deal       Make a mk20 deal with Curio
+   aggregate  Create a new aggregate from a list of CAR files
+   help, h    Shows a list of commands or help for one command
 
 OPTIONS:
    --mk12-client-repo value  repo directory for mk12 client (default: "~/.curio-client") [$CURIO_MK12_CLIENT_REPO]
@@ -936,9 +937,28 @@ OPTIONS:
    --commp value                                  commp of the CAR file
    --piece-size value                             size of the CAR file as a padded piece (default: 0)
    --duration value                               duration of the deal in epochs (default: 518400)
-   --verified                                     whether the deal funds should come from verified client data-cap (default: false)
+   --contract-address value                       contract address of the deal
+   --contract-verify-method value                 contract verify method of the deal
+   --allocation value                             allocation id of the deal (default: 0)
    --indexing                                     indicates that an deal should be indexed (default: true)
    --wallet value                                 wallet address to be used to initiate the deal
    --announce                                     indicates that deal should be announced to the IPNI(Network Indexer) (default: true)
+   --aggregate value                              aggregate file path for the deal
+   --put                                          used HTTP put as data source (default: false)
    --help, -h                                     show help
+```
+
+#### sptool toolbox mk20-client aggregate
+```
+NAME:
+   sptool toolbox mk20-client aggregate - Create a new aggregate from a list of CAR files
+
+USAGE:
+   sptool toolbox mk20-client aggregate [command options]
+
+OPTIONS:
+   --files value [ --files value ]  list of CAR files to aggregate
+   --piece-size value               piece size of the aggregate (default: 0)
+   --out                            output the aggregate file (default: false)
+   --help, -h                       show help
 ```

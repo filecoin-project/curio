@@ -89,6 +89,8 @@ func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal) *ProviderDealRejecti
 		return ret
 	}
 
+	log.Debugw("deal validated", "deal", deal.Identifier.String())
+
 	return m.processDDODeal(ctx, deal)
 
 }
@@ -99,6 +101,9 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal) *ProviderDealReje
 		log.Errorw("deal rejected", "deal", deal, "error", err)
 		return rejection
 	}
+
+	log.Debugw("deal sanitized", "deal", deal.Identifier.String())
+
 	if rejection != nil {
 		return rejection
 	}
@@ -116,6 +121,8 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal) *ProviderDealReje
 		}
 		return ret
 	}
+
+	log.Debugw("deal ID found", "deal", deal.Identifier.String(), "id", id)
 
 	// TODO: Backpressure, client filter
 
@@ -157,6 +164,8 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal) *ProviderDealReje
 			HTTPCode: http.StatusInternalServerError,
 		}
 	}
+
+	log.Debugw("deal inserted in DB", "deal", deal.Identifier.String())
 
 	return &ProviderDealRejectionInfo{
 		HTTPCode: http.StatusOK,

@@ -198,7 +198,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	}
 	pc2 := commp.PCidV2()
 
-	reader, _, err := i.cpr.GetSharedPieceReader(ctx, pieceCid, task.Size)
+	reader, _, err := i.cpr.GetSharedPieceReader(ctx, pc2)
 
 	if err != nil {
 		return false, xerrors.Errorf("getting piece reader: %w", err)
@@ -223,8 +223,10 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return i.indexStore.AddIndex(ctx, pc2, recs)
 	})
 
+	var aggidx map[cid.Cid][]datasegment.SegmentDesc
+
 	if task.Mk20 && len(subPieces) > 0 {
-		blocks, interrupted, err = IndexAggregate(reader, task.Size, subPieces, recs, addFail)
+		blocks, aggidx, interrupted, err = IndexAggregate(pc2, reader, task.Size, subPieces, recs, addFail)
 	} else {
 		blocks, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
 	}
@@ -247,6 +249,29 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	}
 
 	log.Infof("Indexing deal %s took %0.3f seconds", task.UUID, time.Since(startTime).Seconds())
+
+	// Save aggregate index if present
+	for k, v := range aggidx {
+		var idxrecs []indexstore.Record
+		for _, r := range v {
+			pi := abi.PieceInfo{PieceCID: r.PieceCID(), Size: abi.PaddedPieceSize(r.Size)}
+			idxcommp, err := commcidv2.CommPFromPieceInfo(pi)
+			if err != nil {
+				return false, xerrors.Errorf("getting piece commP: %w", err)
+			}
+			idxrecs = append(idxrecs, indexstore.Record{
+				Cid:    idxcommp.PCidV2(),
+				Offset: r.UnpaddedOffest(),
+				Size:   r.UnpaddedLength(),
+			})
+		}
+		if len(idxrecs) > 0 {
+			err = i.indexStore.InsertAggregateIndex(ctx, k, idxrecs)
+			if err != nil {
+				return false, xerrors.Errorf("inserting aggregate index: %w", err)
+			}
+		}
+	}
 
 	err = i.recordCompletion(ctx, task, taskID, true)
 	if err != nil {
@@ -411,30 +436,32 @@ type IndexReader interface {
 	io.Reader
 }
 
-func IndexAggregate(
+func IndexAggregate(pieceCid cid.Cid,
 	reader IndexReader,
 	size abi.PaddedPieceSize,
 	subPieces []mk20.PieceDataFormat,
 	recs chan<- indexstore.Record,
 	addFail <-chan struct{},
-) (int64, bool, error) {
+) (int64, map[cid.Cid][]datasegment.SegmentDesc, bool, error) {
 	dsis := datasegment.DataSegmentIndexStartOffset(size)
 	if _, err := reader.Seek(int64(dsis), io.SeekStart); err != nil {
-		return 0, false, xerrors.Errorf("seeking to data segment index start offset: %w", err)
+		return 0, nil, false, xerrors.Errorf("seeking to data segment index start offset: %w", err)
 	}
 
 	idata, err := parseDataSegmentIndex(reader)
 	if err != nil {
-		return 0, false, xerrors.Errorf("parsing data segment index: %w", err)
+		return 0, nil, false, xerrors.Errorf("parsing data segment index: %w", err)
 	}
 	if len(idata.Entries) == 0 {
-		return 0, false, xerrors.New("no data segment index entries")
+		return 0, nil, false, xerrors.New("no data segment index entries")
 	}
 
 	valid := validateSegments(idata.Entries)
 	if len(valid) == 0 {
-		return 0, false, xerrors.New("no valid data segment index entries")
+		return 0, nil, false, xerrors.New("no valid data segment index entries")
 	}
+
+	aggidx := make(map[cid.Cid][]datasegment.SegmentDesc)
 
 	log.Infow("Indexing aggregate", "piece_size", size, "num_chunks", len(valid), "num_sub_pieces", len(subPieces))
 
@@ -442,7 +469,7 @@ func IndexAggregate(
 
 	if len(subPieces) > 0 {
 		if len(valid) != len(subPieces) {
-			return 0, false, xerrors.Errorf("expected %d data segment index entries, got %d", len(subPieces), len(idata.Entries))
+			return 0, nil, false, xerrors.Errorf("expected %d data segment index entries, got %d", len(subPieces), len(idata.Entries))
 		}
 		haveSubPieces = true
 	}
@@ -456,6 +483,13 @@ func IndexAggregate(
 		strt := entry.UnpaddedOffest()
 		leng := entry.UnpaddedLength()
 		sectionReader := io.NewSectionReader(reader, int64(strt), int64(leng))
+		pi := abi.PieceInfo{PieceCID: entry.PieceCID(), Size: abi.PaddedPieceSize(entry.Size)}
+		commp, err := commcidv2.CommPFromPieceInfo(pi)
+		if err != nil {
+			return 0, nil, false, xerrors.Errorf("getting piece commP: %w", err)
+		}
+
+		var idx map[cid.Cid][]datasegment.SegmentDesc
 
 		b, inter, err := IndexCAR(sectionReader, bufferSize, recs, addFail)
 		totalBlocks += b
@@ -464,31 +498,34 @@ func IndexAggregate(
 			if strings.Contains(err.Error(), "invalid car version") {
 				if haveSubPieces {
 					if subPieces[j].Car != nil {
-						return 0, false, xerrors.Errorf("invalid car version for subPiece %d: %w", j, err)
+						return 0, aggidx, false, xerrors.Errorf("invalid car version for subPiece %d: %w", j, err)
 					}
 					if subPieces[j].Raw != nil {
 						continue
 					}
 					if subPieces[j].Aggregate != nil {
-						b, inter, err = IndexAggregate(sectionReader, abi.PaddedPieceSize(entry.Size), nil, recs, addFail)
+						b, idx, inter, err = IndexAggregate(commp.PCidV2(), sectionReader, abi.PaddedPieceSize(entry.Size), nil, recs, addFail)
 						if err != nil {
-							return totalBlocks, inter, xerrors.Errorf("invalid aggregate for subPiece %d: %w", j, err)
+							return totalBlocks, aggidx, inter, xerrors.Errorf("invalid aggregate for subPiece %d: %w", j, err)
 						}
 						totalBlocks += b
+						for k, v := range idx {
+							aggidx[k] = append(aggidx[k], v...)
+						}
 					}
 				} else {
 					continue
 				}
 			}
-			return totalBlocks, false, xerrors.Errorf("indexing subPiece %d: %w", j, err)
+			return totalBlocks, aggidx, false, xerrors.Errorf("indexing subPiece %d: %w", j, err)
 		}
 
 		if inter {
-			return totalBlocks, true, nil
+			return totalBlocks, aggidx, true, nil
 		}
 	}
 
-	return totalBlocks, false, nil
+	return totalBlocks, aggidx, false, nil
 }
 
 // recordCompletion add the piece metadata and piece deal to the DB and

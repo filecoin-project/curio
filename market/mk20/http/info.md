@@ -97,7 +97,7 @@ DataSource represents the source of piece data, including metadata and optional 
 | Field | Type | Tag | Description |
 |-------|------|-----|-------------|
 | PieceCID | [cid.Cid](https://pkg.go.dev/github.com/ipfs/go-cid#Cid) | json:"piece_cid" | PieceCID represents the unique identifier for a piece of data, stored as a CID object.  |
-| Size | [abi.PaddedPieceSize](https://pkg.go.dev/github.com/filecoin-project/go-state-types/abi#PaddedPieceSize) | json:"size" | Size represents the size of the padded piece in the data source.  |
+| Size | [abi.PaddedPieceSize](https://pkg.go.dev/github.com/filecoin-project/go-state-types/abi#PaddedPieceSize) | json:"piece_size" | Size represents the size of the padded piece in the data source.  |
 | Format | [mk20.PieceDataFormat](#piecedataformat) | json:"format" | Format defines the format of the piece data, which can include CAR, Aggregate, or Raw formats.  |
 | SourceHTTP | [*mk20.DataSourceHTTP](#datasourcehttp) | json:"source_http" | SourceHTTP represents the HTTP-based source of piece data within a deal, including raw size and URLs for retrieval.  |
 | SourceAggregate | [*mk20.DataSourceAggregate](#datasourceaggregate) | json:"source_aggregate" | SourceAggregate represents an aggregated source, comprising multiple data sources as pieces.  |

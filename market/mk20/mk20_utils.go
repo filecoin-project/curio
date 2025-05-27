@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/oklog/ulid"
@@ -15,6 +16,9 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	commp "github.com/filecoin-project/go-fil-commp-hashhash"
+	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/dealdata"
@@ -25,7 +29,7 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 
 	var dealError sql.NullString
 
-	err := m.db.QueryRow(ctx, `SELECT error FROM market_mk20_pipeline WHERE id = $1)`, id.String()).Scan(&dealError)
+	err := m.db.QueryRow(ctx, `SELECT error FROM market_mk20_deal WHERE id = $1;`, id.String()).Scan(&dealError)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return &DealStatus{
@@ -142,7 +146,7 @@ func (m *MK20) HandlePutRequest(id ulid.ULID, data io.ReadCloser, w http.Respons
 	}
 
 	err := m.db.Select(ctx, &waitingDeal, `SELECT started_put, start_time from market_mk20_pipeline_waiting 
-                                    WHERE waiting_for_data = TRUE AND id = $1)`, id.String())
+                                    WHERE waiting_for_data = TRUE AND id = $1`, id.String())
 
 	if err != nil {
 		log.Errorw("failed to query the db for deal status", "deal", id.String(), "err", err)
@@ -154,8 +158,10 @@ func (m *MK20) HandlePutRequest(id ulid.ULID, data io.ReadCloser, w http.Respons
 		http.Error(w, "", http.StatusNotFound)
 	}
 
-	if waitingDeal[0].Started && waitingDeal[0].StartTime.Add(m.cfg.HTTP.ReadTimeout).Before(time.Now()) {
-		http.Error(w, "another /PUT request is in progress for this deal", http.StatusConflict)
+	if waitingDeal[0].Started {
+		if waitingDeal[0].StartTime.Add(m.cfg.HTTP.ReadTimeout).Before(time.Now()) {
+			http.Error(w, "another /PUT request is in progress for this deal", http.StatusConflict)
+		}
 	}
 
 	// TODO: Rethink how to ensure only 1 process per deal for /PUT
@@ -198,21 +204,41 @@ func (m *MK20) HandlePutRequest(id ulid.ULID, data io.ReadCloser, w http.Respons
 		}
 	}()
 
+	cp := new(commp.Calc)
+
 	// Function to write data into StashStore and calculate commP
 	writeFunc := func(f *os.File) error {
 		limitedReader := io.LimitReader(data, int64(rawSize+1)) // +1 to detect exceeding the limit
+		wr := io.MultiWriter(f, cp)
 
-		n, err := io.Copy(f, limitedReader)
+		size, err := io.Copy(wr, limitedReader)
 		if err != nil {
 			return fmt.Errorf("failed to read and write piece data: %w", err)
 		}
 
-		if n > int64(deal.Data.Size) {
+		if size > int64(deal.Data.Size) {
 			return fmt.Errorf("piece data exceeds the maximum allowed size")
 		}
 
-		if int64(rawSize) != n {
-			return fmt.Errorf("raw size does not match with uploaded data: %w", err)
+		if int64(rawSize) != size {
+			return fmt.Errorf("deal raw size %d does not match with uploaded data size %d", rawSize, size)
+		}
+
+		digest, pieceSize, err := cp.Digest()
+		if err != nil {
+			return fmt.Errorf("failed to calculate commP: %w", err)
+		}
+
+		pieceCIDComputed, err := commcid.DataCommitmentV1ToCID(digest)
+		if err != nil {
+			return fmt.Errorf("failed to calculate piece CID: %w", err)
+		}
+		if !pieceCIDComputed.Equals(deal.Data.PieceCID) {
+			return fmt.Errorf("calculated piece CID %s does not match with deal piece CID %s", pieceCIDComputed.String(), deal.Data.PieceCID.String())
+		}
+
+		if abi.PaddedPieceSize(pieceSize) != deal.Data.Size {
+			return fmt.Errorf("calculated piece size %d does not match with deal piece size %d", pieceSize, deal.Data.Size)
 		}
 
 		return nil
@@ -222,10 +248,24 @@ func (m *MK20) HandlePutRequest(id ulid.ULID, data io.ReadCloser, w http.Respons
 	stashID, err := m.stor.StashCreate(ctx, int64(deal.Data.Size), writeFunc)
 	if err != nil {
 		if err.Error() == "piece data exceeds the maximum allowed size" {
-			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+			log.Errorw("Storing", "Deal", id, "error", err)
+			http.Error(w, "piece data exceeds the maximum allowed size", http.StatusRequestEntityTooLarge)
 			return
-		} else if err.Error() == "raw size does not match with uploaded data" {
-			http.Error(w, err.Error(), http.StatusRequestEntityTooLarge)
+		} else if strings.Contains(err.Error(), "does not match with uploaded data") {
+			log.Errorw("Storing", "Deal", id, "error", err)
+			http.Error(w, errors.Unwrap(err).Error(), http.StatusBadRequest)
+			return
+		} else if strings.Contains(err.Error(), "failed to calculate piece CID") {
+			log.Errorw("Storing", "Deal", id, "error", err)
+			http.Error(w, "Failed to calculate piece CID", http.StatusInternalServerError)
+			return
+		} else if strings.Contains(err.Error(), "calculated piece CID does not match with uploaded data") {
+			log.Errorw("Storing", "Deal", id, "error", err)
+			http.Error(w, errors.Unwrap(err).Error(), http.StatusBadRequest)
+			return
+		} else if strings.Contains(err.Error(), "calculated piece size does not match with uploaded data") {
+			log.Errorw("Storing", "Deal", id, "error", err)
+			http.Error(w, errors.Unwrap(err).Error(), http.StatusBadRequest)
 			return
 		} else {
 			log.Errorw("Failed to store piece data in StashStore", "error", err)
@@ -290,20 +330,18 @@ func (m *MK20) HandlePutRequest(id ulid.ULID, data io.ReadCloser, w http.Respons
 			allocationID = nil
 		}
 
-		var aggregation interface{}
+		aggregation := 0
 		if dealdata.Format.Aggregate != nil {
-			aggregation = dealdata.Format.Aggregate.Type
-		} else {
-			aggregation = nil
+			aggregation = int(dealdata.Format.Aggregate.Type)
 		}
 
 		n, err = tx.Exec(`INSERT INTO market_mk20_pipeline (
             id, sp_id, contract, client, piece_cid,
             piece_size, raw_size, offline, indexing, announce,
-            allocation_id, duration, piece_aggregation, started) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TRUE)`,
+            allocation_id, duration, piece_aggregation, started, after_commp) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TRUE, TRUE)`,
 			dealID, spid, ddo.ContractAddress, ddo.Client.String(), dealdata.PieceCID.String(),
-			dealdata.Size, int64(dealdata.SourceHTTP.RawSize), false, ddo.Indexing, ddo.AnnounceToIPNI,
+			dealdata.Size, int64(dealdata.SourceHttpPut.RawSize), false, ddo.Indexing, ddo.AnnounceToIPNI,
 			allocationID, ddo.Duration, aggregation)
 		if err != nil {
 			return false, xerrors.Errorf("inserting mk20 pipeline: %w", err)
@@ -320,10 +358,22 @@ func (m *MK20) HandlePutRequest(id ulid.ULID, data io.ReadCloser, w http.Respons
 		return true, nil // Commit the transaction
 	}, harmonydb.OptionRetry())
 
-	if err != nil || !comm {
-		// Remove the stash file as the transaction failed
-		_ = m.stor.StashRemove(ctx, stashID)
+	if err != nil {
+		log.Errorw("Failed to process piece upload", "Deal", id, "error", err)
 		http.Error(w, "Failed to process piece upload", http.StatusInternalServerError)
+		err = m.stor.StashRemove(ctx, stashID)
+		if err != nil {
+			log.Errorw("Failed to remove stash file", "Deal", id, "error", err)
+		}
+		return
+	}
+
+	if !comm {
+		http.Error(w, "Failed to process piece upload", http.StatusInternalServerError)
+		err = m.stor.StashRemove(ctx, stashID)
+		if err != nil {
+			log.Errorw("Failed to remove stash file", "Deal", id, "error", err)
+		}
 		return
 	}
 
