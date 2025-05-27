@@ -3,19 +3,15 @@ package proofshare
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/json"
-	"errors"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/ipfs/go-cid"
-	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/crypto"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -179,7 +175,7 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		log.Infow("PSR CYCLE BEGIN VVVVVVVVVVVVVVVVVVVVVVVVVVV", "taskID", taskID)
 
 		// Get the current state of the client request
-		clientRequest, err := t.getClientRequest(ctx, taskID)
+		clientRequest, err := getClientRequest(ctx, t.db, taskID, sectorInfo.SectorID())
 		if err != nil {
 			return false, err
 		}
@@ -201,14 +197,14 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		} else if clientRequest.PaymentWallet == nil || clientRequest.PaymentNonce == nil {
 			// Step 2: Create payment
 			inState = "creating payment"
-			stateChanged, err = t.createPayment(ctx, taskID, sectorInfo, clientRequest)
+			stateChanged, err = createPayment(ctx, t.api, t.db, t.router, taskID, sectorInfo.SectorID())
 		} else if !clientRequest.RequestSent {
 			// Step 3: Send request
 			inState = "sending request"
-			stateChanged, err = t.sendRequest(ctx, taskID, clientRequest)
+			stateChanged, err = sendRequest(ctx, t.api, t.db, taskID, clientRequest)
 			if err != nil {
 				// request failed, see if we can unlock the payment (if not consumed in the market)
-				rerr := t.undoPayment(ctx, taskID, sectorInfo, clientRequest)
+				rerr := undoPayment(ctx, t.db, taskID, clientRequest)
 				if rerr != nil {
 					log.Errorw("failed to undo payment", "error", rerr, "taskID", taskID, "sectorID", sectorInfo.SectorNumber, "spID", sectorInfo.SpID)
 					err = multierror.Append(err, rerr)
@@ -217,7 +213,7 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		} else {
 			// Step 4: Poll for proof
 			inState = "polling for proof"
-			stateChanged, err = t.pollForProof(ctx, taskID, sectorInfo, clientRequest)
+			stateChanged, err = pollForProof(ctx, t.db, taskID, clientRequest, sectorInfo.SectorID())
 		}
 
 		log.Infow("PSR CYCLE END ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^", "taskID", taskID)
@@ -269,53 +265,6 @@ func (t *TaskRemotePoRep) getSectorInfo(ctx context.Context, taskID harmonytask.
 
 	log.Infow("sector info", "taskID", taskID, "spID", info.SpID, "sectorNumber", info.SectorNumber)
 	return &info, nil
-}
-
-// getClientRequest retrieves or creates a client request record
-func (t *TaskRemotePoRep) getClientRequest(ctx context.Context, taskID harmonytask.TaskID) (*ClientRequest, error) {
-	var clientRequest ClientRequest
-	err := t.db.QueryRow(ctx, `
-		SELECT request_cid, request_uploaded, payment_wallet, payment_nonce, request_sent, response_data, done
-		FROM proofshare_client_requests
-		WHERE task_id = $1
-	`, taskID).Scan(
-		&clientRequest.RequestCID, &clientRequest.RequestUploaded, &clientRequest.PaymentWallet,
-		&clientRequest.PaymentNonce, &clientRequest.RequestSent, &clientRequest.ResponseData, &clientRequest.Done,
-	)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, xerrors.Errorf("failed to get client request: %w", err)
-	}
-
-	// If we don't have a client request yet, create one
-	if errors.Is(err, pgx.ErrNoRows) {
-		sectorInfo, err := t.getSectorInfo(ctx, taskID)
-		if err != nil {
-			return nil, err
-		}
-
-		_, err = t.db.Exec(ctx, `
-			INSERT INTO proofshare_client_requests (task_id, sp_id, sector_num, created_at)
-			VALUES ($1, $2, $3, NOW())
-		`, taskID, sectorInfo.SpID, sectorInfo.SectorNumber)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to create client request: %w", err)
-		}
-
-		// Reload the client request
-		err = t.db.QueryRow(ctx, `
-			SELECT request_cid, request_uploaded, payment_wallet, payment_nonce, request_sent, response_data, done
-			FROM proofshare_client_requests
-			WHERE task_id = $1
-		`, taskID).Scan(
-			&clientRequest.RequestCID, &clientRequest.RequestUploaded, &clientRequest.PaymentWallet,
-			&clientRequest.PaymentNonce, &clientRequest.RequestSent, &clientRequest.ResponseData, &clientRequest.Done,
-		)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to reload client request: %w", err)
-		}
-	}
-
-	return &clientRequest, nil
 }
 
 // uploadProofData generates and uploads the proof data
@@ -381,314 +330,6 @@ func (t *TaskRemotePoRep) uploadProofData(ctx context.Context, taskID harmonytas
 	return true, nil
 }
 
-// createPayment creates a payment for the proof request
-func (t *TaskRemotePoRep) createPayment(ctx context.Context, taskID harmonytask.TaskID, sectorInfo *SectorInfo, clientRequest *ClientRequest) (bool, error) {
-	log.Infow("createPayment start", "taskID", taskID, "spID", sectorInfo.SpID, "sectorNumber", sectorInfo.SectorNumber)
-	// Get the wallet address from client settings for this SP ID
-	var walletStr string
-	err := t.db.QueryRow(ctx, `
-		SELECT wallet FROM proofshare_client_settings 
-		WHERE sp_id = $1 AND enabled = TRUE AND do_porep = TRUE
-	`, sectorInfo.SpID).Scan(&walletStr)
-
-	// If no specific settings for this SP ID, try the default (sp_id = 0)
-	if errors.Is(err, pgx.ErrNoRows) {
-		err = t.db.QueryRow(ctx, `
-			SELECT wallet FROM proofshare_client_settings 
-			WHERE sp_id = 0 AND enabled = TRUE AND do_porep = TRUE
-		`).Scan(&walletStr)
-	}
-
-	if err != nil {
-		return false, xerrors.Errorf("failed to get wallet from client settings: %w", err)
-	}
-
-	if walletStr == "" {
-		return false, xerrors.Errorf("no wallet configured for SP ID %d", sectorInfo.SpID)
-	}
-
-	// Parse the wallet address
-	wallet, err := address.NewFromString(walletStr)
-	if err != nil {
-		return false, xerrors.Errorf("failed to parse wallet address: %w", err)
-	}
-
-	// Get client ID from wallet address
-	clientIDAddr, err := t.api.StateLookupID(ctx, wallet, types.EmptyTSK)
-	if err != nil {
-		return false, xerrors.Errorf("failed to lookup client ID: %w", err)
-	}
-
-	clientID, err := address.IDFromAddress(clientIDAddr)
-	if err != nil {
-		return false, xerrors.Errorf("failed to get client ID from address: %w", err)
-	}
-
-	// Check if the proof service is available
-	// Exponential backoff if not available
-	var available bool
-	backoff := time.Second
-	maxBackoff := 5 * time.Minute
-	for {
-		available, err = proofsvc.CheckAvailability()
-		if err != nil {
-			return false, xerrors.Errorf("failed to check proof service availability: %w", err)
-		}
-		if available {
-			break
-		}
-		// Randomize backoff by ±30%
-		var randVal [2]byte
-		_, _ = rand.Read(randVal[:])
-		// 0-65535 mapped to 0.0-1.0
-		randFrac := float64(uint16(randVal[0])<<8|uint16(randVal[1])) / 65535.0
-		mult := 0.7 + 0.6*randFrac // 0.7 to 1.3
-		randomizedBackoff := time.Duration(float64(backoff) * mult)
-
-		log.Infow("proof service not available, backing off", "backoff", randomizedBackoff)
-		time.Sleep(randomizedBackoff)
-		backoff *= 2
-		if backoff > maxBackoff {
-			backoff = maxBackoff
-		}
-	}
-
-	// Get current price for the proof
-	price, err := proofsvc.GetCurrentPrice()
-	if err != nil {
-		return false, xerrors.Errorf("failed to get current price: %w", err)
-	}
-
-	// Create payment in a transaction
-	var nextNonce int64
-	_, err = t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		// Check if there's an unconsumed payment
-		var lastPayment struct {
-			Wallet           int64  `db:"wallet"`
-			Nonce            int64  `db:"nonce"`
-			CumulativeAmount string `db:"cumulative_amount"`
-			Consumed         bool   `db:"consumed"`
-		}
-
-		err = tx.QueryRow(`
-			SELECT wallet, nonce, cumulative_amount, consumed
-			FROM proofshare_client_payments
-			WHERE wallet = $1
-			ORDER BY nonce DESC
-			LIMIT 1
-		`, clientID).Scan(&lastPayment.Wallet, &lastPayment.Nonce, &lastPayment.CumulativeAmount, &lastPayment.Consumed)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return false, xerrors.Errorf("failed to check for unconsumed payments: %w", err)
-		}
-
-		// If there's an unconsumed payment, we need to wait for it to be consumed
-		if err == nil && !lastPayment.Consumed {
-			log.Infow("waiting for previous payment to be consumed",
-				"wallet", lastPayment.Wallet,
-				"nonce", lastPayment.Nonce)
-			return false, nil
-		}
-
-		// Parse the cumulative amount
-		cumulativeAmount := big.Zero()
-		if err == nil {
-			cumulativeAmount, err = types.BigFromString(lastPayment.CumulativeAmount)
-			if err != nil {
-				return false, xerrors.Errorf("failed to parse cumulative amount: %w", err)
-			}
-		}
-
-		// Get the next nonce for this wallet
-		err = tx.QueryRow(`
-			SELECT COALESCE(MAX(nonce) + 1, 0)
-			FROM proofshare_client_payments
-			WHERE wallet = $1
-		`, clientID).Scan(&nextNonce)
-		if err != nil {
-			return false, xerrors.Errorf("failed to get next nonce: %w", err)
-		}
-
-		// calculate new cumulative amount
-		cumulativeAmount = types.BigAdd(cumulativeAmount, price)
-
-		// Create voucher
-		voucher, err := t.router.CreateClientVoucher(ctx, uint64(clientID), cumulativeAmount.Int, uint64(nextNonce))
-		if err != nil {
-			return false, xerrors.Errorf("failed to create voucher: %w", err)
-		}
-
-		sig, err := t.api.WalletSign(ctx, wallet, voucher)
-		if err != nil {
-			return false, xerrors.Errorf("failed to sign voucher: %w", err)
-		}
-
-		// Insert the payment
-		_, err = tx.Exec(`
-			INSERT INTO proofshare_client_payments (wallet, nonce, cumulative_amount, signature, consumed)
-			VALUES ($1, $2, $3, $4, FALSE)
-		`, clientID, nextNonce, cumulativeAmount.String(), sig.Data)
-		if err != nil {
-			return false, xerrors.Errorf("failed to insert payment: %w", err)
-		}
-
-		// Update the client request with the payment info
-		_, err = tx.Exec(`
-			UPDATE proofshare_client_requests
-			SET payment_wallet = $2, payment_nonce = $3
-			WHERE task_id = $1
-		`, taskID, clientID, nextNonce)
-		if err != nil {
-			return false, xerrors.Errorf("failed to update client request with payment info: %w", err)
-		}
-
-		return true, nil
-	}, harmonydb.OptionRetry())
-
-	if err != nil {
-		return false, xerrors.Errorf("transaction failed: %w", err)
-	}
-
-	log.Infow("createPayment complete", "taskID", taskID, "wallet", clientID, "nonce", nextNonce)
-	return true, nil
-}
-
-// sendRequest sends the proof request to the service
-func (t *TaskRemotePoRep) sendRequest(ctx context.Context, taskID harmonytask.TaskID, clientRequest *ClientRequest) (bool, error) {
-	log.Infow("sendRequest start", "taskID", taskID, "paymentWallet", clientRequest.PaymentWallet, "paymentNonce", clientRequest.PaymentNonce)
-	// Get the payment details
-	var payment struct {
-		CumulativeAmount string `db:"cumulative_amount"`
-		Signature        []byte `db:"signature"`
-	}
-
-	err := t.db.QueryRow(ctx, `
-		SELECT cumulative_amount, signature
-		FROM proofshare_client_payments
-		WHERE wallet = $1 AND nonce = $2
-	`, clientRequest.PaymentWallet, clientRequest.PaymentNonce).Scan(
-		&payment.CumulativeAmount, &payment.Signature,
-	)
-	if err != nil {
-		return false, xerrors.Errorf("failed to get payment details: %w", err)
-	}
-
-	// Parse the cumulative amount
-	cumulativeAmount, err := types.BigFromString(payment.CumulativeAmount)
-	if err != nil {
-		return false, xerrors.Errorf("failed to parse cumulative amount: %w", err)
-	}
-
-	// Parse the request CID
-	requestCid, err := cid.Parse(*clientRequest.RequestCID)
-	if err != nil {
-		return false, xerrors.Errorf("failed to parse request CID: %w", err)
-	}
-
-	// Get chain head for price epoch
-	ts, err := t.api.ChainHead(ctx)
-	if err != nil {
-		return false, xerrors.Errorf("failed to get chain head: %w", err)
-	}
-
-	// Create the ProofRequest
-	proofRequest := common.ProofRequest{
-		Data: requestCid,
-
-		PriceEpoch: int64(ts.Height()),
-
-		PaymentClientID:         *clientRequest.PaymentWallet,
-		PaymentNonce:            *clientRequest.PaymentNonce,
-		PaymentCumulativeAmount: abi.NewTokenAmount(cumulativeAmount.Int64()),
-		PaymentSignature:        payment.Signature,
-	}
-
-	// Submit the request with exponential backoff if service unavailable, capped at 1 minute
-	var (
-		maxRetries = 500
-		baseDelay  = time.Second
-		maxDelay   = time.Minute
-	)
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		backoff, err := proofsvc.RequestProof(proofRequest)
-		if err == nil {
-			break
-		}
-		// If backoff is true, service is unavailable, so retry with exponential backoff
-		if backoff {
-			delay := baseDelay * (1 << attempt)
-			if delay > maxDelay {
-				delay = maxDelay
-			}
-			log.Warnw("service unavailable, backing off", "attempt", attempt+1, "delay", delay, "taskID", taskID)
-			time.Sleep(delay)
-			continue
-		}
-		// Other errors: return immediately
-		return false, xerrors.Errorf("failed to submit proof request: %w", err)
-	}
-
-	// Mark the payment as consumed
-	_, err = t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		_, err = tx.Exec(`
-			UPDATE proofshare_client_payments
-			SET consumed = TRUE
-			WHERE wallet = $1 AND nonce = $2
-		`, clientRequest.PaymentWallet, clientRequest.PaymentNonce)
-		if err != nil {
-			return false, xerrors.Errorf("failed to mark payment as consumed: %w", err)
-		}
-
-		// Mark the request as sent
-		_, err = tx.Exec(`
-			UPDATE proofshare_client_requests
-			SET request_sent = TRUE
-			WHERE task_id = $1
-		`, taskID)
-		if err != nil {
-			return false, xerrors.Errorf("failed to mark request as sent: %w", err)
-		}
-
-		return true, nil
-	}, harmonydb.OptionRetry())
-	if err != nil {
-		return false, xerrors.Errorf("transaction failed: %w", err)
-	}
-
-	log.Infow("sendRequest complete", "taskID", taskID, "requestCID", clientRequest.RequestCID)
-	return true, nil
-}
-
-// pollForProof polls for the proof status
-func (t *TaskRemotePoRep) pollForProof(ctx context.Context, taskID harmonytask.TaskID, sectorInfo *SectorInfo, clientRequest *ClientRequest) (bool, error) {
-	log.Infow("pollForProof", "taskID", taskID, "requestCID", clientRequest.RequestCID)
-	// Parse the request CID
-	requestCid, err := cid.Parse(*clientRequest.RequestCID)
-	if err != nil {
-		return false, xerrors.Errorf("failed to parse request CID: %w", err)
-	}
-
-	// Get proof status by CID
-	proofResp, err := proofsvc.GetProofStatus(requestCid)
-	if err != nil || proofResp.Proof == nil {
-		log.Infow("proof not ready", "taskID", taskID, "spID", sectorInfo.SpID, "sectorNumber", sectorInfo.SectorNumber)
-		// Not ready yet, continue polling
-		return false, nil
-	}
-
-	// We got a valid proof response, update the database
-	_, err = t.db.Exec(ctx, `
-		UPDATE proofshare_client_requests
-		SET done = TRUE, response_data = $2, done_at = NOW()
-		WHERE task_id = $1
-	`, taskID, proofResp.Proof)
-	if err != nil {
-		return false, xerrors.Errorf("failed to update client request with proof: %w", err)
-	}
-
-	log.Infow("proof retrieved", "taskID", taskID, "spID", sectorInfo.SpID, "sectorNumber", sectorInfo.SectorNumber, "proofSize", len(proofResp.Proof))
-	return true, nil
-}
-
 // finalizeSector updates the sector with the proof and marks the task as done
 func (t *TaskRemotePoRep) finalizeSector(ctx context.Context, sectorInfo *SectorInfo, proofData []byte) (bool, error) {
 	// Get randomness
@@ -746,51 +387,6 @@ func (t *TaskRemotePoRep) getRandomness(ctx context.Context, sectorInfo *SectorI
 	return rand, nil
 }
 
-// undoPayment unlocks the payment if the proof request failed
-func (t *TaskRemotePoRep) undoPayment(ctx context.Context, taskID harmonytask.TaskID, sectorInfo *SectorInfo, clientRequest *ClientRequest) error {
-	// Get the payment status
-	status, err := proofsvc.GetClientPaymentStatus(abi.ActorID(*clientRequest.PaymentWallet))
-	if err != nil {
-		return xerrors.Errorf("failed to get payment status: %w", err)
-	}
-
-	log.Infow("considering undoPayment", "taskID", taskID, "paymentWallet", clientRequest.PaymentWallet, "paymentNonce", clientRequest.PaymentNonce, "statusNonce", status.Nonce)
-
-	// If the payment is not consumed, unlock it
-	// Payment is consumed if the backend nonce is less than the client nonce
-	if status.Nonce < *clientRequest.PaymentNonce || !status.Found {
-		log.Warnw("undoing payment", "taskID", taskID, "paymentWallet", clientRequest.PaymentWallet, "paymentNonce", clientRequest.PaymentNonce)
-
-		// Unlock the payment
-		_, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			// delete the payment
-			_, err = tx.Exec(`
-				DELETE FROM proofshare_client_payments
-				WHERE wallet = $1 AND nonce = $2 AND consumed = FALSE
-			`, clientRequest.PaymentWallet, *clientRequest.PaymentNonce)
-			if err != nil {
-				return false, xerrors.Errorf("failed to delete payment: %w", err)
-			}
-
-			// update request payment fields to NULL
-			_, err = tx.Exec(`
-				UPDATE proofshare_client_requests
-				SET payment_wallet = NULL, payment_nonce = NULL
-				WHERE task_id = $1
-			`, taskID)
-			if err != nil {
-				return false, xerrors.Errorf("failed to update request payment fields: %w", err)
-			}
-			return true, nil
-		}, harmonydb.OptionRetry())
-		if err != nil {
-			return xerrors.Errorf("failed to unlock payment: %w", err)
-		}
-	}
-
-	return nil
-}
-
 // SectorInfo holds the sector information
 type SectorInfo struct {
 	SpID         int64  `db:"sp_id"`
@@ -803,6 +399,13 @@ type SectorInfo struct {
 	UnsealedCID  string `db:"tree_d_cid"`
 	Sealed       cid.Cid
 	Unsealed     cid.Cid
+}
+
+func (s *SectorInfo) SectorID() abi.SectorID {
+	return abi.SectorID{
+		Miner:  abi.ActorID(s.SpID),
+		Number: abi.SectorNumber(s.SectorNumber),
+	}
 }
 
 // ClientRequest holds the client request information

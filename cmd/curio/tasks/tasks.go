@@ -470,8 +470,9 @@ func addSealingTasks(
 	}
 
 	if cfg.Subsystems.EnableRemoteProofs {
-		remoteProofsTask := proofshare.NewTaskRemotePoRep(db, full, stor)
-		activeTasks = append(activeTasks, remoteProofsTask)
+		remotePoRepTask := proofshare.NewTaskRemotePoRep(db, full, stor)
+		remoteSnapTask := proofshare.NewTaskRemoteSnapPRU(db, full, stor)
+		activeTasks = append(activeTasks, remotePoRepTask, remoteSnapTask)
 	}
 
 	// harmony treats the first task as highest priority, so reverse the order

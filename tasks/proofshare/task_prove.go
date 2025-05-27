@@ -179,6 +179,15 @@ func computeProof(ctx context.Context, request common.ProofData) ([]byte, error)
 
 		return computePoRep(ctx, request.PoRep, *request.SectorID)
 	}
+
+	if request.Snap != nil {
+		if request.SectorID == nil {
+			return nil, xerrors.Errorf("sector id is required")
+		}
+
+		return computeSnap(ctx, request.Snap, *request.SectorID)
+	}
+
 	return nil, xerrors.Errorf("unknown proof request type")
 }
 
@@ -225,6 +234,28 @@ func computePoRep(ctx context.Context, request *proof.Commit1OutRaw, sectorID ab
 	}
 	if !ok {
 		return nil, xerrors.Errorf("porep failed to validate")
+	}
+
+	return proof, nil
+}
+
+func computeSnap(ctx context.Context, request *proof.Snap, sectorID abi.SectorID) ([]byte, error) {
+	oldR, err := commcid.ReplicaCommitmentV1ToCID(request.OldR[:])
+	if err != nil {
+		return nil, xerrors.Errorf("invalid OldR: %w", err)
+	}
+	newR, err := commcid.ReplicaCommitmentV1ToCID(request.NewR[:])
+	if err != nil {
+		return nil, xerrors.Errorf("invalid NewR: %w", err)
+	}
+	newD, err := commcid.DataCommitmentV1ToCID(request.NewD[:])
+	if err != nil {
+		return nil, xerrors.Errorf("invalid NewD: %w", err)
+	}
+
+	proof, err := ffiselect.FFISelect.GenerateUpdateProofWithVanilla(ctx, request.ProofType, oldR, newR, newD, request.Proofs)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to generate update proof: %w", err)
 	}
 
 	return proof, nil
