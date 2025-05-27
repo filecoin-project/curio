@@ -257,7 +257,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
             allocation_id, duration, piece_aggregation) 
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 			dealID, spid, ddo.ContractAddress, ddo.Client.String(), data.PieceCID.String(),
-			data.Size, int64(data.SourceHTTP.RawSize), true, ddo.Indexing, ddo.AnnounceToIPNI,
+			data.Size, int64(data.SourceOffline.RawSize), true, ddo.Indexing, ddo.AnnounceToIPNI,
 			allocationID, ddo.Duration, aggregation)
 		if err != nil {
 			return xerrors.Errorf("inserting mk20 pipeline: %w", err)
@@ -344,131 +344,6 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 				return xerrors.Errorf("closing parked piece query batch: %w", err)
 			}
 		}
-
-		//existingCount = 0
-		//for _, v := range existing {
-		//	if v != nil {
-		//		existingCount++
-		//	}
-		//}
-		//
-		//log.Infow("Initial Existing after first pass", "Count", existingCount)
-		//
-		//piBatch := &pgx.Batch{}
-		//piBatchSize := 10000
-		//for k, v := range existing {
-		//	if v == nil {
-		//		piBatch.Queue(`WITH inserted_piece AS (
-		//							  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-		//							  VALUES ($1, $2, $3, FALSE)
-		//							  ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
-		//							  RETURNING id
-		//							),
-		//							selected_piece AS (
-		//							  SELECT COALESCE(
-		//								(SELECT id FROM inserted_piece),
-		//								(SELECT id FROM parked_pieces
-		//								 WHERE piece_cid = $1 AND piece_padded_size = $2 AND long_term = FALSE AND cleanup_task_id IS NULL)
-		//							  ) AS id
-		//							),
-		//							inserted_ref AS (
-		//							  INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
-		//							  SELECT id, $4, $5, FALSE FROM selected_piece
-		//							  RETURNING ref_id
-		//							)
-		//							INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, ref_ids)
-		//							VALUES ($6, $1, $2, ARRAY[(SELECT ref_id FROM inserted_ref)])
-		//							ON CONFLICT (id, piece_cid, piece_size) DO UPDATE
-		//							SET ref_ids = array_append(
-		//							  market_mk20_download_pipeline.ref_ids,
-		//							  (SELECT ref_id FROM inserted_ref)
-		//							)
-		//							WHERE NOT market_mk20_download_pipeline.ref_ids @> ARRAY[(SELECT ref_id FROM inserted_ref)];`,
-		//			k.PieceCID.String(), k.Size)
-		//		if piBatch.Len() > piBatchSize {
-		//			res := tx.SendBatch(ctx, piBatch)
-		//			if err := res.Close(); err != nil {
-		//				return xerrors.Errorf("closing parked piece insert batch: %w", err)
-		//			}
-		//			piBatch = &pgx.Batch{}
-		//		}
-		//	}
-		//}
-		//
-		//if piBatch.Len() > 0 {
-		//	res := tx.SendBatch(ctx, piBatch)
-		//	if err := res.Close(); err != nil {
-		//		return xerrors.Errorf("closing parked piece insert batch: %w", err)
-		//	}
-		//}
-		//
-		//existingCount = 0
-		//for _, v := range existing {
-		//	if v != nil {
-		//		existingCount++
-		//	}
-		//}
-		//
-		//log.Infow("Initial Existing after second pass", "Count", existingCount)
-		//
-		//prBatch := &pgx.Batch{}
-		//prBatchSize := 10000
-		//
-		//for k, v := range existing {
-		//	if v == nil {
-		//		return xerrors.Errorf("missing parked piece for %s", k.PieceCID.String())
-		//	}
-		//	urls := toDownload[downloadkey{PieceCID: k.PieceCID, Size: k.Size}]
-		//	for _, src := range urls {
-		//		headers, err := json.Marshal(src.Headers)
-		//		if err != nil {
-		//			return xerrors.Errorf("marshal headers: %w", err)
-		//		}
-		//		prBatch.Queue(`WITH inserted_ref AS (
-		//							  INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
-		//							  VALUES ($1, $2, $3, FALSE)
-		//							  RETURNING ref_id
-		//							)
-		//							INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, ref_ids)
-		//							VALUES ($4, $5, $6, ARRAY[(SELECT ref_id FROM inserted_ref)])`,
-		//			*v, src.URL, headers, k.ID, k.PieceCID.String(), k.Size)
-		//	}
-		//
-		//	if prBatch.Len() > 0 {
-		//		res := tx.SendBatch(ctx, prBatch)
-		//		if err := res.Close(); err != nil {
-		//			return xerrors.Errorf("closing parked piece ref insert batch: %w", err)
-		//		}
-		//	}
-		//}
-		//
-		//if prBatch.Len() > prBatchSize {
-		//	res := tx.SendBatch(ctx, prBatch)
-		//	if err := res.Close(); err != nil {
-		//		return xerrors.Errorf("closing parked piece ref insert batch: %w", err)
-		//	}
-		//	prBatch = &pgx.Batch{}
-		//}
-
-		//mdBatch := &pgx.Batch{}
-		//mdBatchSize := 20000
-		//for k, v := range downloadMap {
-		//	mdBatch.Queue(`INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, ref_ids) VALUES ($1, $2, $3, $4)`,
-		//		k.ID, k.PieceCID.String(), k.Size, v)
-		//	if mdBatch.Len() > mdBatchSize {
-		//		res := tx.SendBatch(ctx, mdBatch)
-		//		if err := res.Close(); err != nil {
-		//			return xerrors.Errorf("closing mk20 download pipeline insert batch: %w", err)
-		//		}
-		//		mdBatch = &pgx.Batch{}
-		//	}
-		//}
-		//if mdBatch.Len() > 0 {
-		//	res := tx.SendBatch(ctx, mdBatch)
-		//	if err := res.Close(); err != nil {
-		//		return xerrors.Errorf("closing mk20 download pipeline insert batch: %w", err)
-		//	}
-		//}
 
 		pBatch := &pgx.Batch{}
 		pBatchSize := 4000
@@ -606,19 +481,11 @@ func (d *CurioStorageDealMarket) downloadMk20Deal(ctx context.Context, piece MK2
 				}
 				return false, xerrors.Errorf("failed to check if the piece is downloaded: %w", err)
 			}
-			_, err = tx.Exec(`
-									DELETE FROM parked_piece_refs
-									WHERE ref_id IN (
-									  SELECT unnest(dp.ref_ids)
-									  FROM market_mk20_download_pipeline dp
-									  WHERE dp.id = $1
-										AND dp.piece_cid = $2
-										AND dp.piece_size = $3
-									)
-									AND ref_id != $4;
-									`, piece.ID, piece.PieceCID, piece.PieceSize, refid)
+
+			_, err = tx.Exec(`DELETE FROM market_mk20_download_pipeline WHERE id = $1 AND piece_cid = $2 AND piece_size = $3`,
+				piece.ID, piece.PieceCID, piece.PieceSize)
 			if err != nil {
-				return false, xerrors.Errorf("failed to delete parked piece refs: %w", err)
+				return false, xerrors.Errorf("failed to delete piece from download table: %w", err)
 			}
 
 			pieceIDUrl := url.URL{
@@ -651,68 +518,10 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 	if piece.Offline && !piece.Downloaded && !piece.Started {
 		comm, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 			var updated bool
-			err = tx.QueryRow(`
-								WITH offline_match AS (
-								  SELECT url, headers, raw_size
-								  FROM market_mk20_offline_urls
-								  WHERE id = $1 AND piece_cid = $2 AND piece_size = $3
-								),
-								existing_piece AS (
-								  SELECT id AS piece_id
-								  FROM parked_pieces
-								  WHERE piece_cid = $2 AND piece_padded_size = $3
-								),
-								inserted_piece AS (
-								  INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-								  SELECT $2, $3, o.raw_size, NOT (p.deal_aggregation > 0)
-								  FROM offline_match o, market_mk20_pipeline p
-								  WHERE p.id = $1 AND p.piece_cid = $2 AND p.piece_size = $3
-									AND NOT EXISTS (SELECT 1 FROM existing_piece)
-								  RETURNING id AS piece_id
-								),
-								selected_piece AS (
-								  SELECT piece_id FROM existing_piece
-								  UNION ALL
-								  SELECT piece_id FROM inserted_piece
-								),
-								inserted_refs AS (
-								  INSERT INTO parked_piece_refs (piece_id, data_url, data_headers, long_term)
-								  SELECT
-									s.piece_id,
-									o.url,
-									o.headers,
-									NOT (p.deal_aggregation > 0)
-								  FROM selected_piece s
-								  JOIN offline_match o ON true
-								  JOIN market_mk20_pipeline p ON p.id = $1 AND p.piece_cid = $2 AND p.piece_size = $3
-								  RETURNING ref_id
-								),
-								upsert_pipeline AS (
-								  INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, ref_ids)
-								  SELECT $1, $2, $3, array_agg(ref_id)
-								  FROM inserted_refs
-								  ON CONFLICT (id, piece_cid, piece_size) DO UPDATE
-								  SET ref_ids = (
-									SELECT array(
-									  SELECT DISTINCT unnest(dp.ref_ids) || unnest(EXCLUDED.ref_ids)
-									)
-								  )
-								  FROM market_mk20_download_pipeline dp
-								  WHERE dp.id = EXCLUDED.id AND dp.piece_cid = EXCLUDED.piece_cid AND dp.piece_size = EXCLUDED.piece_size
-								  RETURNING id
-								),
-								mark_started AS (
-								  UPDATE market_mk20_pipeline
-								  SET started = TRUE
-								  WHERE id = $1 AND piece_cid = $2 AND piece_size = $3
-									AND EXISTS (SELECT 1 FROM offline_match)
-								  RETURNING id
-								)
-								SELECT EXISTS (SELECT 1 FROM mark_started);
-								`, piece.ID, piece.PieceCID, piece.PieceSize).Scan(&updated)
+			err = tx.QueryRow(`SELECT process_offline_download($1, $2, $3)`, piece.ID, piece.PieceCID, piece.PieceSize).Scan(&updated)
 			if err != nil {
 				if !errors.Is(err, pgx.ErrNoRows) {
-					return false, xerrors.Errorf("failed to update the pipeline for deal %s: %w", piece.ID, err)
+					return false, xerrors.Errorf("failed to start download for offline deal %s: %w", piece.ID, err)
 				}
 			}
 
@@ -810,19 +619,17 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 										  ON CONFLICT (id, piece_cid, piece_size) DO UPDATE
 										  SET ref_ids = (
 											SELECT array(
-											  SELECT DISTINCT unnest(dp.ref_ids) || unnest(EXCLUDED.ref_ids)
+											  SELECT DISTINCT r
+												FROM unnest(market_mk20_download_pipeline.ref_ids || excluded.ref_ids) AS r
 											)
 										  )
-										  FROM market_mk20_download_pipeline dp
-										  WHERE dp.id = EXCLUDED.id AND dp.piece_cid = EXCLUDED.piece_cid AND dp.piece_size = EXCLUDED.piece_size
-										),
-										mark_started AS (
-										  UPDATE market_mk20_pipeline
-										  SET started = TRUE
-										  WHERE id = $1 AND piece_cid = $2 AND piece_size = $3 AND started = FALSE
-										)`, piece.ID, piece.PieceCID, piece.PieceSize, rUrl, hdrs, rawSize)
+										)
+										UPDATE market_mk20_pipeline
+										SET started = TRUE
+										WHERE id = $1 AND piece_cid = $2 AND piece_size = $3 AND started = FALSE;`,
+					piece.ID, piece.PieceCID, piece.PieceSize, rawSize, urlString, hdrs)
 				if err != nil {
-					return false, xerrors.Errorf("failed to update pipeline piece table: %w", err)
+					return false, xerrors.Errorf("failed to start download for offline deal using PieceLocator: %w", err)
 				}
 
 				return true, nil
@@ -978,6 +785,8 @@ func (d *CurioStorageDealMarket) processMK20DealAggregation(ctx context.Context)
 		d.adders[pollerAggregate].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, err error) {
 			n, err := tx.Exec(`UPDATE market_mk20_pipeline SET agg_task_id = $1 
                             		WHERE id = $2 
+                            		  AND started = TRUE
+                            		  AND downloaded = TRUE
                             		  AND after_commp = TRUE 
                             		  AND aggregated = FALSE 
                             		  AND agg_task_id IS NULL`, id, deal.ID)

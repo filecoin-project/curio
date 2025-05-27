@@ -19,7 +19,6 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
-	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 )
@@ -116,13 +115,7 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 	var merr error
 	for _, piece := range pieces {
 		data, err := func() ([]byte, error) {
-			// Get a reader over the piece data
-			commp, err := commcidv2.CommPFromPCidV2(piece.PieceCidV2)
-			if err != nil {
-				return nil, fmt.Errorf("getting commP from piece cid v2 %s: %w", piece.PieceCidV2.String(), err)
-			}
-			pi := commp.PieceInfo()
-			reader, _, err := ro.cpr.GetSharedPieceReader(ctx, pi.PieceCID, pi.Size)
+			reader, _, err := ro.cpr.GetSharedPieceReader(ctx, piece.PieceCidV2)
 			if err != nil {
 				return nil, fmt.Errorf("getting piece reader: %w", err)
 			}

@@ -5,6 +5,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/go-chi/httprate"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/oklog/ulid"
+	"github.com/yugabyte/pgx/v5"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
@@ -122,7 +124,7 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 // mk20status handles HTTP requests to retrieve the status of a deal using its ID, responding with deal status or appropriate error codes.
 func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
 	// Extract id from the URL
-	idStr := chi.URLParam(r, "id")
+	idStr := r.URL.Query().Get("id")
 	if idStr == "" {
 		log.Errorw("missing id in url", "url", r.URL)
 		http.Error(w, "missing id in url", http.StatusBadRequest)
@@ -161,6 +163,11 @@ func (mdh *MK20DealHandler) mk20supportedContracts(w http.ResponseWriter, r *htt
 	var contracts mk20.SupportedContracts
 	err := mdh.db.Select(r.Context(), &contracts, "SELECT address FROM contracts")
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			log.Errorw("no supported contracts found")
+			http.Error(w, "no supported contracts found", http.StatusNotFound)
+			return
+		}
 		log.Errorw("failed to get supported contracts", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -183,7 +190,7 @@ func (mdh *MK20DealHandler) mk20supportedContracts(w http.ResponseWriter, r *htt
 // mk20UploadDealData handles uploading deal data to the server using a PUT request with specific validations and streams directly to the logic.
 func (mdh *MK20DealHandler) mk20UploadDealData(w http.ResponseWriter, r *http.Request) {
 	// Extract id from the URL
-	idStr := chi.URLParam(r, "id")
+	idStr := r.URL.Query().Get("id")
 	if idStr == "" {
 		log.Errorw("missing id in url", "url", r.URL)
 		w.WriteHeader(http.StatusBadRequest)
