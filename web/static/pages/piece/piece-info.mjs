@@ -126,7 +126,11 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                 <tbody>
                 ${this.data.deals.map((item) => html`
                     <tr>
-                        <td><a href="/pages/mk12-deal/?id=${item.id}">${item.id}</a></td>
+                        <td>
+                            ${item.mk20
+                                    ? html`<a href="/pages/mk20-deal/?id=${item.id}">${item.id}</a>`
+                                    : html`<a href="/pages/mk12-deal/?id=${item.id}">${item.id}</a>`}
+                        </td>
                         <td>${item.boost_deal ? 'Boost' : (item.legacy_deal ? 'Legacy' : 'DDO')}</td>
                         <td>${item.miner}</td>
                         <td>${item.chain_deal_id}</td>
@@ -391,32 +395,32 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                             <tr><td>Offline</td><td><yes-no .value=${entry.mk20_pipeline.offline}></yes-no></td></tr>
                             <tr><td>URL</td><td>${entry.mk20_pipeline.url.Valid ? entry.mk20_pipeline.url.String : 'N/A'}</td></tr>
                             <tr><td>Headers</td><td><pre>${JSON.stringify(entry.mk20_pipeline.headers, null, 2)}</pre></td></tr>
-                            <tr><td>Should Index</td><td>${this.renderNullableYesNo(entry.mk20_pipeline.indexing.Bool)}</td></tr>
+                            <tr><td>Should Index</td><td>${this.renderNullableYesNo(entry.mk20_pipeline.indexing)}</td></tr>
                             <tr>
                                 <td>Announce</td>
-                                <td>${this.renderNullableYesNo(entry.mk20_pipeline.announce.Bool)}</td>
+                                <td>${this.renderNullableYesNo(entry.mk20_pipeline.announce)}</td>
                             </tr>
 
                             <tr><th colspan="2"><h5>Progress 🛠️</h5></th></tr>
                             <tr>
                                 <td>Data Fetched</td>
-                                <td>${this.renderNullableDoneNotDone(entry.mk20_pipeline.started.Bool)}</td>
+                                <td>${this.renderNullableDoneNotDone(entry.mk20_pipeline.downloaded)}</td>
                             </tr>
                             <tr>
                                 <td>After Commp</td>
-                                <td>${this.renderNullableDoneNotDone(entry.mk20_pipeline.after_commp.Bool)}</td>
+                                <td>${this.renderNullableDoneNotDone(entry.mk20_pipeline.after_commp)}</td>
                             </tr>
                             <tr>
                                 <td>Aggregated</td>
-                                <td>${this.renderNullableDoneNotDone(entry.mk20_pipeline.aggregated.Bool)}</td>
+                                <td>${this.renderNullableDoneNotDone(entry.mk20_pipeline.aggregated)}</td>
                             </tr>
                             <tr>
                                 <td>Sealed</td>
-                                <td>${this.renderNullableDoneNotDone(entry.mk20_pipeline.sealed.Bool)}</td>
+                                <td>${this.renderNullableDoneNotDone(entry.mk20_pipeline.sealed)}</td>
                             </tr>
                             <tr>
                                 <td>Indexed</td>
-                                <td>${this.renderNullableDoneNotDone(entry.mk20_pipeline.indexed.Bool)}</td>
+                                <td>${this.renderNullableDoneNotDone(entry.mk20_pipeline.indexed)}</td>
                             </tr>
                             <tr>
                                 <td>Announced</td>

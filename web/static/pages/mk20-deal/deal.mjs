@@ -120,25 +120,6 @@ class DealDetails extends LitElement {
     `;
     }
 
-    renderAggregateSubs(subs) {
-        if (!subs?.length) return '';
-        return html`
-      <table class="table table-dark table-striped table-sm">
-        <thead><tr><th>#</th><th>Car</th><th>Raw</th><th>Aggregate</th></tr></thead>
-        <tbody>
-          ${subs.map((s, i) => html`
-            <tr>
-              <td>${i + 1}</td>
-              <td>${s.car ? 'Yes' : ''}</td>
-              <td>${s.raw ? 'Yes' : ''}</td>
-              <td>${s.aggregate ? 'Yes' : ''}</td>
-            </tr>
-          `)}
-        </tbody>
-      </table>
-    `;
-    }
-
     renderSourceHTTP(src) {
         return html`
       <table class="table table-dark table-striped table-sm">
@@ -179,22 +160,26 @@ class DealDetails extends LitElement {
 
     renderSourceAggregate(src) {
         return html`
-      ${src.pieces.map((piece, i) => html`
-        <div class="table table-dark table-striped table-sm">
-          <strong>Piece ${i + 1}: ${piece.piece_cid['/']}</strong>
             <details>
-                <summary>[DETAILS]</summary>
-                <pre>
-                  <table class="table table-dark table-striped table-sm">
-                      <tr><th>PieceCID</th><td>${piece.piece_cid['/']}</td></tr>
-                      <tr><th>Size</th><td>${piece.piece_size}</td></tr>
-                      <tr><th>Format</th><td>${this.renderPieceFormat(piece.format)}</td></tr>
-                      <tr><th>Source</th><td>${this.renderDataSource(piece)}</td></tr>
-                  </table>
-                </pre>
+                <summary>[Aggregate Details]</summary>
+                <div>
+                  ${src.pieces.map((piece, i) => html`
+                    <div class="table table-dark table-striped table-sm">
+                        <tr>
+                            <td>Piece ${i + 1}</td>
+                            <td>
+                                <table class="table table-dark table-striped table-sm">
+                                    <tr><th>PieceCID</th><td>${piece.piece_cid['/']}</td></tr>
+                                    <tr><th>Size</th><td>${piece.piece_size}</td></tr>
+                                    <tr><th></th><td>${this.renderPieceFormat(piece.format)}</td></tr>
+                                    <tr><th></th><td>${this.renderDataSource(piece)}</td></tr>
+                                </table>
+                            </td>
+                        </tr>
+                    </div>
+                  `)}
+                </div>
             </details>
-        </div>
-      `)}
     `;
     }
 

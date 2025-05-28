@@ -3,6 +3,7 @@ package indexing
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -35,6 +36,7 @@ import (
 	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
+	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/mk20"
@@ -45,6 +47,7 @@ var log = logging.Logger("indexing")
 type IndexingTask struct {
 	db                *harmonydb.DB
 	indexStore        *indexstore.IndexStore
+	pieceProvider     *pieceprovider.SectorReader
 	cpr               *cachedreader.CachedPieceReader
 	sc                *ffi.SealCalls
 	cfg               *config.CurioConfig
@@ -53,11 +56,12 @@ type IndexingTask struct {
 	max               taskhelp.Limiter
 }
 
-func NewIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *IndexingTask {
+func NewIndexingTask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.SectorReader, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *IndexingTask {
 
 	return &IndexingTask{
 		db:                db,
 		indexStore:        indexStore,
+		pieceProvider:     pieceProvider,
 		cpr:               cpr,
 		sc:                sc,
 		cfg:               cfg,
@@ -76,12 +80,14 @@ type itask struct {
 	Size              abi.PaddedPieceSize     `db:"piece_size"`
 	Offset            int64                   `db:"sector_offset"`
 	RawSize           int64                   `db:"raw_size"`
+	Url               sql.NullString          `db:"url"`
 	ShouldIndex       bool                    `db:"should_index"`
 	IndexingCreatedAt time.Time               `db:"indexing_created_at"`
 	Announce          bool                    `db:"announce"`
 	ChainDealId       abi.DealID              `db:"chain_deal_id"`
 	IsDDO             bool                    `db:"is_ddo"`
 	Mk20              bool                    `db:"mk20"`
+	PieceRef          int64
 }
 
 func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
@@ -99,6 +105,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 										  p.sector_offset,
 										  p.reg_seal_proof,
 										  p.raw_size,
+										  p.url,
 										  p.should_index,
 										  p.announce,
 										  p.is_ddo,
@@ -126,6 +133,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 										  sector_offset,
 										  reg_seal_proof,
 										  raw_size,
+										  url,
 										  indexing as should_index,
 										  announce,
 										  TRUE AS is_ddo,
@@ -174,6 +182,26 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		if deal.Data.Format.Raw != nil {
 			byteData = true
 		}
+
+		if !task.Url.Valid {
+			return false, xerrors.Errorf("no url for mk20 deal")
+		}
+
+		url, err := url.Parse(task.Url.String)
+		if err != nil {
+			return false, xerrors.Errorf("parsing url: %w", err)
+		}
+
+		if url.Scheme != "pieceref" {
+			return false, xerrors.Errorf("invalid url scheme: %s", url.Scheme)
+		}
+
+		refNum, err := strconv.ParseInt(url.Opaque, 10, 64)
+		if err != nil {
+			return false, xerrors.Errorf("parsing piece reference number: %w", err)
+		}
+
+		task.PieceRef = refNum
 	}
 
 	// Return early if already indexed or should not be indexed
@@ -198,10 +226,26 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	}
 	pc2 := commp.PCidV2()
 
-	reader, _, err := i.cpr.GetSharedPieceReader(ctx, pc2)
+	var reader storiface.Reader
 
-	if err != nil {
-		return false, xerrors.Errorf("getting piece reader: %w", err)
+	if task.Mk20 {
+		reader, _, err = i.cpr.GetSharedPieceReader(ctx, pc2)
+
+		if err != nil {
+			return false, xerrors.Errorf("getting piece reader: %w", err)
+		}
+	} else {
+		reader, err = i.pieceProvider.ReadPiece(ctx, storiface.SectorRef{
+			ID: abi.SectorID{
+				Miner:  abi.ActorID(task.SpID),
+				Number: task.Sector,
+			},
+			ProofType: task.Proof,
+		}, storiface.PaddedByteIndex(task.Offset).Unpadded(), task.Size.Unpadded(), pieceCid)
+
+		if err != nil {
+			return false, xerrors.Errorf("getting piece reader: %w", err)
+		}
 	}
 
 	defer reader.Close()
@@ -462,6 +506,7 @@ func IndexAggregate(pieceCid cid.Cid,
 	}
 
 	aggidx := make(map[cid.Cid][]datasegment.SegmentDesc)
+	aggidx[pieceCid] = valid
 
 	log.Infow("Indexing aggregate", "piece_size", size, "num_chunks", len(valid), "num_sub_pieces", len(subPieces))
 
@@ -531,10 +576,18 @@ func IndexAggregate(pieceCid cid.Cid,
 // recordCompletion add the piece metadata and piece deal to the DB and
 // records the completion of an indexing task in the database
 func (i *IndexingTask) recordCompletion(ctx context.Context, task itask, taskID harmonytask.TaskID, indexed bool) error {
-	_, err := i.db.Exec(ctx, `SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-		task.UUID, task.PieceCid, !task.IsDDO, task.SpID, task.Sector, task.Offset, task.Size, task.RawSize, indexed, false, task.ChainDealId)
-	if err != nil {
-		return xerrors.Errorf("failed to update piece metadata and piece deal for deal %s: %w", task.UUID, err)
+	if task.Mk20 {
+		_, err := i.db.Exec(ctx, `SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+			task.UUID, task.PieceCid, !task.IsDDO, task.SpID, task.Sector, task.Offset, task.Size, task.RawSize, indexed, task.PieceRef, false, task.ChainDealId)
+		if err != nil {
+			return xerrors.Errorf("failed to update piece metadata and piece deal for deal %s: %w", task.UUID, err)
+		}
+	} else {
+		_, err := i.db.Exec(ctx, `SELECT process_piece_deal($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+			task.UUID, task.PieceCid, !task.IsDDO, task.SpID, task.Sector, task.Offset, task.Size, task.RawSize, indexed, false, task.ChainDealId)
+		if err != nil {
+			return xerrors.Errorf("failed to update piece metadata and piece deal for deal %s: %w", task.UUID, err)
+		}
 	}
 
 	// If IPNI is disabled then mark deal as complete otherwise just mark as indexed

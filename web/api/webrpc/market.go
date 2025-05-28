@@ -623,6 +623,7 @@ type PieceDeal struct {
 	Length      int64  `db:"piece_length" json:"length"`
 	RawSize     int64  `db:"raw_size" json:"raw_size"`
 	Miner       string `json:"miner"`
+	MK20        bool   `db:"-" json:"mk20"`
 }
 
 type PieceInfo struct {
@@ -680,6 +681,10 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 		addr, err := address.NewIDAddress(uint64(pieceDeals[i].SpId))
 		if err != nil {
 			return nil, err
+		}
+		_, err = uuid.Parse(pieceDeals[i].ID)
+		if err != nil {
+			pieceDeals[i].MK20 = true
 		}
 		pieceDeals[i].Miner = addr.String()
 		ret.Size = pieceDeals[i].Length

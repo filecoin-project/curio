@@ -37,6 +37,8 @@ import (
 	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
+	"github.com/filecoin-project/curio/lib/pieceprovider"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
@@ -46,22 +48,24 @@ import (
 var ilog = logging.Logger("ipni")
 
 type IPNITask struct {
-	db         *harmonydb.DB
-	indexStore *indexstore.IndexStore
-	cpr        *cachedreader.CachedPieceReader
-	sc         *ffi.SealCalls
-	cfg        *config.CurioConfig
-	max        taskhelp.Limiter
+	db            *harmonydb.DB
+	indexStore    *indexstore.IndexStore
+	pieceProvider *pieceprovider.SectorReader
+	cpr           *cachedreader.CachedPieceReader
+	sc            *ffi.SealCalls
+	cfg           *config.CurioConfig
+	max           taskhelp.Limiter
 }
 
-func NewIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *IPNITask {
+func NewIPNITask(db *harmonydb.DB, sc *ffi.SealCalls, indexStore *indexstore.IndexStore, pieceProvider *pieceprovider.SectorReader, cpr *cachedreader.CachedPieceReader, cfg *config.CurioConfig, max taskhelp.Limiter) *IPNITask {
 	return &IPNITask{
-		db:         db,
-		indexStore: indexStore,
-		cpr:        cpr,
-		sc:         sc,
-		cfg:        cfg,
-		max:        max,
+		db:            db,
+		indexStore:    indexStore,
+		pieceProvider: pieceProvider,
+		cpr:           cpr,
+		sc:            sc,
+		cfg:           cfg,
+		max:           max,
 	}
 }
 
@@ -120,11 +124,23 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, xerrors.Errorf("getting piece commP: %w", err)
 	}
 
-	reader, _, err := I.cpr.GetSharedPieceReader(ctx, commp.PCidV2())
-
+	// Try to read unsealed sector first (mk12 deal)
+	reader, err := I.pieceProvider.ReadPiece(ctx, storiface.SectorRef{
+		ID: abi.SectorID{
+			Miner:  abi.ActorID(task.SPID),
+			Number: task.Sector,
+		},
+		ProofType: task.Proof,
+	}, storiface.PaddedByteIndex(task.Offset).Unpadded(), pi.Size.Unpadded(), pi.PieceCID)
 	if err != nil {
-		return false, xerrors.Errorf("getting piece reader: %w", err)
+		serr := err
+		// Try to read piece (mk20 deal)
+		reader, _, err = I.cpr.GetSharedPieceReader(ctx, commp.PCidV2())
+		if err != nil {
+			return false, xerrors.Errorf("getting piece reader from sector and piece park: %w, %w", serr, err)
+		}
 	}
+
 	defer reader.Close()
 
 	var isMK20 bool
