@@ -22,6 +22,8 @@ import (
 	storage_market "github.com/filecoin-project/curio/tasks/storage-market"
 )
 
+const requestTimeout = 10 * time.Second
+
 var log = logging.Logger("mk12httphdlr")
 
 // Redirector struct with a database connection
@@ -49,9 +51,9 @@ func NewMK12DealHandler(db *harmonydb.DB, cfg *config.CurioConfig, dm *storage_m
 func Router(mdh *MK12DealHandler) http.Handler {
 	mux := chi.NewRouter()
 	mux.Use(dealRateLimitMiddleware())
-	mux.Post("/store", mdh.mk12deal)
-	mux.Get("/ask", mdh.mk12ask)
-	mux.Get("/status", mdh.mk12status)
+	mux.Method("POST", "/store", http.TimeoutHandler(http.HandlerFunc(mdh.mk12deal), requestTimeout, "timeout reading request"))
+	mux.Method("GET", "/status", http.TimeoutHandler(http.HandlerFunc(mdh.mk12status), requestTimeout, "timeout reading request"))
+	mux.Method("GET", "/ask", http.TimeoutHandler(http.HandlerFunc(mdh.mk12ask), requestTimeout, "timeout reading request"))
 	return mux
 }
 

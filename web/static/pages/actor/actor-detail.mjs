@@ -99,7 +99,9 @@ customElements.define('actor-detail', class Actor extends LitElement {
                                                     </tr>
                                                     <tr>
                                                         <td>Source Config Layers:</td>
-                                                        <td>${actorInfo.Summary.CLayers}</td>
+                                                        <td>
+                                                            ${entry.CLayers.map(layer => html`<span>${layer} </span>`)}
+                                                        </td>
                                                     </tr>
                                                     <tr>
                                                         <td>Sector Size:</td>

@@ -123,7 +123,7 @@ func (i *IndexStore) Start(ctx context.Context, test bool) error {
 	session.Close()
 
 	// Recreate session with the keyspace
-	i.cluster.Keyspace = keyspace
+	i.cluster.Keyspace = keyspaceName
 	session, err = i.cluster.CreateSession()
 	if err != nil {
 		return xerrors.Errorf("creating cassandra session: %w", err)
@@ -477,25 +477,108 @@ func (i *IndexStore) InsertAggregateIndex(ctx context.Context, aggregatePieceCid
 	return nil
 }
 
-func (i *IndexStore) FindPieceInAggregate(ctx context.Context, pieceCid cid.Cid) ([]cid.Cid, error) {
-	qry := `SELECT AggregatePieceCid FROM PieceToAggregatePiece WHERE PieceCid = ?`
+func (i *IndexStore) FindPieceInAggregate(ctx context.Context, pieceCid cid.Cid) ([]Record, error) {
+	var recs []Record
+	qry := `SELECT AggregatePieceCid, UnpaddedOffset, UnpaddedLength FROM PieceToAggregatePiece WHERE PieceCid = ?`
 	iter := i.session.Query(qry, pieceCid.Bytes()).WithContext(ctx).Iter()
-	var aggregatePieceCidBytes []cid.Cid
 	var r []byte
-	for iter.Scan(&r) {
+	var idx, length int64
+	for iter.Scan(&r, &idx, &length) {
 		c, err := cid.Cast(r)
 		if err != nil {
 			return nil, xerrors.Errorf("casting aggregate piece cid: %w", err)
 		}
-		aggregatePieceCidBytes = append(aggregatePieceCidBytes, c)
+		recs = append(recs, Record{
+			Cid:    c,
+			Offset: uint64(idx),
+			Size:   uint64(length),
+		})
 
 		r = make([]byte, 0)
 	}
 	if err := iter.Close(); err != nil {
 		return nil, xerrors.Errorf("iterating aggregate piece cid (P:0x%02x): %w", pieceCid.Bytes(), err)
 	}
-	if len(aggregatePieceCidBytes) == 0 {
-		return nil, nil
+	return recs, nil
+}
+
+func (i *IndexStore) UpdatePieceCidV1ToV2(ctx context.Context, pieceCidV1 cid.Cid, pieceCidV2 cid.Cid) error {
+	//updateQry := `UPDATE PayloadToPieces SET PieceCid = ? WHERE PieceCid = ?`
+	//if err := i.session.Query(updateQry, pieceCidV1.Bytes(), pieceCidV2.Bytes()).WithContext(ctx).Exec(); err != nil {
+	//	return xerrors.Errorf("updating piece cid v1 to v2: %w", err)
+	//}
+	//return nil
+
+	p1 := pieceCidV1.Bytes()
+	p2 := pieceCidV2.Bytes()
+
+	// First, select all PayloadMultihash for the given PieceCid from PieceBlockOffsetSize
+	selectQry := `SELECT PayloadMultihash FROM PieceBlockOffsetSize WHERE PieceCid = ?`
+	iter := i.session.Query(selectQry, p1).WithContext(ctx).Iter()
+
+	var payloadMultihashBytes []byte
+	var payloadMultihashes [][]byte
+	for iter.Scan(&payloadMultihashBytes) {
+		// Copy the bytes since the slice will be overwritten
+		mhCopy := make([]byte, len(payloadMultihashBytes))
+		copy(mhCopy, payloadMultihashBytes)
+		payloadMultihashes = append(payloadMultihashes, mhCopy)
 	}
-	return aggregatePieceCidBytes, nil
+	if err := iter.Close(); err != nil {
+		return xerrors.Errorf("scanning PayloadMultihash for piece %s: %w", pieceCidV1.String(), err)
+	}
+
+	// Prepare batch replace for PayloadToPieces
+	updatePiecesQry := `UPDATE PayloadToPieces SET PieceCid = ? WHERE PayloadMultihash = ? AND PieceCid = ?`
+	batch := i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
+	batchSize := i.settings.InsertBatchSize
+
+	for idx, payloadMH := range payloadMultihashes {
+		batch.Entries = append(batch.Entries, gocql.BatchEntry{
+			Stmt:       updatePiecesQry,
+			Args:       []interface{}{p2, payloadMH, p1},
+			Idempotent: true,
+		})
+
+		if len(batch.Entries) >= batchSize || idx == len(payloadMultihashes)-1 {
+			if err := i.executeBatchWithRetry(ctx, batch, pieceCidV1); err != nil {
+				return xerrors.Errorf("executing batch replace for PayloadToPieces for piece %s: %w", pieceCidV1, err)
+			}
+			batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
+		}
+	}
+
+	if len(batch.Entries) >= 0 {
+		if err := i.executeBatchWithRetry(ctx, batch, pieceCidV1); err != nil {
+			return xerrors.Errorf("executing batch replace for PayloadToPieces for piece %s: %w", pieceCidV1, err)
+		}
+	}
+
+	// Prepare batch replace for PieceBlockOffsetSize
+	updatePiecesQry = `UPDATE PieceBlockOffsetSize SET PieceCid = ? WHERE PayloadMultihash = ? AND PieceCid = ?`
+	batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
+	batchSize = i.settings.InsertBatchSize
+
+	for idx, payloadMH := range payloadMultihashes {
+		batch.Entries = append(batch.Entries, gocql.BatchEntry{
+			Stmt:       updatePiecesQry,
+			Args:       []interface{}{p2, payloadMH, p1},
+			Idempotent: true,
+		})
+
+		if len(batch.Entries) >= batchSize || idx == len(payloadMultihashes)-1 {
+			if err := i.executeBatchWithRetry(ctx, batch, pieceCidV1); err != nil {
+				return xerrors.Errorf("executing batch replace for PieceBlockOffsetSize for piece %s: %w", pieceCidV1, err)
+			}
+			batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
+		}
+	}
+
+	if len(batch.Entries) >= 0 {
+		if err := i.executeBatchWithRetry(ctx, batch, pieceCidV1); err != nil {
+			return xerrors.Errorf("executing batch replace for PieceBlockOffsetSize for piece %s: %w", pieceCidV1, err)
+		}
+	}
+
+	return nil
 }
