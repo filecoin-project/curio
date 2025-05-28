@@ -3,12 +3,12 @@ package common
 import (
 	"bytes"
 
+	block "github.com/ipfs/go-block-format"
+	"github.com/ipfs/go-cid"
+
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/crypto"
-
-	block "github.com/ipfs/go-block-format"
-	"github.com/ipfs/go-cid"
 
 	"github.com/filecoin-project/curio/lib/genadt"
 
@@ -32,7 +32,7 @@ type BlockHeader struct {
 
 	Parent BlockLink
 	Height uint64
-	L1Base *types.TipSetKey
+	L1Base types.TipSetKey
 
 	OpType OpType
 
@@ -42,10 +42,11 @@ type BlockHeader struct {
 	Provider *address.Address
 	Client   *address.Address
 
+	Metadata string
+
 	Validator address.Address
 	Signature *crypto.Signature
 }
-
 
 func (blk *BlockHeader) Serialize() ([]byte, error) {
 	buf := new(bytes.Buffer)
@@ -55,7 +56,6 @@ func (blk *BlockHeader) Serialize() ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
-
 
 func (blk *BlockHeader) ToStorageBlock() (block.Block, error) {
 	data, err := blk.Serialize()
@@ -71,14 +71,12 @@ func (blk *BlockHeader) ToStorageBlock() (block.Block, error) {
 	return block.NewBlockWithCid(data, c)
 }
 
-
 func (blk *BlockHeader) SigningBytes() ([]byte, error) {
 	blkcopy := *blk
 	blkcopy.Signature = nil
 
 	return blkcopy.Serialize()
 }
-
 
 func (blk *BlockHeader) Cid() cid.Cid {
 	b, err := blk.ToStorageBlock()

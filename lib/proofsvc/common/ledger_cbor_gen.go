@@ -11,7 +11,6 @@ import (
 	genadt "github.com/filecoin-project/curio/lib/genadt"
 	address "github.com/filecoin-project/go-address"
 	crypto "github.com/filecoin-project/go-state-types/crypto"
-	types "github.com/filecoin-project/lotus/chain/types"
 	cid "github.com/ipfs/go-cid"
 	cbg "github.com/whyrusleeping/cbor-gen"
 	xerrors "golang.org/x/xerrors"
@@ -30,7 +29,7 @@ func (t *BlockHeader) MarshalCBOR(w io.Writer) error {
 
 	cw := cbg.NewCborWriter(w)
 
-	if _, err := cw.Write([]byte{171}); err != nil {
+	if _, err := cw.Write([]byte{172}); err != nil {
 		return err
 	}
 
@@ -127,6 +126,29 @@ func (t *BlockHeader) MarshalCBOR(w io.Writer) error {
 	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.Version)); err != nil {
+		return err
+	}
+
+	// t.Metadata (string) (string)
+	if len("Metadata") > 8192 {
+		return xerrors.Errorf("Value in field \"Metadata\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("Metadata"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("Metadata")); err != nil {
+		return err
+	}
+
+	if len(t.Metadata) > 8192 {
+		return xerrors.Errorf("Value in field t.Metadata was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len(t.Metadata))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string(t.Metadata)); err != nil {
 		return err
 	}
 
@@ -293,18 +315,8 @@ func (t *BlockHeader) UnmarshalCBOR(r io.Reader) (err error) {
 
 			{
 
-				b, err := cr.ReadByte()
-				if err != nil {
-					return err
-				}
-				if b != cbg.CborNull[0] {
-					if err := cr.UnreadByte(); err != nil {
-						return err
-					}
-					t.L1Base = new(types.TipSetKey)
-					if err := t.L1Base.UnmarshalCBOR(cr); err != nil {
-						return xerrors.Errorf("unmarshaling t.L1Base pointer: %w", err)
-					}
+				if err := t.L1Base.UnmarshalCBOR(cr); err != nil {
+					return xerrors.Errorf("unmarshaling t.L1Base: %w", err)
 				}
 
 			}
@@ -357,6 +369,17 @@ func (t *BlockHeader) UnmarshalCBOR(r io.Reader) (err error) {
 				}
 				t.Version = uint64(extra)
 
+			}
+			// t.Metadata (string) (string)
+		case "Metadata":
+
+			{
+				sval, err := cbg.ReadStringWithMax(cr, 8192)
+				if err != nil {
+					return err
+				}
+
+				t.Metadata = string(sval)
 			}
 			// t.Provider (address.Address) (struct)
 		case "Provider":
