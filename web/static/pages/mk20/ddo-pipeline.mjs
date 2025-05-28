@@ -2,7 +2,7 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import RPCCall from '/lib/jsonrpc.mjs';
 import { formatDate } from '/lib/dateutil.mjs';
 
-class DealPipelines extends LitElement {
+class MK20DealPipelines extends LitElement {
     static properties = {
         deals: { type: Array },
         limit: { type: Number },
@@ -40,11 +40,11 @@ class DealPipelines extends LitElement {
     async loadData() {
         try {
             const params = [this.limit, this.offset];
-            const deals = await RPCCall('GetMK12DealPipelines', params);
+            const deals = await RPCCall('MK20DealPipelines', params);
             this.deals = deals;
 
             // Load failed tasks data
-            const failed = await RPCCall('MK12PipelineFailedTasks', []);
+            const failed = await RPCCall('MK20PipelineFailedTasks', []);
             this.failedTasks = failed || {};
 
             this.requestUpdate();
@@ -68,7 +68,7 @@ class DealPipelines extends LitElement {
     }
 
     renderFailedTasks() {
-        const { DownloadingFailed, CommPFailed, PSDFailed, FindDealFailed, IndexFailed } = this.failedTasks;
+        const { DownloadingFailed, CommPFailed, AggFailed, IndexFailed } = this.failedTasks;
         const entries = [];
 
         const renderLine = (label, count, type) => {
@@ -107,11 +107,8 @@ class DealPipelines extends LitElement {
         if (CommPFailed > 0) {
             entries.push(renderLine('CommP', CommPFailed, 'commp'));
         }
-        if (PSDFailed > 0) {
-            entries.push(renderLine('PSD', PSDFailed, 'psd'));
-        }
-        if (FindDealFailed > 0) {
-            entries.push(renderLine('FindDeal', FindDealFailed, 'find_deal'));
+        if (AggFailed > 0) {
+            entries.push(renderLine('Aggregate', AggFailed, 'aggregate'));
         }
         if (IndexFailed > 0) {
             entries.push(renderLine('Index', IndexFailed, 'index'));
@@ -135,7 +132,7 @@ class DealPipelines extends LitElement {
         this.requestUpdate();
 
         try {
-            await RPCCall('MK12BulkRestartFailedMarketTasks', [type]);
+            await RPCCall('MK20BulkRestartFailedMarketTasks', [type]);
             await this.loadData();
         } catch (err) {
             console.error('Failed to restart tasks:', err);
@@ -152,7 +149,7 @@ class DealPipelines extends LitElement {
         this.requestUpdate();
 
         try {
-            await RPCCall('MK12BulkRemoveFailedMarketPipelines', [type]);
+            await RPCCall('MK20BulkRemoveFailedMarketPipelines', [type]);
             await this.loadData();
         } catch (err) {
             console.error('Failed to remove pipelines:', err);
@@ -198,7 +195,7 @@ class DealPipelines extends LitElement {
                             />
                         </svg>
                         <span class="tooltip-text">
-              List of all active deals in the pipeline. Use the pagination
+              List of all active pieces (not deals) in the pipeline. Use the pagination
               controls to navigate through the list.
             </span>
                     </button>
@@ -216,11 +213,11 @@ class DealPipelines extends LitElement {
                     </thead>
                     <tbody>
                     ${this.deals.map(
-                        (deal) => html`
+            (deal) => html`
                             <tr>
                                 <td>${formatDate(deal.created_at)}</td>
                                 <td>
-                                    <a href="/pages/mk12-deal/?id=${deal.uuid}">${deal.uuid}</a>
+                                    <a href="/pages/mk20-deal/?id=${deal.id}">${deal.id}</a>
                                 </td>
                                 <td>${deal.miner}</td>
                                 <td>
@@ -230,7 +227,7 @@ class DealPipelines extends LitElement {
                                 <td>${this.getDealStatus(deal)}</td>
                             </tr>
                         `
-                    )}
+        )}
                     </tbody>
                 </table>
                 <div class="pagination-controls">
@@ -282,22 +279,22 @@ class DealPipelines extends LitElement {
     getDealStatus(deal) {
         if (deal.complete) {
             return '(#########) Complete';
-        } else if (deal.indexed && deal.announce && !deal.complete) {
+        } else if (!deal.complete && deal.announce && deal.indexed) {
             return '(########.) Announcing';
-        } else if (deal.indexed) {
-            return '(#######..) Indexed';
-        } else if (deal.sector) {
-            return '(######...) Sealing And Indexing';
-        } else if (deal.after_find_deal && !deal.sector) {
+        } else if (deal.sealed && !deal.indexed) {
+            return '(#######..) Indexing';
+        } else if (deal.sector?.Valid && !deal.sealed) {
+            return '(######...) Sealing';
+        } else if (deal.aggregated && !deal.sector?.Valid) {
             return '(#####....) Assigning Sector';
-        } else if (deal.after_psd) {
-            return '(####.....) Waiting for DealID';
-        } else if (deal.after_commp) {
-            return '(###......) Publishing Chain Deal';
-        } else if (deal.started) {
-            return '(##.......) Checking Data';
+        } else if (deal.after_commp && !deal.aggregated) {
+            return '(####.....) Aggregating Deal';
+        } else if (deal.downloaded && !deal.after_commp) {
+            return '(###......) CommP';
+        } else if (deal.started && !deal.downloaded) {
+            return '(##.......) Downloading';
         } else {
-            return '(#........) Downloading';
+            return '(#........) Accepted';
         }
     }
 
@@ -376,4 +373,4 @@ class DealPipelines extends LitElement {
     `;
 }
 
-customElements.define('deal-pipelines', DealPipelines);
+customElements.define('mk20-deal-pipelines', MK20DealPipelines);

@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
+	"github.com/oklog/ulid"
 	"github.com/samber/lo"
 	"github.com/snadrus/must"
 	"github.com/yugabyte/pgx/v5"
@@ -742,13 +743,13 @@ func (a *WebRPC) PieceParkStates(ctx context.Context, pieceCID string) (*ParkedP
 	// Query the parked_pieces table
 	err = a.deps.DB.QueryRow(ctx, `
         SELECT id, created_at, piece_cid, piece_padded_size, piece_raw_size, complete, task_id, cleanup_task_id
-        FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2 AND piece_raw_size = $3
-    `, pi.PieceCID.String(), pi.Size, commp.PayloadSize()).Scan(
+        FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2
+    `, pi.PieceCID.String(), pi.Size).Scan(
 		&pps.ID, &pps.CreatedAt, &pps.PieceCID, &pps.PiecePaddedSize, &pps.PieceRawSize,
 		&pps.Complete, &pps.TaskID, &pps.CleanupTaskID,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to query parked piece: %w", err)
@@ -887,14 +888,17 @@ type MK20DealPipeline struct {
 	Sector       sql.NullInt64 `db:"sector" json:"sector"`
 	RegSealProof sql.NullInt64 `db:"reg_seal_proof" json:"reg_seal_proof"`
 	SectorOffset sql.NullInt64 `db:"sector_offset" json:"sector_offset"`
-	Sealed       sql.NullBool  `db:"sealed" json:"sealed"`
+	Sealed       bool          `db:"sealed" json:"sealed"`
 
 	IndexingCreatedAt sql.NullTime  `db:"indexing_created_at" json:"indexing_created_at"`
 	IndexingTaskId    sql.NullInt64 `db:"indexing_task_id" json:"indexing_task_id"`
-	Indexed           sql.NullBool  `db:"indexed" json:"indexed"`
+	Indexed           bool          `db:"indexed" json:"indexed"`
 
 	Complete  bool      `db:"complete" json:"complete"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
+
+	Miner      string `db:"-" json:"miner"`
+	PieceCidV2 string `db:"-" json:"piece_cid_v2"`
 }
 
 type PieceInfoMK12Deals struct {
@@ -1041,22 +1045,6 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 		pipelineMap[pipeline.UUID] = pipeline
 	}
 
-	ret := &PieceDealDetailEntry{
-		MK12: make([]PieceInfoMK12Deals, len(mk12Deals)),
-	}
-
-	for _, deal := range mk12Deals {
-		entry := PieceInfoMK12Deals{
-			Deal: deal,
-		}
-		if pipeline, exists := pipelineMap[deal.UUID]; exists {
-			entry.Pipeline = &pipeline
-		} else {
-			entry.Pipeline = nil // Pipeline may not exist for processed and active deals
-		}
-		ret.MK12 = append(ret.MK12, entry)
-	}
-
 	var mk20Deals []*mk20.DBDeal
 	err = a.deps.DB.Select(ctx, &mk20Deals, `SELECT 
 													id, 
@@ -1088,7 +1076,7 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 		}
 	}
 
-	var mk20Pipelines []*MK20DealPipeline
+	var mk20Pipelines []MK20DealPipeline
 	err = a.deps.DB.Select(ctx, &mk20Pipelines, `
 										SELECT
 										    created_at,
@@ -1128,9 +1116,23 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 	}
 
 	mk20pipelineMap := make(map[string]MK20DealPipeline)
-	for _, pipeline := range mk20pipelineMap {
+	for _, pipeline := range mk20Pipelines {
 		pipeline := pipeline
 		mk20pipelineMap[pipeline.ID] = pipeline
+	}
+
+	ret := &PieceDealDetailEntry{}
+
+	for _, deal := range mk12Deals {
+		entry := PieceInfoMK12Deals{
+			Deal: deal,
+		}
+		if pipeline, exists := pipelineMap[deal.UUID]; exists {
+			entry.Pipeline = &pipeline
+		} else {
+			entry.Pipeline = nil // Pipeline may not exist for processed and active deals
+		}
+		ret.MK12 = append(ret.MK12, entry)
 	}
 
 	for _, deal := range mk20deals {
@@ -1158,7 +1160,104 @@ func firstOrZero[T any](a []T) T {
 	return a[0]
 }
 
-func (a *WebRPC) MK12DealPipelineRemove(ctx context.Context, uuid string) error {
+func (a *WebRPC) DealPipelineRemove(ctx context.Context, id string) error {
+	_, err := ulid.Parse(id)
+	if err != nil {
+		_, err = uuid.Parse(id)
+		if err != nil {
+			return xerrors.Errorf("invalid pipeline id: %w", err)
+		}
+		return a.mk12DealPipelineRemove(ctx, id)
+	}
+	return a.mk20DealPipelineRemove(ctx, id)
+}
+
+func (a *WebRPC) mk20DealPipelineRemove(ctx context.Context, id string) error {
+	_, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		var pipelines []struct {
+			Url    string        `db:"url"`
+			Sector sql.NullInt64 `db:"sector"`
+
+			CommpTaskID    sql.NullInt64 `db:"commp_task_id"`
+			AggrTaskID     sql.NullInt64 `db:"agg_task_id"`
+			IndexingTaskID sql.NullInt64 `db:"indexing_task_id"`
+		}
+
+		err = tx.Select(&pipelines, `SELECT url, sector, commp_task_id, agg_task_id, indexing_task_id
+			FROM market_mk20_pipeline WHERE id = $1`, id)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, fmt.Errorf("no deal pipeline found with id %s", id)
+			}
+			return false, err
+		}
+
+		if len(pipelines) == 0 {
+			return false, fmt.Errorf("no deal pipeline found with id %s", id)
+		}
+
+		// Collect non-null task IDs
+		var taskIDs []int64
+		for _, pipeline := range pipelines {
+			if pipeline.CommpTaskID.Valid {
+				taskIDs = append(taskIDs, pipeline.CommpTaskID.Int64)
+			}
+			if pipeline.AggrTaskID.Valid {
+				taskIDs = append(taskIDs, pipeline.AggrTaskID.Int64)
+			}
+			if pipeline.IndexingTaskID.Valid {
+				taskIDs = append(taskIDs, pipeline.IndexingTaskID.Int64)
+			}
+		}
+
+		// Check if any tasks are still running
+		if len(taskIDs) > 0 {
+			var runningTasks int
+			err = tx.QueryRow(`SELECT COUNT(*) FROM harmony_task WHERE id = ANY($1)`, taskIDs).Scan(&runningTasks)
+			if err != nil {
+				return false, err
+			}
+			if runningTasks > 0 {
+				return false, fmt.Errorf("cannot remove deal pipeline %s: tasks are still running", id)
+			}
+		}
+
+		//Mark failure for deal
+		_, err = tx.Exec(`UPDATE market_mk20_deal SET error = $1 WHERE id = $2`, "Deal pipeline removed by SP", id)
+		if err != nil {
+			return false, xerrors.Errorf("failed to mark deal %s as failed", id)
+		}
+
+		// Remove market_mk20_pipeline entry
+		_, err = tx.Exec(`DELETE FROM market_mk20_pipeline WHERE id = $1`, id)
+		if err != nil {
+			return false, err
+		}
+
+		// If sector is null, remove related pieceref
+		for _, pipeline := range pipelines {
+			if !pipeline.Sector.Valid {
+				const prefix = "pieceref:"
+				if strings.HasPrefix(pipeline.Url, prefix) {
+					refIDStr := pipeline.Url[len(prefix):]
+					refID, err := strconv.ParseInt(refIDStr, 10, 64)
+					if err != nil {
+						return false, fmt.Errorf("invalid refID in URL: %v", err)
+					}
+					// Remove from parked_piece_refs where ref_id = refID
+					_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, refID)
+					if err != nil {
+						return false, err
+					}
+				}
+			}
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	return err
+}
+
+func (a *WebRPC) mk12DealPipelineRemove(ctx context.Context, uuid string) error {
 	_, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		// First, get deal_pipeline.url, task_ids, and sector values
 		var (
@@ -1176,7 +1275,7 @@ func (a *WebRPC) MK12DealPipelineRemove(ctx context.Context, uuid string) error 
 			&url, &sector, &commpTaskID, &psdTaskID, &findDealTaskID, &indexingTaskID,
 		)
 		if err != nil {
-			if err == sql.ErrNoRows {
+			if errors.Is(err, pgx.ErrNoRows) {
 				return false, fmt.Errorf("no deal pipeline found with uuid %s", uuid)
 			}
 			return false, err
@@ -1253,7 +1352,7 @@ func (a *WebRPC) MK12DealPipelineRemove(ctx context.Context, uuid string) error 
 	return err
 }
 
-type PipelineFailedStats struct {
+type MK12PipelineFailedStats struct {
 	DownloadingFailed int64
 	CommPFailed       int64
 	PSDFailed         int64
@@ -1261,7 +1360,7 @@ type PipelineFailedStats struct {
 	IndexFailed       int64
 }
 
-func (a *WebRPC) MK12PipelineFailedTasks(ctx context.Context) (*PipelineFailedStats, error) {
+func (a *WebRPC) MK12PipelineFailedTasks(ctx context.Context) (*MK12PipelineFailedStats, error) {
 	// We'll create a similar query, but this time we coalesce the task IDs from harmony_task.
 	// If the join fails (no matching harmony_task), all joined fields for that task will be NULL.
 	// We detect failure by checking that xxx_task_id IS NOT NULL, after_xxx = false, and that no task record was found in harmony_task.
@@ -1280,7 +1379,7 @@ WITH pipeline_data AS (
            dp.after_find_deal,
            pp.task_id AS downloading_task_id
     FROM market_mk12_deal_pipeline dp
-    LEFT JOIN parked_pieces pp ON pp.piece_cid = dp.piece_cid
+    LEFT JOIN parked_pieces pp ON pp.piece_cid = dp.piece_cid AND pp.piece_padded_size = dp.piece_size
     WHERE dp.complete = false
 ),
 tasks AS (
@@ -1359,7 +1458,7 @@ FROM tasks
 
 	counts := c[0]
 
-	return &PipelineFailedStats{
+	return &MK12PipelineFailedStats{
 		DownloadingFailed: counts.DownloadingFailed,
 		CommPFailed:       counts.CommPFailed,
 		PSDFailed:         counts.PSDFailed,
@@ -1368,7 +1467,7 @@ FROM tasks
 	}, nil
 }
 
-func (a *WebRPC) BulkRestartFailedMarketTasks(ctx context.Context, taskType string) error {
+func (a *WebRPC) MK12BulkRestartFailedMarketTasks(ctx context.Context, taskType string) error {
 	didCommit, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		var rows *harmonydb.Query
 		var err error
@@ -1494,7 +1593,7 @@ func (a *WebRPC) BulkRestartFailedMarketTasks(ctx context.Context, taskType stri
 	return nil
 }
 
-func (a *WebRPC) BulkRemoveFailedMarketPipelines(ctx context.Context, taskType string) error {
+func (a *WebRPC) MK12BulkRemoveFailedMarketPipelines(ctx context.Context, taskType string) error {
 	didCommit, err := a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		var rows *harmonydb.Query
 		var err error
