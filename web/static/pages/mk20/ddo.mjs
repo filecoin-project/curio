@@ -59,6 +59,7 @@ class MK20DDODealList extends LitElement {
       <link rel="stylesheet" href="/ux/main.css" />
 
       <div>
+        <p></p>
         <h2>DDO Deal List
                 <button class="info-btn">
                     <!-- Inline SVG icon for the info button -->
@@ -91,7 +92,7 @@ class MK20DDODealList extends LitElement {
                   <td>${formatDate(deal.created_at)}</td>
                   <td><a href="/pages/mk20-deal/?id=${deal.id}">${deal.id}</a></td>
                   <td>${deal.miner}</td>
-                  <td><a href="/pages/piece/?id=${deal.piece_cid_v2}">${deal.piece_cid}</a></td>
+                  <td><a href="/pages/piece/?id=${deal.piece_cid_v2}">${this.formatPieceCid(deal.piece_cid)}</a></td>
                   <td>${this.formatBytes(deal.piece_size)}</td>
                   <td><done-not-done .value=${deal.processed}></yes-no></td>
                   <td><error-or-not .value=${deal.error}></error-or-not></td>
@@ -130,6 +131,16 @@ class MK20DDODealList extends LitElement {
         } else {
             return `${size.toFixed(2)} ${units[i]}`;
         }
+    }
+
+    formatPieceCid(pieceCid) {
+        if (!pieceCid) return '';
+        if (pieceCid.length <= 24) {
+            return pieceCid;
+        }
+        const start = pieceCid.substring(0, 16);
+        const end = pieceCid.substring(pieceCid.length - 8);
+        return `${start}...${end}`;
     }
 
     static styles = css`

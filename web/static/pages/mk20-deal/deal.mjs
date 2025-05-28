@@ -26,7 +26,7 @@ class DealDetails extends LitElement {
         console.log(this.data);
         if (!this.data) return html`<p>No data.</p>`;
 
-        const { identifier, data, products } = this.data.deal;
+        const { identifier, data, products, error } = this.data.deal;
 
 
         return html`
@@ -37,39 +37,85 @@ class DealDetails extends LitElement {
             />
             <link rel="stylesheet" href="/ux/main.css" />
             
-          <div class="table-container">
-            <h5>Deal</h5>
             <table class="table table-dark table-striped table-sm">
                 <tr><th>Identifier</th><td>${identifier}</td></tr>
                 <tr><th>Error</th><td><error-or-not .value=${this.data.error}></error-or-not></td></tr>
                 <tr><th>PieceCID</th><td><a href="/pages/piece/?id=${this.data.piece_cid_v2}">${data?.piece_cid['/']}</a></td></tr>
                 <tr><th>PieceSize</th><td>${data?.piece_size}</td></tr>
+                <tr><th>Error</th><td><error-or-not .value=${error}></error-or-not></td></tr>
             </table>
-
+            
+            <h4>Piece Format</h4>
             ${this.renderPieceFormat(data?.format)}
-            ${data?.source_http ? this.renderSourceHTTP(data.source_http) : ''}
-            ${data?.source_aggregate ? this.renderSourceAggregate(data.source_aggregate) : ''}
-            ${data?.source_offline ? this.renderSourceOffline(data.source_offline) : ''}
-            ${data?.source_httpput ? this.renderSourceHttpPut(data.source_httpput) : ''}
+              
+              <h4>Data Source</h4>
+              <table class="table table-dark table-striped table-sm">
+                  <thead>
+                      <th>Name</th>
+                      <th>Details</th>
+                  </thead>
+                  <tbody>
+                    ${this.renderDataSource(data)}
+                  </tbody>
+              </table>
     
             ${products?.ddo_v1 ? this.renderDDOV1(products.ddo_v1) : ''}
-          </div>
         `;
+    }
+
+    renderDataSource(data){
+        if (!data) return '';
+        if (data.source_http) {
+            return html`
+                <tr>
+                    <td>HTTP</td>
+                    <td>${data?.source_http ? this.renderSourceHTTP(data.source_http) : ''}</td>
+                </tr>
+            `
+        }
+        if (data.source_aggregate) {
+            return html`
+                <tr>
+                    <td>Aggregate</td>
+                    <td>${data?.source_aggregate ? this.renderSourceAggregate(data.source_aggregate) : ''}</td>
+                </tr>
+            `
+        }
+        if (data.source_offline) {
+            return html`
+                <tr>
+                    <td>Offline</td>
+                    <td>${data?.source_offline ? this.renderSourceOffline(data.source_offline) : ''}</td>
+                </tr>
+            `
+        }
+        if (data.source_httpput) {
+            return html`
+                <tr>
+                    <td>HTTP Put</td>
+                    <td>${data?.source_httpput ? this.renderSourceHttpPut(data.source_httpput) : ''}</td>
+                </tr>
+            `
+        }
     }
 
     renderPieceFormat(format) {
         if (!format) return '';
         return html`
-      <h6>Piece Format</h6>
       <table class="table table-dark table-striped table-sm">
-        ${format.car ? html`<tr><th>Car</th><td>Yes</td></tr>` : ''}
-        ${format.aggregate
-            ? html`
-              <tr><th>Aggregate Type</th><td>${format.aggregate.type}</td></tr>
-              <tr><td colspan="2">${this.renderAggregateSubs(format.aggregate.sub)}</td></tr>
+          <thead>
+            <th>Format Name</th>
+            <th>Details</th>
+          </thead>
+          <tbody>
+          ${format.car ? html`<tr><td>Car</td><td></td></tr>` : ''}
+          ${format.aggregate
+                  ? html`
+              <tr><td>Aggregate</td><td>Type ${format.aggregate.type}</td></tr>
             `
-            : ''}
-        ${format.raw ? html`<tr><th>Raw</th><td>Yes</td></tr>` : ''}
+                  : ''}
+          ${format.raw ? html`<tr><td>Raw</td><td></td></tr>` : ''}
+          </tbody>
       </table>
     `;
     }
@@ -77,7 +123,6 @@ class DealDetails extends LitElement {
     renderAggregateSubs(subs) {
         if (!subs?.length) return '';
         return html`
-      <h6>Aggregate Sub Formats</h6>
       <table class="table table-dark table-striped table-sm">
         <thead><tr><th>#</th><th>Car</th><th>Raw</th><th>Aggregate</th></tr></thead>
         <tbody>
@@ -96,39 +141,58 @@ class DealDetails extends LitElement {
 
     renderSourceHTTP(src) {
         return html`
-      <h6>Source HTTP</h6>
       <table class="table table-dark table-striped table-sm">
-        <tr><th>Raw Size</th><td>${src.rawsize}</td></tr>
-        <tr><th>URLs</th>
-          <td>
-            <table class="table table-dark table-striped table-sm">
-              <thead><tr><th>URL</th><th>Priority</th><th>Fallback</th></tr></thead>
-              <tbody>
-                ${src.urls.map(u => html`
-                  <tr>
-                    <td>${u.url}</td>
-                    <td>${u.priority}</td>
-                    <td>${u.fallback ? 'Yes' : 'No'}</td>
-                  </tr>
-                `)}
-              </tbody>
-            </table>
-          </td>
-        </tr>
+        <tr><td>Raw Size</td><td>${src.rawsize}</td></tr>
+            ${src.urls ? this.renderUrls(src.urls) : ''}
       </table>
     `;
     }
 
+    renderUrls(urls) {
+        if (!urls?.length) return '';
+        return html`
+            <table class="table table-dark table-striped table-sm">
+                <thead>
+                    <th>URL</th>
+                    <th>Headers</th>
+                    <th>Priority</th>
+                    <th>Fallback</th>
+                </thead>
+                <tbody>
+                    ${urls.map(u => html`
+                        <tr>
+                            <td>${u.url}</td>
+                            <td>
+                                <details>
+                                    <summary>[SHOW]</summary>
+                                    <pre>${JSON.stringify(u.headers, null, 2)}</pre>
+                                </details>
+                            </td
+                            <td>${u.priority}</td>
+                            <td>${u.fallback}</td>
+                        </tr>
+                    `)}
+                </tbody>
+            </table>
+        `
+    }
+
     renderSourceAggregate(src) {
         return html`
-      <h6>Source Aggregate</h6>
       ${src.pieces.map((piece, i) => html`
         <div class="table table-dark table-striped table-sm">
-          <strong>Piece ${i + 1}</strong>
-          <table class="table table-dark table-striped table-sm">
-            <tr><th>PieceCID</th><td>${piece.piece_cid['/']}</td></tr>
-            <tr><th>Size</th><td>${piece.size}</td></tr>
-          </table>
+          <strong>Piece ${i + 1}: ${piece.piece_cid['/']}</strong>
+            <details>
+                <summary>[DETAILS]</summary>
+                <pre>
+                  <table class="table table-dark table-striped table-sm">
+                      <tr><th>PieceCID</th><td>${piece.piece_cid['/']}</td></tr>
+                      <tr><th>Size</th><td>${piece.piece_size}</td></tr>
+                      <tr><th>Format</th><td>${this.renderPieceFormat(piece.format)}</td></tr>
+                      <tr><th>Source</th><td>${this.renderDataSource(piece)}</td></tr>
+                  </table>
+                </pre>
+            </details>
         </div>
       `)}
     `;
@@ -136,7 +200,6 @@ class DealDetails extends LitElement {
 
     renderSourceOffline(src) {
         return html`
-      <h6>Source Offline</h6>
       <table class="table table-dark table-striped table-sm">
         <tr><th>Raw Size</th><td>${src.raw_size}</td></tr>
       </table>
@@ -145,7 +208,6 @@ class DealDetails extends LitElement {
 
     renderSourceHttpPut(src) {
         return html`
-      <h6>Source HTTP PUT</h6>
       <table class="table table-dark table-striped table-sm">
         <tr><th>Raw Size</th><td>${src.raw_size}</td></tr>
       </table>
@@ -157,8 +219,8 @@ class DealDetails extends LitElement {
       <h6>DDO v1</h6>
       <table class="table table-dark table-striped table-sm">
         <tr><th>Provider</th><td>${ddo.provider}</td></tr>
-        <tr><th>Client</th><td>${ddo.client}</td></tr>
-        <tr><th>Piece Manager</th><td>${ddo.piece_manager}</td></tr>
+        <tr><th>Client</th><td><cu-wallet wallet_id=${ddo.client}></td></tr>
+        <tr><th>Piece Manager</th><td><cu-wallet wallet_id=${ddo.piece_manager}></td></tr>
         <tr><th>Duration</th><td>${ddo.duration}</td></tr>
         ${ddo.allocation_id ? html`<tr><th>Allocation ID</th><td>${ddo.allocation_id}</td></tr>` : ''}
         <tr><th>Contract</th><td>${ddo.contract_address}</td></tr>
@@ -171,93 +233,4 @@ class DealDetails extends LitElement {
     }
 }
 customElements.define('deal-details', DealDetails);
-
-// import { LitElement, html, css } from 'lit';
-// import { customElement, property } from 'lit/decorators.js';
-//
-// @customElement('deal-view')
-// export class DealView extends LitElement {
-//     @property({ type: Object }) deal;
-//
-//     static styles = css`
-//     table {
-//       border-collapse: collapse;
-//       width: 100%;
-//       margin-bottom: 1rem;
-//     }
-//     th, td {
-//       border: 1px solid #ddd;
-//       padding: 0.5rem;
-//       vertical-align: top;
-//     }
-//     th {
-//       background-color: #f8f9fa;
-//       text-align: left;
-//     }
-//     .nested-table {
-//       margin-left: 1rem;
-//       width: auto;
-//     }
-//   `;
-//
-//     renderNested(title, obj) {
-//         if (!obj) return html``;
-//         return html`
-//       <tr>
-//         <th colspan="2">${title}</th>
-//       </tr>
-//       ${Object.entries(obj).map(([key, value]) => html`
-//         <tr>
-//           <td>${key}</td>
-//           <td>
-//             ${typeof value === 'object' && value !== null
-//             ? html`<table class="nested-table">${this.renderRows(value)}</table>`
-//             : String(value)}
-//           </td>
-//         </tr>
-//       `)}
-//     `;
-//     }
-//
-//     renderRows(data) {
-//         return Object.entries(data).map(([key, value]) => {
-//             if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-//                 return html`${this.renderNested(key, value)}`;
-//             } else {
-//                 return html`
-//           <tr>
-//             <td>${key}</td>
-//             <td>${Array.isArray(value) ? html`<pre>${JSON.stringify(value, null, 2)}</pre>` : String(value)}</td>
-//           </tr>
-//         `;
-//             }
-//         });
-//     }
-//
-//     render() {
-//         if (!this.deal) return html`<p>No deal provided.</p>`;
-//         return html`
-//       <table>
-//         <thead>
-//           <tr><th colspan="2">Deal</th></tr>
-//         </thead>
-//         <tbody>
-//           <tr><td>Identifier</td><td>${this.deal.identifier}</td></tr>
-//           ${this.deal.data ? html`
-//             <tr>
-//               <th colspan="2">data</th>
-//             </tr>
-//             ${this.renderNested('data', this.deal.data)}
-//           ` : null}
-//           ${this.deal.products?.ddo_v1 ? html`
-//             <tr>
-//               <th colspan="2">DDOV1</th>
-//             </tr>
-//             ${this.renderNested('DDOV1', this.deal.products.ddo_v1)}
-//           ` : null}
-//         </tbody>
-//       </table>
-//     `;
-//     }
-// }
 
