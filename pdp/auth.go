@@ -9,10 +9,30 @@ import (
 	"strings"
 
 	"github.com/golang-jwt/jwt/v4"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
-// verifyJWTToken extracts and verifies the JWT token from the request and returns the serviceID.
-func (p *PDPService) verifyJWTToken(r *http.Request) (string, error) {
+type Auth interface {
+	AuthService(r *http.Request) (string, error)
+}
+
+type NullAuth struct{}
+
+var _ Auth = (*NullAuth)(nil)
+
+func (a *NullAuth) AuthService(r *http.Request) (string, error) {
+	return "public", nil
+}
+
+type JWTAuth struct {
+	db *harmonydb.DB
+}
+
+var _ Auth = (*JWTAuth)(nil)
+
+// JWTAuth extracts and verifies the JWT token from the request and returns the serviceID.
+func (a *JWTAuth) AuthService(r *http.Request) (string, error) {
 	// Get the Authorization header
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
@@ -63,7 +83,7 @@ func (p *PDPService) verifyJWTToken(r *http.Request) (string, error) {
 		// Query the database for the public key using serviceID
 		var pubKeyBytes []byte
 		ctx := r.Context()
-		err := p.db.QueryRow(ctx, `
+		err := a.db.QueryRow(ctx, `
             SELECT pubkey FROM pdp_services WHERE service_label=$1
         `, service).Scan(&pubKeyBytes)
 		if err != nil {
