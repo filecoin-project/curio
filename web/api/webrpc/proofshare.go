@@ -31,7 +31,7 @@ type ProofShareMeta struct {
 
 // ProofShareQueueItem represents each row in proofshare_queue.
 type ProofShareQueueItem struct {
-	ServiceID     string     `db:"service_id"     json:"service_id"`
+	ServiceID     string    `db:"service_id"     json:"service_id"`
 	ObtainedAt    time.Time `db:"obtained_at"    json:"obtained_at"`
 	ComputeTaskID *int64    `db:"compute_task_id" json:"compute_task_id"`
 	ComputeDone   bool      `db:"compute_done"   json:"compute_done"`
@@ -378,7 +378,7 @@ func (a *WebRPC) PSClientSet(ctx context.Context, s ProofShareClientSettings) er
 // ProofShareClientRequest model
 type ProofShareClientRequest struct {
 	TaskID          int64        `db:"task_id"           json:"task_id"`
-	SpID            int64        `db:"sp_id"             json:"sp_id"`
+	SpID            int64        `db:"sp_id"`
 	SectorNum       int64        `db:"sector_num"        json:"sector_num"`
 	RequestCID      *string      `db:"request_cid"       json:"request_cid,omitempty"`
 	RequestUploaded bool         `db:"request_uploaded"  json:"request_uploaded"`
@@ -389,11 +389,14 @@ type ProofShareClientRequest struct {
 	Done            bool         `db:"done"              json:"done"`
 	CreatedAt       time.Time    `db:"created_at"        json:"created_at"`
 	DoneAt          sql.NullTime `db:"done_at"           json:"done_at,omitempty"`
+
+	PaymentAmount *string `db:"-" json:"payment_amount"`
+	SpIDStr       string  `db:"-" json:"sp_id"`
 }
 
 // PSClientRequests returns the list of proofshare_client_requests for a given sp_id
-func (a *WebRPC) PSClientRequests(ctx context.Context, spId int64) ([]ProofShareClientRequest, error) {
-	var rows []ProofShareClientRequest
+func (a *WebRPC) PSClientRequests(ctx context.Context, spId int64) ([]*ProofShareClientRequest, error) {
+	var rows []*ProofShareClientRequest
 
 	// If you want spId=0 to mean "all," you can do logic in WHERE
 	// e.g.: WHERE (sp_id = $1 OR $1=0)
@@ -404,10 +407,94 @@ func (a *WebRPC) PSClientRequests(ctx context.Context, spId int64) ([]ProofShare
         FROM proofshare_client_requests
         WHERE sp_id = $1
         ORDER BY created_at DESC
+		LIMIT 10
     `, spId)
 	if err != nil {
 		return nil, xerrors.Errorf("PSClientRequests: query error: %w", err)
 	}
+
+	for _, r := range rows {
+		if r.PaymentWallet == nil || r.PaymentNonce == nil {
+			// No payment info, so no payment amount to calculate
+			continue
+		}
+
+		walletID := *r.PaymentWallet
+		currentNonce := *r.PaymentNonce
+
+		var currentCumulativeAmountStr string
+		err := a.deps.DB.QueryRow(ctx, `
+			SELECT cumulative_amount FROM proofshare_client_payments
+			WHERE wallet = $1 AND nonce = $2
+		`, walletID, currentNonce).Scan(&currentCumulativeAmountStr)
+
+		currentCumulativeAmount := big.NewInt(0)
+		if err != nil {
+			if xerrors.Is(err, sql.ErrNoRows) {
+				// If current payment record not found, treat current cumulative amount as 0.
+				// This means the calculated payment_amount will be 0 (or negative, then clamped to 0).
+				log.Warnw("PSClientRequests: current payment record not found, assuming 0 amount", "wallet", walletID, "nonce", currentNonce)
+				// currentCumulativeAmount remains 0
+			} else {
+				// For other errors, log and skip payment calculation for this item.
+				log.Errorw("PSClientRequests: failed to query current cumulative amount", "wallet", walletID, "nonce", currentNonce, "error", err)
+				continue // Skip to next request
+			}
+		} else {
+			parsedAmount, parseErr := types.BigFromString(currentCumulativeAmountStr)
+			if parseErr != nil {
+				log.Errorw("PSClientRequests: failed to parse current cumulative amount", "wallet", walletID, "nonce", currentNonce, "value", currentCumulativeAmountStr, "error", parseErr)
+				// Treat as 0 if unparseable, or could skip. Let's treat as 0.
+				// currentCumulativeAmount remains 0
+			} else {
+				currentCumulativeAmount = parsedAmount
+			}
+		}
+
+		previousCumulativeAmount := big.NewInt(0)
+		if currentNonce > 0 { // Assuming nonces are non-negative. If nonce can be 0, previous is -1.
+			previousNonce := currentNonce - 1
+			var previousCumulativeAmountStr string
+			errDb := a.deps.DB.QueryRow(ctx, `
+				SELECT cumulative_amount FROM proofshare_client_payments
+				WHERE wallet = $1 AND nonce = $2
+			`, walletID, previousNonce).Scan(&previousCumulativeAmountStr)
+
+			if errDb != nil {
+				if !xerrors.Is(errDb, sql.ErrNoRows) {
+					// Log error if it's not ErrNoRows (ErrNoRows is expected for the first payment or if nonces are not contiguous)
+					log.Errorw("PSClientRequests: failed to query previous cumulative amount", "wallet", walletID, "nonce", previousNonce, "error", errDb)
+					// previousCumulativeAmount remains 0
+				}
+				// If ErrNoRows, previousCumulativeAmount correctly remains 0.
+			} else {
+				parsedPrevAmount, parseErr := types.BigFromString(previousCumulativeAmountStr)
+				if parseErr != nil {
+					log.Errorw("PSClientRequests: failed to parse previous cumulative amount", "wallet", walletID, "nonce", previousNonce, "value", previousCumulativeAmountStr, "error", parseErr)
+					// previousCumulativeAmount remains 0
+				} else {
+					previousCumulativeAmount = parsedPrevAmount
+				}
+			}
+		}
+
+		paymentAmountBig := big.Sub(currentCumulativeAmount, previousCumulativeAmount)
+		if paymentAmountBig.Sign() < 0 {
+			// This could happen if data is inconsistent or amounts decrease.
+			log.Warnw("PSClientRequests: calculated payment amount is negative, clamping to 0",
+				"wallet", walletID, "currentNonce", currentNonce,
+				"currentAmount", types.FIL(currentCumulativeAmount).Short(),
+				"previousAmount", types.FIL(previousCumulativeAmount).Short(),
+				"calculatedNegative", types.FIL(paymentAmountBig).Short())
+			paymentAmountBig = big.NewInt(0)
+		}
+
+		paymentAmountStr := types.FIL(paymentAmountBig).Short()
+		r.PaymentAmount = &paymentAmountStr
+
+		r.SpIDStr = must.One(address.NewIDAddress(uint64(r.SpID))).String()
+	}
+
 	return rows, nil
 }
 

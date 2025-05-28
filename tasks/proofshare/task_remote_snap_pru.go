@@ -5,6 +5,13 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
+	"github.com/ipfs/go-cid"
+	"golang.org/x/xerrors"
+
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -13,12 +20,8 @@ import (
 	"github.com/filecoin-project/curio/lib/proofsvc"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
 	"github.com/filecoin-project/curio/lib/storiface"
-	commcid "github.com/filecoin-project/go-fil-commcid"
-	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/lotus/api"
-	"github.com/hashicorp/go-multierror"
-	"github.com/ipfs/go-cid"
-	"golang.org/x/xerrors"
 )
 
 // TaskRemoteSnapPRU handles requesting Snap PRU proofs from remote providers
@@ -38,64 +41,66 @@ func NewTaskRemoteSnapPRU(db *harmonydb.DB, api api.FullNode, storage *paths.Rem
 		router:  common.NewServiceCustomSend(api, nil),
 	}
 }
-/* 
+
+/*
 CREATE TABLE sectors_snap_pipeline (
-    sp_id BIGINT NOT NULL,
-    sector_number BIGINT NOT NULL,
 
-    start_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	sp_id BIGINT NOT NULL,
+	sector_number BIGINT NOT NULL,
 
-    upgrade_proof INT NOT NULL,
+	start_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    -- preload
-    -- todo sector preload logic
-    data_assigned BOOLEAN NOT NULL DEFAULT TRUE,
+	upgrade_proof INT NOT NULL,
 
-    -- encode
-    update_unsealed_cid TEXT,
-    update_sealed_cid TEXT,
+	-- preload
+	-- todo sector preload logic
+	data_assigned BOOLEAN NOT NULL DEFAULT TRUE,
 
-    task_id_encode BIGINT,
-    after_encode BOOLEAN NOT NULL DEFAULT FALSE,
+	-- encode
+	update_unsealed_cid TEXT,
+	update_sealed_cid TEXT,
 
-    -- prove
-    proof BYTEA,
+	task_id_encode BIGINT,
+	after_encode BOOLEAN NOT NULL DEFAULT FALSE,
 
-    task_id_prove BIGINT,
-    after_prove BOOLEAN NOT NULL DEFAULT FALSE,
+	-- prove
+	proof BYTEA,
 
-    -- update_ready_at TIMESTAMP, // Added in 20241210-sdr-batching
+	task_id_prove BIGINT,
+	after_prove BOOLEAN NOT NULL DEFAULT FALSE,
 
-    -- submit
-    prove_msg_cid TEXT,
+	-- update_ready_at TIMESTAMP, // Added in 20241210-sdr-batching
 
-    task_id_submit BIGINT,
-    after_submit BOOLEAN NOT NULL DEFAULT FALSE,
+	-- submit
+	prove_msg_cid TEXT,
 
-    after_prove_msg_success BOOLEAN NOT NULL DEFAULT FALSE,
-    prove_msg_tsk BYTEA,
+	task_id_submit BIGINT,
+	after_submit BOOLEAN NOT NULL DEFAULT FALSE,
 
-    -- move storage
-    task_id_move_storage BIGINT,
-    after_move_storage BOOLEAN NOT NULL DEFAULT FALSE,
+	after_prove_msg_success BOOLEAN NOT NULL DEFAULT FALSE,
+	prove_msg_tsk BYTEA,
 
-    -- fail
-    -- added in 20240809-snap-failures.sql
-    -- Failure handling
-    -- failed bool not null default false,
-    -- failed_at timestamp with timezone,
-    -- failed_reason varchar(20) not null default '',
-    -- failed_reason_msg text not null default '',
+	-- move storage
+	task_id_move_storage BIGINT,
+	after_move_storage BOOLEAN NOT NULL DEFAULT FALSE,
 
-    -- added in 20240826-sector-partition.sql
-    -- when not null delays scheduling of the submit task
-    -- submit_after TIMESTAMP WITH TIME ZONE,
+	-- fail
+	-- added in 20240809-snap-failures.sql
+	-- Failure handling
+	-- failed bool not null default false,
+	-- failed_at timestamp with timezone,
+	-- failed_reason varchar(20) not null default '',
+	-- failed_reason_msg text not null default '',
 
-    FOREIGN KEY (sp_id, sector_number) REFERENCES sectors_meta (sp_id, sector_num),
-    PRIMARY KEY (sp_id, sector_number)
+	-- added in 20240826-sector-partition.sql
+	-- when not null delays scheduling of the submit task
+	-- submit_after TIMESTAMP WITH TIME ZONE,
+
+	FOREIGN KEY (sp_id, sector_number) REFERENCES sectors_meta (sp_id, sector_num),
+	PRIMARY KEY (sp_id, sector_number)
+
 );
-
- */
+*/
 func (t *TaskRemoteSnapPRU) Adder(add harmonytask.AddTaskFunc) {
 	ticker := time.NewTicker(10 * time.Second)
 	go func() {
@@ -277,10 +282,10 @@ func (t *TaskRemoteSnapPRU) Do(taskID harmonytask.TaskID, stillOwned func() bool
 }
 
 type UpdateSectorInfo struct {
-	SpID         int64  `db:"sp_id"`
-	SectorNumber int64  `db:"sector_number"`
+	SpID            int64                     `db:"sp_id"`
+	SectorNumber    int64                     `db:"sector_number"`
 	UpdateProofType abi.RegisteredUpdateProof `db:"upgrade_proof"`
-	RegSealProof abi.RegisteredSealProof `db:"reg_seal_proof"`
+	RegSealProof    abi.RegisteredSealProof   `db:"reg_seal_proof"`
 
 	OldR proof.Commitment
 	NewR proof.Commitment
@@ -293,6 +298,7 @@ func (s *UpdateSectorInfo) SectorID() abi.SectorID {
 		Number: abi.SectorNumber(s.SectorNumber),
 	}
 }
+
 // getSectorInfo retrieves the sector information from the database
 func (t *TaskRemoteSnapPRU) getSectorInfo(ctx context.Context, taskID harmonytask.TaskID) (*UpdateSectorInfo, error) {
 	var info UpdateSectorInfo
@@ -376,10 +382,10 @@ func (t *TaskRemoteSnapPRU) uploadProofData(ctx context.Context, taskID harmonyt
 		},
 		Snap: &proof.Snap{
 			ProofType: sectorInfo.UpdateProofType,
-			OldR: sectorInfo.OldR,
-			NewR: sectorInfo.NewR,
-			NewD: sectorInfo.NewD,
-			Proofs: vproofs,
+			OldR:      sectorInfo.OldR,
+			NewR:      sectorInfo.NewR,
+			NewD:      sectorInfo.NewD,
+			Proofs:    vproofs,
 		},
 	}
 
@@ -429,7 +435,6 @@ func (t *TaskRemoteSnapPRU) finalizeSector(ctx context.Context, sectorInfo *Upda
 		"proofSize", len(proofData))
 	return true, nil
 }
-
 
 // TypeDetails implements harmonytask.TaskInterface
 func (t *TaskRemoteSnapPRU) TypeDetails() harmonytask.TaskTypeDetails {

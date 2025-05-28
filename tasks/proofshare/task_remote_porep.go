@@ -411,9 +411,9 @@ func (s *SectorInfo) SectorID() abi.SectorID {
 
 // ClientRequest holds the client request information
 type ClientRequest struct {
-	RequestCID      *string `db:"request_cid"`
-	RequestUploaded bool    `db:"request_uploaded"`
-	RequestPartitionCost int64 `db:"request_partition_cost"`
+	RequestCID           *string `db:"request_cid"`
+	RequestUploaded      bool    `db:"request_uploaded"`
+	RequestPartitionCost int64   `db:"request_partition_cost"`
 
 	PaymentWallet *int64 `db:"payment_wallet"`
 	PaymentNonce  *int64 `db:"payment_nonce"`

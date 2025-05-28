@@ -272,8 +272,8 @@ func (p *ProofData) CheckOutput(pb []byte) error {
 
 	if p.Snap != nil {
 		uinfo := sproof.ReplicaUpdateInfo{
-			UpdateProofType:       p.Snap.ProofType,
-			Proof:                 pb,
+			UpdateProofType: p.Snap.ProofType,
+			Proof:           pb,
 		}
 
 		var err error

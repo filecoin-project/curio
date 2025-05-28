@@ -206,10 +206,8 @@ class ProofShareClient extends LitElement {
             <th>Sector Num</th>
             <th>Request CID</th>
             <th>Request Uploaded</th>
-            <th>Payment Wallet</th>
-            <th>Payment Nonce</th>
+            <th>Payment Amount</th>
             <th>Request Sent</th>
-            <th>Response Data</th>
             <th>Done</th>
             <th>Created At</th>
             <th>Done At</th>
@@ -222,13 +220,11 @@ class ProofShareClient extends LitElement {
                 <task-status .taskId=${req.task_id}></task-status>
               </td>
               <td>${req.sp_id}</td>
-              <td>${req.sector_num}</td>
+              <td><a href="/pages/sector/?sp=${req.sp_id}&id=${req.sector_num}">${req.sector_num}</a></td>
               <td>${req.request_cid ? html`<abbr title="${req.request_cid}">${req.request_cid.slice(0, 5)}...${req.request_cid.slice(-5)}</abbr>` : ''}</td>
               <td><yes-no .value=${req.request_uploaded}></yes-no></td>
-              <td>${req.payment_wallet ?? ''}</td>
-              <td>${req.payment_nonce ?? ''}</td>
+              <td>${req.payment_amount ?? ''}</td>
               <td><yes-no .value=${req.request_sent}></yes-no></td>
-              <td>${req.response_data && req.response_data.length > 0 ? html`<abbr title="${req.response_data.toString()}">[${req.response_data.length} bytes]</abbr>` : ''}</td>
               <td><yes-no .value=${req.done}></yes-no></td>
               <td>${req.created_at ? formatDate(req.created_at) : ''}</td>
               <td>${req.done_at && req.done_at.Time ? formatDate(req.done_at.Time) : ''}</td>

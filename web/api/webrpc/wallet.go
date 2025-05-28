@@ -8,8 +8,10 @@ import (
 
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/go-address"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
@@ -146,9 +148,9 @@ func (a *WebRPC) PendingMessages(ctx context.Context) (PendingMessages, error) {
 }
 
 type WalletInfoShort struct {
-	IDAddress string `json:"id_address"`
-	KeyAddress string `json:"key_address"`
-	Balance   string `json:"balance"`
+	IDAddress       string `json:"id_address"`
+	KeyAddress      string `json:"key_address"`
+	Balance         string `json:"balance"`
 	PendingMessages int    `json:"pending_messages"`
 }
 
@@ -191,9 +193,9 @@ func (a *WebRPC) WalletInfoShort(ctx context.Context, walletID string) (WalletIn
 	}
 
 	return WalletInfoShort{
-		IDAddress: iaddr.String(),
-		KeyAddress: kaddr.String(),
-		Balance: types.FIL(balance).Short(),
+		IDAddress:       iaddr.String(),
+		KeyAddress:      kaddr.String(),
+		Balance:         types.FIL(balance).Short(),
 		PendingMessages: pendingMessages,
 	}, nil
 }

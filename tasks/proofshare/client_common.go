@@ -6,17 +6,20 @@ import (
 	"errors"
 	"time"
 
+	"github.com/ipfs/go-cid"
+	"github.com/yugabyte/pgx/v5"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/big"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/proofsvc"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
-	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/go-state-types/big"
+
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/ipfs/go-cid"
-	"github.com/yugabyte/pgx/v5"
-	"golang.org/x/xerrors"
 )
 
 // getClientRequest retrieves or creates a client request record
@@ -62,7 +65,6 @@ func getClientRequest(ctx context.Context, db *harmonydb.DB, taskID harmonytask.
 
 	return &clientRequest, nil
 }
-
 
 // createPayment creates a payment for the proof request
 func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, router *common.Service, taskID harmonytask.TaskID, sectorInfo abi.SectorID, requestPartitionCost int64) (bool, error) {
@@ -283,7 +285,6 @@ func undoPayment(ctx context.Context, db *harmonydb.DB, taskID harmonytask.TaskI
 
 	return nil
 }
-
 
 // sendRequest sends the proof request to the service
 func sendRequest(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, taskID harmonytask.TaskID, clientRequest *ClientRequest) (bool, error) {
