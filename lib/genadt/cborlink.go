@@ -24,6 +24,10 @@ type CborLink[T CborT] struct {
 	val T
 }
 
+func Link[T CborT](cid cid.Cid) *CborLink[T] {
+	return &CborLink[T]{cid: cid}
+}
+
 // MarshalCBOR encodes this link the same way a bare CID is encoded in DAG-CBOR/Filecoin:
 //   - A CBOR Tag(42)
 //   - Followed by a CBOR byte-string: [ 0x00, <raw CID bytes> ]

@@ -32,7 +32,7 @@ type BlockHeader struct {
 	OpType OpType
 
 	PaymentCumulative abi.TokenAmount
-	PaymentNonce      abi.ChainEpoch
+	PaymentNonce      uint64
 
 	Provider *address.Address
 	Client   *address.Address

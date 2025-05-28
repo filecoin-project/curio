@@ -10,7 +10,6 @@ import (
 
 	genadt "github.com/filecoin-project/curio/lib/genadt"
 	address "github.com/filecoin-project/go-address"
-	abi "github.com/filecoin-project/go-state-types/abi"
 	crypto "github.com/filecoin-project/go-state-types/crypto"
 	types "github.com/filecoin-project/lotus/chain/types"
 	cid "github.com/ipfs/go-cid"
@@ -179,7 +178,7 @@ func (t *BlockHeader) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.PaymentNonce (abi.ChainEpoch) (int64)
+	// t.PaymentNonce (uint64) (uint64)
 	if len("PaymentNonce") > 8192 {
 		return xerrors.Errorf("Value in field \"PaymentNonce\" was too long")
 	}
@@ -191,14 +190,8 @@ func (t *BlockHeader) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	if t.PaymentNonce >= 0 {
-		if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.PaymentNonce)); err != nil {
-			return err
-		}
-	} else {
-		if err := cw.WriteMajorTypeHeader(cbg.MajNegativeInt, uint64(-t.PaymentNonce-1)); err != nil {
-			return err
-		}
+	if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.PaymentNonce)); err != nil {
+		return err
 	}
 
 	// t.PaymentCumulative (big.Int) (struct)
@@ -415,31 +408,20 @@ func (t *BlockHeader) UnmarshalCBOR(r io.Reader) (err error) {
 				}
 
 			}
-			// t.PaymentNonce (abi.ChainEpoch) (int64)
+			// t.PaymentNonce (uint64) (uint64)
 		case "PaymentNonce":
+
 			{
-				maj, extra, err := cr.ReadHeader()
+
+				maj, extra, err = cr.ReadHeader()
 				if err != nil {
 					return err
 				}
-				var extraI int64
-				switch maj {
-				case cbg.MajUnsignedInt:
-					extraI = int64(extra)
-					if extraI < 0 {
-						return fmt.Errorf("int64 positive overflow")
-					}
-				case cbg.MajNegativeInt:
-					extraI = int64(extra)
-					if extraI < 0 {
-						return fmt.Errorf("int64 negative overflow")
-					}
-					extraI = -1 - extraI
-				default:
-					return fmt.Errorf("wrong type for int64 field: %d", maj)
+				if maj != cbg.MajUnsignedInt {
+					return fmt.Errorf("wrong type for uint64 field")
 				}
+				t.PaymentNonce = uint64(extra)
 
-				t.PaymentNonce = abi.ChainEpoch(extraI)
 			}
 			// t.PaymentCumulative (big.Int) (struct)
 		case "PaymentCumulative":
