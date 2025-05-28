@@ -163,7 +163,7 @@ func (s *PipelineGC) cleanupUpgrade() error {
 func (s *PipelineGC) cleanupMK12DealPipeline() error {
 	ctx := context.Background()
 
-	_, err := s.db.Exec(ctx, `DELETE FROM market_mk12_deal_pipeline WHERE complete = TRUE;`)
+	_, err := s.db.Exec(ctx, `DELETE FROM market_mk12_deal_pipeline WHERE (should_index = FALSE OR indexed = TRUE) AND complete = TRUE;`)
 	if err != nil {
 		return xerrors.Errorf("failed to clean up sealed deals: %w", err)
 	}
@@ -191,7 +191,7 @@ func (s *PipelineGC) cleanupMK20DealPipeline() error {
 	if err != nil {
 		return xerrors.Errorf("failed to clean up download pipeline: %w", err)
 	}
-	_, err = s.db.Exec(ctx, `DELETE FROM market_mk20_pipeline WHERE complete = TRUE;`)
+	_, err = s.db.Exec(ctx, `DELETE FROM market_mk20_pipeline WHERE (indexing = FALSE OR indexed = TRUE) AND complete = TRUE;`)
 	if err != nil {
 		return xerrors.Errorf("failed to clean up sealed deals: %w", err)
 	}

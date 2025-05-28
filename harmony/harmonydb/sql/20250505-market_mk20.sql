@@ -22,6 +22,9 @@ DROP CONSTRAINT IF EXISTS market_piece_deal_identity_key;
 ALTER TABLE market_piece_deal
     ADD PRIMARY KEY (sp_id, id, piece_cid, piece_length);
 
+-- Add a column to relate a piece park piece to mk20 deal
+ALTER TABLE market_piece_deal
+ADD COLUMN piece_ref BIGINT;
 
 -- This function is used to insert piece metadata and piece deal (piece indexing)
 -- This makes it easy to keep the logic of how table is updated and fast (in DB).
@@ -35,6 +38,7 @@ CREATE OR REPLACE FUNCTION process_piece_deal(
     _piece_length BIGINT, -- padded length
     _raw_size BIGINT,
     _indexed BOOLEAN,
+    _piece_ref BIGINT DEFAULT NULL,
     _legacy_deal BOOLEAN DEFAULT FALSE,
     _chain_deal_id BIGINT DEFAULT 0
 )
@@ -52,10 +56,10 @@ BEGIN
     -- Insert into the market_piece_deal table
     INSERT INTO market_piece_deal (
         id, piece_cid, boost_deal, legacy_deal, chain_deal_id,
-        sp_id, sector_num, piece_offset, piece_length, raw_size
+        sp_id, sector_num, piece_offset, piece_length, raw_size, piece_ref
     ) VALUES (
          _id, _piece_cid, _boost_deal, _legacy_deal, _chain_deal_id,
-         _sp_id, _sector_num, _piece_offset, _piece_length, _raw_size
+         _sp_id, _sector_num, _piece_offset, _piece_length, _raw_size, _piece_ref
      ) ON CONFLICT (sp_id, id, piece_cid, piece_length) DO NOTHING;
 
 END;

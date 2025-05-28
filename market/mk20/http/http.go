@@ -38,6 +38,8 @@ var log = logging.Logger("mk20httphdlr")
 
 const maxPutBodySize int64 = 64 << 30 // 64 GiB
 
+const requestTimeout = 10 * time.Second
+
 type MK20DealHandler struct {
 	cfg            *config.CurioConfig
 	db             *harmonydb.DB // Replace with your actual DB wrapper if different
@@ -64,15 +66,11 @@ func dealRateLimitMiddleware() func(http.Handler) http.Handler {
 func Router(mdh *MK20DealHandler) http.Handler {
 	mux := chi.NewRouter()
 	mux.Use(dealRateLimitMiddleware())
-	mux.Method("POST", "/store", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), 10*time.Second, "timeout reading request"))
-	mux.Method("GET", "/status", http.TimeoutHandler(http.HandlerFunc(mdh.mk20status), 10*time.Second, "timeout reading request"))
-	mux.Method("GET", "/contracts", http.TimeoutHandler(http.HandlerFunc(mdh.mk20supportedContracts), 10*time.Second, "timeout reading request"))
+	mux.Method("POST", "/store", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), requestTimeout, "timeout reading request"))
+	mux.Method("GET", "/status", http.TimeoutHandler(http.HandlerFunc(mdh.mk20status), requestTimeout, "timeout reading request"))
+	mux.Method("GET", "/contracts", http.TimeoutHandler(http.HandlerFunc(mdh.mk20supportedContracts), requestTimeout, "timeout reading request"))
 	mux.Put("/data", mdh.mk20UploadDealData)
-	mux.Method("GET", "/info", http.TimeoutHandler(http.HandlerFunc(mdh.info), 10*time.Second, "timeout reading request"))
-	//mux.Post("/store", mdh.mk20deal)
-	//mux.Get("/status", mdh.mk20status)
-	//mux.Get("/contracts", mdh.mk20supportedContracts)
-	//mux.Get("/info", mdh.info)
+	mux.Method("GET", "/info", http.TimeoutHandler(http.HandlerFunc(mdh.info), requestTimeout, "timeout reading request"))
 	return mux
 }
 

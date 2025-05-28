@@ -120,9 +120,25 @@ func TestNewIndexStore(t *testing.T) {
 	err = idxStore.session.Query("SELECT * FROM PieceToAggregatePiece").Exec()
 	require.NoError(t, err)
 
+	aggrRec := Record{
+		Cid:    commp.PieceCID,
+		Offset: 0,
+		Size:   100,
+	}
+
+	err = idxStore.InsertAggregateIndex(ctx, commp.PieceCID, []Record{aggrRec})
+	require.NoError(t, err)
+
+	x, err := idxStore.FindPieceInAggregate(ctx, commp.PieceCID)
+	require.NoError(t, err)
+	require.Len(t, x, 1)
+	require.Equal(t, x[0].Cid, commp.PieceCID)
+
 	// Drop the tables
 	err = idxStore.session.Query("DROP TABLE PayloadToPieces").Exec()
 	require.NoError(t, err)
 	err = idxStore.session.Query("DROP TABLE PieceBlockOffsetSize").Exec()
+	require.NoError(t, err)
+	err = idxStore.session.Query("DROP TABLE piecetoaggregatepiece").Exec()
 	require.NoError(t, err)
 }
