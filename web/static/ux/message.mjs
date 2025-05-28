@@ -38,15 +38,29 @@ class FilMessage extends LitElement {
         const method = md.Method || '';
         const value = msg.value_str || '';
         const fee = msg.fee_str || '';
-        const gas = md.GasLimit || '';
-        const status = msg.executed_rcpt_exitcode !== null ? html`Executed(<abbr title="Exit Code">E:${msg.executed_rcpt_exitcode}</abbr>${msg.executed_rcpt_exitcode===0?' ✅':' ❌'})` : 'Pending';
+        const gasLimitValue = md.GasLimit;
+        const gas = (typeof gasLimitValue === 'number' && gasLimitValue > 1000000)
+            ? `${Math.round(gasLimitValue / 1000000)}M`
+            : (gasLimitValue || '');
+        const status = msg.executed_rcpt_exitcode !== null
+            ? (msg.executed_rcpt_exitcode === 0
+                ? html`<span style="color: var(--color-success-main);">Executed</span>(<abbr title="Exit Code">E:${msg.executed_rcpt_exitcode}</abbr> ✅)`
+                : html`<span style="color: var(--color-danger-main);">Executed</span>(<abbr title="Exit Code">E:${msg.executed_rcpt_exitcode}</abbr> ❌)`)
+            : html`<span style="color: var(--color-info-main);">Pending</span>`;
         const epoch = msg.executed_tsk_epoch || '';
 
         return html`
           <div>
-            <div><strong>MSG:</strong>${this.cid}</div>
-            <div>
-                <abbr title=${from}>${this.formatAddr(from)}</abbr>→${to} M${method} <abbr title="Value">${value}</abbr> <abbr title="Max Fee">F:${fee}</abbr> G:${gas} ${status}${epoch ? ' @' + epoch : ''}
+            <div style="white-space: nowrap;"><strong>MSG:</strong>${this.cid}</div>
+            <div style="white-space: nowrap;">
+                <span style="font-size: 0.8em;">
+                  <abbr title=${from}>${this.formatAddr(from)}</abbr>→<abbr title=${to}>${this.formatAddr(to)}</abbr>
+                  M${method}
+                  <abbr title="Value"><strong>${value}</strong></abbr>
+                  <span style="color: var(--color-form-default);"><abbr title="Max Fee">F:${fee}</abbr></span>
+                  <abbr title="Gas">G:${gas}</abbr>
+                  ${status}${epoch ? ' @' + epoch : ''}
+                </span>
             </div>
           </div>
         `;

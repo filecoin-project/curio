@@ -45,6 +45,9 @@ CREATE TABLE proofshare_provider_payments (
     PRIMARY KEY (provider_id, payment_nonce)
 );
 
+create index proofshare_provider_payments_request_cid_index
+    on proofshare_provider_payments (request_cid);
+
 CREATE TABLE proofshare_provider_payments_settlement (
     provider_id BIGINT NOT NULL, -- wallet id
     payment_nonce BIGINT NOT NULL,

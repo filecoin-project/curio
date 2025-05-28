@@ -102,6 +102,7 @@ class CuWallet extends LitElement {
         .cu-wallet-parent-container {
           position: relative; /* Needed for absolute positioning of info-box */
           display: inline-block;
+          white-space: nowrap;
         }
       </style>
       <div class="cu-wallet-parent-container">

@@ -3,6 +3,8 @@ import RPCCall from '/lib/jsonrpc.mjs';
 import '/ux/task.mjs';
 import { formatDate } from '/lib/dateutil.mjs';
 import '/lib/cu-wallet.mjs';
+import '/ux/yesno.mjs';
+import '/ux/message.mjs';
 
 class ProofShareElement extends LitElement {
   static properties = {
@@ -108,26 +110,34 @@ class ProofShareElement extends LitElement {
             <span>Enabled</span>
           </label>
         </div>
-        <div class="mb-2">
-          <label>Wallet:</label>
-          <input
-            type="text"
-            placeholder="f0/1/2/3..."
-            .value=${this.wallet}
-            @input=${(e) => (this.wallet = e.target.value)}
-            style="max-width: 400px;"
-          />
-        </div>
-        <div class="mb-2">
-          <label>Price:</label>
-          <input
-            type="number"
-            step="0.0001"
-            placeholder="0.0001"
-            .value=${this.price}
-            @input=${(e) => (this.price = e.target.value)}
-            style="max-width: 100px;"
-          />
+        <div class="mb-3">
+          <div class="row mb-2 align-items-center">
+            <label for="proofshareWallet" class="col-sm-4 col-md-3 col-lg-2 col-form-label text-sm-end">Wallet:</label>
+            <div class="col-sm-8 col-md-9 col-lg-10">
+              <input
+                id="proofshareWallet"
+                type="text"
+                placeholder="f0/1/2/3..."
+                .value=${this.wallet}
+                @input=${(e) => (this.wallet = e.target.value)}
+                style="max-width: 400px; width: 100%;"
+              />
+            </div>
+          </div>
+          <div class="row align-items-center"> <!-- mb-2 removed from last row in group to use parent's mb-3 -->
+            <label for="proofsharePrice" class="col-sm-4 col-md-3 col-lg-2 col-form-label text-sm-end">Price (FIL/P):</label>
+            <div class="col-sm-8 col-md-9 col-lg-10">
+              <input
+                id="proofsharePrice"
+                type="number"
+                step="0.0001"
+                placeholder="0.0001"
+                .value=${this.price}
+                @input=${(e) => (this.price = e.target.value)}
+                style="max-width: 100px; width: 100%;"
+              />
+            </div>
+          </div>
         </div>
 
         <button class="btn btn-primary" @click=${this.setMeta}>Update Settings</button>
@@ -193,11 +203,11 @@ class ProofShareElement extends LitElement {
             <tbody>
               ${this.settlementHistory.map((settlement) => html`
                 <tr>
-                  <td class="text-break">${settlement.address}</td>
+                  <td class="text-break"><cu-wallet wallet_id=${settlement.address}></cu-wallet></td>
                   <td>${settlement.payment_nonce}</td>
                   <td>${settlement.amount_for_this_settlement_fil}</td>
                   <td>${formatDate(settlement.settled_at)}</td>
-                  <td class="text-break">${settlement.settle_message_cid}</td>
+                  <td class="text-break"><fil-message cid=${settlement.settle_message_cid}></fil-message></td>
                 </tr>
               `)}
             </tbody>
@@ -206,27 +216,25 @@ class ProofShareElement extends LitElement {
 
         <hr />
 
-        <h2>Queue</h2>
+        <h2>⏭️ Queue</h2>
         <table class="table table-dark">
           <thead>
             <tr>
               <th>Service ID</th>
               <th>Obtained At</th>
-              <th>Compute Task</th>
               <th>Compute Done</th>
-              <th>Submit Task</th>
               <th>Submit Done</th>
+              <th>Reward</th>
             </tr>
           </thead>
           <tbody>
             ${this.queue.map((item) => html`
               <tr>
-                <td>${item.service_id}</td>
+                <td><abbr title="${item.service_id}">${item.service_id.substring(0, 3)}..${item.service_id.slice(-10)}</abbr></td>
                 <td>${formatDate(item.obtained_at)}</td>
-                <td>${item.compute_task_id ? html`<task-status .taskId=${item.compute_task_id}></task-status>` : ''}</td>
-                <td>${item.compute_done ? 'Yes' : 'No'}</td>
-                <td>${item.submit_task_id ? html`<task-status .taskId=${item.submit_task_id}></task-status>` : ''}</td>
-                <td>${item.submit_done ? 'Yes' : 'No'}</td>
+                <td><done-not-done .value=${item.compute_done}></done-not-done>${item.compute_task_id ? html`<task-status .taskId=${item.compute_task_id}></task-status>` : ''}</td>
+                <td><done-not-done .value=${item.submit_done}></done-not-done>${item.submit_task_id ? html`<task-status .taskId=${item.submit_task_id}></task-status>` : ''}</td>
+                <td style="white-space: nowrap;">${item.payment_amount}</td>
               </tr>
             `)}
           </tbody>

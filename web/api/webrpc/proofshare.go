@@ -12,6 +12,7 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
@@ -30,13 +31,13 @@ type ProofShareMeta struct {
 
 // ProofShareQueueItem represents each row in proofshare_queue.
 type ProofShareQueueItem struct {
-	ServiceID     int64     `db:"service_id"     json:"service_id"`
+	ServiceID     string     `db:"service_id"     json:"service_id"`
 	ObtainedAt    time.Time `db:"obtained_at"    json:"obtained_at"`
 	ComputeTaskID *int64    `db:"compute_task_id" json:"compute_task_id"`
 	ComputeDone   bool      `db:"compute_done"   json:"compute_done"`
 	SubmitTaskID  *int64    `db:"submit_task_id" json:"submit_task_id"`
 	SubmitDone    bool      `db:"submit_done"    json:"submit_done"`
-	Price         string    `db:"pprice"         json:"price"`
+	PaymentAmount string    `json:"payment_amount"`
 }
 
 // PSGetMeta returns the current meta row from proofshare_meta (always a single row).
@@ -81,11 +82,11 @@ func (a *WebRPC) PSSetMeta(ctx context.Context, enabled bool, wallet string, pri
 }
 
 // PSListQueue returns all records from the proofshare_queue table, ordered by the newest first.
-func (a *WebRPC) PSListQueue(ctx context.Context) ([]ProofShareQueueItem, error) {
-	items := []ProofShareQueueItem{}
+func (a *WebRPC) PSListQueue(ctx context.Context) ([]*ProofShareQueueItem, error) {
+	items := []*ProofShareQueueItem{}
 
 	err := a.deps.DB.Select(ctx, &items, `
-        SELECT service_id,
+        SELECT request_cid as service_id,
                obtained_at,
                compute_task_id,
                compute_done,
@@ -97,6 +98,42 @@ func (a *WebRPC) PSListQueue(ctx context.Context) ([]ProofShareQueueItem, error)
     `)
 	if err != nil {
 		return nil, xerrors.Errorf("PSListQueue: failed to query proofshare_queue: %w", err)
+	}
+
+	for i := range items {
+		if !items[i].SubmitDone {
+			continue
+		}
+
+		var paymentAmt string
+		var providerID, paymentNonce int64
+		err := a.deps.DB.QueryRow(ctx, `
+			SELECT payment_cumulative_amount, provider_id, payment_nonce
+			FROM proofshare_provider_payments
+			WHERE request_cid = $1
+		`, items[i].ServiceID).Scan(&paymentAmt, &providerID, &paymentNonce)
+		if err != nil {
+			return nil, xerrors.Errorf("PSListQueue: failed to query proofshare_provider_payments: %w", err)
+		}
+
+		var prevPaymentAmt string = "0"
+		if paymentNonce > 0 {
+			err = a.deps.DB.QueryRow(ctx, `
+				SELECT payment_cumulative_amount
+				FROM proofshare_provider_payments
+				WHERE provider_id = $1 AND payment_nonce = $2
+			`, providerID, paymentNonce-1).Scan(&prevPaymentAmt)
+		}
+
+		cumAmt, err := types.BigFromString(paymentAmt)
+		if err != nil {
+			return nil, xerrors.Errorf("PSListQueue: failed to parse payment amount: %w", err)
+		}
+		prevAmt, err := types.BigFromString(prevPaymentAmt)
+		if err != nil {
+			return nil, xerrors.Errorf("PSListQueue: failed to parse previous payment amount: %w", err)
+		}
+		items[i].PaymentAmount = types.FIL(big.Sub(cumAmt, prevAmt)).Short()
 	}
 
 	return items, nil
@@ -901,10 +938,10 @@ WITH RankedSettlements AS (
         s.settle_message_cid,
         p.payment_cumulative_amount AS current_cumulative_amount -- Cumulative amount FOR THIS nonce
     FROM proofshare_provider_payments_settlement s
-    JOIN proofshare_provider_payments p
-        ON s.provider_id = p.provider_id AND s.payment_nonce = p.payment_nonce
+             JOIN proofshare_provider_payments p
+                  ON s.provider_id = p.provider_id AND s.payment_nonce = p.payment_nonce
     ORDER BY s.settled_at DESC
-    LIMIT 8
+    LIMIT 4
 )
 SELECT
     rs.provider_id,
@@ -913,8 +950,9 @@ SELECT
     rs.settle_message_cid,
     rs.current_cumulative_amount,
     (
-        SELECT pp_prev.payment_cumulative_amount
-        FROM proofshare_provider_payments pp_prev
+        SELECT pp.payment_cumulative_amount
+        FROM proofshare_provider_payments_settlement pp_prev
+        LEFT JOIN proofshare_provider_payments pp on pp.provider_id = pp_prev.provider_id and pp.payment_nonce = pp_prev.payment_nonce
         WHERE pp_prev.provider_id = rs.provider_id
           AND pp_prev.payment_nonce < rs.payment_nonce -- Nonce strictly less than current settlement's nonce
         ORDER BY pp_prev.payment_nonce DESC -- Get the highest one among those
