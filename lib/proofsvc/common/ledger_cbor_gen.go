@@ -29,7 +29,7 @@ func (t *BlockHeader) MarshalCBOR(w io.Writer) error {
 
 	cw := cbg.NewCborWriter(w)
 
-	if _, err := cw.Write([]byte{172}); err != nil {
+	if _, err := cw.Write([]byte{173}); err != nil {
 		return err
 	}
 
@@ -213,6 +213,30 @@ func (t *BlockHeader) MarshalCBOR(w io.Writer) error {
 	}
 
 	if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.PaymentNonce)); err != nil {
+		return err
+	}
+
+	// t.PaymentSignature ([]uint8) (slice)
+	if len("PaymentSignature") > 8192 {
+		return xerrors.Errorf("Value in field \"PaymentSignature\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("PaymentSignature"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("PaymentSignature")); err != nil {
+		return err
+	}
+
+	if len(t.PaymentSignature) > 2097152 {
+		return xerrors.Errorf("Byte array in field t.PaymentSignature was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.PaymentSignature))); err != nil {
+		return err
+	}
+
+	if _, err := cw.Write(t.PaymentSignature); err != nil {
 		return err
 	}
 
@@ -446,6 +470,29 @@ func (t *BlockHeader) UnmarshalCBOR(r io.Reader) (err error) {
 				t.PaymentNonce = uint64(extra)
 
 			}
+			// t.PaymentSignature ([]uint8) (slice)
+		case "PaymentSignature":
+
+			maj, extra, err = cr.ReadHeader()
+			if err != nil {
+				return err
+			}
+
+			if extra > 2097152 {
+				return fmt.Errorf("t.PaymentSignature: byte array too large (%d)", extra)
+			}
+			if maj != cbg.MajByteString {
+				return fmt.Errorf("expected byte array")
+			}
+
+			if extra > 0 {
+				t.PaymentSignature = make([]uint8, extra)
+			}
+
+			if _, err := io.ReadFull(cr, t.PaymentSignature); err != nil {
+				return err
+			}
+
 			// t.PaymentCumulative (big.Int) (struct)
 		case "PaymentCumulative":
 

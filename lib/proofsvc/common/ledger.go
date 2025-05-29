@@ -22,9 +22,9 @@ type OpType uint64
 const (
 	OpTypeUnknown OpType = iota
 	OpTypeProofOrder
-	OpTypeProofMatch
-	OpTypeProofResult
+	OpTypeMatch
 	OpTypeProofReward
+	OpTypeDeassign
 )
 
 type BlockHeader struct {
@@ -38,6 +38,7 @@ type BlockHeader struct {
 
 	PaymentCumulative abi.TokenAmount
 	PaymentNonce      uint64
+	PaymentSignature  []byte
 
 	Provider *address.Address
 	Client   *address.Address
