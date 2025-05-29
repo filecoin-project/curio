@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -231,7 +232,7 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 		return nil, fmt.Errorf("failed to fetch IPNI configuration: %w", err)
 	}
 
-	for _, service := range services {
+	for _, service := range lo.Uniq(services) {
 		for _, d := range summary {
 			url := service + "/providers/" + d.PeerID
 			resp, err := http.Get(url)
