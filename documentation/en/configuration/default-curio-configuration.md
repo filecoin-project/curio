@@ -699,6 +699,11 @@ description: The default curio configuration
       # type: bool
       #DenyUnknownClients = false
 
+      # MaxParallelUploads defines the maximum number of upload operations that can run in parallel. (Default: 16)
+      #
+      # type: int
+      #MaxParallelUploads = 16
+
     # IPNI configuration for ipni-provider
     #
     # type: IPNIConfig

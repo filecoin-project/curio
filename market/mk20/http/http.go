@@ -66,11 +66,13 @@ func dealRateLimitMiddleware() func(http.Handler) http.Handler {
 func Router(mdh *MK20DealHandler) http.Handler {
 	mux := chi.NewRouter()
 	mux.Use(dealRateLimitMiddleware())
-	mux.Method("POST", "/store", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), requestTimeout, "timeout reading request"))
+	mux.Method("POST", "/store", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), requestTimeout, "timeout request"))
 	mux.Method("GET", "/status", http.TimeoutHandler(http.HandlerFunc(mdh.mk20status), requestTimeout, "timeout reading request"))
 	mux.Method("GET", "/contracts", http.TimeoutHandler(http.HandlerFunc(mdh.mk20supportedContracts), requestTimeout, "timeout reading request"))
 	mux.Put("/data", mdh.mk20UploadDealData)
 	mux.Method("GET", "/info", http.TimeoutHandler(http.HandlerFunc(mdh.info), requestTimeout, "timeout reading request"))
+	mux.Method("GET", "/products", http.TimeoutHandler(http.HandlerFunc(mdh.supportedProducts), requestTimeout, "timeout reading request"))
+	mux.Method("GET", "/sources", http.TimeoutHandler(http.HandlerFunc(mdh.supportedDataSources), requestTimeout, "timeout reading request"))
 	return mux
 }
 
@@ -159,7 +161,7 @@ func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
 // mk20supportedContracts retrieves supported contract addresses from the database and returns them as a JSON response.
 func (mdh *MK20DealHandler) mk20supportedContracts(w http.ResponseWriter, r *http.Request) {
 	var contracts mk20.SupportedContracts
-	err := mdh.db.Select(r.Context(), &contracts, "SELECT address FROM contracts")
+	err := mdh.db.Select(r.Context(), &contracts, "SELECT address FROM ddo_contracts")
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			log.Errorw("no supported contracts found")
@@ -222,6 +224,43 @@ func (mdh *MK20DealHandler) mk20UploadDealData(w http.ResponseWriter, r *http.Re
 // info serves the contents of the info file as a text/markdown response with HTTP 200 or returns an HTTP 500 on read/write failure.
 func (mdh *MK20DealHandler) info(w http.ResponseWriter, r *http.Request) {
 
+	prods, srcs, err := mdh.dm.MK20Handler.Supported(r.Context())
+	if err != nil {
+		log.Errorw("failed to get supported producers and sources", "err", err)
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
+
+	var sb strings.Builder
+
+	sb.WriteString(`<h2>Supported Products</h2>
+<table class="table table-dark table-striped table-sm table-bordered">
+<thead><tr><th>Name</th><th>Status</th></tr></thead><tbody>`)
+
+	for name, enabled := range prods {
+		status := "Disabled"
+		if enabled {
+			status = "Enabled"
+		}
+		sb.WriteString(fmt.Sprintf("<tr><td>%s</td><td>%s</td></tr>", name, status))
+	}
+	sb.WriteString(`</tbody></table>`)
+
+	sb.WriteString(`<h2>Supported Data Sources</h2>
+<table class="table table-dark table-striped table-sm table-bordered">
+<thead><tr><th>Name</th><th>Status</th></tr></thead><tbody>`)
+
+	for name, enabled := range srcs {
+		status := "Disabled"
+		if enabled {
+			status = "Enabled"
+		}
+		sb.WriteString(fmt.Sprintf("<tr><td>%s</td><td>%s</td></tr>", name, status))
+	}
+	sb.WriteString(`</tbody></table>`)
+
+	summaryHTML := sb.String()
+
 	var mdRenderer = goldmark.New(
 		goldmark.WithExtensions(
 			extension.GFM,
@@ -243,48 +282,95 @@ func (mdh *MK20DealHandler) info(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to render markdown", http.StatusInternalServerError)
 		return
 	}
-	//if err := goldmark.Convert(infoMarkdown, &buf); err != nil {
-	//	http.Error(w, "failed to render markdown", http.StatusInternalServerError)
-	//	return
-	//}
 
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	rendered := strings.ReplaceAll(buf.String(), "<table>", `<table class="table table-dark table-striped table-sm table-bordered">`)
+	renderedMarkdown := strings.ReplaceAll(buf.String(), "<table>", `<table class="table table-dark table-striped table-sm table-bordered">`)
+	rendered := summaryHTML + renderedMarkdown
 
 	htmlStr := fmt.Sprintf(`
-<!DOCTYPE html>
-<html lang="en">
-<head>
-	<meta charset="UTF-8">
-	<title>Curio Deal Schema</title>
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-4Q6Gf2aSP4eDXB8Miphtr37CMZZQ5oXLH2yaXMJ2w8e2ZtHTl7GptT4jmndRuHDT" crossorigin="anonymous">
-	<style>
-		body {
-			background-color: #f8f9fa;
-			padding: 2rem;
-		}
-		pre, code {
-			background-color: #f1f3f5;
-			border-radius: 4px;
-			padding: 0.25em 0.5em;
-		}
-		table {
-			margin-top: 1rem;
-		}
-	</style>
-</head>
-<body>
-<div class="container">
-%s
-</div>
-</body>
-</html>`, rendered)
+		<!DOCTYPE html>
+		<html lang="en">
+		<head>
+			<meta charset="UTF-8">
+			<title>Curio Deal Schema</title>
+			<meta name="viewport" content="width=device-width, initial-scale=1">
+			<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-4Q6Gf2aSP4eDXB8Miphtr37CMZZQ5oXLH2yaXMJ2w8e2ZtHTl7GptT4jmndRuHDT" crossorigin="anonymous">
+			<style>
+				pre, code {
+					background-color: #f1f3f5;
+					border-radius: 4px;
+					padding: 0.25em 0.5em;
+				}
+				table {
+					margin-top: 1rem;
+				}
+			</style>
+		</head>
+		<body>
+		<div class="container">
+		%s
+		</div>
+		</body>
+		</html>`, rendered)
 
-	_, err := w.Write([]byte(htmlStr))
+	_, err = w.Write([]byte(htmlStr))
 	if err != nil {
 		log.Errorw("failed to write info file", "err", err)
+	}
+}
+
+func (mdh *MK20DealHandler) supportedProducts(w http.ResponseWriter, r *http.Request) {
+	prods, _, err := mdh.dm.MK20Handler.Supported(r.Context())
+	if err != nil {
+		log.Errorw("failed to get supported producers and sources", "err", err)
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
+	var products mk20.SupportedProducts
+	for k, v := range prods {
+		if v {
+			products.Products = append(products.Products, k)
+		}
+	}
+	resp, err := json.Marshal(products)
+	if err != nil {
+		log.Errorw("failed to marshal supported products", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	_, err = w.Write(resp)
+	if err != nil {
+		log.Errorw("failed to write supported products", "err", err)
+	}
+}
+
+func (mdh *MK20DealHandler) supportedDataSources(w http.ResponseWriter, r *http.Request) {
+	_, srcs, err := mdh.dm.MK20Handler.Supported(r.Context())
+	if err != nil {
+		log.Errorw("failed to get supported producers and sources", "err", err)
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
+	var sources mk20.SupportedDataSources
+	for k, v := range srcs {
+		if v {
+			sources.Sources = append(sources.Sources, k)
+		}
+	}
+	resp, err := json.Marshal(sources)
+	if err != nil {
+		log.Errorw("failed to marshal supported sources", "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	_, err = w.Write(resp)
+	if err != nil {
+		log.Errorw("failed to write supported sources", "err", err)
 	}
 }

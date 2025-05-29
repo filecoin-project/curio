@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	logging "github.com/ipfs/go-log/v2"
@@ -34,15 +35,16 @@ type MK20API interface {
 }
 
 type MK20 struct {
-	miners    []address.Address
-	db        *harmonydb.DB
-	api       MK20API
-	ethClient *ethclient.Client
-	si        paths.SectorIndex
-	cfg       *config.CurioConfig
-	sm        map[address.Address]abi.SectorSize
-	as        *multictladdr.MultiAddressSelector
-	stor      paths.StashStore
+	miners             []address.Address
+	db                 *harmonydb.DB
+	api                MK20API
+	ethClient          *ethclient.Client
+	si                 paths.SectorIndex
+	cfg                *config.CurioConfig
+	sm                 map[address.Address]abi.SectorSize
+	as                 *multictladdr.MultiAddressSelector
+	stor               paths.StashStore
+	maxParallelUploads *atomic.Int32
 }
 
 func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorIndex, mapi MK20API, ethClient *ethclient.Client, cfg *config.CurioConfig, as *multictladdr.MultiAddressSelector, stor paths.StashStore) (*MK20, error) {
@@ -61,15 +63,16 @@ func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorI
 	}
 
 	return &MK20{
-		miners:    miners,
-		db:        db,
-		api:       mapi,
-		ethClient: ethClient,
-		si:        si,
-		cfg:       cfg,
-		sm:        sm,
-		as:        as,
-		stor:      stor,
+		miners:             miners,
+		db:                 db,
+		api:                mapi,
+		ethClient:          ethClient,
+		si:                 si,
+		cfg:                cfg,
+		sm:                 sm,
+		as:                 as,
+		stor:               stor,
+		maxParallelUploads: new(atomic.Int32),
 	}, nil
 }
 

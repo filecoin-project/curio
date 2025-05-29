@@ -113,6 +113,7 @@ func DefaultCurioConfig() *CurioConfig {
 				MK20: MK20Config{
 					ExpectedPoRepSealDuration: 8 * time.Hour,
 					ExpectedSnapSealDuration:  2 * time.Hour,
+					MaxParallelUploads:        16,
 				},
 				IPNI: IPNIConfig{
 					ServiceURL:         []string{"https://cid.contact"},
@@ -908,4 +909,7 @@ type MK20Config struct {
 	// DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
 	// If True then all deals coming from unknown clients will be rejected. (Default: false)
 	DenyUnknownClients bool
+
+	// MaxParallelUploads defines the maximum number of upload operations that can run in parallel. (Default: 16)
+	MaxParallelUploads int
 }

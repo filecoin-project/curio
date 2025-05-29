@@ -635,3 +635,15 @@ func IsProductEnabled(db *harmonydb.DB, name ProductName) (ErrorCode, error) {
 	}
 	return Ok, nil
 }
+
+// SupportedProducts represents a collection of products supported by the SP.
+type SupportedProducts struct {
+	// Contracts represents a list of supported contract addresses in string format.
+	Products []string `json:"products"`
+}
+
+// SupportedDataSources represents a collection of dats sources supported by the SP.
+type SupportedDataSources struct {
+	// Contracts represents a list of supported contract addresses in string format.
+	Sources []string `json:"sources"`
+}
