@@ -11,6 +11,11 @@ class DealDetails extends LitElement {
         this.loaddata();
     }
 
+    createRenderRoot() {
+        return this; // Render into light DOM instead of shadow DOM
+    }
+
+
     async loaddata() {
         try {
             const params = new URLSearchParams(window.location.search);
@@ -23,7 +28,6 @@ class DealDetails extends LitElement {
     }
 
     render() {
-        console.log(this.data);
         if (!this.data) return html`<p>No data.</p>`;
 
         const { identifier, data, products, error } = this.data.deal;
@@ -42,7 +46,6 @@ class DealDetails extends LitElement {
                 <tr><th>Error</th><td><error-or-not .value=${this.data.error}></error-or-not></td></tr>
                 <tr><th>PieceCID</th><td><a href="/pages/piece/?id=${this.data.piece_cid_v2}">${data?.piece_cid['/']}</a></td></tr>
                 <tr><th>PieceSize</th><td>${data?.piece_size}</td></tr>
-                <tr><th>Error</th><td><error-or-not .value=${error}></error-or-not></td></tr>
             </table>
             
             <h4>Piece Format</h4>
@@ -51,8 +54,8 @@ class DealDetails extends LitElement {
               <h4>Data Source</h4>
               <table class="table table-dark table-striped table-sm">
                   <thead>
-                      <th>Name</th>
-                      <th>Details</th>
+                      <th><strong>Name</strong></th>
+                      <th><strong>Details</strong></th>
                   </thead>
                   <tbody>
                     ${this.renderDataSource(data)}
@@ -68,7 +71,7 @@ class DealDetails extends LitElement {
         if (data.source_http) {
             return html`
                 <tr>
-                    <td>HTTP</td>
+                    <td><strong>HTTP</strong></td>
                     <td>${data?.source_http ? this.renderSourceHTTP(data.source_http) : ''}</td>
                 </tr>
             `
@@ -76,7 +79,7 @@ class DealDetails extends LitElement {
         if (data.source_aggregate) {
             return html`
                 <tr>
-                    <td>Aggregate</td>
+                    <td><strong>Aggregate</strong></td>
                     <td>${data?.source_aggregate ? this.renderSourceAggregate(data.source_aggregate) : ''}</td>
                 </tr>
             `
@@ -84,7 +87,7 @@ class DealDetails extends LitElement {
         if (data.source_offline) {
             return html`
                 <tr>
-                    <td>Offline</td>
+                    <td><strong>Offline</strong></td>
                     <td>${data?.source_offline ? this.renderSourceOffline(data.source_offline) : ''}</td>
                 </tr>
             `
@@ -92,7 +95,7 @@ class DealDetails extends LitElement {
         if (data.source_httpput) {
             return html`
                 <tr>
-                    <td>HTTP Put</td>
+                    <td><strong>HTTP Put</strong></td>
                     <td>${data?.source_httpput ? this.renderSourceHttpPut(data.source_httpput) : ''}</td>
                 </tr>
             `
@@ -124,7 +127,7 @@ class DealDetails extends LitElement {
         return html`
       <table class="table table-dark table-striped table-sm">
         <tr><td>Raw Size</td><td>${src.rawsize}</td></tr>
-            ${src.urls ? this.renderUrls(src.urls) : ''}
+        <tr><td>${src.urls ? this.renderUrls(src.urls) : ''}</td></tr>
       </table>
     `;
     }
@@ -160,26 +163,29 @@ class DealDetails extends LitElement {
 
     renderSourceAggregate(src) {
         return html`
-            <details>
-                <summary>[Aggregate Details]</summary>
-                <div>
-                  ${src.pieces.map((piece, i) => html`
-                    <div class="table table-dark table-striped table-sm">
-                        <tr>
-                            <td>Piece ${i + 1}</td>
-                            <td>
-                                <table class="table table-dark table-striped table-sm">
-                                    <tr><th>PieceCID</th><td>${piece.piece_cid['/']}</td></tr>
-                                    <tr><th>Size</th><td>${piece.piece_size}</td></tr>
-                                    <tr><th></th><td>${this.renderPieceFormat(piece.format)}</td></tr>
-                                    <tr><th></th><td>${this.renderDataSource(piece)}</td></tr>
-                                </table>
-                            </td>
-                        </tr>
+        <details>
+            <summary>[Aggregate Details]</summary>
+            <div class="accordion" id="aggregatePieces">
+                ${src.pieces.map((piece, i) => html`
+                    <div class="accordion-item bg-dark text-white">
+                        <h2 class="accordion-header" id="heading${i}">
+                            <button class="accordion-button collapsed bg-dark text-white" type="button" data-bs-toggle="collapse" data-bs-target="#collapse${i}">
+                                Piece ${i + 1}
+                            </button>
+                        </h2>
+                        <div id="collapse${i}" class="accordion-collapse collapse" data-bs-parent="#aggregatePieces">
+                            <div class="accordion-body">
+                                <ul class="list-group list-group-flush">
+                                    <li class="list-group-item bg-dark text-white"><strong>PieceCID:</strong> ${piece.piece_cid['/']} <strong>Size:</strong> ${piece.piece_size}</li>
+                                    <li class="list-group-item bg-dark text-white">${this.renderPieceFormat(piece.format)}</li>
+                                    <li class="list-group-item bg-dark text-white">${this.renderDataSource(piece)}</li>
+                                </ul>
+                            </div>
+                        </div>
                     </div>
-                  `)}
-                </div>
-            </details>
+                `)}
+            </div>
+        </details>
     `;
     }
 

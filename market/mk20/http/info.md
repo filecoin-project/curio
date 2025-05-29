@@ -76,6 +76,28 @@ Fetch markdown-formatted documentation that describes the supported deal schema,
   - `200 OK`: with markdown content of the info file
   - `500 Internal Server Error`: if file is not found or cannot be read
 
+### 🧰 GET /products
+
+- **Content-Type**: N/A
+- **Body**: N/A
+- **Query Parameters**: N/A
+Fetch json list of the supported products.
+
+- **Response**:
+  - `200 OK`: with json content
+  - `500 Internal Server Error`: if info cannot be read
+
+### 🌐 GET /sources
+
+- **Content-Type**: N/A
+- **Body**: N/A
+- **Query Parameters**: N/A
+Fetch json list of the supported data sources.
+
+- **Response**:
+  - `200 OK`: with json content
+  - `500 Internal Server Error`: if info cannot be read
+
 ## Supported Deal Types
 
 This document lists the data types and fields supported in the new storage market interface. It defines the deal structure, accepted data sources, and optional product extensions. Clients should use these definitions to format and validate their deals before submission.
@@ -223,6 +245,27 @@ SupportedContracts represents a collection of contract addresses supported by a 
 | Field | Type | Tag | Description |
 |-------|------|-----|-------------|
 | Contracts | [[]string](https://pkg.go.dev/builtin#string) | json:"contracts" | Contracts represents a list of supported contract addresses in string format.  |
+
+### SupportedDataSources
+
+SupportedDataSources represents a collection of dats sources supported by the SP.
+
+| Field | Type | Tag | Description |
+|-------|------|-----|-------------|
+| Sources | [[]string](https://pkg.go.dev/builtin#string) | json:"sources" | Contracts represents a list of supported contract addresses in string format.  |
+
+### SupportedProducts
+
+SupportedProducts represents a collection of products supported by the SP.
+
+| Field | Type | Tag | Description |
+|-------|------|-----|-------------|
+| Products | [[]string](https://pkg.go.dev/builtin#string) | json:"products" | Contracts represents a list of supported contract addresses in string format.  |
+
+### TimeoutReader
+
+| Field | Type | Tag | Description |
+|-------|------|-----|-------------|
 
 ### Constants for ErrorCode
 

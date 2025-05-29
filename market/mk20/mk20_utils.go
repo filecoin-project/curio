@@ -140,31 +140,51 @@ func (m *MK20) HandlePutRequest(id ulid.ULID, data io.ReadCloser, w http.Respons
 	ctx := context.Background()
 	defer data.Close()
 
-	var waitingDeal []struct {
-		Started   bool       `db:"started_put"`
-		StartTime *time.Time `db:"start_time"`
-	}
+	var (
+		idStr   string
+		updated bool
+	)
 
-	err := m.db.Select(ctx, &waitingDeal, `SELECT started_put, start_time from market_mk20_pipeline_waiting 
-                                    WHERE waiting_for_data = TRUE AND id = $1`, id.String())
+	err := m.db.QueryRow(ctx, `WITH check_row AS (
+									  SELECT id FROM market_mk20_pipeline_waiting 
+									  WHERE id = $1 AND waiting_for_data = TRUE
+									),
+									try_update AS (
+									  UPDATE market_mk20_pipeline_waiting
+									  SET start_time = NOW()
+									  WHERE id IN (SELECT id FROM check_row)
+										AND (
+										  start_time IS NULL
+										  OR start_time < NOW() - ($2 * INTERVAL '1 second')
+										)
+									  RETURNING id
+									)
+									SELECT 
+									  check_row.id, 
+									  try_update.id IS NOT NULL AS updated
+									FROM check_row
+									LEFT JOIN try_update ON check_row.id = try_update.id;`,
+		id.String(), m.cfg.HTTP.ReadTimeout.Seconds()).Scan(&idStr, &updated)
 
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "", http.StatusNotFound)
+			return
+		}
 		log.Errorw("failed to query the db for deal status", "deal", id.String(), "err", err)
 		http.Error(w, "", http.StatusInternalServerError)
 		return
 	}
 
-	if len(waitingDeal) == 0 {
-		http.Error(w, "", http.StatusNotFound)
+	if idStr != id.String() {
+		log.Errorw("deal id mismatch", "deal", id.String(), "db", idStr)
+		http.Error(w, "", http.StatusInternalServerError)
+		return
 	}
 
-	if waitingDeal[0].Started {
-		if waitingDeal[0].StartTime.Add(m.cfg.HTTP.ReadTimeout).Before(time.Now()) {
-			http.Error(w, "another /PUT request is in progress for this deal", http.StatusConflict)
-		}
+	if !updated {
+		http.Error(w, "", http.StatusConflict)
 	}
-
-	// TODO: Rethink how to ensure only 1 process per deal for /PUT
 
 	deal, err := DealFromDB(ctx, m.db, id)
 	if err != nil {
@@ -196,6 +216,7 @@ func (m *MK20) HandlePutRequest(id ulid.ULID, data io.ReadCloser, w http.Respons
 	failed := true
 
 	defer func() {
+		m.maxParallelUploads.Add(-1)
 		if failed {
 			_, err = m.db.Exec(ctx, `UPDATE market_mk20_pipeline_waiting SET started_put = FALSE, start_time = NULL WHERE id = $1`, id.String())
 			if err != nil {
@@ -204,14 +225,22 @@ func (m *MK20) HandlePutRequest(id ulid.ULID, data io.ReadCloser, w http.Respons
 		}
 	}()
 
+	if m.maxParallelUploads.Load() >= int32(m.cfg.Market.StorageMarketConfig.MK20.MaxParallelUploads) {
+		http.Error(w, "Too many parallel uploads", http.StatusTooManyRequests)
+		return
+	}
+
+	m.maxParallelUploads.Add(1)
+
 	cp := new(commp.Calc)
+	reader := NewTimeoutReader(data, time.Second*5)
 
 	// Function to write data into StashStore and calculate commP
 	writeFunc := func(f *os.File) error {
-		limitedReader := io.LimitReader(data, int64(rawSize+1)) // +1 to detect exceeding the limit
+		limitedReader := io.LimitReader(reader, int64(rawSize+1)) // +1 to detect exceeding the limit
 		wr := io.MultiWriter(f, cp)
 
-		size, err := io.Copy(wr, limitedReader)
+		size, err := io.CopyBuffer(wr, limitedReader, make([]byte, 4<<20))
 		if err != nil {
 			return fmt.Errorf("failed to read and write piece data: %w", err)
 		}
@@ -380,4 +409,75 @@ func (m *MK20) HandlePutRequest(id ulid.ULID, data io.ReadCloser, w http.Respons
 	failed = false
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("OK"))
+}
+
+func (m *MK20) Supported(ctx context.Context) (map[string]bool, map[string]bool, error) {
+	var products []struct {
+		Name    string `db:"name"`
+		Enabled bool   `db:"enabled"`
+	}
+	err := m.db.Select(ctx, &products, `SELECT name, enabled FROM market_mk20_products`)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	productsMap := make(map[string]bool)
+
+	for _, product := range products {
+		productsMap[product.Name] = product.Enabled
+	}
+
+	var sources []struct {
+		Name    string `db:"name"`
+		Enabled bool   `db:"enabled"`
+	}
+	err = m.db.Select(ctx, &sources, `SELECT name, enabled FROM market_mk20_data_source`)
+	if err != nil {
+		return nil, nil, err
+	}
+	sourcesMap := make(map[string]bool)
+	for _, source := range sources {
+		sourcesMap[source.Name] = source.Enabled
+	}
+	return productsMap, sourcesMap, nil
+}
+
+type TimeoutReader struct {
+	r       io.Reader
+	timeout time.Duration
+}
+
+func NewTimeoutReader(r io.Reader, timeout time.Duration) *TimeoutReader {
+	return &TimeoutReader{
+		r:       r,
+		timeout: timeout,
+	}
+}
+
+func (t *TimeoutReader) Read(p []byte) (int, error) {
+	deadline := time.Now().Add(t.timeout)
+	for {
+		// Attempt to read
+		n, err := t.r.Read(p)
+
+		if err != nil {
+			return n, err
+		}
+
+		if n > 0 {
+			// Successfully read some data; reset the deadline
+			deadline = time.Now().Add(t.timeout)
+
+			// Otherwise return bytes read and no error
+			return n, err
+		}
+
+		// Timeout: If we hit the deadline without making progress, return a timeout error
+		if time.Now().After(deadline) {
+			return 0, fmt.Errorf("upload timeout: no progress (duration: %f Seconds)", t.timeout.Seconds())
+		}
+
+		// Avoid tight loop by adding a tiny sleep
+		time.Sleep(100 * time.Millisecond) // Small pause to avoid busy-waiting
+	}
 }

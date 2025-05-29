@@ -272,6 +272,24 @@ func writeOutput(path string) {
 	buf.WriteString("  - `200 OK`: with markdown content of the info file\n")
 	buf.WriteString("  - `500 Internal Server Error`: if file is not found or cannot be read\n\n")
 
+	buf.WriteString("### 🧰 GET /products\n\n")
+	buf.WriteString("- **Content-Type**: N/A\n")
+	buf.WriteString("- **Body**: N/A\n")
+	buf.WriteString("- **Query Parameters**: N/A\n")
+	buf.WriteString("Fetch json list of the supported products.\n\n")
+	buf.WriteString("- **Response**:\n")
+	buf.WriteString("  - `200 OK`: with json content\n")
+	buf.WriteString("  - `500 Internal Server Error`: if info cannot be read\n\n")
+
+	buf.WriteString("### 🌐 GET /sources\n\n")
+	buf.WriteString("- **Content-Type**: N/A\n")
+	buf.WriteString("- **Body**: N/A\n")
+	buf.WriteString("- **Query Parameters**: N/A\n")
+	buf.WriteString("Fetch json list of the supported data sources.\n\n")
+	buf.WriteString("- **Response**:\n")
+	buf.WriteString("  - `200 OK`: with json content\n")
+	buf.WriteString("  - `500 Internal Server Error`: if info cannot be read\n\n")
+
 	buf.WriteString("## Supported Deal Types\n\n")
 	buf.WriteString("This document lists the data types and fields supported in the new storage market interface. It defines the deal structure, accepted data sources, and optional product extensions. Clients should use these definitions to format and validate their deals before submission.\n\n")
 

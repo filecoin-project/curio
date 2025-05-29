@@ -1091,6 +1091,12 @@ When the cumulative size of all deals in process reaches this number, new deals 
 			Comment: `DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
 If True then all deals coming from unknown clients will be rejected. (Default: false)`,
 		},
+		{
+			Name: "MaxParallelUploads",
+			Type: "int",
+
+			Comment: `MaxParallelUploads defines the maximum number of upload operations that can run in parallel. (Default: 16)`,
+		},
 	},
 	"MarketConfig": {
 		{

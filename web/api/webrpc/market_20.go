@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	eabi "github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
@@ -560,4 +562,247 @@ func (a *WebRPC) MK20BulkRemoveFailedMarketPipelines(ctx context.Context, taskTy
 	}
 
 	return nil
+}
+
+func (a *WebRPC) AddMarketContract(ctx context.Context, contract, abiString string) error {
+	if contract == "" {
+		return fmt.Errorf("empty contract")
+	}
+	if abiString == "" {
+		return fmt.Errorf("empty abi")
+	}
+
+	if !strings.HasPrefix(contract, "0x") {
+		return fmt.Errorf("contract must start with 0x")
+	}
+
+	if !common.IsHexAddress(contract) {
+		return fmt.Errorf("invalid contract address")
+	}
+
+	ethabi, err := eabi.JSON(strings.NewReader(abiString))
+	if err != nil {
+		return fmt.Errorf("invalid abi: %w", err)
+	}
+
+	if ethabi.Methods == nil || len(ethabi.Methods) == 0 {
+		return fmt.Errorf("invalid abi: no methods")
+	}
+
+	n, err := a.deps.DB.Exec(ctx, `INSERT INTO ddo_contracts (address, abi) VALUES ($1, $2) ON CONFLICT (address) DO NOTHING`, contract, abiString)
+	if err != nil {
+		return xerrors.Errorf("failed to add contract: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("contract already exists")
+	}
+	return nil
+}
+
+func (a *WebRPC) UpdateMarketContract(ctx context.Context, contract, abiString string) error {
+	if contract == "" {
+		return fmt.Errorf("empty contract")
+	}
+
+	if abiString == "" {
+		return fmt.Errorf("empty abi")
+	}
+
+	if !strings.HasPrefix(contract, "0x") {
+		return fmt.Errorf("contract must start with 0x")
+	}
+
+	if !common.IsHexAddress(contract) {
+		return fmt.Errorf("invalid contract address")
+	}
+
+	ethabi, err := eabi.JSON(strings.NewReader(abiString))
+	if err != nil {
+		return fmt.Errorf("invalid abi: %w", err)
+	}
+
+	if ethabi.Methods == nil || len(ethabi.Methods) == 0 {
+		return fmt.Errorf("invalid abi: no methods")
+	}
+
+	// Check if contract exists in DB
+	var count int
+	err = a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM ddo_contracts WHERE address = $1`, contract).Scan(&count)
+	if err != nil {
+		return xerrors.Errorf("failed to check contract: %w", err)
+	}
+	if count == 0 {
+		return fmt.Errorf("contract does not exist")
+	}
+
+	n, err := a.deps.DB.Exec(ctx, `UPDATE ddo_contracts SET abi = $2 WHERE address = $1`, contract, abiString)
+	if err != nil {
+		return xerrors.Errorf("failed to update contract ABI: %w", err)
+	}
+
+	if n == 0 {
+		return fmt.Errorf("failed to update the contract ABI")
+	}
+
+	return nil
+}
+
+func (a *WebRPC) RemoveMarketContract(ctx context.Context, contract string) error {
+	if contract == "" {
+		return fmt.Errorf("empty contract")
+	}
+	if !strings.HasPrefix(contract, "0x") {
+		return fmt.Errorf("contract must start with 0x")
+	}
+	_, err := a.deps.DB.Exec(ctx, `DELETE FROM ddo_contracts WHERE address = $1`, contract)
+	if err != nil {
+		return xerrors.Errorf("failed to remove contract: %w", err)
+	}
+	return nil
+}
+
+func (a *WebRPC) ListMarketContracts(ctx context.Context) (map[string]string, error) {
+	var contracts []struct {
+		Address string `db:"address"`
+		Abi     string `db:"abi"`
+	}
+	err := a.deps.DB.Select(ctx, &contracts, `SELECT address, abi FROM ddo_contracts`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get contracts from DB: %w", err)
+	}
+
+	contractMap := make(map[string]string)
+	for _, contract := range contracts {
+		contractMap[contract.Address] = contract.Abi
+	}
+
+	return contractMap, nil
+}
+
+func (a *WebRPC) EnableProduct(ctx context.Context, name string) error {
+	if name == "" {
+		return fmt.Errorf("empty product name")
+	}
+
+	// Check if product exists in market_mk20_products
+	var count int
+	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk20_products WHERE name = $1`, name).Scan(&count)
+	if err != nil {
+		return xerrors.Errorf("failed to check product: %w", err)
+	}
+	if count == 0 {
+		return fmt.Errorf("product does not exist")
+	}
+	n, err := a.deps.DB.Exec(ctx, `UPDATE market_mk20_products SET enabled = true WHERE name = $1`, name)
+	if err != nil {
+		return xerrors.Errorf("failed to enable product: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("failed to enable the product")
+	}
+	return nil
+}
+
+func (a *WebRPC) DisableProduct(ctx context.Context, name string) error {
+	if name == "" {
+		return fmt.Errorf("empty product name")
+	}
+
+	// Check if product exists in market_mk20_products
+	var count int
+	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk20_products WHERE name = $1`, name).Scan(&count)
+	if err != nil {
+		return xerrors.Errorf("failed to check product: %w", err)
+	}
+	if count == 0 {
+		return fmt.Errorf("product does not exist")
+	}
+	n, err := a.deps.DB.Exec(ctx, `UPDATE market_mk20_products SET enabled = false WHERE name = $1`, name)
+	if err != nil {
+		return xerrors.Errorf("failed to disable product: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("failed to disable the product")
+	}
+	return nil
+}
+
+func (a *WebRPC) ListProducts(ctx context.Context) (map[string]bool, error) {
+	var products []struct {
+		Name    string `db:"name"`
+		Enabled bool   `db:"enabled"`
+	}
+	err := a.deps.DB.Select(ctx, &products, `SELECT name, enabled FROM market_mk20_products`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get products from DB: %w", err)
+	}
+	productMap := make(map[string]bool)
+	for _, product := range products {
+		productMap[product.Name] = product.Enabled
+	}
+	return productMap, nil
+}
+
+func (a *WebRPC) EnableDataSource(ctx context.Context, name string) error {
+	if name == "" {
+		return fmt.Errorf("empty data source name")
+	}
+
+	// check if datasource exists in market_mk20_data_source
+	var count int
+	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk20_data_source WHERE name = $1`, name).Scan(&count)
+	if err != nil {
+		return xerrors.Errorf("failed to check datasource: %w", err)
+	}
+	if count == 0 {
+		return fmt.Errorf("datasource does not exist")
+	}
+	n, err := a.deps.DB.Exec(ctx, `UPDATE market_mk20_data_source SET enabled = true WHERE name = $1`, name)
+	if err != nil {
+		return xerrors.Errorf("failed to enable datasource: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("failed to enable the datasource")
+	}
+	return nil
+}
+
+func (a *WebRPC) DisableDataSource(ctx context.Context, name string) error {
+	if name == "" {
+		return fmt.Errorf("empty data source name")
+	}
+	// check if datasource exists in market_mk20_data_source
+	var count int
+	err := a.deps.DB.QueryRow(ctx, `SELECT COUNT(*) FROM market_mk20_data_source WHERE name = $1`, name).Scan(&count)
+	if err != nil {
+		return xerrors.Errorf("failed to check datasource: %w", err)
+	}
+	if count == 0 {
+		return fmt.Errorf("datasource does not exist")
+	}
+	n, err := a.deps.DB.Exec(ctx, `UPDATE market_mk20_data_source SET enabled = false WHERE name = $1`, name)
+	if err != nil {
+		return xerrors.Errorf("failed to disable datasource: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("failed to disable the datasource")
+	}
+	return nil
+}
+
+func (a *WebRPC) ListDataSources(ctx context.Context) (map[string]bool, error) {
+	var datasources []struct {
+		Name    string `db:"name"`
+		Enabled bool   `db:"enabled"`
+	}
+	err := a.deps.DB.Select(ctx, &datasources, `SELECT name, enabled FROM market_mk20_data_source`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get datasources from DB: %w", err)
+	}
+
+	datasourceMap := make(map[string]bool)
+	for _, datasource := range datasources {
+		datasourceMap[datasource.Name] = datasource.Enabled
+	}
+	return datasourceMap, nil
 }
