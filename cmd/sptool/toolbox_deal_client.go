@@ -9,11 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -21,6 +23,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
+	"github.com/ipfs/go-cidutil/cidenc"
 	"github.com/ipni/go-libipni/maurl"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
@@ -29,6 +32,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/mitchellh/go-homedir"
 	"github.com/multiformats/go-multiaddr"
+	"github.com/multiformats/go-multibase"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/term"
 	"golang.org/x/xerrors"
@@ -37,11 +41,14 @@ import (
 	cborutil "github.com/filecoin-project/go-cbor-util"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
+	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 
 	"github.com/filecoin-project/curio/lib/keystore"
+	"github.com/filecoin-project/curio/lib/testutils"
 	mk12_libp2p "github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/market/mk12"
+	"github.com/filecoin-project/curio/market/mk20"
 
 	"github.com/filecoin-project/lotus/api"
 	chain_types "github.com/filecoin-project/lotus/chain/types"
@@ -1558,6 +1565,422 @@ var dealStatusCmd = &cli.Command{
 		msg += fmt.Sprintf("  chain deal id: %d\n", resp.DealStatus.ChainDealID)
 		fmt.Println(msg)
 
+		return nil
+	},
+}
+
+var mk20Clientcmd = &cli.Command{
+	Name:  "mk20-client",
+	Usage: "mk20 client for Curio",
+	Flags: []cli.Flag{
+		mk12_client_repo,
+	},
+	Subcommands: []*cli.Command{
+		initCmd,
+		mk20DealCmd,
+		mk20ClientMakeAggregateCmd,
+	},
+}
+
+var mk20DealCmd = &cli.Command{
+	Name:  "deal",
+	Usage: "Make a mk20 deal with Curio",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:  "http-url",
+			Usage: "http url to CAR file",
+		},
+		&cli.StringSliceFlag{
+			Name:  "http-headers",
+			Usage: "http headers to be passed with the request (e.g key=value)",
+		},
+		&cli.Uint64Flag{
+			Name:  "car-size",
+			Usage: "size of the CAR file: required for online deals",
+		},
+		&cli.StringFlag{
+			Name:     "provider",
+			Usage:    "storage provider on-chain address",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "commp",
+			Usage:    "commp of the CAR file",
+			Required: true,
+		},
+		&cli.Uint64Flag{
+			Name:     "piece-size",
+			Usage:    "size of the CAR file as a padded piece",
+			Required: true,
+		},
+		&cli.IntFlag{
+			Name:  "duration",
+			Usage: "duration of the deal in epochs",
+			Value: 518400, // default is 2880 * 180 == 180 days
+		},
+		&cli.StringFlag{
+			Name:     "contract-address",
+			Usage:    "contract address of the deal",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "contract-verify-method",
+			Usage:    "contract verify method of the deal",
+			Required: true,
+		},
+		&cli.Uint64Flag{
+			Name:  "allocation",
+			Usage: "allocation id of the deal",
+		},
+		&cli.BoolFlag{
+			Name:  "indexing",
+			Usage: "indicates that an deal should be indexed",
+			Value: true,
+		},
+		&cli.StringFlag{
+			Name:  "wallet",
+			Usage: "wallet address to be used to initiate the deal",
+		},
+		&cli.BoolFlag{
+			Name:  "announce",
+			Usage: "indicates that deal should be announced to the IPNI(Network Indexer)",
+			Value: true,
+		},
+		&cli.StringFlag{
+			Name:  "aggregate",
+			Usage: "aggregate file path for the deal",
+		},
+		&cli.BoolFlag{
+			Name:  "put",
+			Usage: "used HTTP put as data source",
+			Value: false,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		ctx := cctx.Context
+		n, err := Setup(cctx.String(mk12_client_repo.Name))
+		if err != nil {
+			return err
+		}
+
+		api, closer, err := lcli.GetGatewayAPIV1(cctx)
+		if err != nil {
+			return fmt.Errorf("cant setup gateway connection: %w", err)
+		}
+		defer closer()
+
+		walletAddr, err := n.GetProvidedOrDefaultWallet(ctx, cctx.String("wallet"))
+		if err != nil {
+			return err
+		}
+
+		log.Debugw("selected wallet", "wallet", walletAddr)
+
+		maddr, err := address.NewFromString(cctx.String("provider"))
+		if err != nil {
+			return err
+		}
+
+		minfo, err := api.StateMinerInfo(ctx, maddr, chain_types.EmptyTSK)
+		if err != nil {
+			return err
+		}
+		if minfo.PeerId == nil {
+			return xerrors.Errorf("storage provider %s has no peer ID set on-chain", maddr)
+		}
+
+		var maddrs []multiaddr.Multiaddr
+		for _, mma := range minfo.Multiaddrs {
+			ma, err := multiaddr.NewMultiaddrBytes(mma)
+			if err != nil {
+				return xerrors.Errorf("storage provider %s had invalid multiaddrs in their info: %w", maddr, err)
+			}
+			maddrs = append(maddrs, ma)
+		}
+		if len(maddrs) == 0 {
+			return xerrors.Errorf("storage provider %s has no multiaddrs set on-chain", maddr)
+		}
+
+		addrInfo := &peer.AddrInfo{
+			ID:    *minfo.PeerId,
+			Addrs: maddrs,
+		}
+
+		log.Debugw("found storage provider", "id", addrInfo.ID, "multiaddrs", addrInfo.Addrs, "addr", maddr)
+
+		var hurls []*url.URL
+
+		for _, ma := range addrInfo.Addrs {
+			hurl, err := maurl.ToURL(ma)
+			if err != nil {
+				return xerrors.Errorf("failed to convert multiaddr %s to URL: %w", ma, err)
+			}
+			if hurl.Scheme == "ws" {
+				hurl.Scheme = "http"
+			}
+			if hurl.Scheme == "wss" {
+				hurl.Scheme = "https"
+			}
+			log.Debugw("converted multiaddr to URL", "url", hurl, "multiaddr", ma.String())
+			hurls = append(hurls, hurl)
+		}
+
+		commp := cctx.String("commp")
+		pieceCid, err := cid.Parse(commp)
+		if err != nil {
+			return xerrors.Errorf("parsing commp '%s': %w", commp, err)
+		}
+
+		pieceSize := cctx.Uint64("piece-size")
+		if pieceSize == 0 {
+			return xerrors.Errorf("must provide piece-size parameter for CAR url")
+		}
+
+		carFileSize := cctx.Uint64("car-size")
+
+		var headers http.Header
+
+		for _, header := range cctx.StringSlice("http-headers") {
+			sp := strings.Split(header, "=")
+			if len(sp) != 2 {
+				return xerrors.Errorf("malformed http header: %s", header)
+			}
+			headers.Add(sp[0], sp[1])
+		}
+
+		var d mk20.DataSource
+
+		if cctx.IsSet("aggregate") {
+			d = mk20.DataSource{
+				PieceCID: pieceCid,
+				Size:     abi.PaddedPieceSize(pieceSize),
+				Format: mk20.PieceDataFormat{
+					Aggregate: &mk20.FormatAggregate{
+						Type: mk20.AggregateTypeV1,
+					},
+				},
+			}
+
+			var pieces []mk20.DataSource
+
+			log.Debugw("using aggregate data source", "aggregate", cctx.String("aggregate"))
+			// Read file line by line
+			loc, err := homedir.Expand(cctx.String("aggregate"))
+			if err != nil {
+				return err
+			}
+			file, err := os.Open(loc)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+			scanner := bufio.NewScanner(file)
+			for scanner.Scan() {
+				line := scanner.Text()
+				parts := strings.Split(line, "\t")
+				if len(parts) != 4 {
+					return fmt.Errorf("invalid line format. Expected pieceCid, pieceSize, carSize, url at %s", line)
+				}
+				if parts[0] == "" || parts[1] == "" || parts[2] == "" || parts[3] == "" {
+					return fmt.Errorf("empty column value in the input file at %s", line)
+				}
+
+				pieceCid, err := cid.Parse(parts[0])
+				if err != nil {
+					return fmt.Errorf("failed to parse CID: %w", err)
+				}
+				pieceSize, err := strconv.ParseInt(parts[1], 10, 64)
+				if err != nil {
+					return fmt.Errorf("failed to parse size %w", err)
+				}
+
+				rawSize, err := strconv.ParseInt(parts[2], 10, 64)
+				if err != nil {
+					return fmt.Errorf("failed to parse raw size %w", err)
+				}
+
+				url, err := url.Parse(parts[3])
+				if err != nil {
+					return fmt.Errorf("failed to parse url: %w", err)
+				}
+
+				pieces = append(pieces, mk20.DataSource{
+					PieceCID: pieceCid,
+					Size:     abi.PaddedPieceSize(pieceSize),
+					Format: mk20.PieceDataFormat{
+						Car: &mk20.FormatCar{},
+					},
+					SourceHTTP: &mk20.DataSourceHTTP{
+						RawSize: uint64(rawSize),
+						URLs: []mk20.HttpUrl{
+							{
+								URL:      url.String(),
+								Priority: 0,
+								Fallback: true,
+							},
+						},
+					},
+				})
+
+				if err := scanner.Err(); err != nil {
+					return err
+				}
+			}
+			d.SourceAggregate = &mk20.DataSourceAggregate{
+				Pieces: pieces,
+			}
+		} else {
+			if carFileSize == 0 {
+				return xerrors.Errorf("size of car file cannot be 0")
+			}
+
+			if !cctx.IsSet("http-url") {
+				if cctx.Bool("put") {
+					d = mk20.DataSource{
+						PieceCID: pieceCid,
+						Size:     abi.PaddedPieceSize(pieceSize),
+						Format: mk20.PieceDataFormat{
+							Car: &mk20.FormatCar{},
+						},
+						SourceHttpPut: &mk20.DataSourceHttpPut{
+							RawSize: carFileSize,
+						},
+					}
+				} else {
+					d = mk20.DataSource{
+						PieceCID: pieceCid,
+						Size:     abi.PaddedPieceSize(pieceSize),
+						Format: mk20.PieceDataFormat{
+							Car: &mk20.FormatCar{},
+						},
+						SourceOffline: &mk20.DataSourceOffline{
+							RawSize: carFileSize,
+						},
+					}
+				}
+			} else {
+				url, err := url.Parse(cctx.String("http-url"))
+				if err != nil {
+					return xerrors.Errorf("parsing http url: %w", err)
+				}
+				d = mk20.DataSource{
+					PieceCID: pieceCid,
+					Size:     abi.PaddedPieceSize(pieceSize),
+					Format: mk20.PieceDataFormat{
+						Car: &mk20.FormatCar{},
+					},
+					SourceHTTP: &mk20.DataSourceHTTP{
+						RawSize: carFileSize,
+						URLs: []mk20.HttpUrl{
+							{
+								URL:      url.String(),
+								Headers:  headers,
+								Priority: 0,
+								Fallback: true,
+							},
+						},
+					},
+				}
+			}
+		}
+
+		p := mk20.Products{
+			DDOV1: &mk20.DDOV1{
+				Provider:                   maddr,
+				Client:                     walletAddr,
+				PieceManager:               walletAddr,
+				Duration:                   abi.ChainEpoch(cctx.Int64("duration")),
+				ContractAddress:            cctx.String("contract-address"),
+				ContractVerifyMethod:       cctx.String("contract-verify-method"),
+				ContractVerifyMethodParams: []byte("test bytes"),
+				Indexing:                   cctx.Bool("indexing"),
+				AnnounceToIPNI:             cctx.Bool("announce"),
+			},
+		}
+
+		if cctx.Uint64("allocation") != 0 {
+			alloc := verifreg.AllocationId(cctx.Uint64("allocation"))
+			p.DDOV1.AllocationId = &alloc
+		}
+
+		id, err := mk20.NewULID()
+		if err != nil {
+			return err
+		}
+		log.Debugw("generated deal id", "id", id)
+
+		deal := mk20.Deal{
+			Identifier: id,
+			Data:       d,
+			Products:   p,
+		}
+
+		log.Debugw("deal", "deal", deal)
+
+		body, err := json.Marshal(deal)
+		if err != nil {
+			return err
+		}
+
+		// Try to request all URLs one by one and exit after first success
+		for _, u := range hurls {
+			s := u.String() + "/market/mk20/store"
+			log.Debugw("trying to send request to", "url", u.String())
+			req, err := http.NewRequest("POST", s, bytes.NewReader(body))
+			if err != nil {
+				return xerrors.Errorf("failed to create request: %w", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			log.Debugw("Headers", "headers", req.Header)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				log.Warnw("failed to send request", "url", s, "error", err)
+				continue
+			}
+			if resp.StatusCode != http.StatusOK {
+				respBody, err := io.ReadAll(resp.Body)
+				if err != nil {
+					return xerrors.Errorf("failed to read response body: %w", err)
+				}
+				log.Warnw("failed to send request", "url", s, "status", resp.StatusCode, "body", string(respBody))
+				continue
+			}
+			return nil
+		}
+		return xerrors.Errorf("failed to send request to any of the URLs")
+	},
+}
+
+var mk20ClientMakeAggregateCmd = &cli.Command{
+	Name:  "aggregate",
+	Usage: "Create a new aggregate from a list of CAR files",
+	Flags: []cli.Flag{
+		&cli.StringSliceFlag{
+			Name:     "files",
+			Usage:    "list of CAR files to aggregate",
+			Required: true,
+		},
+		&cli.Uint64Flag{
+			Name:     "piece-size",
+			Usage:    "piece size of the aggregate",
+			Required: true,
+		},
+		&cli.BoolFlag{
+			Name:  "out",
+			Usage: "output the aggregate file",
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		size := abi.PaddedPieceSize(cctx.Uint64("piece-size"))
+		files := cctx.StringSlice("files")
+		out := cctx.Bool("out")
+		pcid, size, err := testutils.CreateAggregateFromCars(files, size, out)
+		if err != nil {
+			return err
+		}
+		encoder := cidenc.Encoder{Base: multibase.MustNewEncoder(multibase.Base32)}
+		fmt.Println("CommP CID: ", encoder.Encode(pcid))
+		fmt.Println("Piece size: ", size)
 		return nil
 	},
 }

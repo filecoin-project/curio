@@ -58,7 +58,7 @@ class PendingDeals extends LitElement {
                     <tr>
                         <td>${entry.Miner}</td>
                         <td><a href="/pages/sector/?sp=${entry.Miner}&id=${entry.SectorNumber}">${entry.SectorNumber}</a></td>
-                        <td><a href="/pages/piece/?id=${entry.PieceCID}">${entry.PieceCID}</a></td>
+                        <td><a href="/pages/piece/?id=${entry.PieceCidV2}">${entry.PieceCID}</a></td>
                         <td>${entry.PieceSizeStr}</td>
                         <td>${entry.CreatedAtStr}</td>
                         <td>
