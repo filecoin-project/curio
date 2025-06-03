@@ -85,6 +85,12 @@ var GuidedsetupCmd = &cli.Command{
 			for _, step := range newMinerSteps {
 				step(&migrationData)
 			}
+		} else if migrationData.nonSP {
+			say(header, "This interactive tool sets up a non-Storage Provider cluster for protocols like PDP, Snark market, and others.")
+			say(notice, "This setup does not create or migrate a Filecoin SP actor.")
+			for _, step := range nonSPSteps {
+				step(&migrationData)
+			}
 		} else {
 			say(header, "This interactive tool migrates lotus-miner to Curio in 5 minutes.")
 			say(notice, "Each step needs your confirmation and can be reversed. Press Ctrl+C to exit at any time.")
@@ -149,7 +155,8 @@ func newOrMigrate(d *MigrationData) {
 		Label: d.T("I want to:"),
 		Items: []string{
 			d.T("Migrate from existing Lotus-Miner"),
-			d.T("Create a new miner")},
+			d.T("Create a new miner"),
+			d.T("Setup non-Storage Provider cluster")},
 		Templates: d.selectTemplates,
 	}).Run()
 	if err != nil {
@@ -158,6 +165,8 @@ func newOrMigrate(d *MigrationData) {
 	}
 	if i == 1 {
 		d.init = true
+	} else if i == 2 {
+		d.nonSP = true
 	}
 }
 
@@ -185,6 +194,17 @@ var newMinerSteps = []newMinerStep{
 	afterRan,
 }
 
+type nonSPStep func(data *MigrationData)
+
+var nonSPSteps = []nonSPStep{
+	stepPresteps,
+	stepNewMinerConfig,
+	doc,
+	oneLastThing,
+	completeNonSP,
+	afterRan,
+}
+
 type MigrationData struct {
 	T               func(key message.Reference, a ...interface{}) string
 	say             func(style lipgloss.Style, key message.Reference, a ...interface{})
@@ -202,6 +222,7 @@ type MigrationData struct {
 	sender          address.Address
 	ssize           string
 	init            bool
+	nonSP           bool
 }
 
 func complete(d *MigrationData) {
@@ -619,21 +640,30 @@ func stepPresteps(d *MigrationData) {
 
 func stepNewMinerConfig(d *MigrationData) {
 	curioCfg := config.DefaultCurioConfig()
-	curioCfg.Addresses = append(curioCfg.Addresses, config.CurioAddresses{
-		PreCommitControl:      []string{},
-		CommitControl:         []string{},
-		DealPublishControl:    []string{},
-		TerminateControl:      []string{},
-		DisableOwnerFallback:  false,
-		DisableWorkerFallback: false,
-		MinerAddresses:        []string{d.MinerID.String()},
-		BalanceManager:        config.DefaultBalanceManager(),
-	})
+
+	// Only add miner address for SP setup
+	if !d.nonSP {
+		curioCfg.Addresses = append(curioCfg.Addresses, config.CurioAddresses{
+			PreCommitControl:      []string{},
+			CommitControl:         []string{},
+			DealPublishControl:    []string{},
+			TerminateControl:      []string{},
+			DisableOwnerFallback:  false,
+			DisableWorkerFallback: false,
+			MinerAddresses:        []string{d.MinerID.String()},
+			BalanceManager:        config.DefaultBalanceManager(),
+		})
+	}
 
 	sk, err := io.ReadAll(io.LimitReader(rand.Reader, 32))
 	if err != nil {
-		d.say(notice, "Failed to generate random bytes for secret: %s", err.Error())
-		d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
+		errMsg := "Failed to generate random bytes for secret: %s"
+		d.say(notice, errMsg, err.Error())
+		if !d.nonSP {
+			d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
+		} else {
+			d.say(notice, "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration")
+		}
 		os.Exit(1)
 	}
 
@@ -641,15 +671,25 @@ func stepNewMinerConfig(d *MigrationData) {
 
 	ainfo, err := cliutil.GetAPIInfo(d.cctx, repo.FullNode)
 	if err != nil {
-		d.say(notice, "Failed to get API info for FullNode: %w", err)
-		d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
+		errMsg := "Failed to get API info for FullNode: %s"
+		d.say(notice, errMsg, err)
+		if !d.nonSP {
+			d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
+		} else {
+			d.say(notice, "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration")
+		}
 		os.Exit(1)
 	}
 
 	token, err := d.full.AuthNew(d.ctx, lapi.AllPermissions)
 	if err != nil {
-		d.say(notice, "Failed to verify the auth token from daemon node: %s", err.Error())
-		d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
+		errMsg := "Failed to create auth token: %s"
+		d.say(notice, errMsg, err.Error())
+		if !d.nonSP {
+			d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
+		} else {
+			d.say(notice, "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration")
+		}
 		os.Exit(1)
 	}
 
@@ -659,28 +699,57 @@ func stepNewMinerConfig(d *MigrationData) {
 	var titles []string
 	err = d.DB.Select(d.ctx, &titles, `SELECT title FROM harmony_config WHERE LENGTH(config) > 0`)
 	if err != nil {
-		d.say(notice, "Cannot reach the DB: %s", err.Error())
-		d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
+		errMsg := "Cannot reach the DB: %s"
+		d.say(notice, errMsg, err.Error())
+		if !d.nonSP {
+			d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
+		} else {
+			d.say(notice, "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration")
+		}
 		os.Exit(1)
 	}
 
 	// If 'base' layer is not present
 	if !lo.Contains(titles, "base") {
-		curioCfg.Addresses = lo.Filter(curioCfg.Addresses, func(a config.CurioAddresses, _ int) bool {
-			return len(a.MinerAddresses) > 0
-		})
+		if !d.nonSP {
+			curioCfg.Addresses = lo.Filter(curioCfg.Addresses, func(a config.CurioAddresses, _ int) bool {
+				return len(a.MinerAddresses) > 0
+			})
+		}
 		cb, err := config.ConfigUpdate(curioCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
 		if err != nil {
-			d.say(notice, "Failed to generate default config: %s", err.Error())
-			d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
+			errMsg := "Failed to generate default config: %s"
+			d.say(notice, errMsg, err.Error())
+			if !d.nonSP {
+				d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
+			} else {
+				d.say(notice, "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration")
+			}
 			os.Exit(1)
 		}
 		_, err = d.DB.Exec(d.ctx, "INSERT INTO harmony_config (title, config) VALUES ('base', $1)", string(cb))
 		if err != nil {
-			d.say(notice, "Failed to insert 'base' config layer in database: %s", err.Error())
-			d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
+			errMsg := "Failed to insert config into database: %s"
+			d.say(notice, errMsg, err.Error())
+			if !d.nonSP {
+				d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
+			} else {
+				d.say(notice, "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration")
+			}
 			os.Exit(1)
 		}
+	}
+
+	// For non-SP setup, we're done here
+	if d.nonSP {
+		d.say(green, "Non-SP cluster configuration created successfully")
+		stepCompleted(d, d.T("Non-SP cluster configuration complete"))
+		return
+	}
+
+	// For SP setup, continue with miner-specific configuration
+	if !lo.Contains(titles, "base") {
+		// We already created the base config above, so just show completion message
 		stepCompleted(d, d.T("Configuration 'base' was updated to include this miner's address"))
 		return
 	}
@@ -721,6 +790,13 @@ func stepNewMinerConfig(d *MigrationData) {
 	}
 
 	stepCompleted(d, d.T("Configuration 'base' was updated to include this miner's address"))
+}
+
+func completeNonSP(d *MigrationData) {
+	d.say(header, "Non-SP cluster setup complete!")
+	d.say(plain, "Your non-SP cluster has been configured successfully.")
+	d.say(plain, "You can now start using Curio for protocols like PDP, Snark markets, and others.")
+	d.say(plain, "To start the cluster, run: curio run --layers basic-cluster")
 }
 
 func getDBDetails(d *MigrationData) {
