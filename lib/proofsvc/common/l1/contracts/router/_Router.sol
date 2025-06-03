@@ -21,13 +21,16 @@ contract _Router is ReentrancyGuard {
     uint256 public constant DST_PROVIDER_VOUCHER = 0xc896443a8cbf4cb49ec50beef800b5b2a3764c14b7c5454e8248e1f195b1c001;
 
     // Withdraw window (4 hours)
-    uint32 public constant WITHDRAW_WINDOW = 5 minutes;
+    uint32 public constant WITHDRAW_WINDOW = 4 hours;
     // Service actor delay (2 days)
-    uint32 public constant SERVICE_ACTOR_DELAY = 5 minutes;
+    uint32 public constant SERVICE_ACTOR_DELAY = 2 days;
 
     // --- Roles ---
     // service actor is fixed at deployment (as an ID)
     CommonTypes.FilActorId public serviceActor;
+
+    // dao actor is fixed at deployment (as an ID), decides service actor changes
+    CommonTypes.FilActorId public dao;
 
     // proposed next service actor ID
     CommonTypes.FilActorId public proposedServiceActor;
@@ -77,16 +80,18 @@ contract _Router is ReentrancyGuard {
     event ServiceActorProposed(CommonTypes.FilActorId newServiceActor, uint256 readyTime);
     event ServiceActorAccepted(CommonTypes.FilActorId newServiceActor);
 
-    constructor(CommonTypes.FilActorId _serviceActor) {
+    constructor(CommonTypes.FilActorId _serviceActor, CommonTypes.FilActorId _dao) {
         require(CommonTypes.FilActorId.unwrap(_serviceActor) > 0, "Invalid service actor");
+        require(CommonTypes.FilActorId.unwrap(_dao) > 0, "Invalid dao");
         serviceActor = _serviceActor;
+        dao = _dao;
     }
 
-    /// @notice Proposes a new service actor. Only callable by the current service actor.
+    /// @notice Proposes a new service actor. Only callable by the dao.
     /// @param newServiceActor The ID of the proposed new service actor
     function proposeServiceActor(CommonTypes.FilActorId newServiceActor) external nonReentrant {
-        (bool svcSuccess, uint64 callerID) = FilAddressIdConverter.getActorID(msg.sender);
-        require(svcSuccess && callerID == CommonTypes.FilActorId.unwrap(serviceActor), "Only service actor");
+        (bool daoSuccess, uint64 callerID) = FilAddressIdConverter.getActorID(msg.sender);
+        require(daoSuccess && callerID == CommonTypes.FilActorId.unwrap(dao), "Only dao");
         require(CommonTypes.FilActorId.unwrap(newServiceActor) > 0, "Invalid service actor");
 
         proposedServiceActor = newServiceActor;
