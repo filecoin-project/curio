@@ -49,10 +49,11 @@ func secureHeaders(csp string) func(http.Handler) http.Handler {
 			// Set CSP based on configuration
 			switch csp {
 			case "off":
+				// Do nothing
 			case "self":
 				w.Header().Set("Content-Security-Policy", "default-src 'self'")
 			case "inline":
-				w.Header().Set("Content-Security-Policy", "default-src 'self' 'unsafe-inline' 'unsafe-eval'")
+				fallthrough
 			default:
 				w.Header().Set("Content-Security-Policy", "default-src 'self' 'unsafe-inline' 'unsafe-eval'")
 			}
