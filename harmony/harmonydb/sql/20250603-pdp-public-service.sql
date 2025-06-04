@@ -7,7 +7,7 @@ BEGIN
         -- Create a dummy public key for the public service
         -- This is a placeholder key that allows NullAuth operations
         INSERT INTO pdp_services (service_label, pubkey) 
-        VALUES ('public', decode('1C0DE4C0FFEE", 'hex'));
+        VALUES ('public', decode('1C0DE4C0FFEE', 'hex'));
         
         -- Log the creation
         RAISE NOTICE 'Created default "public" PDP service for NullAuth operations';
