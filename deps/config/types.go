@@ -823,6 +823,13 @@ type HTTPConfig struct {
 	EnableCORS bool
 
 	// CSP sets the Content Security Policy. Valid values: "off", "self", "inline" (Default: "inline")
+	// 
+	// WARNING: Changing this setting can break the Curio web interface and potentially expose
+	// security vulnerabilities. Only modify if you understand the security implications.
+	//
+	// - "off": Disables CSP entirely (NOT RECOMMENDED - leaves system vulnerable)
+	// - "self": Strict CSP allowing only same-origin resources (may break functionality) 
+	// - "inline": Default setting allowing inline scripts/styles (balanced security/functionality)
 	CSP string
 
 	// CompressionLevels hold the compression level for various compression methods supported by the server

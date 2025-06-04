@@ -67,12 +67,6 @@ var runCmd = &cli.Command{
 			EnvVars:     []string{"CURIO_NODE_NAME"},
 			DefaultText: translations.T(""),
 		},
-		&cli.StringFlag{
-			Name:    "csp",
-			Usage:   translations.T("Content Security Policy setting"),
-			Value:   "inline",
-			EnvVars: []string{"CURIO_CSP"},
-		},
 	},
 	Action: func(cctx *cli.Context) (err error) {
 		defer func() {
