@@ -123,6 +123,7 @@ func DefaultCurioConfig() *CurioConfig {
 			IdleTimeout:       time.Minute * 2,
 			ReadHeaderTimeout: time.Second * 5,
 			EnableCORS:        true,
+			CSP:               "inline",
 			CompressionLevels: CompressionConfig{
 				GzipLevel:    6,
 				BrotliLevel:  4,
@@ -820,6 +821,9 @@ type HTTPConfig struct {
 
 	// EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.
 	EnableCORS bool
+
+	// CSP sets the Content Security Policy. Valid values: "off", "self", "inline" (Default: "inline")
+	CSP string
 
 	// CompressionLevels hold the compression level for various compression methods supported by the server
 	CompressionLevels CompressionConfig

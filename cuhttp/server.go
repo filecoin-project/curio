@@ -37,16 +37,29 @@ type RouterMap map[string]http.HandlerFunc
 type startTime string
 
 // Custom middleware to add secure HTTP headers
-func secureHeaders(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("X-XSS-Protection", "1; mode=block")
-		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'")
-		next.ServeHTTP(w, r)
-	})
+func secureHeaders(csp string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("X-XSS-Protection", "1; mode=block")
+			w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+
+			// Set CSP based on configuration
+			switch csp {
+			case "off":
+			case "self":
+				w.Header().Set("Content-Security-Policy", "default-src 'self'")
+			case "inline":
+				w.Header().Set("Content-Security-Policy", "default-src 'self' 'unsafe-inline' 'unsafe-eval'")
+			default:
+				w.Header().Set("Content-Security-Policy", "default-src 'self' 'unsafe-inline' 'unsafe-eval'")
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 func corsHeaders(next http.Handler) http.Handler {
@@ -136,7 +149,7 @@ func StartHTTPServer(ctx context.Context, d *deps.Deps, sd *ServiceDeps, dm *sto
 	chiRouter.Use(middleware.RealIP)
 	chiRouter.Use(middleware.Recoverer)
 	chiRouter.Use(handlers.ProxyHeaders) // Handle reverse proxy headers like X-Forwarded-For
-	chiRouter.Use(secureHeaders)
+	chiRouter.Use(secureHeaders(cfg.CSP))
 	chiRouter.Use(corsHeaders)
 
 	if cfg.EnableCORS {
@@ -241,7 +254,7 @@ func (c cache) Get(ctx context.Context, key string) ([]byte, error) {
 }
 
 func (c cache) Put(ctx context.Context, key string, data []byte) error {
-	_, err := c.db.Exec(ctx, `INSERT INTO autocert_cache (k, v) VALUES ($1, $2) 
+	_, err := c.db.Exec(ctx, `INSERT INTO autocert_cache (k, v) VALUES ($1, $2)
 						ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v`, key, data)
 	if err != nil {
 		log.Warnf("failed to inset key value pair in DB: %s", err)

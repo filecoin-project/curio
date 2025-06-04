@@ -299,6 +299,9 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 	if cctx.IsSet("gui-listen") {
 		deps.Cfg.Subsystems.GuiAddress = cctx.String("gui-listen")
 	}
+	if cctx.IsSet("csp") {
+		deps.Cfg.HTTP.CSP = cctx.String("csp")
+	}
 	if deps.LocalStore == nil {
 		deps.LocalStore, err = paths.NewLocal(ctx, deps.LocalPaths, deps.Si, "http://"+deps.ListenAddr+"/remote")
 		if err != nil {
