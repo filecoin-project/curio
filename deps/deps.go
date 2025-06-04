@@ -300,7 +300,13 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		deps.Cfg.Subsystems.GuiAddress = cctx.String("gui-listen")
 	}
 	if cctx.IsSet("csp") {
-		deps.Cfg.HTTP.CSP = cctx.String("csp")
+		cspValue := cctx.String("csp")
+		switch cspValue {
+		case "off", "self", "inline":
+			deps.Cfg.HTTP.CSP = cspValue
+		default:
+			return fmt.Errorf("invalid value for --csp: %q (allowed: off, self, inline)", cspValue)
+		}
 	}
 	if deps.LocalStore == nil {
 		deps.LocalStore, err = paths.NewLocal(ctx, deps.LocalPaths, deps.Si, "http://"+deps.ListenAddr+"/remote")
