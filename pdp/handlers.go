@@ -20,12 +20,14 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/go-chi/chi/v5"
 	"github.com/ipfs/go-cid"
+	logger "github.com/ipfs/go-log/v2"
 	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/go-commp-utils/nonffi"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/metrics"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -35,6 +37,8 @@ import (
 
 // PDPRoutePath is the base path for PDP routes
 const PDPRoutePath = "/pdp"
+
+var log = logger.Logger("pdp")
 
 // PDPService represents the service for managing proof sets and pieces
 type PDPService struct {
@@ -53,6 +57,11 @@ type PDPServiceNodeApi interface {
 
 // NewPDPService creates a new instance of PDPService with the provided stores
 func NewPDPService(db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client, fc PDPServiceNodeApi, sn *message.SenderETH) *PDPService {
+	// Register PDP metrics
+	if err := RegisterPDPMetrics(); err != nil {
+		log.Errorf("Failed to register PDP metrics: %v", err)
+	}
+	
 	return &PDPService{
 		Auth:    &NullAuth{},
 		db:      db,
@@ -101,6 +110,9 @@ func Routes(r *chi.Mux, p *PDPService) {
 	})
 
 	r.Get(path.Join(PDPRoutePath, "/ping"), p.handlePing)
+	
+	// Metrics endpoint
+	r.Get(path.Join(PDPRoutePath, "/metrics"), p.handleMetrics)
 
 	// Routes for piece storage and retrieval
 	// POST /pdp/piece
@@ -125,6 +137,13 @@ func (p *PDPService) handlePing(w http.ResponseWriter, r *http.Request) {
 
 	// Return 200 OK
 	w.WriteHeader(http.StatusOK)
+}
+
+// handleMetrics exposes Prometheus metrics for PDP retrieval operations
+func (p *PDPService) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	// Use the same metrics exporter as the rest of the system
+	metricsHandler := metrics.Exporter()
+	metricsHandler.ServeHTTP(w, r)
 }
 
 // handleCreateProofSet handles the creation of a new proof set

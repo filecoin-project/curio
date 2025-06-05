@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -22,6 +23,8 @@ import (
 	mhreg "github.com/multiformats/go-multihash/core"
 	"github.com/snadrus/must"
 	"github.com/yugabyte/pgx/v5"
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
@@ -447,18 +450,56 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 // handle find piece allows one to look up a pdp piece by its original post data as
 // query parameters
 func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
-	// Verify that the request is authorized using ECDSA JWT
-	_, err := p.AuthService(r)
+	ctx := r.Context()
+	startTime := time.Now()
+	
+	// Extract requester domain for metrics
+	requesterDomain := extractDomainFromRequest(r.Host)
+	
+	// Create base context with tags for metrics
+	ctx, err := tag.New(ctx,
+		tag.Insert(RequesterDomainKey, requesterDomain),
+	)
 	if err != nil {
+		log.Errorf("failed to create metrics context: %v", err)
+	}
+	
+	// Record request count
+	stats.Record(ctx, PDPRetrievalRequestCount.M(1))
+	stats.Record(ctx, PDPDomainRequestCount.M(1))
+	
+	// Verify that the request is authorized using ECDSA JWT
+	serviceLabel, err := p.AuthService(r)
+	if err != nil {
+		// Add service label and status to context
+		ctx, _ = tag.New(ctx,
+			tag.Insert(ServiceLabelKey, "unknown"),
+			tag.Insert(ResponseStatusKey, "401"),
+		)
+		stats.Record(ctx, PDPRetrievalErrorCount.M(1))
+		stats.Record(ctx, PDPRetrievalRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
+		
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
 	}
+	
+	// Add service label to context
+	ctx, err = tag.New(ctx, tag.Insert(ServiceLabelKey, serviceLabel))
+	if err != nil {
+		log.Errorf("failed to add service label to metrics context: %v", err)
+	}
+	
+	// Record service-specific request
+	stats.Record(ctx, PDPServiceRequestCount.M(1))
 
 	// Parse query parameters
-
 	sizeString := r.URL.Query().Get("size")
 	size, err := strconv.ParseInt(sizeString, 10, 64)
 	if err != nil {
+		ctx, _ = tag.New(ctx, tag.Insert(ResponseStatusKey, "400"))
+		stats.Record(ctx, PDPRetrievalErrorCount.M(1))
+		stats.Record(ctx, PDPRetrievalRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
+		
 		http.Error(w, fmt.Sprintf("errors parsing size: %s", err.Error()), 400)
 		return
 	}
@@ -468,16 +509,22 @@ func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
 		Size: size,
 	}
 
-	ctx := r.Context()
-
 	pieceCid, havePieceCid, err := req.commp(ctx, p.db)
 	if err != nil {
+		ctx, _ = tag.New(ctx, tag.Insert(ResponseStatusKey, "500"))
+		stats.Record(ctx, PDPRetrievalErrorCount.M(1))
+		stats.Record(ctx, PDPRetrievalRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
+		
 		http.Error(w, "Failed to process request: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// upload either not complete or does not exist
 	if !havePieceCid {
+		ctx, _ = tag.New(ctx, tag.Insert(ResponseStatusKey, "404"))
+		stats.Record(ctx, PDPRetrievalNotFoundCount.M(1))
+		stats.Record(ctx, PDPRetrievalRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
+		
 		http.NotFound(w, r)
 		return
 	}
@@ -488,13 +535,30 @@ func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
     SELECT count(*) FROM parked_pieces WHERE piece_cid = $1 AND long_term = TRUE AND complete = TRUE
   `, pieceCid.String()).Scan(&count)
 	if err != nil {
+		ctx, _ = tag.New(ctx, tag.Insert(ResponseStatusKey, "500"))
+		stats.Record(ctx, PDPRetrievalErrorCount.M(1))
+		stats.Record(ctx, PDPRetrievalRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
+		
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 	if count == 0 {
+		ctx, _ = tag.New(ctx, tag.Insert(ResponseStatusKey, "404"))
+		stats.Record(ctx, PDPRetrievalNotFoundCount.M(1))
+		stats.Record(ctx, PDPRetrievalRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
+		
 		http.NotFound(w, r)
 		return
 	}
+
+	// Record piece size metrics with categorization
+	pieceSizeCategory := categorizePieceSize(size)
+	ctx, _ = tag.New(ctx, 
+		tag.Insert(PieceSizeCategoryKey, pieceSizeCategory),
+		tag.Insert(ResponseStatusKey, "200"),
+	)
+	stats.Record(ctx, PDPRetrievalPieceSize.M(size))
+	stats.Record(ctx, PDPRetrievalSuccessCount.M(1))
 
 	response := struct {
 		PieceCID string `json:"piece_cid"`
@@ -506,7 +570,14 @@ func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	err = json.NewEncoder(w).Encode(response)
 	if err != nil {
+		ctx, _ = tag.New(ctx, tag.Insert(ResponseStatusKey, "500"))
+		stats.Record(ctx, PDPRetrievalErrorCount.M(1))
+		stats.Record(ctx, PDPRetrievalRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
+		
 		http.Error(w, "Failed to write response: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+	
+	// Record successful request duration
+	stats.Record(ctx, PDPRetrievalRequestDuration.M(float64(time.Since(startTime).Milliseconds())))
 }
