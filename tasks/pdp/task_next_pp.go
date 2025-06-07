@@ -127,6 +127,13 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, xerrors.Errorf("failed to get next challenge window start: %w", err)
 	}
 
+	// Clean up any scheduled removals before calling nextProvingPeriod
+	// This prevents losing deletions if we missed a proving window
+	err = CleanupScheduledRemovals(ctx, n.db, n.ethClient, proofSetID)
+	if err != nil {
+		return false, xerrors.Errorf("failed to cleanup scheduled removals: %w", err)
+	}
+
 	// Instantiate the PDPVerifier contract
 	pdpContracts := contract.ContractAddresses()
 	pdpVerifierAddress := pdpContracts.PDPVerifier
