@@ -811,6 +811,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 			Root:    struct{ Data []byte }{Data: rootCID.Bytes()},
 			RawSize: new(big.Int).SetUint64(totalSize),
 		}
+		fmt.Printf("rootData: %+v\n", rootData)
 
 		rootDataArray = append(rootDataArray, rootData)
 	}
