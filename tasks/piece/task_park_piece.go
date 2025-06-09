@@ -23,7 +23,7 @@ import (
 )
 
 var log = logging.Logger("cu-piece")
-var PieceParkPollInterval = time.Second
+var PieceParkPollInterval = time.Second * 15
 
 const ParkMinFreeStoragePercent = 20
 
