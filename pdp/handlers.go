@@ -690,6 +690,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 			if err != nil {
 				return false, err
 			}
+			fmt.Printf("pieceCIDStr: %s, pdpPieceRefID: %d, pieceRefID: %d, piecePaddedSize: %d\n", pieceCIDStr, pdpPieceRefID, pieceRefID, piecePaddedSize)
 
 			// Parse the piece CID
 			pieceCID, err := cid.Decode(pieceCIDStr)
