@@ -803,7 +803,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 			}
 
 			prevSubrootSize = subrootInfo.PieceInfo.Size
-			totalSize += uint64(subrootInfo.PieceInfo.Size.Unpadded())
+			totalSize += uint64(subrootInfo.PieceInfo.Size)
 		}
 
 		// Prepare RootData for Ethereum transaction
