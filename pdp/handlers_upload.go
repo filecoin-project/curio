@@ -485,7 +485,7 @@ func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
 	// Verify that a 'parked_pieces' entry exists for the given 'piece_cid'
 	var count int
 	err = p.db.QueryRow(ctx, `
-    SELECT count(*) FROM parked_pieces WHERE piece_cid = $1 AND long_term = TRUE AND complete = TRUE
+    SELECT count(*) FROM pdp_piecerefs WHERE piece_cid = $1
   `, pieceCid.String()).Scan(&count)
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
