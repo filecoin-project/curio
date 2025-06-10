@@ -26,3 +26,6 @@ scratchpad
 !extern/filecoin-ffi/rust/filecoin.pc
 
 node_modules
+
+# Claude Code memory file
+CLAUDE.md
