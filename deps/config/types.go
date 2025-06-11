@@ -824,7 +824,7 @@ type HTTPConfig struct {
 
 	// CSP sets the Content Security Policy for content served via the /piece/ retrieval endpoint.
 	// Valid values: "off", "self", "inline" (Default: "inline")
-	// 
+	//
 	// Since storage providers serve user-uploaded content on their domain, CSP helps control
 	// what these files can do when rendered in browsers. Choose based on your use case:
 	//
