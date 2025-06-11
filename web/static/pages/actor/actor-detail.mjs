@@ -100,7 +100,7 @@ customElements.define('actor-detail', class Actor extends LitElement {
                                                     <tr>
                                                         <td>Source Config Layers:</td>
                                                         <td>
-                                                            ${entry.CLayers.map(layer => html`<span>${layer} </span>`)}
+                                                            ${actorInfo.Summary.CLayers.map(layer => html`<span>${layer} </span>`)}
                                                         </td>
                                                     </tr>
                                                     <tr>
@@ -390,6 +390,7 @@ class ActorCharts extends LitElement {
         const firstAll = this.data.All[0]?.BucketEpoch ?? Infinity;
         const firstCC = this.data.CC[0]?.BucketEpoch ?? Infinity;
         const nowEpoch = Math.min(firstAll, firstCC);
+        const blockDelaySeconds = this.data.BlockDelaySeconds
 
         // ---------------------------
         // 1) EXPIRATION CHART (All vs. CC)
@@ -425,7 +426,7 @@ class ActorCharts extends LitElement {
                         },
                     ],
                 },
-                options: this.createChartOptions('Expiration (Count)', 'Count', nowEpoch, allExpData, ccExpData),
+                options: this.createChartOptions('Expiration (Count)', 'Count', nowEpoch, blockDelaySeconds, allExpData, ccExpData),
             };
 
             if (!this.chartExpiration) {
@@ -457,14 +458,14 @@ class ActorCharts extends LitElement {
                             borderColor: 'rgb(255, 205, 86)',
                             backgroundColor: 'rgba(255, 205, 86, 0.2)',
                             borderWidth: 1,
-                            stepped: true,
+                            stepped: 'after',
                             fill: true,
                             pointRadius: 2,
                             data: allQAPData,
                         },
                     ],
                 },
-                options: this.createChartOptions('Quality-Adjusted Power', 'QAP', nowEpoch, allQAPData),
+                options: this.createChartOptions('Quality-Adjusted Power', 'QAP', nowEpoch, blockDelaySeconds, allQAPData),
             };
 
             if (!this.chartQAP) {
@@ -496,7 +497,7 @@ class ActorCharts extends LitElement {
                             borderColor: 'rgb(153, 102, 255)',
                             backgroundColor: 'rgba(153, 102, 255, 0.2)',
                             borderWidth: 1,
-                            stepped: true,
+                            stepped: 'after',
                             fill: true,
                             pointRadius: 2,
                             data: allLockedData,
@@ -507,6 +508,7 @@ class ActorCharts extends LitElement {
                     'Vesting Locked Funds',
                     'Locked Funds (FIL)',
                     nowEpoch,
+                    blockDelaySeconds,
                     allLockedData
                 ),
             };
@@ -527,10 +529,11 @@ class ActorCharts extends LitElement {
      * @param {string} chartTitle - The chart title
      * @param {string} yTitle - Label for Y axis
      * @param {number} nowEpoch - The earliest epoch we consider "current"
+     * @param {number} blockDelaySeconds - The BlockDelaySeconds for the build
      * @param {Array} allData - The data array for the "All" set
      * @param {Array} [ccData] - Optional data array for the "CC" set
      */
-    createChartOptions(chartTitle, yTitle, nowEpoch, allData, ccData = []) {
+    createChartOptions(chartTitle, yTitle, nowEpoch, blockDelaySeconds, allData, ccData = []) {
         return {
             responsive: true,
             maintainAspectRatio: false,
@@ -546,12 +549,12 @@ class ActorCharts extends LitElement {
                     callbacks: {
                         label: (context) => {
                             const epochVal = context.parsed.x;
-                            const daysOffset = Math.round(((epochVal - nowEpoch) * 30) / 86400);
+                            const daysOffset = Math.round(((epochVal - nowEpoch) * blockDelaySeconds) / 86400);
                             const months = (daysOffset / 30).toFixed(1);
                             let value;
 
                             if (yTitle === 'QAP') {
-                                value = this.toHumanBytes(context.parsed.y); // For QAP
+                                value = toHumanBytes(context.parsed.y); // For QAP
                             } else if (yTitle === 'Locked Funds (FIL)') {
                                 value = this.toHumanFIL(context.parsed.y); // For Vesting
                             } else {
@@ -576,7 +579,7 @@ class ActorCharts extends LitElement {
                     },
                     ticks: {
                         callback: (value) => {
-                            const days = Math.round(((value - nowEpoch) * 30) / 86400);
+                            const days = Math.round(((value - nowEpoch) * blockDelaySeconds) / 86400);
                             return days + 'd';
                         },
                         font: {
