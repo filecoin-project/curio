@@ -647,3 +647,27 @@ type SupportedDataSources struct {
 	// Contracts represents a list of supported contract addresses in string format.
 	Sources []string `json:"sources"`
 }
+
+// StartUpload represents metadata for initiating an upload operation, containing the chunk size of the data to be uploaded.
+type StartUpload struct {
+	ChunkSize int64 `json:"chunk_size"`
+}
+
+// UploadStatus represents the status of a file upload process, including progress and missing chunks.
+type UploadStatus struct {
+
+	// TotalChunks represents the total number of chunks required for the upload.
+	TotalChunks int `json:"total_chunks"`
+
+	// Uploaded represents the number of chunks successfully uploaded.
+	Uploaded int `json:"uploaded"`
+
+	// Missing represents the number of chunks that are not yet uploaded.
+	Missing int `json:"missing"`
+
+	// UploadedChunks is a slice containing the indices of successfully uploaded chunks.
+	UploadedChunks []int `json:"uploaded_chunks"`
+
+	//MissingChunks is a slice containing the indices of missing chunks.
+	MissingChunks []int `json:"missing_chunks"`
+}

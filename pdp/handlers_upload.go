@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
@@ -84,7 +85,7 @@ func (ph *PieceHash) commp(ctx context.Context, db *harmonydb.DB) (cid.Cid, bool
 		SELECT commp FROM pdp_piece_mh_to_commp WHERE mhash = $1 AND size = $2
 	`, mh, ph.Size).Scan(&commpStr)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return cid.Undef, false, nil
 		}
 		return cid.Undef, false, fmt.Errorf("failed to query pdp_piece_mh_to_commp: %w", err)

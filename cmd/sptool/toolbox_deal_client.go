@@ -33,7 +33,9 @@ import (
 	"github.com/mitchellh/go-homedir"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/multiformats/go-multibase"
+	"github.com/oklog/ulid"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/exp/mmap"
 	"golang.org/x/term"
 	"golang.org/x/xerrors"
 
@@ -1579,6 +1581,7 @@ var mk20Clientcmd = &cli.Command{
 		initCmd,
 		mk20DealCmd,
 		mk20ClientMakeAggregateCmd,
+		mk20ClientUploadCmd,
 	},
 }
 
@@ -1981,6 +1984,253 @@ var mk20ClientMakeAggregateCmd = &cli.Command{
 		encoder := cidenc.Encoder{Base: multibase.MustNewEncoder(multibase.Base32)}
 		fmt.Println("CommP CID: ", encoder.Encode(pcid))
 		fmt.Println("Piece size: ", size)
+		return nil
+	},
+}
+
+var mk20ClientUploadCmd = &cli.Command{
+	Name:  "upload",
+	Usage: "Upload a file to the storage provider",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "provider",
+			Usage:    "storage provider on-chain address",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "deal",
+			Usage:    "deal id to upload to",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:  "chunk-size",
+			Usage: "chunk size to be used for the upload",
+			Value: "4 MiB",
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		if cctx.NArg() != 1 {
+			return xerrors.Errorf("must provide a single file to upload")
+		}
+		file := cctx.Args().First()
+		log.Debugw("uploading file", "file", file)
+		ctx := cctx.Context
+
+		chunkSizeStr := cctx.String("chunk-size")
+		chunkSizem, err := humanize.ParseBytes(chunkSizeStr)
+		if err != nil {
+			return xerrors.Errorf("parsing chunk size: %w", err)
+		}
+
+		if chunkSizem == 0 {
+			return xerrors.Errorf("invalid chunk size: %s", chunkSizeStr)
+		}
+
+		// Verify chunk size is power of 2
+		if chunkSizem&(chunkSizem-1) != 0 {
+			return xerrors.Errorf("chunk size must be power of 2")
+		}
+
+		chunkSize := int64(chunkSizem)
+
+		dealid, err := ulid.Parse(cctx.String("deal"))
+		if err != nil {
+			return xerrors.Errorf("parsing deal id: %w", err)
+		}
+
+		maddr, err := address.NewFromString(cctx.String("provider"))
+		if err != nil {
+			return err
+		}
+
+		f, err := os.OpenFile(file, os.O_RDONLY, 0644)
+		if err != nil {
+			return xerrors.Errorf("opening file: %w", err)
+		}
+
+		stat, err := f.Stat()
+		if err != nil {
+			return xerrors.Errorf("stat file: %w", err)
+		}
+
+		size := stat.Size()
+		if size == 0 {
+			return xerrors.Errorf("file size is 0")
+		}
+
+		if size < chunkSize {
+			chunkSize = size
+		}
+
+		// Calculate the number of chunks
+		numChunks := int((size + chunkSize - 1) / chunkSize)
+
+		f.Close()
+
+		api, closer, err := lcli.GetGatewayAPIV1(cctx)
+		if err != nil {
+			return fmt.Errorf("cant setup gateway connection: %w", err)
+		}
+		defer closer()
+
+		minfo, err := api.StateMinerInfo(ctx, maddr, chain_types.EmptyTSK)
+		if err != nil {
+			return err
+		}
+		if minfo.PeerId == nil {
+			return xerrors.Errorf("storage provider %s has no peer ID set on-chain", maddr)
+		}
+
+		var maddrs []multiaddr.Multiaddr
+		for _, mma := range minfo.Multiaddrs {
+			ma, err := multiaddr.NewMultiaddrBytes(mma)
+			if err != nil {
+				return xerrors.Errorf("storage provider %s had invalid multiaddrs in their info: %w", maddr, err)
+			}
+			maddrs = append(maddrs, ma)
+		}
+		if len(maddrs) == 0 {
+			return xerrors.Errorf("storage provider %s has no multiaddrs set on-chain", maddr)
+		}
+
+		addrInfo := &peer.AddrInfo{
+			ID:    *minfo.PeerId,
+			Addrs: maddrs,
+		}
+
+		log.Debugw("found storage provider", "id", addrInfo.ID, "multiaddrs", addrInfo.Addrs, "addr", maddr)
+
+		var hurls []*url.URL
+
+		for _, ma := range addrInfo.Addrs {
+			hurl, err := maurl.ToURL(ma)
+			if err != nil {
+				return xerrors.Errorf("failed to convert multiaddr %s to URL: %w", ma, err)
+			}
+			if hurl.Scheme == "ws" {
+				hurl.Scheme = "http"
+			}
+			if hurl.Scheme == "wss" {
+				hurl.Scheme = "https"
+			}
+			log.Debugw("converted multiaddr to URL", "url", hurl, "multiaddr", ma.String())
+			hurls = append(hurls, hurl)
+		}
+
+		purl := hurls[0]
+		log.Debugw("using first URL", "url", purl)
+		tu := mk20.StartUpload{
+			ChunkSize: chunkSize,
+		}
+		b, err := json.Marshal(tu)
+		if err != nil {
+			return err
+		}
+		log.Debugw("request body", "body", string(b))
+		client, err := http.NewRequest("POST", purl.String()+"/market/mk20/upload/"+dealid.String(), bytes.NewBuffer(b))
+		if err != nil {
+			return xerrors.Errorf("failed to upload start create request: %w", err)
+		}
+		client.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(client)
+		if err != nil {
+			return xerrors.Errorf("failed to send request: %w", err)
+		}
+
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusTooManyRequests {
+			respBody, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return xerrors.Errorf("failed to read response body: %w", err)
+			}
+			return xerrors.Errorf("failed to send request: %d, %s", resp.StatusCode, string(respBody))
+		}
+
+		x, err := mmap.Open(f.Name())
+		if err != nil {
+			return xerrors.Errorf("failed to open file: %w", err)
+		}
+		defer x.Close()
+
+		for {
+			resp, err = http.Get(purl.String() + "/market/mk20/upload/" + dealid.String())
+			if err != nil {
+				return xerrors.Errorf("failed to send request: %w", err)
+			}
+
+			respBody, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return xerrors.Errorf("failed to read response body: %w", err)
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				return xerrors.Errorf("failed to send request: %d, %s", resp.StatusCode, string(respBody))
+			}
+
+			ustatus := mk20.UploadStatus{}
+			err = json.Unmarshal(respBody, &ustatus)
+			if err != nil {
+				return xerrors.Errorf("failed to unmarshal response body: %w", err)
+			}
+
+			log.Debugw("upload status", "status", ustatus)
+
+			if ustatus.TotalChunks != numChunks {
+				return xerrors.Errorf("expected %d chunks, got %d", numChunks, ustatus.TotalChunks)
+			}
+
+			if ustatus.Missing == 0 {
+				break
+			}
+
+			log.Warnw("missing chunks", "missing", ustatus.Missing)
+			// Try to upload missing chunks
+			for _, c := range ustatus.MissingChunks {
+				start := int64(c-1) * chunkSize
+				end := start + chunkSize
+				if end > size {
+					end = size
+				}
+				log.Debugw("uploading chunk", "start", start, "end", end)
+				buf := make([]byte, end-start)
+				_, err := x.ReadAt(buf, start)
+				if err != nil {
+					return xerrors.Errorf("failed to read chunk: %w", err)
+				}
+				req, err := http.NewRequest(http.MethodPut, purl.String()+"/market/mk20/upload/"+dealid.String()+"/"+fmt.Sprintf("%d", c), bytes.NewBuffer(buf))
+				if err != nil {
+					return xerrors.Errorf("failed to create put request: %w", err)
+				}
+				req.Header.Set("Content-Type", "application/octet-stream")
+				req.Header.Set("Content-Length", fmt.Sprintf("%d", end-start))
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					return xerrors.Errorf("failed to send put request: %w", err)
+				}
+				if resp.StatusCode != http.StatusOK {
+					respBody, err := io.ReadAll(resp.Body)
+					if err != nil {
+						return xerrors.Errorf("failed to read response body: %w", err)
+					}
+					return xerrors.Errorf("failed to send request: %d, %s", resp.StatusCode, string(respBody))
+				}
+			}
+		}
+
+		log.Infow("upload complete")
+
+		//Finalize the upload
+		resp, err = http.Post(purl.String()+"/market/mk20/upload/finalize/"+dealid.String(), "application/json", bytes.NewReader([]byte{}))
+		if err != nil {
+			return xerrors.Errorf("failed to send request: %w", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			respBody, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return xerrors.Errorf("failed to read response body: %w", err)
+			}
+			return xerrors.Errorf("failed to send request: %d, %s", resp.StatusCode, string(respBody))
+		}
+
 		return nil
 	},
 }

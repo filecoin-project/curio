@@ -65,6 +65,7 @@ func (handler *FetchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	mux.HandleFunc("/remote/{type}/{id}/{spt}/allocated/{offset}/{size}", handler.remoteGetAllocated).Methods("GET")
 	mux.HandleFunc("/remote/{type}/{id}", handler.remoteGetSector).Methods("GET")
 	mux.HandleFunc("/remote/{type}/{id}", handler.remoteDeleteSector).Methods("DELETE")
+	mux.HandleFunc("/remote/stash/{id}", handler.remoteGetSector).Methods("POST")
 
 	mux.ServeHTTP(w, r)
 }

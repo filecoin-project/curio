@@ -4,9 +4,11 @@ set -e
 ci="\e[3m"
 cn="\e[0m"
 
-offline="${1:=false}"
-chunks="${2:-51200}"
-links="${3:-100}"
+
+put="${1:-false}"
+offline="${2:-false}"
+chunks="${3:-51200}"
+links="${4:-100}"
 
 printf "${ci}sptool --actor t01000 toolbox mk12-client generate-rand-car -c=$chunks -l=$links -s=5120000 /var/lib/curio-client/data/ | awk '{print $NF}'\n\n${cn}"
 FILE=`sptool --actor t01000 toolbox mk12-client generate-rand-car -c=$chunks -l=$links -s=5120000 /var/lib/curio-client/data/ | awk '{print $NF}'`
@@ -16,22 +18,36 @@ mv $FILE /var/lib/curio-client/data/$COMMP_CID
 
 miner_actor=$(lotus state list-miners | grep -v t01000)
 
-if [ "$offline" == "true" ]; then
-
+if [ "$put" == "true" ]; then
   ###################################################################################
-  printf "${ci}sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor \
-  --commp=$COMMP_CID --car-size=$CAR --piece-size=$PIECE \
-  --contract-address 0xtest --contract-verify-method test\n\n${cn}"
+    printf "${ci}sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor \
+    --commp=$COMMP_CID --car-size=$CAR --piece-size=$PIECE \
+    --contract-address 0xtest --contract-verify-method test --put\n\n${cn}"
 
-  sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor --commp=$COMMP_CID --car-size=$CAR --piece-size=$PIECE --contract-address 0xtest --contract-verify-method test
+    sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor --commp=$COMMP_CID --car-size=$CAR --piece-size=$PIECE --contract-address 0xtest --contract-verify-method test --put
 
 else
-  ###################################################################################
-  printf "${ci}sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor \
-  --http-url=http://piece-server:12320/pieces?id=$COMMP_CID \
-  --commp=$COMMP_CID --car-size=$CAR --piece-size=$PIECE \
-  --contract-address 0xtest --contract-verify-method test\n\n${cn}"
 
-  sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor --http-url=http://piece-server:12320/pieces?id=$COMMP_CID --commp=$COMMP_CID --car-size=$CAR --piece-size=$PIECE --contract-address 0xtest --contract-verify-method test
+  if [ "$offline" == "true" ]; then
+
+    ###################################################################################
+    printf "${ci}sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor \
+    --commp=$COMMP_CID --car-size=$CAR --piece-size=$PIECE \
+    --contract-address 0xtest --contract-verify-method test\n\n${cn}"
+
+    sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor --commp=$COMMP_CID --car-size=$CAR --piece-size=$PIECE --contract-address 0xtest --contract-verify-method test
+
+  else
+    ###################################################################################
+    printf "${ci}sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor \
+    --http-url=http://piece-server:12320/pieces?id=$COMMP_CID \
+    --commp=$COMMP_CID --car-size=$CAR --piece-size=$PIECE \
+    --contract-address 0xtest --contract-verify-method test\n\n${cn}"
+
+    sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor --http-url=http://piece-server:12320/pieces?id=$COMMP_CID --commp=$COMMP_CID --car-size=$CAR --piece-size=$PIECE --contract-address 0xtest --contract-verify-method test
+
+  fi
 
 fi
+
+

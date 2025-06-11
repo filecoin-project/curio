@@ -699,10 +699,20 @@ description: The default curio configuration
       # type: bool
       #DenyUnknownClients = false
 
-      # MaxParallelUploads defines the maximum number of upload operations that can run in parallel. (Default: 16)
+      # MaxParallelChunkUploads defines the maximum number of upload operations that can run in parallel. (Default: 512)
       #
       # type: int
-      #MaxParallelUploads = 16
+      #MaxParallelChunkUploads = 512
+
+      # MinimumChunkSize defines the smallest size of a chunk allowed for processing, expressed in bytes. Must be a power of 2. (Default: 16 MiB)
+      #
+      # type: int64
+      #MinimumChunkSize = 16777216
+
+      # MaximumChunkSize defines the maximum size of a chunk allowed for processing, expressed in bytes. Must be a power of 2. (Default: 256 MiB)
+      #
+      # type: int64
+      #MaximumChunkSize = 268435456
 
     # IPNI configuration for ipni-provider
     #

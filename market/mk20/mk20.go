@@ -44,11 +44,20 @@ type MK20 struct {
 	sm                 map[address.Address]abi.SectorSize
 	as                 *multictladdr.MultiAddressSelector
 	stor               paths.StashStore
-	maxParallelUploads *atomic.Int32
+	maxParallelUploads *atomic.Int64
 }
 
 func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorIndex, mapi MK20API, ethClient *ethclient.Client, cfg *config.CurioConfig, as *multictladdr.MultiAddressSelector, stor paths.StashStore) (*MK20, error) {
 	ctx := context.Background()
+
+	// Ensure MinChunk size and max chunkSize is a power of 2
+	if cfg.Market.StorageMarketConfig.MK20.MinimumChunkSize&(cfg.Market.StorageMarketConfig.MK20.MinimumChunkSize-1) != 0 {
+		return nil, xerrors.Errorf("MinimumChunkSize must be a power of 2")
+	}
+
+	if cfg.Market.StorageMarketConfig.MK20.MaximumChunkSize&(cfg.Market.StorageMarketConfig.MK20.MaximumChunkSize-1) != 0 {
+		return nil, xerrors.Errorf("MaximumChunkSize must be a power of 2")
+	}
 
 	sm := make(map[address.Address]abi.SectorSize)
 
@@ -72,7 +81,7 @@ func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorI
 		sm:                 sm,
 		as:                 as,
 		stor:               stor,
-		maxParallelUploads: new(atomic.Int32),
+		maxParallelUploads: new(atomic.Int64),
 	}, nil
 }
 

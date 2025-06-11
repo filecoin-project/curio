@@ -1092,10 +1092,22 @@ When the cumulative size of all deals in process reaches this number, new deals 
 If True then all deals coming from unknown clients will be rejected. (Default: false)`,
 		},
 		{
-			Name: "MaxParallelUploads",
+			Name: "MaxParallelChunkUploads",
 			Type: "int",
 
-			Comment: `MaxParallelUploads defines the maximum number of upload operations that can run in parallel. (Default: 16)`,
+			Comment: `MaxParallelChunkUploads defines the maximum number of upload operations that can run in parallel. (Default: 512)`,
+		},
+		{
+			Name: "MinimumChunkSize",
+			Type: "int64",
+
+			Comment: `MinimumChunkSize defines the smallest size of a chunk allowed for processing, expressed in bytes. Must be a power of 2. (Default: 16 MiB)`,
+		},
+		{
+			Name: "MaximumChunkSize",
+			Type: "int64",
+
+			Comment: `MaximumChunkSize defines the maximum size of a chunk allowed for processing, expressed in bytes. Must be a power of 2. (Default: 256 MiB)`,
 		},
 	},
 	"MarketConfig": {

@@ -731,7 +731,7 @@ func missingSectorCheck(al *alerts) {
 		SectorID int64 `db:"sector_num"`
 	}
 
-	err := al.db.Select(al.ctx, &sectors, `SELECT miner_id, sector_num  FROM sector_location WHERE sector_filetype = 2 GROUP BY miner_id, sector_num ORDER BY miner_id, sector_num`)
+	err := al.db.Select(al.ctx, &sectors, `SELECT miner_id, sector_num  FROM sector_location WHERE sector_filetype = ANY(ARRAY[2,8]) GROUP BY miner_id, sector_num ORDER BY miner_id, sector_num`)
 	if err != nil {
 		al.alertMap[Name].err = xerrors.Errorf("getting sealed sectors from database: %w", err)
 		return

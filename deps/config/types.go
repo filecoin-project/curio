@@ -113,7 +113,9 @@ func DefaultCurioConfig() *CurioConfig {
 				MK20: MK20Config{
 					ExpectedPoRepSealDuration: 8 * time.Hour,
 					ExpectedSnapSealDuration:  2 * time.Hour,
-					MaxParallelUploads:        16,
+					MaxParallelChunkUploads:   512,
+					MinimumChunkSize:          16 * 1024 * 1024,  // 16 MiB
+					MaximumChunkSize:          256 * 1024 * 1024, // 256 MiB
 				},
 				IPNI: IPNIConfig{
 					ServiceURL:         []string{"https://cid.contact"},
@@ -910,6 +912,12 @@ type MK20Config struct {
 	// If True then all deals coming from unknown clients will be rejected. (Default: false)
 	DenyUnknownClients bool
 
-	// MaxParallelUploads defines the maximum number of upload operations that can run in parallel. (Default: 16)
-	MaxParallelUploads int
+	// MaxParallelChunkUploads defines the maximum number of upload operations that can run in parallel. (Default: 512)
+	MaxParallelChunkUploads int
+
+	// MinimumChunkSize defines the smallest size of a chunk allowed for processing, expressed in bytes. Must be a power of 2. (Default: 16 MiB)
+	MinimumChunkSize int64
+
+	// MaximumChunkSize defines the maximum size of a chunk allowed for processing, expressed in bytes. Must be a power of 2. (Default: 256 MiB)
+	MaximumChunkSize int64
 }

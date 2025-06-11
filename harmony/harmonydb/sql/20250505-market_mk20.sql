@@ -51,7 +51,7 @@ BEGIN
         indexed = CASE
            WHEN market_piece_metadata.indexed = FALSE THEN EXCLUDED.indexed
            ELSE market_piece_metadata.indexed
-    END;
+         END;
 
     -- Insert into the market_piece_deal table
     INSERT INTO market_piece_deal (
@@ -189,8 +189,7 @@ CREATE TABLE market_mk20_pipeline (
 
 CREATE TABLE market_mk20_pipeline_waiting (
     id TEXT PRIMARY KEY,
-    waiting_for_data BOOLEAN DEFAULT FALSE,
-    start_time TIMESTAMPTZ DEFAULT NULL
+    waiting_for_data BOOLEAN DEFAULT FALSE
 );
 
 CREATE TABLE market_mk20_download_pipeline (
@@ -209,6 +208,17 @@ CREATE TABLE market_mk20_offline_urls (
     headers jsonb NOT NULL DEFAULT '{}',
     raw_size BIGINT NOT NULL,
     PRIMARY KEY (id, piece_cid, piece_size)
+);
+
+CREATE TABLE market_mk20_deal_chunk (
+    id TEXT not null,
+    chunk INT not null,
+    chunk_size BIGINT not null,
+    url TEXT DEFAULT NULL,
+    complete BOOLEAN DEFAULT FALSE,
+    finalize BOOLEAN DEFAULT FALSE,
+    finalize_task_id BIGINT DEFAULT NULL,
+    PRIMARY KEY (id, chunk)
 );
 
 CREATE TABLE market_mk20_products (

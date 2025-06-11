@@ -225,7 +225,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 				return nil, err
 			}
 			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
-			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask)
+			aggregateChunksTask := piece2.NewAggregateChunksTask(db, lstor, stor)
+			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask, aggregateChunksTask)
 		}
 	}
 

@@ -585,7 +585,7 @@ func (a *WebRPC) AddMarketContract(ctx context.Context, contract, abiString stri
 		return fmt.Errorf("invalid abi: %w", err)
 	}
 
-	if ethabi.Methods == nil || len(ethabi.Methods) == 0 {
+	if len(ethabi.Methods) == 0 {
 		return fmt.Errorf("invalid abi: no methods")
 	}
 
@@ -621,7 +621,7 @@ func (a *WebRPC) UpdateMarketContract(ctx context.Context, contract, abiString s
 		return fmt.Errorf("invalid abi: %w", err)
 	}
 
-	if ethabi.Methods == nil || len(ethabi.Methods) == 0 {
+	if len(ethabi.Methods) == 0 {
 		return fmt.Errorf("invalid abi: no methods")
 	}
 
