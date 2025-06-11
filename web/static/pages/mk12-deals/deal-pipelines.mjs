@@ -40,11 +40,11 @@ class DealPipelines extends LitElement {
     async loadData() {
         try {
             const params = [this.limit, this.offset];
-            const deals = await RPCCall('GetDealPipelines', params);
+            const deals = await RPCCall('GetMK12DealPipelines', params);
             this.deals = deals;
 
             // Load failed tasks data
-            const failed = await RPCCall('PipelineFailedTasksMarket', []);
+            const failed = await RPCCall('MK12PipelineFailedTasks', []);
             this.failedTasks = failed || {};
 
             this.requestUpdate();
@@ -135,7 +135,7 @@ class DealPipelines extends LitElement {
         this.requestUpdate();
 
         try {
-            await RPCCall('BulkRestartFailedMarketTasks', [type]);
+            await RPCCall('MK12BulkRestartFailedMarketTasks', [type]);
             await this.loadData();
         } catch (err) {
             console.error('Failed to restart tasks:', err);
@@ -152,7 +152,7 @@ class DealPipelines extends LitElement {
         this.requestUpdate();
 
         try {
-            await RPCCall('BulkRemoveFailedMarketPipelines', [type]);
+            await RPCCall('MK12BulkRemoveFailedMarketPipelines', [type]);
             await this.loadData();
         } catch (err) {
             console.error('Failed to remove pipelines:', err);
@@ -224,7 +224,7 @@ class DealPipelines extends LitElement {
                                 </td>
                                 <td>${deal.miner}</td>
                                 <td>
-                                    <a href="/pages/piece/?id=${deal.piece_cid}">${this.formatPieceCid(deal.piece_cid)}</a>
+                                    <a href="/pages/piece/?id=${deal.piece_cid_v2}">${this.formatPieceCid(deal.piece_cid)}</a>
                                 </td>
                                 <td>${this.formatBytes(deal.piece_size)}</td>
                                 <td>${this.getDealStatus(deal)}</td>
