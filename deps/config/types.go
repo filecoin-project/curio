@@ -822,14 +822,25 @@ type HTTPConfig struct {
 	// EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.
 	EnableCORS bool
 
-	// CSP sets the Content Security Policy. Valid values: "off", "self", "inline" (Default: "inline")
+	// CSP sets the Content Security Policy for content served via the /piece/ retrieval endpoint.
+	// Valid values: "off", "self", "inline" (Default: "inline")
 	// 
-	// WARNING: Changing this setting can break the Curio web interface and potentially expose
-	// security vulnerabilities. Only modify if you understand the security implications.
+	// Since storage providers serve user-uploaded content on their domain, CSP helps control
+	// what these files can do when rendered in browsers. Choose based on your use case:
 	//
-	// - "off": Disables CSP entirely (NOT RECOMMENDED - leaves system vulnerable)
-	// - "self": Strict CSP allowing only same-origin resources (may break functionality) 
-	// - "inline": Default setting allowing inline scripts/styles (balanced security/functionality)
+	// - "off": No CSP headers. Content can load any external resources and execute any scripts.
+	//          Use only if you fully trust all stored content or need maximum compatibility.
+	//
+	// - "self": Restricts content to only load resources from your domain. Prevents external
+	//          resource loading but allows stored HTML/JS/CSS to interact with each other.
+	//          Good for semi-trusted content that needs internal functionality.
+	//
+	// - "inline": (Default) Allows inline scripts/styles and same-origin resources. Provides
+	//            basic protection while maintaining compatibility with most web content.
+	//            Suitable for general-purpose content hosting.
+	//
+	// Note: Stricter policies may prevent some HTML content from displaying as intended.
+	// Consider the trust level of your users and whether you need to support interactive content.
 	CSP string
 
 	// CompressionLevels hold the compression level for various compression methods supported by the server
