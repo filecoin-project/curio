@@ -64,7 +64,6 @@ func NewPDPService(db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client
 
 // Routes registers the HTTP routes with the provided router
 func Routes(r *chi.Mux, p *PDPService) {
-
 	// Routes for proof sets
 	r.Route(path.Join(PDPRoutePath, "/proof-sets"), func(r chi.Router) {
 		// POST /pdp/proof-sets - Create a new proof set
@@ -85,6 +84,9 @@ func Routes(r *chi.Mux, p *PDPService) {
 			r.Route("/roots", func(r chi.Router) {
 				// POST /pdp/proof-sets/{set-id}/roots
 				r.Post("/", p.handleAddRootToProofSet)
+
+				// GET /pdp/proof-sets/{set-id}/roots/added/{txHash}
+				r.Get("/added/{txHash}", p.handleGetRootAdditionStatus)
 
 				// Individual root routes
 				r.Route("/{rootID}", func(r chi.Router) {
@@ -167,7 +169,7 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 	}
 
 	// Decode extraData if provided
-	var extraDataBytes = []byte{}
+	extraDataBytes := []byte{}
 	if reqBody.ExtraData != nil {
 		extraDataHexStr := *reqBody.ExtraData
 		decodedBytes, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
@@ -557,7 +559,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 
 	var proofSetService string
 	err = p.db.QueryRow(ctx, `
-			SELECT service 
+			SELECT service
 			FROM pdp_proof_sets
 			WHERE id = $1
 		`, proofSetIDUint64).Scan(&proofSetService)
@@ -608,7 +610,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	var extraDataBytes = []byte{}
+	extraDataBytes := []byte{}
 	if payload.ExtraData != nil {
 		extraDataHexStr := *payload.ExtraData
 		decodedBytes, err := hex.DecodeString(strings.TrimPrefix(extraDataHexStr, "0x"))
@@ -791,7 +793,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 
 		// Get raw size by summing up the sizes of subroots
 		var totalSize uint64 = 0
-		var prevSubrootSize = subrootInfoMap[addRootReq.Subroots[0].SubrootCID].PieceInfo.Size
+		prevSubrootSize := subrootInfoMap[addRootReq.Subroots[0].SubrootCID].PieceInfo.Size
 		for i, subrootEntry := range addRootReq.Subroots {
 			subrootInfo := subrootInfoMap[subrootEntry.SubrootCID]
 			if subrootInfo.PieceInfo.Size > prevSubrootSize {
@@ -913,7 +915,187 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Step 10: Respond with 201 Created
+	w.Header().Set("Location", path.Join("/pdp/proof-sets", proofSetIDStr, "roots/added", txHash.Hex()))
 	w.WriteHeader(http.StatusCreated)
+}
+
+// handleGetRootAdditionStatus handles GET /pdp/proof-sets/{proofSetID}/roots/added/{txHash}
+func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Step 1: Verify that the request is authorized using ECDSA JWT
+	serviceLabel, err := p.verifyJWTToken(r)
+	if err != nil {
+		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	// Step 2: Extract parameters from the URL
+	proofSetIDStr := chi.URLParam(r, "proofSetID")
+	txHash := chi.URLParam(r, "txHash")
+
+	if proofSetIDStr == "" {
+		http.Error(w, "Missing proof set ID in URL", http.StatusBadRequest)
+		return
+	}
+	if txHash == "" {
+		http.Error(w, "Missing transaction hash in URL", http.StatusBadRequest)
+		return
+	}
+
+	// Convert proofSetID to uint64
+	proofSetID, err := strconv.ParseUint(proofSetIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid proof set ID format", http.StatusBadRequest)
+		return
+	}
+
+	// Clean txHash (ensure it starts with '0x' and is lowercase)
+	if !strings.HasPrefix(txHash, "0x") {
+		txHash = "0x" + txHash
+	}
+	txHash = strings.ToLower(txHash)
+
+	// Validate txHash is a valid hash
+	if len(txHash) != 66 { // '0x' + 64 hex chars
+		http.Error(w, "Invalid txHash length", http.StatusBadRequest)
+		return
+	}
+	if _, err := hex.DecodeString(txHash[2:]); err != nil {
+		http.Error(w, "Invalid txHash format", http.StatusBadRequest)
+		return
+	}
+
+	// Step 3: Verify proof set ownership
+	var proofSetService string
+	err = p.db.QueryRow(ctx, `
+		SELECT service
+		FROM pdp_proof_sets
+		WHERE id = $1
+	`, proofSetID).Scan(&proofSetService)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			http.Error(w, "Proof set not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Failed to retrieve proof set: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if proofSetService != serviceLabel {
+		// Same response as not found to avoid leaking information
+		http.Error(w, "Proof set not found", http.StatusNotFound)
+		return
+	}
+
+	// Step 4: Query pdp_proofset_root_adds for this transaction
+	type RootAddInfo struct {
+		Root            string `db:"root"`
+		AddMessageIndex int    `db:"add_message_index"`
+		Subroot         string `db:"subroot"`
+		SubrootOffset   int64  `db:"subroot_offset"`
+		SubrootSize     int64  `db:"subroot_size"`
+		AddMessageOK    *bool  `db:"add_message_ok"`
+	}
+
+	var rootAdds []RootAddInfo
+	err = p.db.Select(ctx, &rootAdds, `
+		SELECT root, add_message_index, subroot, subroot_offset,
+		       subroot_size, add_message_ok
+		FROM pdp_proofset_root_adds
+		WHERE proofset = $1 AND add_message_hash = $2
+		ORDER BY add_message_index, subroot_offset
+	`, proofSetID, txHash)
+	if err != nil {
+		http.Error(w, "Failed to query root additions: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if len(rootAdds) == 0 {
+		http.Error(w, "Root addition not found for given transaction", http.StatusNotFound)
+		return
+	}
+
+	// Step 5: Get transaction status from message_waits_eth
+	var txStatus string
+	err = p.db.QueryRow(ctx, `
+		SELECT tx_status FROM message_waits_eth WHERE signed_tx_hash = $1
+	`, txHash).Scan(&txStatus)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Transaction status not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Failed to query transaction status: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Step 6: If transaction is confirmed and successful, get assigned root IDs
+	var confirmedRootIds []uint64
+	if txStatus == "confirmed" && len(rootAdds) > 0 && rootAdds[0].AddMessageOK != nil && *rootAdds[0].AddMessageOK {
+		// Get unique roots from the add transaction
+		uniqueRoots := make(map[string]bool)
+		for _, ra := range rootAdds {
+			uniqueRoots[ra.Root] = true
+		}
+
+		// Query pdp_proofset_roots for confirmed roots with their IDs
+		rootCids := make([]string, 0, len(uniqueRoots))
+		for root := range uniqueRoots {
+			rootCids = append(rootCids, root)
+		}
+
+		type ConfirmedRoot struct {
+			RootID uint64 `db:"root_id"`
+			Root   string `db:"root"`
+		}
+
+		var confirmedRoots []ConfirmedRoot
+		err = p.db.Select(ctx, &confirmedRoots, `
+			SELECT DISTINCT root_id, root
+			FROM pdp_proofset_roots
+			WHERE proofset = $1 AND root = ANY($2)
+			ORDER BY root_id
+		`, proofSetID, rootCids)
+		if err != nil {
+			log.Warnf("Failed to query confirmed roots: %v", err)
+			// Don't fail the request, just log the warning
+		} else {
+			// Extract just the root IDs
+			for _, cr := range confirmedRoots {
+				confirmedRootIds = append(confirmedRootIds, cr.RootID)
+			}
+		}
+	}
+
+	// Step 7: Build and send response
+	// Count unique roots for response
+	uniqueRootMap := make(map[string]bool)
+	for _, ra := range rootAdds {
+		uniqueRootMap[ra.Root] = true
+	}
+
+	response := struct {
+		TxHash           string   `json:"txHash"`
+		TxStatus         string   `json:"txStatus"`
+		ProofSetId       uint64   `json:"proofSetId"`
+		RootCount        int      `json:"rootCount"`
+		AddMessageOK     *bool    `json:"addMessageOk"`
+		ConfirmedRootIds []uint64 `json:"confirmedRootIds,omitempty"`
+	}{
+		TxHash:           txHash,
+		TxStatus:         txStatus,
+		ProofSetId:       proofSetID,
+		RootCount:        len(uniqueRootMap),
+		AddMessageOK:     rootAdds[0].AddMessageOK,
+		ConfirmedRootIds: confirmedRootIds,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Request) {
@@ -952,7 +1134,7 @@ func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Req
 	// check if the proofset belongs to the service in pdp_proof_sets
 	var proofSetService string
 	err = p.db.QueryRow(ctx, `
-			SELECT service 
+			SELECT service
 			FROM pdp_proof_sets
 			WHERE id = $1
 		`, proofSetID).Scan(&proofSetService)
@@ -1028,7 +1210,6 @@ func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Req
 
 		return true, nil
 	}, harmonydb.OptionRetry())
-
 	if err != nil {
 		http.Error(w, "Failed to schedule delete root: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -1036,54 +1217,108 @@ func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Req
 
 	// Return 204 No Content on successful deletion
 	w.WriteHeader(http.StatusNoContent)
-
 }
 
 func (p *PDPService) handleGetProofSetRoot(w http.ResponseWriter, r *http.Request) {
-	// Spec snippet:
-	// ### GET /proof-sets/{set id}/roots/{root id}
-	// Response Body:
-	// {
-	//   "rootId": {root ID},
-	//   "rootCid": "bafy....root",
-	//   "subroots": [
-	//     {
-	//       "subrootCid": "bafy...subroot",
-	//       "subrootOffset": 0,
-	//       "pieceCid": "bafy...piece1"
-	//     },
-	//     //...
-	//   ]
-	// }
+	ctx := r.Context()
 
-	/*	proofSetIDStr := chi.URLParam(r, "proofSetID")
-		proofSetID, err := strconv.ParseInt(proofSetIDStr, 10, 64)
-		if err != nil {
-			http.Error(w, "Invalid proof set ID", http.StatusBadRequest)
+	// Step 1: Verify that the request is authorized using ECDSA JWT
+	serviceLabel, err := p.verifyJWTToken(r)
+	if err != nil {
+		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	// Step 2: Extract and validate parameters
+	proofSetIDStr := chi.URLParam(r, "proofSetID")
+	rootIDStr := chi.URLParam(r, "rootID")
+
+	if proofSetIDStr == "" {
+		http.Error(w, "Missing proof set ID in URL", http.StatusBadRequest)
+		return
+	}
+	if rootIDStr == "" {
+		http.Error(w, "Missing root ID in URL", http.StatusBadRequest)
+		return
+	}
+
+	proofSetID, err := strconv.ParseUint(proofSetIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid proof set ID format", http.StatusBadRequest)
+		return
+	}
+
+	rootID, err := strconv.ParseUint(rootIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid root ID format", http.StatusBadRequest)
+		return
+	}
+
+	// Step 3: Verify ownership and get root details
+	var rootCID string
+	err = p.db.QueryRow(ctx, `
+		SELECT DISTINCT r.root
+		FROM pdp_proofset_roots r
+		JOIN pdp_proof_sets ps ON ps.id = r.proofset
+		WHERE r.proofset = $1 AND r.root_id = $2 AND ps.service = $3
+	`, proofSetID, rootID, serviceLabel).Scan(&rootCID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Root not found", http.StatusNotFound)
 			return
 		}
-
-		rootIDStr := chi.URLParam(r, "rootID")
-		rootID, err := strconv.ParseInt(rootIDStr, 10, 64)
-		if err != nil {
-			http.Error(w, "Invalid root ID", http.StatusBadRequest)
-			return
-		}*/
-
-	// Retrieve root from proof set in store
-	/*rootDetails, err := p.ProofSetStore.GetProofSetRoot(proofSetID, rootID)
-	if err != nil {
-		http.Error(w, "Root not found", http.StatusNotFound)
+		http.Error(w, "Failed to retrieve root: "+err.Error(), http.StatusInternalServerError)
 		return
-	}*/
+	}
 
-	// Respond with root details
+	// Step 4: Get all subroots for this root
+	type SubrootInfo struct {
+		SubrootCID    string `db:"subroot"`
+		SubrootOffset int64  `db:"subroot_offset"`
+	}
+
+	var subroots []SubrootInfo
+	err = p.db.Select(ctx, &subroots, `
+		SELECT subroot, subroot_offset
+		FROM pdp_proofset_roots
+		WHERE proofset = $1 AND root_id = $2
+		ORDER BY subroot_offset
+	`, proofSetID, rootID)
+	if err != nil {
+		http.Error(w, "Failed to retrieve subroots: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Step 5: Build response according to spec
+	type SubrootResponse struct {
+		SubrootCid    string `json:"subrootCid"`
+		SubrootOffset int64  `json:"subrootOffset"`
+	}
+
+	response := struct {
+		RootId   uint64            `json:"rootId"`
+		RootCid  string            `json:"rootCid"`
+		Subroots []SubrootResponse `json:"subroots"`
+	}{
+		RootId:   rootID,
+		RootCid:  rootCID,
+		Subroots: make([]SubrootResponse, 0, len(subroots)),
+	}
+
+	// Convert database results to response format
+	for _, subroot := range subroots {
+		response.Subroots = append(response.Subroots, SubrootResponse{
+			SubrootCid:    subroot.SubrootCID,
+			SubrootOffset: subroot.SubrootOffset,
+		})
+	}
+
+	// Step 6: Send JSON response
 	w.Header().Set("Content-Type", "application/json")
-	/*err = json.NewEncoder(w).Encode(rootDetails)
-	if err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode response: "+err.Error(), http.StatusInternalServerError)
 		return
-	}*/
+	}
 }
 
 // Data models corresponding to the updated schema
