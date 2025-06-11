@@ -115,7 +115,7 @@ type HttpUrl struct {
 	Headers http.Header `json:"headers"`
 
 	// Priority indicates the order preference for using the URL in requests, with lower values having higher priority.
-	Priority uint64 `json:"priority"`
+	Priority int `json:"priority"`
 
 	// Fallback indicates whether this URL serves as a fallback option when other URLs fail.
 	Fallback bool `json:"fallback"`
@@ -128,7 +128,7 @@ type DataSourceHttpPut struct {
 }
 
 // AggregateType represents an unsigned integer used to define the type of aggregation for data pieces in the system.
-type AggregateType uint64
+type AggregateType int
 
 const (
 

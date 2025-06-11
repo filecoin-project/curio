@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,8 +36,6 @@ import (
 var infoMarkdown []byte
 
 var log = logging.Logger("mk20httphdlr")
-
-const maxPutBodySize int64 = 64 << 30 // 64 GiB
 
 const requestTimeout = 10 * time.Second
 
@@ -66,13 +65,16 @@ func dealRateLimitMiddleware() func(http.Handler) http.Handler {
 func Router(mdh *MK20DealHandler) http.Handler {
 	mux := chi.NewRouter()
 	mux.Use(dealRateLimitMiddleware())
-	mux.Method("POST", "/store", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), requestTimeout, "timeout request"))
-	mux.Method("GET", "/status", http.TimeoutHandler(http.HandlerFunc(mdh.mk20status), requestTimeout, "timeout reading request"))
-	mux.Method("GET", "/contracts", http.TimeoutHandler(http.HandlerFunc(mdh.mk20supportedContracts), requestTimeout, "timeout reading request"))
-	mux.Put("/data", mdh.mk20UploadDealData)
-	mux.Method("GET", "/info", http.TimeoutHandler(http.HandlerFunc(mdh.info), requestTimeout, "timeout reading request"))
-	mux.Method("GET", "/products", http.TimeoutHandler(http.HandlerFunc(mdh.supportedProducts), requestTimeout, "timeout reading request"))
-	mux.Method("GET", "/sources", http.TimeoutHandler(http.HandlerFunc(mdh.supportedDataSources), requestTimeout, "timeout reading request"))
+	mux.Method("POST", "/store", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), requestTimeout, "request timeout"))
+	mux.Method("GET", "/status/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20status), requestTimeout, "request timeout"))
+	mux.Method("GET", "/contracts", http.TimeoutHandler(http.HandlerFunc(mdh.mk20supportedContracts), requestTimeout, "request timeout"))
+	mux.Method("POST", "/upload/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStart), requestTimeout, "request timeout"))
+	mux.Method("GET", "/upload/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStatus), requestTimeout, "request timeout"))
+	mux.Put("/upload/{id}/{chunkNum}", mdh.mk20UploadDealChunks)
+	mux.Method("POST", "/upload/finalize/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20FinalizeUpload), requestTimeout, "request timeout"))
+	mux.Method("GET", "/info", http.TimeoutHandler(http.HandlerFunc(mdh.info), requestTimeout, "request timeout"))
+	mux.Method("GET", "/products", http.TimeoutHandler(http.HandlerFunc(mdh.supportedProducts), requestTimeout, "request timeout"))
+	mux.Method("GET", "/sources", http.TimeoutHandler(http.HandlerFunc(mdh.supportedDataSources), requestTimeout, "request timeout"))
 	return mux
 }
 
@@ -123,8 +125,7 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 
 // mk20status handles HTTP requests to retrieve the status of a deal using its ID, responding with deal status or appropriate error codes.
 func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
-	// Extract id from the URL
-	idStr := r.URL.Query().Get("id")
+	idStr := chi.URLParam(r, "id")
 	if idStr == "" {
 		log.Errorw("missing id in url", "url", r.URL)
 		http.Error(w, "missing id in url", http.StatusBadRequest)
@@ -185,40 +186,6 @@ func (mdh *MK20DealHandler) mk20supportedContracts(w http.ResponseWriter, r *htt
 	if err != nil {
 		log.Errorw("failed to write supported contracts", "err", err)
 	}
-}
-
-// mk20UploadDealData handles uploading deal data to the server using a PUT request with specific validations and streams directly to the logic.
-func (mdh *MK20DealHandler) mk20UploadDealData(w http.ResponseWriter, r *http.Request) {
-	// Extract id from the URL
-	idStr := r.URL.Query().Get("id")
-	if idStr == "" {
-		log.Errorw("missing id in url", "url", r.URL)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	id, err := ulid.Parse(idStr)
-	if err != nil {
-		log.Errorw("invalid id in url", "id", idStr, "err", err)
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	// Check Content-Type
-	ct := r.Header.Get("Content-Type")
-	if ct == "" || !strings.HasPrefix(ct, "application/octet-stream") {
-		http.Error(w, "invalid or missing Content-Type", http.StatusUnsupportedMediaType)
-		return
-	}
-
-	// validate Content-Length
-	if r.ContentLength <= 0 || r.ContentLength > maxPutBodySize {
-		http.Error(w, fmt.Sprintf("invalid Content-Length: %d", r.ContentLength), http.StatusRequestEntityTooLarge)
-		return
-	}
-
-	// Stream directly to execution logic
-	mdh.dm.MK20Handler.HandlePutRequest(id, r.Body, w)
 }
 
 // info serves the contents of the info file as a text/markdown response with HTTP 200 or returns an HTTP 500 on read/write failure.
@@ -373,4 +340,118 @@ func (mdh *MK20DealHandler) supportedDataSources(w http.ResponseWriter, r *http.
 	if err != nil {
 		log.Errorw("failed to write supported sources", "err", err)
 	}
+}
+
+func (mdh *MK20DealHandler) mk20UploadStatus(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	if idStr == "" {
+		log.Errorw("missing id in url", "url", r.URL)
+		http.Error(w, "missing id in url", http.StatusBadRequest)
+		return
+	}
+	id, err := ulid.Parse(idStr)
+	if err != nil {
+		log.Errorw("invalid id in url", "id", idStr, "err", err)
+		http.Error(w, "invalid id in url", http.StatusBadRequest)
+		return
+	}
+	mdh.dm.MK20Handler.HandleUploadStatus(r.Context(), id, w)
+}
+
+func (mdh *MK20DealHandler) mk20UploadDealChunks(w http.ResponseWriter, r *http.Request) {
+	ct := r.Header.Get("Content-Type")
+	if ct != "application/octet-stream" {
+		log.Errorw("invalid content type", "ct", ct)
+		http.Error(w, "invalid content type", http.StatusBadRequest)
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	if idStr == "" {
+		log.Errorw("missing id in url", "url", r.URL)
+		http.Error(w, "missing id in url", http.StatusBadRequest)
+		return
+	}
+	id, err := ulid.Parse(idStr)
+	if err != nil {
+		log.Errorw("invalid id in url", "id", idStr, "err", err)
+		http.Error(w, "invalid id in url", http.StatusBadRequest)
+		return
+	}
+
+	chunk := chi.URLParam(r, "chunkNum")
+	if chunk == "" {
+		log.Errorw("missing chunk number in url", "url", r.URL)
+		http.Error(w, "missing chunk number in url", http.StatusBadRequest)
+		return
+	}
+
+	chunkNum, err := strconv.Atoi(chunk)
+	if err != nil {
+		log.Errorw("invalid chunk number in url", "url", r.URL)
+		http.Error(w, "invalid chunk number in url", http.StatusBadRequest)
+		return
+	}
+
+	mdh.dm.MK20Handler.HandleUploadChunk(id, chunkNum, r.Body, w)
+}
+
+func (mdh *MK20DealHandler) mk20UploadStart(w http.ResponseWriter, r *http.Request) {
+	ct := r.Header.Get("Content-Type")
+	if ct != "application/json" {
+		log.Errorw("invalid content type", "ct", ct)
+		http.Error(w, "invalid content type", http.StatusBadRequest)
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	if idStr == "" {
+		log.Errorw("missing id in url", "url", r.URL)
+		http.Error(w, "missing id in url", http.StatusBadRequest)
+		return
+	}
+
+	id, err := ulid.Parse(idStr)
+	if err != nil {
+		log.Errorw("invalid id in url", "id", idStr, "err", err)
+		http.Error(w, "invalid id in url", http.StatusBadRequest)
+		return
+	}
+
+	reader := io.LimitReader(r.Body, 4*1024*1024)
+	b, err := io.ReadAll(reader)
+	if err != nil {
+		log.Errorw("failed to read request body", "err", err)
+		http.Error(w, "failed to read request body", http.StatusBadRequest)
+		return
+	}
+
+	upload := mk20.StartUpload{}
+	err = json.Unmarshal(b, &upload)
+	if err != nil {
+		log.Errorw("failed to unmarshal request body", "err", err)
+		http.Error(w, "failed to unmarshal request body", http.StatusBadRequest)
+		return
+	}
+
+	mdh.dm.MK20Handler.HandleUploadStart(r.Context(), id, upload.ChunkSize, w)
+
+}
+
+func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	if idStr == "" {
+		log.Errorw("missing id in url", "url", r.URL)
+		http.Error(w, "missing id in url", http.StatusBadRequest)
+		return
+	}
+
+	id, err := ulid.Parse(idStr)
+	if err != nil {
+		log.Errorw("invalid id in url", "id", idStr, "err", err)
+		http.Error(w, "invalid id in url", http.StatusBadRequest)
+		return
+	}
+
+	mdh.dm.MK20Handler.HandleUploadFinalize(id, w)
 }

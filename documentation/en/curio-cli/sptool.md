@@ -902,6 +902,7 @@ COMMANDS:
    init       Initialise curio mk12 client repo
    deal       Make a mk20 deal with Curio
    aggregate  Create a new aggregate from a list of CAR files
+   upload     Upload a file to the storage provider
    help, h    Shows a list of commands or help for one command
 
 OPTIONS:
@@ -961,4 +962,19 @@ OPTIONS:
    --piece-size value               piece size of the aggregate (default: 0)
    --out                            output the aggregate file (default: false)
    --help, -h                       show help
+```
+
+#### sptool toolbox mk20-client upload
+```
+NAME:
+   sptool toolbox mk20-client upload - Upload a file to the storage provider
+
+USAGE:
+   sptool toolbox mk20-client upload [command options]
+
+OPTIONS:
+   --provider value    storage provider on-chain address
+   --deal value        deal id to upload to
+   --chunk-size value  chunk size to be used for the upload (default: "4 MiB")
+   --help, -h          show help
 ```

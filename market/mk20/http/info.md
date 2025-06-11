@@ -225,7 +225,7 @@ HttpUrl represents an HTTP endpoint configuration for fetching piece data.
 |-------|------|-----|-------------|
 | URL | [string](https://pkg.go.dev/builtin#string) | json:"url" | URL specifies the HTTP endpoint where the piece data can be fetched.  |
 | Headers | [http.Header](https://pkg.go.dev/net/http#Header) | json:"headers" | HTTPHeaders represents the HTTP headers associated with the URL.  |
-| Priority | [uint64](https://pkg.go.dev/builtin#uint64) | json:"priority" | Priority indicates the order preference for using the URL in requests, with lower values having higher priority.  |
+| Priority | [int](https://pkg.go.dev/builtin#int) | json:"priority" | Priority indicates the order preference for using the URL in requests, with lower values having higher priority.  |
 | Fallback | [bool](https://pkg.go.dev/builtin#bool) | json:"fallback" | Fallback indicates whether this URL serves as a fallback option when other URLs fail.  |
 
 ### PieceDataFormat
@@ -237,6 +237,14 @@ PieceDataFormat represents various formats in which piece data can be defined, i
 | Car | [*mk20.FormatCar](#formatcar) | json:"car" | Car represents the optional CAR file format, including its metadata and versioning details.  |
 | Aggregate | [*mk20.FormatAggregate](#formataggregate) | json:"aggregate" | Aggregate holds a reference to the aggregated format of piece data.  |
 | Raw | [*mk20.FormatBytes](#formatbytes) | json:"raw" | Raw represents the raw format of the piece data, encapsulated as bytes.  |
+
+### StartUpload
+
+StartUpload represents metadata for initiating an upload operation, containing the chunk size of the data to be uploaded.
+
+| Field | Type | Tag | Description |
+|-------|------|-----|-------------|
+| ChunkSize | [int64](https://pkg.go.dev/builtin#int64) | json:"chunk_size" |  |
 
 ### SupportedContracts
 
@@ -266,6 +274,18 @@ SupportedProducts represents a collection of products supported by the SP.
 
 | Field | Type | Tag | Description |
 |-------|------|-----|-------------|
+
+### UploadStatus
+
+UploadStatus represents the status of a file upload process, including progress and missing chunks.
+
+| Field | Type | Tag | Description |
+|-------|------|-----|-------------|
+| TotalChunks | [int](https://pkg.go.dev/builtin#int) | json:"total_chunks" | TotalChunks represents the total number of chunks required for the upload.  |
+| Uploaded | [int](https://pkg.go.dev/builtin#int) | json:"uploaded" | Uploaded represents the number of chunks successfully uploaded.  |
+| Missing | [int](https://pkg.go.dev/builtin#int) | json:"missing" | Missing represents the number of chunks that are not yet uploaded.  |
+| UploadedChunks | [[]int](https://pkg.go.dev/builtin#int) | json:"uploaded_chunks" | UploadedChunks is a slice containing the indices of successfully uploaded chunks.  |
+| MissingChunks | [[]int](https://pkg.go.dev/builtin#int) | json:"missing_chunks" | MissingChunks is a slice containing the indices of missing chunks.  |
 
 ### Constants for ErrorCode
 
