@@ -38,6 +38,7 @@ const PDPRoutePath = "/pdp"
 
 // PDPService represents the service for managing proof sets and pieces
 type PDPService struct {
+	Auth
 	db      *harmonydb.DB
 	storage paths.StashStore
 
@@ -53,6 +54,7 @@ type PDPServiceNodeApi interface {
 // NewPDPService creates a new instance of PDPService with the provided stores
 func NewPDPService(db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client, fc PDPServiceNodeApi, sn *message.SenderETH) *PDPService {
 	return &PDPService{
+		Auth:    &NullAuth{},
 		db:      db,
 		storage: stor,
 
@@ -115,7 +117,7 @@ func Routes(r *chi.Mux, p *PDPService) {
 
 func (p *PDPService) handlePing(w http.ResponseWriter, r *http.Request) {
 	// Verify that the request is authorized using ECDSA JWT
-	_, err := p.verifyJWTToken(r)
+	_, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
@@ -130,7 +132,7 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 	ctx := r.Context()
 
 	// Step 1: Verify that the request is authorized using ECDSA JWT
-	serviceLabel, err := p.verifyJWTToken(r)
+	serviceLabel, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
@@ -283,7 +285,7 @@ func (p *PDPService) handleGetProofSetCreationStatus(w http.ResponseWriter, r *h
 	ctx := r.Context()
 
 	// Step 1: Verify that the request is authorized using ECDSA JWT
-	serviceLabel, err := p.verifyJWTToken(r)
+	serviceLabel, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
@@ -408,7 +410,7 @@ func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Step 1: Verify that the request is authorized using ECDSA JWT
-	serviceLabel, err := p.verifyJWTToken(r)
+	serviceLabel, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
@@ -533,7 +535,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 	ctx := r.Context()
 
 	// Step 1: Verify that the request is authorized using ECDSA JWT
-	serviceLabel, err := p.verifyJWTToken(r)
+	serviceLabel, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
@@ -919,7 +921,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// Step 1: Verify that the request is authorized using ECDSA JWT
-	serviceLabel, err := p.verifyJWTToken(r)
+	serviceLabel, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return

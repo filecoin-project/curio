@@ -113,7 +113,7 @@ func (ph *PieceHash) maybeStaticCommp() (cid.Cid, bool) {
 
 func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	// Verify that the request is authorized using ECDSA JWT
-	serviceID, err := p.verifyJWTToken(r)
+	serviceID, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
@@ -448,7 +448,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 // query parameters
 func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
 	// Verify that the request is authorized using ECDSA JWT
-	_, err := p.verifyJWTToken(r)
+	_, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
@@ -485,7 +485,7 @@ func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
 	// Verify that a 'parked_pieces' entry exists for the given 'piece_cid'
 	var count int
 	err = p.db.QueryRow(ctx, `
-    SELECT count(*) FROM parked_pieces WHERE piece_cid = $1 AND long_term = TRUE AND complete = TRUE
+    SELECT count(*) FROM pdp_piecerefs WHERE piece_cid = $1
   `, pieceCid.String()).Scan(&count)
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
