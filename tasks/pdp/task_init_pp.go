@@ -136,6 +136,14 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 		return false, xerrors.Errorf("failed to get next challenge window start: %w", err)
 	}
 	init_prove_at = init_prove_at.Add(init_prove_at, challengeWindow.Div(challengeWindow, big.NewInt(2))) // Give a buffer of 1/2 challenge window epochs so that we are still within challenge window
+	
+	// Clean up any scheduled removals before calling nextProvingPeriod
+	// This prevents losing deletions if we missed a proving window
+	err = CleanupScheduledRemovals(ctx, ipp.db, ipp.ethClient, proofSetID)
+	if err != nil {
+		return false, xerrors.Errorf("failed to cleanup scheduled removals: %w", err)
+	}
+
 	// Instantiate the PDPVerifier contract
 	pdpContracts := contract.ContractAddresses()
 	pdpVeriferAddress := pdpContracts.PDPVerifier
