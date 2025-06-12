@@ -225,7 +225,8 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 	}
 
 	// Step 6: Insert into message_waits_eth and pdp_proofset_creates
-	err = p.insertMessageWaitsAndProofsetCreate(ctx, txHash.Hex(), serviceLabel)
+	txHashLower := strings.ToLower(txHash.Hex())
+	err = p.insertMessageWaitsAndProofsetCreate(ctx, txHashLower, serviceLabel)
 	if err != nil {
 		log.Errorf("Failed to insert into message_waits_eth and pdp_proofset_creates: %+v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -233,7 +234,7 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 	}
 
 	// Step 7: Respond with 201 Created and Location header
-	w.Header().Set("Location", path.Join("/pdp/proof-sets/created", txHash.Hex()))
+	w.Header().Set("Location", path.Join("/pdp/proof-sets/created", txHashLower))
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -853,12 +854,14 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Step 9: Insert into message_waits_eth and pdp_proofset_roots
+	// Ensure consistent lowercase transaction hash
+	txHashLower := strings.ToLower(txHash.Hex())
 	_, err = p.db.BeginTransaction(ctx, func(txdb *harmonydb.Tx) (bool, error) {
 		// Insert into message_waits_eth
 		_, err := txdb.Exec(`
             INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
             VALUES ($1, $2)
-        `, txHash.Hex(), "pending")
+        `, txHashLower, "pending")
 		if err != nil {
 			return false, err // Return false to rollback the transaction
 		}
@@ -894,7 +897,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
                 `,
 					proofSetIDUint64,
 					addRootReq.RootCID,
-					txHash.Hex(),
+					txHashLower,
 					addMessageIndex,
 					subrootEntry.SubrootCID,
 					subrootInfo.SubrootOffset,
@@ -911,13 +914,13 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		log.Errorw("Failed to insert into database", "error", err, "txHash", txHash.Hex(), "subroots", subrootInfoMap)
+		log.Errorw("Failed to insert into database", "error", err, "txHash", txHashLower, "subroots", subrootInfoMap)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	// Step 10: Respond with 201 Created
-	w.Header().Set("Location", path.Join("/pdp/proof-sets", proofSetIDStr, "roots/added", txHash.Hex()))
+	w.Header().Set("Location", path.Join("/pdp/proof-sets", proofSetIDStr, "roots/added", txHashLower))
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -1200,12 +1203,13 @@ func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Req
 	}
 
 	// Schedule deletion of the root from the proof set using a transaction
+	txHashLower := strings.ToLower(txHash.Hex())
 	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// Insert into message_waits_eth
 		_, err := tx.Exec(`
 			INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
 			VALUES ($1, $2)
-		`, txHash.Hex(), "pending")
+		`, txHashLower, "pending")
 		if err != nil {
 			return false, err
 		}
