@@ -1,6 +1,7 @@
 package retrieval
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -16,7 +17,6 @@ import (
 
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/market/retrieval/remoteblockstore"
-	"github.com/filecoin-project/curio/pdp"
 )
 
 // For data served by the endpoints in the HTTP server that never changes
@@ -44,8 +44,8 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 		log.Errorf("parsing piece CID '%s': %s", pieceCidStr, err.Error())
 
 		// Record PDP retrieval failure if this was a PDP piece request
-		if pdp.IsPDPPiece(ctx, rp.db, pieceCidStr) {
-			pdp.RecordPDPPieceRetrieval(ctx, r, pieceCidStr, "invalid_cid")
+		if rp.isPDPPiece(ctx, pieceCidStr) {
+			remoteblockstore.RecordPDPPieceRetrieval(ctx, r, pieceCidStr, "invalid_cid")
 		}
 
 		w.WriteHeader(http.StatusBadRequest)
@@ -54,7 +54,7 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if this is a PDP piece for metrics
-	isPDPPiece := pdp.IsPDPPiece(ctx, rp.db, pieceCid.String())
+	isPDPPiece := rp.isPDPPiece(ctx, pieceCid.String())
 
 	// Get a reader over the piece
 	reader, size, err := rp.cpr.GetSharedPieceReader(ctx, pieceCid)
@@ -64,9 +64,9 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 		// Record PDP retrieval failure if this is a PDP piece
 		if isPDPPiece {
 			if errors.Is(err, cachedreader.NoDealErr) {
-				pdp.RecordPDPPieceRetrieval(ctx, r, pieceCid.String(), "not_found")
+				remoteblockstore.RecordPDPPieceRetrieval(ctx, r, pieceCid.String(), "not_found")
 			} else {
-				pdp.RecordPDPPieceRetrieval(ctx, r, pieceCid.String(), "server_error")
+				remoteblockstore.RecordPDPPieceRetrieval(ctx, r, pieceCid.String(), "server_error")
 			}
 		}
 
@@ -91,7 +91,7 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 
 		// Record PDP retrieval failure if this is a PDP piece
 		if isPDPPiece {
-			pdp.RecordPDPPieceRetrieval(ctx, r, pieceCid.String(), "seek_error")
+			remoteblockstore.RecordPDPPieceRetrieval(ctx, r, pieceCid.String(), "seek_error")
 		}
 
 		w.WriteHeader(http.StatusInternalServerError)
@@ -113,8 +113,8 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 
 	// Record PDP metrics if this is a PDP piece
 	if isPDPPiece {
-		pdp.RecordPDPPieceRetrieval(ctx, r, pieceCid.String(), "success")
-		pdp.RecordPDPPieceAccess(ctx, r, pieceCid.String(), int64(size), ttfbMs)
+		remoteblockstore.RecordPDPPieceRetrieval(ctx, r, pieceCid.String(), "success")
+		remoteblockstore.RecordPDPPieceAccess(ctx, r, pieceCid.String(), int64(size), ttfbMs)
 	}
 
 	stats.Record(ctx, remoteblockstore.HttpPieceByCid200ResponseCount.M(1))
@@ -152,4 +152,16 @@ func serveContent(res http.ResponseWriter, req *http.Request, size abi.UnpaddedP
 	// Send the content
 	res.Header().Set("Content-Length", fmt.Sprintf("%d", size))
 	http.ServeContent(res, req, "", lastModified, content)
+}
+
+// isPDPPiece checks if a piece CID corresponds to a PDP piece by checking the database
+func (rp *Provider) isPDPPiece(ctx context.Context, pieceCID string) bool {
+	var count int
+	err := rp.db.QueryRow(ctx, `
+		SELECT 1 FROM pdp_piecerefs 
+		WHERE piece_cid = $1
+		LIMIT 1
+	`, pieceCID).Scan(&count)
+
+	return err == nil && count == 1
 }
