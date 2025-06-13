@@ -999,12 +999,13 @@ func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.
 		SubrootOffset   int64  `db:"subroot_offset"`
 		SubrootSize     int64  `db:"subroot_size"`
 		AddMessageOK    *bool  `db:"add_message_ok"`
+		RootsAdded      bool   `db:"roots_added"`
 	}
 
 	var rootAdds []RootAddInfo
 	err = p.db.Select(ctx, &rootAdds, `
 		SELECT root, add_message_index, subroot, subroot_offset,
-		       subroot_size, add_message_ok
+		       subroot_size, add_message_ok, roots_added
 		FROM pdp_proofset_root_adds
 		WHERE proofset = $1 AND add_message_hash = $2
 		ORDER BY add_message_index, subroot_offset
@@ -1078,12 +1079,22 @@ func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.
 		uniqueRootMap[ra.Root] = true
 	}
 
+	// Check if all roots have been processed
+	allRootsProcessed := true
+	for _, ra := range rootAdds {
+		if !ra.RootsAdded {
+			allRootsProcessed = false
+			break
+		}
+	}
+
 	response := struct {
 		TxHash           string   `json:"txHash"`
 		TxStatus         string   `json:"txStatus"`
 		ProofSetId       uint64   `json:"proofSetId"`
 		RootCount        int      `json:"rootCount"`
 		AddMessageOK     *bool    `json:"addMessageOk"`
+		RootsAdded       bool     `json:"rootsAdded"`
 		ConfirmedRootIds []uint64 `json:"confirmedRootIds,omitempty"`
 	}{
 		TxHash:           txHash,
@@ -1091,6 +1102,7 @@ func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.
 		ProofSetId:       proofSetID,
 		RootCount:        len(uniqueRootMap),
 		AddMessageOK:     rootAdds[0].AddMessageOK,
+		RootsAdded:       allRootsProcessed,
 		ConfirmedRootIds: confirmedRootIds,
 	}
 
