@@ -59,7 +59,7 @@ func processPendingProofSetRootAdds(ctx context.Context, db *harmonydb.DB, ethCl
 	err := db.Select(ctx, &rootAdds, `
         SELECT DISTINCT proofset, add_message_hash
         FROM pdp_proofset_root_adds
-        WHERE add_message_ok = TRUE
+        WHERE add_message_ok = TRUE AND roots_added = FALSE
     `)
 	if err != nil {
 		return xerrors.Errorf("failed to select proof set root adds: %w", err)
@@ -210,18 +210,18 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
 			}
 		}
 
-		// Delete from pdp_proofset_root_adds
+		// Mark as processed in pdp_proofset_root_adds (don't delete, for transaction tracking)
 		_, err = tx.Exec(`
-            DELETE FROM pdp_proofset_root_adds
-            WHERE proofset = $1 AND add_message_hash = $2
+            UPDATE pdp_proofset_root_adds
+            SET roots_added = TRUE
+            WHERE proofset = $1 AND add_message_hash = $2 AND roots_added = FALSE
         `, rootAdd.ProofSet, rootAdd.AddMessageHash)
 		if err != nil {
-			return false, fmt.Errorf("failed to delete from pdp_proofset_root_adds: %w", err)
+			return false, fmt.Errorf("failed to update pdp_proofset_root_adds: %w", err)
 		}
 
 		return true, nil
 	})
-
 	if err != nil {
 		return fmt.Errorf("failed to process root additions in DB: %w", err)
 	}
