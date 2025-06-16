@@ -1081,13 +1081,19 @@ func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.
 		uniqueRootMap[ra.Root] = true
 	}
 
-	// Check if all roots have been processed
-	allRootsProcessed := true
-	for _, ra := range rootAdds {
-		if !ra.RootsAdded {
-			allRootsProcessed = false
-			break
+	// Check that all roots have the same RootsAdded value (consistency check)
+	if len(rootAdds) > 0 {
+		firstRootsAdded := rootAdds[0].RootsAdded
+		for _, ra := range rootAdds[1:] {
+			if ra.RootsAdded != firstRootsAdded {
+				http.Error(w, "Inconsistent rootsAdded state for this transaction's roots", http.StatusInternalServerError)
+				return
+			}
 		}
+	}
+	allRootsProcessed := false
+	if len(rootAdds) > 0 {
+		allRootsProcessed = rootAdds[0].RootsAdded
 	}
 
 	response := struct {
