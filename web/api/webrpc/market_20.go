@@ -806,3 +806,41 @@ func (a *WebRPC) ListDataSources(ctx context.Context) (map[string]bool, error) {
 	}
 	return datasourceMap, nil
 }
+
+type UploadStatus struct {
+	ID     string            `json:"id"`
+	Status mk20.UploadStatus `json:"status"`
+}
+
+func (a *WebRPC) ChunkUploadStatus(ctx context.Context, idStr string) (*UploadStatus, error) {
+	id, err := ulid.Parse(idStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid chunk upload id: %w", err)
+	}
+
+	var status mk20.UploadStatus
+
+	err = a.deps.DB.QueryRow(ctx, `SELECT
+								  COUNT(*) AS total,
+								  COUNT(*) FILTER (WHERE complete) AS complete,
+								  COUNT(*) FILTER (WHERE NOT complete) AS missing,
+								  ARRAY_AGG(chunk ORDER BY chunk) FILTER (WHERE complete) AS completed_chunks,
+								  ARRAY_AGG(chunk ORDER BY chunk) FILTER (WHERE NOT complete) AS incomplete_chunks
+								FROM
+								  market_mk20_deal_chunk
+								WHERE
+								  id = $1
+								GROUP BY
+								  id;`, id.String()).Scan(&status.TotalChunks, &status.Uploaded, &status.Missing, &status.UploadedChunks, &status.MissingChunks)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, xerrors.Errorf("failed to get chunk upload status: %w", err)
+		}
+		return nil, nil
+	}
+
+	return &UploadStatus{
+		ID:     idStr,
+		Status: status,
+	}, nil
+}

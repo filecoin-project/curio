@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"runtime"
+	"runtime/debug"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -71,7 +73,7 @@ func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorI
 		}
 	}
 
-	return &MK20{
+	ret := &MK20{
 		miners:             miners,
 		db:                 db,
 		api:                mapi,
@@ -82,10 +84,22 @@ func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorI
 		as:                 as,
 		stor:               stor,
 		maxParallelUploads: new(atomic.Int64),
-	}, nil
+	}
+
+	go ret.MarkChunkComplete(ctx)
+	return ret, nil
 }
 
 func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal) *ProviderDealRejectionInfo {
+	defer func() {
+		if r := recover(); r != nil {
+			trace := make([]byte, 1<<16)
+			n := runtime.Stack(trace, false)
+			log.Errorf("panic occurred: %v\n%s", r, trace[:n])
+			debug.PrintStack()
+		}
+	}()
+
 	// Validate the DataSource
 	code, err := deal.Validate(m.db, &m.cfg.Market.StorageMarketConfig.MK20)
 	if err != nil {

@@ -220,12 +220,12 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	{
 		// Piece handling
 		if cfg.Subsystems.EnableParkPiece {
-			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.ParkPieceMaxTasks)
+			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.ParkPieceMaxTasks)
 			if err != nil {
 				return nil, err
 			}
 			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
-			aggregateChunksTask := piece2.NewAggregateChunksTask(db, lstor, stor)
+			aggregateChunksTask := piece2.NewAggregateChunksTask(db, lstor, stor, must.One(slrLazy.Val()))
 			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask, aggregateChunksTask)
 		}
 	}

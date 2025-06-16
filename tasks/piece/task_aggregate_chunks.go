@@ -5,10 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"time"
 
+	"github.com/filecoin-project/curio/lib/ffi"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
@@ -33,13 +34,15 @@ type AggregateChunksTask struct {
 	db     *harmonydb.DB
 	stor   paths.StashStore
 	remote *paths.Remote
+	sc     *ffi.SealCalls
 }
 
-func NewAggregateChunksTask(db *harmonydb.DB, stor paths.StashStore, remote *paths.Remote) *AggregateChunksTask {
+func NewAggregateChunksTask(db *harmonydb.DB, stor paths.StashStore, remote *paths.Remote, sc *ffi.SealCalls) *AggregateChunksTask {
 	return &AggregateChunksTask{
 		db:     db,
 		stor:   stor,
 		remote: remote,
+		sc:     sc,
 	}
 }
 
@@ -50,7 +53,7 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		ID    string `db:"id"`
 		Chunk int    `db:"chunk"`
 		Size  int64  `db:"chunk_size"`
-		URL   string `db:"url"`
+		RefID int64  `db:"ref_id"`
 	}
 
 	err = a.db.Select(ctx, &chunks, `
@@ -58,7 +61,7 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 										    id, 
 											chunk,
 											chunk_size,
-											url 
+											ref_id 
 										FROM 
 											market_mk20_deal_chunk 
 										WHERE 
@@ -112,21 +115,34 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 	}
 
 	var readers []io.Reader
+	var refIds []int64
 
 	for _, chunk := range chunks {
-		goUrl, err := url.Parse(chunk.URL)
+		// get pieceID
+		var pieceID []struct {
+			PieceID storiface.PieceNumber `db:"piece_id"`
+		}
+		err = a.db.Select(ctx, &pieceID, `SELECT piece_id FROM parked_piece_refs WHERE ref_id = $1`, chunk.RefID)
 		if err != nil {
-			return false, xerrors.Errorf("parsing data URL: %w", err)
+			return false, xerrors.Errorf("getting pieceID: %w", err)
 		}
 
-		upr := dealdata.NewUrlReader(a.remote, goUrl.String(), nil, chunk.Size)
+		if len(pieceID) != 1 {
+			return false, xerrors.Errorf("expected 1 pieceID, got %d", len(pieceID))
+		}
 
-		reader := upr
+		pr, err := a.sc.PieceReader(ctx, pieceID[0].PieceID)
+		if err != nil {
+			return false, xerrors.Errorf("getting piece reader: %w", err)
+		}
+
+		reader := pr
 
 		defer func() {
-			_ = upr.Close()
+			_ = pr.Close()
 		}()
 		readers = append(readers, reader)
+		refIds = append(refIds, chunk.RefID)
 	}
 
 	rd := io.MultiReader(readers...)
@@ -250,6 +266,11 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 			if err != nil {
 				return false, xerrors.Errorf("deleting deal chunks from mk20 deal: %w", err)
 			}
+
+			_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = ANY($1)`, refIds)
+			if err != nil {
+				return false, xerrors.Errorf("deleting parked piece refs: %w", err)
+			}
 		} else {
 			return false, xerrors.Errorf("not implemented for PDP")
 			// TODO: Do what is required for PDP
@@ -280,7 +301,7 @@ func (a *AggregateChunksTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Ram: 4 << 30,
 		},
 		MaxFailures: 3,
-		IAmBored: passcall.Every(30*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
+		IAmBored: passcall.Every(5*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
 			return a.schedule(context.Background(), taskFunc)
 		}),
 	}
@@ -302,7 +323,7 @@ func (a *AggregateChunksTask) schedule(ctx context.Context, taskFunc harmonytask
 												WHERE complete = TRUE
 												  AND finalize = TRUE
 												  AND finalize_task_id IS NULL
-												  AND url IS NOT NULL
+												  AND ref_id IS NOT NULL
 											  )
 											ORDER BY id
 											LIMIT 1;`).Scan(&mid, &count)
@@ -321,7 +342,7 @@ func (a *AggregateChunksTask) schedule(ctx context.Context, taskFunc harmonytask
                                 AND complete = TRUE 
                                 AND finalize = TRUE 
                                 AND finalize_task_id IS NULL
-                                AND url IS NOT NULL`, id, mid)
+                                AND ref_id IS NOT NULL`, id, mid)
 			if err != nil {
 				return false, xerrors.Errorf("updating chunk finalize task: %w", err)
 			}

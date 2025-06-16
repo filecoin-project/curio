@@ -214,7 +214,7 @@ CREATE TABLE market_mk20_deal_chunk (
     id TEXT not null,
     chunk INT not null,
     chunk_size BIGINT not null,
-    url TEXT DEFAULT NULL,
+    ref_id BIGINT DEFAULT NULL,
     complete BOOLEAN DEFAULT FALSE,
     finalize BOOLEAN DEFAULT FALSE,
     finalize_task_id BIGINT DEFAULT NULL,
@@ -304,6 +304,7 @@ BEGIN
     RETURN TRUE;
 END;
 $$ LANGUAGE plpgsql;
+
 
 
 

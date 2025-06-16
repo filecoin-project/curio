@@ -41,8 +41,8 @@ type ParkPieceTask struct {
 	longTerm bool // Indicates if the task is for long-term pieces
 }
 
-func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, max int) (*ParkPieceTask, error) {
-	return newPieceTask(db, sc, nil, max, false)
+func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int) (*ParkPieceTask, error) {
+	return newPieceTask(db, sc, remote, max, false)
 }
 
 func NewStorePieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int) (*ParkPieceTask, error) {

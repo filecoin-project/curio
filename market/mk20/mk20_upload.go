@@ -2,6 +2,7 @@ package mk20
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,9 @@ import (
 	"strings"
 	"time"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	commp "github.com/filecoin-project/go-fil-commp-hashhash"
+	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
@@ -42,9 +46,9 @@ func (m *MK20) HandleUploadStatus(ctx context.Context, id ulid.ULID, w http.Resp
 	err = m.db.QueryRow(ctx, `SELECT
 								  COUNT(*) AS total,
 								  COUNT(*) FILTER (WHERE complete) AS complete,
-								  COUNT(*) FILTER (WHERE NOT complete) AS missing,
+								  COUNT(*) FILTER (WHERE ref_id IS NULL) AS missing,
 								  ARRAY_AGG(chunk ORDER BY chunk) FILTER (WHERE complete) AS completed_chunks,
-								  ARRAY_AGG(chunk ORDER BY chunk) FILTER (WHERE NOT complete) AS incomplete_chunks
+								  ARRAY_AGG(chunk ORDER BY chunk) FILTER (WHERE ref_id IS NULL) AS incomplete_chunks
 								FROM
 								  market_mk20_deal_chunk
 								WHERE
@@ -210,11 +214,12 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 	}
 
 	var chunkDetails []struct {
-		Chunk    int   `db:"chunk"`
-		Size     int64 `db:"chunk_size"`
-		Complete bool  `db:"complete"`
+		Chunk    int           `db:"chunk"`
+		Size     int64         `db:"chunk_size"`
+		Complete bool          `db:"complete"`
+		RefID    sql.NullInt64 `db:"ref_id"`
 	}
-	err := m.db.Select(ctx, &chunkDetails, `SELECT chunk, chunk_size, complete 
+	err := m.db.Select(ctx, &chunkDetails, `SELECT chunk, chunk_size, ref_id, complete 
 								  FROM market_mk20_deal_chunk
 								  WHERE id = $1 AND chunk = $2`, id.String(), chunk)
 	if err != nil {
@@ -238,6 +243,11 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 		return
 	}
 
+	if chunkDetails[0].RefID.Valid {
+		http.Error(w, "chunk already uploaded", http.StatusConflict)
+		return
+	}
+
 	defer func() {
 		m.maxParallelUploads.Add(-1)
 	}()
@@ -247,12 +257,16 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 	chunkSize := chunkDetails[0].Size
 	reader := NewTimeoutReader(data, time.Second*5)
 	m.maxParallelUploads.Add(1)
+	wr := new(commp.Calc)
+
+	failed := true
 
 	// Function to write data into StashStore and calculate commP
 	writeFunc := func(f *os.File) error {
 		limitedReader := io.LimitReader(reader, chunkSize+1) // +1 to detect exceeding the limit
+		writer := io.MultiWriter(f, wr)
 
-		size, err := io.CopyBuffer(f, limitedReader, make([]byte, 4<<20))
+		size, err := io.CopyBuffer(writer, limitedReader, make([]byte, 4<<20))
 		if err != nil {
 			return fmt.Errorf("failed to read and write chunk data: %w", err)
 		}
@@ -286,7 +300,32 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 		}
 	}
 
-	log.Debugw("uploaded chunk", "deal", id, "chunk", chunk, "stashID", stashID.String())
+	defer func() {
+		if failed {
+			err = m.stor.StashRemove(ctx, stashID)
+			if err != nil {
+				log.Errorw("Failed to remove stash file", "Deal", id, "error", err)
+			}
+		}
+	}()
+
+	digest, pieceSize, err := wr.Digest()
+	if err != nil {
+		log.Errorw("failed to calculate commP", "deal", id, "chunk", chunk, "error", err)
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
+
+	pcid, err := commcid.DataCommitmentV1ToCID(digest)
+	if err != nil {
+		log.Errorw("failed to calculate piece CID", "deal", id, "chunk", chunk, "error", err)
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
+
+	pSize := abi.PaddedPieceSize(pieceSize)
+
+	log.Debugw("uploaded chunk to stash store", "deal", id, "chunk", chunk, "stashID", stashID.String())
 
 	stashUrl, err := m.stor.StashURL(stashID)
 	if err != nil {
@@ -298,31 +337,61 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 	stashUrl.Scheme = dealdata.CustoreScheme
 
 	log.Debugw("uploading chunk generated URL", "deal", id, "chunk", chunk, "url", stashUrl.String())
+	comm, err := m.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		var pieceID int64
+		err = tx.QueryRow(`SELECT id FROM parked_pieces 
+          					WHERE piece_cid = $1 
+          					  AND piece_padded_size = $2 
+          					  AND piece_raw_size = $3`, pcid.String(), pSize, chunkSize).Scan(&pieceID)
 
-	n, err := m.db.Exec(ctx, `UPDATE market_mk20_deal_chunk SET complete = TRUE, 
-                                  url = $1 
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				err = tx.QueryRow(`
+							INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
+							VALUES ($1, $2, $3, FALSE)
+							ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
+							RETURNING id`, pcid.String(), int64(pieceSize), chunkSize).Scan(&pieceID)
+				if err != nil {
+					return false, xerrors.Errorf("inserting new parked piece and getting id: %w", err)
+				}
+			} else {
+				return false, xerrors.Errorf("checking existing parked piece: %w", err)
+			}
+		}
+
+		// Add parked_piece_ref
+		var refID int64
+		err = tx.QueryRow(`INSERT INTO parked_piece_refs (piece_id, data_url, long_term)
+        			VALUES ($1, $2, FALSE) RETURNING ref_id`, pieceID, stashUrl.String()).Scan(&refID)
+		if err != nil {
+			return false, xerrors.Errorf("inserting parked piece ref: %w", err)
+		}
+
+		n, err := tx.Exec(`UPDATE market_mk20_deal_chunk SET ref_id = $1 
                               WHERE id = $2 
                                 AND chunk = $3
-                                AND complete = FALSE`, stashUrl.String(), id.String(), chunk)
+                                AND complete = FALSE
+                                AND ref_id IS NULL`, refID, id.String(), chunk)
+		if err != nil {
+			return false, xerrors.Errorf("updating chunk url: %w", err)
+		}
+
+		return n == 1, nil
+	})
+
 	if err != nil {
 		log.Errorw("failed to update chunk", "deal", id, "chunk", chunk, "error", err)
 		http.Error(w, "", http.StatusInternalServerError)
-		err = m.stor.StashRemove(ctx, stashID)
-		if err != nil {
-			log.Errorw("Failed to remove stash file", "Deal", id, "error", err)
-		}
 		return
 	}
 
-	if n == 0 {
-		log.Errorw("failed to update chunk", "deal", id, "chunk", chunk, "error", err)
+	if !comm {
+		log.Errorw("failed to update chunk", "deal", id, "chunk", chunk, "error", "failed to commit transaction")
 		http.Error(w, "", http.StatusInternalServerError)
-		err = m.stor.StashRemove(ctx, stashID)
-		if err != nil {
-			log.Errorw("Failed to remove stash file", "Deal", id, "error", err)
-		}
 		return
 	}
+
+	failed = false
 
 }
 
@@ -359,4 +428,65 @@ func (m *MK20) HandleUploadFinalize(id ulid.ULID, w http.ResponseWriter) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (m *MK20) MarkChunkComplete(ctx context.Context) {
+	ticker := time.NewTicker(time.Second * 3)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			markChunksComplete(ctx, m.db)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func markChunksComplete(ctx context.Context, db *harmonydb.DB) {
+	var chunks []struct {
+		ID        string `db:"id"`
+		Chunk     int    `db:"chunk"`
+		ChunkSize int64  `db:"chunk_size"`
+		Complete  bool   `db:"complete"`
+		RefId     int64  `db:"ref_id"`
+	}
+
+	err := db.Select(ctx, &chunks, `SELECT id, 
+											   chunk, 
+											   chunk_size, 
+											   ref_id, 
+											   complete 
+										FROM market_mk20_deal_chunk 
+										WHERE finalize = FALSE 
+										  AND complete = FALSE 
+										  AND ref_id IS NOT NULL`)
+	if err != nil {
+		log.Errorw("failed to get chunks to mark complete", "error", err)
+		return
+	}
+	for _, chunk := range chunks {
+		var complete bool
+		err := db.QueryRow(ctx, `SELECT p.complete
+									FROM parked_pieces AS p
+									JOIN parked_piece_refs AS r
+									  ON r.piece_id = p.id
+									WHERE r.ref_id = $1`, chunk.RefId).Scan(&complete)
+		if err != nil {
+			log.Errorw("failed to get piece complete status", "id", chunk.ID, "chunk", chunk.Chunk, "error", err)
+			continue
+		}
+		if complete {
+			_, err := db.Exec(ctx, `UPDATE market_mk20_deal_chunk 
+										SET complete = TRUE 
+										WHERE id = $1 
+										  AND chunk = $2
+										  AND ref_id = $3
+										  AND finalize = FALSE`, chunk.ID, chunk.Chunk, chunk.RefId)
+			if err != nil {
+				log.Errorw("failed to mark chunk complete", "id", chunk.ID, "chunk", chunk.Chunk, "error", err)
+				continue
+			}
+		}
+	}
 }

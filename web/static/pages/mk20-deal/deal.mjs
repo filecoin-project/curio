@@ -58,7 +58,7 @@ class DealDetails extends LitElement {
                       <th><strong>Details</strong></th>
                   </thead>
                   <tbody>
-                    ${this.renderDataSource(data)}
+                    ${this.renderDataSource(data, identifier)}
                   </tbody>
               </table>
     
@@ -66,7 +66,7 @@ class DealDetails extends LitElement {
         `;
     }
 
-    renderDataSource(data){
+    renderDataSource(data, id){
         if (!data) return '';
         if (data.source_http) {
             return html`
@@ -95,7 +95,7 @@ class DealDetails extends LitElement {
         if (data.source_httpput) {
             return html`
                 <tr>
-                    <td><strong>HTTP Put</strong></td>
+                    <td><strong><a href="/pages/upload-status/?id=${id}">HTTP Put</a></strong></td>
                     <td>${data?.source_httpput ? this.renderSourceHttpPut(data.source_httpput) : ''}</td>
                 </tr>
             `
