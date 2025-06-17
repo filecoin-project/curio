@@ -1036,18 +1036,18 @@ func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// Determine unique roots list
+	uniqueRootMap := make(map[string]bool)
+	for _, ra := range rootAdds {
+		uniqueRootMap[ra.Root] = true
+	}
+
 	// Step 6: If transaction is confirmed and successful, get assigned root IDs
 	var confirmedRootIds []uint64
 	if txStatus == "confirmed" && len(rootAdds) > 0 && rootAdds[0].AddMessageOK != nil && *rootAdds[0].AddMessageOK {
-		// Get unique roots from the add transaction
-		uniqueRoots := make(map[string]bool)
-		for _, ra := range rootAdds {
-			uniqueRoots[ra.Root] = true
-		}
-
 		// Query pdp_proofset_roots for confirmed roots with their IDs
-		rootCids := make([]string, 0, len(uniqueRoots))
-		for root := range uniqueRoots {
+		rootCids := make([]string, 0, len(uniqueRootMap))
+		for root := range uniqueRootMap {
 			rootCids = append(rootCids, root)
 		}
 
@@ -1075,12 +1075,6 @@ func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.
 	}
 
 	// Step 7: Build and send response
-	// Count unique roots for response
-	uniqueRootMap := make(map[string]bool)
-	for _, ra := range rootAdds {
-		uniqueRootMap[ra.Root] = true
-	}
-
 	// Check that all roots have the same RootsAdded value (consistency check)
 	if len(rootAdds) > 0 {
 		firstRootsAdded := rootAdds[0].RootsAdded
@@ -1329,7 +1323,6 @@ func (p *PDPService) handleGetProofSetRoot(w http.ResponseWriter, r *http.Reques
 		Subroots: make([]SubrootResponse, 0, len(subroots)),
 	}
 
-	// Convert database results to response format
 	for _, subroot := range subroots {
 		response.Subroots = append(response.Subroots, SubrootResponse{
 			SubrootCid:    subroot.SubrootCID,
