@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -52,11 +53,16 @@ type ProofReward struct {
 
 type WorkResponse struct {
 	Requests   []WorkRequest `json:"requests"`
-	ActiveAsks []int64       `json:"active_asks"`
+	ActiveAsks []WorkAsk     `json:"active_asks"`
 }
 
 type WorkAsk struct {
-	ID int64 `json:"id"`
+	ID           int64      `json:"id"`
+	MinPriceNfil int64      `json:"min_price_nfil"`
+	CreatedAt    time.Time  `json:"created_at"`
+
+	// ui-only
+	MinPriceFil string `json:"min_price_fil"`
 }
 
 type ProofData struct {

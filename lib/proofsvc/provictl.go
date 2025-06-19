@@ -119,6 +119,25 @@ func PollWork(address string) (common.WorkResponse, error) {
 	})
 }
 
+func WithdrawAsk(askID int64) error {
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/provider/work/withdraw/%d", marketUrl, askID), nil)
+	if err != nil {
+		return xerrors.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return xerrors.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return xerrors.Errorf("failed to withdraw ask: %s", resp.Status)
+	}
+
+	return nil
+}
+
 func GetProof(cid cid.Cid) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), MaxRetryTime)
 	defer cancel()

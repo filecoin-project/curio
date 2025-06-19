@@ -164,26 +164,26 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return true, nil
 	}
 
-	var pshareMeta []struct {
-		Wallet string `db:"wallet"`
-		Price  string `db:"pprice"`
-	}
-	err = t.db.Select(ctx, &pshareMeta, `
-		SELECT wallet, pprice 
-		FROM proofshare_meta 
-		WHERE singleton = true
-	`)
-	if err != nil {
-		return false, err
-	}
-	if len(pshareMeta) != 1 {
-		return false, xerrors.Errorf("expected 1 pshare meta, got %d", len(pshareMeta))
-	}
-	meta := pshareMeta[0]
-
-	log.Infow("starting proof request loop", "toRequest", toRequest, "wallet", meta.Wallet)
+	log.Infow("starting proof request loop", "toRequest", toRequest)
 
 	for {
+		var pshareMeta []struct {
+			Wallet string `db:"wallet"`
+			Price  string `db:"pprice"`
+		}
+		err = t.db.Select(ctx, &pshareMeta, `
+			SELECT wallet, pprice 
+			FROM proofshare_meta 
+			WHERE singleton = true
+		`)
+		if err != nil {
+			return false, err
+		}
+		if len(pshareMeta) != 1 {
+			return false, xerrors.Errorf("expected 1 pshare meta, got %d", len(pshareMeta))
+		}
+		meta := pshareMeta[0]
+
 		// Poll existing work requests from the remote service
 		work, err := proofsvc.PollWork(meta.Wallet)
 		if err != nil {

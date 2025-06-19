@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -15,6 +16,7 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/proofsvc"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
 
 	"github.com/filecoin-project/lotus/api"
@@ -78,6 +80,54 @@ func (a *WebRPC) PSSetMeta(ctx context.Context, enabled bool, wallet string, pri
 	if err != nil {
 		return xerrors.Errorf("PSSetMeta: failed to update proofshare_meta: %w", err)
 	}
+	return nil
+}
+
+func (a *WebRPC) PSListAsks(ctx context.Context) ([]common.WorkAsk, error) {
+	var meta ProofShareMeta
+
+	err := a.deps.DB.QueryRow(ctx, `
+        SELECT wallet
+        FROM proofshare_meta
+        WHERE singleton = TRUE
+    `).Scan(&meta.Wallet)
+	if err != nil {
+		return nil, xerrors.Errorf("PSListAsks: failed to query proofshare_meta: %w", err)
+	}
+
+	if meta.Wallet == nil {
+		return nil, nil
+	}
+
+	work, err := proofsvc.PollWork(*meta.Wallet)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to poll work: %w", err)
+	}
+
+	var out []common.WorkAsk
+	for _, ask := range work.ActiveAsks {
+		out = append(out, common.WorkAsk{
+			ID:          ask.ID,
+			CreatedAt:   ask.CreatedAt,
+			MinPriceNfil: ask.MinPriceNfil,
+			MinPriceFil:  types.FIL(proofsvc.TokenAmountFromNfil(ask.MinPriceNfil)).Short(),
+		})
+	}
+
+	// sort, oldest first
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CreatedAt.Before(out[j].CreatedAt)
+	})
+
+	return out, nil
+}
+
+func (a *WebRPC) PSAskWithdraw(ctx context.Context, askID int64) error {
+	err := proofsvc.WithdrawAsk(askID)
+	if err != nil {
+		return xerrors.Errorf("PSAskWithdraw: failed to withdraw ask: %w", err)
+	}
+
 	return nil
 }
 

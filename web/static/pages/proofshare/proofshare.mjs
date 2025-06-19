@@ -14,6 +14,7 @@ class ProofShareElement extends LitElement {
     queue: { type: Array },
     paymentSummaries: { type: Array },
     settlementHistory: { type: Array },
+    activeAsks: { type: Array },
   };
 
   constructor() {
@@ -24,7 +25,13 @@ class ProofShareElement extends LitElement {
     this.queue = [];
     this.paymentSummaries = [];
     this.settlementHistory = [];
+    this.activeAsks = [];
     this.loadData();
+    
+    // Auto-refresh every 5 seconds
+    this.refreshInterval = setInterval(() => {
+      this.loadData();
+    }, 5000);
   }
 
   // Disable shadow DOM, so Bootstrap + your main.css apply naturally.
@@ -32,27 +39,59 @@ class ProofShareElement extends LitElement {
     return this;
   }
 
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+    }
+  }
+
   // Periodically load data from the server
   async loadData() {
+    // 1) Get the meta info (enabled/wallet/request_task_id)
     try {
-      // 1) Get the meta info (enabled/wallet/request_task_id)
       const meta = await RPCCall('PSGetMeta', []);
       this.enabled = meta.enabled;
       this.wallet = meta.wallet || '';
       this.price = meta.price || '';
-      // 2) Get the queue
+    } catch (err) {
+      console.error('Failed to load proofshare meta:', err);
+    }
+
+    // 2) Get the queue
+    try {
       const queue = await RPCCall('PSListQueue', []);
       this.queue = queue;
-      // 3) Get provider payment summaries
+    } catch (err) {
+      console.error('Failed to load proofshare queue:', err);
+      this.queue = [];
+    }
+
+    // 3) Get provider payment summaries
+    try {
       const summaries = await RPCCall('PSProviderLastPaymentsSummary', []);
       this.paymentSummaries = summaries;
-      // 4) Get recent settlements
+    } catch (err) {
+      console.error('Failed to load payment summaries:', err);
+      this.paymentSummaries = [];
+    }
+
+    // 4) Get recent settlements
+    try {
       const settlements = await RPCCall('PSListSettlements', []);
       this.settlementHistory = settlements;
     } catch (err) {
-      console.error('Failed to load proofshare data:', err);
-      this.paymentSummaries = [];
+      console.error('Failed to load settlements:', err);
       this.settlementHistory = [];
+    }
+
+    // 5) Get active asks
+    try {
+      const asks = await RPCCall('PSListAsks', []);
+      this.activeAsks = asks || [];
+    } catch (err) {
+      console.error('Failed to load active asks:', err);
+      this.activeAsks = [];
     }
     // Re-render
     this.requestUpdate();
@@ -83,6 +122,20 @@ class ProofShareElement extends LitElement {
     } catch (err) {
       console.error('Failed to settle provider payments:', err);
       alert(`Error settling payments: ${err.message || err}`);
+    }
+  }
+
+  async handleWithdrawAsk(askID) {
+    if (!confirm(`Are you sure you want to withdraw ask ${askID}?`)) {
+      return;
+    }
+    try {
+      await RPCCall('PSAskWithdraw', [askID]);
+      alert(`Ask ${askID} withdrawn successfully!`);
+      this.loadData(); // Refresh data
+    } catch (err) {
+      console.error('Failed to withdraw ask:', err);
+      alert(`Error withdrawing ask: ${err.message || err}`);
     }
   }
 
@@ -213,6 +266,34 @@ class ProofShareElement extends LitElement {
             </tbody>
           </table>
         ` : html`<p>No settlement history available.</p>`}
+
+        <hr />
+
+        <h2>🏷️ Active Asks</h2>
+        ${this.activeAsks && this.activeAsks.length > 0 ? html`
+          <table class="table table-dark table-striped table-hover">
+            <thead>
+              <tr>
+                <th>Ask ID</th>
+                <th>Min Price (FIL)</th>
+                <th>Created At</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${this.activeAsks.map((ask) => html`
+                <tr>
+                  <td>${ask.id}</td>
+                  <td style="white-space: nowrap;">${ask.min_price_fil}</td>
+                  <td>${formatDate(ask.created_at)}</td>
+                  <td>
+                    <button class="btn btn-sm btn-warning" @click=${() => this.handleWithdrawAsk(ask.id)}>Withdraw</button>
+                  </td>
+                </tr>
+              `)}
+            </tbody>
+          </table>
+        ` : html`<p>No active asks available.</p>`}
 
         <hr />
 
