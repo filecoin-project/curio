@@ -20,9 +20,69 @@ All endpoints are rooted at `/pdp`.
 
 ---
 
-### 2. Upload a Piece
+### 2. Find a Piece
 
-#### 2.1. Initiate Upload
+- **Endpoint:** `GET /pdp/piece/`
+- **Description:** Look up a piece by its hash parameters to check if it exists.
+- **Authentication:** Requires a valid JWT token in the `Authorization` header.
+- **Query Parameters:**
+    - `name`: Hash function name (e.g., `"sha2-256"`, `"sha2-256-trunc254-padded"`)
+    - `hash`: Hex-encoded hash value
+    - `size`: Size of the piece in bytes
+
+#### Response
+
+- **Status Code:** `200 OK` if piece exists, `404 Not Found` if piece doesn't exist
+- **Response Body (if found):**
+
+```json
+{
+  "piece_cid": "<piece-CID>"
+}
+```
+
+---
+
+### 3. Retrieve a Piece
+
+PDP pieces are retrieved through Curio's main retrieval system, not through a PDP-specific endpoint.
+
+- **Main Endpoint:** `GET /piece/{pieceCID}` (Curio's retrieval system)
+- **Alternative:** `GET /ipfs/{cid}` (IPFS-compatible endpoint)
+- **Description:** Retrieve piece data by CID. PDP pieces are automatically available through Curio's unified retrieval system.
+- **Authentication:** No authentication required for piece retrieval (pieces are publicly accessible by CID)
+
+#### Response
+
+- **Status Code:** `200 OK`
+- **Headers:**
+    - `Content-Type`: Automatically detected based on content
+    - `Content-Length`: Size of the piece data
+    - `Cache-Control`: `public, max-age=29030400, immutable`
+    - `ETag`: The piece CID
+- **Response Body:** The raw piece data
+
+#### PDP-Specific Metrics
+
+When PDP pieces are accessed via the main retrieval system, the following additional metrics are available at `/debug/metrics`:
+
+- `curio_pdp_piece_access_total`: Number of times PDP pieces are accessed
+- `curio_pdp_piece_access_by_domain_total`: PDP piece accesses by requester domain
+- `curio_pdp_piece_bytes_served_total`: Total bytes served for PDP pieces
+- `curio_pdp_piece_size`: Distribution of PDP piece sizes accessed
+
+#### Integration Notes
+
+- PDP pieces stored via `POST /pdp/piece` are automatically available through `/piece/{cid}`
+- No special authentication needed for retrieval (pieces are content-addressed)
+- PDP pieces benefit from Curio's caching and optimization layers
+- Metrics track domain information from Referer, Host, or X-Forwarded-Host headers
+
+---
+
+### 4. Upload a Piece
+
+#### 4.1. Initiate Upload
 
 - **Endpoint:** `POST /pdp/piece`
 - **Description:** Initiate the process of uploading a piece. If the piece already exists on the server, the server will respond accordingly.
@@ -100,11 +160,11 @@ All endpoints are rooted at `/pdp`.
 
 ---
 
-### 3. Notifications
+### 5. Notifications
 
 When you initiate an upload with the `notify` field specified, the PDP Service will send a notification to the provided URL once the piece has been successfully processed and stored.
 
-#### 3.1. Notification Request
+#### 5.1. Notification Request
 
 - **Method:** `POST`
 - **URL:** The `notify` URL provided during the upload initiation (`POST /pdp/piece`).
@@ -131,12 +191,12 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
     - `check_hash_codec`: The hash function used (e.g., `"sha2-256"` or `"sha2-256-trunc254-padded"`).
     - `check_hash`: The byte array of the original hash provided in the upload initiation.
 
-#### 3.2. Expected Response from Your Server
+#### 5.2. Expected Response from Your Server
 
 - **Status Code:** `200 OK` to acknowledge receipt.
 - **Response Body:** (Optional) Can be empty or contain a message.
 
-#### 3.3. Notes
+#### 5.3. Notes
 
 - The PDP Service may retry the notification if it fails.
 - Ensure that your server is accessible from the PDP Service and can handle incoming POST requests.
@@ -144,7 +204,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 4. Create a Proof Set
+### 6. Create a Proof Set
 
 - **Endpoint:** `POST /pdp/proof-sets`
 - **Description:** Create a new proof set.
@@ -174,7 +234,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 5. Check Proof Set Creation Status
+### 7. Check Proof Set Creation Status
 
 - **Endpoint:** `GET /pdp/proof-sets/created/{txHash}`
 - **Description:** Retrieve the status of a proof set creation.
@@ -214,7 +274,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 6. Get Proof Set Details
+### 8. Get Proof Set Details
 
 - **Endpoint:** `GET /pdp/proof-sets/{proofSetID}`
 - **Description:** Retrieve the details of a proof set, including its roots.
@@ -258,7 +318,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 7. Delete a Proof Set *(To be implemented)*
+### 9. Delete a Proof Set *(To be implemented)*
 
 - **Endpoint:** `DELETE /pdp/proof-sets/{proofSetID}`
 - **Description:** Remove the specified proof set entirely.
@@ -278,7 +338,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 8. Add Roots to a Proof Set
+### 10. Add Roots to a Proof Set
 
 - **Endpoint:** `POST /pdp/proof-sets/{proofSetID}/roots`
 - **Description:** Add roots to a proof set.
@@ -336,7 +396,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 9. Get Proof Set Root Details *(To be implemented)*
+### 11. Get Proof Set Root Details *(To be implemented)*
 
 - **Endpoint:** `GET /pdp/proof-sets/{proofSetID}/roots/{rootID}`
 - **Description:** Retrieve the details of a root in a proof set.
@@ -358,7 +418,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 10. Delete a Root from a Proof Set *(To be implemented)*
+### 12. Delete a Root from a Proof Set *(To be implemented)*
 
 - **Endpoint:** `DELETE /pdp/proof-sets/{proofSetID}/roots/{rootID}`
 - **Description:** Remove a root from a proof set.
