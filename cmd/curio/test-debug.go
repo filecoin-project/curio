@@ -12,5 +12,6 @@ var testDebugCmd = &cli.Command{
 	Subcommands: []*cli.Command{
 		testDebugIpniChunks,
 		debugSNSvc,
+		proofsvcClientCmd,
 	},
 }
