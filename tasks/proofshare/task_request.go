@@ -230,7 +230,12 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 						$2,
 						FALSE,
 						FALSE
-					)
+					) ON CONFLICT (request_cid) DO UPDATE SET
+						service_id = $1,
+						obtained_at = NOW(),
+						compute_done = FALSE,
+						submit_done = FALSE
+					WHERE proofshare_queue.request_cid = $2
 				`, r.WorkAskID, requestCid)
 				if insertErr != nil {
 					return false, xerrors.Errorf("failed to insert new request: %w", insertErr)

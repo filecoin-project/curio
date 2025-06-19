@@ -17,6 +17,10 @@ CREATE TABLE proofshare_queue (
     PRIMARY KEY (service_id, obtained_at)
 );
 
+-- 20250619-proofshare-fixes.sql
+-- create unique index proofshare_queue_request_cid_uindex
+--    on proofshare_queue (request_cid);
+
 CREATE TABLE proofshare_meta (
     singleton BOOLEAN NOT NULL DEFAULT TRUE CHECK (singleton = TRUE) UNIQUE,
 
