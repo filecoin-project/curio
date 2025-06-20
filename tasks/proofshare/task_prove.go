@@ -88,10 +88,38 @@ func (t *TaskProvideSnark) CanAccept(ids []harmonytask.TaskID, engine *harmonyta
 		log.Infow("PoRepTask.CanAccept() params not ready, not scheduling")
 		return nil, nil
 	}
-	// todo sort by priority
 
-	id := ids[0]
-	return &id, nil
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	// Convert task IDs to int64 slice for SQL query
+	taskIDs := make([]int64, len(ids))
+	for i, id := range ids {
+		taskIDs[i] = int64(id)
+	}
+
+	// Query to find the task with the oldest obtained_at
+	var oldestTaskID int64
+	err = t.db.QueryRow(context.Background(), `
+		SELECT compute_task_id 
+		FROM proofshare_queue 
+		WHERE compute_task_id = ANY($1) 
+		ORDER BY obtained_at ASC 
+		LIMIT 1
+	`, taskIDs).Scan(&oldestTaskID)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			// No matching tasks found, fallback to first ID
+			id := ids[0]
+			return &id, nil
+		}
+		return nil, xerrors.Errorf("failed to query oldest task: %w", err)
+	}
+
+	taskID := harmonytask.TaskID(oldestTaskID)
+	return &taskID, nil
 }
 
 // Do implements harmonytask.TaskInterface.
