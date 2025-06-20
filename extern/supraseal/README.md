@@ -246,7 +246,7 @@ sudo ./scripts/setup.sh status
 
 For more extensive information about attached devices:
 ```
-sudo ./build/examples/identify
+sudo ./build/bin/spdk_nvme_identify
 ```
 
 This will show the NVMe disks (controllers) along with their addresses, which will resemble `0000:2c:00.0`. The address list in `supra_seal.cfg` should be updated for the local drives.
@@ -255,7 +255,7 @@ This will show the NVMe disks (controllers) along with their addresses, which wi
 
 This software requires NVMe drives that support a high amount of random read IOPS. SPDK has a performance tester in the example directory that can be used to measure the random read IOPS of your devices. In order to minimize PC1 latency the software targets approximately 10-15M IOPS at the system level, and with drives like the [Samsung PM9A3](https://semiconductor.samsung.com/ssd/datacenter-ssd/pm9a3/) we generally see around 1M IOPS per drive.
 ```
-build/examples/perf -b <disk pcie address> -q 64 -o 4096 -w randread -t 10
+./build/bin/spdk_nvme_perf -b <disk pcie address> -q 64 -o 4096 -w randread -t 10
 ```
 
 ### Local filesystem
