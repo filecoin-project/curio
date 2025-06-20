@@ -13,6 +13,7 @@ import (
 
 type PDPContracts struct {
 	PDPVerifier common.Address
+	Pandora     common.Address
 }
 
 func ContractAddresses() PDPContracts {
@@ -20,6 +21,7 @@ func ContractAddresses() PDPContracts {
 	case build.BuildCalibnet:
 		return PDPContracts{
 			PDPVerifier: common.HexToAddress("0x5A23b7df87f59A291C26A2A1d684AD03Ce9B68DC"),
+			Pandora:     common.HexToAddress("0xf49ba5eaCdFD5EE3744efEdf413791935FE4D4c5"),
 		}
 	case build.BuildMainnet:
 		return PDPContracts{
