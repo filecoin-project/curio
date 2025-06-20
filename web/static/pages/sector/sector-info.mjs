@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import RPCCall from '/lib/jsonrpc.mjs';
 import { renderSectorPipeline, pipelineStyles } from '/pages/pipeline_porep/pipeline-porep-sectors.mjs';
 import { renderSectorSnapPipeline, snapPipelineStyles} from '/snap/upgrade-sectors.mjs';
+import '/ux/epoch.mjs';
 
 customElements.define('sector-info',class SectorInfo extends LitElement {
     constructor() {
@@ -61,8 +62,8 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                         <tr><td>Sector Number</td><td>${this.data.SectorNumber}</td></tr>
                         <tr><td>PreCommit Message</td><td>${this.data.PreCommitMsg}</td></tr>
                         <tr><td>Commit Message</td><td>${this.data.CommitMsg}</td></tr>
-                        <tr><td>Activation Epoch</td><td>${this.data.ActivationEpoch}</td></tr>
-                        <tr><td>Expiration Epoch</td><td>${this.data.ExpirationEpoch}</td></tr>
+                        <tr><td>Activation Epoch</td><td><pretty-epoch epoch=${this.data.ActivationEpoch}></pretty-epoch></td></tr>
+                        <tr><td>Expiration Epoch</td><td><pretty-epoch epoch=${this.data.ExpirationEpoch}></pretty-epoch></td></tr>
                         <tr><td>Deal Weight</td><td>${this.data.DealWeight}</td></tr>
                         <tr><td>Deadline</td><td>${this.data.Deadline}</td></tr>
                         <tr><td>Partition</td><td>${this.data.Partition}</td></tr>
