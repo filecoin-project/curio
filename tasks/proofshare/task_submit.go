@@ -154,20 +154,22 @@ func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool
 	// 4) Mark the row as submitted in the DB
 	_, err = t.db.Exec(ctx, `
 		UPDATE proofshare_queue
-		SET submit_done = TRUE, submit_task_id = NULL
+		SET submit_done = TRUE, submit_task_id = NULL, was_pow = $2
 		WHERE service_id = $1
-	`, row.ServiceID)
+	`, row.ServiceID, reward.PoW)
 	if err != nil {
 		return false, xerrors.Errorf("failed to update row after submit: %w", err)
 	}
 
 	// 5) Insert the payment into the DB
-	_, err = t.db.Exec(ctx, `
-		INSERT INTO proofshare_provider_payments (provider_id, request_cid, payment_nonce, payment_cumulative_amount, payment_signature)
-		VALUES ($1, $2, $3, $4, $5)
-	`, walletId, row.RequestCid, reward.Nonce, reward.CumulativeAmount, reward.Signature)
-	if err != nil {
-		return false, xerrors.Errorf("failed to insert payment into DB: %w", err)
+	if !reward.PoW {
+		_, err = t.db.Exec(ctx, `
+			INSERT INTO proofshare_provider_payments (provider_id, request_cid, payment_nonce, payment_cumulative_amount, payment_signature)
+			VALUES ($1, $2, $3, $4, $5)
+		`, walletId, row.RequestCid, reward.Nonce, reward.CumulativeAmount, reward.Signature)
+		if err != nil {
+			return false, xerrors.Errorf("failed to insert payment into DB: %w", err)
+		}
 	}
 
 	log.Infof("successfully submitted proof for service_id=%d", row.ServiceID)

@@ -315,7 +315,7 @@ class ProofShareElement extends LitElement {
                 <td>${formatDate(item.obtained_at)}</td>
                 <td><done-not-done .value=${item.compute_done}></done-not-done>${item.compute_task_id ? html`<task-status .taskId=${item.compute_task_id}></task-status>` : ''}</td>
                 <td><done-not-done .value=${item.submit_done}></done-not-done>${item.submit_task_id ? html`<task-status .taskId=${item.submit_task_id}></task-status>` : ''}</td>
-                <td style="white-space: nowrap;">${item.payment_amount}</td>
+                <td style="white-space: nowrap;">${item.was_pow ? html`<span style="color: #888;">Challenge</span>` : item.payment_amount}</td>
               </tr>
             `)}
           </tbody>

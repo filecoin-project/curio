@@ -39,6 +39,7 @@ type ProofShareQueueItem struct {
 	ComputeDone   bool      `db:"compute_done"   json:"compute_done"`
 	SubmitTaskID  *int64    `db:"submit_task_id" json:"submit_task_id"`
 	SubmitDone    bool      `db:"submit_done"    json:"submit_done"`
+	WasPoW        bool      `db:"was_pow"        json:"was_pow"`
 	PaymentAmount string    `json:"payment_amount"`
 }
 
@@ -141,7 +142,8 @@ func (a *WebRPC) PSListQueue(ctx context.Context) ([]*ProofShareQueueItem, error
                compute_task_id,
                compute_done,
                submit_task_id,
-               submit_done
+               submit_done,
+			   was_pow
         FROM proofshare_queue
         ORDER BY obtained_at DESC
         LIMIT 15
@@ -151,7 +153,7 @@ func (a *WebRPC) PSListQueue(ctx context.Context) ([]*ProofShareQueueItem, error
 	}
 
 	for i := range items {
-		if !items[i].SubmitDone {
+		if !items[i].SubmitDone || items[i].WasPoW {
 			continue
 		}
 

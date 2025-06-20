@@ -14,6 +14,9 @@ CREATE TABLE proofshare_queue (
     submit_task_id BIGINT,
     submit_done BOOLEAN NOT NULL DEFAULT FALSE,
 
+    -- 20250620-proofshare-pow.sql
+    -- was_pow BOOLEAN NOT NULL DEFAULT FALSE,
+
     PRIMARY KEY (service_id, obtained_at)
 );
 

@@ -44,6 +44,7 @@ type ProofResponse struct {
 
 type ProofReward struct {
 	Status string `json:"status"`
+	PoW    bool   `json:"pow"`
 
 	Nonce            uint64          `json:"nonce"`
 	Amount           abi.TokenAmount `json:"amount"`

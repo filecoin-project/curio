@@ -25,6 +25,8 @@ const (
 	OpTypeMatch
 	OpTypeProofReward
 	OpTypeDeassign
+	OpTypePow
+	OpTypePowComplete
 )
 
 type BlockHeader struct {
