@@ -18,7 +18,7 @@ var _ = cid.Undef
 var _ = math.E
 var _ = sort.Sort
 
-func (t *SignedMsg) MarshalCBOR(w io.Writer) error {
+func (t *Signature) MarshalCBOR(w io.Writer) error {
 	if t == nil {
 		_, err := w.Write(cbg.CborNull)
 		return err
@@ -26,7 +26,7 @@ func (t *SignedMsg) MarshalCBOR(w io.Writer) error {
 
 	cw := cbg.NewCborWriter(w)
 
-	if _, err := cw.Write([]byte{165}); err != nil {
+	if _, err := cw.Write([]byte{163}); err != nil {
 		return err
 	}
 
@@ -51,53 +51,6 @@ func (t *SignedMsg) MarshalCBOR(w io.Writer) error {
 	}
 
 	if _, err := cw.Write(t.Sig); err != nil {
-		return err
-	}
-
-	// t.Data ([]uint8) (slice)
-	if len("Data") > 8192 {
-		return xerrors.Errorf("Value in field \"Data\" was too long")
-	}
-
-	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("Data"))); err != nil {
-		return err
-	}
-	if _, err := cw.WriteString(string("Data")); err != nil {
-		return err
-	}
-
-	if len(t.Data) > 2097152 {
-		return xerrors.Errorf("Byte array in field t.Data was too long")
-	}
-
-	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.Data))); err != nil {
-		return err
-	}
-
-	if _, err := cw.Write(t.Data); err != nil {
-		return err
-	}
-
-	// t.Signer (string) (string)
-	if len("Signer") > 8192 {
-		return xerrors.Errorf("Value in field \"Signer\" was too long")
-	}
-
-	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("Signer"))); err != nil {
-		return err
-	}
-	if _, err := cw.WriteString(string("Signer")); err != nil {
-		return err
-	}
-
-	if len(t.Signer) > 8192 {
-		return xerrors.Errorf("Value in field t.Signer was too long")
-	}
-
-	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len(t.Signer))); err != nil {
-		return err
-	}
-	if _, err := cw.WriteString(string(t.Signer)); err != nil {
 		return err
 	}
 
@@ -136,8 +89,8 @@ func (t *SignedMsg) MarshalCBOR(w io.Writer) error {
 	return nil
 }
 
-func (t *SignedMsg) UnmarshalCBOR(r io.Reader) (err error) {
-	*t = SignedMsg{}
+func (t *Signature) UnmarshalCBOR(r io.Reader) (err error) {
+	*t = Signature{}
 
 	cr := cbg.NewCborReader(r)
 
@@ -156,7 +109,7 @@ func (t *SignedMsg) UnmarshalCBOR(r io.Reader) (err error) {
 	}
 
 	if extra > cbg.MaxLength {
-		return fmt.Errorf("SignedMsg: map struct too large (%d)", extra)
+		return fmt.Errorf("Signature: map struct too large (%d)", extra)
 	}
 
 	n := extra
@@ -200,40 +153,6 @@ func (t *SignedMsg) UnmarshalCBOR(r io.Reader) (err error) {
 				return err
 			}
 
-			// t.Data ([]uint8) (slice)
-		case "Data":
-
-			maj, extra, err = cr.ReadHeader()
-			if err != nil {
-				return err
-			}
-
-			if extra > 2097152 {
-				return fmt.Errorf("t.Data: byte array too large (%d)", extra)
-			}
-			if maj != cbg.MajByteString {
-				return fmt.Errorf("expected byte array")
-			}
-
-			if extra > 0 {
-				t.Data = make([]uint8, extra)
-			}
-
-			if _, err := io.ReadFull(cr, t.Data); err != nil {
-				return err
-			}
-
-			// t.Signer (string) (string)
-		case "Signer":
-
-			{
-				sval, err := cbg.ReadStringWithMax(cr, 8192)
-				if err != nil {
-					return err
-				}
-
-				t.Signer = string(sval)
-			}
 			// t.NonceID (uint64) (uint64)
 		case "NonceID":
 
@@ -262,6 +181,171 @@ func (t *SignedMsg) UnmarshalCBOR(r io.Reader) (err error) {
 					return fmt.Errorf("wrong type for uint64 field")
 				}
 				t.NonceTime = uint64(extra)
+
+			}
+
+		default:
+			// Field doesn't exist on this type, so ignore it
+			if err := cbg.ScanForLinks(r, func(cid.Cid) {}); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+func (t *SignedMsg) MarshalCBOR(w io.Writer) error {
+	if t == nil {
+		_, err := w.Write(cbg.CborNull)
+		return err
+	}
+
+	cw := cbg.NewCborWriter(w)
+
+	if _, err := cw.Write([]byte{163}); err != nil {
+		return err
+	}
+
+	// t.Sig (proofsvc.Signature) (struct)
+	if len("Sig") > 8192 {
+		return xerrors.Errorf("Value in field \"Sig\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("Sig"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("Sig")); err != nil {
+		return err
+	}
+
+	if err := t.Sig.MarshalCBOR(cw); err != nil {
+		return err
+	}
+
+	// t.Data ([]uint8) (slice)
+	if len("Data") > 8192 {
+		return xerrors.Errorf("Value in field \"Data\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("Data"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("Data")); err != nil {
+		return err
+	}
+
+	if len(t.Data) > 2097152 {
+		return xerrors.Errorf("Byte array in field t.Data was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.Data))); err != nil {
+		return err
+	}
+
+	if _, err := cw.Write(t.Data); err != nil {
+		return err
+	}
+
+	// t.Signer (address.Address) (struct)
+	if len("Signer") > 8192 {
+		return xerrors.Errorf("Value in field \"Signer\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("Signer"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("Signer")); err != nil {
+		return err
+	}
+
+	if err := t.Signer.MarshalCBOR(cw); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (t *SignedMsg) UnmarshalCBOR(r io.Reader) (err error) {
+	*t = SignedMsg{}
+
+	cr := cbg.NewCborReader(r)
+
+	maj, extra, err := cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err == io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
+	}()
+
+	if maj != cbg.MajMap {
+		return fmt.Errorf("cbor input should be of type map")
+	}
+
+	if extra > cbg.MaxLength {
+		return fmt.Errorf("SignedMsg: map struct too large (%d)", extra)
+	}
+
+	n := extra
+
+	nameBuf := make([]byte, 6)
+	for i := uint64(0); i < n; i++ {
+		nameLen, ok, err := cbg.ReadFullStringIntoBuf(cr, nameBuf, 8192)
+		if err != nil {
+			return err
+		}
+
+		if !ok {
+			// Field doesn't exist on this type, so ignore it
+			if err := cbg.ScanForLinks(cr, func(cid.Cid) {}); err != nil {
+				return err
+			}
+			continue
+		}
+
+		switch string(nameBuf[:nameLen]) {
+		// t.Sig (proofsvc.Signature) (struct)
+		case "Sig":
+
+			{
+
+				if err := t.Sig.UnmarshalCBOR(cr); err != nil {
+					return xerrors.Errorf("unmarshaling t.Sig: %w", err)
+				}
+
+			}
+			// t.Data ([]uint8) (slice)
+		case "Data":
+
+			maj, extra, err = cr.ReadHeader()
+			if err != nil {
+				return err
+			}
+
+			if extra > 2097152 {
+				return fmt.Errorf("t.Data: byte array too large (%d)", extra)
+			}
+			if maj != cbg.MajByteString {
+				return fmt.Errorf("expected byte array")
+			}
+
+			if extra > 0 {
+				t.Data = make([]uint8, extra)
+			}
+
+			if _, err := io.ReadFull(cr, t.Data); err != nil {
+				return err
+			}
+
+			// t.Signer (address.Address) (struct)
+		case "Signer":
+
+			{
+
+				if err := t.Signer.UnmarshalCBOR(cr); err != nil {
+					return xerrors.Errorf("unmarshaling t.Signer: %w", err)
+				}
 
 			}
 
