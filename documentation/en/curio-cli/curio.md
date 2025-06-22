@@ -561,6 +561,7 @@ USAGE:
 COMMANDS:
    ipni-piece-chunks  generate ipni chunks from a file
    debug-snsvc        
+   proofsvc-client    Interact with the remote proof service
    help, h            Shows a list of commands or help for one command
 
 OPTIONS:
@@ -880,6 +881,69 @@ OPTIONS:
    --nonce value     Voucher nonce (default: 0)
    --sig value       Voucher signature (hex)
    --help, -h        show help
+```
+
+#### curio test debug proofsvc-client
+```
+NAME:
+   curio test debug proofsvc-client - Interact with the remote proof service
+
+USAGE:
+   curio test debug proofsvc-client command [command options]
+
+COMMANDS:
+   create-voucher  Create a client voucher
+   submit          Submit a proof request
+   status          Check proof status
+   help, h         Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+##### curio test debug proofsvc-client create-voucher
+```
+NAME:
+   curio test debug proofsvc-client create-voucher - Create a client voucher
+
+USAGE:
+   curio test debug proofsvc-client create-voucher [command options]
+
+OPTIONS:
+   --client value  
+   --amount value  
+   --help, -h      show help
+```
+
+##### curio test debug proofsvc-client submit
+```
+NAME:
+   curio test debug proofsvc-client submit - Submit a proof request
+
+USAGE:
+   curio test debug proofsvc-client submit [command options]
+
+OPTIONS:
+   --c1 value         path to lotus-bench c1 json
+   --miner value      miner address
+   --client-id value  (default: 0)
+   --nonce value      (default: 0)
+   --amount value     
+   --sig value        
+   --help, -h         show help
+```
+
+##### curio test debug proofsvc-client status
+```
+NAME:
+   curio test debug proofsvc-client status - Check proof status
+
+USAGE:
+   curio test debug proofsvc-client status [command options]
+
+OPTIONS:
+   --id value  
+   --help, -h  show help
 ```
 
 ## curio web

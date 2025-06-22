@@ -108,8 +108,8 @@ func (a *WebRPC) PSListAsks(ctx context.Context) ([]common.WorkAsk, error) {
 	var out []common.WorkAsk
 	for _, ask := range work.ActiveAsks {
 		out = append(out, common.WorkAsk{
-			ID:          ask.ID,
-			CreatedAt:   ask.CreatedAt,
+			ID:           ask.ID,
+			CreatedAt:    ask.CreatedAt,
 			MinPriceNfil: ask.MinPriceNfil,
 			MinPriceFil:  types.FIL(proofsvc.TokenAmountFromNfil(ask.MinPriceNfil)).Short(),
 		})

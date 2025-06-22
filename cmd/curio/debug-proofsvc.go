@@ -18,6 +18,7 @@ import (
 	curioproof "github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/proofsvc"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
+
 	"github.com/filecoin-project/lotus/chain/types"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 )

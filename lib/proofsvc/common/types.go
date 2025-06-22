@@ -58,9 +58,9 @@ type WorkResponse struct {
 }
 
 type WorkAsk struct {
-	ID           int64      `json:"id"`
-	MinPriceNfil int64      `json:"min_price_nfil"`
-	CreatedAt    time.Time  `json:"created_at"`
+	ID           int64     `json:"id"`
+	MinPriceNfil int64     `json:"min_price_nfil"`
+	CreatedAt    time.Time `json:"created_at"`
 
 	// ui-only
 	MinPriceFil string `json:"min_price_fil"`
