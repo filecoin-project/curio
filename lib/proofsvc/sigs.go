@@ -6,13 +6,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"math/big"
+	"sync"
 	"time"
 
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/crypto"
-
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
@@ -49,6 +49,76 @@ type WalletAPI interface {
 	StateAccountKey(context.Context, address.Address, types.TipSetKey) (address.Address, error)
 	WalletSign(context.Context, address.Address, []byte) (*crypto.Signature, error)
 	WalletVerify(context.Context, address.Address, []byte, *crypto.Signature) (bool, error)
+}
+
+// NonceKey represents a unique combination of signer and nonce ID
+type NonceKey struct {
+	Signer  string // address string for consistent hashing
+	NonceID uint64
+}
+
+// NonceCache provides thread-safe replay protection using rotating time buckets
+type NonceCache struct {
+	mu       sync.Mutex
+	buckets  [2]map[NonceKey]struct{} // Two rotating buckets
+	initOnce sync.Once
+}
+
+// NewNonceCache creates a new NonceCache instance
+func NewNonceCache() *NonceCache {
+	return &NonceCache{}
+}
+
+// ensureInit lazily initializes the cache buckets
+func (nc *NonceCache) ensureInit() {
+	nc.initOnce.Do(func() {
+		nc.buckets[0] = make(map[NonceKey]struct{})
+		nc.buckets[1] = make(map[NonceKey]struct{})
+	})
+}
+
+// getBucketIndex returns the current bucket index based on time
+func (nc *NonceCache) getBucketIndex(t time.Time) int {
+	return int(t.Unix()/int64(NonceExpiry.Seconds())) % 2
+}
+
+// AddNonce adds a nonce to the current time bucket, returns false if already exists or invalid
+func (nc *NonceCache) AddNonce(signer address.Address, nonceID uint64, nonceTime time.Time) bool {
+	nc.ensureInit()
+	nc.mu.Lock()
+	defer nc.mu.Unlock()
+
+	// Check if nonce time is still valid
+	if time.Since(nonceTime) > NonceExpiry {
+		return false // Expired
+	}
+
+	key := NonceKey{
+		Signer:  signer.String(),
+		NonceID: nonceID,
+	}
+
+	currentBucket := nc.getBucketIndex(nonceTime)
+	oldBucket := 1 - currentBucket
+
+	// Check if nonce already exists in either bucket (race protection)
+	if _, exists := nc.buckets[currentBucket][key]; exists {
+		return false // Already exists
+	}
+	if _, exists := nc.buckets[oldBucket][key]; exists {
+		return false // Already exists
+	}
+
+	// Clear old bucket if we've moved to a new time window
+	now := time.Now()
+	if nc.getBucketIndex(now) != nc.getBucketIndex(now.Add(-NonceExpiry)) {
+		// We're in a new time window, clear the old bucket
+		nc.buckets[oldBucket] = make(map[NonceKey]struct{})
+	}
+
+	// Add to current bucket
+	nc.buckets[currentBucket][key] = struct{}{}
+	return true
 }
 
 // generateRandomNonce generates a random 64-bit nonce ID
@@ -105,7 +175,7 @@ func Sign(ctx context.Context, wallet WalletAPI, signer address.Address, data []
 }
 
 // Verify verifies a signature against the given data using the provided wallet API
-func Verify(ctx context.Context, wallet WalletAPI, signer address.Address, data []byte, sig *Signature) (bool, error) {
+func Verify(ctx context.Context, wallet WalletAPI, nonceCache *NonceCache, signer address.Address, data []byte, sig *Signature) (bool, error) {
 	if sig == nil {
 		return false, xerrors.New("signature is nil")
 	}
@@ -148,11 +218,19 @@ func Verify(ctx context.Context, wallet WalletAPI, signer address.Address, data 
 		return false, xerrors.Errorf("failed to verify signature with key %s: %w", accountKey, err)
 	}
 
+	// If signature is valid, try to add nonce to cache to prevent replay
+	// AddNonce will return false if nonce already exists (replay) or is expired
+	if valid {
+		if !nonceCache.AddNonce(signer, sig.NonceID, sigTime) {
+			return false, xerrors.New("nonce already used or expired (replay attack)")
+		}
+	}
+
 	return valid, nil
 }
 
 // VerifyHexSig deserializes a hex-encoded signature and verifies it
-func VerifyHexSig(ctx context.Context, wallet WalletAPI, signer address.Address, data []byte, hexSig string) (bool, error) {
+func VerifyHexSig(ctx context.Context, wallet WalletAPI, nonceCache *NonceCache, signer address.Address, data []byte, hexSig string) (bool, error) {
 	// Decode hex string to bytes
 	sigBytes, err := hex.DecodeString(hexSig)
 	if err != nil {
@@ -166,5 +244,5 @@ func VerifyHexSig(ctx context.Context, wallet WalletAPI, signer address.Address,
 	}
 
 	// Use the existing Verify function
-	return Verify(ctx, wallet, signer, data, &sig)
+	return Verify(ctx, wallet, nonceCache, signer, data, &sig)
 }
