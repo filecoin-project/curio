@@ -316,10 +316,10 @@ func (a *WebRPC) StorageGCMarks(ctx context.Context, miner *string, sectorNum *i
 								    sl.can_store, 
 								    sl.urls
 								FROM storage_removal_marks m 
-								    LEFT JOIN storage_path sl ON m.storage_id = sl.storage_id
+								    INNER JOIN storage_path sl ON m.storage_id = sl.storage_id
 								WHERE 
 								    ($1::BIGINT IS NULL OR m.sp_id = $1)
-    								AND ($2::BIGINT IS NULL OR m.sector_num = $2) 
+    								AND ($2::BIGINT IS NULL OR m.sector_num = $2)
 								ORDER BY created_at 
 								DESC LIMIT $3 
 								OFFSET $4`, spID, sectorNum, limit, offset)
