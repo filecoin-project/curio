@@ -9,12 +9,13 @@ import (
 	"sync"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/crypto"
+
 	"github.com/filecoin-project/lotus/chain/types"
-	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 const NonceExpiry = 60 * time.Second
