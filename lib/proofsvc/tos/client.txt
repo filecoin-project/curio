@@ -1,0 +1,50 @@
+Client Terms of Service
+
+**Version 0.1 – Last updated 23 June 2025**
+
+“**We**”, “**our**”, or “**Service**” means Curio Storage Inc. 
+“**You**” or “**Client**” means the person or entity submitting SNARK‑generation tasks.
+
+---
+
+## 1.  Using the Service
+1.1 You supply proof data, a maximum price (FIL), and a signed **client voucher** funded through the hub contract.  
+1.2 Our algorithm computes a market price; if at or below your max price we match you automatically with a Provider.
+
+## 2.  Payments
+2.1 Once matched, your voucher is redeemed and FIL moves from your balance into the Service pool; after successful proof delivery, the market price minus our fee is released automatically to the Provider.  
+2.2 All payments are on‑chain in FIL only; we never accept fiat deposits, issue fiat withdrawals, or allow you to reroute funds.
+
+## 3.  Fees
+3.1 A service fee—displayed at task submission—funds operations and public‑benefit research.  
+3.2 Fees are deducted automatically; no further invoices or accounting are provided.
+
+### 3A.  Hub‑Contract Lifecycle
+The hub contract supporting voucher payments may be **upgraded, migrated, or abandoned**. We will give **at least 30 days’ public notice** via our GitHub and website. Before the sunset date you must withdraw any unspent client balance using `completeClientWithdrawal`. After that date, retrieval of funds, if technically possible, is solely your responsibility.
+
+### 3B.  Operator Changes
+Operation of the Service may transition to a DAO or another non‑profit. Your continued use after the transition constitutes acceptance of the successor’s governance.
+
+## 4.  Compliance
+4.1 You confirm that the FIL you deposit is not derived from sanctioned persons, jurisdictions, or illicit activity.  
+4.2 We may freeze or reject transactions that appear non‑compliant with sanctions, AML, or counter‑terrorism laws.
+
+## 5.  Availability & Risks
+5.1 The Service and smart contracts may be interrupted, experience bugs, or suffer chain events outside our control.  
+5.2 Cryptocurrency value is volatile; you accept full risk of loss.  
+5.3 We do not guarantee proof‑generation time or success.
+
+## 6.  Intellectual Property
+6.1 You own your original inputs.  
+6.2 You receive a perpetual, royalty‑free license to use the generated proof for your Filecoin activities.
+
+## 7.  Disclaimers & Limitation of Liability
+**No warranties.** The Service, smart contracts, software, L2 chain, and APIs are provided **“as is” and “as available,” without warranties of any kind, express or implied, including but not limited to merchantability, fitness for a particular purpose, and non‑infringement.**  
+**Limitation.** Our total liability is limited to the greater of (i) USD 100 or (ii) the fees you paid in the 12 months prior to the event giving rise to liability. We are **not** liable for indirect, incidental, or consequential damages.
+
+## 8.  Termination & Refunds
+8.1 You may cease use at any time; unused balances can be withdrawn via the hub contract’s withdrawal function (subject to the time‑delay window).  
+8.2 We may suspend or terminate access for violations of these Terms or to comply with law.
+
+## 9.  Governing Law
+Delaware law governs, excluding conflict‑of‑law rules. Exclusive venue is the state or federal courts in Wilmington, Delaware.

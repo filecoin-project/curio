@@ -5,6 +5,7 @@ import { formatDate } from '/lib/dateutil.mjs';
 import '/lib/cu-wallet.mjs';
 import '/ux/yesno.mjs';
 import '/ux/message.mjs';
+import '/ux/tos-modal.mjs';
 
 class ProofShareElement extends LitElement {
   static properties = {
@@ -15,23 +16,44 @@ class ProofShareElement extends LitElement {
     paymentSummaries: { type: Array },
     settlementHistory: { type: Array },
     activeAsks: { type: Array },
+    // Current backend state (read-only)
+    currentEnabled: { type: Boolean },
+    currentWallet: { type: String },
+    currentPrice: { type: String },
   };
 
   constructor() {
     super();
+    // UI form state
     this.enabled = false;
     this.wallet = '';
     this.price = '';
+    
+    // Current backend state (read-only)
+    this.currentEnabled = false;
+    this.currentWallet = '';
+    this.currentPrice = '';
+    
     this.queue = [];
     this.paymentSummaries = [];
     this.settlementHistory = [];
     this.activeAsks = [];
+    this.originalEnabled = false; // Track original state for TOS handling
     this.loadData();
     
-    // Auto-refresh every 5 seconds
+    // Auto-refresh backend state every 3 seconds
+    this.backendStateInterval = setInterval(() => {
+      this.loadBackendState();
+    }, 3000);
+    
+    // Auto-refresh other data every 5 seconds
     this.refreshInterval = setInterval(() => {
-      this.loadData();
+      this.loadOtherData();
     }, 5000);
+
+    // Add TOS event listeners
+    this.addEventListener('tos-accepted', this.handleTosAccepted.bind(this));
+    this.addEventListener('tos-rejected', this.handleTosRejected.bind(this));
   }
 
   // Disable shadow DOM, so Bootstrap + your main.css apply naturally.
@@ -44,20 +66,42 @@ class ProofShareElement extends LitElement {
     if (this.refreshInterval) {
       clearInterval(this.refreshInterval);
     }
+    if (this.backendStateInterval) {
+      clearInterval(this.backendStateInterval);
+    }
   }
 
-  // Periodically load data from the server
+  // Load all data on initial load
   async loadData() {
-    // 1) Get the meta info (enabled/wallet/request_task_id)
+    await this.loadBackendState();
+    await this.loadOtherData();
+  }
+
+  // Load backend state for current state display
+  async loadBackendState() {
     try {
       const meta = await RPCCall('PSGetMeta', []);
-      this.enabled = meta.enabled;
-      this.wallet = meta.wallet || '';
-      this.price = meta.price || '';
+      // Update current backend state (for display)
+      this.currentEnabled = meta.enabled;
+      this.currentWallet = meta.wallet || '';
+      this.currentPrice = meta.price || '';
+      
+      // Only update form state on initial load or if form hasn't been modified
+      if (this.enabled === this.originalEnabled) {
+        this.originalEnabled = this.enabled; // Track previous state
+        this.enabled = meta.enabled;
+        this.wallet = meta.wallet || '';
+        this.price = meta.price || '';
+      }
+      
+      this.requestUpdate();
     } catch (err) {
       console.error('Failed to load proofshare meta:', err);
     }
+  }
 
+  // Load other data (queue, payments, etc.)
+  async loadOtherData() {
     // 2) Get the queue
     try {
       const queue = await RPCCall('PSListQueue', []);
@@ -97,13 +141,76 @@ class ProofShareElement extends LitElement {
     this.requestUpdate();
   }
 
+  /**
+   * Handle TOS acceptance from the modal component
+   */
+  handleTosAccepted(event) {
+    if (event.detail.type === 'provider') {
+      // Enable the provider and update checkbox
+      this.enabled = true;
+      const checkbox = this.querySelector('input[type="checkbox"]');
+      if (checkbox) {
+        checkbox.checked = true;
+      }
+      this.requestUpdate();
+    }
+  }
+
+  /**
+   * Handle TOS rejection from the modal component
+   */
+  handleTosRejected(event) {
+    if (event.detail.type === 'provider') {
+      // Revert enabled state
+      this.enabled = this.originalEnabled;
+      this.requestUpdate();
+      window.location.href = '/';
+    }
+  }
+
+  /**
+   * Handle enabled checkbox change with TOS check
+   */
+  async onEnabledChange(event) {
+    const newValue = event.target.checked;
+    
+    // If trying to enable and not previously enabled, check TOS
+    if (newValue && !this.originalEnabled) {
+      const tosAccepted = localStorage.getItem('curio-proofshare-provider-tos-accepted') === 'true';
+      
+      if (!tosAccepted) {
+        // Reset checkbox to unchecked state
+        event.target.checked = false;
+        
+        const tosModal = this.querySelector('tos-modal');
+        if (tosModal) {
+          await tosModal.showModal('provider');
+        }
+        return; // Don't update enabled state yet
+      }
+    }
+    
+    // Update the enabled state
+    this.enabled = newValue;
+    this.requestUpdate();
+  }
+
   // Update meta info on the server
   async setMeta() {
+    await this.actuallySetMeta();
+  }
+
+  async actuallySetMeta() {
     try {
       // Call PSSetMeta(enabled, wallet, price)
       await RPCCall('PSSetMeta', [this.enabled, this.wallet, this.price]);
       console.log('Updated proofshare meta successfully');
-      this.loadData(); // Refresh data after update
+      
+      // Immediately refresh backend state to update current state display
+      await this.loadBackendState();
+      
+      // Also refresh other data
+      this.loadOtherData();
     } catch (err) {
       console.error('Failed to update proofshare meta:', err);
       alert(`Error updating settings: ${err.message || err}`);
@@ -153,12 +260,22 @@ class ProofShareElement extends LitElement {
         <h2>🏗️ Provider Settings</h2>
         <p>Sell idle compute to a proving market.</p>
 
+                  <div class="mb-4">
+            <span>📊 Current State</span>
+            <div class="d-flex gap-4">
+              <div>Status: <yes-no .value=${this.currentEnabled}></yes-no></div>
+              <div>Wallet: ${this.currentWallet ? html`<code>${this.currentWallet}</code>` : html`<em>Not configured</em>`}</div>
+              <div>Price: ${this.currentPrice ? html`<code>${this.currentPrice} FIL/P</code>` : html`<em>Not set</em>`}</div>
+            </div>
+          </div>
+
+        <span>⚙️ Update Settings</span>
         <div class="mb-2">
           <label class="form-check-label">
             <input
               type="checkbox"
               ?checked=${this.enabled}
-              @change=${(e) => (this.enabled = e.target.checked)}
+              @change=${this.onEnabledChange}
             />
             <span>Enabled</span>
           </label>
@@ -320,6 +437,9 @@ class ProofShareElement extends LitElement {
             `)}
           </tbody>
         </table>
+
+        <!-- TOS Modal Component -->
+        <tos-modal></tos-modal>
       </div>
     `;
   }

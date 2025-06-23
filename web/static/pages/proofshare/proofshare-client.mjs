@@ -2,6 +2,7 @@ import { LitElement, html } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit
 import RPCCall from '/lib/jsonrpc.mjs';
 import { formatDate } from '/lib/dateutil.mjs';
 import '/ux/yesno.mjs';
+import '/ux/tos-modal.mjs';
 
 class ProofShareClient extends LitElement {
   static properties = {
@@ -31,6 +32,9 @@ class ProofShareClient extends LitElement {
     // All proofshare_client_messages rows
     this.messages = [];
 
+    // TOS handling
+    this.pendingEnableRow = null;
+
     // Initial load of settings, wallets, and client messages
     this.loadAllSettings();
 
@@ -39,6 +43,10 @@ class ProofShareClient extends LitElement {
 
     // Refresh UI every second to update any countdowns
     this.countdownIntervalId = setInterval(() => this.requestUpdate(), 1000);
+
+    // Add TOS event listeners
+    this.addEventListener('tos-accepted', this.handleTosAccepted.bind(this));
+    this.addEventListener('tos-rejected', this.handleTosRejected.bind(this));
   }
 
   disconnectedCallback() {
@@ -88,9 +96,45 @@ class ProofShareClient extends LitElement {
   }
 
   /**
+   * Handle TOS acceptance from the modal component
+   */
+  handleTosAccepted(event) {
+    if (event.detail.type === 'client' && this.pendingEnableRow) {
+      this.pendingEnableRow.enabled = true;
+      this.pendingEnableRow = null;
+      this.requestUpdate();
+    }
+  }
+
+  /**
+   * Handle TOS rejection from the modal component
+   */
+  handleTosRejected(event) {
+    if (event.detail.type === 'client') {
+      this.pendingEnableRow = null;
+      window.location.href = '/';
+    }
+  }
+
+  /**
    * Update a field in a settings row.
    */
-  onChange(row, field, value) {
+  async onChange(row, field, value) {
+    // Special handling for enabling - check TOS acceptance first
+    if (field === 'enabled' && value === true) {
+      // Check if TOS has been accepted
+      const tosAccepted = localStorage.getItem('curio-proofshare-client-tos-accepted') === 'true';
+      
+      if (!tosAccepted) {
+        this.pendingEnableRow = row;
+        const tosModal = this.querySelector('tos-modal');
+        if (tosModal) {
+          await tosModal.showModal('client');
+        }
+        return; // Don't update the field yet
+      }
+    }
+    
     row[field] = value;
     this.requestUpdate();
   }
@@ -444,6 +488,9 @@ class ProofShareClient extends LitElement {
             `)}
           </tbody>
         </table>
+
+        <!-- TOS Modal Component -->
+        <tos-modal></tos-modal>
       </div>
     `;
   }

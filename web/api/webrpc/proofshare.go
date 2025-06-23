@@ -1183,3 +1183,7 @@ ORDER BY rs.settled_at DESC; -- Maintain final order
 
 	return items, nil
 }
+
+func (a *WebRPC) PSGetTos(ctx context.Context) (proofsvc.Tos, error) {
+	return proofsvc.GetTos(), nil
+}
