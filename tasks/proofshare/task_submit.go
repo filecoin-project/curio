@@ -61,13 +61,13 @@ func (t *TaskSubmit) schedule(ctx context.Context, taskFunc harmonytask.AddTaskF
 				return false, xerrors.Errorf("querying unsubmitted proofs: %w", err)
 			}
 
-			// 2) If no rows are found, we’re done scheduling.
+			// 2) If no rows are found, we're done scheduling.
 			if len(rows) == 0 {
 				return false, nil
 			}
 
 			// 3) Here we pick the row we want to schedule;
-			//    the example picks randomly, but we’ll pick the first for simplicity.
+			//    the example picks randomly, but we'll pick the first for simplicity.
 			taskRow := rows[0]
 
 			// 4) Mark this row with the new task ID.
@@ -146,7 +146,13 @@ func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool
 	}
 
 	// 3) Submit the proof to the remote service
-	reward, err := proofsvc.RespondWork(addr, row.RequestCid, row.ResponseData)
+	// Create address resolver
+	resolver, err := proofsvc.NewAddressResolver(t.chain)
+	if err != nil {
+		return false, xerrors.Errorf("failed to create address resolver: %w", err)
+	}
+
+	reward, err := proofsvc.RespondWork(ctx, resolver, addr, row.RequestCid, row.ResponseData)
 	if err != nil {
 		return false, xerrors.Errorf("failed to respond to work: %w", err)
 	}

@@ -204,29 +204,32 @@ func generateRandomNonce() (uint64, error) {
 	return n.Uint64(), nil
 }
 
-// Sign creates a signature for the given data using the provided wallet API
-func Sign(ctx context.Context, resolver *AddressResolver, signer address.Address, data []byte, nonceTime time.Time) (*Signature, error) {
+// Sign creates a signature for the given data using the provided wallet API and returns it as hex
+func Sign(ctx context.Context, resolver *AddressResolver, signer address.Address, dst string, data []byte, nonceTime time.Time) (string, error) {
 	// Lookup the account key for the signer
 	accountKey, err := resolver.ResolveAccountKey(ctx, signer)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 
 	// Generate random nonce ID
 	nonceID, err := generateRandomNonce()
 	if err != nil {
-		return nil, xerrors.Errorf("failed to generate nonce ID: %w", err)
+		return "", xerrors.Errorf("failed to generate nonce ID: %w", err)
+	}
+
+	// Create the signature structure
+	sig := &Signature{
+		NonceTime: uint64(nonceTime.Unix()),
+		NonceID:   nonceID,
+		Sig:       nil, // Will be filled after signing
 	}
 
 	// Create the signed message structure
 	signedMsg := &SignedMsg{
-		Data:   data,
+		Data:   append([]byte(dst), data...),
 		Signer: accountKey,
-		Sig: Signature{
-			NonceTime: uint64(nonceTime.Unix()),
-			NonceID:   nonceID,
-			Sig:       nil, // Will be filled after signing
-		},
+		Sig:    *sig,
 	}
 
 	// Get the bytes to sign using SigningBytes method
@@ -235,13 +238,19 @@ func Sign(ctx context.Context, resolver *AddressResolver, signer address.Address
 	// Sign the data using the account key
 	cryptoSig, err := resolver.wallet.WalletSign(ctx, accountKey, signingBytes)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to sign data with key %s: %w", accountKey, err)
+		return "", xerrors.Errorf("failed to sign data with key %s: %w", accountKey, err)
 	}
 
 	// Store the signature bytes (including type prefix)
-	signedMsg.Sig.Sig = append([]byte{byte(cryptoSig.Type)}, cryptoSig.Data...)
+	sig.Sig = append([]byte{byte(cryptoSig.Type)}, cryptoSig.Data...)
 
-	return &signedMsg.Sig, nil
+	// Serialize to CBOR and return as hex
+	var buf bytes.Buffer
+	if err := sig.MarshalCBOR(&buf); err != nil {
+		return "", xerrors.Errorf("failed to marshal signature: %w", err)
+	}
+
+	return hex.EncodeToString(buf.Bytes()), nil
 }
 
 // Verify verifies a signature against the given data using the provided resolver and nonce cache
@@ -308,19 +317,26 @@ func Verify(ctx context.Context, resolver *AddressResolver, nonceCache *NonceCac
 }
 
 // VerifyHexSig deserializes a hex-encoded signature and verifies it
-func VerifyHexSig(ctx context.Context, resolver *AddressResolver, nonceCache *NonceCache, signer address.Address, data []byte, hexSig string) (bool, error) {
+func VerifyHexSig(ctx context.Context, resolver *AddressResolver, nonceCache *NonceCache, signer address.Address, dst string, data []byte, hexSig string) error {
 	// Decode hex string to bytes
 	sigBytes, err := hex.DecodeString(hexSig)
 	if err != nil {
-		return false, xerrors.Errorf("failed to decode hex signature: %w", err)
+		return xerrors.Errorf("failed to decode hex signature: %w", err)
 	}
 
 	// Deserialize signature from CBOR bytes
 	var sig Signature
 	if err := sig.UnmarshalCBOR(bytes.NewReader(sigBytes)); err != nil {
-		return false, xerrors.Errorf("failed to unmarshal signature: %w", err)
+		return xerrors.Errorf("failed to unmarshal signature: %w", err)
 	}
 
 	// Use the existing Verify function
-	return Verify(ctx, resolver, nonceCache, signer, data, &sig)
+	valid, err := Verify(ctx, resolver, nonceCache, signer, append([]byte(dst), data...), &sig)
+	if err != nil {
+		return err
+	}
+	if !valid {
+		return xerrors.New("signature verification failed")
+	}
+	return nil
 }

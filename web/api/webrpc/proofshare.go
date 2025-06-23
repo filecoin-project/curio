@@ -124,7 +124,31 @@ func (a *WebRPC) PSListAsks(ctx context.Context) ([]common.WorkAsk, error) {
 }
 
 func (a *WebRPC) PSAskWithdraw(ctx context.Context, askID int64) error {
-	err := proofsvc.WithdrawAsk(askID)
+	// Get the wallet address from proofshare_meta
+	var wallet string
+	err := a.deps.DB.QueryRow(ctx, `
+		SELECT wallet FROM proofshare_meta WHERE singleton = true
+	`).Scan(&wallet)
+	if err != nil {
+		return xerrors.Errorf("PSAskWithdraw: failed to get wallet: %w", err)
+	}
+	if wallet == "" {
+		return xerrors.Errorf("PSAskWithdraw: no wallet configured")
+	}
+
+	// Convert wallet string to address
+	walletAddr, err := address.NewFromString(wallet)
+	if err != nil {
+		return xerrors.Errorf("PSAskWithdraw: failed to parse wallet address: %w", err)
+	}
+
+	// Create address resolver
+	resolver, err := proofsvc.NewAddressResolver(a.deps.Chain)
+	if err != nil {
+		return xerrors.Errorf("PSAskWithdraw: failed to create address resolver: %w", err)
+	}
+
+	err = proofsvc.WithdrawAsk(ctx, resolver, walletAddr, askID)
 	if err != nil {
 		return xerrors.Errorf("PSAskWithdraw: failed to withdraw ask: %w", err)
 	}

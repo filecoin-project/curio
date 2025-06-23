@@ -65,8 +65,17 @@ func retryWithBackoff[T any](ctx context.Context, f func() (T, error)) (T, error
 	}
 }
 
-func CreateWorkAsk(address string, price abi.TokenAmount) (int64, error) {
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/provider/work/ask/%s?price=%s", marketUrl, address, price), nil)
+func CreateWorkAsk(ctx context.Context, resolver *AddressResolver, signer address.Address, price abi.TokenAmount) (int64, error) {
+	priceStr := price.String()
+
+	// Create signature for the work ask
+	signature, err := Sign(ctx, resolver, signer, "work-ask", []byte(priceStr), time.Now())
+	if err != nil {
+		return 0, xerrors.Errorf("failed to sign work ask: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/provider/work/ask/%s?price=%s&signature=%s",
+		marketUrl, signer.String(), priceStr, signature), nil)
 	if err != nil {
 		return 0, xerrors.Errorf("failed to create request: %w", err)
 	}
@@ -75,11 +84,11 @@ func CreateWorkAsk(address string, price abi.TokenAmount) (int64, error) {
 	if err != nil {
 		return 0, xerrors.Errorf("failed to send request: %w", err)
 	}
-
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, xerrors.Errorf("failed to create work ask: %s", resp.Status)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return 0, xerrors.Errorf("failed to create work ask: %s - %s", resp.Status, string(bodyBytes))
 	}
 
 	var workAsk common.WorkAsk
@@ -119,8 +128,17 @@ func PollWork(address string) (common.WorkResponse, error) {
 	})
 }
 
-func WithdrawAsk(askID int64) error {
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/provider/work/withdraw/%d", marketUrl, askID), nil)
+func WithdrawAsk(ctx context.Context, resolver *AddressResolver, signer address.Address, askID int64) error {
+	askIDStr := fmt.Sprintf("%d", askID)
+
+	// Create signature for the work withdraw
+	signature, err := Sign(ctx, resolver, signer, "work-withdraw", []byte(askIDStr), time.Now())
+	if err != nil {
+		return xerrors.Errorf("failed to sign work withdraw: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/provider/work/withdraw/%d?provider-id=%s&signature=%s",
+		marketUrl, askID, signer.String(), signature), nil)
 	if err != nil {
 		return xerrors.Errorf("failed to create request: %w", err)
 	}
@@ -132,7 +150,8 @@ func WithdrawAsk(askID int64) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return xerrors.Errorf("failed to withdraw ask: %s", resp.Status)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return xerrors.Errorf("failed to withdraw ask: %s - %s", resp.Status, string(bodyBytes))
 	}
 
 	return nil
@@ -167,12 +186,19 @@ func GetProof(cid cid.Cid) ([]byte, error) {
 	})
 }
 
-func RespondWork(address address.Address, rcid string, proof []byte) (common.ProofReward, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), MaxRetryTime)
+func RespondWork(ctx context.Context, resolver *AddressResolver, address address.Address, rcid string, proof []byte) (common.ProofReward, error) {
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, MaxRetryTime)
 	defer cancel()
 
-	return retryWithBackoff(ctx, func() (common.ProofReward, error) {
-		req, err := http.NewRequest("POST", fmt.Sprintf("%s/provider/work/complete/%s/%s", marketUrl, address.String(), rcid), bytes.NewReader(proof))
+	return retryWithBackoff(ctxWithTimeout, func() (common.ProofReward, error) {
+		// Create signature for the work complete
+		signature, err := Sign(ctx, resolver, address, "work-complete", []byte(rcid), time.Now())
+		if err != nil {
+			return common.ProofReward{}, xerrors.Errorf("failed to sign work complete: %w", err)
+		}
+
+		req, err := http.NewRequest("POST", fmt.Sprintf("%s/provider/work/complete/%s/%s?signature=%s",
+			marketUrl, address.String(), rcid, signature), bytes.NewReader(proof))
 		if err != nil {
 			return common.ProofReward{}, xerrors.Errorf("failed to create request: %w", err)
 		}

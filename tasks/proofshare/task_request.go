@@ -7,6 +7,9 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
@@ -14,6 +17,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/seal"
 	"github.com/filecoin-project/curio/tasks/snap"
 
+	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
@@ -26,12 +30,14 @@ var RequestQueueHighWaterMark = 5
 
 type TaskRequestProofs struct {
 	db          *harmonydb.DB
+	chain       api.FullNode
 	paramsReady func() (bool, error)
 }
 
-func NewTaskRequestProofs(db *harmonydb.DB, paramck func() (bool, error)) *TaskRequestProofs {
+func NewTaskRequestProofs(db *harmonydb.DB, chain api.FullNode, paramck func() (bool, error)) *TaskRequestProofs {
 	return &TaskRequestProofs{
 		db:          db,
+		chain:       chain,
 		paramsReady: paramck,
 	}
 }
@@ -260,7 +266,19 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 				return false, xerrors.Errorf("failed to parse price: %w", err)
 			}
 
-			askID, askErr := proofsvc.CreateWorkAsk(meta.Wallet, price)
+			// Convert wallet string to address
+			walletAddr, err := address.NewFromString(meta.Wallet)
+			if err != nil {
+				return false, xerrors.Errorf("failed to parse wallet address: %w", err)
+			}
+
+			// Create address resolver
+			resolver, err := proofsvc.NewAddressResolver(t.chain)
+			if err != nil {
+				return false, xerrors.Errorf("failed to create address resolver: %w", err)
+			}
+
+			askID, askErr := proofsvc.CreateWorkAsk(ctx, resolver, walletAddr, abi.TokenAmount(price))
 			if askErr != nil {
 				return false, xerrors.Errorf("failed to create work ask: %w", askErr)
 			}
