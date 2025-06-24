@@ -327,7 +327,7 @@ func (p *PDPService) handleGetProofSetCreationStatus(w http.ResponseWriter, r *h
 	}
 	txHash = strings.ToLower(txHash)
 
-	log.Infow("GetProofSetCreationStatus request",
+	log.Debugw("GetProofSetCreationStatus request",
 		"txHash", txHash,
 		"service", serviceLabel)
 
@@ -423,7 +423,7 @@ func (p *PDPService) handleGetProofSetCreationStatus(w http.ResponseWriter, r *h
 		response.ProofSetId = &proofSetId
 	}
 
-	log.Infow("GetProofSetCreationStatus response",
+	log.Debugw("GetProofSetCreationStatus response",
 		"txHash", txHash,
 		"txStatus", response.TxStatus,
 		"proofsetCreated", response.ProofsetCreated,

@@ -86,7 +86,7 @@ func (mw *MessageWatcherEth) update() {
 			return
 		}
 		if n > 0 {
-			log.Infow("assigned orphaned pending transactions", "count", n, "machineID", machineID)
+			log.Infow("Assigned orphaned pending transactions", "count", n, "machineID", machineID)
 		}
 	}
 
@@ -120,7 +120,7 @@ func (mw *MessageWatcherEth) update() {
 				continue
 			}
 			errorCount++
-			log.Errorw("failed to get transaction receipt - continuing with next tx",
+			log.Errorw("Failed to get transaction receipt - continuing with next tx",
 				"txHash", txHash.Hex(),
 				"error", err,
 				"errorType", fmt.Sprintf("%T", err))
@@ -152,11 +152,11 @@ func (mw *MessageWatcherEth) update() {
 		if err != nil {
 			if errors.Is(err, ethereum.NotFound) {
 				errorCount++
-				log.Errorw("transaction data not found - continuing", "txHash", txHash.Hex())
+				log.Errorw("Transaction data not found - continuing", "txHash", txHash.Hex())
 				continue
 			}
 			errorCount++
-			log.Errorw("failed to get transaction by hash - continuing",
+			log.Errorw("Failed to get transaction by hash - continuing",
 				"txHash", txHash.Hex(),
 				"error", err)
 			continue
@@ -165,7 +165,7 @@ func (mw *MessageWatcherEth) update() {
 		txDataJSON, err := json.Marshal(txData)
 		if err != nil {
 			errorCount++
-			log.Errorw("failed to marshal transaction data - continuing",
+			log.Errorw("Failed to marshal transaction data - continuing",
 				"txHash", txHash.Hex(),
 				"error", err)
 			continue
@@ -174,7 +174,7 @@ func (mw *MessageWatcherEth) update() {
 		receiptJSON, err := json.Marshal(receipt)
 		if err != nil {
 			errorCount++
-			log.Errorw("failed to marshal receipt data - continuing",
+			log.Errorw("Failed to marshal receipt data - continuing",
 				"txHash", txHash.Hex(),
 				"error", err)
 			continue
@@ -209,7 +209,7 @@ func (mw *MessageWatcherEth) update() {
 		)
 		if err != nil {
 			errorCount++
-			log.Errorw("failed to update message wait - continuing",
+			log.Errorw("Failed to update message wait - continuing",
 				"txHash", txHash.Hex(),
 				"error", err)
 			continue
