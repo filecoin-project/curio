@@ -157,8 +157,6 @@ func (p *PoRepTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 	}
 	// todo sort by priority
 
-	return nil, nil // TODO THIS IS SNARK MARKET TEMP, REMOVEME
-
 	id := ids[0]
 	return &id, nil
 }
