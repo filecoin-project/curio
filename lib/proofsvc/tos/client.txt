@@ -16,18 +16,18 @@ Client Terms of Service
 2.2 All payments are on‑chain in FIL only; we never accept fiat deposits, issue fiat withdrawals, or allow you to reroute funds.
 
 ## 3.  Fees
-3.1 A service fee—displayed at task submission—funds operations and public‑benefit research.  
+3.1 A service fee, displayed at task submission, funds operations and public‑benefit research.  
 3.2 Fees are deducted automatically; no further invoices or accounting are provided.
 
 ### 3A.  Hub‑Contract Lifecycle
-The hub contract supporting voucher payments may be **upgraded, migrated, or abandoned**. We will give **at least 30 days’ public notice** via our GitHub and website. Before the sunset date you must withdraw any unspent client balance using `completeClientWithdrawal`. After that date, retrieval of funds, if technically possible, is solely your responsibility.
+The hub contract supporting voucher payments may be **upgraded, migrated, or abandoned**. We will provide **at least 30 days public notice at least 30 days prior** via our standard public announcement mechanisms of the time. Before the sunset date, you must withdraw any unspent client balance using `completeClientWithdrawal`. After that timeframe, support will not be provided for retrieval of affected funds.
 
 ### 3B.  Operator Changes
 Operation of the Service may transition to a DAO or another non‑profit. Your continued use after the transition constitutes acceptance of the successor’s governance.
 
 ## 4.  Compliance
 4.1 You confirm that the FIL you deposit is not derived from sanctioned persons, jurisdictions, or illicit activity.  
-4.2 We may freeze or reject transactions that appear non‑compliant with sanctions, AML, or counter‑terrorism laws.
+4.2 We may freeze or reject transactions that appear non‑compliant with the laws of the operator's jurisdiction, such as sanctions, AML, or counter‑terrorism.
 
 ## 5.  Availability & Risks
 5.1 The Service and smart contracts may be interrupted, experience bugs, or suffer chain events outside our control.  
