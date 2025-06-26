@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: CCL-1.0
+
 package proofsvc
 
 import (
