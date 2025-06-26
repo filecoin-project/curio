@@ -25,7 +25,7 @@ var MaxRetryTime = 15 * time.Minute
 
 var log = logging.Logger("proofsvc")
 
-const marketUrl = "https://svc0.fsp.sh/v0/proofs"
+const marketUrl = "https://mainnet.snass.fsp.sh/v0/proofs"
 
 // retryWithBackoff executes the given function with exponential backoff
 // It will retry until the context is canceled or the function succeeds

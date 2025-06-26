@@ -24,9 +24,9 @@ import (
 )
 
 // RouterMainnet is the Ethereum form of the router address. This is just an example.
-const RouterMainnet = "0x5D2Ce039F95AaF167DEcef2028F48f6bAcC5a586"
+const RouterMainnet = "0xFf34254F6d017503B5f1E444339042AB6A3E4323"
 
-const WithdrawWindow = 5 * time.Minute
+const WithdrawWindow = 4 * time.Hour
 
 // Router returns the Filecoin address of the router.
 func Router() address.Address {

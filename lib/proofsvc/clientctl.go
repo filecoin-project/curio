@@ -19,7 +19,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
-const clientUrl = "https://svc0.fsp.sh/v0/proofs"
+const clientUrl = "https://mainnet.snass.fsp.sh/v0/proofs"
 
 type NFilAmount = int64
 
