@@ -101,5 +101,6 @@ var toolboxCmd = &cli.Command{
 	Subcommands: []*cli.Command{
 		sparkCmd,
 		mk12Clientcmd,
+		mk20Clientcmd,
 	},
 }

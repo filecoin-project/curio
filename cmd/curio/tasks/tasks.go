@@ -99,7 +99,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	machine := dependencies.ListenAddr
 	prover := dependencies.Prover
 	iStore := dependencies.IndexStore
-	pp := dependencies.SectorReader
 
 	var activeTasks []harmonytask.TaskInterface
 
@@ -221,12 +220,13 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	{
 		// Piece handling
 		if cfg.Subsystems.EnableParkPiece {
-			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.ParkPieceMaxTasks)
+			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), stor, cfg.Subsystems.ParkPieceMaxTasks)
 			if err != nil {
 				return nil, err
 			}
 			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
-			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask)
+			aggregateChunksTask := piece2.NewAggregateChunksTask(db, stor, must.One(slrLazy.Val()))
+			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask, aggregateChunksTask)
 		}
 	}
 
@@ -244,20 +244,26 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	}
 
 	{
+		var sdeps cuhttp.ServiceDeps
 		// Market tasks
 		var dm *storage_market.CurioStorageDealMarket
 		if cfg.Subsystems.EnableDealMarket {
 			// Main market poller should run on all nodes
-			dm = storage_market.NewCurioStorageDealMarket(miners, db, cfg, si, full, as)
+			dm = storage_market.NewCurioStorageDealMarket(miners, db, cfg, must.One(dependencies.EthClient.Val()), si, full, as, must.One(slrLazy.Val()))
 			err := dm.StartMarket(ctx)
 			if err != nil {
 				return nil, err
 			}
 
+			sdeps.DealMarket = dm
+
 			if cfg.Subsystems.EnableCommP {
 				commpTask := storage_market.NewCommpTask(dm, db, must.One(slrLazy.Val()), full, cfg.Subsystems.CommPMaxTasks)
 				activeTasks = append(activeTasks, commpTask)
 			}
+
+			aggTask := storage_market.NewAggregateTask(dm, db, must.One(slrLazy.Val()), lstor, full)
+			activeTasks = append(activeTasks, aggTask)
 
 			// PSD and Deal find task do not require many resources. They can run on all machines
 			psdTask := storage_market.NewPSDTask(dm, db, sender, as, &cfg.Market.StorageMarketConfig.MK12, full)
@@ -275,7 +281,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		if err != nil {
 			return nil, err
 		}
-		var sdeps cuhttp.ServiceDeps
 
 		if cfg.Subsystems.EnablePDP {
 			es := getSenderEth()
@@ -293,12 +298,12 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 
-		indexingTask := indexing.NewIndexingTask(db, sc, iStore, pp, cfg, idxMax)
-		ipniTask := indexing.NewIPNITask(db, sc, iStore, pp, cfg, idxMax)
+		indexingTask := indexing.NewIndexingTask(db, sc, iStore, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
+		ipniTask := indexing.NewIPNITask(db, sc, iStore, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
 		activeTasks = append(activeTasks, ipniTask, indexingTask)
 
 		if cfg.HTTP.Enable {
-			err = cuhttp.StartHTTPServer(ctx, dependencies, &sdeps, dm)
+			err = cuhttp.StartHTTPServer(ctx, dependencies, &sdeps)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to start the HTTP server: %w", err)
 			}
