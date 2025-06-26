@@ -7,8 +7,8 @@ import (
 	"io"
 	"math/bits"
 	"os"
-	"path"
 	"strings"
+	"time"
 
 	"github.com/ipfs/boxo/blockservice"
 	bstore "github.com/ipfs/boxo/blockstore"
@@ -26,12 +26,14 @@ import (
 	carv2 "github.com/ipld/go-car/v2"
 	"github.com/ipld/go-car/v2/blockstore"
 	"github.com/multiformats/go-multihash"
+	"github.com/oklog/ulid"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-data-segment/datasegment"
-	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/commcidv2"
 )
 
 const defaultHashFunction = uint64(multihash.BLAKE2B_MIN + 31)
@@ -172,7 +174,7 @@ func WriteUnixfsDAGTo(path string, into ipldformat.DAGService, chunksize int64, 
 	return nd.Cid(), nil
 }
 
-func CreateAggregateFromCars(files []string, dealSize abi.PaddedPieceSize, aggregateOut bool) (cid.Cid, abi.PaddedPieceSize, error) {
+func CreateAggregateFromCars(files []string, dealSize abi.PaddedPieceSize, aggregateOut bool) (cid.Cid, error) {
 	var lines []string
 	var readers []io.Reader
 	var deals []abi.PieceInfo
@@ -180,98 +182,107 @@ func CreateAggregateFromCars(files []string, dealSize abi.PaddedPieceSize, aggre
 	for _, f := range files {
 		file, err := os.Open(f)
 		if err != nil {
-			return cid.Undef, 0, xerrors.Errorf("opening subpiece file: %w", err)
+			return cid.Undef, xerrors.Errorf("opening subpiece file: %w", err)
 		}
 		stat, err := file.Stat()
 		if err != nil {
-			return cid.Undef, 0, xerrors.Errorf("getting file stat: %w", err)
+			return cid.Undef, xerrors.Errorf("getting file stat: %w", err)
 		}
 		cp := new(commp.Calc)
 		_, err = io.Copy(cp, file)
 		if err != nil {
-			return cid.Undef, 0, xerrors.Errorf("copying subpiece to commp writer: %w", err)
+			return cid.Undef, xerrors.Errorf("copying subpiece to commp writer: %w", err)
 		}
 		_, err = file.Seek(0, io.SeekStart)
 		if err != nil {
-			return cid.Undef, 0, xerrors.Errorf("seeking to start of file: %w", err)
+			return cid.Undef, xerrors.Errorf("seeking to start of file: %w", err)
 		}
 		pbytes, size, err := cp.Digest()
 		if err != nil {
-			return cid.Undef, 0, xerrors.Errorf("computing digest for subpiece: %w", err)
+			return cid.Undef, xerrors.Errorf("computing digest for subpiece: %w", err)
 		}
-		pcid, err := commcid.DataCommitmentV1ToCID(pbytes)
+		comm, err := commcidv2.NewSha2CommP(uint64(stat.Size()), pbytes)
 		if err != nil {
-			return cid.Undef, 0, xerrors.Errorf("converting data commitment to CID: %w", err)
+			return cid.Undef, xerrors.Errorf("converting data commitment to CID: %w", err)
 		}
 		deals = append(deals, abi.PieceInfo{
-			PieceCID: pcid,
+			PieceCID: comm.PCidV1(),
 			Size:     abi.PaddedPieceSize(size),
 		})
 		readers = append(readers, file)
 		urlStr := fmt.Sprintf("http://piece-server:12320/pieces?id=%s", stat.Name())
-		lines = append(lines, fmt.Sprintf("%s\t%d\t%d\t%s", pcid.String(), size, stat.Size(), urlStr))
+		lines = append(lines, fmt.Sprintf("%s\t%s", comm.PCidV2().String(), urlStr))
 	}
 
 	_, upsize, err := datasegment.ComputeDealPlacement(deals)
 	if err != nil {
-		return cid.Undef, 0, xerrors.Errorf("computing deal placement: %w", err)
+		return cid.Undef, xerrors.Errorf("computing deal placement: %w", err)
 	}
 
 	next := 1 << (64 - bits.LeadingZeros64(upsize+256))
 
 	if abi.PaddedPieceSize(next) != dealSize {
-		return cid.Undef, 0, fmt.Errorf("deal size mismatch: expected %d, got %d", dealSize, abi.PaddedPieceSize(next))
+		return cid.Undef, fmt.Errorf("deal size mismatch: expected %d, got %d", dealSize, abi.PaddedPieceSize(next))
 	}
 
 	a, err := datasegment.NewAggregate(abi.PaddedPieceSize(next), deals)
 	if err != nil {
-		return cid.Undef, 0, xerrors.Errorf("creating aggregate: %w", err)
+		return cid.Undef, xerrors.Errorf("creating aggregate: %w", err)
 	}
 	out, err := a.AggregateObjectReader(readers)
 	if err != nil {
-		return cid.Undef, 0, xerrors.Errorf("creating aggregate reader: %w", err)
+		return cid.Undef, xerrors.Errorf("creating aggregate reader: %w", err)
 	}
 
-	p := path.Dir(files[0])
-
-	f, err := os.CreateTemp(p, "aggregate_*")
+	x, err := ulid.New(uint64(time.Now().UnixMilli()), rand.Reader)
 	if err != nil {
-		return cid.Undef, 0, err
+		return cid.Undef, xerrors.Errorf("creating aggregate file: %w", err)
+	}
+
+	f, err := os.OpenFile(x.String(), os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0644)
+	if err != nil {
+		return cid.Undef, err
 	}
 	defer f.Close()
 
 	cp := new(commp.Calc)
 	w := io.MultiWriter(cp, f)
 
-	_, err = io.Copy(w, out)
+	n, err := io.Copy(w, out)
 	if err != nil {
-		return cid.Undef, 0, xerrors.Errorf("writing aggregate: %w", err)
+		f.Close()
+		return cid.Undef, xerrors.Errorf("writing aggregate: %w", err)
 	}
+
+	f.Close()
 
 	digest, paddedPieceSize, err := cp.Digest()
 	if err != nil {
-		return cid.Undef, 0, xerrors.Errorf("computing digest: %w", err)
+		return cid.Undef, xerrors.Errorf("computing digest: %w", err)
 	}
 	if abi.PaddedPieceSize(paddedPieceSize) != dealSize {
-		return cid.Undef, 0, fmt.Errorf("deal size mismatch after final commP: expected %d, got %d", dealSize, abi.PaddedPieceSize(paddedPieceSize))
+		return cid.Undef, fmt.Errorf("deal size mismatch after final commP: expected %d, got %d", dealSize, abi.PaddedPieceSize(paddedPieceSize))
 	}
 
-	pcid, err := commcid.DataCommitmentV1ToCID(digest)
-	if err != nil {
-		return cid.Undef, 0, xerrors.Errorf("converting digest to CID: %w", err)
+	if n != int64(dealSize.Unpadded()) {
+		return cid.Undef, fmt.Errorf("incorrect aggregate raw size: expected %d, got %d", dealSize.Unpadded(), n)
 	}
 
-	err = os.WriteFile(fmt.Sprintf("aggregate_%s", pcid.String()), []byte(strings.Join(lines, "\n")), 0644)
+	comm, err := commcidv2.NewSha2CommP(uint64(n), digest)
 	if err != nil {
-		return cid.Undef, 0, xerrors.Errorf("writing aggregate to file: %w", err)
+		return cid.Undef, xerrors.Errorf("creating commP: %w", err)
+	}
+
+	err = os.WriteFile(fmt.Sprintf("aggregate_%s", comm.PCidV2().String()), []byte(strings.Join(lines, "\n")), 0644)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("writing aggregate to file: %w", err)
 	}
 
 	if !aggregateOut {
 		defer os.Remove(f.Name())
 	} else {
-		cn := path.Join(p, pcid.String())
-		defer os.Rename(f.Name(), fmt.Sprintf("aggregate_%s.piece", cn)) //nolint:errcheck
+		defer os.Rename(f.Name(), fmt.Sprintf("aggregate_%s.piece", comm.PCidV2().String())) //nolint:errcheck
 	}
 
-	return pcid, abi.PaddedPieceSize(paddedPieceSize), nil
+	return comm.PCidV2(), nil
 }

@@ -307,8 +307,8 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
 
                             <tr><th colspan="2"><h5>Sealing 📦</h5></th></tr>
                             <tr><td>Sector</td><td>${entry.mk12_pipeline.sector.Valid ? html`<a href="/pages/sector/?sp=${entry.deal.addr}&id=${entry.mk12_pipeline.sector.Int64}">${entry.mk12_pipeline.sector.Int64}</a>` : 'N/A'}</td></tr>
-                            <tr><td>Reg Seal Proof</td><td>${entry.mk12_pipeline.reg_seal_proof.Valid ? entry.pipeline.reg_seal_proof.Int64 : 'N/A'}</td></tr>
-                            <tr><td>Sector Offset</td><td>${entry.mk12_pipeline.sector_offset.Valid ? entry.pipeline.sector_offset.Int64 : 'N/A'}</td></tr>
+                            <tr><td>Reg Seal Proof</td><td>${entry.mk12_pipeline.reg_seal_proof.Valid ? entry.mk12_pipeline.reg_seal_proof.Int64 : 'N/A'}</td></tr>
+                            <tr><td>Sector Offset</td><td>${entry.mk12_pipeline.sector_offset.Valid ? entry.mk12_pipeline.sector_offset.Int64 : 'N/A'}</td></tr>
                             
                             <tr><th colspan="2"><h5>Indexing 🔍</h5></th></tr>
                             <tr><td>Indexing Created At</td><td>${entry.mk12_pipeline.indexing_created_at.Valid ? formatDate(entry.mk12_pipeline.indexing_created_at.Time) : 'N/A'}</td></tr>

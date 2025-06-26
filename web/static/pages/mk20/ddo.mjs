@@ -89,13 +89,16 @@ class MK20DDODealList extends LitElement {
             ${this.deals.map(
             (deal) => html`
                 <tr>
-                  <td>${formatDate(deal.created_at)}</td>
-                  <td><a href="/pages/mk20-deal/?id=${deal.id}">${deal.id}</a></td>
-                  <td>${deal.miner}</td>
-                  <td><a href="/pages/piece/?id=${deal.piece_cid_v2}">${this.formatPieceCid(deal.piece_cid)}</a></td>
-                  <td>${this.formatBytes(deal.piece_size)}</td>
-                  <td><done-not-done .value=${deal.processed}></yes-no></td>
-                  <td><error-or-not .value=${deal.error}></error-or-not></td>
+                    <td>${formatDate(deal.created_at)}</td>
+                    <td><a href="/pages/mk20-deal/?id=${deal.id}">${deal.id}</a></td>
+                    <td>${deal.miner.Valid ? deal.miner.String : '-'}</td>
+                    <td>
+                        ${deal.piece_cid_v2
+                                ? html`<a href="/pages/piece/?id=${deal.piece_cid_v2.String}">${this.formatPieceCid(deal.piece_cid_v2.String)}</a>`
+                                : 'Not Available'}
+                    </td>
+                    <td><done-not-done .value=${deal.processed}></yes-no></td>
+                    <td><error-or-not .value=${deal.error}></error-or-not></td>
                 </tr>
               `
         )}

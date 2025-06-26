@@ -5,6 +5,7 @@ import (
 
 	"github.com/ipfs/go-cid"
 	pool "github.com/libp2p/go-buffer-pool"
+	"github.com/multiformats/go-multicodec"
 	"github.com/multiformats/go-multihash"
 	"github.com/multiformats/go-varint"
 	"golang.org/x/xerrors"
@@ -174,3 +175,61 @@ func (cp *CommP) PCidV2() cid.Cid {
 }
 
 func (cp *CommP) Digest() []byte { return cp.digest }
+
+func PieceCidV2FromV1(v1PieceCid cid.Cid, payloadsize uint64) (cid.Cid, error) {
+	decoded, err := multihash.Decode(v1PieceCid.Hash())
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("Error decoding data commitment hash: %w", err)
+	}
+
+	filCodec := multicodec.Code(v1PieceCid.Type())
+	filMh := multicodec.Code(decoded.Code)
+
+	switch filCodec {
+	case multicodec.FilCommitmentUnsealed:
+		if filMh != multicodec.Sha2_256Trunc254Padded {
+			return cid.Undef, xerrors.Errorf("unexpected hash: %d", filMh)
+		}
+	case multicodec.FilCommitmentSealed:
+		if filMh != multicodec.PoseidonBls12_381A2Fc1 {
+			return cid.Undef, xerrors.Errorf("unexpected hash: %d", filMh)
+		}
+	default: // neither of the codecs above: we are not in Fil teritory
+		return cid.Undef, xerrors.Errorf("unexpected codec: %d", filCodec)
+	}
+
+	if len(decoded.Digest) != 32 {
+		return cid.Undef, xerrors.Errorf("commitments must be 32 bytes long")
+	}
+	if filCodec != multicodec.FilCommitmentUnsealed {
+		return cid.Undef, xerrors.Errorf("unexpected codec: %d", filCodec)
+	}
+
+	c, err := NewSha2CommP(payloadsize, decoded.Digest)
+	if err != nil {
+		return cid.Undef, xerrors.Errorf("error creating CommP: %w", err)
+	}
+
+	return c.PCidV2(), nil
+}
+
+func IsPieceCidV2(c cid.Cid) bool {
+	if c.Type() != uint64(multicodec.Raw) {
+		return false
+	}
+
+	decoded, err := multihash.Decode(c.Hash())
+	if err != nil {
+		return false
+	}
+
+	if decoded.Code != uint64(multicodec.Fr32Sha256Trunc254Padbintree) {
+		return false
+	}
+
+	if len(decoded.Digest) < 34 {
+		return false
+	}
+
+	return true
+}

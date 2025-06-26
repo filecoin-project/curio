@@ -109,7 +109,9 @@ Deal represents a structure defining the details and components of a specific de
 | Field | Type | Tag | Description |
 |-------|------|-----|-------------|
 | Identifier | [ulid.ULID](https://pkg.go.dev/github.com/oklog/ulid#ULID) | json:"identifier" | Identifier represents a unique identifier for the deal in UUID format.  |
-| Data | [mk20.DataSource](#datasource) | json:"data" | Data represents the source of piece data and associated metadata.  |
+| Client | [address.Address](https://pkg.go.dev/github.com/filecoin-project/go-address#Address) | json:"client" | Client wallet for the deal  |
+| Signature | [[]byte](https://pkg.go.dev/builtin#byte) | json:"signature" | Signature bytes for the client deal  |
+| Data | [*mk20.DataSource](#datasource) | json:"data" | Data represents the source of piece data and associated metadata.  |
 | Products | [mk20.Products](#products) | json:"products" | Products represents a collection of product-specific information associated with a deal  |
 
 ### DataSource
@@ -118,8 +120,7 @@ DataSource represents the source of piece data, including metadata and optional 
 
 | Field | Type | Tag | Description |
 |-------|------|-----|-------------|
-| PieceCID | [cid.Cid](https://pkg.go.dev/github.com/ipfs/go-cid#Cid) | json:"piece_cid" | PieceCID represents the unique identifier for a piece of data, stored as a CID object.  |
-| Size | [abi.PaddedPieceSize](https://pkg.go.dev/github.com/filecoin-project/go-state-types/abi#PaddedPieceSize) | json:"piece_size" | Size represents the size of the padded piece in the data source.  |
+| PieceCID | [cid.Cid](https://pkg.go.dev/github.com/ipfs/go-cid#Cid) | json:"piece_cid" | PieceCID represents the unique identifier (pieceCID V2) for a piece of data, stored as a CID object.  |
 | Format | [mk20.PieceDataFormat](#piecedataformat) | json:"format" | Format defines the format of the piece data, which can include CAR, Aggregate, or Raw formats.  |
 | SourceHTTP | [*mk20.DataSourceHTTP](#datasourcehttp) | json:"source_http" | SourceHTTP represents the HTTP-based source of piece data within a deal, including raw size and URLs for retrieval.  |
 | SourceAggregate | [*mk20.DataSourceAggregate](#datasourceaggregate) | json:"source_aggregate" | SourceAggregate represents an aggregated source, comprising multiple data sources as pieces.  |
@@ -131,6 +132,25 @@ DataSource represents the source of piece data, including metadata and optional 
 | Field | Type | Tag | Description |
 |-------|------|-----|-------------|
 | DDOV1 | [*mk20.DDOV1](#ddov1) | json:"ddo_v1" | DDOV1 represents a product v1 configuration for Direct Data Onboarding (DDO)  |
+| RetrievalV1 | [*mk20.RetrievalV1](#retrievalv1) | json:"retrieval_v1" | RetrievalV1 represents configuration for retrieval settings in the system, including indexing and announcement flags.  |
+| PDPV1 | [*mk20.PDPV1](#pdpv1) | json:"pdp_v1" | PDPV1 represents product-specific configuration for PDP version 1 deals.  |
+
+### DBDDOV1
+
+| Field | Type | Tag | Description |
+|-------|------|-----|-------------|
+| DDO | [*mk20.DDOV1](#ddov1) | json:"ddo" |  |
+| DealID | [string](https://pkg.go.dev/builtin#string) | json:"deal_id" |  |
+| Complete | [bool](https://pkg.go.dev/builtin#bool) | json:"complete" |  |
+| Error | [sql.NullString](https://pkg.go.dev/database/sql#NullString) | json:"error" |  |
+
+### DBPDPV1
+
+| Field | Type | Tag | Description |
+|-------|------|-----|-------------|
+| PDP | [*mk20.PDPV1](#pdpv1) | json:"pdp" |  |
+| Complete | [bool](https://pkg.go.dev/builtin#bool) | json:"complete" |  |
+| Error | [sql.NullString](https://pkg.go.dev/database/sql#NullString) | json:"error" |  |
 
 ### DDOV1
 
@@ -140,7 +160,6 @@ for a DDO deal handling.
 | Field | Type | Tag | Description |
 |-------|------|-----|-------------|
 | Provider | [address.Address](https://pkg.go.dev/github.com/filecoin-project/go-address#Address) | json:"provider" | Provider specifies the address of the provider  |
-| Client | [address.Address](https://pkg.go.dev/github.com/filecoin-project/go-address#Address) | json:"client" | Client represents the address of the deal client  |
 | PieceManager | [address.Address](https://pkg.go.dev/github.com/filecoin-project/go-address#Address) | json:"piece_manager" | Actor providing AuthorizeMessage (like f1/f3 wallet) able to authorize actions such as managing ACLs  |
 | Duration | [abi.ChainEpoch](https://pkg.go.dev/github.com/filecoin-project/go-state-types/abi#ChainEpoch) | json:"duration" | Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID. It must be at least 518400  |
 | AllocationId | [*verifreg.AllocationId](https://pkg.go.dev/github.com/filecoin-project/go-state-types/builtin/v16/verifreg#AllocationId) | json:"allocation_id" | AllocationId represents an aggregated allocation identifier for the deal.  |
@@ -149,8 +168,6 @@ for a DDO deal handling.
 | ContractVerifyMethodParams | [[]byte](https://pkg.go.dev/builtin#byte) | json:"contract_verify_method_params" | ContractDealIDMethodParams represents encoded parameters for the contract verify method if required by the contract  |
 | NotificationAddress | [string](https://pkg.go.dev/builtin#string) | json:"notification_address" | NotificationAddress specifies the address to which notifications will be relayed to when sector is activated  |
 | NotificationPayload | [[]byte](https://pkg.go.dev/builtin#byte) | json:"notification_payload" | NotificationPayload holds the notification data typically in a serialized byte array format.  |
-| Indexing | [bool](https://pkg.go.dev/builtin#bool) | json:"indexing" | Indexing indicates if the deal is to be indexed in the provider's system to support CIDs based retrieval  |
-| AnnounceToIPNI | [bool](https://pkg.go.dev/builtin#bool) | json:"announce_to_ipni" | AnnounceToIPNI indicates whether the deal should be announced to the Interplanetary Network Indexer (IPNI).  |
 
 ### DataSourceAggregate
 
@@ -162,11 +179,10 @@ DataSourceAggregate represents an aggregated data source containing multiple ind
 
 ### DataSourceHTTP
 
-DataSourceHTTP represents an HTTP-based data source for retrieving piece data, including its raw size and associated URLs.
+DataSourceHTTP represents an HTTP-based data source for retrieving piece data, including associated URLs.
 
 | Field | Type | Tag | Description |
 |-------|------|-----|-------------|
-| RawSize | [uint64](https://pkg.go.dev/builtin#uint64) | json:"rawsize" | RawSize specifies the raw size of the data in bytes.  |
 | URLs | [[]mk20.HttpUrl](#httpurl) | json:"urls" | URLs lists the HTTP endpoints where the piece data can be fetched.  |
 
 ### DataSourceHttpPut
@@ -175,15 +191,13 @@ DataSourceHttpPut represents a data source allowing clients to push piece data a
 
 | Field | Type | Tag | Description |
 |-------|------|-----|-------------|
-| RawSize | [uint64](https://pkg.go.dev/builtin#uint64) | json:"raw_size" | RawSize specifies the raw size of the data in bytes.  |
 
 ### DataSourceOffline
 
-DataSourceOffline represents the data source for offline pieces, including metadata such as the raw size of the piece.
+DataSourceOffline represents the data source for offline pieces.
 
 | Field | Type | Tag | Description |
 |-------|------|-----|-------------|
-| RawSize | [uint64](https://pkg.go.dev/builtin#uint64) | json:"raw_size" | RawSize specifies the raw size of the data in bytes.  |
 
 ### DealStatusResponse
 
@@ -201,7 +215,7 @@ FormatAggregate represents the aggregated format for piece data, identified by i
 | Field | Type | Tag | Description |
 |-------|------|-----|-------------|
 | Type | [mk20.AggregateType](https://pkg.go.dev/github.com/filecoin-project/curio/market/mk20#AggregateType) | json:"type" | Type specifies the type of aggregation for data pieces, represented by an AggregateType value.  |
-| Sub | [[]mk20.PieceDataFormat](#piecedataformat) | json:"sub" | Sub holds a slice of PieceDataFormat, representing various formats of piece data aggregated under this format. The order must be same as segment index to avoid incorrect indexing of sub pieces in an aggregate  |
+| Sub | [[]mk20.DataSource](#datasource) | json:"sub" | Sub holds a slice of DataSource, representing details of sub pieces aggregated under this format. The order must be same as segment index to avoid incorrect indexing of sub pieces in an aggregate  |
 
 ### FormatBytes
 
@@ -228,6 +242,15 @@ HttpUrl represents an HTTP endpoint configuration for fetching piece data.
 | Priority | [int](https://pkg.go.dev/builtin#int) | json:"priority" | Priority indicates the order preference for using the URL in requests, with lower values having higher priority.  |
 | Fallback | [bool](https://pkg.go.dev/builtin#bool) | json:"fallback" | Fallback indicates whether this URL serves as a fallback option when other URLs fail.  |
 
+### PDPV1
+
+PDPV1 represents configuration for product-specific PDP version 1 deals.
+
+| Field | Type | Tag | Description |
+|-------|------|-----|-------------|
+| ProofSetID | [uint64](https://pkg.go.dev/builtin#uint64) | json:"proof_set_id" |  |
+| DeleteRoot | [bool](https://pkg.go.dev/builtin#bool) | json:"delete_root" | DeleteRoot indicates whether the root of the data should be deleted. This basically means end of deal lifetime.  |
+
 ### PieceDataFormat
 
 PieceDataFormat represents various formats in which piece data can be defined, including CAR files, aggregate formats, or raw byte data.
@@ -237,6 +260,24 @@ PieceDataFormat represents various formats in which piece data can be defined, i
 | Car | [*mk20.FormatCar](#formatcar) | json:"car" | Car represents the optional CAR file format, including its metadata and versioning details.  |
 | Aggregate | [*mk20.FormatAggregate](#formataggregate) | json:"aggregate" | Aggregate holds a reference to the aggregated format of piece data.  |
 | Raw | [*mk20.FormatBytes](#formatbytes) | json:"raw" | Raw represents the raw format of the piece data, encapsulated as bytes.  |
+
+### PieceInfo
+
+| Field | Type | Tag | Description |
+|-------|------|-----|-------------|
+| PieceCIDV1 | [cid.Cid](https://pkg.go.dev/github.com/ipfs/go-cid#Cid) | json:"piece_cid" |  |
+| Size | [abi.PaddedPieceSize](https://pkg.go.dev/github.com/filecoin-project/go-state-types/abi#PaddedPieceSize) | json:"size" |  |
+| RawSize | [uint64](https://pkg.go.dev/builtin#uint64) | json:"raw_size" |  |
+
+### RetrievalV1
+
+RetrievalV1 defines a structure for managing retrieval settings
+
+| Field | Type | Tag | Description |
+|-------|------|-----|-------------|
+| Indexing | [bool](https://pkg.go.dev/builtin#bool) | json:"indexing" | Indexing indicates if the deal is to be indexed in the provider's system to support CIDs based retrieval  |
+| AnnouncePayload | [bool](https://pkg.go.dev/builtin#bool) | json:"announce_payload" | AnnouncePayload indicates whether the payload should be announced to IPNI.  |
+| AnnouncePiece | [bool](https://pkg.go.dev/builtin#bool) | json:"announce_piece" | AnnouncePiece indicates whether the piece information should be announced to IPNI.  |
 
 ### StartUpload
 

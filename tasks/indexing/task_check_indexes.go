@@ -131,12 +131,10 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
 	var have, missing int64
 
 	for p, cents := range toCheck {
-		commp, err := commcidv2.CommPFromPieceInfo(p)
+		pieceCid, err := commcidv2.PieceCidV2FromV1(p.PieceCID, uint64(cents[0].RawSize))
 		if err != nil {
 			return xerrors.Errorf("getting piece commP: %w", err)
 		}
-
-		pieceCid := commp.PCidV2()
 
 		// Check if the pieceV2 is present in the index store
 		hasEnt, err := c.indexStore.CheckHasPiece(ctx, pieceCid)
@@ -145,6 +143,7 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
 		}
 
 		if hasEnt {
+			fmt.Println("Piece cid v2 present in index store")
 			have++
 			continue
 		}
@@ -300,9 +299,9 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
 					return xerrors.Errorf("parsing provider address: %w", err)
 				}
 
-				rawSize, err := deal.Data.RawSize()
+				pi, err := deal.PieceInfo()
 				if err != nil {
-					return xerrors.Errorf("getting raw size: %w", err)
+					return xerrors.Errorf("getting piece info: %w", err)
 				}
 
 				if uint64(cent.SPID) != spid {
@@ -322,31 +321,48 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
 					aggregation = int(data.Format.Aggregate.Type)
 				}
 
-				n, err := c.db.Exec(ctx, `INSERT INTO market_mk20_pipeline (
-									id, sp_id, contract, client, piece_cid, piece_size, raw_size, 
+				var added bool
+
+				_, err = c.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+					n, err := tx.Exec(`INSERT INTO market_mk20_pipeline (
+									id, sp_id, contract, client, piece_cid_v2, piece_cid, piece_size, raw_size, 
                                   	offline, url, indexing, announce, duration, piece_aggregation,
                                   	started, downloaded, after_commp, aggregated, sector, reg_seal_proof, sector_offset, sealed,
                                   	indexing_created_at, complete) 
-									VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 
-									        TRUE, TRUE, True, True, $14, 0, $15 TRUE, NOW(), TRUE)`, // We can use reg_seal_proof = 0 because process_piece_deal will prevent new entry from being created
-					deal.Identifier.String(), spid, ddo.ContractAddress, ddo.Client.String(), data.PieceCID.String(), data.Size, int64(rawSize),
-					false, pieceIDUrl.String(), true, false, ddo.Duration, aggregation,
-					cent.SectorID, cent.PieceOff)
+									VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 
+									        TRUE, TRUE, TRUE, TRUE, $15, 0, $16, TRUE, NOW(), TRUE)`, // We can use reg_seal_proof = 0 because process_piece_deal will prevent new entry from being created
+						deal.Identifier.String(), spid, ddo.ContractAddress, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, int64(pi.RawSize),
+						false, pieceIDUrl.String(), true, false, ddo.Duration, aggregation,
+						cent.SectorID, cent.PieceOff)
+					if err != nil {
+						return false, xerrors.Errorf("inserting mk20 pipeline: %w", err)
+					}
+					if n != 1 {
+						return false, xerrors.Errorf("inserting mk20 pipeline: %d rows affected", n)
+					}
+
+					added = true
+
+					_, err = tx.Exec(`UPDATE market_piece_metadata SET indexed = FALSE WHERE piece_cid = $1 AND piece_size = $2`, p.PieceCID.String(), p.Size)
+					if err != nil {
+						return false, xerrors.Errorf("updating market_piece_metadata.indexed column: %w", err)
+					}
+					return true, nil
+				}, harmonydb.OptionRetry())
 				if err != nil {
-					return xerrors.Errorf("inserting mk20 pipeline: %w", err)
+					return xerrors.Errorf("inserting into market_mk20_pipeline: %w", err)
 				}
-				if n != 1 {
-					return xerrors.Errorf("inserting mk20 pipeline: %d rows affected", n)
+
+				if added {
+					log.Infow("added reindexing pipeline entry", "id", id, "task", taskID, "piece", pieceCid)
+					ongoingIndexingTasks++
+					scheduled = true
 				}
-				log.Infow("added reindexing pipeline entry", "id", id, "task", taskID, "piece", pieceCid)
-				ongoingIndexingTasks++
-				scheduled = true
 			}
 
 			if scheduled {
 				break // Break out of PieceDeal loop
 			}
-
 		}
 
 		if ongoingIndexingTasks >= int64(MaxOngoingIndexingTasks) {
@@ -558,18 +574,21 @@ func (c *CheckIndexesTask) checkIPNIMK20(ctx context.Context, taskID harmonytask
 	}
 
 	err = c.db.Select(ctx, &ids, `SELECT m.id
-										FROM market_mk20_deal AS m
-										LEFT JOIN ipni AS i
-										  ON m.piece_cid = i.piece_cid
-										 AND m.piece_size = i.piece_size
-										LEFT JOIN market_mk20_pipeline AS p
-										  ON m.id = p.id
-										LEFT JOIN market_mk20_pipeline_waiting AS w
-										  ON m.id = w.id
-										WHERE m.ddo_v1->>'announce_to_ipni' = 'true'
-										  AND i.piece_cid IS NULL
-										  AND p.id IS NULL
-										  AND w.id IS NULL;`)
+									FROM market_mk20_deal AS m
+									LEFT JOIN ipni AS i
+									  ON m.piece_cid = i.piece_cid
+									 AND m.piece_size = i.piece_size
+									LEFT JOIN market_mk20_pipeline AS p
+									  ON m.id = p.id
+									LEFT JOIN market_mk20_pipeline_waiting AS w
+									  ON m.id = w.id
+									WHERE m.piece_cid_v2 IS NOT NULL
+									  AND m.ddo_v1 IS NOT NULL
+									  AND m.ddo_v1 != 'null'
+									  AND m.retrieval_v1->>'announce_payload' = 'true'
+									  AND i.piece_cid IS NULL
+									  AND p.id IS NULL
+									  AND w.id IS NULL;`)
 	if err != nil {
 		return xerrors.Errorf("getting mk20 deals which are not announced: %w", err)
 	}
@@ -619,17 +638,15 @@ func (c *CheckIndexesTask) checkIPNIMK20(ctx context.Context, taskID harmonytask
 			return xerrors.Errorf("parsing provider address: %w", err)
 		}
 
-		pi := abi.PieceInfo{
-			PieceCID: deal.Data.PieceCID,
-			Size:     deal.Data.Size,
-		}
-
-		commp, err := commcidv2.CommPFromPieceInfo(pi)
+		pinfo, err := deal.PieceInfo()
 		if err != nil {
-			return xerrors.Errorf("getting commp from PieceInfo: %w", err)
+			return xerrors.Errorf("getting piece info: %w", err)
 		}
 
-		pcid := commp.PCidV2()
+		pi := abi.PieceInfo{
+			PieceCID: pinfo.PieceCIDV1,
+			Size:     pinfo.Size,
+		}
 
 		var ctxIdBuf bytes.Buffer
 		err = pi.MarshalCBOR(&ctxIdBuf)
@@ -642,7 +659,7 @@ func (c *CheckIndexesTask) checkIPNIMK20(ctx context.Context, taskID harmonytask
 		provider, ok := spToPeer[int64(spid)]
 		if !ok {
 			issues++
-			log.Warnw("no peer id for spid", "spid", spid, "checkPiece", pcid)
+			log.Warnw("no peer id for spid", "spid", spid, "checkPiece", deal.Data.PieceCID.String())
 			continue
 		}
 
@@ -657,12 +674,12 @@ func (c *CheckIndexesTask) checkIPNIMK20(ctx context.Context, taskID harmonytask
 			continue
 		}
 
-		hasIndex, err := c.indexStore.CheckHasPiece(ctx, pcid)
+		hasIndex, err := c.indexStore.CheckHasPiece(ctx, deal.Data.PieceCID)
 		if err != nil {
 			return xerrors.Errorf("getting piece hash range: %w", err)
 		}
 		if !hasIndex {
-			log.Warnw("no index for piece with missing IPNI Ad", "piece", pcid, "checkPiece", pi.PieceCID)
+			log.Warnw("no index for piece with missing IPNI Ad", "piece", deal.Data.PieceCID.String(), "checkPiece", pi.PieceCID)
 			issues++
 			continue
 		}
@@ -678,7 +695,7 @@ func (c *CheckIndexesTask) checkIPNIMK20(ctx context.Context, taskID harmonytask
 			return xerrors.Errorf("getting source sector: %w", err)
 		}
 		if len(sourceSector) == 0 {
-			log.Warnw("no source sector for piece", "piece", pcid, "checkPiece", pi.PieceCID)
+			log.Warnw("no source sector for piece", "piece", deal.Data.PieceCID.String(), "checkPiece", pi.PieceCID)
 			issues++
 			continue
 		}
@@ -686,14 +703,9 @@ func (c *CheckIndexesTask) checkIPNIMK20(ctx context.Context, taskID harmonytask
 		src := sourceSector[0]
 
 		if !src.PieceRef.Valid {
-			log.Warnw("no piece ref for ipni reindexing", "piece", pi.PieceCID, "checkPiece", pcid)
+			log.Warnw("no piece ref for ipni reindexing", "piece", pi.PieceCID, "checkPiece", deal.Data.PieceCID.String())
 			missing++
 			continue
-		}
-
-		rawSize, err := deal.Data.RawSize()
-		if err != nil {
-			return xerrors.Errorf("getting raw size: %w", err)
 		}
 
 		pieceIDUrl := url.URL{
@@ -710,14 +722,14 @@ func (c *CheckIndexesTask) checkIPNIMK20(ctx context.Context, taskID harmonytask
 		}
 
 		n, err := c.db.Exec(ctx, `INSERT INTO market_mk20_pipeline (
-									id, sp_id, contract, client, piece_cid, piece_size, raw_size, 
+									id, sp_id, contract, client, piece_cid_v2, piece_cid, piece_size, raw_size, 
                                   	offline, url, indexing, announce, duration, piece_aggregation,
                                   	started, downloaded, after_commp, aggregated, sector, reg_seal_proof, sector_offset, sealed,
                                   	indexing_created_at, indexed, complete) 
-									VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 
-									        TRUE, TRUE, True, True, $14, 0, $15, TRUE, NOW(), TRUE, FALSE)`, // We can use reg_seal_proof = 0 because process_piece_deal will prevent new entry from being created
-			deal.Identifier.String(), spid, ddo.ContractAddress, ddo.Client.String(), data.PieceCID.String(), data.Size, int64(rawSize),
-			false, pieceIDUrl.String(), true, false, ddo.Duration, aggregation,
+									VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 
+									        TRUE, TRUE, TRUE, TRUE, $15, 0, $16, TRUE, NOW(), TRUE, FALSE)`, // We can use reg_seal_proof = 0 because process_piece_deal will prevent new entry from being created
+			deal.Identifier.String(), spid, ddo.ContractAddress, deal.Client.String(), data.PieceCID.String(), pinfo.PieceCIDV1.String(), pinfo.Size, int64(pinfo.RawSize),
+			false, pieceIDUrl.String(), true, true, ddo.Duration, aggregation,
 			src.SectorNum, src.PieceOffset)
 		if err != nil {
 			return xerrors.Errorf("inserting mk20 pipeline: %w", err)
@@ -782,7 +794,8 @@ func (c *CheckIndexesTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Gpu: 0,
 			Ram: 32 << 20,
 		},
-		IAmBored: harmonytask.SingletonTaskAdder(CheckIndexInterval, c),
+		IAmBored:    harmonytask.SingletonTaskAdder(CheckIndexInterval, c),
+		MaxFailures: 3,
 	}
 }
 

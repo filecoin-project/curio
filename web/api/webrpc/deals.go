@@ -21,6 +21,7 @@ type OpenDealInfo struct {
 	SectorNumber uint64    `db:"sector_number"`
 	PieceCID     string    `db:"piece_cid"`
 	PieceSize    uint64    `db:"piece_size"`
+	RawSize      uint64    `db:"data_raw_size"`
 	CreatedAt    time.Time `db:"created_at"`
 	SnapDeals    bool      `db:"is_snap"`
 
@@ -33,7 +34,7 @@ type OpenDealInfo struct {
 
 func (a *WebRPC) DealsPending(ctx context.Context) ([]OpenDealInfo, error) {
 	deals := []OpenDealInfo{}
-	err := a.deps.DB.Select(ctx, &deals, `SELECT sp_id, sector_number, piece_cid, piece_size, created_at, is_snap FROM open_sector_pieces ORDER BY created_at DESC`)
+	err := a.deps.DB.Select(ctx, &deals, `SELECT sp_id, sector_number, piece_cid, piece_size, data_raw_size, created_at, is_snap FROM open_sector_pieces ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -50,11 +51,11 @@ func (a *WebRPC) DealsPending(ctx context.Context) ([]OpenDealInfo, error) {
 		if err != nil {
 			return nil, xerrors.Errorf("failed to parse piece cid: %w", err)
 		}
-		commp, err := commcidv2.CommPFromPieceInfo(abi.PieceInfo{PieceCID: pcid, Size: abi.PaddedPieceSize(deals[i].PieceSize)})
+		pcid2, err := commcidv2.PieceCidV2FromV1(pcid, deals[i].RawSize)
 		if err != nil {
 			return nil, xerrors.Errorf("failed to get commp: %w", err)
 		}
-		deals[i].PieceCidV2 = commp.PCidV2().String()
+		deals[i].PieceCidV2 = pcid2.String()
 	}
 
 	return deals, nil

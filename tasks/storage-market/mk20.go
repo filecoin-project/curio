@@ -38,6 +38,7 @@ type MK20PipelinePiece struct {
 	SPID             int64   `db:"sp_id"`
 	Client           string  `db:"client"`
 	Contract         string  `db:"contract"`
+	PieceCIDV2       string  `db:"piece_cid_v2"`
 	PieceCID         string  `db:"piece_cid"`
 	PieceSize        int64   `db:"piece_size"`
 	RawSize          int64   `db:"raw_size"`
@@ -165,9 +166,17 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 		return fmt.Errorf("getting provider ID: %w", err)
 	}
 
+	var rev mk20.RetrievalV1
+	if deal.Products.RetrievalV1 != nil {
+		rev = *deal.Products.RetrievalV1
+	}
 	ddo := deal.Products.DDOV1
 	data := deal.Data
 	dealID := deal.Identifier.String()
+	pi, err := deal.PieceInfo()
+	if err != nil {
+		return fmt.Errorf("getting piece info: %w", err)
+	}
 
 	var allocationID interface{}
 	if ddo.AllocationId != nil {
@@ -185,7 +194,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 	if data.SourceHTTP != nil {
 		var pieceID int64
 		// Attempt to select the piece ID first
-		err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2`, data.PieceCID.String(), data.Size).Scan(&pieceID)
+		err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2`, pi.PieceCIDV1.String(), pi.Size).Scan(&pieceID)
 
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -194,7 +203,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 							INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
 							VALUES ($1, $2, $3, TRUE)
 							ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
-							RETURNING id`, data.PieceCID.String(), int64(data.Size), int64(data.SourceHTTP.RawSize)).Scan(&pieceID)
+							RETURNING id`, pi.PieceCIDV1.String(), pi.Size, pi.RawSize).Scan(&pieceID)
 				if err != nil {
 					return xerrors.Errorf("inserting new parked piece and getting id: %w", err)
 				}
@@ -224,7 +233,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 		}
 
 		n, err := tx.Exec(`INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, ref_ids) VALUES ($1, $2, $3, $4)`,
-			dealID, data.PieceCID.String(), data.Size, refIds)
+			dealID, pi.PieceCIDV1.String(), pi.Size, refIds)
 		if err != nil {
 			return xerrors.Errorf("inserting mk20 download pipeline: %w", err)
 		}
@@ -233,12 +242,12 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 		}
 
 		n, err = tx.Exec(`INSERT INTO market_mk20_pipeline (
-            id, sp_id, contract, client, piece_cid,
+            id, sp_id, contract, client, piece_cid_v2, piece_cid,
             piece_size, raw_size, offline, indexing, announce,
             allocation_id, duration, piece_aggregation, started) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TRUE)`,
-			dealID, spid, ddo.ContractAddress, ddo.Client.String(), data.PieceCID.String(),
-			data.Size, int64(data.SourceHTTP.RawSize), false, ddo.Indexing, ddo.AnnounceToIPNI,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, TRUE)`,
+			dealID, spid, ddo.ContractAddress, deal.Client.String(), data.PieceCID.String(), pi.PieceCIDV1.String(),
+			pi.Size, pi.RawSize, false, rev.Indexing, rev.AnnouncePayload,
 			allocationID, ddo.Duration, aggregation)
 		if err != nil {
 			return xerrors.Errorf("inserting mk20 pipeline: %w", err)
@@ -252,12 +261,12 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 	// INSERT Pipeline when data source is offline
 	if deal.Data.SourceOffline != nil {
 		n, err := tx.Exec(`INSERT INTO market_mk20_pipeline (
-            id, sp_id, contract, client, piece_cid,
+            id, sp_id, contract, client, piece_cid_v2, piece_cid,
             piece_size, raw_size, offline, indexing, announce,
             allocation_id, duration, piece_aggregation) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-			dealID, spid, ddo.ContractAddress, ddo.Client.String(), data.PieceCID.String(),
-			data.Size, int64(data.SourceOffline.RawSize), true, ddo.Indexing, ddo.AnnounceToIPNI,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+			dealID, spid, ddo.ContractAddress, deal.Client.String(), data.PieceCID.String(), pi.PieceCIDV1.String(),
+			pi.Size, pi.RawSize, true, rev.Indexing, rev.AnnouncePayload,
 			allocationID, ddo.Duration, aggregation)
 		if err != nil {
 			return xerrors.Errorf("inserting mk20 pipeline: %w", err)
@@ -281,12 +290,16 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 		toDownload := make(map[downloadkey][]mk20.HttpUrl)
 
 		for _, piece := range deal.Data.SourceAggregate.Pieces {
+			spi, err := mk20.GetPieceInfo(piece.PieceCID)
+			if err != nil {
+				return xerrors.Errorf("getting piece info: %w", err)
+			}
 			if piece.SourceHTTP != nil {
-				urls, ok := toDownload[downloadkey{ID: dealID, PieceCID: piece.PieceCID, Size: piece.Size, RawSize: piece.SourceHTTP.RawSize}]
+				urls, ok := toDownload[downloadkey{ID: dealID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}]
 				if ok {
-					toDownload[downloadkey{ID: dealID, PieceCID: piece.PieceCID, Size: piece.Size}] = append(urls, piece.SourceHTTP.URLs...)
+					toDownload[downloadkey{ID: dealID, PieceCID: spi.PieceCIDV1, Size: spi.Size}] = append(urls, piece.SourceHTTP.URLs...)
 				} else {
-					toDownload[downloadkey{ID: dealID, PieceCID: piece.PieceCID, Size: piece.Size, RawSize: piece.SourceHTTP.RawSize}] = piece.SourceHTTP.URLs
+					toDownload[downloadkey{ID: dealID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}] = piece.SourceHTTP.URLs
 				}
 			}
 		}
@@ -352,16 +365,16 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 			if piece.SourceOffline != nil {
 				offline = true
 			}
-			rawSize, err := piece.RawSize()
+			spi, err := mk20.GetPieceInfo(piece.PieceCID)
 			if err != nil {
-				return xerrors.Errorf("getting raw size: %w", err)
+				return xerrors.Errorf("getting piece info: %w", err)
 			}
-			pBatch.Queue(`INSERT INTO market_mk20_pipeline (id, sp_id, contract, client, piece_cid,
+			pBatch.Queue(`INSERT INTO market_mk20_pipeline (id, sp_id, contract, client, piece_cid_v2, piece_cid,
             piece_size, raw_size, offline, indexing, announce, allocation_id, duration, 
             piece_aggregation, deal_aggregation, aggr_index, started) 
-        	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-				dealID, spid, ddo.ContractAddress, ddo.Client.String(), piece.PieceCID.String(),
-				piece.Size, rawSize, offline, ddo.Indexing, ddo.AnnounceToIPNI, allocationID, ddo.Duration,
+        	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+				dealID, spid, ddo.ContractAddress, deal.Client.String(), piece.PieceCID.String(), spi.PieceCIDV1.String(),
+				spi.Size, spi.RawSize, offline, rev.Indexing, rev.AnnouncePayload, allocationID, ddo.Duration,
 				0, data.Format.Aggregate.Type, i, !offline)
 			if pBatch.Len() > pBatchSize {
 				res := tx.SendBatch(ctx, pBatch)
@@ -392,6 +405,7 @@ func (d *CurioStorageDealMarket) processMK20DealPieces(ctx context.Context) {
 											sp_id,
 											contract,
 											client,
+											piece_cid_v2,
 											piece_cid,
 											piece_size,
 											raw_size,
@@ -532,7 +546,7 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 			// Check if We can find the URL for this piece on remote servers
 			for rUrl, headers := range d.urls {
 				// Create a new HTTP request
-				urlString := fmt.Sprintf("%s?id=%s", rUrl, piece.PieceCID)
+				urlString := fmt.Sprintf("%s?id=%s", rUrl, piece.PieceCIDV2)
 				req, err := http.NewRequest(http.MethodHead, urlString, nil)
 				if err != nil {
 					return false, xerrors.Errorf("error creating request: %w", err)

@@ -3,7 +3,6 @@ package storage_market
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 	"strconv"
 
 	"github.com/ipfs/go-cid"
-	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-commp-utils/writer"
@@ -442,11 +440,11 @@ func checkExpiry(ctx context.Context, db *harmonydb.DB, api headAPI, deal string
 	var starts []struct {
 		StartEpoch int64 `db:"start_epoch"`
 	}
-	err := db.Select(ctx, &starts, `SELECT start_epoch FROM market_mk12_deals WHERE uuid = $1 LIMIT 1`, deal)
+	err := db.Select(ctx, &starts, `SELECT start_epoch FROM market_mk12_deals WHERE uuid = $1
+										UNION ALL
+										SELECT start_epoch FROM market_direct_deals WHERE uuid = $1
+										LIMIT 1`, deal)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return false, nil
-		}
 		return false, xerrors.Errorf("failed to get start epoch from DB: %w", err)
 	}
 	if len(starts) != 1 {

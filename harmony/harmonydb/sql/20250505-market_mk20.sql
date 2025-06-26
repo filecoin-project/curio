@@ -1,3 +1,11 @@
+-- Add raw_size column to mk12 deals to calculate pieceCidV2
+ALTER TABLE market_mk12_deals
+    ADD COLUMN raw_size BIGINT;
+
+-- Add raw_size column to mk12-ddo deals to calculate pieceCidV2
+ALTER TABLE market_direct_deals
+    ADD COLUMN raw_size BIGINT;
+
 -- Drop the existing primary key constraint for market_piece_metadata
 ALTER TABLE market_piece_metadata
 DROP CONSTRAINT market_piece_metadata_pkey;
@@ -113,8 +121,36 @@ BEGIN
     -- If all conditions are met, insert the new task into ipni_task
     INSERT INTO ipni_task (sp_id, id, sector, reg_seal_proof, sector_offset, provider, context_id, is_rm, created_at, task_id, complete)
     VALUES (_sp_id, _id, _sector, _reg_seal_proof, _sector_offset, _provider, _context_id, _is_rm, TIMEZONE('UTC', NOW()), _task_id, FALSE);
-    END;
-    $$ LANGUAGE plpgsql;
+END;
+$$ LANGUAGE plpgsql;
+
+
+-- Update raw_size for existing deals (One time backfill migration)
+BEGIN;
+    UPDATE market_mk12_deals d
+    SET raw_size = mpd.raw_size
+        FROM market_piece_deal mpd
+    WHERE d.uuid = mpd.id;
+
+    UPDATE market_direct_deals d
+    SET raw_size = mpd.raw_size
+        FROM market_piece_deal mpd
+    WHERE d.uuid = mpd.id;
+
+    UPDATE market_mk12_deals d
+    SET raw_size = p.raw_size
+        FROM market_mk12_deal_pipeline p
+    WHERE d.uuid = p.uuid
+      AND d.raw_size IS NULL
+      AND p.raw_size IS NOT NULL;
+
+    UPDATE market_direct_deals d
+    SET raw_size = p.raw_size
+        FROM market_mk12_deal_pipeline p
+    WHERE d.uuid = p.uuid
+      AND d.raw_size IS NULL
+      AND p.raw_size IS NOT NULL;
+COMMIT;
 
 
 CREATE TABLE ddo_contracts (
@@ -124,23 +160,18 @@ CREATE TABLE ddo_contracts (
 
 CREATE TABLE market_mk20_deal (
     created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
-
-    sp_id BIGINT NOT NULL,
-
     id TEXT PRIMARY KEY,
-    piece_cid TEXT NOT NULL,
-    piece_size BIGINT NOT NULL,
+    client TEXT NOT NULL,
+    piece_cid_v2 TEXT,
+    piece_cid TEXT, -- This is pieceCid V1 to allow easy table lookups
+    piece_size BIGINT,
+    raw_size BIGINT, -- For ease
 
-    format JSONB NOT NULL,
-    source_http JSONB NOT NULL DEFAULT 'null',
-    source_aggregate JSONB NOT NULL DEFAULT 'null',
-    source_offline JSONB NOT NULL DEFAULT 'null',
-    source_http_put JSONB NOT NULL DEFAULT 'null',
+    data JSONB NOT NULL DEFAULT 'null',
 
     ddo_v1 JSONB NOT NULL DEFAULT 'null',
-    market_deal_id TEXT DEFAULT NULL,
-
-    error TEXT DEFAULT NULL
+    retrieval_v1 JSONB NOT NULL DEFAULT 'null',
+    pdp_v1 JSONB NOT NULL DEFAULT 'null'
 );
 
 CREATE TABLE market_mk20_pipeline (
@@ -149,7 +180,8 @@ CREATE TABLE market_mk20_pipeline (
     sp_id BIGINT NOT NULL,
     contract TEXT NOT NULL,
     client TEXT NOT NULL,
-    piece_cid TEXT NOT NULL,
+    piece_cid_v2 TEXT NOT NULL,
+    piece_cid TEXT NOT NULL, -- This is pieceCid V1 to allow easy table lookups
     piece_size BIGINT NOT NULL,
     raw_size BIGINT NOT NULL,
     offline BOOLEAN NOT NULL,
@@ -194,7 +226,7 @@ CREATE TABLE market_mk20_pipeline_waiting (
 
 CREATE TABLE market_mk20_download_pipeline (
     id TEXT NOT NULL,
-    piece_cid TEXT NOT NULL,
+    piece_cid TEXT NOT NULL, -- This is pieceCid V1 to allow easy table lookups
     piece_size BIGINT NOT NULL,
     ref_ids BIGINT[] NOT NULL,
     PRIMARY KEY (id, piece_cid, piece_size)
@@ -232,6 +264,8 @@ CREATE TABLE market_mk20_data_source (
 );
 
 INSERT INTO market_mk20_products (name, enabled) VALUES ('ddo_v1', TRUE);
+INSERT INTO market_mk20_products (name, enabled) VALUES ('retrieval_v1', TRUE);
+INSERT INTO market_mk20_products (name, enabled) VALUES ('pdp_v1', TRUE);
 INSERT INTO market_mk20_data_source (name, enabled) VALUES ('http', TRUE);
 INSERT INTO market_mk20_data_source (name, enabled) VALUES ('aggregate', TRUE);
 INSERT INTO market_mk20_data_source (name, enabled) VALUES ('offline', TRUE);
@@ -243,7 +277,7 @@ CREATE OR REPLACE FUNCTION process_offline_download(
   _piece_size BIGINT
 ) RETURNS BOOLEAN AS $$
 DECLARE
-_url TEXT;
+  _url TEXT;
   _headers JSONB;
   _raw_size BIGINT;
   _deal_aggregation INT;
@@ -305,9 +339,24 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Add column to skip scheduling piece_park
+ALTER TABLE parked_pieces
+ ADD COLUMN skip BOOLEAN DEFAULT FALSE;
 
 
+CREATE TABLE pdp_pipeline (
+    id TEXT PRIMARY KEY,
+    piece_cid TEXT NOT NULL, -- v2 piece_cid
 
+    add_root_task_id BIGINT DEFAULT NULL,
+    after_add_root BOOLEAN DEFAULT FALSE,
 
+    indexing BOOLEAN DEFAULT FALSE,
+    indexing_created_at TIMESTAMPTZ DEFAULT NULL,
+    indexing_task_id BIGINT DEFAULT NULL,
+    indexed BOOLEAN DEFAULT FALSE,
+
+    complete BOOLEAN DEFAULT FALSE
+);
 
 

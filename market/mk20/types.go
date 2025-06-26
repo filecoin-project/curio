@@ -6,7 +6,10 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
 
-	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-address"
+
+	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
 // Deal represents a structure defining the details and components of a specific deal in the system.
@@ -15,8 +18,14 @@ type Deal struct {
 	// Identifier represents a unique identifier for the deal in UUID format.
 	Identifier ulid.ULID `json:"identifier"`
 
+	// Client wallet for the deal
+	Client address.Address `json:"client"`
+
+	// Signature bytes for the client deal
+	Signature []byte `json:"signature"`
+
 	// Data represents the source of piece data and associated metadata.
-	Data DataSource `json:"data"`
+	Data *DataSource `json:"data"`
 
 	// Products represents a collection of product-specific information associated with a deal
 	Products Products `json:"products"`
@@ -25,16 +34,19 @@ type Deal struct {
 type Products struct {
 	// DDOV1 represents a product v1 configuration for Direct Data Onboarding (DDO)
 	DDOV1 *DDOV1 `json:"ddo_v1"`
+
+	// RetrievalV1 represents configuration for retrieval settings in the system, including indexing and announcement flags.
+	RetrievalV1 *RetrievalV1 `json:"retrieval_v1"`
+
+	// PDPV1 represents product-specific configuration for PDP version 1 deals.
+	PDPV1 *PDPV1 `json:"pdp_v1"`
 }
 
 // DataSource represents the source of piece data, including metadata and optional methods to fetch or describe the data origin.
 type DataSource struct {
 
-	// PieceCID represents the unique identifier for a piece of data, stored as a CID object.
+	// PieceCID represents the unique identifier (pieceCID V2) for a piece of data, stored as a CID object.
 	PieceCID cid.Cid `json:"piece_cid"`
-
-	// Size represents the size of the padded piece in the data source.
-	Size abi.PaddedPieceSize `json:"piece_size"`
 
 	// Format defines the format of the piece data, which can include CAR, Aggregate, or Raw formats.
 	Format PieceDataFormat `json:"format"`
@@ -76,31 +88,24 @@ type FormatAggregate struct {
 	// Type specifies the type of aggregation for data pieces, represented by an AggregateType value.
 	Type AggregateType `json:"type"`
 
-	// Sub holds a slice of PieceDataFormat, representing various formats of piece data aggregated under this format.
+	// Sub holds a slice of DataSource, representing details of sub pieces aggregated under this format.
 	// The order must be same as segment index to avoid incorrect indexing of sub pieces in an aggregate
-	Sub []PieceDataFormat `json:"sub"`
+	Sub []DataSource `json:"sub"`
 }
 
 // FormatBytes defines the raw byte representation of data as a format.
 type FormatBytes struct{}
 
-// DataSourceOffline represents the data source for offline pieces, including metadata such as the raw size of the piece.
-type DataSourceOffline struct {
-	// RawSize specifies the raw size of the data in bytes.
-	RawSize uint64 `json:"raw_size"`
-}
+// DataSourceOffline represents the data source for offline pieces.
+type DataSourceOffline struct{}
 
 // DataSourceAggregate represents an aggregated data source containing multiple individual DataSource pieces.
 type DataSourceAggregate struct {
 	Pieces []DataSource `json:"pieces"`
 }
 
-// DataSourceHTTP represents an HTTP-based data source for retrieving piece data, including its raw size and associated URLs.
+// DataSourceHTTP represents an HTTP-based data source for retrieving piece data, including associated URLs.
 type DataSourceHTTP struct {
-
-	// RawSize specifies the raw size of the data in bytes.
-	RawSize uint64 `json:"rawsize"`
-
 	// URLs lists the HTTP endpoints where the piece data can be fetched.
 	URLs []HttpUrl `json:"urls"`
 }
@@ -122,10 +127,7 @@ type HttpUrl struct {
 }
 
 // DataSourceHttpPut represents a data source allowing clients to push piece data after a deal is accepted.
-type DataSourceHttpPut struct {
-	// RawSize specifies the raw size of the data in bytes.
-	RawSize uint64 `json:"raw_size"`
-}
+type DataSourceHttpPut struct{}
 
 // AggregateType represents an unsigned integer used to define the type of aggregation for data pieces in the system.
 type AggregateType int
@@ -186,7 +188,9 @@ type ProductName string
 
 const (
 	// ProductNameDDOV1 represents the identifier for the "ddo_v1" product used in contract operations and validations.
-	ProductNameDDOV1 ProductName = "ddo_v1"
+	ProductNameDDOV1       ProductName = "ddo_v1"
+	ProductNamePDPV1       ProductName = "pdp_v1"
+	ProductNameRetrievalV1 ProductName = "retrieval_v1"
 )
 
 type DataSourceName string
@@ -199,3 +203,8 @@ const (
 	DataSourceNamePDP             DataSourceName = "pdp"
 	DataSourceNamePut             DataSourceName = "put"
 )
+
+type product interface {
+	Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, error)
+	ProductName() ProductName
+}

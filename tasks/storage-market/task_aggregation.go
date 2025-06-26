@@ -6,23 +6,19 @@ import (
 	"io"
 	"math/bits"
 	"net/url"
-	"os"
 	"strconv"
 
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/go-commp-utils/writer"
 	"github.com/filecoin-project/go-data-segment/datasegment"
-	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/filecoin-project/curio/lib/dealdata"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -112,9 +108,9 @@ func (a *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return false, xerrors.Errorf("getting deal details from DB: %w", err)
 	}
 
-	rawSize, err := deal.Data.RawSize()
+	pi, err := deal.PieceInfo()
 	if err != nil {
-		return false, xerrors.Errorf("getting raw size: %w", err)
+		return false, xerrors.Errorf("getting piece info: %w", err)
 	}
 
 	var pinfos []abi.PieceInfo
@@ -182,8 +178,7 @@ func (a *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			PieceCID: pcid,
 		})
 
-		pReader, _ := padreader.New(reader, uint64(piece.RawSize))
-		readers = append(readers, pReader)
+		readers = append(readers, io.LimitReader(reader, piece.RawSize))
 		refIDs = append(refIDs, refNum)
 	}
 
@@ -206,74 +201,66 @@ func (a *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		return false, xerrors.Errorf("aggregating piece readers: %w", err)
 	}
 
-	w := &writer.Writer{}
-
-	// Function to write data into StashStore and calculate commP
-	writeFunc := func(f *os.File) error {
-		multiWriter := io.MultiWriter(w, f)
-
-		// Copy data from limitedReader to multiWriter
-		n, err := io.CopyBuffer(multiWriter, outR, make([]byte, writer.CommPBuf))
-		if err != nil {
-			return fmt.Errorf("failed to read and write aggregated piece data: %w", err)
-		}
-
-		if n != int64(rawSize) {
-			return fmt.Errorf("number of bytes written to CommP writer %d not equal to the file size %d", n, aggregatedRawSize)
-		}
-
-		return nil
-	}
-
-	stashID, err := a.stor.StashCreate(ctx, int64(next), writeFunc)
-	if err != nil {
-		return false, xerrors.Errorf("stashing aggregated piece data: %w", err)
-	}
-
-	calculatedCommp, err := w.Sum()
-	if err != nil {
-		return false, xerrors.Errorf("computing commP failed: %w", err)
-	}
-
-	if !calculatedCommp.PieceCID.Equals(deal.Data.PieceCID) {
-		return false, xerrors.Errorf("commP mismatch calculated %s and supplied %s", calculatedCommp.PieceCID.String(), deal.Data.PieceCID.String())
-	}
-
-	if calculatedCommp.PieceSize != deal.Data.Size {
-		return false, xerrors.Errorf("commP size mismatch calculated %d and supplied %d", calculatedCommp.PieceSize, deal.Data.Size)
-	}
+	var parkedPieceID, pieceRefID int64
+	var pieceParked bool
 
 	comm, err := a.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		var parkedPieceID int64
-
 		err = tx.QueryRow(`
-            INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
-            VALUES ($1, $2, $3, TRUE) RETURNING id
-        `, calculatedCommp.PieceCID.String(), calculatedCommp.PieceSize, rawSize).Scan(&parkedPieceID)
+            INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
+            VALUES ($1, $2, $3, TRUE, TRUE) RETURNING id, complete`,
+			pi.PieceCIDV1.String(), pi.Size, pi.RawSize).Scan(&parkedPieceID, &pieceParked)
 		if err != nil {
 			return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
 		}
 
-		// Create a piece ref with data_url being "stashstore://<stash-url>"
-		// Get StashURL
-		stashURL, err := a.stor.StashURL(stashID)
-		if err != nil {
-			return false, fmt.Errorf("failed to get stash URL: %w", err)
-		}
-
-		// Change scheme to "custore"
-		stashURL.Scheme = dealdata.CustoreScheme
-		dataURL := stashURL.String()
-
-		var pieceRefID int64
 		err = tx.QueryRow(`
             INSERT INTO parked_piece_refs (piece_id, data_url, long_term)
             VALUES ($1, $2, TRUE) RETURNING ref_id
-        `, parkedPieceID, dataURL).Scan(&pieceRefID)
+        `, parkedPieceID, "/Aggregate").Scan(&pieceRefID)
 		if err != nil {
 			return false, fmt.Errorf("failed to create parked_piece_refs entry: %w", err)
 		}
 
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return false, xerrors.Errorf("saving aggregated chunk details to DB: %w", err)
+	}
+
+	if !comm {
+		return false, xerrors.Errorf("failed to commit the transaction")
+	}
+
+	failed := true
+
+	// Clean up piece park tables in case of failure
+	// TODO: Figure out if there is a race condition with cleanup task
+	defer func() {
+		if failed {
+			_, ferr := a.db.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = $1`, pieceRefID)
+			if err != nil {
+				log.Errorf("failed to delete parked_piece_refs entry: %w", ferr)
+			}
+		}
+	}()
+
+	// Write piece if not already complete
+	if !pieceParked {
+		upi, err := a.sc.WriteUploadPiece(ctx, storiface.PieceNumber(parkedPieceID), int64(pi.RawSize), outR, storiface.PathStorage)
+		if err != nil {
+			return false, xerrors.Errorf("writing aggregated piece data to storage: %w", err)
+		}
+
+		if !upi.PieceCID.Equals(pi.PieceCIDV1) {
+			return false, xerrors.Errorf("commP mismatch calculated %s and supplied %s", upi.PieceCID.String(), pi.PieceCIDV1.String())
+		}
+
+		if upi.Size != pi.Size {
+			return false, xerrors.Errorf("commP size mismatch calculated %d and supplied %d", upi.Size, pi.Size)
+		}
+	}
+
+	comm, err = a.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		pieceIDUrl := url.URL{
 			Scheme: "pieceref",
 			Opaque: fmt.Sprintf("%d", pieceRefID),
@@ -290,6 +277,11 @@ func (a *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			return false, fmt.Errorf("failed to delete parked_piece_refs entries: %w", err)
 		}
 
+		var rev mk20.RetrievalV1
+		if deal.Products.RetrievalV1 != nil {
+			rev = *deal.Products.RetrievalV1
+		}
+
 		ddo := deal.Products.DDOV1
 		data := deal.Data
 
@@ -301,12 +293,12 @@ func (a *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		}
 
 		n, err := tx.Exec(`INSERT INTO market_mk20_pipeline (
-            id, sp_id, contract, client, piece_cid, piece_size, raw_size, url, 
+            id, sp_id, contract, client, piece_cid_v2, piece_cid, piece_size, raw_size, url, 
             offline, indexing, announce, allocation_id, duration, 
             piece_aggregation, deal_aggregation, started, downloaded, after_commp, aggregated) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, TRUE, TRUE, TRUE, TRUE)`,
-			id, spid, ddo.ContractAddress, ddo.Client.String(), data.PieceCID.String(), data.Size, rawSize, pieceIDUrl.String(),
-			false, ddo.Indexing, ddo.AnnounceToIPNI, allocationID, ddo.Duration,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, TRUE, TRUE, TRUE, TRUE)`,
+			id, spid, ddo.ContractAddress, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, pieceIDUrl.String(),
+			false, rev.Indexing, rev.AnnouncePayload, allocationID, ddo.Duration,
 			data.Format.Aggregate.Type, data.Format.Aggregate.Type)
 		if err != nil {
 			return false, xerrors.Errorf("inserting aggregated piece in mk20 pipeline: %w", err)
@@ -323,6 +315,9 @@ func (a *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	if !comm {
 		return false, xerrors.Errorf("failed to commit the transaction")
 	}
+
+	failed = false
+
 	return true, nil
 }
 

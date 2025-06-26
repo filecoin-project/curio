@@ -15,7 +15,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -23,7 +22,6 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
-	"github.com/ipfs/go-cidutil/cidenc"
 	"github.com/ipni/go-libipni/maurl"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
@@ -32,7 +30,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/mitchellh/go-homedir"
 	"github.com/multiformats/go-multiaddr"
-	"github.com/multiformats/go-multibase"
 	"github.com/oklog/ulid"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/exp/mmap"
@@ -41,18 +38,20 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	cborutil "github.com/filecoin-project/go-cbor-util"
+	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 	"github.com/filecoin-project/go-state-types/builtin/v9/market"
 
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/lib/keystore"
 	"github.com/filecoin-project/curio/lib/testutils"
 	mk12_libp2p "github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/market/mk12"
 	"github.com/filecoin-project/curio/market/mk20"
 
-	"github.com/filecoin-project/lotus/api"
+	lapi "github.com/filecoin-project/lotus/api"
 	chain_types "github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chain/wallet"
 	lcli "github.com/filecoin-project/lotus/cli"
@@ -613,7 +612,7 @@ func dealProposal(ctx context.Context, n *Node, clientAddr address.Address, root
 		return nil, err
 	}
 
-	sig, err := n.Wallet.WalletSign(ctx, clientAddr, buf, api.MsgMeta{Type: api.MTDealProposal})
+	sig, err := n.Wallet.WalletSign(ctx, clientAddr, buf, lapi.MsgMeta{Type: lapi.MTDealProposal})
 	if err != nil {
 		return nil, xerrors.Errorf("wallet sign failed: %w", err)
 	}
@@ -1305,7 +1304,7 @@ var walletSign = &cli.Command{
 			return err
 		}
 
-		sig, err := n.Wallet.WalletSign(ctx, addr, msg, api.MsgMeta{Type: api.MTUnknown})
+		sig, err := n.Wallet.WalletSign(ctx, addr, msg, lapi.MsgMeta{Type: lapi.MTUnknown})
 		if err != nil {
 			return err
 		}
@@ -1416,7 +1415,7 @@ var dealStatusCmd = &cli.Command{
 			return fmt.Errorf("getting uuid bytes: %w", err)
 		}
 
-		sig, err := n.Wallet.WalletSign(ctx, walletAddr, uuidBytes, api.MsgMeta{Type: api.MTDealProposal})
+		sig, err := n.Wallet.WalletSign(ctx, walletAddr, uuidBytes, lapi.MsgMeta{Type: lapi.MTDealProposal})
 		if err != nil {
 			return fmt.Errorf("signing uuid bytes: %w", err)
 		}
@@ -1579,9 +1578,54 @@ var mk20Clientcmd = &cli.Command{
 	},
 	Subcommands: []*cli.Command{
 		initCmd,
+		comm2Cmd,
 		mk20DealCmd,
 		mk20ClientMakeAggregateCmd,
 		mk20ClientUploadCmd,
+	},
+}
+
+var comm2Cmd = &cli.Command{
+	Name:      "commp",
+	Usage:     "",
+	ArgsUsage: "<inputPath>",
+	Action: func(cctx *cli.Context) error {
+		if cctx.Args().Len() != 1 {
+			return fmt.Errorf("usage: commP <inputPath>")
+		}
+
+		inPath := cctx.Args().Get(0)
+
+		rdr, err := os.Open(inPath)
+		if err != nil {
+			return err
+		}
+		defer rdr.Close() //nolint:errcheck
+
+		stat, err := os.Stat(inPath)
+		if err != nil {
+			return err
+		}
+
+		wr := new(commp.Calc)
+		_, err = io.CopyBuffer(wr, rdr, make([]byte, 2<<20))
+		if err != nil {
+			return fmt.Errorf("copy into commp writer: %w", err)
+		}
+
+		digest, _, err := wr.Digest()
+		if err != nil {
+			return fmt.Errorf("generating digest failed: %w", err)
+		}
+
+		commp, err := commcidv2.NewSha2CommP(uint64(stat.Size()), digest)
+		if err != nil {
+			return fmt.Errorf("computing commP failed: %w", err)
+		}
+
+		fmt.Println("CommP CID: ", commp.PCidV2().String())
+		fmt.Println("Car file size: ", stat.Size())
+		return nil
 	},
 }
 
@@ -1597,23 +1641,14 @@ var mk20DealCmd = &cli.Command{
 			Name:  "http-headers",
 			Usage: "http headers to be passed with the request (e.g key=value)",
 		},
-		&cli.Uint64Flag{
-			Name:  "car-size",
-			Usage: "size of the CAR file: required for online deals",
-		},
 		&cli.StringFlag{
 			Name:     "provider",
 			Usage:    "storage provider on-chain address",
 			Required: true,
 		},
 		&cli.StringFlag{
-			Name:     "commp",
-			Usage:    "commp of the CAR file",
-			Required: true,
-		},
-		&cli.Uint64Flag{
-			Name:     "piece-size",
-			Usage:    "size of the CAR file as a padded piece",
+			Name:     "pcidv2",
+			Usage:    "pcidv2 of the CAR file",
 			Required: true,
 		},
 		&cli.IntFlag{
@@ -1728,18 +1763,11 @@ var mk20DealCmd = &cli.Command{
 			hurls = append(hurls, hurl)
 		}
 
-		commp := cctx.String("commp")
+		commp := cctx.String("pcidv2")
 		pieceCid, err := cid.Parse(commp)
 		if err != nil {
-			return xerrors.Errorf("parsing commp '%s': %w", commp, err)
+			return xerrors.Errorf("parsing pcidv2 '%s': %w", commp, err)
 		}
-
-		pieceSize := cctx.Uint64("piece-size")
-		if pieceSize == 0 {
-			return xerrors.Errorf("must provide piece-size parameter for CAR url")
-		}
-
-		carFileSize := cctx.Uint64("car-size")
 
 		var headers http.Header
 
@@ -1756,7 +1784,6 @@ var mk20DealCmd = &cli.Command{
 		if cctx.IsSet("aggregate") {
 			d = mk20.DataSource{
 				PieceCID: pieceCid,
-				Size:     abi.PaddedPieceSize(pieceSize),
 				Format: mk20.PieceDataFormat{
 					Aggregate: &mk20.FormatAggregate{
 						Type: mk20.AggregateTypeV1,
@@ -1781,10 +1808,10 @@ var mk20DealCmd = &cli.Command{
 			for scanner.Scan() {
 				line := scanner.Text()
 				parts := strings.Split(line, "\t")
-				if len(parts) != 4 {
-					return fmt.Errorf("invalid line format. Expected pieceCid, pieceSize, carSize, url at %s", line)
+				if len(parts) != 2 {
+					return fmt.Errorf("invalid line format. Expected pieceCidV2, url at %s", line)
 				}
-				if parts[0] == "" || parts[1] == "" || parts[2] == "" || parts[3] == "" {
+				if parts[0] == "" || parts[1] == "" {
 					return fmt.Errorf("empty column value in the input file at %s", line)
 				}
 
@@ -1792,29 +1819,18 @@ var mk20DealCmd = &cli.Command{
 				if err != nil {
 					return fmt.Errorf("failed to parse CID: %w", err)
 				}
-				pieceSize, err := strconv.ParseInt(parts[1], 10, 64)
-				if err != nil {
-					return fmt.Errorf("failed to parse size %w", err)
-				}
 
-				rawSize, err := strconv.ParseInt(parts[2], 10, 64)
-				if err != nil {
-					return fmt.Errorf("failed to parse raw size %w", err)
-				}
-
-				url, err := url.Parse(parts[3])
+				url, err := url.Parse(parts[1])
 				if err != nil {
 					return fmt.Errorf("failed to parse url: %w", err)
 				}
 
 				pieces = append(pieces, mk20.DataSource{
 					PieceCID: pieceCid,
-					Size:     abi.PaddedPieceSize(pieceSize),
 					Format: mk20.PieceDataFormat{
 						Car: &mk20.FormatCar{},
 					},
 					SourceHTTP: &mk20.DataSourceHTTP{
-						RawSize: uint64(rawSize),
 						URLs: []mk20.HttpUrl{
 							{
 								URL:      url.String(),
@@ -1833,32 +1849,22 @@ var mk20DealCmd = &cli.Command{
 				Pieces: pieces,
 			}
 		} else {
-			if carFileSize == 0 {
-				return xerrors.Errorf("size of car file cannot be 0")
-			}
-
 			if !cctx.IsSet("http-url") {
 				if cctx.Bool("put") {
 					d = mk20.DataSource{
 						PieceCID: pieceCid,
-						Size:     abi.PaddedPieceSize(pieceSize),
 						Format: mk20.PieceDataFormat{
 							Car: &mk20.FormatCar{},
 						},
-						SourceHttpPut: &mk20.DataSourceHttpPut{
-							RawSize: carFileSize,
-						},
+						SourceHttpPut: &mk20.DataSourceHttpPut{},
 					}
 				} else {
 					d = mk20.DataSource{
 						PieceCID: pieceCid,
-						Size:     abi.PaddedPieceSize(pieceSize),
 						Format: mk20.PieceDataFormat{
 							Car: &mk20.FormatCar{},
 						},
-						SourceOffline: &mk20.DataSourceOffline{
-							RawSize: carFileSize,
-						},
+						SourceOffline: &mk20.DataSourceOffline{},
 					}
 				}
 			} else {
@@ -1868,12 +1874,10 @@ var mk20DealCmd = &cli.Command{
 				}
 				d = mk20.DataSource{
 					PieceCID: pieceCid,
-					Size:     abi.PaddedPieceSize(pieceSize),
 					Format: mk20.PieceDataFormat{
 						Car: &mk20.FormatCar{},
 					},
 					SourceHTTP: &mk20.DataSourceHTTP{
-						RawSize: carFileSize,
 						URLs: []mk20.HttpUrl{
 							{
 								URL:      url.String(),
@@ -1890,14 +1894,15 @@ var mk20DealCmd = &cli.Command{
 		p := mk20.Products{
 			DDOV1: &mk20.DDOV1{
 				Provider:                   maddr,
-				Client:                     walletAddr,
 				PieceManager:               walletAddr,
 				Duration:                   abi.ChainEpoch(cctx.Int64("duration")),
 				ContractAddress:            cctx.String("contract-address"),
 				ContractVerifyMethod:       cctx.String("contract-verify-method"),
 				ContractVerifyMethodParams: []byte("test bytes"),
-				Indexing:                   cctx.Bool("indexing"),
-				AnnounceToIPNI:             cctx.Bool("announce"),
+			},
+			RetrievalV1: &mk20.RetrievalV1{
+				Indexing:        cctx.Bool("indexing"),
+				AnnouncePayload: cctx.Bool("announce"),
 			},
 		}
 
@@ -1912,9 +1917,26 @@ var mk20DealCmd = &cli.Command{
 		}
 		log.Debugw("generated deal id", "id", id)
 
+		msg, err := id.MarshalBinary()
+		if err != nil {
+			return xerrors.Errorf("failed to marshal deal id: %w", err)
+		}
+
+		sig, err := n.Wallet.WalletSign(ctx, walletAddr, msg, lapi.MsgMeta{Type: lapi.MTDealProposal})
+		if err != nil {
+			return xerrors.Errorf("failed to sign deal proposal: %w", err)
+		}
+
+		msgb, err := sig.MarshalBinary()
+		if err != nil {
+			return xerrors.Errorf("failed to marshal deal proposal signature: %w", err)
+		}
+
 		deal := mk20.Deal{
 			Identifier: id,
-			Data:       d,
+			Client:     walletAddr,
+			Signature:  msgb,
+			Data:       &d,
 			Products:   p,
 		}
 
@@ -1971,19 +1993,18 @@ var mk20ClientMakeAggregateCmd = &cli.Command{
 		&cli.BoolFlag{
 			Name:  "out",
 			Usage: "output the aggregate file",
+			Value: true,
 		},
 	},
 	Action: func(cctx *cli.Context) error {
 		size := abi.PaddedPieceSize(cctx.Uint64("piece-size"))
 		files := cctx.StringSlice("files")
 		out := cctx.Bool("out")
-		pcid, size, err := testutils.CreateAggregateFromCars(files, size, out)
+		pcid, err := testutils.CreateAggregateFromCars(files, size, out)
 		if err != nil {
 			return err
 		}
-		encoder := cidenc.Encoder{Base: multibase.MustNewEncoder(multibase.Base32)}
-		fmt.Println("CommP CID: ", encoder.Encode(pcid))
-		fmt.Println("Piece size: ", size)
+		fmt.Println("CommP CID: ", pcid.String())
 		return nil
 	},
 }

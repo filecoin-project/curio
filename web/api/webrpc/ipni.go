@@ -100,7 +100,14 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 		return nil, xerrors.Errorf("failed to unmarshal piece info: %w", err)
 	}
 
-	commp, err := commcidv2.CommPFromPieceInfo(pi)
+	// Get RawSize from market_piece_deal to calculate PieceCidV2
+	var rawSize uint64
+	err = a.deps.DB.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 LIMIT 1;`, pi.PieceCID, pi.Size).Scan(&rawSize)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get raw size: %w", err)
+	}
+
+	pcidv2, err := commcidv2.PieceCidV2FromV1(pi.PieceCID, rawSize)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get commp: %w", err)
 	}
@@ -108,7 +115,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 	details.PieceCid = pi.PieceCID.String()
 	size := int64(pi.Size)
 	details.PieceSize = size
-	details.PieceCidV2 = commp.PCidV2().String()
+	details.PieceCidV2 = pcidv2.String()
 
 	maddr, err := address.NewIDAddress(uint64(details.SpID))
 	if err != nil {

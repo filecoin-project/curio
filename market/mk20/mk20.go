@@ -21,6 +21,7 @@ import (
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 
@@ -45,11 +46,11 @@ type MK20 struct {
 	cfg                *config.CurioConfig
 	sm                 map[address.Address]abi.SectorSize
 	as                 *multictladdr.MultiAddressSelector
-	stor               paths.StashStore
+	sc                 *ffi.SealCalls
 	maxParallelUploads *atomic.Int64
 }
 
-func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorIndex, mapi MK20API, ethClient *ethclient.Client, cfg *config.CurioConfig, as *multictladdr.MultiAddressSelector, stor paths.StashStore) (*MK20, error) {
+func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorIndex, mapi MK20API, ethClient *ethclient.Client, cfg *config.CurioConfig, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) (*MK20, error) {
 	ctx := context.Background()
 
 	// Ensure MinChunk size and max chunkSize is a power of 2
@@ -73,7 +74,7 @@ func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorI
 		}
 	}
 
-	ret := &MK20{
+	return &MK20{
 		miners:             miners,
 		db:                 db,
 		api:                mapi,
@@ -82,12 +83,9 @@ func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorI
 		cfg:                cfg,
 		sm:                 sm,
 		as:                 as,
-		stor:               stor,
+		sc:                 sc,
 		maxParallelUploads: new(atomic.Int64),
-	}
-
-	go ret.MarkChunkComplete(ctx)
-	return ret, nil
+	}, nil
 }
 
 func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal) *ProviderDealRejectionInfo {
@@ -157,7 +155,9 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal) *ProviderDealReje
 		if err != nil {
 			return false, err
 		}
-		n, err := tx.Exec(`Update market_mk20_deal SET market_deal_id = $1 WHERE id = $2`, id, deal.Identifier.String())
+		n, err := tx.Exec(`UPDATE market_mk20_deal
+								SET ddo_v1 = jsonb_set(ddo_v1, '{deal_id}', to_jsonb($1::text))
+								WHERE id = $2;`, id, deal.Identifier.String())
 		if err != nil {
 			return false, err
 		}
@@ -206,7 +206,16 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}, nil
 	}
 
-	if deal.Data.Size > abi.PaddedPieceSize(m.sm[deal.Products.DDOV1.Provider]) {
+	size, err := deal.Size()
+	if err != nil {
+		log.Errorw("error getting deal size", "deal", deal, "error", err)
+		return &ProviderDealRejectionInfo{
+			HTTPCode: http.StatusBadRequest,
+			Reason:   "Error getting deal size from PieceCID",
+		}, nil
+	}
+
+	if size > abi.PaddedPieceSize(m.sm[deal.Products.DDOV1.Provider]) {
 		return &ProviderDealRejectionInfo{
 			HTTPCode: http.StatusBadRequest,
 			Reason:   "Deal size is larger than the miner's sector size",
@@ -214,23 +223,25 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 	}
 
 	if deal.Data.Format.Raw != nil {
-		if deal.Products.DDOV1.Indexing {
-			return &ProviderDealRejectionInfo{
-				HTTPCode: http.StatusBadRequest,
-				Reason:   "Raw bytes deal cannot be indexed",
-			}, nil
+		if deal.Products.RetrievalV1 != nil {
+			if deal.Products.RetrievalV1.Indexing {
+				return &ProviderDealRejectionInfo{
+					HTTPCode: http.StatusBadRequest,
+					Reason:   "Raw bytes deal cannot be indexed",
+				}, nil
+			}
 		}
 	}
 
 	if deal.Products.DDOV1.AllocationId != nil {
-		if deal.Data.Size < abi.PaddedPieceSize(verifreg.MinimumVerifiedAllocationSize) {
+		if size < abi.PaddedPieceSize(verifreg.MinimumVerifiedAllocationSize) {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: http.StatusBadRequest,
 				Reason:   "Verified piece size must be at least 1MB",
 			}, nil
 		}
 
-		alloc, err := m.api.StateGetAllocation(ctx, deal.Products.DDOV1.Client, verifreg9.AllocationId(*deal.Products.DDOV1.AllocationId), types.EmptyTSK)
+		alloc, err := m.api.StateGetAllocation(ctx, deal.Client, verifreg9.AllocationId(*deal.Products.DDOV1.AllocationId), types.EmptyTSK)
 		if err != nil {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: http.StatusInternalServerError,
@@ -244,7 +255,7 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			}, nil
 		}
 
-		clientID, err := address.IDFromAddress(deal.Products.DDOV1.Client)
+		clientID, err := address.IDFromAddress(deal.Client)
 		if err != nil {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: http.StatusBadRequest,
@@ -280,7 +291,7 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			}, nil
 		}
 
-		if deal.Data.Size != alloc.Size {
+		if size != alloc.Size {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: http.StatusBadRequest,
 				Reason:   "Allocation size does not match the piece size",

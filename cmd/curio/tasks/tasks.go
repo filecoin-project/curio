@@ -225,7 +225,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 				return nil, err
 			}
 			cleanupPieceTask := piece2.NewCleanupPieceTask(db, must.One(slrLazy.Val()), 0)
-			aggregateChunksTask := piece2.NewAggregateChunksTask(db, lstor, stor, must.One(slrLazy.Val()))
+			aggregateChunksTask := piece2.NewAggregateChunksTask(db, stor, must.One(slrLazy.Val()))
 			activeTasks = append(activeTasks, parkPieceTask, cleanupPieceTask, aggregateChunksTask)
 		}
 	}
@@ -249,7 +249,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		var dm *storage_market.CurioStorageDealMarket
 		if cfg.Subsystems.EnableDealMarket {
 			// Main market poller should run on all nodes
-			dm = storage_market.NewCurioStorageDealMarket(miners, db, cfg, must.One(dependencies.EthClient.Val()), si, full, as, lstor)
+			dm = storage_market.NewCurioStorageDealMarket(miners, db, cfg, must.One(dependencies.EthClient.Val()), si, full, as, must.One(slrLazy.Val()))
 			err := dm.StartMarket(ctx)
 			if err != nil {
 				return nil, err

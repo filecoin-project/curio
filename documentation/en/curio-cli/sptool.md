@@ -900,6 +900,7 @@ USAGE:
 
 COMMANDS:
    init       Initialise curio mk12 client repo
+   commp      
    deal       Make a mk20 deal with Curio
    aggregate  Create a new aggregate from a list of CAR files
    upload     Upload a file to the storage provider
@@ -922,6 +923,18 @@ OPTIONS:
    --help, -h  show help
 ```
 
+#### sptool toolbox mk20-client commp
+```
+NAME:
+   sptool toolbox mk20-client commp
+
+USAGE:
+   sptool toolbox mk20-client commp [command options] <inputPath>
+
+OPTIONS:
+   --help, -h  show help
+```
+
 #### sptool toolbox mk20-client deal
 ```
 NAME:
@@ -933,10 +946,8 @@ USAGE:
 OPTIONS:
    --http-url value                               http url to CAR file
    --http-headers value [ --http-headers value ]  http headers to be passed with the request (e.g key=value)
-   --car-size value                               size of the CAR file: required for online deals (default: 0)
    --provider value                               storage provider on-chain address
-   --commp value                                  commp of the CAR file
-   --piece-size value                             size of the CAR file as a padded piece (default: 0)
+   --pcidv2 value                                 pcidv2 of the CAR file
    --duration value                               duration of the deal in epochs (default: 518400)
    --contract-address value                       contract address of the deal
    --contract-verify-method value                 contract verify method of the deal
@@ -960,7 +971,7 @@ USAGE:
 OPTIONS:
    --files value [ --files value ]  list of CAR files to aggregate
    --piece-size value               piece size of the aggregate (default: 0)
-   --out                            output the aggregate file (default: false)
+   --out                            output the aggregate file (default: true)
    --help, -h                       show help
 ```
 

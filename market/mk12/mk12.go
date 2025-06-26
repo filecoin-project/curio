@@ -540,12 +540,12 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 
 		// Store the deal
 		n, err := tx.Exec(`INSERT INTO market_mk12_deals (uuid, signed_proposal_cid, 
-                                proposal_signature, proposal, proposal_cid, piece_cid, 
+                                proposal_signature, proposal, proposal_cid, piece_cid, raw_size, 
                                 piece_size, offline, verified, sp_id, start_epoch, end_epoch, 
                                 client_peer_id, fast_retrieval, announce_to_ipni, url, url_headers, label) 
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 				ON CONFLICT (uuid) DO NOTHING`,
-			deal.DealUuid.String(), deal.SignedProposalCID.String(), sigByte, propJson, propCid, prop.PieceCID.String(),
+			deal.DealUuid.String(), deal.SignedProposalCID.String(), sigByte, propJson, propCid, prop.PieceCID.String(), deal.Transfer.Size,
 			prop.PieceSize, deal.IsOffline, prop.VerifiedDeal, mid, prop.StartEpoch, prop.EndEpoch, deal.ClientPeerID.String(),
 			deal.FastRetrieval, deal.AnnounceToIPNI, tInfo.URL, headers, b.Bytes())
 

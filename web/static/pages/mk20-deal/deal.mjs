@@ -30,7 +30,7 @@ class DealDetails extends LitElement {
     render() {
         if (!this.data) return html`<p>No data.</p>`;
 
-        const { identifier, data, products, error } = this.data.deal;
+        const { identifier, client, data, products, error } = this.data.deal;
 
 
         return html`
@@ -43,9 +43,16 @@ class DealDetails extends LitElement {
             
             <table class="table table-dark table-striped table-sm">
                 <tr><th>Identifier</th><td>${identifier}</td></tr>
+                <tr><th>Client</th><td><cu-wallet wallet_id=${client}></td></tr>
                 <tr><th>Error</th><td><error-or-not .value=${this.data.error}></error-or-not></td></tr>
-                <tr><th>PieceCID</th><td><a href="/pages/piece/?id=${this.data.piece_cid_v2}">${data?.piece_cid['/']}</a></td></tr>
-                <tr><th>PieceSize</th><td>${data?.piece_size}</td></tr>
+                <tr>
+                    <th>PieceCID</th>
+                    <td>
+                        ${data
+                                ? html`<a href="/pages/piece/?id=${data.piece_cid['/']}">${data.piece_cid['/']}</a>`
+                                : "Not Available"}
+                    </td>
+                </tr>
             </table>
             
             <h4>Piece Format</h4>
@@ -63,6 +70,7 @@ class DealDetails extends LitElement {
               </table>
     
             ${products?.ddo_v1 ? this.renderDDOV1(products.ddo_v1) : ''}
+            ${products?.retrieval_v1 ? this.renderRetV1(products.retrieval_v1) : ''}
         `;
     }
 
@@ -176,7 +184,7 @@ class DealDetails extends LitElement {
                         <div id="collapse${i}" class="accordion-collapse collapse" data-bs-parent="#aggregatePieces">
                             <div class="accordion-body">
                                 <ul class="list-group list-group-flush">
-                                    <li class="list-group-item bg-dark text-white"><strong>PieceCID:</strong> ${piece.piece_cid['/']} <strong>Size:</strong> ${piece.piece_size}</li>
+                                    <li class="list-group-item bg-dark text-white"><strong>PieceCID:</strong> ${piece.piece_cid['/']}</li>
                                     <li class="list-group-item bg-dark text-white">${this.renderPieceFormat(piece.format)}</li>
                                     <li class="list-group-item bg-dark text-white">${this.renderDataSource(piece)}</li>
                                 </ul>
@@ -206,19 +214,28 @@ class DealDetails extends LitElement {
     }
 
     renderDDOV1(ddo) {
+        if (!ddo) return '';
         return html`
       <h6>DDO v1</h6>
       <table class="table table-dark table-striped table-sm">
         <tr><th>Provider</th><td>${ddo.provider}</td></tr>
-        <tr><th>Client</th><td><cu-wallet wallet_id=${ddo.client}></td></tr>
         <tr><th>Piece Manager</th><td><cu-wallet wallet_id=${ddo.piece_manager}></td></tr>
         <tr><th>Duration</th><td>${ddo.duration}</td></tr>
         ${ddo.allocation_id ? html`<tr><th>Allocation ID</th><td>${ddo.allocation_id}</td></tr>` : ''}
         <tr><th>Contract</th><td>${ddo.contract_address}</td></tr>
         <tr><th>Verify Method</th><td>${ddo.contract_verify_method}</td></tr>
         <tr><th>Notify Address</th><td>${ddo.notification_address}</td></tr>
-        <tr><th>Indexing</th><td>${ddo.indexing ? 'Yes' : 'No'}</td></tr>
-        <tr><th>Announce to IPNI</th><td>${ddo.announce_to_ipni ? 'Yes' : 'No'}</td></tr>
+      </table>
+    `;
+    }
+
+    renderRetV1(ret) {
+        if (!ret) return '';
+        return html`
+      <h6>Retrieval v1</h6>
+      <table class="table table-dark table-striped table-sm">
+        <tr><th>Indexing</th><td>${ret.indexing ? 'Yes' : 'No'}</td></tr>
+        <tr><th>Announce to IPNI</th><td>${ret.announce_payload ? 'Yes' : 'No'}</td></tr>
       </table>
     `;
     }

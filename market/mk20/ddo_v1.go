@@ -34,9 +34,6 @@ type DDOV1 struct {
 	// Provider specifies the address of the provider
 	Provider address.Address `json:"provider"`
 
-	// Client represents the address of the deal client
-	Client address.Address `json:"client"`
-
 	// Actor providing AuthorizeMessage (like f1/f3 wallet) able to authorize actions such as managing ACLs
 	PieceManager address.Address `json:"piece_manager"`
 
@@ -61,12 +58,6 @@ type DDOV1 struct {
 
 	// NotificationPayload holds the notification data typically in a serialized byte array format.
 	NotificationPayload []byte `json:"notification_payload"`
-
-	// Indexing indicates if the deal is to be indexed in the provider's system to support CIDs based retrieval
-	Indexing bool `json:"indexing"`
-
-	// AnnounceToIPNI indicates whether the deal should be announced to the Interplanetary Network Indexer (IPNI).
-	AnnounceToIPNI bool `json:"announce_to_ipni"`
 }
 
 func (d *DDOV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, error) {
@@ -90,10 +81,6 @@ func (d *DDOV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, e
 
 	if lo.Contains(mk20disabledMiners, d.Provider) {
 		return ErrProductValidationFailed, xerrors.Errorf("provider is disabled")
-	}
-
-	if d.Client == address.Undef || d.Client.Empty() {
-		return ErrProductValidationFailed, xerrors.Errorf("client address is not set")
 	}
 
 	if d.PieceManager == address.Undef || d.PieceManager.Empty() {
@@ -126,10 +113,6 @@ func (d *DDOV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, e
 
 	if d.ContractVerifyMethod == "" {
 		return ErrProductValidationFailed, xerrors.Errorf("contract verify method is not set")
-	}
-
-	if !d.Indexing && d.AnnounceToIPNI {
-		return ErrProductValidationFailed, xerrors.Errorf("deal cannot be announced to IPNI without indexing")
 	}
 
 	return Ok, nil
@@ -205,3 +188,5 @@ func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.
 func (d *DDOV1) ProductName() ProductName {
 	return ProductNameDDOV1
 }
+
+var _ product = &DDOV1{}

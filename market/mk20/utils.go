@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/bits"
 	"net/http"
 	"net/url"
 	"time"
@@ -18,16 +17,28 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-data-segment/datasegment"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/crypto"
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/commcidv2"
+
+	"github.com/filecoin-project/lotus/lib/sigs"
 )
 
 func (d *Deal) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, error) {
-	code, err := d.Products.Validate(db, cfg)
+	if d.Client.Empty() {
+		return ErrBadProposal, xerrors.Errorf("no client")
+	}
+
+	code, err := d.ValidateSignature()
+	if err != nil {
+		return code, xerrors.Errorf("signature validation failed: %w", err)
+	}
+
+	code, err = d.Products.Validate(db, cfg)
 	if err != nil {
 		return code, xerrors.Errorf("products validation failed: %w", err)
 	}
@@ -35,14 +46,39 @@ func (d *Deal) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, er
 	return d.Data.Validate(db)
 }
 
-func (d DataSource) Validate(db *harmonydb.DB) (ErrorCode, error) {
-
-	if !d.PieceCID.Defined() {
-		return ErrBadProposal, xerrors.Errorf("piece cid is not defined")
+func (d *Deal) ValidateSignature() (ErrorCode, error) {
+	if len(d.Signature) == 0 {
+		return ErrBadProposal, xerrors.Errorf("no signature")
 	}
 
-	if d.Size == 0 {
-		return ErrBadProposal, xerrors.Errorf("piece size is 0")
+	sig := &crypto.Signature{}
+	err := sig.UnmarshalBinary(d.Signature)
+	if err != nil {
+		return ErrBadProposal, xerrors.Errorf("invalid signature")
+	}
+
+	msg, err := d.Identifier.MarshalBinary()
+	if err != nil {
+		return ErrBadProposal, xerrors.Errorf("invalid identifier")
+	}
+
+	if sig.Type == crypto.SigTypeBLS || sig.Type == crypto.SigTypeSecp256k1 || sig.Type == crypto.SigTypeDelegated {
+		err = sigs.Verify(sig, d.Client, msg)
+		if err != nil {
+			return ErrBadProposal, xerrors.Errorf("invalid signature")
+		}
+		return Ok, nil
+	}
+
+	// Add more types if required in Future
+	return ErrBadProposal, xerrors.Errorf("invalid signature type")
+}
+
+func (d DataSource) Validate(db *harmonydb.DB) (ErrorCode, error) {
+
+	err := ValidatePieceCID(d.PieceCID)
+	if err != nil {
+		return ErrBadProposal, err
 	}
 
 	if d.SourceOffline != nil && d.SourceHTTP != nil && d.SourceAggregate != nil && d.SourceHttpPut != nil {
@@ -76,13 +112,14 @@ func (d DataSource) Validate(db *harmonydb.DB) (ErrorCode, error) {
 				return ErrMalformedDataSource, xerrors.Errorf("no pieces in aggregate")
 			}
 
-			for _, p := range d.SourceAggregate.Pieces {
-				if !p.PieceCID.Defined() {
-					return ErrMalformedDataSource, xerrors.Errorf("piece cid is not defined")
-				}
+			if len(d.SourceAggregate.Pieces) == 1 {
+				return ErrMalformedDataSource, xerrors.Errorf("aggregate must have at least 2 pieces")
+			}
 
-				if p.Size == 0 {
-					return ErrMalformedDataSource, xerrors.Errorf("piece size is 0")
+			for _, p := range d.SourceAggregate.Pieces {
+				err := ValidatePieceCID(p.PieceCID)
+				if err != nil {
+					return ErrMalformedDataSource, xerrors.Errorf("invalid piece cid")
 				}
 
 				var ifcar, ifraw bool
@@ -120,10 +157,6 @@ func (d DataSource) Validate(db *harmonydb.DB) (ErrorCode, error) {
 				}
 
 				if p.SourceHTTP != nil {
-					if p.SourceHTTP.RawSize == 0 {
-						return ErrMalformedDataSource, xerrors.Errorf("raw size is 0 for sub piece in aggregate")
-					}
-
 					if len(p.SourceHTTP.URLs) == 0 {
 						return ErrMalformedDataSource, xerrors.Errorf("no urls defined for sub piece in aggregate")
 					}
@@ -135,13 +168,6 @@ func (d DataSource) Validate(db *harmonydb.DB) (ErrorCode, error) {
 						}
 					}
 				}
-
-				if p.SourceOffline != nil {
-					if p.SourceOffline.RawSize == 0 {
-						return ErrMalformedDataSource, xerrors.Errorf("raw size is 0 for sub piece in aggregate")
-					}
-				}
-
 			}
 		} else {
 			if len(d.Format.Aggregate.Sub) == 0 {
@@ -168,10 +194,6 @@ func (d DataSource) Validate(db *harmonydb.DB) (ErrorCode, error) {
 			return code, err
 		}
 
-		if d.SourceHTTP.RawSize == 0 {
-			return ErrMalformedDataSource, xerrors.Errorf("raw size is 0")
-		}
-
 		if len(d.SourceHTTP.URLs) == 0 {
 			return ErrMalformedDataSource, xerrors.Errorf("no urls defined")
 		}
@@ -189,10 +211,6 @@ func (d DataSource) Validate(db *harmonydb.DB) (ErrorCode, error) {
 		if err != nil {
 			return code, err
 		}
-
-		if d.SourceOffline.RawSize == 0 {
-			return ErrMalformedDataSource, xerrors.Errorf("raw size is 0")
-		}
 	}
 
 	if d.SourceHttpPut != nil {
@@ -200,181 +218,191 @@ func (d DataSource) Validate(db *harmonydb.DB) (ErrorCode, error) {
 		if err != nil {
 			return code, err
 		}
-		if d.SourceHttpPut.RawSize == 0 {
-			return ErrMalformedDataSource, xerrors.Errorf("raw size is 0")
-		}
-	}
-
-	raw, err := d.RawSize()
-	if err != nil {
-		return ErrBadProposal, err
-	}
-
-	if padreader.PaddedSize(raw).Padded() != d.Size {
-		return ErrBadProposal, xerrors.Errorf("invalid size")
 	}
 
 	return Ok, nil
 }
 
-func (d DataSource) RawSize() (uint64, error) {
-	if d.Format.Aggregate != nil {
-		if d.Format.Aggregate.Type == AggregateTypeV1 {
-			if d.SourceAggregate != nil {
-				var pinfos []abi.PieceInfo
-				for _, piece := range d.SourceAggregate.Pieces {
-					pinfos = append(pinfos, abi.PieceInfo{
-						PieceCID: piece.PieceCID,
-						Size:     piece.Size,
-					})
-				}
-				_, asize, err := datasegment.ComputeDealPlacement(pinfos)
-				if err != nil {
-					return 0, err
-				}
-				next := 1 << (64 - bits.LeadingZeros64(asize+256))
-				if abi.PaddedPieceSize(next) != d.Size {
-					return 0, xerrors.Errorf("invalid aggregate size")
-				}
-
-				a, err := datasegment.NewAggregate(abi.PaddedPieceSize(next), pinfos)
-				if err != nil {
-					return 0, err
-				}
-
-				return uint64(a.DealSize.Unpadded()), nil
-			}
-		}
+func ValidatePieceCID(c cid.Cid) error {
+	if !c.Defined() {
+		return xerrors.Errorf("piece cid is not defined")
 	}
 
-	if d.SourceHTTP != nil {
-		return d.SourceHTTP.RawSize, nil
+	if c.Prefix().Codec != cid.Raw {
+		return xerrors.Errorf("piece cid is not raw")
 	}
 
-	if d.SourceOffline != nil {
-		return d.SourceOffline.RawSize, nil
+	commp, err := commcidv2.CommPFromPCidV2(c)
+	if err != nil {
+		return xerrors.Errorf("invalid piece cid: %w", err)
 	}
 
-	if d.SourceHttpPut != nil {
-		return d.SourceHttpPut.RawSize, nil
+	if commp.PieceInfo().Size == 0 {
+		return xerrors.Errorf("piece size is 0")
 	}
 
-	return 0, xerrors.Errorf("no source defined")
+	if commp.PayloadSize() == 0 {
+		return xerrors.Errorf("payload size is 0")
+	}
+
+	if padreader.PaddedSize(commp.PayloadSize()).Padded() != commp.PieceInfo().Size {
+		return xerrors.Errorf("invalid piece size")
+	}
+
+	return nil
+}
+
+type PieceInfo struct {
+	PieceCIDV1 cid.Cid             `json:"piece_cid"`
+	Size       abi.PaddedPieceSize `json:"size"`
+	RawSize    uint64              `json:"raw_size"`
+}
+
+func (d *Deal) RawSize() (uint64, error) {
+	commp, err := commcidv2.CommPFromPCidV2(d.Data.PieceCID)
+	if err != nil {
+		return 0, xerrors.Errorf("invalid piece cid: %w", err)
+	}
+	return commp.PayloadSize(), nil
+}
+
+func (d *Deal) Size() (abi.PaddedPieceSize, error) {
+	commp, err := commcidv2.CommPFromPCidV2(d.Data.PieceCID)
+	if err != nil {
+		return 0, xerrors.Errorf("invalid piece cid: %w", err)
+	}
+	return commp.PieceInfo().Size, nil
+}
+
+func (d *Deal) PieceInfo() (*PieceInfo, error) {
+	return GetPieceInfo(d.Data.PieceCID)
+}
+
+func GetPieceInfo(c cid.Cid) (*PieceInfo, error) {
+	commp, err := commcidv2.CommPFromPCidV2(c)
+	if err != nil {
+		return nil, xerrors.Errorf("invalid piece cid: %w", err)
+	}
+	return &PieceInfo{
+		PieceCIDV1: commp.PCidV1(),
+		Size:       commp.PieceInfo().Size,
+		RawSize:    commp.PayloadSize(),
+	}, nil
 }
 
 func (d Products) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, error) {
-	if d.DDOV1 == nil {
-		return ErrBadProposal, xerrors.Errorf("no products")
+	if d.DDOV1 != nil {
+		code, err := d.DDOV1.Validate(db, cfg)
+		if err != nil {
+			return code, err
+		}
 	}
+	if d.RetrievalV1 != nil {
+		code, err := d.RetrievalV1.Validate(db, cfg)
+		if err != nil {
+			return code, err
+		}
+	}
+	if d.PDPV1 != nil {
+		code, err := d.PDPV1.Validate(db, cfg)
+		if err != nil {
+			return code, err
+		}
+	}
+	return Ok, nil
+}
 
-	return d.DDOV1.Validate(db, cfg)
+type DBDDOV1 struct {
+	DDO      *DDOV1         `json:"ddo"`
+	DealID   string         `json:"deal_id"`
+	Complete bool           `json:"complete"`
+	Error    sql.NullString `json:"error"`
+}
+
+type DBPDPV1 struct {
+	PDP      *PDPV1         `json:"pdp"`
+	Complete bool           `json:"complete"`
+	Error    sql.NullString `json:"error"`
 }
 
 type DBDeal struct {
-	Identifier      string          `db:"id"`
-	SpID            int64           `db:"sp_id"`
-	PieceCID        string          `db:"piece_cid"`
-	Size            int64           `db:"piece_size"`
-	Format          json.RawMessage `db:"format"`
-	SourceHTTP      json.RawMessage `db:"source_http"`
-	SourceAggregate json.RawMessage `db:"source_aggregate"`
-	SourceOffline   json.RawMessage `db:"source_offline"`
-	SourceHttpPut   json.RawMessage `db:"source_http_put"`
-	DDOv1           json.RawMessage `db:"ddo_v1"`
-	Error           sql.NullString  `db:"error"`
+	Identifier  string          `db:"id"`
+	Client      string          `db:"client"`
+	PieceCIDV2  sql.NullString  `db:"piece_cid_v2"`
+	PieceCID    sql.NullString  `db:"piece_cid"`
+	Size        sql.NullInt64   `db:"piece_size"`
+	RawSize     sql.NullInt64   `db:"raw_size"`
+	Data        json.RawMessage `db:"data"`
+	DDOv1       json.RawMessage `db:"ddo_v1"`
+	RetrievalV1 json.RawMessage `db:"retrieval_v1"`
+	PDPV1       json.RawMessage `db:"pdp_v1"`
 }
 
 func (d *Deal) ToDBDeal() (*DBDeal, error) {
-	var err error
-	// Marshal SourceHTTP (optional)
-	var sourceHTTPBytes []byte
-	if d.Data.SourceHTTP != nil {
-		sourceHTTPBytes, err = json.Marshal(d.Data.SourceHTTP)
+	ddeal := DBDeal{
+		Identifier: d.Identifier.String(),
+		Client:     d.Client.String(),
+	}
+
+	if d.Data != nil {
+		dataBytes, err := json.Marshal(d.Data)
 		if err != nil {
-			return nil, fmt.Errorf("marshal source_http: %w", err)
+			return nil, fmt.Errorf("marshal data: %w", err)
 		}
-	} else {
-		sourceHTTPBytes = []byte("null")
-	}
-
-	// Marshal SourceAggregate (optional)
-	var sourceAggregateBytes []byte
-	if d.Data.SourceAggregate != nil {
-		sourceAggregateBytes, err = json.Marshal(d.Data.SourceAggregate)
+		commp, err := commcidv2.CommPFromPCidV2(d.Data.PieceCID)
 		if err != nil {
-			return nil, fmt.Errorf("marshal source_aggregate: %w", err)
+			return nil, fmt.Errorf("invalid piece cid: %w", err)
 		}
-		if len(d.Data.SourceAggregate.Pieces) > 0 && len(d.Data.SourceAggregate.Pieces) != len(d.Data.Format.Aggregate.Sub) {
-			var subPieces []PieceDataFormat
-			for _, p := range d.Data.SourceAggregate.Pieces {
-				subPieces = append(subPieces, PieceDataFormat{
-					Car:       p.Format.Car,
-					Raw:       p.Format.Raw,
-					Aggregate: p.Format.Aggregate,
-				})
-			}
-			d.Data.Format.Aggregate.Sub = subPieces
-		}
+		ddeal.PieceCIDV2.String = d.Data.PieceCID.String()
+		ddeal.PieceCIDV2.Valid = true
+		ddeal.PieceCID.String = commp.PCidV1().String()
+		ddeal.PieceCID.Valid = true
+		ddeal.Size.Int64 = int64(commp.PieceInfo().Size)
+		ddeal.Size.Valid = true
+		ddeal.RawSize.Int64 = int64(commp.PayloadSize())
+		ddeal.RawSize.Valid = true
+		ddeal.Data = dataBytes
 	} else {
-		sourceAggregateBytes = []byte("null")
+		ddeal.Data = []byte("null")
 	}
 
-	// Marshal SourceOffline (optional)
-	var sourceOfflineBytes []byte
-	if d.Data.SourceOffline != nil {
-		sourceOfflineBytes, err = json.Marshal(d.Data.SourceOffline)
-		if err != nil {
-			return nil, fmt.Errorf("marshal source_offline: %w", err)
-		}
-	} else {
-		sourceOfflineBytes = []byte("null")
-	}
-
-	var sourceHttpPutBytes []byte
-	if d.Data.SourceHttpPut != nil {
-		sourceHttpPutBytes, err = json.Marshal(d.Data.SourceHttpPut)
-		if err != nil {
-			return nil, fmt.Errorf("marshal source_http_put: %w", err)
-		}
-	} else {
-		sourceHttpPutBytes = []byte("null")
-	}
-
-	// Marshal Format (always present)
-	formatBytes, err := json.Marshal(d.Data.Format)
-	if err != nil {
-		return nil, fmt.Errorf("marshal format: %w", err)
-	}
-
-	var spid abi.ActorID
-
-	var ddov1 []byte
 	if d.Products.DDOV1 != nil {
-		ddov1, err = json.Marshal(d.Products.DDOV1)
+		dddov1 := DBDDOV1{
+			DDO: d.Products.DDOV1,
+		}
+		ddov1, err := json.Marshal(dddov1)
 		if err != nil {
 			return nil, fmt.Errorf("marshal ddov1: %w", err)
 		}
-		spidInt, err := address.IDFromAddress(d.Products.DDOV1.Provider)
-		if err != nil {
-			return nil, fmt.Errorf("parse provider address: %w", err)
-		}
-		spid = abi.ActorID(spidInt)
+		ddeal.DDOv1 = ddov1
 	} else {
-		ddov1 = []byte("null")
+		ddeal.DDOv1 = []byte("null")
 	}
 
-	return &DBDeal{
-		Identifier:      d.Identifier.String(),
-		SpID:            int64(spid),
-		PieceCID:        d.Data.PieceCID.String(),
-		Size:            int64(d.Data.Size),
-		Format:          formatBytes,
-		SourceHTTP:      sourceHTTPBytes,
-		SourceAggregate: sourceAggregateBytes,
-		SourceOffline:   sourceOfflineBytes,
-		SourceHttpPut:   sourceHttpPutBytes,
-		DDOv1:           ddov1,
-	}, nil
+	if d.Products.RetrievalV1 != nil {
+		rev, err := json.Marshal(d.Products.RetrievalV1)
+		if err != nil {
+			return nil, fmt.Errorf("marshal retrievalv1: %w", err)
+		}
+		ddeal.RetrievalV1 = rev
+	} else {
+		ddeal.RetrievalV1 = []byte("null")
+	}
+
+	if d.Products.PDPV1 != nil {
+		dbpdpv1 := DBPDPV1{
+			PDP: d.Products.PDPV1,
+		}
+		pdpv1, err := json.Marshal(dbpdpv1)
+		if err != nil {
+			return nil, fmt.Errorf("marshal pdpv1: %w", err)
+		}
+		ddeal.PDPV1 = pdpv1
+	} else {
+		ddeal.PDPV1 = []byte("null")
+	}
+
+	return &ddeal, nil
 }
 
 func (d *Deal) SaveToDB(tx *harmonydb.Tx) error {
@@ -383,18 +411,43 @@ func (d *Deal) SaveToDB(tx *harmonydb.Tx) error {
 		return xerrors.Errorf("to db deal: %w", err)
 	}
 
-	n, err := tx.Exec(`INSERT INTO market_mk20_deal (id, sp_id, piece_cid, piece_size, format, source_http, source_aggregate, source_offline, source_http_put, ddo_v1) 
+	n, err := tx.Exec(`INSERT INTO market_mk20_deal (id, client, piece_cid_v2, piece_cid, piece_size, raw_size, data, ddo_v1, retrieval_v1, pdp_v1) 
                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		dbDeal.Identifier,
-		dbDeal.SpID,
+		dbDeal.Client,
+		dbDeal.PieceCIDV2,
 		dbDeal.PieceCID,
 		dbDeal.Size,
-		dbDeal.Format,
-		dbDeal.SourceHTTP,
-		dbDeal.SourceAggregate,
-		dbDeal.SourceOffline,
-		dbDeal.SourceHttpPut,
-		dbDeal.DDOv1)
+		dbDeal.RawSize,
+		dbDeal.Data,
+		dbDeal.DDOv1,
+		dbDeal.RetrievalV1,
+		dbDeal.PDPV1)
+	if err != nil {
+		return xerrors.Errorf("insert deal: %w", err)
+	}
+	if n != 1 {
+		return xerrors.Errorf("insert deal: expected 1 row affected, got %d", n)
+	}
+	return nil
+}
+
+func (d *Deal) UpdateDeal(tx *harmonydb.Tx) error {
+	dbDeal, err := d.ToDBDeal()
+	if err != nil {
+		return xerrors.Errorf("to db deal: %w", err)
+	}
+
+	n, err := tx.Exec(`UPDATE market_mk20_deal SET 
+                            piece_cid_v2 = $1, 
+                            piece_cid = $2, 
+                            piece_size = $3, 
+                            raw_size = $4, 
+                            data = $5, 
+                            ddo_v1 = $6,
+                            retrieval_v1 = $7,
+                            pdp_v1 = $8`, dbDeal.PieceCIDV2, dbDeal.PieceCID, dbDeal.Size, dbDeal.RawSize,
+		dbDeal.Data, dbDeal.DDOv1, dbDeal.RetrievalV1, dbDeal.PDPV1)
 	if err != nil {
 		return xerrors.Errorf("insert deal: %w", err)
 	}
@@ -407,16 +460,12 @@ func (d *Deal) SaveToDB(tx *harmonydb.Tx) error {
 func DealFromTX(tx *harmonydb.Tx, id ulid.ULID) (*Deal, error) {
 	var dbDeal []DBDeal
 	err := tx.Select(&dbDeal, `SELECT 
-    								id, 
-    								piece_cid, 
-    								piece_size, 
-    								format, 
-    								source_http, 
-    								source_aggregate, 
-    								source_offline, 
-    								source_http_put, 
-    								ddo_v1,
-    								error FROM market_mk20_deal WHERE id = $1`, id.String())
+    								id,
+									client,
+									data, 
+									ddo_v1,
+									retrieval_v1,
+									pdp_v1 FROM market_mk20_deal WHERE id = $1`, id.String())
 	if err != nil {
 		return nil, xerrors.Errorf("getting deal from DB: %w", err)
 	}
@@ -429,16 +478,12 @@ func DealFromTX(tx *harmonydb.Tx, id ulid.ULID) (*Deal, error) {
 func DealFromDB(ctx context.Context, db *harmonydb.DB, id ulid.ULID) (*Deal, error) {
 	var dbDeal []DBDeal
 	err := db.Select(ctx, &dbDeal, `SELECT 
-										id, 
-										piece_cid, 
-										piece_size, 
-										format, 
-										source_http, 
-										source_aggregate, 
-										source_offline, 
-										source_http_put, 
+										id,
+										client,
+										data, 
 										ddo_v1,
-										error FROM market_mk20_deal WHERE id = $1`, id.String())
+										retrieval_v1,
+										pdp_v1 FROM market_mk20_deal WHERE id = $1`, id.String())
 	if err != nil {
 		return nil, xerrors.Errorf("getting deal from DB: %w", err)
 	}
@@ -449,73 +494,53 @@ func DealFromDB(ctx context.Context, db *harmonydb.DB, id ulid.ULID) (*Deal, err
 }
 
 func (d *DBDeal) ToDeal() (*Deal, error) {
-	var ds DataSource
-	var products Products
+	var deal Deal
 
-	// Unmarshal each field into the corresponding sub-structs (nil will remain nil if json is "null" or empty)
-	if err := json.Unmarshal(d.Format, &ds.Format); err != nil {
-		return nil, fmt.Errorf("unmarshal format: %w", err)
-	}
-
-	if len(d.SourceHTTP) > 0 && string(d.SourceHTTP) != "null" {
-		var sh DataSourceHTTP
-		if err := json.Unmarshal(d.SourceHTTP, &sh); err != nil {
-			return nil, fmt.Errorf("unmarshal source_http: %w", err)
+	if len(d.Data) > 0 && string(d.Data) != "null" {
+		var ds DataSource
+		if err := json.Unmarshal(d.Data, &ds); err != nil {
+			return nil, fmt.Errorf("unmarshal data: %w", err)
 		}
-		ds.SourceHTTP = &sh
-	}
-
-	if len(d.SourceAggregate) > 0 && string(d.SourceAggregate) != "null" {
-		var sa DataSourceAggregate
-		if err := json.Unmarshal(d.SourceAggregate, &sa); err != nil {
-			return nil, fmt.Errorf("unmarshal source_aggregate: %w", err)
-		}
-		ds.SourceAggregate = &sa
-	}
-
-	if len(d.SourceOffline) > 0 && string(d.SourceOffline) != "null" {
-		var so DataSourceOffline
-		if err := json.Unmarshal(d.SourceOffline, &so); err != nil {
-			return nil, fmt.Errorf("unmarshal source_offline: %w", err)
-		}
-		ds.SourceOffline = &so
-	}
-
-	if len(d.SourceHttpPut) > 0 && string(d.SourceHttpPut) != "null" {
-		var shp DataSourceHttpPut
-		if err := json.Unmarshal(d.SourceHttpPut, &shp); err != nil {
-			return nil, fmt.Errorf("unmarshal source_http_put: %w", err)
-		}
-		ds.SourceHttpPut = &shp
+		deal.Data = &ds
 	}
 
 	if len(d.DDOv1) > 0 && string(d.DDOv1) != "null" {
-		if err := json.Unmarshal(d.DDOv1, &products.DDOV1); err != nil {
+		var dddov1 DBDDOV1
+		if err := json.Unmarshal(d.DDOv1, &dddov1); err != nil {
 			return nil, fmt.Errorf("unmarshal ddov1: %w", err)
 		}
+		deal.Products.DDOV1 = dddov1.DDO
 	}
 
-	// Convert identifier
+	if len(d.RetrievalV1) > 0 && string(d.RetrievalV1) != "null" {
+		var rev RetrievalV1
+		if err := json.Unmarshal(d.RetrievalV1, &rev); err != nil {
+			return nil, fmt.Errorf("unmarshal retrievalv1: %w", err)
+		}
+		deal.Products.RetrievalV1 = &rev
+	}
+
+	if len(d.PDPV1) > 0 && string(d.PDPV1) != "null" {
+		var dddov1 DBPDPV1
+		if err := json.Unmarshal(d.PDPV1, &dddov1); err != nil {
+			return nil, fmt.Errorf("unmarshal pdpv1: %w", err)
+		}
+		deal.Products.PDPV1 = dddov1.PDP
+	}
+
 	id, err := ulid.Parse(d.Identifier)
 	if err != nil {
-		return nil, fmt.Errorf("parse identifier: %w", err)
+		return nil, fmt.Errorf("parse id: %w", err)
 	}
+	deal.Identifier = id
 
-	// Convert CID
-	c, err := cid.Decode(d.PieceCID)
+	client, err := address.NewFromString(d.Client)
 	if err != nil {
-		return nil, fmt.Errorf("decode piece_cid: %w", err)
+		return nil, fmt.Errorf("parse client: %w", err)
 	}
+	deal.Client = client
 
-	// Assign remaining fields
-	ds.PieceCID = c
-	ds.Size = abi.PaddedPieceSize(d.Size)
-
-	return &Deal{
-		Identifier: id,
-		Data:       ds,
-		Products:   products,
-	}, nil
+	return &deal, nil
 }
 
 func DBDealsToDeals(deals []*DBDeal) ([]*Deal, error) {

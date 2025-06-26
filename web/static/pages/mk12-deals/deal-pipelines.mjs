@@ -41,7 +41,7 @@ class DealPipelines extends LitElement {
         try {
             const params = [this.limit, this.offset];
             const deals = await RPCCall('GetMK12DealPipelines', params);
-            this.deals = deals;
+            this.deals = deals || [];
 
             // Load failed tasks data
             const failed = await RPCCall('MK12PipelineFailedTasks', []);
@@ -224,7 +224,10 @@ class DealPipelines extends LitElement {
                                 </td>
                                 <td>${deal.miner}</td>
                                 <td>
-                                    <a href="/pages/piece/?id=${deal.piece_cid_v2}">${this.formatPieceCid(deal.piece_cid)}</a>
+                                    ${deal.piece_cid_v2 && deal.piece_cid_v2 !== ""
+                                            ? html`<a href="/pages/piece/?id=${deal.piece_cid_v2}">${this.formatPieceCid(deal.piece_cid_v2)}</a>`
+                                            : html`${this.formatPieceCid(deal.piece_cid)}`
+                                    }
                                 </td>
                                 <td>${this.formatBytes(deal.piece_size)}</td>
                                 <td>${this.getDealStatus(deal)}</td>

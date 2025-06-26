@@ -119,9 +119,15 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, xerrors.Errorf("unmarshaling piece info: %w", err)
 	}
 
-	commp, err := commcidv2.CommPFromPieceInfo(pi)
+	var rawSize abi.UnpaddedPieceSize
+	err = I.db.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 LIMIT 1`, pi.PieceCID.String(), pi.Size).Scan(&rawSize)
 	if err != nil {
-		return false, xerrors.Errorf("getting piece commP: %w", err)
+		return false, xerrors.Errorf("querying raw size: %w", err)
+	}
+
+	pcid2, err := commcidv2.PieceCidV2FromV1(pi.PieceCID, uint64(rawSize))
+	if err != nil {
+		return false, xerrors.Errorf("getting piece CID v2: %w", err)
 	}
 
 	// Try to read unsealed sector first (mk12 deal)
@@ -135,7 +141,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	if err != nil {
 		serr := err
 		// Try to read piece (mk20 deal)
-		reader, _, err = I.cpr.GetSharedPieceReader(ctx, commp.PCidV2())
+		reader, _, err = I.cpr.GetSharedPieceReader(ctx, pcid2)
 		if err != nil {
 			return false, xerrors.Errorf("getting piece reader from sector and piece park: %w, %w", serr, err)
 		}
@@ -162,7 +168,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	var eg errgroup.Group
 	addFail := make(chan struct{})
 	var interrupted bool
-	var subPieces []mk20.PieceDataFormat
+	var subPieces []mk20.DataSource
 	chk := chunker.NewInitialChunker()
 
 	eg.Go(func() error {
@@ -198,7 +204,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		if deal.Data.Format.Aggregate != nil {
 			if deal.Data.Format.Aggregate.Type > 0 {
 				subPieces = deal.Data.Format.Aggregate.Sub
-				_, _, interrupted, err = IndexAggregate(commp.PCidV2(), reader, pi.Size, subPieces, recs, addFail)
+				_, _, interrupted, err = IndexAggregate(pcid2, reader, pi.Size, subPieces, recs, addFail)
 			}
 		}
 
@@ -228,7 +234,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, nil
 	}
 
-	lnk, err := chk.Finish(ctx, I.db, commp.PCidV2())
+	lnk, err := chk.Finish(ctx, I.db, pcid2)
 	if err != nil {
 		return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
 	}

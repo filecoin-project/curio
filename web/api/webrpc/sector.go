@@ -521,17 +521,14 @@ func (a *WebRPC) SectorInfo(ctx context.Context, sp string, intid int64) (*Secto
 			return nil, xerrors.Errorf("failed to parse piece cid: %w", err)
 		}
 
-		pi := abi.PieceInfo{
-			PieceCID: pcid,
-			Size:     abi.PaddedPieceSize(uint64(pieces[i].PieceSize)),
-		}
+		if pieces[i].DataRawSize != nil {
+			pcid2, err := commcidv2.PieceCidV2FromV1(pcid, uint64(*pieces[i].DataRawSize))
+			if err != nil {
+				return nil, xerrors.Errorf("failed to generate piece cid v2: %w", err)
+			}
 
-		commp, err := commcidv2.CommPFromPieceInfo(pi)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to parse piece cid: %w", err)
+			pieces[i].PieceCidV2 = pcid2.String()
 		}
-
-		pieces[i].PieceCidV2 = commp.PCidV2().String()
 
 		id, isPiecePark := strings.CutPrefix(derefOrZero(pieces[i].DataUrl), "pieceref:")
 		if !isPiecePark {

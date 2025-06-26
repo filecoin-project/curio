@@ -59,11 +59,10 @@ echo "$aggregate_output"
 
 # Step 3: Extract `CommP CID` and `Piece size` from the aggregate output
 commp_cid=$(echo "$aggregate_output" | awk -F': ' '/CommP CID/ {print $2}' | xargs)
-piece_size=$(echo "$aggregate_output" | awk -F': ' '/Piece size/ {print $2}' | xargs)
 
 # Validate that we got proper output
-if [[ -z "$commp_cid" || -z "$piece_size" ]]; then
-    echo "Error: Failed to extract CommP CID or Piece size from aggregation output" >&2
+if [[ -z "$commp_cid" ]]; then
+    echo "Error: Failed to extract CommP CID from aggregation output" >&2
     exit 1
 fi
 
@@ -80,16 +79,15 @@ fi
 # Step 5: Print Results
 echo -e "\n${ci}Aggregation Results:${cn}"
 echo "CommP CID: $commp_cid"
-echo "Piece Size: $piece_size"
 
 
 miner_actor=$(lotus state list-miners | grep -v t01000)
 
 ###################################################################################
 printf "${ci}sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor \
---commp=$commp_cid --piece-size=$piece_size --contract-address 0xtest --contract-verify-method test \
+--pcidv2=$commp_cid --contract-address 0xtest --contract-verify-method test \
 --aggregate "$aggregate_file"\n\n${cn}"
 
-sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor --commp=$commp_cid --piece-size=$piece_size --contract-address 0xtest --contract-verify-method test --aggregate "$aggregate_file"
+sptool --actor t01000 toolbox mk20-client deal --provider=$miner_actor --pcidv2=$commp_cid --contract-address 0xtest --contract-verify-method test --aggregate "$aggregate_file"
 
 echo -e "\nDone!"

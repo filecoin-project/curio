@@ -29,6 +29,7 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/promise"
@@ -78,7 +79,7 @@ type CurioStorageDealMarket struct {
 	urls        map[string]http.Header
 	adders      [numPollers]promise.Promise[harmonytask.AddTaskFunc]
 	as          *multictladdr.MultiAddressSelector
-	stor        paths.StashStore
+	sc          *ffi.SealCalls
 }
 
 type MK12Pipeline struct {
@@ -115,7 +116,7 @@ type MK12Pipeline struct {
 	Offset *int64 `db:"sector_offset"`
 }
 
-func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, ethClient *ethclient.Client, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, stor paths.StashStore) *CurioStorageDealMarket {
+func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *config.CurioConfig, ethClient *ethclient.Client, si paths.SectorIndex, mapi storageMarketAPI, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) *CurioStorageDealMarket {
 
 	moduleMap := make(map[string][]address.Address)
 	moduleMap[mk12Str] = miners
@@ -135,7 +136,7 @@ func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *
 		urls:      urls,
 		as:        as,
 		ethClient: ethClient,
-		stor:      stor,
+		sc:        sc,
 	}
 }
 
@@ -186,7 +187,7 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 			if len(miners) == 0 {
 				return nil
 			}
-			d.MK20Handler, err = mk20.NewMK20Handler(miners, d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.stor)
+			d.MK20Handler, err = mk20.NewMK20Handler(miners, d.db, d.si, d.api, d.ethClient, d.cfg, d.as, d.sc)
 			if err != nil {
 				return err
 			}
@@ -525,21 +526,36 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
 		var updated bool
 		err = tx.QueryRow(`
 						WITH selected_data AS (
-						SELECT url, headers, raw_size
-						FROM market_offline_urls
-						WHERE uuid = $1
+							SELECT url, headers, raw_size
+							FROM market_offline_urls
+							WHERE uuid = $1
+						),
+						updated_pipeline AS (
+							UPDATE market_mk12_deal_pipeline
+							SET url = selected_data.url,
+								headers = selected_data.headers,
+								raw_size = selected_data.raw_size,
+								started = TRUE
+							FROM selected_data
+							WHERE market_mk12_deal_pipeline.uuid = $1
+							RETURNING uuid
+						),
+						updated_deals AS (
+							UPDATE market_mk12_deals
+							SET raw_size = selected_data.raw_size
+							FROM selected_data
+							WHERE market_mk12_deals.uuid = $1
+							RETURNING uuid
+						),
+						updated_direct_deals AS (
+							UPDATE market_direct_deals
+							SET raw_size = selected_data.raw_size
+							FROM selected_data
+							WHERE market_direct_deals.uuid = $1
+							RETURNING uuid
 						)
-						UPDATE market_mk12_deal_pipeline
-						SET url = selected_data.url,
-							headers = selected_data.headers,
-							raw_size = selected_data.raw_size,
-							started = TRUE
-						FROM selected_data
-						WHERE market_mk12_deal_pipeline.uuid = $1
-						RETURNING CASE 
-							WHEN EXISTS (SELECT 1 FROM selected_data) THEN TRUE 
-							ELSE FALSE 
-						END;`, deal).Scan(&updated)
+						SELECT
+						  (EXISTS (SELECT 1 FROM selected_data)) AS updated;`, deal).Scan(&updated)
 		if err != nil {
 			if !errors.Is(err, pgx.ErrNoRows) {
 				return false, xerrors.Errorf("failed to update the pipeline for deal %s: %w", deal, err)
@@ -596,6 +612,16 @@ func (d *CurioStorageDealMarket) findURLForOfflineDeals(ctx context.Context, dea
                            WHERE uuid = $4 AND started = FALSE`, urlString, hdrs, rawSize, deal)
 			if err != nil {
 				return false, xerrors.Errorf("store url for piece %s: updating pipeline: %w", pcid, err)
+			}
+
+			_, err = tx.Exec(`UPDATE market_mk12_deals SET raw_size = $1 WHERE uuid = $2`, rawSize, deal)
+			if err != nil {
+				return false, xerrors.Errorf("store url for piece %s: updating deals: %w", pcid, err)
+			}
+
+			_, err = tx.Exec(`UPDATE market_direct_deals SET raw_size = $1 WHERE uuid = $2`, rawSize, deal)
+			if err != nil {
+				return false, xerrors.Errorf("store url for piece %s: updating direct deals: %w", pcid, err)
 			}
 
 			return true, nil

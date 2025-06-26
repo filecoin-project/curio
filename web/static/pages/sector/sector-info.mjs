@@ -111,6 +111,7 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                 <table class="table table-dark">
                     <tr>
                         <th>Piece Index</th>
+                        <th>Piece CID V2</th>
                         <th>Piece CID</th>
                         <th>Piece Size</th>
                         <th>Deal ID</th>
@@ -130,7 +131,12 @@ customElements.define('sector-info',class SectorInfo extends LitElement {
                     ${(this.data.Pieces||[]).map(piece => html`
                         <tr>
                             <td>${piece.PieceIndex}</td>
-                            <td><a href="/pages/piece/?id=${piece.PieceCidV2}">${piece.PieceCid}</a></td>
+                            <td>
+                                ${piece.PieceCidV2 && piece.PieceCidV2.trim() !== ""
+                                        ? html`<a href="/pages/piece/?id=${piece.PieceCidV2}">${piece.PieceCidV2}</a>`
+                                        : 'NA'}
+                            </td>
+                            <td>${piece.PieceCid}</td>
                             <td>${piece.PieceSize}</td>
                             <td><a href="/pages/mk12-deal/?id=${piece.DealID}">${piece.DealID}</a></td>
                             <td>${piece.DataUrl}</td>

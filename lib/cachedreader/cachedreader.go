@@ -334,13 +334,13 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 
 		reader, size, err := cpr.getPieceReaderFromAggregate(readerCtx, pieceCidV2)
 		if err != nil {
-			log.Warnw("failed to get piece reader from aggregate", "piececid", pieceCidV2.String(), "err", err)
+			log.Debugw("failed to get piece reader from aggregate", "piececid", pieceCidV2.String(), "err", err)
 
 			aerr := err
 
 			reader, size, err = cpr.getPieceReaderFromSector(readerCtx, pieceCidV2)
 			if err != nil {
-				log.Warnw("failed to get piece reader from sector", "piececid", pieceCidV2.String(), "err", err)
+				log.Debugw("failed to get piece reader from sector", "piececid", pieceCidV2.String(), "err", err)
 				serr := err
 				// Try getPieceReaderFromPiecePark
 				reader, size, err = cpr.getPieceReaderFromPiecePark(readerCtx, pieceCidV2)

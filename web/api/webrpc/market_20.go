@@ -3,6 +3,7 @@ package webrpc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -11,23 +12,19 @@ import (
 
 	eabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/market/mk20"
 )
 
 type MK20StorageDeal struct {
-	Deal       *mk20.Deal     `json:"deal"`
-	Error      sql.NullString `json:"error"`
-	PieceCidV2 string         `json:"piece_cid_v2"`
+	Deal  *mk20.Deal     `json:"deal"`
+	Error sql.NullString `json:"error"`
 }
 
 func (a *WebRPC) MK20DDOStorageDeal(ctx context.Context, id string) (*MK20StorageDeal, error) {
@@ -36,51 +33,58 @@ func (a *WebRPC) MK20DDOStorageDeal(ctx context.Context, id string) (*MK20Storag
 		return nil, xerrors.Errorf("parsing deal ID: %w", err)
 	}
 
-	var dbDeal []mk20.DBDeal
-	err = a.deps.DB.Select(ctx, &dbDeal, `SELECT id, 
-													piece_cid, 
-													piece_size, 
-													format, 
-													source_http, 
-													source_aggregate, 
-													source_offline, 
-													source_http_put, 
+	var dbDeals []mk20.DBDeal
+	err = a.deps.DB.Select(ctx, &dbDeals, `SELECT id,
+       												client,
+													data, 
 													ddo_v1,
-													error FROM market_mk20_deal WHERE id = $1`, pid.String())
+													retrieval_v1,
+													pdp_v1 FROM market_mk20_deal WHERE id = $1`, pid.String())
 	if err != nil {
 		return nil, xerrors.Errorf("getting deal from DB: %w", err)
 	}
-	if len(dbDeal) != 1 {
-		return nil, xerrors.Errorf("expected 1 deal, got %d", len(dbDeal))
+	if len(dbDeals) != 1 {
+		return nil, xerrors.Errorf("expected 1 deal, got %d", len(dbDeals))
 	}
-	deal, err := dbDeal[0].ToDeal()
+	dbDeal := dbDeals[0]
+	deal, err := dbDeal.ToDeal()
 	if err != nil {
 		return nil, xerrors.Errorf("converting DB deal to struct: %w", err)
 	}
 
-	pi := abi.PieceInfo{
-		PieceCID: deal.Data.PieceCID,
-		Size:     deal.Data.Size,
+	ret := &MK20StorageDeal{Deal: deal}
+
+	if len(dbDeal.DDOv1) > 0 && string(dbDeal.DDOv1) != "null" {
+		var dddov1 mk20.DBDDOV1
+		if err := json.Unmarshal(dbDeal.DDOv1, &dddov1); err != nil {
+			return nil, fmt.Errorf("unmarshal ddov1: %w", err)
+		}
+		if dddov1.Error.Valid {
+			ret.Error = dddov1.Error
+		}
 	}
 
-	commp, err := commcidv2.CommPFromPieceInfo(pi)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to get commp: %w", err)
-	}
-
-	return &MK20StorageDeal{Deal: deal, Error: dbDeal[0].Error, PieceCidV2: commp.PCidV2().String()}, nil
+	return ret, nil
 }
 
-func (a *WebRPC) MK20DDOStorageDeals(ctx context.Context, limit int, offset int) ([]*StorageDealList, error) {
-	var mk20Summaries []*StorageDealList
+type MK20StorageDealList struct {
+	ID         string         `db:"id" json:"id"`
+	CreatedAt  time.Time      `db:"created_at" json:"created_at"`
+	PieceCidV2 sql.NullString `db:"piece_cid_v2" json:"piece_cid_v2"`
+	Processed  bool           `db:"processed" json:"processed"`
+	Error      sql.NullString `db:"error" json:"error"`
+	Miner      sql.NullString `db:"miner" json:"miner"`
+}
+
+func (a *WebRPC) MK20DDOStorageDeals(ctx context.Context, limit int, offset int) ([]*MK20StorageDealList, error) {
+	var mk20Summaries []*MK20StorageDealList
 
 	err := a.deps.DB.Select(ctx, &mk20Summaries, `SELECT
-													  d.id AS uuid,
-													  d.piece_cid,
-													  d.piece_size,
-													  d.created_at,
-													  d.sp_id,
-													  d.error,
+    												  d.created_at,
+													  d.id,
+													  d.piece_cid_v2,
+													  d.ddo_v1->'ddo'->>'provider' AS miner,
+													  d.ddo_v1->>'error' AS error,
 													  CASE
 														WHEN EXISTS (
 														  SELECT 1 FROM market_mk20_pipeline_waiting w
@@ -95,31 +99,11 @@ func (a *WebRPC) MK20DDOStorageDeals(ctx context.Context, limit int, offset int)
 													FROM market_mk20_deal d
 													WHERE d.ddo_v1 IS NOT NULL AND d.ddo_v1 != 'null'
 													ORDER BY d.created_at DESC
-													LIMIT $1 OFFSET $2;
-													`, limit, offset)
+													LIMIT $1 OFFSET $2;`, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch deal list: %w", err)
 	}
 
-	for i := range mk20Summaries {
-		addr, err := address.NewIDAddress(uint64(mk20Summaries[i].MinerID))
-		if err != nil {
-			return nil, err
-		}
-		mk20Summaries[i].Miner = addr.String()
-		pcid, err := cid.Parse(mk20Summaries[i].PieceCidV1)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to parse v1 piece CID: %w", err)
-		}
-		commp, err := commcidv2.CommPFromPieceInfo(abi.PieceInfo{
-			PieceCID: pcid,
-			Size:     abi.PaddedPieceSize(mk20Summaries[i].PieceSize),
-		})
-		if err != nil {
-			return nil, xerrors.Errorf("failed to get commP from piece info: %w", err)
-		}
-		mk20Summaries[i].PieceCidV2 = commp.PCidV2().String()
-	}
 	return mk20Summaries, nil
 }
 
@@ -142,6 +126,7 @@ func (a *WebRPC) MK20DealPipelines(ctx context.Context, limit int, offset int) (
 				sp_id,
 				contract,
 				client,
+				piece_cid_v2,
 				piece_cid,
 				piece_size,
 				raw_size,
@@ -180,18 +165,6 @@ func (a *WebRPC) MK20DealPipelines(ctx context.Context, limit int, offset int) (
 			return nil, xerrors.Errorf("failed to parse the miner ID: %w", err)
 		}
 		s.Miner = addr.String()
-		pcid, err := cid.Parse(s.PieceCid)
-		if err != nil {
-			return nil, xerrors.Errorf("failed to parse v1 piece CID: %w", err)
-		}
-		commp, err := commcidv2.CommPFromPieceInfo(abi.PieceInfo{
-			PieceCID: pcid,
-			Size:     abi.PaddedPieceSize(s.PieceSize),
-		})
-		if err != nil {
-			return nil, xerrors.Errorf("failed to get commP from piece info: %w", err)
-		}
-		s.PieceCidV2 = commp.PCidV2().String()
 	}
 
 	return pipelines, nil
