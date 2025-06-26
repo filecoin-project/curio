@@ -31,11 +31,13 @@ The Service may in future be operated by a community DAO or another legal entity
 We provide **technical routing only**. We neither hold user funds for longer than technically necessary nor allow users to direct payments to third parties. Nothing herein creates an agency, partnership, or employment relationship.
 
 ## 5.  Performance & Availability
-The Service is experimental and may be interrupted, suspended, or modified at any time. You bear all risk of network congestion, chain re‑orgs, or smart‑contract defects.
+5.1 The Service is experimental and may be interrupted, suspended, or modified at any time. You bear all risk of network congestion, chain re‑orgs, or smart‑contract defects.
+5.2 All requests for service are to be handled promptly and with similar intent to complete the task before the service-enforced deadline. Attempted service disruption or targeted client disruption is in violation of this contract and may constitute Criminal Mischief, Disruption of Business Activity, Denial of Service, or similar crimes.
 
 ## 6.  Intellectual Property
 6.1 You grant Clients a non‑exclusive license to use proofs you generate solely for Filecoin network purposes.  
 6.2 You retain all other rights in your proprietary tooling.
+6.3 None of the service-provided inputs can be regarded as your intellectual property and must be discarded immediately after performance of the service.
 
 ## 7.  Warranties & Liability
 **No warranties.** The Service, smart contracts, software, L2 chain, and APIs are provided **“as is” and “as available,” without warranties of any kind, express or implied, including but not limited to merchantability, fitness for a particular purpose, and non‑infringement.**  

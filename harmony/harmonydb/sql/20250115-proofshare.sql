@@ -37,7 +37,7 @@ CREATE TABLE proofshare_meta (
     PRIMARY KEY (singleton)
 );
 
-COMMENT ON COLUMN proofshare_meta.enabled IS 'Setting to TRUE indicates acceptance of provider TOS in lib/proofsvc/tos/provider.txt and privacy.txt';
+COMMENT ON COLUMN proofshare_meta.enabled IS 'Setting to TRUE indicates acceptance of provider TOS in lib/proofsvc/tos/provider.md and privacy.md';
 
 INSERT INTO proofshare_meta (singleton, enabled, wallet) VALUES (TRUE, FALSE, NULL);
 
@@ -101,7 +101,7 @@ CREATE TABLE proofshare_client_settings (
     PRIMARY KEY (sp_id)
 );
 
-COMMENT ON COLUMN proofshare_client_settings.enabled IS 'Setting to TRUE indicates acceptance of client TOS in lib/proofsvc/tos/client.txt and privacy.txt';
+COMMENT ON COLUMN proofshare_client_settings.enabled IS 'Setting to TRUE indicates acceptance of client TOS in lib/proofsvc/tos/client.md and privacy.md';
 
 INSERT INTO proofshare_client_settings (enabled, sp_id, wallet, minimum_pending_seconds, do_porep, do_snap) VALUES (FALSE, 0, NULL, 0, FALSE, FALSE);
 

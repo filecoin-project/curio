@@ -4,13 +4,13 @@ import (
 	_ "embed"
 )
 
-//go:embed tos/provider.txt
+//go:embed tos/provider.md
 var providerTos string
 
-//go:embed tos/client.txt
+//go:embed tos/client.md
 var clientTos string
 
-//go:embed tos/privacy.txt
+//go:embed tos/privacy.md
 var privacyTos string
 
 type Tos struct {
