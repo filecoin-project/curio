@@ -2,6 +2,7 @@ package chainsched
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -25,8 +26,9 @@ type NodeAPI interface {
 type CurioChainSched struct {
 	api NodeAPI
 
-	callbacks []UpdateFunc
-	started   bool
+	callbacks   []UpdateFunc
+	callbacksLk sync.RWMutex
+	started     bool
 }
 
 func New(api NodeAPI) *CurioChainSched {
@@ -41,7 +43,8 @@ func (s *CurioChainSched) AddHandler(ch UpdateFunc) error {
 	if s.started {
 		return xerrors.Errorf("cannot add handler after start")
 	}
-
+	s.callbacksLk.Lock()
+	defer s.callbacksLk.Unlock()
 	s.callbacks = append(s.callbacks, ch)
 	return nil
 }
@@ -56,7 +59,7 @@ func (s *CurioChainSched) Run(ctx context.Context) {
 	)
 
 	// not fine to panic after this point
-	for {
+	for ctx.Err() == nil {
 		if notifs == nil {
 			notifs, err = s.api.ChainNotify(ctx)
 			if err != nil {
@@ -129,7 +132,12 @@ func (s *CurioChainSched) update(ctx context.Context, revert, apply *types.TipSe
 		return
 	}
 
-	for _, ch := range s.callbacks {
+	s.callbacksLk.RLock()
+	callbacksCopy := make([]UpdateFunc, len(s.callbacks))
+	copy(callbacksCopy, s.callbacks)
+	s.callbacksLk.RUnlock()
+
+	for _, ch := range callbacksCopy {
 		if err := ch(ctx, revert, apply); err != nil {
 			log.Errorf("handling head updates in curio chain sched: %+v", err)
 		}
