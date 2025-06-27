@@ -150,20 +150,16 @@ func (p *ProofData) validatePoRep() error {
 	}
 
 	// 2) From PoRep.RegisteredProof, figure out sector size and PoRep ID
-	//    (In a real system, you'd likely call something like sp.SectorSize(), sp.PoRepID(), etc.)
-	//    For example:
 	sp, err := p.PoRep.RegisteredProof.ToABI()
 	if err != nil {
 		return xerrors.Errorf("invalid RegisteredProof string: %w", err)
 	}
 
-	sectorSize, err := sp.SectorSize() // Available in Lotus/Epik for known RegisteredSealProof
+	sectorSize, err := sp.SectorSize()
 	if err != nil {
 		return xerrors.Errorf("failed to get sector size from seal proof: %w", err)
 	}
 
-	// In the Filecoin proofs code, the 32-byte PoRep ID is typically embedded in param files
-	// or derived from the RegisteredSealProof policy.  For demonstration, we assume:
 	porepID, err := sp.PoRepID()
 	if err != nil {
 		return xerrors.Errorf("failed to get PoRep ID: %w", err)

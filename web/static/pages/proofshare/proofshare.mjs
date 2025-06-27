@@ -41,6 +41,7 @@ class ProofShareElement extends LitElement {
     this.settlementHistory = [];
     this.activeAsks = [];
     this.originalEnabled = false; // Track original state for TOS handling
+    this.formLoaded = false;
     this.loadData();
     
     // Auto-refresh backend state every 3 seconds
@@ -88,12 +89,12 @@ class ProofShareElement extends LitElement {
       this.currentWallet = meta.wallet || '';
       this.currentPrice = meta.price || '';
       
-      // Only update form state on initial load or if form hasn't been modified
-      if (this.enabled === this.originalEnabled) {
-        this.originalEnabled = this.enabled; // Track previous state
+      if (!this.formLoaded) {
         this.enabled = meta.enabled;
         this.wallet = meta.wallet || '';
         this.price = meta.price || '';
+        this.originalEnabled = this.enabled;
+        this.formLoaded = true;
       }
       
       this.requestUpdate();
