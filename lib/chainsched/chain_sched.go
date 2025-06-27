@@ -2,6 +2,7 @@ package chainsched
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -17,6 +18,10 @@ import (
 )
 
 var log = logging.Logger("curio/chainsched")
+
+// Notification timeout for chain updates, if we don't get a notification within this time frame
+// then something must be wrong so we'll attempt to restart
+const notificationTimeout = 60 * time.Second
 
 type NodeAPI interface {
 	ChainHead(context.Context) (*types.TipSet, error)
@@ -53,51 +58,69 @@ func (s *CurioChainSched) Run(ctx context.Context) {
 	s.started = true
 
 	var (
-		notifs <-chan []*api.HeadChange
-		err    error
-		gotCur bool
+		notificationCh       <-chan []*api.HeadChange
+		err                  error
+		gotFirstNotification bool
 	)
+
+	ticker := build.Clock.Ticker(notificationTimeout)
+	defer ticker.Stop()
+	lastNotif := build.Clock.Now()
 
 	// not fine to panic after this point
 	for ctx.Err() == nil {
-		if notifs == nil {
-			notifs, err = s.api.ChainNotify(ctx)
+		if notificationCh == nil {
+			notificationCh, err = s.api.ChainNotify(ctx)
 			if err != nil {
-				log.Errorf("ChainNotify error: %+v", err)
-
-				build.Clock.Sleep(10 * time.Second)
+				log.Errorw("ChainNotify", "error", err)
+				build.Clock.Sleep(10 * time.Second) // Retry after 10 second wait
 				continue
 			}
-
-			gotCur = false
-			log.Info("restarting chain scheduler")
+			gotFirstNotification = false
+			log.Info("Restarting chain scheduler with new notification channel")
+			lastNotif = build.Clock.Now()
 		}
 
 		select {
-		case changes, ok := <-notifs:
+		case changes, ok := <-notificationCh:
 			if !ok {
-				log.Warn("chain notifs channel closed")
-				notifs = nil
+				log.Warn("Chain notification channel closed")
+				notificationCh = nil
 				continue
 			}
 
-			if !gotCur {
+			notifSummaries := make([]string, len(changes))
+			for i, chg := range changes {
+				var height int64 = -1
+				if chg.Val != nil {
+					height = int64(chg.Val.Height())
+				}
+				notifSummaries[i] = fmt.Sprintf("[%d:%v:h=%d]", i, chg.Type, height)
+			}
+			log.Debugf("Received notification: %d changes %v", len(changes), notifSummaries)
+
+			lastNotif = build.Clock.Now()
+
+			if !gotFirstNotification {
 				if len(changes) != 1 {
-					log.Errorf("expected first notif to have len = 1")
+					log.Errorf("Expected first chain notification to have a single change")
+					notificationCh = nil
+					build.Clock.Sleep(10 * time.Second) // Retry after 10 second wait
 					continue
 				}
 				chg := changes[0]
 				if chg.Type != store.HCCurrent {
-					log.Errorf("expected first notif to tell current ts")
+					log.Errorf(`Expected first chain notification to tell "current" TipSet`)
+					notificationCh = nil
+					build.Clock.Sleep(10 * time.Second) // Retry after 10 second wait
 					continue
 				}
 
 				ctx, span := trace.StartSpan(ctx, "CurioChainSched.headChange")
-
 				s.update(ctx, nil, chg.Val)
-
 				span.End()
-				gotCur = true
+
+				gotFirstNotification = true
 				continue
 			}
 
@@ -120,6 +143,13 @@ func (s *CurioChainSched) Run(ctx context.Context) {
 			s.update(ctx, lowest, highest)
 
 			span.End()
+		case <-ticker.C:
+			since := build.Clock.Since(lastNotif)
+			log.Debugf("ChainSched ticker: %s since last notification", since)
+			if since > notificationTimeout {
+				log.Warnf("No notifications received in %s, resubscribing to ChainNotify", notificationTimeout)
+				notificationCh = nil
+			}
 		case <-ctx.Done():
 			return
 		}
@@ -128,7 +158,7 @@ func (s *CurioChainSched) Run(ctx context.Context) {
 
 func (s *CurioChainSched) update(ctx context.Context, revert, apply *types.TipSet) {
 	if apply == nil {
-		log.Error("no new tipset in CurioChainSched.update")
+		log.Error("No new tipset in CurioChainSched.update")
 		return
 	}
 
@@ -139,7 +169,7 @@ func (s *CurioChainSched) update(ctx context.Context, revert, apply *types.TipSe
 
 	for _, ch := range callbacksCopy {
 		if err := ch(ctx, revert, apply); err != nil {
-			log.Errorf("handling head updates in curio chain sched: %+v", err)
+			log.Errorf("Handling head updates in curio chain sched: %+v", err)
 		}
 	}
 }
