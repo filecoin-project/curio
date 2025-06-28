@@ -78,8 +78,6 @@ type ProofData struct {
 type ProofRequest struct {
 	Data cid.Cid `json:"data"`
 
-	PriceEpoch int64 `json:"price_epoch"`
-
 	PaymentClientID         int64           `json:"payment_client_id"`
 	PaymentNonce            int64           `json:"payment_nonce"`
 	PaymentCumulativeAmount abi.TokenAmount `json:"payment_cumulative_amount"`

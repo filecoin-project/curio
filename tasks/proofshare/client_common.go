@@ -317,18 +317,10 @@ func sendRequest(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, ta
 	if err != nil {
 		return false, xerrors.Errorf("failed to parse request CID: %w", err)
 	}
-
-	// Get chain head for price epoch
-	ts, err := api.ChainHead(ctx)
-	if err != nil {
-		return false, xerrors.Errorf("failed to get chain head: %w", err)
-	}
-
+	
 	// Create the ProofRequest
 	proofRequest := common.ProofRequest{
 		Data: requestCid,
-
-		PriceEpoch: int64(ts.Height()),
 
 		PaymentClientID:         *clientRequest.PaymentWallet,
 		PaymentNonce:            *clientRequest.PaymentNonce,

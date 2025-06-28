@@ -40,8 +40,8 @@ class ProofShareClient extends LitElement {
     // Initial load of settings, wallets, and client messages
     this.loadAllSettings();
 
-    // Refresh settings every 10 seconds
-    this.refreshIntervalId = setInterval(() => this.loadMessages(), 10000);
+    // Refresh non-input fields every 5s
+    this.refreshIntervalId = setInterval(() => this.refreshNonInputFields(), 5000);
 
     // Refresh UI every second to update any countdowns
     this.countdownIntervalId = setInterval(() => this.requestUpdate(), 1000);
@@ -66,13 +66,19 @@ class ProofShareClient extends LitElement {
    * Fetch all rows from PSClientGet (settings), wallets, and client messages.
    */
   async loadAllSettings() {
-    this.settingsList = await RPCCall('PSClientGet', []);
-    this.wallets = await RPCCall('PSClientWallets', []);
-    this.loadMessages();
+    [this.settingsList, this.wallets, this.messages] = await Promise.all([
+      RPCCall('PSClientGet', []),
+      RPCCall('PSClientWallets', []),
+      RPCCall('PSClientListMessages', []),
+    ]);
+    this.requestUpdate();
   }
 
-  async loadMessages() {
-    this.messages = await RPCCall('PSClientListMessages', []);
+  async refreshNonInputFields() {
+    [this.wallets, this.messages] = await Promise.all([
+      RPCCall('PSClientWallets', []),
+      RPCCall('PSClientListMessages', []),
+    ]);
     this.requestUpdate();
   }
 
@@ -231,9 +237,18 @@ class ProofShareClient extends LitElement {
     await this.loadAllSettings();
   }
 
-  async clientRouterCompleteWithdrawal(address) {
-    if (!confirm(`Are you sure you want to complete withdrawal for ${address}?`)) return;
-    await RPCCall('PSClientRouterCompleteWithdrawal', [address]);
+  async clientRouterCompleteWithdrawal(wallet) {
+    const withdrawTs = parseInt(wallet.withdraw_timestamp || '0', 10);
+    const now = Math.floor(Date.now() / 1000);
+    const countdown = withdrawTs - now;
+
+    if (countdown > 0) {
+      alert(`Cannot complete withdrawal yet, please wait for another ${countdown} seconds.`);
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to complete withdrawal for ${wallet.address}?`)) return;
+    await RPCCall('PSClientRouterCompleteWithdrawal', [wallet.address]);
     await this.loadAllSettings();
   }
 
@@ -434,7 +449,7 @@ class ProofShareClient extends LitElement {
                   <button class="btn btn-warning btn-sm" @click=${() => this.clientRouterCancelWithdrawal(wallet.address)}>
                     Cancel Withdrawal
                   </button>
-                  <button class="btn btn-secondary btn-sm" ?disabled=${countdown > 0} @click=${() => this.clientRouterCompleteWithdrawal(wallet.address)}>
+                  <button class="btn btn-secondary btn-sm" ?disabled=${countdown > 0} @click=${() => this.clientRouterCompleteWithdrawal(wallet)}>
                     Complete Withdrawal ${countdown > 0 ? '(' + countdown + 's)' : ''}
                   </button>
                 `;

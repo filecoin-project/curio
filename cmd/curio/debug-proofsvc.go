@@ -175,7 +175,6 @@ var proofsvcSubmitCmd = &cli.Command{
 
 		pr := common.ProofRequest{
 			Data:                    cid,
-			PriceEpoch:              0,
 			PaymentClientID:         int64(cctx.Uint64("client-id")),
 			PaymentNonce:            int64(cctx.Uint64("nonce")),
 			PaymentCumulativeAmount: abi.NewTokenAmount(amt.Int64()),
