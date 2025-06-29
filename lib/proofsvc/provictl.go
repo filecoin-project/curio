@@ -188,11 +188,13 @@ func GetProof(cid cid.Cid) ([]byte, error) {
 	})
 }
 
-func RespondWork(ctx context.Context, resolver *AddressResolver, address address.Address, rcid string, proof []byte) (common.ProofReward, error) {
+func RespondWork(ctx context.Context, resolver *AddressResolver, address address.Address, rcid string, proof []byte) (common.ProofReward, bool, error) {
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, MaxRetryTime)
 	defer cancel()
 
-	return retryWithBackoff(ctxWithTimeout, func() (common.ProofReward, error) {
+	var gone bool
+
+	r, err := retryWithBackoff(ctxWithTimeout, func() (common.ProofReward, error) {
 		// Create signature for the work complete
 		signature, err := Sign(ctx, resolver, address, "work-complete", []byte(rcid), time.Now())
 		if err != nil {
@@ -213,8 +215,12 @@ func RespondWork(ctx context.Context, resolver *AddressResolver, address address
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
-			log.Infow("failed to respond to work", "requestID", rcid, "status", resp.Status, "body", string(body))
-			return common.ProofReward{}, xerrors.Errorf("failed to respond to work: %s", resp.Status)
+			log.Infow("failed to respond to work", "requestID", rcid, "status", resp.StatusCode, "body", string(body))
+			if resp.StatusCode == http.StatusGone {
+				gone = true
+				return common.ProofReward{}, nil
+			}
+			return common.ProofReward{}, xerrors.Errorf("failed to respond to work: %d", resp.StatusCode)
 		}
 
 		var reward common.ProofReward
@@ -231,4 +237,10 @@ func RespondWork(ctx context.Context, resolver *AddressResolver, address address
 
 		return reward, nil
 	})
+
+	if err != nil {
+		return common.ProofReward{}, gone, err
+	}
+
+	return r, gone, nil
 }

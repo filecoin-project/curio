@@ -152,9 +152,23 @@ func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool
 		return false, xerrors.Errorf("failed to create address resolver: %w", err)
 	}
 
-	reward, err := proofsvc.RespondWork(ctx, resolver, addr, row.RequestCid, row.ResponseData)
-	if err != nil {
-		return false, xerrors.Errorf("failed to respond to work: %w", err)
+	reward, gone, err := proofsvc.RespondWork(ctx, resolver, addr, row.RequestCid, row.ResponseData)
+	if err != nil && !gone {
+		return false, xerrors.Errorf("failed to respond to work (gone=%t): %w", gone, err)
+	}
+
+	if gone {
+		log.Infof("work request gone (reassigned to another provider) for service_id=%d", row.ServiceID)
+
+		// delete the row
+		_, err = t.db.Exec(ctx, `
+			DELETE FROM proofshare_queue
+			WHERE service_id = $1
+		`, row.ServiceID)
+		if err != nil {
+			return false, xerrors.Errorf("failed to delete row after work request gone: %w", err)
+		}
+		return true, nil
 	}
 
 	// 4) Mark the row as submitted in the DB
