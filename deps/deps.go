@@ -44,6 +44,7 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
+	"github.com/filecoin-project/curio/tasks/message"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -173,6 +174,7 @@ type Deps struct {
 	CachedPieceReader *cachedreader.CachedPieceReader
 	ServeChunker      *chunker.ServeChunker
 	EthClient         *lazy.Lazy[*ethclient.Client]
+	Sender            *message.Sender
 }
 
 const (
@@ -342,6 +344,11 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 				return err
 			}
 			deps.ProofTypes[spt] = true
+		}
+
+		if deps.Cfg.Subsystems.EnableProofShare {
+			deps.ProofTypes[abi.RegisteredSealProof_StackedDrg32GiBV1_1] = true
+			// deps.ProofTypes[abi.RegisteredSealProof_StackedDrg64GiBV1_1] = true TODO REVIEW UNCOMMENT
 		}
 	}
 
