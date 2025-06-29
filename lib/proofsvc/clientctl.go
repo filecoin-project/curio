@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
@@ -27,6 +29,17 @@ type NFilAmount = int64
 
 const maxNFilAmount = 1_000_000_000 * 2_000_000_000
 const attoPerNano = 1_000_000_000 // 1 nFIL = 10^9 attoFIL
+const roCacheTTL = 300 * time.Millisecond
+
+var (
+	lastAvailabilityLock sync.Mutex
+	lastAvailabilityCheck = time.Time{}
+	lastAvailability      = false
+
+	lastPriceLock    sync.Mutex
+	lastPriceCheck = time.Time{}
+	lastPrice      = abi.NewTokenAmount(0)
+)
 
 // NfilFromTokenAmount converts a token amount in attoFIL to nanoFIL (nFIL).
 // It returns an error if the token amount is not divisible by 1 nFIL.
@@ -45,6 +58,13 @@ func TokenAmountFromNfil(nfil NFilAmount) abi.TokenAmount {
 }
 
 func CheckAvailability() (bool, error) {
+	lastAvailabilityLock.Lock()
+	defer lastAvailabilityLock.Unlock()
+
+	if time.Since(lastAvailabilityCheck) < roCacheTTL {
+		return lastAvailability, nil
+	}
+
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/client/available", clientUrl), nil)
 	if err != nil {
 		return false, xerrors.Errorf("failed to create request: %w", err)
@@ -67,11 +87,21 @@ func CheckAvailability() (bool, error) {
 		return false, xerrors.Errorf("failed to decode response body: %w", err)
 	}
 
+	lastAvailability = available.Available
+	lastAvailabilityCheck = time.Now()
+
 	return available.Available, nil
 }
 
 // GetCurrentPrice retrieves the current price for proof generation from the service
 func GetCurrentPrice() (abi.TokenAmount, error) {
+	lastPriceLock.Lock()
+	defer lastPriceLock.Unlock()
+
+	if time.Since(lastPriceCheck) < roCacheTTL {
+		return lastPrice, nil
+	}
+
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/client/current-price", clientUrl), nil)
 	if err != nil {
 		return abi.NewTokenAmount(0), xerrors.Errorf("failed to create request: %w", err)
@@ -100,7 +130,10 @@ func GetCurrentPrice() (abi.TokenAmount, error) {
 	// * Task display with correct restart in the UI
 	// * Return unconsumed-by-service payments to not block the nonce
 
-	return TokenAmountFromNfil(priceResp.Price), nil
+	lastPrice = TokenAmountFromNfil(priceResp.Price)
+	lastPriceCheck = time.Now()
+
+	return lastPrice, nil
 }
 
 // UploadProofData uploads proof data to the service and returns the CID
