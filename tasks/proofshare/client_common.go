@@ -139,14 +139,15 @@ func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, 
 	}
 
 	// Get current price for the proof
-	price, err := proofsvc.GetCurrentPrice()
+	marketPrice, err := proofsvc.GetCurrentPrice()
 	if err != nil {
 		return false, xerrors.Errorf("failed to get current price: %w", err)
 	}
 
-	price = big.Div(price, types.NanoFil)
-	price = big.Div(big.Mul(price, big.NewInt(requestPartitionCost)), big.NewInt(10))
-	price = big.Mul(price, types.NanoFil)
+	basePrice := marketPrice.PriceNfilBase * proofsvc.NFilAmount(requestPartitionCost) / 10
+	serviceFee := marketPrice.PriceNfilServiceFee * proofsvc.NFilAmount(requestPartitionCost) / 10
+
+	price := proofsvc.TokenAmountFromNfil(basePrice + serviceFee)
 
 	// Create payment in a transaction
 	var nextNonce int64

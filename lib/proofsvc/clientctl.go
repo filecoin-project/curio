@@ -38,7 +38,7 @@ var (
 
 	lastPriceLock    sync.Mutex
 	lastPriceCheck = time.Time{}
-	lastPrice      = abi.NewTokenAmount(0)
+	lastPrice      = PriceResponse{}
 )
 
 // NfilFromTokenAmount converts a token amount in attoFIL to nanoFIL (nFIL).
@@ -93,8 +93,17 @@ func CheckAvailability() (bool, error) {
 	return available.Available, nil
 }
 
+type PriceResponse struct {
+	Price                int64 `json:"price_nfil"`
+	PriceNfilBase       int64 `json:"price_nfil_base"`
+	PriceNfilServiceFee int64 `json:"price_nfil_service_fee"`
+	FeeNum              int64 `json:"fee_num"`
+	FeeDenom            int64 `json:"fee_denom"`
+	Epoch               int64 `json:"epoch"`
+}
+
 // GetCurrentPrice retrieves the current price for proof generation from the service
-func GetCurrentPrice() (abi.TokenAmount, error) {
+func GetCurrentPrice() (PriceResponse, error) {
 	lastPriceLock.Lock()
 	defer lastPriceLock.Unlock()
 
@@ -104,24 +113,22 @@ func GetCurrentPrice() (abi.TokenAmount, error) {
 
 	req, err := http.NewRequest("GET", fmt.Sprintf("%s/client/current-price", clientUrl), nil)
 	if err != nil {
-		return abi.NewTokenAmount(0), xerrors.Errorf("failed to create request: %w", err)
+		return PriceResponse{}, xerrors.Errorf("failed to create request: %w", err)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return abi.NewTokenAmount(0), xerrors.Errorf("failed to send request: %w", err)
+		return PriceResponse{}, xerrors.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return abi.NewTokenAmount(0), xerrors.Errorf("failed to get current price: %s", resp.Status)
+		return PriceResponse{}, xerrors.Errorf("failed to get current price: %s", resp.Status)
 	}
 
-	var priceResp struct {
-		Price int64 `json:"price_nfil"`
-	}
+	var priceResp PriceResponse
 	if err := json.NewDecoder(resp.Body).Decode(&priceResp); err != nil {
-		return abi.NewTokenAmount(0), xerrors.Errorf("failed to unmarshal response body: %w", err)
+		return PriceResponse{}, xerrors.Errorf("failed to unmarshal response body: %w", err)
 	}
 
 	log.Infow("current price", "price", priceResp.Price)
@@ -130,10 +137,9 @@ func GetCurrentPrice() (abi.TokenAmount, error) {
 	// * Task display with correct restart in the UI
 	// * Return unconsumed-by-service payments to not block the nonce
 
-	lastPrice = TokenAmountFromNfil(priceResp.Price)
 	lastPriceCheck = time.Now()
 
-	return lastPrice, nil
+	return priceResp, nil
 }
 
 // UploadProofData uploads proof data to the service and returns the CID
