@@ -238,7 +238,7 @@ func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, 
 		return false, xerrors.Errorf("transaction failed: %w", err)
 	}
 
-	log.Infow("createPayment complete", "taskID", taskID, "wallet", clientID, "nonce", nextNonce, "price", price)
+	log.Infow("createPayment complete", "taskID", taskID, "wallet", clientID, "nonce", nextNonce, "calcPrice", price, "price", marketPrice)
 	return true, nil
 }
 
@@ -318,7 +318,7 @@ func sendRequest(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, ta
 	if err != nil {
 		return false, xerrors.Errorf("failed to parse request CID: %w", err)
 	}
-	
+
 	// Create the ProofRequest
 	proofRequest := common.ProofRequest{
 		Data: requestCid,
