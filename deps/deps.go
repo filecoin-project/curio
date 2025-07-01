@@ -19,6 +19,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/ethclient"
+	ethlog "github.com/ethereum/go-ethereum/log"
 	"github.com/gbrlsnchs/jwt/v3"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
@@ -263,6 +264,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 			if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
 				cfgApiInfo = []string{v}
 			}
+			ethlog.SetDefault(ethlog.NewLogger(ethlog.NewTerminalHandlerWithLevel(os.Stdout, ethlog.LevelDebug, false)))
 			return GetEthClient(cctx, cfgApiInfo)
 		})
 	}
