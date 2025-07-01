@@ -32,11 +32,11 @@ const attoPerNano = 1_000_000_000 // 1 nFIL = 10^9 attoFIL
 const roCacheTTL = 300 * time.Millisecond
 
 var (
-	lastAvailabilityLock sync.Mutex
+	lastAvailabilityLock  sync.Mutex
 	lastAvailabilityCheck = time.Time{}
 	lastAvailability      = false
 
-	lastPriceLock    sync.Mutex
+	lastPriceLock  sync.Mutex
 	lastPriceCheck = time.Time{}
 	lastPrice      = PriceResponse{}
 )
@@ -94,7 +94,7 @@ func CheckAvailability() (bool, error) {
 }
 
 type PriceResponse struct {
-	Price                int64 `json:"price_nfil"`
+	Price               int64 `json:"price_nfil"`
 	PriceNfilBase       int64 `json:"price_nfil_base"`
 	PriceNfilServiceFee int64 `json:"price_nfil_service_fee"`
 	FeeNum              int64 `json:"fee_num"`
@@ -129,6 +129,10 @@ func GetCurrentPrice() (PriceResponse, error) {
 	var priceResp PriceResponse
 	if err := json.NewDecoder(resp.Body).Decode(&priceResp); err != nil {
 		return PriceResponse{}, xerrors.Errorf("failed to unmarshal response body: %w", err)
+	}
+	if priceResp.Price <= 0 {
+		log.Errorw("bad price response", "resp", priceResp)
+		return PriceResponse{}, xerrors.Errorf("invalid price received: %d", priceResp.Price)
 	}
 
 	log.Infow("current price", "price", priceResp.Price)
