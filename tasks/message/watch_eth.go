@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"sync/atomic"
+	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -17,6 +18,12 @@ import (
 	"github.com/filecoin-project/curio/lib/chainsched"
 
 	types2 "github.com/filecoin-project/lotus/chain/types"
+)
+
+const (
+	// ethCallTimeout is the timeout for sets of Ethereum client calls per transaction
+	// (i.e. receipt and transaction data)
+	ethCallTimeout = time.Second
 )
 
 type MessageWatcherEth struct {
@@ -111,12 +118,21 @@ func (mw *MessageWatcherEth) update() {
 		txHash := common.HexToHash(tx.TxHash)
 		log.Debugw("Checking transaction", "txHash", txHash.Hex())
 
-		receipt, err := mw.api.TransactionReceipt(ctx, txHash)
+		ethCtx, ethCancel := context.WithTimeout(ctx, ethCallTimeout)
+
+		receipt, err := mw.api.TransactionReceipt(ethCtx, txHash)
 		if err != nil {
+			ethCancel()
 			if errors.Is(err, ethereum.NotFound) {
 				// Transaction is still pending
 				stillPending++
 				log.Debugw("Transaction still pending", "txHash", txHash.Hex())
+				continue
+			}
+			if errors.Is(err, context.DeadlineExceeded) {
+				errorCount++
+				log.Debugw("Eth calls timed out - continuing with next tx",
+					"txHash", txHash.Hex())
 				continue
 			}
 			errorCount++
@@ -124,7 +140,6 @@ func (mw *MessageWatcherEth) update() {
 				"txHash", txHash.Hex(),
 				"error", err,
 				"errorType", fmt.Sprintf("%T", err))
-			// Continue processing other transactions instead of returning
 			continue
 		}
 
@@ -137,6 +152,7 @@ func (mw *MessageWatcherEth) update() {
 		// Check if the transaction has enough confirmations
 		confirmations := new(big.Int).Sub(bestBlockNumber, receipt.BlockNumber)
 		if confirmations.Cmp(big.NewInt(MinConfidence)) < 0 {
+			ethCancel()
 			// Not enough confirmations yet
 			waitingConfirmations++
 			log.Debugw("Transaction waiting for confirmations",
@@ -147,12 +163,20 @@ func (mw *MessageWatcherEth) update() {
 			continue
 		}
 
-		// Get the transaction data
-		txData, _, err := mw.api.TransactionByHash(ctx, txHash)
+		// Get the transaction data using same timeout context
+		txData, _, err := mw.api.TransactionByHash(ethCtx, txHash)
+		ethCancel()
+
 		if err != nil {
 			if errors.Is(err, ethereum.NotFound) {
 				errorCount++
 				log.Errorw("Transaction data not found - continuing", "txHash", txHash.Hex())
+				continue
+			}
+			if errors.Is(err, context.DeadlineExceeded) {
+				errorCount++
+				log.Debugw("Eth calls timed out - continuing with next tx",
+					"txHash", txHash.Hex())
 				continue
 			}
 			errorCount++
