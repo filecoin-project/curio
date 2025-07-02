@@ -199,7 +199,9 @@ func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, 
 		}
 
 		// calculate new cumulative amount
+		prevCumulative := cumulativeAmount
 		cumulativeAmount = types.BigAdd(cumulativeAmount, price)
+		log.Infow("calculating cumulative amount", "prevCumulative", prevCumulative, "price", price, "cumulativeAmount", cumulativeAmount)
 
 		// Create voucher
 		voucher, err := router.CreateClientVoucher(ctx, uint64(clientID), cumulativeAmount.Int, uint64(nextNonce))
@@ -238,7 +240,7 @@ func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, 
 		return false, xerrors.Errorf("transaction failed: %w", err)
 	}
 
-	log.Infow("createPayment complete", "taskID", taskID, "wallet", clientID, "nonce", nextNonce, "calcPrice", price, "price", marketPrice)
+	log.Infow("createPayment complete", "taskID", taskID, "wallet", clientID, "nonce", nextNonce, "calcPrice", price, "price", marketPrice, "requestPartitionCost", requestPartitionCost)
 	return true, nil
 }
 
