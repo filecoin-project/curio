@@ -33,7 +33,7 @@ const roCacheTTL = 300 * time.Millisecond
 
 var (
 	lastAvailabilityLock  sync.Mutex
-	lastAvailabilityCheck = time.Time{}
+	lastAvailabilityCheck = time.Now().Add(-time.Hour)
 	lastAvailability      = false
 
 	lastPriceLock  sync.Mutex
@@ -62,6 +62,7 @@ func CheckAvailability() (bool, error) {
 	defer lastAvailabilityLock.Unlock()
 
 	if time.Since(lastAvailabilityCheck) < roCacheTTL {
+		log.Infow("client cached avail", "last", lastAvailability, "since", time.Since(lastAvailabilityCheck))
 		return lastAvailability, nil
 	}
 
@@ -107,7 +108,8 @@ func GetCurrentPrice() (PriceResponse, error) {
 	lastPriceLock.Lock()
 	defer lastPriceLock.Unlock()
 
-	if time.Since(lastPriceCheck) > roCacheTTL {
+	if time.Since(lastPriceCheck) < roCacheTTL {
+		log.Infow("client cached price", "last", lastPrice, "since", time.Since(lastPriceCheck))
 		return lastPrice, nil
 	}
 
@@ -141,6 +143,7 @@ func GetCurrentPrice() (PriceResponse, error) {
 	// * Task display with correct restart in the UI
 	// * Return unconsumed-by-service payments to not block the nonce
 
+	lastPrice = priceResp
 	lastPriceCheck = time.Now()
 
 	return priceResp, nil
