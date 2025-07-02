@@ -37,7 +37,7 @@ var (
 	lastAvailability      = false
 
 	lastPriceLock  sync.Mutex
-	lastPriceCheck = time.Time{}
+	lastPriceCheck = time.Now().Add(-time.Hour)
 	lastPrice      = PriceResponse{}
 )
 
@@ -107,7 +107,7 @@ func GetCurrentPrice() (PriceResponse, error) {
 	lastPriceLock.Lock()
 	defer lastPriceLock.Unlock()
 
-	if time.Since(lastPriceCheck) < roCacheTTL {
+	if time.Since(lastPriceCheck) > roCacheTTL {
 		return lastPrice, nil
 	}
 
