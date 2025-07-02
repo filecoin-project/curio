@@ -1031,6 +1031,20 @@
             "fuzzy": true
         },
         {
+            "id": "This interactive tool sets up a non-Storage Provider cluster for protocols like PDP, Snark market, and others.",
+            "message": "This interactive tool sets up a non-Storage Provider cluster for protocols like PDP, Snark market, and others.",
+            "translation": "This interactive tool sets up a non-Storage Provider cluster for protocols like PDP, Snark market, and others.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "This setup does not create or migrate a Filecoin SP actor.",
+            "message": "This setup does not create or migrate a Filecoin SP actor.",
+            "translation": "This setup does not create or migrate a Filecoin SP actor.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "This interactive tool migrates lotus-miner to Curio in 5 minutes.",
             "message": "This interactive tool migrates lotus-miner to Curio in 5 minutes.",
             "translation": "This interactive tool migrates lotus-miner to Curio in 5 minutes.",
@@ -1069,6 +1083,13 @@
             "id": "Create a new miner",
             "message": "Create a new miner",
             "translation": "Create a new miner",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Setup non-Storage Provider cluster",
+            "message": "Setup non-Storage Provider cluster",
+            "translation": "Setup non-Storage Provider cluster",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },
@@ -1994,7 +2015,10 @@
             "fuzzy": true
         },
         {
-            "id": "Failed to generate random bytes for secret: {Error}",
+            "id": [
+                "errMsg",
+                "Failed to generate random bytes for secret: {Error}"
+            ],
             "message": "Failed to generate random bytes for secret: {Error}",
             "translation": "Failed to generate random bytes for secret: {Error}",
             "translatorComment": "Copied from source.",
@@ -2028,71 +2052,24 @@
             "fuzzy": true
         },
         {
-            "id": "Failed to get API info for FullNode: {Err}",
-            "message": "Failed to get API info for FullNode: {Err}",
-            "translation": "Failed to get API info for FullNode: {Err}",
+            "id": "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration",
+            "message": "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration",
+            "translation": "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration",
             "translatorComment": "Copied from source.",
-            "placeholders": [
-                {
-                    "id": "Err",
-                    "string": "%[1]w",
-                    "type": "error",
-                    "underlyingType": "interface{Error() string}",
-                    "argNum": 1,
-                    "expr": "err"
-                }
-            ],
             "fuzzy": true
         },
         {
-            "id": "Failed to verify the auth token from daemon node: {Error}",
-            "message": "Failed to verify the auth token from daemon node: {Error}",
-            "translation": "Failed to verify the auth token from daemon node: {Error}",
+            "id": "Non-SP cluster configuration created successfully",
+            "message": "Non-SP cluster configuration created successfully",
+            "translation": "Non-SP cluster configuration created successfully",
             "translatorComment": "Copied from source.",
-            "placeholders": [
-                {
-                    "id": "Error",
-                    "string": "%[1]s",
-                    "type": "string",
-                    "underlyingType": "string",
-                    "argNum": 1,
-                    "expr": "err.Error()"
-                }
-            ],
             "fuzzy": true
         },
         {
-            "id": "Failed to generate default config: {Error}",
-            "message": "Failed to generate default config: {Error}",
-            "translation": "Failed to generate default config: {Error}",
+            "id": "Non-SP cluster configuration complete",
+            "message": "Non-SP cluster configuration complete",
+            "translation": "Non-SP cluster configuration complete",
             "translatorComment": "Copied from source.",
-            "placeholders": [
-                {
-                    "id": "Error",
-                    "string": "%[1]s",
-                    "type": "string",
-                    "underlyingType": "string",
-                    "argNum": 1,
-                    "expr": "err.Error()"
-                }
-            ],
-            "fuzzy": true
-        },
-        {
-            "id": "Failed to insert 'base' config layer in database: {Error}",
-            "message": "Failed to insert 'base' config layer in database: {Error}",
-            "translation": "Failed to insert 'base' config layer in database: {Error}",
-            "translatorComment": "Copied from source.",
-            "placeholders": [
-                {
-                    "id": "Error",
-                    "string": "%[1]s",
-                    "type": "string",
-                    "underlyingType": "string",
-                    "argNum": 1,
-                    "expr": "err.Error()"
-                }
-            ],
             "fuzzy": true
         },
         {
@@ -2151,6 +2128,51 @@
                     "expr": "err.Error()"
                 }
             ],
+            "fuzzy": true
+        },
+        {
+            "id": "Failed to insert 'base' config layer in database: {Error}",
+            "message": "Failed to insert 'base' config layer in database: {Error}",
+            "translation": "Failed to insert 'base' config layer in database: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Non-SP cluster setup complete!",
+            "message": "Non-SP cluster setup complete!",
+            "translation": "Non-SP cluster setup complete!",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Your non-SP cluster has been configured successfully.",
+            "message": "Your non-SP cluster has been configured successfully.",
+            "translation": "Your non-SP cluster has been configured successfully.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "You can now start using Curio for protocols like PDP, Snark markets, and others.",
+            "message": "You can now start using Curio for protocols like PDP, Snark markets, and others.",
+            "translation": "You can now start using Curio for protocols like PDP, Snark markets, and others.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "To start the cluster, run: curio run --layers basic-cluster",
+            "message": "To start the cluster, run: curio run --layers basic-cluster",
+            "translation": "To start the cluster, run: curio run --layers basic-cluster",
+            "translatorComment": "Copied from source.",
             "fuzzy": true
         },
         {

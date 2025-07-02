@@ -86,10 +86,11 @@ class TaskStatusElement extends LitElement {
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
             <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'">
             
-      [<a href="/pages/task/id/?id=${this.taskId}">${this.taskId}</a> ${statusLabel}
-      ${canRestart
+      <span style="display: inline-block; white-space: nowrap;">
+        [<a href="/pages/task/id/?id=${this.taskId}">${this.taskId}</a> ${statusLabel}${canRestart
             ? html`<button @click=${this.restartTask} title="Restart Task">⟳ RESTART</button>`
             : ''}]
+      </span>
     `;
     }
 
