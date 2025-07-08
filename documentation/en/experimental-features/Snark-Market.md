@@ -112,7 +112,7 @@ Once you've configured the provider settings:
 
 - Price is set per ~130M proof constraints (default granularity)
 - Suggested testing price: `0.005 FIL`
-- Settlements occur automatically when nonce limit is hit
+- Settlements occur automatically when network gas fee to settle is less than 0.2% of the balance to settle
 
 ---
 
