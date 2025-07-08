@@ -101,7 +101,6 @@ Once you've configured the provider settings:
 
 ## 🪙 Wallet Setup Notes
 
-- Go to the **Wallets** section in the Web UI
 - Create a **new `f1` address** and fund it (e.g. `0.1 FIL`)
 - This wallet receives SNARK proof rewards
 - Ensure the wallet remains **unlocked**
@@ -113,7 +112,6 @@ Once you've configured the provider settings:
 - Price is set per ~130M proof constraints (default granularity)
 - Suggested testing price: `0.005 FIL`
 - Settlements occur automatically when nonce limit is hit
-- A 20% fee is applied (subject to change)
 
 ---
 
