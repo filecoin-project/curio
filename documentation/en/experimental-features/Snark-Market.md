@@ -77,6 +77,7 @@ Navigate to `Snark Market` in the sidebar. Under **Provider Settings**:
 - **Create a new `f1` wallet** (do _not_ reuse existing wallet)  
   ⚠️ _Please note: This wallet can be changed later, but it is tricky_
 - Set **Price (FIL/p)** to `0.005` (recommended for testing)
+  - Single proof (`p`) should take roughly two minutes to compute, your price should be calculated based on how many proofs per hour per GPU you expect to compute and your cost to run the GPU. The snark marketplace automatically adjusts the market price to match supply to demand.
 - Click **Update Settings**
 
 > <img width="518" alt="Snark_Wallet" src="https://github.com/user-attachments/assets/60a52a8a-5c63-4c61-a207-e9be34084ff0" />
