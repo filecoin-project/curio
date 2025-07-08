@@ -65,7 +65,7 @@ Ensure you're **not running on a WindowPoSt node**. This is only supported on GP
 3. Enable `proof_share` or `Enable Snark Market`
 4. Save and restart the node
 
-> 📸 _Insert Screenshot 1 here: Layer config with checkbox enabled_
+> <img width="207" alt="PROOFSHARE" src="https://github.com/user-attachments/assets/1c36e939-de4e-45ad-ba18-ce55e188c61c" />
 
 ---
 
@@ -79,7 +79,8 @@ Navigate to `Snark Market` in the sidebar. Under **Provider Settings**:
 - Set **Price (FIL/p)** to `0.005` (recommended for testing)
 - Click **Update Settings**
 
-> 📸 _Insert Screenshot 2 here: Provider setup with wallet + price_
+> <img width="518" alt="Snark_Wallet" src="https://github.com/user-attachments/assets/60a52a8a-5c63-4c61-a207-e9be34084ff0" />
+
 
 ---
 
@@ -94,7 +95,7 @@ Once you've configured the provider settings:
   - Payment Summaries
   - Recent Settlements
 
-> 📸 _Insert Screenshot 3 here: Active SNARK Market UI_
+> <img width="1911" alt="Snark_Overview" src="https://github.com/user-attachments/assets/c8636728-4b2e-4b69-b3b3-445c735bca8d" />
 
 ---
 
