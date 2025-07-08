@@ -1,12 +1,11 @@
-package storage_market
+package pdp
 
 import (
 	"context"
 	"fmt"
 	"io"
 	"math/bits"
-	"net/url"
-	"strconv"
+	"time"
 
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
@@ -20,39 +19,32 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
-	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/mk20"
 )
 
-type AggregateDealTask struct {
-	sm   *CurioStorageDealMarket
-	db   *harmonydb.DB
-	sc   *ffi.SealCalls
-	stor paths.StashStore
-	api  headAPI
+type AggregatePDPDealTask struct {
+	db *harmonydb.DB
+	sc *ffi.SealCalls
 }
 
-func NewAggregateTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sc *ffi.SealCalls, stor paths.StashStore, api headAPI) *AggregateDealTask {
-	return &AggregateDealTask{
-		sm:   sm,
-		db:   db,
-		sc:   sc,
-		stor: stor,
-		api:  api,
+func NewAggregatePDPDealTask(db *harmonydb.DB, sc *ffi.SealCalls) *AggregatePDPDealTask {
+	return &AggregatePDPDealTask{
+		db: db,
+		sc: sc,
 	}
 }
 
-func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (a *AggregatePDPDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 
 	var pieces []struct {
 		Pcid        string `db:"piece_cid"`
 		Psize       int64  `db:"piece_size"`
 		RawSize     int64  `db:"raw_size"`
-		URL         string `db:"url"`
+		PieceRef    int64  `db:"piece_ref"`
 		ID          string `db:"id"`
-		SpID        int64  `db:"sp_id"`
 		AggrIndex   int    `db:"aggr_index"`
 		Aggregated  bool   `db:"aggregated"`
 		Aggregation int    `db:"deal_aggregation"`
@@ -63,14 +55,13 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 										    piece_cid, 
 											piece_size,
 											raw_size,
-											url, 
+											piece_ref, 
 											id, 
-											sp_id, 
 											aggr_index,
 											aggregated,
 											deal_aggregation
 										FROM 
-											market_mk20_pipeline 
+											pdp_pipeline 
 										WHERE 
 											agg_task_id = $1 ORDER BY aggr_index ASC`, taskID)
 	if err != nil {
@@ -82,7 +73,7 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	}
 
 	if len(pieces) == 1 {
-		n, err := a.db.Exec(ctx, `UPDATE market_mk20_pipeline SET aggregated = TRUE, agg_task_id = NULL 
+		n, err := a.db.Exec(ctx, `UPDATE pdp_pipeline SET aggregated = TRUE, agg_task_id = NULL 
                                    WHERE id = $1 
                                      AND agg_task_id = $2`, pieces[0].ID, taskID)
 		if err != nil {
@@ -96,7 +87,6 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	}
 
 	id := pieces[0].ID
-	spid := pieces[0].SpID
 
 	ID, err := ulid.Parse(id)
 	if err != nil {
@@ -125,30 +115,18 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		if piece.Aggregation != 1 {
 			return false, xerrors.Errorf("incorrect aggregation value for piece %s for deal %s for task %d", piece.Pcid, piece.ID, taskID)
 		}
-		if piece.ID != id || piece.SpID != spid {
+		if piece.ID != id {
 			return false, xerrors.Errorf("piece details do not match")
-		}
-		goUrl, err := url.Parse(piece.URL)
-		if err != nil {
-			return false, xerrors.Errorf("parsing data URL: %w", err)
-		}
-		if goUrl.Scheme != "pieceref" {
-			return false, xerrors.Errorf("invalid data URL scheme: %s", goUrl.Scheme)
 		}
 
 		var reader io.Reader // io.ReadCloser is not supported by padreader
 		var closer io.Closer
 
-		refNum, err := strconv.ParseInt(goUrl.Opaque, 10, 64)
-		if err != nil {
-			return false, xerrors.Errorf("parsing piece reference number: %w", err)
-		}
-
 		// get pieceID
 		var pieceID []struct {
 			PieceID storiface.PieceNumber `db:"piece_id"`
 		}
-		err = a.db.Select(ctx, &pieceID, `SELECT piece_id FROM parked_piece_refs WHERE ref_id = $1`, refNum)
+		err = a.db.Select(ctx, &pieceID, `SELECT piece_id FROM parked_piece_refs WHERE ref_id = $1`, piece.PieceRef)
 		if err != nil {
 			return false, xerrors.Errorf("getting pieceID: %w", err)
 		}
@@ -179,7 +157,7 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		})
 
 		readers = append(readers, io.LimitReader(reader, piece.RawSize))
-		refIDs = append(refIDs, refNum)
+		refIDs = append(refIDs, piece.PieceRef)
 	}
 
 	_, aggregatedRawSize, err := datasegment.ComputeDealPlacement(pinfos)
@@ -261,13 +239,8 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	}
 
 	comm, err = a.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		pieceIDUrl := url.URL{
-			Scheme: "pieceref",
-			Opaque: fmt.Sprintf("%d", pieceRefID),
-		}
-
 		// Replace the pipeline piece with a new aggregated piece
-		_, err = tx.Exec(`DELETE FROM market_mk20_pipeline WHERE id = $1`, id)
+		_, err = tx.Exec(`DELETE FROM pdp_pipeline WHERE id = $1`, id)
 		if err != nil {
 			return false, fmt.Errorf("failed to delete pipeline pieces: %w", err)
 		}
@@ -277,34 +250,19 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 			return false, fmt.Errorf("failed to delete parked_piece_refs entries: %w", err)
 		}
 
-		var rev mk20.RetrievalV1
-		if deal.Products.RetrievalV1 != nil {
-			rev = *deal.Products.RetrievalV1
-		}
+		pdp := deal.Products.PDPV1
 
-		ddo := deal.Products.DDOV1
-		data := deal.Data
-
-		var allocationID interface{}
-		if ddo.AllocationId != nil {
-			allocationID = *ddo.AllocationId
-		} else {
-			allocationID = nil
-		}
-
-		n, err := tx.Exec(`INSERT INTO market_mk20_pipeline (
-            id, sp_id, contract, client, piece_cid_v2, piece_cid, piece_size, raw_size, url, 
-            offline, indexing, announce, allocation_id, duration, 
-            piece_aggregation, deal_aggregation, started, downloaded, after_commp, aggregated) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, TRUE, TRUE, TRUE, TRUE)`,
-			id, spid, ddo.ContractAddress, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, pieceIDUrl.String(),
-			false, rev.Indexing, rev.AnnouncePayload, allocationID, ddo.Duration,
-			data.Format.Aggregate.Type, data.Format.Aggregate.Type)
+		n, err := tx.Exec(`INSERT INTO pdp_pipeline (
+            id, client, piece_cid_v2, piece_cid, piece_size, raw_size, proof_set_id, 
+            extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, aggregated) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, TRUE)`,
+			id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.ProofSetID,
+			pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type)
 		if err != nil {
-			return false, xerrors.Errorf("inserting aggregated piece in mk20 pipeline: %w", err)
+			return false, xerrors.Errorf("inserting aggregated piece in PDP pipeline: %w", err)
 		}
 		if n != 1 {
-			return false, xerrors.Errorf("inserting aggregated piece in mk20 pipeline: %d rows affected", n)
+			return false, xerrors.Errorf("inserting aggregated piece in PDP pipeline: %d rows affected", n)
 		}
 		return true, nil
 	}, harmonydb.OptionRetry())
@@ -321,26 +279,75 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	return true, nil
 }
 
-func (a *AggregateDealTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (a *AggregatePDPDealTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
 	// If no local pieceRef was found then just return first TaskID
 	return &ids[0], nil
 }
 
-func (a *AggregateDealTask) TypeDetails() harmonytask.TaskTypeDetails {
+func (a *AggregatePDPDealTask) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(50),
-		Name: "AggregateDeals",
+		Name: "AggregatePDPDeal",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 4 << 30,
 		},
 		MaxFailures: 3,
+		IAmBored: passcall.Every(3*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
+			return a.schedule(context.Background(), taskFunc)
+		}),
 	}
 }
 
-func (a *AggregateDealTask) Adder(taskFunc harmonytask.AddTaskFunc) {
-	a.sm.adders[pollerAggregate].Set(taskFunc)
+func (a *AggregatePDPDealTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
+	var stop bool
+	for !stop {
+		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
+			stop = true // assume we're done until we find a task to schedule
+
+			var deals []struct {
+				ID    string `db:"id"`
+				Count int    `db:"count"`
+			}
+
+			err := a.db.Select(ctx, &deals, `SELECT id, COUNT(*) AS count
+										FROM pdp_pipeline
+										GROUP BY id
+										HAVING bool_and(downloaded)
+										   AND bool_and(NOT aggregated)
+										   AND bool_and(agg_task_id IS NULL);`)
+			if err != nil {
+				log.Errorf("getting deals to aggregate: %w", err)
+				return
+			}
+
+			deal := deals[0]
+
+			log.Infow("processing aggregation task", "deal", deal.ID, "count", deal.Count)
+			n, err := tx.Exec(`UPDATE pdp_pipeline SET agg_task_id = $1 
+                            		WHERE id = $2 
+                            		  AND downloaded = TRUE
+                            		  AND aggregated = FALSE 
+                            		  AND agg_task_id IS NULL`, id, deal.ID)
+			if err != nil {
+				return false, xerrors.Errorf("creating aggregation task for PDP: %w", err)
+			}
+
+			if n == deal.Count {
+				log.Infow("aggregation task created successfully", "deal", deal.ID)
+			}
+
+			stop = false
+
+			return n == deal.Count, nil
+		})
+
+	}
+
+	return nil
 }
 
-var _ = harmonytask.Reg(&AggregateDealTask{})
-var _ harmonytask.TaskInterface = &AggregateDealTask{}
+func (a *AggregatePDPDealTask) Adder(taskFunc harmonytask.AddTaskFunc) {}
+
+var _ = harmonytask.Reg(&AggregatePDPDealTask{})
+var _ harmonytask.TaskInterface = &AggregatePDPDealTask{}

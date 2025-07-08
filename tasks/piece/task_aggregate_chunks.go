@@ -8,14 +8,11 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -75,41 +72,25 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 
 	idStr := chunks[0].ID
 
-	var isMk20 bool
-	var id ulid.ULID
-	var uid uuid.UUID
-	uid, err = uuid.Parse(idStr)
+	id, err := ulid.Parse(idStr)
 	if err != nil {
-		serr := err
-		id, err = ulid.Parse(idStr)
-		if err != nil {
-			return false, xerrors.Errorf("parsing deal ID: %w, %w", serr, err)
-		}
-		isMk20 = true
+		return false, xerrors.Errorf("parsing deal ID: %w", err)
 	}
 
-	var rawSize int64
-	var pcid, pcid2 cid.Cid
-	var psize abi.PaddedPieceSize
-	var deal *mk20.Deal
-
-	if isMk20 {
-		deal, err = mk20.DealFromDB(ctx, a.db, id)
-		if err != nil {
-			return false, xerrors.Errorf("getting deal details: %w", err)
-		}
-		pi, err := deal.PieceInfo()
-		if err != nil {
-			return false, xerrors.Errorf("getting piece info: %w", err)
-		}
-		rawSize = int64(pi.RawSize)
-		pcid = pi.PieceCIDV1
-		psize = pi.Size
-		pcid2 = deal.Data.PieceCID
-	} else {
-		rawSize = 4817498192 // TODO: Fix this for PDP
-		fmt.Println(uid)
+	deal, err := mk20.DealFromDB(ctx, a.db, id)
+	if err != nil {
+		return false, xerrors.Errorf("getting deal details: %w", err)
 	}
+
+	pi, err := deal.PieceInfo()
+	if err != nil {
+		return false, xerrors.Errorf("getting piece info: %w", err)
+	}
+
+	rawSize := int64(pi.RawSize)
+	pcid := pi.PieceCIDV1
+	psize := pi.Size
+	pcid2 := deal.Data.PieceCID
 
 	var readers []io.Reader
 	var refIds []int64
@@ -218,7 +199,8 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 
 	// Update DB status of piece, deal, PDP
 	comm, err = a.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		if isMk20 {
+		// Update PoRep pipeline
+		if deal.Products.DDOV1 != nil {
 			spid, err := address.IDFromAddress(deal.Products.DDOV1.Provider)
 			if err != nil {
 				return false, fmt.Errorf("getting provider ID: %w", err)
@@ -289,10 +271,25 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 			if err != nil {
 				return false, xerrors.Errorf("deleting parked piece refs: %w", err)
 			}
-		} else {
-			return false, xerrors.Errorf("not implemented for PDP")
-			// TODO: Do what is required for PDP
 		}
+
+		// Update PDP pipeline
+		if deal.Products.PDPV1 != nil {
+			pdp := deal.Products.PDPV1
+			n, err := tx.Exec(`INSERT INTO pdp_pipeline (
+            id, client, piece_cid_v2, piece_cid, piece_size, raw_size, proof_set_id, 
+            extra_data, piece_ref, downloaded, deal_aggregation, aggr_index) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0)`,
+				id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.ProofSetID,
+				pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type)
+			if err != nil {
+				return false, xerrors.Errorf("inserting in PDP pipeline: %w", err)
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("inserting in PDP pipeline: %d rows affected", n)
+			}
+		}
+
 		return true, nil
 	}, harmonydb.OptionRetry())
 

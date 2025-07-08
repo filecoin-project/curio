@@ -54,7 +54,7 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 
 		err := db.Select(ctx, &toCallNext, `
                 SELECT id
-                FROM pdp_proof_sets
+                FROM pdp_proof_set
                 WHERE challenge_request_task_id IS NULL
                 AND (prove_at_epoch + challenge_window) <= $1
             `, apply.Height())
@@ -66,7 +66,7 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 			n.addFunc.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 				// Update pdp_proof_sets to set challenge_request_task_id = id
 				affected, err := tx.Exec(`
-                        UPDATE pdp_proof_sets
+                        UPDATE pdp_proof_set
                         SET challenge_request_task_id = $1
                         WHERE id = $2 AND challenge_request_task_id IS NULL
                     `, id, ps.ProofSetID)
@@ -95,7 +95,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 
 	err = n.db.QueryRow(ctx, `
         SELECT id
-        FROM pdp_proof_sets
+        FROM pdp_proof_set
         WHERE challenge_request_task_id = $1 AND prove_at_epoch IS NOT NULL
     `, taskID).Scan(&proofSetID)
 	if err == sql.ErrNoRows {
@@ -179,7 +179,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 	_, err = n.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// Update pdp_proof_sets
 		affected, err := tx.Exec(`
-            UPDATE pdp_proof_sets
+            UPDATE pdp_proof_set
             SET challenge_request_msg_hash = $1,
                 prev_challenge_request_epoch = $2,
 				prove_at_epoch = $3

@@ -582,3 +582,126 @@ func (i *IndexStore) UpdatePieceCidV1ToV2(ctx context.Context, pieceCidV1 cid.Ci
 
 	return nil
 }
+
+type NodeDigest struct {
+	Layer int      // Layer index in the merkle Tree
+	Index int64    // logical index at that layer
+	Hash  [32]byte // 32 bytes
+}
+
+func (i *IndexStore) AddPDPLayer(ctx context.Context, pieceCidV2 cid.Cid, layer []NodeDigest) error {
+	qry := `INSERT INTO PDPCacheLayer (PieceCid, LayerIndex, Leaf, LeafIndex) VALUES (?, ?, ?, ?)`
+	pieceCidBytes := pieceCidV2.Bytes()
+	var batch *gocql.Batch
+	batchSize := i.settings.InsertBatchSize
+
+	if len(layer) == 0 {
+		return xerrors.Errorf("no records to insert")
+	}
+
+	for _, r := range layer {
+		if batch == nil {
+			batch = i.session.NewBatch(gocql.UnloggedBatch).WithContext(ctx)
+		}
+
+		batch.Entries = append(batch.Entries, gocql.BatchEntry{
+			Stmt:       qry,
+			Args:       []interface{}{pieceCidBytes, r.Layer, r.Hash, r.Index},
+			Idempotent: true,
+		})
+
+		if len(batch.Entries) >= batchSize {
+			if err := i.session.ExecuteBatch(batch); err != nil {
+				return xerrors.Errorf("executing batch insert for PDP cache layer for piece %s: %w", pieceCidV2.String(), err)
+			}
+			batch = nil
+		}
+	}
+
+	if batch != nil {
+		if len(batch.Entries) >= 0 {
+			if err := i.session.ExecuteBatch(batch); err != nil {
+				return xerrors.Errorf("executing batch insert for PDP cache layer for piece %s: %w", pieceCidV2.String(), err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (i *IndexStore) GetPDPLayer(ctx context.Context, pieceCidV2 cid.Cid) ([]NodeDigest, error) {
+	var layer []NodeDigest
+	qry := `SELECT LayerIndex, Leaf, LeafIndex FROM PDPCacheLayer WHERE PieceCid = ? ORDER BY LeafIndex ASC`
+	iter := i.session.Query(qry, pieceCidV2.Bytes()).WithContext(ctx).Iter()
+	r := make([]byte, 32)
+	var idx int64
+	var layerIdx int
+	for iter.Scan(&layerIdx, &r, &idx) {
+		layer = append(layer, NodeDigest{
+			Layer: layerIdx,
+			Index: idx,
+			Hash:  [32]byte(r),
+		})
+		r = make([]byte, 32)
+	}
+	if err := iter.Close(); err != nil {
+		return nil, xerrors.Errorf("iterating PDP cache layer (P:0x%02x): %w", pieceCidV2.Bytes(), err)
+	}
+	return layer, nil
+}
+
+func (i *IndexStore) DeletePDPLayer(ctx context.Context, pieceCidV2 cid.Cid) error {
+	qry := `DELETE FROM PDPCacheLayer WHERE PieceCid = ?`
+	if err := i.session.Query(qry, pieceCidV2.Bytes()).WithContext(ctx).Exec(); err != nil {
+		return xerrors.Errorf("deleting PDP cache layer (P:0x%02x): %w", pieceCidV2.Bytes(), err)
+	}
+	return nil
+}
+
+func (i *IndexStore) HasPDPLayer(ctx context.Context, pieceCidV2 cid.Cid) (bool, error) {
+	qry := `SELECT Leaf FROM PDPCacheLayer WHERE PieceCid = ? LIMIT 1`
+	iter := i.session.Query(qry, pieceCidV2.Bytes()).WithContext(ctx).Iter()
+
+	var hashes [][]byte
+	var r []byte
+	for iter.Scan(&r) {
+		if r != nil {
+			hashes = append(hashes, r)
+			r = make([]byte, 32)
+		}
+	}
+	if err := iter.Close(); err != nil {
+		return false, xerrors.Errorf("iterating PDP cache layer (P:0x%02x): %w", pieceCidV2.Bytes(), err)
+	}
+
+	return len(hashes) > 0, nil
+
+}
+
+func (i *IndexStore) GetPDPNode(ctx context.Context, pieceCidV2 cid.Cid, index int64) (bool, *NodeDigest, error) {
+	qry := `SELECT IndexLayer, Leaf, LeafIndex FROM PDPCacheLayer WHERE PieceCid = ? AND LeafIndex = ? LIMIT 1`
+	iter := i.session.Query(qry, pieceCidV2.Bytes(), index).WithContext(ctx).Iter()
+
+	var node *NodeDigest
+
+	var r []byte
+	var idx int
+	var lidx int64
+	for iter.Scan(&r, &idx, &lidx) {
+		if r != nil {
+			node = &NodeDigest{
+				Layer: idx,
+				Index: lidx,
+				Hash:  [32]byte(r),
+			}
+			r = make([]byte, 32)
+		}
+	}
+	if err := iter.Close(); err != nil {
+		return false, nil, xerrors.Errorf("iterating PDP cache layer (P:0x%02x): %w", pieceCidV2.Bytes(), err)
+	}
+	if node != nil {
+		return true, node, nil
+	}
+	return false, nil, nil
+}

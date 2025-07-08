@@ -96,10 +96,10 @@ func NewCachedPieceReader(db *harmonydb.DB, sectorReader *pieceprovider.SectorRe
 }
 
 type cachedSectionReader struct {
-	reader    storiface.Reader
-	cpr       *CachedPieceReader
-	pieceCid  cid.Cid
-	pieceSize abi.UnpaddedPieceSize
+	reader   storiface.Reader
+	cpr      *CachedPieceReader
+	pieceCid cid.Cid
+	rawSize  uint64
 	// Signals when the underlying piece reader is ready
 	ready chan struct{}
 	// err is non-nil if there's an error getting the underlying piece reader
@@ -131,7 +131,7 @@ func (r *cachedSectionReader) Close() error {
 	return nil
 }
 
-func (cpr *CachedPieceReader) getPieceReaderFromSector(ctx context.Context, pieceCidV2 cid.Cid) (storiface.Reader, abi.UnpaddedPieceSize, error) {
+func (cpr *CachedPieceReader) getPieceReaderFromSector(ctx context.Context, pieceCidV2 cid.Cid) (storiface.Reader, uint64, error) {
 	// Get all deals containing this piece
 
 	commp, err := commcidv2.CommPFromPCidV2(pieceCidV2)
@@ -143,11 +143,12 @@ func (cpr *CachedPieceReader) getPieceReaderFromSector(ctx context.Context, piec
 	pieceSize := commp.PieceInfo().Size
 
 	var deals []struct {
-		SpID   abi.ActorID             `db:"sp_id"`
-		Sector abi.SectorNumber        `db:"sector_num"`
-		Offset abi.PaddedPieceSize     `db:"piece_offset"`
-		Length abi.PaddedPieceSize     `db:"piece_length"`
-		Proof  abi.RegisteredSealProof `db:"reg_seal_proof"`
+		SpID    abi.ActorID             `db:"sp_id"`
+		Sector  abi.SectorNumber        `db:"sector_num"`
+		Offset  abi.PaddedPieceSize     `db:"piece_offset"`
+		Length  abi.PaddedPieceSize     `db:"piece_length"`
+		RawSize int64                   `db:"raw_size"`
+		Proof   abi.RegisteredSealProof `db:"reg_seal_proof"`
 	}
 
 	err = cpr.db.Select(ctx, &deals, `SELECT 
@@ -155,6 +156,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromSector(ctx context.Context, piec
 												mpd.sector_num,
 												mpd.piece_offset,
 												mpd.piece_length,
+												mpd.raw_size,
 												sm.reg_seal_proof
 											FROM 
 												market_piece_deal mpd
@@ -191,13 +193,13 @@ func (cpr *CachedPieceReader) getPieceReaderFromSector(ctx context.Context, piec
 			continue
 		}
 
-		return reader, dl.Length.Unpadded(), nil
+		return reader, uint64(dl.RawSize), nil
 	}
 
 	return nil, 0, merr
 }
 
-func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, pieceCidV2 cid.Cid) (storiface.Reader, abi.UnpaddedPieceSize, error) {
+func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, pieceCidV2 cid.Cid) (storiface.Reader, uint64, error) {
 	commp, err := commcidv2.CommPFromPCidV2(pieceCidV2)
 	if err != nil {
 		return nil, 0, xerrors.Errorf("getting piece commitment from piece CID v2: %w", err)
@@ -235,7 +237,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromPiecePark(ctx context.Context, p
 		return nil, 0, fmt.Errorf("failed to read piece from piece park: %w", err)
 	}
 
-	return reader, abi.UnpaddedPieceSize(pieceData[0].PieceRawSize), nil
+	return reader, uint64(pieceData[0].PieceRawSize), nil
 }
 
 type SubPieceReader struct {
@@ -259,7 +261,7 @@ func (s SubPieceReader) ReadAt(p []byte, off int64) (n int, err error) {
 	return s.sr.ReadAt(p, off)
 }
 
-func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, pieceCidV2 cid.Cid) (storiface.Reader, abi.UnpaddedPieceSize, error) {
+func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, pieceCidV2 cid.Cid) (storiface.Reader, uint64, error) {
 	pieces, err := cpr.idxStor.FindPieceInAggregate(ctx, pieceCidV2)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to find piece in aggregate: %w", err)
@@ -267,6 +269,11 @@ func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, p
 
 	if len(pieces) == 0 {
 		return nil, 0, fmt.Errorf("subpiece not found in any aggregate piece")
+	}
+
+	pi, err := commcidv2.CommPFromPCidV2(pieceCidV2)
+	if err != nil {
+		return nil, 0, xerrors.Errorf("getting piece commitment from piece CID v2: %w", err)
 	}
 
 	var merr error
@@ -282,15 +289,15 @@ func (cpr *CachedPieceReader) getPieceReaderFromAggregate(ctx context.Context, p
 				continue
 			}
 			sr := io.NewSectionReader(reader, int64(p.Offset), int64(p.Size))
-			return SubPieceReader{r: reader, sr: sr}, abi.UnpaddedPieceSize(p.Size), nil
+			return SubPieceReader{r: reader, sr: sr}, pi.PayloadSize(), nil
 		}
 		sr := io.NewSectionReader(reader, int64(p.Offset), int64(p.Size))
-		return SubPieceReader{r: reader, sr: sr}, abi.UnpaddedPieceSize(p.Size), nil
+		return SubPieceReader{r: reader, sr: sr}, pi.PayloadSize(), nil
 	}
 	return nil, 0, fmt.Errorf("failed to find piece in aggregate: %w", merr)
 }
 
-func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCidV2 cid.Cid) (storiface.Reader, abi.UnpaddedPieceSize, error) {
+func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCidV2 cid.Cid) (storiface.Reader, uint64, error) {
 	cacheKey := pieceCidV2.String()
 
 	commp, err := commcidv2.CommPFromPCidV2(pieceCidV2)
@@ -368,7 +375,7 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 		r.reader = reader
 		r.err = nil
 		r.cancel = readerCtxCancel
-		r.pieceSize = size
+		r.rawSize = size
 	} else {
 		r = rr.(*cachedSectionReader)
 		r.refs++
@@ -393,7 +400,7 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 		return nil, 0, r.err
 	}
 
-	rs := io.NewSectionReader(r.reader, 0, int64(r.pieceSize))
+	rs := io.NewSectionReader(r.reader, 0, int64(r.rawSize))
 
 	return struct {
 		io.Closer
@@ -405,5 +412,5 @@ func (cpr *CachedPieceReader) GetSharedPieceReader(ctx context.Context, pieceCid
 		Reader:   rs,
 		Seeker:   rs,
 		ReaderAt: r.reader,
-	}, r.pieceSize, nil
+	}, r.rawSize, nil
 }

@@ -8,10 +8,12 @@ import (
 
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/market/mk20"
 	"github.com/filecoin-project/curio/pdp/contract"
 
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
@@ -19,8 +21,13 @@ import (
 
 // Structures to represent database records
 type ProofSetRootAdd struct {
-	ProofSet       uint64 `db:"proofset"`
-	AddMessageHash string `db:"add_message_hash"`
+	ID              string `db:"id"`
+	Client          string `db:"client"`
+	PieceCID        string `db:"piece_cid"` // pieceCIDV2
+	ProofSet        uint64 `db:"proofset"`
+	PieceRef        int64  `db:"piece_ref"`
+	AddMessageHash  string `db:"add_message_hash"`
+	AddMessageIndex int64  `db:"add_message_index"`
 }
 
 // RootAddEntry represents entries from pdp_proofset_root_adds
@@ -57,9 +64,9 @@ func processPendingProofSetRootAdds(ctx context.Context, db *harmonydb.DB, ethCl
 	var rootAdds []ProofSetRootAdd
 
 	err := db.Select(ctx, &rootAdds, `
-        SELECT DISTINCT proofset, add_message_hash
-        FROM pdp_proofset_root_adds
-        WHERE add_message_ok = TRUE AND roots_added = FALSE
+        SELECT id, client, piece_cid, proofset, piece_ref, add_message_hash, add_message_index 
+        FROM pdp_pipeline
+        WHERE after_add_root = TRUE AND after_add_root_msg = FALSE
     `)
 	if err != nil {
 		return xerrors.Errorf("failed to select proof set root adds: %w", err)
@@ -85,11 +92,12 @@ func processPendingProofSetRootAdds(ctx context.Context, db *harmonydb.DB, ethCl
 func processProofSetRootAdd(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, rootAdd ProofSetRootAdd) error {
 	// Retrieve the tx_receipt from message_waits_eth
 	var txReceiptJSON []byte
+	var txSuccess bool
 	err := db.QueryRow(ctx, `
-        SELECT tx_receipt
+        SELECT tx_success, tx_receipt
         FROM message_waits_eth
         WHERE signed_tx_hash = $1
-    `, rootAdd.AddMessageHash).Scan(&txReceiptJSON)
+    `, rootAdd.AddMessageHash).Scan(&txSuccess, &txReceiptJSON)
 	if err != nil {
 		return xerrors.Errorf("failed to get tx_receipt for tx %s: %w", rootAdd.AddMessageHash, err)
 	}
@@ -101,16 +109,46 @@ func processProofSetRootAdd(ctx context.Context, db *harmonydb.DB, ethClient *et
 		return xerrors.Errorf("failed to unmarshal tx_receipt for tx %s: %w", rootAdd.AddMessageHash, err)
 	}
 
-	// Parse the logs to extract root IDs and other data
-	err = extractAndInsertRootsFromReceipt(ctx, db, &txReceipt, rootAdd)
-	if err != nil {
-		return xerrors.Errorf("failed to extract roots from receipt for tx %s: %w", rootAdd.AddMessageHash, err)
+	if !txSuccess {
+		// This means msg failed, we should let the user know
+		// TODO: Review if error would be in receipt
+		comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			n, err := tx.Exec(`UPDATE market_mk20_deal
+									SET pdp_v1 = jsonb_set(
+													jsonb_set(pdp_v1, '{error}', to_jsonb($1::text), true),
+													'{complete}', to_jsonb(true), true
+												 )
+									WHERE id = $2;`, "Transaction failed", rootAdd.ID)
+			if err != nil {
+				return false, xerrors.Errorf("failed to update market_mk20_deal: %w", err)
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
+			}
+			_, err = tx.Exec(`DELETE FROM pdp_pipeline WHERE id = $1`, rootAdd.ID)
+			if err != nil {
+				return false, xerrors.Errorf("failed to clean up pdp pipeline: %w", err)
+			}
+			return true, nil
+		})
+		if err != nil {
+			return xerrors.Errorf("failed to commit transaction: %w", err)
+		}
+		if !comm {
+			return xerrors.Errorf("failed to commit transaction")
+		}
+		return nil
 	}
 
-	return nil
-}
+	pcid, err := cid.Parse(rootAdd.PieceCID)
+	if err != nil {
+		return xerrors.Errorf("failed to parse piece CID: %w", err)
+	}
+	pi, err := mk20.GetPieceInfo(pcid)
+	if err != nil {
+		return xerrors.Errorf("failed to get piece info: %w", err)
+	}
 
-func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, receipt *types.Receipt, rootAdd ProofSetRootAdd) error {
 	// Get the ABI from the contract metadata
 	pdpABI, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
@@ -127,7 +165,7 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
 	eventFound := false
 
 	// Iterate over the logs in the receipt
-	for _, vLog := range receipt.Logs {
+	for _, vLog := range txReceipt.Logs {
 		// Check if the log corresponds to the RootsAdded event
 		if len(vLog.Topics) > 0 && vLog.Topics[0] == event.ID {
 			// The setId is an indexed parameter in Topics[1], but we don't need it here
@@ -165,69 +203,72 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
 		return fmt.Errorf("RootsAdded event not found in receipt")
 	}
 
-	// Now we have the firstAdded rootId, proceed with database operations
+	rootId := rootIds[rootAdd.AddMessageIndex]
 
-	// Begin a database transaction
-	_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// Fetch the entries from pdp_proofset_root_adds
-		var rootAddEntries []RootAddEntry
-		err := tx.Select(&rootAddEntries, `
-            SELECT proofset, root, add_message_hash, add_message_index, subroot, subroot_offset, subroot_size, pdp_pieceref
-            FROM pdp_proofset_root_adds
-            WHERE proofset = $1 AND add_message_hash = $2
-            ORDER BY add_message_index ASC, subroot_offset ASC
-        `, rootAdd.ProofSet, rootAdd.AddMessageHash)
+	// Insert into message_waits_eth and pdp_proofset_roots
+	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// Update proof set for initialization upon first add
+		_, err = tx.Exec(`
+			UPDATE pdp_proof_sets SET init_ready = true
+			WHERE id = $1 AND prev_challenge_request_epoch IS NULL AND challenge_request_msg_hash IS NULL AND prove_at_epoch IS NULL
+			`, rootAdd.ProofSet)
 		if err != nil {
-			return false, fmt.Errorf("failed to select from pdp_proofset_root_adds: %w", err)
+			return false, xerrors.Errorf("failed to update pdp_proof_sets: %w", err)
 		}
 
-		// For each entry, use the corresponding rootId from the event
-		for _, entry := range rootAddEntries {
-			if entry.AddMessageIndex >= uint64(len(rootIds)) {
-				return false, fmt.Errorf("index out of bounds: entry index %d exceeds rootIds length %d",
-					entry.AddMessageIndex, len(rootIds))
-			}
-
-			rootId := rootIds[entry.AddMessageIndex]
-			// Insert into pdp_proofset_roots
-			_, err := tx.Exec(`
-                INSERT INTO pdp_proofset_roots (
-                    proofset,
-                    root,
-                    root_id,
-                    subroot,
-                    subroot_offset,
-					subroot_size,
-                    pdp_pieceref,
-                    add_message_hash,
-                    add_message_index
-                ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9
-                )
-            `, entry.ProofSet, entry.Root, rootId, entry.Subroot, entry.SubrootOffset, entry.SubrootSize, entry.PDPPieceRefID, entry.AddMessageHash, entry.AddMessageIndex)
-			if err != nil {
-				return false, fmt.Errorf("failed to insert into pdp_proofset_roots: %w", err)
-			}
-		}
-
-		// Mark as processed in pdp_proofset_root_adds (don't delete, for transaction tracking)
-		rowsAffected, err := tx.Exec(`
-                      UPDATE pdp_proofset_root_adds
-                      SET roots_added = TRUE
-                      WHERE proofset = $1 AND add_message_hash = $2 AND roots_added = FALSE
-              `, rootAdd.ProofSet, rootAdd.AddMessageHash)
+		// Insert into pdp_proofset_roots
+		n, err := tx.Exec(`
+                  INSERT INTO pdp_proofset_root (
+                      proofset,
+                      client,
+                      piece_cid_v2,
+					  piece_cid,
+					  piece_size,
+					  raw_size,
+                      root,
+                      piece_ref,
+                      add_deal_id,
+                      add_message_hash,
+                      add_message_index
+                  )
+                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+              `,
+			rootAdd.ProofSet,
+			rootAdd.Client,
+			pcid.String(),
+			pi.PieceCIDV1.String(),
+			pi.Size,
+			pi.RawSize,
+			rootId,
+			rootAdd.PieceRef,
+			rootAdd.ID,
+			rootAdd.AddMessageHash,
+			rootAdd.AddMessageIndex,
+		)
 		if err != nil {
-			return false, fmt.Errorf("failed to update pdp_proofset_root_adds: %w", err)
+			return false, xerrors.Errorf("failed to insert into pdp_proofset_root: %w", err)
+		}
+		if n != 1 {
+			return false, xerrors.Errorf("incorrect number of rows inserted for pdp_proofset_root: %d", n)
 		}
 
-		if int(rowsAffected) != len(rootAddEntries) {
-			return false, fmt.Errorf("expected to update %d rows in pdp_proofset_root_adds but updated %d", len(rootAddEntries), rowsAffected)
+		n, err = tx.Exec(`UPDATE pdp_pipeline SET after_add_root_msg = TRUE WHERE id = $1`, rootAdd.ID)
+		if err != nil {
+			return false, xerrors.Errorf("failed to update pdp_pipeline: %w", err)
+		}
+		if n != 1 {
+			return false, xerrors.Errorf("incorrect number of rows updated for pdp_pipeline: %d", n)
 		}
 
+		// Return true to commit the transaction
 		return true, nil
-	})
+	}, harmonydb.OptionRetry())
 	if err != nil {
-		return fmt.Errorf("failed to process root additions in DB: %w", err)
+		return xerrors.Errorf("failed to save details to DB: %w", err)
+	}
+
+	if !comm {
+		return xerrors.Errorf("failed to commit transaction")
 	}
 
 	return nil

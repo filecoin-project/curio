@@ -386,7 +386,7 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 
 }
 
-func (m *MK20) HandleUploadFinalize(id ulid.ULID, w http.ResponseWriter) {
+func (m *MK20) HandleUploadFinalize(id ulid.ULID, deal *Deal, w http.ResponseWriter) {
 	ctx := context.Background()
 	var exists bool
 	err := m.db.QueryRow(ctx, `SELECT EXISTS (
@@ -405,6 +405,21 @@ func (m *MK20) HandleUploadFinalize(id ulid.ULID, w http.ResponseWriter) {
 		return
 	}
 
+	if deal != nil {
+		// This is a deal where DataSource was not set - we should update the deal
+		code, err := m.updateDealDetails(id, deal)
+		if err != nil {
+			log.Errorw("failed to update deal details", "deal", id, "error", err)
+			if code == http.StatusInternalServerError {
+				http.Error(w, "", http.StatusInternalServerError)
+			} else {
+				http.Error(w, err.Error(), int(code))
+			}
+			return
+		}
+	}
+
+	// Now update the upload status to trigger the correct pipeline
 	n, err := m.db.Exec(ctx, `UPDATE market_mk20_deal_chunk SET finalize = TRUE where id = $1`, id.String())
 	if err != nil {
 		log.Errorw("failed to finalize deal upload", "deal", id, "error", err)
@@ -421,63 +436,42 @@ func (m *MK20) HandleUploadFinalize(id ulid.ULID, w http.ResponseWriter) {
 	w.WriteHeader(http.StatusOK)
 }
 
-//func (m *MK20) MarkChunkComplete(ctx context.Context) {
-//	ticker := time.NewTicker(time.Second * 3)
-//	defer ticker.Stop()
-//	for {
-//		select {
-//		case <-ticker.C:
-//			markChunksComplete(ctx, m.db)
-//		case <-ctx.Done():
-//			return
-//		}
-//	}
-//}
-//
-//func markChunksComplete(ctx context.Context, db *harmonydb.DB) {
-//	var chunks []struct {
-//		ID        string `db:"id"`
-//		Chunk     int    `db:"chunk"`
-//		ChunkSize int64  `db:"chunk_size"`
-//		Complete  bool   `db:"complete"`
-//		RefId     int64  `db:"ref_id"`
-//	}
-//
-//	err := db.Select(ctx, &chunks, `SELECT id,
-//											   chunk,
-//											   chunk_size,
-//											   ref_id,
-//											   complete
-//										FROM market_mk20_deal_chunk
-//										WHERE finalize = FALSE
-//										  AND complete = FALSE
-//										  AND ref_id IS NOT NULL`)
-//	if err != nil {
-//		log.Errorw("failed to get chunks to mark complete", "error", err)
-//		return
-//	}
-//	for _, chunk := range chunks {
-//		var complete bool
-//		err := db.QueryRow(ctx, `SELECT p.complete
-//									FROM parked_pieces AS p
-//									JOIN parked_piece_refs AS r
-//									  ON r.piece_id = p.id
-//									WHERE r.ref_id = $1`, chunk.RefId).Scan(&complete)
-//		if err != nil {
-//			log.Errorw("failed to get piece complete status", "id", chunk.ID, "chunk", chunk.Chunk, "error", err)
-//			continue
-//		}
-//		if complete {
-//			_, err := db.Exec(ctx, `UPDATE market_mk20_deal_chunk
-//										SET complete = TRUE
-//										WHERE id = $1
-//										  AND chunk = $2
-//										  AND ref_id = $3
-//										  AND finalize = FALSE`, chunk.ID, chunk.Chunk, chunk.RefId)
-//			if err != nil {
-//				log.Errorw("failed to mark chunk complete", "id", chunk.ID, "chunk", chunk.Chunk, "error", err)
-//				continue
-//			}
-//		}
-//	}
-//}
+func (m *MK20) updateDealDetails(id ulid.ULID, deal *Deal) (ErrorCode, error) {
+	ctx := context.Background() // Let's not use request context to avoid DB inconsistencies
+
+	if deal.Identifier.Compare(id) != 0 {
+		return ErrBadProposal, xerrors.Errorf("deal ID and proposal ID do not match")
+	}
+
+	// Validate the deal
+	code, err := deal.Validate(m.db, &m.cfg.Market.StorageMarketConfig.MK20)
+	if err != nil {
+		return code, err
+	}
+
+	log.Debugw("deal validated", "deal", deal.Identifier.String())
+
+	// Verify we have a deal is DB
+	var exists bool
+	err = m.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_deal WHERE id = $1)`, id.String()).Scan(&exists)
+	if err != nil {
+		return http.StatusInternalServerError, xerrors.Errorf("failed to check if deal exists: %w", err)
+	}
+
+	if !exists {
+		return http.StatusNotFound, xerrors.Errorf("deal not found")
+	}
+
+	// Get updated deal
+	ndeal, code, err := UpdateDealDetails(ctx, m.db, id, deal, &m.cfg.Market.StorageMarketConfig.MK20)
+	if err != nil {
+		return code, err
+	}
+
+	// Save the updated deal to DB
+	err = ndeal.UpdateDeal(ctx, m.db)
+	if err != nil {
+		return http.StatusInternalServerError, xerrors.Errorf("failed to update deal: %w", err)
+	}
+	return http.StatusOK, nil
+}

@@ -248,8 +248,12 @@ PDPV1 represents configuration for product-specific PDP version 1 deals.
 
 | Field | Type | Tag | Description |
 |-------|------|-----|-------------|
-| ProofSetID | [uint64](https://pkg.go.dev/builtin#uint64) | json:"proof_set_id" |  |
-| DeleteRoot | [bool](https://pkg.go.dev/builtin#bool) | json:"delete_root" | DeleteRoot indicates whether the root of the data should be deleted. This basically means end of deal lifetime.  |
+| CreateProofSet | [bool](https://pkg.go.dev/builtin#bool) | json:"create_proof_set" | CreateProofSet indicated that this deal is meant to create a new ProofSet for the client by storage provider.  |
+| DeleteProofSet | [bool](https://pkg.go.dev/builtin#bool) | json:"delete_proof_set" | DeleteProofSet indicated that this deal is meant to delete an existing ProofSet created by SP for the client. ProofSetID must be defined.  |
+| AddRoot | [bool](https://pkg.go.dev/builtin#bool) | json:"add_root" | AddRoot indicated that this deal is meant to add root to a given ProofSet. ProofSetID must be defined.  |
+| DeleteRoot | [bool](https://pkg.go.dev/builtin#bool) | json:"delete_root" | DeleteRoot indicates whether the root of the data should be deleted. ProofSetID must be defined.  |
+| ProofSetID | [*uint64](https://pkg.go.dev/builtin#uint64) | json:"proof_set_id" | ProofSetID is PDP verified contract proofset ID. It must be defined for all deals except when CreateProofSet is true.  |
+| ExtraData | [[]byte](https://pkg.go.dev/builtin#byte) | json:"extra_data" | ExtraData can be used to send additional information to service contract when Verifier action like AddRoot, DeleteRoot etc. are performed.  |
 
 ### PieceDataFormat
 

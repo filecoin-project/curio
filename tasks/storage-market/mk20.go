@@ -232,8 +232,8 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 			refIds = append(refIds, refID)
 		}
 
-		n, err := tx.Exec(`INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, ref_ids) VALUES ($1, $2, $3, $4)`,
-			dealID, pi.PieceCIDV1.String(), pi.Size, refIds)
+		n, err := tx.Exec(`INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, product, ref_ids) VALUES ($1, $2, $3, $4, $5)`,
+			dealID, pi.PieceCIDV1.String(), pi.Size, mk20.ProductNameDDOV1, refIds)
 		if err != nil {
 			return xerrors.Errorf("inserting mk20 download pipeline: %w", err)
 		}
@@ -331,15 +331,15 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 									  SELECT id, $4, $5, FALSE FROM selected_piece
 									  RETURNING ref_id
 									)
-									INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, ref_ids)
-									VALUES ($6, $1, $2, ARRAY[(SELECT ref_id FROM inserted_ref)])
-									ON CONFLICT (id, piece_cid, piece_size) DO UPDATE
+									INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, product, ref_ids)
+									VALUES ($6, $1, $2, $7, ARRAY[(SELECT ref_id FROM inserted_ref)])
+									ON CONFLICT (id, piece_cid, piece_size, product) DO UPDATE
 									SET ref_ids = array_append(
 									  market_mk20_download_pipeline.ref_ids,
 									  (SELECT ref_id FROM inserted_ref)
 									)
 									WHERE NOT market_mk20_download_pipeline.ref_ids @> ARRAY[(SELECT ref_id FROM inserted_ref)];`,
-					k.PieceCID.String(), k.Size, k.RawSize, src.URL, headers, k.ID)
+					k.PieceCID.String(), k.Size, k.RawSize, src.URL, headers, k.ID, mk20.ProductNameDDOV1)
 			}
 
 			if batch.Len() > batchSize {
@@ -392,8 +392,6 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 		}
 		return nil
 	}
-
-	// Insert pipeline when data
 
 	return xerrors.Errorf("unknown data source type")
 }
@@ -483,12 +481,12 @@ func (d *CurioStorageDealMarket) downloadMk20Deal(ctx context.Context, piece MK2
 			err = tx.QueryRow(`SELECT u.ref_id FROM (
 									  SELECT unnest(dp.ref_ids) AS ref_id
 									  FROM market_mk20_download_pipeline dp
-									  WHERE dp.id = $1 AND dp.piece_cid = $2 AND dp.piece_size = $3
+									  WHERE dp.id = $1 AND dp.piece_cid = $2 AND dp.piece_size = $3 AND dp.product = $4
 									) u
 									JOIN parked_piece_refs pr ON pr.ref_id = u.ref_id
 									JOIN parked_pieces pp ON pp.id = pr.piece_id
 									WHERE pp.complete = TRUE
-									LIMIT 1;`, piece.ID, piece.PieceCID, piece.PieceSize).Scan(&refid)
+									LIMIT 1;`, piece.ID, piece.PieceCID, piece.PieceSize, mk20.ProductNameDDOV1).Scan(&refid)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
 					return false, nil
@@ -496,8 +494,20 @@ func (d *CurioStorageDealMarket) downloadMk20Deal(ctx context.Context, piece MK2
 				return false, xerrors.Errorf("failed to check if the piece is downloaded: %w", err)
 			}
 
-			_, err = tx.Exec(`DELETE FROM market_mk20_download_pipeline WHERE id = $1 AND piece_cid = $2 AND piece_size = $3`,
-				piece.ID, piece.PieceCID, piece.PieceSize)
+			// Remove other ref_ids from piece_park_refs
+			_, err = tx.Exec(`DELETE FROM parked_piece_refs
+								WHERE ref_id IN (
+								  SELECT unnest(dp.ref_ids)
+								  FROM market_mk20_download_pipeline dp
+								  WHERE dp.id = $1 AND dp.piece_cid = $2 AND dp.piece_size = $3 AND dp.product = $4
+								)
+								AND ref_id != $5;`, piece.ID, piece.PieceCID, piece.PieceSize, mk20.ProductNameDDOV1, refid)
+			if err != nil {
+				return false, xerrors.Errorf("failed to remove other ref_ids from piece_park_refs: %w", err)
+			}
+
+			_, err = tx.Exec(`DELETE FROM market_mk20_download_pipeline WHERE id = $1 AND piece_cid = $2 AND piece_size = $3 AND product = $4;`,
+				piece.ID, piece.PieceCID, piece.PieceSize, mk20.ProductNameDDOV1)
 			if err != nil {
 				return false, xerrors.Errorf("failed to delete piece from download table: %w", err)
 			}
@@ -532,7 +542,7 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 	if piece.Offline && !piece.Downloaded && !piece.Started {
 		comm, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 			var updated bool
-			err = tx.QueryRow(`SELECT process_offline_download($1, $2, $3)`, piece.ID, piece.PieceCID, piece.PieceSize).Scan(&updated)
+			err = tx.QueryRow(`SELECT process_offline_download($1, $2, $3, $4)`, piece.ID, piece.PieceCID, piece.PieceSize, mk20.ProductNameDDOV1).Scan(&updated)
 			if err != nil {
 				if !errors.Is(err, pgx.ErrNoRows) {
 					return false, xerrors.Errorf("failed to start download for offline deal %s: %w", piece.ID, err)
@@ -627,10 +637,10 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 										  RETURNING ref_id
 										),
 										upsert_pipeline AS (
-										  INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, ref_ids)
-										  SELECT $1, $2, $3, array_agg(ref_id)
+										  INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, product, ref_ids)
+										  SELECT $1, $2, $3, $7, array_agg(ref_id)
 										  FROM inserted_ref
-										  ON CONFLICT (id, piece_cid, piece_size) DO UPDATE
+										  ON CONFLICT (id, piece_cid, piece_size, product) DO UPDATE
 										  SET ref_ids = (
 											SELECT array(
 											  SELECT DISTINCT r
@@ -641,7 +651,7 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 										UPDATE market_mk20_pipeline
 										SET started = TRUE
 										WHERE id = $1 AND piece_cid = $2 AND piece_size = $3 AND started = FALSE;`,
-					piece.ID, piece.PieceCID, piece.PieceSize, rawSize, urlString, hdrs)
+					piece.ID, piece.PieceCID, piece.PieceSize, rawSize, urlString, hdrs, mk20.ProductNameDDOV1)
 				if err != nil {
 					return false, xerrors.Errorf("failed to start download for offline deal using PieceLocator: %w", err)
 				}

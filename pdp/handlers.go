@@ -65,7 +65,7 @@ func NewPDPService(db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client
 func Routes(p *PDPService) http.Handler {
 
 	r := chi.NewRouter()
-	
+
 	// Routes for proof sets
 	r.Route("/proof-sets", func(r chi.Router) {
 		// POST /pdp/proof-sets - Create a new proof set

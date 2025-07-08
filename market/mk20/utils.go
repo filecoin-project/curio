@@ -43,7 +43,13 @@ func (d *Deal) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, er
 		return code, xerrors.Errorf("products validation failed: %w", err)
 	}
 
-	return d.Data.Validate(db)
+	// Validate data if present
+	if d.Data != nil {
+		return d.Data.Validate(db)
+	}
+
+	// Return without validating data for initial phase of /Put deals or PDP Delete deals
+	return Ok, nil
 }
 
 func (d *Deal) ValidateSignature() (ErrorCode, error) {
@@ -291,10 +297,18 @@ func GetPieceInfo(c cid.Cid) (*PieceInfo, error) {
 }
 
 func (d Products) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, error) {
+	var nproducts int
 	if d.DDOV1 != nil {
+		nproducts++
 		code, err := d.DDOV1.Validate(db, cfg)
 		if err != nil {
 			return code, err
+		}
+		if d.RetrievalV1 == nil {
+			return ErrProductValidationFailed, xerrors.Errorf("retrieval v1 is required for ddo v1")
+		}
+		if d.RetrievalV1.AnnouncePiece {
+			return ErrProductValidationFailed, xerrors.Errorf("announce piece is not supported for ddo v1")
 		}
 	}
 	if d.RetrievalV1 != nil {
@@ -304,11 +318,27 @@ func (d Products) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode,
 		}
 	}
 	if d.PDPV1 != nil {
+		nproducts++
 		code, err := d.PDPV1.Validate(db, cfg)
 		if err != nil {
 			return code, err
 		}
+		if d.RetrievalV1 == nil {
+			return ErrProductValidationFailed, xerrors.Errorf("retrieval v1 is required for pdp v1")
+		}
+		if d.RetrievalV1.Indexing || d.RetrievalV1.AnnouncePayload {
+			return ErrProductValidationFailed, xerrors.Errorf("payload indexing and announcement is not supported for pdp v1")
+		}
 	}
+
+	if nproducts == 0 {
+		return ErrProductValidationFailed, xerrors.Errorf("no products defined")
+	}
+
+	if d.DDOV1 != nil && d.PDPV1 != nil {
+		return ErrProductValidationFailed, xerrors.Errorf("ddo_v1 and pdp_v1 are mutually exclusive")
+	}
+
 	return Ok, nil
 }
 
@@ -432,7 +462,7 @@ func (d *Deal) SaveToDB(tx *harmonydb.Tx) error {
 	return nil
 }
 
-func (d *Deal) UpdateDeal(tx *harmonydb.Tx) error {
+func (d *Deal) UpdateDealWithTx(tx *harmonydb.Tx) error {
 	dbDeal, err := d.ToDBDeal()
 	if err != nil {
 		return xerrors.Errorf("to db deal: %w", err)
@@ -449,10 +479,35 @@ func (d *Deal) UpdateDeal(tx *harmonydb.Tx) error {
                             pdp_v1 = $8`, dbDeal.PieceCIDV2, dbDeal.PieceCID, dbDeal.Size, dbDeal.RawSize,
 		dbDeal.Data, dbDeal.DDOv1, dbDeal.RetrievalV1, dbDeal.PDPV1)
 	if err != nil {
-		return xerrors.Errorf("insert deal: %w", err)
+		return xerrors.Errorf("update deal: %w", err)
 	}
 	if n != 1 {
-		return xerrors.Errorf("insert deal: expected 1 row affected, got %d", n)
+		return xerrors.Errorf("update deal: expected 1 row affected, got %d", n)
+	}
+	return nil
+}
+
+func (d *Deal) UpdateDeal(ctx context.Context, db *harmonydb.DB) error {
+	dbDeal, err := d.ToDBDeal()
+	if err != nil {
+		return xerrors.Errorf("to db deal: %w", err)
+	}
+
+	n, err := db.Exec(ctx, `UPDATE market_mk20_deal SET 
+                            piece_cid_v2 = $1, 
+                            piece_cid = $2, 
+                            piece_size = $3, 
+                            raw_size = $4, 
+                            data = $5, 
+                            ddo_v1 = $6,
+                            retrieval_v1 = $7,
+                            pdp_v1 = $8`, dbDeal.PieceCIDV2, dbDeal.PieceCID, dbDeal.Size, dbDeal.RawSize,
+		dbDeal.Data, dbDeal.DDOv1, dbDeal.RetrievalV1, dbDeal.PDPV1)
+	if err != nil {
+		return xerrors.Errorf("update deal: %w", err)
+	}
+	if n != 1 {
+		return xerrors.Errorf("update deal: expected 1 row affected, got %d", n)
 	}
 	return nil
 }
@@ -695,4 +750,36 @@ type UploadStatus struct {
 
 	//MissingChunks is a slice containing the indices of missing chunks.
 	MissingChunks []int `json:"missing_chunks"`
+}
+
+func UpdateDealDetails(ctx context.Context, db *harmonydb.DB, id ulid.ULID, deal *Deal, cfg *config.MK20Config) (*Deal, ErrorCode, error) {
+	ddeal, err := DealFromDB(ctx, db, id)
+	if err != nil {
+		return nil, http.StatusInternalServerError, xerrors.Errorf("getting deal from DB: %w", err)
+	}
+
+	// Run the following checks
+	// If Data details exist, do not update them
+	// If DDOV1 is defined then no update to it
+	// If PDPV1 is defined then no update to it
+	// If PDPv1 is defined by DDOV1 is not, then allow updating it
+	// If DDOV1 is defined then don't allow PDPv1 yet
+
+	if ddeal.Data == nil {
+		ddeal.Data = deal.Data
+	}
+
+	if ddeal.Products.DDOV1 == nil || deal.Products.DDOV1 != nil {
+		return nil, ErrBadProposal, xerrors.Errorf("ddov1 update is not yet supported")
+	}
+
+	if ddeal.Products.RetrievalV1 == nil || deal.Products.RetrievalV1 != nil {
+		ddeal.Products.RetrievalV1 = deal.Products.RetrievalV1
+	}
+
+	code, err := ddeal.Validate(db, cfg)
+	if err != nil {
+		return nil, code, xerrors.Errorf("validate deal: %w", err)
+	}
+	return ddeal, Ok, nil
 }

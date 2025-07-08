@@ -289,11 +289,14 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			pdp.NewWatcherCreate(db, must.One(dependencies.EthClient.Val()), chainSched)
 			pdp.NewWatcherRootAdd(db, must.One(dependencies.EthClient.Val()), chainSched)
 
-			pdpProveTask := pdp.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), dependencies.Chain, es, dependencies.CachedPieceReader)
+			pdpAggregateTask := pdp.NewAggregatePDPDealTask(db, sc)
+			pdpCache := pdp.NewTaskSavePDPCache(db, dependencies.CachedPieceReader, iStore)
+			pdpAddRoot := pdp.NewPDPTaskAddRoot(db, es, must.One(dependencies.EthClient.Val()))
+			pdpProveTask := pdp.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), dependencies.Chain, es, dependencies.CachedPieceReader, iStore)
 			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
 			pdpInitProvingPeriodTask := pdp.NewInitProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
 			pdpNotifTask := pdp.NewPDPNotifyTask(db)
-			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask)
+			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, pdpAddRoot, pdpAggregateTask, pdpCache)
 		}
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)

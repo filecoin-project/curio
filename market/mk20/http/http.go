@@ -75,6 +75,7 @@ func Router(mdh *MK20DealHandler) http.Handler {
 	mux.Method("GET", "/info", http.TimeoutHandler(http.HandlerFunc(mdh.info), requestTimeout, "request timeout"))
 	mux.Method("GET", "/products", http.TimeoutHandler(http.HandlerFunc(mdh.supportedProducts), requestTimeout, "request timeout"))
 	mux.Method("GET", "/sources", http.TimeoutHandler(http.HandlerFunc(mdh.supportedDataSources), requestTimeout, "request timeout"))
+	mux.Method("GET", "/update", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UpdateDeal), requestTimeout, "request timeout"))
 	return mux
 }
 
@@ -453,5 +454,79 @@ func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	mdh.dm.MK20Handler.HandleUploadFinalize(id, w)
+	ct := r.Header.Get("Content-Type")
+	// If Content-Type is not set this is does not require updating the deal
+	if len(ct) == 0 {
+		log.Infow("received finalize upload proposal without content type", "id", id)
+		mdh.dm.MK20Handler.HandleUploadFinalize(id, nil, w)
+		return
+	}
+
+	var deal mk20.Deal
+	if ct != "application/json" {
+		log.Errorf("invalid content type: %s", ct)
+		http.Error(w, "invalid content type", http.StatusBadRequest)
+		return
+	}
+
+	defer r.Body.Close()
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		log.Errorf("error reading request body: %s", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	log.Infow("received upload finalize proposal", "body", string(body))
+
+	err = json.Unmarshal(body, &deal)
+	if err != nil {
+		log.Errorf("error unmarshaling json: %s", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	mdh.dm.MK20Handler.HandleUploadFinalize(id, &deal, w)
+}
+
+func (mdh *MK20DealHandler) mk20UpdateDeal(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	if idStr == "" {
+		log.Errorw("missing id in url", "url", r.URL)
+		http.Error(w, "missing id in url", http.StatusBadRequest)
+	}
+
+	id, err := ulid.Parse(idStr)
+	if err != nil {
+		log.Errorw("invalid id in url", "id", idStr, "err", err)
+		http.Error(w, "invalid id in url", http.StatusBadRequest)
+		return
+	}
+
+	ct := r.Header.Get("Content-Type")
+	var deal mk20.Deal
+	if ct != "application/json" {
+		log.Errorf("invalid content type: %s", ct)
+		http.Error(w, "invalid content type", http.StatusBadRequest)
+		return
+	}
+
+	defer r.Body.Close()
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		log.Errorf("error reading request body: %s", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err = json.Unmarshal(body, &deal)
+	if err != nil {
+		log.Errorf("error unmarshaling json: %s", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	log.Infow("received deal update proposal", "body", string(body))
+
+	mdh.dm.MK20Handler.UpdateDeal(id, &deal, w)
 }

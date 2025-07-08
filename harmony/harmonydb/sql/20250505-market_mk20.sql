@@ -226,10 +226,11 @@ CREATE TABLE market_mk20_pipeline_waiting (
 
 CREATE TABLE market_mk20_download_pipeline (
     id TEXT NOT NULL,
+    product TEXT NOT NULL, -- This allows us to run multiple refs per product for easier lifecycle management
     piece_cid TEXT NOT NULL, -- This is pieceCid V1 to allow easy table lookups
     piece_size BIGINT NOT NULL,
     ref_ids BIGINT[] NOT NULL,
-    PRIMARY KEY (id, piece_cid, piece_size)
+    PRIMARY KEY (id, product, piece_cid, piece_size)
 );
 
 CREATE TABLE market_mk20_offline_urls (
@@ -274,7 +275,8 @@ INSERT INTO market_mk20_data_source (name, enabled) VALUES ('put', TRUE);
 CREATE OR REPLACE FUNCTION process_offline_download(
   _id TEXT,
   _piece_cid TEXT,
-  _piece_size BIGINT
+  _piece_size BIGINT,
+  _product TEXT
 ) RETURNS BOOLEAN AS $$
 DECLARE
   _url TEXT;
@@ -320,9 +322,9 @@ BEGIN
         RETURNING ref_id INTO _ref_id;
 
     -- 6. Insert or update download pipeline with ref_id
-    INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, ref_ids)
-    VALUES (_id, _piece_cid, _piece_size, ARRAY[_ref_id])
-    ON CONFLICT (id, piece_cid, piece_size) DO UPDATE
+    INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, product, ref_ids)
+    VALUES (_id, _piece_cid, _piece_size, _product, ARRAY[_ref_id])
+    ON CONFLICT (id, piece_cid, piece_size, product) DO UPDATE
     SET ref_ids = (
         SELECT ARRAY(
             SELECT DISTINCT r
@@ -343,13 +345,112 @@ $$ LANGUAGE plpgsql;
 ALTER TABLE parked_pieces
  ADD COLUMN skip BOOLEAN DEFAULT FALSE;
 
+CREATE TABLE pdp_proof_set (
+    id BIGINT PRIMARY KEY, -- on-chain proofset id
+    client TEXT NOT NULL, -- client wallet which requested this proofset
+
+    -- updated when a challenge is requested (either by first proofset add or by invokes of nextProvingPeriod)
+    -- initially NULL on fresh proofsets.
+    prev_challenge_request_epoch BIGINT,
+
+    -- task invoking nextProvingPeriod, the task should be spawned any time prove_at_epoch+challenge_window is in the past
+    challenge_request_task_id BIGINT REFERENCES harmony_task(id) ON DELETE SET NULL,
+
+    -- nextProvingPeriod message hash, when the message lands prove_task_id will be spawned and
+    -- this value will be set to NULL
+    challenge_request_msg_hash TEXT,
+
+    -- the proving period for this proofset and the challenge window duration
+    proving_period BIGINT,
+    challenge_window BIGINT,
+
+    -- the epoch at which the next challenge window starts and proofs can be submitted
+    -- initialized to NULL indicating a special proving period init task handles challenge generation
+    prove_at_epoch BIGINT,
+
+    -- flag indicating that the proving period is ready for init.  Currently set after first add
+    -- Set to true after first root add
+    init_ready BOOLEAN NOT NULL DEFAULT FALSE,
+
+    create_deal_id TEXT NOT NULL, -- mk20 deal ID for creating this proofset
+    create_message_hash TEXT NOT NULL,
+
+    remove_deal_id TEXT DEFAULT NULL, -- mk20 deal ID for removing this proofset
+    remove_message_hash TEXT DEFAULT NULL,
+
+    unique (create_deal_id),
+    unique (remove_deal_id)
+);
+
+CREATE TABLE pdp_proof_set_create (
+    id TEXT PRIMARY KEY, -- This is Market V2 Deal ID for lookup and response
+    client TEXT NOT NULL,
+
+    record_keeper TEXT NOT NULL,
+    extra_data BYTEA,
+    task_id BIGINT DEFAULT NULL,
+
+    tx_hash TEXT DEFAULT NULL
+);
+
+CREATE TABLE pdp_proofset_root (
+    proofset BIGINT NOT NULL, -- pdp_proof_sets.id
+    client TEXT NOT NULL,
+
+    piece_cid_v2 TEXT NOT NULL, -- root cid (piececid v2)
+    piece_cid TEXT NOT NULL,
+    piece_size BIGINT NOT NULL,
+    raw_size BIGINT NOT NULL,
+
+    root BIGINT DEFAULT NULL, -- on-chain index of the root in the rootCids sub-array
+
+    piece_ref BIGINT NOT NULL, -- piece_ref_id
+
+    add_deal_id TEXT NOT NULL, -- mk20 deal ID for adding this root to proofset
+    add_message_hash TEXT NOT NULL,
+    add_message_index BIGINT NOT NULL, -- index of root in the add message
+
+    remove_deal_id TEXT DEFAULT NULL, -- mk20 deal ID for removing this root from proofset
+    remove_message_hash TEXT DEFAULT NULL,
+    remove_message_index BIGINT DEFAULT NULL,
+
+    CONSTRAINT pdp_proofset_roots_root_id_unique PRIMARY KEY (proofset, root_id)
+);
 
 CREATE TABLE pdp_pipeline (
+    created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
+
     id TEXT PRIMARY KEY,
-    piece_cid TEXT NOT NULL, -- v2 piece_cid
+    client TEXT NOT NULL,
+    piece_cid_v2 TEXT NOT NULL, -- v2 piece_cid
+
+    piece_cid TEXT NOT NULL,
+    piece_size BIGINT NOT NULL,
+    raw_size BIGINT NOT NULL,
+
+    proof_set_id BIGINT NOT NULL,
+
+    extra_data BYTEA NOT NULL,
+
+    piece_ref BIGINT DEFAULT NULL,
+
+    downloaded BOOLEAN DEFAULT FALSE,
+
+    deal_aggregation INT NOT NULL DEFAULT 0,
+    aggr_index BIGINT DEFAULT 0,
+    agg_task_id BIGINT DEFAULT NULL,
+    aggregated BOOLEAN DEFAULT FALSE,
+
+    save_cache_task_id BIGINT DEFAULT NULL,
+    after_save_cache BOOLEAN DEFAULT FALSE,
 
     add_root_task_id BIGINT DEFAULT NULL,
     after_add_root BOOLEAN DEFAULT FALSE,
+
+    add_message_hash TEXT NOT NULL,
+    add_message_index BIGINT NOT NULL DEFAULT 0, -- index of root in the add message
+
+    after_add_root_msg BOOLEAN DEFAULT FALSE,
 
     indexing BOOLEAN DEFAULT FALSE,
     indexing_created_at TIMESTAMPTZ DEFAULT NULL,
