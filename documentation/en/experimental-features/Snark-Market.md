@@ -1,37 +1,39 @@
 
-# Curio Snark Market – Provider Guide
+# 🧠 Snark Market Setup (Experimental)
 
-This document explains how to operate a SNARK provider node for the Curio Snark Market. It is intended for both dedicated infrastructure teams and storage providers with spare sealing hardware who wish to monetize idle GPU capacity.
-
-> ⚠️ **Experimental Feature Warning**  
-> The Snark Market is currently **experimental** and in **active testing**.  
-> Configuration, pricing mechanisms, and APIs may **change without notice**.  
-> Use only on non-critical infrastructure or with explicit understanding of the risks.
+> ⚠️ **Experimental Feature in Testing**  
+> This feature is currently experimental and under active testing. Interfaces, behaviors, and requirements **may change without notice**.
 
 ---
 
-## 🧠 What is the Snark Market?
+## 🔧 What is the Snark Market?
 
-The Curio Snark Market enables **remote, paid computation of zk-SNARKs** for Filecoin proof pipelines. It allows:
+The Snark Market allows any Curio node — **including Storage Providers with spare sealing/GPU capacity** — to sell or buy proof computation in exchange for FIL. It is designed for GPU nodes that want to participate in Filecoin proof offloading, enabling a decentralized proof marketplace.
 
-- **Storage providers** to outsource heavy PoRep/Snap proof jobs
-- **SNARK providers** (you) to sell GPU compute for FIL
-- **Fast, verifiable, decentralized off-chain proof routing**
+This guide will walk you through how to:
 
-The system operates with:
+- Enable proof selling on GPU nodes
+- Set up the pricing and wallet
+- See activity and settlement stats in the UI
 
-- A shared coordination hub (`snark-hub.curiostorage.org`)
-- A price-per-constraint unit marketplace (FIL/P)
-- Fully permissionless proof exchange between Curio nodes
+---
 
-> ❗ Do not configure this role on your PoSt workers. This is a dedicated role for proof compute only.
+## ⚙️ Prerequisites
+
+Before enabling the Snark Market on your node:
+
+- You must be running a Curio node with GPU capabilities.
+- You must have a working web UI.
+- You need **YugabyteDB** installed.  
+  👉 Follow the official setup instructions here:  
+  [https://docs.curiostorage.org/setup#setup-yugabytedb](https://docs.curiostorage.org/setup#setup-yugabytedb)
 
 ---
 
 ## ⚙️ System Requirements
 
-- Modern **NVIDIA GPUs** (recommended 12GB+ VRAM)
-- Curio from `origin/feat/snkss` branch (with Snark Market support)
+- Modern **NVIDIA GPU** (recommended 12GB+ VRAM)
+- Curio from `origin/feat/snkss` branch (Snark Market support)
 - FIL balance on Mainnet
 
 ---
@@ -47,81 +49,80 @@ git submodule update
 make clean
 RUSTFLAGS="-C target-cpu=native -g" FFI_BUILD_FROM_SOURCE=1 FFI_USE_CUDA_SUPRASEAL=1 make clean build all
 sudo make install
-sudo systemctl restart curio.service
-```
-
-### 2. Initialize Standalone SNARK Node
-
-```bash
-mkdir -p ~/.curio-snark
-curio config new-cluster --repo-path ~/.curio-snark --db-host 127.0.0.1
+sudo systemctl start curio.service
 ```
 
 ---
 
-### 3. Start Local Yugabyte
+## 🛠️ Step-by-step Setup
 
-```bash
-docker run -d --name yugabyte \
-  -p 5433:5433 -p 7000:7000 \
-  yugabytedb/yugabyte:latest bin/yugabyted start --daemon=false
-```
+### 2. Enable the Market in Layer Configuration
 
----
+Ensure you're **not running on a WindowPoSt node**. This is only supported on GPU-based PoRep or Snap nodes. In the Web UI:
 
-### 4. Configure the SNARK Provider
+1. Go to `Overview` → `Configuration`
+2. Find the **Subsystems** section
+3. Enable `proof_share` or `Enable Snark Market`
+4. Save and restart the node
 
-Edit `~/.curio-snark/config.toml`:
-
-```toml
-[Subsystems]
-EnableSnarkMarketProvider = true
-
-[SnarkMarket]
-HubAddress = "/dns4/snark-hub.curiostorage.org/tcp/19000"
-ProviderWallet = "t3..."   # mainnet wallet for rewards
-```
-
-- **Do not** set `EnableWindowPost = true` – this must be omitted
-- **Price per constraint** is configured via the UI (not here)
+> 📸 _Insert Screenshot 1 here: Layer config with checkbox enabled_
 
 ---
 
-### 5. Start the Node
+### 3. Configure Provider Settings
 
-```bash
-curio run --repo-path ~/.curio-snark --layers=snark-worker
-```
+Navigate to `Snark Market` in the sidebar. Under **Provider Settings**:
 
-The node connects to the hub and registers as a proof provider.
+- Enable the settings checkbox
+- **Create a new `f1` wallet** (do _not_ reuse existing wallet)  
+  ⚠️ _Please note: This wallet can be changed later, but it is tricky_
+- Set **Price (FIL/p)** to `0.005` (recommended for testing)
+- Click **Update Settings**
 
----
-
-## 📊 Snark Market UI
-
-Access: `http://localhost:4701/pages/proofshare/`
-
-From the UI, you can:
-
-- Set `FIL/P` pricing for proofs
-- View completed proof tasks
-- Monitor settlements and reward history
+> 📸 _Insert Screenshot 2 here: Provider setup with wallet + price_
 
 ---
 
-### ✅ Active Provider Dashboard Example
+### 4. Verify Your Node
 
-![Screenshot 1](Screenshot%202025-06-29%20at%2017.06.45.jpeg)
+Once you've configured the provider settings:
 
-### 🟡 Fresh Node Example
+- Your node will automatically begin queueing proof work
+- The dashboard will update with:
+  - Active Asks
+  - SNARK Queue
+  - Payment Summaries
+  - Recent Settlements
 
-![Screenshot 2](Screenshot%202025-06-29%20at%2017.06.58.jpeg)
+> 📸 _Insert Screenshot 3 here: Active SNARK Market UI_
 
 ---
 
-## 🧾 Settlement and Earnings
+## 🪙 Wallet Setup Notes
 
-- Each proof task is listed under **Queue**
-- Rewards are shown per task with earned FIL
-- Settlements are batched and CID-linked
+- Go to the **Wallets** section in the Web UI
+- Create a **new `f1` address** and fund it (e.g. `0.1 FIL`)
+- This wallet receives SNARK proof rewards
+- Ensure the wallet remains **unlocked**
 
+---
+
+## 📈 Pricing & Payments
+
+- Price is set per ~130M proof constraints (default granularity)
+- Suggested testing price: `0.005 FIL`
+- Settlements occur automatically when nonce limit is hit
+- A 20% fee is applied (subject to change)
+
+---
+
+## 🧪 Notes
+
+- Your provider must complete **5 challenge proofs** before appearing in the global provider view
+- Proofs must complete within **30 minutes**, or your node will lose its active slot and need to **re-earn trust**
+- The system is **fault-tolerant** and retries failed work automatically
+- You can **scale horizontally** by running more GPU workers with the same setup
+
+---
+
+Let us know on Slack if you’re testing `#fil-curio-help` — we’ll be actively monitoring for feedback and performance 🚀
