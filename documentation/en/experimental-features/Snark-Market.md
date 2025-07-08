@@ -118,7 +118,13 @@ Once you've configured the provider settings:
 
 ## 🧪 Notes
 
-- Your provider must complete **5 challenge proofs** before appearing in the global provider view
+- Your provider must complete **50 challenge proofs** per "work-slot"
+-  Each "work-slot" is allows for either one "work ask" in the market - listing of readiness to take on work on one proof for some minimum price, or one "assigned proof" which is being actively worked on.
+- Number of work slots is calculated by dividing "completed challenge proofs" by **50**
+- Failure to complete assigned work within the deadline reduces "completed challenge proofs" balance by **50** proofs
+- Withdrawing an ask from the market (i.e. in order to adjust ask price) reduces "completed challenge proofs" balance by **1** proof
+-  "challenge proofs" are gained only by completing unpaid challenge proofs, which are assigned when attempting to create a work ask while the challenge balance is too low.
+- The service *may* assign real proofs as challenges, but only if they were failed by other providers and no other provider can be found who can take the payment
 - Proofs must complete within **30 minutes**, or your node will lose its active slot and need to **re-earn trust**
 - The system is **fault-tolerant** and retries failed work automatically
 - You can **scale horizontally** by running more GPU workers with the same setup
