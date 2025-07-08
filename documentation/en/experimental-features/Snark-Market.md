@@ -127,6 +127,7 @@ Once you've configured the provider settings:
 - The service *may* assign real proofs as challenges, but only if they were failed by other providers and no other provider can be found who can take the payment
 - Proofs must complete within **45 minutes**, or your node will lose its active slot and need to **re-earn trust**
 - The system is **fault-tolerant** and retries failed work automatically
+  - You may be assigned retry proofs which come with non-current, potentially lower than current, still higher than your minimum price per proof.
 - You can **scale horizontally** by running more GPU workers with the same setup
 
 ---
