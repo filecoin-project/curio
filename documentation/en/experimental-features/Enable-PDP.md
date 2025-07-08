@@ -44,7 +44,6 @@ Once done, please proceed with [PDP owner](Enable-PDP.md#pdp-owner) and [PDP ser
     ```bash
     git clone https://github.com/filecoin-project/curio.git
     cd curio/
-    git checkout feat/pdp
     ```
 
 
@@ -130,7 +129,6 @@ To build the client binary, clone the Curio repo and build the PDP client.&#x20;
 ```bash
 git clone https://github.com/filecoin-project/curio.git
 cd curio/
-git checkout feat/pdp
 make pdptool
 ```
 
