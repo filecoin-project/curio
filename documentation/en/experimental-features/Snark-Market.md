@@ -42,6 +42,15 @@ Before enabling the Snark Market on your node:
 
 ### 1. Install Curio
 
+First, install dependencies (as per the [main install guide](https://docs.curiostorage.org/setup)):
+
+```bash
+sudo apt update
+sudo apt install -y build-essential pkg-config libssl-dev curl git clang cmake golang
+```
+
+Then, build Curio from the Snark Market branch:
+
 ```bash
 git pull
 git checkout origin/feat/snkss
