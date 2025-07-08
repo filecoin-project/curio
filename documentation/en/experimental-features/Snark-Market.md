@@ -125,7 +125,7 @@ Once you've configured the provider settings:
 - Withdrawing an ask from the market (i.e. in order to adjust ask price) reduces "completed challenge proofs" balance by **1** proof
 -  "challenge proofs" are gained only by completing unpaid challenge proofs, which are assigned when attempting to create a work ask while the challenge balance is too low.
 - The service *may* assign real proofs as challenges, but only if they were failed by other providers and no other provider can be found who can take the payment
-- Proofs must complete within **30 minutes**, or your node will lose its active slot and need to **re-earn trust**
+- Proofs must complete within **45 minutes**, or your node will lose its active slot and need to **re-earn trust**
 - The system is **fault-tolerant** and retries failed work automatically
 - You can **scale horizontally** by running more GPU workers with the same setup
 
