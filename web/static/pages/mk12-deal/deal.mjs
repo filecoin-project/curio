@@ -33,17 +33,21 @@ class DealDetails extends LitElement {
                 {property: 'Signed Proposal Cid', value: entry.signed_proposal_cid},
                 {property: 'Offline', value: entry.offline},
                 {property: 'Verified', value: entry.verified},
-                {property: 'Is Legacy', value: entry.is_legacy},
                 {property: 'Is DDO', value: entry.is_ddo},
                 {property: 'Start Epoch', value: html`<pretty-epoch .epoch=${entry.start_epoch}></pretty-epoch>`},
                 {property: 'End Epoch', value: html`<pretty-epoch .epoch=${entry.end_epoch}></pretty-epoch>`},
                 {property: 'Client Peer ID', value: html`<cu-wallet wallet_id=${entry.client_peer_id}></cu-wallet>`},
                 {property: 'Chain Deal ID', value: entry.chain_deal_id},
                 {property: 'Publish CID', value: entry.publish_cid},
-                {property: 'Piece CID', value: html`<a href="/pages/piece/?id=${entry.piece_cid}">${entry.piece_cid}</a>`},
+                {property: 'Piece CID', value: entry.piece_cid},
+                {property: 'Piece CID V2', value: entry.piece_cid_v2 && entry.piece_cid_v2.trim() !== ''
+                        ? html`<a href="/pages/piece/?id=${entry.piece_cid_v2}">${entry.piece_cid_v2}</a>`
+                        : 'N/A'},
                 {property: 'Piece Size', value: entry.piece_size},
+                {property: 'Raw Size', value: entry.raw_size || 'N/A'},
                 {property: 'Fast Retrieval', value: entry.fast_retrieval},
                 {property: 'Announce To IPNI', value: entry.announce_to_ipni},
+                {property: 'Indexed', value: entry.indexed ? 'Yes' : 'No'},
                 {property: 'Url', value: entry.url},
                 {property: 'Url Headers', value: html`
                         <details>

@@ -19,8 +19,9 @@ import (
 )
 
 type ProofSetCreate struct {
-	CreateMessageHash string `db:"create_message_hash"`
-	Service           string `db:"service"`
+	CreateMessageHash string `db:"tx_hash"`
+	ID                string `db:"id"`
+	Client            string `db:"client"`
 }
 
 func NewWatcherCreate(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
@@ -40,10 +41,9 @@ func processPendingProofSetCreates(ctx context.Context, db *harmonydb.DB, ethCli
 	var proofSetCreates []ProofSetCreate
 
 	err := db.Select(ctx, &proofSetCreates, `
-        SELECT create_message_hash, service
-        FROM pdp_proofset_creates
-        WHERE ok = TRUE AND proofset_created = FALSE
-    `)
+        SELECT id, client, tx_hash,
+        FROM pdp_proof_set_create
+        WHERE tx_hash IS NOT NULL`)
 	if err != nil {
 		return xerrors.Errorf("failed to select proof set creates: %w", err)
 	}
@@ -68,11 +68,12 @@ func processPendingProofSetCreates(ctx context.Context, db *harmonydb.DB, ethCli
 func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCreate, ethClient *ethclient.Client) error {
 	// Retrieve the tx_receipt from message_waits_eth
 	var txReceiptJSON []byte
+	var txSuccess bool
 	err := db.QueryRow(ctx, `
-        SELECT tx_receipt
+        SELECT tx_success, tx_receipt 
         FROM message_waits_eth
         WHERE signed_tx_hash = $1
-    `, psc.CreateMessageHash).Scan(&txReceiptJSON)
+    `, psc.CreateMessageHash).Scan(&txReceiptJSON, &txSuccess)
 	if err != nil {
 		return xerrors.Errorf("failed to get tx_receipt for tx %s: %w", psc.CreateMessageHash, err)
 	}
@@ -82,6 +83,38 @@ func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCr
 	err = json.Unmarshal(txReceiptJSON, &txReceipt)
 	if err != nil {
 		return xerrors.Errorf("failed to unmarshal tx_receipt for tx %s: %w", psc.CreateMessageHash, err)
+	}
+
+	// Exit early if transaction executed with failure
+	if !txSuccess {
+		// This means msg failed, we should let the user know
+		// TODO: Review if error would be in receipt
+		comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			n, err := tx.Exec(`UPDATE market_mk20_deal
+									SET pdp_v1 = jsonb_set(
+													jsonb_set(pdp_v1, '{error}', to_jsonb($1::text), true),
+													'{complete}', to_jsonb(true), true
+												 )
+									WHERE id = $2;`, "Transaction failed", psc.ID)
+			if err != nil {
+				return false, xerrors.Errorf("failed to update market_mk20_deal: %w", err)
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
+			}
+			_, err = tx.Exec(`DELETE FROM pdp_proof_set_create WHERE id = $1`, psc.ID)
+			if err != nil {
+				return false, xerrors.Errorf("failed to delete pdp_proof_set_create: %w", err)
+			}
+			return true, nil
+		})
+		if err != nil {
+			return xerrors.Errorf("failed to commit transaction: %w", err)
+		}
+		if !comm {
+			return xerrors.Errorf("failed to commit transaction")
+		}
+		return nil
 	}
 
 	// Parse the logs to extract the proofSetId
@@ -108,20 +141,37 @@ func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCr
 		return xerrors.Errorf("failed to get max proving period: %w", err)
 	}
 
-	// Insert a new entry into pdp_proof_sets
-	err = insertProofSet(ctx, db, psc.CreateMessageHash, proofSetId, psc.Service, provingPeriod, challengeWindow)
-	if err != nil {
-		return xerrors.Errorf("failed to insert proof set %d for tx %+v: %w", proofSetId, psc, err)
-	}
+	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		n, err := tx.Exec(`INSERT INTO pdp_proof_set (id, client, proving_period, challenge_window, create_deal_id, create_message_hash) 
+								VALUES ($1, $2, $3, $4, $5, $6)`, proofSetId, psc.Client, provingPeriod, challengeWindow, psc.ID, psc.CreateMessageHash)
+		if err != nil {
+			return false, xerrors.Errorf("failed to insert pdp_proof_set_create: %w", err)
+		}
+		if n != 1 {
+			return false, xerrors.Errorf("expected 1 row to be inserted, got %d", n)
+		}
 
-	// Update pdp_proofset_creates to set proofset_created = TRUE
-	_, err = db.Exec(ctx, `
-        UPDATE pdp_proofset_creates
-        SET proofset_created = TRUE
-        WHERE create_message_hash = $1
-    `, psc.CreateMessageHash)
+		n, err = tx.Exec(`UPDATE market_mk20_deal
+							SET pdp_v1 = jsonb_set(pdp_v1, '{complete}', 'true'::jsonb, true)
+							WHERE id = $1;`, "Transaction failed", psc.ID)
+		if err != nil {
+			return false, xerrors.Errorf("failed to update market_mk20_deal: %w", err)
+		}
+		if n != 1 {
+			return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
+		}
+
+		_, err = tx.Exec(`DELETE FROM pdp_proof_set_create WHERE id = $1`, psc.ID)
+		if err != nil {
+			return false, xerrors.Errorf("failed to delete pdp_proof_set_create: %w", err)
+		}
+		return true, nil
+	})
 	if err != nil {
-		return xerrors.Errorf("failed to update proofset_creates for tx %s: %w", psc.CreateMessageHash, err)
+		return xerrors.Errorf("failed to commit transaction: %w", err)
+	}
+	if !comm {
+		return xerrors.Errorf("failed to commit transaction")
 	}
 
 	return nil
@@ -150,16 +200,6 @@ func extractProofSetIdFromReceipt(receipt *types.Receipt) (uint64, error) {
 	}
 
 	return 0, xerrors.Errorf("ProofSetCreated event not found in receipt")
-}
-
-func insertProofSet(ctx context.Context, db *harmonydb.DB, createMsg string, proofSetId uint64, service string, provingPeriod uint64, challengeWindow uint64) error {
-	// Implement the insertion into pdp_proof_sets table
-	// Adjust the SQL statement based on your table schema
-	_, err := db.Exec(ctx, `
-        INSERT INTO pdp_proof_sets (id, create_message_hash, service, proving_period, challenge_window)
-        VALUES ($1, $2, $3, $4, $5)
-    `, proofSetId, createMsg, service, provingPeriod, challengeWindow)
-	return err
 }
 
 func getProvingPeriodChallengeWindow(ctx context.Context, ethClient *ethclient.Client, listenerAddr common.Address) (uint64, uint64, error) {

@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"testing"
-	"time"
 
 	carv2 "github.com/ipld/go-car/v2"
 	"github.com/ipld/go-car/v2/blockstore"
@@ -32,7 +31,8 @@ func TestNewIndexStore(t *testing.T) {
 	ctx := context.Background()
 	cfg := config.DefaultCurioConfig()
 
-	idxStore, err := NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
+	idxStore := NewIndexStore([]string{envElse("CURIO_HARMONYDB_HOSTS", "127.0.0.1")}, 9042, cfg)
+	err := idxStore.Start(ctx, true)
 	require.NoError(t, err)
 
 	// Create a car file and calculate commP
@@ -42,7 +42,7 @@ func TestNewIndexStore(t *testing.T) {
 		_ = os.RemoveAll(dir)
 	}()
 
-	rf, err := testutils.CreateRandomFile(dir, time.Now().Unix(), 8000000)
+	rf, err := testutils.CreateRandomTmpFile(dir, 8000000)
 	require.NoError(t, err)
 
 	caropts := []carv2.Option{
@@ -111,15 +111,34 @@ func TestNewIndexStore(t *testing.T) {
 	pcids, err := idxStore.PiecesContainingMultihash(ctx, m)
 	require.NoError(t, err)
 	require.Len(t, pcids, 1)
-	require.Equal(t, pcids[0].PieceCid.String(), commp.PieceCID.String())
+	require.Equal(t, pcids[0].PieceCidV2.String(), commp.PieceCID.String())
 
 	// Remove all indexes from the store
-	err = idxStore.RemoveIndexes(ctx, pcids[0].PieceCid)
+	err = idxStore.RemoveIndexes(ctx, pcids[0].PieceCidV2)
 	require.NoError(t, err)
+
+	err = idxStore.session.Query("SELECT * FROM PieceToAggregatePiece").Exec()
+	require.NoError(t, err)
+
+	aggrRec := Record{
+		Cid:    commp.PieceCID,
+		Offset: 0,
+		Size:   100,
+	}
+
+	err = idxStore.InsertAggregateIndex(ctx, commp.PieceCID, []Record{aggrRec})
+	require.NoError(t, err)
+
+	x, err := idxStore.FindPieceInAggregate(ctx, commp.PieceCID)
+	require.NoError(t, err)
+	require.Len(t, x, 1)
+	require.Equal(t, x[0].Cid, commp.PieceCID)
 
 	// Drop the tables
 	err = idxStore.session.Query("DROP TABLE PayloadToPieces").Exec()
 	require.NoError(t, err)
 	err = idxStore.session.Query("DROP TABLE PieceBlockOffsetSize").Exec()
+	require.NoError(t, err)
+	err = idxStore.session.Query("DROP TABLE piecetoaggregatepiece").Exec()
 	require.NoError(t, err)
 }

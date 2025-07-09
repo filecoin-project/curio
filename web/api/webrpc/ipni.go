@@ -12,10 +12,13 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+
+	"github.com/filecoin-project/curio/lib/commcidv2"
 )
 
 type IpniAd struct {
@@ -36,7 +39,8 @@ type IpniAd struct {
 	EntryCount int64 `json:"entry_count"`
 	CIDCount   int64 `json:"cid_count"`
 
-	AdCids []string `db:"-" json:"ad_cids"`
+	AdCids     []string `db:"-" json:"ad_cids"`
+	PieceCidV2 string   `db:"-" json:"piece_cid_v2"`
 }
 
 func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
@@ -96,9 +100,22 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 		return nil, xerrors.Errorf("failed to unmarshal piece info: %w", err)
 	}
 
+	// Get RawSize from market_piece_deal to calculate PieceCidV2
+	var rawSize uint64
+	err = a.deps.DB.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 LIMIT 1;`, pi.PieceCID, pi.Size).Scan(&rawSize)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get raw size: %w", err)
+	}
+
+	pcidv2, err := commcidv2.PieceCidV2FromV1(pi.PieceCID, rawSize)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get commp: %w", err)
+	}
+
 	details.PieceCid = pi.PieceCID.String()
 	size := int64(pi.Size)
 	details.PieceSize = size
+	details.PieceCidV2 = pcidv2.String()
 
 	maddr, err := address.NewIDAddress(uint64(details.SpID))
 	if err != nil {
@@ -123,7 +140,7 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 		CIDCount   int64 `db:"cid_count"`
 	}
 
-	err = a.deps.DB.Select(ctx, &adEntryInfo, `SELECT count(1) as entry_count, sum(num_blocks) as cid_count from ipni_chunks where piece_cid=$1`, details.PieceCid)
+	err = a.deps.DB.Select(ctx, &adEntryInfo, `SELECT count(1) as entry_count, sum(num_blocks) as cid_count from ipni_chunks where piece_cid=$1`, details.PieceCidV2)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to fetch the ad entry count from DB: %w", err)
 	}
@@ -222,7 +239,7 @@ func (a *WebRPC) IPNISummary(ctx context.Context) ([]*IPNI, error) {
 		return nil, fmt.Errorf("failed to fetch IPNI configuration: %w", err)
 	}
 
-	for _, service := range services {
+	for _, service := range lo.Uniq(services) {
 		for _, d := range summary {
 			url := service + "/providers/" + d.PeerID
 			resp, err := http.Get(url)
