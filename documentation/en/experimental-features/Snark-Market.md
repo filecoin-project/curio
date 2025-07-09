@@ -1,3 +1,6 @@
+---
+description: This page explains how to set up a provider for the Curio Snark Market (experimental).
+---
 
 # 🧠 Snark Market Setup (Experimental)
 
