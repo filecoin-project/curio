@@ -108,7 +108,7 @@ func (t *PDPNotifyTask) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		MaxFailures: 14,
 		RetryWait:   taskhelp.RetryWaitExp(5*time.Second, 2),
-		IAmBored: passcall.Every(5*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
+		IAmBored: passcall.Every(time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
 			return t.schedule(context.Background(), taskFunc)
 		}),
 	}
