@@ -362,7 +362,12 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 	}
 
 	if deps.IndexStore == nil {
-		deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(cctx.String("db-host"), ","), cctx.Int("db-cassandra-port"), deps.Cfg)
+		dbHost := cctx.String("db-host-cql")
+		if dbHost == "" {
+			dbHost = cctx.String("db-host")
+		}
+
+		deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(dbHost, ","), cctx.Int("db-cassandra-port"), deps.Cfg)
 		if err != nil {
 			return xerrors.Errorf("failed to start index store: %w", err)
 		}
