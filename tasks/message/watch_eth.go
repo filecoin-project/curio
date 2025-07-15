@@ -25,7 +25,7 @@ import (
 const (
 	// defaultEthCallTimeout is the timeout for sets of Ethereum client calls per transaction
 	// (i.e. receipt and transaction data)
-	defaultEthCallTimeout = time.Second
+	defaultEthCallTimeout = 30 * time.Second
 )
 
 // EthClient is an interface for the Ethereum client operations we need
@@ -124,6 +124,7 @@ func (mw *MessageWatcherEth) update() {
 
 	// Check if any of the transactions we have assigned are now confirmed
 	for _, txHashStr := range txHashes {
+		processStart := time.Now()
 		txHash := common.HexToHash(txHashStr)
 		log.Debugw("Checking transaction", "txHash", txHash.Hex())
 
@@ -208,6 +209,13 @@ func (mw *MessageWatcherEth) update() {
 		if err != nil {
 			log.Errorf("failed to update message wait for hash %s: %+v", txHash.Hex(), err)
 			return
+		}
+
+		processDuration := time.Since(processStart)
+		if processDuration > 5*time.Second {
+			log.Warnw("Transaction processing took longer than expected",
+				"txHash", txHash.Hex(),
+				"duration", processDuration)
 		}
 	}
 
