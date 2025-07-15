@@ -509,8 +509,8 @@ func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 6: Get the next challenge epoch
-	var nextChallengeEpoch int64
+	// Step 6: Get the next challenge epoch (can be NULL for uninitialized proof sets)
+	var nextChallengeEpoch *int64
 	err = p.db.QueryRow(ctx, `
         SELECT prove_at_epoch
         FROM pdp_proof_sets
@@ -521,14 +521,22 @@ func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 6: Prepare the response
+	// Step 7: Prepare the response
+	// Use 0 to indicate uninitialized proof set (no challenge epoch set yet)
+	// This maintains compatibility with SDK expectations
+	epochValue := int64(0)
+	if nextChallengeEpoch != nil {
+		epochValue = *nextChallengeEpoch
+	}
+
 	response := struct {
 		ID                 uint64      `json:"id"`
 		Roots              []RootEntry `json:"roots"`
 		NextChallengeEpoch int64       `json:"nextChallengeEpoch"`
 	}{
 		ID:                 proofSet.ID,
-		NextChallengeEpoch: nextChallengeEpoch,
+		NextChallengeEpoch: epochValue,
+		Roots:              []RootEntry{}, // Initialize as empty array, not nil
 	}
 
 	// Convert roots to the desired JSON format
@@ -541,7 +549,7 @@ func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Step 7: Return the response as JSON
+	// Step 8: Return the response as JSON
 	w.Header().Set("Content-Type", "application/json")
 	err = json.NewEncoder(w).Encode(response)
 	if err != nil {
