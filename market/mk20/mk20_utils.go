@@ -13,12 +13,25 @@ import (
 	"github.com/yugabyte/pgx/v5"
 )
 
+// DealStatus retrieves the status of a specific deal by querying the database and determining the current state for both PDP and DDO processing.
+// @param id [ulid.ULID]
+// @Return http.StatusNotFound
+// @Return http.StatusInternalServerError
+// @Return *DealProductStatusResponse
+
 func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 	// Check if we ever accepted this deal
 
-	var dealError sql.NullString
+	var pdp_complete, ddo_complete sql.NullBool
+	var pdp_error, ddo_error sql.NullString
 
-	err := m.db.QueryRow(ctx, `SELECT error FROM market_mk20_deal WHERE id = $1;`, id.String()).Scan(&dealError)
+	err := m.DB.QueryRow(ctx, `SELECT
+									  pdp_v1->>'complete' AS pdp_complete,
+									  pdp_v1->>'error' AS pdp_error,
+									  ddo_v1->>'complete' AS ddo_complete,
+									  ddo_v1->>'error' AS ddo_error
+									FROM market_mk20_deal
+									WHERE id = $1;`, id.String()).Scan(&pdp_complete, &pdp_error, &ddo_complete, &ddo_error)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return &DealStatus{
@@ -30,18 +43,35 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 			HTTPCode: http.StatusInternalServerError,
 		}
 	}
-	if dealError.Valid {
+	// Handle corner case if now product rows
+	if !pdp_complete.Valid && !ddo_complete.Valid {
 		return &DealStatus{
-			HTTPCode: http.StatusOK,
-			Response: &DealStatusResponse{
-				State:    DealStateFailed,
-				ErrorMsg: dealError.String,
-			},
+			HTTPCode: http.StatusNotFound,
 		}
 	}
 
+	ret := &DealStatus{
+		HTTPCode: http.StatusOK,
+	}
+
+	if pdp_complete.Valid {
+		if pdp_complete.Bool {
+			ret.Response.DDOV1.State = DealStateComplete
+		}
+	}
+
+	if ddo_complete.Valid {
+		if ddo_complete.Bool {
+			ret.Response.DDOV1.State = DealStateComplete
+		}
+	}
+
+	if ret.Response.DDOV1.State == DealStateComplete && ret.Response.PDPV1.State == DealStateComplete {
+		return ret
+	}
+
 	var waitingForPipeline bool
-	err = m.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_pipeline_waiting WHERE id = $1)`, id.String()).Scan(&waitingForPipeline)
+	err = m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_pipeline_waiting WHERE id = $1)`, id.String()).Scan(&waitingForPipeline)
 	if err != nil {
 		log.Errorw("failed to query the db for deal status", "deal", id.String(), "err", err)
 		return &DealStatus{
@@ -49,12 +79,7 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 		}
 	}
 	if waitingForPipeline {
-		return &DealStatus{
-			HTTPCode: http.StatusOK,
-			Response: &DealStatusResponse{
-				State: DealStateAccepted,
-			},
-		}
+		ret.Response.DDOV1.State = DealStateAccepted
 	}
 
 	var pdeals []struct {
@@ -63,7 +88,7 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 		Indexed bool `db:"indexed"`
 	}
 
-	err = m.db.Select(ctx, &pdeals, `SELECT 
+	err = m.DB.Select(ctx, &pdeals, `SELECT 
 									sector,
 									sealed,
 									indexed
@@ -80,57 +105,47 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 	}
 
 	if len(pdeals) > 1 {
-		return &DealStatus{
-			HTTPCode: http.StatusOK,
-			Response: &DealStatusResponse{
-				State: DealStateProcessing,
-			},
-		}
+		ret.Response.DDOV1.State = DealStateProcessing
 	}
 
 	// If deal is still in pipeline
 	if len(pdeals) == 1 {
 		pdeal := pdeals[0]
 		if pdeal.Sector == nil {
-			return &DealStatus{
-				HTTPCode: http.StatusOK,
-				Response: &DealStatusResponse{
-					State: DealStateProcessing,
-				},
-			}
+			ret.Response.DDOV1.State = DealStateProcessing
 		}
 		if !pdeal.Sealed {
-			return &DealStatus{
-				HTTPCode: http.StatusOK,
-				Response: &DealStatusResponse{
-					State: DealStateSealing,
-				},
-			}
+			ret.Response.DDOV1.State = DealStateSealing
 		}
 		if !pdeal.Indexed {
-			return &DealStatus{
-				HTTPCode: http.StatusOK,
-				Response: &DealStatusResponse{
-					State: DealStateIndexing,
-				},
-			}
+			ret.Response.DDOV1.State = DealStateIndexing
 		}
 	}
 
-	return &DealStatus{
-		HTTPCode: http.StatusOK,
-		Response: &DealStatusResponse{
-			State: DealStateComplete,
-		},
+	var pdpPipeline bool
+	err = m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pdp_pipeline WHERE id = $1)`, id.String()).Scan(&pdpPipeline)
+	if err != nil {
+		log.Errorw("failed to query the db for PDP deal status", "deal", id.String(), "err", err)
+		return &DealStatus{
+			HTTPCode: http.StatusInternalServerError,
+		}
 	}
+	if waitingForPipeline {
+		ret.Response.PDPV1.State = DealStateProcessing
+	} else {
+		ret.Response.PDPV1.State = DealStateAccepted
+	}
+
+	return ret
 }
 
+// Supported retrieves and returns maps of product names and data source names with their enabled status, or an error if the query fails.
 func (m *MK20) Supported(ctx context.Context) (map[string]bool, map[string]bool, error) {
 	var products []struct {
 		Name    string `db:"name"`
 		Enabled bool   `db:"enabled"`
 	}
-	err := m.db.Select(ctx, &products, `SELECT name, enabled FROM market_mk20_products`)
+	err := m.DB.Select(ctx, &products, `SELECT name, enabled FROM market_mk20_products`)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -145,7 +160,7 @@ func (m *MK20) Supported(ctx context.Context) (map[string]bool, map[string]bool,
 		Name    string `db:"name"`
 		Enabled bool   `db:"enabled"`
 	}
-	err = m.db.Select(ctx, &sources, `SELECT name, enabled FROM market_mk20_data_source`)
+	err = m.DB.Select(ctx, &sources, `SELECT name, enabled FROM market_mk20_data_source`)
 	if err != nil {
 		return nil, nil, err
 	}

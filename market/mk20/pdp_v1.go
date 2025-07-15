@@ -2,7 +2,6 @@ package mk20
 
 import (
 	"context"
-	"net/http"
 
 	"golang.org/x/xerrors"
 
@@ -32,7 +31,7 @@ type PDPV1 struct {
 	ExtraData []byte `json:"extra_data"`
 }
 
-func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, error) {
+func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
 	code, err := IsProductEnabled(db, p.ProductName())
 	if err != nil {
 		return code, err
@@ -76,7 +75,7 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, e
 		var exists bool
 		err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_proof_set WHERE id = $1 AND remove_deal_id IS NULL)`, pid).Scan(&exists)
 		if err != nil {
-			return http.StatusInternalServerError, xerrors.Errorf("checking if proofset exists: %w", err)
+			return ErrServerInternalError, xerrors.Errorf("checking if proofset exists: %w", err)
 		}
 		if !exists {
 			return ErrBadProposal, xerrors.Errorf("proofset does not exist")
@@ -91,7 +90,7 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, e
 		var exists bool
 		err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_proof_set WHERE id = $1 AND remove_deal_id IS NULL)`, pid).Scan(&exists)
 		if err != nil {
-			return http.StatusInternalServerError, xerrors.Errorf("checking if proofset exists: %w", err)
+			return ErrServerInternalError, xerrors.Errorf("checking if proofset exists: %w", err)
 		}
 		if !exists {
 			return ErrBadProposal, xerrors.Errorf("proofset does not exist")
@@ -106,7 +105,7 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, e
 		var exists bool
 		err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_proof_set WHERE id = $1 AND remove_deal_id IS NULL)`, pid).Scan(&exists)
 		if err != nil {
-			return http.StatusInternalServerError, xerrors.Errorf("checking if proofset exists: %w", err)
+			return ErrServerInternalError, xerrors.Errorf("checking if proofset exists: %w", err)
 		}
 		if len(p.ExtraData) == 0 {
 			return ErrBadProposal, xerrors.Errorf("extra_data must be defined for delete_root")

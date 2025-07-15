@@ -1,17 +1,23 @@
 package mk20
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/ipfs/go-cid"
+	"github.com/mr-tron/base58"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
@@ -19,7 +25,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-padreader"
 	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/go-state-types/crypto"
+	fcrypto "github.com/filecoin-project/go-state-types/crypto"
 
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -28,17 +34,17 @@ import (
 	"github.com/filecoin-project/lotus/lib/sigs"
 )
 
-func (d *Deal) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, error) {
+func (d *Deal) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
 	if d.Client.Empty() {
 		return ErrBadProposal, xerrors.Errorf("no client")
 	}
 
-	code, err := d.ValidateSignature()
-	if err != nil {
-		return code, xerrors.Errorf("signature validation failed: %w", err)
-	}
+	//code, err := d.ValidateSignature()
+	//if err != nil {
+	//	return code, xerrors.Errorf("signature validation failed: %w", err)
+	//}
 
-	code, err = d.Products.Validate(db, cfg)
+	code, err := d.Products.Validate(db, cfg)
 	if err != nil {
 		return code, xerrors.Errorf("products validation failed: %w", err)
 	}
@@ -52,35 +58,35 @@ func (d *Deal) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, er
 	return Ok, nil
 }
 
-func (d *Deal) ValidateSignature() (ErrorCode, error) {
-	if len(d.Signature) == 0 {
-		return ErrBadProposal, xerrors.Errorf("no signature")
-	}
+//func (d *Deal) ValidateSignature() (DealCode, error) {
+//	if len(d.Signature) == 0 {
+//		return ErrBadProposal, xerrors.Errorf("no signature")
+//	}
+//
+//	sig := &crypto.Signature{}
+//	err := sig.UnmarshalBinary(d.Signature)
+//	if err != nil {
+//		return ErrBadProposal, xerrors.Errorf("invalid signature")
+//	}
+//
+//	msg, err := d.Identifier.MarshalBinary()
+//	if err != nil {
+//		return ErrBadProposal, xerrors.Errorf("invalid identifier")
+//	}
+//
+//	if sig.Type == crypto.SigTypeBLS || sig.Type == crypto.SigTypeSecp256k1 || sig.Type == crypto.SigTypeDelegated {
+//		err = sigs.Verify(sig, d.Client, msg)
+//		if err != nil {
+//			return ErrBadProposal, xerrors.Errorf("invalid signature")
+//		}
+//		return Ok, nil
+//	}
+//
+//	// Add more types if required in Future
+//	return ErrBadProposal, xerrors.Errorf("invalid signature type")
+//}
 
-	sig := &crypto.Signature{}
-	err := sig.UnmarshalBinary(d.Signature)
-	if err != nil {
-		return ErrBadProposal, xerrors.Errorf("invalid signature")
-	}
-
-	msg, err := d.Identifier.MarshalBinary()
-	if err != nil {
-		return ErrBadProposal, xerrors.Errorf("invalid identifier")
-	}
-
-	if sig.Type == crypto.SigTypeBLS || sig.Type == crypto.SigTypeSecp256k1 || sig.Type == crypto.SigTypeDelegated {
-		err = sigs.Verify(sig, d.Client, msg)
-		if err != nil {
-			return ErrBadProposal, xerrors.Errorf("invalid signature")
-		}
-		return Ok, nil
-	}
-
-	// Add more types if required in Future
-	return ErrBadProposal, xerrors.Errorf("invalid signature type")
-}
-
-func (d DataSource) Validate(db *harmonydb.DB) (ErrorCode, error) {
+func (d DataSource) Validate(db *harmonydb.DB) (DealCode, error) {
 
 	err := ValidatePieceCID(d.PieceCID)
 	if err != nil {
@@ -296,7 +302,7 @@ func GetPieceInfo(c cid.Cid) (*PieceInfo, error) {
 	}, nil
 }
 
-func (d Products) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, error) {
+func (d Products) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
 	var nproducts int
 	if d.DDOV1 != nil {
 		nproducts++
@@ -611,7 +617,7 @@ func DBDealsToDeals(deals []*DBDeal) ([]*Deal, error) {
 }
 
 type ProviderDealRejectionInfo struct {
-	HTTPCode int
+	HTTPCode DealCode
 	Reason   string
 }
 
@@ -625,11 +631,20 @@ type DealStatusResponse struct {
 	ErrorMsg string `json:"error_msg"`
 }
 
+type DealProductStatusResponse struct {
+
+	// DDOV1 holds the DealStatusResponse for product "ddo_v1".
+	DDOV1 DealStatusResponse `json:"ddo_v1"`
+
+	// PDPV1 represents the DealStatusResponse for the product pdp_v1.
+	PDPV1 DealStatusResponse `json:"pdp_v1"`
+}
+
 // DealStatus represents the status of a deal, including the HTTP code and an optional response detailing the deal's state and error message.
 type DealStatus struct {
 
-	// Response provides details about the deal's status, such as its current state and any associated error messages, if available.
-	Response *DealStatusResponse
+	// Response provides details about the deal's per product status, such as its current state and any associated error messages, if available.
+	Response *DealProductStatusResponse
 
 	// HTTPCode represents the HTTP status code providing additional context about the deal status or possible errors.
 	HTTPCode int
@@ -685,7 +700,7 @@ func (dsh *DataSourceHttpPut) Name() DataSourceName {
 	return DataSourceNamePut
 }
 
-func IsDataSourceEnabled(db *harmonydb.DB, name DataSourceName) (ErrorCode, error) {
+func IsDataSourceEnabled(db *harmonydb.DB, name DataSourceName) (DealCode, error) {
 	var enabled bool
 
 	err := db.QueryRow(context.Background(), `SELECT enabled FROM market_mk20_data_source WHERE name = $1`, name).Scan(&enabled)
@@ -700,7 +715,7 @@ func IsDataSourceEnabled(db *harmonydb.DB, name DataSourceName) (ErrorCode, erro
 	return Ok, nil
 }
 
-func IsProductEnabled(db *harmonydb.DB, name ProductName) (ErrorCode, error) {
+func IsProductEnabled(db *harmonydb.DB, name ProductName) (DealCode, error) {
 	var enabled bool
 
 	err := db.QueryRow(context.Background(), `SELECT enabled FROM market_mk20_products WHERE name = $1`, name).Scan(&enabled)
@@ -728,8 +743,13 @@ type SupportedDataSources struct {
 	Sources []string `json:"sources"`
 }
 
-// StartUpload represents metadata for initiating an upload operation, containing the chunk size of the data to be uploaded.
+// StartUpload represents metadata for initiating an upload operation.
 type StartUpload struct {
+
+	// RawSize indicates the total size of the data to be uploaded in bytes.
+	RawSize uint64 `json:"raw_size"`
+
+	// ChunkSize defines the size of each data chunk to be used during the upload process.
 	ChunkSize int64 `json:"chunk_size"`
 }
 
@@ -752,10 +772,10 @@ type UploadStatus struct {
 	MissingChunks []int `json:"missing_chunks"`
 }
 
-func UpdateDealDetails(ctx context.Context, db *harmonydb.DB, id ulid.ULID, deal *Deal, cfg *config.MK20Config) (*Deal, ErrorCode, error) {
+func UpdateDealDetails(ctx context.Context, db *harmonydb.DB, id ulid.ULID, deal *Deal, cfg *config.MK20Config) (*Deal, DealCode, []ProductName, error) {
 	ddeal, err := DealFromDB(ctx, db, id)
 	if err != nil {
-		return nil, http.StatusInternalServerError, xerrors.Errorf("getting deal from DB: %w", err)
+		return nil, ErrServerInternalError, nil, xerrors.Errorf("getting deal from DB: %w", err)
 	}
 
 	// Run the following checks
@@ -769,17 +789,158 @@ func UpdateDealDetails(ctx context.Context, db *harmonydb.DB, id ulid.ULID, deal
 		ddeal.Data = deal.Data
 	}
 
+	var newProducts []ProductName
+
 	if ddeal.Products.DDOV1 == nil || deal.Products.DDOV1 != nil {
-		return nil, ErrBadProposal, xerrors.Errorf("ddov1 update is not yet supported")
+		ddeal.Products.DDOV1 = deal.Products.DDOV1
+		newProducts = append(newProducts, ProductNameDDOV1)
 	}
 
 	if ddeal.Products.RetrievalV1 == nil || deal.Products.RetrievalV1 != nil {
 		ddeal.Products.RetrievalV1 = deal.Products.RetrievalV1
+		newProducts = append(newProducts, ProductNameRetrievalV1)
 	}
 
 	code, err := ddeal.Validate(db, cfg)
 	if err != nil {
-		return nil, code, xerrors.Errorf("validate deal: %w", err)
+		return nil, code, nil, xerrors.Errorf("validate deal: %w", err)
 	}
-	return ddeal, Ok, nil
+	return ddeal, Ok, newProducts, nil
+}
+
+func AuthenticateClient(db *harmonydb.DB, id, client string) (bool, error) {
+	var allowed bool
+	err := db.QueryRow(context.Background(), `SELECT EXISTS (SELECT 1 FROM market_mk20_deal WHERE id = $1 AND client = $2)`, id, client).Scan(&allowed)
+	if err != nil {
+		return false, xerrors.Errorf("querying client: %w", err)
+	}
+	return allowed, nil
+}
+
+func clientAllowed(ctx context.Context, db *harmonydb.DB, client string) (bool, error) {
+	var allowed bool
+	err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_clients WHERE client = $1 AND IS allowed)`, client).Scan(&allowed)
+	if err != nil {
+		return false, xerrors.Errorf("querying client: %w", err)
+	}
+	return allowed, nil
+}
+
+const Authprefix = "CurioAuth "
+
+// Auth verifies the custom authentication header by parsing its contents and validating the signature using the provided database connection.
+func Auth(header, path string, db *harmonydb.DB) (bool, string, error) {
+	keyType, pubKey, sig, err := parseCustomAuth(header)
+	if err != nil {
+		return false, "", xerrors.Errorf("parsing auth header: %w", err)
+	}
+	return verifySignature(db, keyType, path, pubKey, sig)
+}
+
+func parseCustomAuth(header string) (keyType string, pubKey, sig []byte, err error) {
+
+	if !strings.HasPrefix(header, Authprefix) {
+		return "", nil, nil, errors.New("missing CustomAuth prefix")
+	}
+
+	parts := strings.SplitN(strings.TrimPrefix(header, Authprefix), ":", 3)
+	if len(parts) != 3 {
+		return "", nil, nil, errors.New("invalid auth format")
+	}
+
+	keyType = parts[0]
+	pubKey, err = base64.StdEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("invalid pubkey base64: %w", err)
+	}
+
+	if len(pubKey) == 0 {
+		return "", nil, nil, fmt.Errorf("invalid pubkey")
+	}
+
+	sig, err = base64.StdEncoding.DecodeString(parts[2])
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("invalid signature base64: %w", err)
+	}
+
+	if len(sig) == 0 {
+		return "", nil, nil, fmt.Errorf("invalid signature")
+	}
+
+	return keyType, pubKey, sig, nil
+}
+
+func verifySignature(db *harmonydb.DB, keyType string, path string, pubKey, signature []byte) (bool, string, error) {
+	now := time.Now().Truncate(time.Minute)
+	minus1 := now.Add(-1 * time.Minute)
+	plus1 := now.Add(1 * time.Minute)
+	timeStamps := []time.Time{now, minus1, plus1}
+	var msgs [][32]byte
+
+	for _, t := range timeStamps {
+		msgs = append(msgs, sha256.Sum256(bytes.Join([][]byte{pubKey, []byte(path), []byte(t.Format(time.RFC3339))}, []byte{})))
+	}
+
+	switch keyType {
+	case "ed25519":
+		if len(pubKey) != ed25519.PublicKeySize || len(signature) != ed25519.SignatureSize {
+			return false, "", errors.New("invalid ed25519 sizes")
+		}
+		keyStr, err := ED25519ToString(pubKey)
+		if err != nil {
+			return false, "", xerrors.Errorf("invalid ed25519 pubkey: %w", err)
+		}
+		for _, m := range msgs {
+			ok := ed25519.Verify(pubKey, m[:], signature)
+			if ok {
+				return true, keyStr, nil
+			}
+		}
+		return false, "", errors.New("invalid ed25519 signature")
+
+	case "secp256k1", "bls", "delegated":
+		return verifyFilSignature(db, pubKey, signature, msgs)
+	default:
+		return false, "", fmt.Errorf("unsupported key type: %s", keyType)
+	}
+}
+
+func verifyFilSignature(db *harmonydb.DB, pubKey, signature []byte, msgs [][32]byte) (bool, string, error) {
+	signs := &fcrypto.Signature{}
+	err := signs.UnmarshalBinary(signature)
+	if err != nil {
+		return false, "", xerrors.Errorf("invalid signature")
+	}
+	addr, err := address.NewFromBytes(pubKey)
+	if err != nil {
+		return false, "", xerrors.Errorf("invalid filecoin pubkey")
+	}
+
+	allowed, err := clientAllowed(context.Background(), db, addr.String())
+	if err != nil {
+		return false, "", xerrors.Errorf("checking client allowed: %w", err)
+	}
+	if !allowed {
+		return false, "", xerrors.Errorf("client not allowed")
+	}
+
+	for _, m := range msgs {
+		err = sigs.Verify(signs, addr, m[:])
+		if err == nil {
+			return true, addr.String(), nil
+		}
+	}
+
+	return false, "", errors.New("invalid signature")
+}
+
+func ED25519ToString(pubKey []byte) (string, error) {
+	if len(pubKey) != ed25519.PublicKeySize {
+		return "", errors.New("invalid ed25519 pubkey size")
+	}
+	return base58.FastBase58Encoding(pubKey), nil
+}
+
+func StringToED25519(addr string) ([]byte, error) {
+	return base58.FastBase58Decoding(addr)
 }

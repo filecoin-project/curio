@@ -45,7 +45,7 @@ type MK20API interface {
 
 type MK20 struct {
 	miners             []address.Address
-	db                 *harmonydb.DB
+	DB                 *harmonydb.DB
 	api                MK20API
 	ethClient          *ethclient.Client
 	si                 paths.SectorIndex
@@ -54,6 +54,7 @@ type MK20 struct {
 	as                 *multictladdr.MultiAddressSelector
 	sc                 *ffi.SealCalls
 	maxParallelUploads *atomic.Int64
+	unknowClient       bool
 }
 
 func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorIndex, mapi MK20API, ethClient *ethclient.Client, cfg *config.CurioConfig, as *multictladdr.MultiAddressSelector, sc *ffi.SealCalls) (*MK20, error) {
@@ -84,7 +85,7 @@ func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorI
 
 	return &MK20{
 		miners:             miners,
-		db:                 db,
+		DB:                 db,
 		api:                mapi,
 		ethClient:          ethClient,
 		si:                 si,
@@ -93,8 +94,14 @@ func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorI
 		as:                 as,
 		sc:                 sc,
 		maxParallelUploads: new(atomic.Int64),
+		unknowClient:       !cfg.Market.StorageMarketConfig.MK20.DenyUnknownClients,
 	}, nil
 }
+
+// ExecuteDeal take a *Deal  and returns ProviderDealRejectionInfo which has ErrorCode and Reason
+// @param deal *Deal
+// @Return DealCode
+// @Return Reason string
 
 func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal) *ProviderDealRejectionInfo {
 	defer func() {
@@ -107,13 +114,13 @@ func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal) *ProviderDealRejecti
 	}()
 
 	// Validate the DataSource
-	code, err := deal.Validate(m.db, &m.cfg.Market.StorageMarketConfig.MK20)
+	code, err := deal.Validate(m.DB, &m.cfg.Market.StorageMarketConfig.MK20)
 	if err != nil {
 		log.Errorw("deal rejected", "deal", deal, "error", err)
 		ret := &ProviderDealRejectionInfo{
-			HTTPCode: int(code),
+			HTTPCode: code,
 		}
-		if code == http.StatusInternalServerError {
+		if code == ErrServerInternalError {
 			ret.Reason = "Internal server error"
 		} else {
 			ret.Reason = err.Error()
@@ -143,13 +150,13 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal) *ProviderDealReje
 		return rejection
 	}
 
-	id, code, err := deal.Products.DDOV1.GetDealID(ctx, m.db, m.ethClient)
+	id, code, err := deal.Products.DDOV1.GetDealID(ctx, m.DB, m.ethClient)
 	if err != nil {
 		log.Errorw("error getting deal ID", "deal", deal, "error", err)
 		ret := &ProviderDealRejectionInfo{
-			HTTPCode: int(code),
+			HTTPCode: code,
 		}
-		if code == http.StatusInternalServerError {
+		if code == ErrServerInternalError {
 			ret.Reason = "Internal server error"
 		} else {
 			ret.Reason = err.Error()
@@ -161,7 +168,7 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal) *ProviderDealReje
 
 	// TODO: Backpressure, client filter
 
-	comm, err := m.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+	comm, err := m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		err = deal.SaveToDB(tx)
 		if err != nil {
 			return false, err
@@ -175,10 +182,8 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal) *ProviderDealReje
 		if n != 1 {
 			return false, fmt.Errorf("expected 1 row to be updated, got %d", n)
 		}
-		if deal.Data.SourceHttpPut != nil {
-			_, err = tx.Exec(`INSERT INTO market_mk20_pipeline_waiting (id, waiting_for_data) VALUES ($1, TRUE) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
 
-		} else {
+		if deal.Data.SourceHttpPut == nil {
 			_, err = tx.Exec(`INSERT INTO market_mk20_pipeline_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
 		}
 
@@ -191,14 +196,14 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal) *ProviderDealReje
 	if err != nil {
 		log.Errorw("error inserting deal into DB", "deal", deal, "error", err)
 		return &ProviderDealRejectionInfo{
-			HTTPCode: http.StatusInternalServerError,
+			HTTPCode: ErrServerInternalError,
 		}
 	}
 
 	if !comm {
 		log.Errorw("error committing deal into DB", "deal", deal)
 		return &ProviderDealRejectionInfo{
-			HTTPCode: http.StatusInternalServerError,
+			HTTPCode: ErrServerInternalError,
 		}
 	}
 
@@ -212,8 +217,15 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal) *ProviderDealReje
 func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRejectionInfo, error) {
 	if !lo.Contains(m.miners, deal.Products.DDOV1.Provider) {
 		return &ProviderDealRejectionInfo{
-			HTTPCode: http.StatusBadRequest,
+			HTTPCode: ErrBadProposal,
 			Reason:   "Provider not available in Curio cluster",
+		}, nil
+	}
+
+	if deal.Data != nil {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrBadProposal,
+			Reason:   "Data Source must be defined for a DDO deal",
 		}, nil
 	}
 
@@ -221,14 +233,14 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 	if err != nil {
 		log.Errorw("error getting deal size", "deal", deal, "error", err)
 		return &ProviderDealRejectionInfo{
-			HTTPCode: http.StatusBadRequest,
+			HTTPCode: ErrBadProposal,
 			Reason:   "Error getting deal size from PieceCID",
 		}, nil
 	}
 
 	if size > abi.PaddedPieceSize(m.sm[deal.Products.DDOV1.Provider]) {
 		return &ProviderDealRejectionInfo{
-			HTTPCode: http.StatusBadRequest,
+			HTTPCode: ErrBadProposal,
 			Reason:   "Deal size is larger than the miner's sector size",
 		}, nil
 	}
@@ -237,7 +249,7 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		if deal.Products.RetrievalV1 != nil {
 			if deal.Products.RetrievalV1.Indexing {
 				return &ProviderDealRejectionInfo{
-					HTTPCode: http.StatusBadRequest,
+					HTTPCode: ErrBadProposal,
 					Reason:   "Raw bytes deal cannot be indexed",
 				}, nil
 			}
@@ -247,7 +259,7 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 	if deal.Products.DDOV1.AllocationId != nil {
 		if size < abi.PaddedPieceSize(verifreg.MinimumVerifiedAllocationSize) {
 			return &ProviderDealRejectionInfo{
-				HTTPCode: http.StatusBadRequest,
+				HTTPCode: ErrBadProposal,
 				Reason:   "Verified piece size must be at least 1MB",
 			}, nil
 		}
@@ -255,13 +267,13 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		alloc, err := m.api.StateGetAllocation(ctx, deal.Client, verifreg9.AllocationId(*deal.Products.DDOV1.AllocationId), types.EmptyTSK)
 		if err != nil {
 			return &ProviderDealRejectionInfo{
-				HTTPCode: http.StatusInternalServerError,
+				HTTPCode: ErrServerInternalError,
 			}, xerrors.Errorf("getting allocation: %w", err)
 		}
 
 		if alloc == nil {
 			return &ProviderDealRejectionInfo{
-				HTTPCode: http.StatusBadRequest,
+				HTTPCode: ErrBadProposal,
 				Reason:   "Verified piece must have a valid allocation ID",
 			}, nil
 		}
@@ -269,14 +281,14 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		clientID, err := address.IDFromAddress(deal.Client)
 		if err != nil {
 			return &ProviderDealRejectionInfo{
-				HTTPCode: http.StatusBadRequest,
+				HTTPCode: ErrBadProposal,
 				Reason:   "Invalid client address",
 			}, nil
 		}
 
 		if alloc.Client != abi.ActorID(clientID) {
 			return &ProviderDealRejectionInfo{
-				HTTPCode: http.StatusBadRequest,
+				HTTPCode: ErrBadProposal,
 				Reason:   "client address does not match the allocation client address",
 			}, nil
 		}
@@ -284,34 +296,34 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		prov, err := address.NewIDAddress(uint64(alloc.Provider))
 		if err != nil {
 			return &ProviderDealRejectionInfo{
-				HTTPCode: http.StatusInternalServerError,
+				HTTPCode: ErrServerInternalError,
 			}, xerrors.Errorf("getting provider address: %w", err)
 		}
 
 		if !lo.Contains(m.miners, prov) {
 			return &ProviderDealRejectionInfo{
-				HTTPCode: http.StatusBadRequest,
+				HTTPCode: ErrBadProposal,
 				Reason:   "Allocation provider does not belong to the list of miners in Curio cluster",
 			}, nil
 		}
 
 		if !deal.Data.PieceCID.Equals(alloc.Data) {
 			return &ProviderDealRejectionInfo{
-				HTTPCode: http.StatusBadRequest,
+				HTTPCode: ErrBadProposal,
 				Reason:   "Allocation data CID does not match the piece CID",
 			}, nil
 		}
 
 		if size != alloc.Size {
 			return &ProviderDealRejectionInfo{
-				HTTPCode: http.StatusBadRequest,
+				HTTPCode: ErrBadProposal,
 				Reason:   "Allocation size does not match the piece size",
 			}, nil
 		}
 
 		if alloc.TermMin > miner.MaxSectorExpirationExtension-policy.SealRandomnessLookback {
 			return &ProviderDealRejectionInfo{
-				HTTPCode: http.StatusBadRequest,
+				HTTPCode: ErrBadProposal,
 				Reason:   "Allocation term min is greater than the maximum sector expiration extension",
 			}, nil
 		}
@@ -334,7 +346,7 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 	}
 
 	// Save deal to DB and start pipeline if required
-	comm, err := m.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+	comm, err := m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		// Save deal
 		err = deal.SaveToDB(tx)
 		if err != nil {
@@ -356,13 +368,13 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 	if err != nil {
 		log.Errorw("error inserting PDP deal into DB", "deal", deal, "error", err)
 		return &ProviderDealRejectionInfo{
-			HTTPCode: http.StatusInternalServerError,
+			HTTPCode: ErrServerInternalError,
 		}
 	}
 	if !comm {
 		log.Errorw("error committing PDP deal into DB", "deal", deal)
 		return &ProviderDealRejectionInfo{
-			HTTPCode: http.StatusInternalServerError,
+			HTTPCode: ErrServerInternalError,
 		}
 	}
 	log.Debugw("PDP deal inserted in DB", "deal", deal.Identifier.String())
@@ -653,37 +665,63 @@ func markDownloaded(ctx context.Context, db *harmonydb.DB) {
 	}
 }
 
+// UpdateDeal updates the details of a deal specified by its ID and writes the result or error to the provided HTTP response writer.
+// @param id ulid.ULID
+// @param deal *Deal
+// @Return DealCode
+
 func (m *MK20) UpdateDeal(id ulid.ULID, deal *Deal, w http.ResponseWriter) {
+	if deal == nil {
+		http.Error(w, "deal not defined", int(ErrBadProposal))
+		return
+	}
+
 	ctx := context.Background()
+
+	allowed, err := AuthenticateClient(m.DB, deal.Identifier.String(), deal.Client.String())
+	if err != nil {
+		log.Errorw("deal rejected", "deal", deal, "error", err)
+		http.Error(w, "", int(ErrServerInternalError))
+		return
+	}
+	if !allowed {
+		log.Errorw("deal rejected as client is not authorized", "deal", deal)
+		http.Error(w, "client not authorized", int(ErrUnAuthorized))
+		return
+	}
+
 	var exists bool
-	err := m.db.QueryRow(ctx, `SELECT EXISTS (
+	err = m.DB.QueryRow(ctx, `SELECT EXISTS (
 								  SELECT 1
 								  FROM market_mk20_deal
 								  WHERE id = $1)`, id.String()).Scan(&exists)
 	if err != nil {
 		log.Errorw("failed to check if deal exists", "deal", id, "error", err)
-		http.Error(w, "", http.StatusInternalServerError)
+		http.Error(w, "", int(ErrServerInternalError))
 		return
 	}
 
 	if !exists {
-		http.Error(w, "", http.StatusNotFound)
+		http.Error(w, "", int(ErrDealNotFound))
 		return
 	}
 
-	if deal == nil {
-		http.Error(w, "deal not defined", int(ErrBadProposal))
-	}
-
-	code, err := m.updateDealDetails(id, deal)
+	code, nd, np, err := m.updateDealDetails(id, deal)
 	if err != nil {
 		log.Errorw("failed to update deal details", "deal", id, "error", err)
-		if code == http.StatusInternalServerError {
-			http.Error(w, "", http.StatusInternalServerError)
+		if code == ErrServerInternalError {
+			http.Error(w, "", int(ErrServerInternalError))
 		} else {
 			http.Error(w, err.Error(), int(code))
 		}
 		return
+	}
+
+	// Initiate new pipelines for DDO if required
+	for _, p := range np {
+		if p == ProductNameDDOV1 {
+			m.processDDODeal(ctx, nd)
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)

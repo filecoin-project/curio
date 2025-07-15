@@ -220,8 +220,11 @@ CREATE TABLE market_mk20_pipeline (
 );
 
 CREATE TABLE market_mk20_pipeline_waiting (
-    id TEXT PRIMARY KEY,
-    waiting_for_data BOOLEAN DEFAULT FALSE
+    id TEXT PRIMARY KEY
+);
+
+CREATE TABLE market_mk20_upload_waiting (
+    id TEXT PRIMARY KEY
 );
 
 CREATE TABLE market_mk20_download_pipeline (
@@ -414,7 +417,7 @@ CREATE TABLE pdp_proofset_root (
     remove_message_hash TEXT DEFAULT NULL,
     remove_message_index BIGINT DEFAULT NULL,
 
-    CONSTRAINT pdp_proofset_roots_root_id_unique PRIMARY KEY (proofset, root_id)
+    PRIMARY KEY (proofset, root)
 );
 
 CREATE TABLE pdp_pipeline (
@@ -458,6 +461,11 @@ CREATE TABLE pdp_pipeline (
     indexed BOOLEAN DEFAULT FALSE,
 
     complete BOOLEAN DEFAULT FALSE
+);
+
+CREATE TABLE market_mk20_clients (
+    client TEXT PRIMARY KEY,
+    allowed BOOLEAN DEFAULT TRUE
 );
 
 

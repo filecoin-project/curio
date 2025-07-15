@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"net/http"
 	"strings"
 
 	"github.com/ethereum/go-ethereum"
@@ -60,7 +59,7 @@ type DDOV1 struct {
 	NotificationPayload []byte `json:"notification_payload"`
 }
 
-func (d *DDOV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, error) {
+func (d *DDOV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
 	code, err := IsProductEnabled(db, d.ProductName())
 	if err != nil {
 		return code, err
@@ -74,7 +73,7 @@ func (d *DDOV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, e
 	for _, m := range cfg.DisabledMiners {
 		maddr, err := address.NewFromString(m)
 		if err != nil {
-			return http.StatusInternalServerError, xerrors.Errorf("failed to parse miner string: %s", err)
+			return ErrServerInternalError, xerrors.Errorf("failed to parse miner string: %s", err)
 		}
 		mk20disabledMiners = append(mk20disabledMiners, maddr)
 	}
@@ -118,11 +117,11 @@ func (d *DDOV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, e
 	return Ok, nil
 }
 
-func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.Client) (string, ErrorCode, error) {
+func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.Client) (string, DealCode, error) {
 	if d.ContractAddress == "0xtest" {
 		v, err := rand.Int(rand.Reader, big.NewInt(10000000))
 		if err != nil {
-			return "", http.StatusInternalServerError, xerrors.Errorf("failed to generate random number: %w", err)
+			return "", ErrServerInternalError, xerrors.Errorf("failed to generate random number: %w", err)
 		}
 		return v.String(), Ok, nil
 	}
@@ -133,12 +132,12 @@ func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", ErrMarketNotEnabled, UnknowContract
 		}
-		return "", http.StatusInternalServerError, xerrors.Errorf("getting abi: %w", err)
+		return "", ErrServerInternalError, xerrors.Errorf("getting abi: %w", err)
 	}
 
 	parsedABI, err := eabi.JSON(strings.NewReader(abiStr))
 	if err != nil {
-		return "", http.StatusInternalServerError, xerrors.Errorf("parsing abi: %w", err)
+		return "", ErrServerInternalError, xerrors.Errorf("parsing abi: %w", err)
 	}
 
 	to := common.HexToAddress(d.ContractAddress)
@@ -146,18 +145,18 @@ func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.
 	// Get the method
 	method, exists := parsedABI.Methods[d.ContractVerifyMethod]
 	if !exists {
-		return "", http.StatusInternalServerError, fmt.Errorf("method %s not found in ABI", d.ContractVerifyMethod)
+		return "", ErrServerInternalError, fmt.Errorf("method %s not found in ABI", d.ContractVerifyMethod)
 	}
 
 	// Enforce method must take exactly one `bytes` parameter
 	if len(method.Inputs) != 1 || method.Inputs[0].Type.String() != "bytes" {
-		return "", http.StatusInternalServerError, fmt.Errorf("method %q must take exactly one argument of type bytes", method.Name)
+		return "", ErrServerInternalError, fmt.Errorf("method %q must take exactly one argument of type bytes", method.Name)
 	}
 
 	// ABI-encode method call with input
 	callData, err := parsedABI.Pack(method.Name, d.ContractVerifyMethod)
 	if err != nil {
-		return "", http.StatusInternalServerError, fmt.Errorf("failed to encode call data: %w", err)
+		return "", ErrServerInternalError, fmt.Errorf("failed to encode call data: %w", err)
 	}
 
 	// Build call message
@@ -169,13 +168,13 @@ func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.
 	// Call contract
 	output, err := eth.CallContract(ctx, msg, nil)
 	if err != nil {
-		return "", http.StatusInternalServerError, fmt.Errorf("eth_call failed: %w", err)
+		return "", ErrServerInternalError, fmt.Errorf("eth_call failed: %w", err)
 	}
 
 	// Decode return value (assume string)
 	var result string
 	if err := parsedABI.UnpackIntoInterface(&result, method.Name, output); err != nil {
-		return "", http.StatusInternalServerError, fmt.Errorf("decode result: %w", err)
+		return "", ErrServerInternalError, fmt.Errorf("decode result: %w", err)
 	}
 
 	if result == "" {

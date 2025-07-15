@@ -50,11 +50,11 @@ func secureHeaders(csp string) func(http.Handler) http.Handler {
 			case "off":
 				// Do nothing
 			case "self":
-				w.Header().Set("Content-Security-Policy", "default-src 'self'")
+				w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:")
 			case "inline":
 				fallthrough
 			default:
-				w.Header().Set("Content-Security-Policy", "default-src 'self' 'unsafe-inline' 'unsafe-eval'")
+				w.Header().Set("Content-Security-Policy", "default-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob:")
 			}
 
 			next.ServeHTTP(w, r)

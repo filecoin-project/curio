@@ -18,6 +18,7 @@ type MarketHandler struct {
 	mdh12      *mk12http.MK12DealHandler
 	mdh20      *mk20http.MK20DealHandler
 	pdpService *pdp.PDPService
+	domainName string
 }
 
 // NewMarketHandler is used to prepare all the required market handlers. Currently, it supports mk12 deal market.
@@ -44,6 +45,7 @@ func NewMarketHandler(db *harmonydb.DB, cfg *config.CurioConfig, dm *storage_mar
 		mdh12:      mdh12,
 		mdh20:      mdh20,
 		pdpService: pdpService,
+		domainName: cfg.HTTP.DomainName,
 	}, nil
 }
 
@@ -51,7 +53,7 @@ func NewMarketHandler(db *harmonydb.DB, cfg *config.CurioConfig, dm *storage_mar
 // This can include mk12 deals, mk20 deals(WIP), sector market(WIP) etc
 func Router(mux *chi.Mux, mh *MarketHandler) {
 	mux.Mount("/market/mk12", mk12http.Router(mh.mdh12))
-	mux.Mount("/market/mk20", mk20http.Router(mh.mdh20))
+	mux.Mount("/market/mk20", mk20http.Router(mh.mdh20, mh.domainName))
 	if mh.pdpService != nil {
 		mux.Mount("/market/pdp", pdp.Routes(mh.pdpService))
 	}

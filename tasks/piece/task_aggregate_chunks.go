@@ -199,94 +199,137 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 
 	// Update DB status of piece, deal, PDP
 	comm, err = a.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		var refIDUsed bool
 		// Update PoRep pipeline
 		if deal.Products.DDOV1 != nil {
-			spid, err := address.IDFromAddress(deal.Products.DDOV1.Provider)
+			var complete bool
+			err = tx.QueryRow(`SELECT ddo_v1->>'complete' FROM market_mk20_deal WHERE id = $1`, id.String()).Scan(&complete)
 			if err != nil {
-				return false, fmt.Errorf("getting provider ID: %w", err)
+				return false, fmt.Errorf("getting deal status: %w", err)
 			}
+			if !complete {
+				spid, err := address.IDFromAddress(deal.Products.DDOV1.Provider)
+				if err != nil {
+					return false, fmt.Errorf("getting provider ID: %w", err)
+				}
 
-			var rev mk20.RetrievalV1
-			if deal.Products.RetrievalV1 != nil {
-				rev = *deal.Products.RetrievalV1
-			}
+				var rev mk20.RetrievalV1
+				if deal.Products.RetrievalV1 != nil {
+					rev = *deal.Products.RetrievalV1
+				}
 
-			ddo := deal.Products.DDOV1
-			dealdata := deal.Data
-			dealID := deal.Identifier.String()
+				ddo := deal.Products.DDOV1
+				dealdata := deal.Data
+				dealID := deal.Identifier.String()
 
-			var allocationID interface{}
-			if ddo.AllocationId != nil {
-				allocationID = *ddo.AllocationId
-			} else {
-				allocationID = nil
-			}
+				var allocationID interface{}
+				if ddo.AllocationId != nil {
+					allocationID = *ddo.AllocationId
+				} else {
+					allocationID = nil
+				}
 
-			aggregation := 0
-			if dealdata.Format.Aggregate != nil {
-				aggregation = int(dealdata.Format.Aggregate.Type)
-			}
+				aggregation := 0
+				if dealdata.Format.Aggregate != nil {
+					aggregation = int(dealdata.Format.Aggregate.Type)
+				}
 
-			if !pieceParked {
-				_, err = tx.Exec(`UPDATE parked_pieces SET 
+				if !pieceParked {
+					_, err = tx.Exec(`UPDATE parked_pieces SET 
                          complete = TRUE 
                      WHERE id = $1 
                        AND complete = false`, pieceRefID)
-				if err != nil {
-					return false, xerrors.Errorf("marking piece park as complete: %w", err)
+					if err != nil {
+						return false, xerrors.Errorf("marking piece park as complete: %w", err)
+					}
 				}
-			}
 
-			pieceIDUrl := url.URL{
-				Scheme: "pieceref",
-				Opaque: fmt.Sprintf("%d", pieceRefID),
-			}
+				pieceIDUrl := url.URL{
+					Scheme: "pieceref",
+					Opaque: fmt.Sprintf("%d", pieceRefID),
+				}
 
-			n, err := tx.Exec(`INSERT INTO market_mk20_pipeline (
-		           id, sp_id, contract, client, piece_cid_v2, piece_cid,
-		           piece_size, raw_size, url, offline, indexing, announce,
-		           allocation_id, duration, piece_aggregation, deal_aggregation, started, downloaded, after_commp)
-		       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, TRUE, TRUE, TRUE)`,
-				dealID, spid, ddo.ContractAddress, deal.Client.String(), pcid2.String(), pcid.String(),
-				psize, rawSize, pieceIDUrl.String(), false, rev.Indexing, rev.AnnouncePayload,
-				allocationID, ddo.Duration, aggregation, aggregation)
-			if err != nil {
-				return false, xerrors.Errorf("inserting mk20 pipeline: %w", err)
-			}
-			if n != 1 {
-				return false, xerrors.Errorf("inserting mk20 pipeline: %d rows affected", n)
-			}
+				n, err := tx.Exec(`INSERT INTO market_mk20_pipeline (
+						   id, sp_id, contract, client, piece_cid_v2, piece_cid,
+						   piece_size, raw_size, url, offline, indexing, announce,
+						   allocation_id, duration, piece_aggregation, deal_aggregation, started, downloaded, after_commp)
+		       		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, TRUE, TRUE, TRUE)`,
+					dealID, spid, ddo.ContractAddress, deal.Client.String(), pcid2.String(), pcid.String(),
+					psize, rawSize, pieceIDUrl.String(), false, rev.Indexing, rev.AnnouncePayload,
+					allocationID, ddo.Duration, aggregation, aggregation)
 
-			_, err = tx.Exec(`DELETE FROM market_mk20_pipeline_waiting WHERE id = $1`, id.String())
-			if err != nil {
-				return false, xerrors.Errorf("deleting deal from mk20 pipeline waiting: %w", err)
-			}
+				if err != nil {
+					return false, xerrors.Errorf("inserting mk20 pipeline: %w", err)
+				}
+				if n != 1 {
+					return false, xerrors.Errorf("inserting mk20 pipeline: %d rows affected", n)
+				}
 
-			_, err = tx.Exec(`DELETE FROM market_mk20_deal_chunk WHERE id = $1`, id.String())
-			if err != nil {
-				return false, xerrors.Errorf("deleting deal chunks from mk20 deal: %w", err)
-			}
+				_, err = tx.Exec(`DELETE FROM market_mk20_pipeline_waiting WHERE id = $1`, id.String())
+				if err != nil {
+					return false, xerrors.Errorf("deleting deal from mk20 pipeline waiting: %w", err)
+				}
 
-			_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = ANY($1)`, refIds)
-			if err != nil {
-				return false, xerrors.Errorf("deleting parked piece refs: %w", err)
+				_, err = tx.Exec(`DELETE FROM market_mk20_deal_chunk WHERE id = $1`, id.String())
+				if err != nil {
+					return false, xerrors.Errorf("deleting deal chunks from mk20 deal: %w", err)
+				}
+
+				_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = ANY($1)`, refIds)
+				if err != nil {
+					return false, xerrors.Errorf("deleting parked piece refs: %w", err)
+				}
+
+				refIDUsed = true
 			}
 		}
 
 		// Update PDP pipeline
 		if deal.Products.PDPV1 != nil {
-			pdp := deal.Products.PDPV1
-			n, err := tx.Exec(`INSERT INTO pdp_pipeline (
+			var complete bool
+			err = tx.QueryRow(`SELECT pdp_v1->>'complete' FROM market_mk20_deal WHERE id = $1`, id.String()).Scan(&complete)
+			if err != nil {
+				return false, fmt.Errorf("getting deal status: %w", err)
+			}
+			if !complete {
+				pdp := deal.Products.PDPV1
+				var newRefID int64
+				if refIDUsed {
+					err = tx.QueryRow(`
+							INSERT INTO parked_piece_refs (piece_id, data_url, long_term)
+							VALUES ($1, $2, TRUE) RETURNING ref_id
+						`, parkedPieceID, "/PUT").Scan(&newRefID)
+					if err != nil {
+						return false, fmt.Errorf("failed to create parked_piece_refs entry: %w", err)
+					}
+
+					n, err := tx.Exec(`INSERT INTO pdp_pipeline (
+							id, client, piece_cid_v2, piece_cid, piece_size, raw_size, proof_set_id, 
+							extra_data, piece_ref, downloaded, deal_aggregation, aggr_index) 
+						VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0)`,
+						id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.ProofSetID,
+						pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type)
+					if err != nil {
+						return false, xerrors.Errorf("inserting in PDP pipeline: %w", err)
+					}
+					if n != 1 {
+						return false, xerrors.Errorf("inserting in PDP pipeline: %d rows affected", n)
+					}
+				} else {
+					n, err := tx.Exec(`INSERT INTO pdp_pipeline (
             id, client, piece_cid_v2, piece_cid, piece_size, raw_size, proof_set_id, 
             extra_data, piece_ref, downloaded, deal_aggregation, aggr_index) 
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0)`,
-				id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.ProofSetID,
-				pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type)
-			if err != nil {
-				return false, xerrors.Errorf("inserting in PDP pipeline: %w", err)
-			}
-			if n != 1 {
-				return false, xerrors.Errorf("inserting in PDP pipeline: %d rows affected", n)
+						id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.ProofSetID,
+						pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type)
+					if err != nil {
+						return false, xerrors.Errorf("inserting in PDP pipeline: %w", err)
+					}
+					if n != 1 {
+						return false, xerrors.Errorf("inserting in PDP pipeline: %d rows affected", n)
+					}
+				}
+
 			}
 		}
 

@@ -19,7 +19,7 @@ type RetrievalV1 struct {
 	AnnouncePiece bool `json:"announce_piece"`
 }
 
-func (r *RetrievalV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, error) {
+func (r *RetrievalV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
 	code, err := IsProductEnabled(db, r.ProductName())
 	if err != nil {
 		return code, err

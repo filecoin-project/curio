@@ -1917,25 +1917,24 @@ var mk20DealCmd = &cli.Command{
 		}
 		log.Debugw("generated deal id", "id", id)
 
-		msg, err := id.MarshalBinary()
-		if err != nil {
-			return xerrors.Errorf("failed to marshal deal id: %w", err)
-		}
+		//msg, err := id.MarshalBinary()
+		//if err != nil {
+		//	return xerrors.Errorf("failed to marshal deal id: %w", err)
+		//}
 
-		sig, err := n.Wallet.WalletSign(ctx, walletAddr, msg, lapi.MsgMeta{Type: lapi.MTDealProposal})
-		if err != nil {
-			return xerrors.Errorf("failed to sign deal proposal: %w", err)
-		}
+		//sig, err := n.Wallet.WalletSign(ctx, walletAddr, msg, lapi.MsgMeta{Type: lapi.MTDealProposal})
+		//if err != nil {
+		//	return xerrors.Errorf("failed to sign deal proposal: %w", err)
+		//}
 
-		msgb, err := sig.MarshalBinary()
-		if err != nil {
-			return xerrors.Errorf("failed to marshal deal proposal signature: %w", err)
-		}
+		//msgb, err := sig.MarshalBinary()
+		//if err != nil {
+		//	return xerrors.Errorf("failed to marshal deal proposal signature: %w", err)
+		//}
 
 		deal := mk20.Deal{
 			Identifier: id,
 			Client:     walletAddr,
-			Signature:  msgb,
 			Data:       &d,
 			Products:   p,
 		}

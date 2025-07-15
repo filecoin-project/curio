@@ -267,7 +267,7 @@ gen: gensimple
 .PHONY: gen
 
 marketgen:
-	$(GOCC) run ./market/mk20/mk20gen -pkg ./market/mk20 -output ./market/mk20/http/info.md
+	swag init -dir market/mk20/http -g http.go  -o market/mk20/http --parseDependencyLevel 3 --parseDependency
 .PHONY: marketgen
 
 gensimple: api-gen go-generate cfgdoc-gen docsgen marketgen docsgen-cli

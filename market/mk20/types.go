@@ -21,9 +21,6 @@ type Deal struct {
 	// Client wallet for the deal
 	Client address.Address `json:"client"`
 
-	// Signature bytes for the client deal
-	Signature []byte `json:"signature"`
-
 	// Data represents the source of piece data and associated metadata.
 	Data *DataSource `json:"data"`
 
@@ -137,50 +134,60 @@ const (
 	// AggregateTypeNone represents the default aggregation type, indicating no specific aggregation is applied.
 	AggregateTypeNone AggregateType = iota
 
-	// AggregateTypeV1 represents the first version of the aggregate type in the system.
+	// AggregateTypeV1 represents the first version of the aggregate type in the system. This is current PODSI aggregation
+	// based on https://github.com/filecoin-project/FIPs/blob/master/FRCs/frc-0058.md
 	AggregateTypeV1
 )
 
-// ErrorCode represents an error code as an integer value
-type ErrorCode int
+// DealCode represents an error code as an integer value
+type DealCode int
 
 const (
 
 	// Ok represents a successful operation with an HTTP status code of 200.
-	Ok ErrorCode = 200
+	Ok DealCode = 200
+
+	// ErrUnAuthorized represents an error indicating unauthorized access with the code 401.
+	ErrUnAuthorized DealCode = 401
 
 	// ErrBadProposal represents a validation error that indicates an invalid or malformed proposal input in the context of validation logic.
-	ErrBadProposal ErrorCode = 400
+	ErrBadProposal DealCode = 400
+
+	// ErrDealNotFound indicates that the specified deal could not be found, corresponding to the HTTP status code 404.
+	ErrDealNotFound DealCode = 404
 
 	// ErrMalformedDataSource indicates that the provided data source is incorrectly formatted or contains invalid data.
-	ErrMalformedDataSource ErrorCode = 430
+	ErrMalformedDataSource DealCode = 430
 
 	// ErrUnsupportedDataSource indicates the specified data source is not supported or disabled for use in the current context.
-	ErrUnsupportedDataSource ErrorCode = 422
+	ErrUnsupportedDataSource DealCode = 422
 
 	// ErrUnsupportedProduct indicates that the requested product is not supported by the provider.
-	ErrUnsupportedProduct ErrorCode = 423
+	ErrUnsupportedProduct DealCode = 423
 
 	// ErrProductNotEnabled indicates that the requested product is not enabled on the provider.
-	ErrProductNotEnabled ErrorCode = 424
+	ErrProductNotEnabled DealCode = 424
 
 	// ErrProductValidationFailed indicates a failure during product-specific validation due to invalid or missing data.
-	ErrProductValidationFailed ErrorCode = 425
+	ErrProductValidationFailed DealCode = 425
 
 	// ErrDealRejectedByMarket indicates that a proposed deal was rejected by the market for not meeting its acceptance criteria or rules.
-	ErrDealRejectedByMarket ErrorCode = 426
+	ErrDealRejectedByMarket DealCode = 426
+
+	// ErrServerInternalError indicates an internal server error with a corresponding error code of 500.
+	ErrServerInternalError DealCode = 500
 
 	// ErrServiceMaintenance indicates that the service is temporarily unavailable due to maintenance, corresponding to HTTP status code 503.
-	ErrServiceMaintenance ErrorCode = 503
+	ErrServiceMaintenance DealCode = 503
 
 	// ErrServiceOverloaded indicates that the service is overloaded and cannot process the request at the moment.
-	ErrServiceOverloaded ErrorCode = 429
+	ErrServiceOverloaded DealCode = 429
 
 	// ErrMarketNotEnabled indicates that the market is not enabled for the requested operation.
-	ErrMarketNotEnabled ErrorCode = 440
+	ErrMarketNotEnabled DealCode = 440
 
 	// ErrDurationTooShort indicates that the provided duration value does not meet the minimum required threshold.
-	ErrDurationTooShort ErrorCode = 441
+	ErrDurationTooShort DealCode = 441
 )
 
 // ProductName represents a type for defining the product name identifier used in various operations and validations.
@@ -205,6 +212,66 @@ const (
 )
 
 type product interface {
-	Validate(db *harmonydb.DB, cfg *config.MK20Config) (ErrorCode, error)
+	Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error)
 	ProductName() ProductName
 }
+
+// UploadStatusCode defines the return codes for the upload status
+type UploadStatusCode int
+
+const (
+
+	// UploadStatusCodeOk represents a successful upload operation with status code 200.
+	UploadStatusCodeOk UploadStatusCode = 200
+
+	// UploadStatusCodeDealNotFound indicates that the requested deal was not found, corresponding to status code 404.
+	UploadStatusCodeDealNotFound UploadStatusCode = 404
+
+	// UploadStatusCodeUploadNotStarted indicates that the upload process has not started yet.
+	UploadStatusCodeUploadNotStarted UploadStatusCode = 425
+
+	// UploadStatusCodeServerError indicates an internal server error occurred during the upload process, corresponding to status code 500.
+	UploadStatusCodeServerError UploadStatusCode = 500
+)
+
+// UploadStartCode represents an integer type for return codes related to the upload start process.
+type UploadStartCode int
+
+const (
+
+	// UploadStartCodeOk indicates a successful upload start request with status code 200.
+	UploadStartCodeOk UploadStartCode = 200
+
+	// UploadStartCodeBadRequest indicates a bad upload start request error with status code 400.
+	UploadStartCodeBadRequest UploadStartCode = 400
+
+	// UploadStartCodeDealNotFound represents a 404 status indicating the deal was not found during the upload start process.
+	UploadStartCodeDealNotFound UploadStartCode = 404
+
+	// UploadStartCodeAlreadyStarted indicates that the upload process has already been initiated and cannot be started again.
+	UploadStartCodeAlreadyStarted UploadStartCode = 409
+
+	// UploadStartCodeServerError indicates an error occurred on the server while processing an upload start request.
+	UploadStartCodeServerError UploadStartCode = 500
+)
+
+// UploadCode represents return codes related to upload operations, typically based on HTTP status codes.
+type UploadCode int
+
+const (
+
+	// UploadOk indicates a successful upload operation, represented by the HTTP status code 200.
+	UploadOk UploadCode = 200
+
+	// UploadBadRequest represents a bad request error with an HTTP status code of 400.
+	UploadBadRequest UploadCode = 400
+
+	// UploadNotFound represents an error where the requested upload chunk could not be found, typically corresponding to HTTP status 404.
+	UploadNotFound UploadCode = 404
+
+	// UploadChunkAlreadyUploaded indicates that the chunk has already been uploaded and cannot be re-uploaded.
+	UploadChunkAlreadyUploaded UploadCode = 409
+
+	// UploadServerError indicates a server-side error occurred during the upload process, represented by the HTTP status code 500.
+	UploadServerError UploadCode = 500
+)
