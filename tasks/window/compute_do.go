@@ -223,10 +223,10 @@ func (t *WdPostTask) DoPartition(ctx context.Context, ts *types.TipSet, maddr ad
 			}
 
 			// Proof generation successful, stop retrying
-			//somethingToProve = true
+			// somethingToProve = true
 			params.Partitions = []miner2.PoStPartition{postPartition}
 			params.Proofs = postOut
-			//break
+			// break
 
 			return &params, nil
 		}
@@ -244,7 +244,8 @@ type FaultTracker interface {
 }
 
 func checkSectors(ctx context.Context, api CheckSectorsAPI, ft FaultTracker,
-	maddr address.Address, check bitfield.BitField, tsk types.TipSetKey) (bitfield.BitField, error) {
+	maddr address.Address, check bitfield.BitField, tsk types.TipSetKey,
+) (bitfield.BitField, error) {
 	mid, err := address.IDFromAddress(maddr)
 	if err != nil {
 		return bitfield.BitField{}, xerrors.Errorf("failed to convert to ID addr: %w", err)
@@ -337,7 +338,7 @@ func (t *WdPostTask) sectorsForProof(ctx context.Context, maddr address.Address,
 	if err := allSectors.ForEach(func(sectorNo uint64) error {
 		if info, found := sectorByID[sectorNo]; found {
 			proofSectors = append(proofSectors, info)
-		} //else {
+		} // else {
 		//skip
 		// todo: testing: old logic used to put 'substitute' sectors here
 		//  that probably isn't needed post nv19, but we do need to check that
@@ -399,12 +400,12 @@ func (t *WdPostTask) generateWindowPoSt(ctx context.Context, ppt abi.RegisteredP
 	var wg sync.WaitGroup
 	wg.Add(int(partitionCount))
 
-	for partIdx := uint64(0); partIdx < partitionCount; partIdx++ {
+	for partIdx := range partitionCount {
 		go func(partIdx uint64) {
 			defer wg.Done()
 
 			sectors := make([]storiface.PostSectorChallenge, 0)
-			for i := uint64(0); i < maxPartitionSize; i++ {
+			for i := range maxPartitionSize {
 				si := i + partIdx*maxPartitionSize
 				if si >= uint64(len(postChallenges.Sectors)) {
 					break
@@ -456,7 +457,6 @@ func (t *WdPostTask) generateWindowPoSt(ctx context.Context, ppt abi.RegisteredP
 }
 
 func (t *WdPostTask) GenerateWindowPoStAdv(ctx context.Context, ppt abi.RegisteredPoStProof, mid abi.ActorID, sectors []storiface.PostSectorChallenge, partitionIdx int, randomness abi.PoStRandomness, allowSkip bool) (storiface.WindowPoStResult, error) {
-
 	var slk sync.Mutex
 	var skipped []abi.SectorID
 
@@ -491,14 +491,14 @@ func (t *WdPostTask) GenerateWindowPoStAdv(ctx context.Context, ppt abi.Register
 			}
 
 			vanilla, err := t.storage.GenerateSingleVanillaProof(ctx, mid, s, ppt)
-			slk.Lock()
-			defer slk.Unlock()
-
 			if err != nil || vanilla == nil {
+				slk.Lock()
 				skipped = append(skipped, abi.SectorID{
 					Miner:  mid,
 					Number: s.SectorNumber,
 				})
+				slk.Unlock()
+
 				log.Errorf("reading PoSt challenge for sector %d, vlen:%d, err: %s", s.SectorNumber, len(vanilla), err)
 				return
 			}
