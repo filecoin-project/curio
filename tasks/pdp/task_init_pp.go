@@ -55,7 +55,7 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 
 		err := db.Select(ctx, &toCallInit, `
                 SELECT id
-                FROM pdp_proof_sets
+                FROM pdp_proof_set
                 WHERE challenge_request_task_id IS NULL
                 AND init_ready AND prove_at_epoch IS NULL
             `)
@@ -65,14 +65,14 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 
 		for _, ps := range toCallInit {
 			ipp.addFunc.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-				// Update pdp_proof_sets to set challenge_request_task_id = id
+				// Update pdp_proof_set to set challenge_request_task_id = id
 				affected, err := tx.Exec(`
-                        UPDATE pdp_proof_sets
+                        UPDATE pdp_proof_set
                         SET challenge_request_task_id = $1
                         WHERE id = $2 AND challenge_request_task_id IS NULL
                     `, id, ps.ProofSetID)
 				if err != nil {
-					return false, xerrors.Errorf("failed to update pdp_proof_sets: %w", err)
+					return false, xerrors.Errorf("failed to update pdp_proof_set: %w", err)
 				}
 				if affected == 0 {
 					// Someone else might have already scheduled the task
@@ -97,7 +97,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 
 	err = ipp.db.QueryRow(ctx, `
         SELECT id
-        FROM pdp_proof_sets
+        FROM pdp_proof_set
         WHERE challenge_request_task_id = $1 
     `, taskID).Scan(&proofSetID)
 	if err == sql.ErrNoRows {
@@ -188,7 +188,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 	_, err = ipp.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// Update pdp_proof_sets
 		affected, err := tx.Exec(`
-            UPDATE pdp_proof_sets
+            UPDATE pdp_proof_set
             SET challenge_request_msg_hash = $1,
                 prev_challenge_request_epoch = $2,
 				prove_at_epoch = $3

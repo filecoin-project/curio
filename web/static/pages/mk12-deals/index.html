@@ -1,12 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Storage Marker</title>
+    <title>MK12 Storage Deals</title>
     <script type="module" src="/ux/curio-ux.mjs"></script>
     <script type="module" src="/ux/components/Drawer.mjs"></script>
     <script type="module" src="deal-search.mjs"></script>
+    <script type="module" src="market-asks.mjs"></script>
+    <script type="module" src="deal-pipelines.mjs"></script>
     <script type="module" src="mk12-deals.mjs"></script>
-    <script type="module" src="legacy-deals.mjs"></script>
     <script type="module" src="mk12ddo-list.mjs"></script>
 </head>
 <body style="visibility:hidden; background:rgb(11, 22, 34)" data-bs-theme="dark">
@@ -22,6 +23,20 @@
                 </div>
             </div>
         </section>
+        <section class="section" style="padding-bottom: 50px">
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                    <market-asks></market-asks>
+                </div>
+            </div>
+        </section>
+        <section class="section" style="padding-bottom: 50px">
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                    <deal-pipelines></deal-pipelines>
+                </div>
+            </div>
+        </section>
         <section class="section">
             <div class="row">
                 <div class="col-md-auto" style="max-width: 95%">
@@ -33,13 +48,6 @@
             <div class="row">
                 <div class="col-md-auto" style="max-width: 95%">
                     <mk12ddo-deal-list></mk12ddo-deal-list>
-                </div>
-            </div>
-        </section>
-        <section class="section">
-            <div class="row">
-                <div class="col-md-auto" style="max-width: 95%">
-                    <legacy-deal-list></legacy-deal-list>
                 </div>
             </div>
         </section>

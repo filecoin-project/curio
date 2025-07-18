@@ -65,29 +65,60 @@ func (s *SlackWebhook) SendAlert(data *AlertPayload) error {
 
 	// Iterate through the map to construct the remaining blocks
 	for key, value := range data.Details {
-		// Split value into sentences by period followed by space
+		// Split value into sentences by period followed by space.
 		sentences := strings.Split(value.(string), ". ")
-		formattedValue := fmt.Sprintf("• *%s*\n", key)
 
-		// Add a bullet point before each trimmed sentence
+		// Add the key as the header for each block.
+		baseFormattedValue := fmt.Sprintf("• *%s*\n", key)
+		currentFormattedValue := baseFormattedValue
+
+		// Keep track of the character limit (3000) when adding sentences.
 		for _, sentence := range sentences {
-			trimmedSentence := strings.TrimSpace(sentence) // Trim leading and trailing spaces
+			trimmedSentence := strings.TrimSpace(sentence) // Trim leading and trailing spaces.
 			if trimmedSentence != "" {
-				formattedValue += fmt.Sprintf("• %s.\n", trimmedSentence) // Add period back and newline
+				// Add a bullet point and sentence, restoring the period and newline.
+				newSection := fmt.Sprintf("• %s.\n", trimmedSentence)
+
+				// Check if adding this section exceeds the 3000-character limit.
+				if len(currentFormattedValue)+len(newSection) > 3000 {
+					// If limit exceeds, add the currentFormattedValue block to payload and start a new block.
+					payload.Blocks = append(payload.Blocks,
+						Block{
+							Type: "section",
+							Text: &TextBlock{
+								Type: "mrkdwn",
+								Text: currentFormattedValue,
+							},
+						},
+						Block{
+							Type: "divider",
+						},
+					)
+
+					// Start a new formatted value with the baseFormattedValue.
+					currentFormattedValue = baseFormattedValue
+				}
+
+				// Append the newSection to the currentFormattedValue.
+				currentFormattedValue += newSection
 			}
 		}
-		payload.Blocks = append(payload.Blocks,
-			Block{
-				Type: "section",
-				Text: &TextBlock{
-					Type: "mrkdwn",
-					Text: formattedValue,
+
+		// Add the last block if it contains any content.
+		if currentFormattedValue != baseFormattedValue {
+			payload.Blocks = append(payload.Blocks,
+				Block{
+					Type: "section",
+					Text: &TextBlock{
+						Type: "mrkdwn",
+						Text: currentFormattedValue,
+					},
 				},
-			},
-			Block{
-				Type: "divider",
-			},
-		)
+				Block{
+					Type: "divider",
+				},
+			)
+		}
 	}
 
 	// Marshal the payload to JSON
@@ -163,7 +194,8 @@ func (s *SlackWebhook) SendAlert(data *AlertPayload) error {
 			}
 		})
 	if err != nil {
-		return fmt.Errorf("after %d retries,last error: %w", iter, err)
+		log.Errorw("Slack Webhook payload:", string(jsonData))
+		return fmt.Errorf("after %d retries,last error: %w, %s", iter, err, string(jsonData))
 	}
 	return nil
 }

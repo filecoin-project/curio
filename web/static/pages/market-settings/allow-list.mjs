@@ -25,7 +25,6 @@ class AllowList extends LitElement {
             if (Array.isArray(result)) {
                 this.allowList = result;
             } else {
-                console.error('GetAllowDenyList did not return an array:', result);
                 this.allowList = [];
             }
         } catch (error) {
