@@ -18,7 +18,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
-const MinConfidence = 6
+const MinConfidence = 1
 
 type MessageWaiterApi interface {
 	StateGetActor(ctx context.Context, actor address.Address, tsk types.TipSetKey) (*types.Actor, error)

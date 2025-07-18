@@ -259,10 +259,28 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		data,
 	)
 
+	// Prepare a temp struct for logging proofs as hex
+	type proofLog struct {
+		Leaf  string   `json:"leaf"`
+		Proof []string `json:"proof"`
+	}
+	proofLogs := make([]proofLog, len(proofs))
+	for i, pf := range proofs {
+		leafHex := hex.EncodeToString(pf.Leaf[:])
+		proofHex := make([]string, len(pf.Proof))
+		for j, p := range pf.Proof {
+			proofHex[j] = hex.EncodeToString(p[:])
+		}
+		proofLogs[i] = proofLog{
+			Leaf:  leafHex,
+			Proof: proofHex,
+		}
+	}
+
 	log.Infow("PDP Prove Task",
 		"proofSetID", proofSetID,
 		"taskID", taskID,
-		"proofs", proofs,
+		"proofs", proofLogs,
 		"data", hex.EncodeToString(data),
 		"gasFeeEstimate", gasFee,
 		"proofFee initial", proofFee.Div(proofFee, big.NewInt(3)),
@@ -655,7 +673,6 @@ func (p *ProveTask) getSenderAddress(ctx context.Context, match common.Address) 
 }
 
 func (p *ProveTask) cleanupDeletedRoots(ctx context.Context, proofSetID int64, pdpVerifier *contract.PDPVerifier) error {
-
 	removals, err := pdpVerifier.GetScheduledRemovals(nil, big.NewInt(proofSetID))
 	if err != nil {
 		return xerrors.Errorf("failed to get scheduled removals: %w", err)
@@ -663,7 +680,6 @@ func (p *ProveTask) cleanupDeletedRoots(ctx context.Context, proofSetID int64, p
 
 	// Execute cleanup in a transaction
 	ok, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-
 		for _, removeID := range removals {
 			log.Debugw("cleanupDeletedRoots", "removeID", removeID)
 			// Get the pdp_pieceref ID for the root before deleting
@@ -702,7 +718,6 @@ func (p *ProveTask) cleanupDeletedRoots(ctx context.Context, proofSetID int64, p
 
 		return true, nil
 	}, harmonydb.OptionRetry())
-
 	if err != nil {
 		return xerrors.Errorf("failed to cleanup deleted roots: %w", err)
 	}
@@ -772,5 +787,7 @@ func shabytes(in []byte) []byte {
 	return out[:]
 }
 
-var _ = harmonytask.Reg(&ProveTask{})
-var _ harmonytask.TaskInterface = &ProveTask{}
+var (
+	_                           = harmonytask.Reg(&ProveTask{})
+	_ harmonytask.TaskInterface = &ProveTask{}
+)
