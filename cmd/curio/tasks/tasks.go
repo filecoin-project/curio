@@ -288,6 +288,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 			pdp.NewWatcherCreate(db, must.One(dependencies.EthClient.Val()), chainSched)
 			pdp.NewWatcherRootAdd(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdp.NewWatcherDelete(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdp.NewPDPTaskDeleteRoot(db, es, must.One(dependencies.EthClient.Val()))
+			pdp.NewWatcherRootDelete(db, must.One(dependencies.EthClient.Val()), chainSched)
 
 			pdpAggregateTask := pdp.NewAggregatePDPDealTask(db, sc)
 			pdpCache := pdp.NewTaskSavePDPCache(db, dependencies.CachedPieceReader, iStore)

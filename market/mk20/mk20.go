@@ -372,6 +372,40 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 			}
 		}
 
+		pdp := deal.Products.PDPV1
+		if pdp.CreateProofSet {
+			n, err := m.DB.Exec(ctx, `INSERT INTO pdp_proof_set_create (id, client, record_keeper, extra_data) VALUES ($1, $2, $3, $4)`,
+				deal.Identifier.String(), deal.Client.String(), pdp.RecordKeeper, pdp.ExtraData)
+			if err != nil {
+				return false, xerrors.Errorf("inserting PDP proof set create: %w", err)
+			}
+			if n != 1 {
+				return false, fmt.Errorf("expected 1 row to be updated, got %d", n)
+			}
+		}
+
+		if pdp.DeleteProofSet {
+			n, err := m.DB.Exec(ctx, `INSERT INTO pdp_proof_set_delete (id, client, set_id, extra_data) VALUES ($1, $2, $3, $4)`,
+				deal.Identifier.String(), deal.Client.String(), *pdp.ProofSetID, pdp.ExtraData)
+			if err != nil {
+				return false, xerrors.Errorf("inserting PDP proof set delete: %w", err)
+			}
+			if n != 1 {
+				return false, fmt.Errorf("expected 1 row to be updated, got %d", n)
+			}
+		}
+
+		if pdp.DeleteRoot {
+			n, err := m.DB.Exec(ctx, `INSERT INTO pdp_delete_root (id, client, set_id, roots, extra_data) VALUES ($1, $2, $3, $4, $5)`,
+				deal.Identifier.String(), deal.Client.String(), *pdp.ProofSetID, pdp.ExtraData)
+			if err != nil {
+				return false, xerrors.Errorf("inserting PDP delete root: %w", err)
+			}
+			if n != 1 {
+				return false, fmt.Errorf("expected 1 row to be updated, got %d", n)
+			}
+		}
+
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {

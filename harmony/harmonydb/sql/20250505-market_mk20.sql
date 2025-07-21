@@ -378,6 +378,8 @@ CREATE TABLE pdp_proof_set (
     create_deal_id TEXT NOT NULL, -- mk20 deal ID for creating this proofset
     create_message_hash TEXT NOT NULL,
 
+    removed BOOLEAN DEFAULT FALSE,
+
     remove_deal_id TEXT DEFAULT NULL, -- mk20 deal ID for removing this proofset
     remove_message_hash TEXT DEFAULT NULL,
 
@@ -391,8 +393,31 @@ CREATE TABLE pdp_proof_set_create (
 
     record_keeper TEXT NOT NULL,
     extra_data BYTEA,
-    task_id BIGINT DEFAULT NULL,
 
+    task_id BIGINT DEFAULT NULL,
+    tx_hash TEXT DEFAULT NULL
+);
+
+CREATE TABLE pdp_proof_set_delete (
+    id TEXT PRIMARY KEY, -- This is Market V2 Deal ID for lookup and response
+    client TEXT NOT NULL,
+
+    set_id BIGINT NOT NULL,
+    extra_data BYTEA,
+
+    task_id BIGINT DEFAULT NULL,
+    tx_hash TEXT DEFAULT NULL
+);
+
+CREATE TABLE pdp_delete_root (
+    id TEXT PRIMARY KEY, -- This is Market V2 Deal ID for lookup and response
+    client TEXT NOT NULL,
+
+    set_id BIGINT NOT NULL,
+    roots BIGINT[] NOT NULL,
+    extra_data BYTEA,
+
+    task_id BIGINT DEFAULT NULL,
     tx_hash TEXT DEFAULT NULL
 );
 
@@ -413,6 +438,7 @@ CREATE TABLE pdp_proofset_root (
     add_message_hash TEXT NOT NULL,
     add_message_index BIGINT NOT NULL, -- index of root in the add message
 
+    removed BOOLEAN DEFAULT FALSE,
     remove_deal_id TEXT DEFAULT NULL, -- mk20 deal ID for removing this root from proofset
     remove_message_hash TEXT DEFAULT NULL,
     remove_message_index BIGINT DEFAULT NULL,
@@ -450,7 +476,7 @@ CREATE TABLE pdp_pipeline (
     add_root_task_id BIGINT DEFAULT NULL,
     after_add_root BOOLEAN DEFAULT FALSE,
 
-    add_message_hash TEXT NOT NULL,
+    add_message_hash TEXT,
     add_message_index BIGINT NOT NULL DEFAULT 0, -- index of root in the add message
 
     after_add_root_msg BOOLEAN DEFAULT FALSE,

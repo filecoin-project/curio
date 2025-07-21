@@ -921,6 +921,17 @@
                 "proof_set_id": {
                     "description": "ProofSetID is PDP verified contract proofset ID. It must be defined for all deals except when CreateProofSet is true.",
                     "type": "integer"
+                },
+                "record_keeper": {
+                    "description": "RecordKeeper specifies the record keeper contract address for the new PDP proofset.",
+                    "type": "string"
+                },
+                "root_ids": {
+                    "description": "RootIDs is a list of root ids in a proof set.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 }
             }
         },

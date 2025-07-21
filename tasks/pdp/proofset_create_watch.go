@@ -37,7 +37,7 @@ func NewWatcherCreate(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chains
 }
 
 func processPendingProofSetCreates(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
-	// Query for pdp_proofset_creates entries where ok = TRUE and proofset_created = FALSE
+	// Query for pdp_proof_set_create entries tx_hash is NOT NULL
 	var proofSetCreates []ProofSetCreate
 
 	err := db.Select(ctx, &proofSetCreates, `
@@ -153,7 +153,7 @@ func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCr
 
 		n, err = tx.Exec(`UPDATE market_mk20_deal
 							SET pdp_v1 = jsonb_set(pdp_v1, '{complete}', 'true'::jsonb, true)
-							WHERE id = $1;`, "Transaction failed", psc.ID)
+							WHERE id = $1;`, psc.ID)
 		if err != nil {
 			return false, xerrors.Errorf("failed to update market_mk20_deal: %w", err)
 		}

@@ -314,7 +314,7 @@ jobs:
         shell: bash
 
       - name: Install swag cli
-        run: go install github.com/swaggo/swag/cmd/swag@latest
+        run: go install github.com/swaggo/swag/cmd/swag@v1.16.4
         shell: bash
 
 #      - name: Install gotext
