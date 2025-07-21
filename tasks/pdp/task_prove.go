@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"math"
 	"math/big"
 	"sync/atomic"
 
@@ -383,117 +384,6 @@ func padTo32Bytes(b []byte) []byte {
 	return padded
 }
 
-func (p *ProveTask) genSubrootMemtree(
-	ctx context.Context,
-	pieceCidV2 cid.Cid,
-	challengedLeafIndex int64,
-	savedLayer int,
-) ([]byte, error) {
-	// Calculate which snapshot node covers this challenged leaf
-	leavesPerNode := int64(1) << savedLayer
-	snapshotNodeIndex := challengedLeafIndex >> savedLayer
-	startLeaf := snapshotNodeIndex << savedLayer
-
-	// Convert tree-based leaf range to file-based offset/length
-	offset := startLeaf * inputBytesPerLeaf
-	length := leavesPerNode * inputBytesPerLeaf
-
-	// Compute padded size to build Merkle tree (must match what BuildSha254Memtree expects)
-	subrootSize := padreader.PaddedSize(uint64(length)).Padded()
-	if subrootSize > proof.MaxMemtreeSize {
-		return nil, xerrors.Errorf("subroot size exceeds maximum: %d", subrootSize)
-	}
-
-	// Get original file reader
-	reader, reportedSize, err := p.cpr.GetSharedPieceReader(ctx, pieceCidV2)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to get reader: %w", err)
-	}
-	defer reader.Close()
-
-	if offset > int64(reportedSize) {
-		// The entire requested range is beyond file size → pure padding
-		// This should never happen
-		//TODO: Maybe put a panic here?
-		paddingOnly := nullreader.NewNullReader(abi.UnpaddedPieceSize(length))
-		return proof.BuildSha254Memtree(paddingOnly, subrootSize.Unpadded())
-	}
-
-	_, err = reader.Seek(offset, io.SeekStart)
-	if err != nil {
-		return nil, xerrors.Errorf("seek to offset %d failed: %w", offset, err)
-	}
-
-	// Read up to file limit
-	var data io.Reader
-	fileRemaining := int64(reportedSize) - offset
-	if fileRemaining < length {
-		data = io.MultiReader(io.LimitReader(reader, fileRemaining), nullreader.NewNullReader(abi.UnpaddedPieceSize(int64(subrootSize.Unpadded())-fileRemaining)))
-	} else {
-		data = io.LimitReader(reader, length)
-	}
-
-	// Build Merkle tree from padded input
-	return proof.BuildSha254Memtree(data, subrootSize.Unpadded())
-}
-
-func GenerateProofToRootFromSnapshot(
-	snapshotLayer int,
-	snapshotIndex int64,
-	snapshotHash [32]byte,
-	snapshotNodes []indexstore.NodeDigest,
-) ([][32]byte, [32]byte, error) {
-	snapMap := make(map[int64][32]byte)
-	for _, n := range snapshotNodes {
-		if n.Layer != snapshotLayer {
-			continue // ignore other layers if present
-		}
-		snapMap[n.Index] = n.Hash
-	}
-
-	proof := make([][32]byte, 0)
-	currentHash := snapshotHash
-	currentIndex := snapshotIndex
-	hasher := sha256.New()
-
-	for level := snapshotLayer + 1; ; level++ {
-		siblingIndex := currentIndex ^ 1
-
-		siblingHash, exists := snapMap[siblingIndex]
-		if !exists {
-			// Padding if sibling missing
-			siblingHash = currentHash
-		}
-
-		// Add sibling to proof
-		proof = append(proof, siblingHash)
-
-		// Compute parent
-		hasher.Reset()
-		if currentIndex%2 == 0 {
-			hasher.Write(currentHash[:])
-			hasher.Write(siblingHash[:])
-		} else {
-			hasher.Write(siblingHash[:])
-			hasher.Write(currentHash[:])
-		}
-		sum := hasher.Sum(nil)
-		var parent [32]byte
-		copy(parent[:], sum)
-		parent[31] &= 0x3F
-
-		currentHash = parent
-		currentIndex = currentIndex >> 1
-
-		// stop when we reach the root (single node at level)
-		if len(snapMap) <= 1 && currentIndex == 0 {
-			break
-		}
-	}
-
-	return proof, currentHash, nil
-}
-
 func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int64, challengedLeaf int64) (contract.PDPVerifierProof, error) {
 	//const arity = 2
 
@@ -547,10 +437,15 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 
 		rootDigest = mProof.Root
 	} else {
-		layerIdx := snapshotLayerIndex(pi.RawSize)
-		cacheIdx := challengedLeaf >> layerIdx
+		//Calculate layer L such that 127 * 2^L >= targetReadSize
+		//→ 2^L >= targetReadSize / 32
+		ratio := float64(4161536) / 32
+		layerIdx := int(math.Ceil(math.Log2(ratio)))
 
-		has, node, err := p.idx.GetPDPNode(ctx, pcid, cacheIdx)
+		leavesPerNode := int64(1) << layerIdx
+		snapshotNodeIndex := challengedLeaf >> layerIdx
+
+		has, node, err := p.idx.GetPDPNode(ctx, pcid, snapshotNodeIndex)
 		if err != nil {
 			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get node: %w", err)
 		}
@@ -561,26 +456,45 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 			panic("implement me")
 		}
 
-		log.Debugw("proveRoot", "rootChallengeOffset", rootChallengeOffset, "challengedLeaf", challengedLeaf, "layerIdx", layerIdx, "cacheIdx", cacheIdx, "node", node)
+		log.Debugw("proveRoot", "rootChallengeOffset", rootChallengeOffset, "challengedLeaf", challengedLeaf, "layerIdx", layerIdx, "snapshotNodeIndex", snapshotNodeIndex, "node", node)
 
 		if node.Layer != layerIdx {
 			return contract.PDPVerifierProof{}, xerrors.Errorf("node layer mismatch: %d != %d", node.Layer, layerIdx)
 		}
 
-		// build subroot memtree
-		memtree, err := p.genSubrootMemtree(ctx, pcid, challengedLeaf, layerIdx)
+		startLeaf := snapshotNodeIndex << layerIdx
+		// Convert tree-based leaf range to file-based offset/length
+		offset := int64(abi.PaddedPieceSize(startLeaf * 32).Unpadded())
+		length := int64(abi.PaddedPieceSize(leavesPerNode * 32).Unpadded())
+
+		// Compute padded size to build Merkle tree
+		subrootSize := padreader.PaddedSize(uint64(length)).Padded()
+
+		// Get original file reader
+		reader, reportedSize, err := p.cpr.GetSharedPieceReader(ctx, pcid)
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to generate subroot memtree: %w", err)
+			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get reader: %w", err)
+		}
+		defer reader.Close()
+
+		fileRemaining := int64(reportedSize) - offset
+
+		var data io.Reader
+		if fileRemaining < length {
+			data = io.MultiReader(reader, nullreader.NewNullReader(abi.UnpaddedPieceSize(int64(subrootSize.Unpadded())-fileRemaining)))
+		} else {
+			data = reader
 		}
 
-		/*
-			type RawMerkleProof struct {
-				Leaf  [32]byte
-				Proof [][32]byte
-				Root  [32]byte
-			}
-		*/
-		subTreeProof, err := proof.MemtreeProof(memtree, challengedLeaf)
+		memtree, err := proof.BuildSha254Memtree(data, subrootSize.Unpadded())
+		if err != nil {
+			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to build memtree: %w", err)
+		}
+
+		// Get challenge leaf in subTree
+		subTreeChallenge := challengedLeaf - startLeaf
+
+		subTreeProof, err := proof.MemtreeProof(memtree, subTreeChallenge)
 		if err != nil {
 			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to generate sub tree proof: %w", err)
 		}
@@ -597,9 +511,22 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get layer nodes: %w", err)
 		}
 
-		proofs, rd, err := GenerateProofToRootFromSnapshot(node.Layer, node.Index, node.Hash, layerNodes)
+		// Arrange snapshot layer into a byte array
+		var layerBytes []byte
+		for _, n := range layerNodes {
+			layerBytes = append(layerBytes, n.Hash[:]...)
+		}
+
+		// Create subTree from snapshot to commP (root)
+		mtree, err := proof.BuildSha254MemtreeFromSnapshot(layerBytes)
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to generate proof to root: %w", err)
+			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to build memtree from snapshot: %w", err)
+		}
+
+		// Generate merkle proof from snapShot node to commP
+		proofs, err := proof.MemtreeProof(mtree, snapshotNodeIndex)
+		if err != nil {
+			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to generate memtree proof: %w", err)
 		}
 
 		com, err := commcidv2.CommPFromPCidV2(pcid)
@@ -608,16 +535,16 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 		}
 
 		// Verify proof with original root
-		if [32]byte(com.Digest()) != rd {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("root digest mismatch: %x != %x", com.Digest(), rd)
+		if [32]byte(com.Digest()) != proofs.Root {
+			return contract.PDPVerifierProof{}, xerrors.Errorf("root digest mismatch: %x != %x", com.Digest(), proofs.Root)
 		}
 
 		out = contract.PDPVerifierProof{
 			Leaf:  subTreeProof.Leaf,
-			Proof: append([][32]byte{subTreeProof.Root}, proofs...),
+			Proof: append(subTreeProof.Proof, proofs.Proof...),
 		}
 
-		rootDigest = rd
+		rootDigest = proofs.Root
 	}
 
 	if !Verify(out, rootDigest, uint64(challengedLeaf)) {

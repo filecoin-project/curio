@@ -424,18 +424,6 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 
 func (m *MK20) HandleUploadFinalize(id ulid.ULID, deal *Deal, w http.ResponseWriter) {
 	ctx := context.Background()
-	if deal != nil {
-		allow, err := AuthenticateClient(m.DB, id.String(), deal.Client.String())
-		if err != nil {
-			log.Errorw("failed to authenticate client", "deal", id, "error", err)
-			http.Error(w, "", int(ErrServerInternalError))
-			return
-		}
-		if !allow {
-			http.Error(w, "client is not authorized to finalize deal", http.StatusUnauthorized)
-			return
-		}
-	}
 	var exists bool
 	err := m.DB.QueryRow(ctx, `SELECT EXISTS (
 								  SELECT 1
@@ -450,6 +438,19 @@ func (m *MK20) HandleUploadFinalize(id ulid.ULID, deal *Deal, w http.ResponseWri
 
 	if exists {
 		http.Error(w, "deal upload has not finished", http.StatusBadRequest)
+		return
+	}
+
+	ddeal, err := DealFromDB(ctx, m.DB, id)
+	if err != nil {
+		log.Errorw("failed to get deal from db", "deal", id, "error", err)
+		http.Error(w, "", int(ErrServerInternalError))
+		return
+	}
+
+	if ddeal.Data == nil && deal == nil {
+		log.Errorw("cannot finalize deal with missing data source", "deal", id)
+		http.Error(w, "cannot finalize deal with missing data source", int(ErrBadProposal))
 		return
 	}
 

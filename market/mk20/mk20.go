@@ -25,6 +25,7 @@ import (
 	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
 	verifreg9 "github.com/filecoin-project/go-state-types/builtin/v9/verifreg"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/ffi"
@@ -131,7 +132,15 @@ func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal) *ProviderDealRejecti
 	log.Debugw("deal validated", "deal", deal.Identifier.String())
 
 	if deal.Products.DDOV1 != nil {
-		return m.processDDODeal(ctx, deal)
+		// TODO: Remove this check once DDO market is done
+		if build.BuildType == build.Build2k || build.BuildType == build.BuildDebug {
+			return m.processDDODeal(ctx, deal)
+		}
+		log.Errorw("DDOV1 is not supported yet", "deal", deal.Identifier.String())
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrUnsupportedProduct,
+			Reason:   "DDOV1 is not supported yet",
+		}
 	}
 
 	return m.processPDPDeal(ctx, deal)
@@ -678,20 +687,8 @@ func (m *MK20) UpdateDeal(id ulid.ULID, deal *Deal, w http.ResponseWriter) {
 
 	ctx := context.Background()
 
-	allowed, err := AuthenticateClient(m.DB, deal.Identifier.String(), deal.Client.String())
-	if err != nil {
-		log.Errorw("deal rejected", "deal", deal, "error", err)
-		http.Error(w, "", int(ErrServerInternalError))
-		return
-	}
-	if !allowed {
-		log.Errorw("deal rejected as client is not authorized", "deal", deal)
-		http.Error(w, "client not authorized", int(ErrUnAuthorized))
-		return
-	}
-
 	var exists bool
-	err = m.DB.QueryRow(ctx, `SELECT EXISTS (
+	err := m.DB.QueryRow(ctx, `SELECT EXISTS (
 								  SELECT 1
 								  FROM market_mk20_deal
 								  WHERE id = $1)`, id.String()).Scan(&exists)

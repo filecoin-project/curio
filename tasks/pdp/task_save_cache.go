@@ -4,6 +4,7 @@ import (
 	"context"
 	"hash"
 	"io"
+	"math"
 	"math/bits"
 	"sync"
 	"time"
@@ -11,6 +12,8 @@ import (
 	"github.com/ipfs/go-cid"
 	sha256simd "github.com/minio/sha256-simd"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-padreader"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -46,11 +49,10 @@ func (t *TaskSavePDPCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		ID         string `db:"id"`
 		PieceCid   string `db:"piece_cid"`
 		ProofSetID int64  `db:"proof_set_id"`
-		ExtraData  []byte `db:"extra_data"`
 		PieceRef   string `db:"piece_ref"`
 	}
 
-	err = t.db.Select(ctx, &saveCaches, `SELECT id, piece_cid, proof_set_id, extra_data, piece_ref FROM pdp_pipeline WHERE save_cache_task_id = $1 AND after_save_cache = FALSE`, taskID)
+	err = t.db.Select(ctx, &saveCaches, `SELECT id, piece_cid_v2, proof_set_id, piece_ref FROM pdp_pipeline WHERE save_cache_task_id = $1 AND after_save_cache = FALSE`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to select addRoot: %w", err)
 	}
@@ -115,7 +117,7 @@ func (t *TaskSavePDPCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 				leafs[i] = indexstore.NodeDigest{
 					Layer: lidx,
 					Hash:  s.Hash,
-					Index: s.Index,
+					Index: int64(i),
 				}
 			}
 
@@ -201,22 +203,24 @@ var _ harmonytask.TaskInterface = &TaskSavePDPCache{}
 // accept Write()s without further initialization.
 type Calc struct {
 	state
-	mu sync.Mutex
+	mu                sync.Mutex
+	snapShotLayerIdx  int
+	snapshotNodes     []NodeDigest
+	snapshotNodesMu   sync.Mutex
+	expectedNodeCount int
+	maxLayer          uint
+	maxlayerMU        sync.Mutex
 }
 type state struct {
-	quadsEnqueued    uint64
-	layerQueues      [MaxLayers + 2]chan []byte // one extra layer for the initial leaves, one more for the dummy never-to-use channel
-	resultCommP      chan []byte
-	buffer           []byte
-	size             uint64
-	snapShotLayerIdx int
-	snapshotNodes    []NodeDigest
-	snapshotNodesMu  sync.Mutex
+	quadsEnqueued uint64
+	layerQueues   [MaxLayers + 2]chan []byte // one extra layer for the initial leaves, one more for the dummy never-to-use channel
+	resultCommP   chan []byte
+	buffer        []byte
+	size          uint64
 }
 
 type NodeDigest struct {
-	Index int64    // logical index at that layer
-	Hash  [32]byte // 32 bytes
+	Hash [32]byte // 32 bytes
 }
 
 var _ hash.Hash = &Calc{} // make sure we are hash.Hash compliant
@@ -472,7 +476,7 @@ func (cp *Calc) addLayer(myIdx uint) {
 		panic("addLayer called more than once with identical idx argument")
 	}
 	cp.layerQueues[myIdx+1] = make(chan []byte, layerQueueDepth)
-
+	collectSnapshot := int(myIdx) == cp.snapShotLayerIdx-1
 	go func() {
 		var twinHold []byte
 
@@ -491,7 +495,7 @@ func (cp *Calc) addLayer(myIdx uint) {
 
 				if twinHold != nil {
 					copy(twinHold[32:64], stackedNulPadding[myIdx])
-					cp.hashSlab254(0, twinHold[0:64])
+					cp.hashSlab254(0, collectSnapshot, twinHold[0:64])
 					cp.layerQueues[myIdx+1] <- twinHold[0:64:64]
 				}
 
@@ -504,12 +508,12 @@ func (cp *Calc) addLayer(myIdx uint) {
 
 			switch {
 			case len(slab) > 1<<(5+myIdx):
-				cp.hashSlab254(myIdx, slab)
+				cp.hashSlab254(myIdx, collectSnapshot, slab)
 				cp.layerQueues[myIdx+1] <- slab
 				pushedWork = true
 			case twinHold != nil:
 				copy(twinHold[32:64], slab[0:32])
-				cp.hashSlab254(0, twinHold[0:64])
+				cp.hashSlab254(0, collectSnapshot, twinHold[0:64])
 				cp.layerQueues[myIdx+1] <- twinHold[0:32:64]
 				pushedWork = true
 				twinHold = nil
@@ -528,10 +532,13 @@ func (cp *Calc) addLayer(myIdx uint) {
 	}()
 }
 
-func (cp *Calc) hashSlab254(layerIdx uint, slab []byte) {
+func (cp *Calc) hashSlab254(layerIdx uint, collectSnapshot bool, slab []byte) {
 	h := shaPool.Get().(hash.Hash)
-	collectSnapshot := int(layerIdx) == cp.snapShotLayerIdx
-
+	cp.maxlayerMU.Lock()
+	defer cp.maxlayerMU.Unlock()
+	if cp.maxLayer < layerIdx {
+		cp.maxLayer = layerIdx
+	}
 	stride := 1 << (5 + layerIdx)
 	for i := 0; len(slab) > i+stride; i += 2 * stride {
 		h.Reset()
@@ -544,8 +551,7 @@ func (cp *Calc) hashSlab254(layerIdx uint, slab []byte) {
 			copy(d, slab[i:i+32])
 			cp.snapshotNodesMu.Lock()
 			cp.snapshotNodes = append(cp.snapshotNodes, NodeDigest{
-				Index: int64(i / 32), // logical index at this layer
-				Hash:  [32]byte(d),
+				Hash: [32]byte(d),
 			})
 			cp.snapshotNodesMu.Unlock()
 		}
@@ -558,7 +564,7 @@ func NewCommPWithSize(size uint64) *Calc {
 	c := new(Calc)
 	c.state.size = size
 
-	c.snapShotLayerIdx = snapshotLayerIndex(size)
+	c.snapshotLayerIndex(size, false)
 
 	return c
 }
@@ -568,25 +574,43 @@ const (
 	inputBytesPerLeaf = 127             // raw input bytes that become one 32-byte leaf
 )
 
-func snapshotLayerIndex(size uint64) int {
+func (cp *Calc) snapshotLayerIndex(size uint64, test bool) {
 	if size == 0 {
 		panic("size must be > 0")
 	}
 
-	// Total number of leaves, each representing 127 bytes of input
-	numLeaves := size / inputBytesPerLeaf
+	// Calculate padded piece size
+	padded := padreader.PaddedSize(size).Padded()
 
-	// What is the top layer index (leaf layer = 0)
-	leafLayer := bits.Len64(numLeaves - 1) // ceil(log2)
+	// Calculate number of leaf nodes (each covers 128 bytes)
+	numLeaves := uint64(padded) / 32
 
-	// At layer `i`, each node spans 2^i leaves
-	// Each leaf = 127 bytes ⇒ node at layer i = 127 * 2^i
-	// Want: 127 * 2^i ≈ 4 MiB
-	// So: i = log2(4 MiB / 127)
-	targetSpanLeaves := targetReadSize / inputBytesPerLeaf
-	layerDelta := bits.Len64(uint64(targetSpanLeaves - 1))
+	// Total tree height: log2(numLeaves)
+	treeHeight := bits.Len64(numLeaves - 1)
 
-	return leafLayer - layerDelta
+	//Calculate layer L such that 127 * 2^L >= targetReadSize
+	//→ 2^L >= targetReadSize / 32
+	//ratio := float64(1040384) / 32
+	testRatio := float64(2032) / 32
+	ProdRatio := float64(4161536) / 32
+	var layer int
+	if test {
+		layer = int(math.Ceil(math.Log2(testRatio)))
+	} else {
+		layer = int(math.Ceil(math.Log2(ProdRatio)))
+	}
+
+	// Clamp within tree bounds
+	cp.snapShotLayerIdx = layer
+	if layer < 0 {
+		cp.snapShotLayerIdx = 0
+	}
+	if layer > treeHeight {
+		cp.snapShotLayerIdx = treeHeight
+	}
+
+	expectedNodes := numLeaves >> uint(cp.snapShotLayerIdx)
+	cp.expectedNodeCount = int(expectedNodes)
 }
 
 func (cp *Calc) DigestWithSnapShot() ([]byte, uint64, int, []NodeDigest, error) {
@@ -598,7 +622,31 @@ func (cp *Calc) DigestWithSnapShot() ([]byte, uint64, int, []NodeDigest, error) 
 	cp.snapshotNodesMu.Lock()
 	defer cp.snapshotNodesMu.Unlock()
 
-	out := make([]NodeDigest, len(cp.snapshotNodes))
-	copy(out, cp.snapshotNodes)
+	// Make output array of expected length
+	out := make([]NodeDigest, cp.expectedNodeCount)
+
+	// Copy snapShot nodes to output
+	copied := copy(out[:len(cp.snapshotNodes)], cp.snapshotNodes)
+
+	// Fill remaining nodes with zeroPadding
+	if copied != cp.expectedNodeCount {
+		count := cp.expectedNodeCount - copied
+		var h [32]byte
+		copy(h[:], stackedNulPadding[cp.snapShotLayerIdx])
+		out = append(out, make([]NodeDigest, count)...)
+		for i := copied; i < len(out); i++ {
+			out[i].Hash = h
+		}
+	}
+
 	return commp, paddedPieceSize, cp.snapShotLayerIdx, out, nil
+}
+
+func NewCommPWithSizeForTest(size uint64) *Calc {
+	c := new(Calc)
+	c.state.size = size
+
+	c.snapshotLayerIndex(size, true)
+
+	return c
 }

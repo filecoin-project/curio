@@ -179,6 +179,8 @@ jobs:
             target: "./itests/harmonydb_test.go"
           - name: test-itest-alertnow
             target: "./itests/alertnow_test.go"
+          - name: test-itest-pdp-prove
+            target: "./itests/pdp_prove_test.go"
     steps:
       - uses: actions/checkout@v4
 
@@ -309,6 +311,10 @@ jobs:
 
       - name: Install cbor-gen-for
         run: go install github.com/hannahhoward/cbor-gen-for
+        shell: bash
+
+      - name: Install swag cli
+        run: go install github.com/swaggo/swag/cmd/swag@latest
         shell: bash
 
 #      - name: Install gotext

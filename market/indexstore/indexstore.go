@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -647,6 +648,9 @@ func (i *IndexStore) GetPDPLayer(ctx context.Context, pieceCidV2 cid.Cid) ([]Nod
 	if err := iter.Close(); err != nil {
 		return nil, xerrors.Errorf("iterating PDP cache layer (P:0x%02x): %w", pieceCidV2.Bytes(), err)
 	}
+	sort.Slice(layer, func(i, j int) bool {
+		return layer[i].Index < layer[j].Index
+	})
 	return layer, nil
 }
 
