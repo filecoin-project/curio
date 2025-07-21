@@ -2,6 +2,7 @@ package webrpc
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
 	"github.com/samber/lo"
@@ -29,14 +30,16 @@ type SectorBucket struct {
 }
 
 type SectorBuckets struct {
-	All []SectorBucket
-	CC  []SectorBucket
+	All               []SectorBucket
+	CC                []SectorBucket
+	BlockDelaySeconds int
 }
 
 func (a *WebRPC) ActorCharts(ctx context.Context, maddr address.Address) (*SectorBuckets, error) {
 	out := SectorBuckets{
-		All: []SectorBucket{},
-		CC:  []SectorBucket{},
+		All:               []SectorBucket{},
+		CC:                []SectorBucket{},
+		BlockDelaySeconds: int(build.BlockDelaySecs),
 	}
 
 	stor := store.ActorStore(ctx,
@@ -106,7 +109,12 @@ func (a *WebRPC) ActorCharts(ctx context.Context, maddr address.Address) (*Secto
 		if sector.VerifiedDealWeight.GreaterThan(abi.NewStoragePower(0)) {
 			weight = big.Div(big.Mul(sector.VerifiedDealWeight, big.NewInt(verifiedPowerGainMul)), big.NewInt(int64(sector.Expiration-sector.PowerBaseEpoch)))
 		}
+
+		fmt.Println("Sector Number", sector.SectorNumber, "Weight", weight)
+
 		sb.QAP = big.Add(sb.QAP, weight)
+
+		fmt.Println("Sector Number", sector.SectorNumber, "QAP", sb.QAP)
 
 		if sector.DealWeight.Equals(abi.NewStoragePower(0)) && sector.VerifiedDealWeight.Equals(abi.NewStoragePower(0)) {
 			sbc, ok := bucketsMapCC[bucket]
@@ -162,7 +170,7 @@ func (a *WebRPC) prepExpirationBucket(out []SectorBucket, now *types.TipSet) ([]
 	totalCount := lo.Reduce(out, func(acc int64, b SectorBucket, _ int) int64 {
 		return acc + b.Count
 	}, int64(0))
-	totalPower := lo.Reduce(out, func(agg big.Int, b SectorBucket, _ int) big.Int { return big.Add(agg, b.QAP) }, big.Zero())
+	//totalPower := lo.Reduce(out, func(agg big.Int, b SectorBucket, _ int) big.Int { return big.Add(agg, b.QAP) }, big.Zero())
 
 	if len(out) == 0 {
 		return out, nil
@@ -179,13 +187,15 @@ func (a *WebRPC) prepExpirationBucket(out []SectorBucket, now *types.TipSet) ([]
 	}
 
 	for i := range out {
+		fmt.Println("Bucket", i, "Epoch", out[i].BucketEpoch, "Count", out[i].Count, "QAP", out[i].QAP, "VestedLockedFunds", out[i].VestedLockedFunds)
 		newTotal := totalCount - out[i].Count
 		out[i].Count = newTotal
 		totalCount = newTotal
 
-		newTotalPower := big.Sub(totalPower, out[i].QAP)
-		out[i].QAP = newTotalPower
-		totalPower = newTotalPower
+		//newTotalPower := big.Sub(totalPower, out[i].QAP)
+		//fmt.Println("Bucket", i, "New Total Power", newTotalPower.String())
+		//out[i].QAP = newTotalPower
+		//totalPower = newTotalPower
 
 		epochsToExpiry := out[i].BucketEpoch - now.Height()
 		secsToExpiry := int64(epochsToExpiry) * int64(build.BlockDelaySecs)

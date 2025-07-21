@@ -355,7 +355,8 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 	}
 
 	if deps.IndexStore == nil {
-		deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(cctx.String("db-host"), ","), cctx.Int("db-cassandra-port"), deps.Cfg)
+		deps.IndexStore = indexstore.NewIndexStore(strings.Split(cctx.String("db-host"), ","), cctx.Int("db-cassandra-port"), deps.Cfg)
+		err = deps.IndexStore.Start(cctx.Context, false)
 		if err != nil {
 			return xerrors.Errorf("failed to start index store: %w", err)
 		}
@@ -367,7 +368,7 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 
 	if deps.CachedPieceReader == nil {
 		ppr := pieceprovider.NewPieceParkReader(deps.Stor, deps.Si)
-		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.SectorReader, ppr)
+		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.SectorReader, ppr, deps.IndexStore)
 	}
 
 	if deps.ServeChunker == nil {
