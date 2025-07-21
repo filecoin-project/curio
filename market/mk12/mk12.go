@@ -490,7 +490,7 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 
 	if !deal.IsOffline {
 		// Reject incorrect sized online deals
-		if deal.ClientDealProposal.Proposal.PieceSize != padreader.PaddedSize(deal.Transfer.Size).Padded() {
+		if deal.ClientDealProposal.Proposal.PieceSize != padreader.PaddedSize(deal.Transfer.Size).Padded() && !(deal.ClientDealProposal.Proposal.VerifiedDeal && deal.ClientDealProposal.Proposal.PieceSize <= abi.PaddedPieceSize(1<<20)) {
 			return &ProviderDealRejectionInfo{
 				Reason: fmt.Sprintf("deal proposal piece size %d doesn't match padded piece size %d", deal.ClientDealProposal.Proposal.PieceSize, padreader.PaddedSize(deal.Transfer.Size).Padded()),
 			}, nil

@@ -211,11 +211,6 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 		psize = piece.DealProposal.PieceSize
 	}
 
-	// check raw size
-	if psize != padreader.PaddedSize(uint64(rawSize)).Padded() {
-		return nil, nil, xerrors.Errorf("raw size doesn't match padded piece size")
-	}
-
 	var propJson []byte
 
 	dataHdrJson, err := json.Marshal(header)
@@ -303,6 +298,11 @@ func (p *PieceIngesterSnap) AllocatePieceToSector(ctx context.Context, tx *harmo
 	propJson, err = json.Marshal(piece.PieceActivationManifest)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("json.Marshal(piece.PieceActivationManifest): %w", err)
+	}
+
+	// check raw size
+	if psize != padreader.PaddedSize(uint64(rawSize)).Padded() && !(vd.isVerified && psize <= abi.PaddedPieceSize(1<<20)) {
+		return nil, nil, xerrors.Errorf("raw size doesn't match padded piece size")
 	}
 
 	// Try to allocate the piece to an open sector
