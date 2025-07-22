@@ -347,6 +347,7 @@ Not enough cores available for hashers ✘
 EnableBatchSeal = true
 
 [Seal]
+# This field is optional. In most setups, NVMe devices can be inferred automatically if this configuration is omitted.
 LayerNVMEDevices = [
   "0000:88:00.0",
   "0000:86:00.0", 
