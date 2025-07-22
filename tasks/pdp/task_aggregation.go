@@ -2,6 +2,7 @@ package pdp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/bits"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-data-segment/datasegment"
@@ -183,12 +185,35 @@ func (a *AggregatePDPDealTask) Do(taskID harmonytask.TaskID, stillOwned func() b
 	var pieceParked bool
 
 	comm, err := a.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		err = tx.QueryRow(`
+		// Check if we already have the piece, if found then verify access and skip rest of the processing
+		var pid int64
+		err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2 AND long_term = TRUE`, pi.PieceCIDV1.String(), pi.Size).Scan(&pid)
+		if err == nil {
+			// If piece exists then check if we can access the data
+			pr, err := a.sc.PieceReader(ctx, storiface.PieceNumber(pid))
+			if err != nil {
+				// If piece does not exist then we will park it otherwise fail here
+				if !errors.Is(err, storiface.ErrSectorNotFound) {
+					// We should fail here because any subsequent operation which requires access to data will also fail
+					// till this error is fixed
+					return false, fmt.Errorf("failed to get piece reader: %w", err)
+				}
+			}
+			defer pr.Close()
+			pieceParked = true
+			parkedPieceID = pid
+		} else {
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return false, fmt.Errorf("failed to check if piece already exists: %w", err)
+			}
+			// If piece does not exist then let's create one
+			err = tx.QueryRow(`
             INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
-            VALUES ($1, $2, $3, TRUE, TRUE) RETURNING id, complete`,
-			pi.PieceCIDV1.String(), pi.Size, pi.RawSize).Scan(&parkedPieceID, &pieceParked)
-		if err != nil {
-			return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
+            VALUES ($1, $2, $3, TRUE, TRUE) RETURNING id`,
+				pi.PieceCIDV1.String(), pi.Size, pi.RawSize).Scan(&parkedPieceID)
+			if err != nil {
+				return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
+			}
 		}
 
 		err = tx.QueryRow(`
@@ -224,7 +249,7 @@ func (a *AggregatePDPDealTask) Do(taskID harmonytask.TaskID, stillOwned func() b
 
 	// Write piece if not already complete
 	if !pieceParked {
-		upi, err := a.sc.WriteUploadPiece(ctx, storiface.PieceNumber(parkedPieceID), int64(pi.RawSize), outR, storiface.PathStorage)
+		upi, _, err := a.sc.WriteUploadPiece(ctx, storiface.PieceNumber(parkedPieceID), int64(pi.RawSize), outR, storiface.PathStorage, true)
 		if err != nil {
 			return false, xerrors.Errorf("writing aggregated piece data to storage: %w", err)
 		}

@@ -271,6 +271,9 @@ type PieceInfo struct {
 }
 
 func (d *Deal) RawSize() (uint64, error) {
+	if d.Data == nil {
+		return 0, xerrors.Errorf("no data")
+	}
 	commp, err := commcidv2.CommPFromPCidV2(d.Data.PieceCID)
 	if err != nil {
 		return 0, xerrors.Errorf("invalid piece cid: %w", err)
@@ -279,6 +282,9 @@ func (d *Deal) RawSize() (uint64, error) {
 }
 
 func (d *Deal) Size() (abi.PaddedPieceSize, error) {
+	if d.Data == nil {
+		return 0, xerrors.Errorf("no data")
+	}
 	commp, err := commcidv2.CommPFromPCidV2(d.Data.PieceCID)
 	if err != nil {
 		return 0, xerrors.Errorf("invalid piece cid: %w", err)
@@ -493,13 +499,13 @@ func (d *Deal) UpdateDealWithTx(tx *harmonydb.Tx) error {
 	return nil
 }
 
-func (d *Deal) UpdateDeal(ctx context.Context, db *harmonydb.DB) error {
+func (d *Deal) UpdateDeal(tx *harmonydb.Tx) error {
 	dbDeal, err := d.ToDBDeal()
 	if err != nil {
 		return xerrors.Errorf("to db deal: %w", err)
 	}
 
-	n, err := db.Exec(ctx, `UPDATE market_mk20_deal SET 
+	n, err := tx.Exec(`UPDATE market_mk20_deal SET 
                             piece_cid_v2 = $1, 
                             piece_cid = $2, 
                             piece_size = $3, 
@@ -657,6 +663,9 @@ const (
 
 	// DealStateAccepted represents the state where a deal has been accepted and is pending further processing in the system.
 	DealStateAccepted DealState = "accepted"
+
+	// DealStateAwaitingUpload represents the state where a deal is awaiting file upload to proceed further in the process.
+	DealStateAwaitingUpload DealState = "uploading"
 
 	// DealStateProcessing represents the state of a deal currently being processed in the pipeline.
 	DealStateProcessing DealState = "processing"

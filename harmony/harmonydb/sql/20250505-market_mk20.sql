@@ -34,6 +34,10 @@ ALTER TABLE market_piece_deal
 ALTER TABLE market_piece_deal
 ADD COLUMN piece_ref BIGINT;
 
+-- Add column to skip scheduling piece_park. Used for upload pieces
+ALTER TABLE parked_pieces
+    ADD COLUMN skip BOOLEAN NOT NULL DEFAULT FALSE;
+
 -- This function is used to insert piece metadata and piece deal (piece indexing)
 -- This makes it easy to keep the logic of how table is updated and fast (in DB).
 CREATE OR REPLACE FUNCTION process_piece_deal(
@@ -158,6 +162,8 @@ CREATE TABLE ddo_contracts (
     abi TEXT NOT NULL
 );
 
+-- This is main MK20 Deal table. Rows are added per deal and some
+-- modification is allowed later
 CREATE TABLE market_mk20_deal (
     created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
     id TEXT PRIMARY KEY,
@@ -174,6 +180,7 @@ CREATE TABLE market_mk20_deal (
     pdp_v1 JSONB NOT NULL DEFAULT 'null'
 );
 
+-- This is main pipeline table for PoRep processing of MK20 deals
 CREATE TABLE market_mk20_pipeline (
     created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
     id TEXT NOT NULL,
@@ -219,14 +226,25 @@ CREATE TABLE market_mk20_pipeline (
     PRIMARY KEY (id, aggr_index)
 );
 
+-- This table is used to hold MK20 deals waiting for PoRep pipeline
+-- to process. This allows disconnecting the need to immediately process
+-- deals as received and allow upload later strategy to work
 CREATE TABLE market_mk20_pipeline_waiting (
     id TEXT PRIMARY KEY
 );
 
+-- This table is used to keep track of deals which need data upload.
+-- A separate table helps easier status check, chunked+serial upload support
 CREATE TABLE market_mk20_upload_waiting (
-    id TEXT PRIMARY KEY
+    id TEXT PRIMARY KEY,
+    chunked BOOLEAN DEFAULT NULL,
+    ref_id BIGINT DEFAULT NULL
 );
 
+-- This table help disconnected downloads from main PoRep/PDP pipelines
+-- It helps with allowing multiple downloads per deal i.e. server side aggregation.
+-- This also allows us to reuse ongoing downloads within the same deal aggregation.
+-- It also allows using a common download pipeline for both PoRep and PDP.
 CREATE TABLE market_mk20_download_pipeline (
     id TEXT NOT NULL,
     product TEXT NOT NULL, -- This allows us to run multiple refs per product for easier lifecycle management
@@ -236,6 +254,7 @@ CREATE TABLE market_mk20_download_pipeline (
     PRIMARY KEY (id, product, piece_cid, piece_size)
 );
 
+-- Offline URLs for PoRep deals.
 CREATE TABLE market_mk20_offline_urls (
     id TEXT NOT NULL,
     piece_cid TEXT NOT NULL,
@@ -246,6 +265,8 @@ CREATE TABLE market_mk20_offline_urls (
     PRIMARY KEY (id, piece_cid, piece_size)
 );
 
+-- This table tracks the chunk upload progress for a MK20 deal. Common for both
+-- PoRep and PDP
 CREATE TABLE market_mk20_deal_chunk (
     id TEXT not null,
     chunk INT not null,
@@ -257,16 +278,19 @@ CREATE TABLE market_mk20_deal_chunk (
     PRIMARY KEY (id, chunk)
 );
 
+-- MK20 product and their status table
 CREATE TABLE market_mk20_products (
     name TEXT PRIMARY KEY,
     enabled BOOLEAN DEFAULT TRUE
 );
 
+-- MK20 supported data sources and their status table
 CREATE TABLE market_mk20_data_source (
     name TEXT PRIMARY KEY,
     enabled BOOLEAN DEFAULT TRUE
 );
 
+-- Add products and data sources to table
 INSERT INTO market_mk20_products (name, enabled) VALUES ('ddo_v1', TRUE);
 INSERT INTO market_mk20_products (name, enabled) VALUES ('retrieval_v1', TRUE);
 INSERT INTO market_mk20_products (name, enabled) VALUES ('pdp_v1', TRUE);
@@ -275,6 +299,9 @@ INSERT INTO market_mk20_data_source (name, enabled) VALUES ('aggregate', TRUE);
 INSERT INTO market_mk20_data_source (name, enabled) VALUES ('offline', TRUE);
 INSERT INTO market_mk20_data_source (name, enabled) VALUES ('put', TRUE);
 
+-- This function triggers a download for an offline piece.
+-- It is different from MK1.2 PoRep pipeline as it download the offline pieces
+-- locally. This is to allow serving retrievals with piece park.
 CREATE OR REPLACE FUNCTION process_offline_download(
   _id TEXT,
   _piece_cid TEXT,
@@ -344,10 +371,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Add column to skip scheduling piece_park
-ALTER TABLE parked_pieces
- ADD COLUMN skip BOOLEAN DEFAULT FALSE;
-
+-- Main ProofSet table for PDP
 CREATE TABLE pdp_proof_set (
     id BIGINT PRIMARY KEY, -- on-chain proofset id
     client TEXT NOT NULL, -- client wallet which requested this proofset
@@ -387,6 +411,7 @@ CREATE TABLE pdp_proof_set (
     unique (remove_deal_id)
 );
 
+-- ProofSet create table governs the PoofSet create task
 CREATE TABLE pdp_proof_set_create (
     id TEXT PRIMARY KEY, -- This is Market V2 Deal ID for lookup and response
     client TEXT NOT NULL,
@@ -398,6 +423,7 @@ CREATE TABLE pdp_proof_set_create (
     tx_hash TEXT DEFAULT NULL
 );
 
+-- ProofSet delete table governs the PoofSet delete task
 CREATE TABLE pdp_proof_set_delete (
     id TEXT PRIMARY KEY, -- This is Market V2 Deal ID for lookup and response
     client TEXT NOT NULL,
@@ -409,6 +435,7 @@ CREATE TABLE pdp_proof_set_delete (
     tx_hash TEXT DEFAULT NULL
 );
 
+-- This table governs the delete root tasks
 CREATE TABLE pdp_delete_root (
     id TEXT PRIMARY KEY, -- This is Market V2 Deal ID for lookup and response
     client TEXT NOT NULL,
@@ -421,6 +448,7 @@ CREATE TABLE pdp_delete_root (
     tx_hash TEXT DEFAULT NULL
 );
 
+-- Main ProofSet Root table. Any and all root ever added by SP must be part of this table
 CREATE TABLE pdp_proofset_root (
     proofset BIGINT NOT NULL, -- pdp_proof_sets.id
     client TEXT NOT NULL,
@@ -449,7 +477,7 @@ CREATE TABLE pdp_proofset_root (
 CREATE TABLE pdp_pipeline (
     created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
 
-    id TEXT PRIMARY KEY,
+    id TEXT NOT NULL,
     client TEXT NOT NULL,
     piece_cid_v2 TEXT NOT NULL, -- v2 piece_cid
 
@@ -486,7 +514,9 @@ CREATE TABLE pdp_pipeline (
     indexing_task_id BIGINT DEFAULT NULL,
     indexed BOOLEAN DEFAULT FALSE,
 
-    complete BOOLEAN DEFAULT FALSE
+    complete BOOLEAN DEFAULT FALSE,
+
+    PRIMARY KEY (id, aggr_index)
 );
 
 CREATE TABLE market_mk20_clients (

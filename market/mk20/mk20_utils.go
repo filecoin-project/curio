@@ -171,23 +171,32 @@ func (m *MK20) Supported(ctx context.Context) (map[string]bool, map[string]bool,
 	return productsMap, sourcesMap, nil
 }
 
-type TimeoutReader struct {
-	r       io.Reader
-	timeout time.Duration
+type TimeoutLimitReader struct {
+	r          io.Reader
+	timeout    time.Duration
+	totalBytes int64
 }
 
-func NewTimeoutReader(r io.Reader, timeout time.Duration) *TimeoutReader {
-	return &TimeoutReader{
-		r:       r,
-		timeout: timeout,
+func NewTimeoutLimitReader(r io.Reader, timeout time.Duration) *TimeoutLimitReader {
+	return &TimeoutLimitReader{
+		r:          r,
+		timeout:    timeout,
+		totalBytes: 0,
 	}
 }
 
-func (t *TimeoutReader) Read(p []byte) (int, error) {
+const UploadSizeLimit = int64(1 * 1024 * 1024)
+
+func (t *TimeoutLimitReader) Read(p []byte) (int, error) {
 	deadline := time.Now().Add(t.timeout)
 	for {
 		// Attempt to read
 		n, err := t.r.Read(p)
+		if t.totalBytes+int64(n) > UploadSizeLimit {
+			return 0, fmt.Errorf("upload size limit exceeded: %d bytes", UploadSizeLimit)
+		} else {
+			t.totalBytes += int64(n)
+		}
 
 		if err != nil {
 			return n, err

@@ -134,13 +134,15 @@ func APIRouter(mdh *MK20DealHandler, domainName string) http.Handler {
 	mux.Method("POST", "/store", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), requestTimeout, "request timeout"))
 	mux.Method("GET", "/status/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20status), requestTimeout, "request timeout"))
 	mux.Method("GET", "/contracts", http.TimeoutHandler(http.HandlerFunc(mdh.mk20supportedContracts), requestTimeout, "request timeout"))
-	mux.Method("POST", "/upload/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStart), requestTimeout, "request timeout"))
-	mux.Method("GET", "/upload/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStatus), requestTimeout, "request timeout"))
-	mux.Put("/upload/{id}/{chunkNum}", mdh.mk20UploadDealChunks)
-	mux.Method("POST", "/upload/finalize/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20FinalizeUpload), requestTimeout, "request timeout"))
+	mux.Method("POST", "/uploads/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStart), requestTimeout, "request timeout"))
+	mux.Method("GET", "/uploads/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStatus), requestTimeout, "request timeout"))
+	mux.Put("/uploads/{id}/{chunkNum}", mdh.mk20UploadDealChunks)
+	mux.Method("POST", "/uploads/finalize/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20FinalizeUpload), requestTimeout, "request timeout"))
 	mux.Method("GET", "/products", http.TimeoutHandler(http.HandlerFunc(mdh.supportedProducts), requestTimeout, "request timeout"))
 	mux.Method("GET", "/sources", http.TimeoutHandler(http.HandlerFunc(mdh.supportedDataSources), requestTimeout, "request timeout"))
 	mux.Method("POST", "/update/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UpdateDeal), requestTimeout, "request timeout"))
+	mux.Method("POST", "/upload/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20SerialUploadFinalize), requestTimeout, "request timeout"))
+	mux.Put("/upload/{id}", mdh.mk20SerialUpload)
 	return mux
 }
 
@@ -385,7 +387,7 @@ func (mdh *MK20DealHandler) supportedDataSources(w http.ResponseWriter, r *http.
 }
 
 // mk20UploadStatus handles the upload status requests for a given id.
-// @Router /upload/{id} [get]
+// @Router /uploads/{id} [get]
 // @Param id path string true "id"
 // @Summary Status of deal upload
 // @Description Return a json struct detailing the current status of a deal upload.
@@ -412,7 +414,7 @@ func (mdh *MK20DealHandler) mk20UploadStatus(w http.ResponseWriter, r *http.Requ
 }
 
 // mk20UploadDealChunks handles uploading of deal file chunks.
-// @Router /upload/{id}/{chunkNum} [put]
+// @Router /uploads/{id}/{chunkNum} [put]
 // @Summary Upload a file chunk
 // @Description Allows uploading chunks for a deal file. Method can be called in parallel to speed up uploads.
 // @BasePath /market/mk20
@@ -465,7 +467,7 @@ func (mdh *MK20DealHandler) mk20UploadDealChunks(w http.ResponseWriter, r *http.
 }
 
 // mk20UploadStart handles the initiation of an upload process for MK20 deal data.
-// @Router /upload/{id} [post]
+// @Router /uploads/{id} [post]
 // @Summary Starts the upload process
 // @Description Initializes the upload for a deal. Each upload must be initialized before chunks can be uploaded for a deal.
 // @BasePath /market/mk20
@@ -519,7 +521,7 @@ func (mdh *MK20DealHandler) mk20UploadStart(w http.ResponseWriter, r *http.Reque
 }
 
 // mk20FinalizeUpload finalizes the upload process for a given deal by processing the request and updating the associated deal in the system if required.
-// @Router /upload/finalize/{id} [post]
+// @Router /uploads/finalize/{id} [post]
 // @Summary Finalizes the upload process
 // @Description Finalizes the upload process once all the chunks are uploaded.
 // @BasePath /market/mk20
@@ -655,5 +657,120 @@ func (mdh *MK20DealHandler) mk20UpdateDeal(w http.ResponseWriter, r *http.Reques
 
 	log.Infow("received deal update proposal", "body", string(body))
 
-	mdh.dm.MK20Handler.UpdateDeal(id, &deal, w)
+	result := mdh.dm.MK20Handler.UpdateDeal(id, &deal)
+
+	log.Infow("deal updated",
+		"id", deal.Identifier,
+		"HTTPCode", result.HTTPCode,
+		"Reason", result.Reason)
+
+	w.WriteHeader(int(result.HTTPCode))
+	_, err = w.Write([]byte(fmt.Sprint("Reason: ", result.Reason)))
+	if err != nil {
+		log.Errorw("writing deal update response:", "id", deal.Identifier, "error", err)
+	}
+}
+
+// mk20SerialUpload handles uploading of deal data in a single stream
+// @Router /upload/{id} [put]
+// @Summary Upload the deal data
+// @Description Allows uploading data for deals in a single stream. Suitable for small deals.
+// @BasePath /market/mk20
+// @Param id path string true "id"
+// @accepts bytes
+// @Param body body []byte true "raw binary"
+// @Failure 200 {object} mk20.UploadCode "UploadOk indicates a successful upload operation, represented by the HTTP status code 200"
+// @Failure 500 {object} mk20.UploadCode "UploadServerError indicates a server-side error occurred during the upload process, represented by the HTTP status code 500"
+// @Failure 404 {object} mk20.UploadStartCode "UploadStartCodeDealNotFound represents a 404 status indicating the deal was not found during the upload start process"
+// @Failure 400 {string} string "Bad Request - Invalid input or validation error"
+func (mdh *MK20DealHandler) mk20SerialUpload(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	if idStr == "" {
+		log.Errorw("missing id in url", "url", r.URL)
+		http.Error(w, "missing id in url", http.StatusBadRequest)
+		return
+	}
+
+	id, err := ulid.Parse(idStr)
+	if err != nil {
+		log.Errorw("invalid id in url", "id", idStr, "err", err)
+		http.Error(w, "invalid id in url", http.StatusBadRequest)
+		return
+	}
+
+	mdh.dm.MK20Handler.HandleSerialUpload(id, r.Body, w)
+}
+
+// mk20SerialUploadFinalize finalizes the serial upload process for a given deal by processing the request and updating the associated deal in the system if required.
+// @Router /upload/{id} [post]
+// @Summary Finalizes the serial upload process
+// @Description Finalizes the serial upload process once data has been uploaded
+// @BasePath /market/mk20
+// @Param id path string true "id"
+// @accepts json
+// @Param body body mk20.Deal optional "mk20.deal in json format"
+// @Accept json
+// @Failure 200 {object} mk20.DealCode "Ok represents a successful operation with an HTTP status code of 200"
+// @Failure 400 {object} mk20.DealCode "ErrBadProposal represents a validation error that indicates an invalid or malformed proposal input in the context of validation logic"
+// @Failure 404 {object} mk20.DealCode "ErrDealNotFound indicates that the specified deal could not be found, corresponding to the HTTP status code 404"
+// @Failure 430 {object} mk20.DealCode "ErrMalformedDataSource indicates that the provided data source is incorrectly formatted or contains invalid data"
+// @Failure 422 {object} mk20.DealCode "ErrUnsupportedDataSource indicates the specified data source is not supported or disabled for use in the current context"
+// @Failure 423 {object} mk20.DealCode "ErrUnsupportedProduct indicates that the requested product is not supported by the provider"
+// @Failure 424 {object} mk20.DealCode "ErrProductNotEnabled indicates that the requested product is not enabled on the provider"
+// @Failure 425 {object} mk20.DealCode "ErrProductValidationFailed indicates a failure during product-specific validation due to invalid or missing data"
+// @Failure 426 {object} mk20.DealCode "ErrDealRejectedByMarket indicates that a proposed deal was rejected by the market for not meeting its acceptance criteria or rules"
+// @Failure 500 {object} mk20.DealCode "ErrServerInternalError indicates an internal server error with a corresponding error code of 500"
+// @Failure 503 {object} mk20.DealCode "ErrServiceMaintenance indicates that the service is temporarily unavailable due to maintenance, corresponding to HTTP status code 503"
+// @Failure 429 {object} mk20.DealCode "ErrServiceOverloaded indicates that the service is overloaded and cannot process the request at the moment"
+// @Failure 440 {object} mk20.DealCode "ErrMarketNotEnabled indicates that the market is not enabled for the requested operation"
+// @Failure 441 {object} mk20.DealCode "ErrDurationTooShort indicates that the provided duration value does not meet the minimum required threshold"
+// @Failure 400 {string} string "Bad Request - Invalid input or validation error"
+func (mdh *MK20DealHandler) mk20SerialUploadFinalize(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	if idStr == "" {
+		log.Errorw("missing id in url", "url", r.URL)
+		http.Error(w, "missing id in url", http.StatusBadRequest)
+		return
+	}
+
+	id, err := ulid.Parse(idStr)
+	if err != nil {
+		log.Errorw("invalid id in url", "id", idStr, "err", err)
+		http.Error(w, "invalid id in url", http.StatusBadRequest)
+		return
+	}
+
+	ct := r.Header.Get("Content-Type")
+	// If Content-Type is not set this is does not require updating the deal
+	if len(ct) == 0 {
+		log.Infow("received finalize upload proposal without content type", "id", id)
+		mdh.dm.MK20Handler.HandleSerialUploadFinalize(id, nil, w)
+		return
+	}
+
+	var deal mk20.Deal
+	if ct != "application/json" {
+		log.Errorf("invalid content type: %s", ct)
+		http.Error(w, "invalid content type", http.StatusBadRequest)
+		return
+	}
+
+	defer r.Body.Close()
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		log.Errorf("error reading request body: %s", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	err = json.Unmarshal(body, &deal)
+	if err != nil {
+		log.Errorf("error unmarshaling json: %s", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	log.Infow("received serial upload finalize proposal", "body", string(body))
+
+	mdh.dm.MK20Handler.HandleSerialUploadFinalize(id, &deal, w)
 }

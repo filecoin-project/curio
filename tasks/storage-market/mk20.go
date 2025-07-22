@@ -72,7 +72,6 @@ type MK20PipelinePiece struct {
 }
 
 func (d *CurioStorageDealMarket) processMK20Deals(ctx context.Context) {
-	go d.pipelineInsertLoop(ctx)
 	// Catch any panics if encountered as we are working with user provided data
 	defer func() {
 		if r := recover(); r != nil {

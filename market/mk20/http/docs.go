@@ -329,7 +329,170 @@ const docTemplate = `{
                 }
             }
         },
-        "/upload/finalize/{id}": {
+        "/upload/{id}": {
+            "put": {
+                "description": "Allows uploading data for deals in a single stream. Suitable for small deals.",
+                "summary": "Upload the deal data",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "raw binary",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "integer"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "UploadOk indicates a successful upload operation, represented by the HTTP status code 200",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadCode"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - Invalid input or validation error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "UploadStartCodeDealNotFound represents a 404 status indicating the deal was not found during the upload start process",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadStartCode"
+                        }
+                    },
+                    "500": {
+                        "description": "UploadServerError indicates a server-side error occurred during the upload process, represented by the HTTP status code 500",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.UploadCode"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Finalizes the serial upload process once data has been uploaded",
+                "consumes": [
+                    "application/json"
+                ],
+                "summary": "Finalizes the serial upload process",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "mk20.deal in json format",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.Deal"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Ok represents a successful operation with an HTTP status code of 200",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request - Invalid input or validation error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "404": {
+                        "description": "ErrDealNotFound indicates that the specified deal could not be found, corresponding to the HTTP status code 404",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "422": {
+                        "description": "ErrUnsupportedDataSource indicates the specified data source is not supported or disabled for use in the current context",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "423": {
+                        "description": "ErrUnsupportedProduct indicates that the requested product is not supported by the provider",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "424": {
+                        "description": "ErrProductNotEnabled indicates that the requested product is not enabled on the provider",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "425": {
+                        "description": "ErrProductValidationFailed indicates a failure during product-specific validation due to invalid or missing data",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "426": {
+                        "description": "ErrDealRejectedByMarket indicates that a proposed deal was rejected by the market for not meeting its acceptance criteria or rules",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "429": {
+                        "description": "ErrServiceOverloaded indicates that the service is overloaded and cannot process the request at the moment",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "430": {
+                        "description": "ErrMalformedDataSource indicates that the provided data source is incorrectly formatted or contains invalid data",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "440": {
+                        "description": "ErrMarketNotEnabled indicates that the market is not enabled for the requested operation",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "441": {
+                        "description": "ErrDurationTooShort indicates that the provided duration value does not meet the minimum required threshold",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "500": {
+                        "description": "ErrServerInternalError indicates an internal server error with a corresponding error code of 500",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    },
+                    "503": {
+                        "description": "ErrServiceMaintenance indicates that the service is temporarily unavailable due to maintenance, corresponding to HTTP status code 503",
+                        "schema": {
+                            "$ref": "#/definitions/mk20.DealCode"
+                        }
+                    }
+                }
+            }
+        },
+        "/uploads/finalize/{id}": {
             "post": {
                 "description": "Finalizes the upload process once all the chunks are uploaded.",
                 "consumes": [
@@ -441,7 +604,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/upload/{id}": {
+        "/uploads/{id}": {
             "get": {
                 "description": "Return a json struct detailing the current status of a deal upload.",
                 "summary": "Status of deal upload",
@@ -533,7 +696,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/upload/{id}/{chunkNum}": {
+        "/uploads/{id}/{chunkNum}": {
             "put": {
                 "description": "Allows uploading chunks for a deal file. Method can be called in parallel to speed up uploads.",
                 "summary": "Upload a file chunk",

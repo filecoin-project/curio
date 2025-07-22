@@ -17,6 +17,7 @@ import (
 	"golang.org/x/xerrors"
 
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
+	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/storiface"
@@ -29,9 +30,11 @@ import (
 func (m *MK20) HandleUploadStatus(ctx context.Context, id ulid.ULID, w http.ResponseWriter) {
 	var exists bool
 	err := m.DB.QueryRow(ctx, `SELECT EXISTS (
-								  SELECT 1
-								  FROM market_mk20_upload_waiting
-								  WHERE id = $1;)`, id.String()).Scan(&exists)
+									  SELECT 1
+									  FROM market_mk20_upload_waiting
+									  WHERE id = $1
+										AND (chunked IS NULL OR chunked = TRUE)
+									);`, id.String()).Scan(&exists)
 	if err != nil {
 		log.Errorw("failed to check if upload is waiting for data", "deal", id, "error", err)
 		w.WriteHeader(int(UploadStatusCodeServerError))
@@ -127,8 +130,7 @@ func (m *MK20) HandleUploadStart(ctx context.Context, id ulid.ULID, upload Start
 	err := m.DB.QueryRow(ctx, `SELECT EXISTS (
 								  SELECT 1
 								  FROM market_mk20_upload_waiting
-								  WHERE id = $1
-								);`, id.String()).Scan(&exists)
+								  WHERE id = $1 AND chunked IS NULL);`, id.String()).Scan(&exists)
 	if err != nil {
 		log.Errorw("failed to check if deal is waiting for upload to start", "deal", id, "error", err)
 		http.Error(w, "", int(UploadStartCodeServerError))
@@ -210,6 +212,13 @@ func (m *MK20) HandleUploadStart(ctx context.Context, id ulid.ULID, upload Start
 				return false, xerrors.Errorf("closing insert chunk batch: %w", err)
 			}
 		}
+		n, err := tx.Exec(`UPDATE market_mk20_upload_waiting SET chunked = TRUE WHERE id = $1`, id.String())
+		if err != nil {
+			return false, xerrors.Errorf("updating chunked flag: %w", err)
+		}
+		if n != 1 {
+			return false, xerrors.Errorf("updating chunked flag: expected 1 row updated, got %d", n)
+		}
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
@@ -284,7 +293,7 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 	log.Debugw("uploading chunk", "deal", id, "chunk", chunk)
 
 	chunkSize := chunkDetails[0].Size
-	reader := NewTimeoutReader(data, time.Second*5)
+	reader := NewTimeoutLimitReader(data, time.Second*5)
 	m.maxParallelUploads.Add(1)
 
 	// Generate unique tmp pieceCID and Size for parked_pieces tables
@@ -360,7 +369,7 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 	}()
 
 	// Store the piece and generate PieceCID and Size
-	pi, err := m.sc.WriteUploadPiece(ctx, storiface.PieceNumber(pnum), chunkSize, reader, storiface.PathSealing)
+	pi, _, err := m.sc.WriteUploadPiece(ctx, storiface.PieceNumber(pnum), chunkSize, reader, storiface.PathSealing, true)
 	if err != nil {
 		log.Errorw("failed to write piece", "deal", id, "chunk", chunk, "error", err)
 		http.Error(w, "", int(UploadServerError))
@@ -454,6 +463,10 @@ func (m *MK20) HandleUploadFinalize(id ulid.ULID, deal *Deal, w http.ResponseWri
 		return
 	}
 
+	var rawSize uint64
+	var newDeal *Deal
+	var dealUpdated bool
+
 	if deal != nil {
 		// This is a deal where DataSource was not set - we should update the deal
 		code, ndeal, _, err := m.updateDealDetails(id, deal)
@@ -466,45 +479,80 @@ func (m *MK20) HandleUploadFinalize(id ulid.ULID, deal *Deal, w http.ResponseWri
 			}
 			return
 		}
-		rawSize, err := ndeal.RawSize()
+		rawSize, err = ndeal.RawSize()
 		if err != nil {
 			log.Errorw("failed to get raw size of deal", "deal", id, "error", err)
 			http.Error(w, "", int(ErrServerInternalError))
 			return
 		}
-
-		var valid bool
-
-		err = m.DB.QueryRow(ctx, `SELECT SUM(chunk_size) = $2 AS valid
-								FROM market_mk20_deal_chunk
-								WHERE id = $1;`, id.String(), rawSize).Scan(&valid)
+		newDeal = ndeal
+		dealUpdated = true
+	} else {
+		rawSize, err = ddeal.RawSize()
 		if err != nil {
-			log.Errorw("failed to check if deal upload has started", "deal", id, "error", err)
+			log.Errorw("failed to get raw size of deal", "deal", id, "error", err)
 			http.Error(w, "", int(ErrServerInternalError))
-			return
-		}
-		if !valid {
-			log.Errorw("deal upload finalize failed", "deal", id, "error", "deal raw size does not match the sum of chunks")
-			http.Error(w, "deal raw size does not match the sum of chunks", int(ErrBadProposal))
 			return
 		}
 	}
 
-	// Now update the upload status to trigger the correct pipeline
-	n, err := m.DB.Exec(ctx, `UPDATE market_mk20_deal_chunk SET finalize = TRUE where id = $1`, id.String())
+	var valid bool
+
+	err = m.DB.QueryRow(ctx, `SELECT SUM(chunk_size) = $2 AS valid
+								FROM market_mk20_deal_chunk
+								WHERE id = $1;`, id.String(), rawSize).Scan(&valid)
+	if err != nil {
+		log.Errorw("failed to check if deal upload has started", "deal", id, "error", err)
+		http.Error(w, "", int(ErrServerInternalError))
+		return
+	}
+	if !valid {
+		log.Errorw("deal upload finalize failed", "deal", id, "error", "deal raw size does not match the sum of chunks")
+		http.Error(w, "deal raw size does not match the sum of chunks", int(ErrBadProposal))
+		return
+	}
+
+	comm, err := m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		// Now update the upload status to trigger the correct pipeline
+		n, err := tx.Exec(`UPDATE market_mk20_deal_chunk SET finalize = TRUE where id = $1`, id.String())
+		if err != nil {
+			log.Errorw("failed to finalize deal upload", "deal", id, "error", err)
+			http.Error(w, "", int(ErrServerInternalError))
+			return
+		}
+
+		if n == 0 {
+			return false, xerrors.Errorf("expected to update %d rows, got 0", n)
+		}
+
+		_, err = tx.Exec(`DELETE FROM market_mk20_upload_waiting WHERE id = $1`, id.String())
+		if err != nil {
+			return false, xerrors.Errorf("failed to delete upload waiting: %w", err)
+		}
+
+		if dealUpdated {
+			// Save the updated deal to DB
+			err = newDeal.UpdateDeal(tx)
+			if err != nil {
+				return false, xerrors.Errorf("failed to update deal: %w", err)
+			}
+		}
+		return true, nil
+	})
+
 	if err != nil {
 		log.Errorw("failed to finalize deal upload", "deal", id, "error", err)
 		http.Error(w, "", int(ErrServerInternalError))
 		return
 	}
 
-	if n == 0 {
-		log.Errorw("failed to finalize deal upload", "deal", id, "error", err)
+	if !comm {
+		log.Errorw("failed to finalize deal upload", "deal", id, "error", "failed to commit transaction")
 		http.Error(w, "", int(ErrServerInternalError))
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(int(Ok))
 }
 
 func (m *MK20) updateDealDetails(id ulid.ULID, deal *Deal) (DealCode, *Deal, []ProductName, error) {
@@ -543,10 +591,360 @@ func (m *MK20) updateDealDetails(id ulid.ULID, deal *Deal) (DealCode, *Deal, []P
 		return code, nil, nil, err
 	}
 
-	// Save the updated deal to DB
-	err = ndeal.UpdateDeal(ctx, m.DB)
-	if err != nil {
-		return ErrServerInternalError, nil, nil, xerrors.Errorf("failed to update deal: %w", err)
-	}
 	return Ok, ndeal, np, nil
+}
+
+func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseWriter) {
+	ctx := context.Background()
+	var exists bool
+	err := m.DB.QueryRow(ctx, `SELECT EXISTS (
+									  SELECT 1
+									  FROM market_mk20_upload_waiting
+									  WHERE id = $1 AND chunked IS NULL);`, id.String()).Scan(&exists)
+	if err != nil {
+		log.Errorw("failed to check if upload is waiting for data", "deal", id, "error", err)
+		w.WriteHeader(int(UploadServerError))
+		return
+	}
+	if !exists {
+		http.Error(w, "deal not found", int(UploadStartCodeDealNotFound))
+		return
+	}
+
+	reader := NewTimeoutLimitReader(body, time.Second*5)
+	m.maxParallelUploads.Add(1)
+
+	// Generate unique tmp pieceCID and Size for parked_pieces tables
+	wr := new(commp.Calc)
+	trSize, err := wr.Write([]byte(fmt.Sprintf("%s, %s", id.String(), time.Now().String())))
+	if err != nil {
+		log.Errorw("failed to generate unique tmp pieceCID and Size for parked_pieces tables", "deal", id, "error", err)
+		http.Error(w, "", int(UploadServerError))
+		return
+	}
+	digest, tsize, err := wr.Digest()
+	if err != nil {
+		panic(err)
+	}
+
+	tpcid := cid.NewCidV1(cid.FilCommitmentUnsealed, digest)
+	var pnum, refID int64
+
+	// Generate piece park details with tmp pieceCID and Size
+	comm, err := m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		err = tx.QueryRow(`SELECT id FROM parked_pieces 
+          					WHERE piece_cid = $1 
+          					  AND piece_padded_size = $2 
+          					  AND piece_raw_size = $3`, tpcid.String(), tsize, trSize).Scan(&pnum)
+
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				err = tx.QueryRow(`
+							INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, skip)
+							VALUES ($1, $2, $3, FALSE, TRUE)
+							ON CONFLICT (piece_cid, piece_padded_size, long_term, cleanup_task_id) DO NOTHING
+							RETURNING id`, tpcid.String(), tsize, trSize).Scan(&pnum)
+				if err != nil {
+					return false, xerrors.Errorf("inserting new parked piece and getting id: %w", err)
+				}
+			} else {
+				return false, xerrors.Errorf("checking existing parked piece: %w", err)
+			}
+		}
+
+		// Add parked_piece_ref
+		err = tx.QueryRow(`INSERT INTO parked_piece_refs (piece_id, data_url, long_term)
+        			VALUES ($1, $2, FALSE) RETURNING ref_id`, pnum, "/PUT").Scan(&refID)
+		if err != nil {
+			return false, xerrors.Errorf("inserting parked piece ref: %w", err)
+		}
+
+		return true, nil
+	})
+
+	if err != nil {
+		log.Errorw("failed to update chunk", "deal", id, "error", err)
+		http.Error(w, "", int(UploadServerError))
+		return
+	}
+
+	if !comm {
+		log.Errorw("failed to update chunk", "deal", id, "error", "failed to commit transaction")
+		http.Error(w, "", int(UploadServerError))
+		return
+	}
+
+	log.Debugw("tmp piece details generated for the chunk", "deal", id)
+
+	failed := true
+	defer func() {
+		if failed {
+			_, err = m.DB.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = $1`, refID)
+			if err != nil {
+				log.Errorw("failed to delete parked piece ref", "deal", id, "error", err)
+			}
+		}
+	}()
+
+	// Store the piece and generate PieceCID and Size
+	pi, rawSize, err := m.sc.WriteUploadPiece(ctx, storiface.PieceNumber(pnum), UploadSizeLimit, reader, storiface.PathSealing, false)
+	if err != nil {
+		log.Errorw("failed to write piece", "deal", id, "error", err)
+		http.Error(w, "", int(UploadServerError))
+		return
+	}
+
+	log.Debugw("piece stored", "deal", id)
+
+	// Update piece park details with correct values
+	comm, err = m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		var pid int64
+		// Check if we already have the piece, if found then verify access and skip rest of the processing
+		err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2 AND long_term = TRUE`, pi.PieceCID.String(), pi.Size).Scan(&pid)
+		if err == nil {
+			// If piece exists then check if we can access the data
+			pr, err := m.sc.PieceReader(ctx, storiface.PieceNumber(pid))
+			if err != nil {
+				// We should fail here because any subsequent operation which requires access to data will also fail
+				// till this error is fixed
+				if !errors.Is(err, storiface.ErrSectorNotFound) {
+					return false, fmt.Errorf("failed to get piece reader: %w", err)
+				}
+
+				// If piece does not exist then we update piece park table to work with new tmpID
+				// Update ref table's reference to tmp id
+				_, err = tx.Exec(`UPDATE parked_piece_refs SET piece_id = $1 WHERE piece_id = $2`, pid, pnum)
+				if err != nil {
+					return false, xerrors.Errorf("updating parked piece ref: %w", err)
+				}
+
+				// Now delete the original piece which has 404 error
+				_, err = tx.Exec(`DELETE FROM parked_pieces WHERE id = $1`, pid)
+				if err != nil {
+					return false, xerrors.Errorf("deleting parked piece: %w", err)
+				}
+
+				// Update the tmp entry with correct details
+				n, err := tx.Exec(`UPDATE parked_pieces SET 
+                         piece_cid = $1, 
+                         piece_padded_size = $2, 
+                         piece_raw_size = $3, 
+                         complete = true
+                     WHERE id = $4`,
+					pi.PieceCID.String(), pi.Size, rawSize, pnum)
+				if err != nil {
+					return false, xerrors.Errorf("updating parked piece: %w", err)
+				}
+				if n != 1 {
+					return false, xerrors.Errorf("updating parked piece: expected 1 row updated, got %d", n)
+				}
+			} else {
+				defer pr.Close()
+				// Add parked_piece_ref if no errors
+				var newRefID int64
+				err = tx.QueryRow(`INSERT INTO parked_piece_refs (piece_id, data_url, long_term)
+        			VALUES ($1, $2, FALSE) RETURNING ref_id`, pid, "/PUT").Scan(&newRefID)
+				if err != nil {
+					return false, xerrors.Errorf("inserting parked piece ref: %w", err)
+				}
+
+				// Remove the tmp refs. This will also delete the parked_pieces entry
+				_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, refID)
+				if err != nil {
+					return false, xerrors.Errorf("deleting tmp parked piece ref: %w", err)
+				}
+				// Update refID to be used later
+				refID = newRefID
+			}
+		} else {
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return false, fmt.Errorf("failed to check if piece already exists: %w", err)
+			}
+			// If piece does not exist then let's update the tmp one
+			n, err := tx.Exec(`UPDATE parked_pieces SET 
+                         piece_cid = $1, 
+                         piece_padded_size = $2, 
+                         piece_raw_size = $3, 
+                         complete = true
+                     WHERE id = $4`,
+				pi.PieceCID.String(), pi.Size, rawSize, pnum)
+			if err != nil {
+				return false, xerrors.Errorf("updating parked piece: %w", err)
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("updating parked piece: expected 1 row updated, got %d", n)
+			}
+		}
+
+		n, err := tx.Exec(`UPDATE market_mk20_upload_waiting SET chunked = FALSE, ref_id = $2 WHERE id = $1`, id.String(), refID)
+		if err != nil {
+			return false, xerrors.Errorf("updating upload waiting: %w", err)
+		}
+		if n != 1 {
+			return false, xerrors.Errorf("updating upload waiting: expected 1 row updated, got %d", n)
+		}
+		return true, nil
+	})
+
+	if err != nil {
+		log.Errorw("failed to update chunk", "deal", id, "error", err)
+		http.Error(w, "", int(UploadServerError))
+		return
+	}
+
+	if !comm {
+		log.Errorw("failed to update chunk", "deal", id, "error", "failed to commit transaction")
+		http.Error(w, "", int(UploadServerError))
+		return
+	}
+
+	log.Debugw("chunk upload finished", "deal", id)
+
+	failed = false
+	w.WriteHeader(int(UploadOk))
+}
+
+func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.ResponseWriter) {
+	ctx := context.Background()
+	var exists bool
+	err := m.DB.QueryRow(ctx, `SELECT EXISTS (
+									  SELECT 1
+									  FROM market_mk20_upload_waiting
+									  WHERE id = $1 AND chunked = FALSE AND ref_id IS NOT NULL);`, id.String()).Scan(&exists)
+	if err != nil {
+		log.Errorw("failed to check if upload is waiting for data", "deal", id, "error", err)
+		w.WriteHeader(int(ErrServerInternalError))
+		return
+	}
+
+	if !exists {
+		http.Error(w, "deal not found", int(ErrDealNotFound))
+		return
+	}
+
+	ddeal, err := DealFromDB(ctx, m.DB, id)
+	if err != nil {
+		log.Errorw("failed to get deal from db", "deal", id, "error", err)
+		http.Error(w, "", int(ErrServerInternalError))
+		return
+	}
+
+	if ddeal.Data == nil && deal == nil {
+		log.Errorw("cannot finalize deal with missing data source", "deal", id)
+		http.Error(w, "cannot finalize deal with missing data source", int(ErrBadProposal))
+		return
+	}
+
+	var pcidStr string
+	var rawSize, refID, pieceSize int64
+
+	err = m.DB.QueryRow(ctx, `SELECT r.ref_id, p.piece_cid, p.piece_padded_size, p.piece_raw_size
+									FROM market_mk20_upload_waiting u
+									JOIN parked_piece_refs r ON u.ref_id = r.ref_id
+									JOIN parked_pieces p ON r.piece_id = p.id
+									WHERE u.id = $1
+									  AND p.complete = TRUE
+									  AND p.long_term = TRUE;`, id.String()).Scan(&refID, &pcidStr, &pieceSize, &rawSize)
+	if err != nil {
+		log.Errorw("failed to get piece details", "deal", id, "error", err)
+		http.Error(w, "", int(ErrServerInternalError))
+		return
+	}
+	pcid, err := cid.Parse(pcidStr)
+	if err != nil {
+		log.Errorw("failed to parse piece cid", "deal", id, "error", err)
+		http.Error(w, "", int(ErrServerInternalError))
+	}
+
+	var uDeal *Deal
+	var dealUpdated bool
+
+	if deal != nil {
+		// This is a deal where DataSource was not set - we should update the deal
+		code, ndeal, _, err := m.updateDealDetails(id, deal)
+		if err != nil {
+			log.Errorw("failed to update deal details", "deal", id, "error", err)
+			if code == ErrServerInternalError {
+				http.Error(w, "", int(ErrServerInternalError))
+			} else {
+				http.Error(w, err.Error(), int(code))
+			}
+			return
+		}
+		uDeal = ndeal
+		dealUpdated = true
+	} else {
+		uDeal = ddeal
+	}
+
+	pi, err := uDeal.PieceInfo()
+	if err != nil {
+		log.Errorw("failed to get piece info", "deal", id, "error", err)
+		http.Error(w, "", int(ErrServerInternalError))
+		return
+	}
+
+	if !pi.PieceCIDV1.Equals(pcid) {
+		log.Errorw("piece cid mismatch", "deal", id, "expected", pcid, "actual", pi.PieceCIDV1)
+		http.Error(w, "piece cid mismatch", int(ErrBadProposal))
+		return
+	}
+
+	if pi.Size != abi.PaddedPieceSize(pieceSize) {
+		log.Errorw("piece size mismatch", "deal", id, "expected", pi.Size, "actual", pieceSize)
+		http.Error(w, "piece size mismatch", int(ErrBadProposal))
+		return
+	}
+
+	if pi.RawSize != uint64(rawSize) {
+		log.Errorw("piece raw size mismatch", "deal", id, "expected", pi.RawSize, "actual", rawSize)
+		http.Error(w, "piece raw size mismatch", int(ErrBadProposal))
+		return
+	}
+
+	comm, err := m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		_, err = tx.Exec(`DELETE FROM market_mk20_upload_waiting WHERE id = $1`, id.String())
+		if err != nil {
+			return false, xerrors.Errorf("failed to delete upload waiting: %w", err)
+		}
+
+		if dealUpdated {
+			// Save the updated deal to DB
+			err = uDeal.UpdateDeal(tx)
+			if err != nil {
+				return false, xerrors.Errorf("failed to update deal: %w", err)
+			}
+		}
+
+		pdp := uDeal.Products.PDPV1
+
+		// Insert the PDP pipeline
+		n, err := tx.Exec(`INSERT INTO pdp_pipeline (
+            id, client, piece_cid_v2, piece_cid, piece_size, raw_size, proof_set_id, 
+            extra_data, piece_ref, downloaded, deal_aggregation, aggr_index) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0)`,
+			id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.ProofSetID,
+			pdp.ExtraData, refID, deal.Data.Format.Aggregate.Type)
+		if err != nil {
+			return false, xerrors.Errorf("inserting in PDP pipeline: %w", err)
+		}
+		if n != 1 {
+			return false, xerrors.Errorf("inserting in PDP pipeline: %d rows affected", n)
+		}
+		return true, nil
+	})
+
+	if err != nil {
+		log.Errorw("failed to finalize deal upload", "deal", id, "error", err)
+		http.Error(w, "", int(ErrServerInternalError))
+		return
+	}
+
+	if !comm {
+		log.Errorw("failed to finalize deal upload", "deal", id, "error", "failed to commit transaction")
+		http.Error(w, "", int(ErrServerInternalError))
+		return
+	}
+
+	w.WriteHeader(int(Ok))
 }

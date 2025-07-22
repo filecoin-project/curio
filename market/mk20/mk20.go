@@ -134,7 +134,7 @@ func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal) *ProviderDealRejecti
 	if deal.Products.DDOV1 != nil {
 		// TODO: Remove this check once DDO market is done
 		if build.BuildType == build.Build2k || build.BuildType == build.BuildDebug {
-			return m.processDDODeal(ctx, deal)
+			return m.processDDODeal(ctx, deal, nil)
 		}
 		log.Errorw("DDOV1 is not supported yet", "deal", deal.Identifier.String())
 		return &ProviderDealRejectionInfo{
@@ -146,7 +146,7 @@ func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal) *ProviderDealRejecti
 	return m.processPDPDeal(ctx, deal)
 }
 
-func (m *MK20) processDDODeal(ctx context.Context, deal *Deal) *ProviderDealRejectionInfo {
+func (m *MK20) processDDODeal(ctx context.Context, deal *Deal, tx *harmonydb.Tx) *ProviderDealRejectionInfo {
 	rejection, err := m.sanitizeDDODeal(ctx, deal)
 	if err != nil {
 		log.Errorw("deal rejected", "deal", deal, "error", err)
@@ -177,49 +177,75 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal) *ProviderDealReje
 
 	// TODO: Backpressure, client filter
 
-	comm, err := m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+	process := func(tx *harmonydb.Tx) error {
 		err = deal.SaveToDB(tx)
 		if err != nil {
-			return false, err
+			return err
 		}
 		n, err := tx.Exec(`UPDATE market_mk20_deal
 								SET ddo_v1 = jsonb_set(ddo_v1, '{deal_id}', to_jsonb($1::text))
 								WHERE id = $2;`, id, deal.Identifier.String())
 		if err != nil {
-			return false, err
+			return err
 		}
 		if n != 1 {
-			return false, fmt.Errorf("expected 1 row to be updated, got %d", n)
+			return fmt.Errorf("expected 1 row to be updated, got %d", n)
 		}
 
-		if deal.Data.SourceHttpPut == nil {
-			_, err = tx.Exec(`INSERT INTO market_mk20_pipeline_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
+		// Assume upload if no data source defined
+		if deal.Data == nil {
+			_, err = tx.Exec(`INSERT INTO market_mk20_upload_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
+		} else {
+			if deal.Data.SourceHttpPut != nil {
+				_, err = tx.Exec(`INSERT INTO market_mk20_upload_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
+			} else {
+				// All deals which are not upload should be entered in market_mk20_pipeline_waiting for further processing.
+				_, err = tx.Exec(`INSERT INTO market_mk20_pipeline_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
+			}
 		}
 
 		if err != nil {
-			return false, xerrors.Errorf("adding deal to waiting pipeline: %w", err)
+			return xerrors.Errorf("adding deal to waiting pipeline: %w", err)
 		}
-		return true, nil
-	})
-
-	if err != nil {
-		log.Errorw("error inserting deal into DB", "deal", deal, "error", err)
-		return &ProviderDealRejectionInfo{
-			HTTPCode: ErrServerInternalError,
-		}
+		return nil
 	}
 
-	if !comm {
-		log.Errorw("error committing deal into DB", "deal", deal)
-		return &ProviderDealRejectionInfo{
-			HTTPCode: ErrServerInternalError,
+	if tx != nil {
+		err := process(tx)
+		if err != nil {
+			log.Errorw("error inserting deal into DB", "deal", deal, "error", err)
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+			}
+		}
+	} else {
+		comm, err := m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			err = process(tx)
+			if err != nil {
+				return false, err
+			}
+			return true, nil
+		})
+
+		if err != nil {
+			log.Errorw("error inserting deal into DB", "deal", deal, "error", err)
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+			}
+		}
+
+		if !comm {
+			log.Errorw("error committing deal into DB", "deal", deal)
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+			}
 		}
 	}
 
 	log.Debugw("deal inserted in DB", "deal", deal.Identifier.String())
 
 	return &ProviderDealRejectionInfo{
-		HTTPCode: http.StatusOK,
+		HTTPCode: Ok,
 	}
 }
 
@@ -364,11 +390,23 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 
 		// If we have data source other that PUT then start the pipeline
 		if deal.Data != nil {
-			if deal.Data.SourceHttpPut != nil || deal.Data.SourceAggregate != nil {
+			if deal.Data.SourceHTTP != nil || deal.Data.SourceAggregate != nil {
 				err = insertPDPPipeline(ctx, tx, deal)
 				if err != nil {
 					return false, xerrors.Errorf("inserting pipeline: %w", err)
 				}
+			}
+			if deal.Data.SourceHttpPut != nil {
+				_, err = tx.Exec(`INSERT INTO market_mk20_upload_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
+				if err != nil {
+					return false, xerrors.Errorf("inserting upload waiting: %w", err)
+				}
+			}
+		} else {
+			// Assume upload
+			_, err = tx.Exec(`INSERT INTO market_mk20_upload_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
+			if err != nil {
+				return false, xerrors.Errorf("inserting upload waiting: %w", err)
 			}
 		}
 
@@ -708,15 +746,18 @@ func markDownloaded(ctx context.Context, db *harmonydb.DB) {
 	}
 }
 
-// UpdateDeal updates the details of a deal specified by its ID and writes the result or error to the provided HTTP response writer.
+// UpdateDeal updates the details of a deal specified by its ID and returns ProviderDealRejectionInfo which has ErrorCode and Reason
 // @param id ulid.ULID
 // @param deal *Deal
 // @Return DealCode
+// @Return Reason string
 
-func (m *MK20) UpdateDeal(id ulid.ULID, deal *Deal, w http.ResponseWriter) {
+func (m *MK20) UpdateDeal(id ulid.ULID, deal *Deal) *ProviderDealRejectionInfo {
 	if deal == nil {
-		http.Error(w, "deal not defined", int(ErrBadProposal))
-		return
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrBadProposal,
+			Reason:   "deal is undefined",
+		}
 	}
 
 	ctx := context.Background()
@@ -728,34 +769,78 @@ func (m *MK20) UpdateDeal(id ulid.ULID, deal *Deal, w http.ResponseWriter) {
 								  WHERE id = $1)`, id.String()).Scan(&exists)
 	if err != nil {
 		log.Errorw("failed to check if deal exists", "deal", id, "error", err)
-		http.Error(w, "", int(ErrServerInternalError))
-		return
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServerInternalError,
+			Reason:   "",
+		}
 	}
 
 	if !exists {
-		http.Error(w, "", int(ErrDealNotFound))
-		return
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrDealNotFound,
+			Reason:   "",
+		}
 	}
 
 	code, nd, np, err := m.updateDealDetails(id, deal)
 	if err != nil {
 		log.Errorw("failed to update deal details", "deal", id, "error", err)
 		if code == ErrServerInternalError {
-			http.Error(w, "", int(ErrServerInternalError))
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+				Reason:   "",
+			}
 		} else {
-			http.Error(w, err.Error(), int(code))
-		}
-		return
-	}
-
-	// Initiate new pipelines for DDO if required
-	for _, p := range np {
-		if p == ProductNameDDOV1 {
-			m.processDDODeal(ctx, nd)
+			return &ProviderDealRejectionInfo{
+				HTTPCode: code,
+				Reason:   err.Error(),
+			}
 		}
 	}
 
-	w.WriteHeader(http.StatusOK)
+	var rejection *ProviderDealRejectionInfo
+
+	comm, err := m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		// Save the updated deal to DB
+		err = nd.UpdateDeal(tx)
+		if err != nil {
+			return false, xerrors.Errorf("failed to update deal: %w", err)
+		}
+
+		// Initiate new pipelines for DDO if required
+		for _, p := range np {
+			if p == ProductNameDDOV1 {
+				rejection = m.processDDODeal(ctx, nd, tx)
+				if rejection.HTTPCode != Ok {
+					return false, xerrors.Errorf("failed to process DDO deal")
+				}
+			}
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		log.Errorw("failed to update deal details", "deal", id, "error", err)
+		if rejection != nil {
+			return rejection
+		}
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServerInternalError,
+			Reason:   "",
+		}
+	}
+
+	if !comm {
+		log.Errorw("failed to commit deal details", "deal", id, "error", err)
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrServerInternalError,
+			Reason:   "",
+		}
+	}
+
+	return &ProviderDealRejectionInfo{
+		HTTPCode: Ok,
+		Reason:   "",
+	}
 }
 
 // To be used later for when data source is minerID
