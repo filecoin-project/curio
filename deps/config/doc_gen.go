@@ -477,12 +477,15 @@ Set to false for older CPUs (Zen 2 and before). (Default: false)`,
 			Name: "LayerNVMEDevices",
 			Type: "[]string",
 
-			Comment: `LayerNVMEDevices is a list of pcie device addresses that should be used for SDR layer storage.
+			Comment: `LayerNVMEDevices OPTIONAL! A list of pcie device addresses that should be used for SDR layer storage.
 The required storage is 11 * BatchSealBatchSize * BatchSealSectorSize * BatchSealPipelines
 Total Read IOPS for optimal performance should be 10M+.
 The devices MUST be NVMe devices, not used for anything else. Any data on the devices will be lost!
 
 It's recommend to define these settings in a per-machine layer, as the devices are machine-specific.
+
+If left empty a list will be inferred automatically from /sys/bus/pci/drivers/vfio-pci/... using all
+devices with the NVMe I/O PCI class - 0x010802
 
 Example: ["0000:01:00.0", "0000:01:00.1"]`,
 		},
