@@ -71,17 +71,18 @@ func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, 
 	log.Infow("createPayment start", "taskID", taskID, "spID", sectorInfo.Miner, "sectorNumber", sectorInfo.Number)
 	// Get the wallet address from client settings for this SP ID
 	var walletStr string
+	var pprice string
 	err := db.QueryRow(ctx, `
-		SELECT wallet FROM proofshare_client_settings 
+		SELECT wallet, pprice FROM proofshare_client_settings 
 		WHERE sp_id = $1 AND enabled = TRUE AND do_porep = TRUE
-	`, sectorInfo.Miner).Scan(&walletStr)
+	`, sectorInfo.Miner).Scan(&walletStr, &pprice)
 
 	// If no specific settings for this SP ID, try the default (sp_id = 0)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = db.QueryRow(ctx, `
-			SELECT wallet FROM proofshare_client_settings 
+			SELECT wallet, pprice FROM proofshare_client_settings 
 			WHERE sp_id = 0 AND enabled = TRUE AND do_porep = TRUE
-		`).Scan(&walletStr)
+		`).Scan(&walletStr, &pprice)
 	}
 
 	if err != nil {
@@ -96,6 +97,11 @@ func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, 
 	wallet, err := address.NewFromString(walletStr)
 	if err != nil {
 		return false, xerrors.Errorf("failed to parse wallet address: %w", err)
+	}
+
+	maxPerProofPrice, err := types.BigFromString(pprice)
+	if err != nil {
+		return false, xerrors.Errorf("failed to parse max per proof price: %w", err)
 	}
 
 	// Get client ID from wallet address
@@ -142,6 +148,15 @@ func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, 
 	marketPrice, err := proofsvc.GetCurrentPrice()
 	if err != nil {
 		return false, xerrors.Errorf("failed to get current price: %w", err)
+	}
+
+	nfilBase, err := proofsvc.NfilFromTokenAmount(maxPerProofPrice)
+	if err != nil {
+		return false, xerrors.Errorf("failed to convert max per proof price to nfil: %w", err)
+	}
+
+	if marketPrice.PriceNfilBase+marketPrice.PriceNfilServiceFee > nfilBase {
+		return false, xerrors.Errorf("max per proof price is too low, max per proof price: %d, market price: %d", maxPerProofPrice, marketPrice.PriceNfilBase+marketPrice.PriceNfilServiceFee)
 	}
 
 	basePrice := marketPrice.PriceNfilBase * proofsvc.NFilAmount(requestPartitionCost) / 10
