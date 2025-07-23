@@ -218,7 +218,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		cfg.Subsystems.EnableUpdateSubmit ||
 		cfg.Subsystems.EnableCommP ||
 		cfg.Subsystems.EnableProofShare ||
-		cfg.Subsystems.EnableRemoteProofs {
+		cfg.Subsystems.EnableRemoteProofs
 
 	if hasAnySealingTask {
 		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover)
