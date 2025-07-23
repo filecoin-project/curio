@@ -156,7 +156,7 @@ func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, 
 	}
 
 	if marketPrice.PriceNfilBase+marketPrice.PriceNfilServiceFee > nfilBase {
-		return false, xerrors.Errorf("max per proof price is too low, max per proof price: %d, market price: %d", maxPerProofPrice, marketPrice.PriceNfilBase+marketPrice.PriceNfilServiceFee)
+		return false, xerrors.Errorf("max per proof price is too low, max per proof price: %d nFIL, market price: %d nFIL", nfilBase, marketPrice.PriceNfilBase+marketPrice.PriceNfilServiceFee)
 	}
 
 	basePrice := marketPrice.PriceNfilBase * proofsvc.NFilAmount(requestPartitionCost) / 10
