@@ -38,9 +38,10 @@ type PoRepTask struct {
 	paramsReady func() (bool, error)
 
 	max int
+	enableRemoteProofs bool
 }
 
-func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCalls, paramck func() (bool, error), maxPoRep int) *PoRepTask {
+func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCalls, paramck func() (bool, error), enableRemoteProofs bool, maxPoRep int) *PoRepTask {
 	return &PoRepTask{
 		db:          db,
 		api:         api,
@@ -48,6 +49,7 @@ func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCa
 		sc:          sc,
 		paramsReady: paramck,
 		max:         maxPoRep,
+		enableRemoteProofs: enableRemoteProofs,
 	}
 }
 
@@ -147,6 +149,11 @@ func (p *PoRepTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 }
 
 func (p *PoRepTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+	if !p.enableRemoteProofs {
+		// remote proofs enabled but not local prove - we still need the task for poller
+		return nil, nil
+	}
+
 	rdy, err := p.paramsReady()
 	if err != nil {
 		return nil, xerrors.Errorf("failed to setup params: %w", err)

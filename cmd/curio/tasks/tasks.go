@@ -217,7 +217,8 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		cfg.Subsystems.EnableUpdateProve ||
 		cfg.Subsystems.EnableUpdateSubmit ||
 		cfg.Subsystems.EnableCommP ||
-		cfg.Subsystems.EnableProofShare
+		cfg.Subsystems.EnableProofShare ||
+		cfg.Subsystems.EnableRemoteProofs {
 
 	if hasAnySealingTask {
 		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover)
@@ -419,8 +420,8 @@ func addSealingTasks(
 		precommitTask := seal.NewSubmitPrecommitTask(sp, db, full, sender, as, cfg)
 		activeTasks = append(activeTasks, precommitTask)
 	}
-	if cfg.Subsystems.EnablePoRepProof {
-		porepTask := seal.NewPoRepTask(db, full, sp, slr, asyncParams(), cfg.Subsystems.PoRepProofMaxTasks)
+	if cfg.Subsystems.EnablePoRepProof || cfg.Subsystems.EnableRemoteProofs {
+		porepTask := seal.NewPoRepTask(db, full, sp, slr, asyncParams(), cfg.Subsystems.EnablePoRepProof, cfg.Subsystems.PoRepProofMaxTasks)
 		activeTasks = append(activeTasks, porepTask)
 	}
 	if cfg.Subsystems.EnableMoveStorage {
@@ -453,8 +454,8 @@ func addSealingTasks(
 		encodeTask := snap.NewEncodeTask(slr, db, cfg.Subsystems.UpdateEncodeMaxTasks)
 		activeTasks = append(activeTasks, encodeTask)
 	}
-	if cfg.Subsystems.EnableUpdateProve {
-		proveTask := snap.NewProveTask(slr, db, asyncParams(), cfg.Subsystems.UpdateProveMaxTasks)
+	if cfg.Subsystems.EnableUpdateProve || cfg.Subsystems.EnableRemoteProofs {
+		proveTask := snap.NewProveTask(slr, db, asyncParams(), cfg.Subsystems.EnableRemoteProofs, cfg.Subsystems.UpdateProveMaxTasks)
 		activeTasks = append(activeTasks, proveTask)
 	}
 	if cfg.Subsystems.EnableUpdateSubmit {
