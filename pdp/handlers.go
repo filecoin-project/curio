@@ -38,6 +38,7 @@ const PDPRoutePath = "/pdp"
 
 // PDPService represents the service for managing proof sets and pieces
 type PDPService struct {
+	Auth
 	db      *harmonydb.DB
 	storage paths.StashStore
 
@@ -53,6 +54,7 @@ type PDPServiceNodeApi interface {
 // NewPDPService creates a new instance of PDPService with the provided stores
 func NewPDPService(db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client, fc PDPServiceNodeApi, sn *message.SenderETH) *PDPService {
 	return &PDPService{
+		Auth:    &NullAuth{},
 		db:      db,
 		storage: stor,
 
@@ -117,7 +119,7 @@ func Routes(r *chi.Mux, p *PDPService) {
 
 func (p *PDPService) handlePing(w http.ResponseWriter, r *http.Request) {
 	// Verify that the request is authorized using ECDSA JWT
-	_, err := p.verifyJWTToken(r)
+	_, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
@@ -132,7 +134,7 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 	ctx := r.Context()
 
 	// Step 1: Verify that the request is authorized using ECDSA JWT
-	serviceLabel, err := p.verifyJWTToken(r)
+	serviceLabel, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
@@ -224,6 +226,10 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 
 	// Step 6: Insert into message_waits_eth and pdp_proofset_creates
 	txHashLower := strings.ToLower(txHash.Hex())
+	log.Infow("PDP CreateProofSet: Inserting transaction tracking",
+		"txHash", txHashLower,
+		"service", serviceLabel,
+		"recordKeeper", recordKeeperAddr.Hex())
 	err = p.insertMessageWaitsAndProofsetCreate(ctx, txHashLower, serviceLabel)
 	if err != nil {
 		log.Errorf("Failed to insert into message_waits_eth and pdp_proofset_creates: %+v", err)
@@ -255,23 +261,39 @@ func (p *PDPService) insertMessageWaitsAndProofsetCreate(ctx context.Context, tx
 	// Begin a database transaction
 	_, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// Insert into message_waits_eth
+		log.Debugw("Inserting into message_waits_eth",
+			"txHash", txHashHex,
+			"status", "pending")
 		_, err := tx.Exec(`
             INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
             VALUES ($1, $2)
         `, txHashHex, "pending")
 		if err != nil {
+			log.Errorw("Failed to insert into message_waits_eth",
+				"txHash", txHashHex,
+				"error", err)
 			return false, err // Return false to rollback the transaction
 		}
 
 		// Insert into pdp_proofset_creates
+		log.Debugw("Inserting into pdp_proofset_creates",
+			"txHash", txHashHex,
+			"service", serviceLabel)
 		_, err = tx.Exec(`
             INSERT INTO pdp_proofset_creates (create_message_hash, service)
             VALUES ($1, $2)
         `, txHashHex, serviceLabel)
 		if err != nil {
+			log.Errorw("Failed to insert into pdp_proofset_creates",
+				"txHash", txHashHex,
+				"error", err)
 			return false, err // Return false to rollback the transaction
 		}
 
+		log.Infow("Successfully inserted orphaned transaction for watching",
+			"txHash", txHashHex,
+			"service", serviceLabel,
+			"waiter_machine_id", "NULL")
 		// Return true to commit the transaction
 		return true, nil
 	}, harmonydb.OptionRetry())
@@ -286,7 +308,7 @@ func (p *PDPService) handleGetProofSetCreationStatus(w http.ResponseWriter, r *h
 	ctx := r.Context()
 
 	// Step 1: Verify that the request is authorized using ECDSA JWT
-	serviceLabel, err := p.verifyJWTToken(r)
+	serviceLabel, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
@@ -304,6 +326,10 @@ func (p *PDPService) handleGetProofSetCreationStatus(w http.ResponseWriter, r *h
 		txHash = "0x" + txHash
 	}
 	txHash = strings.ToLower(txHash)
+
+	log.Debugw("GetProofSetCreationStatus request",
+		"txHash", txHash,
+		"service", serviceLabel)
 
 	// Validate txHash is a valid hash
 	if len(txHash) != 66 { // '0x' + 64 hex chars
@@ -397,6 +423,13 @@ func (p *PDPService) handleGetProofSetCreationStatus(w http.ResponseWriter, r *h
 		response.ProofSetId = &proofSetId
 	}
 
+	log.Debugw("GetProofSetCreationStatus response",
+		"txHash", txHash,
+		"txStatus", response.TxStatus,
+		"proofsetCreated", response.ProofsetCreated,
+		"ok", response.OK,
+		"proofSetId", response.ProofSetId)
+
 	// Step 6: Return the response as JSON
 	w.Header().Set("Content-Type", "application/json")
 	err = json.NewEncoder(w).Encode(response)
@@ -411,7 +444,7 @@ func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Step 1: Verify that the request is authorized using ECDSA JWT
-	serviceLabel, err := p.verifyJWTToken(r)
+	serviceLabel, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
@@ -476,8 +509,8 @@ func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 6: Get the next challenge epoch
-	var nextChallengeEpoch int64
+	// Step 6: Get the next challenge epoch (can be NULL for uninitialized proof sets)
+	var nextChallengeEpoch *int64
 	err = p.db.QueryRow(ctx, `
         SELECT prove_at_epoch
         FROM pdp_proof_sets
@@ -488,14 +521,22 @@ func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 6: Prepare the response
+	// Step 7: Prepare the response
+	// Use 0 to indicate uninitialized proof set (no challenge epoch set yet)
+	// This maintains compatibility with SDK expectations
+	epochValue := int64(0)
+	if nextChallengeEpoch != nil {
+		epochValue = *nextChallengeEpoch
+	}
+
 	response := struct {
 		ID                 uint64      `json:"id"`
 		Roots              []RootEntry `json:"roots"`
 		NextChallengeEpoch int64       `json:"nextChallengeEpoch"`
 	}{
 		ID:                 proofSet.ID,
-		NextChallengeEpoch: nextChallengeEpoch,
+		NextChallengeEpoch: epochValue,
+		Roots:              []RootEntry{}, // Initialize as empty array, not nil
 	}
 
 	// Convert roots to the desired JSON format
@@ -508,7 +549,7 @@ func (p *PDPService) handleGetProofSet(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Step 7: Return the response as JSON
+	// Step 8: Return the response as JSON
 	w.Header().Set("Content-Type", "application/json")
 	err = json.NewEncoder(w).Encode(response)
 	if err != nil {
@@ -536,7 +577,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 	ctx := r.Context()
 
 	// Step 1: Verify that the request is authorized using ECDSA JWT
-	serviceLabel, err := p.verifyJWTToken(r)
+	serviceLabel, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
@@ -804,7 +845,7 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 			}
 
 			prevSubrootSize = subrootInfo.PieceInfo.Size
-			totalSize += uint64(subrootInfo.PieceInfo.Size.Unpadded())
+			totalSize += uint64(subrootInfo.PieceInfo.Size)
 		}
 
 		// Prepare RootData for Ethereum transaction
@@ -854,13 +895,23 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 	// Step 9: Insert into message_waits_eth and pdp_proofset_roots
 	// Ensure consistent lowercase transaction hash
 	txHashLower := strings.ToLower(txHash.Hex())
+	log.Infow("PDP AddRoots: Inserting transaction tracking",
+		"txHash", txHashLower,
+		"proofSetId", proofSetIDUint64,
+		"rootCount", len(payload.Roots))
 	_, err = p.db.BeginTransaction(ctx, func(txdb *harmonydb.Tx) (bool, error) {
 		// Insert into message_waits_eth
+		log.Debugw("Inserting AddRoots into message_waits_eth",
+			"txHash", txHashLower,
+			"status", "pending")
 		_, err := txdb.Exec(`
             INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
             VALUES ($1, $2)
         `, txHashLower, "pending")
 		if err != nil {
+			log.Errorw("Failed to insert AddRoots into message_waits_eth",
+				"txHash", txHashLower,
+				"error", err)
 			return false, err // Return false to rollback the transaction
 		}
 
@@ -927,7 +978,7 @@ func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.
 	ctx := r.Context()
 
 	// Step 1: Verify that the request is authorized using ECDSA JWT
-	serviceLabel, err := p.verifyJWTToken(r)
+	serviceLabel, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
@@ -1116,7 +1167,7 @@ func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.
 func (p *PDPService) handleDeleteProofSetRoot(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// Step 1: Verify that the request is authorized using ECDSA JWT
-	serviceLabel, err := p.verifyJWTToken(r)
+	serviceLabel, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
@@ -1239,7 +1290,7 @@ func (p *PDPService) handleGetProofSetRoot(w http.ResponseWriter, r *http.Reques
 	ctx := r.Context()
 
 	// Step 1: Verify that the request is authorized using ECDSA JWT
-	serviceLabel, err := p.verifyJWTToken(r)
+	serviceLabel, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return

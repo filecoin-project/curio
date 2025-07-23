@@ -48,6 +48,8 @@ func processPendingProofSetCreates(ctx context.Context, db *harmonydb.DB, ethCli
 		return xerrors.Errorf("failed to select proof set creates: %w", err)
 	}
 
+	log.Infow("ProofSetCreate watcher checking pending proof sets", "count", len(proofSetCreates))
+
 	if len(proofSetCreates) == 0 {
 		// No pending proof set creates
 		return nil
@@ -55,11 +57,15 @@ func processPendingProofSetCreates(ctx context.Context, db *harmonydb.DB, ethCli
 
 	// Process each proof set create
 	for _, psc := range proofSetCreates {
+		log.Infow("Processing proof set create",
+			"txHash", psc.CreateMessageHash,
+			"service", psc.Service)
 		err := processProofSetCreate(ctx, db, psc, ethClient)
 		if err != nil {
 			log.Warnf("Failed to process proof set create for tx %s: %v", psc.CreateMessageHash, err)
 			continue
 		}
+		log.Infow("Successfully processed proof set create", "txHash", psc.CreateMessageHash)
 	}
 
 	return nil
@@ -68,6 +74,7 @@ func processPendingProofSetCreates(ctx context.Context, db *harmonydb.DB, ethCli
 func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCreate, ethClient *ethclient.Client) error {
 	// Retrieve the tx_receipt from message_waits_eth
 	var txReceiptJSON []byte
+	log.Debugw("Fetching tx_receipt from message_waits_eth", "txHash", psc.CreateMessageHash)
 	err := db.QueryRow(ctx, `
         SELECT tx_receipt
         FROM message_waits_eth
@@ -76,6 +83,7 @@ func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCr
 	if err != nil {
 		return xerrors.Errorf("failed to get tx_receipt for tx %s: %w", psc.CreateMessageHash, err)
 	}
+	log.Debugw("Retrieved tx_receipt", "txHash", psc.CreateMessageHash, "receiptLength", len(txReceiptJSON))
 
 	// Unmarshal the tx_receipt JSON into types.Receipt
 	var txReceipt types.Receipt
@@ -83,12 +91,14 @@ func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCr
 	if err != nil {
 		return xerrors.Errorf("failed to unmarshal tx_receipt for tx %s: %w", psc.CreateMessageHash, err)
 	}
+	log.Debugw("Unmarshalled receipt", "txHash", psc.CreateMessageHash, "status", txReceipt.Status, "logs", len(txReceipt.Logs))
 
 	// Parse the logs to extract the proofSetId
 	proofSetId, err := extractProofSetIdFromReceipt(&txReceipt)
 	if err != nil {
 		return xerrors.Errorf("failed to extract proofSetId from receipt for tx %s: %w", psc.CreateMessageHash, err)
 	}
+	log.Infow("Extracted proofSetId from receipt", "txHash", psc.CreateMessageHash, "proofSetId", proofSetId)
 
 	// Get the listener address for this proof set from the PDPVerifier contract
 	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ethClient)

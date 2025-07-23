@@ -42,3 +42,5 @@
 * [Experimental Features](experimental-features/README.md)
   * [GPU Over Provisioning](experimental-features/gpu-over-provisioning.md)
   * [Enable PDP](experimental-features/Enable-PDP.md)
+  * [Snark Market](experimental-features/Snark-Market.md)
+  * [Market 2.0 API](experimental-features/market-2.0-api.md)
