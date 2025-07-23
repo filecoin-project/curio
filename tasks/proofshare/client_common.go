@@ -130,7 +130,7 @@ func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, 
 		mult := 0.7 + 0.6*randFrac // 0.7 to 1.3
 		randomizedBackoff := time.Duration(float64(backoff) * mult)
 
-		log.Infow("proof service not available, backing off", "backoff", randomizedBackoff)
+		log.Infow("proof service not available, backing off", "backoff", randomizedBackoff, "taskID", taskID, "spID", sectorInfo.Miner, "sectorNumber", sectorInfo.Number)
 		time.Sleep(randomizedBackoff)
 		backoff *= 2
 		if backoff > maxBackoff {
@@ -151,7 +151,10 @@ func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, 
 
 	// Create payment in a transaction
 	var nextNonce int64
+	var waitConsumed bool
 	_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		waitConsumed = false
+
 		// Check if there's an unconsumed payment
 		var lastPayment struct {
 			Wallet           int64  `db:"wallet"`
@@ -174,8 +177,8 @@ func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, 
 		// If there's an unconsumed payment, we need to wait for it to be consumed
 		if err == nil && !lastPayment.Consumed {
 			log.Infow("waiting for previous payment to be consumed",
-				"wallet", lastPayment.Wallet,
-				"nonce", lastPayment.Nonce)
+				"taskID", taskID, "wallet", lastPayment.Wallet, "nonce", lastPayment.Nonce, "spID", sectorInfo.Miner, "sectorNumber", sectorInfo.Number)
+			waitConsumed = true
 			return false, nil
 		}
 
@@ -201,7 +204,7 @@ func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, 
 		// calculate new cumulative amount
 		prevCumulative := cumulativeAmount
 		cumulativeAmount = types.BigAdd(cumulativeAmount, price)
-		log.Infow("calculating cumulative amount", "prevCumulative", prevCumulative, "price", price, "cumulativeAmount", cumulativeAmount)
+		log.Infow("calculating cumulative amount", "prevCumulative", prevCumulative, "price", price, "cumulativeAmount", cumulativeAmount, "taskID", taskID, "spID", sectorInfo.Miner, "sectorNumber", sectorInfo.Number)
 
 		// Create voucher
 		voucher, err := router.CreateClientVoucher(ctx, uint64(clientID), cumulativeAmount.Int, uint64(nextNonce))
@@ -240,7 +243,12 @@ func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, 
 		return false, xerrors.Errorf("transaction failed: %w", err)
 	}
 
-	log.Infow("createPayment complete", "taskID", taskID, "wallet", clientID, "nonce", nextNonce, "calcPrice", price, "price", marketPrice, "requestPartitionCost", requestPartitionCost)
+	if waitConsumed {
+		log.Infow("waiting for previous payment to be consumed", "taskID", taskID, "wallet", clientID, "nonce", nextNonce, "spID", sectorInfo.Miner, "sectorNumber", sectorInfo.Number)
+		return false, nil
+	}
+
+	log.Infow("createPayment complete", "taskID", taskID, "wallet", clientID, "nonce", nextNonce, "calcPrice", price, "price", marketPrice, "requestPartitionCost", requestPartitionCost, "spID", sectorInfo.Miner, "sectorNumber", sectorInfo.Number)
 	return true, nil
 }
 

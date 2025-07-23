@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math/rand"
 	"time"
 
 	"github.com/hashicorp/go-multierror"
@@ -172,7 +173,7 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 			return false, xerrors.Errorf("task no longer owned")
 		}
 
-		log.Infow("PSR CYCLE BEGIN VVVVVVVVVVVVVVVVVVVVVVVVVVV", "taskID", taskID)
+		log.Infow("PSR CYCLE BEGIN VVVVVVVVVVVVVVVVVVVVVVVVVVV", "taskID", taskID, "sectorID", sectorInfo.SectorNumber, "spID", sectorInfo.SpID)
 
 		// Get the current state of the client request
 		const partitionCost = 10 // 126 for ni-porep
@@ -225,14 +226,16 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 
 		// If the state didn't change, wait before trying again
 		if !stateChanged {
+			// Randomize wait time between 2-8 seconds to avoid thundering herd
+			waitTime := time.Duration(200+rand.Intn(700)) * time.Second / 100
 			select {
-			case <-time.After(10 * time.Second):
+			case <-time.After(waitTime):
 				// Continue polling
 			case <-ctx.Done():
 				return false, ctx.Err()
 			}
 		} else {
-			log.Infow("state changed", "state", inState, "taskID", taskID, "sectorID", sectorInfo.SectorNumber, "spID", sectorInfo.SpID)
+			log.Infow("state changed", "inState", inState, "taskID", taskID, "sectorID", sectorInfo.SectorNumber, "spID", sectorInfo.SpID)
 		}
 	}
 }
