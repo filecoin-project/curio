@@ -18,6 +18,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/proofsvc"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
+	"github.com/filecoin-project/curio/lib/proofsvc/cuhelper"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -216,102 +217,41 @@ func (a *WebRPC) PSListQueue(ctx context.Context) ([]*ProofShareQueueItem, error
 }
 
 func (a *WebRPC) PSProviderSettle(ctx context.Context, providerID int64) (cid.Cid, error) {
-	providerAddr, err := address.NewIDAddress(uint64(providerID))
-	if err != nil {
-		return cid.Undef, xerrors.Errorf("PSProviderSettle: failed to create address from provider ID %d: %w", providerID, err)
-	}
-
-	// 2. Fetch the latest payment record for the provider
-	var latestPayment struct {
-		Nonce            int64  `db:"payment_nonce"`
-		CumulativeAmount string `db:"payment_cumulative_amount"`
-		Signature        []byte `db:"payment_signature"`
-	}
-	err = a.deps.DB.QueryRow(ctx, `
-		SELECT payment_nonce, payment_cumulative_amount, payment_signature
-		FROM proofshare_provider_payments
-		WHERE provider_id = $1
-		ORDER BY payment_nonce DESC
-		LIMIT 1
-	`, providerID).Scan(&latestPayment.Nonce, &latestPayment.CumulativeAmount, &latestPayment.Signature)
+	// Use the common settlement function
+	settleCid, err := cuhelper.SettleProvider(ctx, a.deps.DB, a.deps.Chain,
+		func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
+			return a.deps.Sender.Send(ctx, msg, mss, "ps-provider-settle")
+		},
+		providerID)
 
 	if err != nil {
-		if xerrors.Is(err, sql.ErrNoRows) {
-			return cid.Undef, xerrors.Errorf("PSProviderSettle: no payment records found for provider ID %d, nothing to settle", providerID)
-		}
-		return cid.Undef, xerrors.Errorf("PSProviderSettle: failed to query latest payment for provider ID %d: %w", providerID, err)
+		return cid.Undef, err
 	}
 
-	// 3. Fetch the latest settlement nonce for the provider
-	var lastSettledNonce sql.NullInt64
-	err = a.deps.DB.QueryRow(ctx, `
-		SELECT MAX(payment_nonce)
-		FROM proofshare_provider_payments_settlement
-		WHERE provider_id = $1
-	`, providerID).Scan(&lastSettledNonce)
-	if err != nil && !xerrors.Is(err, sql.ErrNoRows) { // sql.ErrNoRows is fine, means no settlements yet
-		return cid.Undef, xerrors.Errorf("PSProviderSettle: failed to query last settlement nonce for provider ID %d: %w", providerID, err)
-	}
-
-	if lastSettledNonce.Valid && latestPayment.Nonce <= lastSettledNonce.Int64 {
-		return cid.Undef, xerrors.Errorf("PSProviderSettle: latest payment (nonce %d) for provider ID %d is already settled or not newer than last settlement (nonce %d)", latestPayment.Nonce, providerID, lastSettledNonce.Int64)
-	}
-
-	// 4. Prepare data for service call
-	cumulativeAmountBig, err := types.BigFromString(latestPayment.CumulativeAmount)
+	// Get payment info to track the settlement
+	paymentInfo, err := cuhelper.GetProviderPaymentInfo(ctx, a.deps.DB, providerID)
 	if err != nil {
-		return cid.Undef, xerrors.Errorf("PSProviderSettle: failed to parse cumulative amount '%s' for provider ID %d, nonce %d: %w", latestPayment.CumulativeAmount, providerID, latestPayment.Nonce, err)
+		// Settlement was sent but we couldn't get payment info for tracking
+		log.Errorw("PSProviderSettle: settlement sent but failed to get payment info for tracking",
+			"provider_id", providerID,
+			"settlement_cid", settleCid.String(),
+			"error", err)
+		return settleCid, nil // Still return the CID since settlement was sent
 	}
 
-	// Use a custom sender for the service context
-	svc := common.NewServiceCustomSend(a.deps.Chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
-		return a.deps.Sender.Send(ctx, msg, mss, "ps-provider-settle")
-	})
-
-	// 5. Call ServiceRedeemProviderVoucher
-	log.Infow("PSProviderSettle: calling ServiceRedeemProviderVoucher",
-		"provider_id", providerID,
-		"provider_address", providerAddr.String(),
-		"cumulative_amount", cumulativeAmountBig.String(),
-		"nonce", latestPayment.Nonce)
-
-	settleCid, err := svc.ServiceRedeemProviderVoucher(
-		ctx,
-		providerAddr,                // The address sending the transaction
-		uint64(providerID),          // The ID of the provider to settle with
-		cumulativeAmountBig,         // The cumulative amount to settle
-		uint64(latestPayment.Nonce), // The nonce of the payment
-		latestPayment.Signature,     // The signature of the payment voucher
-	)
-	if err != nil {
-		return cid.Undef, xerrors.Errorf("PSProviderSettle: ServiceRedeemProviderVoucher call for provider %s (ID %d), nonce %d failed: %w", providerAddr.String(), providerID, latestPayment.Nonce, err)
-	}
-
-	// 6. Track the sent message for UI and internal state updates
+	// Track the sent message for UI and internal state updates
 	err = a.addMessageTrackingProvider(ctx, settleCid, providerID, "settle", func(tx *harmonydb.Tx) error {
-		_, err := tx.Exec(`
-			INSERT INTO proofshare_provider_payments_settlement (provider_id, payment_nonce, settle_message_cid)
-			VALUES ($1, $2, $3)
-		`, providerID, latestPayment.Nonce, settleCid.String())
-		return err
+		return cuhelper.RecordSettlement(ctx, tx, providerID, paymentInfo.LatestNonce, settleCid)
 	})
 	if err != nil {
 		// If tracking fails, it's usually critical as the system might lose track of an on-chain action.
-		// Log the error but consider if the settlement CID should still be returned or if this failure is terminal.
-		// For now, returning the error as it might indicate a deeper issue with message tracking.
 		log.Errorw("PSProviderSettle: failed to track settlement message, but settlement was sent",
 			"provider_id", providerID,
 			"settlement_cid", settleCid.String(),
 			"tracking_error", err)
-		return cid.Undef, xerrors.Errorf("PSProviderSettle: failed to track settlement message %s for provider %s (ID %d): %w", settleCid.String(), providerAddr.String(), providerID, err)
+		// Return the CID anyway since the settlement was sent successfully
+		return settleCid, nil
 	}
-
-	log.Infow("Successfully initiated provider settlement",
-		"provider_id", providerID,
-		"provider_address", providerAddr.String(),
-		"settled_nonce", latestPayment.Nonce,
-		"settled_cumulative_amount", cumulativeAmountBig.String(),
-		"settlement_cid", settleCid.String())
 
 	return settleCid, nil
 }

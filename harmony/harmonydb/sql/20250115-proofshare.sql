@@ -34,6 +34,9 @@ CREATE TABLE proofshare_meta (
 
     request_task_id BIGINT,
 
+    -- 20250724-proofshare-autosettle.sql
+    -- autosettle BOOLEAN NOT NULL DEFAULT TRUE,
+
     PRIMARY KEY (singleton)
 );
 

@@ -467,7 +467,8 @@ func addSealingTasks(
 		requestProofsTask := proofshare.NewTaskRequestProofs(db, full, asyncParams())
 		provideSnarkTask := proofshare.NewTaskProvideSnark(db, asyncParams(), cfg.Subsystems.ProofShareMaxTasks)
 		submitTask := proofshare.NewTaskSubmit(db, full)
-		activeTasks = append(activeTasks, requestProofsTask, provideSnarkTask, submitTask)
+		autosettleTask := proofshare.NewTaskAutosettle(db, full, sender)
+		activeTasks = append(activeTasks, requestProofsTask, provideSnarkTask, submitTask, autosettleTask)
 	}
 
 	if cfg.Subsystems.EnableRemoteProofs {
