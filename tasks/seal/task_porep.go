@@ -3,6 +3,7 @@ package seal
 import (
 	"bytes"
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -22,6 +23,8 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
+var PorepLastBored = atomic.Pointer[time.Time]{}
+
 type PoRepAPI interface {
 	ChainHead(context.Context) (*types.TipSet, error)
 	StateGetRandomnessFromBeacon(context.Context, crypto.DomainSeparationTag, abi.ChainEpoch, []byte, types.TipSetKey) (abi.Randomness, error)
@@ -35,9 +38,10 @@ type PoRepTask struct {
 	paramsReady func() (bool, error)
 
 	max int
+	enableRemoteProofs bool
 }
 
-func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCalls, paramck func() (bool, error), maxPoRep int) *PoRepTask {
+func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCalls, paramck func() (bool, error), enableRemoteProofs bool, maxPoRep int) *PoRepTask {
 	return &PoRepTask{
 		db:          db,
 		api:         api,
@@ -45,6 +49,7 @@ func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCa
 		sc:          sc,
 		paramsReady: paramck,
 		max:         maxPoRep,
+		enableRemoteProofs: enableRemoteProofs,
 	}
 }
 
@@ -144,6 +149,11 @@ func (p *PoRepTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 }
 
 func (p *PoRepTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+	if !p.enableRemoteProofs {
+		// remote proofs enabled but not local prove - we still need the task for poller
+		return nil, nil
+	}
+
 	rdy, err := p.paramsReady()
 	if err != nil {
 		return nil, xerrors.Errorf("failed to setup params: %w", err)
@@ -166,6 +176,11 @@ func (p *PoRepTask) TypeDetails() harmonytask.TaskTypeDetails {
 	res := harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(p.max),
 		Name: "PoRep",
+		IAmBored: func(harmonytask.AddTaskFunc) error {
+			now := time.Now()
+			PorepLastBored.Store(&now)
+			return nil
+		},
 		Cost: resources.Resources{
 			Cpu:       1,
 			Gpu:       gpu,

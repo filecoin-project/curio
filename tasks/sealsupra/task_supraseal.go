@@ -81,9 +81,15 @@ func NewSupraSeal(sectorSize string, batchSize, pipelines int, dualHashers bool,
 	if configFile = os.Getenv(suprasealConfigEnv); configFile == "" {
 		// not set from env (should be the case in most cases), auto-generate a config
 
-		cstr, err := GenerateSupraSealConfigString(dualHashers, batchSize, nvmeDevices)
+		var cstr string
+		cstr, nvmeDevices, err = GenerateSupraSealConfigString(dualHashers, batchSize, nvmeDevices)
 		if err != nil {
 			return nil, nil, xerrors.Errorf("generating supraseal config: %w", err)
+		}
+
+		log.Infow("nvme devices", "nvmeDevices", nvmeDevices)
+		if len(nvmeDevices) == 0 {
+			return nil, nil, xerrors.Errorf("no nvme devices found, run spdk setup.sh")
 		}
 
 		cfgFile, err := os.CreateTemp("", "supraseal-config-*.cfg")
