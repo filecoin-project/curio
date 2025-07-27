@@ -27,6 +27,7 @@ COMMANDS:
 GLOBAL OPTIONS:
    --color                    use color in display output (default: depends on output being a TTY)
    --db-host value            Command separated list of hostnames for yugabyte cluster (default: "127.0.0.1") [$CURIO_DB_HOST, $CURIO_HARMONYDB_HOSTS]
+   --db-host-cql value        Command separated list of hostnames for yugabyte cluster (default: <--db-host>) [$CURIO_DB_HOST_CQL]
    --db-name value            Name of the Postgres database in Yugabyte cluster (default: "yugabyte") [$CURIO_DB_NAME, $CURIO_HARMONYDB_NAME]
    --db-user value            Username for connecting to the Postgres database in Yugabyte cluster (default: "yugabyte") [$CURIO_DB_USER, $CURIO_HARMONYDB_USERNAME]
    --db-password value        Password for connecting to the Postgres database in Yugabyte cluster (default: "yugabyte") [$CURIO_DB_PASSWORD, $CURIO_HARMONYDB_PASSWORD]

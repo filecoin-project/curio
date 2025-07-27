@@ -132,10 +132,10 @@ func main() {
 				Value:   "127.0.0.1",
 			},
 			&cli.StringFlag{
-				Name:    "db-host-cql",
-				EnvVars: []string{"CURIO_DB_HOST_CQL"},
-				Usage:   translations.T("Command separated list of hostnames for yugabyte cluster"),
-				Value: "",
+				Name:        "db-host-cql",
+				EnvVars:     []string{"CURIO_DB_HOST_CQL"},
+				Usage:       translations.T("Command separated list of hostnames for yugabyte cluster"),
+				Value:       "",
 				DefaultText: "<--db-host>",
 			},
 			&cli.StringFlag{

@@ -37,18 +37,18 @@ type PoRepTask struct {
 	sc          *ffi.SealCalls
 	paramsReady func() (bool, error)
 
-	max int
+	max                int
 	enableRemoteProofs bool
 }
 
 func NewPoRepTask(db *harmonydb.DB, api PoRepAPI, sp *SealPoller, sc *ffi.SealCalls, paramck func() (bool, error), enableRemoteProofs bool, maxPoRep int) *PoRepTask {
 	return &PoRepTask{
-		db:          db,
-		api:         api,
-		sp:          sp,
-		sc:          sc,
-		paramsReady: paramck,
-		max:         maxPoRep,
+		db:                 db,
+		api:                api,
+		sp:                 sp,
+		sc:                 sc,
+		paramsReady:        paramck,
+		max:                maxPoRep,
 		enableRemoteProofs: enableRemoteProofs,
 	}
 }

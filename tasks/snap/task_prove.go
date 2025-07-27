@@ -24,7 +24,7 @@ import (
 var ProveLastBored = atomic.Pointer[time.Time]{}
 
 type ProveTask struct {
-	max int
+	max                int
 	enableRemoteProofs bool
 
 	sc          *ffi.SealCalls
@@ -39,7 +39,7 @@ func NewProveTask(sc *ffi.SealCalls, db *harmonydb.DB, paramck func() (bool, err
 		sc: sc,
 		db: db,
 
-		paramsReady: paramck,
+		paramsReady:        paramck,
 		enableRemoteProofs: enableRemoteProofs,
 	}
 }
