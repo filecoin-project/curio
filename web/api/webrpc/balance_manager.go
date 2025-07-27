@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/lotus/chain/types"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-address"
+
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 // BalanceMgrRule represents a balance manager rule with display-friendly fields.
