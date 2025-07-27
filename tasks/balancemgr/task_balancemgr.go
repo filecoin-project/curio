@@ -4,19 +4,22 @@ import (
 	"context"
 	"fmt"
 
+	logging "github.com/ipfs/go-log/v2"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/promise"
 	"github.com/filecoin-project/curio/tasks/message"
-	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin"
 	"github.com/filecoin-project/lotus/chain/types"
-	logging "github.com/ipfs/go-log/v2"
-	"golang.org/x/xerrors"
 )
 
 var log = logging.Logger("balancemgr")
@@ -299,7 +302,7 @@ func (b *BalanceMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	}
 
 	mss := &api.MessageSendSpec{
-		MaxFee: abi.TokenAmount(MaxSendFee),
+		MaxFee:         abi.TokenAmount(MaxSendFee),
 		MaximizeFeeCap: true,
 	}
 
