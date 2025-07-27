@@ -27,7 +27,7 @@ const clientUrl = "https://mainnet.snass.fsp.sh/v0/proofs"
 
 type NFilAmount = int64
 
-const maxNFilAmount = 1_000_000_000 * 2_000_000_000
+// const maxNFilAmount = 1_000_000_000 * 2_000_000_000
 const attoPerNano = 1_000_000_000 // 1 nFIL = 10^9 attoFIL
 const roCacheTTL = 300 * time.Millisecond
 

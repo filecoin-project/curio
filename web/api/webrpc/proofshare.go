@@ -3,6 +3,7 @@ package webrpc
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -195,11 +196,14 @@ func (a *WebRPC) PSListQueue(ctx context.Context) ([]*ProofShareQueueItem, error
 
 		var prevPaymentAmt string = "0"
 		if paymentNonce > 0 {
-			err = a.deps.DB.QueryRow(ctx, `
+			err := a.deps.DB.QueryRow(ctx, `
 				SELECT payment_cumulative_amount
 				FROM proofshare_provider_payments
 				WHERE provider_id = $1 AND payment_nonce = $2
 			`, providerID, paymentNonce-1).Scan(&prevPaymentAmt)
+			if err != nil {
+				return nil, xerrors.Errorf("PSListQueue: failed to query proofshare_provider_payments: %w", err)
+			}
 		}
 
 		cumAmt, err := types.BigFromString(paymentAmt)
@@ -446,7 +450,7 @@ func (a *WebRPC) PSClientRequests(ctx context.Context, spId int64) ([]*ProofShar
 
 		currentCumulativeAmount := big.NewInt(0)
 		if err != nil {
-			if xerrors.Is(err, sql.ErrNoRows) {
+			if errors.Is(err, sql.ErrNoRows) {
 				// If current payment record not found, treat current cumulative amount as 0.
 				// This means the calculated payment_amount will be 0 (or negative, then clamped to 0).
 				log.Warnw("PSClientRequests: current payment record not found, assuming 0 amount", "wallet", walletID, "nonce", currentNonce)
@@ -477,7 +481,7 @@ func (a *WebRPC) PSClientRequests(ctx context.Context, spId int64) ([]*ProofShar
 			`, walletID, previousNonce).Scan(&previousCumulativeAmountStr)
 
 			if errDb != nil {
-				if !xerrors.Is(errDb, sql.ErrNoRows) {
+				if !errors.Is(errDb, sql.ErrNoRows) {
 					// Log error if it's not ErrNoRows (ErrNoRows is expected for the first payment or if nonces are not contiguous)
 					log.Errorw("PSClientRequests: failed to query previous cumulative amount", "wallet", walletID, "nonce", previousNonce, "error", errDb)
 					// previousCumulativeAmount remains 0
@@ -974,10 +978,9 @@ ORDER BY lp.provider_id;
 				zeroFil := types.FIL(types.NewInt(0)).Short()
 				item.LastSettledAmountFIL = &zeroFil
 			}
-		} else {
-			// No settlement: LastSettledAmountFIL, TimeSinceLastSettlement, LastSettledAt remain nil.
-			// lastSettledPaymentBigInt is already 0.
 		}
+		// ELSE: No settlement: LastSettledAmountFIL, TimeSinceLastSettlement, LastSettledAt remain nil.
+		// ELSE: lastSettledPaymentBigInt is already 0.
 
 		// Calculate and format UnsettledAmountFIL
 		// Unsettled = LatestPayment - LastSettledPayment (if no settlement, LastSettledPayment is 0)
@@ -1088,21 +1091,18 @@ ORDER BY rs.settled_at DESC; -- Maintain final order
 		}
 
 		// Calculate AmountForThisSettlementFIL
-		currentAmountBig := types.NewInt(0)
-		if item.CurrentCumulativeAmountRaw != "" {
-			val, pErr := types.BigFromString(item.CurrentCumulativeAmountRaw)
-			if pErr != nil {
-				log.Warnw("PSListSettlements: failed to parse CurrentCumulativeAmountRaw", "providerID", item.ProviderID, "nonce", item.PaymentNonce, "amount", item.CurrentCumulativeAmountRaw, "error", pErr)
-				item.AmountForThisSettlementFIL = "ErrorParsingCurrent"
-				continue // Skip to next item if current amount is unparseable
-			} else {
-				currentAmountBig = val
-			}
-		} else {
+		if item.CurrentCumulativeAmountRaw == "" {
 			// This case should ideally not happen if current_cumulative_amount is NOT NULL and fetched correctly.
 			log.Warnw("PSListSettlements: CurrentCumulativeAmountRaw is empty", "providerID", item.ProviderID, "nonce", item.PaymentNonce)
 			item.AmountForThisSettlementFIL = "MissingCurrentAmount"
 			continue
+		}
+
+		currentAmountBig, pErr := types.BigFromString(item.CurrentCumulativeAmountRaw)
+		if pErr != nil {
+			log.Warnw("PSListSettlements: failed to parse CurrentCumulativeAmountRaw", "providerID", item.ProviderID, "nonce", item.PaymentNonce, "amount", item.CurrentCumulativeAmountRaw, "error", pErr)
+			item.AmountForThisSettlementFIL = "ErrorParsingCurrent"
+			continue // Skip to next item if current amount is unparseable
 		}
 
 		previousAmountBig := types.NewInt(0)

@@ -250,26 +250,29 @@ func twoToArityMinus1(arity uint64) fr.Element {
 	return base
 }
 
-// pow2(exp) => 2^exp
-func pow2(exp uint64) fr.Element {
-	base := fr.NewElement(2)
-	exponent := big.NewInt(int64(exp))
-	base.Exp(base, exponent) // base = 2^exp
-	return base
-}
+/*
+	// pow2(exp) => 2^exp
+
+	func pow2(exp uint64) fr.Element {
+		base := fr.NewElement(2)
+		exponent := big.NewInt(int64(exp))
+		base.Exp(base, exponent) // base = 2^exp
+		return base
+	}
 
 // xPow2(x, exp) => x * 2^exp
-func xPow2(x uint64, exp uint64) fr.Element {
-	// 2^exp
-	twoExp := pow2(exp)
 
-	// x * 2^exp
-	var out fr.Element
-	// Convert x to fr.Element
-	var feX fr.Element
-	feX.SetUint64(x)
-	out.Mul(&feX, &twoExp)
-	return out
-}
+	func xPow2(x uint64, exp uint64) fr.Element {
+		// 2^exp
+		twoExp := pow2(exp)
 
+		// x * 2^exp
+		var out fr.Element
+		// Convert x to fr.Element
+		var feX fr.Element
+		feX.SetUint64(x)
+		out.Mul(&feX, &twoExp)
+		return out
+	}
+*/
 var _ poseidon.Element[*DSTElement[SnapDST]] = &DSTElement[SnapDST]{}

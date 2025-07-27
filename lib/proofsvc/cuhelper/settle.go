@@ -3,6 +3,7 @@ package cuhelper
 import (
 	"context"
 	"database/sql"
+	"errors"
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -41,7 +42,7 @@ func GetProviderPaymentInfo(ctx context.Context, db *harmonydb.DB, providerID in
 	`, providerID).Scan(&info.LatestNonce, &info.CumulativeAmount, &info.Signature)
 
 	if err != nil {
-		if xerrors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, xerrors.Errorf("no payment records found for provider ID %d", providerID)
 		}
 		return nil, xerrors.Errorf("failed to query latest payment for provider ID %d: %w", providerID, err)
@@ -59,7 +60,7 @@ func CheckIfAlreadySettled(ctx context.Context, db *harmonydb.DB, providerID int
 		WHERE provider_id = $1
 	`, providerID).Scan(&lastSettledNonce)
 
-	if err != nil && !xerrors.Is(err, sql.ErrNoRows) {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, xerrors.Errorf("failed to query last settlement nonce for provider ID %d: %w", providerID, err)
 	}
 
