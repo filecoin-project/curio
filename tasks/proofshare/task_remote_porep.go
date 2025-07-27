@@ -173,8 +173,6 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 			return false, xerrors.Errorf("task no longer owned")
 		}
 
-		log.Infow("PSR CYCLE BEGIN VVVVVVVVVVVVVVVVVVVVVVVVVVV", "taskID", taskID, "sectorID", sectorInfo.SectorNumber, "spID", sectorInfo.SpID)
-
 		// Get the current state of the client request
 		const partitionCost = 10 // 126 for ni-porep
 		clientRequest, err := getClientRequest(ctx, t.db, taskID, sectorInfo.SectorID(), partitionCost)
@@ -218,16 +216,14 @@ func (t *TaskRemotePoRep) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 			stateChanged, err = pollForProof(ctx, t.db, taskID, clientRequest, sectorInfo.SectorID())
 		}
 
-		log.Infow("PSR CYCLE END ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^", "taskID", taskID)
-
 		if err != nil {
 			return false, err
 		}
 
 		// If the state didn't change, wait before trying again
 		if !stateChanged {
-			// Randomize wait time between 2-8 seconds to avoid thundering herd
-			waitTime := time.Duration(200+rand.Intn(700)) * time.Second / 100
+			// Randomize wait time between 0.5-2 seconds to avoid thundering herd
+			waitTime := time.Duration(50+rand.Intn(150)) * time.Second / 100
 			select {
 			case <-time.After(waitTime):
 				// Continue polling
