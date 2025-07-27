@@ -35,6 +35,7 @@ import (
 	"github.com/filecoin-project/curio/lib/slotmgr"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/libp2p"
+	"github.com/filecoin-project/curio/tasks/balancemgr"
 	"github.com/filecoin-project/curio/tasks/f3"
 	"github.com/filecoin-project/curio/tasks/gc"
 	"github.com/filecoin-project/curio/tasks/indexing"
@@ -102,13 +103,14 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	iStore := dependencies.IndexStore
 	pp := dependencies.SectorReader
 
+	chainSched := chainsched.New(full)
+
 	var activeTasks []harmonytask.TaskInterface
 
 	sender, sendTask := message.NewSender(full, full, db)
-	activeTasks = append(activeTasks, sendTask)
+	balanceMgrTask := balancemgr.NewBalanceMgrTask(db, full, chainSched, sender)
+	activeTasks = append(activeTasks, sendTask, balanceMgrTask)
 	dependencies.Sender = sender
-
-	chainSched := chainsched.New(full)
 
 	// paramfetch
 	var fetchOnce sync.Once
