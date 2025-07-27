@@ -2,7 +2,8 @@ import { css, html, LitElement } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import RPCCall from '/lib/jsonrpc.mjs';
 import { formatDate } from '/lib/dateutil.mjs';
 import '/ux/yesno.mjs';
-import {timeSince} from "../../lib/dateutil.mjs";
+import '/ux/message.mjs';
+import { timeSince } from '/lib/dateutil.mjs';
 
 class PendingMessages extends LitElement {
     static properties = {
@@ -21,6 +22,7 @@ class PendingMessages extends LitElement {
         this.currentPage = 1;
         this.totalPages = 0;
         this.loadData();
+        this._refreshHandle = null;
     }
 
     async loadData() {
@@ -57,7 +59,15 @@ class PendingMessages extends LitElement {
 
     connectedCallback() {
         super.connectedCallback();
-        this.loadData();
+        this._refreshHandle = setInterval(() => this.loadData(), 5000);
+    }
+
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        if (this._refreshHandle) {
+            clearInterval(this._refreshHandle);
+            this._refreshHandle = null;
+        }
     }
 
     render() {
@@ -69,7 +79,7 @@ class PendingMessages extends LitElement {
       />
       <link rel="stylesheet" href="/ux/main.css" />
 
-      <div>
+      <div class="container py-3">
         <h2>
           Pending Messages List
           <button class="info-btn">
@@ -100,11 +110,13 @@ class PendingMessages extends LitElement {
             (msg) => html`
                 <tr>
                     <td>${new Date(msg.added_at).toLocaleString()}</td>
-                    <td>${(() => {
+                    <td>
+                      ${(() => {
                         const ageMinutes = (Date.now() - new Date(msg.added_at).getTime()) / 60000;
-                        const color = ageMinutes < 30 ? 'limegreen' : ageMinutes < 60 ? 'goldenrod' : 'crimson';
-                        return html`<span style="color: ${color}">${msg.message}</span>`;
-                    })()}</td>
+                        const color = ageMinutes < 30 ? '' : ageMinutes < 60 ? 'goldenrod' : 'crimson';
+                        return html`<span style="color: ${color}"><fil-message cid="${msg.message}"></fil-message></span>`;
+                      })()}
+                    </td>
                 </tr>
             `)}
           </tbody>

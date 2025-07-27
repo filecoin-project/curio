@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
+import '/lib/cu-wallet.mjs';
 
 class WalletNames extends LitElement {
   static properties = {
@@ -9,7 +10,9 @@ class WalletNames extends LitElement {
     newWallet: { type: String },
     newName: { type: String },
     editingWallet: { type: String },
-    editingName: { type: String }
+    editingName: { type: String },
+    balanceMap: { type: Object },
+    _refreshHandle: { state: false }
   };
 
   constructor() {
@@ -21,11 +24,16 @@ class WalletNames extends LitElement {
     this.newName = '';
     this.editingWallet = null;
     this.editingName = '';
+    this.balanceMap = {};
+    this._refreshHandle = null;
     this.loadWallets();
   }
 
   connectedCallback() {
     super.connectedCallback();
+    this._refreshHandle = setInterval(() => {
+      this._refreshBalances();
+    }, 15000);
     // Get the search term from the URL parameter (if available)
     const urlParams = new URLSearchParams(window.location.search);
     const wallet = urlParams.get('id');
@@ -35,12 +43,28 @@ class WalletNames extends LitElement {
     }
   }
 
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this._refreshHandle) {
+      clearInterval(this._refreshHandle);
+      this._refreshHandle = null;
+    }
+  }
+
+  _refreshBalances() {
+    this.wallets.forEach(({ wallet }) => {
+      this._loadBalance(wallet, true);
+    });
+  }
+
   async loadWallets() {
     try {
       const result = await RPCCall('WalletNames', []);
       if (result && typeof result === 'object') {
         this.wallets = Object.entries(result).map(([wallet, name]) => ({ wallet, name }));
         this.handleSearch();
+        // Load balances asynchronously
+        this.wallets.forEach(({ wallet }) => this._loadBalance(wallet));
       } else {
         this.wallets = [];
         this.filteredWallets = [];
@@ -105,6 +129,17 @@ class WalletNames extends LitElement {
     }
   }
 
+  async _loadBalance(wallet, force = false) {
+    if (!force && this.balanceMap[wallet]) return;
+    try {
+      const info = await RPCCall('WalletInfoShort', [wallet]);
+      this.balanceMap = { ...this.balanceMap, [wallet]: info };
+    } catch (err) {
+      console.error('Failed to fetch balance for', wallet, err);
+      this.balanceMap = { ...this.balanceMap, [wallet]: { balance: 'err' } };
+    }
+  }
+
   render() {
     return html`
       <link
@@ -157,17 +192,18 @@ class WalletNames extends LitElement {
               <table class="table table-dark table-striped">
                 <thead>
                   <tr>
-                    <th>Wallet</th>
-                    <th>Name</th>
-                    <th>Action</th>
+                    <th style="white-space: nowrap">Wallet</th>
+                    <th style="white-space: nowrap">Name</th>
+                    <th style="white-space: nowrap">Balance</th>
+                    <th style="white-space: nowrap">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   ${this.filteredWallets.map(
             ({ wallet, name }) => html`
                       <tr>
-                        <td>${wallet}</td>
-                        <td>
+                        <td style="white-space: nowrap">${wallet}</td>
+                        <td style="white-space: nowrap">
                           ${this.editingWallet === wallet
                 ? html`<input
                                 class="form-control form-control-sm"
@@ -175,9 +211,14 @@ class WalletNames extends LitElement {
                                 .value="${this.editingName.trim()}"
                                 @input="${(e) => (this.editingName = e.target.value)}"
                               />`
-                : name}
+                : html`<cu-wallet wallet_id="${wallet}"></cu-wallet>`}
                         </td>
-                        <td>
+                        <td style="white-space: nowrap">
+                          ${this.balanceMap[wallet]
+                            ? this.balanceMap[wallet].balance
+                            : html`<span class="text-muted">…</span>`}
+                        </td>
+                        <td style="white-space: nowrap">
                           ${this.editingWallet === wallet
                 ? html`<div class="d-flex gap-2">
                               <button class="btn btn-sm btn-success me-1" @click="${this.saveEdit}">Save</button>
