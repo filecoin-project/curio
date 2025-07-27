@@ -350,7 +350,7 @@ func sendRequest(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, ta
 
 		PaymentClientID:         *clientRequest.PaymentWallet,
 		PaymentNonce:            *clientRequest.PaymentNonce,
-		PaymentCumulativeAmount: abi.NewTokenAmount(cumulativeAmount.Int64()),
+		PaymentCumulativeAmount: cumulativeAmount,
 		PaymentSignature:        payment.Signature,
 	}
 
