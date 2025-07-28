@@ -3,8 +3,6 @@ package snap
 import (
 	"context"
 	"math/rand/v2"
-	"sync/atomic"
-	"time"
 
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
@@ -20,8 +18,6 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
 )
-
-var ProveLastBored = atomic.Pointer[time.Time]{}
 
 type ProveTask struct {
 	max                int
@@ -150,7 +146,6 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 func (p *ProveTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
 	var stop bool
-	var scheduled bool
 
 	for !stop {
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
@@ -179,14 +174,8 @@ func (p *ProveTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFu
 			}
 
 			stop = false // we found a task to schedule, keep going
-			scheduled = true
 			return true, nil
 		})
-	}
-
-	if !scheduled {
-		now := time.Now()
-		ProveLastBored.Store(&now)
 	}
 
 	return nil

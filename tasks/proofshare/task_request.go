@@ -16,8 +16,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/proofsvc"
-	"github.com/filecoin-project/curio/tasks/seal"
-	"github.com/filecoin-project/curio/tasks/snap"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -38,6 +36,10 @@ var (
 		Name: "curio_psvc_proofshare_adder_commits_total",
 		Help: "Total number of successful task additions scheduled by Adder",
 	})
+	adderHoldDecisionCounter = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "curio_psvc_proofshare_adder_hold_decisions_total",
+		Help: "Total number of hold decisions made by Adder",
+	}, []string{"hold"})
 
 	needAsksGauge = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "curio_psvc_proofshare_need_asks",
@@ -67,6 +69,7 @@ func init() {
 	_ = prometheus.Register(toRequestGauge)
 	_ = prometheus.Register(newlyAddedCounter)
 	_ = prometheus.Register(createAsksDuration)
+	_ = prometheus.Register(adderHoldDecisionCounter)
 }
 
 var ProofRequestPollInterval = time.Second * 3
@@ -101,13 +104,14 @@ func (t *TaskRequestProofs) Adder(taskTx harmonytask.AddTaskFunc) {
 
 	go func() {
 		for range ticker.C {
+			ctx := context.Background()
 			// check if snap/porep tasks were bored recently
-			porepWasBored := derefTime(seal.PorepLastBored.Load()).After(time.Now().Add(-BoredBeforeToStart))
-			snapWasBored := derefTime(snap.ProveLastBored.Load()).After(time.Now().Add(-BoredBeforeToStart))
-			if !porepWasBored && !snapWasBored {
-				log.Infow("TaskRequestProofs.Adder() no snap/porep tasks were bored recently, skipping")
+			if !ShouldHoldProofShare(ctx, t.db) {
+				log.Infow("TaskRequestProofs.Adder() HOLDING OFF")
+				adderHoldDecisionCounter.WithLabelValues("hold").Inc()
 				continue
 			}
+			adderHoldDecisionCounter.WithLabelValues("pass").Inc()
 
 			taskTx(func(taskID harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 				// Get current state from proofshare_meta
