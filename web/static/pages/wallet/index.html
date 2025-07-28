@@ -6,17 +6,23 @@
     <script type="module" src="/ux/components/Drawer.mjs"></script>
     <script type="module" src="wallet.mjs"></script>
     <script type="module" src="messages.mjs"></script>
+    <script type="module" src="balance-manager.mjs"></script>
 </head>
 <body style="visibility:hidden; background:rgb(11, 22, 34)" data-bs-theme="dark">
 <curio-ux>
     <div class="page" style="margin-left: 20px; margin-right: 10px">
         <section class="section">
             <div class="row">
-                <h1>Friendly Wallet Names</h1>
+                <h1>Wallet Management</h1>
             </div>
             <div class="row">
                 <div class="col-md-auto" style="max-width: 95%">
                     <wallet-names></wallet-names>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                    <balance-manager></balance-manager>
                 </div>
             </div>
             <div class="row">
