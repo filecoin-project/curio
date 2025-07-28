@@ -106,7 +106,7 @@ func (t *TaskRequestProofs) Adder(taskTx harmonytask.AddTaskFunc) {
 		for range ticker.C {
 			ctx := context.Background()
 			// check if snap/porep tasks were bored recently
-			if !ShouldHoldProofShare(ctx, t.db) {
+			if ShouldHoldProofShare(ctx, t.db) {
 				log.Infow("TaskRequestProofs.Adder() HOLDING OFF")
 				adderHoldDecisionCounter.WithLabelValues("hold").Inc()
 				continue
