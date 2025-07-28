@@ -40,7 +40,7 @@ func NewBalanceMgrTask(db *harmonydb.DB, chain api.FullNode, pcs *chainsched.Cur
 		sender: sender,
 	}
 
-	_ = pcs.AddHandler(func(ctx context.Context, revert, apply *types.TipSet) error {
+	err := pcs.AddHandler(func(ctx context.Context, revert, apply *types.TipSet) error {
 		if !t.adder.IsSet() {
 			return nil
 		}
@@ -158,6 +158,9 @@ func NewBalanceMgrTask(db *harmonydb.DB, chain api.FullNode, pcs *chainsched.Cur
 		}
 		return nil
 	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	return t
 }

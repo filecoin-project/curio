@@ -31,6 +31,17 @@ class FilMessage extends LitElement {
         if (this.cid) {
             let message = await RPCCall('MessageByCid', [this.cid]);
             this.message = message;
+            // Fetch pretty epoch string if available
+            if (message && message.executed_tsk_epoch !== null && message.executed_tsk_epoch !== undefined) {
+                try {
+                    this._epochPretty = await RPCCall('EpochPretty', [message.executed_tsk_epoch]);
+                } catch (err) {
+                    console.error('Failed to fetch pretty epoch:', err);
+                    this._epochPretty = message.executed_tsk_epoch?.toString() || '';
+                }
+            } else {
+                this._epochPretty = '';
+            }
             this.requestUpdate();
         }
     }
