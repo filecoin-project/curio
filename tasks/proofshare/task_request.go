@@ -52,16 +52,7 @@ var (
 		Name: "curio_psvc_proofshare_newly_added_total",
 		Help: "Total number of new work requests inserted locally",
 	})
-	neededAsksCounter = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "curio_psvc_proofshare_needed_asks_total",
-		Help: "Total number of new asks created",
-	})
 
-	doLoopDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "curio_psvc_proofshare_do_loop_seconds",
-		Help:    "Duration of TaskRequestProofs.Do request loop",
-		Buckets: trBuckets,
-	})
 	createAsksDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
 		Name:    "curio_psvc_proofshare_create_asks_seconds",
 		Help:    "Duration of create asks inner loop",
@@ -75,8 +66,6 @@ func init() {
 	_ = prometheus.Register(needAsksGauge)
 	_ = prometheus.Register(toRequestGauge)
 	_ = prometheus.Register(newlyAddedCounter)
-	_ = prometheus.Register(neededAsksCounter)
-	_ = prometheus.Register(doLoopDuration)
 	_ = prometheus.Register(createAsksDuration)
 }
 
@@ -332,7 +321,6 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		neededAsks := toRequest - len(work.ActiveAsks)
 		log.Infow("checking if more asks needed", "neededAsks", neededAsks, "toRequest", toRequest, "activeAsks", len(work.ActiveAsks))
 		needAsksGauge.Set(float64(neededAsks))
-		neededAsksCounter.Add(float64(neededAsks))
 
 		startCreate := time.Now()
 		for i := 0; i < neededAsks; i++ {

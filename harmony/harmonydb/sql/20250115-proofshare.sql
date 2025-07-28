@@ -147,6 +147,10 @@ CREATE TABLE proofshare_client_payments (
 
     consumed BOOLEAN NOT NULL DEFAULT FALSE,
 
+    -- 20250728-proofshare-payment-stats.sql
+    -- created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp,
+    -- consumed_at TIMESTAMP WITH TIME ZONE, (auto-set with a trigger when consumed is set to TRUE)
+
     PRIMARY KEY (wallet, nonce)
 );
 
