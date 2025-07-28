@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
@@ -23,10 +25,65 @@ import (
 
 var log = logging.Logger("proofshare")
 
-var ProofRequestPollInterval = time.Second * 15
-var BoredBeforeToStart = time.Second * 15
-var RequestQueueLowWaterMark = 3
-var RequestQueueHighWaterMark = 5
+// --- Metrics ---
+
+var (
+	trBuckets = []float64{0.05, 0.2, 0.5, 1, 5, 15, 45} // seconds
+
+	queueCountGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "curio_psvc_proofshare_queue_count",
+		Help: "Current proofshare request queue count",
+	})
+	adderCommitCounter = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "curio_psvc_proofshare_adder_commits_total",
+		Help: "Total number of successful task additions scheduled by Adder",
+	})
+
+	needAsksGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "curio_psvc_proofshare_need_asks",
+		Help: "Number of asks still needed in current Do loop iteration",
+	})
+	toRequestGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "curio_psvc_proofshare_to_request_remaining",
+		Help: "Remaining requests to fulfill for high-water mark",
+	})
+
+	newlyAddedCounter = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "curio_psvc_proofshare_newly_added_total",
+		Help: "Total number of new work requests inserted locally",
+	})
+	neededAsksCounter = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "curio_psvc_proofshare_needed_asks_total",
+		Help: "Total number of new asks created",
+	})
+
+	doLoopDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "curio_psvc_proofshare_do_loop_seconds",
+		Help:    "Duration of TaskRequestProofs.Do request loop",
+		Buckets: trBuckets,
+	})
+	createAsksDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "curio_psvc_proofshare_create_asks_seconds",
+		Help:    "Duration of create asks inner loop",
+		Buckets: trBuckets,
+	})
+)
+
+func init() {
+	_ = prometheus.Register(queueCountGauge)
+	_ = prometheus.Register(adderCommitCounter)
+	_ = prometheus.Register(needAsksGauge)
+	_ = prometheus.Register(toRequestGauge)
+	_ = prometheus.Register(newlyAddedCounter)
+	_ = prometheus.Register(neededAsksCounter)
+	_ = prometheus.Register(doLoopDuration)
+	_ = prometheus.Register(createAsksDuration)
+}
+
+var ProofRequestPollInterval = time.Second * 3
+var BoredBeforeToStart = time.Second * 7
+var RequestQueueLowWaterMark = 5
+var RequestQueueHighWaterMark = 8
 
 type TaskRequestProofs struct {
 	db          *harmonydb.DB
@@ -94,6 +151,8 @@ func (t *TaskRequestProofs) Adder(taskTx harmonytask.AddTaskFunc) {
 					return false, err
 				}
 
+				queueCountGauge.Set(float64(queueCount))
+
 				if queueCount > RequestQueueLowWaterMark {
 					return false, nil
 				}
@@ -107,6 +166,9 @@ func (t *TaskRequestProofs) Adder(taskTx harmonytask.AddTaskFunc) {
 				if err != nil {
 					return false, err
 				}
+
+				// Successful commit
+				adderCommitCounter.Inc()
 
 				return true, nil
 			})
@@ -165,6 +227,7 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	log.Infow("checked queue count", "count", queueCount)
 
 	toRequest := RequestQueueHighWaterMark - queueCount
+	toRequestGauge.Set(float64(toRequest))
 	if toRequest <= 0 {
 		log.Infow("queue is at or above high water mark, nothing to request")
 		return true, nil
@@ -173,6 +236,9 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	log.Infow("starting proof request loop", "toRequest", toRequest)
 
 	for {
+		/////////////////////////
+		// POLL
+
 		var pshareMeta []struct {
 			Wallet string `db:"wallet"`
 			Price  string `db:"pprice"`
@@ -197,6 +263,9 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		}
 
 		log.Infow("polled work from service", "requests", len(work.Requests), "activeAsks", len(work.ActiveAsks))
+
+		/////////////////////////
+		// INSERT NEW WORK
 
 		// Fetch existing service IDs from the database
 		var existingServiceIDs []int64
@@ -256,10 +325,16 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		// Subtract newly matched requests from the total needed
 		toRequest -= newlyAdded
 
+		/////////////////////////
+		// CREATE NEW ASKS
+
 		// If we still need more requests, create new work asks
 		neededAsks := toRequest - len(work.ActiveAsks)
 		log.Infow("checking if more asks needed", "neededAsks", neededAsks, "toRequest", toRequest, "activeAsks", len(work.ActiveAsks))
+		needAsksGauge.Set(float64(neededAsks))
+		neededAsksCounter.Add(float64(neededAsks))
 
+		startCreate := time.Now()
 		for i := 0; i < neededAsks; i++ {
 			price, err := types.BigFromString(meta.Price)
 			if err != nil {
@@ -283,6 +358,10 @@ func (t *TaskRequestProofs) Do(taskID harmonytask.TaskID, stillOwned func() bool
 				return false, xerrors.Errorf("failed to create work ask: %w", askErr)
 			}
 			log.Infow("created new work ask", "askID", askID)
+			newlyAddedCounter.Inc()
+		}
+		if neededAsks > 0 {
+			createAsksDuration.Observe(time.Since(startCreate).Seconds())
 		}
 
 		// If we've fulfilled our quota and there are no active asks, we're done

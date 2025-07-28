@@ -21,6 +21,8 @@ import (
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
 
 	"github.com/filecoin-project/lotus/chain/types"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 const clientUrl = "https://mainnet.snass.fsp.sh/v0/proofs"
@@ -41,6 +43,25 @@ var (
 	lastPrice      = PriceResponse{}
 )
 
+// --- Metrics ---
+
+var (
+	clientctlBuckets  = []float64{0.05, 0.2, 0.5, 1, 5} // seconds
+	clientctlDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "curio_psvc_clientctl_duration_seconds",
+		Help:    "Duration of proofsvc clientctl operations",
+		Buckets: clientctlBuckets,
+	}, []string{"call"})
+)
+
+func init() {
+	_ = prometheus.Register(clientctlDuration)
+}
+
+func recordClientctlDuration(call string, start time.Time) {
+	clientctlDuration.WithLabelValues(call).Observe(time.Since(start).Seconds())
+}
+
 // NfilFromTokenAmount converts a token amount in attoFIL to nanoFIL (nFIL).
 // It returns an error if the token amount is not divisible by 1 nFIL.
 func NfilFromTokenAmount(tokenAmount abi.TokenAmount) (NFilAmount, error) {
@@ -58,6 +79,9 @@ func TokenAmountFromNfil(nfil NFilAmount) abi.TokenAmount {
 }
 
 func CheckAvailability() (bool, error) {
+	start := time.Now()
+	defer recordClientctlDuration("CheckAvailability", start)
+
 	lastAvailabilityLock.Lock()
 	defer lastAvailabilityLock.Unlock()
 
@@ -105,6 +129,9 @@ type PriceResponse struct {
 
 // GetCurrentPrice retrieves the current price for proof generation from the service
 func GetCurrentPrice() (PriceResponse, error) {
+	start := time.Now()
+	defer recordClientctlDuration("GetCurrentPrice", start)
+
 	lastPriceLock.Lock()
 	defer lastPriceLock.Unlock()
 
@@ -151,6 +178,8 @@ func GetCurrentPrice() (PriceResponse, error) {
 
 // UploadProofData uploads proof data to the service and returns the CID
 func UploadProofData(ctx context.Context, proofData []byte) (cid.Cid, error) {
+	start := time.Now()
+	defer recordClientctlDuration("UploadProofData", start)
 	// Calculate the CID of the proof data
 	proofDataCid, err := cid.NewPrefixV1(cid.Raw, mh.SHA2_256).Sum(proofData)
 	if err != nil {
@@ -183,6 +212,8 @@ func UploadProofData(ctx context.Context, proofData []byte) (cid.Cid, error) {
 
 // RequestProof submits a proof request to the service
 func RequestProof(request common.ProofRequest) (bool, error) {
+	start := time.Now()
+	defer recordClientctlDuration("RequestProof", start)
 	reqBody, err := json.Marshal(request)
 	if err != nil {
 		return false, xerrors.Errorf("failed to marshal request: %w", err)
@@ -224,6 +255,8 @@ func RequestProof(request common.ProofRequest) (bool, error) {
 
 // GetProofStatus checks the status of a proof request by ID
 func GetProofStatus(requestCid cid.Cid) (common.ProofResponse, error) {
+	start := time.Now()
+	defer recordClientctlDuration("GetProofStatus", start)
 	ctx, cancel := context.WithTimeout(context.Background(), MaxRetryTime)
 	defer cancel()
 
@@ -265,6 +298,8 @@ func GetProofStatus(requestCid cid.Cid) (common.ProofResponse, error) {
 
 // WaitForProof submits a proof request and waits for the result
 func WaitForProof(request common.ProofRequest) ([]byte, error) {
+	start := time.Now()
+	defer recordClientctlDuration("WaitForProof", start)
 	// Wait for the proof
 	proofResp, err := GetProofStatus(request.Data)
 	if err != nil {
@@ -287,6 +322,8 @@ type ClientPaymentStatus struct {
 
 // GetClientPaymentStatus retrieves the latest payment status for a given wallet ID.
 func GetClientPaymentStatus(walletID abi.ActorID) (*ClientPaymentStatus, error) {
+	start := time.Now()
+	defer recordClientctlDuration("GetClientPaymentStatus", start)
 	url := fmt.Sprintf("%s/client/payment/status/%d", clientUrl, walletID)
 	resp, err := http.Get(url)
 	if err != nil {

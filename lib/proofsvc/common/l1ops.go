@@ -21,6 +21,8 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chain/types/ethtypes"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // RouterMainnet is the Ethereum form of the router address. This is just an example.
@@ -306,6 +308,25 @@ const AcceptServiceActorABI = `[
 	}
 ]`
 
+// --- Metrics ---
+
+var (
+	l1OpBuckets  = []float64{0.05, 0.2, 0.5, 1, 5} // seconds
+	l1OpDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "curio_psvc_l1ops_duration_seconds",
+		Help:    "Duration of L1 operations",
+		Buckets: l1OpBuckets,
+	}, []string{"call"})
+)
+
+func init() {
+	_ = prometheus.Register(l1OpDuration) // ignore AlreadyRegisteredError
+}
+
+func recordL1OpDuration(call string, start time.Time) {
+	l1OpDuration.WithLabelValues(call).Observe(time.Since(start).Seconds())
+}
+
 type Service struct {
 	router      address.Address
 	full        api.FullNode
@@ -332,6 +353,8 @@ func (s *Service) ClientDeposit(
 	from address.Address,
 	amount fbig.Int,
 ) (cid.Cid, error) {
+	start := time.Now()
+	defer recordL1OpDuration("ClientDeposit", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(DepositABI))
 	if err != nil {
 		return cid.Undef, fmt.Errorf("parse deposit ABI: %w", err)
@@ -348,6 +371,8 @@ func (s *Service) ClientDeposit(
 }
 
 func (s *Service) ClientInitiateWithdrawal(ctx context.Context, from address.Address, amount abi.TokenAmount) (cid.Cid, error) {
+	start := time.Now()
+	defer recordL1OpDuration("ClientInitiateWithdrawal", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(InitiateClientWithdrawalABI))
 	if err != nil {
 		return cid.Undef, fmt.Errorf("parse initiateClientWithdrawal ABI: %w", err)
@@ -365,6 +390,8 @@ func (s *Service) ClientInitiateWithdrawal(ctx context.Context, from address.Add
 }
 
 func (s *Service) ClientCompleteWithdrawal(ctx context.Context, from address.Address) (cid.Cid, error) {
+	start := time.Now()
+	defer recordL1OpDuration("ClientCompleteWithdrawal", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(CompleteClientWithdrawalABI))
 	if err != nil {
 		return cid.Undef, fmt.Errorf("parse completeClientWithdrawal ABI: %w", err)
@@ -382,6 +409,8 @@ func (s *Service) ClientCompleteWithdrawal(ctx context.Context, from address.Add
 }
 
 func (s *Service) ClientCancelWithdrawal(ctx context.Context, from address.Address) (cid.Cid, error) {
+	start := time.Now()
+	defer recordL1OpDuration("ClientCancelWithdrawal", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(CancelClientWithdrawalABI))
 	if err != nil {
 		return cid.Undef, fmt.Errorf("parse cancelClientWithdrawal ABI: %w", err)
@@ -408,6 +437,8 @@ func (s *Service) ServiceRedeemClientVoucher(
 	sig []byte,
 	opts ...evmMsgOpt,
 ) (cid.Cid, error) {
+	start := time.Now()
+	defer recordL1OpDuration("ServiceRedeemClientVoucher", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(RedeemClientVoucherABI))
 	if err != nil {
 		return cid.Undef, fmt.Errorf("parse redeemClientVoucher ABI: %w", err)
@@ -432,6 +463,8 @@ func (s *Service) ServiceRedeemProviderVoucher(
 	nonce uint64,
 	sig []byte,
 ) (cid.Cid, error) {
+	start := time.Now()
+	defer recordL1OpDuration("ServiceRedeemProviderVoucher", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(RedeemProviderVoucherABI))
 	if err != nil {
 		return cid.Undef, fmt.Errorf("parse redeemProviderVoucher ABI: %w", err)
@@ -451,6 +484,8 @@ func (s *Service) ServiceRedeemProviderVoucher(
 }
 
 func (s *Service) ServiceInitiateWithdrawal(ctx context.Context, from address.Address, amount fbig.Int) error {
+	start := time.Now()
+	defer recordL1OpDuration("ServiceInitiateWithdrawal", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(InitiateServiceWithdrawalABI))
 	if err != nil {
 		return fmt.Errorf("parse initiateServiceWithdrawal ABI: %w", err)
@@ -468,6 +503,8 @@ func (s *Service) ServiceInitiateWithdrawal(ctx context.Context, from address.Ad
 }
 
 func (s *Service) ServiceCompleteWithdrawal(ctx context.Context, from address.Address) error {
+	start := time.Now()
+	defer recordL1OpDuration("ServiceCompleteWithdrawal", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(CompleteServiceWithdrawalABI))
 	if err != nil {
 		return fmt.Errorf("parse completeServiceWithdrawal ABI: %w", err)
@@ -485,6 +522,8 @@ func (s *Service) ServiceCompleteWithdrawal(ctx context.Context, from address.Ad
 }
 
 func (s *Service) ServiceCancelWithdrawal(ctx context.Context, from address.Address) error {
+	start := time.Now()
+	defer recordL1OpDuration("ServiceCancelWithdrawal", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(CancelServiceWithdrawalABI))
 	if err != nil {
 		return fmt.Errorf("parse cancelServiceWithdrawal ABI: %w", err)
@@ -502,6 +541,8 @@ func (s *Service) ServiceCancelWithdrawal(ctx context.Context, from address.Addr
 }
 
 func (s *Service) ServiceDeposit(ctx context.Context, from address.Address, amount fbig.Int) error {
+	start := time.Now()
+	defer recordL1OpDuration("ServiceDeposit", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(ServiceDepositABI))
 	if err != nil {
 		return fmt.Errorf("parse serviceDeposit ABI: %w", err)
@@ -537,6 +578,8 @@ type ProviderVoucher struct {
 }
 
 func (s *Service) CreateClientVoucher(ctx context.Context, clientID uint64, cumulativeAmount *big.Int, nonce uint64) ([]byte, error) {
+	start := time.Now()
+	defer recordL1OpDuration("CreateClientVoucher", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(CreateClientVoucherABI))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse CreateClientVoucher ABI: %w", err)
@@ -574,6 +617,8 @@ func (s *Service) CreateClientVoucher(ctx context.Context, clientID uint64, cumu
 }
 
 func (s *Service) CreateProviderVoucher(ctx context.Context, providerID uint64, cumulativeAmount *big.Int, nonce uint64) ([]byte, error) {
+	start := time.Now()
+	defer recordL1OpDuration("CreateProviderVoucher", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(CreateProviderVoucherABI))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse CreateProviderVoucher ABI: %w", err)
@@ -611,6 +656,8 @@ func (s *Service) CreateProviderVoucher(ctx context.Context, providerID uint64, 
 }
 
 func (s *Service) ValidateClientVoucher(ctx context.Context, clientID uint64, cumulativeAmount *big.Int, nonce uint64, signature []byte) (bool, error) {
+	start := time.Now()
+	defer recordL1OpDuration("ValidateClientVoucher", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(ValidateClientVoucherABI))
 	if err != nil {
 		return false, fmt.Errorf("failed to parse ValidateClientVoucher ABI: %w", err)
@@ -648,6 +695,8 @@ func (s *Service) ValidateClientVoucher(ctx context.Context, clientID uint64, cu
 }
 
 func (s *Service) ValidateProviderVoucher(ctx context.Context, providerID uint64, cumulativeAmount *big.Int, nonce uint64, signature []byte) (bool, error) {
+	start := time.Now()
+	defer recordL1OpDuration("ValidateProviderVoucher", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(ValidateProviderVoucherABI))
 	if err != nil {
 		return false, fmt.Errorf("failed to parse ValidateProviderVoucher ABI: %w", err)
@@ -704,6 +753,8 @@ type ClientState struct {
 }
 
 func (s *Service) GetClientState(ctx context.Context, clientID uint64) (*ClientState, error) {
+	start := time.Now()
+	defer recordL1OpDuration("GetClientState", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(GetClientStateABI))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse getClientState ABI: %w", err)
@@ -749,6 +800,8 @@ func (s *Service) GetClientState(ctx context.Context, clientID uint64) (*ClientS
 }
 
 func (s *Service) GetProviderState(ctx context.Context, providerID uint64) (fbig.Int, uint64, error) {
+	start := time.Now()
+	defer recordL1OpDuration("GetProviderState", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(GetProviderStateABI))
 	if err != nil {
 		return fbig.Int{}, 0, fmt.Errorf("failed to parse getProviderState ABI: %w", err)
@@ -784,6 +837,8 @@ func (s *Service) GetProviderState(ctx context.Context, providerID uint64) (fbig
 }
 
 func (s *Service) GetServiceState(ctx context.Context) (uint64, fbig.Int, fbig.Int, fbig.Int, uint64, fbig.Int, error) {
+	start := time.Now()
+	defer recordL1OpDuration("GetServiceState", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(GetServiceStateABI))
 	if err != nil {
 		return 0, fbig.Int{}, fbig.Int{}, fbig.Int{}, 0, fbig.Int{}, fmt.Errorf("failed to parse getServiceState ABI: %w", err)
@@ -827,6 +882,8 @@ func (s *Service) GetServiceState(ctx context.Context) (uint64, fbig.Int, fbig.I
 }
 
 func (s *Service) ProposeServiceActor(ctx context.Context, from address.Address, newServiceActor address.Address) error {
+	start := time.Now()
+	defer recordL1OpDuration("ProposeServiceActor", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(ProposeServiceActorABI))
 	if err != nil {
 		return fmt.Errorf("parse proposeServiceActor ABI: %w", err)
@@ -854,6 +911,8 @@ func (s *Service) ProposeServiceActor(ctx context.Context, from address.Address,
 }
 
 func (s *Service) AcceptServiceActor(ctx context.Context, from address.Address) error {
+	start := time.Now()
+	defer recordL1OpDuration("AcceptServiceActor", start)
 	parsedABI, err := eabi.JSON(strings.NewReader(AcceptServiceActorABI))
 	if err != nil {
 		return fmt.Errorf("parse acceptServiceActor ABI: %w", err)

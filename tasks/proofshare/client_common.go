@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -21,6 +22,37 @@ import (
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
+
+// --- Metrics ---
+
+var (
+	psBuckets  = []float64{0.05, 0.2, 0.5, 1, 5, 15, 45} // seconds
+	psDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "curio_psvc_proofshare_duration_seconds",
+		Help:    "Duration of proofshare client_common operations",
+		Buckets: psBuckets,
+	}, []string{"call"})
+
+	retryBuckets  = []float64{0, 1, 3, 8, 20, 50, 200}
+	psRetryCounts = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "curio_psvc_proofshare_retry_count",
+		Help:    "Retry count per call in proofshare client_common operations",
+		Buckets: retryBuckets,
+	}, []string{"call"})
+)
+
+func init() {
+	_ = prometheus.Register(psDuration)
+	_ = prometheus.Register(psRetryCounts)
+}
+
+func recordPSDuration(call string, start time.Time) {
+	psDuration.WithLabelValues(call).Observe(time.Since(start).Seconds())
+}
+
+func recordPSRetries(call string, retries int) {
+	psRetryCounts.WithLabelValues(call).Observe(float64(retries))
+}
 
 // getClientRequest retrieves or creates a client request record
 func getClientRequest(ctx context.Context, db *harmonydb.DB, taskID harmonytask.TaskID, sector abi.SectorID, requestPartitionCost int64) (*ClientRequest, error) {
@@ -68,6 +100,12 @@ func getClientRequest(ctx context.Context, db *harmonydb.DB, taskID harmonytask.
 
 // createPayment creates a payment for the proof request
 func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, router *common.Service, taskID harmonytask.TaskID, sectorInfo abi.SectorID, requestPartitionCost int64) (bool, error) {
+	start := time.Now()
+	var availabilityRetries int
+	defer func() {
+		recordPSDuration("createPayment", start)
+		recordPSRetries("createPayment", availabilityRetries)
+	}()
 	log.Infow("createPayment start", "taskID", taskID, "spID", sectorInfo.Miner, "sectorNumber", sectorInfo.Number)
 	// Get the wallet address from client settings for this SP ID
 	var walletStr string
@@ -119,8 +157,9 @@ func createPayment(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, 
 	// Exponential backoff if not available
 	var available bool
 	backoff := time.Second
-	maxBackoff := 5 * time.Minute
+	maxBackoff := 3 * time.Second
 	for {
+		availabilityRetries++
 		available, err = proofsvc.CheckAvailability()
 		if err != nil {
 			return false, xerrors.Errorf("failed to check proof service availability: %w", err)
@@ -314,6 +353,12 @@ func undoPayment(ctx context.Context, db *harmonydb.DB, taskID harmonytask.TaskI
 
 // sendRequest sends the proof request to the service
 func sendRequest(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, taskID harmonytask.TaskID, clientRequest *ClientRequest) (bool, error) {
+	start := time.Now()
+	var retries int
+	defer func() {
+		recordPSDuration("sendRequest", start)
+		recordPSRetries("sendRequest", retries)
+	}()
 	log.Infow("sendRequest start", "taskID", taskID, "paymentWallet", clientRequest.PaymentWallet, "paymentNonce", clientRequest.PaymentNonce)
 	// Get the payment details
 	var payment struct {
@@ -358,11 +403,13 @@ func sendRequest(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, ta
 	var (
 		maxRetries = 500
 		baseDelay  = time.Second
-		maxDelay   = time.Minute
+		maxDelay   = 3 * time.Second
 	)
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	var attempt int
+	for attempt = 0; attempt < maxRetries; attempt++ {
 		backoff, err := proofsvc.RequestProof(proofRequest)
 		if err == nil {
+			retries = attempt
 			break
 		}
 		// If backoff is true, service is unavailable, so retry with exponential backoff
@@ -377,6 +424,10 @@ func sendRequest(ctx context.Context, api ClientServiceAPI, db *harmonydb.DB, ta
 		}
 		// Other errors: return immediately
 		return false, xerrors.Errorf("failed to submit proof request: %w", err)
+	}
+	// if loop exited due to max retries without success, count retries as maxRetries
+	if retries == 0 && maxRetries > 0 && attempt == maxRetries {
+		retries = maxRetries
 	}
 
 	// Mark the payment as consumed

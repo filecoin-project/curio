@@ -13,6 +13,7 @@ import (
 
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -26,6 +27,25 @@ import (
 var MaxRetryTime = 15 * time.Minute
 
 var log = logging.Logger("proofsvc")
+
+// --- Metrics ---
+
+var (
+	provictlBuckets  = []float64{0.05, 0.2, 0.5, 1, 5, 15, 45} // seconds
+	provictlDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "curio_psvc_provictl_duration_seconds",
+		Help:    "Duration of proofsvc provider control operations",
+		Buckets: provictlBuckets,
+	}, []string{"call"})
+)
+
+func init() {
+	_ = prometheus.Register(provictlDuration)
+}
+
+func recordProvictlDuration(call string, start time.Time) {
+	provictlDuration.WithLabelValues(call).Observe(time.Since(start).Seconds())
+}
 
 const marketUrl = "https://mainnet.snass.fsp.sh/v0/proofs"
 
@@ -68,6 +88,8 @@ func retryWithBackoff[T any](ctx context.Context, f func() (T, error)) (T, error
 }
 
 func CreateWorkAsk(ctx context.Context, resolver *AddressResolver, signer address.Address, price abi.TokenAmount) (int64, error) {
+	start := time.Now()
+	defer recordProvictlDuration("CreateWorkAsk", start)
 	priceStr := price.String()
 
 	// Create signature for the work ask
@@ -102,6 +124,8 @@ func CreateWorkAsk(ctx context.Context, resolver *AddressResolver, signer addres
 }
 
 func PollWork(address string) (common.WorkResponse, error) {
+	start := time.Now()
+	defer recordProvictlDuration("PollWork", start)
 	ctx, cancel := context.WithTimeout(context.Background(), MaxRetryTime)
 	defer cancel()
 
@@ -131,6 +155,8 @@ func PollWork(address string) (common.WorkResponse, error) {
 }
 
 func WithdrawAsk(ctx context.Context, resolver *AddressResolver, signer address.Address, askID int64) error {
+	start := time.Now()
+	defer recordProvictlDuration("WithdrawAsk", start)
 	askIDStr := fmt.Sprintf("%d", askID)
 
 	// Create signature for the work withdraw
@@ -160,6 +186,8 @@ func WithdrawAsk(ctx context.Context, resolver *AddressResolver, signer address.
 }
 
 func GetProof(cid cid.Cid) ([]byte, error) {
+	start := time.Now()
+	defer recordProvictlDuration("GetProof", start)
 	ctx, cancel := context.WithTimeout(context.Background(), MaxRetryTime)
 	defer cancel()
 
@@ -189,6 +217,8 @@ func GetProof(cid cid.Cid) ([]byte, error) {
 }
 
 func RespondWork(ctx context.Context, resolver *AddressResolver, address address.Address, rcid string, proof []byte) (common.ProofReward, bool, error) {
+	start := time.Now()
+	defer recordProvictlDuration("RespondWork", start)
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, MaxRetryTime)
 	defer cancel()
 
