@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
+	"github.com/samber/lo"
 	"github.com/snadrus/must"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
@@ -28,6 +30,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/proof"
 
+	"github.com/filecoin-project/curio/lib/contextlock"
 	cuproof "github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/supraffi"
@@ -57,6 +60,9 @@ const BatchMetaFile = "batch.json" // supraseal
 const MinFreeStoragePercentage = float64(0)
 
 const CommitPhase1OutputFileSupra = "commit-phase1-output"
+
+// used to guard allocation decisions between assignment and reservation
+var ReservationCtxLock = contextlock.NewContextLock()
 
 type BatchMeta struct {
 	SupraSeal     bool
@@ -744,6 +750,10 @@ func (st *Local) AcquireSector(ctx context.Context, sid storiface.SectorRef, exi
 		}
 	}
 
+	// guard allocation decisions between assignment and reservation
+	ctx = ReservationCtxLock.Lock(ctx)
+	defer ReservationCtxLock.Unlock(ctx)
+
 	// Then allocate for allocation requests
 	for _, fileType := range storiface.PathTypes {
 		if fileType&allocate == 0 {
@@ -755,31 +765,47 @@ func (st *Local) AcquireSector(ctx context.Context, sid storiface.SectorRef, exi
 			return storiface.SectorPaths{}, storiface.SectorPaths{}, xerrors.Errorf("finding best storage for allocating : %w", err)
 		}
 
-		var best string
-		var bestID storiface.ID
-
-		for _, si := range sis {
+		sis = lo.Filter(sis, func(si storiface.StorageInfo, _ int) bool {
 			p, ok := st.paths[si.ID]
 			if !ok {
-				continue
+				return false
 			}
 
 			if p.Local == "" { // TODO: can that even be the case?
-				continue
+				return false
 			}
 
 			alloc, err := allocPathOk(si.CanSeal, si.CanStore, si.AllowTypes, si.DenyTypes, si.AllowMiners, si.DenyMiners, fileType, sid.ID.Miner)
 
 			if err != nil {
 				log.Warnw("checking path eligibility failed", "id", sid, "type", fileType, "pathType", pathType, "op", op, "info", si, "err", err)
-				continue
+				return false
 			}
 
 			if !alloc {
 				log.Debugw("cannot allocate for", "id", sid, "type", fileType, "pathType", pathType, "op", op, "info", si)
-				continue
+				return false
 			}
 
+			return true
+		})
+
+		activeReservations := lo.Map(sis, func(si storiface.StorageInfo, _ int) int {
+			return len(st.paths[si.ID].Reservations)
+		})
+
+		var best string
+		var bestID storiface.ID
+
+		// at this point sis is vaguely sorted by available space/weight
+		// we use stable sort to preferentially sort it by write workload also
+		// least active storage first
+		sort.SliceStable(sis, func(i, j int) bool {
+			return activeReservations[i] < activeReservations[j]
+		})
+
+		for _, si := range sis {
+			p := st.paths[si.ID]
 			// TODO: Check free space
 
 			best = p.sectorPath(sid.ID, fileType)
