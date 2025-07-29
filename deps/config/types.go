@@ -325,7 +325,8 @@ type CurioSubsystemsConfig struct {
 
 	// The maximum amount of MoveStorage tasks that can run simultaneously. Note that the maximum number of tasks will
 	// also be bounded by resources available on the machine. It is recommended that this value is set to a number which
-	// uses all available network (or disk) bandwidth on the machine without causing bottlenecks. (Default: 0 - unlimited)
+	// uses all available network (or disk) bandwidth on the machine without causing bottlenecks. NOTE: unlike most other
+	// tasks, when this value is set the maximum number of concurrent tasks will not be bounded by CPU core count (Default: 0 - unlimited)
 	MoveStorageMaxTasks int
 
 	// EnableUpdateEncode enables the encoding step of the SnapDeal process on this curio instance.
