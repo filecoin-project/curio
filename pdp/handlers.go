@@ -67,35 +67,35 @@ func NewPDPService(db *harmonydb.DB, stor paths.StashStore, ec *ethclient.Client
 // Routes registers the HTTP routes with the provided router
 func Routes(r *chi.Mux, p *PDPService) {
 	// Routes for data sets
-	r.Route(path.Join(PDPRoutePath, "/proof-sets"), func(r chi.Router) {
-		// POST /pdp/proof-sets - Create a new data set
+	r.Route(path.Join(PDPRoutePath, "/data-sets"), func(r chi.Router) {
+		// POST /pdp/data-sets - Create a new data set
 		r.Post("/", p.handleCreateDataSet)
 
-		// GET /pdp/proof-sets/created/{txHash} - Get the status of a data set creation
+		// GET /pdp/data-sets/created/{txHash} - Get the status of a data set creation
 		r.Get("/created/{txHash}", p.handleGetDataSetCreationStatus)
 
 		// Individual data set routes
 		r.Route("/{dataSetId}", func(r chi.Router) {
-			// GET /pdp/proof-sets/{set-id}
+			// GET /pdp/data-sets/{set-id}
 			r.Get("/", p.handleGetDataSet)
 
-			// DEL /pdp/proof-sets/{set-id}
+			// DEL /pdp/data-sets/{set-id}
 			r.Delete("/", p.handleDeleteDataSet)
 
 			// Routes for pieces within a data set
-			r.Route("/roots", func(r chi.Router) {
-				// POST /pdp/proof-sets/{set-id}/roots
+			r.Route("/pieces", func(r chi.Router) {
+				// POST /pdp/data-sets/{set-id}/pieces
 				r.Post("/", p.handleAddPieceToDataSet)
 
-				// GET /pdp/proof-sets/{set-id}/roots/added/{txHash}
-				r.Get("/added/{txHash}", p.handleGetRootAdditionStatus)
+				// GET /pdp/data-sets/{set-id}/pieces/added/{txHash}
+				r.Get("/added/{txHash}", p.handleGetPieceAdditionStatus)
 
 				// Individual piece routes
 				r.Route("/{pieceID}", func(r chi.Router) {
-					// GET /pdp/proof-sets/{set-id}/roots/{root-id}
+					// GET /pdp/data-sets/{set-id}/pieces/{piece-id}
 					r.Get("/", p.handleGetDataSetPiece)
 
-					// DEL /pdp/proof-sets/{set-id}/roots/{root-id}
+					// DEL /pdp/data-sets/{set-id}/pieces/{piece-id}
 					r.Delete("/", p.handleDeleteDataSetPiece)
 				})
 			})
@@ -238,7 +238,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Step 7: Respond with 201 Created and Location header
-	w.Header().Set("Location", path.Join("/pdp/proof-sets/created", txHashLower))
+	w.Header().Set("Location", path.Join("/pdp/data-sets/created", txHashLower))
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -372,11 +372,11 @@ func (p *PDPService) handleGetDataSetCreationStatus(w http.ResponseWriter, r *ht
 	// Step 5: Prepare the response
 	response := struct {
 		CreateMessageHash string  `json:"createMessageHash"`
-		DataSetCreated    bool    `json:"proofsetCreated"`
+		DataSetCreated    bool    `json:"dataSetCreated"`
 		Service           string  `json:"service"`
 		TxStatus          string  `json:"txStatus"`
 		OK                *bool   `json:"ok"`
-		DataSetId         *uint64 `json:"proofSetId,omitempty"`
+		DataSetId         *uint64 `json:"dataSetId,omitempty"`
 	}{
 		CreateMessageHash: dataSetCreate.CreateMessageHash,
 		DataSetCreated:    dataSetCreate.DataSetCreated,
@@ -426,7 +426,7 @@ func (p *PDPService) handleGetDataSetCreationStatus(w http.ResponseWriter, r *ht
 	log.Debugw("GetDataSetCreationStatus response",
 		"txHash", txHash,
 		"txStatus", response.TxStatus,
-		"proofsetCreated", response.DataSetCreated,
+		"dataSetCreated", response.DataSetCreated,
 		"ok", response.OK,
 		"dataSetId", response.DataSetId)
 
@@ -492,10 +492,10 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 
 	// Step 5: Retrieve the roots associated with the data set
 	var roots []struct {
-		PieceID       uint64 `db:"root_id"`
-		RootCID       string `db:"root"`
-		SubrootCID    string `db:"subroot"`
-		SubrootOffset int64  `db:"subroot_offset"`
+		PieceID        uint64 `db:"root_id"`
+		RootCID        string `db:"root"`
+		SubPieceCID    string `db:"subroot"`
+		SubPieceOffset int64  `db:"subroot_offset"`
 	}
 
 	err = p.db.Select(ctx, &roots, `
@@ -530,22 +530,22 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := struct {
-		ID                 uint64      `json:"id"`
-		Roots              []RootEntry `json:"roots"`
-		NextChallengeEpoch int64       `json:"nextChallengeEpoch"`
+		ID                 uint64       `json:"id"`
+		Pieces             []PieceEntry `json:"pieces"`
+		NextChallengeEpoch int64        `json:"nextChallengeEpoch"`
 	}{
 		ID:                 dataSet.ID,
 		NextChallengeEpoch: epochValue,
-		Roots:              []RootEntry{}, // Initialize as empty array, not nil
+		Pieces:             []PieceEntry{}, // Initialize as empty array, not nil
 	}
 
 	// Convert roots to the desired JSON format
 	for _, root := range roots {
-		response.Roots = append(response.Roots, RootEntry{
-			PieceID:       root.PieceID,
-			RootCID:       root.RootCID,
-			SubrootCID:    root.SubrootCID,
-			SubrootOffset: root.SubrootOffset,
+		response.Pieces = append(response.Pieces, PieceEntry{
+			PieceID:        root.PieceID,
+			PieceCID:       root.RootCID,
+			SubPieceCID:    root.SubPieceCID,
+			SubPieceOffset: root.SubPieceOffset,
 		})
 	}
 
@@ -558,16 +558,16 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// RootEntry represents a root in the data set for JSON serialization
-type RootEntry struct {
-	PieceID       uint64 `json:"rootId"`
-	RootCID       string `json:"rootCid"`
-	SubrootCID    string `json:"subrootCid"`
-	SubrootOffset int64  `json:"subrootOffset"`
+// PieceEntry represents a piece in the data set for JSON serialization
+type PieceEntry struct {
+	PieceID        uint64 `json:"pieceId"`
+	PieceCID       string `json:"pieceCid"`
+	SubPieceCID    string `json:"subPieceCid"`
+	SubPieceOffset int64  `json:"subPieceOffset"`
 }
 
 func (p *PDPService) handleDeleteDataSet(w http.ResponseWriter, r *http.Request) {
-	// ### DEL /proof-sets/{set id}
+	// ### DEL /data-sets/{set id}
 	// Remove the specified data set entirely
 
 	http.Error(w, "todo", http.StatusBadRequest)
@@ -624,22 +624,22 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	dataSetId := new(big.Int).SetUint64(dataSetIdUint64)
 
 	// Step 3: Parse the request body
-	type SubrootEntry struct {
-		SubrootCID string `json:"subrootCid"`
+	type SubPieceEntry struct {
+		SubPieceCID string `json:"subPieceCid"`
 	}
 
-	type AddRootRequest struct {
-		RootCID  string         `json:"rootCid"`
-		Subroots []SubrootEntry `json:"subroots"`
+	type AddPieceRequest struct {
+		PieceCID  string          `json:"pieceCid"`
+		SubPieces []SubPieceEntry `json:"subPieces"`
 	}
 
-	// AddRootsPayload defines the structure for the entire add roots request payload
-	type AddRootsPayload struct {
-		Roots     []AddRootRequest `json:"roots"`
-		ExtraData *string          `json:"extraData,omitempty"`
+	// AddPiecesPayload defines the structure for the entire add pieces request payload
+	type AddPiecesPayload struct {
+		Pieces    []AddPieceRequest `json:"pieces"`
+		ExtraData *string           `json:"extraData,omitempty"`
 	}
 
-	var payload AddRootsPayload
+	var payload AddPiecesPayload
 	err = json.NewDecoder(r.Body).Decode(&payload)
 	if err != nil {
 		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
@@ -647,7 +647,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	}
 	defer r.Body.Close()
 
-	if len(payload.Roots) == 0 {
+	if len(payload.Pieces) == 0 {
 		http.Error(w, "At least one root must be provided", http.StatusBadRequest)
 		return
 	}
@@ -664,51 +664,51 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		extraDataBytes = decodedBytes
 	}
 
-	// Collect all subrootCIDs to fetch their info in a batch
-	subrootCIDsSet := make(map[string]struct{})
-	for _, addRootReq := range payload.Roots {
-		if addRootReq.RootCID == "" {
-			http.Error(w, "RootCID is required for each root", http.StatusBadRequest)
+	// Collect all subPieceCids to fetch their info in a batch
+	subPieceCidSet := make(map[string]struct{})
+	for _, addPieceReq := range payload.Pieces {
+		if addPieceReq.PieceCID == "" {
+			http.Error(w, "PieceCID is required for each piece", http.StatusBadRequest)
 			return
 		}
 
-		if len(addRootReq.Subroots) == 0 {
-			http.Error(w, "At least one subroot is required per root", http.StatusBadRequest)
+		if len(addPieceReq.SubPieces) == 0 {
+			http.Error(w, "At least one subPiece is required per piece", http.StatusBadRequest)
 			return
 		}
 
-		for _, subrootEntry := range addRootReq.Subroots {
-			if subrootEntry.SubrootCID == "" {
-				http.Error(w, "subrootCid is required for each subroot", http.StatusBadRequest)
+		for _, subPieceEntry := range addPieceReq.SubPieces {
+			if subPieceEntry.SubPieceCID == "" {
+				http.Error(w, "subPieceCid is required for each subPiece", http.StatusBadRequest)
 				return
 			}
-			if _, exists := subrootCIDsSet[subrootEntry.SubrootCID]; exists {
-				http.Error(w, "duplicate subrootCid in request", http.StatusBadRequest)
+			if _, exists := subPieceCidSet[subPieceEntry.SubPieceCID]; exists {
+				http.Error(w, "duplicate subPieceCid in request", http.StatusBadRequest)
 				return
 			}
 
-			subrootCIDsSet[subrootEntry.SubrootCID] = struct{}{}
+			subPieceCidSet[subPieceEntry.SubPieceCID] = struct{}{}
 		}
 	}
 
 	// Convert set to slice
-	subrootCIDsList := make([]string, 0, len(subrootCIDsSet))
-	for cidStr := range subrootCIDsSet {
-		subrootCIDsList = append(subrootCIDsList, cidStr)
+	subPieceCidList := make([]string, 0, len(subPieceCidSet))
+	for cidStr := range subPieceCidSet {
+		subPieceCidList = append(subPieceCidList, cidStr)
 	}
 
-	// Map to store subrootCID -> [pieceInfo, pdp_pieceref.id, subrootOffset]
-	type SubrootInfo struct {
-		PieceInfo     abi.PieceInfo
-		PDPPieceRefID int64
-		SubrootOffset uint64
+	// Map to store subPieceCID -> [pieceInfo, pdp_pieceref.id, subPieceOffset]
+	type SubPieceInfo struct {
+		PieceInfo      abi.PieceInfo
+		PDPPieceRefID  int64
+		SubPieceOffset uint64
 	}
 
-	subrootInfoMap := make(map[string]*SubrootInfo)
+	subPieceInfoMap := make(map[string]*SubPieceInfo)
 
 	// Start a DB transaction
 	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// Step 4: Get pdp_piecerefs matching all subroot cids + make sure those refs belong to serviceLabel
+		// Step 4: Get pdp_piecerefs matching all subPiece cids + make sure those refs belong to serviceLabel
 		rows, err := tx.Query(`
             SELECT ppr.piece_cid, ppr.id AS pdp_pieceref_id, ppr.piece_ref,
                    pp.piece_padded_size
@@ -716,13 +716,13 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
             JOIN parked_piece_refs pprf ON pprf.ref_id = ppr.piece_ref
             JOIN parked_pieces pp ON pp.id = pprf.piece_id
             WHERE ppr.service = $1 AND ppr.piece_cid = ANY($2)
-        `, serviceLabel, subrootCIDsList)
+        `, serviceLabel, subPieceCidList)
 		if err != nil {
 			return false, err
 		}
 		defer rows.Close()
 
-		foundSubroots := make(map[string]struct{})
+		foundSubPieces := make(map[string]struct{})
 		for rows.Next() {
 			var pieceCIDStr string
 			var pdpPieceRefID, pieceRefID int64
@@ -745,44 +745,44 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 				PieceCID: pieceCID,
 			}
 
-			subrootInfoMap[pieceCIDStr] = &SubrootInfo{
-				PieceInfo:     pieceInfo,
-				PDPPieceRefID: pdpPieceRefID,
-				SubrootOffset: 0, // Will compute offset later
+			subPieceInfoMap[pieceCIDStr] = &SubPieceInfo{
+				PieceInfo:      pieceInfo,
+				PDPPieceRefID:  pdpPieceRefID,
+				SubPieceOffset: 0, // Will compute offset later
 			}
 
-			foundSubroots[pieceCIDStr] = struct{}{}
+			foundSubPieces[pieceCIDStr] = struct{}{}
 		}
 
-		// Check if all subroot CIDs were found
-		for _, cidStr := range subrootCIDsList {
-			if _, found := foundSubroots[cidStr]; !found {
-				return false, fmt.Errorf("subroot CID %s not found or does not belong to service %s", cidStr, serviceLabel)
+		// Check if all subPiece CIDs were found
+		for _, cidStr := range subPieceCidList {
+			if _, found := foundSubPieces[cidStr]; !found {
+				return false, fmt.Errorf("subPiece CID %s not found or does not belong to service %s", cidStr, serviceLabel)
 			}
 		}
 
 		// Now, for each AddRootRequest, validate RootCID and prepare data for ETH transaction
-		for _, addRootReq := range payload.Roots {
-			// Collect pieceInfos for subroots
-			pieceInfos := make([]abi.PieceInfo, len(addRootReq.Subroots))
+		for _, addPieceReq := range payload.Pieces {
+			// Collect pieceInfos for subPieces
+			pieceInfos := make([]abi.PieceInfo, len(addPieceReq.SubPieces))
 
 			var totalOffset uint64 = 0
-			for i, subrootEntry := range addRootReq.Subroots {
-				subrootInfo, exists := subrootInfoMap[subrootEntry.SubrootCID]
+			for i, subPieceEntry := range addPieceReq.SubPieces {
+				subPieceInfo, exists := subPieceInfoMap[subPieceEntry.SubPieceCID]
 				if !exists {
-					return false, fmt.Errorf("subroot CID %s not found in subroot info map", subrootEntry.SubrootCID)
+					return false, fmt.Errorf("subPiece CID %s not found in subPiece info map", subPieceEntry.SubPieceCID)
 				}
 
-				// Update SubrootOffset
-				subrootInfo.SubrootOffset = totalOffset
-				subrootInfoMap[subrootEntry.SubrootCID] = subrootInfo // Update the map
+				// Update SubPieceOffset
+				subPieceInfo.SubPieceOffset = totalOffset
+				subPieceInfoMap[subPieceEntry.SubPieceCID] = subPieceInfo // Update the map
 
-				pieceInfos[i] = subrootInfo.PieceInfo
+				pieceInfos[i] = subPieceInfo.PieceInfo
 
-				totalOffset += uint64(subrootInfo.PieceInfo.Size)
+				totalOffset += uint64(subPieceInfo.PieceInfo.Size)
 			}
 
-			// Use GenerateUnsealedCID to generate RootCID from subroots
+			// Use GenerateUnsealedCID to generate RootCID from subPieces
 			proofType := abi.RegisteredSealProof_StackedDrg64GiBV1_1 // Proof type sets max piece size, nothing else
 			generatedRootCID, err := nonffi.GenerateUnsealedCID(proofType, pieceInfos)
 			if err != nil {
@@ -790,7 +790,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 			}
 
 			// Compare generated RootCID with provided RootCID
-			providedRootCID, err := cid.Decode(addRootReq.RootCID)
+			providedRootCID, err := cid.Decode(addPieceReq.PieceCID)
 			if err != nil {
 				return false, fmt.Errorf("invalid provided RootCID: %v", err)
 			}
@@ -804,7 +804,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		http.Error(w, "Failed to validate subroots: "+err.Error(), http.StatusBadRequest)
+		http.Error(w, "Failed to validate subPieces: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -825,27 +825,27 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 
 	var pieceDataArray []PieceData
 
-	for _, addRootReq := range payload.Roots {
+	for _, addPieceReq := range payload.Pieces {
 		// Convert RootCID to bytes
-		rootCID, err := cid.Decode(addRootReq.RootCID)
+		rootCID, err := cid.Decode(addPieceReq.PieceCID)
 		if err != nil {
 			http.Error(w, "Invalid RootCID: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		// Get raw size by summing up the sizes of subroots
+		// Get raw size by summing up the sizes of subPieces
 		var totalSize uint64 = 0
-		prevSubrootSize := subrootInfoMap[addRootReq.Subroots[0].SubrootCID].PieceInfo.Size
-		for i, subrootEntry := range addRootReq.Subroots {
-			subrootInfo := subrootInfoMap[subrootEntry.SubrootCID]
-			if subrootInfo.PieceInfo.Size > prevSubrootSize {
-				msg := fmt.Sprintf("Subroots must be in descending order of size, root %d %s is larger than prev subroot %s", i, subrootEntry.SubrootCID, addRootReq.Subroots[i-1].SubrootCID)
+		prevSubPieceSize := subPieceInfoMap[addPieceReq.SubPieces[0].SubPieceCID].PieceInfo.Size
+		for i, subPieceEntry := range addPieceReq.SubPieces {
+			subPieceInfo := subPieceInfoMap[subPieceEntry.SubPieceCID]
+			if subPieceInfo.PieceInfo.Size > prevSubPieceSize {
+				msg := fmt.Sprintf("SubPieces must be in descending order of size, piece %d %s is larger than prev subPiece %s", i, subPieceEntry.SubPieceCID, addPieceReq.SubPieces[i-1].SubPieceCID)
 				http.Error(w, msg, http.StatusBadRequest)
 				return
 			}
 
-			prevSubrootSize = subrootInfo.PieceInfo.Size
-			totalSize += uint64(subrootInfo.PieceInfo.Size)
+			prevSubPieceSize = subPieceInfo.PieceInfo.Size
+			totalSize += uint64(subPieceInfo.PieceInfo.Size)
 		}
 
 		// Prepare PieceData for Ethereum transaction
@@ -898,7 +898,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	log.Infow("PDP AddRoots: Inserting transaction tracking",
 		"txHash", txHashLower,
 		"dataSetId", dataSetIdUint64,
-		"rootCount", len(payload.Roots))
+		"pieceCount", len(payload.Pieces))
 	_, err = p.db.BeginTransaction(ctx, func(txdb *harmonydb.Tx) (bool, error) {
 		// Insert into message_waits_eth
 		log.Debugw("Inserting AddRoots into message_waits_eth",
@@ -926,9 +926,9 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 
 		// Insert into pdp_proofset_roots
 
-		for addMessageIndex, addRootReq := range payload.Roots {
-			for _, subrootEntry := range addRootReq.Subroots {
-				subrootInfo := subrootInfoMap[subrootEntry.SubrootCID]
+		for addMessageIndex, addPieceReq := range payload.Pieces {
+			for _, subPieceEntry := range addPieceReq.SubPieces {
+				subPieceInfo := subPieceInfoMap[subPieceEntry.SubPieceCID]
 
 				// Insert into pdp_proofset_roots
 				_, err = txdb.Exec(`
@@ -939,19 +939,19 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
                         add_message_index,
                         subroot,
                         subroot_offset,
-						subroot_size,
+                        subroot_size,
                         pdp_pieceref
                     )
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 `,
 					dataSetIdUint64,
-					addRootReq.RootCID,
+					addPieceReq.PieceCID,
 					txHashLower,
 					addMessageIndex,
-					subrootEntry.SubrootCID,
-					subrootInfo.SubrootOffset,
-					subrootInfo.PieceInfo.Size,
-					subrootInfo.PDPPieceRefID,
+					subPieceEntry.SubPieceCID,
+					subPieceInfo.SubPieceOffset,
+					subPieceInfo.PieceInfo.Size,
+					subPieceInfo.PDPPieceRefID,
 				)
 				if err != nil {
 					return false, err
@@ -963,18 +963,18 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		log.Errorw("Failed to insert into database", "error", err, "txHash", txHashLower, "subroots", subrootInfoMap)
+		log.Errorw("Failed to insert into database", "error", err, "txHash", txHashLower, "subPieces", subPieceInfoMap)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	// Step 10: Respond with 201 Created
-	w.Header().Set("Location", path.Join("/pdp/proof-sets", dataSetIdStr, "roots/added", txHashLower))
+	w.Header().Set("Location", path.Join("/pdp/data-sets", dataSetIdStr, "pieces/added", txHashLower))
 	w.WriteHeader(http.StatusCreated)
 }
 
-// handleGetRootAdditionStatus handles GET /pdp/proof-sets/{dataSetId}/roots/added/{txHash}
-func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.Request) {
+// handleGetPieceAdditionStatus handles GET /pdp/data-sets/{dataSetId}/pieces/added/{txHash}
+func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Step 1: Verify that the request is authorized using ECDSA JWT
@@ -1046,11 +1046,11 @@ func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.
 	type RootAddInfo struct {
 		Root            string `db:"root"`
 		AddMessageIndex int    `db:"add_message_index"`
-		Subroot         string `db:"subroot"`
-		SubrootOffset   int64  `db:"subroot_offset"`
-		SubrootSize     int64  `db:"subroot_size"`
+		SubPiece        string `db:"subroot"`
+		SubPieceOffset  int64  `db:"subroot_offset"`
+		SubPieceSize    int64  `db:"subroot_size"`
 		AddMessageOK    *bool  `db:"add_message_ok"`
-		RootsAdded      bool   `db:"roots_added"`
+		PiecesAdded     bool   `db:"roots_added"`
 	}
 
 	var rootAdds []RootAddInfo
@@ -1126,34 +1126,34 @@ func (p *PDPService) handleGetRootAdditionStatus(w http.ResponseWriter, r *http.
 	// Step 7: Build and send response
 	// Check that all roots have the same RootsAdded value (consistency check)
 	if len(rootAdds) > 0 {
-		firstRootsAdded := rootAdds[0].RootsAdded
+		firstPiecesAdded := rootAdds[0].PiecesAdded
 		for _, ra := range rootAdds[1:] {
-			if ra.RootsAdded != firstRootsAdded {
-				http.Error(w, "Inconsistent rootsAdded state for this transaction's roots", http.StatusInternalServerError)
+			if ra.PiecesAdded != firstPiecesAdded {
+				http.Error(w, "Inconsistent piecesAdded state for this transaction's pieces", http.StatusInternalServerError)
 				return
 			}
 		}
 	}
-	allRootsProcessed := false
+	allPiecesProcessed := false
 	if len(rootAdds) > 0 {
-		allRootsProcessed = rootAdds[0].RootsAdded
+		allPiecesProcessed = rootAdds[0].PiecesAdded
 	}
 
 	response := struct {
 		TxHash            string   `json:"txHash"`
 		TxStatus          string   `json:"txStatus"`
-		DataSetId         uint64   `json:"proofSetId"`
-		RootCount         int      `json:"rootCount"`
+		DataSetId         uint64   `json:"dataSetId"`
+		PieceCount        int      `json:"pieceCount"`
 		AddMessageOK      *bool    `json:"addMessageOk"`
-		RootsAdded        bool     `json:"rootsAdded"`
-		ConfirmedPieceIds []uint64 `json:"confirmedRootIds,omitempty"`
+		PiecesAdded       bool     `json:"piecesAdded"`
+		ConfirmedPieceIds []uint64 `json:"confirmedPieceIds,omitempty"`
 	}{
 		TxHash:            txHash,
 		TxStatus:          txStatus,
 		DataSetId:         dataSetId,
-		RootCount:         len(uniqueRootMap),
+		PieceCount:        len(uniqueRootMap),
 		AddMessageOK:      rootAdds[0].AddMessageOK,
-		RootsAdded:        allRootsProcessed,
+		PiecesAdded:       allPiecesProcessed,
 		ConfirmedPieceIds: confirmedPieceIds,
 	}
 
@@ -1338,44 +1338,44 @@ func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Step 4: Get all subroots for this root
-	type SubrootInfo struct {
-		SubrootCID    string `db:"subroot"`
-		SubrootOffset int64  `db:"subroot_offset"`
+	// Step 4: Get all subPieces for this root
+	type SubPieceInfo struct {
+		SubPieceCID    string `db:"subroot"`
+		SubPieceOffset int64  `db:"subroot_offset"`
 	}
 
-	var subroots []SubrootInfo
-	err = p.db.Select(ctx, &subroots, `
+	var subPieces []SubPieceInfo
+	err = p.db.Select(ctx, &subPieces, `
 		SELECT subroot, subroot_offset
 		FROM pdp_proofset_roots
 		WHERE proofset = $1 AND root_id = $2
 		ORDER BY subroot_offset
 	`, dataSetId, pieceID)
 	if err != nil {
-		http.Error(w, "Failed to retrieve subroots: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to retrieve subPieces: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Step 5: Build response according to spec
-	type SubrootResponse struct {
-		SubrootCid    string `json:"subrootCid"`
-		SubrootOffset int64  `json:"subrootOffset"`
+	type SubPieceResponse struct {
+		SubPieceCid    string `json:"subPieceCid"`
+		SubPieceOffset int64  `json:"subPieceOffset"`
 	}
 
 	response := struct {
-		PieceId  uint64            `json:"rootId"`
-		RootCid  string            `json:"rootCid"`
-		Subroots []SubrootResponse `json:"subroots"`
+		PieceId   uint64             `json:"pieceId"`
+		PieceCID  string             `json:"pieceCid"`
+		SubPieces []SubPieceResponse `json:"subPieces"`
 	}{
-		PieceId:  pieceID,
-		RootCid:  rootCID,
-		Subroots: make([]SubrootResponse, 0, len(subroots)),
+		PieceId:   pieceID,
+		PieceCID:  rootCID,
+		SubPieces: make([]SubPieceResponse, 0, len(subPieces)),
 	}
 
-	for _, subroot := range subroots {
-		response.Subroots = append(response.Subroots, SubrootResponse{
-			SubrootCid:    subroot.SubrootCID,
-			SubrootOffset: subroot.SubrootOffset,
+	for _, subPiece := range subPieces {
+		response.SubPieces = append(response.SubPieces, SubPieceResponse{
+			SubPieceCid:    subPiece.SubPieceCID,
+			SubPieceOffset: subPiece.SubPieceOffset,
 		})
 	}
 
@@ -1422,12 +1422,12 @@ type PDPDataSet struct {
 
 // PDPDataSetRoot represents a root in a data set
 type PDPDataSetRoot struct {
-	DataSetId     int64  // proofset BIGINT NOT NULL
-	PieceID       int64  // root_id BIGINT NOT NULL
-	Root          string // root TEXT NOT NULL
-	Subroot       string // subroot TEXT NOT NULL
-	SubrootOffset int64  // subroot_offset BIGINT NOT NULL
-	PDPPieceRefID int64  // pdp_piecerefs.id
+	DataSetId      int64  // proofset BIGINT NOT NULL
+	PieceID        int64  // root_id BIGINT NOT NULL
+	Root           string // root TEXT NOT NULL
+	SubPiece       string // subroot TEXT NOT NULL
+	SubPieceOffset int64  // subroot_offset BIGINT NOT NULL
+	PDPPieceRefID  int64  // pdp_piecerefs.id
 }
 
 // PDPProveTask represents a prove task
@@ -1465,21 +1465,21 @@ type OwnerAddressStore interface {
 
 // PDPDataSetDetails represents the details of a data set, including roots
 type PDPDataSetDetails struct {
-	ID                 int64                  `json:"id"`
-	NextChallengeEpoch int64                  `json:"nextChallengeEpoch"`
-	Roots              []PDPDataSetRootDetail `json:"roots"`
+	ID                 int64                   `json:"id"`
+	NextChallengeEpoch int64                   `json:"nextChallengeEpoch"`
+	Pieces             []PDPDataSetPieceDetail `json:"pieces"`
 }
 
-// PDPDataSetRootDetail represents the details of a root in a data set
-type PDPDataSetRootDetail struct {
-	PieceID  int64                     `json:"rootId"`
-	RootCID  string                    `json:"rootCid"`
-	Subroots []PDPDataSetSubrootDetail `json:"subroots"`
+// PDPDataSetPieceDetail represents the details of a piece in a data set
+type PDPDataSetPieceDetail struct {
+	PieceID   int64                      `json:"pieceId"`
+	PieceCID  string                     `json:"pieceCid"`
+	SubPieces []PDPDataSetSubPieceDetail `json:"subPieces"`
 }
 
-// PDPDataSetSubrootDetail represents a subroot in a data set root
-type PDPDataSetSubrootDetail struct {
-	SubrootCID    string `json:"subrootCid"`
-	SubrootOffset int64  `json:"subrootOffset"`
-	PieceCID      string `json:"pieceCid"`
+// PDPDataSetSubPieceDetail represents a subPiece in a data set piece
+type PDPDataSetSubPieceDetail struct {
+	SubPieceCID    string `json:"subPieceCid"`
+	SubPieceOffset int64  `json:"subPieceOffset"`
+	PieceCID       string `json:"pieceCid"`
 }

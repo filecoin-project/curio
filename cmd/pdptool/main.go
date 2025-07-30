@@ -736,17 +736,17 @@ var uploadFileCmd = &cli.Command{
 			}
 		}
 
-		// group piece aggregations for tracking as onchain roots into sector size chunks
-		type rootSetInfo struct {
-			pieces     []abi.PieceInfo
-			subrootStr string
+		// group piece aggregations for tracking as onchain pieces into sector size chunks
+		type pieceSetInfo struct {
+			pieces      []abi.PieceInfo
+			subPieceStr string
 		}
-		rootSets := []rootSetInfo{}
-		rootSets = append(rootSets, rootSetInfo{
-			pieces:     make([]abi.PieceInfo, 0),
-			subrootStr: "",
+		pieceSets := []pieceSetInfo{}
+		pieceSets = append(pieceSets, pieceSetInfo{
+			pieces:      make([]abi.PieceInfo, 0),
+			subPieceStr: "",
 		})
-		rootSize := uint64(0)
+		pieceSize := uint64(0)
 		maxRootSize, err := abi.RegisteredSealProof_StackedDrg64GiBV1_1.SectorSize()
 		if err != nil {
 			return fmt.Errorf("failed to get sector size: %v", err)
@@ -808,33 +808,33 @@ var uploadFileCmd = &cli.Command{
 					return fmt.Errorf("failed to write chunk to file: %v", err)
 				}
 			}
-			if rootSize+paddedPieceSize > uint64(maxRootSize) {
-				rootSets = append(rootSets, rootSetInfo{
-					pieces:     make([]abi.PieceInfo, 0),
-					subrootStr: "",
+			if pieceSize+paddedPieceSize > uint64(maxRootSize) {
+				pieceSets = append(pieceSets, pieceSetInfo{
+					pieces:      make([]abi.PieceInfo, 0),
+					subPieceStr: "",
 				})
-				rootSize = 0
+				pieceSize = 0
 			}
-			rootSize += paddedPieceSize
-			rootSets[len(rootSets)-1].pieces = append(rootSets[len(rootSets)-1].pieces, abi.PieceInfo{Size: abi.PaddedPieceSize(paddedPieceSize), PieceCID: commP})
-			rootSets[len(rootSets)-1].subrootStr = fmt.Sprintf("%s+%s", rootSets[len(rootSets)-1].subrootStr, commP)
+			pieceSize += paddedPieceSize
+			pieceSets[len(pieceSets)-1].pieces = append(pieceSets[len(pieceSets)-1].pieces, abi.PieceInfo{Size: abi.PaddedPieceSize(paddedPieceSize), PieceCID: commP})
+			pieceSets[len(pieceSets)-1].subPieceStr = fmt.Sprintf("%s+%s", pieceSets[len(pieceSets)-1].subPieceStr, commP)
 			counter++
 			if err := bar.Set(int(counter)); err != nil {
 				return fmt.Errorf("failed to update progress bar: %v", err)
 			}
 		}
 
-		for i, rootSet := range rootSets {
+		for i, pieceSet := range pieceSets {
 			pieceSize := uint64(0)
-			for _, piece := range rootSet.pieces {
+			for _, piece := range pieceSet.pieces {
 				pieceSize += uint64(piece.Size)
 			}
 			fmt.Printf("%d: pieceSize: %d\n", i, pieceSize)
-			root, err := nonffi.GenerateUnsealedCID(abi.RegisteredSealProof_StackedDrg64GiBV1_1, rootSet.pieces)
+			pieceCid, err := nonffi.GenerateUnsealedCID(abi.RegisteredSealProof_StackedDrg64GiBV1_1, pieceSet.pieces)
 			if err != nil {
 				return fmt.Errorf("failed to generate unsealed CID: %v", err)
 			}
-			s := fmt.Sprintf("%s:%s\n", root, rootSet.subrootStr[1:])
+			s := fmt.Sprintf("%s:%s\n", pieceCid, pieceSet.subPieceStr[1:])
 			fmt.Printf("%s\n", s)
 		}
 
@@ -1005,11 +1005,11 @@ var getDataSetStatusCmd = &cli.Command{
 			// Decode the JSON response
 			var response struct {
 				CreateMessageHash string  `json:"createMessageHash"`
-				DataSetCreated    bool    `json:"proofsetCreated"`
+				DataSetCreated    bool    `json:"dataSetCreated"`
 				Service           string  `json:"service"`
 				TxStatus          string  `json:"txStatus"`
 				OK                *bool   `json:"ok"`
-				DataSetId         *uint64 `json:"proofSetId,omitempty"`
+				DataSetId         *uint64 `json:"dataSetId,omitempty"`
 			}
 			err = json.Unmarshal(bodyBytes, &response)
 			if err != nil {
@@ -1106,11 +1106,11 @@ var getDataSetCmd = &cli.Command{
 			var response struct {
 				ID                 uint64 `json:"id"`
 				NextChallengeEpoch int64  `json:"nextChallengeEpoch"`
-				Roots              []struct {
-					RootID        uint64 `json:"rootId"`
-					RootCID       string `json:"rootCid"`
-					SubrootCID    string `json:"subrootCid"`
-					SubrootOffset int64  `json:"subrootOffset"`
+				Pieces             []struct {
+					PieceId        uint64 `json:"pieceId"`
+					PieceCid       string `json:"pieceCid"`
+					SubPieceCid    string `json:"subPieceCid"`
+					SubPieceOffset int64  `json:"subPieceOffset"`
 				} `json:"roots"`
 			}
 			err = json.Unmarshal(bodyBytes, &response)
@@ -1121,12 +1121,12 @@ var getDataSetCmd = &cli.Command{
 			// Display the data set details
 			fmt.Printf("Data Set ID: %d\n", response.ID)
 			fmt.Printf("Next Challenge Epoch: %d\n", response.NextChallengeEpoch)
-			fmt.Printf("Roots:\n")
-			for _, root := range response.Roots {
-				fmt.Printf("  - Root ID: %d\n", root.RootID)
-				fmt.Printf("    Root CID: %s\n", root.RootCID)
-				fmt.Printf("    Subroot CID: %s\n", root.SubrootCID)
-				fmt.Printf("    Subroot Offset: %d\n", root.SubrootOffset)
+			fmt.Printf("Pieces:\n")
+			for _, root := range response.Pieces {
+				fmt.Printf("  - Root ID: %d\n", root.PieceId)
+				fmt.Printf("    Root CID: %s\n", root.PieceCid)
+				fmt.Printf("    SubPiece CID: %s\n", root.SubPieceCid)
+				fmt.Printf("    SubPiece Offset: %d\n", root.SubPieceOffset)
 				fmt.Println()
 			}
 		} else {
@@ -1158,7 +1158,7 @@ var addPiecesCmd = &cli.Command{
 		},
 		&cli.StringSliceFlag{
 			Name:     "piece",
-			Usage:    "Piece CID and its subpieces. Format: pieceCID:subpieceCID1+subpieceCID2,...",
+			Usage:    "Piece CID and its subPieces. Format: pieceCID:subPieceCID1+subPieceCID2,...",
 			Required: true,
 		},
 		&cli.StringFlag{
@@ -1170,7 +1170,7 @@ var addPiecesCmd = &cli.Command{
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
 		serviceName := cctx.String("service-name")
-		dataSetID := cctx.Uint64("data-set-id")
+		dataSetId := cctx.Uint64("data-set-id")
 		pieceInputs := cctx.StringSlice("piece")
 		extraDataHexStr := cctx.String("extra-data")
 
@@ -1187,38 +1187,38 @@ var addPiecesCmd = &cli.Command{
 
 		// Parse the piece inputs to construct the request payload
 		type SubpieceEntry struct {
-			SubpieceCID string `json:"subpieceCid"`
+			SubpieceCID string `json:"subPieceCid"`
 		}
 
 		type AddPieceRequest struct {
 			PieceCID  string          `json:"pieceCid"`
-			Subpieces []SubpieceEntry `json:"subpieces"`
+			Subpieces []SubpieceEntry `json:"subPieces"`
 		}
 
 		var addPieceRequests []AddPieceRequest
 
 		for _, pieceInput := range pieceInputs {
-			// Expected format: pieceCID:subpieceCID1,subpieceCID2,...
+			// Expected format: pieceCID:subPieceCID1,subPieceCID2,...
 			parts := strings.SplitN(pieceInput, ":", 2)
 			if len(parts) != 2 {
 				return fmt.Errorf("invalid piece input format: %s (%d)", pieceInput, len(parts))
 			}
 			pieceCID := parts[0]
-			subpiecesStr := parts[1]
-			subpieceCIDStrs := strings.Split(subpiecesStr, "+")
+			subPiecesStr := parts[1]
+			subPieceCIDStrs := strings.Split(subPiecesStr, "+")
 
-			if pieceCID == "" || len(subpieceCIDStrs) == 0 {
-				return fmt.Errorf("pieceCID and at least one subpieceCID are required")
+			if pieceCID == "" || len(subPieceCIDStrs) == 0 {
+				return fmt.Errorf("pieceCID and at least one subPieceCID are required")
 			}
 
-			var subpieces []SubpieceEntry
-			for _, subpieceCID := range subpieceCIDStrs {
-				subpieces = append(subpieces, SubpieceEntry{SubpieceCID: subpieceCID})
+			var subPieces []SubpieceEntry
+			for _, subPieceCID := range subPieceCIDStrs {
+				subPieces = append(subPieces, SubpieceEntry{SubpieceCID: subPieceCID})
 			}
 
 			addPieceRequests = append(addPieceRequests, AddPieceRequest{
 				PieceCID:  pieceCID,
-				Subpieces: subpieces,
+				Subpieces: subPieces,
 			})
 		}
 
@@ -1242,7 +1242,7 @@ var addPiecesCmd = &cli.Command{
 		}
 
 		// Construct the POST URL
-		postURL := fmt.Sprintf("%s/pdp/data-sets/%d/pieces", serviceURL, dataSetID)
+		postURL := fmt.Sprintf("%s/pdp/data-sets/%d/pieces", serviceURL, dataSetId)
 
 		// Create the POST request
 		req, err := http.NewRequest("POST", postURL, bytes.NewBuffer(requestBodyBytes))
@@ -1270,7 +1270,7 @@ var addPiecesCmd = &cli.Command{
 		bodyString := string(bodyBytes)
 
 		if resp.StatusCode == http.StatusCreated {
-			fmt.Printf("Pieces added to data set ID %d successfully.\n", dataSetID)
+			fmt.Printf("Pieces added to data set ID %d successfully.\n", dataSetId)
 			fmt.Printf("Response: %s\n", bodyString)
 		} else {
 			return fmt.Errorf("failed to add pieces, status code %d: %s", resp.StatusCode, bodyString)
@@ -1410,8 +1410,8 @@ var removePiecesCmd = &cli.Command{
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
 		serviceName := cctx.String("service-name")
-		dataSetID := cctx.Uint64("data-set-id")
-		pieceID := cctx.Uint64("piece-id")
+		dataSetId := cctx.Uint64("data-set-id")
+		pieceId := cctx.Uint64("piece-id")
 
 		// Create the JWT token
 		jwtToken, err := getJWTTokenForService(serviceName)
@@ -1420,7 +1420,7 @@ var removePiecesCmd = &cli.Command{
 		}
 
 		// Construct the POST URL
-		deleteURL := fmt.Sprintf("%s/pdp/data-sets/%d/pieces/%d", serviceURL, dataSetID, pieceID)
+		deleteURL := fmt.Sprintf("%s/pdp/data-sets/%d/pieces/%d", serviceURL, dataSetId, pieceId)
 		fmt.Printf("Delete URL: %s\n", deleteURL)
 
 		// Create the POST request
@@ -1442,7 +1442,7 @@ var removePiecesCmd = &cli.Command{
 
 		// Read and display the response
 		if resp.StatusCode == http.StatusNoContent {
-			fmt.Printf("Piece %d scheduled for removal from data set ID %d.\n", pieceID, dataSetID)
+			fmt.Printf("Piece %d scheduled for removal from data set ID %d.\n", pieceId, dataSetId)
 		} else {
 			return fmt.Errorf("failed to remove piece, status code %d", resp.StatusCode)
 		}

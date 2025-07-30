@@ -497,7 +497,7 @@ func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := struct {
-		PieceCID string `json:"piece_cid"`
+		PieceCID string `json:"pieceCid"`
 	}{
 		PieceCID: pieceCid.String(),
 	}

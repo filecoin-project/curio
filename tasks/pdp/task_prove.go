@@ -400,33 +400,33 @@ func padTo32Bytes(b []byte) []byte {
 	return padded
 }
 
-func (p *ProveTask) genSubrootMemtree(ctx context.Context, subrootCid string, subrootSize abi.PaddedPieceSize) ([]byte, error) {
-	subrootCidObj, err := cid.Parse(subrootCid)
+func (p *ProveTask) genSubPieceMemtree(ctx context.Context, subPieceCid string, subPieceSize abi.PaddedPieceSize) ([]byte, error) {
+	subPieceCidObj, err := cid.Parse(subPieceCid)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to parse subroot CID: %w", err)
+		return nil, xerrors.Errorf("failed to parse subPiece CID: %w", err)
 	}
 
-	if subrootSize > proof.MaxMemtreeSize {
-		return nil, xerrors.Errorf("subroot size exceeds maximum: %d", subrootSize)
+	if subPieceSize > proof.MaxMemtreeSize {
+		return nil, xerrors.Errorf("subPiece size exceeds maximum: %d", subPieceSize)
 	}
 
-	subrootReader, unssize, err := p.cpr.GetSharedPieceReader(ctx, subrootCidObj)
+	subPieceReader, unssize, err := p.cpr.GetSharedPieceReader(ctx, subPieceCidObj)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to get subroot reader: %w", err)
+		return nil, xerrors.Errorf("failed to get subPiece reader: %w", err)
 	}
 
-	var r io.Reader = subrootReader
+	var r io.Reader = subPieceReader
 
-	if unssize.Padded() > subrootSize {
-		return nil, xerrors.Errorf("subroot size mismatch: %d > %d", unssize.Padded(), subrootSize)
-	} else if unssize.Padded() < subrootSize {
+	if unssize.Padded() > subPieceSize {
+		return nil, xerrors.Errorf("subPiece size mismatch: %d > %d", unssize.Padded(), subPieceSize)
+	} else if unssize.Padded() < subPieceSize {
 		// pad with zeros
-		r = io.MultiReader(r, nullreader.NewNullReader(abi.UnpaddedPieceSize(subrootSize-unssize.Padded())))
+		r = io.MultiReader(r, nullreader.NewNullReader(abi.UnpaddedPieceSize(subPieceSize-unssize.Padded())))
 	}
 
-	defer subrootReader.Close()
+	defer subPieceReader.Close()
 
-	return proof.BuildSha254Memtree(r, subrootSize.Unpadded())
+	return proof.BuildSha254Memtree(r, subPieceSize.Unpadded())
 }
 
 func (p *ProveTask) proveRoot(ctx context.Context, dataSetId int64, pieceId int64, challengedLeaf int64) (contract.PDPVerifierProof, error) {
@@ -435,41 +435,41 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetId int64, pieceId int6
 	rootChallengeOffset := challengedLeaf * LeafSize
 
 	// Retrieve the piece and subpiece
-	type subrootMeta struct {
-		Root          string `db:"root"`
-		Subroot       string `db:"subroot"`
-		SubrootOffset int64  `db:"subroot_offset"` // padded offset
-		SubrootSize   int64  `db:"subroot_size"`   // padded piece size
+	type subPieceMeta struct {
+		Root           string `db:"root"`
+		SubPiece       string `db:"subroot"`
+		SubPieceOffset int64  `db:"subroot_offset"` // padded offset
+		SubPieceSize   int64  `db:"subroot_size"`   // padded piece size
 	}
 
-	var subroots []subrootMeta
+	var subPieces []subPieceMeta
 
-	err := p.db.Select(context.Background(), &subroots, `
+	err := p.db.Select(context.Background(), &subPieces, `
 			SELECT root, subroot, subroot_offset, subroot_size
 			FROM pdp_proofset_roots
 			WHERE proofset = $1 AND root_id = $2
 			ORDER BY subroot_offset ASC
 		`, dataSetId, pieceId)
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get piece and subroot: %w", err)
+		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get piece and subPiece: %w", err)
 	}
 
 	// find first subpiece with subpiece_offset >= pieceChallengeOffset
-	challSubRoot, challSubpieceIdx, ok := lo.FindLastIndexOf(subroots, func(subroot subrootMeta) bool {
-		return subroot.SubrootOffset < rootChallengeOffset
+	challSubPiece, challSubPieceIdx, ok := lo.FindLastIndexOf(subPieces, func(subPiece subPieceMeta) bool {
+		return subPiece.SubPieceOffset < rootChallengeOffset
 	})
 	if !ok {
 		return contract.PDPVerifierProof{}, xerrors.New("no subpiece found")
 	}
 
 	// build subpiece memtree
-	memtree, err := p.genSubrootMemtree(ctx, challSubRoot.Subroot, abi.PaddedPieceSize(challSubRoot.SubrootSize))
+	memtree, err := p.genSubPieceMemtree(ctx, challSubPiece.SubPiece, abi.PaddedPieceSize(challSubPiece.SubPieceSize))
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to generate subroot memtree: %w", err)
+		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to generate subPiece memtree: %w", err)
 	}
 
-	subrootChallengedLeaf := challengedLeaf - (challSubRoot.SubrootOffset / LeafSize)
-	log.Debugw("subrootChallengedLeaf", "subrootChallengedLeaf", subrootChallengedLeaf, "challengedLeaf", challengedLeaf, "subrootOffsetLs", challSubRoot.SubrootOffset/LeafSize)
+	subPieceChallengedLeaf := challengedLeaf - (challSubPiece.SubPieceOffset / LeafSize)
+	log.Debugw("subPieceChallengedLeaf", "subPieceChallengedLeaf", subPieceChallengedLeaf, "challengedLeaf", challengedLeaf, "subPieceOffsetLs", challSubPiece.SubPieceOffset/LeafSize)
 
 	/*
 		type RawMerkleProof struct {
@@ -478,12 +478,12 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetId int64, pieceId int6
 			Piece  [32]byte
 		}
 	*/
-	subrootProof, err := proof.MemtreeProof(memtree, subrootChallengedLeaf)
+	subPieceProof, err := proof.MemtreeProof(memtree, subPieceChallengedLeaf)
 	pool.Put(memtree)
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to generate subroot proof: %w", err)
+		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to generate subPiece proof: %w", err)
 	}
-	log.Debugw("subrootProof", "subrootProof", subrootProof)
+	log.Debugw("subPieceProof", "subPieceProof", subPieceProof)
 
 	// build partial top-tree
 	type treeElem struct {
@@ -496,15 +496,15 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetId int64, pieceId int6
 	}
 
 	partialTree := map[elemIndex]treeElem{}
-	var subrootsSize abi.PaddedPieceSize
+	var subPiecesSize abi.PaddedPieceSize
 
 	// 1. prefill the partial tree
-	for _, subroot := range subroots {
-		subrootsSize += abi.PaddedPieceSize(subroot.SubrootSize)
+	for _, subPiece := range subPieces {
+		subPiecesSize += abi.PaddedPieceSize(subPiece.SubPieceSize)
 
-		unsCid, err := cid.Parse(subroot.Subroot)
+		unsCid, err := cid.Parse(subPiece.SubPiece)
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to parse subroot CID: %w", err)
+			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to parse subPiece CID: %w", err)
 		}
 
 		commp, err := commcid.CIDToPieceCommitmentV1(unsCid)
@@ -515,15 +515,15 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetId int64, pieceId int6
 		var comm [LeafSize]byte
 		copy(comm[:], commp)
 
-		level := proof.NodeLevel(subroot.SubrootSize/LeafSize, arity)
-		offset := (subroot.SubrootOffset / LeafSize) >> uint(level-1)
+		level := proof.NodeLevel(subPiece.SubPieceSize/LeafSize, arity)
+		offset := (subPiece.SubPieceOffset / LeafSize) >> uint(level-1)
 		partialTree[elemIndex{Level: level, ElemOffset: offset}] = treeElem{
 			Level: level,
 			Hash:  comm,
 		}
 	}
 
-	rootSize := nextPowerOfTwo(subrootsSize)
+	rootSize := nextPowerOfTwo(subPiecesSize)
 	rootLevel := proof.NodeLevel(int64(rootSize/LeafSize), arity)
 
 	// 2. build the partial tree
@@ -533,15 +533,15 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetId int64, pieceId int6
 		return offset&1 == 1
 	}
 
-	for i := len(subroots) - 1; i >= 0; i-- {
-		subroot := subroots[i]
-		level := proof.NodeLevel(subroot.SubrootSize/LeafSize, arity)
-		offset := (subroot.SubrootOffset / LeafSize) >> uint(level-1)
-		firstSubroot := i == 0
+	for i := len(subPieces) - 1; i >= 0; i-- {
+		subPiece := subPieces[i]
+		level := proof.NodeLevel(subPiece.SubPieceSize/LeafSize, arity)
+		offset := (subPiece.SubPieceOffset / LeafSize) >> uint(level-1)
+		firstSubPiece := i == 0
 
 		curElem := partialTree[elemIndex{Level: level, ElemOffset: offset}]
 
-		log.Debugw("processing partialtree subroot", "curElem", curElem, "level", level, "offset", offset, "subroot", subroot.SubrootOffset, "subrootSz", subroot.SubrootSize)
+		log.Debugw("processing partialtree subPiece", "curElem", curElem, "level", level, "offset", offset, "subPiece", subPiece.SubPieceOffset, "subPieceSz", subPiece.SubPieceSize)
 
 		for !isRight(offset) {
 			// find the rightSibling
@@ -549,7 +549,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetId int64, pieceId int6
 			rightSibling, ok := partialTree[siblingIndex]
 			if !ok {
 				// if we're processing the first subpiece branch, AND we've ran out of right siblings, we're done
-				if firstSubroot {
+				if firstSubPiece {
 					break
 				}
 
@@ -593,19 +593,19 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetId int64, pieceId int6
 
 	}
 
-	challLevel := proof.NodeLevel(challSubRoot.SubrootSize/LeafSize, arity)
-	challOffset := (challSubRoot.SubrootOffset / LeafSize) >> uint(challLevel-1)
+	challLevel := proof.NodeLevel(challSubPiece.SubPieceSize/LeafSize, arity)
+	challOffset := (challSubPiece.SubPieceOffset / LeafSize) >> uint(challLevel-1)
 
-	log.Debugw("challSubRoot", "challSubRoot", challSubpieceIdx, "challLevel", challLevel, "challOffset", challOffset)
+	log.Debugw("challSubPiece", "challSubPiece", challSubPieceIdx, "challLevel", challLevel, "challOffset", challOffset)
 
 	challSubtreeLeaf := partialTree[elemIndex{Level: challLevel, ElemOffset: challOffset}]
-	if challSubtreeLeaf.Hash != subrootProof.Piece {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("subtree piece doesn't match partial tree leaf, %x != %x", challSubtreeLeaf.Hash, subrootProof.Piece)
+	if challSubtreeLeaf.Hash != subPieceProof.Root {
+		return contract.PDPVerifierProof{}, xerrors.Errorf("subtree root doesn't match partial tree leaf, %x != %x", challSubtreeLeaf.Hash, subPieceProof.Root)
 	}
 
 	var out contract.PDPVerifierProof
-	copy(out.Leaf[:], subrootProof.Leaf[:])
-	out.Proof = append(out.Proof, subrootProof.Proof...)
+	copy(out.Leaf[:], subPieceProof.Leaf[:])
+	out.Proof = append(out.Proof, subPieceProof.Proof...)
 
 	currentLevel := challLevel
 	currentOffset := challOffset
@@ -640,11 +640,11 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetId int64, pieceId int6
 
 	log.Debugw("proof complete", "proof", out)
 
-	rootCid, err := cid.Parse(subroots[0].Root)
+	pieceCid, err := cid.Parse(subPieces[0].Root)
 	if err != nil {
 		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to parse piece CID: %w", err)
 	}
-	commRoot, err := commcid.CIDToPieceCommitmentV1(rootCid)
+	commRoot, err := commcid.CIDToPieceCommitmentV1(pieceCid)
 	if err != nil {
 		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to convert CID to piece commitment: %w", err)
 	}
@@ -757,7 +757,7 @@ func nextPowerOfTwo(n abi.PaddedPieceSize) abi.PaddedPieceSize {
 	return 1 << (64 - lz)
 }
 
-func Verify(proof contract.PDPVerifierProof, piece [32]byte, position uint64) bool {
+func Verify(proof contract.PDPVerifierProof, root [32]byte, position uint64) bool {
 	computedHash := proof.Leaf
 
 	for i := 0; i < len(proof.Proof); i++ {
@@ -778,8 +778,8 @@ func Verify(proof contract.PDPVerifierProof, piece [32]byte, position uint64) bo
 		position /= 2
 	}
 
-	// Compare the reconstructed piece with the expected piece
-	return computedHash == piece
+	// Compare the reconstructed root with the expected root
+	return computedHash == root
 }
 
 func shabytes(in []byte) []byte {
