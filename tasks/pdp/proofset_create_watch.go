@@ -18,16 +18,16 @@ import (
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
-type ProofSetCreate struct {
+type DataSetCreate struct {
 	CreateMessageHash string `db:"create_message_hash"`
 	Service           string `db:"service"`
 }
 
 func NewWatcherCreate(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
-		err := processPendingProofSetCreates(ctx, db, ethClient)
+		err := processPendingDataSetCreates(ctx, db, ethClient)
 		if err != nil {
-			log.Warnf("Failed to process pending proof set creates: %v", err)
+			log.Warnf("Failed to process pending data set creates: %v", err)
 		}
 		return nil
 	}); err != nil {
@@ -35,11 +35,11 @@ func NewWatcherCreate(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chains
 	}
 }
 
-func processPendingProofSetCreates(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
+func processPendingDataSetCreates(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
 	// Query for pdp_proofset_creates entries where ok = TRUE and proofset_created = FALSE
-	var proofSetCreates []ProofSetCreate
+	var dataSetCreates []DataSetCreate
 
-	err := db.Select(ctx, &proofSetCreates, `
+	err := db.Select(ctx, &dataSetCreates, `
         SELECT create_message_hash, service
         FROM pdp_proofset_creates
         WHERE ok = TRUE AND proofset_created = FALSE
@@ -48,30 +48,30 @@ func processPendingProofSetCreates(ctx context.Context, db *harmonydb.DB, ethCli
 		return xerrors.Errorf("failed to select proof set creates: %w", err)
 	}
 
-	log.Infow("ProofSetCreate watcher checking pending proof sets", "count", len(proofSetCreates))
+	log.Infow("DataSetCreate watcher checking pending data sets", "count", len(dataSetCreates))
 
-	if len(proofSetCreates) == 0 {
-		// No pending proof set creates
+	if len(dataSetCreates) == 0 {
+		// No pending data set creates
 		return nil
 	}
 
-	// Process each proof set create
-	for _, psc := range proofSetCreates {
-		log.Infow("Processing proof set create",
+	// Process each data set create
+	for _, psc := range dataSetCreates {
+		log.Infow("Processing data set create",
 			"txHash", psc.CreateMessageHash,
 			"service", psc.Service)
-		err := processProofSetCreate(ctx, db, psc, ethClient)
+		err := processDataSetCreate(ctx, db, psc, ethClient)
 		if err != nil {
-			log.Warnf("Failed to process proof set create for tx %s: %v", psc.CreateMessageHash, err)
+			log.Warnf("Failed to process data set create for tx %s: %v", psc.CreateMessageHash, err)
 			continue
 		}
-		log.Infow("Successfully processed proof set create", "txHash", psc.CreateMessageHash)
+		log.Infow("Successfully processed data set create", "txHash", psc.CreateMessageHash)
 	}
 
 	return nil
 }
 
-func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCreate, ethClient *ethclient.Client) error {
+func processDataSetCreate(ctx context.Context, db *harmonydb.DB, psc DataSetCreate, ethClient *ethclient.Client) error {
 	// Retrieve the tx_receipt from message_waits_eth
 	var txReceiptJSON []byte
 	log.Debugw("Fetching tx_receipt from message_waits_eth", "txHash", psc.CreateMessageHash)
@@ -93,22 +93,22 @@ func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCr
 	}
 	log.Debugw("Unmarshalled receipt", "txHash", psc.CreateMessageHash, "status", txReceipt.Status, "logs", len(txReceipt.Logs))
 
-	// Parse the logs to extract the proofSetId
-	proofSetId, err := extractProofSetIdFromReceipt(&txReceipt)
+	// Parse the logs to extract the dataSetId
+	dataSetId, err := extractDataSetIdFromReceipt(&txReceipt)
 	if err != nil {
-		return xerrors.Errorf("failed to extract proofSetId from receipt for tx %s: %w", psc.CreateMessageHash, err)
+		return xerrors.Errorf("failed to extract dataSetId from receipt for tx %s: %w", psc.CreateMessageHash, err)
 	}
-	log.Infow("Extracted proofSetId from receipt", "txHash", psc.CreateMessageHash, "proofSetId", proofSetId)
+	log.Infow("Extracted dataSetId from receipt", "txHash", psc.CreateMessageHash, "dataSetId", dataSetId)
 
-	// Get the listener address for this proof set from the PDPVerifier contract
+	// Get the listener address for this data set from the PDPVerifier contract
 	pdpVerifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ethClient)
 	if err != nil {
 		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
 	}
 
-	listenerAddr, err := pdpVerifier.GetProofSetListener(nil, big.NewInt(int64(proofSetId)))
+	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, big.NewInt(int64(dataSetId)))
 	if err != nil {
-		return xerrors.Errorf("failed to get listener address for proof set %d: %w", proofSetId, err)
+		return xerrors.Errorf("failed to get listener address for data set %d: %w", dataSetId, err)
 	}
 
 	// Get the proving period from the listener
@@ -119,9 +119,9 @@ func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCr
 	}
 
 	// Insert a new entry into pdp_proof_sets
-	err = insertProofSet(ctx, db, psc.CreateMessageHash, proofSetId, psc.Service, provingPeriod, challengeWindow)
+	err = insertDataSet(ctx, db, psc.CreateMessageHash, dataSetId, psc.Service, provingPeriod, challengeWindow)
 	if err != nil {
-		return xerrors.Errorf("failed to insert proof set %d for tx %+v: %w", proofSetId, psc, err)
+		return xerrors.Errorf("failed to insert data set %d for tx %+v: %w", dataSetId, psc, err)
 	}
 
 	// Update pdp_proofset_creates to set proofset_created = TRUE
@@ -137,15 +137,15 @@ func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCr
 	return nil
 }
 
-func extractProofSetIdFromReceipt(receipt *types.Receipt) (uint64, error) {
+func extractDataSetIdFromReceipt(receipt *types.Receipt) (uint64, error) {
 	pdpABI, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
 		return 0, xerrors.Errorf("failed to get PDP ABI: %w", err)
 	}
 
-	event, exists := pdpABI.Events["ProofSetCreated"]
+	event, exists := pdpABI.Events["DataSetCreated"]
 	if !exists {
-		return 0, xerrors.Errorf("ProofSetCreated event not found in ABI")
+		return 0, xerrors.Errorf("DataSetCreated event not found in ABI")
 	}
 
 	for _, vLog := range receipt.Logs {
@@ -159,16 +159,16 @@ func extractProofSetIdFromReceipt(receipt *types.Receipt) (uint64, error) {
 		}
 	}
 
-	return 0, xerrors.Errorf("ProofSetCreated event not found in receipt")
+	return 0, xerrors.Errorf("DataSetCreated event not found in receipt")
 }
 
-func insertProofSet(ctx context.Context, db *harmonydb.DB, createMsg string, proofSetId uint64, service string, provingPeriod uint64, challengeWindow uint64) error {
+func insertDataSet(ctx context.Context, db *harmonydb.DB, createMsg string, dataSetId uint64, service string, provingPeriod uint64, challengeWindow uint64) error {
 	// Implement the insertion into pdp_proof_sets table
 	// Adjust the SQL statement based on your table schema
 	_, err := db.Exec(ctx, `
         INSERT INTO pdp_proof_sets (id, create_message_hash, service, proving_period, challenge_window)
         VALUES ($1, $2, $3, $4, $5)
-    `, proofSetId, createMsg, service, provingPeriod, challengeWindow)
+    `, dataSetId, createMsg, service, provingPeriod, challengeWindow)
 	return err
 }
 

@@ -83,12 +83,12 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 			more := false
 
 			pt.addFunc.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-				// Select proof sets ready for proving
-				var proofSets []struct {
+				// Select data sets ready for proving
+				var dataSets []struct {
 					ID int64 `db:"id"`
 				}
 
-				err := tx.Select(&proofSets, `
+				err := tx.Select(&dataSets, `
                     SELECT p.id
                     FROM pdp_proof_sets p
                     INNER JOIN message_waits_eth mw on mw.signed_tx_hash = p.challenge_request_msg_hash
@@ -96,19 +96,19 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
                     LIMIT 2
                 `, apply.Height())
 				if err != nil {
-					return false, xerrors.Errorf("failed to select proof sets: %w", err)
+					return false, xerrors.Errorf("failed to select data sets: %w", err)
 				}
 
-				if len(proofSets) == 0 {
-					// No proof sets to process
+				if len(dataSets) == 0 {
+					// No data sets to process
 					return false, nil
 				}
 
-				// Determine if there might be more proof sets to process
-				more = len(proofSets) > 1
+				// Determine if there might be more data sets to process
+				more = len(dataSets) > 1
 
-				// Process the first proof set
-				todo := proofSets[0]
+				// Process the first data set
+				todo := dataSets[0]
 
 				// Insert a new task into pdp_prove_tasks
 				affected, err := tx.Exec(`
@@ -157,14 +157,14 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 
-	// Retrieve proof set and challenge epoch for the task
-	var proofSetID int64
+	// Retrieve data set and challenge epoch for the task
+	var dataSetId int64
 
 	err = p.db.QueryRow(context.Background(), `
         SELECT proofset
         FROM pdp_prove_tasks
         WHERE task_id = $1
-    `, taskID).Scan(&proofSetID)
+    `, taskID).Scan(&dataSetId)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get task details: %w", err)
 	}
@@ -182,7 +182,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	// Proof parameters
-	challengeEpoch, err := pdpVerifier.GetNextChallengeEpoch(callOpts, big.NewInt(proofSetID))
+	challengeEpoch, err := pdpVerifier.GetNextChallengeEpoch(callOpts, big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get next challenge epoch: %w", err)
 	}
@@ -192,7 +192,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to get chain randomness from beacon for pdp prove: %w", err)
 	}
 
-	proofs, err := p.GenerateProofs(ctx, pdpVerifier, proofSetID, seed, contract.NumChallenges)
+	proofs, err := p.GenerateProofs(ctx, pdpVerifier, dataSetId, seed, contract.NumChallenges)
 	if err != nil {
 		return false, xerrors.Errorf("failed to generate proofs: %w", err)
 	}
@@ -202,7 +202,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to get PDPVerifier ABI: %w", err)
 	}
 
-	data, err := abiData.Pack("provePossession", big.NewInt(proofSetID), proofs)
+	data, err := abiData.Pack("provePossession", big.NewInt(dataSetId), proofs)
 	if err != nil {
 		return false, xerrors.Errorf("failed to pack data: %w", err)
 	}
@@ -225,12 +225,12 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 		proofStr += "] ] ]"
 
-		log.Infof("PDP Prove Task: proofSetID: %d, taskID: %d, proofs: %s", proofSetID, taskID, proofStr)
+		log.Infof("PDP Prove Task: dataSetId: %d, taskID: %d, proofs: %s", dataSetId, taskID, proofStr)
 	} */
 
 	// If gas used is 0 fee is maximized
 	gasFee := big.NewInt(0)
-	proofFee, err := pdpVerifier.CalculateProofFee(callOpts, big.NewInt(proofSetID), gasFee)
+	proofFee, err := pdpVerifier.CalculateProofFee(callOpts, big.NewInt(dataSetId), gasFee)
 	if err != nil {
 		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
 	}
@@ -238,8 +238,8 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	// Add 2x buffer for certainty
 	proofFee = new(big.Int).Mul(proofFee, big.NewInt(3))
 
-	// Get the sender address for this proofset
-	owner, _, err := pdpVerifier.GetProofSetOwner(callOpts, big.NewInt(proofSetID))
+	// Get the sender address for this data set
+	owner, _, err := pdpVerifier.GetDataSetStorageProvider(callOpts, big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get owner: %w", err)
 	}
@@ -278,7 +278,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	}
 
 	log.Infow("PDP Prove Task",
-		"proofSetID", proofSetID,
+		"dataSetId", dataSetId,
 		"taskID", taskID,
 		"proofs", proofLogs,
 		"data", hex.EncodeToString(data),
@@ -299,46 +299,46 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		return false, xerrors.Errorf("failed to send transaction: %w", err)
 	}
 
-	// Remove the roots previously scheduled for deletion
-	err = p.cleanupDeletedRoots(ctx, proofSetID, pdpVerifier)
+	// Remove the pieces previously scheduled for deletion
+	err = p.cleanupDeletedPieces(ctx, dataSetId, pdpVerifier)
 	if err != nil {
-		return false, xerrors.Errorf("failed to cleanup deleted roots: %w", err)
+		return false, xerrors.Errorf("failed to cleanup deleted pieces: %w", err)
 	}
 
-	log.Infow("PDP Prove Task: transaction sent", "txHash", txHash, "proofSetID", proofSetID, "taskID", taskID)
+	log.Infow("PDP Prove Task: transaction sent", "txHash", txHash, "dataSetId", dataSetId, "taskID", taskID)
 
 	// Task completed successfully
 	return true, nil
 }
 
-func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDPVerifier, proofSetID int64, seed abi.Randomness, numChallenges int) ([]contract.PDPVerifierProof, error) {
+func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDPVerifier, dataSetId int64, seed abi.Randomness, numChallenges int) ([]contract.PDPVerifierProof, error) {
 	proofs := make([]contract.PDPVerifierProof, numChallenges)
 
 	callOpts := &bind.CallOpts{
 		Context: ctx,
 	}
 
-	totalLeafCount, err := pdpService.GetChallengeRange(callOpts, big.NewInt(proofSetID))
+	totalLeafCount, err := pdpService.GetChallengeRange(callOpts, big.NewInt(dataSetId))
 	if err != nil {
-		return nil, xerrors.Errorf("failed to get proof set leaf count: %w", err)
+		return nil, xerrors.Errorf("failed to get data set leaf count: %w", err)
 	}
 	totalLeaves := totalLeafCount.Uint64()
 
 	challenges := lo.Times(numChallenges, func(i int) int64 {
-		return generateChallengeIndex(seed, proofSetID, i, totalLeaves)
+		return generateChallengeIndex(seed, dataSetId, i, totalLeaves)
 	})
 
-	rootId, err := pdpService.FindRootIds(callOpts, big.NewInt(proofSetID), lo.Map(challenges, func(i int64, _ int) *big.Int { return big.NewInt(i) }))
+	pieceId, err := pdpService.FindPieceIds(callOpts, big.NewInt(dataSetId), lo.Map(challenges, func(i int64, _ int) *big.Int { return big.NewInt(i) }))
 	if err != nil {
-		return nil, xerrors.Errorf("failed to find root IDs: %w", err)
+		return nil, xerrors.Errorf("failed to find piece IDs: %w", err)
 	}
 
 	for i := 0; i < numChallenges; i++ {
-		root := rootId[i]
+		piece := pieceId[i]
 
-		proof, err := p.proveRoot(ctx, proofSetID, root.RootId.Int64(), root.Offset.Int64())
+		proof, err := p.proveRoot(ctx, dataSetId, piece.PieceId.Int64(), piece.Offset.Int64())
 		if err != nil {
-			return nil, xerrors.Errorf("failed to prove root %d (%d, %d, %d): %w", i, proofSetID, root.RootId.Int64(), root.Offset.Int64(), err)
+			return nil, xerrors.Errorf("failed to prove piece %d (%d, %d, %d): %w", i, dataSetId, piece.PieceId.Int64(), piece.Offset.Int64(), err)
 		}
 
 		proofs[i] = proof
@@ -347,7 +347,7 @@ func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDP
 	return proofs, nil
 }
 
-func generateChallengeIndex(seed abi.Randomness, proofSetID int64, proofIndex int, totalLeaves uint64) int64 {
+func generateChallengeIndex(seed abi.Randomness, dataSetId int64, proofIndex int, totalLeaves uint64) int64 {
 	// Create a buffer to hold the concatenated data (96 bytes: 32 bytes * 3)
 	data := make([]byte, 0, 96)
 
@@ -355,10 +355,10 @@ func generateChallengeIndex(seed abi.Randomness, proofSetID int64, proofIndex in
 
 	data = append(data, seed...)
 
-	// Convert proofSetID to 32-byte big-endian representation
-	proofSetIDBigInt := big.NewInt(proofSetID)
-	proofSetIDBytes := padTo32Bytes(proofSetIDBigInt.Bytes())
-	data = append(data, proofSetIDBytes...)
+	// Convert dataSetId to 32-byte big-endian representation
+	dataSetIdBigInt := big.NewInt(dataSetId)
+	dataSetIdBytes := padTo32Bytes(dataSetIdBigInt.Bytes())
+	data = append(data, dataSetIdBytes...)
 
 	// Convert proofIndex to 8-byte big-endian representation
 	proofIndexBytes := make([]byte, 8)
@@ -380,7 +380,7 @@ func generateChallengeIndex(seed abi.Randomness, proofSetID int64, proofIndex in
 	// Log for debugging
 	log.Debugw("generateChallengeIndex",
 		"seed", seed,
-		"proofSetID", proofSetID,
+		"dataSetId", dataSetId,
 		"proofIndex", proofIndex,
 		"totalLeaves", totalLeaves,
 		"data", hex.EncodeToString(data),
@@ -429,12 +429,12 @@ func (p *ProveTask) genSubrootMemtree(ctx context.Context, subrootCid string, su
 	return proof.BuildSha254Memtree(r, subrootSize.Unpadded())
 }
 
-func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int64, challengedLeaf int64) (contract.PDPVerifierProof, error) {
+func (p *ProveTask) proveRoot(ctx context.Context, dataSetId int64, pieceId int64, challengedLeaf int64) (contract.PDPVerifierProof, error) {
 	const arity = 2
 
 	rootChallengeOffset := challengedLeaf * LeafSize
 
-	// Retrieve the root and subroot
+	// Retrieve the piece and subpiece
 	type subrootMeta struct {
 		Root          string `db:"root"`
 		Subroot       string `db:"subroot"`
@@ -449,20 +449,20 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 			FROM pdp_proofset_roots
 			WHERE proofset = $1 AND root_id = $2
 			ORDER BY subroot_offset ASC
-		`, proofSetID, rootId)
+		`, dataSetId, pieceId)
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get root and subroot: %w", err)
+		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get piece and subroot: %w", err)
 	}
 
-	// find first subroot with subroot_offset >= rootChallengeOffset
-	challSubRoot, challSubrootIdx, ok := lo.FindLastIndexOf(subroots, func(subroot subrootMeta) bool {
+	// find first subpiece with subpiece_offset >= pieceChallengeOffset
+	challSubRoot, challSubpieceIdx, ok := lo.FindLastIndexOf(subroots, func(subroot subrootMeta) bool {
 		return subroot.SubrootOffset < rootChallengeOffset
 	})
 	if !ok {
-		return contract.PDPVerifierProof{}, xerrors.New("no subroot found")
+		return contract.PDPVerifierProof{}, xerrors.New("no subpiece found")
 	}
 
-	// build subroot memtree
+	// build subpiece memtree
 	memtree, err := p.genSubrootMemtree(ctx, challSubRoot.Subroot, abi.PaddedPieceSize(challSubRoot.SubrootSize))
 	if err != nil {
 		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to generate subroot memtree: %w", err)
@@ -475,7 +475,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 		type RawMerkleProof struct {
 			Leaf  [32]byte
 			Proof [][32]byte
-			Root  [32]byte
+			Piece  [32]byte
 		}
 	*/
 	subrootProof, err := proof.MemtreeProof(memtree, subrootChallengedLeaf)
@@ -548,7 +548,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 			siblingIndex := elemIndex{Level: level, ElemOffset: offset + 1}
 			rightSibling, ok := partialTree[siblingIndex]
 			if !ok {
-				// if we're processing the first subroot branch, AND we've ran out of right siblings, we're done
+				// if we're processing the first subpiece branch, AND we've ran out of right siblings, we're done
 				if firstSubroot {
 					break
 				}
@@ -596,11 +596,11 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 	challLevel := proof.NodeLevel(challSubRoot.SubrootSize/LeafSize, arity)
 	challOffset := (challSubRoot.SubrootOffset / LeafSize) >> uint(challLevel-1)
 
-	log.Debugw("challSubRoot", "challSubRoot", challSubrootIdx, "challLevel", challLevel, "challOffset", challOffset)
+	log.Debugw("challSubRoot", "challSubRoot", challSubpieceIdx, "challLevel", challLevel, "challOffset", challOffset)
 
 	challSubtreeLeaf := partialTree[elemIndex{Level: challLevel, ElemOffset: challOffset}]
-	if challSubtreeLeaf.Hash != subrootProof.Root {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("subtree root doesn't match partial tree leaf, %x != %x", challSubtreeLeaf.Hash, subrootProof.Root)
+	if challSubtreeLeaf.Hash != subrootProof.Piece {
+		return contract.PDPVerifierProof{}, xerrors.Errorf("subtree piece doesn't match partial tree leaf, %x != %x", challSubtreeLeaf.Hash, subrootProof.Piece)
 	}
 
 	var out contract.PDPVerifierProof
@@ -642,7 +642,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 
 	rootCid, err := cid.Parse(subroots[0].Root)
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to parse root CID: %w", err)
+		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to parse piece CID: %w", err)
 	}
 	commRoot, err := commcid.CIDToPieceCommitmentV1(rootCid)
 	if err != nil {
@@ -672,8 +672,8 @@ func (p *ProveTask) getSenderAddress(ctx context.Context, match common.Address) 
 	return address, nil
 }
 
-func (p *ProveTask) cleanupDeletedRoots(ctx context.Context, proofSetID int64, pdpVerifier *contract.PDPVerifier) error {
-	removals, err := pdpVerifier.GetScheduledRemovals(nil, big.NewInt(proofSetID))
+func (p *ProveTask) cleanupDeletedPieces(ctx context.Context, dataSetId int64, pdpVerifier *contract.PDPVerifier) error {
+	removals, err := pdpVerifier.GetScheduledRemovals(nil, big.NewInt(dataSetId))
 	if err != nil {
 		return xerrors.Errorf("failed to get scheduled removals: %w", err)
 	}
@@ -681,20 +681,20 @@ func (p *ProveTask) cleanupDeletedRoots(ctx context.Context, proofSetID int64, p
 	// Execute cleanup in a transaction
 	ok, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		for _, removeID := range removals {
-			log.Debugw("cleanupDeletedRoots", "removeID", removeID)
-			// Get the pdp_pieceref ID for the root before deleting
+			log.Debugw("cleanupDeletedPieces", "removeID", removeID)
+			// Get the pdp_pieceref ID for the piece before deleting
 			var pdpPieceRefID int64
 			err := tx.QueryRow(`
                 SELECT pdp_pieceref 
                 FROM pdp_proofset_roots 
                 WHERE proofset = $1 AND root_id = $2
-            `, proofSetID, removeID.Int64()).Scan(&pdpPieceRefID)
+            `, dataSetId, removeID.Int64()).Scan(&pdpPieceRefID)
 			if err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
-					// Root already deleted, skip
+					// Piece already deleted, skip
 					continue
 				}
-				return false, xerrors.Errorf("failed to get piece ref for root %d: %w", removeID, err)
+				return false, xerrors.Errorf("failed to get piece ref for piece %d: %w", removeID, err)
 			}
 
 			// Delete the parked piece ref, this will cascade to the pdp piece ref too
@@ -706,20 +706,20 @@ func (p *ProveTask) cleanupDeletedRoots(ctx context.Context, proofSetID int64, p
 				return false, xerrors.Errorf("failed to delete parked piece ref %d: %w", pdpPieceRefID, err)
 			}
 
-			// Delete the root entry
+			// Delete the piece entry
 			_, err = tx.Exec(`
                 DELETE FROM pdp_proofset_roots 
                 WHERE proofset = $1 AND root_id = $2
-            `, proofSetID, removeID)
+            `, dataSetId, removeID)
 			if err != nil {
-				return false, xerrors.Errorf("failed to delete root %d: %w", removeID, err)
+				return false, xerrors.Errorf("failed to delete piece %d: %w", removeID, err)
 			}
 		}
 
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		return xerrors.Errorf("failed to cleanup deleted roots: %w", err)
+		return xerrors.Errorf("failed to cleanup deleted pieces: %w", err)
 	}
 	if !ok {
 		return xerrors.Errorf("database delete not committed")
@@ -757,7 +757,7 @@ func nextPowerOfTwo(n abi.PaddedPieceSize) abi.PaddedPieceSize {
 	return 1 << (64 - lz)
 }
 
-func Verify(proof contract.PDPVerifierProof, root [32]byte, position uint64) bool {
+func Verify(proof contract.PDPVerifierProof, piece [32]byte, position uint64) bool {
 	computedHash := proof.Leaf
 
 	for i := 0; i < len(proof.Proof); i++ {
@@ -778,8 +778,8 @@ func Verify(proof contract.PDPVerifierProof, root [32]byte, position uint64) boo
 		position /= 2
 	}
 
-	// Compare the reconstructed root with the expected root
-	return computedHash == root
+	// Compare the reconstructed piece with the expected piece
+	return computedHash == piece
 }
 
 func shabytes(in []byte) []byte {
