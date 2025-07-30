@@ -96,7 +96,7 @@ Once done, please proceed with [PDP owner](Enable-PDP.md#pdp-owner) and [PDP ser
 
 ### PDP owner
 
-To interact with the PDP smart contracts the Curio SP must import a private key owning their PDP proof sets.
+To interact with the PDP smart contracts the Curio SP must import a private key owning their PDP data sets.
 
 1. Obtain private key bytes
 2. In the Curio web UI (localhost:4701) navigate to PDP and click "Import Key"
@@ -132,7 +132,7 @@ cd curio/
 make pdptool
 ```
 
-The `pdptool` command contains utilities for uploading files to a curio node and interacting with the pdp contract to create proofsets, and add and remove roots from proofsets.
+The `pdptool` command contains utilities for uploading files to a curio node and interacting with the pdp contract to create data sets, and add and remove pieces from data sets.
 
 ### Create service secret
 

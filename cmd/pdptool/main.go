@@ -66,12 +66,12 @@ func main() {
 			uploadFileCmd,   // upload a file to a pdp service in many chunks
 			downloadFileCmd, // download a file from curio
 
-			createProofSetCmd,    // create a new proof set on the PDP service
-			getProofSetStatusCmd, // get the status of a proof set creation on the PDP service
-			getProofSetCmd,       // retrieve the details of a proof set from the PDP service
+			createDataSetCmd,    // create a new data set on the PDP service
+			getDataSetStatusCmd, // get the status of a data set creation on the PDP service
+			getDataSetCmd,       // retrieve the details of a data set from the PDP service
 
-			addRootsCmd,
-			removeRootsCmd, // schedule roots for removal after next proof submission
+			addPiecesCmd,
+			removePiecesCmd, // schedule pieces for removal after next proof submission
 		},
 	}
 	app.Setup()
@@ -117,7 +117,7 @@ var authCreateServiceSecretCmd = &cli.Command{
 			"private_key": string(privPEM),
 		}
 
-		file, err := os.OpenFile("pdpservice.json", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+		file, err := os.OpenFile("pdpservice.json", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 		if err != nil {
 			return fmt.Errorf("failed to open pdpservice.json for writing: %v", err)
 		}
@@ -670,7 +670,6 @@ var uploadFileCmd = &cli.Command{
 		},
 	},
 	Action: func(cctx *cli.Context) error {
-
 		inputFile := cctx.Args().Get(0)
 		if inputFile == "" {
 			return fmt.Errorf("input file is required")
@@ -843,9 +842,9 @@ var uploadFileCmd = &cli.Command{
 	},
 }
 
-var createProofSetCmd = &cli.Command{
-	Name:  "create-proof-set",
-	Usage: "Create a new proof set on the PDP service",
+var createDataSetCmd = &cli.Command{
+	Name:  "create-data-set",
+	Usage: "Create a new data set on the PDP service",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:     "service-url",
@@ -898,8 +897,8 @@ var createProofSetCmd = &cli.Command{
 			return fmt.Errorf("failed to marshal request body: %v", err)
 		}
 
-		// Append /pdp/proof-sets to the service URL
-		postURL := serviceURL + "/pdp/proof-sets"
+		// Append /pdp/data-sets to the service URL
+		postURL := serviceURL + "/pdp/data-sets"
 
 		// Create the POST request
 		req, err := http.NewRequest("POST", postURL, bytes.NewBuffer(requestBodyBytes))
@@ -928,20 +927,20 @@ var createProofSetCmd = &cli.Command{
 
 		if resp.StatusCode == http.StatusCreated {
 			location := resp.Header.Get("Location")
-			fmt.Printf("Proof set creation initiated successfully.\n")
+			fmt.Printf("Data set creation initiated successfully.\n")
 			fmt.Printf("Location: %s\n", location)
 			fmt.Printf("Response: %s\n", bodyString)
 		} else {
-			return fmt.Errorf("failed to create proof set, status code %d: %s", resp.StatusCode, bodyString)
+			return fmt.Errorf("failed to create data set, status code %d: %s", resp.StatusCode, bodyString)
 		}
 
 		return nil
 	},
 }
 
-var getProofSetStatusCmd = &cli.Command{
-	Name:  "get-proof-set-create-status",
-	Usage: "Get the status of a proof set creation on the PDP service",
+var getDataSetStatusCmd = &cli.Command{
+	Name:  "get-data-set-create-status",
+	Usage: "Get the status of a data set creation on the PDP service",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:     "service-url",
@@ -950,7 +949,7 @@ var getProofSetStatusCmd = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:     "tx-hash",
-			Usage:    "Transaction hash of the proof set creation",
+			Usage:    "Transaction hash of the data set creation",
 			Required: true,
 		},
 		&cli.StringFlag{
@@ -977,7 +976,7 @@ var getProofSetStatusCmd = &cli.Command{
 		txHash = strings.ToLower(txHash) // Ensure txHash is in lowercase
 
 		// Construct the request URL
-		getURL := fmt.Sprintf("%s/pdp/proof-sets/created/%s", serviceURL, txHash)
+		getURL := fmt.Sprintf("%s/pdp/data-sets/created/%s", serviceURL, txHash)
 
 		// Create the GET request
 		req, err := http.NewRequest("GET", getURL, nil)
@@ -1006,11 +1005,11 @@ var getProofSetStatusCmd = &cli.Command{
 			// Decode the JSON response
 			var response struct {
 				CreateMessageHash string  `json:"createMessageHash"`
-				ProofsetCreated   bool    `json:"proofsetCreated"`
+				DataSetCreated    bool    `json:"proofsetCreated"`
 				Service           string  `json:"service"`
 				TxStatus          string  `json:"txStatus"`
 				OK                *bool   `json:"ok"`
-				ProofSetId        *uint64 `json:"proofSetId,omitempty"`
+				DataSetId         *uint64 `json:"proofSetId,omitempty"`
 			}
 			err = json.Unmarshal(bodyBytes, &response)
 			if err != nil {
@@ -1018,7 +1017,7 @@ var getProofSetStatusCmd = &cli.Command{
 			}
 
 			// Display the status
-			fmt.Printf("Proof Set Creation Status:\n")
+			fmt.Printf("Data Set Creation Status:\n")
 			fmt.Printf("Transaction Hash: %s\n", response.CreateMessageHash)
 			fmt.Printf("Transaction Status: %s\n", response.TxStatus)
 			if response.OK != nil {
@@ -1026,21 +1025,21 @@ var getProofSetStatusCmd = &cli.Command{
 			} else {
 				fmt.Printf("Transaction Successful: Pending\n")
 			}
-			fmt.Printf("Proofset Created: %v\n", response.ProofsetCreated)
-			if response.ProofSetId != nil {
-				fmt.Printf("ProofSet ID: %d\n", *response.ProofSetId)
+			fmt.Printf("Dataset Created: %v\n", response.DataSetCreated)
+			if response.DataSetId != nil {
+				fmt.Printf("Dataset ID: %d\n", *response.DataSetId)
 			}
 		} else {
-			return fmt.Errorf("failed to get proof set status, status code %d: %s", resp.StatusCode, string(bodyBytes))
+			return fmt.Errorf("failed to get data set status, status code %d: %s", resp.StatusCode, string(bodyBytes))
 		}
 
 		return nil
 	},
 }
 
-var getProofSetCmd = &cli.Command{
-	Name:      "get-proof-set",
-	Usage:     "Retrieve the details of a proof set from the PDP service",
+var getDataSetCmd = &cli.Command{
+	Name:      "get-data-set",
+	Usage:     "Retrieve the details of a data set from the PDP service",
 	ArgsUsage: "<set-id>",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
@@ -1077,7 +1076,7 @@ var getProofSetCmd = &cli.Command{
 		}
 
 		// Construct the request URL
-		getURL := fmt.Sprintf("%s/pdp/proof-sets/%d", serviceURL, setID)
+		getURL := fmt.Sprintf("%s/pdp/data-sets/%d", serviceURL, setID)
 
 		// Create the GET request
 		req, err := http.NewRequest("GET", getURL, nil)
@@ -1119,8 +1118,8 @@ var getProofSetCmd = &cli.Command{
 				return fmt.Errorf("failed to parse JSON response: %v", err)
 			}
 
-			// Display the proof set details
-			fmt.Printf("Proof Set ID: %d\n", response.ID)
+			// Display the data set details
+			fmt.Printf("Data Set ID: %d\n", response.ID)
 			fmt.Printf("Next Challenge Epoch: %d\n", response.NextChallengeEpoch)
 			fmt.Printf("Roots:\n")
 			for _, root := range response.Roots {
@@ -1131,16 +1130,16 @@ var getProofSetCmd = &cli.Command{
 				fmt.Println()
 			}
 		} else {
-			return fmt.Errorf("failed to get proof set, status code %d: %s", resp.StatusCode, string(bodyBytes))
+			return fmt.Errorf("failed to get data set, status code %d: %s", resp.StatusCode, string(bodyBytes))
 		}
 
 		return nil
 	},
 }
 
-var addRootsCmd = &cli.Command{
-	Name:  "add-roots",
-	Usage: "Add roots to a proof set on the PDP service",
+var addPiecesCmd = &cli.Command{
+	Name:  "add-pieces",
+	Usage: "Add pieces to a data set on the PDP service",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:     "service-url",
@@ -1148,8 +1147,8 @@ var addRootsCmd = &cli.Command{
 			Required: true,
 		},
 		&cli.Uint64Flag{
-			Name:     "proof-set-id",
-			Usage:    "ID of the proof set to which roots will be added",
+			Name:     "data-set-id",
+			Usage:    "ID of the data set to which pieces will be added",
 			Required: true,
 		},
 		&cli.StringFlag{
@@ -1158,8 +1157,8 @@ var addRootsCmd = &cli.Command{
 			Required: true,
 		},
 		&cli.StringSliceFlag{
-			Name:     "root",
-			Usage:    "Root CID and its subroots. Format: rootCID:subrootCID1+subrootCID2,...",
+			Name:     "piece",
+			Usage:    "Piece CID and its subpieces. Format: pieceCID:subpieceCID1+subpieceCID2,...",
 			Required: true,
 		},
 		&cli.StringFlag{
@@ -1171,8 +1170,8 @@ var addRootsCmd = &cli.Command{
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
 		serviceName := cctx.String("service-name")
-		proofSetID := cctx.Uint64("proof-set-id")
-		rootInputs := cctx.StringSlice("root")
+		dataSetID := cctx.Uint64("data-set-id")
+		pieceInputs := cctx.StringSlice("piece")
 		extraDataHexStr := cctx.String("extra-data")
 
 		// Validate extraData hex string and its decoded length
@@ -1186,51 +1185,51 @@ var addRootsCmd = &cli.Command{
 			return fmt.Errorf("failed to create JWT token: %v", err)
 		}
 
-		// Parse the root inputs to construct the request payload
-		type SubrootEntry struct {
-			SubrootCID string `json:"subrootCid"`
+		// Parse the piece inputs to construct the request payload
+		type SubpieceEntry struct {
+			SubpieceCID string `json:"subpieceCid"`
 		}
 
-		type AddRootRequest struct {
-			RootCID  string         `json:"rootCid"`
-			Subroots []SubrootEntry `json:"subroots"`
+		type AddPieceRequest struct {
+			PieceCID  string          `json:"pieceCid"`
+			Subpieces []SubpieceEntry `json:"subpieces"`
 		}
 
-		var addRootRequests []AddRootRequest
+		var addPieceRequests []AddPieceRequest
 
-		for _, rootInput := range rootInputs {
-			// Expected format: rootCID:subrootCID1,subrootCID2,...
-			parts := strings.SplitN(rootInput, ":", 2)
+		for _, pieceInput := range pieceInputs {
+			// Expected format: pieceCID:subpieceCID1,subpieceCID2,...
+			parts := strings.SplitN(pieceInput, ":", 2)
 			if len(parts) != 2 {
-				return fmt.Errorf("invalid root input format: %s (%d)", rootInput, len(parts))
+				return fmt.Errorf("invalid piece input format: %s (%d)", pieceInput, len(parts))
 			}
-			rootCID := parts[0]
-			subrootsStr := parts[1]
-			subrootCIDStrs := strings.Split(subrootsStr, "+")
+			pieceCID := parts[0]
+			subpiecesStr := parts[1]
+			subpieceCIDStrs := strings.Split(subpiecesStr, "+")
 
-			if rootCID == "" || len(subrootCIDStrs) == 0 {
-				return fmt.Errorf("rootCID and at least one subrootCID are required")
-			}
-
-			var subroots []SubrootEntry
-			for _, subrootCID := range subrootCIDStrs {
-				subroots = append(subroots, SubrootEntry{SubrootCID: subrootCID})
+			if pieceCID == "" || len(subpieceCIDStrs) == 0 {
+				return fmt.Errorf("pieceCID and at least one subpieceCID are required")
 			}
 
-			addRootRequests = append(addRootRequests, AddRootRequest{
-				RootCID:  rootCID,
-				Subroots: subroots,
+			var subpieces []SubpieceEntry
+			for _, subpieceCID := range subpieceCIDStrs {
+				subpieces = append(subpieces, SubpieceEntry{SubpieceCID: subpieceCID})
+			}
+
+			addPieceRequests = append(addPieceRequests, AddPieceRequest{
+				PieceCID:  pieceCID,
+				Subpieces: subpieces,
 			})
 		}
 
 		// Construct the full request payload including extraData
-		type AddRootsPayload struct {
-			Roots     []AddRootRequest `json:"roots"`
-			ExtraData *string          `json:"extraData,omitempty"`
+		type AddPiecesPayload struct {
+			Pieces    []AddPieceRequest `json:"pieces"`
+			ExtraData *string           `json:"extraData,omitempty"`
 		}
 
-		payload := AddRootsPayload{
-			Roots: addRootRequests,
+		payload := AddPiecesPayload{
+			Pieces: addPieceRequests,
 		}
 		if extraDataHexStr != "" {
 			// Pass the validated 0x-prefixed hex string directly
@@ -1243,7 +1242,7 @@ var addRootsCmd = &cli.Command{
 		}
 
 		// Construct the POST URL
-		postURL := fmt.Sprintf("%s/pdp/proof-sets/%d/roots", serviceURL, proofSetID)
+		postURL := fmt.Sprintf("%s/pdp/data-sets/%d/pieces", serviceURL, dataSetID)
 
 		// Create the POST request
 		req, err := http.NewRequest("POST", postURL, bytes.NewBuffer(requestBodyBytes))
@@ -1271,10 +1270,10 @@ var addRootsCmd = &cli.Command{
 		bodyString := string(bodyBytes)
 
 		if resp.StatusCode == http.StatusCreated {
-			fmt.Printf("Roots added to proof set ID %d successfully.\n", proofSetID)
+			fmt.Printf("Pieces added to data set ID %d successfully.\n", dataSetID)
 			fmt.Printf("Response: %s\n", bodyString)
 		} else {
-			return fmt.Errorf("failed to add roots, status code %d: %s", resp.StatusCode, bodyString)
+			return fmt.Errorf("failed to add pieces, status code %d: %s", resp.StatusCode, bodyString)
 		}
 
 		return nil
@@ -1383,9 +1382,9 @@ var downloadFileCmd = &cli.Command{
 	},
 }
 
-var removeRootsCmd = &cli.Command{
-	Name:  "remove-roots",
-	Usage: "Schedule roots for removal after next proof submission",
+var removePiecesCmd = &cli.Command{
+	Name:  "remove-pieces",
+	Usage: "Schedule pieces for removal after next proof submission",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:     "service-url",
@@ -1393,8 +1392,8 @@ var removeRootsCmd = &cli.Command{
 			Required: true,
 		},
 		&cli.Uint64Flag{
-			Name:     "proof-set-id",
-			Usage:    "ID of the proof set to which roots will be added",
+			Name:     "data-set-id",
+			Usage:    "ID of the data set from which pieces will be removed",
 			Required: true,
 		},
 		&cli.StringFlag{
@@ -1403,16 +1402,16 @@ var removeRootsCmd = &cli.Command{
 			Required: true,
 		},
 		&cli.Uint64Flag{
-			Name:     "root-id",
-			Usage:    "Root ID for removal",
+			Name:     "piece-id",
+			Usage:    "Piece ID for removal",
 			Required: true,
 		},
 	},
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
 		serviceName := cctx.String("service-name")
-		proofSetID := cctx.Uint64("proof-set-id")
-		rootID := cctx.Uint64("root-id")
+		dataSetID := cctx.Uint64("data-set-id")
+		pieceID := cctx.Uint64("piece-id")
 
 		// Create the JWT token
 		jwtToken, err := getJWTTokenForService(serviceName)
@@ -1421,7 +1420,7 @@ var removeRootsCmd = &cli.Command{
 		}
 
 		// Construct the POST URL
-		deleteURL := fmt.Sprintf("%s/pdp/proof-sets/%d/roots/%d", serviceURL, proofSetID, rootID)
+		deleteURL := fmt.Sprintf("%s/pdp/data-sets/%d/pieces/%d", serviceURL, dataSetID, pieceID)
 		fmt.Printf("Delete URL: %s\n", deleteURL)
 
 		// Create the POST request
@@ -1443,9 +1442,9 @@ var removeRootsCmd = &cli.Command{
 
 		// Read and display the response
 		if resp.StatusCode == http.StatusNoContent {
-			fmt.Printf("Root %d scheduled for removal from proof set ID %d.\n", rootID, proofSetID)
+			fmt.Printf("Piece %d scheduled for removal from data set ID %d.\n", pieceID, dataSetID)
 		} else {
-			return fmt.Errorf("failed to add roots, status code %d", resp.StatusCode)
+			return fmt.Errorf("failed to remove piece, status code %d", resp.StatusCode)
 		}
 
 		return nil

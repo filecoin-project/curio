@@ -144,10 +144,10 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ---
 
-### 4. Create a Proof Set
+### 4. Create a Data Set
 
 - **Endpoint:** `POST /pdp/proof-sets`
-- **Description:** Create a new proof set.
+- **Description:** Create a new data set.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **Request Body:**
 
@@ -164,7 +164,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 - **Status Code:** `201 Created`
 - **Headers:**
-    - `Location`: The URL to check the status of the proof set creation.
+    - `Location`: The URL to check the status of the data set creation.
 
 #### Errors
 
@@ -194,33 +194,33 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
   "service": "<service-name>",
   "txStatus": "<transaction-status>",
   "ok": <null-or-boolean>,
-  "proofSetId": <proof-set-id-or-null>
+  "proofSetId": <data-set-id-or-null>
 }
 ```
 
 - **Fields:**
-    - `createMessageHash`: The transaction hash used to create the proof set.
-    - `proofsetCreated`: Whether the proof set has been created (`true` or `false`).
+    - `createMessageHash`: The transaction hash used to create the data set.
+    - `proofsetCreated`: Whether the data set has been created (`true` or `false`).
     - `service`: The service name.
     - `txStatus`: The transaction status (`"pending"`, `"confirmed"`, etc.).
     - `ok`: `true` if the transaction was successful, `false` if it failed, or `null` if pending.
-    - `proofSetId`: The ID of the created proof set, if available.
+    - `proofSetId`: The ID of the created data set, if available.
 
 #### Errors
 
 - `400 Bad Request`: Missing or invalid `txHash`.
 - `401 Unauthorized`: Missing or invalid JWT token, or service label mismatch.
-- `404 Not Found`: Proof set creation not found for the given `txHash`.
+- `404 Not Found`: Data set creation not found for the given `txHash`.
 
 ---
 
-### 6. Get Proof Set Details
+### 6. Get Data Set Details
 
-- **Endpoint:** `GET /pdp/proof-sets/{proofSetID}`
-- **Description:** Retrieve the details of a proof set, including its roots.
+- **Endpoint:** `GET /pdp/proof-sets/{dataSetID}`
+- **Description:** Retrieve the details of a data set, including its roots.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **URL Parameters:**
-    - `proofSetID`: The ID of the proof set.
+    - `dataSetID`: The ID of the data set.
 
 #### Response
 
@@ -229,13 +229,13 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 ```json
 {
-  "id": <proofSetID>,
+  "id": <dataSetID>,
   "roots": [
     {
       "rootId": <rootID>,
-      "rootCid": "<rootCID>",
-      "subrootCid": "<subrootCID>",
-      "subrootOffset": <subrootOffset>
+      "rootCid": "<pieceCID>",
+      "subrootCid": "<subPieceCID>",
+      "subrootOffset": <subPieceOffset>
     },
     // ...
   ]
