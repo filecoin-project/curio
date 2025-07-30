@@ -69,7 +69,7 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 		fil:       fil,
 	}
 
-	// ProveTasks are created on pdp_proof_sets entries where
+	// ProveTasks are created on pdp_data_sets entries where
 	// challenge_request_msg_hash is not null (=not yet landed)
 
 	err := chainSched.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
@@ -90,7 +90,7 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 
 				err := tx.Select(&dataSets, `
                     SELECT p.id
-                    FROM pdp_proof_sets p
+                    FROM pdp_data_sets p
                     INNER JOIN message_waits_eth mw on mw.signed_tx_hash = p.challenge_request_msg_hash
                     WHERE p.challenge_request_msg_hash IS NOT NULL AND mw.tx_success = TRUE AND p.prove_at_epoch < $1 
                     LIMIT 2
@@ -112,7 +112,7 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 
 				// Insert a new task into pdp_prove_tasks
 				affected, err := tx.Exec(`
-                    INSERT INTO pdp_prove_tasks (proofset, task_id)
+                    INSERT INTO pdp_prove_tasks (data_set, task_id)
                     VALUES ($1, $2) ON CONFLICT DO NOTHING
                 `, todo.ID, id)
 				if err != nil {
@@ -122,14 +122,14 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
 					return false, nil
 				}
 
-				// Update pdp_proof_sets to set next_challenge_possible = FALSE
+				// Update pdp_data_sets to set next_challenge_possible = FALSE
 				affected, err = tx.Exec(`
-                    UPDATE pdp_proof_sets
+                    UPDATE pdp_data_sets
                     SET challenge_request_msg_hash = NULL
                     WHERE id = $1 AND challenge_request_msg_hash IS NOT NULL
                 `, todo.ID)
 				if err != nil {
-					return false, xerrors.Errorf("failed to update pdp_proof_sets: %w", err)
+					return false, xerrors.Errorf("failed to update pdp_data_sets: %w", err)
 				}
 				if affected == 0 {
 					more = false
@@ -161,7 +161,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	var dataSetId int64
 
 	err = p.db.QueryRow(context.Background(), `
-        SELECT proofset
+        SELECT data_set
         FROM pdp_prove_tasks
         WHERE task_id = $1
     `, taskID).Scan(&dataSetId)
@@ -336,7 +336,7 @@ func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDP
 	for i := 0; i < numChallenges; i++ {
 		piece := pieceId[i]
 
-		proof, err := p.proveRoot(ctx, dataSetId, piece.PieceId.Int64(), piece.Offset.Int64())
+		proof, err := p.provePiece(ctx, dataSetId, piece.PieceId.Int64(), piece.Offset.Int64())
 		if err != nil {
 			return nil, xerrors.Errorf("failed to prove piece %d (%d, %d, %d): %w", i, dataSetId, piece.PieceId.Int64(), piece.Offset.Int64(), err)
 		}
@@ -429,26 +429,26 @@ func (p *ProveTask) genSubPieceMemtree(ctx context.Context, subPieceCid string, 
 	return proof.BuildSha254Memtree(r, subPieceSize.Unpadded())
 }
 
-func (p *ProveTask) proveRoot(ctx context.Context, dataSetId int64, pieceId int64, challengedLeaf int64) (contract.PDPVerifierProof, error) {
+func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int64, challengedLeaf int64) (contract.PDPVerifierProof, error) {
 	const arity = 2
 
-	rootChallengeOffset := challengedLeaf * LeafSize
+	pieceChallengeOffset := challengedLeaf * LeafSize
 
 	// Retrieve the piece and subpiece
 	type subPieceMeta struct {
-		Root           string `db:"root"`
-		SubPiece       string `db:"subroot"`
-		SubPieceOffset int64  `db:"subroot_offset"` // padded offset
-		SubPieceSize   int64  `db:"subroot_size"`   // padded piece size
+		Piece          string `db:"piece"`
+		SubPiece       string `db:"sub_piece"`
+		SubPieceOffset int64  `db:"sub_piece_offset"` // padded offset
+		SubPieceSize   int64  `db:"sub_piece_size"`   // padded piece size
 	}
 
 	var subPieces []subPieceMeta
 
 	err := p.db.Select(context.Background(), &subPieces, `
-			SELECT root, subroot, subroot_offset, subroot_size
-			FROM pdp_proofset_roots
-			WHERE proofset = $1 AND root_id = $2
-			ORDER BY subroot_offset ASC
+			SELECT piece, sub_piece, sub_piece_offset, sub_piece_size
+			FROM pdp_data_set_pieces
+			WHERE data_set = $1 AND piece_id = $2
+			ORDER BY sub_piece_offset ASC
 		`, dataSetId, pieceId)
 	if err != nil {
 		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get piece and subPiece: %w", err)
@@ -456,7 +456,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetId int64, pieceId int6
 
 	// find first subpiece with subpiece_offset >= pieceChallengeOffset
 	challSubPiece, challSubPieceIdx, ok := lo.FindLastIndexOf(subPieces, func(subPiece subPieceMeta) bool {
-		return subPiece.SubPieceOffset < rootChallengeOffset
+		return subPiece.SubPieceOffset < pieceChallengeOffset
 	})
 	if !ok {
 		return contract.PDPVerifierProof{}, xerrors.New("no subpiece found")
@@ -523,8 +523,8 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetId int64, pieceId int6
 		}
 	}
 
-	rootSize := nextPowerOfTwo(subPiecesSize)
-	rootLevel := proof.NodeLevel(int64(rootSize/LeafSize), arity)
+	pieceSize := nextPowerOfTwo(subPiecesSize)
+	rootLevel := proof.NodeLevel(int64(pieceSize/LeafSize), arity)
 
 	// 2. build the partial tree
 	// we do the build from the right side of the tree - elements are sorted by size, so only elements on the right side can have missing siblings
@@ -640,16 +640,16 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetId int64, pieceId int6
 
 	log.Debugw("proof complete", "proof", out)
 
-	pieceCid, err := cid.Parse(subPieces[0].Root)
+	pieceCid, err := cid.Parse(subPieces[0].Piece)
 	if err != nil {
 		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to parse piece CID: %w", err)
 	}
-	commRoot, err := commcid.CIDToPieceCommitmentV1(pieceCid)
+	commPiece, err := commcid.CIDToPieceCommitmentV1(pieceCid)
 	if err != nil {
 		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to convert CID to piece commitment: %w", err)
 	}
 	var cr [LeafSize]byte
-	copy(cr[:], commRoot)
+	copy(cr[:], commPiece)
 
 	if !Verify(out, cr, uint64(challengedLeaf)) {
 		return contract.PDPVerifierProof{}, xerrors.Errorf("proof verification failed")
@@ -686,8 +686,8 @@ func (p *ProveTask) cleanupDeletedPieces(ctx context.Context, dataSetId int64, p
 			var pdpPieceRefID int64
 			err := tx.QueryRow(`
                 SELECT pdp_pieceref 
-                FROM pdp_proofset_roots 
-                WHERE proofset = $1 AND root_id = $2
+                FROM pdp_data_set_pieces 
+                WHERE data_set = $1 AND piece_id = $2
             `, dataSetId, removeID.Int64()).Scan(&pdpPieceRefID)
 			if err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
@@ -708,8 +708,8 @@ func (p *ProveTask) cleanupDeletedPieces(ctx context.Context, dataSetId int64, p
 
 			// Delete the piece entry
 			_, err = tx.Exec(`
-                DELETE FROM pdp_proofset_roots 
-                WHERE proofset = $1 AND root_id = $2
+                DELETE FROM pdp_data_set_pieces 
+                WHERE data_set = $1 AND piece_id = $2
             `, dataSetId, removeID)
 			if err != nil {
 				return false, xerrors.Errorf("failed to delete piece %d: %w", removeID, err)

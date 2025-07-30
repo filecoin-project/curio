@@ -359,18 +359,18 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 - `400 Bad Request`: Invalid request.
 - `401 Unauthorized`: Missing or invalid JWT token.
-- `404 Not Found`: Proof set or root not found.
+- `404 Not Found`: Data set or piece not found.
 
 ---
 
-### 10. Delete a Root from a Proof Set *(To be implemented)*
+### 10. Delete a Piece from a Data Set *(To be implemented)*
 
-- **Endpoint:** `DELETE /pdp/proof-sets/{proofSetID}/roots/{rootID}`
-- **Description:** Remove a root from a proof set.
+- **Endpoint:** `DELETE /pdp/data-sets/{dataSetId}/pieces/{pieceId}`
+- **Description:** Remove a piece from a data set.
 - **Authentication:** Requires a valid JWT token in the `Authorization` header.
 - **URL Parameters:**
-    - `proofSetID`: The ID of the proof set.
-    - `rootID`: The ID of the root.
+    - `dataSetId`: The ID of the data set.
+    - `pieceId`: The ID of the piece.
 
 #### Response
 
@@ -380,7 +380,7 @@ When you initiate an upload with the `notify` field specified, the PDP Service w
 
 - `400 Bad Request`: Invalid request.
 - `401 Unauthorized`: Missing or invalid JWT token.
-- `404 Not Found`: Proof set or root not found.
+- `404 Not Found`: Data set or piece not found.
 
 ---
 
@@ -445,56 +445,56 @@ The server verifies the JWT token as follows:
 
 ---
 
-## Root CID Computation from SubRoots
+## Piece CID Computation from SubPieces
 
-When adding roots to a proof set using the `POST /pdp/proof-sets/{proofSetID}/roots` endpoint, the server performs validation and computation of the root CID from the provided subRoots.
+When adding pieces to a data set using the `POST /pdp/data-sets/{dataSetId}/pieces` endpoint, the server performs validation and computation of the piece CID from the provided subPieces.
 
-### Root Computation Process
+### Piece Computation Process
 
-1. **Validating SubRoots:**
-    - Ensure that all subRoots are owned by the requesting service.
-    - The subRoots must have been previously uploaded and stored on the server.
+1. **Validating SubPieces:**
+    - Ensure that all subPieces are owned by the requesting service.
+    - The subPieces must have been previously uploaded and stored on the server.
 
-2. **Ordering SubRoots:**
-    - **Important:** SubRoots must be ordered from **largest to smallest size**.
-    - This ordering ensures that no padding is required between the subRoots, aligning them correctly for root computation.
+2. **Ordering SubPieces:**
+    - **Important:** SubPieces must be ordered from **largest to smallest size**.
+    - This ordering ensures that no padding is required between the subPieces, aligning them correctly for piece computation.
 
 3. **Piece Sizes and Alignment:**
-    - Each subRoot corresponds to a piece with a size that is a power of two (e.g., 128 bytes, 256 bytes, 512 bytes).
-    - The concatenation of the subRoots must not require padding to align to the sector size used in the computation.
+    - Each subPiece corresponds to a data segment with a size that is a power of two (e.g., 128 bytes, 256 bytes, 512 bytes).
+    - The concatenation of the subPieces must not require padding to align to the sector size used in the computation.
 
-4. **Computing the Root CID:**
-    - The server uses the `GenerateUnsealedCID` function to compute the root CID from the subRoots.
+4. **Computing the Piece CID:**
+    - The server uses the `GenerateUnsealedCID` function to compute the piece CID from the subPieces.
     - This function emulates the computation performed in the Filecoin proofs implementation.
-    - The process involves stacking the subRoots and combining them using a Merkle tree hash function.
+    - The process involves stacking the subPieces and combining them using a Merkle tree hash function.
 
-5. **Validation of Computed Root CID:**
-    - The computed root CID is compared with the `rootCid` provided in the request.
-    - If the computed root CID does not match the provided `rootCid`, the request is rejected with an error.
+5. **Validation of Computed Piece CID:**
+    - The computed piece CID is compared with the `pieceCid` provided in the request.
+    - If the computed piece CID does not match the provided `pieceCid`, the request is rejected with an error.
 
 ### Constraints and Requirements
 
-- **SubRoots Ownership:** All subRoot CIDs must belong to the requesting service.
-- **SubRoots Existence:** All subRoot CIDs must be valid and previously stored on the server.
-- **Ordering of SubRoots:** Must be ordered from largest to smallest. The sizes must be decreasing or equal; no subRoot can be larger than the preceding one.
-- **SubRoot Sizes:** Each subRoot size must be a power of two and at least 128 bytes.
-- **Total Size Limit:** The total size of the concatenated subRoots must not exceed the maximum allowed sector size.
+- **SubPieces Ownership:** All subPiece CIDs must belong to the requesting service.
+- **SubPieces Existence:** All subPiece CIDs must be valid and previously stored on the server.
+- **Ordering of SubPieces:** Must be ordered from largest to smallest. The sizes must be decreasing or equal; no subPiece can be larger than the preceding one.
+- **SubPiece Sizes:** Each subPiece size must be a power of two and at least 128 bytes.
+- **Total Size Limit:** The total size of the concatenated subPieces must not exceed the maximum allowed sector size.
 
 ### Error Responses
 
-- **Invalid SubRoot Order:**
+- **Invalid SubPiece Order:**
     - **Status Code:** `400 Bad Request`
-    - **Message:** `SubRoots must be in descending order of size`
+    - **Message:** `SubPieces must be in descending order of size`
 
-- **SubRoot Not Found or Unauthorized:**
+- **SubPiece Not Found or Unauthorized:**
     - **Status Code:** `400 Bad Request`
-    - **Message:** `subRoot CID <CID> not found or does not belong to service`
+    - **Message:** `subPiece CID <CID> not found or does not belong to service`
 
-- **Root CID Mismatch:**
+- **Piece CID Mismatch:**
     - **Status Code:** `400 Bad Request`
-    - **Message:** `provided RootCID does not match generated RootCID`
+    - **Message:** `provided PieceCID does not match generated PieceCID`
 
-### Root Computation Function
+### Piece Computation Function
 
 ```go
 func GenerateUnsealedCID(proofType abi.RegisteredSealProof, pieceInfos []abi.PieceInfo) (cid.Cid, error)
@@ -502,8 +502,8 @@ func GenerateUnsealedCID(proofType abi.RegisteredSealProof, pieceInfos []abi.Pie
 
 Where:
 
-- `pieceInfos` is a list of pieces (subRoots) with their sizes and CIDs.
-- The function builds a CommP tree from the subRoots, combining them correctly according to their sizes and alignment.
+- `pieceInfos` is a list of pieces (subPieces) with their sizes and CIDs.
+- The function builds a CommP tree from the subPieces, combining them correctly according to their sizes and alignment.
 
 ---
 
@@ -526,24 +526,24 @@ Represents hash information about a piece.
     - `hash`: Hex-encoded hash value.
     - `size`: Size of the piece in bytes.
 
-### RootEntry
+### PieceEntry
 
-Represents a root entry in a proof set.
+Represents a piece entry in a data set.
 
 ```json
 {
-  "rootId": <rootID>,
-  "rootCid": "<rootCID>",
-  "subRootCid": "<subRootCID>",
-  "subRootOffset": <subRootOffset>
+  "pieceId": <pieceID>,
+  "pieceCid": "<pieceCID>",
+  "subPieceCid": "<subPieceCID>",
+  "subPieceOffset": <subPieceOffset>
 }
 ```
 
 - **Fields:**
-    - `rootId`: The ID of the root.
-    - `rootCid`: The CID of the root.
-    - `subRootCid`: The CID of the subRoot.
-    - `subRootOffset`: The offset of the subRoot.
+    - `pieceId`: The ID of the piece.
+    - `pieceCid`: The CID of the piece.
+    - `subPieceCid`: The CID of the subPiece.
+    - `subPieceOffset`: The offset of the subPiece.
 
 ---
 
@@ -648,12 +648,12 @@ Error responses typically include an error message in the response body.
    HTTP/1.1 200 OK
    ```
 
-### Creating a Proof Set
+### Creating a Data Set
 
 **Request:**
 
 ```http
-POST /pdp/proof-sets HTTP/1.1
+POST /pdp/data-sets HTTP/1.1
 Host: example.com
 Authorization: Bearer <JWT-token>
 Content-Type: application/json
@@ -667,30 +667,32 @@ Content-Type: application/json
 
 ```http
 HTTP/1.1 201 Created
-Location: /pdp/proof-sets/created/0xabc123...
+Location: /pdp/data-sets/created/0xabc123...
 ```
 
-### Adding Roots to a Proof Set
+### Adding Pieces to a Data Set
 
 **Request:**
 
 ```http
-POST /pdp/proof-sets/{proofSetID}/roots HTTP/1.1
+POST /pdp/data-sets/{dataSetId}/pieces HTTP/1.1
 Host: example.com
 Authorization: Bearer <JWT-token>
 Content-Type: application/json
 
-[
-  {
-    "rootCid": "<rootCID>",
-    "subRoots": [
-      { "subRootCid": "<subRootCID1>" },
-      { "subRootCid": "<subRootCID2>" },
-      { "subRootCid": "<subRootCID3>" }
-    ]
-  },
-  // ... Additional roots if needed
-]
+{
+  "pieces": [
+    {
+      "pieceCid": "<pieceCID>",
+      "subPieces": [
+        { "subPieceCid": "<subPieceCID1>" },
+        { "subPieceCid": "<subPieceCID2>" },
+        { "subPieceCid": "<subPieceCID3>" }
+      ]
+    },
+    // ... Additional pieces if needed
+  ]
+}
 ```
 
 **Response:**

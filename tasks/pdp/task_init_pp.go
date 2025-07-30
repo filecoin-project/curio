@@ -55,7 +55,7 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 
 		err := db.Select(ctx, &toCallInit, `
                 SELECT id
-                FROM pdp_proof_sets
+                FROM pdp_data_sets
                 WHERE challenge_request_task_id IS NULL
                 AND init_ready AND prove_at_epoch IS NULL
             `)
@@ -65,14 +65,14 @@ func NewInitProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 
 		for _, ps := range toCallInit {
 			ipp.addFunc.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-				// Update pdp_proof_sets to set challenge_request_task_id = id
+				// Update pdp_data_sets to set challenge_request_task_id = id
 				affected, err := tx.Exec(`
-                        UPDATE pdp_proof_sets
+                        UPDATE pdp_data_sets
                         SET challenge_request_task_id = $1
                         WHERE id = $2 AND challenge_request_task_id IS NULL
                     `, id, ps.DataSetId)
 				if err != nil {
-					return false, xerrors.Errorf("failed to update pdp_proof_sets: %w", err)
+					return false, xerrors.Errorf("failed to update pdp_data_sets: %w", err)
 				}
 				if affected == 0 {
 					// Someone else might have already scheduled the task
@@ -97,7 +97,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 
 	err = ipp.db.QueryRow(ctx, `
         SELECT id
-        FROM pdp_proof_sets
+        FROM pdp_data_sets
         WHERE challenge_request_task_id = $1 
     `, taskID).Scan(&dataSetId)
 	if err == sql.ErrNoRows {
@@ -105,7 +105,7 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 		return true, nil
 	}
 	if err != nil {
-		return false, xerrors.Errorf("failed to query pdp_proof_sets: %w", err)
+		return false, xerrors.Errorf("failed to query pdp_data_sets: %w", err)
 	}
 
 	// Get the listener address for this data set from the PDPVerifier contract
@@ -186,19 +186,19 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 
 	// Update the database in a transaction
 	_, err = ipp.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// Update pdp_proof_sets
+		// Update pdp_data_sets
 		affected, err := tx.Exec(`
-            UPDATE pdp_proof_sets
+            UPDATE pdp_data_sets
             SET challenge_request_msg_hash = $1,
                 prev_challenge_request_epoch = $2,
 				prove_at_epoch = $3
             WHERE id = $4
         `, txHash.Hex(), ts.Height(), init_prove_at.Uint64(), dataSetId)
 		if err != nil {
-			return false, xerrors.Errorf("failed to update pdp_proof_sets: %w", err)
+			return false, xerrors.Errorf("failed to update pdp_data_sets: %w", err)
 		}
 		if affected == 0 {
-			return false, xerrors.Errorf("pdp_proof_sets update affected 0 rows")
+			return false, xerrors.Errorf("pdp_data_sets update affected 0 rows")
 		}
 
 		// Insert into message_waits_eth

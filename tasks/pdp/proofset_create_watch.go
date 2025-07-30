@@ -36,16 +36,16 @@ func NewWatcherCreate(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chains
 }
 
 func processPendingDataSetCreates(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
-	// Query for pdp_proofset_creates entries where ok = TRUE and proofset_created = FALSE
+	// Query for pdp_data_set_creates entries where ok = TRUE and data_set_created = FALSE
 	var dataSetCreates []DataSetCreate
 
 	err := db.Select(ctx, &dataSetCreates, `
         SELECT create_message_hash, service
-        FROM pdp_proofset_creates
-        WHERE ok = TRUE AND proofset_created = FALSE
+        FROM pdp_data_set_creates
+        WHERE ok = TRUE AND data_set_created = FALSE
     `)
 	if err != nil {
-		return xerrors.Errorf("failed to select proof set creates: %w", err)
+		return xerrors.Errorf("failed to select data set creates: %w", err)
 	}
 
 	log.Infow("DataSetCreate watcher checking pending data sets", "count", len(dataSetCreates))
@@ -118,20 +118,20 @@ func processDataSetCreate(ctx context.Context, db *harmonydb.DB, psc DataSetCrea
 		return xerrors.Errorf("failed to get max proving period: %w", err)
 	}
 
-	// Insert a new entry into pdp_proof_sets
+	// Insert a new entry into pdp_data_sets
 	err = insertDataSet(ctx, db, psc.CreateMessageHash, dataSetId, psc.Service, provingPeriod, challengeWindow)
 	if err != nil {
 		return xerrors.Errorf("failed to insert data set %d for tx %+v: %w", dataSetId, psc, err)
 	}
 
-	// Update pdp_proofset_creates to set proofset_created = TRUE
+	// Update pdp_data_set_creates to set data_set_created = TRUE
 	_, err = db.Exec(ctx, `
-        UPDATE pdp_proofset_creates
-        SET proofset_created = TRUE
+        UPDATE pdp_data_set_creates
+        SET data_set_created = TRUE
         WHERE create_message_hash = $1
     `, psc.CreateMessageHash)
 	if err != nil {
-		return xerrors.Errorf("failed to update proofset_creates for tx %s: %w", psc.CreateMessageHash, err)
+		return xerrors.Errorf("failed to update data_set_creates for tx %s: %w", psc.CreateMessageHash, err)
 	}
 
 	return nil
@@ -163,10 +163,10 @@ func extractDataSetIdFromReceipt(receipt *types.Receipt) (uint64, error) {
 }
 
 func insertDataSet(ctx context.Context, db *harmonydb.DB, createMsg string, dataSetId uint64, service string, provingPeriod uint64, challengeWindow uint64) error {
-	// Implement the insertion into pdp_proof_sets table
+	// Implement the insertion into pdp_data_sets table
 	// Adjust the SQL statement based on your table schema
 	_, err := db.Exec(ctx, `
-        INSERT INTO pdp_proof_sets (id, create_message_hash, service, proving_period, challenge_window)
+        INSERT INTO pdp_data_sets (id, create_message_hash, service, proving_period, challenge_window)
         VALUES ($1, $2, $3, $4, $5)
     `, dataSetId, createMsg, service, provingPeriod, challengeWindow)
 	return err

@@ -13,7 +13,6 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -224,7 +223,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Step 6: Insert into message_waits_eth and pdp_proofset_creates
+	// Step 6: Insert into message_waits_eth and pdp_data_set_creates
 	txHashLower := strings.ToLower(txHash.Hex())
 	log.Infow("PDP CreateDataSet: Inserting transaction tracking",
 		"txHash", txHashLower,
@@ -232,7 +231,7 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 		"recordKeeper", recordKeeperAddr.Hex())
 	err = p.insertMessageWaitsAndDataSetCreate(ctx, txHashLower, serviceLabel)
 	if err != nil {
-		log.Errorf("Failed to insert into message_waits_eth and pdp_proofset_creates: %+v", err)
+		log.Errorf("Failed to insert into message_waits_eth and pdp_data_set_creates: %+v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -256,7 +255,7 @@ func (p *PDPService) getSenderAddress(ctx context.Context) (common.Address, erro
 	return address, nil
 }
 
-// insertMessageWaitsAndDataSetCreate inserts records into message_waits_eth and pdp_proofset_creates
+// insertMessageWaitsAndDataSetCreate inserts records into message_waits_eth and pdp_data_set_creates
 func (p *PDPService) insertMessageWaitsAndDataSetCreate(ctx context.Context, txHashHex string, serviceLabel string) error {
 	// Begin a database transaction
 	_, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
@@ -275,16 +274,16 @@ func (p *PDPService) insertMessageWaitsAndDataSetCreate(ctx context.Context, txH
 			return false, err // Return false to rollback the transaction
 		}
 
-		// Insert into pdp_proofset_creates
-		log.Debugw("Inserting into pdp_proofset_creates",
+		// Insert into pdp_data_set_creates
+		log.Debugw("Inserting into pdp_data_set_creates",
 			"txHash", txHashHex,
 			"service", serviceLabel)
 		_, err = tx.Exec(`
-            INSERT INTO pdp_proofset_creates (create_message_hash, service)
+            INSERT INTO pdp_data_set_creates (create_message_hash, service)
             VALUES ($1, $2)
         `, txHashHex, serviceLabel)
 		if err != nil {
-			log.Errorw("Failed to insert into pdp_proofset_creates",
+			log.Errorw("Failed to insert into pdp_data_set_creates",
 				"txHash", txHashHex,
 				"error", err)
 			return false, err // Return false to rollback the transaction
@@ -341,17 +340,17 @@ func (p *PDPService) handleGetDataSetCreationStatus(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Step 3: Lookup pdp_proofset_creates by create_message_hash (which is txHash)
+	// Step 3: Lookup pdp_data_set_creates by create_message_hash (which is txHash)
 	var dataSetCreate struct {
 		CreateMessageHash string `db:"create_message_hash"`
 		OK                *bool  `db:"ok"` // Pointer to handle NULL
-		DataSetCreated    bool   `db:"proofset_created"`
+		DataSetCreated    bool   `db:"data_set_created"`
 		Service           string `db:"service"`
 	}
 
 	err = p.db.QueryRow(ctx, `
-        SELECT create_message_hash, ok, proofset_created, service
-        FROM pdp_proofset_creates
+        SELECT create_message_hash, ok, data_set_created, service
+        FROM pdp_data_set_creates
         WHERE create_message_hash = $1
     `, txHash).Scan(&dataSetCreate.CreateMessageHash, &dataSetCreate.OK, &dataSetCreate.DataSetCreated, &dataSetCreate.Service)
 	if err != nil {
@@ -404,17 +403,17 @@ func (p *PDPService) handleGetDataSetCreationStatus(w http.ResponseWriter, r *ht
 	response.TxStatus = txStatus
 
 	if dataSetCreate.DataSetCreated {
-		// The data set has been created, get the dataSetId from pdp_proof_sets
+		// The data set has been created, get the dataSetId from pdp_data_sets
 		var dataSetId uint64
 		err = p.db.QueryRow(ctx, `
             SELECT id
-            FROM pdp_proof_sets
+            FROM pdp_data_sets
             WHERE create_message_hash = $1
         `, txHash).Scan(&dataSetId)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				// Should not happen, but handle gracefully
-				http.Error(w, "Data set not found despite proofset_created = true", http.StatusInternalServerError)
+				http.Error(w, "Data set not found despite data_set_created = true", http.StatusInternalServerError)
 				return
 			}
 			http.Error(w, "Failed to query data set: "+err.Error(), http.StatusInternalServerError)
@@ -472,7 +471,7 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 
 	err = p.db.QueryRow(ctx, `
         SELECT id, service
-        FROM pdp_proof_sets
+        FROM pdp_data_sets
         WHERE id = $1
     `, dataSetId).Scan(&dataSet.ID, &dataSet.Service)
 	if err != nil {
@@ -490,22 +489,22 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 5: Retrieve the roots associated with the data set
-	var roots []struct {
-		PieceID        uint64 `db:"root_id"`
-		RootCID        string `db:"root"`
-		SubPieceCID    string `db:"subroot"`
-		SubPieceOffset int64  `db:"subroot_offset"`
+	// Step 5: Retrieve the pieces associated with the data set
+	var pieces []struct {
+		PieceID        uint64 `db:"piece_id"`
+		PieceCid       string `db:"piece"`
+		SubPieceCID    string `db:"sub_piece"`
+		SubPieceOffset int64  `db:"sub_piece_offset"`
 	}
 
-	err = p.db.Select(ctx, &roots, `
-        SELECT root_id, root, subroot, subroot_offset
-        FROM pdp_proofset_roots
-        WHERE proofset = $1
-        ORDER BY root_id, subroot_offset
+	err = p.db.Select(ctx, &pieces, `
+        SELECT piece_id, piece, sub_piece, sub_piece_offset
+        FROM pdp_data_set_pieces
+        WHERE data_set = $1
+        ORDER BY piece_id, sub_piece_offset
     `, dataSetId)
 	if err != nil {
-		http.Error(w, "Failed to retrieve data set roots: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to retrieve data set pieces: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -513,7 +512,7 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 	var nextChallengeEpoch *int64
 	err = p.db.QueryRow(ctx, `
         SELECT prove_at_epoch
-        FROM pdp_proof_sets
+        FROM pdp_data_sets
         WHERE id = $1
     `, dataSetId).Scan(&nextChallengeEpoch)
 	if err != nil {
@@ -539,13 +538,13 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 		Pieces:             []PieceEntry{}, // Initialize as empty array, not nil
 	}
 
-	// Convert roots to the desired JSON format
-	for _, root := range roots {
+	// Convert pieces to the desired JSON format
+	for _, piece := range pieces {
 		response.Pieces = append(response.Pieces, PieceEntry{
-			PieceID:        root.PieceID,
-			PieceCID:       root.RootCID,
-			SubPieceCID:    root.SubPieceCID,
-			SubPieceOffset: root.SubPieceOffset,
+			PieceID:        piece.PieceID,
+			PieceCID:       piece.PieceCid,
+			SubPieceCID:    piece.SubPieceCID,
+			SubPieceOffset: piece.SubPieceOffset,
 		})
 	}
 
@@ -597,12 +596,12 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// check if the data set belongs to the service in pdp_proof_sets
+	// check if the data set belongs to the service in pdp_data_sets
 
 	var dataSetService string
 	err = p.db.QueryRow(ctx, `
 			SELECT service
-			FROM pdp_proof_sets
+			FROM pdp_data_sets
 			WHERE id = $1
 		`, dataSetIdUint64).Scan(&dataSetService)
 	if err != nil {
@@ -648,7 +647,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	defer r.Body.Close()
 
 	if len(payload.Pieces) == 0 {
-		http.Error(w, "At least one root must be provided", http.StatusBadRequest)
+		http.Error(w, "At least one piece must be provided", http.StatusBadRequest)
 		return
 	}
 
@@ -761,7 +760,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 			}
 		}
 
-		// Now, for each AddRootRequest, validate RootCID and prepare data for ETH transaction
+		// Now, for each AddPieceRequest, validate PieceCid and prepare data for ETH transaction
 		for _, addPieceReq := range payload.Pieces {
 			// Collect pieceInfos for subPieces
 			pieceInfos := make([]abi.PieceInfo, len(addPieceReq.SubPieces))
@@ -782,21 +781,21 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 				totalOffset += uint64(subPieceInfo.PieceInfo.Size)
 			}
 
-			// Use GenerateUnsealedCID to generate RootCID from subPieces
+			// Use GenerateUnsealedCID to generate PieceCid from subPieces
 			proofType := abi.RegisteredSealProof_StackedDrg64GiBV1_1 // Proof type sets max piece size, nothing else
-			generatedRootCID, err := nonffi.GenerateUnsealedCID(proofType, pieceInfos)
+			generatedPieceCid, err := nonffi.GenerateUnsealedCID(proofType, pieceInfos)
 			if err != nil {
-				return false, fmt.Errorf("failed to generate RootCID: %v", err)
+				return false, fmt.Errorf("failed to generate PieceCid: %v", err)
 			}
 
-			// Compare generated RootCID with provided RootCID
-			providedRootCID, err := cid.Decode(addPieceReq.PieceCID)
+			// Compare generated PieceCid with provided PieceCid
+			providedPieceCid, err := cid.Decode(addPieceReq.PieceCID)
 			if err != nil {
-				return false, fmt.Errorf("invalid provided RootCID: %v", err)
+				return false, fmt.Errorf("invalid provided PieceCid: %v", err)
 			}
 
-			if !providedRootCID.Equals(generatedRootCID) {
-				return false, fmt.Errorf("provided RootCID does not match generated RootCID: %s != %s", providedRootCID, generatedRootCID)
+			if !providedPieceCid.Equals(generatedPieceCid) {
+				return false, fmt.Errorf("provided PieceCid does not match generated PieceCid: %s != %s", providedPieceCid, generatedPieceCid)
 			}
 		}
 
@@ -826,10 +825,10 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	var pieceDataArray []PieceData
 
 	for _, addPieceReq := range payload.Pieces {
-		// Convert RootCID to bytes
-		rootCID, err := cid.Decode(addPieceReq.PieceCID)
+		// Convert PieceCid to bytes
+		pieceCid, err := cid.Decode(addPieceReq.PieceCID)
 		if err != nil {
-			http.Error(w, "Invalid RootCID: "+err.Error(), http.StatusBadRequest)
+			http.Error(w, "Invalid PieceCid: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -850,7 +849,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 
 		// Prepare PieceData for Ethereum transaction
 		pieceData := PieceData{
-			Piece:   struct{ Data []byte }{Data: rootCID.Bytes()},
+			Piece:   struct{ Data []byte }{Data: pieceCid.Bytes()},
 			RawSize: new(big.Int).SetUint64(totalSize),
 		}
 
@@ -884,7 +883,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	)
 
 	// Step 8: Send the transaction using SenderETH
-	reason := "pdp-addroots"
+	reason := "pdp-addpieces"
 	txHash, err := p.sender.Send(ctx, fromAddress, txEth, reason)
 	if err != nil {
 		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
@@ -892,16 +891,16 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Step 9: Insert into message_waits_eth and pdp_proofset_roots
+	// Step 9: Insert into message_waits_eth and pdp_data_set_pieces
 	// Ensure consistent lowercase transaction hash
 	txHashLower := strings.ToLower(txHash.Hex())
-	log.Infow("PDP AddRoots: Inserting transaction tracking",
+	log.Infow("PDP AddPieces: Inserting transaction tracking",
 		"txHash", txHashLower,
 		"dataSetId", dataSetIdUint64,
 		"pieceCount", len(payload.Pieces))
 	_, err = p.db.BeginTransaction(ctx, func(txdb *harmonydb.Tx) (bool, error) {
 		// Insert into message_waits_eth
-		log.Debugw("Inserting AddRoots into message_waits_eth",
+		log.Debugw("Inserting AddPieces into message_waits_eth",
 			"txHash", txHashLower,
 			"status", "pending")
 		_, err := txdb.Exec(`
@@ -909,7 +908,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
             VALUES ($1, $2)
         `, txHashLower, "pending")
 		if err != nil {
-			log.Errorw("Failed to insert AddRoots into message_waits_eth",
+			log.Errorw("Failed to insert AddPieces into message_waits_eth",
 				"txHash", txHashLower,
 				"error", err)
 			return false, err // Return false to rollback the transaction
@@ -917,29 +916,29 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 
 		// Update data set for initialization upon first add
 		_, err = txdb.Exec(`
-			UPDATE pdp_proof_sets SET init_ready = true
+			UPDATE pdp_data_sets SET init_ready = true
 			WHERE id = $1 AND prev_challenge_request_epoch IS NULL AND challenge_request_msg_hash IS NULL AND prove_at_epoch IS NULL
 			`, dataSetIdUint64)
 		if err != nil {
 			return false, err
 		}
 
-		// Insert into pdp_proofset_roots
+		// Insert into pdp_data_set_pieces
 
 		for addMessageIndex, addPieceReq := range payload.Pieces {
 			for _, subPieceEntry := range addPieceReq.SubPieces {
 				subPieceInfo := subPieceInfoMap[subPieceEntry.SubPieceCID]
 
-				// Insert into pdp_proofset_roots
+				// Insert into pdp_data_set_pieces
 				_, err = txdb.Exec(`
-                    INSERT INTO pdp_proofset_root_adds (
-                        proofset,
-                        root,
+                    INSERT INTO pdp_data_set_piece_adds (
+                        data_set,
+                        piece,
                         add_message_hash,
                         add_message_index,
-                        subroot,
-                        subroot_offset,
-                        subroot_size,
+                        sub_piece,
+                        sub_piece_offset,
+                        sub_piece_size,
                         pdp_pieceref
                     )
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -1024,7 +1023,7 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 	var dataSetService string
 	err = p.db.QueryRow(ctx, `
 		SELECT service
-		FROM pdp_proof_sets
+		FROM pdp_data_sets
 		WHERE id = $1
 	`, dataSetId).Scan(&dataSetService)
 	if err != nil {
@@ -1042,32 +1041,32 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 		return
 	}
 
-	// Step 4: Query pdp_proofset_root_adds for this transaction
-	type RootAddInfo struct {
-		Root            string `db:"root"`
+	// Step 4: Query pdp_data_set_piece_adds for this transaction
+	type PieceAddInfo struct {
+		Piece           string `db:"piece"`
 		AddMessageIndex int    `db:"add_message_index"`
-		SubPiece        string `db:"subroot"`
-		SubPieceOffset  int64  `db:"subroot_offset"`
-		SubPieceSize    int64  `db:"subroot_size"`
+		SubPiece        string `db:"sub_piece"`
+		SubPieceOffset  int64  `db:"sub_piece_offset"`
+		SubPieceSize    int64  `db:"sub_piece_size"`
 		AddMessageOK    *bool  `db:"add_message_ok"`
-		PiecesAdded     bool   `db:"roots_added"`
+		PiecesAdded     bool   `db:"pieces_added"`
 	}
 
-	var rootAdds []RootAddInfo
-	err = p.db.Select(ctx, &rootAdds, `
-		SELECT root, add_message_index, subroot, subroot_offset,
-		       subroot_size, add_message_ok, roots_added
-		FROM pdp_proofset_root_adds
-		WHERE proofset = $1 AND add_message_hash = $2
-		ORDER BY add_message_index, subroot_offset
+	var pieceAdds []PieceAddInfo
+	err = p.db.Select(ctx, &pieceAdds, `
+		SELECT piece, add_message_index, sub_piece, sub_piece_offset,
+		       sub_piece_size, add_message_ok, pieces_added
+		FROM pdp_data_set_piece_adds
+		WHERE data_set = $1 AND add_message_hash = $2
+		ORDER BY add_message_index, sub_piece_offset
 	`, dataSetId, txHash)
 	if err != nil {
-		http.Error(w, "Failed to query root additions: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to query piece additions: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	if len(rootAdds) == 0 {
-		http.Error(w, "Root addition not found for given transaction", http.StatusNotFound)
+	if len(pieceAdds) == 0 {
+		http.Error(w, "Piece addition not found for given transaction", http.StatusNotFound)
 		return
 	}
 
@@ -1085,58 +1084,58 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 		return
 	}
 
-	// Determine unique roots list
-	uniqueRootMap := make(map[string]bool)
-	for _, ra := range rootAdds {
-		uniqueRootMap[ra.Root] = true
+	// Determine unique pieces list
+	uniquePieceMap := make(map[string]bool)
+	for _, ra := range pieceAdds {
+		uniquePieceMap[ra.Piece] = true
 	}
 
-	// Step 6: If transaction is confirmed and successful, get assigned root IDs
+	// Step 6: If transaction is confirmed and successful, get assigned piece IDs
 	var confirmedPieceIds []uint64
-	if txStatus == "confirmed" && len(rootAdds) > 0 && rootAdds[0].AddMessageOK != nil && *rootAdds[0].AddMessageOK {
-		// Query pdp_proofset_roots for confirmed roots with their IDs
-		rootCids := make([]string, 0, len(uniqueRootMap))
-		for root := range uniqueRootMap {
-			rootCids = append(rootCids, root)
+	if txStatus == "confirmed" && len(pieceAdds) > 0 && pieceAdds[0].AddMessageOK != nil && *pieceAdds[0].AddMessageOK {
+		// Query pdp_data_set_pieces for confirmed pieces with their IDs
+		pieceCids := make([]string, 0, len(uniquePieceMap))
+		for piece := range uniquePieceMap {
+			pieceCids = append(pieceCids, piece)
 		}
 
-		type ConfirmedRoot struct {
-			PieceID uint64 `db:"root_id"`
-			Root    string `db:"root"`
+		type ConfirmedPiece struct {
+			PieceID uint64 `db:"piece_id"`
+			Piece   string `db:"piece"`
 		}
 
-		var confirmedRoots []ConfirmedRoot
-		err = p.db.Select(ctx, &confirmedRoots, `
-			SELECT DISTINCT root_id, root
-			FROM pdp_proofset_roots
-			WHERE proofset = $1 AND root = ANY($2)
-			ORDER BY root_id
-		`, dataSetId, rootCids)
+		var confirmedPieces []ConfirmedPiece
+		err = p.db.Select(ctx, &confirmedPieces, `
+			SELECT DISTINCT piece_id, piece
+			FROM pdp_data_set_pieces
+			WHERE data_set = $1 AND piece = ANY($2)
+			ORDER BY piece_id
+		`, dataSetId, pieceCids)
 		if err != nil {
-			log.Warnf("Failed to query confirmed roots: %v", err)
+			log.Warnf("Failed to query confirmed pieces: %v", err)
 			// Don't fail the request, just log the warning
 		} else {
-			// Extract just the root IDs
-			for _, cr := range confirmedRoots {
+			// Extract just the piece IDs
+			for _, cr := range confirmedPieces {
 				confirmedPieceIds = append(confirmedPieceIds, cr.PieceID)
 			}
 		}
 	}
 
 	// Step 7: Build and send response
-	// Check that all roots have the same RootsAdded value (consistency check)
-	if len(rootAdds) > 0 {
-		firstPiecesAdded := rootAdds[0].PiecesAdded
-		for _, ra := range rootAdds[1:] {
-			if ra.PiecesAdded != firstPiecesAdded {
+	// Check that all pieces have the same PiecesAdded value (consistency check)
+	if len(pieceAdds) > 0 {
+		firstPiecesAdded := pieceAdds[0].PiecesAdded
+		for _, pa := range pieceAdds[1:] {
+			if pa.PiecesAdded != firstPiecesAdded {
 				http.Error(w, "Inconsistent piecesAdded state for this transaction's pieces", http.StatusInternalServerError)
 				return
 			}
 		}
 	}
 	allPiecesProcessed := false
-	if len(rootAdds) > 0 {
-		allPiecesProcessed = rootAdds[0].PiecesAdded
+	if len(pieceAdds) > 0 {
+		allPiecesProcessed = pieceAdds[0].PiecesAdded
 	}
 
 	response := struct {
@@ -1151,8 +1150,8 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 		TxHash:            txHash,
 		TxStatus:          txStatus,
 		DataSetId:         dataSetId,
-		PieceCount:        len(uniqueRootMap),
-		AddMessageOK:      rootAdds[0].AddMessageOK,
+		PieceCount:        len(uniquePieceMap),
+		AddMessageOK:      pieceAdds[0].AddMessageOK,
 		PiecesAdded:       allPiecesProcessed,
 		ConfirmedPieceIds: confirmedPieceIds,
 	}
@@ -1181,7 +1180,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 	}
 	pieceIdStr := chi.URLParam(r, "pieceID")
 	if pieceIdStr == "" {
-		http.Error(w, "Missing root ID in URL", http.StatusBadRequest)
+		http.Error(w, "Missing piece ID in URL", http.StatusBadRequest)
 		return
 	}
 
@@ -1193,15 +1192,15 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 	}
 	pieceID, err := strconv.ParseUint(pieceIdStr, 10, 64)
 	if err != nil {
-		http.Error(w, "Invalid root ID format", http.StatusBadRequest)
+		http.Error(w, "Invalid piece ID format", http.StatusBadRequest)
 		return
 	}
 
-	// check if the data set belongs to the service in pdp_proof_sets
+	// check if the data set belongs to the service in pdp_data_sets
 	var dataSetService string
 	err = p.db.QueryRow(ctx, `
 			SELECT service
-			FROM pdp_proof_sets
+			FROM pdp_data_sets
 			WHERE id = $1
 		`, dataSetId).Scan(&dataSetService)
 	if err != nil {
@@ -1255,7 +1254,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 	)
 
 	// Send the transaction
-	reason := "pdp-delete-root"
+	reason := "pdp-delete-piece"
 	txHash, err := p.sender.Send(ctx, fromAddress, ethTx, reason)
 	if err != nil {
 		http.Error(w, "Failed to send transaction: "+err.Error(), http.StatusInternalServerError)
@@ -1263,7 +1262,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Schedule deletion of the root from the data set using a transaction
+	// Schedule deletion of the piece from the data set using a transaction
 	txHashLower := strings.ToLower(txHash.Hex())
 	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// Insert into message_waits_eth
@@ -1278,7 +1277,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
-		http.Error(w, "Failed to schedule delete root: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to schedule delete piece: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -1305,7 +1304,7 @@ func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if pieceIDStr == "" {
-		http.Error(w, "Missing root ID in URL", http.StatusBadRequest)
+		http.Error(w, "Missing piece ID in URL", http.StatusBadRequest)
 		return
 	}
 
@@ -1317,39 +1316,39 @@ func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Reques
 
 	pieceID, err := strconv.ParseUint(pieceIDStr, 10, 64)
 	if err != nil {
-		http.Error(w, "Invalid root ID format", http.StatusBadRequest)
+		http.Error(w, "Invalid piece ID format", http.StatusBadRequest)
 		return
 	}
 
-	// Step 3: Verify ownership and get root details
-	var rootCID string
+	// Step 3: Verify ownership and get piece details
+	var pieceCid string
 	err = p.db.QueryRow(ctx, `
-		SELECT DISTINCT r.root
-		FROM pdp_proofset_roots r
-		JOIN pdp_proof_sets ps ON ps.id = r.proofset
-		WHERE r.proofset = $1 AND r.root_id = $2 AND ps.service = $3
-	`, dataSetId, pieceID, serviceLabel).Scan(&rootCID)
+		SELECT DISTINCT r.piece
+		FROM pdp_data_set_pieces r
+		JOIN pdp_data_sets ps ON ps.id = r.data_set
+		WHERE r.data_set = $1 AND r.piece_id = $2 AND ps.service = $3
+	`, dataSetId, pieceID, serviceLabel).Scan(&pieceCid)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			http.Error(w, "Root not found", http.StatusNotFound)
+			http.Error(w, "Piece not found", http.StatusNotFound)
 			return
 		}
-		http.Error(w, "Failed to retrieve root: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to retrieve piece: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Step 4: Get all subPieces for this root
+	// Step 4: Get all subPieces for this piece
 	type SubPieceInfo struct {
-		SubPieceCID    string `db:"subroot"`
-		SubPieceOffset int64  `db:"subroot_offset"`
+		SubPieceCID    string `db:"sub_piece"`
+		SubPieceOffset int64  `db:"sub_piece_offset"`
 	}
 
 	var subPieces []SubPieceInfo
 	err = p.db.Select(ctx, &subPieces, `
-		SELECT subroot, subroot_offset
-		FROM pdp_proofset_roots
-		WHERE proofset = $1 AND root_id = $2
-		ORDER BY subroot_offset
+		SELECT sub_piece, sub_piece_offset
+		FROM pdp_data_set_pieces
+		WHERE data_set = $1 AND piece_id = $2
+		ORDER BY sub_piece_offset
 	`, dataSetId, pieceID)
 	if err != nil {
 		http.Error(w, "Failed to retrieve subPieces: "+err.Error(), http.StatusInternalServerError)
@@ -1368,7 +1367,7 @@ func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Reques
 		SubPieces []SubPieceResponse `json:"subPieces"`
 	}{
 		PieceId:   pieceID,
-		PieceCID:  rootCID,
+		PieceCID:  pieceCid,
 		SubPieces: make([]SubPieceResponse, 0, len(subPieces)),
 	}
 
@@ -1385,101 +1384,4 @@ func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Failed to encode response: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-}
-
-// Data models corresponding to the updated schema
-
-// PDPOwnerAddress represents the owner address with its private key
-type PDPOwnerAddress struct {
-	OwnerAddress string // PRIMARY KEY
-	PrivateKey   []byte // BYTEA NOT NULL
-}
-
-// PDPServiceEntry represents a PDP service entry
-type PDPServiceEntry struct {
-	ID           int64     // PRIMARY KEY
-	PublicKey    []byte    // BYTEA NOT NULL
-	ServiceLabel string    // TEXT NOT NULL
-	CreatedAt    time.Time // DEFAULT CURRENT_TIMESTAMP
-}
-
-// PDPPieceRef represents a PDP piece reference
-type PDPPieceRef struct {
-	ID         int64     // PRIMARY KEY
-	ServiceID  int64     // pdp_services.id
-	PieceCID   string    // TEXT NOT NULL
-	RefID      string    // TEXT NOT NULL
-	ServiceTag string    // VARCHAR(64)
-	ClientTag  string    // VARCHAR(64)
-	CreatedAt  time.Time // DEFAULT CURRENT_TIMESTAMP
-}
-
-// PDPDataSet represents a data set
-type PDPDataSet struct {
-	ID                 int64 // PRIMARY KEY (on-chain data set id)
-	NextChallengeEpoch int64 // Cached chain value
-}
-
-// PDPDataSetRoot represents a root in a data set
-type PDPDataSetRoot struct {
-	DataSetId      int64  // proofset BIGINT NOT NULL
-	PieceID        int64  // root_id BIGINT NOT NULL
-	Root           string // root TEXT NOT NULL
-	SubPiece       string // subroot TEXT NOT NULL
-	SubPieceOffset int64  // subroot_offset BIGINT NOT NULL
-	PDPPieceRefID  int64  // pdp_piecerefs.id
-}
-
-// PDPProveTask represents a prove task
-type PDPProveTask struct {
-	DataSetId      int64  // proofset
-	ChallengeEpoch int64  // challenge epoch
-	TaskID         int64  // harmonytask task ID
-	MessageCID     string // text
-	MessageEthHash string // text
-}
-
-// Interfaces
-
-// DataSetStore defines methods to manage data sets and roots
-type DataSetStore interface {
-	CreateDataSet(dataSet *PDPDataSet) (int64, error)
-	GetDataSet(dataSetId int64) (*PDPDataSetDetails, error)
-	DeleteDataSet(dataSetId int64) error
-	AddDataSetRoot(dataSetRoot *PDPDataSetRoot) error
-	DeleteDataSetRoot(dataSetId int64, pieceID int64) error
-}
-
-// PieceStore defines methods to manage pieces and piece references
-type PieceStore interface {
-	HasPiece(pieceCID string) (bool, error)
-	StorePiece(pieceCID string, data []byte) error
-	GetPiece(pieceCID string) ([]byte, error)
-	GetPieceRefIDByPieceCID(pieceCID string) (int64, error)
-}
-
-// OwnerAddressStore defines methods to manage owner addresses
-type OwnerAddressStore interface {
-	HasOwnerAddress(ownerAddress string) (bool, error)
-}
-
-// PDPDataSetDetails represents the details of a data set, including roots
-type PDPDataSetDetails struct {
-	ID                 int64                   `json:"id"`
-	NextChallengeEpoch int64                   `json:"nextChallengeEpoch"`
-	Pieces             []PDPDataSetPieceDetail `json:"pieces"`
-}
-
-// PDPDataSetPieceDetail represents the details of a piece in a data set
-type PDPDataSetPieceDetail struct {
-	PieceID   int64                      `json:"pieceId"`
-	PieceCID  string                     `json:"pieceCid"`
-	SubPieces []PDPDataSetSubPieceDetail `json:"subPieces"`
-}
-
-// PDPDataSetSubPieceDetail represents a subPiece in a data set piece
-type PDPDataSetSubPieceDetail struct {
-	SubPieceCID    string `json:"subPieceCid"`
-	SubPieceOffset int64  `json:"subPieceOffset"`
-	PieceCID       string `json:"pieceCid"`
 }

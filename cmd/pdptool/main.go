@@ -747,7 +747,7 @@ var uploadFileCmd = &cli.Command{
 			subPieceStr: "",
 		})
 		pieceSize := uint64(0)
-		maxRootSize, err := abi.RegisteredSealProof_StackedDrg64GiBV1_1.SectorSize()
+		maxPieceSize, err := abi.RegisteredSealProof_StackedDrg64GiBV1_1.SectorSize()
 		if err != nil {
 			return fmt.Errorf("failed to get sector size: %v", err)
 		}
@@ -808,7 +808,7 @@ var uploadFileCmd = &cli.Command{
 					return fmt.Errorf("failed to write chunk to file: %v", err)
 				}
 			}
-			if pieceSize+paddedPieceSize > uint64(maxRootSize) {
+			if pieceSize+paddedPieceSize > uint64(maxPieceSize) {
 				pieceSets = append(pieceSets, pieceSetInfo{
 					pieces:      make([]abi.PieceInfo, 0),
 					subPieceStr: "",
@@ -1111,7 +1111,7 @@ var getDataSetCmd = &cli.Command{
 					PieceCid       string `json:"pieceCid"`
 					SubPieceCid    string `json:"subPieceCid"`
 					SubPieceOffset int64  `json:"subPieceOffset"`
-				} `json:"roots"`
+				} `json:"pieces"`
 			}
 			err = json.Unmarshal(bodyBytes, &response)
 			if err != nil {
@@ -1122,11 +1122,11 @@ var getDataSetCmd = &cli.Command{
 			fmt.Printf("Data Set ID: %d\n", response.ID)
 			fmt.Printf("Next Challenge Epoch: %d\n", response.NextChallengeEpoch)
 			fmt.Printf("Pieces:\n")
-			for _, root := range response.Pieces {
-				fmt.Printf("  - Root ID: %d\n", root.PieceId)
-				fmt.Printf("    Root CID: %s\n", root.PieceCid)
-				fmt.Printf("    SubPiece CID: %s\n", root.SubPieceCid)
-				fmt.Printf("    SubPiece Offset: %d\n", root.SubPieceOffset)
+			for _, piece := range response.Pieces {
+				fmt.Printf("  - Piece ID: %d\n", piece.PieceId)
+				fmt.Printf("    Piece CID: %s\n", piece.PieceCid)
+				fmt.Printf("    SubPiece CID: %s\n", piece.SubPieceCid)
+				fmt.Printf("    SubPiece Offset: %d\n", piece.SubPieceOffset)
 				fmt.Println()
 			}
 		} else {
