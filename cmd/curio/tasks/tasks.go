@@ -63,8 +63,8 @@ var log = logging.Logger("curio/deps")
 func WindowPostScheduler(ctx context.Context, fc config.CurioFees, pc config.CurioProvingConfig,
 	api api.Chain, verif storiface.Verifier, paramck func() (bool, error), sender *message.Sender, chainSched *chainsched.CurioChainSched,
 	as *multictladdr.MultiAddressSelector, addresses map[dtypes.MinerAddress]bool, db *harmonydb.DB,
-	stor paths.Store, idx paths.SectorIndex, max int) (*window2.WdPostTask, *window2.WdPostSubmitTask, *window2.WdPostRecoverDeclareTask, error) {
-
+	stor paths.Store, idx paths.SectorIndex, max int,
+) (*window2.WdPostTask, *window2.WdPostSubmitTask, *window2.WdPostRecoverDeclareTask, error) {
 	// todo config
 	ft := window2.NewSimpleFaultTracker(stor, idx, pc.ParallelCheckLimit, pc.SingleCheckTimeout, pc.PartitionCheckTimeout)
 
@@ -114,14 +114,13 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	var fetchOnce sync.Once
 	var fetchResult atomic.Pointer[result.Result[bool]]
 
-	var asyncParams = func() func() (bool, error) {
+	asyncParams := func() func() (bool, error) {
 		fetchOnce.Do(func() {
 			go func() {
 				for spt := range dependencies.ProofTypes {
 
 					provingSize := uint64(must.One(spt.SectorSize()))
 					err := fastparamfetch.GetParams(context.TODO(), proofparams.ParametersJSON(), proofparams.SrsJSON(), provingSize)
-
 					if err != nil {
 						log.Errorw("failed to fetch params", "error", err)
 						fetchResult.Store(&result.Result[bool]{Value: false, Error: err})
@@ -145,7 +144,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	// eth message sender as needed
 	var senderEth *message.SenderETH
 	var senderEthOnce sync.Once
-	var getSenderEth = func() *message.SenderETH {
+	getSenderEth := func() *message.SenderETH {
 		senderEthOnce.Do(func() {
 			ec, err := dependencies.EthClient.Val()
 			if err != nil {
@@ -170,7 +169,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			wdPostTask, wdPoStSubmitTask, derlareRecoverTask, err := WindowPostScheduler(
 				ctx, cfg.Fees, cfg.Proving, full, verif, asyncParams(), sender, chainSched,
 				as, maddrs, db, stor, si, cfg.Subsystems.WindowPostMaxTasks)
-
 			if err != nil {
 				return nil, err
 			}
@@ -284,7 +282,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			sdeps.EthSender = es
 
 			pdp.NewWatcherCreate(db, must.One(dependencies.EthClient.Val()), chainSched)
-			pdp.NewWatcherRootAdd(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdp.NewWatcherPieceAdd(db, must.One(dependencies.EthClient.Val()), chainSched)
 
 			pdpProveTask := pdp.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), dependencies.Chain, es, dependencies.CachedPieceReader)
 			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
@@ -354,7 +352,8 @@ func addSealingTasks(
 	ctx context.Context, hasAnySealingTask bool, db *harmonydb.DB, full api.Chain, sender *message.Sender,
 	as *multictladdr.MultiAddressSelector, cfg *config.CurioConfig, slrLazy *lazy.Lazy[*ffi.SealCalls],
 	asyncParams func() func() (bool, error), si paths.SectorIndex, stor *paths.Remote,
-	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover) ([]harmonytask.TaskInterface, error) {
+	bstore curiochain.CurioBlockstore, machineHostPort string, prover storiface.Prover,
+) ([]harmonytask.TaskInterface, error) {
 	var activeTasks []harmonytask.TaskInterface
 	// Sealing / Snap
 
@@ -490,7 +489,6 @@ func machineDetails(deps *deps.Deps, activeTasks []harmonytask.TaskInterface, ma
 		ON CONFLICT (machine_id) DO UPDATE SET tasks=$1, layers=$2, startup_time=$3, miners=$4, machine_id=$5, machine_name=$6`,
 		strings.Join(taskNames, ","), strings.Join(deps.Layers, ","),
 		time.Now(), strings.Join(miners, ","), machineID, machineName)
-
 	if err != nil {
 		log.Errorf("failed to update machine details: %s", err)
 		return
