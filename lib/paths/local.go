@@ -674,6 +674,12 @@ func (st *Local) AcquireSector(ctx context.Context, sid storiface.SectorRef, exi
 		return storiface.SectorPaths{}, storiface.SectorPaths{}, err
 	}
 
+	// guard allocation decisions between assignment and reservation
+	if !allocate.IsNone() {
+		ctx = ReservationCtxLock.Lock(ctx)
+		defer ReservationCtxLock.Unlock(ctx)
+	}
+
 	st.localLk.RLock()
 	defer st.localLk.RUnlock()
 
@@ -749,10 +755,6 @@ func (st *Local) AcquireSector(ctx context.Context, sid storiface.SectorRef, exi
 			break
 		}
 	}
-
-	// guard allocation decisions between assignment and reservation
-	ctx = ReservationCtxLock.Lock(ctx)
-	defer ReservationCtxLock.Unlock(ctx)
 
 	// Then allocate for allocation requests
 	for _, fileType := range storiface.PathTypes {
