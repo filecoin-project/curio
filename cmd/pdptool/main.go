@@ -853,8 +853,8 @@ var createProofSetCmd = &cli.Command{
 			Required: true,
 		},
 		&cli.StringFlag{
-			Name:     "recordkeeper",
-			Usage:    "Address of the record keeper contract",
+			Name:     "pdp-service-contract",
+			Usage:    "Address of the pdp service contract",
 			Required: true,
 		},
 		&cli.StringFlag{
@@ -871,7 +871,7 @@ var createProofSetCmd = &cli.Command{
 	Action: func(cctx *cli.Context) error {
 		serviceURL := cctx.String("service-url")
 		serviceName := cctx.String("service-name")
-		recordKeeper := cctx.String("recordkeeper")
+		recordKeeper := cctx.String("pdp-service-contract")
 		extraDataHexStr := cctx.String("extra-data")
 
 		// Validate extraData hex string and its decoded length
