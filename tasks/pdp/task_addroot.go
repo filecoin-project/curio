@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ipfs/go-cid"
 	"golang.org/x/xerrors"
+	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -239,6 +240,9 @@ func (p *PDPTaskAddRoot) schedule(ctx context.Context, taskFunc harmonytask.AddT
 									AND after_add_root_msg = FALSE
 									AND aggregated = TRUE`).Scan(&did)
 			if err != nil {
+				if err == pgx.ErrNoRows {
+					return false, nil
+				}
 				return false, xerrors.Errorf("failed to query pdp_pipeline: %w", err)
 			}
 			if did == "" {
@@ -262,3 +266,4 @@ func (p *PDPTaskAddRoot) schedule(ctx context.Context, taskFunc harmonytask.AddT
 func (p *PDPTaskAddRoot) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
 var _ harmonytask.TaskInterface = &PDPTaskAddRoot{}
+var _ = harmonytask.Reg(&PDPTaskAddRoot{})

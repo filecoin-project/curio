@@ -54,7 +54,7 @@ retryAddTask:
 			retryWait *= 2
 			goto retryAddTask
 		}
-		log.Errorw("Could not add task. AddTasFunc failed", "error", err, "type", h.Name)
+		log.Errorw("Could not add task. AddTaskFunc failed", "error", err, "type", h.Name)
 		return
 	}
 
@@ -346,10 +346,12 @@ func (h *taskTypeHandler) AssertMachineHasCapacity() error {
 		return xerrors.Errorf("Did not accept %s task: out of available GPU: required %f available %f)", h.Name, h.Cost.Gpu, r.Gpu)
 	}
 
+	/*
 	if h.TaskTypeDetails.Cost.Storage != nil {
 		if !h.TaskTypeDetails.Cost.Storage.HasCapacity() {
 			return errors.New("Did not accept " + h.Name + " task: out of available Storage")
 		}
 	}
+	*/
 	return nil
 }

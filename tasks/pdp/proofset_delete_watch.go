@@ -37,7 +37,7 @@ func processPendingProofSetDeletes(ctx context.Context, db *harmonydb.DB, ethCli
 	var proofSetDeletes []ProofSetDelete
 
 	err := db.Select(ctx, &proofSetDeletes, `
-        SELECT id, client, tx_hash,
+        SELECT id, client, tx_hash
         FROM pdp_proof_set_delete
         WHERE tx_hash IS NOT NULL`)
 	if err != nil {

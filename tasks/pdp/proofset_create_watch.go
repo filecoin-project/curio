@@ -41,7 +41,7 @@ func processPendingProofSetCreates(ctx context.Context, db *harmonydb.DB, ethCli
 	var proofSetCreates []ProofSetCreate
 
 	err := db.Select(ctx, &proofSetCreates, `
-        SELECT id, client, tx_hash,
+        SELECT id, client, tx_hash
         FROM pdp_proof_set_create
         WHERE tx_hash IS NOT NULL`)
 	if err != nil {

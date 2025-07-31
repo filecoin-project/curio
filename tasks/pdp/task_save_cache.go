@@ -12,6 +12,7 @@ import (
 	"github.com/ipfs/go-cid"
 	sha256simd "github.com/minio/sha256-simd"
 	"golang.org/x/xerrors"
+	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/go-padreader"
 
@@ -168,9 +169,12 @@ func (t *TaskSavePDPCache) schedule(ctx context.Context, taskFunc harmonytask.Ad
 			var did string
 			err := tx.QueryRow(`SELECT id FROM pdp_pipeline 
 								  WHERE save_cache_task_id IS NULL 
-									AND save_cache_task_id = FALSE
+									AND after_save_cache = FALSE
 									AND aggregated = TRUE`).Scan(&did)
 			if err != nil {
+				if err == pgx.ErrNoRows {
+					return false, nil
+				}
 				return false, xerrors.Errorf("failed to query pdp_pipeline: %w", err)
 			}
 			if did == "" {
@@ -645,3 +649,6 @@ func NewCommPWithSizeForTest(size uint64) *Calc {
 
 	return c
 }
+
+var _ = harmonytask.Reg(&TaskSavePDPCache{})
+var _ harmonytask.TaskInterface = &TaskSavePDPCache{}

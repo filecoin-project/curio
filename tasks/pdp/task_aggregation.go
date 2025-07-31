@@ -346,6 +346,11 @@ func (a *AggregatePDPDealTask) schedule(ctx context.Context, taskFunc harmonytas
 				return
 			}
 
+			if len(deals) == 0 {
+				log.Infow("no aggregation tasks")
+				return
+			}
+
 			deal := deals[0]
 
 			log.Infow("processing aggregation task", "deal", deal.ID, "count", deal.Count)

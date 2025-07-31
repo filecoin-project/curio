@@ -24,7 +24,7 @@ type ProofSetRootAdd struct {
 	ID              string `db:"id"`
 	Client          string `db:"client"`
 	PieceCID        string `db:"piece_cid"` // pieceCIDV2
-	ProofSet        uint64 `db:"proofset"`
+	ProofSet        uint64 `db:"proof_set_id"`
 	PieceRef        int64  `db:"piece_ref"`
 	AddMessageHash  string `db:"add_message_hash"`
 	AddMessageIndex int64  `db:"add_message_index"`
@@ -64,7 +64,7 @@ func processPendingProofSetRootAdds(ctx context.Context, db *harmonydb.DB, ethCl
 	var rootAdds []ProofSetRootAdd
 
 	err := db.Select(ctx, &rootAdds, `
-        SELECT id, client, piece_cid, proofset, piece_ref, add_message_hash, add_message_index 
+        SELECT id, client, piece_cid, proof_set_id, piece_ref, add_message_hash, add_message_index
         FROM pdp_pipeline
         WHERE after_add_root = TRUE AND after_add_root_msg = FALSE
     `)
