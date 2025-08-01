@@ -143,6 +143,10 @@ func (t *TaskClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return false, xerrors.Errorf("failed to get client request: %w", err)
 	}
+	if err != nil && errors.Is(err, pgx.ErrNoRows) {
+		log.Infow("client request not found", "taskID", taskID)
+		return false, nil
+	}
 
 	var proof []byte
 	for {
@@ -178,6 +182,15 @@ func (t *TaskClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		return false, xerrors.Errorf("failed to finalize sector: %w", err)
 	}
 
+	_, err = t.db.Exec(ctx, `
+		UPDATE proofshare_client_requests
+		SET task_id_poll = NULL
+		WHERE task_id_poll = $1
+	`, taskID)
+	if err != nil {
+		return false, xerrors.Errorf("failed to update client request: %w", err)
+	}
+
 	return true, nil
 }
 
@@ -189,6 +202,9 @@ func (t *TaskClientPoll) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu: 0,
 			Ram: 4 << 20,
 			Gpu: 0,
+		},
+		RetryWait: func(retries int) time.Duration {
+			return 10 * time.Second
 		},
 	}
 }
