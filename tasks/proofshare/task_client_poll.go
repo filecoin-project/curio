@@ -168,7 +168,7 @@ func (t *TaskClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 
 	switch clientRequest.RequestType {
 	case "porep":
-		err = t.finalizeSectorPoRep(ctx, taskID, &clientRequest, proof)
+		err = t.finalizeSectorPoRep(ctx, &clientRequest, proof)
 	case "snap":
 		err = t.finalizeSectorSnap(ctx, &clientRequest, proof)
 	default:

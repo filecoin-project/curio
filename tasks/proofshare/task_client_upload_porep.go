@@ -123,13 +123,13 @@ func (t *TaskClientUpload) adderPorep(add harmonytask.AddTaskFunc) {
 	}()
 }
 
-func getSectorInfoPoRep(ctx context.Context, db *harmonydb.DB, taskID harmonytask.TaskID) (*SectorInfo, error) {
+func getSectorInfoPoRep(ctx context.Context, db *harmonydb.DB, spID int64, sectorNumber int64) (*SectorInfo, error) {
 	var info SectorInfo
 	err := db.QueryRow(ctx, `
 		SELECT sp_id, sector_number, reg_seal_proof, ticket_epoch, ticket_value, seed_epoch, tree_r_cid, tree_d_cid
 		FROM sectors_sdr_pipeline
-		WHERE task_id_porep = $1
-	`, taskID).Scan(
+		WHERE sp_id = $1 AND sector_number = $2
+	`, spID, sectorNumber).Scan(
 		&info.SpID, &info.SectorNumber, &info.RegSealProof,
 		&info.TicketEpoch, &info.TicketValue, &info.SeedEpoch,
 		&info.SealedCID, &info.UnsealedCID,
@@ -149,7 +149,7 @@ func getSectorInfoPoRep(ctx context.Context, db *harmonydb.DB, taskID harmonytas
 		return nil, xerrors.Errorf("failed to parse unsealed cid: %w", err2)
 	}
 
-	log.Infow("sector info", "taskID", taskID, "spID", info.SpID, "sectorNumber", info.SectorNumber)
+	log.Infow("sector info", "spID", info.SpID, "sectorNumber", info.SectorNumber)
 	return &info, nil
 }
 
@@ -181,8 +181,8 @@ func getRandomnessPoRep(ctx context.Context, api ClientServiceAPI, sectorInfo *S
 	return rand, nil
 }
 
-func (t *TaskClientUpload) getProofDataPoRep(ctx context.Context, taskID harmonytask.TaskID) ([]byte, abi.SectorID, error) {
-	sectorInfo, err := getSectorInfoPoRep(ctx, t.db, taskID)
+func (t *TaskClientUpload) getProofDataPoRep(ctx context.Context, spID int64, sectorNumber int64) ([]byte, abi.SectorID, error) {
+	sectorInfo, err := getSectorInfoPoRep(ctx, t.db, spID, sectorNumber)
 	if err != nil {
 		return nil, abi.SectorID{}, err
 	}

@@ -4,12 +4,10 @@ import (
 	"context"
 
 	"golang.org/x/xerrors"
-
-	"github.com/filecoin-project/curio/harmony/harmonytask"
 )
 
-func (t *TaskClientPoll) finalizeSectorPoRep(ctx context.Context, taskID harmonytask.TaskID, clientRequest *ClientRequest, proofData []byte) error {
-	sectorInfo, err := getSectorInfoPoRep(ctx, t.db, taskID)
+func (t *TaskClientPoll) finalizeSectorPoRep(ctx context.Context, clientRequest *ClientRequest, proofData []byte) error {
+	sectorInfo, err := getSectorInfoPoRep(ctx, t.db, clientRequest.SpID, clientRequest.SectorNumber)
 	if err != nil {
 		return err
 	}
