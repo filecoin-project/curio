@@ -3,7 +3,9 @@ package proofshare
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -356,11 +358,25 @@ func (t *TaskClientSend) doCreatePayment(ctx context.Context, taskID harmonytask
 		RequestPartitionCost int64  `db:"request_partition_cost"`
 	}
 	// select proofshare_client_requests where sp_id in (spIDs) and request_sent = false and request_uploaded = true
+	// Build Postgres array literal for sp_ids
+	var sb strings.Builder
+	sb.WriteString("{")
+	for i, id := range spIDs {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sb.WriteString(fmt.Sprintf("%d", id))
+	}
+	sb.WriteString("}")
+
 	err = t.db.QueryRow(ctx, `
 		SELECT sp_id, sector_num, request_type, request_cid, request_partition_cost
 		FROM proofshare_client_requests
-		WHERE sp_id IN ($1) AND request_sent = false AND request_uploaded = true LIMIT 1
-	`, spIDs).Scan(&request.SpID, &request.SectorNumber, &request.RequestType, &request.RequestCID, &request.RequestPartitionCost)
+		WHERE sp_id = ANY($1::bigint[])
+		  AND request_sent = FALSE
+		  AND request_uploaded = TRUE
+		LIMIT 1
+	`, sb.String()).Scan(&request.SpID, &request.SectorNumber, &request.RequestType, &request.RequestCID, &request.RequestPartitionCost)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
@@ -469,7 +485,7 @@ func (t *TaskClientSend) doCreatePayment(ctx context.Context, taskID harmonytask
 			SELECT COALESCE(MAX(nonce) + 1, 0)
 			FROM proofshare_client_payments
 			WHERE wallet = $1
-		`, clientID).Scan(&nextNonce)
+		`, walletID).Scan(&nextNonce)
 		if err != nil {
 			return false, xerrors.Errorf("failed to get next nonce: %w", err)
 		}
@@ -494,7 +510,7 @@ func (t *TaskClientSend) doCreatePayment(ctx context.Context, taskID harmonytask
 		_, err = tx.Exec(`
 			INSERT INTO proofshare_client_payments (wallet, nonce, cumulative_amount, signature, consumed)
 			VALUES ($1, $2, $3, $4, FALSE)
-		`, clientID, nextNonce, cumulativeAmount.String(), sig.Data)
+		`, walletID, nextNonce, cumulativeAmount.String(), sig.Data)
 		if err != nil {
 			return false, xerrors.Errorf("failed to insert payment: %w", err)
 		}
@@ -502,9 +518,9 @@ func (t *TaskClientSend) doCreatePayment(ctx context.Context, taskID harmonytask
 		// Update the client request with the payment info
 		_, err = tx.Exec(`
 			UPDATE proofshare_client_requests
-			SET payment_wallet = $2, payment_nonce = $3
+			SET payment_wallet = $4, payment_nonce = $5
 			WHERE sp_id = $1 AND sector_num = $2 AND request_type = $3
-		`, request.SpID, request.SectorNumber, request.RequestType)
+		`, request.SpID, request.SectorNumber, request.RequestType, walletID, nextNonce)
 		if err != nil {
 			return false, xerrors.Errorf("failed to update client request with payment info: %w", err)
 		}
