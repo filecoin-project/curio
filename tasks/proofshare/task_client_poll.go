@@ -105,9 +105,9 @@ func (t *TaskClientPoll) Adder(atf harmonytask.AddTaskFunc) {
 				// update proofshare_client_requests
 				n, err := tx.Exec(`
 					UPDATE proofshare_client_requests
-					SET task_id_poll = $2
+					SET task_id_poll = $4
 					WHERE sp_id = $1 AND sector_num = $2 AND request_type = $3 AND request_sent = TRUE AND task_id_poll IS NULL AND done = FALSE
-				`, spID, sectorNum, requestType)
+				`, spID, sectorNum, requestType, taskID)
 				if err != nil {
 					return false, err
 				}
