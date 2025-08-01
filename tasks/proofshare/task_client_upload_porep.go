@@ -101,9 +101,11 @@ func (t *TaskClientUpload) adderPorep(add harmonytask.AddTaskFunc) {
 				}
 
 				// Insert proofshare_client_requests
+				// NOTE: the on-conflict spec allows the task to be retried in the sector-pipeline, essentially making the proofshare task/pipeline idempotent
 				_, err = tx.Exec(`
 					INSERT INTO proofshare_client_requests (sp_id, sector_num, request_type, task_id_upload, request_partition_cost, created_at)
 					VALUES ($1, $2, 'porep', $3, 10, current_timestamp)
+					ON CONFLICT (sp_id, sector_num, request_type) DO UPDATE SET task_id_upload = $3, done = false
 				`, sectors[0].SpID, sectors[0].SectorNumber, taskID)
 				if err != nil {
 					log.Errorw("TaskClientUpload.adderPorep() failed to insert proofshare_client_requests", "error", err, "taskID", taskID, "spID", sectors[0].SpID, "sectorNumber", sectors[0].SectorNumber)

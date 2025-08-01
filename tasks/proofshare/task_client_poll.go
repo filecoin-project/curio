@@ -95,7 +95,7 @@ func (t *TaskClientPoll) Adder(atf harmonytask.AddTaskFunc) {
 				err := tx.QueryRow(`
 					SELECT sp_id, sector_num, request_type
 					FROM proofshare_client_requests
-					WHERE request_sent = TRUE AND task_id_poll IS NULL AND done = FALSE
+					WHERE request_sent = TRUE AND request_uploaded = TRUE AND task_id_poll IS NULL AND done = FALSE
 					LIMIT 1
 				`).Scan(&spID, &sectorNum, &requestType)
 				if err != nil {
@@ -106,7 +106,7 @@ func (t *TaskClientPoll) Adder(atf harmonytask.AddTaskFunc) {
 				n, err := tx.Exec(`
 					UPDATE proofshare_client_requests
 					SET task_id_poll = $4
-					WHERE sp_id = $1 AND sector_num = $2 AND request_type = $3 AND request_sent = TRUE AND task_id_poll IS NULL AND done = FALSE
+					WHERE sp_id = $1 AND sector_num = $2 AND request_type = $3 AND request_sent = TRUE AND request_uploaded = TRUE AND task_id_poll IS NULL AND done = FALSE
 				`, spID, sectorNum, requestType, taskID)
 				if err != nil {
 					return false, err

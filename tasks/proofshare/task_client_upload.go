@@ -64,6 +64,22 @@ func (t *TaskClientUpload) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("failed to get client request: %w", err)
 	}
 
+	if clientRequest.RequestSent && len(clientRequest.ResponseData) > 0 {
+		// special case: pipeline was done but re-entered due to the retry button on the PrRep page being clicked
+		// We just mark upload as done, and the task should proceeed to Done-poll
+		_, err = t.db.Exec(ctx, `
+			UPDATE proofshare_client_requests
+			SET request_uploaded = TRUE, task_id_upload = NULL
+			WHERE task_id_upload = $1
+		`, taskID)
+		if err != nil {
+			return false, xerrors.Errorf("failed to mark request as uploaded: %w", err)
+		}
+
+		// we're done
+		return true, nil
+	}
+
 	var proofData []byte
 	var sectorID abi.SectorID
 	switch clientRequest.RequestType {
