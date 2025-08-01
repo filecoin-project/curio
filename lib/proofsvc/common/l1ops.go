@@ -10,6 +10,7 @@ import (
 
 	eabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ipfs/go-cid"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -21,8 +22,6 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chain/types/ethtypes"
-
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 // RouterMainnet is the Ethereum form of the router address. This is just an example.

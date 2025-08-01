@@ -6,8 +6,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/yugabyte/pgx/v5"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
 // List of tasks that are considered "priority"
@@ -51,7 +52,6 @@ func GetMinimumConflictSet(ctx context.Context, db *harmonydb.DB) []string {
 
 	for i, r := range rows {
 		tasks := strings.Split(r.Tasks, ",")
-
 
 		if !slices.Contains(tasks, PSProveTask) {
 			// not supposed to happen

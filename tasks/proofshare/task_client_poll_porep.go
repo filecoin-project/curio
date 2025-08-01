@@ -3,16 +3,17 @@ package proofshare
 import (
 	"context"
 
-	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/harmony/harmonytask"
 )
 
 func (t *TaskClientPoll) finalizeSectorPoRep(ctx context.Context, taskID harmonytask.TaskID, clientRequest *ClientRequest, proofData []byte) error {
 	sectorInfo, err := getSectorInfoPoRep(ctx, t.db, taskID)
-		if err != nil {
+	if err != nil {
 		return err
 	}
-	
+
 	// Get randomness again (yes, yes, it's the same)
 	randomness, err := getRandomnessPoRep(ctx, t.api, sectorInfo)
 	if err != nil {

@@ -3,9 +3,13 @@ package proofshare
 import (
 	"context"
 	"errors"
+
+	"github.com/yugabyte/pgx/v5"
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
-	"github.com/filecoin-project/lotus/chain/types"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -14,9 +18,8 @@ import (
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/proofsvc"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/yugabyte/pgx/v5"
-	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/lotus/chain/types"
 )
 
 type TaskClientUpload struct {

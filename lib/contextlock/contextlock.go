@@ -8,7 +8,7 @@ import (
 )
 
 type ContextLock struct {
-	mu sync.Mutex
+	mu             sync.Mutex
 	lockContextKey uuid.UUID
 }
 

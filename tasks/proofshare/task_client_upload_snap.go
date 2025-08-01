@@ -5,15 +5,17 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/ipfs/go-cid"
+	"golang.org/x/xerrors"
+
+	commcid "github.com/filecoin-project/go-fil-commcid"
+	"github.com/filecoin-project/go-state-types/abi"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
 	"github.com/filecoin-project/curio/lib/storiface"
-	commcid "github.com/filecoin-project/go-fil-commcid"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/ipfs/go-cid"
-	"golang.org/x/xerrors"
 )
 
 type UpdateSectorInfo struct {

@@ -3,9 +3,17 @@ package proofshare
 import (
 	"context"
 	"errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"math/rand"
 	"time"
+
+	"github.com/ipfs/go-cid"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/yugabyte/pgx/v5"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -13,13 +21,8 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/proofsvc"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
-	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/go-state-types/big"
+
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/ipfs/go-cid"
-	"github.com/yugabyte/pgx/v5"
-	"golang.org/x/xerrors"
 )
 
 var (

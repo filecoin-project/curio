@@ -4,9 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"

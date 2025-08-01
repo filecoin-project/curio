@@ -6,16 +6,18 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/ipfs/go-cid"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/crypto"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
 	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/go-state-types/crypto"
-	"github.com/ipfs/go-cid"
-	"golang.org/x/xerrors"
 )
 
 func (t *TaskClientUpload) adderPorep(add harmonytask.AddTaskFunc) {
@@ -181,7 +183,7 @@ func getRandomnessPoRep(ctx context.Context, api ClientServiceAPI, sectorInfo *S
 
 func (t *TaskClientUpload) getProofDataPoRep(ctx context.Context, taskID harmonytask.TaskID) ([]byte, abi.SectorID, error) {
 	sectorInfo, err := getSectorInfoPoRep(ctx, t.db, taskID)
-		if err != nil {
+	if err != nil {
 		return nil, abi.SectorID{}, err
 	}
 

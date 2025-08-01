@@ -17,6 +17,7 @@ func DefaultCurioConfig() *CurioConfig {
 			RequireActivationSuccess:   true,
 			RequireNotificationSuccess: true,
 			IndexingMaxTasks:           8,
+			RemoteProofMaxUploads:      15,
 		},
 		Fees: CurioFees{
 			MaxPreCommitBatchGasFee: BatchFeeConfig{

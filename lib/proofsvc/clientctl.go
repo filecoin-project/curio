@@ -14,6 +14,7 @@ import (
 
 	"github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
+	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-state-types/abi"
@@ -21,8 +22,6 @@ import (
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
 
 	"github.com/filecoin-project/lotus/chain/types"
-
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 const clientUrl = "https://mainnet.snass.fsp.sh/v0/proofs"
