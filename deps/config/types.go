@@ -408,6 +408,8 @@ type CurioSubsystemsConfig struct {
 	// proving tasks when this option is enabled. Details on which SP IDs are allowed to request remote proofs are managed
 	// via Client Settings on the Proofshare webui page. Buy delay can also be set in the Client Settings page.
 	EnableRemoteProofs bool
+
+	RemoteProofMaxUploads int
 }
 type CurioFees struct {
 	// maxBatchFee = maxBase + maxPerSector * nSectors

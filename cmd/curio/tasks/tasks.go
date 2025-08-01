@@ -32,6 +32,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/proofsvc/common"
 	"github.com/filecoin-project/curio/lib/slotmgr"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/libp2p"
@@ -474,9 +475,11 @@ func addSealingTasks(
 	}
 
 	if cfg.Subsystems.EnableRemoteProofs {
-		remotePoRepTask := proofshare.NewTaskRemotePoRep(db, full, stor)
-		remoteSnapTask := proofshare.NewTaskRemoteSnapPRU(db, full, stor)
-		activeTasks = append(activeTasks, remotePoRepTask, remoteSnapTask)
+		router := common.NewServiceCustomSend(full, nil)
+		remoteUploadTask := proofshare.NewTaskClientUpload(db, full, stor, router, cfg.Subsystems.RemoteProofMaxUploads)
+		remotePollTask := proofshare.NewTaskClientPoll(db)
+		remoteSendTask := proofshare.NewTaskClientSend(db, full, router)
+		activeTasks = append(activeTasks, remoteUploadTask, remotePollTask, remoteSendTask)
 	}
 
 	// harmony treats the first task as highest priority, so reverse the order

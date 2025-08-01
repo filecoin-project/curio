@@ -133,6 +133,40 @@ CREATE TABLE proofshare_client_requests (
     PRIMARY KEY (task_id)
 );
 
+-- 20250801-proofshare-pipeline.sql rewrites the above to
+--CREATE TABLE proofshare_client_requests (
+--    sp_id BIGINT NOT NULL,
+--    sector_num BIGINT NOT NULL,
+
+--    request_type TEXT NOT NULL, -- "porep" or "snap"
+
+--    task_id_upload BIGINT,
+--    request_cid TEXT,
+--    request_uploaded BOOLEAN NOT NULL DEFAULT FALSE,
+--    request_partition_cost INTEGER NOT NULL DEFAULT 10,
+
+--    payment_wallet BIGINT,
+--    payment_nonce BIGINT,
+
+--    request_sent BOOLEAN NOT NULL DEFAULT FALSE,
+
+--    task_id_poll BIGINT,
+--    response_data BYTEA,
+
+--    done BOOLEAN NOT NULL DEFAULT FALSE,
+
+--    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+--    done_at TIMESTAMP WITH TIME ZONE,
+
+--    PRIMARY KEY (sp_id, sector_num, request_type)
+--);
+--CREATE TABLE proofshare_client_sender
+-- (
+--     wallet_id  BIGINT NOT NULL PRIMARY KEY,
+--     task       BIGINT REFERENCES harmony_task(id) ON DELETE SET NULL,
+--     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp
+-- );
+
 CREATE TABLE proofshare_client_wallets (
     wallet BIGINT NOT NULL PRIMARY KEY
 );
