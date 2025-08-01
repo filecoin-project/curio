@@ -446,7 +446,7 @@ func (t *TaskClientSend) doCreatePayment(ctx context.Context, taskID harmonytask
 			WHERE wallet = $1
 			ORDER BY nonce DESC
 			LIMIT 1
-		`, clientID).Scan(&lastPayment.Wallet, &lastPayment.Nonce, &lastPayment.CumulativeAmount, &lastPayment.Consumed)
+		`, walletID).Scan(&lastPayment.Wallet, &lastPayment.Nonce, &lastPayment.CumulativeAmount, &lastPayment.Consumed)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return false, xerrors.Errorf("failed to check for unconsumed payments: %w", err)
 		}
