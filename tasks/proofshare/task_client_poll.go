@@ -193,8 +193,8 @@ func (t *TaskClientPoll) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func NewTaskClientPoll(db *harmonydb.DB) *TaskClientPoll {
-	return &TaskClientPoll{db: db}
+func NewTaskClientPoll(db *harmonydb.DB, api ClientServiceAPI) *TaskClientPoll {
+	return &TaskClientPoll{db: db, api: api}
 }
 
 // pollForProof polls for the proof status

@@ -477,7 +477,7 @@ func addSealingTasks(
 	if cfg.Subsystems.EnableRemoteProofs {
 		router := common.NewServiceCustomSend(full, nil)
 		remoteUploadTask := proofshare.NewTaskClientUpload(db, full, stor, router, cfg.Subsystems.RemoteProofMaxUploads)
-		remotePollTask := proofshare.NewTaskClientPoll(db)
+		remotePollTask := proofshare.NewTaskClientPoll(db, full)
 		remoteSendTask := proofshare.NewTaskClientSend(db, full, router)
 		activeTasks = append(activeTasks, remoteUploadTask, remotePollTask, remoteSendTask)
 	}
