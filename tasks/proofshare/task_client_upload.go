@@ -68,9 +68,9 @@ func (t *TaskClientUpload) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	var sectorID abi.SectorID
 	switch clientRequest.RequestType {
 	case "porep":
-		proofData, sectorID, err = t.getProofDataPoRep(ctx, taskID)
+		proofData, sectorID, err = t.getProofDataPoRep(ctx, clientRequest.SpID, clientRequest.SectorNumber)
 	case "snap":
-		proofData, sectorID, err = t.getProofDataSnap(ctx, taskID)
+		proofData, sectorID, err = t.getProofDataSnap(ctx, clientRequest.SpID, clientRequest.SectorNumber)
 	default:
 		return false, xerrors.Errorf("unknown request type: %s", clientRequest.RequestType)
 	}

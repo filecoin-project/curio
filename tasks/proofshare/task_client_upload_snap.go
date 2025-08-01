@@ -139,7 +139,7 @@ func (t *TaskClientUpload) adderSnap(add harmonytask.AddTaskFunc) {
 	}()
 }
 
-func getSectorInfoSnap(ctx context.Context, db *harmonydb.DB, taskID harmonytask.TaskID) (*UpdateSectorInfo, error) {
+func getSectorInfoSnap(ctx context.Context, db *harmonydb.DB, spID int64, sectorNumber int64) (*UpdateSectorInfo, error) {
 	var info UpdateSectorInfo
 	var cidOldRs, cidNewRs, cidNewDs string
 
@@ -147,8 +147,8 @@ func getSectorInfoSnap(ctx context.Context, db *harmonydb.DB, taskID harmonytask
 		SELECT sp.sp_id, sp.sector_number, sm.reg_seal_proof, sp.upgrade_proof, sp.update_unsealed_cid, sp.update_sealed_cid, sm.orig_sealed_cid
 		FROM sectors_snap_pipeline sp
 		LEFT JOIN sectors_meta sm ON sp.sp_id = sm.sp_id AND sp.sector_number = sm.sector_num
-		WHERE sp.task_id_prove = $1
-	`, taskID).Scan(
+		WHERE sp.sp_id = $1 AND sp.sector_number = $2
+	`, spID, sectorNumber).Scan(
 		&info.SpID, &info.SectorNumber, &info.RegSealProof, &info.UpdateProofType,
 		&cidNewDs, &cidNewRs, &cidOldRs,
 	)
@@ -187,12 +187,12 @@ func getSectorInfoSnap(ctx context.Context, db *harmonydb.DB, taskID harmonytask
 	copy(info.NewR[:], cmNewR)
 	copy(info.NewD[:], cmNewD)
 
-	log.Infow("update sector info", "taskID", taskID, "spID", info.SpID, "sectorNumber", info.SectorNumber)
+	log.Infow("update sector info", "spID", info.SpID, "sectorNumber", info.SectorNumber)
 	return &info, nil
 }
 
-func (t *TaskClientUpload) getProofDataSnap(ctx context.Context, taskID harmonytask.TaskID) ([]byte, abi.SectorID, error) {
-	sectorInfo, err := getSectorInfoSnap(ctx, t.db, taskID)
+func (t *TaskClientUpload) getProofDataSnap(ctx context.Context, spID int64, sectorNumber int64) ([]byte, abi.SectorID, error) {
+	sectorInfo, err := getSectorInfoSnap(ctx, t.db, spID, sectorNumber)
 	if err != nil {
 		return nil, abi.SectorID{}, err
 	}
