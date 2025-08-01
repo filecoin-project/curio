@@ -7,7 +7,7 @@ CREATE TABLE proofshare_client_sender
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT current_timestamp
 );
 
-ALTER TABLE proofshare_client_requests ADD COLUMN request_type TEXT NOT NULL;
+ALTER TABLE proofshare_client_requests ADD COLUMN request_type TEXT NOT NULL DEFAULT 'porep';
 
 ALTER TABLE proofshare_client_requests DROP CONSTRAINT proofshare_client_requests_pkey;
 ALTER TABLE proofshare_client_requests ADD  PRIMARY KEY (sp_id, sector_num, request_type);

@@ -10,6 +10,7 @@ import (
 
 	"github.com/ipfs/go-cid"
 	"github.com/snadrus/must"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -183,14 +184,14 @@ func (a *WebRPC) PSListQueue(ctx context.Context) ([]*ProofShareQueueItem, error
 			continue
 		}
 
-		var paymentAmt string
+		var paymentAmt string = "0"
 		var providerID, paymentNonce int64
 		err := a.deps.DB.QueryRow(ctx, `
 			SELECT payment_cumulative_amount, provider_id, payment_nonce
 			FROM proofshare_provider_payments
 			WHERE request_cid = $1
 		`, items[i].ServiceID).Scan(&paymentAmt, &providerID, &paymentNonce)
-		if err != nil {
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return nil, xerrors.Errorf("PSListQueue: failed to query proofshare_provider_payments: %w", err)
 		}
 
@@ -201,20 +202,21 @@ func (a *WebRPC) PSListQueue(ctx context.Context) ([]*ProofShareQueueItem, error
 				FROM proofshare_provider_payments
 				WHERE provider_id = $1 AND payment_nonce = $2
 			`, providerID, paymentNonce-1).Scan(&prevPaymentAmt)
-			if err != nil {
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return nil, xerrors.Errorf("PSListQueue: failed to query proofshare_provider_payments: %w", err)
 			}
 		}
 
 		cumAmt, err := types.BigFromString(paymentAmt)
-		if err != nil {
-			return nil, xerrors.Errorf("PSListQueue: failed to parse payment amount: %w", err)
+		if err == nil && paymentNonce > 0 {
+			prevAmt, err := types.BigFromString(prevPaymentAmt)
+			if err != nil {
+				return nil, xerrors.Errorf("PSListQueue: failed to parse previous payment amount: %w", err)
+			}
+			items[i].PaymentAmount = types.FIL(big.Sub(cumAmt, prevAmt)).Short()
+		} else {
+			items[i].PaymentAmount = "n/a"
 		}
-		prevAmt, err := types.BigFromString(prevPaymentAmt)
-		if err != nil {
-			return nil, xerrors.Errorf("PSListQueue: failed to parse previous payment amount: %w", err)
-		}
-		items[i].PaymentAmount = types.FIL(big.Sub(cumAmt, prevAmt)).Short()
 	}
 
 	return items, nil
