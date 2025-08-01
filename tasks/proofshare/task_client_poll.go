@@ -83,9 +83,9 @@ func (t *TaskClientPoll) Adder(atf harmonytask.AddTaskFunc) {
 		var more = true
 		for {
 			if !more {
-				more = false
 				time.Sleep(PollInterval)
 			}
+			more = false
 
 			atf(func(taskID harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 				// where request_sent is true and task_id_poll is null and done is false
@@ -111,6 +111,8 @@ func (t *TaskClientPoll) Adder(atf harmonytask.AddTaskFunc) {
 				if err != nil {
 					return false, err
 				}
+
+				more = n > 0
 
 				return n > 0, nil
 			})
