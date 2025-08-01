@@ -3,9 +3,7 @@ package proofshare
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/rand"
-	"strings"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -359,24 +357,15 @@ func (t *TaskClientSend) doCreatePayment(ctx context.Context, taskID harmonytask
 	}
 	// select proofshare_client_requests where sp_id in (spIDs) and request_sent = false and request_uploaded = true
 	// Build Postgres array literal for sp_ids
-	var sb strings.Builder
-	sb.WriteString("{")
-	for i, id := range spIDs {
-		if i > 0 {
-			sb.WriteString(",")
-		}
-		sb.WriteString(fmt.Sprintf("%d", id))
-	}
-	sb.WriteString("}")
 
 	err = t.db.QueryRow(ctx, `
 		SELECT sp_id, sector_num, request_type, request_cid, request_partition_cost
 		FROM proofshare_client_requests
-		WHERE sp_id = ANY($1::bigint[])
+		WHERE sp_id = ANY($1)
 		  AND request_sent = FALSE
 		  AND request_uploaded = TRUE
 		LIMIT 1
-	`, sb.String()).Scan(&request.SpID, &request.SectorNumber, &request.RequestType, &request.RequestCID, &request.RequestPartitionCost)
+	`, spIDs).Scan(&request.SpID, &request.SectorNumber, &request.RequestType, &request.RequestCID, &request.RequestPartitionCost)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
