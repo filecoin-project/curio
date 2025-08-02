@@ -688,7 +688,8 @@ will not be stored on this node (Default: false)`,
 
 			Comment: `The maximum amount of MoveStorage tasks that can run simultaneously. Note that the maximum number of tasks will
 also be bounded by resources available on the machine. It is recommended that this value is set to a number which
-uses all available network (or disk) bandwidth on the machine without causing bottlenecks. (Default: 0 - unlimited)`,
+uses all available network (or disk) bandwidth on the machine without causing bottlenecks. NOTE: unlike most other
+tasks, when this value is set the maximum number of concurrent tasks will not be bounded by CPU core count (Default: 0 - unlimited)`,
 		},
 		{
 			Name: "EnableUpdateEncode",
@@ -804,6 +805,37 @@ also be bounded by resources available on the machine. (Default: 8)`,
 			Comment: `BindSDRTreeToNode forces the TreeD and TreeRC tasks to be executed on the same node where SDR task was executed
 for the sector. Please ensure that TreeD and TreeRC task are enabled and relevant resources are available before
 enabling this option. (Default: false)`,
+		},
+		{
+			Name: "EnableProofShare",
+			Type: "bool",
+
+			Comment: `EnableProofShare enables the ProofShare tasks on the node. This subsystem will request proof work from a marketplace
+whenever local machine can take on more Snark work. ProofShare tasks have priority over local snark tasks, but new
+ProofShare work will only be requested if there is no local work to do.
+
+This feature is currently experimental and may change in the future.`,
+		},
+		{
+			Name: "ProofShareMaxTasks",
+			Type: "int",
+
+			Comment: `The maximum amount of ProofShare tasks that can run simultaneously. Note that the maximum number of tasks will
+also be bounded by resources available on the machine.`,
+		},
+		{
+			Name: "EnableRemoteProofs",
+			Type: "bool",
+
+			Comment: `EnableRemoteProofs enables the remote proof tasks on the node. Local snark tasks will be transformed into remote
+proving tasks when this option is enabled. Details on which SP IDs are allowed to request remote proofs are managed
+via Client Settings on the Proofshare webui page. Buy delay can also be set in the Client Settings page.`,
+		},
+		{
+			Name: "RemoteProofMaxUploads",
+			Type: "int",
+
+			Comment: ``,
 		},
 	},
 	"HTTPConfig": {
