@@ -115,7 +115,7 @@ func (t *TaskSubmit) Do(taskID harmonytask.TaskID, stillOwned func() bool) (bool
 
 		log.Errorf("failed to query proofshare_queue: %w", err)
 		// orphan, can't do much
-		return false, nil
+		return true, nil
 	}
 
 	// 2) Fetch the remote 'wallet' address from proofshare_meta
