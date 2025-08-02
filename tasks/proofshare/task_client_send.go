@@ -330,6 +330,14 @@ func (t *TaskClientSend) doSendRequest(ctx context.Context, taskID harmonytask.T
 	return true, nil
 }
 
+type CandidateRequest struct {
+	SpID                 int64  `db:"sp_id"`
+	SectorNumber         int64  `db:"sector_num"`
+	RequestType          string `db:"request_type"`
+	RequestCID           string `db:"request_cid"`
+	RequestPartitionCost int64  `db:"request_partition_cost"`
+}
+
 func (t *TaskClientSend) doCreatePayment(ctx context.Context, taskID harmonytask.TaskID, walletID int64) (match bool, err error) {
 	log.Infow("creating new payment", "taskID", taskID, "wallet", walletID)
 
@@ -348,30 +356,50 @@ func (t *TaskClientSend) doCreatePayment(ctx context.Context, taskID harmonytask
 		return false, xerrors.Errorf("failed to get applicable SPIDs: %w", err)
 	}
 
-	var request struct {
-		SpID                 int64  `db:"sp_id"`
-		SectorNumber         int64  `db:"sector_num"`
-		RequestType          string `db:"request_type"`
-		RequestCID           string `db:"request_cid"`
-		RequestPartitionCost int64  `db:"request_partition_cost"`
-	}
+	// Pick a candidate sector
+	var requests []CandidateRequest
 	// select proofshare_client_requests where sp_id in (spIDs) and request_sent = false and request_uploaded = true
 	// Build Postgres array literal for sp_ids
 
-	err = t.db.QueryRow(ctx, `
+	rows, err := t.db.Query(ctx, `
 		SELECT sp_id, sector_num, request_type, request_cid, request_partition_cost
 		FROM proofshare_client_requests
 		WHERE sp_id = ANY($1)
 		  AND request_sent = FALSE
 		  AND request_uploaded = TRUE
-		LIMIT 1
-	`, spIDs).Scan(&request.SpID, &request.SectorNumber, &request.RequestType, &request.RequestCID, &request.RequestPartitionCost)
+	`, spIDs)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
 
 		return false, xerrors.Errorf("failed to get applicable requests: %w", err)
+	}
+	
+	for rows.Next() {
+		var request CandidateRequest
+		err = rows.Scan(&request.SpID, &request.SectorNumber, &request.RequestType, &request.RequestCID, &request.RequestPartitionCost)
+		if err != nil {
+			rows.Close()
+			return false, xerrors.Errorf("failed to scan request: %w", err)
+		}
+		requests = append(requests, request)
+	}
+	
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return false, xerrors.Errorf("failed to iterate rows: %w", err)
+	}
+	
+	rows.Close()
+
+	if len(requests) == 0 {
+		return false, nil
+	}
+	
+	request, err := t.pickCandidateRequest(ctx, requests)
+	if err != nil {
+		return false, xerrors.Errorf("failed to pick candidate request: %w", err)
 	}
 
 	// Check if the proof service is available
@@ -528,6 +556,55 @@ func (t *TaskClientSend) doCreatePayment(ctx context.Context, taskID harmonytask
 	log.Infow("createPayment complete", "taskID", taskID, "wallet", clientID, "nonce", nextNonce, "calcPrice", price, "price", marketPrice, "requestPartitionCost", request.RequestPartitionCost, "spID", request.SpID, "sectorNumber", request.SectorNumber)
 
 	return true, nil
+}
+
+func (t *TaskClientSend) pickCandidateRequest(ctx context.Context, requests []CandidateRequest) (request CandidateRequest, err error) {
+	// This method optimizes strategy for supraseal - always select sectors from the slot with oldest batch refs - that creates
+	// a neat sequencing of batches, making all machines work at correct time offsets with minimal number of GPUs
+
+	// create a map of requests by sectorID
+	sectorIDMap := make(map[abi.SectorID]CandidateRequest)
+	for _, request := range requests {
+		sectorIDMap[abi.SectorID{
+			Miner:  abi.ActorID(request.SpID),
+			Number: abi.SectorNumber(request.SectorNumber),
+		}] = request
+	}
+
+	// select all batch refs
+	rows, err := t.db.Query(ctx, `
+		SELECT sp_id, sector_number, created_at
+		FROM batch_sector_refs
+		ORDER BY created_at ASC
+	`)
+	if err != nil {
+		return CandidateRequest{}, xerrors.Errorf("failed to get applicable requests: %w", err)
+	}
+
+	var batchSectorRef struct {
+		SpID         int64  `db:"sp_id"`
+		SectorNumber int64  `db:"sector_number"`
+		CreatedAt    time.Time `db:"created_at"`
+	}
+
+	defer rows.Close()
+	for rows.Next() {
+		err = rows.Scan(&batchSectorRef.SpID, &batchSectorRef.SectorNumber, &batchSectorRef.CreatedAt)
+		if err != nil {
+			return CandidateRequest{}, xerrors.Errorf("failed to scan batch sector ref: %w", err)
+		}
+
+		sectorID := abi.SectorID{
+			Miner:  abi.ActorID(batchSectorRef.SpID),
+			Number: abi.SectorNumber(batchSectorRef.SectorNumber),
+		}
+		if request, ok := sectorIDMap[sectorID]; ok {
+			return request, nil
+		}
+	}
+
+	// no match found, return the first one
+	return requests[0], nil
 }
 
 // TypeDetails implements harmonytask.TaskInterface.
