@@ -2,6 +2,7 @@ package snap
 
 import (
 	"context"
+	"fmt"
 	"math/rand/v2"
 
 	"golang.org/x/xerrors"
@@ -15,7 +16,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/passcall"
 	"github.com/filecoin-project/curio/lib/paths"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/tasks/seal"
 )
 
@@ -69,9 +70,22 @@ func (m *MoveStorageTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		return false, xerrors.Errorf("moving storage: %w", err)
 	}
 
-	_, err = m.db.Exec(ctx, `UPDATE sectors_snap_pipeline SET after_move_storage = TRUE, task_id_move_storage = NULL WHERE task_id_move_storage = $1`, taskID)
+	_, err = m.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		// Create an indexing task
+		_, err = tx.Exec(`SELECT create_indexing_task($1, $2)`, taskID, "sectors_snap_pipeline")
+		if err != nil {
+			return false, fmt.Errorf("error creating indexing task: %w", err)
+		}
+
+		_, err = tx.Exec(`UPDATE sectors_snap_pipeline SET after_move_storage = TRUE, task_id_move_storage = NULL WHERE task_id_move_storage = $1`, taskID)
+		if err != nil {
+			return false, xerrors.Errorf("updating task: %w", err)
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
 	if err != nil {
-		return false, xerrors.Errorf("updating task: %w", err)
+		return false, xerrors.Errorf("committing transaction: %w", err)
 	}
 
 	return true, nil

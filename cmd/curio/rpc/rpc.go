@@ -2,8 +2,10 @@
 package rpc
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -15,25 +17,31 @@ import (
 	"github.com/gbrlsnchs/jwt/v3"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/mitchellh/go-homedir"
+	"github.com/multiformats/go-multihash"
 	"github.com/urfave/cli/v2"
 	"go.opencensus.io/tag"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
+	ffi "github.com/filecoin-project/filecoin-ffi"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-jsonrpc/auth"
+	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/crypto"
 
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/api/client"
+	ltypes "github.com/filecoin-project/curio/api/types"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/metrics"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/repo"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/web"
 
 	lapi "github.com/filecoin-project/lotus/api"
@@ -54,6 +62,7 @@ func CurioHandler(
 	authv func(ctx context.Context, token string) ([]auth.Permission, error),
 	remote http.HandlerFunc,
 	a api.Curio,
+	prometheusSD http.Handler,
 	permissioned bool) http.Handler {
 	mux := mux.NewRouter()
 	readerHandler, readerServerOpt := rpcenc.ReaderParamDecoder()
@@ -73,6 +82,7 @@ func CurioHandler(
 	mux.Handle("/rpc/streams/v0/push/{uuid}", readerHandler)
 	mux.PathPrefix("/remote").HandlerFunc(remote)
 	mux.Handle("/debug/metrics", metrics.Exporter())
+	mux.Handle("/debug/service-discovery", prometheusSD)
 	mux.PathPrefix("/").Handler(http.DefaultServeMux) // pprof
 
 	if !permissioned {
@@ -241,12 +251,177 @@ func (p *CurioAPI) StorageAddLocal(ctx context.Context, path string) error {
 	return nil
 }
 
+func (p *CurioAPI) StorageGenerateVanillaProof(ctx context.Context, maddr address.Address, sector abi.SectorNumber) ([]byte, error) {
+	head, err := p.Chain.ChainHead(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("getting chain head: %w", err)
+	}
+
+	ts := head.Key()
+
+	si, err := p.Chain.StateSectorGetInfo(ctx, maddr, sector, ts)
+	if err != nil {
+		return nil, xerrors.Errorf("getting sector info: %w", err)
+	}
+
+	di, err := p.Chain.StateSectorPartition(ctx, maddr, sector, ts)
+	if err != nil {
+		return nil, xerrors.Errorf("getting sector partition: %w", err)
+	}
+
+	nv, err := p.Chain.StateNetworkVersion(ctx, ts)
+	if err != nil {
+		return nil, xerrors.Errorf("getting network version: %w", err)
+	}
+
+	ppt, err := si.SealProof.RegisteredWindowPoStProofByNetworkVersion(nv)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get window post type: %w", err)
+	}
+
+	mi, err := address.IDFromAddress(maddr)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get miner id: %w", err)
+	}
+
+	minerID := abi.ActorID(mi)
+
+	buf := new(bytes.Buffer)
+	if err := maddr.MarshalCBOR(buf); err != nil {
+		return nil, xerrors.Errorf("failed to marshal address to cbor: %w", err)
+	}
+
+	rand, err := p.Chain.StateGetRandomnessFromBeacon(ctx, crypto.DomainSeparationTag_WindowedPoStChallengeSeed, head.Height(), buf.Bytes(), ts)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get chain randomness from beacon for window post (ts=%d; deadline=%d): %w", head.Height(), di, err)
+	}
+
+	rand[31] &= 0x3f
+
+	postChallenges, err := ffi.GeneratePoStFallbackSectorChallenges(ppt, minerID, append(abi.PoStRandomness{}, rand...), []abi.SectorNumber{sector})
+	if err != nil {
+		return nil, xerrors.Errorf("generating fallback challenges: %v", err)
+	}
+
+	psc := storiface.PostSectorChallenge{
+		SealProof:    si.SealProof,
+		SectorNumber: sector,
+		SealedCID:    si.SealedCID,
+		Update:       si.SectorKeyCID != nil,
+		Challenge:    postChallenges.Challenges[sector],
+	}
+
+	return p.Stor.GenerateSingleVanillaProof(ctx, minerID, psc, ppt)
+}
+
+func (p *CurioAPI) StorageRedeclare(ctx context.Context, filterId *storiface.ID, dropMissing bool) error {
+	sl, err := p.LocalStore.Local(ctx)
+	if err != nil {
+		return xerrors.Errorf("getting local store: %w", err)
+	}
+	for _, id := range sl {
+		if id.ID == *filterId {
+			return p.LocalStore.Redeclare(ctx, filterId, dropMissing)
+		}
+	}
+	return xerrors.Errorf("storage %s not found on the node", *filterId)
+}
+
 func (p *CurioAPI) LogList(ctx context.Context) ([]string, error) {
 	return logging.GetSubsystems(), nil
 }
 
 func (p *CurioAPI) LogSetLevel(ctx context.Context, subsystem, level string) error {
 	return logging.SetLogLevel(subsystem, level)
+}
+
+func (p *CurioAPI) Cordon(ctx context.Context) error {
+	_, err := p.DB.Exec(ctx, `UPDATE harmony_machines SET unschedulable = $1 WHERE id = $2`, true, p.MachineID)
+	if err != nil {
+		return xerrors.Errorf("cordon failed: %w", err)
+	}
+	return nil
+}
+
+func (p *CurioAPI) Uncordon(ctx context.Context) error {
+	_, err := p.DB.Exec(ctx, `UPDATE harmony_machines SET unschedulable = $1 WHERE id = $2`, false, p.MachineID)
+	if err != nil {
+		return xerrors.Errorf("uncordon failed: %w", err)
+	}
+	return nil
+}
+
+func (p *CurioAPI) Info(ctx context.Context) (*ltypes.NodeInfo, error) {
+	var ni ltypes.NodeInfo
+	err := p.DB.QueryRow(ctx, `
+		SELECT
+			hm.id,
+			hm.cpu,
+			hm.ram,
+			hm.gpu,
+			hm.host_and_port,
+			hm.last_contact,
+			hm.unschedulable,
+			hmd.machine_name,
+			hmd.startup_time,
+			hmd.tasks,
+			hmd.layers,
+			hmd.miners
+		FROM
+			harmony_machines hm
+		LEFT JOIN
+			harmony_machine_details hmd ON hm.id = hmd.machine_id
+		WHERE
+		    hm.id=$1;
+		`, p.MachineID).Scan(&ni.ID, &ni.CPU, &ni.RAM, &ni.GPU, &ni.HostPort, &ni.LastContact, &ni.Unschedulable, &ni.Name, &ni.StartupTime, &ni.Tasks, &ni.Layers, &ni.Miners)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ni, nil
+}
+
+func (p *CurioAPI) IndexSamples(ctx context.Context, pcid cid.Cid) ([]multihash.Multihash, error) {
+	var indexed bool
+	err := p.DB.QueryRow(ctx, `SELECT indexed FROM market_piece_metadata WHERE piece_cid=$1`, pcid.String()).Scan(&indexed)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get piece metadata: %w", err)
+	}
+	if !indexed {
+		return nil, xerrors.Errorf("piece %s is not indexed", pcid.String())
+	}
+	var chunks []struct {
+		FirstCidStr    string `db:"first_cid"`
+		NumberOfBlocks int64  `db:"num_blocks"`
+	}
+
+	err = p.DB.Select(ctx, &chunks, `SELECT 
+    										first_cid, 
+											num_blocks 
+										FROM ipni_chunks 
+										WHERE piece_cid = $1
+										AND from_car= FALSE
+										ORDER BY RANDOM()
+										LIMIT 1`, pcid.String())
+
+	if err != nil {
+		return nil, xerrors.Errorf("failed to get piece chunks: %w", err)
+	}
+
+	if len(chunks) == 0 {
+		return nil, xerrors.Errorf("no chunks found for piece %s", pcid.String())
+	}
+
+	chunk := chunks[0]
+
+	cb, err := hex.DecodeString(chunk.FirstCidStr)
+	if err != nil {
+		return nil, xerrors.Errorf("decoding first CID: %w", err)
+	}
+
+	firstHash := multihash.Multihash(cb)
+
+	return p.IndexStore.GetPieceHashRange(ctx, pcid, firstHash, chunk.NumberOfBlocks)
 }
 
 func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan chan struct{}) error {
@@ -282,6 +457,7 @@ func ListenAndServe(ctx context.Context, dependencies *deps.Deps, shutdownChan c
 			authVerify,
 			remoteHandler,
 			&CurioAPI{dependencies, dependencies.Si, shutdownChan},
+			prometheusServiceDiscovery(ctx, dependencies),
 			permissioned),
 		ReadHeaderTimeout: time.Minute * 3,
 		BaseContext: func(listener net.Listener) context.Context {
@@ -344,4 +520,55 @@ func GetCurioAPI(ctx *cli.Context) (api.Curio, jsonrpc.ClientCloser, error) {
 	addr = u.String()
 
 	return client.NewCurioRpc(ctx.Context, addr, headers)
+}
+
+func prometheusServiceDiscovery(ctx context.Context, deps *deps.Deps) http.HandlerFunc {
+
+	type host struct {
+		Host   string `db:"host_and_port"`
+		Layers string `db:"layers"`
+	}
+
+	type service struct {
+		Targets []string          `json:"targets"`
+		Labels  map[string]string `json:"labels"`
+	}
+
+	hnd := func(resp http.ResponseWriter, req *http.Request) {
+
+		resp.Header().Set("Content-Type", "application/json")
+
+		var hosts []host
+		err := deps.DB.Select(ctx, &hosts, `
+			SELECT
+			    m.host_and_port,
+			    md.layers
+			FROM
+			    harmony_machines m
+			JOIN
+			    harmony_machine_details md ON m.id = md.machine_id;`)
+		if err != nil {
+			log.Errorf("failed to fetch hosts: %s", err)
+			_, err = resp.Write([]byte("[]"))
+			if err != nil {
+				log.Errorf("failed to write response: %s", err)
+			}
+		} else {
+			var services []service
+			for _, h := range hosts {
+				services = append(services, service{
+					Targets: []string{h.Host},
+					Labels: map[string]string{
+						"layers": h.Layers,
+					},
+				})
+			}
+			enc := json.NewEncoder(resp)
+			if err := enc.Encode(services); err != nil {
+				log.Errorf("failed to encode response: %s", err)
+			}
+		}
+		resp.WriteHeader(http.StatusOK)
+	}
+	return hnd
 }

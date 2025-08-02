@@ -7,9 +7,13 @@ import (
 	"math/rand"
 	"net/http"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/ethclient"
+	erpc "github.com/ethereum/go-ethereum/rpc"
+	"github.com/gorilla/websocket"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
@@ -18,6 +22,7 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/curio/api"
+	"github.com/filecoin-project/curio/build"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -30,20 +35,20 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 	if tn, ok := ctx.App.Metadata["testnode-full"]; ok {
 		return tn.(api.Chain), func() {}, nil
 	}
+
+	if len(ainfoCfg) == 0 {
+		return nil, nil, xerrors.Errorf("could not get API info: none configured. \nConsider getting base.toml with './curio config get base >/tmp/base.toml' \nthen adding   \n[APIs] \n ChainApiInfo = [\" result_from lotus auth api-info --perm=admin \"]\n  and updating it with './curio config set /tmp/base.toml'")
+	}
+
 	var httpHeads []httpHead
 	version := "v1"
-	{
-		if len(ainfoCfg) == 0 {
-			return nil, nil, xerrors.Errorf("could not get API info: none configured. \nConsider getting base.toml with './curio config get base >/tmp/base.toml' \nthen adding   \n[APIs] \n ChainApiInfo = [\" result_from lotus auth api-info --perm=admin \"]\n  and updating it with './curio config set /tmp/base.toml'")
+	for _, i := range ainfoCfg {
+		ainfo := cliutil.ParseApiInfo(i)
+		addr, err := ainfo.DialArgs(version)
+		if err != nil {
+			return nil, nil, xerrors.Errorf("could not get DialArgs: %w", err)
 		}
-		for _, i := range ainfoCfg {
-			ainfo := cliutil.ParseApiInfo(i)
-			addr, err := ainfo.DialArgs(version)
-			if err != nil {
-				return nil, nil, xerrors.Errorf("could not get DialArgs: %w", err)
-			}
-			httpHeads = append(httpHeads, httpHead{addr: addr, header: ainfo.AuthHeader()})
-		}
+		httpHeads = append(httpHeads, httpHead{addr: addr, header: ainfo.AuthHeader()})
 	}
 
 	if cliutil.IsVeryVerbose {
@@ -53,12 +58,36 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 	var fullNodes []api.Chain
 	var closers []jsonrpc.ClientCloser
 
+	// Check network compatibility for each node
 	for _, head := range httpHeads {
 		v1api, closer, err := newChainNodeRPCV1(ctx.Context, head.addr, head.header)
 		if err != nil {
 			clog.Warnf("Not able to establish connection to node with addr: %s, Reason: %s", head.addr, err.Error())
 			continue
 		}
+
+		// Validate network match
+		networkName, err := v1api.StateNetworkName(ctx.Context)
+		if err != nil {
+			clog.Warnf("Failed to get network name from node %s: %s", head.addr, err.Error())
+			closer()
+			continue
+		}
+
+		// Compare with binary's network using BuildTypeString()
+		if !(strings.HasPrefix(string(networkName), "test") || strings.HasPrefix(string(networkName), "local")) {
+			if networkName == "calibrationnet" {
+				networkName = "calibnet"
+			}
+
+			if string(networkName) != build.BuildTypeString()[1:] {
+				clog.Warnf("Network mismatch for node %s: binary built for %s but node is on %s",
+					head.addr, build.BuildTypeString()[1:], networkName)
+				closer()
+				continue
+			}
+		}
+
 		fullNodes = append(fullNodes, v1api)
 		closers = append(closers, closer)
 	}
@@ -290,4 +319,58 @@ func ErrorIsIn(err error, errorTypes []error) bool {
 		}
 	}
 	return false
+}
+
+func GetEthClient(cctx *cli.Context, ainfoCfg []string) (*ethclient.Client, error) {
+	if len(ainfoCfg) == 0 {
+		return nil, xerrors.Errorf("could not get API info: none configured. \nConsider getting base.toml with './curio config get base >/tmp/base.toml' \nthen adding   \n[APIs] \n ChainApiInfo = [\" result_from lotus auth api-info --perm=admin \"]\n  and updating it with './curio config set /tmp/base.toml'")
+	}
+
+	version := "v1"
+	var httpHeads []httpHead
+	for _, i := range ainfoCfg {
+		ainfo := cliutil.ParseApiInfo(i)
+		addr, err := ainfo.DialArgs(version)
+		if err != nil {
+			return nil, xerrors.Errorf("could not get eth DialArgs: %w", err)
+		}
+		httpHeads = append(httpHeads, httpHead{addr: addr, header: ainfo.AuthHeader()})
+	}
+
+	var clients []*ethclient.Client
+
+	for _, head := range httpHeads {
+		if cliutil.IsVeryVerbose {
+			_, _ = fmt.Fprintln(cctx.App.Writer, "using eth client endpoint:", head.addr)
+		}
+
+		d := websocket.Dialer{
+			HandshakeTimeout: 10 * time.Second,
+			ReadBufferSize:   4096,
+			WriteBufferSize:  4096,
+		}
+
+		wopts := erpc.WithWebsocketDialer(d)
+		hopts := erpc.WithHeaders(head.header)
+
+		rpcClient, err := erpc.DialOptions(cctx.Context, head.addr, wopts, hopts)
+		if err != nil {
+			log.Warnf("failed to dial eth client: %s", err)
+			continue
+		}
+		client := ethclient.NewClient(rpcClient)
+		_, err = client.BlockNumber(cctx.Context)
+		if err != nil {
+			log.Warnf("failed to get eth block number: %s", err)
+			continue
+		}
+		clients = append(clients, client)
+	}
+
+	if len(clients) == 0 {
+		return nil, xerrors.Errorf("failed to establish connection with all nodes")
+	}
+
+	return clients[0], nil
+
 }

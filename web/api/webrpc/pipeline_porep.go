@@ -26,27 +26,32 @@ type PipelineTask struct {
 	AfterSDR   bool   `db:"after_sdr"`
 	StartedSDR bool   `db:"started_sdr"`
 
-	TaskTreeD    *int64 `db:"task_id_tree_d"`
-	AfterTreeD   bool   `db:"after_tree_d"`
-	StartedTreeD bool   `db:"started_tree_d"`
+	TaskTreeD    *int64  `db:"task_id_tree_d"`
+	AfterTreeD   bool    `db:"after_tree_d"`
+	StartedTreeD bool    `db:"started_tree_d"`
+	TreeD        *string `db:"tree_d_cid"`
 
 	TaskTreeC     *int64 `db:"task_id_tree_c"`
 	AfterTreeC    bool   `db:"after_tree_c"`
 	StartedTreeRC bool   `db:"started_tree_rc"`
 
-	TaskTreeR  *int64 `db:"task_id_tree_r"`
-	AfterTreeR bool   `db:"after_tree_r"`
+	TaskTreeR  *int64  `db:"task_id_tree_r"`
+	AfterTreeR bool    `db:"after_tree_r"`
+	TreeR      *string `db:"tree_r_cid"`
 
 	TaskSynthetic    *int64 `db:"task_id_synth"`
 	AfterSynthetic   bool   `db:"after_synth"`
 	StartedSynthetic bool   `db:"started_synthetic"`
 
+	PreCommitReadyAt *time.Time `db:"precommit_ready_at"`
+
 	TaskPrecommitMsg    *int64 `db:"task_id_precommit_msg"`
 	AfterPrecommitMsg   bool   `db:"after_precommit_msg"`
 	StartedPrecommitMsg bool   `db:"started_precommit_msg"`
 
-	AfterPrecommitMsgSuccess bool   `db:"after_precommit_msg_success"`
-	SeedEpoch                *int64 `db:"seed_epoch"`
+	AfterPrecommitMsgSuccess bool    `db:"after_precommit_msg_success"`
+	PreCommitMsgCid          *string `db:"precommit_msg_cid"`
+	SeedEpoch                *int64  `db:"seed_epoch"`
 
 	TaskPoRep    *int64 `db:"task_id_porep"`
 	PoRepProof   []byte `db:"porep_proof"`
@@ -61,11 +66,14 @@ type PipelineTask struct {
 	AfterMoveStorage   bool   `db:"after_move_storage"`
 	StartedMoveStorage bool   `db:"started_move_storage"`
 
+	CommitReadyAt *time.Time `db:"commit_ready_at"`
+
 	TaskCommitMsg    *int64 `db:"task_id_commit_msg"`
 	AfterCommitMsg   bool   `db:"after_commit_msg"`
 	StartedCommitMsg bool   `db:"started_commit_msg"`
 
-	AfterCommitMsgSuccess bool `db:"after_commit_msg_success"`
+	AfterCommitMsgSuccess bool    `db:"after_commit_msg_success"`
+	CommitMsgCid          *string `db:"commit_msg_cid"`
 
 	Failed       bool   `db:"failed"`
 	FailedReason string `db:"failed_reason"`
@@ -105,6 +113,7 @@ func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, e
 												sp.after_tree_r,
 												sp.task_id_synth, 
 												sp.after_synth,
+												sp.precommit_ready_at,
 												sp.task_id_precommit_msg, 
 												sp.after_precommit_msg,
 												sp.after_precommit_msg_success, 
@@ -116,6 +125,7 @@ func (a *WebRPC) PipelinePorepSectors(ctx context.Context) ([]sectorListEntry, e
 												sp.after_finalize,
 												sp.task_id_move_storage, 
 												sp.after_move_storage,
+												sp.commit_ready_at,
 												sp.task_id_commit_msg, 
 												sp.after_commit_msg,
 												sp.after_commit_msg_success,

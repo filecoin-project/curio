@@ -1,156 +1,6 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
-
-class Expirations extends LitElement {
-    static properties = {
-        address: { type: String },
-    };
-
-    static styles = css`
-        :host {
-            display: block;
-            width: 450px;
-            height: 200px;
-        }
-    `;
-
-    constructor() {
-        super();
-        this.data = { All: [], CC: [] };
-    }
-
-    updated(changedProperties) {
-        if (changedProperties.has('address') && this.address) {
-            this.loadData();
-        }
-    }
-
-    async loadData() {
-        if (!this.address) {
-            console.error('Address is not set');
-            return;
-        }
-
-        try {
-            this.data = await RPCCall('ActorSectorExpirations', [this.address]);
-            this.renderChart();
-
-            // Poll for updates
-            if (this.intervalId) {
-                clearInterval(this.intervalId);
-            }
-            this.intervalId = setInterval(() => this.loadData(), 30000);
-        } catch (error) {
-            console.error('Error loading data:', error);
-        }
-    }
-
-    disconnectedCallback() {
-        super.disconnectedCallback();
-        if (this.intervalId) {
-            clearInterval(this.intervalId);
-        }
-    }
-
-    renderChart() {
-        if (!this.data || (!this.data.All.length && !this.data.CC.length)) {
-            console.warn('No data to render');
-            return;
-        }
-
-        const nowEpoch = this.data.All[0]?.Expiration || this.data.CC[0]?.Expiration;
-
-        const config = {
-            type: 'line',
-            data: {
-                datasets: [
-                    {
-                        label: 'All Sectors',
-                        borderColor: 'rgb(75, 192, 192)',
-                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                        borderWidth: 1,
-                        stepped: true,
-                        fill: true,
-                        pointRadius: 2,
-                        data: this.data.All.map(d => ({ x: d.Expiration, y: d.Count }))
-                    },
-                    {
-                        label: 'CC Sectors',
-                        borderColor: 'rgb(99,255,161)',
-                        backgroundColor: 'rgba(99,255,148,0.2)',
-                        borderWidth: 1,
-                        stepped: true,
-                        fill: true,
-                        pointRadius: 2,
-                        data: this.data.CC.map(d => ({ x: d.Expiration, y: d.Count }))
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: {
-                        type: 'linear',
-                        position: 'bottom',
-                        title: {
-                            display: true,
-                            text: 'Days in Future'
-                        },
-                        ticks: {
-                            callback: function(value, index, values) {
-                                const days = Math.round((value - nowEpoch) * 30 / 86400);
-                                return days + 'd';
-                            }
-                        },
-                        min: nowEpoch,
-                        max: Math.max(
-                            this.data.All[this.data.All.length - 1]?.Expiration || 0,
-                            this.data.CC[this.data.CC.length - 1]?.Expiration || 0
-                        ),
-                        afterDataLimits: (scale) => {
-                            scale.max += (scale.max - scale.min) * 0.05;
-                        }
-                    },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Count'
-                        },
-                        beginAtZero: true
-                    }
-                },
-                plugins: {
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                const days = Math.round((context.parsed.x - nowEpoch) * 30 / 86400);
-                                return `${context.dataset.label}: ${context.parsed.y}, Days: ${days} (months: ${(days / 30).toFixed(1)})`;
-                            }
-                        }
-                    }
-                }
-            }
-        };
-
-        if (!this.chart) {
-            const ctx = this.shadowRoot.querySelector('canvas').getContext('2d');
-            this.chart = new Chart(ctx, config);
-        } else {
-            this.chart.data = config.data;
-            this.chart.options = config.options;
-            this.chart.update();
-        }
-    }
-
-    render() {
-        return html`
-            <canvas></canvas>
-        `;
-    }
-}
-
-customElements.define('sector-expirations', Expirations);
+import '/lib/clipboard-copy.mjs';
 
 class ActorSummary extends LitElement {
     static styles = css`
@@ -184,12 +34,66 @@ class ActorSummary extends LitElement {
         .deadline-faulty {
             background-color: red;
         }
+        
+        .address-container {
+          display: flex;
+          align-items: center;
+        }
+        
+        /* The hidden tooltip text */
+      .deadline-entry-tooltip {
+        visibility: hidden;
+        background-color: rgba(50, 50, 50, 0.9);
+        color: #fff;
+        text-align: center;
+        padding: 5px 8px;
+        border-radius: 4px;
+    
+        /* Position it above the hovered item */
+        position: absolute;
+        z-index: 1;
+        bottom: 125%;  /* move the tooltip above the entry box */
+        left: 50%;     /* center the tooltip horizontally */
+        transform: translateX(-50%);
+        white-space: nowrap;
+    
+        /* Fade-in transition */
+        opacity: 0;
+        transition: opacity 0.2s;
+      }
+    
+      /* The arrow at the bottom of the tooltip */
+      .deadline-entry-tooltip::after {
+        content: "";
+        position: absolute;
+        top: 100%; /* arrow should appear at the bottom of the tooltip */
+        left: 50%;
+        transform: translateX(-50%);
+        border-width: 5px;
+        border-style: solid;
+        border-color: rgba(50, 50, 50, 0.9) transparent transparent transparent;
+      }
+    
+      .address-container {
+        display: flex;
+        align-items: center;
+      }
     `;
 
     constructor() {
         super();
         this.data = [];
         this.loadData();
+
+        this.openDeadlineIndex = -1; // no tooltip open by default
+
+        // Listen for clicks anywhere in the document
+        document.addEventListener('click', this.handleOutsideClick.bind(this));
+    }
+
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        document.removeEventListener('click', this.handleOutsideClick);
     }
 
     async loadData() {
@@ -203,30 +107,88 @@ class ActorSummary extends LitElement {
         }, 30000);
     }
 
-    renderWins(win1, win7, win30) {
-        return html`
-            <table>
-                <tr><td>1day:&nbsp; ${win1}</td></tr>
-                <tr><td>7day:&nbsp; ${win7}</td></tr>
-                <tr><td>30day: ${win30}</td></tr>
-            </table>
-        `;
-    }
-
     renderDeadlines(deadlines) {
         return html`
             <div class="deadline-box">
-                ${deadlines.map(d => html`
-                    <div class="deadline-entry
-                        ${d.Current ? 'deadline-entry-cur' : ''}
-                        ${d.Proven ? 'deadline-proven' : ''}
-                        ${d.PartFaulty ? 'deadline-partially-faulty' : ''}
-                        ${d.Faulty ? 'deadline-faulty' : ''}
-                    "></div>
-                `)}
+                ${
+                        deadlines.map((d, index) => {
+                            const countInfo = d.Count
+                                    ? html`
+                                        Total: ${d.Count.Total},
+                                        Active: ${d.Count.Active},
+                                        Live: ${d.Count.Live},
+                                        Fault: ${d.Count.Fault},
+                                        Recovering: ${d.Count.Recovering}
+                                    `
+                                    : 'No Count Info';
+
+                            // If this tooltip is open, we show it. Otherwise, hide it.
+                            const isOpen = (this.openDeadlineIndex === index);
+
+                            return html`
+                                <div
+                                        class="deadline-entry-container"
+                                        data-deadline-index="${index}"
+                                        style="position: relative;"
+                                >
+                                    <div
+                                            class="deadline-entry
+                ${d.Current ? 'deadline-entry-cur' : ''}
+                ${d.Proven ? 'deadline-proven' : ''}
+                ${d.PartFaulty ? 'deadline-partially-faulty' : ''}
+                ${d.Faulty ? 'deadline-faulty' : ''}"
+                                    ></div>
+
+                                    <!-- The tooltip -->
+                                    <div
+                                            class="deadline-entry-tooltip"
+                                            style="
+                  visibility: ${isOpen ? 'visible' : 'hidden'};
+                  opacity: ${isOpen ? '1' : '0'};
+                "
+                                    >
+                                        ${countInfo}
+                                    </div>
+                                </div>
+                            `;
+                        })
+                }
             </div>
         `;
     }
+
+
+    handleOutsideClick(e) {
+        // If we have an open tooltip, and the user clicked outside it, close it
+        // We'll detect if they clicked inside a .deadline-entry-container
+        // that references the same index. If not, we close.
+        const clickedEl = e.composedPath
+            ? e.composedPath()[0]
+            : e.target; // cross-browser, some use composedPath
+
+        // We'll store a custom data attr (e.g. data-deadline-index)
+        // on the container so we know which one was clicked
+        if (!clickedEl.closest || !clickedEl.closest('.deadline-entry-container')) {
+            // Click is outside any deadline container
+            this.openDeadlineIndex = -1;
+            this.requestUpdate();
+            return;
+        }
+
+        // If clicked inside a container, let's see which index
+        const container = clickedEl.closest('.deadline-entry-container');
+        const idx = parseInt(container.dataset.deadlineIndex, 10);
+
+        // If we clicked the same index that was open, we can close it.
+        // Or if it's different, open that new one.
+        if (this.openDeadlineIndex === idx) {
+            this.openDeadlineIndex = -1; // toggle off
+        } else {
+            this.openDeadlineIndex = idx; // show new
+        }
+        this.requestUpdate();
+    }
+
 
     render() {
         return html`
@@ -241,15 +203,18 @@ class ActorSummary extends LitElement {
                     <th>Deadlines</th>
                     <th>Balance</th>
                     <th>Available</th>
-                    <th>Worker</th>
-                    <th style="min-width: 100px">Wins</th>
-                    <th>Expirations</th>
+                    <th style="min-width: 100px">Wins 1d/7d/30d</th>
                 </tr>
                 </thead>
                 <tbody>
                 ${this.data.map(entry => html`
                     <tr>
-                        <td>${entry.Address}</td>
+                        <td>
+                            <div  class="address-container">
+                                <a href="/pages/actor/?id=${entry.Address}">${entry.Address}</a>
+                                <clipboard-copy .text=${entry.Address}></clipboard-copy>
+                            </div>
+                        </td>
                         <td>
                             ${entry.CLayers.map(layer => html`<span>${layer} </span>`)}
                         </td>
@@ -257,9 +222,7 @@ class ActorSummary extends LitElement {
                         <td>${this.renderDeadlines(entry.Deadlines)}</td>
                         <td>${entry.ActorBalance}</td>
                         <td>${entry.ActorAvailable}</td>
-                        <td>${entry.WorkerBalance}</td>
-                        <td>${this.renderWins(entry.Win1, entry.Win7, entry.Win30)}</td>
-                        <td><sector-expirations address="${entry.Address}"></sector-expirations></td>
+                        <td>${entry.Win1}/${entry.Win7}/${entry.Win30}</td>
                     </tr>
                 `)}
                 </tbody>

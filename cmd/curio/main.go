@@ -18,6 +18,7 @@ import (
 
 	curiobuild "github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/cmd/curio/guidedsetup"
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/lib/fastparamfetch"
 	"github.com/filecoin-project/curio/lib/panicreport"
@@ -69,6 +70,7 @@ func main() {
 		fetchParamCmd,
 		ffiCmd,
 		calcCmd,
+		toolboxCmd,
 	}
 
 	jaeger := tracing.SetupJaegerTracing("curio")
@@ -101,7 +103,7 @@ func main() {
 
 	app := &cli.App{
 		Name:                 "curio",
-		Usage:                "Filecoin decentralized storage network provider",
+		Usage:                translations.T("Filecoin decentralized storage network provider"),
 		Version:              curiobuild.UserVersion(),
 		EnableBashCompletion: true,
 		Before: func(c *cli.Context) error {
@@ -112,9 +114,10 @@ func main() {
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				// examined in the Before above
-				Name:        "color",
-				Usage:       "use color in display output",
-				DefaultText: "depends on output being a TTY",
+				Name: "color",
+
+				Usage:       translations.T("use color in display output"),
+				DefaultText: translations.T("depends on output being a TTY"),
 			},
 			&cli.StringFlag{
 				Name:    "panic-reports",
@@ -125,28 +128,44 @@ func main() {
 			&cli.StringFlag{
 				Name:    "db-host",
 				EnvVars: []string{"CURIO_DB_HOST", "CURIO_HARMONYDB_HOSTS"},
-				Usage:   "Command separated list of hostnames for yugabyte cluster",
+				Usage:   translations.T("Command separated list of hostnames for yugabyte cluster"),
 				Value:   "127.0.0.1",
 			},
 			&cli.StringFlag{
 				Name:    "db-name",
 				EnvVars: []string{"CURIO_DB_NAME", "CURIO_HARMONYDB_NAME"},
+				Usage:   translations.T("Name of the Postgres database in Yugabyte cluster"),
 				Value:   "yugabyte",
 			},
 			&cli.StringFlag{
 				Name:    "db-user",
+				Usage:   translations.T("Username for connecting to the Postgres database in Yugabyte cluster"),
 				EnvVars: []string{"CURIO_DB_USER", "CURIO_HARMONYDB_USERNAME"},
 				Value:   "yugabyte",
 			},
 			&cli.StringFlag{
 				Name:    "db-password",
+				Usage:   translations.T("Password for connecting to the Postgres database in Yugabyte cluster"),
 				EnvVars: []string{"CURIO_DB_PASSWORD", "CURIO_HARMONYDB_PASSWORD"},
 				Value:   "yugabyte",
 			},
 			&cli.StringFlag{
 				Name:    "db-port",
+				Usage:   translations.T("Port for connecting to the Postgres database in Yugabyte cluster"),
 				EnvVars: []string{"CURIO_DB_PORT", "CURIO_HARMONYDB_PORT"},
 				Value:   "5433",
+			},
+			&cli.IntFlag{
+				Name:    "db-cassandra-port",
+				Usage:   translations.T("Port for connecting to the Cassandra database in Yugabyte cluster"),
+				EnvVars: []string{"CURIO_DB_CASSANDRA_PORT", "CURIO_INDEXDB_PORT"},
+				Value:   9042,
+			},
+			&cli.BoolFlag{
+				Name:    "db-load-balance",
+				Usage:   translations.T("Enable load balancing for connecting to the Postgres database in Yugabyte cluster"),
+				EnvVars: []string{"CURIO_DB_LOAD_BALANCE", "CURIO_HARMONYDB_LOAD_BALANCE"},
+				Value:   true,
 			},
 			&cli.StringFlag{
 				Name:    deps.FlagRepoPath,
@@ -155,7 +174,7 @@ func main() {
 			},
 			&cli.BoolFlag{ // disconnected from cli/util for dependency reasons. Not used in curio that way.
 				Name:  "vv",
-				Usage: "enables very verbose mode, useful for debugging the CLI",
+				Usage: translations.T("enables very verbose mode, useful for debugging the CLI"),
 			},
 		},
 		Commands: local,
@@ -180,9 +199,10 @@ func main() {
 }
 
 var fetchParamCmd = &cli.Command{
-	Name:      "fetch-params",
-	Usage:     "Fetch proving parameters",
-	ArgsUsage: "[sectorSize]",
+	Name: "fetch-params",
+
+	Usage:     translations.T("Fetch proving parameters"),
+	ArgsUsage: translations.T("[sectorSize]"),
 	Action: func(cctx *cli.Context) error {
 		if cctx.NArg() != 1 {
 			return xerrors.Errorf("incorrect number of arguments")

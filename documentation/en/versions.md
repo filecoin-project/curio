@@ -2,14 +2,19 @@
 
 This is the compatibility matrix for the latest free Curio releases.
 
-| Curio Version                                                | Lotus Version | Net     | Boost      | Yugabyte           | Forest           |
-| ------------------------------------------------------------ | ------------- | ------- | ---------- | ------------------ | ---------------- |
-| 1.22.1 / Automatic                                           | v1.27.X       | MainNet | v2.3.0-rc2 | 2.20.X / Automatic | 0.19 / Automatic |
-| 1.23.0                                                       | >v1.28.1      | MainNet | v2.3.0     | 2.20.X / Automatic | 0.19 / Automatic |
-| v1.23.1                                                      | >v1.28.1      | MainNet | v2.3.0     | 2.20.x / Automatic | 0.19 / Automatic |
-| <mark style="color:red;background-color:red;">v1.24.0</mark> | v1.30.0-rcX   | MainNet | v2.4.0-rc1 | 2.20.x / Automatic | 0.21 / Automatic |
-| v1.24.1                                                      | v1.30.0-rcX   | MainNet | v2.4.0-rc1 | 2.20.x / Automatic | 0.21 / Automatic |
-| v1.24.2                                                      | v1.30.0       | MainNet | v2.4.0     | 2.20.x / Automatic | 0.21 / Automatic |
+| Curio Version                                                | Lotus Version | Net     | Boost      | Yugabyte            | Forest           |
+|--------------------------------------------------------------|---------------|---------|------------|---------------------|------------------|
+| 1.22.1 / Automatic                                           | v1.27.X       | MainNet | v2.3.0-rc2 | 2.20.X / Automatic  | 0.19 / Automatic |
+| 1.23.0                                                       | >v1.28.1      | MainNet | v2.3.0     | 2.20.X / Automatic  | 0.19 / Automatic |
+| v1.23.1                                                      | >v1.28.1      | MainNet | v2.3.0     | 2.20.x / Automatic  | 0.19 / Automatic |
+| <mark style="color:red;background-color:red;">v1.24.0</mark> | v1.30.0-rcX   | MainNet | v2.4.0-rc1 | 2.20.x / Automatic  | 0.21 / Automatic |
+| v1.24.1                                                      | v1.30.0-rcX   | MainNet | v2.4.0-rc1 | 2.20.x / Automatic  | 0.21 / Automatic |
+| v1.24.2                                                      | v1.30.0       | MainNet | v2.4.0     | 2.20.x / Automatic  | 0.21 / Automatic |
+| v1.24.3                                                      | v1.32.0-rcX   | MainNet | v2.4.1     | 2.20.x / Automatic  | 0.21 / Automatic |
+| v1.24.4                                                      | v1.32.0-rcX   | MainNet | v2.4.1     | 2.20.x / Automatic  | 0.23 / Automatic |
+| v1.24.5                                                      | v1.32.0-rcX   | Mainnet | v2.4.1     | v2024.2 / Automatic | 0.23 / Automatic |
+| v1.25.0                                                      | v1.32.2       | Mainnet | NA         | v2024.2 / Automatic | 0.25 / Automatic |
+| v1.25.1                                                      | v1.33.0       | Mainnet | NA         | v2024.2 / Automatic | 0.26 / Automatic |
 
 {% hint style="danger" %}
 Releases in <mark style="color:red;">red color</mark> are **not recommended**. Please proceed with the next stable release.

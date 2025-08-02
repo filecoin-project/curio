@@ -25,7 +25,7 @@ import (
 	"github.com/filecoin-project/curio/lib/partialfile"
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/paths/mocks"
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/storiface"
 )
 
 const metaFile = "sectorstore.json"
@@ -59,7 +59,9 @@ func createTestStorage(t *testing.T, p string, seal bool, att ...*paths.Local) s
 func TestMoveShared(t *testing.T) {
 	logging.SetAllLoggers(logging.LevelDebug)
 
-	db, err := harmonydb.NewFromConfigWithITestID(t, "testlocalstorage")
+	sharedITestID := harmonydb.ITestNewID()
+
+	db, err := harmonydb.NewFromConfigWithITestID(t, sharedITestID)
 	require.NoError(t, err)
 
 	index := paths.NewDBIndex(nil, db)
@@ -85,9 +87,9 @@ func TestMoveShared(t *testing.T) {
 	hs1 := httptest.NewServer(mux1)
 	hs2 := httptest.NewServer(mux2)
 
-	ls1, err := paths.NewLocal(ctx, lr1, index, []string{hs1.URL + "/remote"})
+	ls1, err := paths.NewLocal(ctx, lr1, index, hs1.URL+"/remote")
 	require.NoError(t, err)
-	ls2, err := paths.NewLocal(ctx, lr2, index, []string{hs2.URL + "/remote"})
+	ls2, err := paths.NewLocal(ctx, lr2, index, hs2.URL+"/remote")
 	require.NoError(t, err)
 
 	dirStor := filepath.Join(dir, "stor")

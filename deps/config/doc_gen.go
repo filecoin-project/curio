@@ -20,7 +20,15 @@ var Doc = map[string][]DocField{
 			Name: "StorageRPCSecret",
 			Type: "string",
 
-			Comment: `Chain API auth secret for the Curio nodes to use.`,
+			Comment: `API auth secret for the Curio nodes to use. This value should only be set on the bade layer.`,
+		},
+	},
+	"BalanceManagerConfig": {
+		{
+			Name: "MK12Collateral",
+			Type: "MK12CollateralConfig",
+
+			Comment: `MK12Collateral defines the configuration for managing collateral and related balance thresholds in the miner's market.`,
 		},
 	},
 	"BatchFeeConfig": {
@@ -28,11 +36,54 @@ var Doc = map[string][]DocField{
 			Name: "Base",
 			Type: "types.FIL",
 
-			Comment: ``,
+			Comment: `Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.`,
 		},
 		{
 			Name: "PerSector",
 			Type: "types.FIL",
+
+			Comment: `Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.`,
+		},
+	},
+	"CommitBatchingConfig": {
+		{
+			Name: "BaseFeeThreshold",
+			Type: "types.FIL",
+
+			Comment: `Base fee value below which we should try to send Commit messages immediately
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")`,
+		},
+		{
+			Name: "Timeout",
+			Type: "time.Duration",
+
+			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+		},
+		{
+			Name: "Slack",
+			Type: "time.Duration",
+
+			Comment: `Time buffer for forceful batch submission before sectors/deals in batch would start expiring
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+		},
+	},
+	"CompressionConfig": {
+		{
+			Name: "GzipLevel",
+			Type: "int",
+
+			Comment: ``,
+		},
+		{
+			Name: "BrotliLevel",
+			Type: "int",
+
+			Comment: ``,
+		},
+		{
+			Name: "DeflateLevel",
+			Type: "int",
 
 			Comment: ``,
 		},
@@ -42,19 +93,25 @@ var Doc = map[string][]DocField{
 			Name: "PreCommitControl",
 			Type: "[]string",
 
-			Comment: `Addresses to send PreCommit messages from`,
+			Comment: `PreCommitControl is an array of Addresses to send PreCommit messages from`,
 		},
 		{
 			Name: "CommitControl",
 			Type: "[]string",
 
-			Comment: `Addresses to send Commit messages from`,
+			Comment: `CommitControl is an array of Addresses to send Commit messages from`,
+		},
+		{
+			Name: "DealPublishControl",
+			Type: "[]string",
+
+			Comment: `DealPublishControl is an array of Address to send the deal collateral from with PublishStorageDeal Message`,
 		},
 		{
 			Name: "TerminateControl",
 			Type: "[]string",
 
-			Comment: ``,
+			Comment: `TerminateControl is a list of addresses used to send Terminate messages.`,
 		},
 		{
 			Name: "DisableOwnerFallback",
@@ -76,7 +133,14 @@ over the worker address if this flag is set.`,
 			Name: "MinerAddresses",
 			Type: "[]string",
 
-			Comment: `MinerAddresses are the addresses of the miner actors to use for sending messages`,
+			Comment: `MinerAddresses are the addresses of the miner actors`,
+		},
+		{
+			Name: "BalanceManager",
+			Type: "BalanceManagerConfig",
+
+			Comment: `BalanceManagerConfig specifies the configuration parameters for managing wallet balances and actor-related funds,
+including collateral and other operational resources.`,
 		},
 	},
 	"CurioAlertingConfig": {
@@ -85,7 +149,8 @@ over the worker address if this flag is set.`,
 			Type: "types.FIL",
 
 			Comment: `MinimumWalletBalance is the minimum balance all active wallets. If the balance is below this value, an
-alerts will be triggered for the wallet`,
+alerts will be triggered for the wallet
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")`,
 		},
 		{
 			Name: "PagerDuty",
@@ -106,119 +171,164 @@ alerts will be triggered for the wallet`,
 			Comment: `SlackWebhookConfig is a configuration type for Slack webhook integration.`,
 		},
 	},
+	"CurioBatchingConfig": {
+		{
+			Name: "PreCommit",
+			Type: "PreCommitBatchingConfig",
+
+			Comment: `Precommit Batching configuration`,
+		},
+		{
+			Name: "Commit",
+			Type: "CommitBatchingConfig",
+
+			Comment: `Commit batching configuration`,
+		},
+		{
+			Name: "Update",
+			Type: "UpdateBatchingConfig",
+
+			Comment: `Snap Deals batching configuration`,
+		},
+	},
 	"CurioConfig": {
 		{
 			Name: "Subsystems",
 			Type: "CurioSubsystemsConfig",
 
-			Comment: ``,
+			Comment: `Subsystems defines configuration settings for various subsystems within the Curio node.`,
 		},
 		{
 			Name: "Fees",
 			Type: "CurioFees",
 
-			Comment: ``,
+			Comment: `Fees holds the fee-related configuration parameters for various operations in the Curio node.`,
 		},
 		{
 			Name: "Addresses",
 			Type: "[]CurioAddresses",
 
-			Comment: `Addresses of wallets per MinerAddress (one of the fields).`,
+			Comment: `Addresses specifies the list of miner addresses and their related wallet addresses.`,
 		},
 		{
 			Name: "Proving",
 			Type: "CurioProvingConfig",
 
-			Comment: ``,
+			Comment: `Proving defines the configuration settings related to proving functionality within the Curio node.`,
+		},
+		{
+			Name: "HTTP",
+			Type: "HTTPConfig",
+
+			Comment: `HTTP represents the configuration for the HTTP server settings in the Curio node.`,
+		},
+		{
+			Name: "Market",
+			Type: "MarketConfig",
+
+			Comment: `Market specifies configuration options for the Market subsystem within the Curio node.`,
 		},
 		{
 			Name: "Ingest",
 			Type: "CurioIngestConfig",
 
-			Comment: ``,
+			Comment: `Ingest defines configuration parameters for handling and limiting deal ingestion pipelines within the Curio node.`,
 		},
 		{
 			Name: "Seal",
 			Type: "CurioSealConfig",
 
-			Comment: ``,
+			Comment: `Seal defines the configuration related to the sealing process in Curio.`,
 		},
 		{
 			Name: "Apis",
 			Type: "ApisConfig",
 
-			Comment: ``,
+			Comment: `Apis defines the configuration for API-related settings in the Curio system.`,
 		},
 		{
 			Name: "Alerting",
 			Type: "CurioAlertingConfig",
 
-			Comment: ``,
+			Comment: `Alerting specifies configuration settings for alerting mechanisms, including thresholds and external integrations.`,
+		},
+		{
+			Name: "Batching",
+			Type: "CurioBatchingConfig",
+
+			Comment: `Batching represents the batching configuration for pre-commit, commit, and update operations.`,
 		},
 	},
 	"CurioFees": {
 		{
-			Name: "DefaultMaxFee",
-			Type: "types.FIL",
-
-			Comment: ``,
-		},
-		{
-			Name: "MaxPreCommitGasFee",
-			Type: "types.FIL",
-
-			Comment: ``,
-		},
-		{
-			Name: "MaxCommitGasFee",
-			Type: "types.FIL",
-
-			Comment: ``,
-		},
-		{
 			Name: "MaxPreCommitBatchGasFee",
 			Type: "BatchFeeConfig",
 
-			Comment: `maxBatchFee = maxBase + maxPerSector * nSectors`,
+			Comment: `maxBatchFee = maxBase + maxPerSector * nSectors
+(Default: #Base = "0 FIL" and #PerSector = "0.02 FIL")`,
 		},
 		{
 			Name: "MaxCommitBatchGasFee",
 			Type: "BatchFeeConfig",
 
-			Comment: ``,
+			Comment: `maxBatchFee = maxBase + maxPerSector * nSectors
+(Default: #Base = "0 FIL" and #PerSector = "0.03 FIL")`,
 		},
 		{
-			Name: "MaxTerminateGasFee",
-			Type: "types.FIL",
+			Name: "MaxUpdateBatchGasFee",
+			Type: "BatchFeeConfig",
 
-			Comment: ``,
+			Comment: `Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix.
+(Default: #Base = "0 FIL" and #PerSector = "0.03 FIL")`,
 		},
 		{
 			Name: "MaxWindowPoStGasFee",
 			Type: "types.FIL",
 
-			Comment: `WindowPoSt is a high-value operation, so the default fee should be high.`,
-		},
-		{
-			Name: "MaxPublishDealsFee",
-			Type: "types.FIL",
-
-			Comment: ``,
+			Comment: `WindowPoSt is a high-value operation, so the default fee should be high.
+Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffix. (Default: "5 fil")`,
 		},
 		{
 			Name: "CollateralFromMinerBalance",
 			Type: "bool",
 
-			Comment: `Whether to use available miner balance for sector collateral instead of sending it with each message`,
+			Comment: `Whether to use available miner balance for sector collateral instead of sending it with each message (Default: false)`,
 		},
 		{
 			Name: "DisableCollateralFallback",
 			Type: "bool",
 
-			Comment: `Don't send collateral with messages even if there is no available balance in the miner actor`,
+			Comment: `Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)`,
 		},
 	},
 	"CurioIngestConfig": {
+		{
+			Name: "MaxMarketRunningPipelines",
+			Type: "int",
+
+			Comment: `MaxMarketRunningPipelines is the maximum number of market pipelines that can be actively running tasks.
+A "running" pipeline is one that has at least one task currently assigned to a machine (owner_id is not null).
+If this limit is exceeded, the system will apply backpressure to delay processing of new deals.
+0 means unlimited. (Default: 64)`,
+		},
+		{
+			Name: "MaxQueueDownload",
+			Type: "int",
+
+			Comment: `MaxQueueDownload is the maximum number of pipelines that can be queued at the downloading stage,
+waiting for a machine to pick up their task (owner_id is null).
+If this limit is exceeded, the system will apply backpressure to slow the ingestion of new deals.
+0 means unlimited. (Default: 8)`,
+		},
+		{
+			Name: "MaxQueueCommP",
+			Type: "int",
+
+			Comment: `MaxQueueCommP is the maximum number of pipelines that can be queued at the CommP (verify) stage,
+waiting for a machine to pick up their verification task (owner_id is null).
+If this limit is exceeded, the system will apply backpressure, delaying new deal processing.
+0 means unlimited. (Default: 8)`,
+		},
 		{
 			Name: "MaxQueueDealSector",
 			Type: "int",
@@ -226,9 +336,8 @@ alerts will be triggered for the wallet`,
 			Comment: `Maximum number of sectors that can be queued waiting for deals to start processing.
 0 = unlimited
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
-The DealSector queue includes deals which are ready to enter the sealing pipeline but are not yet part of it -
-size of this queue will also impact the maximum number of ParkPiece tasks which can run concurrently.
-DealSector queue is the first queue in the sealing pipeline, meaning that it should be used as the primary backpressure mechanism.`,
+The DealSector queue includes deals that are ready to enter the sealing pipeline but are not yet part of it.
+DealSector queue is the first queue in the sealing pipeline, making it the primary backpressure mechanism. (Default: 8)`,
 		},
 		{
 			Name: "MaxQueueSDR",
@@ -240,7 +349,7 @@ Note: This mechanism will delay taking deal data from markets, providing backpre
 The SDR queue includes deals which are in the process of entering the sealing pipeline. In case of the SDR tasks it is
 possible that this queue grows more than this limit(CC sectors), the backpressure is only applied to sectors
 entering the pipeline.
-Only applies to PoRep pipeline (DoSnap = false)`,
+Only applies to PoRep pipeline (DoSnap = false) (Default: 8)`,
 		},
 		{
 			Name: "MaxQueueTrees",
@@ -251,7 +360,7 @@ Only applies to PoRep pipeline (DoSnap = false)`,
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 In case of the trees tasks it is possible that this queue grows more than this limit, the backpressure is only
 applied to sectors entering the pipeline.
-Only applies to PoRep pipeline (DoSnap = false)`,
+Only applies to PoRep pipeline (DoSnap = false) (Default: 0)`,
 		},
 		{
 			Name: "MaxQueuePoRep",
@@ -262,16 +371,16 @@ Only applies to PoRep pipeline (DoSnap = false)`,
 Note: This mechanism will delay taking deal data from markets, providing backpressure to the market subsystem.
 Like with the trees tasks, it is possible that this queue grows more than this limit, the backpressure is only
 applied to sectors entering the pipeline.
-Only applies to PoRep pipeline (DoSnap = false)`,
+Only applies to PoRep pipeline (DoSnap = false) (Default: 0)`,
 		},
 		{
 			Name: "MaxQueueSnapEncode",
 			Type: "int",
 
-			Comment: `MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode to start processing.
+			Comment: `MaxQueueSnapEncode is the maximum number of sectors that can be queued waiting for UpdateEncode tasks to start.
 0 means unlimited.
 This applies backpressure to the market subsystem by delaying the ingestion of deal data.
-Only applies to the Snap Deals pipeline (DoSnap = true).`,
+Only applies to the Snap Deals pipeline (DoSnap = true). (Default: 16)`,
 		},
 		{
 			Name: "MaxQueueSnapProve",
@@ -279,21 +388,23 @@ Only applies to the Snap Deals pipeline (DoSnap = true).`,
 
 			Comment: `MaxQueueSnapProve is the maximum number of sectors that can be queued waiting for UpdateProve to start processing.
 0 means unlimited.
-This applies backpressure to the market subsystem by delaying the ingestion of deal data.
-Only applies to the Snap Deals pipeline (DoSnap = true).`,
+This applies backpressure in the Snap Deals pipeline (DoSnap = true) by delaying new deal ingestion. (Default: 0)`,
 		},
 		{
 			Name: "MaxDealWaitTime",
-			Type: "Duration",
+			Type: "time.Duration",
 
-			Comment: `Maximum time an open deal sector should wait for more deal before it starts sealing`,
+			Comment: `Maximum time an open deal sector should wait for more deals before it starts sealing.
+This ensures that sectors don't remain open indefinitely, consuming resources.
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
 		},
 		{
 			Name: "DoSnap",
 			Type: "bool",
 
-			Comment: `DoSnap enables the snap deal process for deals ingested by this instance. Unlike in lotus-miner there is no
-fallback to porep when no sectors are available to snap into. When enabled all deals will be snap deals.`,
+			Comment: `DoSnap, when set to true, enables snap deal processing for deals ingested by this instance.
+Unlike lotus-miner, there is no fallback to PoRep when no snap sectors are available.
+When enabled, all deals will be processed as snap deals. (Default: false)`,
 		},
 	},
 	"CurioProvingConfig": {
@@ -308,22 +419,23 @@ WARNING: Setting this value too low may make sector challenge reading much slowe
 to late submission.
 
 After changing this option, confirm that the new value works in your setup by invoking
-'curio test wd task 0'`,
+'curio test wd task 0' (Default: 32)`,
 		},
 		{
 			Name: "SingleCheckTimeout",
-			Type: "Duration",
+			Type: "time.Duration",
 
 			Comment: `Maximum amount of time a proving pre-check can take for a sector. If the check times out the sector will be skipped
 
 WARNING: Setting this value too low risks in sectors being skipped even though they are accessible, just reading the
 test challenge took longer than this timeout
 WARNING: Setting this value too high risks missing PoSt deadline in case IO operations related to this sector are
-blocked (e.g. in case of disconnected NFS mount)`,
+blocked (e.g. in case of disconnected NFS mount)
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "10m0s")`,
 		},
 		{
 			Name: "PartitionCheckTimeout",
-			Type: "Duration",
+			Type: "time.Duration",
 
 			Comment: `Maximum amount of time a proving pre-check can take for an entire partition. If the check times out, sectors in
 the partition which didn't get checked on time will be skipped
@@ -331,7 +443,7 @@ the partition which didn't get checked on time will be skipped
 WARNING: Setting this value too low risks in sectors being skipped even though they are accessible, just reading the
 test challenge took longer than this timeout
 WARNING: Setting this value too high risks missing PoSt deadline in case IO operations related to this partition are
-blocked or slow`,
+blocked or slow. Time duration string (e.g., "1h2m3s") in TOML format.  (Default: "20m0s")`,
 		},
 	},
 	"CurioSealConfig": {
@@ -340,37 +452,40 @@ blocked or slow`,
 			Type: "string",
 
 			Comment: `BatchSealSectorSize Allows setting the sector size supported by the batch seal task.
-Can be any value as long as it is "32GiB".`,
+Can be any value as long as it is "32GiB". (Default: "32GiB")`,
 		},
 		{
 			Name: "BatchSealBatchSize",
 			Type: "int",
 
-			Comment: `Number of sectors in a seal batch. Depends on hardware and supraseal configuration.`,
+			Comment: `Number of sectors in a seal batch. Depends on hardware and supraseal configuration. (Default: 32)`,
 		},
 		{
 			Name: "BatchSealPipelines",
 			Type: "int",
 
-			Comment: `Number of parallel pipelines. Can be 1 or 2. Depends on available raw block storage`,
+			Comment: `Number of parallel pipelines. Can be 1 or 2. Depends on available raw block storage (Default: 2)`,
 		},
 		{
 			Name: "SingleHasherPerThread",
 			Type: "bool",
 
 			Comment: `SingleHasherPerThread is a compatibility flag for older CPUs. Zen3 and later supports two sectors per thread.
-Set to false for older CPUs (Zen 2 and before).`,
+Set to false for older CPUs (Zen 2 and before). (Default: false)`,
 		},
 		{
 			Name: "LayerNVMEDevices",
 			Type: "[]string",
 
-			Comment: `LayerNVMEDevices is a list of pcie device addresses that should be used for SDR layer storage.
+			Comment: `LayerNVMEDevices OPTIONAL! A list of pcie device addresses that should be used for SDR layer storage.
 The required storage is 11 * BatchSealBatchSize * BatchSealSectorSize * BatchSealPipelines
 Total Read IOPS for optimal performance should be 10M+.
 The devices MUST be NVMe devices, not used for anything else. Any data on the devices will be lost!
 
 It's recommend to define these settings in a per-machine layer, as the devices are machine-specific.
+
+If left empty a list will be inferred automatically from /sys/bus/pci/drivers/vfio-pci/... using all
+devices with the NVMe I/O PCI class - 0x010802
 
 Example: ["0000:01:00.0", "0000:01:00.1"]`,
 		},
@@ -387,13 +502,15 @@ will allow for parallel processing of partitions.
 
 It is possible to have instances handling both WindowPoSt and WinningPoSt, which can provide redundancy without
 the need for additional machines. In setups like this it is generally recommended to run
-partitionsPerDeadline+1 machines.`,
+partitionsPerDeadline+1 machines. (Default: false)`,
 		},
 		{
 			Name: "WindowPostMaxTasks",
 			Type: "int",
 
-			Comment: ``,
+			Comment: `The maximum amount of WindowPostMaxTasks tasks that can run simultaneously. Note that the maximum number of tasks will
+also be bounded by resources available on the machine. We do not recommend setting this value and let system resources determine
+the maximum tasks (Default: 0 - unlimited)`,
 		},
 		{
 			Name: "EnableWinningPost",
@@ -402,13 +519,15 @@ partitionsPerDeadline+1 machines.`,
 			Comment: `EnableWinningPost enables winning post to be executed on this curio instance.
 Each machine in the cluster with WinningPoSt enabled will also participate in the winning post scheduler.
 It is possible to mix machines with WindowPoSt and WinningPoSt enabled, for details see the EnableWindowPost
-documentation.`,
+documentation. (Default: false)`,
 		},
 		{
 			Name: "WinningPostMaxTasks",
 			Type: "int",
 
-			Comment: ``,
+			Comment: `The maximum amount of WinningPostMaxTasks tasks that can run simultaneously. Note that the maximum number of tasks will
+also be bounded by resources available on the machine. We do not recommend setting this value and let system resources determine
+the maximum tasks (Default: 0 - unlimited)`,
 		},
 		{
 			Name: "EnableParkPiece",
@@ -418,13 +537,14 @@ documentation.`,
 pieces from the network and storing them in the storage subsystem until sectors are sealed. This task is
 only applicable when integrating with boost, and should be enabled on nodes which will hold deal data
 from boost until sectors containing the related pieces have the TreeD/TreeR constructed.
-Note that future Curio implementations will have a separate task type for fetching pieces from the internet.`,
+Note that future Curio implementations will have a separate task type for fetching pieces from the internet. (Default: false)`,
 		},
 		{
 			Name: "ParkPieceMaxTasks",
 			Type: "int",
 
-			Comment: ``,
+			Comment: `The maximum amount of ParkPieceMaxTasks tasks that can run simultaneously. Note that the maximum number of tasks will
+also be bounded by resources available on the machine (Default: 0 - unlimited)`,
 		},
 		{
 			Name: "EnableSealSDR",
@@ -437,14 +557,14 @@ SDR is the first task in the sealing pipeline. It's inputs are just the hash of 
 unsealed data (CommD), sector number, miner id, and the seal proof type.
 It's outputs are the 11 layer files in the sector cache directory.
 
-In lotus-miner this was run as part of PreCommit1.`,
+In lotus-miner this was run as part of PreCommit1. (Default: false)`,
 		},
 		{
 			Name: "SealSDRMaxTasks",
 			Type: "int",
 
 			Comment: `The maximum amount of SDR tasks that can run simultaneously. Note that the maximum number of tasks will
-also be bounded by resources available on the machine.`,
+also be bounded by resources available on the machine. (Default: 0 - unlimited)`,
 		},
 		{
 			Name: "SealSDRMinTasks",
@@ -455,7 +575,7 @@ The main purpose of this setting is to allow for enough tasks to accumulate for 
 nodes are present in the cluster, this value should be set to batch_size+1 to allow for the batch sealing node to
 fill up the batch.
 This setting can also be used to give priority to other nodes in the cluster by setting this value to a higher
-value on the nodes which should have less priority.`,
+value on the nodes which should have less priority. (Default: 0 - unlimited)`,
 		},
 		{
 			Name: "EnableSealSDRTrees",
@@ -479,14 +599,14 @@ saving between PreCommit and PoRep generation at the expense of more computation
 
 In lotus-miner this was run as part of PreCommit2 (TreeD was run in PreCommit1).
 Note that nodes with SDRTrees enabled will also answer to Finalize tasks,
-which just remove unneeded tree data after PoRep is computed.`,
+which just remove unneeded tree data after PoRep is computed. (Default: false)`,
 		},
 		{
 			Name: "SealSDRTreesMaxTasks",
 			Type: "int",
 
 			Comment: `The maximum amount of SealSDRTrees tasks that can run simultaneously. Note that the maximum number of tasks will
-also be bounded by resources available on the machine.`,
+also be bounded by resources available on the machine. (Default: 0 - unlimited)`,
 		},
 		{
 			Name: "FinalizeMaxTasks",
@@ -495,7 +615,7 @@ also be bounded by resources available on the machine.`,
 			Comment: `FinalizeMaxTasks is the maximum amount of finalize tasks that can run simultaneously.
 The finalize task is enabled on all machines which also handle SDRTrees tasks. Finalize ALWAYS runs on whichever
 machine holds sector cache files, as it removes unneeded tree data after PoRep is computed.
-Finalize will run in parallel with the SubmitCommitMsg task.`,
+Finalize will run in parallel with the SubmitCommitMsg task. (Default: 0 - unlimited)`,
 		},
 		{
 			Name: "EnableSendPrecommitMsg",
@@ -503,7 +623,7 @@ Finalize will run in parallel with the SubmitCommitMsg task.`,
 
 			Comment: `EnableSendPrecommitMsg enables the sending of precommit messages to the chain
 from this curio instance.
-This runs after SDRTrees and uses the output CommD / CommR (roots of TreeD / TreeR) for the message`,
+This runs after SDRTrees and uses the output CommD / CommR (roots of TreeD / TreeR) for the message (Default: false)`,
 		},
 		{
 			Name: "EnablePoRepProof",
@@ -516,33 +636,33 @@ precommit message lands on chain. This task should run on a machine with a GPU. 
 requested from the machine which holds sector cache files which most likely is the machine which ran the SDRTrees
 task.
 
-In lotus-miner this was Commit1 / Commit2`,
+In lotus-miner this was Commit1 / Commit2 (Default: false)`,
 		},
 		{
 			Name: "PoRepProofMaxTasks",
 			Type: "int",
 
 			Comment: `The maximum amount of PoRepProof tasks that can run simultaneously. Note that the maximum number of tasks will
-also be bounded by resources available on the machine.`,
+also be bounded by resources available on the machine. (Default: 0 - unlimited)`,
 		},
 		{
 			Name: "EnableSendCommitMsg",
 			Type: "bool",
 
 			Comment: `EnableSendCommitMsg enables the sending of commit messages to the chain
-from this curio instance.`,
+from this curio instance. (Default: false)`,
 		},
 		{
 			Name: "RequireActivationSuccess",
 			Type: "bool",
 
-			Comment: `Whether to abort if any sector activation in a batch fails (newly sealed sectors, only with ProveCommitSectors3).`,
+			Comment: `Whether to abort if any sector activation in a batch fails (newly sealed sectors, only with ProveCommitSectors3). (Default: true)`,
 		},
 		{
 			Name: "RequireNotificationSuccess",
 			Type: "bool",
 
-			Comment: `Whether to abort if any sector activation in a batch fails (updating sectors, only with ProveReplicaUpdates3).`,
+			Comment: `Whether to abort if any sector activation in a batch fails (updating sectors, only with ProveReplicaUpdates3). (Default: true)`,
 		},
 		{
 			Name: "EnableMoveStorage",
@@ -552,7 +672,7 @@ from this curio instance.`,
 This tasks should only be enabled on nodes with long-term storage.
 
 The MoveStorage task is the last task in the sealing pipeline. It moves the sealed sector data from the
-SDRTrees machine into long-term storage. This task runs after the Finalize task.`,
+SDRTrees machine into long-term storage. This task runs after the Finalize task. (Default: false)`,
 		},
 		{
 			Name: "NoUnsealedDecode",
@@ -560,7 +680,7 @@ SDRTrees machine into long-term storage. This task runs after the Finalize task.
 
 			Comment: `NoUnsealedDecode disables the decoding sector data on this node. Normally data encoding is enabled by default on
 storage nodes with the MoveStorage task enabled. Setting this option to true means that unsealed data for sectors
-will not be stored on this node`,
+will not be stored on this node (Default: false)`,
 		},
 		{
 			Name: "MoveStorageMaxTasks",
@@ -568,122 +688,372 @@ will not be stored on this node`,
 
 			Comment: `The maximum amount of MoveStorage tasks that can run simultaneously. Note that the maximum number of tasks will
 also be bounded by resources available on the machine. It is recommended that this value is set to a number which
-uses all available network (or disk) bandwidth on the machine without causing bottlenecks.`,
+uses all available network (or disk) bandwidth on the machine without causing bottlenecks. (Default: 0 - unlimited)`,
 		},
 		{
 			Name: "EnableUpdateEncode",
 			Type: "bool",
 
 			Comment: `EnableUpdateEncode enables the encoding step of the SnapDeal process on this curio instance.
-This step involves encoding the data into the sector and computing updated TreeR (uses gpu).`,
+This step involves encoding the data into the sector and computing updated TreeR (uses gpu). (Default: false)`,
 		},
 		{
 			Name: "EnableUpdateProve",
 			Type: "bool",
 
 			Comment: `EnableUpdateProve enables the proving step of the SnapDeal process on this curio instance.
-This step generates the snark proof for the updated sector.`,
+This step generates the snark proof for the updated sector. (Default: false)`,
 		},
 		{
 			Name: "EnableUpdateSubmit",
 			Type: "bool",
 
 			Comment: `EnableUpdateSubmit enables the submission of SnapDeal proofs to the blockchain from this curio instance.
-This step submits the generated proofs to the chain.`,
+This step submits the generated proofs to the chain. (Default: false)`,
 		},
 		{
 			Name: "UpdateEncodeMaxTasks",
 			Type: "int",
 
-			Comment: `UpdateEncodeMaxTasks sets the maximum number of concurrent SnapDeal encoding tasks that can run on this instance.`,
+			Comment: `UpdateEncodeMaxTasks sets the maximum number of concurrent SnapDeal encoding tasks that can run on this instance. (Default: 0 - unlimited)`,
 		},
 		{
 			Name: "UpdateProveMaxTasks",
 			Type: "int",
 
-			Comment: `UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance.`,
-		},
-		{
-			Name: "EnableCommP",
-			Type: "bool",
-
-			Comment: `EnableCommP enabled the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12
-deal, and when checking sector data with 'curio unseal check'.`,
-		},
-		{
-			Name: "BoostAdapters",
-			Type: "[]string",
-
-			Comment: `BoostAdapters is a list of tuples of miner address and port/ip to listen for market (e.g. boost) requests.
-This interface is compatible with the lotus-miner RPC, implementing a subset needed for storage market operations.
-Strings should be in the format "actor:ip:port". IP cannot be 0.0.0.0. We recommend using a private IP.
-Example: "f0123:127.0.0.1:32100". Multiple addresses can be specified.
-
-When a market node like boost gives Curio's market RPC a deal to placing into a sector, Curio will first store the
-deal data in a temporary location "Piece Park" before assigning it to a sector. This requires that at least one
-node in the cluster has the EnableParkPiece option enabled and has sufficient scratch space to store the deal data.
-This is different from lotus-miner which stored the deal data into an "unsealed" sector as soon as the deal was
-received. Deal data in PiecePark is accessed when the sector TreeD and TreeR are computed, but isn't needed for
-the initial SDR layers computation. Pieces in PiecePark are removed after all sectors referencing the piece are
-sealed.
-
-To get API info for boost configuration run 'curio market rpc-info'
-
-NOTE: All deal data will flow through this service, so it should be placed on a machine running boost or on
-a machine which handles ParkPiece tasks.`,
+			Comment: `UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance. (Default: 0 - unlimited)`,
 		},
 		{
 			Name: "EnableWebGui",
 			Type: "bool",
 
 			Comment: `EnableWebGui enables the web GUI on this curio instance. The UI has minimal local overhead, but it should
-only need to be run on a single machine in the cluster.`,
+only need to be run on a single machine in the cluster. (Default: false)`,
 		},
 		{
 			Name: "GuiAddress",
 			Type: "string",
 
-			Comment: `The address that should listen for Web GUI requests.`,
+			Comment: `The address that should listen for Web GUI requests. It should be in form "x.x.x.x:1234" (Default: 0.0.0.0:4701)`,
 		},
 		{
 			Name: "UseSyntheticPoRep",
 			Type: "bool",
 
 			Comment: `UseSyntheticPoRep enables the synthetic PoRep for all new sectors. When set to true, will reduce the amount of
-cache data held on disk after the completion of TreeRC task to 11GiB.`,
+cache data held on disk after the completion of TreeRC task to 11GiB. (Default: false)`,
 		},
 		{
 			Name: "SyntheticPoRepMaxTasks",
 			Type: "int",
 
 			Comment: `The maximum amount of SyntheticPoRep tasks that can run simultaneously. Note that the maximum number of tasks will
-also be bounded by resources available on the machine.`,
+also be bounded by resources available on the machine. (Default: 0 - unlimited)`,
 		},
 		{
 			Name: "EnableBatchSeal",
 			Type: "bool",
 
-			Comment: `Batch Seal`,
+			Comment: `EnableBatchSeal enabled SupraSeal batch sealing on the node.  (Default: false)`,
+		},
+		{
+			Name: "EnableDealMarket",
+			Type: "bool",
+
+			Comment: `EnableDealMarket enabled the deal market on the node. This would also enable libp2p on the node, if configured. (Default: false)`,
+		},
+		{
+			Name: "EnablePDP",
+			Type: "bool",
+
+			Comment: `Enable handling for PDP (proof-of-data possession) deals / proving on this node.
+PDP deals allow the node to directly store and prove unsealed data with "PDP Services" like Storacha.
+This feature is BETA and should only be enabled on nodes which are part of a PDP network.`,
+		},
+		{
+			Name: "EnableCommP",
+			Type: "bool",
+
+			Comment: `EnableCommP enables the commP task on te node. CommP is calculated before sending PublishDealMessage for a Mk12 deal
+Must have EnableDealMarket = True (Default: false)`,
+		},
+		{
+			Name: "CommPMaxTasks",
+			Type: "int",
+
+			Comment: `The maximum amount of CommP tasks that can run simultaneously. Note that the maximum number of tasks will
+also be bounded by resources available on the machine. (Default: 0 - unlimited)`,
+		},
+		{
+			Name: "IndexingMaxTasks",
+			Type: "int",
+
+			Comment: `The maximum amount of indexing and IPNI tasks that can run simultaneously. Note that the maximum number of tasks will
+also be bounded by resources available on the machine. (Default: 8)`,
+		},
+		{
+			Name: "EnableBalanceManager",
+			Type: "bool",
+
+			Comment: `EnableBalanceManager enables the task to automatically manage the market balance of the miner's market actor (Default: false)`,
+		},
+		{
+			Name: "BindSDRTreeToNode",
+			Type: "bool",
+
+			Comment: `BindSDRTreeToNode forces the TreeD and TreeRC tasks to be executed on the same node where SDR task was executed
+for the sector. Please ensure that TreeD and TreeRC task are enabled and relevant resources are available before
+enabling this option. (Default: false)`,
 		},
 	},
-	"Duration time.Duration": {
+	"HTTPConfig": {
 		{
-			Name: "func",
-			Type: "(dur",
+			Name: "Enable",
+			Type: "bool",
 
-			Comment: ``,
+			Comment: `Enable the HTTP server on the node`,
 		},
 		{
-			Name: "d",
-			Type: ":=",
+			Name: "DomainName",
+			Type: "string",
 
-			Comment: ``,
+			Comment: `DomainName specifies the domain name that the server uses to serve HTTP requests. DomainName cannot be empty and cannot be
+an IP address`,
 		},
 		{
-			Name: "return",
-			Type: "[]byte(d.String()),",
+			Name: "ListenAddress",
+			Type: "string",
 
-			Comment: ``,
+			Comment: `ListenAddress is the address that the server listens for HTTP requests. It should be in form "x.x.x.x:1234" (Default: 0.0.0.0:12310)`,
+		},
+		{
+			Name: "DelegateTLS",
+			Type: "bool",
+
+			Comment: `DelegateTLS allows the server to delegate TLS to a reverse proxy. When enabled the listen address will serve
+HTTP and the reverse proxy will handle TLS termination.`,
+		},
+		{
+			Name: "ReadTimeout",
+			Type: "time.Duration",
+
+			Comment: `ReadTimeout is the maximum duration for reading the entire or next request, including body, from the client.
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")`,
+		},
+		{
+			Name: "IdleTimeout",
+			Type: "time.Duration",
+
+			Comment: `IdleTimeout is the maximum duration of an idle session. If set, idle connections are closed after this duration.
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")`,
+		},
+		{
+			Name: "ReadHeaderTimeout",
+			Type: "time.Duration",
+
+			Comment: `ReadHeaderTimeout is amount of time allowed to read request headers
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")`,
+		},
+		{
+			Name: "EnableCORS",
+			Type: "bool",
+
+			Comment: `EnableCORS indicates whether Cross-Origin Resource Sharing (CORS) is enabled or not.`,
+		},
+		{
+			Name: "CSP",
+			Type: "string",
+
+			Comment: `CSP sets the Content Security Policy for content served via the /piece/ retrieval endpoint.
+Valid values: "off", "self", "inline" (Default: "inline")
+
+Since storage providers serve user-uploaded content on their domain, CSP helps control
+what these files can do when rendered in browsers. Choose based on your use case:
+
+- "off": No CSP headers. Content can load any external resources and execute any scripts.
+Use only if you fully trust all stored content or need maximum compatibility.
+
+- "self": Restricts content to only load resources from your domain. Prevents external
+resource loading but allows stored HTML/JS/CSS to interact with each other.
+Good for semi-trusted content that needs internal functionality.
+
+- "inline": (Default) Allows inline scripts/styles and same-origin resources. Provides
+basic protection while maintaining compatibility with most web content.
+Suitable for general-purpose content hosting.
+
+Note: Stricter policies may prevent some HTML content from displaying as intended.
+Consider the trust level of your users and whether you need to support interactive content.`,
+		},
+		{
+			Name: "CompressionLevels",
+			Type: "CompressionConfig",
+
+			Comment: `CompressionLevels hold the compression level for various compression methods supported by the server`,
+		},
+	},
+	"IPNIConfig": {
+		{
+			Name: "Disable",
+			Type: "bool",
+
+			Comment: `Disable set whether to disable indexing announcement to the network and expose endpoints that
+allow indexer nodes to process announcements. Default: False`,
+		},
+		{
+			Name: "ServiceURL",
+			Type: "[]string",
+
+			Comment: `The network indexer web UI URL for viewing published announcements
+TODO: should we use this for checking published heads before publishing? Later commit`,
+		},
+		{
+			Name: "DirectAnnounceURLs",
+			Type: "[]string",
+
+			Comment: `The list of URLs of indexing nodes to announce to. This is a list of hosts we talk to tell them about new
+heads.`,
+		},
+	},
+	"IndexingConfig": {
+		{
+			Name: "InsertBatchSize",
+			Type: "int",
+
+			Comment: `Number of records per insert batch`,
+		},
+		{
+			Name: "InsertConcurrency",
+			Type: "int",
+
+			Comment: `Number of concurrent inserts to split AddIndex calls to`,
+		},
+	},
+	"MK12CollateralConfig": {
+		{
+			Name: "DealCollateralWallet",
+			Type: "string",
+
+			Comment: `DealCollateralWallet is the wallet used to add balance to Miner's market balance. This balance is
+utilized for deal collateral in market (f05) deals.`,
+		},
+		{
+			Name: "CollateralLowThreshold",
+			Type: "types.FIL",
+
+			Comment: `CollateralLowThreshold is the balance below which more balance will be added to miner's market balance
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "5 FIL")`,
+		},
+		{
+			Name: "CollateralHighThreshold",
+			Type: "types.FIL",
+
+			Comment: `CollateralHighThreshold is the target balance to which the miner's market balance will be topped up
+when it drops below CollateralLowThreshold.
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "20 FIL")`,
+		},
+	},
+	"MK12Config": {
+		{
+			Name: "PublishMsgPeriod",
+			Type: "time.Duration",
+
+			Comment: `When a deal is ready to publish, the amount of time to wait for more
+deals to be ready to publish before publishing them all as a batch
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "5m0s")`,
+		},
+		{
+			Name: "MaxDealsPerPublishMsg",
+			Type: "uint64",
+
+			Comment: `The maximum number of deals to include in a single PublishStorageDeals
+message (Default: 8)`,
+		},
+		{
+			Name: "MaxPublishDealFee",
+			Type: "types.FIL",
+
+			Comment: `The maximum fee to pay per deal when sending the PublishStorageDeals message
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.5 FIL")`,
+		},
+		{
+			Name: "ExpectedPoRepSealDuration",
+			Type: "time.Duration",
+
+			Comment: `ExpectedPoRepSealDuration is the expected time it would take to seal the deal sector
+This will be used to fail the deals which cannot be sealed on time.
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "8h0m0s")`,
+		},
+		{
+			Name: "ExpectedSnapSealDuration",
+			Type: "time.Duration",
+
+			Comment: `ExpectedSnapSealDuration is the expected time it would take to snap the deal sector
+This will be used to fail the deals which cannot be sealed on time.
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "2h0m0s")`,
+		},
+		{
+			Name: "SkipCommP",
+			Type: "bool",
+
+			Comment: `SkipCommP can be used to skip doing a commP check before PublishDealMessage is sent on chain
+Warning: If this check is skipped and there is a commP mismatch, all deals in the
+sector will need to be sent again (Default: false)`,
+		},
+		{
+			Name: "DisabledMiners",
+			Type: "[]string",
+
+			Comment: `DisabledMiners is a list of miner addresses that should be excluded from online deal making protocols`,
+		},
+		{
+			Name: "MaxConcurrentDealSizeGiB",
+			Type: "int64",
+
+			Comment: `MaxConcurrentDealSizeGiB is a sum of all size of all deals which are waiting to be added to a sector
+When the cumulative size of all deals in process reaches this number, new deals will be rejected.
+(Default: 0 = unlimited)`,
+		},
+		{
+			Name: "DenyUnknownClients",
+			Type: "bool",
+
+			Comment: `DenyUnknownClients determines the default behaviour for the deal of clients which are not in allow/deny list
+If True then all deals coming from unknown clients will be rejected. (Default: false)`,
+		},
+		{
+			Name: "DenyOnlineDeals",
+			Type: "bool",
+
+			Comment: `DenyOnlineDeals determines if the storage provider will accept online deals (Default: false)`,
+		},
+		{
+			Name: "DenyOfflineDeals",
+			Type: "bool",
+
+			Comment: `DenyOfflineDeals determines if the storage provider will accept offline deals (Default: false)`,
+		},
+		{
+			Name: "CIDGravityTokens",
+			Type: "[]string",
+
+			Comment: `CIDGravityTokens is the list of authorization token to use for CIDGravity filters. These should be in format
+"minerID1:Token1", "minerID2:Token2". If a token for a minerID within the cluster is not provided,
+CIDGravity filters will not be applied to deals associated with that miner ID.`,
+		},
+		{
+			Name: "DefaultCIDGravityAccept",
+			Type: "bool",
+
+			Comment: `DefaultCIDGravityAccept when set to true till accept deals when CIDGravity service is not available.
+Default behaviors is to reject the deals (Default: false)`,
+		},
+	},
+	"MarketConfig": {
+		{
+			Name: "StorageMarketConfig",
+			Type: "StorageMarketConfig",
+
+			Comment: `StorageMarketConfig houses all the deal related market configuration`,
 		},
 	},
 	"PagerDutyConfig": {
@@ -707,6 +1077,43 @@ The default is sufficient for integration with the stock commercial PagerDuty.co
 
 			Comment: `PageDutyIntegrationKey is the integration key for a PagerDuty.com service. You can find this unique service
 identifier in the integration page for the service.`,
+		},
+	},
+	"PieceLocatorConfig": {
+		{
+			Name: "URL",
+			Type: "string",
+
+			Comment: ``,
+		},
+		{
+			Name: "Headers",
+			Type: "http.Header",
+
+			Comment: ``,
+		},
+	},
+	"PreCommitBatchingConfig": {
+		{
+			Name: "BaseFeeThreshold",
+			Type: "types.FIL",
+
+			Comment: `Base fee value below which we should try to send Precommit messages immediately
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")`,
+		},
+		{
+			Name: "Timeout",
+			Type: "time.Duration",
+
+			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "4h0m0s")`,
+		},
+		{
+			Name: "Slack",
+			Type: "time.Duration",
+
+			Comment: `Time buffer for forceful batch submission before sectors/deal in batch would start expiring
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "6h0m0s")`,
 		},
 	},
 	"PrometheusAlertManagerConfig": {
@@ -736,6 +1143,59 @@ identifier in the integration page for the service.`,
 
 			Comment: `WebHookURL is the URL for the URL for slack Webhook.
 Example: https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX`,
+		},
+	},
+	"StorageMarketConfig": {
+		{
+			Name: "MK12",
+			Type: "MK12Config",
+
+			Comment: `MK12 encompasses all configuration related to deal protocol mk1.2.0 and mk1.2.1 (i.e. Boost deals)`,
+		},
+		{
+			Name: "IPNI",
+			Type: "IPNIConfig",
+
+			Comment: `IPNI configuration for ipni-provider`,
+		},
+		{
+			Name: "Indexing",
+			Type: "IndexingConfig",
+
+			Comment: `Indexing configuration for deal indexing`,
+		},
+		{
+			Name: "PieceLocator",
+			Type: "[]PieceLocatorConfig",
+
+			Comment: `PieceLocator is a list of HTTP url and headers combination to query for a piece for offline deals
+User can run a remote file server which can host all the pieces over the HTTP and supply a reader when requested.
+The server must support "HEAD" request and "GET" request.
+1. <URL>?id=pieceCID with "HEAD" request responds with 200 if found or 404 if not. Must send header "Content-Length" with file size as value
+2. <URL>?id=pieceCID must provide a reader for the requested piece along with header "Content-Length" with file size as value`,
+		},
+	},
+	"UpdateBatchingConfig": {
+		{
+			Name: "BaseFeeThreshold",
+			Type: "types.FIL",
+
+			Comment: `Base fee value below which we should try to send Commit messages immediately
+Accepts a decimal string (e.g., "123.45" or "123 fil") with optional "fil" or "attofil" suffix. (Default: "0.005 FIL")`,
+		},
+		{
+			Name: "Timeout",
+			Type: "time.Duration",
+
+			Comment: `Maximum amount of time any given sector in the batch can wait for the batch to accumulate
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
+		},
+		{
+			Name: "Slack",
+			Type: "time.Duration",
+
+			Comment: `Time buffer for forceful batch submission before sectors/deals in batch would start expiring
+Time duration string (e.g., "1h2m3s") in TOML format. (Default: "1h0m0s")`,
 		},
 	},
 }

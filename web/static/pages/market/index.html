@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Storage Market</title>
+    <script type="module" src="/ux/curio-ux.mjs"></script>
+    <script type="module" src="market-balance.mjs"></script>
+    <script type="module" src="market-asks.mjs"></script>
+    <script type="module" src="deal-pipelines.mjs"></script>
+    <script type="module" src="pending-deals.mjs"></script>
+    <script type="module" src="piece-summary.mjs"></script>
+    <script type="module" src="/ux/components/Drawer.mjs"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+          integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw=="
+          crossorigin="anonymous" />
+</head>
+<body style="visibility:hidden; background:rgb(11, 22, 34)" data-bs-theme="dark">
+<curio-ux>
+    <div class="page" style="margin-left: 20px; margin-right: 10px">
+    <section class="section" style="padding-bottom: 50px">
+        <div class="row">
+            <h1>Storage Market</h1>
+        </div>
+        <div class="row">
+            <div class="col-md-auto" style="max-width: 95%">
+                <market-balance></market-balance>
+            </div>
+            <div class="col-md-auto" style="max-width: 95%">
+                <piece-summary></piece-summary>
+            </div>
+        </div>
+    </section>
+    <section class="section" style="padding-bottom: 50px">
+        <div class="row">
+            <div class="col-md-auto" style="max-width: 95%">
+                <market-asks></market-asks>
+            </div>
+        </div>
+    </section>
+    <section class="section" style="padding-bottom: 50px">
+        <div class="row">
+            <div class="col-md-auto" style="max-width: 95%">
+                <pending-deals></pending-deals>
+            </div>
+        </div>
+    </section>
+    <section class="section" style="padding-bottom: 50px">
+        <div class="row">
+            <div class="col-md-auto" style="max-width: 95%">
+                <deal-pipelines></deal-pipelines>
+            </div>
+        </div>
+    </section>
+    </div>
+</curio-ux>
+</body>
+</html>

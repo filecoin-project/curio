@@ -2,18 +2,23 @@ package seal
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
+	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+	miner15 "github.com/filecoin-project/go-state-types/builtin/v15/miner"
 
+	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/promise"
 
+	apitypes "github.com/filecoin-project/lotus/api/types"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -41,19 +46,54 @@ type SealPollerAPI interface {
 	StateSectorPreCommitInfo(context.Context, address.Address, abi.SectorNumber, types.TipSetKey) (*miner.SectorPreCommitOnChainInfo, error)
 	StateSectorGetInfo(ctx context.Context, maddr address.Address, sectorNumber abi.SectorNumber, tsk types.TipSetKey) (*miner.SectorOnChainInfo, error)
 	ChainHead(context.Context) (*types.TipSet, error)
+	StateNetworkVersion(context.Context, types.TipSetKey) (apitypes.NetworkVersion, error)
+}
+
+type preCommitBatchingConfig struct {
+	MaxPreCommitBatch int
+	Slack             time.Duration
+	Timeout           time.Duration
+}
+
+type commitBatchingConfig struct {
+	MinCommitBatch int
+	MaxCommitBatch int
+	Slack          time.Duration
+	Timeout        time.Duration
+}
+
+type pollerConfig struct {
+	preCommit preCommitBatchingConfig
+	commit    commitBatchingConfig
 }
 
 type SealPoller struct {
 	db  *harmonydb.DB
 	api SealPollerAPI
+	cfg pollerConfig
 
 	pollers [numPollers]promise.Promise[harmonytask.AddTaskFunc]
 }
 
-func NewPoller(db *harmonydb.DB, api SealPollerAPI) *SealPoller {
+func NewPoller(db *harmonydb.DB, api SealPollerAPI, cfg *config.CurioConfig) *SealPoller {
+	c := pollerConfig{
+		commit: commitBatchingConfig{
+			MinCommitBatch: miner.MinAggregatedSectors,
+			MaxCommitBatch: 256,
+			Slack:          cfg.Batching.Commit.Slack,
+			Timeout:        cfg.Batching.Commit.Timeout,
+		},
+		preCommit: preCommitBatchingConfig{
+			MaxPreCommitBatch: miner15.PreCommitSectorBatchMaxSize,
+			Slack:             cfg.Batching.PreCommit.Slack,
+			Timeout:           cfg.Batching.PreCommit.Timeout,
+		},
+	}
+
 	return &SealPoller{
 		db:  db,
 		api: api,
+		cfg: c,
 	}
 }
 
@@ -83,8 +123,11 @@ NOTE: TaskIDs are ONLY set while the tasks are executing or waiting to execute.
 */
 
 type pollTask struct {
-	SpID         int64 `db:"sp_id"`
-	SectorNumber int64 `db:"sector_number"`
+	SpID                int64                   `db:"sp_id"`
+	SectorNumber        int64                   `db:"sector_number"`
+	RegisteredSealProof abi.RegisteredSealProof `db:"reg_seal_proof"`
+
+	TicketEpoch *int64 `db:"ticket_epoch"`
 
 	TaskSDR  *int64 `db:"task_id_sdr"`
 	AfterSDR bool   `db:"after_sdr"`
@@ -100,6 +143,8 @@ type pollTask struct {
 
 	TaskSynth  *int64 `db:"task_id_synth"`
 	AfterSynth bool   `db:"after_synth"`
+
+	PreCommitReadyAt *time.Time `db:"precommit_ready_at"`
 
 	TaskPrecommitMsg  *int64 `db:"task_id_precommit_msg"`
 	AfterPrecommitMsg bool   `db:"after_precommit_msg"`
@@ -117,6 +162,8 @@ type pollTask struct {
 	TaskMoveStorage  *int64 `db:"task_id_move_storage"`
 	AfterMoveStorage bool   `db:"after_move_storage"`
 
+	CommitReadyAt *time.Time `db:"commit_ready_at"`
+
 	TaskCommitMsg  *int64 `db:"task_id_commit_msg"`
 	AfterCommitMsg bool   `db:"after_commit_msg"`
 
@@ -124,36 +171,62 @@ type pollTask struct {
 
 	Failed       bool   `db:"failed"`
 	FailedReason string `db:"failed_reason"`
+
+	StartEpoch sql.NullInt64 `db:"start_epoch"`
 }
 
 func (s *SealPoller) poll(ctx context.Context) error {
 	var tasks []pollTask
 
 	err := s.db.Select(ctx, &tasks, `SELECT 
-       sp_id, sector_number,
-       task_id_sdr, after_sdr,
-       task_id_tree_d, after_tree_d,
-       task_id_tree_c, after_tree_c,
-       task_id_tree_r, after_tree_r,
-       task_id_synth, after_synth,
-       task_id_precommit_msg, after_precommit_msg,
-       after_precommit_msg_success, seed_epoch,
-       task_id_porep, porep_proof, after_porep,
-       task_id_finalize, after_finalize,
-       task_id_move_storage, after_move_storage,
-       task_id_commit_msg, after_commit_msg,
-       after_commit_msg_success,
-       failed, failed_reason
-    FROM sectors_sdr_pipeline WHERE after_commit_msg_success != TRUE OR after_move_storage != TRUE`)
+												p.sp_id, 
+												p.sector_number, 
+												p.reg_seal_proof, 
+												p.ticket_epoch,
+												p.task_id_sdr, 
+												p.after_sdr,
+												p.task_id_tree_d, 
+												p.after_tree_d,
+												p.task_id_tree_c, 
+												p.after_tree_c,
+												p.task_id_tree_r, 
+												p.after_tree_r,
+												p.task_id_synth, 
+												p.after_synth,
+												p.precommit_ready_at,
+												p.task_id_precommit_msg, 
+												p.after_precommit_msg,
+												p.after_precommit_msg_success, 
+												p.seed_epoch,
+												p.task_id_porep, 
+												p.porep_proof, 
+												p.after_porep,
+												p.task_id_finalize, 
+												p.after_finalize,
+												p.task_id_move_storage, 
+												p.after_move_storage,
+												p.commit_ready_at,
+												p.task_id_commit_msg, 
+												p.after_commit_msg,
+												p.after_commit_msg_success,
+												p.failed, 
+												p.failed_reason,
+												p.start_epoch
+											FROM 
+												sectors_sdr_pipeline p
+											WHERE 
+												p.after_commit_msg_success != TRUE 
+												OR p.after_move_storage != TRUE;`)
 	if err != nil {
 		return err
 	}
 
+	tasks = lo.Filter(tasks, func(t pollTask, _ int) bool {
+		return !t.Failed
+	})
+
 	for _, task := range tasks {
 		task := task
-		if task.Failed {
-			continue
-		}
 
 		ts, err := s.api.ChainHead(ctx)
 		if err != nil {
@@ -164,14 +237,17 @@ func (s *SealPoller) poll(ctx context.Context) error {
 		s.pollStartSDRTreeD(ctx, task)
 		s.pollStartSDRTreeRC(ctx, task)
 		s.pollStartSynth(ctx, task)
-		s.pollStartPrecommitMsg(ctx, task)
 		s.mustPoll(s.pollPrecommitMsgLanded(ctx, task))
 		s.pollStartPoRep(ctx, task, ts)
+		s.mustPoll(s.pollerAddStartEpoch(ctx, task))
 		s.pollStartFinalize(ctx, task, ts)
 		s.pollStartMoveStorage(ctx, task)
-		s.pollStartCommitMsg(ctx, task)
 		s.mustPoll(s.pollCommitMsgLanded(ctx, task))
 	}
+
+	// Aggregate/Batch PreCommit and Commit
+	s.pollStartBatchPrecommitMsg(ctx)
+	s.pollStartBatchCommitMsg(ctx)
 
 	return nil
 }

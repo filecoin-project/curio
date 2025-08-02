@@ -6,12 +6,14 @@ import (
 	"github.com/fatih/color"
 	"github.com/urfave/cli/v2"
 
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/tasks/sealsupra"
 )
 
 var calcCmd = &cli.Command{
-	Name:  "calc",
-	Usage: "Math Utils",
+	Name: "calc",
+
+	Usage: translations.T("Math Utils"),
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name: "actor",
@@ -24,12 +26,13 @@ var calcCmd = &cli.Command{
 }
 
 var calcBatchCpuCmd = &cli.Command{
-	Name:  "batch-cpu",
-	Usage: "Analyze and display the layout of batch sealer threads",
-	Description: `Analyze and display the layout of batch sealer threads on your CPU.
+	Name: "batch-cpu",
+
+	Usage: translations.T("Analyze and display the layout of batch sealer threads"),
+	Description: translations.T(`Analyze and display the layout of batch sealer threads on your CPU.
 
 It provides detailed information about CPU utilization for batch sealing operations, including core allocation, thread
-distribution for different batch sizes.`,
+distribution for different batch sizes.`),
 	Flags: []cli.Flag{
 		&cli.BoolFlag{Name: "dual-hashers", Value: true},
 	},
@@ -139,17 +142,18 @@ distribution for different batch sizes.`,
 }
 
 var calcSuprasealConfigCmd = &cli.Command{
-	Name:  "supraseal-config",
-	Usage: "Generate a supra_seal configuration",
-	Description: `Generate a supra_seal configuration for a given batch size.
+	Name: "supraseal-config",
+
+	Usage: translations.T("Generate a supra_seal configuration"),
+	Description: translations.T(`Generate a supra_seal configuration for a given batch size.
 
 This command outputs a configuration expected by SupraSeal. Main purpose of this command is for debugging and testing.
-The config can be used directly with SupraSeal binaries to test it without involving Curio.`,
+The config can be used directly with SupraSeal binaries to test it without involving Curio.`),
 	Flags: []cli.Flag{
 		&cli.BoolFlag{
 			Name:  "dual-hashers",
 			Value: true,
-			Usage: "Zen3 and later supports two sectors per thread, set to false for older CPUs",
+			Usage: translations.T("Zen3 and later supports two sectors per thread, set to false for older CPUs"),
 		},
 		&cli.IntFlag{
 			Name:     "batch-size",

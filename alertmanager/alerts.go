@@ -11,10 +11,12 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/dustin/go-humanize"
+	cbor "github.com/ipfs/go-ipld-cbor"
 	"github.com/samber/lo"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-jsonrpc"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
@@ -24,6 +26,8 @@ import (
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
+	"github.com/filecoin-project/lotus/blockstore"
+	"github.com/filecoin-project/lotus/chain/actors/adt"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
@@ -345,12 +349,17 @@ func (al *alerts) getAddresses() ([]address.Address, []address.Address, error) {
 			if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
 				return nil, nil, xerrors.Errorf("missing layer '%s' ", layer)
 			}
-			return nil, nil, fmt.Errorf("could not read layer '%s': %w", layer, err)
+			return nil, nil, xerrors.Errorf("could not read layer '%s': %w", layer, err)
+		}
+
+		err = config.FixTOML(text, cfg)
+		if err != nil {
+			return nil, nil, err
 		}
 
 		_, err = toml.Decode(text, cfg)
 		if err != nil {
-			return nil, nil, fmt.Errorf("could not read layer, bad toml %s: %w", layer, err)
+			return nil, nil, xerrors.Errorf("could not read layer, bad toml %s: %w", layer, err)
 		}
 
 		for i := range cfg.Addresses {
@@ -598,11 +607,12 @@ func wnPostCheck(al *alerts) {
 		return
 	}
 
+	const slack = 4
+	slackTasks := slack * int64(len(miners))
+
 	expected = expected * int64(len(miners)) // Multiply epochs by number of miner IDs
 
-	// If expected + 3*no of miner >= count >= expected - 3*no of miner i.e. count is off by 3 entries per miner then not a problem
-	// Example: (120 epochs * 3 miners) + 3 * (3 miners) i.e. 369 < 366 < (120 epochs * 3 miners) - 3 * (3 miners) i.e. 351
-	if expected+int64(3*len(miners)) >= count && count >= expected-int64(3*len(miners)) {
+	if count < expected-slackTasks || count > expected+slackTasks {
 		al.alertMap[Name].alertString += fmt.Sprintf("Expected %d WinningPost task and found %d in DB. ", expected, count)
 	}
 
@@ -709,5 +719,114 @@ func chainSyncCheck(al *alerts) {
 		default:
 			al.alertMap[Name].alertString += fmt.Sprintf("behind (%s behind)", time.Since(time.Unix(int64(head.MinTimestamp()), 0)).Truncate(time.Second))
 		}
+	}
+}
+
+func missingSectorCheck(al *alerts) {
+	Name := "MissingSectors"
+	al.alertMap[Name] = &alertOut{}
+
+	var sectors []struct {
+		MinerID  int64 `db:"miner_id"`
+		SectorID int64 `db:"sector_num"`
+	}
+
+	err := al.db.Select(al.ctx, &sectors, `SELECT miner_id, sector_num  FROM sector_location WHERE sector_filetype = 2 GROUP BY miner_id, sector_num ORDER BY miner_id, sector_num`)
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("getting sealed sectors from database: %w", err)
+		return
+	}
+
+	dbMap := map[address.Address]*bitfield.BitField{}
+	minerMap := map[int64]address.Address{}
+
+	for _, sector := range sectors {
+		m, ok := minerMap[sector.MinerID]
+		if !ok {
+			m, err = address.NewIDAddress(uint64(sector.MinerID))
+			if err != nil {
+				al.alertMap[Name].err = xerrors.Errorf("parsing miner address: %w", err)
+				return
+			}
+			minerMap[sector.MinerID] = m
+		}
+		bf, ok := dbMap[m]
+		if !ok {
+			newbf := bitfield.New()
+			newbf.Set(uint64(sector.SectorID))
+			dbMap[m] = &newbf
+			continue
+		}
+		bf.Set(uint64(sector.SectorID))
+	}
+
+	head, err := al.api.ChainHead(al.ctx)
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("ChainHead: %w", err)
+		return
+	}
+
+	for _, m := range minerMap {
+		mact, err := al.api.StateGetActor(al.ctx, m, head.Key())
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("getting miner actor %s: %w", m.String(), err)
+			return
+		}
+		tbs := blockstore.NewTieredBstore(blockstore.NewAPIBlockstore(al.api), blockstore.NewMemory())
+		mas, err := miner.Load(adt.WrapStore(al.ctx, cbor.NewCborStore(tbs)), mact)
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("loading miner %s: %w", m.String(), err)
+			return
+		}
+
+		liveSectors, err := miner.AllPartSectors(mas, miner.Partition.LiveSectors)
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("getting live sectors for miner %s: %w", m.String(), err)
+			return
+		}
+
+		diff, err := bitfield.SubtractBitField(liveSectors, *dbMap[m])
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("subtracting live sectors for miner %s: %w", m.String(), err)
+		}
+		err = diff.ForEach(func(i uint64) error {
+			al.alertMap[Name].alertString += fmt.Sprintf("Missing sector %d in storage for miner %s. ", i, m.String())
+			return nil
+		})
+		if err != nil {
+			al.alertMap[Name].err = xerrors.Errorf("getting missing sectors for miner %s: %w", m.String(), err)
+			return
+		}
+	}
+}
+
+func pendingMessagesCheck(al *alerts) {
+	Name := "PendingMessages"
+	al.alertMap[Name] = &alertOut{}
+
+	var messages []struct {
+		MessageCid string    `db:"signed_message_cid"`
+		AddedAt    time.Time `db:"created_at"`
+	}
+
+	err := al.db.Select(al.ctx, &messages, `SELECT signed_message_cid, created_at FROM message_waits WHERE executed_tsk_cid IS NULL ORDER BY created_at DESC`)
+	if err != nil {
+		al.alertMap[Name].err = xerrors.Errorf("getting pending messages: %w", err)
+	}
+
+	if len(messages) == 0 {
+		return
+	}
+
+	var msgs []string
+
+	for _, msg := range messages {
+		if time.Since(msg.AddedAt) > time.Hour {
+			msgs = append(msgs, msg.MessageCid)
+		}
+	}
+
+	if len(msgs) > 0 {
+		al.alertMap[Name].alertString += fmt.Sprintf("Messages pending for more than 1 hour: %s", strings.Join(msgs, ", "))
 	}
 }

@@ -9,8 +9,13 @@ description: Curio API references
 * [Allocate](api.md#Allocate)
   * [AllocatePieceToSector](api.md#AllocatePieceToSector)
 * [DefaultGroup](api.md#DefaultGroup)
+  * [Cordon](api.md#Cordon)
+  * [Info](api.md#Info)
   * [Shutdown](api.md#Shutdown)
+  * [Uncordon](api.md#Uncordon)
   * [Version](api.md#Version)
+* [Index](api.md#Index)
+  * [IndexSamples](api.md#IndexSamples)
 * [Log](api.md#Log)
   * [LogList](api.md#LogList)
   * [LogSetLevel](api.md#LogSetLevel)
@@ -18,10 +23,12 @@ description: Curio API references
   * [StorageAddLocal](api.md#StorageAddLocal)
   * [StorageDetachLocal](api.md#StorageDetachLocal)
   * [StorageFindSector](api.md#StorageFindSector)
+  * [StorageGenerateVanillaProof](api.md#StorageGenerateVanillaProof)
   * [StorageInfo](api.md#StorageInfo)
   * [StorageInit](api.md#StorageInit)
   * [StorageList](api.md#StorageList)
   * [StorageLocal](api.md#StorageLocal)
+  * [StorageRedeclare](api.md#StorageRedeclare)
   * [StorageStat](api.md#StorageStat)
 ### Allocate
 
@@ -110,7 +117,50 @@ Response:
 ### DefaultGroup
 
 
+#### Cordon
+
+
+Perms: admin
+
+Inputs: `null`
+
+Response: `{}`
+
+#### Info
+
+
+Perms: read
+
+Inputs: `null`
+
+Response:
+```json
+{
+  "ID": 123,
+  "CPU": 123,
+  "RAM": 9,
+  "GPU": 1,
+  "HostPort": "string value",
+  "LastContact": "0001-01-01T00:00:00Z",
+  "Unschedulable": true,
+  "Name": "string value",
+  "StartupTime": "0001-01-01T00:00:00Z",
+  "Tasks": "string value",
+  "Layers": "string value",
+  "Miners": "string value"
+}
+```
+
 #### Shutdown
+
+
+Perms: admin
+
+Inputs: `null`
+
+Response: `{}`
+
+#### Uncordon
 
 
 Perms: admin
@@ -130,6 +180,30 @@ Response:
 ```json
 [
   123
+]
+```
+
+### Index
+
+
+#### IndexSamples
+
+
+Perms: admin
+
+Inputs:
+```json
+[
+  {
+    "/": "bafy2bzacea3wsdh6y3a36tb3skempjoxqpuyompjbmfeyf34fi3uy6uue42v4"
+  }
+]
+```
+
+Response:
+```json
+[
+  "Bw=="
 ]
 ```
 
@@ -247,6 +321,21 @@ Response:
 ]
 ```
 
+#### StorageGenerateVanillaProof
+
+
+Perms: admin
+
+Inputs:
+```json
+[
+  "f01234",
+  9
+]
+```
+
+Response: `"Ynl0ZSBhcnJheQ=="`
+
 #### StorageInfo
 
 
@@ -363,6 +452,21 @@ Response:
   "76f1988b-ef30-4d7e-b3ec-9a627f4ba5a8": "/data/path"
 }
 ```
+
+#### StorageRedeclare
+
+
+Perms: admin
+
+Inputs:
+```json
+[
+  "string value",
+  true
+]
+```
+
+Response: `{}`
 
 #### StorageStat
 

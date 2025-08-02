@@ -3,13 +3,18 @@ package sealsupra
 import (
 	"bufio"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/samber/lo"
+	"golang.org/x/xerrors"
 )
+
+const SectorsPerHasher = 2
 
 type SystemInfo struct {
 	ProcessorCount int
@@ -54,6 +59,8 @@ type SupraSealConfig struct {
 	P2WrRdOverlap   bool
 	P2HsP1WrOverlap bool
 	P2HcP2RdOverlap bool
+
+	HashersPerCore int
 }
 
 type AdditionalSystemInfo struct {
@@ -130,7 +137,81 @@ func GetSystemInfo() (*SystemInfo, error) {
 	return info, nil
 }
 
+// InferNVMeDevices walks through the PCI functions that are currently bound to the
+// vfio‑pci driver (i.e. <sysfs>/bus/pci/drivers/vfio-pci/) and returns the list of
+// Bus‑Device‑Function (BDF) identifiers whose class‑code equals the NVMe I/O function
+// class (0x010802).
+//
+// In sysfs each bound device appears as a symlink named <domain>:<bus>:<slot>.<func>,
+// e.g. "0000:84:00.0".  A sibling file "class" exposes the 24‑bit PCI class‑code in
+// hexadecimal.  For NVMe I/O functions this value must be 0x010802 (Base‑Class 01h –
+// Mass Storage, Sub‑class 08h – NVM Subsystem, PI 02h – NVMe I/O).
+//
+// The function ignores entries that are not valid BDFs or whose class cannot be
+// parsed.  If no NVMe I/O devices are found it returns a non‑nil error so callers can
+// react appropriately (e.g. fall back, log, or surface to the user).
+func InferNVMeDevices() ([]string, error) {
+	const (
+		vfioDir         = "/sys/bus/pci/drivers/vfio-pci"
+		nvmeIOClassCode = 0x010802 // Base 0x01, Sub 0x08, PI 0x02
+	)
+
+	// Collect directory entries under the vfio-pci driver directory.
+	entries, err := os.ReadDir(vfioDir)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", vfioDir, err)
+	}
+
+	// BDF has the canonical form dddd:bb:ss.f where:
+	// dddd = domain, bb = bus, ss = slot, f = function.
+	bdfRe := regexp.MustCompile(`^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$`)
+
+	var nvmeBDFs []string
+
+	for _, entry := range entries {
+		name := entry.Name()
+		if !bdfRe.MatchString(name) {
+			// Skip helper files like "bind", "unbind", "new_id" etc.
+			continue
+		}
+
+		classPath := filepath.Join(vfioDir, name, "class")
+		data, err := os.ReadFile(classPath)
+		if err != nil {
+			// Device may have disappeared; ignore and continue.
+			continue
+		}
+
+		raw := strings.TrimSpace(string(data)) // e.g. "0x010802"
+		raw = strings.TrimPrefix(raw, "0x")
+
+		val, err := strconv.ParseUint(raw, 16, 32)
+		if err != nil {
+			// Malformed class contents – ignore.
+			continue
+		}
+
+		if val == nvmeIOClassCode {
+			nvmeBDFs = append(nvmeBDFs, name)
+		}
+	}
+
+	if len(nvmeBDFs) == 0 {
+		return nil, fmt.Errorf("no NVMe I/O devices bound to vfio-pci")
+	}
+
+	return nvmeBDFs, nil
+}
+
 func GenerateSupraSealConfig(info SystemInfo, dualHashers bool, batchSize int, nvmeDevices []string) (SupraSealConfig, error) {
+	if len(nvmeDevices) == 0 {
+		var err error
+		nvmeDevices, err = InferNVMeDevices()
+		if err != nil {
+			return SupraSealConfig{}, xerrors.Errorf("infer NVMe devices: %w", err)
+		}
+	}
+
 	config := SupraSealConfig{
 		NVMeDevices: nvmeDevices,
 		Topology: TopologyConfig{
@@ -151,20 +232,21 @@ func GenerateSupraSealConfig(info SystemInfo, dualHashers bool, batchSize int, n
 		P2WrRdOverlap:   true,
 		P2HsP1WrOverlap: true,
 		P2HcP2RdOverlap: true,
+
+		HashersPerCore: 1,
 	}
 
-	sectorsPerThread := 1
 	if dualHashers {
-		sectorsPerThread = 2
+		config.HashersPerCore = 2
 	}
 
 	ccxFreeCores := info.CoresPerL3 - 1 // one core per ccx goes to the coordinator
-	ccxFreeThreads := ccxFreeCores * info.ThreadsPerCore
-	sectorsPerCCX := ccxFreeThreads * sectorsPerThread
+	ccxFreeThreads := ccxFreeCores * config.HashersPerCore
+	sectorsPerCCX := ccxFreeThreads * SectorsPerHasher
 
-	config.RequiredThreads = batchSize / sectorsPerThread
+	config.RequiredThreads = batchSize / SectorsPerHasher
 	config.RequiredCCX = (batchSize + sectorsPerCCX - 1) / sectorsPerCCX
-	config.RequiredCores = config.RequiredCCX + config.RequiredThreads/info.ThreadsPerCore
+	config.RequiredCores = config.RequiredCCX + config.RequiredThreads/config.HashersPerCore
 
 	if config.RequiredCores > info.CoreCount {
 		return config, fmt.Errorf("not enough cores available for hashers")
@@ -234,7 +316,7 @@ func GenerateSupraSealConfig(info SystemInfo, dualHashers bool, batchSize int, n
 
 		sectorConfig.Coordinators = append(sectorConfig.Coordinators, CoordinatorConfig{
 			Core:    coreNum,
-			Hashers: (toAssign - 1) * info.ThreadsPerCore,
+			Hashers: (toAssign - 1) * config.HashersPerCore,
 		})
 
 		i -= toAssign
@@ -306,7 +388,12 @@ func FormatSupraSealConfig(config SupraSealConfig, system SystemInfo, additional
 	w("    qpair_writer = 1;")
 	w("    reader_sleep_time = 250;")
 	w("    writer_sleep_time = 500;")
-	w("    hashers_per_core = 2;")
+
+	if config.HashersPerCore == 2 {
+		w("    hashers_per_core = 2;")
+	} else {
+		w("    hashers_per_core = 1;")
+	}
 	w("")
 	w("    sector_configs: (")
 

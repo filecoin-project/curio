@@ -7,7 +7,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
-	"github.com/filecoin-project/curio/market"
+	"github.com/filecoin-project/curio/market/storageingest"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -52,5 +52,5 @@ func (a *WebRPC) DealsSealNow(ctx context.Context, spId, sectorNumber uint64) er
 		return err
 	}
 
-	return market.SealNow(ctx, a.deps.Chain, a.deps.DB, maddr, abi.SectorNumber(sectorNumber), false)
+	return storageingest.SealNow(ctx, a.deps.Chain, a.deps.DB, maddr, abi.SectorNumber(sectorNumber), false)
 }

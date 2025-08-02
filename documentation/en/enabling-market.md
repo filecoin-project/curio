@@ -2,11 +2,15 @@
 description: How to enable the market submodule and connect to Boost
 ---
 
-# Enabling market
+{% hint style="danger" %}
+Boost is no longer compatible with Curio. Please migrate to Curio market.
+{% endhint %}
+
+# Enabling market (Boost) (deprecated)
 
 ## Introduction
 
-Curio offers a market submodule that enables seamless integration with Boost without requiring any changes to the Boost code base. This document will guide you through enabling the market in Curio, configuring PiecePark, and setting up both existing and new Boost instances.
+Curio offers a market adapter submodule that enables seamless integration with Boost without requiring any changes to the Boost code base. This document will guide you through enabling the market in Curio, configuring PiecePark, and setting up both existing and new Boost instances.
 
 ## Enable Market adapter in Curio
 

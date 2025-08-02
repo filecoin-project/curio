@@ -3,6 +3,7 @@ package webrpc
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
+	"github.com/filecoin-project/curio/deps/config"
 
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
@@ -26,6 +28,55 @@ func forEachConfig[T any](a *WebRPC, cb func(name string, v T) error) error {
 
 	for name, tomlStr := range confs { // todo for-each-config
 		var info T
+
+		// Use reflection to check if `T` has an `Addresses` field
+		v := reflect.ValueOf(&info).Elem()
+		t := v.Type()
+
+		var addressesField reflect.Value
+		var addressesFieldIndex int
+
+		for i := 0; i < t.NumField(); i++ {
+			field := t.Field(i)
+			if field.Type.Kind() == reflect.Slice && field.Type.Elem() == reflect.TypeOf(config.CurioAddresses{}) {
+				addressesField = v.Field(i)
+				addressesFieldIndex = i
+				break
+			}
+		}
+
+		// If `Addresses` exists, pre-parse TOML to detect its length
+		if addressesField.IsValid() {
+			var lengthDetector struct {
+				Addresses []struct{} `toml:"Addresses"`
+			}
+			_, err := toml.Decode(tomlStr, &lengthDetector)
+			if err != nil {
+				return xerrors.Errorf("Error decoding TOML for length detection for layer %s: %w", name, err)
+			}
+
+			currentLen := addressesField.Len()
+			requiredLen := len(lengthDetector.Addresses)
+
+			// Pre-allocate the correct length in `info`
+			if currentLen < requiredLen {
+				preAllocated := make([]config.CurioAddresses, requiredLen)
+				for i := range preAllocated {
+					preAllocated[i] = config.CurioAddresses{
+						PreCommitControl:      []string{},
+						CommitControl:         []string{},
+						DealPublishControl:    []string{},
+						TerminateControl:      []string{},
+						DisableOwnerFallback:  false,
+						DisableWorkerFallback: false,
+						MinerAddresses:        []string{},
+						BalanceManager:        config.DefaultBalanceManager(),
+					}
+				}
+				v.Field(addressesFieldIndex).Set(reflect.ValueOf(preAllocated))
+			}
+		}
+
 		if err := toml.Unmarshal([]byte(tomlStr), &info); err != nil {
 			return xerrors.Errorf("unmarshaling %s config: %w", name, err)
 		}
@@ -45,6 +96,8 @@ func (a *WebRPC) loadConfigs(ctx context.Context) (map[string]string, error) {
 	if err != nil {
 		return nil, xerrors.Errorf("getting db configs: %w", err)
 	}
+
+	defer rows.Close()
 
 	configs := make(map[string]string)
 	for rows.Next() {

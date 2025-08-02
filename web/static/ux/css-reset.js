@@ -8,6 +8,7 @@ export default css `
     * {
         margin: 0;
         padding: 0;
+        font-family: 'JetBrains Mono', monospace;
     }
 
     ul, ol {
@@ -17,5 +18,14 @@ export default css `
 
     a {
         text-decoration: none;
+    }
+
+    button {
+      all: unset;
+      display: inline-block;
+    }
+  
+    button:focus {
+      outline: revert;
     }
 `;

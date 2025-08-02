@@ -15,29 +15,38 @@
     <script type="module" src="cluster-machines.mjs"></script>
     <script type="module" src="cluster-task-history.mjs"></script>
     <script type="module" src="pipeline-porep.mjs"></script>
+    <script type="module" src="pipeline-stats.mjs"></script>
     <script type="module" src="actor-summary.mjs"></script>
     <script type="module" src="/ux/curio-ux.mjs"></script>
+<script type="module" src="/ux/components/Drawer.mjs"></script>
+    <script type="module" src="/ux/components/Drawer.mjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+          integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw=="
+            crossorigin="anonymous" />
     <style>
-        .logo {
-            display: inline-block;
+        .drawer {
+          display: block;
         }
 
-        .dash-tile {
-            display: flex;
-            flex-direction: column;
-            padding: 0.75rem;
-            background: #3f3f3f;
+        .wide-content {
+          display: none;
+        }
 
-            & b {
-                padding-bottom: 0.5rem;
-                color: deeppink;
-            }
+        @media (min-width: 2210px) {
+          .drawer {
+            display: none;
+          }
+
+          .wide-content {
+            display: block;
+          }
         }
     </style>
 </head>
 <body style="visibility:hidden">
     <curio-ux>
-        <div class="page">
+        <div class="page" style="margin-left: 20px; margin-right: 10px">
             <div class="row">
                 <div class="col-md-auto" style="max-width: 1000px">
                     <div class="info-block">
@@ -50,27 +59,6 @@
             </div>
 
             <cluster-machines></cluster-machines>
-
-            <pipeline-porep></pipeline-porep>
-
-            <div class="row">
-                <div class="col-md-auto" style="max-width: 1000px">
-                    <div class="info-block">
-                        <h2>Actor Summary</h2>
-                        <actor-summary></actor-summary>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row">
-                <div class="col-md-auto">
-                    <div class="info-block">
-                        <h2>Recent Wins</h2>
-                        <win-stats></win-stats>
-                    </div>
-                </div>
-            </div>
-
 
             <div class="row">
                 <div class="col-md-auto">
@@ -91,6 +79,24 @@
             </div>
 
             <div class="row">
+                <div class="col-md-auto" style="max-width: 1000px">
+                    <div class="info-block">
+                        <h2>Actor Summary</h2>
+                        <actor-summary></actor-summary>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-auto">
+                    <div class="info-block">
+                        <h2>Recent Wins</h2>
+                        <win-stats></win-stats>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
                 <div class="col-md-auto">
                     <div class="info-block">
                         <h2>Recently Finished Tasks</h2>
@@ -100,8 +106,7 @@
                 <div class="col-md-auto">
                     <div class="info-block">
                         <h2>24h task counts</h2>
-                            <harmony-task-counts></harmony-task-counts>
-                        </div>
+                        <harmony-task-counts></harmony-task-counts>
                     </div>
                 </div>
             </div>
@@ -109,13 +114,23 @@
             <div class="row">
                 <div class="col-md-auto" style="max-width: 1000px">
                     <div class="info-block">
-                        <h2>Cluster Tasks</h2>
-                        <cluster-tasks></cluster-tasks>
+                        <div class="wide-content">
+                            <h2>Cluster Tasks</h2>
+                            <cluster-tasks></cluster-tasks>
+                        </div>
+
+                        <ui-drawer class="drawer" label="Cluster Tasks">
+                            <h2 slot="title">Cluster Tasks</h2>
+                            <cluster-tasks slot="content"></cluster-tasks>
+                        </ui-drawer>
                     </div>
                 </div>
                 <div class="col-md-auto">
                 </div>
             </div>
+
+            <pipeline-porep></pipeline-porep>
+            <pipeline-stats></pipeline-stats>
         </div>
     </curio-ux>
 </body>

@@ -2,7 +2,7 @@
     "openrpc": "1.2.6",
     "info": {
         "title": "Curio RPC API",
-        "version": "1.24.2"
+        "version": "1.25.1"
     },
     "methods": [
         {
@@ -312,7 +312,179 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L311"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L337"
+            }
+        },
+        {
+            "name": "Filecoin.Cordon",
+            "description": "```go\nfunc (s *CurioStruct) Cordon(p0 context.Context) error {\n\tif s.Internal.Cordon == nil {\n\t\treturn ErrNotSupported\n\t}\n\treturn s.Internal.Cordon(p0)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [],
+            "result": {
+                "name": "Null",
+                "description": "Null",
+                "schema": {
+                    "type": [
+                        "null"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L348"
+            }
+        },
+        {
+            "name": "Filecoin.IndexSamples",
+            "description": "```go\nfunc (s *CurioStruct) IndexSamples(p0 context.Context, p1 cid.Cid) ([]multihash.Multihash, error) {\n\tif s.Internal.IndexSamples == nil {\n\t\treturn *new([]multihash.Multihash), ErrNotSupported\n\t}\n\treturn s.Internal.IndexSamples(p0, p1)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [
+                {
+                    "name": "p1",
+                    "description": "cid.Cid",
+                    "summary": "",
+                    "schema": {
+                        "title": "Content Identifier",
+                        "description": "Cid represents a self-describing content addressed identifier. It is formed by a Version, a Codec (which indicates a multicodec-packed content type) and a Multihash.",
+                        "examples": [
+                            {
+                                "/": "bafy2bzacea3wsdh6y3a36tb3skempjoxqpuyompjbmfeyf34fi3uy6uue42v4"
+                            }
+                        ],
+                        "type": [
+                            "string"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                }
+            ],
+            "result": {
+                "name": "[]multihash.Multihash",
+                "description": "[]multihash.Multihash",
+                "summary": "",
+                "schema": {
+                    "examples": [
+                        [
+                            "Bw=="
+                        ]
+                    ],
+                    "items": [
+                        {
+                            "items": [
+                                {
+                                    "title": "number",
+                                    "description": "Number is a number",
+                                    "type": [
+                                        "number"
+                                    ]
+                                }
+                            ],
+                            "type": [
+                                "array"
+                            ]
+                        }
+                    ],
+                    "type": [
+                        "array"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L359"
+            }
+        },
+        {
+            "name": "Filecoin.Info",
+            "description": "```go\nfunc (s *CurioStruct) Info(p0 context.Context) (*ltypes.NodeInfo, error) {\n\tif s.Internal.Info == nil {\n\t\treturn nil, ErrNotSupported\n\t}\n\treturn s.Internal.Info(p0)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [],
+            "result": {
+                "name": "*ltypes.NodeInfo",
+                "description": "*ltypes.NodeInfo",
+                "summary": "",
+                "schema": {
+                    "examples": [
+                        {
+                            "ID": 123,
+                            "CPU": 123,
+                            "RAM": 9,
+                            "GPU": 1,
+                            "HostPort": "string value",
+                            "LastContact": "0001-01-01T00:00:00Z",
+                            "Unschedulable": true,
+                            "Name": "string value",
+                            "StartupTime": "0001-01-01T00:00:00Z",
+                            "Tasks": "string value",
+                            "Layers": "string value",
+                            "Miners": "string value"
+                        }
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                        "CPU": {
+                            "title": "number",
+                            "type": "number"
+                        },
+                        "GPU": {
+                            "type": "number"
+                        },
+                        "HostPort": {
+                            "type": "string"
+                        },
+                        "ID": {
+                            "title": "number",
+                            "type": "number"
+                        },
+                        "LastContact": {
+                            "format": "date-time",
+                            "type": "string"
+                        },
+                        "Layers": {
+                            "type": "string"
+                        },
+                        "Miners": {
+                            "type": "string"
+                        },
+                        "Name": {
+                            "type": "string"
+                        },
+                        "RAM": {
+                            "title": "number",
+                            "type": "number"
+                        },
+                        "StartupTime": {
+                            "format": "date-time",
+                            "type": "string"
+                        },
+                        "Tasks": {
+                            "type": "string"
+                        },
+                        "Unschedulable": {
+                            "type": "boolean"
+                        }
+                    },
+                    "type": [
+                        "object"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L370"
             }
         },
         {
@@ -348,7 +520,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L322"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L381"
             }
         },
         {
@@ -402,7 +574,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L333"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L392"
             }
         },
         {
@@ -425,7 +597,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L344"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L403"
             }
         },
         {
@@ -464,7 +636,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L355"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L414"
             }
         },
         {
@@ -503,7 +675,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L366"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L425"
             }
         },
         {
@@ -697,7 +869,68 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L377"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L436"
+            }
+        },
+        {
+            "name": "Filecoin.StorageGenerateVanillaProof",
+            "description": "```go\nfunc (s *CurioStruct) StorageGenerateVanillaProof(p0 context.Context, p1 address.Address, p2 abi.SectorNumber) ([]byte, error) {\n\tif s.Internal.StorageGenerateVanillaProof == nil {\n\t\treturn *new([]byte), ErrNotSupported\n\t}\n\treturn s.Internal.StorageGenerateVanillaProof(p0, p1, p2)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [
+                {
+                    "name": "p1",
+                    "description": "address.Address",
+                    "summary": "",
+                    "schema": {
+                        "examples": [
+                            "f01234"
+                        ],
+                        "additionalProperties": false,
+                        "type": [
+                            "object"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                },
+                {
+                    "name": "p2",
+                    "description": "abi.SectorNumber",
+                    "summary": "",
+                    "schema": {
+                        "title": "number",
+                        "description": "Number is a number",
+                        "examples": [
+                            9
+                        ],
+                        "type": [
+                            "number"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                }
+            ],
+            "result": {
+                "name": "[]byte",
+                "description": "[]byte",
+                "summary": "",
+                "schema": {
+                    "examples": [
+                        "Ynl0ZSBhcnJheQ=="
+                    ],
+                    "type": [
+                        "string"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L447"
             }
         },
         {
@@ -829,7 +1062,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L388"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L458"
             }
         },
         {
@@ -963,7 +1196,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L399"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L469"
             }
         },
         {
@@ -1017,7 +1250,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L410"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L480"
             }
         },
         {
@@ -1051,7 +1284,61 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L421"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L491"
+            }
+        },
+        {
+            "name": "Filecoin.StorageRedeclare",
+            "description": "```go\nfunc (s *CurioStruct) StorageRedeclare(p0 context.Context, p1 *storiface.ID, p2 bool) error {\n\tif s.Internal.StorageRedeclare == nil {\n\t\treturn ErrNotSupported\n\t}\n\treturn s.Internal.StorageRedeclare(p0, p1, p2)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [
+                {
+                    "name": "p1",
+                    "description": "*storiface.ID",
+                    "summary": "",
+                    "schema": {
+                        "examples": [
+                            "string value"
+                        ],
+                        "type": [
+                            "string"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                },
+                {
+                    "name": "p2",
+                    "description": "bool",
+                    "summary": "",
+                    "schema": {
+                        "examples": [
+                            true
+                        ],
+                        "type": [
+                            "boolean"
+                        ]
+                    },
+                    "required": true,
+                    "deprecated": false
+                }
+            ],
+            "result": {
+                "name": "Null",
+                "description": "Null",
+                "schema": {
+                    "type": [
+                        "null"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L502"
             }
         },
         {
@@ -1128,7 +1415,30 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L432"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L513"
+            }
+        },
+        {
+            "name": "Filecoin.Uncordon",
+            "description": "```go\nfunc (s *CurioStruct) Uncordon(p0 context.Context) error {\n\tif s.Internal.Uncordon == nil {\n\t\treturn ErrNotSupported\n\t}\n\treturn s.Internal.Uncordon(p0)\n}\n```",
+            "summary": "",
+            "paramStructure": "by-position",
+            "params": [],
+            "result": {
+                "name": "Null",
+                "description": "Null",
+                "schema": {
+                    "type": [
+                        "null"
+                    ]
+                },
+                "required": true,
+                "deprecated": false
+            },
+            "deprecated": false,
+            "externalDocs": {
+                "description": "Github remote link",
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L524"
             }
         },
         {
@@ -1166,7 +1476,7 @@
             "deprecated": false,
             "externalDocs": {
                 "description": "Github remote link",
-                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L443"
+                "url": "https://github.com/filecoin-project/curio/blob/master/api/proxy_gen.go#L535"
             }
         }
     ]

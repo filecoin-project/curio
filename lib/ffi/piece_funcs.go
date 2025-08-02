@@ -12,10 +12,9 @@ import (
 	storiface "github.com/filecoin-project/curio/lib/storiface"
 )
 
-func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID, pieceID storiface.PieceNumber, size int64, data io.Reader) error {
-	// todo: config(?): allow setting PathStorage for this
-	// todo storage reservations
-	paths, _, done, err := sb.Sectors.AcquireSector(ctx, taskID, pieceID.Ref(), storiface.FTNone, storiface.FTPiece, storiface.PathSealing)
+func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID, pieceID storiface.PieceNumber, size int64, data io.Reader, storageType storiface.PathType) error {
+	// Use storageType in AcquireSector
+	paths, _, done, err := sb.Sectors.AcquireSector(ctx, taskID, pieceID.Ref(), storiface.FTNone, storiface.FTPiece, storageType)
 	if err != nil {
 		return err
 	}
@@ -57,7 +56,7 @@ func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID,
 
 	copyEnd := time.Now()
 
-	log.Infow("wrote parked piece", "piece", pieceID, "size", size, "duration", copyEnd.Sub(copyStart), "dest", dest, "MiB/s", float64(size)/(1<<20)/copyEnd.Sub(copyStart).Seconds())
+	log.Infow("wrote piece", "piece", pieceID, "size", size, "duration", copyEnd.Sub(copyStart), "dest", dest, "MiB/s", float64(size)/(1<<20)/copyEnd.Sub(copyStart).Seconds())
 
 	if err := os.Rename(tempDest, dest); err != nil {
 		return xerrors.Errorf("rename temp piece to dest %s -> %s: %w", tempDest, dest, err)

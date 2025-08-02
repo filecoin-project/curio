@@ -2,77 +2,177 @@ package seal
 
 import (
 	"context"
+	"math"
 
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
+	actorstypes "github.com/filecoin-project/go-state-types/actors"
 	"github.com/filecoin-project/go-state-types/exitcode"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 
+	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
-func (s *SealPoller) pollStartCommitMsg(ctx context.Context, task pollTask) {
-	if task.afterPoRep() && len(task.PoRepProof) > 0 && task.TaskCommitMsg == nil && !task.AfterCommitMsg && s.pollers[pollerCommitMsg].IsSet() {
-		s.pollers[pollerCommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-			n, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_commit_msg = $1 WHERE sp_id = $2 AND sector_number = $3 AND task_id_commit_msg IS NULL`, id, task.SpID, task.SectorNumber)
-			if err != nil {
-				return false, xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
-			}
-			if n != 1 {
-				return false, xerrors.Errorf("expected to update 1 row, updated %d", n)
-			}
+func (s *SealPoller) pollerAddStartEpoch(ctx context.Context, task pollTask) error {
+	if task.AfterPrecommitMsgSuccess && !task.StartEpoch.Valid {
+		ts, err := s.api.ChainHead(ctx)
+		if err != nil {
+			return xerrors.Errorf("failed to get chain head: %w", err)
+		}
 
-			return true, nil
-		})
+		nv, err := s.api.StateNetworkVersion(ctx, ts.Key())
+		if err != nil {
+			return xerrors.Errorf("failed to get network version: %w", err)
+		}
+
+		av, err := actorstypes.VersionForNetwork(nv)
+		if err != nil {
+			return xerrors.Errorf("unsupported network version: %w", err)
+		}
+
+		maddr, err := address.NewIDAddress(uint64(task.SpID))
+		if err != nil {
+			return xerrors.Errorf("failed to create miner address: %w", err)
+		}
+		pci, err := s.api.StateSectorPreCommitInfo(ctx, maddr, abi.SectorNumber(task.SectorNumber), ts.Key())
+		if err != nil {
+			return xerrors.Errorf("failed to get precommit info: %w", err)
+		}
+		if pci == nil {
+			return xerrors.Errorf("precommit info not found for sp %s and sector %d", maddr.String(), task.SectorNumber)
+		}
+		mpcd, err := policy.GetMaxProveCommitDuration(av, task.RegisteredSealProof)
+		if err != nil {
+			return xerrors.Errorf("failed to get max prove commit duration: %w", err)
+		}
+		startEpoch := pci.PreCommitEpoch + mpcd
+		_, err = s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET start_epoch =  $1
+										WHERE sp_id = $2
+										  AND sector_number = $3
+										  AND after_precommit_msg_success = TRUE 
+										  AND after_commit_msg = FALSE 
+										  AND start_epoch IS NULL`, startEpoch, task.SpID, task.SectorNumber)
+		if err != nil {
+			return xerrors.Errorf("failed to update start epoch: %w", err)
+		}
+		log.Debugw("updated start epoch", "sp", task.SpID, "sector", task.SectorNumber, "start_epoch", startEpoch)
 	}
+
+	return nil
+}
+
+func (s *SealPoller) pollStartBatchCommitMsg(ctx context.Context) {
+	// Exit early if the poller is set i.e. Commit task is not enabled on the node
+	if !s.pollers[pollerCommitMsg].IsSet() {
+		return
+	}
+
+	ts, err := s.api.ChainHead(ctx)
+	if err != nil {
+		log.Errorf("error getting chain head: %s", err)
+		return
+	}
+
+	slackEpoch := int64(math.Ceil(s.cfg.commit.Slack.Seconds() / float64(build.BlockDelaySecs)))
+
+	s.pollers[pollerCommitMsg].Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
+		var updatedCount int64
+		var reason string
+
+		log.Debugw("Trying to assign a commit batch",
+			"slack_epoch", slackEpoch,
+			"current_height", ts.Height(),
+			"max_batch", s.cfg.commit.MaxCommitBatch,
+			"new_task_id", id,
+			"timeout_secs", s.cfg.commit.Timeout.Seconds())
+
+		err = tx.QueryRow(`SELECT updated_count, reason FROM poll_start_batch_commit_msgs($1, $2, $3, $4, $5)`,
+			slackEpoch,                          // p_slack_epoch
+			ts.Height(),                         // p_current_height
+			s.cfg.commit.MaxCommitBatch,         // p_max_batch
+			id,                                  // p_new_task_id
+			int(s.cfg.commit.Timeout.Seconds()), // p_timeout_secs
+		).Scan(&updatedCount, &reason)
+		if err != nil {
+			return false, err
+		}
+
+		if updatedCount > 0 {
+			log.Debugf("Assigned %d sectors to commit batch with taskID %d with reason %s", updatedCount, id, reason)
+			return true, nil
+		} else {
+			log.Debugf("No commit batch assigned for ID %d", id)
+		}
+		return false, nil
+	})
 }
 
 func (s *SealPoller) pollCommitMsgLanded(ctx context.Context, task pollTask) error {
 	if task.AfterCommitMsg && !task.AfterCommitMsgSuccess && s.pollers[pollerCommitMsg].IsSet() {
+
 		var execResult []dbExecResult
 
-		err := s.db.Select(ctx, &execResult, `SELECT spipeline.precommit_msg_cid, spipeline.commit_msg_cid, executed_tsk_cid, executed_tsk_epoch, executed_msg_cid, executed_rcpt_exitcode, executed_rcpt_gas_used
+		comm, err := s.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			err = tx.Select(&execResult, `SELECT spipeline.precommit_msg_cid, spipeline.commit_msg_cid, executed_tsk_cid, executed_tsk_epoch, executed_msg_cid, executed_rcpt_exitcode, executed_rcpt_gas_used
 					FROM sectors_sdr_pipeline spipeline
 					JOIN message_waits ON spipeline.commit_msg_cid = message_waits.signed_message_cid
 					WHERE sp_id = $1 AND sector_number = $2 AND executed_tsk_epoch IS NOT NULL`, task.SpID, task.SectorNumber)
-		if err != nil {
-			log.Errorw("failed to query message_waits", "error", err)
-		}
-
-		if len(execResult) > 0 {
-			maddr, err := address.NewIDAddress(uint64(task.SpID))
 			if err != nil {
-				return err
+				return false, xerrors.Errorf("failed to query message_waits: %w", err)
 			}
 
-			if exitcode.ExitCode(execResult[0].ExecutedRcptExitCode) != exitcode.Ok {
-				if err := s.pollCommitMsgFail(ctx, maddr, task, execResult[0]); err != nil {
-					return err
+			if len(execResult) > 0 {
+				maddr, err := address.NewIDAddress(uint64(task.SpID))
+				if err != nil {
+					return false, xerrors.Errorf("failed to create miner address: %w", err)
 				}
-			}
 
-			si, err := s.api.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(task.SectorNumber), types.EmptyTSK)
-			if err != nil {
-				return xerrors.Errorf("get sector info: %w", err)
-			}
+				if exitcode.ExitCode(execResult[0].ExecutedRcptExitCode) != exitcode.Ok {
+					if err := s.pollCommitMsgFail(ctx, maddr, task, execResult[0]); err != nil {
+						return false, xerrors.Errorf("failed to handle commit message failure: %w", err)
+					}
+				}
 
-			if si == nil {
-				log.Errorw("todo handle missing sector info (not found after cron)", "sp", task.SpID, "sector", task.SectorNumber, "exec_epoch", execResult[0].ExecutedTskEpoch, "exec_tskcid", execResult[0].ExecutedTskCID, "msg_cid", execResult[0].ExecutedMsgCID)
-				// todo handdle missing sector info (not found after cron)
-			} else {
-				// yay!
+				si, err := s.api.StateSectorGetInfo(ctx, maddr, abi.SectorNumber(task.SectorNumber), types.EmptyTSK)
+				if err != nil {
+					return false, xerrors.Errorf("get sector info: %w", err)
+				}
 
-				_, err := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET
+				if si == nil {
+					return false, xerrors.Errorf("todo handle missing sector info (not found after cron), sp %d, sector %d, exec_epoch %d, exec_tskcid %s, msg_cid %s", task.SpID, task.SectorNumber, execResult[0].ExecutedTskEpoch, execResult[0].ExecutedTskCID, execResult[0].ExecutedMsgCID)
+				} else {
+					// yay!
+
+					_, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET
 						after_commit_msg_success = TRUE, commit_msg_tsk = $1
 						WHERE sp_id = $2 AND sector_number = $3 AND after_commit_msg_success = FALSE`,
-					execResult[0].ExecutedTskCID, task.SpID, task.SectorNumber)
-				if err != nil {
-					return xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
+						execResult[0].ExecutedTskCID, task.SpID, task.SectorNumber)
+					if err != nil {
+						return false, xerrors.Errorf("update sectors_sdr_pipeline: %w", err)
+					}
+
+					n, err := tx.Exec(`UPDATE market_mk12_deal_pipeline SET sealed = TRUE WHERE sp_id = $1 AND sector = $2 AND sealed = FALSE`, task.SpID, task.SectorNumber)
+					if err != nil {
+						return false, xerrors.Errorf("update market_mk12_deal_pipeline: %w", err)
+					}
+					log.Debugw("marked deals as sealed", "sp", task.SpID, "sector", task.SectorNumber, "count", n)
+					return true, nil
 				}
+			}
+			return false, nil
+		}, harmonydb.OptionRetry())
+		if err != nil {
+			return xerrors.Errorf("failed to commit transaction: %w", err)
+		}
+		if len(execResult) > 0 {
+			if !comm {
+				return xerrors.Errorf("failed to commit transaction")
 			}
 		}
 	}
@@ -100,12 +200,12 @@ func (s *SealPoller) pollCommitMsgFail(ctx context.Context, maddr address.Addres
 
 		return xerrors.Errorf("sector not found after, commit message can't be found either")
 	default:
-		return xerrors.Errorf("commit message failed with exit code %s", exitcode.ExitCode(execResult.ExecutedRcptExitCode))
+		return xerrors.Errorf("commit message (s %d:%d m:%s) failed with exit code %s", task.SpID, task.SectorNumber, execResult.CommitMsgCID.String, exitcode.ExitCode(execResult.ExecutedRcptExitCode))
 	}
 }
 
 func (s *SealPoller) pollRetryCommitMsgSend(ctx context.Context, task pollTask, execResult dbExecResult) error {
-	if execResult.CommitMsgCID == nil {
+	if !execResult.CommitMsgCID.Valid {
 		return xerrors.Errorf("commit msg cid was nil")
 	}
 
@@ -114,7 +214,7 @@ func (s *SealPoller) pollRetryCommitMsgSend(ctx context.Context, task pollTask, 
 	_, err := s.db.Exec(ctx, `UPDATE sectors_sdr_pipeline SET
                                 commit_msg_cid = NULL, task_id_commit_msg = NULL, after_commit_msg = FALSE
                             	WHERE commit_msg_cid = $1 AND sp_id = $2 AND sector_number = $3 AND after_commit_msg_success = FALSE`,
-		*execResult.CommitMsgCID, task.SpID, task.SectorNumber)
+		execResult.CommitMsgCID.String, task.SpID, task.SectorNumber)
 	if err != nil {
 		return xerrors.Errorf("update sectors_sdr_pipeline to retry precommit msg send: %w", err)
 	}

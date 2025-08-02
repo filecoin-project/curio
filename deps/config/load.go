@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/BurntSushi/toml"
@@ -67,7 +68,21 @@ func FromReader(reader io.Reader, def interface{}, opts ...LoadCfgOpt) (interfac
 		return nil, err
 	}
 	cfg := def
-	md, err := toml.NewDecoder(reader).Decode(cfg)
+	var buf bytes.Buffer
+	_, err = io.Copy(&buf, reader)
+	if err != nil {
+		return toml.MetaData{}, err
+	}
+
+	if ccfg, ok := cfg.(*CurioConfig); ok {
+		err = FixTOML(buf.String(), ccfg)
+		if err != nil {
+			return nil, err
+		}
+		cfg = ccfg
+	}
+
+	md, err := toml.Decode(buf.String(), cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -316,15 +331,25 @@ func ConfigUpdate(cfgCur, cfgDef interface{}, opts ...UpdateCfgOpt) ([]byte, err
 		// create a map of default lines, so we can comment those out later
 		defLines := strings.Split(defStr, "\n")
 		defaults := map[string]struct{}{}
+		currentSection := ""
+
+		defSectionRx := regexp.MustCompile(`\[(.+)]`)
+
 		for i := range defLines {
 			l := strings.TrimSpace(defLines[i])
-			if len(l) == 0 {
+			if len(l) == 0 || l[0] == '#' {
 				continue
 			}
-			if l[0] == '#' || l[0] == '[' {
+			if l[0] == '[' {
+				m := defSectionRx.FindStringSubmatch(l)
+				if len(m) == 2 {
+					currentSection = m[1]
+				}
 				continue
 			}
-			defaults[l] = struct{}{}
+
+			qualifiedKey := currentSection + "." + l
+			defaults[qualifiedKey] = struct{}{}
 		}
 
 		nodeLines := strings.Split(nodeStr, "\n")
@@ -344,8 +369,24 @@ func ConfigUpdate(cfgCur, cfgDef interface{}, opts ...UpdateCfgOpt) ([]byte, err
 					}
 					section = string(m[1])
 
+					pad := strings.Repeat(" ", len(line)-len(strings.TrimLeftFunc(line, unicode.IsSpace)))
+
+					// Find documentation for the section
+					doc := findDoc(cfgCur, section, "")
+					if doc != nil {
+						// Add section documentation comments
+						if len(doc.Comment) > 0 {
+							for _, docLine := range strings.Split(doc.Comment, "\n") {
+								outLines = append(outLines, pad+"# "+docLine)
+							}
+							outLines = append(outLines, pad+"#")
+						}
+						outLines = append(outLines, pad+"# type: "+doc.Type)
+					}
+
 					// never comment sections
 					outLines = append(outLines, line)
+					outLines = append(outLines, "")
 					continue
 				}
 			}
@@ -379,7 +420,8 @@ func ConfigUpdate(cfgCur, cfgDef interface{}, opts ...UpdateCfgOpt) ([]byte, err
 			// filter lines from options
 			optsFilter := updateOpts.keepUncommented != nil && updateOpts.keepUncommented(line)
 			// if there is the same line in the default config, comment it out in output
-			if _, found := defaults[strings.TrimSpace(nodeLines[i])]; (cfgDef == nil || found) && len(line) > 0 && !optsFilter {
+			qualifiedKey := section + "." + strings.TrimSpace(line)
+			if _, found := defaults[qualifiedKey]; (cfgDef == nil || found) && len(line) > 0 && !optsFilter {
 				line = pad + "#" + line[len(pad):]
 			}
 			outLines = append(outLines, line)
@@ -411,6 +453,10 @@ func ConfigUpdate(cfgCur, cfgDef interface{}, opts ...UpdateCfgOpt) ([]byte, err
 				}
 				return false
 			}),
+			cmp.Comparer(func(x, y time.Duration) bool {
+				tx, ty := reflect.TypeOf(x), reflect.TypeOf(y)
+				return tx.Kind() == ty.Kind()
+			}),
 		}
 
 		if !cmp.Equal(cfgUpdated, cfgCur, opts...) {
@@ -439,26 +485,80 @@ func findDoc(root interface{}, section, name string) *DocField {
 func findDocSect(root, section, name string) *DocField {
 	path := strings.Split(section, ".")
 
-	docSection := Doc[root]
+	docSection, exists := Doc[root]
+	if !exists {
+		return nil
+	}
+
+	var lastField *DocField
+
 	for _, e := range path {
 		if docSection == nil {
 			return nil
 		}
 
+		// Remove [e] brackets from e if required
+		e = strings.Trim(e, "[]")
+
+		found := false
 		for _, field := range docSection {
 			if field.Name == e {
-				docSection = Doc[field.Type]
+				lastField = &field                               // Store reference to the section field
+				docSection = Doc[strings.Trim(field.Type, "[]")] // Move to the next section
+				found = true
 				break
 			}
+		}
 
+		if !found {
+			return nil
 		}
 	}
 
+	// If name is empty, return the last field (which represents the section itself)
+	if name == "" {
+		return lastField
+	}
+
+	// Otherwise, return the specific field
 	for _, df := range docSection {
 		if df.Name == name {
 			return &df
 		}
 	}
 
+	return nil
+}
+
+func FixTOML(newText string, cfg *CurioConfig) error {
+	// This is a workaround to set the length of [[Addresses]] correctly before we do toml.Decode.
+	// The reason this is required is that toml libraries create nil pointer to uninitialized structs.
+	// This in turn causes failure to decode types like types.FIL which are struct with unexported pointer inside
+	type AddressLengthDetector struct {
+		Addresses []struct{} `toml:"Addresses"`
+	}
+
+	var lengthDetector AddressLengthDetector
+	_, err := toml.Decode(newText, &lengthDetector)
+	if err != nil {
+		return xerrors.Errorf("Error decoding TOML for length detection: %w", err)
+	}
+
+	l := len(lengthDetector.Addresses)
+	il := len(cfg.Addresses)
+
+	for l > il {
+		cfg.Addresses = append(cfg.Addresses, CurioAddresses{
+			PreCommitControl:      []string{},
+			CommitControl:         []string{},
+			DealPublishControl:    []string{},
+			TerminateControl:      []string{},
+			DisableOwnerFallback:  false,
+			DisableWorkerFallback: false,
+			MinerAddresses:        []string{},
+			BalanceManager:        DefaultBalanceManager(),
+		})
+		il++
+	}
 	return nil
 }

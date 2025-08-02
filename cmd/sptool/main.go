@@ -14,6 +14,7 @@ import (
 	"github.com/filecoin-project/curio/build"
 
 	"github.com/filecoin-project/lotus/cli/spcli"
+	cliutil "github.com/filecoin-project/lotus/cli/util"
 )
 
 var log = logging.Logger("sptool")
@@ -24,7 +25,7 @@ func main() {
 		spcli.InfoCmd(SPTActorGetter),
 		sectorsCmd,
 		provingCmd,
-		//multiSigCmd,
+		toolboxCmd,
 	}
 
 	app := &cli.App{
@@ -50,9 +51,18 @@ func main() {
 				Usage:    "miner actor to manage",
 				EnvVars:  []string{"SP_ADDRESS"},
 			},
+			&cli.BoolFlag{
+				Name:    "verbose",
+				Usage:   "enable verbose logging",
+				Aliases: []string{"vv"},
+			},
 		},
 		Before: func(cctx *cli.Context) error {
-			return logging.SetLogLevel("sptool", cctx.String("sptool"))
+			if cctx.IsSet("verbose") {
+				cliutil.IsVeryVerbose = true
+				return logging.SetLogLevel("sptool", "DEBUG")
+			}
+			return logging.SetLogLevel("sptool", "INFO")
 		},
 	}
 
@@ -83,4 +93,13 @@ func SPTActorGetter(cctx *cli.Context) (address.Address, error) {
 		return address.Undef, fmt.Errorf("parsing address: %w", err)
 	}
 	return addr, nil
+}
+
+var toolboxCmd = &cli.Command{
+	Name:  "toolbox",
+	Usage: "some tools to fix some problems",
+	Subcommands: []*cli.Command{
+		sparkCmd,
+		mk12Clientcmd,
+	},
 }

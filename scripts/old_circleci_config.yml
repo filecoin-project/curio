@@ -1,0 +1,367 @@
+version: 2.1
+orbs:
+  aws-cli: circleci/aws-cli@4.1.1
+  docker: circleci/docker@2.3.0
+
+executors:
+  golang:
+    docker:
+      # Must match GO_VERSION_MIN in project root
+      - image: cimg/go:1.23
+    resource_class: medium+
+  golang-2xl:
+    docker:
+      # Must match GO_VERSION_MIN in project root
+      - image: cimg/go:1.23
+    resource_class: 2xlarge
+  ubuntu:
+    docker:
+      - image: ubuntu:default
+
+commands:
+  build-platform-specific:
+    parameters:
+      linux:
+        default: true
+        description: is a linux build environment?
+        type: boolean
+      darwin:
+        default: false
+        description: is a darwin build environment?
+        type: boolean
+      darwin-architecture:
+        default: "amd64"
+        description: which darwin architecture is being used?
+        type: string
+    steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
+      - when:
+          condition: <<parameters.linux>>
+          steps:
+            - install-ubuntu-deps
+            - check-go-version
+      - when:
+          condition: <<parameters.darwin>>
+          steps:
+            - run:
+                name: Install Go
+                command: |
+                  curl https://dl.google.com/go/go`cat GO_VERSION_MIN`.darwin-<<parameters.darwin-architecture>>.pkg -o /tmp/go.pkg && \
+                  sudo installer -pkg /tmp/go.pkg -target /
+            - run:
+                name: Export Go
+                command: |
+                  echo 'export GOPATH="${HOME}/go"' >> $BASH_ENV
+            - run: go version
+            - run:
+                name: Install dependencies with Homebrew
+                command: HOMEBREW_NO_AUTO_UPDATE=1 brew install pkg-config coreutils jq hwloc
+            - run:
+                name: Install Rust
+                command: |
+                  curl https://sh.rustup.rs -sSf | sh -s -- -y
+      - run: make deps
+  download-params:
+    steps:
+      - restore_cache:
+          name: Restore parameters cache
+          keys:
+            - 'v26-2k-lotus-params'
+      - run: ./curio fetch-params 2048
+      - save_cache:
+          name: Save parameters cache
+          key: 'v26-2k-lotus-params'
+          paths:
+            - /var/tmp/filecoin-proof-parameters/
+  git_fetch_all_tags:
+    steps:
+      - run:
+          name: fetch all tags
+          command: |
+            git fetch --all
+  install-ubuntu-deps:
+    steps:
+      - run: sudo apt install curl ca-certificates gnupg
+      - run: sudo apt-get update
+      - run: sudo apt-get install ocl-icd-opencl-dev libhwloc-dev
+  check-go-version:
+    steps:
+      - run: |
+          v=$(go version | { read _ _ v _; echo ${v#go}; })
+          go_min=$(cat GO_VERSION_MIN | tr -d ' \n')  # Remove spaces/newlines
+          
+          # Extract major, minor, and full versions
+          v_major=$(echo "$v" | cut -d. -f1)
+          v_major_minor=$(echo "$v" | cut -d. -f1,2)
+          v_full=$(echo "$v" | cut -d. -f1,2,3)
+
+          go_min_major=$(echo "$go_min" | cut -d. -f1)
+          go_min_major_minor=$(echo "$go_min" | cut -d. -f1,2)
+          go_min_full=$(echo "$go_min" | cut -d. -f1,2,3)
+
+          # Ensure major version is allowed
+          if [[ "$v_major" != "1" && "$v_major" != "23" && "$v_major" != "6" ]]; then
+          echo "Go version mismatch! Allowed major versions: 1, 23, 6, but found Go $v."
+          exit 1
+          fi
+
+          # If GO_VERSION_MIN specifies a patch version, check full match
+          if [[ "$go_min" == *.*.* ]]; then
+          if [[ "$v_full" != "$go_min_full" ]]; then
+          echo "Go version mismatch! Expected Go $go_min but found $v."
+          exit 1
+          fi
+          # If GO_VERSION_MIN specifies only major.minor, check that exactly
+          elif [[ "$go_min" == *.* ]]; then
+          if [[ "$v_major_minor" != "$go_min_major_minor" ]]; then
+          echo "Go version mismatch! Expected Go $go_min but found $v."
+          exit 1
+          fi
+          fi
+
+          echo "Go version matches: $v"
+
+jobs:
+  build-debug:
+    executor: golang
+    working_directory: ~/curio
+    steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
+      - install-ubuntu-deps
+      - check-go-version
+      - run: make deps debug
+      - persist_to_workspace:
+          root: ~/
+          paths:
+            - "curio"
+  build-2k:
+    executor: golang
+    working_directory: ~/curio
+    steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
+      - install-ubuntu-deps
+      - check-go-version
+      - run: make deps 2k
+  build-mainnet:
+    executor: golang
+    working_directory: ~/curio
+    steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
+      - install-ubuntu-deps
+      - check-go-version
+      - run: make deps build
+  build-calibnet:
+    executor: golang
+    working_directory: ~/curio
+    steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
+      - install-ubuntu-deps
+      - check-go-version
+      - run: make deps calibnet
+  mod-tidy-check:
+    executor: golang
+    working_directory: ~/curio
+    steps:
+      - checkout
+      - git_fetch_all_tags
+      - install-ubuntu-deps
+      - run: git submodule sync
+      - run: git submodule update --init
+      - run: go mod tidy -v
+      - run:
+          name: Check git diff
+          command: |
+            git --no-pager diff go.mod go.sum
+            git --no-pager diff --quiet go.mod go.sum
+
+  test:
+    description: |
+      Run tests with gotestsum.
+    working_directory: ~/curio
+    parameters: &test-params
+      resource_class:
+        type: string
+        default: medium+
+      go-test-flags:
+        type: string
+        default: "-timeout 20m"
+        description: Flags passed to go test.
+      target:
+        type: string
+        default: "./..."
+        description: Import paths of packages to be tested.
+      proofs-log-test:
+        type: string
+        default: "0"
+      get-params:
+        type: boolean
+        default: false
+      suite:
+        type: string
+        default: unit
+        description: Test suite name to report to CircleCI.
+    docker:
+      - image: cimg/go:1.23
+        environment:
+          CURIO_HARMONYDB_HOSTS: yugabyte
+          LOTUS_HARMONYDB_HOSTS: yugabyte
+      - image: yugabytedb/yugabyte:2024.2.1.0-b185
+        command: bin/yugabyted start --daemon=false
+        name: yugabyte
+    resource_class: << parameters.resource_class >>
+    steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
+      - install-ubuntu-deps
+      - run: make deps
+
+      - when:
+          condition: << parameters.get-params >>
+          steps:
+            - run: make debug
+            - download-params
+      - run:
+          name: go test
+          environment:
+            TEST_RUSTPROOFS_LOGS: << parameters.proofs-log-test >>
+            SKIP_CONFORMANCE: "1"
+            CURIO_SRC_DIR: /home/circleci/project
+          command: |
+            mkdir -p /tmp/test-reports/<< parameters.suite >>
+            mkdir -p /tmp/test-artifacts
+            dockerize -wait tcp://yugabyte:5433 -timeout 3m
+            env
+            gotestsum \
+              --format standard-verbose \
+              --junitfile /tmp/test-reports/<< parameters.suite >>/junit.xml \
+              --jsonfile /tmp/test-artifacts/<< parameters.suite >>.json \
+              --packages="<< parameters.target >>" \
+              -- << parameters.go-test-flags >>
+          no_output_timeout: 30m
+      - store_test_results:
+          path: /tmp/test-reports
+      - store_artifacts:
+          path: /tmp/test-artifacts/<< parameters.suite >>.json
+
+  lint-all:
+    description: |
+      Run golangci-lint.
+    working_directory: ~/curio
+    parameters:
+      args:
+        type: string
+        default: ''
+        description: |
+          Arguments to pass to golangci-lint
+    docker:
+      - image: cimg/go:1.23
+    resource_class: medium+
+    steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
+      - install-ubuntu-deps
+      - run: make deps
+      - run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.60.1
+      - run:
+          name: Lint
+          command: |
+            golangci-lint run -v --timeout 10m \
+              --concurrency 4 << parameters.args >>
+
+
+  gofmt:
+    executor: golang
+    working_directory: ~/curio
+    steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
+      - run:
+          command: "! go fmt ./... 2>&1 | read"
+
+  gen-check:
+    executor: golang-2xl
+    working_directory: ~/curio
+    steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
+      - install-ubuntu-deps
+      - run: go install golang.org/x/tools/cmd/goimports
+      - run: go install github.com/hannahhoward/cbor-gen-for
+      - run: go install golang.org/x/text/cmd/gotext
+      - run: make deps gen
+      - run: git --no-pager diff && git --no-pager diff --quiet
+  
+  forest-check:
+    executor: golang
+    working_directory: ~/curio
+    steps:
+      - checkout
+      - git_fetch_all_tags
+      - run: git submodule sync
+      - run: git submodule update --init
+      - install-ubuntu-deps
+      - run: make forest-test
+
+workflows:
+  ci:
+    jobs:
+      - build-debug
+      - build-2k
+      - build-mainnet
+      - build-calibnet
+      - lint-all
+      - mod-tidy-check
+      - gofmt
+      - gen-check
+      - forest-check
+      - test:
+          name: test-itest-curio
+          suite: test-itest-curio
+          target: "./itests/curio_test.go"
+          get-params: true
+          resource_class: 2xlarge
+      - test:
+          name: test-all
+          target: "`go list ./... | grep -v curio/itests | grep -v market/indexstore`"
+          suite: test-all
+          resource_class: 2xlarge
+      - test:
+          name: test-itest-harmonyDB
+          suite: test-itest-harmonyDB
+          target: "./itests/harmonydb_test.go"
+          resource_class: 2xlarge
+      - test:
+          name: test-itest-alertnow
+          suite: test-itest-alertnow
+          target: "./itests/alertnow_test.go"
+          resource_class: 2xlarge
+      - test:
+          name: test-idxStore
+          suite: test-idxStore
+          target: "./market/indexstore"
+          get-params: true
+          resource_class: 2xlarge

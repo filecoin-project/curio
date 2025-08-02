@@ -1,26 +1,109 @@
 package dealdata
 
 import (
+	"context"
+	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/curio/lib/paths"
 )
+
+// CustoreScheme is a special url scheme indicating that a data URL is an http url withing the curio storage system
+const CustoreScheme = "custore"
 
 type UrlPieceReader struct {
 	Url     string
+	Headers http.Header
 	RawSize int64 // the exact number of bytes read, if we read more or less that's an error
+
+	RemoteEndpointReader *paths.Remote // Only used for .ReadRemote which issues http requests for internal /remote endpoints
 
 	readSoFar int64
 	closed    bool
 	active    io.ReadCloser // auto-closed on EOF
 }
 
-func NewUrlReader(p string, rs int64) *UrlPieceReader {
+func NewUrlReader(rmt *paths.Remote, p string, h http.Header, rs int64) *UrlPieceReader {
 	return &UrlPieceReader{
 		Url:     p,
 		RawSize: rs,
+		Headers: h,
+
+		RemoteEndpointReader: rmt,
 	}
+}
+
+func (u *UrlPieceReader) initiateRequest() error {
+	goUrl, err := url.Parse(u.Url)
+	if err != nil {
+		return xerrors.Errorf("failed to parse the URL: %w", err)
+	}
+
+	if goUrl.Scheme == CustoreScheme {
+		if u.RemoteEndpointReader == nil {
+			return xerrors.New("RemoteEndpoint is nil")
+		}
+
+		goUrl.Scheme = "http"
+		u.active, err = u.RemoteEndpointReader.ReadRemote(context.Background(), goUrl.String(), 0, 0)
+		if err != nil {
+			return xerrors.Errorf("error reading remote (%s): %w", goUrl.String(), err)
+		}
+		return nil
+	}
+
+	if goUrl.Scheme != "https" && goUrl.Scheme != "http" {
+		return xerrors.Errorf("URL scheme %s not supported", goUrl.Scheme)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, goUrl.String(), nil)
+	if err != nil {
+		return xerrors.Errorf("error creating request: %w", err)
+	}
+
+	// Add custom headers for security and authentication
+	req.Header = u.Headers
+
+	// Create a client and make the request
+	client := &http.Client{}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return xerrors.Errorf("error making GET request: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		limitedReader := io.LimitReader(resp.Body, 1024)
+		respBodyBytes, readErr := io.ReadAll(limitedReader)
+		closeErr := resp.Body.Close()
+		sanitizedBody := sanitize(respBodyBytes)
+		errMsg := fmt.Sprintf("non-200 response code: %s. Response body: <msg>%s</msg>", resp.Status, sanitizedBody)
+		if readErr != nil && readErr != io.EOF {
+			return xerrors.Errorf("%s. Error reading response body: %w", errMsg, readErr)
+		}
+		if closeErr != nil {
+			return xerrors.Errorf("%s. Error closing response body: %w", errMsg, closeErr)
+		}
+		return xerrors.New(errMsg)
+	}
+
+	// Set 'active' to the response body
+	u.active = resp.Body
+	return nil
+}
+
+// sanitize filters the input bytes, allowing only safe printable characters.
+func sanitize(input []byte) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 32 && r <= 126 {
+			return r
+		}
+		return '?'
+	}, string(input))
 }
 
 func (u *UrlPieceReader) Read(p []byte) (n int, err error) {
@@ -31,13 +114,10 @@ func (u *UrlPieceReader) Read(p []byte) (n int, err error) {
 
 	// If 'active' is nil, initiate the HTTP request
 	if u.active == nil {
-		resp, err := http.Get(u.Url)
+		err := u.initiateRequest()
 		if err != nil {
 			return 0, err
 		}
-
-		// Set 'active' to the response body
-		u.active = resp.Body
 	}
 
 	// Calculate the maximum number of bytes we can read without exceeding RawSize
@@ -77,6 +157,9 @@ func (u *UrlPieceReader) Read(p []byte) (n int, err error) {
 func (u *UrlPieceReader) Close() error {
 	if !u.closed {
 		u.closed = true
+		if u.active == nil {
+			return nil
+		}
 		return u.active.Close()
 	}
 

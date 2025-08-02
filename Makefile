@@ -26,7 +26,7 @@ BUILD_DEPS+=ffi-version-check
 
 ## BLST (from supraseal, but needed in curio)
 
-BLST_PATH:=extern/supra_seal/
+BLST_PATH:=extern/supraseal/
 BLST_DEPS:=.install-blst
 BLST_DEPS:=$(addprefix $(BLST_PATH),$(BLST_DEPS))
 
@@ -36,14 +36,13 @@ build/.blst-install: $(BLST_PATH)
 	bash scripts/build-blst.sh
 	@touch $@
 
-MODULES+=$(BLST_PATH)
 BUILD_DEPS+=build/.blst-install
 CLEAN+=build/.blst-install
 
 ## SUPRA-FFI
 
 ifeq ($(shell uname),Linux)
-SUPRA_FFI_PATH:=extern/supra_seal/
+SUPRA_FFI_PATH:=extern/supraseal/
 SUPRA_FFI_DEPS:=.install-supraseal
 SUPRA_FFI_DEPS:=$(addprefix $(SUPRA_FFI_PATH),$(SUPRA_FFI_DEPS))
 
@@ -53,7 +52,6 @@ build/.supraseal-install: $(SUPRA_FFI_PATH)
 	cd $(SUPRA_FFI_PATH) && ./build.sh
 	@touch $@
 
-# MODULES+=$(SUPRA_FFI_PATH) -- already included in BLST_PATH
 CLEAN+=build/.supraseal-install
 endif
 
@@ -65,11 +63,17 @@ build/.update-modules:
 
 # end git modules
 
-## CUDA Library Path
-CUDA_PATH := $(shell dirname $$(dirname $$(which nvcc)))
-CUDA_LIB_PATH := $(CUDA_PATH)/lib64
-LIBRARY_PATH ?= $(CUDA_LIB_PATH)
-export LIBRARY_PATH
+# CUDA Library Path
+# Conditional execution block for Linux
+OS := $(shell uname)
+ifeq ($(OS), Linux)
+    NVCC_PATH := $(shell which nvcc 2>/dev/null)
+    ifneq ($(NVCC_PATH),)
+        $(eval CUDA_PATH := $(shell dirname $$(dirname $$(which nvcc))))
+        $(eval CUDA_LIB_PATH := $(CUDA_PATH)/lib64)
+        export LIBRARY_PATH := $(LIBRARY_PATH):$(CUDA_LIB_PATH)
+    endif
+endif
 
 ## MAIN BINARIES
 
@@ -80,7 +84,7 @@ deps: $(BUILD_DEPS)
 
 ## ldflags -s -w strips binary
 
-CURIO_TAGS := cunative
+CURIO_TAGS ?= cunative
 
 curio: $(BUILD_DEPS)
 	rm -f curio
@@ -95,26 +99,32 @@ BINS+=curio
 
 sptool: $(BUILD_DEPS)
 	rm -f sptool
-	$(GOCC) build $(GOFLAGS) -o sptool ./cmd/sptool
+	$(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o sptool ./cmd/sptool
 .PHONY: sptool
 BINS+=sptool
+
+pdptool: $(BUILD_DEPS)
+	rm -f pdptool
+	$(GOCC) build $(GOFLAGS) -tags "$(CURIO_TAGS)" -o pdptool ./cmd/pdptool
+.PHONY: pdptool
+BINS+=pdptool
 
 ifeq ($(shell uname),Linux)
 
 batchdep: build/.supraseal-install
 batchdep: $(BUILD_DEPS)
-,PHONY: batchdep
+.PHONY: batchdep
 
 batch: CURIO_TAGS+= supraseal
 batch: CGO_LDFLAGS_ALLOW='.*'
-batch: batchdep build
+batch: batchdep batch-build
 .PHONY: batch
 
 
 batch-calibnet: CURIO_TAGS+= supraseal
 batch-calibnet: CURIO_TAGS+= calibnet
 batch-calibnet: CGO_LDFLAGS_ALLOW='.*'
-batch-calibnet: batchdep build
+batch-calibnet: batchdep batch-build
 .PHONY: batch-calibnet
 
 else
@@ -144,6 +154,12 @@ build: curio sptool
 an existing curio binary in your PATH. This may cause problems if you don't run 'sudo make install'" || true
 
 .PHONY: build
+
+batch-build: curio
+.PHONY: batch-build
+
+calibnet-sptool: CURIO_TAGS+= calibnet
+calibnet-sptool: sptool
 
 install: install-curio install-sptool
 .PHONY: install
@@ -182,7 +198,7 @@ install-completions:
 	install -C ./scripts/completion/bash_autocomplete /usr/share/bash-completion/completions/curio
 	install -C ./scripts/completion/zsh_autocomplete /usr/local/share/zsh/site-functions/_curio
 
-cu2k: GOFLAGS+=-tags=2k
+cu2k: CURIO_TAGS+= 2k
 cu2k: curio
 
 cfgdoc-gen:
@@ -250,7 +266,7 @@ go-generate:
 gen: gensimple
 .PHONY: gen
 
-gensimple: go-generate cfgdoc-gen api-gen docsgen docsgen-cli
+gensimple: api-gen go-generate cfgdoc-gen docsgen docsgen-cli
 	$(GOCC) run ./scripts/fiximports
 	go mod tidy
 .PHONY: gen
@@ -263,7 +279,7 @@ build_lotus?=0
 curio_docker_user?=curio
 curio_base_image=$(curio_docker_user)/curio-all-in-one:latest-debug
 ffi_from_source?=0
-lotus_version?=v1.30.0-rc2
+lotus_version?=v1.33.0
 
 ifeq ($(build_lotus),1)
 # v1: building lotus image with provided lotus version
@@ -300,7 +316,7 @@ curio_docker_build_cmd=docker build --build-arg CURIO_TEST_IMAGE=$(curio_base_im
 
 docker/curio-all-in-one:
 	$(curio_docker_build_cmd) -f Dockerfile --target curio-all-in-one \
-		-t $(curio_base_image) --build-arg GOFLAGS=-tags=debug .
+		-t $(curio_base_image) --build-arg CURIO_TAGS="cunative debug" .
 .PHONY: docker/curio-all-in-one
 
 docker/lotus:
@@ -318,7 +334,17 @@ docker/curio:
 		--build-arg BUILD_VERSION=dev .
 .PHONY: docker/curio
 
-docker/devnet: $(lotus_build_cmd) docker/curio-all-in-one docker/lotus docker/lotus-miner docker/curio docker/yugabyte
+docker/piece-server:
+	cd docker/piece-server && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/piece-server-dev:dev \
+		--build-arg BUILD_VERSION=dev .
+.PHONY: docker/piece-server
+
+docker/indexer:
+	cd docker/indexer && DOCKER_BUILDKIT=1 $(curio_docker_build_cmd) -t $(curio_docker_user)/indexer-dev:dev \
+		--build-arg BUILD_VERSION=dev .
+.PHONY: docker/indexer
+
+docker/devnet: $(lotus_build_cmd) docker/curio-all-in-one docker/lotus docker/lotus-miner docker/curio docker/piece-server docker/indexer
 .PHONY: docker/devnet
 
 devnet/up:

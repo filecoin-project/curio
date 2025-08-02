@@ -2,6 +2,1014 @@
     "language": "en",
     "messages": [
         {
+            "id": "Math Utils",
+            "message": "Math Utils",
+            "translation": "Math Utils",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Analyze and display the layout of batch sealer threads",
+            "message": "Analyze and display the layout of batch sealer threads",
+            "translation": "Analyze and display the layout of batch sealer threads",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Analyze and display the layout of batch sealer threads on your CPU.\n\nIt provides detailed information about CPU utilization for batch sealing operations, including core allocation, thread\ndistribution for different batch sizes.",
+            "message": "Analyze and display the layout of batch sealer threads on your CPU.\n\nIt provides detailed information about CPU utilization for batch sealing operations, including core allocation, thread\ndistribution for different batch sizes.",
+            "translation": "Analyze and display the layout of batch sealer threads on your CPU.\n\nIt provides detailed information about CPU utilization for batch sealing operations, including core allocation, thread\ndistribution for different batch sizes.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Generate a supra_seal configuration",
+            "message": "Generate a supra_seal configuration",
+            "translation": "Generate a supra_seal configuration",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Generate a supra_seal configuration for a given batch size.\n\nThis command outputs a configuration expected by SupraSeal. Main purpose of this command is for debugging and testing.\nThe config can be used directly with SupraSeal binaries to test it without involving Curio.",
+            "message": "Generate a supra_seal configuration for a given batch size.\n\nThis command outputs a configuration expected by SupraSeal. Main purpose of this command is for debugging and testing.\nThe config can be used directly with SupraSeal binaries to test it without involving Curio.",
+            "translation": "Generate a supra_seal configuration for a given batch size.\n\nThis command outputs a configuration expected by SupraSeal. Main purpose of this command is for debugging and testing.\nThe config can be used directly with SupraSeal binaries to test it without involving Curio.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Zen3 and later supports two sectors per thread, set to false for older CPUs",
+            "message": "Zen3 and later supports two sectors per thread, set to false for older CPUs",
+            "translation": "Zen3 and later supports two sectors per thread, set to false for older CPUs",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Execute cli commands",
+            "message": "Execute cli commands",
+            "translation": "Execute cli commands",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "machine host:port (curio run --listen address)",
+            "message": "machine host:port (curio run --listen address)",
+            "translation": "machine host:port (curio run --listen address)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Wait for Curio api to come online",
+            "message": "Wait for Curio api to come online",
+            "translation": "Wait for Curio api to come online",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "duration to wait till fail",
+            "message": "duration to wait till fail",
+            "translation": "duration to wait till fail",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Provides a sample of CIDs from an indexed piece",
+            "message": "Provides a sample of CIDs from an indexed piece",
+            "translation": "Provides a sample of CIDs from an indexed piece",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "piece-cid",
+            "message": "piece-cid",
+            "translation": "piece-cid",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "output in json format",
+            "message": "output in json format",
+            "translation": "output in json format",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Manage node config by layers. The layer 'base' will always be applied at Curio start-up.",
+            "message": "Manage node config by layers. The layer 'base' will always be applied at Curio start-up.",
+            "translation": "Manage node config by layers. The layer 'base' will always be applied at Curio start-up.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Print default node config",
+            "message": "Print default node config",
+            "translation": "Print default node config",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "don't comment default values",
+            "message": "don't comment default values",
+            "translation": "don't comment default values",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Set a config layer or the base by providing a filename or stdin.",
+            "message": "Set a config layer or the base by providing a filename or stdin.",
+            "translation": "Set a config layer or the base by providing a filename or stdin.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "a layer's file name",
+            "message": "a layer's file name",
+            "translation": "a layer's file name",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "title of the config layer (req'd for stdin)",
+            "message": "title of the config layer (req'd for stdin)",
+            "translation": "title of the config layer (req'd for stdin)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Get a config layer by name. You may want to pipe the output to a file, or use 'less'",
+            "message": "Get a config layer by name. You may want to pipe the output to a file, or use 'less'",
+            "translation": "Get a config layer by name. You may want to pipe the output to a file, or use 'less'",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "layer name",
+            "message": "layer name",
+            "translation": "layer name",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "List config layers present in the DB.",
+            "message": "List config layers present in the DB.",
+            "translation": "List config layers present in the DB.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Remove a named config layer.",
+            "message": "Remove a named config layer.",
+            "translation": "Remove a named config layer.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Interpret stacked config layers by this version of curio, with system-generated comments.",
+            "message": "Interpret stacked config layers by this version of curio, with system-generated comments.",
+            "translation": "Interpret stacked config layers by this version of curio, with system-generated comments.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "a list of layers to be interpreted as the final config",
+            "message": "a list of layers to be interpreted as the final config",
+            "translation": "a list of layers to be interpreted as the final config",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "comma or space separated list of layers to be interpreted (base is always applied)",
+            "message": "comma or space separated list of layers to be interpreted (base is always applied)",
+            "translation": "comma or space separated list of layers to be interpreted (base is always applied)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "edit a config layer",
+            "message": "edit a config layer",
+            "translation": "edit a config layer",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "[layer name]",
+            "message": "[layer name]",
+            "translation": "[layer name]",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "editor to use",
+            "message": "editor to use",
+            "translation": "editor to use",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "source config layer",
+            "message": "source config layer",
+            "translation": "source config layer",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "allow overwrite of existing layer if source is a different layer",
+            "message": "allow overwrite of existing layer if source is a different layer",
+            "translation": "allow overwrite of existing layer if source is a different layer",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "save the whole config into the layer, not just the diff",
+            "message": "save the whole config into the layer, not just the diff",
+            "translation": "save the whole config into the layer, not just the diff",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "do not interpret source layer",
+            "message": "do not interpret source layer",
+            "translation": "do not interpret source layer",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "true if --source is set",
+            "message": "true if --source is set",
+            "translation": "true if --source is set",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Create new configuration for a new cluster",
+            "message": "Create new configuration for a new cluster",
+            "translation": "Create new configuration for a new cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "[SP actor address...]",
+            "message": "[SP actor address...]",
+            "translation": "[SP actor address...]",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Cordon a machine, set it to maintenance mode",
+            "message": "Cordon a machine, set it to maintenance mode",
+            "translation": "Cordon a machine, set it to maintenance mode",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Uncordon a machine, resume scheduling",
+            "message": "Uncordon a machine, resume scheduling",
+            "translation": "Uncordon a machine, resume scheduling",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "generate ipni chunks from a file",
+            "message": "generate ipni chunks from a file",
+            "translation": "generate ipni chunks from a file",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Get Curio node info",
+            "message": "Get Curio node info",
+            "translation": "Get Curio node info",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Manage logging",
+            "message": "Manage logging",
+            "translation": "Manage logging",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "List log systems",
+            "message": "List log systems",
+            "translation": "List log systems",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Set log level",
+            "message": "Set log level",
+            "translation": "Set log level",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "[level]",
+            "message": "[level]",
+            "translation": "[level]",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Set the log level for logging systems:\n\n   The system flag can be specified multiple times.\n\n   eg) log set-level --system chain --system chainxchg debug\n\n   Available Levels:\n   debug\n   info\n   warn\n   error\n\n   Environment Variables:\n   GOLOG_LOG_LEVEL - Default log level for all log systems\n   GOLOG_LOG_FMT   - Change output log format (json, nocolor)\n   GOLOG_FILE      - Write logs to file\n   GOLOG_OUTPUT    - Specify whether to output to file, stderr, stdout or a combination, i.e. file+stderr",
+            "message": "Set the log level for logging systems:\n\n   The system flag can be specified multiple times.\n\n   eg) log set-level --system chain --system chainxchg debug\n\n   Available Levels:\n   debug\n   info\n   warn\n   error\n\n   Environment Variables:\n   GOLOG_LOG_LEVEL - Default log level for all log systems\n   GOLOG_LOG_FMT   - Change output log format (json, nocolor)\n   GOLOG_FILE      - Write logs to file\n   GOLOG_OUTPUT    - Specify whether to output to file, stderr, stdout or a combination, i.e. file+stderr",
+            "translation": "Set the log level for logging systems:\n\n   The system flag can be specified multiple times.\n\n   eg) log set-level --system chain --system chainxchg debug\n\n   Available Levels:\n   debug\n   info\n   warn\n   error\n\n   Environment Variables:\n   GOLOG_LOG_LEVEL - Default log level for all log systems\n   GOLOG_LOG_FMT   - Change output log format (json, nocolor)\n   GOLOG_FILE      - Write logs to file\n   GOLOG_OUTPUT    - Specify whether to output to file, stderr, stdout or a combination, i.e. file+stderr",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "limit to log system",
+            "message": "limit to log system",
+            "translation": "limit to log system",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Filecoin decentralized storage network provider",
+            "message": "Filecoin decentralized storage network provider",
+            "translation": "Filecoin decentralized storage network provider",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "use color in display output",
+            "message": "use color in display output",
+            "translation": "use color in display output",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "depends on output being a TTY",
+            "message": "depends on output being a TTY",
+            "translation": "depends on output being a TTY",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Command separated list of hostnames for yugabyte cluster",
+            "message": "Command separated list of hostnames for yugabyte cluster",
+            "translation": "Command separated list of hostnames for yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Name of the Postgres database in Yugabyte cluster",
+            "message": "Name of the Postgres database in Yugabyte cluster",
+            "translation": "Name of the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Username for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Username for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Username for connecting to the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Password for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Password for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Password for connecting to the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Port for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Port for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Port for connecting to the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Port for connecting to the Cassandra database in Yugabyte cluster",
+            "message": "Port for connecting to the Cassandra database in Yugabyte cluster",
+            "translation": "Port for connecting to the Cassandra database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "enables very verbose mode, useful for debugging the CLI",
+            "message": "enables very verbose mode, useful for debugging the CLI",
+            "translation": "enables very verbose mode, useful for debugging the CLI",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Fetch proving parameters",
+            "message": "Fetch proving parameters",
+            "translation": "Fetch proving parameters",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "[sectorSize]",
+            "message": "[sectorSize]",
+            "translation": "[sectorSize]",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "start sealing a deal sector early",
+            "message": "start sealing a deal sector early",
+            "translation": "start sealing a deal sector early",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Specify actor address to start sealing sectors for",
+            "message": "Specify actor address to start sealing sectors for",
+            "translation": "Specify actor address to start sealing sectors for",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Use synthetic PoRep",
+            "message": "Use synthetic PoRep",
+            "translation": "Use synthetic PoRep",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "\u003csector\u003e",
+            "message": "\u003csector\u003e",
+            "translation": "\u003csector\u003e",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Add URL to fetch data for offline deals",
+            "message": "Add URL to fetch data for offline deals",
+            "translation": "Add URL to fetch data for offline deals",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'",
+            "message": "CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'",
+            "translation": "CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Custom `HEADER` to include in the HTTP request",
+            "message": "Custom `HEADER` to include in the HTTP request",
+            "translation": "Custom `HEADER` to include in the HTTP request",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "`URL` to send the request to",
+            "message": "`URL` to send the request to",
+            "translation": "`URL` to send the request to",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Moves funds from the deal collateral wallet into escrow with the storage market actor",
+            "message": "Moves funds from the deal collateral wallet into escrow with the storage market actor",
+            "translation": "Moves funds from the deal collateral wallet into escrow with the storage market actor",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "maximum fee in FIL user is willing to pay for this message",
+            "message": "maximum fee in FIL user is willing to pay for this message",
+            "translation": "maximum fee in FIL user is willing to pay for this message",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Specify wallet address to send the funds from",
+            "message": "Specify wallet address to send the funds from",
+            "translation": "Specify wallet address to send the funds from",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Create a new offline verified DDO deal for Curio",
+            "message": "Create a new offline verified DDO deal for Curio",
+            "translation": "Create a new offline verified DDO deal for Curio",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Specify actor address for the deal",
+            "message": "Specify actor address for the deal",
+            "translation": "Specify actor address for the deal",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Remove unsealed copies of sector containing this deal",
+            "message": "Remove unsealed copies of sector containing this deal",
+            "translation": "Remove unsealed copies of sector containing this deal",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "indicates that deal index should not be announced to the IPNI",
+            "message": "indicates that deal index should not be announced to the IPNI",
+            "translation": "indicates that deal index should not be announced to the IPNI",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
+            "message": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
+            "translation": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Start a Curio process",
+            "message": "Start a Curio process",
+            "translation": "Start a Curio process",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "host address and port the worker api will listen on",
+            "message": "host address and port the worker api will listen on",
+            "translation": "host address and port the worker api will listen on",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "host address and port the gui will listen on",
+            "message": "host address and port the gui will listen on",
+            "translation": "host address and port the gui will listen on",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "don't check full-node sync status",
+            "message": "don't check full-node sync status",
+            "translation": "don't check full-node sync status",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "only run init, then return",
+            "message": "only run init, then return",
+            "translation": "only run init, then return",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "manage open file limit",
+            "message": "manage open file limit",
+            "translation": "manage open file limit",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "list of layers to be interpreted (atop defaults). Default: base",
+            "message": "list of layers to be interpreted (atop defaults). Default: base",
+            "translation": "list of layers to be interpreted (atop defaults). Default: base",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "custom node name",
+            "message": "custom node name",
+            "translation": "custom node name",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Start Curio web interface",
+            "message": "Start Curio web interface",
+            "translation": "Start Curio web interface",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.",
+            "message": "Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.",
+            "translation": "Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Address to listen for the GUI on",
+            "message": "Address to listen for the GUI on",
+            "translation": "Address to listen for the GUI on",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Manage the sealing pipeline",
+            "message": "Manage the sealing pipeline",
+            "translation": "Manage the sealing pipeline",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Start new sealing operations manually",
+            "message": "Start new sealing operations manually",
+            "translation": "Start new sealing operations manually",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Start sealing sectors for all actors now (not on schedule)",
+            "message": "Start sealing sectors for all actors now (not on schedule)",
+            "translation": "Start sealing sectors for all actors now (not on schedule)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Start sealing new CC sectors",
+            "message": "Start sealing new CC sectors",
+            "translation": "Start sealing new CC sectors",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Number of sectors to start",
+            "message": "Number of sectors to start",
+            "translation": "Number of sectors to start",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "How long to commit sectors for",
+            "message": "How long to commit sectors for",
+            "translation": "How long to commit sectors for",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "1278 (3.5 years)",
+            "message": "1278 (3.5 years)",
+            "translation": "1278 (3.5 years)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "(debug tool) Copy LM sector metadata into Curio DB",
+            "message": "(debug tool) Copy LM sector metadata into Curio DB",
+            "translation": "(debug tool) Copy LM sector metadata into Curio DB",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Path to miner repo",
+            "message": "Path to miner repo",
+            "translation": "Path to miner repo",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Ignore sectors that cannot be migrated",
+            "message": "Ignore sectors that cannot be migrated",
+            "translation": "Ignore sectors that cannot be migrated",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "List pipeline events",
+            "message": "List pipeline events",
+            "translation": "List pipeline events",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Filter events by actor address; lists all if not specified",
+            "message": "Filter events by actor address; lists all if not specified",
+            "translation": "Filter events by actor address; lists all if not specified",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Filter events by sector number; requires --actor to be specified",
+            "message": "Filter events by sector number; requires --actor to be specified",
+            "translation": "Filter events by sector number; requires --actor to be specified",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Limit output to the last N events",
+            "message": "Limit output to the last N events",
+            "translation": "Limit output to the last N events",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Stop a running Curio process",
+            "message": "Stop a running Curio process",
+            "translation": "Stop a running Curio process",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "manage sector storage",
+            "message": "manage sector storage",
+            "translation": "manage sector storage",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Sectors can be stored across many filesystem paths. These\ncommands provide ways to manage the storage a Curio node will use to store sectors\nlong term for proving (references as 'store') as well as how sectors will be\nstored while moving through the sealing pipeline (references as 'seal').",
+            "message": "Sectors can be stored across many filesystem paths. These\ncommands provide ways to manage the storage a Curio node will use to store sectors\nlong term for proving (references as 'store') as well as how sectors will be\nstored while moving through the sealing pipeline (references as 'seal').",
+            "translation": "Sectors can be stored across many filesystem paths. These\ncommands provide ways to manage the storage a Curio node will use to store sectors\nlong term for proving (references as 'store') as well as how sectors will be\nstored while moving through the sealing pipeline (references as 'seal').",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "attach local storage path",
+            "message": "attach local storage path",
+            "translation": "attach local storage path",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "[path]",
+            "message": "[path]",
+            "translation": "[path]",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Storage can be attached to a Curio node using this command. The storage volume\nlist is stored local to the Curio node in storage.json set in curio run. We do not\nrecommend manually modifying this value without further understanding of the\nstorage system.\n\nEach storage volume contains a configuration file which describes the\ncapabilities of the volume. When the '--init' flag is provided, this file will\nbe created using the additional flags.\n\nWeight\nA high weight value means data will be more likely to be stored in this path\n\nSeal\nData for the sealing process will be stored here\n\nStore\nFinalized sectors that will be moved here for long term storage and be proven\nover time",
+            "message": "Storage can be attached to a Curio node using this command. The storage volume\nlist is stored local to the Curio node in storage.json set in curio run. We do not\nrecommend manually modifying this value without further understanding of the\nstorage system.\n\nEach storage volume contains a configuration file which describes the\ncapabilities of the volume. When the '--init' flag is provided, this file will\nbe created using the additional flags.\n\nWeight\nA high weight value means data will be more likely to be stored in this path\n\nSeal\nData for the sealing process will be stored here\n\nStore\nFinalized sectors that will be moved here for long term storage and be proven\nover time",
+            "translation": "Storage can be attached to a Curio node using this command. The storage volume\nlist is stored local to the Curio node in storage.json set in curio run. We do not\nrecommend manually modifying this value without further understanding of the\nstorage system.\n\nEach storage volume contains a configuration file which describes the\ncapabilities of the volume. When the '--init' flag is provided, this file will\nbe created using the additional flags.\n\nWeight\nA high weight value means data will be more likely to be stored in this path\n\nSeal\nData for the sealing process will be stored here\n\nStore\nFinalized sectors that will be moved here for long term storage and be proven\nover time",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "initialize the path first",
+            "message": "initialize the path first",
+            "translation": "initialize the path first",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "(for init) path weight",
+            "message": "(for init) path weight",
+            "translation": "(for init) path weight",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "(for init) use path for sealing",
+            "message": "(for init) use path for sealing",
+            "translation": "(for init) use path for sealing",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "(for init) use path for long-term storage",
+            "message": "(for init) use path for long-term storage",
+            "translation": "(for init) use path for long-term storage",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "(for init) limit storage space for sectors (expensive for very large paths!)",
+            "message": "(for init) limit storage space for sectors (expensive for very large paths!)",
+            "translation": "(for init) limit storage space for sectors (expensive for very large paths!)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "path group names",
+            "message": "path group names",
+            "translation": "path group names",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "path groups allowed to pull data from this path (allow all if not specified)",
+            "message": "path groups allowed to pull data from this path (allow all if not specified)",
+            "translation": "path groups allowed to pull data from this path (allow all if not specified)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "detach local storage path",
+            "message": "detach local storage path",
+            "translation": "detach local storage path",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "list local storage paths",
+            "message": "list local storage paths",
+            "translation": "list local storage paths",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "only list local storage paths",
+            "message": "only list local storage paths",
+            "translation": "only list local storage paths",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "find sector in the storage system",
+            "message": "find sector in the storage system",
+            "translation": "find sector in the storage system",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "[miner address] [sector number]",
+            "message": "[miner address] [sector number]",
+            "translation": "[miner address] [sector number]",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "generate vanilla proof for a sector",
+            "message": "generate vanilla proof for a sector",
+            "translation": "generate vanilla proof for a sector",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "redeclare sectors in a local storage path",
+            "message": "redeclare sectors in a local storage path",
+            "translation": "redeclare sectors in a local storage path",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "--machine flag in cli command should point to the node where storage to redeclare is attached",
+            "message": "--machine flag in cli command should point to the node where storage to redeclare is attached",
+            "translation": "--machine flag in cli command should point to the node where storage to redeclare is attached",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Utility functions for testing",
+            "message": "Utility functions for testing",
+            "translation": "Utility functions for testing",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.",
+            "message": "Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.",
+            "translation": "Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.",
+            "message": "Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.",
+            "translation": "Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "deadline to compute WindowPoSt for",
+            "message": "deadline to compute WindowPoSt for",
+            "translation": "deadline to compute WindowPoSt for",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "SP ID to compute WindowPoSt for",
+            "message": "SP ID to compute WindowPoSt for",
+            "translation": "SP ID to compute WindowPoSt for",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Compute WindowPoSt for performance and configuration testing.",
+            "message": "Compute WindowPoSt for performance and configuration testing.",
+            "translation": "Compute WindowPoSt for performance and configuration testing.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Note: This command is intended to be used to verify PoSt compute performance.\nIt will not send any messages to the chain. Since it can compute any deadline, output may be incorrectly timed for the chain.",
+            "message": "Note: This command is intended to be used to verify PoSt compute performance.\nIt will not send any messages to the chain. Since it can compute any deadline, output may be incorrectly timed for the chain.",
+            "translation": "Note: This command is intended to be used to verify PoSt compute performance.\nIt will not send any messages to the chain. Since it can compute any deadline, output may be incorrectly timed for the chain.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "[deadline index]",
+            "message": "[deadline index]",
+            "translation": "[deadline index]",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "path to json file containing storage config",
+            "message": "path to json file containing storage config",
+            "translation": "path to json file containing storage config",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "partition to compute WindowPoSt for",
+            "message": "partition to compute WindowPoSt for",
+            "translation": "partition to compute WindowPoSt for",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Collection of debugging utilities",
+            "message": "Collection of debugging utilities",
+            "translation": "Collection of debugging utilities",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Tool Box for Curio",
+            "message": "Tool Box for Curio",
+            "translation": "Tool Box for Curio",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Updated DB with message data missing from chain node",
+            "message": "Updated DB with message data missing from chain node",
+            "translation": "Updated DB with message data missing from chain node",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Update data for messages in wait queue",
+            "message": "Update data for messages in wait queue",
+            "translation": "Update data for messages in wait queue",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Manage unsealed data",
+            "message": "Manage unsealed data",
+            "translation": "Manage unsealed data",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Get information about unsealed data",
+            "message": "Get information about unsealed data",
+            "translation": "Get information about unsealed data",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "List data from the sectors_unseal_pipeline and sectors_meta tables",
+            "message": "List data from the sectors_unseal_pipeline and sectors_meta tables",
+            "translation": "List data from the sectors_unseal_pipeline and sectors_meta tables",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Filter by storage provider ID",
+            "message": "Filter by storage provider ID",
+            "translation": "Filter by storage provider ID",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Output file path (default: stdout)",
+            "message": "Output file path (default: stdout)",
+            "translation": "Output file path (default: stdout)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Set the target unseal state for a sector",
+            "message": "Set the target unseal state for a sector",
+            "translation": "Set the target unseal state for a sector",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+            "message": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+            "translation": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Check data integrity in unsealed sector files",
+            "message": "Check data integrity in unsealed sector files",
+            "translation": "Check data integrity in unsealed sector files",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
+            "message": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
+            "translation": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Use the arrow keys to navigate: ↓ ↑ → ←",
             "message": "Use the arrow keys to navigate: ↓ ↑ → ←",
             "translation": "Use the arrow keys to navigate: ↓ ↑ → ←",

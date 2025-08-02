@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Task Details</title>
+    <script type="module" src="/ux/curio-ux.mjs"></script>
+<script type="module" src="/ux/components/Drawer.mjs"></script>
+    <script type="module" src="task-status.mjs"></script>
+    <script type="module" src="task-details.mjs"></script>
+    <script type="module" src="task-history.mjs"></script>
+</head>
+<body style="visibility:hidden" data-bs-theme="dark">
+<curio-ux>
+    <div class="page" style="margin-left: 20px; margin-right: 10px">
+        <h1>Task Details</h1>
+        <section class="section">
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                    <h4>Status</h4>
+                    <harmony-task-status></harmony-task-status>
+                </div>
+            </div>
+        </section>
+        <section class="section">
+            <div class="row">
+                <h4>Details</h4>
+                <harmony-task-details></harmony-task-details>
+            </div>
+        </section>
+        <section class="section">
+            <div class="row">
+                <div class="col-md-auto" style="max-width: 95%">
+                    <h4>History</h4>
+                    <harmony-task-history></harmony-task-history>
+                </div>
+            </div>
+        </section>
+    </div>
+</curio-ux>
+</body>
+</html>

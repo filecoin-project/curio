@@ -23,6 +23,7 @@ import (
 	"github.com/filecoin-project/go-state-types/big"
 	"github.com/filecoin-project/go-statestore"
 
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -32,6 +33,8 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/node/repo"
 )
+
+//go:generate cbor-gen-for --map-encoding SectorInfo
 
 const (
 	FlagMinerRepo = "miner-repo"
@@ -67,7 +70,7 @@ func (storageMiner) APIInfoEnvVars() (primary string, fallbacks []string, deprec
 }
 
 func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiInfo string, unmigSectorShouldFail func() bool) (minerAddress address.Address, err error) {
-	_, say := SetupLanguage()
+	_, say := translations.SetupLanguage()
 	ctx := context.Background()
 
 	r, err := repo.NewFS(minerRepoPath)
@@ -151,9 +154,11 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 		MinerAddresses:        []string{addr.String()},
 		PreCommitControl:      smCfg.Addresses.PreCommitControl,
 		CommitControl:         smCfg.Addresses.CommitControl,
+		DealPublishControl:    smCfg.Addresses.DealPublishControl,
 		TerminateControl:      smCfg.Addresses.TerminateControl,
 		DisableOwnerFallback:  smCfg.Addresses.DisableOwnerFallback,
 		DisableWorkerFallback: smCfg.Addresses.DisableWorkerFallback,
+		BalanceManager:        config.DefaultBalanceManager(),
 	}}
 
 	ks, err := lr.KeyStore()
@@ -238,6 +243,7 @@ func SaveConfigToLayerMigrateSectors(db *harmonydb.DB, minerRepoPath, chainApiIn
 		}
 
 		// Express as new toml to avoid adding StorageRPCSecret in more than 1 layer
+		curioCfg.Apis.StorageRPCSecret = ""
 		ct := &bytes.Buffer{}
 		if err = toml.NewEncoder(ct).Encode(curioCfg); err != nil {
 			return minerAddress, err
@@ -289,6 +295,9 @@ func ensureEmptyArrays(cfg *config.CurioConfig) {
 			}
 			if cfg.Addresses[i].CommitControl == nil {
 				cfg.Addresses[i].CommitControl = []string{}
+			}
+			if cfg.Addresses[i].DealPublishControl == nil {
+				cfg.Addresses[i].DealPublishControl = []string{}
 			}
 			if cfg.Addresses[i].TerminateControl == nil {
 				cfg.Addresses[i].TerminateControl = []string{}

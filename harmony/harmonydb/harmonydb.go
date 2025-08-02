@@ -54,6 +54,7 @@ func NewFromConfig(cfg config.HarmonyDB) (*DB, error) {
 		cfg.Password,
 		cfg.Database,
 		cfg.Port,
+		cfg.LoadBalance,
 		"",
 	)
 }
@@ -73,6 +74,7 @@ func NewFromConfigWithITestID(t *testing.T, id ITestID) (*DB, error) {
 		"yugabyte",
 		"yugabyte",
 		"5433",
+		false,
 		id,
 	)
 	if err != nil {
@@ -87,16 +89,26 @@ func NewFromConfigWithITestID(t *testing.T, id ITestID) (*DB, error) {
 // New is to be called once per binary to establish the pool.
 // log() is for errors. It returns an upgraded database's connection.
 // This entry point serves both production and integration tests, so it's more DI.
-func New(hosts []string, username, password, database, port string, itestID ITestID) (*DB, error) {
+func New(hosts []string, username, password, database, port string, loadBalance bool, itestID ITestID) (*DB, error) {
 	itest := string(itestID)
-	connString := ""
-	if len(hosts) > 0 {
-		connString = "host=" + hosts[0] + " "
+
+	// Join hosts with the port
+	hostPortPairs := make([]string, len(hosts))
+	for i, host := range hosts {
+		hostPortPairs[i] = fmt.Sprintf("%s:%s", host, port)
 	}
-	for k, v := range map[string]string{"user": username, "password": password, "dbname": database, "port": port} {
-		if strings.TrimSpace(v) != "" {
-			connString += k + "=" + v + " "
-		}
+
+	// Construct the connection string
+	connString := fmt.Sprintf(
+		"postgresql://%s:%s@%s/%s?sslmode=disable",
+		username,
+		password,
+		strings.Join(hostPortPairs, ","),
+		database,
+	)
+
+	if loadBalance {
+		connString += "&load_balance=true"
 	}
 
 	schema := "curio"
@@ -107,14 +119,9 @@ func New(hosts []string, username, password, database, port string, itestID ITes
 	if err := ensureSchemaExists(connString, schema); err != nil {
 		return nil, err
 	}
-	cfg, err := pgxpool.ParseConfig(connString + "search_path=" + schema)
+	cfg, err := pgxpool.ParseConfig(connString + "&search_path=" + schema)
 	if err != nil {
 		return nil, err
-	}
-
-	// enable multiple fallback hosts.
-	for _, h := range hosts[1:] {
-		cfg.ConnConfig.Fallbacks = append(cfg.ConnConfig.Fallbacks, &pgconn.FallbackConfig{Host: h})
 	}
 
 	cfg.ConnConfig.OnNotice = func(conn *pgconn.PgConn, n *pgconn.Notice) {
@@ -141,6 +148,9 @@ const SQL_STRING = ctxkey("sqlString")
 func (t tracer) TraceQueryStart(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	return context.WithValue(context.WithValue(ctx, SQL_START, time.Now()), SQL_STRING, data.SQL)
 }
+
+var slowQueryThreshold = 5000 * time.Millisecond
+
 func (t tracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.TraceQueryEndData) {
 	DBMeasures.Hits.M(1)
 	ms := time.Since(ctx.Value(SQL_START).(time.Time)).Milliseconds()
@@ -148,6 +158,14 @@ func (t tracer) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, data pgx.Trac
 	DBMeasures.Waits.Observe(float64(ms))
 	if data.Err != nil {
 		DBMeasures.Errors.M(1)
+	}
+	if ms > slowQueryThreshold.Milliseconds() {
+		logger.Warnw("Slow SQL run",
+			"query", ctx.Value(SQL_STRING).(string),
+			"err", data.Err,
+			"rowCt", data.CommandTag.RowsAffected(),
+			"milliseconds", ms)
+		return
 	}
 	logger.Debugw("SQL run",
 		"query", ctx.Value(SQL_STRING).(string),
@@ -231,7 +249,16 @@ func ensureSchemaExists(connString, schema string) error {
 	if len(schema) < 5 || !schemaRE.MatchString(schema) {
 		return xerrors.New("schema must be of the form " + schemaREString + "\n Got: " + schema)
 	}
+
+	retryWait := InitialSerializationErrorRetryWait
+
+retry:
 	_, err = p.Exec(context.Background(), "CREATE SCHEMA IF NOT EXISTS "+schema)
+	if err != nil && IsErrSerialization(err) {
+		time.Sleep(retryWait)
+		retryWait *= 2
+		goto retry
+	}
 	if err != nil {
 		return xerrors.Errorf("cannot create schema: %w", err)
 	}
@@ -303,9 +330,9 @@ func (db *DB) upgrade() error {
 			}
 			megaSql += s + ";"
 		}
-		_, err = db.pgx.Exec(context.Background(), megaSql)
+		_, err = db.Exec(context.Background(), rawStringOnly(megaSql))
 		if err != nil {
-			msg := fmt.Sprintf("Could not upgrade! %s", err.Error())
+			msg := fmt.Sprintf("Could not upgrade (%s)! %s", name, err.Error())
 			logger.Error(msg)
 			return xerrors.New(msg) // makes devs lives easier by placing message at the end.
 		}

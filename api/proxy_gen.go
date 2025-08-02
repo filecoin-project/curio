@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
+	"github.com/multiformats/go-multihash"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
@@ -23,7 +24,8 @@ import (
 	"github.com/filecoin-project/go-state-types/dline"
 	"github.com/filecoin-project/go-state-types/network"
 
-	storiface "github.com/filecoin-project/curio/lib/storiface"
+	ltypes "github.com/filecoin-project/curio/api/types"
+	"github.com/filecoin-project/curio/lib/storiface"
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -43,6 +45,12 @@ type CurioStruct struct {
 type CurioMethods struct {
 	AllocatePieceToSector func(p0 context.Context, p1 address.Address, p2 lpiece.PieceDealInfo, p3 int64, p4 url.URL, p5 http.Header) (api.SectorOffset, error) `perm:"write"`
 
+	Cordon func(p0 context.Context) error `perm:"admin"`
+
+	IndexSamples func(p0 context.Context, p1 cid.Cid) ([]multihash.Multihash, error) `perm:"admin"`
+
+	Info func(p0 context.Context) (*ltypes.NodeInfo, error) `perm:"read"`
+
 	LogList func(p0 context.Context) ([]string, error) `perm:"read"`
 
 	LogSetLevel func(p0 context.Context, p1 string, p2 string) error `perm:"admin"`
@@ -55,6 +63,8 @@ type CurioMethods struct {
 
 	StorageFindSector func(p0 context.Context, p1 abi.SectorID, p2 storiface.SectorFileType, p3 abi.SectorSize, p4 bool) ([]storiface.SectorStorageInfo, error) `perm:"admin"`
 
+	StorageGenerateVanillaProof func(p0 context.Context, p1 address.Address, p2 abi.SectorNumber) ([]byte, error) `perm:"admin"`
+
 	StorageInfo func(p0 context.Context, p1 storiface.ID) (storiface.StorageInfo, error) `perm:"admin"`
 
 	StorageInit func(p0 context.Context, p1 string, p2 storiface.LocalStorageMeta) error `perm:"admin"`
@@ -63,7 +73,11 @@ type CurioMethods struct {
 
 	StorageLocal func(p0 context.Context) (map[storiface.ID]string, error) `perm:"admin"`
 
+	StorageRedeclare func(p0 context.Context, p1 *storiface.ID, p2 bool) error `perm:"admin"`
+
 	StorageStat func(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) `perm:"admin"`
+
+	Uncordon func(p0 context.Context) error `perm:"admin"`
 
 	Version func(p0 context.Context) ([]int, error) `perm:"admin"`
 }
@@ -106,6 +120,8 @@ type CurioChainRPCMethods struct {
 
 	GasEstimateMessageGas func(p0 context.Context, p1 *types.Message, p2 *api.MessageSendSpec, p3 types.TipSetKey) (*types.Message, error) ``
 
+	MarketAddBalance func(p0 context.Context, p1 address.Address, p2 address.Address, p3 types.BigInt) (cid.Cid, error) ``
+
 	MinerCreateBlock func(p0 context.Context, p1 *api.BlockTemplate) (*types.BlockMsg, error) ``
 
 	MinerGetBaseInfo func(p0 context.Context, p1 address.Address, p2 abi.ChainEpoch, p3 types.TipSetKey) (*api.MiningBaseInfo, error) ``
@@ -123,6 +139,8 @@ type CurioChainRPCMethods struct {
 	Shutdown func(p0 context.Context) error `perm:"admin"`
 
 	StateAccountKey func(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) ``
+
+	StateCall func(p0 context.Context, p1 *types.Message, p2 types.TipSetKey) (*api.InvocResult, error) ``
 
 	StateCirculatingSupply func(p0 context.Context, p1 types.TipSetKey) (big.Int, error) ``
 
@@ -227,6 +245,39 @@ func (s *CurioStub) AllocatePieceToSector(p0 context.Context, p1 address.Address
 	return *new(api.SectorOffset), ErrNotSupported
 }
 
+func (s *CurioStruct) Cordon(p0 context.Context) error {
+	if s.Internal.Cordon == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.Cordon(p0)
+}
+
+func (s *CurioStub) Cordon(p0 context.Context) error {
+	return ErrNotSupported
+}
+
+func (s *CurioStruct) IndexSamples(p0 context.Context, p1 cid.Cid) ([]multihash.Multihash, error) {
+	if s.Internal.IndexSamples == nil {
+		return *new([]multihash.Multihash), ErrNotSupported
+	}
+	return s.Internal.IndexSamples(p0, p1)
+}
+
+func (s *CurioStub) IndexSamples(p0 context.Context, p1 cid.Cid) ([]multihash.Multihash, error) {
+	return *new([]multihash.Multihash), ErrNotSupported
+}
+
+func (s *CurioStruct) Info(p0 context.Context) (*ltypes.NodeInfo, error) {
+	if s.Internal.Info == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.Info(p0)
+}
+
+func (s *CurioStub) Info(p0 context.Context) (*ltypes.NodeInfo, error) {
+	return nil, ErrNotSupported
+}
+
 func (s *CurioStruct) LogList(p0 context.Context) ([]string, error) {
 	if s.Internal.LogList == nil {
 		return *new([]string), ErrNotSupported
@@ -293,6 +344,17 @@ func (s *CurioStub) StorageFindSector(p0 context.Context, p1 abi.SectorID, p2 st
 	return *new([]storiface.SectorStorageInfo), ErrNotSupported
 }
 
+func (s *CurioStruct) StorageGenerateVanillaProof(p0 context.Context, p1 address.Address, p2 abi.SectorNumber) ([]byte, error) {
+	if s.Internal.StorageGenerateVanillaProof == nil {
+		return *new([]byte), ErrNotSupported
+	}
+	return s.Internal.StorageGenerateVanillaProof(p0, p1, p2)
+}
+
+func (s *CurioStub) StorageGenerateVanillaProof(p0 context.Context, p1 address.Address, p2 abi.SectorNumber) ([]byte, error) {
+	return *new([]byte), ErrNotSupported
+}
+
 func (s *CurioStruct) StorageInfo(p0 context.Context, p1 storiface.ID) (storiface.StorageInfo, error) {
 	if s.Internal.StorageInfo == nil {
 		return *new(storiface.StorageInfo), ErrNotSupported
@@ -337,6 +399,17 @@ func (s *CurioStub) StorageLocal(p0 context.Context) (map[storiface.ID]string, e
 	return *new(map[storiface.ID]string), ErrNotSupported
 }
 
+func (s *CurioStruct) StorageRedeclare(p0 context.Context, p1 *storiface.ID, p2 bool) error {
+	if s.Internal.StorageRedeclare == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.StorageRedeclare(p0, p1, p2)
+}
+
+func (s *CurioStub) StorageRedeclare(p0 context.Context, p1 *storiface.ID, p2 bool) error {
+	return ErrNotSupported
+}
+
 func (s *CurioStruct) StorageStat(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) {
 	if s.Internal.StorageStat == nil {
 		return *new(fsutil.FsStat), ErrNotSupported
@@ -346,6 +419,17 @@ func (s *CurioStruct) StorageStat(p0 context.Context, p1 storiface.ID) (fsutil.F
 
 func (s *CurioStub) StorageStat(p0 context.Context, p1 storiface.ID) (fsutil.FsStat, error) {
 	return *new(fsutil.FsStat), ErrNotSupported
+}
+
+func (s *CurioStruct) Uncordon(p0 context.Context) error {
+	if s.Internal.Uncordon == nil {
+		return ErrNotSupported
+	}
+	return s.Internal.Uncordon(p0)
+}
+
+func (s *CurioStub) Uncordon(p0 context.Context) error {
+	return ErrNotSupported
 }
 
 func (s *CurioStruct) Version(p0 context.Context) ([]int, error) {
@@ -524,6 +608,17 @@ func (s *CurioChainRPCStub) GasEstimateMessageGas(p0 context.Context, p1 *types.
 	return nil, ErrNotSupported
 }
 
+func (s *CurioChainRPCStruct) MarketAddBalance(p0 context.Context, p1 address.Address, p2 address.Address, p3 types.BigInt) (cid.Cid, error) {
+	if s.Internal.MarketAddBalance == nil {
+		return *new(cid.Cid), ErrNotSupported
+	}
+	return s.Internal.MarketAddBalance(p0, p1, p2, p3)
+}
+
+func (s *CurioChainRPCStub) MarketAddBalance(p0 context.Context, p1 address.Address, p2 address.Address, p3 types.BigInt) (cid.Cid, error) {
+	return *new(cid.Cid), ErrNotSupported
+}
+
 func (s *CurioChainRPCStruct) MinerCreateBlock(p0 context.Context, p1 *api.BlockTemplate) (*types.BlockMsg, error) {
 	if s.Internal.MinerCreateBlock == nil {
 		return nil, ErrNotSupported
@@ -621,6 +716,17 @@ func (s *CurioChainRPCStruct) StateAccountKey(p0 context.Context, p1 address.Add
 
 func (s *CurioChainRPCStub) StateAccountKey(p0 context.Context, p1 address.Address, p2 types.TipSetKey) (address.Address, error) {
 	return *new(address.Address), ErrNotSupported
+}
+
+func (s *CurioChainRPCStruct) StateCall(p0 context.Context, p1 *types.Message, p2 types.TipSetKey) (*api.InvocResult, error) {
+	if s.Internal.StateCall == nil {
+		return nil, ErrNotSupported
+	}
+	return s.Internal.StateCall(p0, p1, p2)
+}
+
+func (s *CurioChainRPCStub) StateCall(p0 context.Context, p1 *types.Message, p2 types.TipSetKey) (*api.InvocResult, error) {
+	return nil, ErrNotSupported
 }
 
 func (s *CurioChainRPCStruct) StateCirculatingSupply(p0 context.Context, p1 types.TipSetKey) (big.Int, error) {

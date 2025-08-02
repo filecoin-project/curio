@@ -2,6 +2,7 @@
 package deps
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -11,13 +12,13 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/gbrlsnchs/jwt/v3"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
@@ -34,15 +35,20 @@ import (
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/curiochain"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/pieceprovider"
 	"github.com/filecoin-project/curio/lib/repo"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/market/indexstore"
+	"github.com/filecoin-project/curio/market/ipni/chunker"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/types"
+	"github.com/filecoin-project/lotus/lib/lazy"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	lrepo "github.com/filecoin-project/lotus/node/repo"
 	"github.com/filecoin-project/lotus/storage/sealer"
@@ -55,11 +61,12 @@ func MakeDB(cctx *cli.Context) (*harmonydb.DB, error) {
 	// #1 CLI opts
 	fromCLI := func() (*harmonydb.DB, error) {
 		dbConfig := config.HarmonyDB{
-			Username: cctx.String("db-user"),
-			Password: cctx.String("db-password"),
-			Hosts:    strings.Split(cctx.String("db-host"), ","),
-			Database: cctx.String("db-name"),
-			Port:     cctx.String("db-port"),
+			Username:    cctx.String("db-user"),
+			Password:    cctx.String("db-password"),
+			Hosts:       strings.Split(cctx.String("db-host"), ","),
+			Database:    cctx.String("db-name"),
+			Port:        cctx.String("db-port"),
+			LoadBalance: cctx.Bool("db-load-balance"),
 		}
 		return harmonydb.NewFromConfig(dbConfig)
 	}
@@ -92,40 +99,17 @@ func MakeDB(cctx *cli.Context) (*harmonydb.DB, error) {
 		}
 		return readToml(filepath.Join(u, ".lotusminer/config.toml"))
 	}
-	fromEnv := func() (*harmonydb.DB, error) {
-		// #3 Try env
-		u, err := url.Parse(os.Getenv("CURIO_DB"))
-		if err != nil {
-			return nil, errors.New("no db connection string found in CURIO_DB env")
-		}
-		cfg := config.DefaultStorageMiner().HarmonyDB
-		if u.User.Username() != "" {
-			cfg.Username = u.User.Username()
-		}
-		if p, ok := u.User.Password(); ok && p != "" {
-			cfg.Password = p
-		}
-		if u.Hostname() != "" {
-			cfg.Hosts = []string{u.Hostname()}
-		}
-		if u.Port() != "" {
-			cfg.Port = u.Port()
-		}
-		if strings.TrimPrefix(u.Path, "/") != "" {
-			cfg.Database = strings.TrimPrefix(u.Path, "/")
-		}
 
-		return harmonydb.NewFromConfig(cfg)
-	}
-
-	for _, f := range []func() (*harmonydb.DB, error){fromCLI, fromMinerEnv, fromMiner, fromEnv} {
+	for _, f := range []func() (*harmonydb.DB, error){fromCLI, fromMinerEnv, fromMiner} {
 		db, err := f()
 		if err != nil {
 			continue
 		}
 		return db, nil
 	}
-	log.Error("No db connection string found. User CLI args or env var: set CURIO_DB=postgres://USER:PASSWORD@HOST:PORT/DATABASE")
+	log.Error("Could not connect to db. Please verify that your YugabyteDB is running and the env vars or CLI args are correct.")
+	log.Error("If running as a service, please ensure that the service is running with the correct env vars in /etc/curio.env file.")
+	log.Error("If running locally, please ensure that the env vars are set correctly in your shell. Run `curio --help` for more info.")
 	return fromCLI() //in-case it's not about bad config.
 }
 
@@ -165,23 +149,30 @@ func GetDeps(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 }
 
 type Deps struct {
-	Layers     []string
-	Cfg        *config.CurioConfig // values
-	DB         *harmonydb.DB       // has itest capability
-	Chain      api.Chain
-	Bstore     curiochain.CurioBlockstore
-	Verif      storiface.Verifier
-	As         *multictladdr.MultiAddressSelector
-	Maddrs     map[dtypes.MinerAddress]bool
-	ProofTypes map[abi.RegisteredSealProof]bool
-	Stor       *paths.Remote
-	Al         *curioalerting.AlertingSystem
-	Si         paths.SectorIndex
-	LocalStore *paths.Local
-	LocalPaths *paths.BasicLocalStorage
-	ListenAddr string
-	Name       string
-	Alert      *alertmanager.AlertNow
+	Layers            []string
+	Cfg               *config.CurioConfig // values
+	DB                *harmonydb.DB       // has itest capability
+	Chain             api.Chain
+	Bstore            curiochain.CurioBlockstore
+	Verif             storiface.Verifier
+	As                *multictladdr.MultiAddressSelector
+	Maddrs            map[dtypes.MinerAddress]bool
+	ProofTypes        map[abi.RegisteredSealProof]bool
+	Stor              *paths.Remote
+	Al                *curioalerting.AlertingSystem
+	Si                paths.SectorIndex
+	LocalStore        *paths.Local
+	LocalPaths        *paths.BasicLocalStorage
+	Prover            storiface.Prover
+	ListenAddr        string
+	Name              string
+	MachineID         *int64
+	Alert             *alertmanager.AlertNow
+	IndexStore        *indexstore.IndexStore
+	SectorReader      *pieceprovider.SectorReader
+	CachedPieceReader *cachedreader.CachedPieceReader
+	ServeChunker      *chunker.ServeChunker
+	EthClient         *lazy.Lazy[*ethclient.Client]
 }
 
 const (
@@ -266,6 +257,16 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		}()
 	}
 
+	if deps.EthClient == nil {
+		deps.EthClient = lazy.MakeLazy[*ethclient.Client](func() (*ethclient.Client, error) {
+			cfgApiInfo := deps.Cfg.Apis.ChainApiInfo
+			if v := os.Getenv("FULLNODE_API_INFO"); v != "" {
+				cfgApiInfo = []string{v}
+			}
+			return GetEthClient(cctx, cfgApiInfo)
+		})
+	}
+
 	if deps.Bstore == nil {
 		deps.Bstore = curiochain.NewChainBlockstore(deps.Chain)
 	}
@@ -299,7 +300,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 		deps.Cfg.Subsystems.GuiAddress = cctx.String("gui-listen")
 	}
 	if deps.LocalStore == nil {
-		deps.LocalStore, err = paths.NewLocal(ctx, deps.LocalPaths, deps.Si, []string{"http://" + deps.ListenAddr + "/remote"})
+		deps.LocalStore, err = paths.NewLocal(ctx, deps.LocalPaths, deps.Si, "http://"+deps.ListenAddr+"/remote")
 		if err != nil {
 			return err
 		}
@@ -348,6 +349,35 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 		deps.Name = cctx.String("name")
 	}
 
+	if deps.MachineID == nil {
+		deps.MachineID = new(int64)
+		*deps.MachineID = -1
+	}
+
+	if deps.IndexStore == nil {
+		deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(cctx.String("db-host"), ","), cctx.Int("db-cassandra-port"), deps.Cfg)
+		if err != nil {
+			return xerrors.Errorf("failed to start index store: %w", err)
+		}
+	}
+
+	if deps.SectorReader == nil {
+		deps.SectorReader = pieceprovider.NewSectorReader(deps.Stor, deps.Si)
+	}
+
+	if deps.CachedPieceReader == nil {
+		ppr := pieceprovider.NewPieceParkReader(deps.Stor, deps.Si)
+		deps.CachedPieceReader = cachedreader.NewCachedPieceReader(deps.DB, deps.SectorReader, ppr)
+	}
+
+	if deps.ServeChunker == nil {
+		deps.ServeChunker = chunker.NewServeChunker(deps.DB, deps.SectorReader, deps.IndexStore, deps.CachedPieceReader)
+	}
+
+	if deps.Prover == nil {
+		deps.Prover = ffiwrapper.ProofProver
+	}
+
 	return nil
 }
 
@@ -373,21 +403,21 @@ func LoadConfigWithUpgrades(text string, curioConfigWithDefaults *config.CurioCo
 		}
 		return line
 	}), "\n")
-	meta, err := toml.Decode(newText, &curioConfigWithDefaults)
-	for i := range curioConfigWithDefaults.Addresses {
-		if curioConfigWithDefaults.Addresses[i].PreCommitControl == nil {
-			curioConfigWithDefaults.Addresses[i].PreCommitControl = []string{}
-		}
-		if curioConfigWithDefaults.Addresses[i].CommitControl == nil {
-			curioConfigWithDefaults.Addresses[i].CommitControl = []string{}
-		}
-		if curioConfigWithDefaults.Addresses[i].TerminateControl == nil {
-			curioConfigWithDefaults.Addresses[i].TerminateControl = []string{}
-		}
+
+	err := config.FixTOML(newText, curioConfigWithDefaults)
+	if err != nil {
+		return toml.MetaData{}, err
 	}
-	return meta, err
+
+	return toml.Decode(newText, &curioConfigWithDefaults)
 }
+
 func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.CurioConfig, error) {
+	err := updateBaseLayer(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+
 	curioConfig := config.DefaultCurioConfig()
 	have := []string{}
 	layers = append([]string{"base"}, layers...) // Always stack on top of "base" layer
@@ -419,6 +449,131 @@ func GetConfig(ctx context.Context, layers []string, db *harmonydb.DB) (*config.
 	// 3rd-parties can dynamically include config requirements and we can
 	// validate the config. Because of layering, we must validate @ startup.
 	return curioConfig, nil
+}
+
+func updateBaseLayer(ctx context.Context, db *harmonydb.DB) error {
+	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		// Get existing base from DB
+		text := ""
+		err = tx.QueryRow(`SELECT config FROM harmony_config WHERE title=$1`, "base").Scan(&text)
+		if err != nil {
+			if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
+				return false, fmt.Errorf("missing layer 'base' ")
+			}
+			return false, fmt.Errorf("could not read layer 'base': %w", err)
+		}
+
+		// Load the existing configuration
+		cfg := config.DefaultCurioConfig()
+		metadata, err := LoadConfigWithUpgrades(text, cfg)
+		if err != nil {
+			return false, fmt.Errorf("could not read base layer, bad toml %s: %w", text, err)
+		}
+
+		// Capture unknown fields
+		keys := removeUnknownEntries(metadata.Keys(), metadata.Undecoded())
+		unrecognizedFields := extractUnknownFields(keys, text)
+
+		// Convert the updated config back to TOML string
+		cb, err := config.ConfigUpdate(cfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
+		if err != nil {
+			return false, xerrors.Errorf("cannot update base config: %w", err)
+		}
+
+		// Merge unknown fields back into the updated config
+		finalConfig, err := mergeUnknownFields(string(cb), unrecognizedFields)
+		if err != nil {
+			return false, xerrors.Errorf("cannot merge unknown fields: %w", err)
+		}
+
+		// Check if we need to update the DB
+		if text == finalConfig {
+			return false, nil
+		}
+
+		// Save the updated base with merged comments
+		_, err = tx.Exec("UPDATE harmony_config SET config=$1 WHERE title='base'", finalConfig)
+		if err != nil {
+			return false, xerrors.Errorf("cannot update base config: %w", err)
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func extractUnknownFields(knownKeys []toml.Key, originalConfig string) map[string]interface{} {
+	// Parse the original config into a raw map
+	var rawConfig map[string]interface{}
+	err := toml.Unmarshal([]byte(originalConfig), &rawConfig)
+	if err != nil {
+		log.Warnw("Failed to parse original config for unknown fields", "error", err)
+		return nil
+	}
+
+	// Collect all recognized keys
+	recognizedKeys := map[string]struct{}{}
+	for _, key := range knownKeys {
+		recognizedKeys[strings.Join(key, ".")] = struct{}{}
+	}
+
+	// Identify unrecognized fields
+	unrecognizedFields := map[string]interface{}{}
+	for key, value := range rawConfig {
+		if _, recognized := recognizedKeys[key]; !recognized {
+			unrecognizedFields[key] = value
+		}
+	}
+	return unrecognizedFields
+}
+
+func removeUnknownEntries(array1, array2 []toml.Key) []toml.Key {
+	// Create a set from array2 for fast lookup
+	toRemove := make(map[string]struct{}, len(array2))
+	for _, key := range array2 {
+		toRemove[key.String()] = struct{}{}
+	}
+
+	// Filter array1, keeping only elements not in toRemove
+	var result []toml.Key
+	for _, key := range array1 {
+		if _, exists := toRemove[key.String()]; !exists {
+			result = append(result, key)
+		}
+	}
+
+	return result
+}
+
+func mergeUnknownFields(updatedConfig string, unrecognizedFields map[string]interface{}) (string, error) {
+	// Parse the updated config into a raw map
+	var updatedConfigMap map[string]interface{}
+	err := toml.Unmarshal([]byte(updatedConfig), &updatedConfigMap)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse updated config: %w", err)
+	}
+
+	// Merge unrecognized fields
+	for key, value := range unrecognizedFields {
+		if _, exists := updatedConfigMap[key]; !exists {
+			updatedConfigMap[key] = value
+		}
+	}
+
+	// Convert back into TOML
+	b := new(bytes.Buffer)
+	encoder := toml.NewEncoder(b)
+	err = encoder.Encode(updatedConfigMap)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal final config: %w", err)
+	}
+
+	return b.String(), nil
 }
 
 func GetDefaultConfig(comment bool) (string, error) {
@@ -459,10 +614,24 @@ func GetDepsCLI(ctx context.Context, cctx *cli.Context) (*Deps, error) {
 		fullCloser()
 	}()
 
+	maddrs := map[dtypes.MinerAddress]bool{}
+	if len(maddrs) == 0 {
+		for _, s := range cfg.Addresses {
+			for _, s := range s.MinerAddresses {
+				addr, err := address.NewFromString(s)
+				if err != nil {
+					return nil, err
+				}
+				maddrs[dtypes.MinerAddress(addr)] = true
+			}
+		}
+	}
+
 	return &Deps{
-		Cfg:   cfg,
-		DB:    db,
-		Chain: full,
+		Cfg:    cfg,
+		DB:     db,
+		Chain:  full,
+		Maddrs: maddrs,
 	}, nil
 }
 
@@ -495,10 +664,12 @@ func CreateMinerConfig(ctx context.Context, full CreateMinerConfigChainAPI, db *
 		curioConfig.Addresses = append(curioConfig.Addresses, config.CurioAddresses{
 			PreCommitControl:      []string{},
 			CommitControl:         []string{},
+			DealPublishControl:    []string{},
 			TerminateControl:      []string{},
 			DisableOwnerFallback:  false,
 			DisableWorkerFallback: false,
 			MinerAddresses:        []string{addr},
+			BalanceManager:        config.DefaultBalanceManager(),
 		})
 	}
 

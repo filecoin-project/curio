@@ -26,7 +26,9 @@ import (
 var log = logging.Logger("paramfetch")
 
 // const gateway = "http://198.211.99.118/ipfs/"
-const gateway = "https://proofs.filecoin.io/ipfs/"
+// const gateway = "https://proofs.filecoin.io/ipfs/"
+const gateway = "https://pub-08ae819c828244bdbe5f615fd8c5e144.r2.dev/ipfs/"
+
 const paramdir = "/var/tmp/filecoin-proof-parameters"
 const dirEnv = "FIL_PROOFS_PARAMETER_CACHE"
 const lockFile = "fetch.lock"
@@ -307,7 +309,7 @@ func fetchWithAria2c(ctx context.Context, out, url string) error {
 		return xerrors.New("aria2c not found in PATH")
 	}
 
-	cmd := exec.CommandContext(ctx, aria2cPath, "--continue", "-x16", "-s16", "--dir", filepath.Dir(out), "-o", filepath.Base(out), url)
+	cmd := exec.CommandContext(ctx, aria2cPath, "--lowest-speed-limit", "16K", "-m100", "--retry-wait", "10", "--continue", "-x16", "-s16", "--dir", filepath.Dir(out), "-o", filepath.Base(out), url)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

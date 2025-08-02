@@ -17,12 +17,14 @@ type MachineSummary struct {
 	Name         string
 	SinceContact string
 
-	Tasks        string
-	Cpu          int
-	RamHumanized string
-	Gpu          int
-	Layers       string
-	Uptime       string
+	Tasks         string
+	Cpu           int
+	RamHumanized  string
+	Gpu           int
+	Layers        string
+	Uptime        string
+	Unschedulable bool
+	RunningTasks  int
 }
 
 func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) {
@@ -35,6 +37,7 @@ func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) 
 							hm.cpu,
 							hm.ram,
 							hm.gpu,
+							hm.unschedulable,
 							hmd.machine_name,
 							hmd.tasks,
 							hmd.layers,
@@ -57,7 +60,7 @@ func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) 
 		var ram int64
 		var uptime time.Time
 
-		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu, &m.Name, &m.Tasks, &m.Layers, &uptime); err != nil {
+		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu, &m.Unschedulable, &m.Name, &m.Tasks, &m.Layers, &uptime); err != nil {
 			return nil, err // Handle error
 		}
 		m.SinceContact = lastContact.Round(time.Second).String()
@@ -66,6 +69,13 @@ func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) 
 		m.Tasks = strings.TrimSuffix(strings.TrimPrefix(m.Tasks, ","), ",")
 		m.Layers = strings.TrimSuffix(strings.TrimPrefix(m.Layers, ","), ",")
 
+		if m.Unschedulable {
+			var runningTasks int
+			if err := a.deps.DB.QueryRow(ctx, "SELECT COUNT(*) FROM harmony_task WHERE owner_id=$1", m.ID).Scan(&runningTasks); err != nil {
+				return nil, err
+			}
+			m.RunningTasks = runningTasks
+		}
 		summaries = append(summaries, m)
 	}
 	return summaries, nil
@@ -121,14 +131,16 @@ func (a *WebRPC) ClusterTaskHistory(ctx context.Context) ([]TaskHistorySummary, 
 
 type MachineInfo struct {
 	Info struct {
-		Name        string
-		Host        string
-		ID          int64
-		LastContact string
-		CPU         int64
-		Memory      int64
-		GPU         int64
-		Layers      string
+		Name          string
+		Host          string
+		ID            int64
+		LastContact   string
+		CPU           int64
+		Memory        int64
+		GPU           int64
+		Layers        string
+		Unschedulable bool
+		RunningTasks  int
 	}
 
 	// Storage
@@ -198,12 +210,13 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 							hm.cpu,
 							hm.ram,
 							hm.gpu,
+							hm.unschedulable,
 							hmd.machine_name,
 							hmd.layers
 						FROM 
 							harmony_machines hm
 						LEFT JOIN 
-							harmony_machine_details hmd ON hm.id = hmd.machine_id 
+							harmony_machine_details hmd ON hm.id = hmd.machine_id
 						WHERE 
 						    hm.id=$1
 						ORDER BY 
@@ -219,7 +232,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 		var m MachineInfo
 		var lastContact time.Time
 
-		if err := rows.Scan(&m.Info.ID, &m.Info.Host, &lastContact, &m.Info.CPU, &m.Info.Memory, &m.Info.GPU, &m.Info.Name, &m.Info.Layers); err != nil {
+		if err := rows.Scan(&m.Info.ID, &m.Info.Host, &lastContact, &m.Info.CPU, &m.Info.Memory, &m.Info.GPU, &m.Info.Unschedulable, &m.Info.Name, &m.Info.Layers); err != nil {
 			return nil, err
 		}
 
@@ -307,9 +320,9 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 				OR task_id_tree_d=$1
 				OR task_id_tree_c=$1
 				OR task_id_tree_r=$1
-				OR task_id_synth=$1 
+				OR task_id_synth=$1
 				OR task_id_precommit_msg=$1
-				OR task_id_porep=$1	
+				OR task_id_porep=$1
 				OR task_id_commit_msg=$1
 				OR task_id_finalize=$1
 				OR task_id_move_storage=$1`, t.ID)
@@ -336,6 +349,7 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 		}
 
 		summaries[0].RunningTasks = append(summaries[0].RunningTasks, t)
+		summaries[0].Info.RunningTasks++
 	}
 
 	rows5, err := a.deps.DB.Query(ctx, `SELECT name, task_id, posted, work_start, work_end, result, err FROM harmony_task_history WHERE completed_by_host_and_port = $1 ORDER BY work_end DESC LIMIT 15`, summaries[0].Info.Host)

@@ -36,8 +36,10 @@ create table sectors_sdr_pipeline (
     after_tree_r bool not null default false,
 
     -- synthetic proofs (Added in 20240617-synthetic-proofs.sql)
---     task_id_synth bigint,
---     after_synth bool not null default false,
+    -- task_id_synth bigint,
+    -- after_synth bool not null default false,
+
+    -- precommit_ready_at (Added in 20241210-sdr-batching.sql)
 
     -- precommit message sending
     precommit_msg_cid text,
@@ -65,6 +67,9 @@ create table sectors_sdr_pipeline (
     -- MoveStorage (move data to storage)
     task_id_move_storage bigint,
     after_move_storage bool not null default false,
+
+    -- commit_ready_at (Added in 20241210-sdr-batching.sql)
+    -- start_epoch bigint default null (Added in 20250312-batching-functions.sql)
 
     -- Commit message sending
     commit_msg_cid text,
