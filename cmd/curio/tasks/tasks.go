@@ -32,6 +32,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/multictladdr"
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/proofsvc/common"
 	"github.com/filecoin-project/curio/lib/slotmgr"
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/libp2p"
@@ -43,6 +44,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/metadata"
 	"github.com/filecoin-project/curio/tasks/pdp"
 	piece2 "github.com/filecoin-project/curio/tasks/piece"
+	"github.com/filecoin-project/curio/tasks/proofshare"
 	"github.com/filecoin-project/curio/tasks/scrub"
 	"github.com/filecoin-project/curio/tasks/seal"
 	"github.com/filecoin-project/curio/tasks/sealsupra"
@@ -109,6 +111,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	sender, sendTask := message.NewSender(full, full, db)
 	balanceMgrTask := balancemgr.NewBalanceMgrTask(db, full, chainSched, sender)
 	activeTasks = append(activeTasks, sendTask, balanceMgrTask)
+	dependencies.Sender = sender
 
 	// paramfetch
 	var fetchOnce sync.Once
@@ -117,9 +120,15 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	var asyncParams = func() func() (bool, error) {
 		fetchOnce.Do(func() {
 			go func() {
-				for spt := range dependencies.ProofTypes {
+				seenSizes := make(map[uint64]bool)
 
+				for spt := range dependencies.ProofTypes {
 					provingSize := uint64(must.One(spt.SectorSize()))
+					if seenSizes[provingSize] {
+						continue
+					}
+					seenSizes[provingSize] = true
+
 					err := fastparamfetch.GetParams(context.TODO(), proofparams.ParametersJSON(), proofparams.SrsJSON(), provingSize)
 
 					if err != nil {
@@ -210,7 +219,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		cfg.Subsystems.EnableUpdateEncode ||
 		cfg.Subsystems.EnableUpdateProve ||
 		cfg.Subsystems.EnableUpdateSubmit ||
-		cfg.Subsystems.EnableCommP
+		cfg.Subsystems.EnableCommP ||
+		cfg.Subsystems.EnableProofShare ||
+		cfg.Subsystems.EnableRemoteProofs
 
 	if hasAnySealingTask {
 		sealingTasks, err := addSealingTasks(ctx, hasAnySealingTask, db, full, sender, as, cfg, slrLazy, asyncParams, si, stor, bstore, machine, prover)
@@ -314,10 +325,6 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		"miner_addresses", miners,
 		"tasks", lo.Map(activeTasks, func(t harmonytask.TaskInterface, _ int) string { return t.TypeDetails().Name }))
 
-	// harmony treats the first task as highest priority, so reverse the order
-	// (we could have just appended to this list in the reverse order, but defining
-	//  tasks in pipeline order is more intuitive)
-
 	ht, err := harmonytask.New(db, activeTasks, dependencies.ListenAddr)
 	if err != nil {
 		return nil, err
@@ -416,8 +423,8 @@ func addSealingTasks(
 		precommitTask := seal.NewSubmitPrecommitTask(sp, db, full, sender, as, cfg)
 		activeTasks = append(activeTasks, precommitTask)
 	}
-	if cfg.Subsystems.EnablePoRepProof {
-		porepTask := seal.NewPoRepTask(db, full, sp, slr, asyncParams(), cfg.Subsystems.PoRepProofMaxTasks)
+	if cfg.Subsystems.EnablePoRepProof || cfg.Subsystems.EnableRemoteProofs {
+		porepTask := seal.NewPoRepTask(db, full, sp, slr, asyncParams(), cfg.Subsystems.EnablePoRepProof, cfg.Subsystems.PoRepProofMaxTasks)
 		activeTasks = append(activeTasks, porepTask)
 	}
 	if cfg.Subsystems.EnableMoveStorage {
@@ -450,14 +457,34 @@ func addSealingTasks(
 		encodeTask := snap.NewEncodeTask(slr, db, cfg.Subsystems.UpdateEncodeMaxTasks)
 		activeTasks = append(activeTasks, encodeTask)
 	}
-	if cfg.Subsystems.EnableUpdateProve {
-		proveTask := snap.NewProveTask(slr, db, asyncParams(), cfg.Subsystems.UpdateProveMaxTasks)
+	if cfg.Subsystems.EnableUpdateProve || cfg.Subsystems.EnableRemoteProofs {
+		proveTask := snap.NewProveTask(slr, db, asyncParams(), cfg.Subsystems.EnableRemoteProofs, cfg.Subsystems.UpdateProveMaxTasks)
 		activeTasks = append(activeTasks, proveTask)
 	}
 	if cfg.Subsystems.EnableUpdateSubmit {
 		submitTask := snap.NewSubmitTask(db, full, bstore, sender, as, cfg)
 		activeTasks = append(activeTasks, submitTask)
 	}
+
+	if cfg.Subsystems.EnableProofShare {
+		requestProofsTask := proofshare.NewTaskRequestProofs(db, full, asyncParams())
+		provideSnarkTask := proofshare.NewTaskProvideSnark(db, asyncParams(), cfg.Subsystems.ProofShareMaxTasks)
+		submitTask := proofshare.NewTaskSubmit(db, full)
+		autosettleTask := proofshare.NewTaskAutosettle(db, full, sender)
+		activeTasks = append(activeTasks, requestProofsTask, provideSnarkTask, submitTask, autosettleTask)
+	}
+
+	if cfg.Subsystems.EnableRemoteProofs {
+		router := common.NewServiceCustomSend(full, nil)
+		remoteUploadTask := proofshare.NewTaskClientUpload(db, full, stor, router, cfg.Subsystems.RemoteProofMaxUploads)
+		remotePollTask := proofshare.NewTaskClientPoll(db, full)
+		remoteSendTask := proofshare.NewTaskClientSend(db, full, router)
+		activeTasks = append(activeTasks, remoteUploadTask, remotePollTask, remoteSendTask)
+	}
+
+	// harmony treats the first task as highest priority, so reverse the order
+	// (we could have just appended to this list in the reverse order, but defining
+	//  tasks in pipeline order is more intuitive)
 	activeTasks = lo.Reverse(activeTasks)
 
 	if hasAnySealingTask {

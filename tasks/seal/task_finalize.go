@@ -101,6 +101,7 @@ func (f *FinalizeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		PipelineSlot int64 `db:"pipeline_slot"`
 	}
 
+	var refFound bool
 	if f.slots != nil {
 		// batch handling part 1:
 		// get machine id
@@ -135,9 +136,11 @@ func (f *FinalizeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 			return false, xerrors.Errorf("getting batch refs: %w", err)
 		}
 
-		if len(refs) != 1 {
-			return false, xerrors.Errorf("expected one batch ref")
+		if len(refs) > 1 {
+			return false, xerrors.Errorf("expected one batch ref, got %d", len(refs))
 		}
+
+		refFound = len(refs) == 1
 	}
 
 	err = f.sc.FinalizeSector(ctx, sector, keepUnsealed)
@@ -149,7 +152,7 @@ func (f *FinalizeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return false, xerrors.Errorf("dropping sector piece refs: %w", err)
 	}
 
-	if f.slots != nil {
+	if refFound {
 		// batch handling part 2:
 
 		if err := f.slots.SectorDone(ctx, uint64(refs[0].PipelineSlot), sector.ID); err != nil {

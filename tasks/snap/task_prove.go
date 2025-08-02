@@ -20,21 +20,23 @@ import (
 )
 
 type ProveTask struct {
-	max int
+	max                int
+	enableRemoteProofs bool
 
 	sc          *ffi.SealCalls
 	db          *harmonydb.DB
 	paramsReady func() (bool, error)
 }
 
-func NewProveTask(sc *ffi.SealCalls, db *harmonydb.DB, paramck func() (bool, error), max int) *ProveTask {
+func NewProveTask(sc *ffi.SealCalls, db *harmonydb.DB, paramck func() (bool, error), enableRemoteProofs bool, max int) *ProveTask {
 	return &ProveTask{
 		max: max,
 
 		sc: sc,
 		db: db,
 
-		paramsReady: paramck,
+		paramsReady:        paramck,
+		enableRemoteProofs: enableRemoteProofs,
 	}
 }
 
@@ -104,6 +106,11 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 }
 
 func (p *ProveTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+	if !p.enableRemoteProofs {
+		// remote proofs enabled but not local prove - we still need the task for poller
+		return nil, nil
+	}
+
 	rdy, err := p.paramsReady()
 	if err != nil {
 		return nil, xerrors.Errorf("failed to setup params: %w", err)
@@ -139,6 +146,7 @@ func (p *ProveTask) TypeDetails() harmonytask.TaskTypeDetails {
 
 func (p *ProveTask) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
 	var stop bool
+
 	for !stop {
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule

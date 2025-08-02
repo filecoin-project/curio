@@ -1,14 +1,14 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 import '/lib/cu-wallet.mjs';
+import '/ux/epoch.mjs';
 
 class FilMessage extends LitElement {
     static properties = {
         cid: { type: String },
         message: { type: Object },
         // Info-box state
-        _showInfoBox: { state: true },
-        _epochPretty: { state: true }
+        _showInfoBox: { state: true }
     };
 
     constructor() {
@@ -16,7 +16,6 @@ class FilMessage extends LitElement {
         this.message = null;
         // Info-box state handling
         this._showInfoBox = false;
-        this._epochPretty = '';
         this._mouseOverComponent = false;
         this._mouseOverInfoBox = false;
         this._hideTimeout = null;
@@ -146,7 +145,7 @@ class FilMessage extends LitElement {
                 <p><span class="label">From:</span> <cu-wallet wallet_id="${from}"></cu-wallet></p>
                 <p><span class="label">To:</span> <cu-wallet wallet_id="${to}"></cu-wallet></p>
                 <p><span class="label">FilFox:</span> <a href="https://filfox.info/en/message/${this.cid}" target="_blank">${this.cid}</a></p>
-                ${this._epochPretty ? html`<p><span class="label">Time:</span> ${this._epochPretty}</p>` : ''}
+                ${epoch ? html`<p><span class="label">Time:</span> <pretty-epoch .epoch=${epoch}></pretty-epoch></p>` : ''}
               </div>
             ` : ''}
           </div>

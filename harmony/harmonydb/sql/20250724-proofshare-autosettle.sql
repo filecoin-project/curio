@@ -1,0 +1,1 @@
+ALTER TABLE proofshare_meta ADD COLUMN autosettle BOOLEAN NOT NULL DEFAULT TRUE;

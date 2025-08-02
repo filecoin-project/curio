@@ -44,6 +44,7 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
+	"github.com/filecoin-project/curio/tasks/message"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -173,6 +174,7 @@ type Deps struct {
 	CachedPieceReader *cachedreader.CachedPieceReader
 	ServeChunker      *chunker.ServeChunker
 	EthClient         *lazy.Lazy[*ethclient.Client]
+	Sender            *message.Sender
 }
 
 const (
@@ -314,7 +316,7 @@ func (deps *Deps) PopulateRemainingDeps(ctx context.Context, cctx *cli.Context, 
 Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`, err, deps.Cfg.Apis.StorageRPCSecret)
 	}
 	if deps.Stor == nil {
-		deps.Stor = paths.NewRemote(deps.LocalStore, deps.Si, http.Header(sa), 10, &paths.DefaultPartialFileHandler{})
+		deps.Stor = paths.NewRemote(deps.LocalStore, deps.Si, http.Header(sa), 1000, &paths.DefaultPartialFileHandler{})
 	}
 
 	if deps.Maddrs == nil {
@@ -343,6 +345,11 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 			}
 			deps.ProofTypes[spt] = true
 		}
+
+		if deps.Cfg.Subsystems.EnableProofShare {
+			deps.ProofTypes[abi.RegisteredSealProof_StackedDrg32GiBV1_1] = true
+			// deps.ProofTypes[abi.RegisteredSealProof_StackedDrg64GiBV1_1] = true TODO REVIEW UNCOMMENT
+		}
 	}
 
 	if deps.Name == "" {
@@ -355,7 +362,12 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 	}
 
 	if deps.IndexStore == nil {
-		deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(cctx.String("db-host"), ","), cctx.Int("db-cassandra-port"), deps.Cfg)
+		dbHost := cctx.String("db-host-cql")
+		if dbHost == "" {
+			dbHost = cctx.String("db-host")
+		}
+
+		deps.IndexStore, err = indexstore.NewIndexStore(strings.Split(dbHost, ","), cctx.Int("db-cassandra-port"), deps.Cfg)
 		if err != nil {
 			return xerrors.Errorf("failed to start index store: %w", err)
 		}
