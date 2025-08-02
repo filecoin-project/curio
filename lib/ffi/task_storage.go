@@ -42,10 +42,12 @@ type TaskStorage struct {
 	ssize           abi.SectorSize
 	pathType        storiface.PathType
 
-	taskToSectorRef func(taskID harmonytask.TaskID) (SectorRef, error)
+	taskToSectorRef func(taskID harmonytask.TaskID) ([]SectorRef, error)
 
 	// Minimum free storage percentage cutoff for reservation rejection
 	MinFreeStoragePercentage float64
+
+	Overheads map[storiface.SectorFileType]int
 }
 
 type ReleaseStorageFunc func() // free storage reservation
@@ -60,6 +62,17 @@ type StorageReservation struct {
 }
 
 func (sb *SealCalls) Storage(taskToSectorRef func(taskID harmonytask.TaskID) (SectorRef, error), alloc, existing storiface.SectorFileType, ssize abi.SectorSize, pathType storiface.PathType, MinFreeStoragePercentage float64) *TaskStorage {
+	return sb.StorageMulti(func(taskID harmonytask.TaskID) ([]SectorRef, error) {
+		sr, err := taskToSectorRef(taskID)
+		if err != nil {
+			return nil, err
+		}
+
+		return []SectorRef{sr}, nil
+	}, alloc, existing, ssize, pathType, MinFreeStoragePercentage, storiface.FSOverheadSeal)
+}
+
+func (sb *SealCalls) StorageMulti(taskToSectorRef func(taskID harmonytask.TaskID) ([]SectorRef, error), alloc, existing storiface.SectorFileType, ssize abi.SectorSize, pathType storiface.PathType, MinFreeStoragePercentage float64, ohs map[storiface.SectorFileType]int) *TaskStorage {
 	return &TaskStorage{
 		sc:                       sb,
 		alloc:                    alloc,
@@ -68,19 +81,20 @@ func (sb *SealCalls) Storage(taskToSectorRef func(taskID harmonytask.TaskID) (Se
 		pathType:                 pathType,
 		taskToSectorRef:          taskToSectorRef,
 		MinFreeStoragePercentage: MinFreeStoragePercentage,
+		Overheads:                ohs,
 	}
 }
 
 func (t *TaskStorage) HasCapacity() bool {
 	ctx := context.Background()
 
-	paths, err := t.sc.sectors.sindex.StorageBestAlloc(ctx, t.alloc, t.ssize, t.pathType, storagePaths.NoMinerFilter)
+	paths, err := t.sc.Sectors.sindex.StorageBestAlloc(ctx, t.alloc, t.ssize, t.pathType, storagePaths.NoMinerFilter)
 	if err != nil {
 		log.Errorf("finding best alloc in HasCapacity: %+v", err)
 		return false
 	}
 
-	local, err := t.sc.sectors.localStore.Local(ctx)
+	local, err := t.sc.Sectors.localStore.Local(ctx)
 	if err != nil {
 		log.Errorf("getting local storage: %+v", err)
 		return false
@@ -123,7 +137,7 @@ func (t *TaskStorage) Claim(taskID int) (func() error, error) {
 
 	ctx := context.Background()
 
-	sectorRef, err := t.taskToSectorRef(harmonytask.TaskID(taskID))
+	sectorRefs, err := t.taskToSectorRef(harmonytask.TaskID(taskID))
 	if err != nil {
 		return nil, xerrors.Errorf("getting sector ref: %w", err)
 	}
@@ -133,7 +147,7 @@ func (t *TaskStorage) Claim(taskID int) (func() error, error) {
 
 	requestedTypes := t.alloc | t.existing
 
-	lockAcquireTimuout := time.Second * 10
+	lockAcquireTimuout := time.Second * 60
 	lockAcquireTimer := time.NewTimer(lockAcquireTimuout)
 
 	go func() {
@@ -145,9 +159,11 @@ func (t *TaskStorage) Claim(taskID int) (func() error, error) {
 		}
 	}()
 
-	if err := t.sc.sectors.sindex.StorageLock(lkctx, sectorRef.ID(), storiface.FTNone, requestedTypes); err != nil {
-		// timer will expire
-		return nil, xerrors.Errorf("claim StorageLock: %w", err)
+	for _, sectorRef := range sectorRefs {
+		if err := t.sc.Sectors.sindex.StorageLock(lkctx, sectorRef.ID(), storiface.FTNone, requestedTypes); err != nil {
+			// timer will expire
+			return nil, xerrors.Errorf("claim StorageLock: %w", err)
+		}
 	}
 
 	if !lockAcquireTimer.Stop() {
@@ -163,70 +179,87 @@ func (t *TaskStorage) Claim(taskID int) (func() error, error) {
 	ctx = storagePaths.ReservationCtxLock.Lock(ctx)
 	defer storagePaths.ReservationCtxLock.Unlock(ctx)
 
-	// First see what we have locally. We are putting allocate and existing together because local acquire will look
-	// for existing files for allocate requests, separately existing files which aren't found locally will be need to
-	// be fetched, so we will need to create reservations for that too.
-	// NOTE localStore.AcquireSector does not open or create any files, nor does it reserve space. It only proposes
-	// paths to be used.
-	pathsFs, pathIDs, err := t.sc.sectors.localStore.AcquireSector(ctx, sectorRef.Ref(), storiface.FTNone, requestedTypes, t.pathType, storiface.AcquireMove)
-	if err != nil {
-		return nil, err
+	cleanup := func() {}
+
+	defer func() {
+		cleanup()
+	}()
+
+	var resvs []*StorageReservation
+
+	for _, sectorRef := range sectorRefs {
+		// First see what we have locally. We are putting allocate and existing together because local acquire will look
+		// for existing files for allocate requests, separately existing files which aren't found locally will be need to
+		// be fetched, so we will need to create reservations for that too.
+		// NOTE localStore.AcquireSector does not open or create any files, nor does it reserve space. It only proposes
+		// paths to be used.
+		pathsFs, pathIDs, err := t.sc.Sectors.localStore.AcquireSector(ctx, sectorRef.Ref(), storiface.FTNone, requestedTypes, t.pathType, storiface.AcquireMove)
+		if err != nil {
+			return nil, err
+		}
+
+		// reserve the space
+		release, err := t.sc.Sectors.localStore.Reserve(ctx, sectorRef.Ref(), requestedTypes, pathIDs, t.Overheads, t.MinFreeStoragePercentage)
+		if err != nil {
+			return nil, err
+		}
+
+		prevCleanup := cleanup
+		cleanup = func() {
+			prevCleanup()
+			release()
+		}
+
+		var releaseOnce sync.Once
+		releaseFunc := func() {
+			releaseOnce.Do(release)
+		}
+
+		sres := &StorageReservation{
+			SectorRef: sectorRef,
+			Release:   releaseFunc,
+			Paths:     pathsFs,
+			PathIDs:   pathIDs,
+
+			Alloc:    t.alloc,
+			Existing: t.existing,
+		}
+
+		resvs = append(resvs, sres)
+		log.Debugw("claimed storage", "task_id", taskID, "sector", sectorRef.ID(), "paths", pathsFs)
 	}
 
-	// reserve the space
-	release, err := t.sc.sectors.localStore.Reserve(ctx, sectorRef.Ref(), requestedTypes, pathIDs, storiface.FSOverheadSeal, t.MinFreeStoragePercentage)
-	if err != nil {
-		return nil, err
-	}
+	cleanup = func() {}
 
-	var releaseOnce sync.Once
-	releaseFunc := func() {
-		releaseOnce.Do(release)
-	}
-
-	sres := &StorageReservation{
-		SectorRef: sectorRef,
-		Release:   releaseFunc,
-		Paths:     pathsFs,
-		PathIDs:   pathIDs,
-
-		Alloc:    t.alloc,
-		Existing: t.existing,
-	}
-
-	t.sc.sectors.storageReservations.Store(harmonytask.TaskID(taskID), sres)
-
-	log.Debugw("claimed storage", "task_id", taskID, "sector", sectorRef.ID(), "paths", pathsFs)
+	t.sc.Sectors.storageReservations.Store(harmonytask.TaskID(taskID), resvs)
 
 	// note: we drop the sector writelock on return; THAT IS INTENTIONAL, this code runs in CanAccept, which doesn't
 	// guarantee that the work for this sector will happen on this node; SDR CanAccept just ensures that the node can
 	// run the job, harmonytask is what ensures that only one SDR runs at a time
 	return func() error {
-		return t.markComplete(taskID, sectorRef)
+		return t.markComplete(taskID, sectorRefs)
 	}, nil
 }
 
-func (t *TaskStorage) markComplete(taskID int, sectorRef SectorRef) error {
+func (t *TaskStorage) markComplete(taskID int, sectorRefs []SectorRef) error {
 	// MarkComplete is ALWAYS called after the task is done or not scheduled
 	// If Claim is called and returns without errors, MarkComplete with the same
 	// taskID is guaranteed to eventually be called
 
-	sres, ok := t.sc.sectors.storageReservations.Load(harmonytask.TaskID(taskID))
+	sres, ok := t.sc.Sectors.storageReservations.Load(harmonytask.TaskID(taskID))
 	if !ok {
 		return xerrors.Errorf("no reservation found for task %d", taskID)
 	}
 
-	if sectorRef != sres.SectorRef {
-		return xerrors.Errorf("reservation sector ref doesn't match task sector ref: %+v != %+v", sectorRef, sres.SectorRef)
-	}
-
-	log.Debugw("marking storage complete", "task_id", taskID, "sector", sectorRef.ID(), "paths", sres.Paths)
+	log.Debugw("marking storage complete", "task_id", taskID, "sector", sectorRefs, "sres", sres)
 
 	// remove the reservation
-	t.sc.sectors.storageReservations.Delete(harmonytask.TaskID(taskID))
+	t.sc.Sectors.storageReservations.Delete(harmonytask.TaskID(taskID))
 
 	// release the reservation
-	sres.Release()
+	for _, res := range sres {
+		res.Release()
+	}
 
 	// note: this only frees the reservation, allocated sectors are declared in AcquireSector which is aware of
 	//  the reservation
