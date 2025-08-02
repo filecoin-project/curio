@@ -24,6 +24,16 @@ customElements.define('cluster-machines', class ClusterMachines extends LitEleme
         this.detailed = e.target.checked;
     }
 
+    async _cordon(id) {
+        await RPCCall('Cordon', id);
+        this.loadData();
+    }
+
+    async _uncordon(id) {
+        await RPCCall('Uncordon', id);
+        this.loadData();
+    }
+
     render() {
         return html`
             <link
@@ -101,9 +111,12 @@ customElements.define('cluster-machines', class ClusterMachines extends LitEleme
                                     <td>${item.Uptime}</td>
                                     <td>
                                         ${!item.Unschedulable
-                                            ? html`<span class="success">ok</span>`
+                                            ? html`<span class="success" style="white-space: nowrap;">
+                                                <a href="javascript:void(0)" @click=${() => this._cordon(item.ID)}>cordon</a> ok
+                                                </span>`
                                             : html`
-                                                <span class="warning">
+                                                <span class="warning" style="white-space: nowrap;">
+                                                    <a href="javascript:void(0)" @click=${() => this._uncordon(item.ID)}>uncordon</a>
                                                     ${
                                                       item.RunningTasks > 0
                                                         ? html`cordoned (${item.RunningTasks} tasks still running)`
