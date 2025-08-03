@@ -204,7 +204,7 @@ func walletExporterBalances(ctx context.Context, db *harmonydb.DB, api api.FullN
 			log.Errorf("failed to get balance for wallet: %v", err)
 			continue
 		}
-		stats.RecordWithTags(ctx, []tag.Mutator{
+		_ = stats.RecordWithTags(ctx, []tag.Mutator{
 			tag.Upsert(tagAddressKey, addr.String()),
 			tag.Upsert(tagTypeKey, "wallet"),
 		}, WalletExporterMeasures.BalanceNFil.M(attoToNano(act.Balance)))
@@ -228,7 +228,7 @@ func walletExporterSPs(ctx context.Context, db *harmonydb.DB, api api.FullNode, 
 			log.Errorf("failed to get balance for SPID: %v", err)
 			continue
 		}
-		stats.RecordWithTags(ctx, []tag.Mutator{
+		_ = stats.RecordWithTags(ctx, []tag.Mutator{
 			tag.Upsert(tagAddressKey, spID.String()),
 			tag.Upsert(tagTypeKey, "miner-available"),
 		}, WalletExporterMeasures.BalanceNFil.M(attoToNano(availableBalance)))
@@ -238,11 +238,11 @@ func walletExporterSPs(ctx context.Context, db *harmonydb.DB, api api.FullNode, 
 			log.Errorf("failed to get miner power for SPID: %v", err)
 			continue
 		}
-		stats.RecordWithTags(ctx, []tag.Mutator{
+		_ = stats.RecordWithTags(ctx, []tag.Mutator{
 			tag.Upsert(tagAddressKey, spID.String()),
 			tag.Upsert(tagTypeKey, "raw"),
 		}, WalletExporterMeasures.Power.M(pow.MinerPower.RawBytePower.Int64()))
-		stats.RecordWithTags(ctx, []tag.Mutator{
+		_ = stats.RecordWithTags(ctx, []tag.Mutator{
 			tag.Upsert(tagAddressKey, spID.String()),
 			tag.Upsert(tagTypeKey, "qap"),
 		}, WalletExporterMeasures.Power.M(pow.MinerPower.QualityAdjPower.Int64()))
@@ -340,7 +340,7 @@ func walletExporterNewWatchedMsgs(ctx context.Context, db *harmonydb.DB, api api
 		}
 		rows.Close()
 
-		stats.RecordWithTags(ctx, []tag.Mutator{
+		_ = stats.RecordWithTags(ctx, []tag.Mutator{
 			tag.Upsert(tagFromKey, fromKey),
 			tag.Upsert(tagFromName, nameMap[fromKey]),
 			tag.Upsert(tagToKey, toAddr),
@@ -350,7 +350,7 @@ func walletExporterNewWatchedMsgs(ctx context.Context, db *harmonydb.DB, api api
 		}, WalletExporterMeasures.MessageSent.M(1))
 
 		// Gas requested metric
-		stats.RecordWithTags(ctx, []tag.Mutator{
+		_ = stats.RecordWithTags(ctx, []tag.Mutator{
 			tag.Upsert(tagFromKey, fromKey),
 			tag.Upsert(tagFromName, nameMap[fromKey]),
 			tag.Upsert(tagToKey, toAddr),
@@ -463,7 +463,7 @@ func walletExporterObserveLandedMsgs(ctx context.Context, db *harmonydb.DB, api 
 			WalletExporterMeasures.MessageLandDuration.Observe(durationSeconds)
 		}
 
-		stats.RecordWithTags(ctx, []tag.Mutator{
+		_ = stats.RecordWithTags(ctx, []tag.Mutator{
 			tag.Upsert(tagFromKey, fromKey),
 			tag.Upsert(tagFromName, nameMap[fromKey]),
 			tag.Upsert(tagToKey, toAddr),
@@ -474,7 +474,7 @@ func walletExporterObserveLandedMsgs(ctx context.Context, db *harmonydb.DB, api 
 		}, WalletExporterMeasures.MessageLanded.M(1))
 
 		// Gas used metric
-		stats.RecordWithTags(ctx, []tag.Mutator{
+		_ = stats.RecordWithTags(ctx, []tag.Mutator{
 			tag.Upsert(tagFromKey, fromKey),
 			tag.Upsert(tagFromName, nameMap[fromKey]),
 			tag.Upsert(tagToKey, toAddr),
@@ -486,7 +486,7 @@ func walletExporterObserveLandedMsgs(ctx context.Context, db *harmonydb.DB, api 
 
 		// Compute Sent NanoFIL
 		if valueAtto, err := big.FromString(valueAttoStr); err == nil {
-			stats.RecordWithTags(ctx, []tag.Mutator{
+			_ = stats.RecordWithTags(ctx, []tag.Mutator{
 				tag.Upsert(tagFromKey, fromKey),
 				tag.Upsert(tagFromName, nameMap[fromKey]),
 				tag.Upsert(tagToKey, toAddr),
@@ -514,7 +514,7 @@ func walletExporterObserveLandedMsgs(ctx context.Context, db *harmonydb.DB, api 
 			}
 		}
 		if gasPaidNano > 0 {
-			stats.RecordWithTags(ctx, []tag.Mutator{
+			_ = stats.RecordWithTags(ctx, []tag.Mutator{
 				tag.Upsert(tagFromKey, fromKey),
 				tag.Upsert(tagFromName, nameMap[fromKey]),
 				tag.Upsert(tagToKey, toAddr),
