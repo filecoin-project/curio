@@ -34,6 +34,7 @@ import (
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/deps/config"
+	"github.com/filecoin-project/curio/deps/stats"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/cachedreader"
 	"github.com/filecoin-project/curio/lib/curiochain"
@@ -343,6 +344,15 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 			}
 			deps.ProofTypes[spt] = true
 		}
+	}
+
+	if deps.Cfg.Fees.EnableWalletExporter {
+		spIDs := []address.Address{}
+		for maddr := range deps.Maddrs {
+			spIDs = append(spIDs, address.Address(maddr))
+		}
+
+		stats.StartWalletExporter(ctx, deps.DB, deps.Chain, spIDs)
 	}
 
 	if deps.Name == "" {

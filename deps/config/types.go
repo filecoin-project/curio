@@ -414,6 +414,10 @@ type CurioFees struct {
 
 	// Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)
 	DisableCollateralFallback bool
+
+	// EnableWalletExporter enables the wallet exporter on the node. This will export wallet stats to prometheus.
+	// NOTE: THIS MUST BE ENABLED ONLY ON A SINGLE NODE IN THE CLUSTER TO BE USEFUL (Default: false)
+	EnableWalletExporter bool
 }
 
 type CurioAddresses struct {

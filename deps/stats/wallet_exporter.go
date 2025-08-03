@@ -113,31 +113,6 @@ func init() {
 	* Wallet balance
 	* Wallet transaction counts
 	* Gas Fees
-
-CREATE TABLE wallet_names (
-    wallet VARCHAR PRIMARY KEY,
-    name VARCHAR(60) NOT NULL UNIQUE
-);
-
-CREATE TABLE wallet_exporter_processing (
-    singleton BOOLEAN NOT NULL DEFAULT TRUE PRIMARY KEY CHECK (singleton = TRUE),
-    processed_until TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-);
-
-INSERT INTO wallet_exporter_processing (singleton) VALUES (TRUE);
-
--- presence of a message in this table means that we've already accounted the basic send
-CREATE TABLE wallet_exporter_watched_msgs (
-    msg_cid TEXT PRIMARY KEY REFERENCES message_waits(signed_message_cid) ON DELETE CASCADE,
-
-    observed_landed BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW() -- used for gc
-);
-
-CREATE INDEX wallet_exporter_watched_msgs_observed_landed ON wallet_exporter_watched_msgs (created_at ASC);
-CREATE INDEX wallet_exporter_watched_msgs_observed_landed_idx ON wallet_exporter_watched_msgs (observed_landed);
-
-
 */
 
 var (
@@ -341,66 +316,6 @@ func walletExporterNewWatchedMsgs(ctx context.Context, db *harmonydb.DB, api api
 	if len(unobservedMsgs) == 0 {
 		return
 	}
-
-	/*
-
-					create table message_sends
-				(
-				    from_key     text   not null,
-				    to_addr      text   not null,
-				    send_reason  text   not null,
-				    send_task_id bigint not null,
-
-				    unsigned_data bytea not null,
-				    unsigned_cid  text  not null,
-
-				    nonce        bigint,
-				    signed_data  bytea,
-				    signed_json  jsonb,
-				    signed_cid   text,
-
-				    send_time    timestamp default null,
-				    send_success boolean   default null,
-				    send_error   text,
-
-				    constraint message_sends_pk
-				        primary key (send_task_id, from_key)
-				);
-
-				create table message_waits (
-				    signed_message_cid text primary key,
-				    waiter_machine_id int references harmony_machines (id) on delete set null,
-
-				    executed_tsk_cid text,
-				    executed_tsk_epoch bigint,
-				    executed_msg_cid text,
-				    executed_msg_data jsonb,
-
-				    executed_rcpt_exitcode bigint,
-				    executed_rcpt_return bytea,
-				    executed_rcpt_gas_used bigint
-
-					-- created_at timestampz (added in 20250422-msg-wait-timestamp.sql)
-				)
-		type Message struct {
-			Version uint64
-
-			To   address.Address
-			From address.Address
-
-			Nonce uint64
-
-			Value abi.TokenAmount
-
-			GasLimit   int64
-			GasFeeCap  abi.TokenAmount
-			GasPremium abi.TokenAmount
-
-			Method abi.MethodNum
-			Params []byte
-		}
-
-	*/
 
 	// we're now responsible for observing the messages
 
