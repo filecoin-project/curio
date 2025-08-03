@@ -300,13 +300,6 @@ Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffi
 
 			Comment: `Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)`,
 		},
-		{
-			Name: "EnableWalletExporter",
-			Type: "bool",
-
-			Comment: `EnableWalletExporter enables the wallet exporter on the node. This will export wallet stats to prometheus.
-NOTE: THIS MUST BE ENABLED ONLY ON A SINGLE NODE IN THE CLUSTER TO BE USEFUL (Default: false)`,
-		},
 	},
 	"CurioIngestConfig": {
 		{
@@ -811,6 +804,13 @@ also be bounded by resources available on the machine. (Default: 8)`,
 			Comment: `BindSDRTreeToNode forces the TreeD and TreeRC tasks to be executed on the same node where SDR task was executed
 for the sector. Please ensure that TreeD and TreeRC task are enabled and relevant resources are available before
 enabling this option. (Default: false)`,
+		},
+		{
+			Name: "EnableWalletExporter",
+			Type: "bool",
+
+			Comment: `EnableWalletExporter enables the wallet exporter on the node. This will export wallet stats to prometheus.
+NOTE: THIS MUST BE ENABLED ONLY ON A SINGLE NODE IN THE CLUSTER TO BE USEFUL (Default: false)`,
 		},
 	},
 	"HTTPConfig": {

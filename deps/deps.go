@@ -346,7 +346,7 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 		}
 	}
 
-	if deps.Cfg.Fees.EnableWalletExporter {
+	if deps.Cfg.Subsystems.EnableWalletExporter {
 		spIDs := []address.Address{}
 		for maddr := range deps.Maddrs {
 			spIDs = append(spIDs, address.Address(maddr))
