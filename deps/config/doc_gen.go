@@ -300,6 +300,13 @@ Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffi
 
 			Comment: `Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)`,
 		},
+		{
+			Name: "EnableWalletExporter",
+			Type: "bool",
+
+			Comment: `EnableWalletExporter enables the wallet exporter on the node. This will export wallet stats to prometheus.
+NOTE: THIS MUST BE ENABLED ONLY ON A SINGLE NODE IN THE CLUSTER TO BE USEFUL (Default: false)`,
+		},
 	},
 	"CurioIngestConfig": {
 		{

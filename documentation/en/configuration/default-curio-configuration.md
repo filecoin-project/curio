@@ -308,6 +308,12 @@ description: The default curio configuration
   # type: bool
   #DisableCollateralFallback = false
 
+  # EnableWalletExporter enables the wallet exporter on the node. This will export wallet stats to prometheus.
+  # NOTE: THIS MUST BE ENABLED ONLY ON A SINGLE NODE IN THE CLUSTER TO BE USEFUL (Default: false)
+  #
+  # type: bool
+  #EnableWalletExporter = false
+
   # maxBatchFee = maxBase + maxPerSector * nSectors
   # (Default: #Base = "0 FIL" and #PerSector = "0.02 FIL")
   #
