@@ -55,7 +55,7 @@ var WalletExporterMeasures = struct {
 
 	MessageLandDuration: promclient.NewHistogram(promclient.HistogramOpts{
 		Name:    pre + "message_land_duration_seconds",
-		Buckets: []float64{30 * 1, 30 * 2, 30 * 4, 30 * 4, 30 * 7, 30 * 15, 30 * 45, 30 * 120, 30 * 300, 30 * 1000, 30 * 2880},
+		Buckets: []float64{30 * 1, 30 * 2, 30 * 4, 30 * 5, 30 * 7, 30 * 15, 30 * 45, 30 * 120, 30 * 300, 30 * 1000, 30 * 2880},
 		Help:    "The histogram of message land durations in seconds.",
 	}),
 }
