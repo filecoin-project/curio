@@ -410,7 +410,12 @@ type CurioSubsystemsConfig struct {
 	// via Client Settings on the Proofshare webui page. Buy delay can also be set in the Client Settings page.
 	EnableRemoteProofs bool
 
+	// The maximum number of remote proofs that can be uploaded simultaneously by each node. (Default: 15)
 	RemoteProofMaxUploads int
+
+	// EnableWalletExporter enables the wallet exporter on the node. This will export wallet stats to prometheus.
+	// NOTE: THIS MUST BE ENABLED ONLY ON A SINGLE NODE IN THE CLUSTER TO BE USEFUL (Default: false)
+	EnableWalletExporter bool
 }
 type CurioFees struct {
 	// maxBatchFee = maxBase + maxPerSector * nSectors
@@ -434,10 +439,6 @@ type CurioFees struct {
 
 	// Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)
 	DisableCollateralFallback bool
-
-	// EnableWalletExporter enables the wallet exporter on the node. This will export wallet stats to prometheus.
-	// NOTE: THIS MUST BE ENABLED ONLY ON A SINGLE NODE IN THE CLUSTER TO BE USEFUL (Default: false)
-	EnableWalletExporter bool
 }
 
 type CurioAddresses struct {
