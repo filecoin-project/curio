@@ -310,7 +310,7 @@ description: The default curio configuration
   #EnableRemoteProofs = false
 
   # type: int
-  #RemoteProofMaxUploads = 0
+  #RemoteProofMaxUploads = 15
 
 
 # Fees holds the fee-related configuration parameters for various operations in the Curio node.

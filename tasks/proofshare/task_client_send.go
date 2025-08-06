@@ -375,7 +375,7 @@ func (t *TaskClientSend) doCreatePayment(ctx context.Context, taskID harmonytask
 
 		return false, xerrors.Errorf("failed to get applicable requests: %w", err)
 	}
-	
+
 	for rows.Next() {
 		var request CandidateRequest
 		err = rows.Scan(&request.SpID, &request.SectorNumber, &request.RequestType, &request.RequestCID, &request.RequestPartitionCost)
@@ -385,18 +385,18 @@ func (t *TaskClientSend) doCreatePayment(ctx context.Context, taskID harmonytask
 		}
 		requests = append(requests, request)
 	}
-	
+
 	if err = rows.Err(); err != nil {
 		rows.Close()
 		return false, xerrors.Errorf("failed to iterate rows: %w", err)
 	}
-	
+
 	rows.Close()
 
 	if len(requests) == 0 {
 		return false, nil
 	}
-	
+
 	request, err := t.pickCandidateRequest(ctx, requests)
 	if err != nil {
 		return false, xerrors.Errorf("failed to pick candidate request: %w", err)
@@ -582,8 +582,8 @@ func (t *TaskClientSend) pickCandidateRequest(ctx context.Context, requests []Ca
 	}
 
 	var batchSectorRef struct {
-		SpID         int64  `db:"sp_id"`
-		SectorNumber int64  `db:"sector_number"`
+		SpID         int64     `db:"sp_id"`
+		SectorNumber int64     `db:"sector_number"`
 		CreatedAt    time.Time `db:"created_at"`
 	}
 
