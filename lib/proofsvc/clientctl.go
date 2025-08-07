@@ -165,10 +165,6 @@ func GetCurrentPrice() (PriceResponse, error) {
 
 	log.Infow("current price", "price", priceResp.Price)
 
-	// TODO TMRW:
-	// * Task display with correct restart in the UI
-	// * Return unconsumed-by-service payments to not block the nonce
-
 	lastPrice = priceResp
 	lastPriceCheck = time.Now()
 
