@@ -199,177 +199,177 @@
         {
             "id": "Deposit FIL into the Router contract (client)",
             "message": "Deposit FIL into the Router contract (client)",
-            "translation": ""
+            "translation": "Router 컨트랙트(클라이언트)에 FIL 입금"
         },
         {
             "id": "Sender address",
             "message": "Sender address",
-            "translation": ""
+            "translation": "보낸 사람 주소"
         },
         {
             "id": "Amount in FIL",
             "message": "Amount in FIL",
-            "translation": ""
+            "translation": "금액(FIL)"
         },
         {
             "id": "Initiate a withdrawal request from the client's deposit",
             "message": "Initiate a withdrawal request from the client's deposit",
-            "translation": ""
+            "translation": "클라이언트 예치금에서 출금 요청 시작"
         },
         {
             "id": "Client sender address",
             "message": "Client sender address",
-            "translation": ""
+            "translation": "클라이언트 송신자 주소"
         },
         {
             "id": "Withdrawal amount (in FIL)",
             "message": "Withdrawal amount (in FIL)",
-            "translation": ""
+            "translation": "출금 금액(FIL)"
         },
         {
             "id": "Complete a pending client withdrawal after the withdrawal window elapses",
             "message": "Complete a pending client withdrawal after the withdrawal window elapses",
-            "translation": ""
+            "translation": "출금 창이 경과한 후 대기 중인 클라이언트 출금을 완료"
         },
         {
             "id": "Cancel a pending client withdrawal request",
             "message": "Cancel a pending client withdrawal request",
-            "translation": ""
+            "translation": "대기 중인 클라이언트 출금 요청 취소"
         },
         {
             "id": "Redeem a client voucher (service role)",
             "message": "Redeem a client voucher (service role)",
-            "translation": ""
+            "translation": "클라이언트 바우처 상환(서비스 역할)"
         },
         {
             "id": "Service sender address",
             "message": "Service sender address",
-            "translation": ""
+            "translation": "서비스 송신자 주소"
         },
         {
             "id": "Client actor",
             "message": "Client actor",
-            "translation": ""
+            "translation": "클라이언트 액터"
         },
         {
             "id": "Cumulative amount (FIL)",
             "message": "Cumulative amount (FIL)",
-            "translation": ""
+            "translation": "누적 금액(FIL)"
         },
         {
             "id": "Voucher nonce",
             "message": "Voucher nonce",
-            "translation": ""
+            "translation": "바우처 논스"
         },
         {
             "id": "Voucher signature (hex)",
             "message": "Voucher signature (hex)",
-            "translation": ""
+            "translation": "바우처 서명(16진수)"
         },
         {
             "id": "Redeem a provider voucher (provider role)",
             "message": "Redeem a provider voucher (provider role)",
-            "translation": ""
+            "translation": "프로바이더 바우처 상환(프로바이더 역할)"
         },
         {
             "id": "Provider sender address",
             "message": "Provider sender address",
-            "translation": ""
+            "translation": "프로바이더 송신자 주소"
         },
         {
             "id": "Provider actor",
             "message": "Provider actor",
-            "translation": ""
+            "translation": "프로바이더 액터"
         },
         {
             "id": "Initiate a withdrawal request from the service pool",
             "message": "Initiate a withdrawal request from the service pool",
-            "translation": ""
+            "translation": "서비스 풀에서 출금 요청 시작"
         },
         {
             "id": "Complete a pending service withdrawal after the withdrawal window elapses",
             "message": "Complete a pending service withdrawal after the withdrawal window elapses",
-            "translation": ""
+            "translation": "출금 창이 경과한 후 대기 중인 서비스 출금을 완료"
         },
         {
             "id": "Cancel a pending service withdrawal request",
             "message": "Cancel a pending service withdrawal request",
-            "translation": ""
+            "translation": "대기 중인 서비스 출금 요청 취소"
         },
         {
             "id": "Deposit funds into the service pool (service role)",
             "message": "Deposit funds into the service pool (service role)",
-            "translation": ""
+            "translation": "서비스 풀에 자금 입금(서비스 역할)"
         },
         {
             "id": "Amount to deposit (FIL)",
             "message": "Amount to deposit (FIL)",
-            "translation": ""
+            "translation": "입금 금액(FIL)"
         },
         {
             "id": "Query the state of a client",
             "message": "Query the state of a client",
-            "translation": ""
+            "translation": "클라이언트 상태 조회"
         },
         {
             "id": "Client actor address",
             "message": "Client actor address",
-            "translation": ""
+            "translation": "클라이언트 액터 주소"
         },
         {
             "id": "Query the state of a provider",
             "message": "Query the state of a provider",
-            "translation": ""
+            "translation": "프로바이더 상태 조회"
         },
         {
             "id": "Provider actor address",
             "message": "Provider actor address",
-            "translation": ""
+            "translation": "프로바이더 액터 주소"
         },
         {
             "id": "Query the service state",
             "message": "Query the service state",
-            "translation": ""
+            "translation": "서비스 상태 조회"
         },
         {
             "id": "Create a client voucher",
             "message": "Create a client voucher",
-            "translation": ""
+            "translation": "클라이언트 바우처 생성"
         },
         {
             "id": "Amount to redeem (FIL)",
             "message": "Amount to redeem (FIL)",
-            "translation": ""
+            "translation": "상환할 금액(FIL)"
         },
         {
             "id": "Create a provider voucher",
             "message": "Create a provider voucher",
-            "translation": ""
+            "translation": "프로바이더 바우처 생성"
         },
         {
             "id": "Propose a new service actor",
             "message": "Propose a new service actor",
-            "translation": ""
+            "translation": "새 서비스 액터 제안"
         },
         {
             "id": "New service actor address",
             "message": "New service actor address",
-            "translation": ""
+            "translation": "새 서비스 액터 주소"
         },
         {
             "id": "Accept a proposed service actor",
             "message": "Accept a proposed service actor",
-            "translation": ""
+            "translation": "제안된 서비스 액터 수락"
         },
         {
             "id": "Validate a client voucher signature",
             "message": "Validate a client voucher signature",
-            "translation": ""
+            "translation": "클라이언트 바우처 서명 검증"
         },
         {
             "id": "Validate a provider voucher signature",
             "message": "Validate a provider voucher signature",
-            "translation": ""
+            "translation": "프로바이더 바우처 서명 검증"
         },
         {
             "id": "Get Curio node info",
@@ -914,12 +914,12 @@
         {
             "id": "This interactive tool sets up a non-Storage Provider cluster for protocols like PDP, Snark market, and others.",
             "message": "This interactive tool sets up a non-Storage Provider cluster for protocols like PDP, Snark market, and others.",
-            "translation": ""
+            "translation": "이 대화형 도구는 PDP, Snark 시장 등과 같은 프로토콜을 위한 비 SP 클러스터를 설정합니다."
         },
         {
             "id": "This setup does not create or migrate a Filecoin SP actor.",
             "message": "This setup does not create or migrate a Filecoin SP actor.",
-            "translation": ""
+            "translation": "이 설정은 Filecoin SP 액터를 생성하거나 마이그레이션하지 않습니다."
         },
         {
             "id": "This interactive tool migrates lotus-miner to Curio in 5 minutes.",
@@ -954,7 +954,7 @@
         {
             "id": "Setup non-Storage Provider cluster",
             "message": "Setup non-Storage Provider cluster",
-            "translation": ""
+            "translation": "비 SP 클러스터 설정"
         },
         {
             "id": "Aborting remaining steps.",
@@ -1767,17 +1767,17 @@
         {
             "id": "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration",
             "message": "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration",
-            "translation": ""
+            "translation": "가이드 설정을 다시 실행하지 마십시오. 구성을 완료하려면 'curio config new-cluster'를 수동으로 실행해야 합니다."
         },
         {
             "id": "Non-SP cluster configuration created successfully",
             "message": "Non-SP cluster configuration created successfully",
-            "translation": ""
+            "translation": "비 SP 클러스터 구성이 성공적으로 생성되었습니다"
         },
         {
             "id": "Non-SP cluster configuration complete",
             "message": "Non-SP cluster configuration complete",
-            "translation": ""
+            "translation": "비 SP 클러스터 구성 완료"
         },
         {
             "id": "Configuration 'base' was updated to include this miner's address",
@@ -1847,22 +1847,22 @@
         {
             "id": "Non-SP cluster setup complete!",
             "message": "Non-SP cluster setup complete!",
-            "translation": ""
+            "translation": "비 SP 클러스터 설정 완료!"
         },
         {
             "id": "Your non-SP cluster has been configured successfully.",
             "message": "Your non-SP cluster has been configured successfully.",
-            "translation": ""
+            "translation": "비 SP 클러스터가 성공적으로 구성되었습니다."
         },
         {
             "id": "You can now start using Curio for protocols like PDP, Snark markets, and others.",
             "message": "You can now start using Curio for protocols like PDP, Snark markets, and others.",
-            "translation": ""
+            "translation": "이제 PDP, Snark 시장 등과 같은 프로토콜에서 Curio를 사용할 수 있습니다."
         },
         {
             "id": "To start the cluster, run: curio run --layers basic-cluster",
             "message": "To start the cluster, run: curio run --layers basic-cluster",
-            "translation": ""
+            "translation": "클러스터를 시작하려면 실행하세요: curio run --layers basic-cluster"
         },
         {
             "id": "Enter the info to connect to your Yugabyte database installation (https://download.yugabyte.com/)",
