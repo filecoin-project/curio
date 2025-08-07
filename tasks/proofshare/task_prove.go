@@ -87,12 +87,11 @@ func (t *TaskProvideSnark) Adder(add harmonytask.AddTaskFunc) {
 				}
 
 				// Create task
-				err = tx.QueryRow(`
+				_, err = tx.Exec(`
 					UPDATE proofshare_queue 
 					SET compute_task_id = $1
 					WHERE service_id = $2
-					RETURNING service_id
-				`, taskID, serviceID).Scan(&serviceID)
+				`, taskID, serviceID)
 				if err != nil {
 					return false, xerrors.Errorf("failed to update queue: %w", err)
 				}
