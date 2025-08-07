@@ -76,11 +76,20 @@ func (a *WebRPC) PSSetMeta(ctx context.Context, enabled bool, wallet string, pri
 		return xerrors.Errorf("PSSetMeta: invalid price: %w", err)
 	}
 
+	addr, err := address.NewFromString(wallet)
+	if err != nil {
+		return xerrors.Errorf("PSSetMeta: invalid wallet address: %w", err)
+	}
+	addr, err = a.deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
+	if err != nil {
+		return xerrors.Errorf("PSSetMeta: failed to get account key: %w", err)
+	}
+
 	_, err = a.deps.DB.Exec(ctx, `
         UPDATE proofshare_meta
         SET enabled = $1, wallet = $2, pprice = $3
         WHERE singleton = TRUE
-    `, enabled, wallet, abi.TokenAmount(ta).String())
+    `, enabled, addr.String(), abi.TokenAmount(ta).String())
 	if err != nil {
 		return xerrors.Errorf("PSSetMeta: failed to update proofshare_meta: %w", err)
 	}
@@ -372,6 +381,19 @@ func (a *WebRPC) PSClientSet(ctx context.Context, s ProofShareClientSettings) er
 		return xerrors.Errorf("PSClientSet: invalid price: %w", err)
 	}
 
+	var walletAddr *address.Address
+	if s.Wallet != nil {
+		addr, err := address.NewFromString(*s.Wallet)
+		if err != nil {
+			return xerrors.Errorf("PSClientSet: invalid address: %w", err)
+		}
+		a, err := a.deps.Chain.StateAccountKey(ctx, addr, types.EmptyTSK)
+		if err != nil {
+			return xerrors.Errorf("PSClientSet: failed to get account key: %w", err)
+		}
+		walletAddr = &a
+	}
+
 	_, err = a.deps.DB.Exec(ctx, `
         INSERT INTO proofshare_client_settings (sp_id, enabled, wallet, minimum_pending_seconds, do_porep, do_snap, pprice)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -385,7 +407,7 @@ func (a *WebRPC) PSClientSet(ctx context.Context, s ProofShareClientSettings) er
     `,
 		s.SpID,
 		s.Enabled,
-		s.Wallet,
+		walletAddr.String(),
 		s.MinimumPendingSecs,
 		s.DoPoRep,
 		s.DoSnap,

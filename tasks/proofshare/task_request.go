@@ -146,6 +146,7 @@ func (t *TaskRequestProofs) Adder(taskTx harmonytask.AddTaskFunc) {
 				queueCountGauge.Set(float64(queueCount))
 
 				if queueCount > RequestQueueLowWaterMark {
+					log.Debugw("TaskRequestProofs.Adder() queue is at or above low water mark, not scheduling", "queueCount", queueCount)
 					return false, nil
 				}
 
@@ -386,10 +387,3 @@ func (t *TaskRequestProofs) TypeDetails() harmonytask.TaskTypeDetails {
 }
 
 var _ = harmonytask.Reg(&TaskRequestProofs{})
-
-func derefTime(t *time.Time) time.Time {
-	if t == nil {
-		return time.Time{}
-	}
-	return *t
-}
