@@ -24,7 +24,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
-var MaxRetryTime = 15 * time.Minute
+var MaxRetryTime = 30 * time.Minute
 
 var log = logging.Logger("proofsvc")
 

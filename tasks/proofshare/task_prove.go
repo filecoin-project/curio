@@ -217,7 +217,7 @@ func (t *TaskProvideSnark) TypeDetails() harmonytask.TaskTypeDetails {
 			Gpu: gpu,
 			Ram: 50 << 30, // todo correct value
 		},
-		MaxFailures: 5,
+		MaxFailures: 20,
 		RetryWait: func(retries int) time.Duration {
 			return time.Second * 10 * time.Duration(retries)
 		},
