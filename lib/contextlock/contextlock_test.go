@@ -88,7 +88,7 @@ func TestContextLockConcurrent(t *testing.T) {
 
 	// Release the lock; the goroutine should now finish quickly
 	ctx = l.Unlock(ctx)
-	if v := ctx.Value(l.lockContextKey); v == nil || v.(int) != 0 {
+	if v := ctx.Value(l.lockContextKey); v != nil {
 		t.Fatalf("expected refcount 0 after unlock, got %v", v)
 	}
 
