@@ -2085,6 +2085,276 @@
       "translation": "更新等待队列中的消息数据",
       "message": "Update data for messages in wait queue",
       "placeholder": null
+    },
+    {
+      "id": "Deposit FIL into the Router contract (client)",
+      "translation": "将 FIL 存入 Router 合约（客户端）",
+      "message": "Deposit FIL into the Router contract (client)",
+      "placeholder": null
+    },
+    {
+      "id": "Sender address",
+      "translation": "发送者地址",
+      "message": "Sender address",
+      "placeholder": null
+    },
+    {
+      "id": "Amount in FIL",
+      "translation": "金额（FIL）",
+      "message": "Amount in FIL",
+      "placeholder": null
+    },
+    {
+      "id": "Initiate a withdrawal request from the client's deposit",
+      "translation": "从客户端存款中发起提现请求",
+      "message": "Initiate a withdrawal request from the client's deposit",
+      "placeholder": null
+    },
+    {
+      "id": "Client sender address",
+      "translation": "客户发送者地址",
+      "message": "Client sender address",
+      "placeholder": null
+    },
+    {
+      "id": "Withdrawal amount (in FIL)",
+      "translation": "提现金额（FIL）",
+      "message": "Withdrawal amount (in FIL)",
+      "placeholder": null
+    },
+    {
+      "id": "Complete a pending client withdrawal after the withdrawal window elapses",
+      "translation": "在提现窗口结束后完成待处理的客户提现",
+      "message": "Complete a pending client withdrawal after the withdrawal window elapses",
+      "placeholder": null
+    },
+    {
+      "id": "Cancel a pending client withdrawal request",
+      "translation": "取消待处理的客户提现请求",
+      "message": "Cancel a pending client withdrawal request",
+      "placeholder": null
+    },
+    {
+      "id": "Redeem a client voucher (service role)",
+      "translation": "兑换客户凭证（服务角色）",
+      "message": "Redeem a client voucher (service role)",
+      "placeholder": null
+    },
+    {
+      "id": "Service sender address",
+      "translation": "服务发送者地址",
+      "message": "Service sender address",
+      "placeholder": null
+    },
+    {
+      "id": "Client actor",
+      "translation": "客户参与者",
+      "message": "Client actor",
+      "placeholder": null
+    },
+    {
+      "id": "Cumulative amount (FIL)",
+      "translation": "累计金额（FIL）",
+      "message": "Cumulative amount (FIL)",
+      "placeholder": null
+    },
+    {
+      "id": "Voucher nonce",
+      "translation": "凭证随机数",
+      "message": "Voucher nonce",
+      "placeholder": null
+    },
+    {
+      "id": "Voucher signature (hex)",
+      "translation": "凭证签名（十六进制）",
+      "message": "Voucher signature (hex)",
+      "placeholder": null
+    },
+    {
+      "id": "Redeem a provider voucher (provider role)",
+      "translation": "兑换提供者凭证（提供者角色）",
+      "message": "Redeem a provider voucher (provider role)",
+      "placeholder": null
+    },
+    {
+      "id": "Provider sender address",
+      "translation": "提供者发送者地址",
+      "message": "Provider sender address",
+      "placeholder": null
+    },
+    {
+      "id": "Provider actor",
+      "translation": "提供者参与者",
+      "message": "Provider actor",
+      "placeholder": null
+    },
+    {
+      "id": "Initiate a withdrawal request from the service pool",
+      "translation": "从服务池发起提现请求",
+      "message": "Initiate a withdrawal request from the service pool",
+      "placeholder": null
+    },
+    {
+      "id": "Complete a pending service withdrawal after the withdrawal window elapses",
+      "translation": "在提现窗口结束后完成待处理的服务提现",
+      "message": "Complete a pending service withdrawal after the withdrawal window elapses",
+      "placeholder": null
+    },
+    {
+      "id": "Cancel a pending service withdrawal request",
+      "translation": "取消待处理的服务提现请求",
+      "message": "Cancel a pending service withdrawal request",
+      "placeholder": null
+    },
+    {
+      "id": "Deposit funds into the service pool (service role)",
+      "translation": "向服务池存入资金（服务角色）",
+      "message": "Deposit funds into the service pool (service role)",
+      "placeholder": null
+    },
+    {
+      "id": "Amount to deposit (FIL)",
+      "translation": "存入金额（FIL）",
+      "message": "Amount to deposit (FIL)",
+      "placeholder": null
+    },
+    {
+      "id": "Query the state of a client",
+      "translation": "查询客户端状态",
+      "message": "Query the state of a client",
+      "placeholder": null
+    },
+    {
+      "id": "Client actor address",
+      "translation": "客户参与者地址",
+      "message": "Client actor address",
+      "placeholder": null
+    },
+    {
+      "id": "Query the state of a provider",
+      "translation": "查询提供者状态",
+      "message": "Query the state of a provider",
+      "placeholder": null
+    },
+    {
+      "id": "Provider actor address",
+      "translation": "提供者参与者地址",
+      "message": "Provider actor address",
+      "placeholder": null
+    },
+    {
+      "id": "Query the service state",
+      "translation": "查询服务状态",
+      "message": "Query the service state",
+      "placeholder": null
+    },
+    {
+      "id": "Create a client voucher",
+      "translation": "创建客户凭证",
+      "message": "Create a client voucher",
+      "placeholder": null
+    },
+    {
+      "id": "Amount to redeem (FIL)",
+      "translation": "兑换金额（FIL）",
+      "message": "Amount to redeem (FIL)",
+      "placeholder": null
+    },
+    {
+      "id": "Create a provider voucher",
+      "translation": "创建提供者凭证",
+      "message": "Create a provider voucher",
+      "placeholder": null
+    },
+    {
+      "id": "Propose a new service actor",
+      "translation": "提议新的服务参与者",
+      "message": "Propose a new service actor",
+      "placeholder": null
+    },
+    {
+      "id": "New service actor address",
+      "translation": "新的服务参与者地址",
+      "message": "New service actor address",
+      "placeholder": null
+    },
+    {
+      "id": "Accept a proposed service actor",
+      "translation": "接受提议的服务参与者",
+      "message": "Accept a proposed service actor",
+      "placeholder": null
+    },
+    {
+      "id": "Validate a client voucher signature",
+      "translation": "验证客户凭证签名",
+      "message": "Validate a client voucher signature",
+      "placeholder": null
+    },
+    {
+      "id": "Validate a provider voucher signature",
+      "translation": "验证提供者凭证签名",
+      "message": "Validate a provider voucher signature",
+      "placeholder": null
+    },
+    {
+      "id": "This interactive tool sets up a non-Storage Provider cluster for protocols like PDP, Snark market, and others.",
+      "translation": "此交互式工具为 PDP、Snark 市场等协议设置非存储提供者集群。",
+      "message": "This interactive tool sets up a non-Storage Provider cluster for protocols like PDP, Snark market, and others.",
+      "placeholder": null
+    },
+    {
+      "id": "This setup does not create or migrate a Filecoin SP actor.",
+      "translation": "此设置不会创建或迁移 Filecoin 存储提供者（SP）参与者。",
+      "message": "This setup does not create or migrate a Filecoin SP actor.",
+      "placeholder": null
+    },
+    {
+      "id": "Setup non-Storage Provider cluster",
+      "translation": "设置非存储提供者集群",
+      "message": "Setup non-Storage Provider cluster",
+      "placeholder": null
+    },
+    {
+      "id": "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration",
+      "translation": "请不要再次运行引导设置。您需要手动运行 'curio config new-cluster' 来完成配置",
+      "message": "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration",
+      "placeholder": null
+    },
+    {
+      "id": "Non-SP cluster configuration created successfully",
+      "translation": "非 SP 集群配置创建成功",
+      "message": "Non-SP cluster configuration created successfully",
+      "placeholder": null
+    },
+    {
+      "id": "Non-SP cluster configuration complete",
+      "translation": "非 SP 集群配置完成",
+      "message": "Non-SP cluster configuration complete",
+      "placeholder": null
+    },
+    {
+      "id": "Non-SP cluster setup complete!",
+      "translation": "非 SP 集群设置完成！",
+      "message": "Non-SP cluster setup complete!",
+      "placeholder": null
+    },
+    {
+      "id": "Your non-SP cluster has been configured successfully.",
+      "translation": "您的非 SP 集群已成功配置。",
+      "message": "Your non-SP cluster has been configured successfully.",
+      "placeholder": null
+    },
+    {
+      "id": "You can now start using Curio for protocols like PDP, Snark markets, and others.",
+      "translation": "您现在可以开始在 PDP、Snark 市场等协议中使用 Curio。",
+      "message": "You can now start using Curio for protocols like PDP, Snark markets, and others.",
+      "placeholder": null
+    },
+    {
+      "id": "To start the cluster, run: curio run --layers basic-cluster",
+      "translation": "要启动集群，请运行：curio run --layers basic-cluster",
+      "message": "To start the cluster, run: curio run --layers basic-cluster",
+      "placeholder": null
     }
   ]
 }

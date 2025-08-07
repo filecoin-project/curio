@@ -199,177 +199,177 @@
         {
             "id": "Deposit FIL into the Router contract (client)",
             "message": "Deposit FIL into the Router contract (client)",
-            "translation": ""
+            "translation": "将 FIL 存入 Router 合约（客户端）"
         },
         {
             "id": "Sender address",
             "message": "Sender address",
-            "translation": ""
+            "translation": "发送者地址"
         },
         {
             "id": "Amount in FIL",
             "message": "Amount in FIL",
-            "translation": ""
+            "translation": "金额（FIL）"
         },
         {
             "id": "Initiate a withdrawal request from the client's deposit",
             "message": "Initiate a withdrawal request from the client's deposit",
-            "translation": ""
+            "translation": "从客户端存款中发起提现请求"
         },
         {
             "id": "Client sender address",
             "message": "Client sender address",
-            "translation": ""
+            "translation": "客户发送者地址"
         },
         {
             "id": "Withdrawal amount (in FIL)",
             "message": "Withdrawal amount (in FIL)",
-            "translation": ""
+            "translation": "提现金额（FIL）"
         },
         {
             "id": "Complete a pending client withdrawal after the withdrawal window elapses",
             "message": "Complete a pending client withdrawal after the withdrawal window elapses",
-            "translation": ""
+            "translation": "在提现窗口结束后完成待处理的客户提现"
         },
         {
             "id": "Cancel a pending client withdrawal request",
             "message": "Cancel a pending client withdrawal request",
-            "translation": ""
+            "translation": "取消待处理的客户提现请求"
         },
         {
             "id": "Redeem a client voucher (service role)",
             "message": "Redeem a client voucher (service role)",
-            "translation": ""
+            "translation": "兑换客户凭证（服务角色）"
         },
         {
             "id": "Service sender address",
             "message": "Service sender address",
-            "translation": ""
+            "translation": "服务发送者地址"
         },
         {
             "id": "Client actor",
             "message": "Client actor",
-            "translation": ""
+            "translation": "客户参与者"
         },
         {
             "id": "Cumulative amount (FIL)",
             "message": "Cumulative amount (FIL)",
-            "translation": ""
+            "translation": "累计金额（FIL）"
         },
         {
             "id": "Voucher nonce",
             "message": "Voucher nonce",
-            "translation": ""
+            "translation": "凭证随机数"
         },
         {
             "id": "Voucher signature (hex)",
             "message": "Voucher signature (hex)",
-            "translation": ""
+            "translation": "凭证签名（十六进制）"
         },
         {
             "id": "Redeem a provider voucher (provider role)",
             "message": "Redeem a provider voucher (provider role)",
-            "translation": ""
+            "translation": "兑换提供者凭证（提供者角色）"
         },
         {
             "id": "Provider sender address",
             "message": "Provider sender address",
-            "translation": ""
+            "translation": "提供者发送者地址"
         },
         {
             "id": "Provider actor",
             "message": "Provider actor",
-            "translation": ""
+            "translation": "提供者参与者"
         },
         {
             "id": "Initiate a withdrawal request from the service pool",
             "message": "Initiate a withdrawal request from the service pool",
-            "translation": ""
+            "translation": "从服务池发起提现请求"
         },
         {
             "id": "Complete a pending service withdrawal after the withdrawal window elapses",
             "message": "Complete a pending service withdrawal after the withdrawal window elapses",
-            "translation": ""
+            "translation": "在提现窗口结束后完成待处理的服务提现"
         },
         {
             "id": "Cancel a pending service withdrawal request",
             "message": "Cancel a pending service withdrawal request",
-            "translation": ""
+            "translation": "取消待处理的服务提现请求"
         },
         {
             "id": "Deposit funds into the service pool (service role)",
             "message": "Deposit funds into the service pool (service role)",
-            "translation": ""
+            "translation": "向服务池存入资金（服务角色）"
         },
         {
             "id": "Amount to deposit (FIL)",
             "message": "Amount to deposit (FIL)",
-            "translation": ""
+            "translation": "存入金额（FIL）"
         },
         {
             "id": "Query the state of a client",
             "message": "Query the state of a client",
-            "translation": ""
+            "translation": "查询客户端状态"
         },
         {
             "id": "Client actor address",
             "message": "Client actor address",
-            "translation": ""
+            "translation": "客户参与者地址"
         },
         {
             "id": "Query the state of a provider",
             "message": "Query the state of a provider",
-            "translation": ""
+            "translation": "查询提供者状态"
         },
         {
             "id": "Provider actor address",
             "message": "Provider actor address",
-            "translation": ""
+            "translation": "提供者参与者地址"
         },
         {
             "id": "Query the service state",
             "message": "Query the service state",
-            "translation": ""
+            "translation": "查询服务状态"
         },
         {
             "id": "Create a client voucher",
             "message": "Create a client voucher",
-            "translation": ""
+            "translation": "创建客户凭证"
         },
         {
             "id": "Amount to redeem (FIL)",
             "message": "Amount to redeem (FIL)",
-            "translation": ""
+            "translation": "兑换金额（FIL）"
         },
         {
             "id": "Create a provider voucher",
             "message": "Create a provider voucher",
-            "translation": ""
+            "translation": "创建提供者凭证"
         },
         {
             "id": "Propose a new service actor",
             "message": "Propose a new service actor",
-            "translation": ""
+            "translation": "提议新的服务参与者"
         },
         {
             "id": "New service actor address",
             "message": "New service actor address",
-            "translation": ""
+            "translation": "新的服务参与者地址"
         },
         {
             "id": "Accept a proposed service actor",
             "message": "Accept a proposed service actor",
-            "translation": ""
+            "translation": "接受提议的服务参与者"
         },
         {
             "id": "Validate a client voucher signature",
             "message": "Validate a client voucher signature",
-            "translation": ""
+            "translation": "验证客户凭证签名"
         },
         {
             "id": "Validate a provider voucher signature",
             "message": "Validate a provider voucher signature",
-            "translation": ""
+            "translation": "验证提供者凭证签名"
         },
         {
             "id": "Get Curio node info",
@@ -914,12 +914,12 @@
         {
             "id": "This interactive tool sets up a non-Storage Provider cluster for protocols like PDP, Snark market, and others.",
             "message": "This interactive tool sets up a non-Storage Provider cluster for protocols like PDP, Snark market, and others.",
-            "translation": ""
+            "translation": "此交互式工具为 PDP、Snark 市场等协议设置非存储提供者集群。"
         },
         {
             "id": "This setup does not create or migrate a Filecoin SP actor.",
             "message": "This setup does not create or migrate a Filecoin SP actor.",
-            "translation": ""
+            "translation": "此设置不会创建或迁移 Filecoin 存储提供者（SP）参与者。"
         },
         {
             "id": "This interactive tool migrates lotus-miner to Curio in 5 minutes.",
@@ -954,7 +954,7 @@
         {
             "id": "Setup non-Storage Provider cluster",
             "message": "Setup non-Storage Provider cluster",
-            "translation": ""
+            "translation": "设置非存储提供者集群"
         },
         {
             "id": "Aborting remaining steps.",
@@ -1767,17 +1767,17 @@
         {
             "id": "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration",
             "message": "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration",
-            "translation": ""
+            "translation": "请不要再次运行引导设置。您需要手动运行 'curio config new-cluster' 来完成配置"
         },
         {
             "id": "Non-SP cluster configuration created successfully",
             "message": "Non-SP cluster configuration created successfully",
-            "translation": ""
+            "translation": "非 SP 集群配置创建成功"
         },
         {
             "id": "Non-SP cluster configuration complete",
             "message": "Non-SP cluster configuration complete",
-            "translation": ""
+            "translation": "非 SP 集群配置完成"
         },
         {
             "id": "Configuration 'base' was updated to include this miner's address",
@@ -1847,22 +1847,22 @@
         {
             "id": "Non-SP cluster setup complete!",
             "message": "Non-SP cluster setup complete!",
-            "translation": ""
+            "translation": "非 SP 集群设置完成！"
         },
         {
             "id": "Your non-SP cluster has been configured successfully.",
             "message": "Your non-SP cluster has been configured successfully.",
-            "translation": ""
+            "translation": "您的非 SP 集群已成功配置。"
         },
         {
             "id": "You can now start using Curio for protocols like PDP, Snark markets, and others.",
             "message": "You can now start using Curio for protocols like PDP, Snark markets, and others.",
-            "translation": ""
+            "translation": "您现在可以开始在 PDP、Snark 市场等协议中使用 Curio。"
         },
         {
             "id": "To start the cluster, run: curio run --layers basic-cluster",
             "message": "To start the cluster, run: curio run --layers basic-cluster",
-            "translation": ""
+            "translation": "要启动集群，请运行：curio run --layers basic-cluster"
         },
         {
             "id": "Enter the info to connect to your Yugabyte database installation (https://download.yugabyte.com/)",
