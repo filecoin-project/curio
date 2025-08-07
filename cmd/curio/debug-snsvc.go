@@ -15,6 +15,8 @@ import (
 
 	"github.com/filecoin-project/lotus/chain/types"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
+
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 )
 
 var debugSNSvc = &cli.Command{
@@ -22,25 +24,25 @@ var debugSNSvc = &cli.Command{
 	Subcommands: []*cli.Command{
 		{
 			Name:  "deposit",
-			Usage: "Deposit FIL into the Router contract (client)",
+			Usage: translations.T("Deposit FIL into the Router contract (client)"),
 			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "from", Usage: "Sender address", Required: true},
-				&cli.StringFlag{Name: "amount", Usage: "Amount in FIL", Required: true},
+				&cli.StringFlag{Name: "from", Usage: translations.T("Sender address"), Required: true},
+				&cli.StringFlag{Name: "amount", Usage: translations.T("Amount in FIL"), Required: true},
 			},
 			Action: depositAction,
 		},
 		{
 			Name:  "client-initiate-withdrawal",
-			Usage: "Initiate a withdrawal request from the client's deposit",
+			Usage: translations.T("Initiate a withdrawal request from the client's deposit"),
 			Flags: []cli.Flag{
 				&cli.StringFlag{
 					Name:     "from",
-					Usage:    "Client sender address",
+					Usage:    translations.T("Client sender address"),
 					Required: true,
 				},
 				&cli.StringFlag{
 					Name:     "amount",
-					Usage:    "Withdrawal amount (in FIL)",
+					Usage:    translations.T("Withdrawal amount (in FIL)"),
 					Required: true,
 				},
 			},
@@ -48,11 +50,11 @@ var debugSNSvc = &cli.Command{
 		},
 		{
 			Name:  "client-complete-withdrawal",
-			Usage: "Complete a pending client withdrawal after the withdrawal window elapses",
+			Usage: translations.T("Complete a pending client withdrawal after the withdrawal window elapses"),
 			Flags: []cli.Flag{
 				&cli.StringFlag{
 					Name:     "from",
-					Usage:    "Client sender address",
+					Usage:    translations.T("Client sender address"),
 					Required: true,
 				},
 			},
@@ -60,11 +62,11 @@ var debugSNSvc = &cli.Command{
 		},
 		{
 			Name:  "client-cancel-withdrawal",
-			Usage: "Cancel a pending client withdrawal request",
+			Usage: translations.T("Cancel a pending client withdrawal request"),
 			Flags: []cli.Flag{
 				&cli.StringFlag{
 					Name:     "from",
-					Usage:    "Client sender address",
+					Usage:    translations.T("Client sender address"),
 					Required: true,
 				},
 			},
@@ -72,144 +74,144 @@ var debugSNSvc = &cli.Command{
 		},
 		{
 			Name:  "redeem-client",
-			Usage: "Redeem a client voucher (service role)",
+			Usage: translations.T("Redeem a client voucher (service role)"),
 			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
-				&cli.StringFlag{Name: "client", Usage: "Client actor", Required: true},
-				&cli.StringFlag{Name: "amount", Usage: "Cumulative amount (FIL)", Required: true},
-				&cli.Uint64Flag{Name: "nonce", Usage: "Voucher nonce", Required: true},
-				&cli.StringFlag{Name: "sig", Usage: "Voucher signature (hex)", Required: true},
+				&cli.StringFlag{Name: "from", Usage: translations.T("Service sender address"), Required: true},
+				&cli.StringFlag{Name: "client", Usage: translations.T("Client actor"), Required: true},
+				&cli.StringFlag{Name: "amount", Usage: translations.T("Cumulative amount (FIL)"), Required: true},
+				&cli.Uint64Flag{Name: "nonce", Usage: translations.T("Voucher nonce"), Required: true},
+				&cli.StringFlag{Name: "sig", Usage: translations.T("Voucher signature (hex)"), Required: true},
 			},
 			Action: redeemClientAction,
 		},
 		{
 			Name:  "redeem-provider",
-			Usage: "Redeem a provider voucher (provider role)",
+			Usage: translations.T("Redeem a provider voucher (provider role)"),
 			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "from", Usage: "Provider sender address", Required: true},
-				&cli.StringFlag{Name: "provider", Usage: "Provider actor", Required: true},
-				&cli.StringFlag{Name: "amount", Usage: "Cumulative amount (FIL)", Required: true},
-				&cli.Uint64Flag{Name: "nonce", Usage: "Voucher nonce", Required: true},
-				&cli.StringFlag{Name: "sig", Usage: "Voucher signature (hex)", Required: true},
+				&cli.StringFlag{Name: "from", Usage: translations.T("Provider sender address"), Required: true},
+				&cli.StringFlag{Name: "provider", Usage: translations.T("Provider actor"), Required: true},
+				&cli.StringFlag{Name: "amount", Usage: translations.T("Cumulative amount (FIL)"), Required: true},
+				&cli.Uint64Flag{Name: "nonce", Usage: translations.T("Voucher nonce"), Required: true},
+				&cli.StringFlag{Name: "sig", Usage: translations.T("Voucher signature (hex)"), Required: true},
 			},
 			Action: redeemProviderAction,
 		},
 		{
 			Name:  "service-initiate-withdrawal",
-			Usage: "Initiate a withdrawal request from the service pool",
+			Usage: translations.T("Initiate a withdrawal request from the service pool"),
 			Flags: []cli.Flag{
 				&cli.StringFlag{
 					Name:     "amount",
-					Usage:    "Withdrawal amount (in FIL)",
+					Usage:    translations.T("Withdrawal amount (in FIL)"),
 					Required: true,
 				},
-				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
+				&cli.StringFlag{Name: "from", Usage: translations.T("Service sender address"), Required: true},
 			},
 			Action: serviceInitiateWithdrawalAction,
 		},
 		{
 			Name:  "service-complete-withdrawal",
-			Usage: "Complete a pending service withdrawal after the withdrawal window elapses",
+			Usage: translations.T("Complete a pending service withdrawal after the withdrawal window elapses"),
 			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
+				&cli.StringFlag{Name: "from", Usage: translations.T("Service sender address"), Required: true},
 			},
 			Action: serviceCompleteWithdrawalAction,
 		},
 		{
 			Name:  "service-cancel-withdrawal",
-			Usage: "Cancel a pending service withdrawal request",
+			Usage: translations.T("Cancel a pending service withdrawal request"),
 			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
+				&cli.StringFlag{Name: "from", Usage: translations.T("Service sender address"), Required: true},
 			},
 			Action: serviceCancelWithdrawalAction,
 		},
 		{
 			Name:  "service-deposit",
-			Usage: "Deposit funds into the service pool (service role)",
+			Usage: translations.T("Deposit funds into the service pool (service role)"),
 			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
-				&cli.StringFlag{Name: "amount", Usage: "Amount to deposit (FIL)", Required: true},
+				&cli.StringFlag{Name: "from", Usage: translations.T("Service sender address"), Required: true},
+				&cli.StringFlag{Name: "amount", Usage: translations.T("Amount to deposit (FIL)"), Required: true},
 			},
 			Action: serviceDepositAction,
 		},
 		{
 			Name:  "get-client-state",
-			Usage: "Query the state of a client",
+			Usage: translations.T("Query the state of a client"),
 			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "client", Usage: "Client actor address", Required: true},
+				&cli.StringFlag{Name: "client", Usage: translations.T("Client actor address"), Required: true},
 			},
 			Action: getClientStateAction,
 		},
 		{
 			Name:  "get-provider-state",
-			Usage: "Query the state of a provider",
+			Usage: translations.T("Query the state of a provider"),
 			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "provider", Usage: "Provider actor address", Required: true},
+				&cli.StringFlag{Name: "provider", Usage: translations.T("Provider actor address"), Required: true},
 			},
 			Action: getProviderStateAction,
 		},
 		{
 			Name:   "get-service-state",
-			Usage:  "Query the service state",
+			Usage:  translations.T("Query the service state"),
 			Flags:  []cli.Flag{},
 			Action: getServiceStateAction,
 		},
 		{
 			Name:  "create-client-voucher",
-			Usage: "Create a client voucher",
+			Usage: translations.T("Create a client voucher"),
 			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "client", Usage: "Client actor address", Required: true},
-				&cli.StringFlag{Name: "amount", Usage: "Amount to redeem (FIL)", Required: true},
+				&cli.StringFlag{Name: "client", Usage: translations.T("Client actor address"), Required: true},
+				&cli.StringFlag{Name: "amount", Usage: translations.T("Amount to redeem (FIL)"), Required: true},
 			},
 			Action: createClientVoucherAction,
 		},
 		{
 			Name:  "create-provider-voucher",
-			Usage: "Create a provider voucher",
+			Usage: translations.T("Create a provider voucher"),
 			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "provider", Usage: "Provider actor address", Required: true},
-				&cli.StringFlag{Name: "amount", Usage: "Amount to redeem (FIL)", Required: true},
-				&cli.Uint64Flag{Name: "nonce", Usage: "Voucher nonce", Required: true},
-				&cli.StringFlag{Name: "service", Usage: "Service sender address", Required: true},
+				&cli.StringFlag{Name: "provider", Usage: translations.T("Provider actor address"), Required: true},
+				&cli.StringFlag{Name: "amount", Usage: translations.T("Amount to redeem (FIL)"), Required: true},
+				&cli.Uint64Flag{Name: "nonce", Usage: translations.T("Voucher nonce"), Required: true},
+				&cli.StringFlag{Name: "service", Usage: translations.T("Service sender address"), Required: true},
 			},
 			Action: createProviderVoucherAction,
 		},
 		{
 			Name:  "propose-service-actor",
-			Usage: "Propose a new service actor",
+			Usage: translations.T("Propose a new service actor"),
 			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
-				&cli.StringFlag{Name: "new-service-actor", Usage: "New service actor address", Required: true},
+				&cli.StringFlag{Name: "from", Usage: translations.T("Service sender address"), Required: true},
+				&cli.StringFlag{Name: "new-service-actor", Usage: translations.T("New service actor address"), Required: true},
 			},
 			Action: proposeServiceActorAction,
 		},
 		{
 			Name:  "accept-service-actor",
-			Usage: "Accept a proposed service actor",
+			Usage: translations.T("Accept a proposed service actor"),
 			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "from", Usage: "Service sender address", Required: true},
+				&cli.StringFlag{Name: "from", Usage: translations.T("Service sender address"), Required: true},
 			},
 			Action: acceptServiceActorAction,
 		},
 		{
 			Name:  "validate-client-voucher",
-			Usage: "Validate a client voucher signature",
+			Usage: translations.T("Validate a client voucher signature"),
 			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "client", Usage: "Client actor address", Required: true},
-				&cli.StringFlag{Name: "amount", Usage: "Cumulative amount (FIL)", Required: true},
-				&cli.Uint64Flag{Name: "nonce", Usage: "Voucher nonce", Required: true},
-				&cli.StringFlag{Name: "sig", Usage: "Voucher signature (hex)", Required: true},
+				&cli.StringFlag{Name: "client", Usage: translations.T("Client actor address"), Required: true},
+				&cli.StringFlag{Name: "amount", Usage: translations.T("Cumulative amount (FIL)"), Required: true},
+				&cli.Uint64Flag{Name: "nonce", Usage: translations.T("Voucher nonce"), Required: true},
+				&cli.StringFlag{Name: "sig", Usage: translations.T("Voucher signature (hex)"), Required: true},
 			},
 			Action: validateClientVoucherAction,
 		},
 		{
 			Name:  "validate-provider-voucher",
-			Usage: "Validate a provider voucher signature",
+			Usage: translations.T("Validate a provider voucher signature"),
 			Flags: []cli.Flag{
-				&cli.StringFlag{Name: "provider", Usage: "Provider actor address", Required: true},
-				&cli.StringFlag{Name: "amount", Usage: "Cumulative amount (FIL)", Required: true},
-				&cli.Uint64Flag{Name: "nonce", Usage: "Voucher nonce", Required: true},
-				&cli.StringFlag{Name: "sig", Usage: "Voucher signature (hex)", Required: true},
+				&cli.StringFlag{Name: "provider", Usage: translations.T("Provider actor address"), Required: true},
+				&cli.StringFlag{Name: "amount", Usage: translations.T("Cumulative amount (FIL)"), Required: true},
+				&cli.Uint64Flag{Name: "nonce", Usage: translations.T("Voucher nonce"), Required: true},
+				&cli.StringFlag{Name: "sig", Usage: translations.T("Voucher signature (hex)"), Required: true},
 			},
 			Action: validateProviderVoucherAction,
 		},
