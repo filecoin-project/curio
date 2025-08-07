@@ -197,6 +197,181 @@
             "translation": "从文件生成 IPNI 块"
         },
         {
+            "id": "Deposit FIL into the Router contract (client)",
+            "message": "Deposit FIL into the Router contract (client)",
+            "translation": ""
+        },
+        {
+            "id": "Sender address",
+            "message": "Sender address",
+            "translation": ""
+        },
+        {
+            "id": "Amount in FIL",
+            "message": "Amount in FIL",
+            "translation": ""
+        },
+        {
+            "id": "Initiate a withdrawal request from the client's deposit",
+            "message": "Initiate a withdrawal request from the client's deposit",
+            "translation": ""
+        },
+        {
+            "id": "Client sender address",
+            "message": "Client sender address",
+            "translation": ""
+        },
+        {
+            "id": "Withdrawal amount (in FIL)",
+            "message": "Withdrawal amount (in FIL)",
+            "translation": ""
+        },
+        {
+            "id": "Complete a pending client withdrawal after the withdrawal window elapses",
+            "message": "Complete a pending client withdrawal after the withdrawal window elapses",
+            "translation": ""
+        },
+        {
+            "id": "Cancel a pending client withdrawal request",
+            "message": "Cancel a pending client withdrawal request",
+            "translation": ""
+        },
+        {
+            "id": "Redeem a client voucher (service role)",
+            "message": "Redeem a client voucher (service role)",
+            "translation": ""
+        },
+        {
+            "id": "Service sender address",
+            "message": "Service sender address",
+            "translation": ""
+        },
+        {
+            "id": "Client actor",
+            "message": "Client actor",
+            "translation": ""
+        },
+        {
+            "id": "Cumulative amount (FIL)",
+            "message": "Cumulative amount (FIL)",
+            "translation": ""
+        },
+        {
+            "id": "Voucher nonce",
+            "message": "Voucher nonce",
+            "translation": ""
+        },
+        {
+            "id": "Voucher signature (hex)",
+            "message": "Voucher signature (hex)",
+            "translation": ""
+        },
+        {
+            "id": "Redeem a provider voucher (provider role)",
+            "message": "Redeem a provider voucher (provider role)",
+            "translation": ""
+        },
+        {
+            "id": "Provider sender address",
+            "message": "Provider sender address",
+            "translation": ""
+        },
+        {
+            "id": "Provider actor",
+            "message": "Provider actor",
+            "translation": ""
+        },
+        {
+            "id": "Initiate a withdrawal request from the service pool",
+            "message": "Initiate a withdrawal request from the service pool",
+            "translation": ""
+        },
+        {
+            "id": "Complete a pending service withdrawal after the withdrawal window elapses",
+            "message": "Complete a pending service withdrawal after the withdrawal window elapses",
+            "translation": ""
+        },
+        {
+            "id": "Cancel a pending service withdrawal request",
+            "message": "Cancel a pending service withdrawal request",
+            "translation": ""
+        },
+        {
+            "id": "Deposit funds into the service pool (service role)",
+            "message": "Deposit funds into the service pool (service role)",
+            "translation": ""
+        },
+        {
+            "id": "Amount to deposit (FIL)",
+            "message": "Amount to deposit (FIL)",
+            "translation": ""
+        },
+        {
+            "id": "Query the state of a client",
+            "message": "Query the state of a client",
+            "translation": ""
+        },
+        {
+            "id": "Client actor address",
+            "message": "Client actor address",
+            "translation": ""
+        },
+        {
+            "id": "Query the state of a provider",
+            "message": "Query the state of a provider",
+            "translation": ""
+        },
+        {
+            "id": "Provider actor address",
+            "message": "Provider actor address",
+            "translation": ""
+        },
+        {
+            "id": "Query the service state",
+            "message": "Query the service state",
+            "translation": ""
+        },
+        {
+            "id": "Create a client voucher",
+            "message": "Create a client voucher",
+            "translation": ""
+        },
+        {
+            "id": "Amount to redeem (FIL)",
+            "message": "Amount to redeem (FIL)",
+            "translation": ""
+        },
+        {
+            "id": "Create a provider voucher",
+            "message": "Create a provider voucher",
+            "translation": ""
+        },
+        {
+            "id": "Propose a new service actor",
+            "message": "Propose a new service actor",
+            "translation": ""
+        },
+        {
+            "id": "New service actor address",
+            "message": "New service actor address",
+            "translation": ""
+        },
+        {
+            "id": "Accept a proposed service actor",
+            "message": "Accept a proposed service actor",
+            "translation": ""
+        },
+        {
+            "id": "Validate a client voucher signature",
+            "message": "Validate a client voucher signature",
+            "translation": ""
+        },
+        {
+            "id": "Validate a provider voucher signature",
+            "message": "Validate a provider voucher signature",
+            "translation": ""
+        },
+        {
             "id": "Get Curio node info",
             "message": "Get Curio node info",
             "translation": "获取 Curio 节点信息"

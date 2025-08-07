@@ -11,12 +11,11 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 
+	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
 
 	"github.com/filecoin-project/lotus/chain/types"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
-
-	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 )
 
 var debugSNSvc = &cli.Command{
