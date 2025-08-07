@@ -275,6 +275,251 @@
             "fuzzy": true
         },
         {
+            "id": "Deposit FIL into the Router contract (client)",
+            "message": "Deposit FIL into the Router contract (client)",
+            "translation": "Deposit FIL into the Router contract (client)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Sender address",
+            "message": "Sender address",
+            "translation": "Sender address",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Amount in FIL",
+            "message": "Amount in FIL",
+            "translation": "Amount in FIL",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Initiate a withdrawal request from the client's deposit",
+            "message": "Initiate a withdrawal request from the client's deposit",
+            "translation": "Initiate a withdrawal request from the client's deposit",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Client sender address",
+            "message": "Client sender address",
+            "translation": "Client sender address",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Withdrawal amount (in FIL)",
+            "message": "Withdrawal amount (in FIL)",
+            "translation": "Withdrawal amount (in FIL)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Complete a pending client withdrawal after the withdrawal window elapses",
+            "message": "Complete a pending client withdrawal after the withdrawal window elapses",
+            "translation": "Complete a pending client withdrawal after the withdrawal window elapses",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Cancel a pending client withdrawal request",
+            "message": "Cancel a pending client withdrawal request",
+            "translation": "Cancel a pending client withdrawal request",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Redeem a client voucher (service role)",
+            "message": "Redeem a client voucher (service role)",
+            "translation": "Redeem a client voucher (service role)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Service sender address",
+            "message": "Service sender address",
+            "translation": "Service sender address",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Client actor",
+            "message": "Client actor",
+            "translation": "Client actor",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Cumulative amount (FIL)",
+            "message": "Cumulative amount (FIL)",
+            "translation": "Cumulative amount (FIL)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Voucher nonce",
+            "message": "Voucher nonce",
+            "translation": "Voucher nonce",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Voucher signature (hex)",
+            "message": "Voucher signature (hex)",
+            "translation": "Voucher signature (hex)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Redeem a provider voucher (provider role)",
+            "message": "Redeem a provider voucher (provider role)",
+            "translation": "Redeem a provider voucher (provider role)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Provider sender address",
+            "message": "Provider sender address",
+            "translation": "Provider sender address",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Provider actor",
+            "message": "Provider actor",
+            "translation": "Provider actor",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Initiate a withdrawal request from the service pool",
+            "message": "Initiate a withdrawal request from the service pool",
+            "translation": "Initiate a withdrawal request from the service pool",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Complete a pending service withdrawal after the withdrawal window elapses",
+            "message": "Complete a pending service withdrawal after the withdrawal window elapses",
+            "translation": "Complete a pending service withdrawal after the withdrawal window elapses",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Cancel a pending service withdrawal request",
+            "message": "Cancel a pending service withdrawal request",
+            "translation": "Cancel a pending service withdrawal request",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Deposit funds into the service pool (service role)",
+            "message": "Deposit funds into the service pool (service role)",
+            "translation": "Deposit funds into the service pool (service role)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Amount to deposit (FIL)",
+            "message": "Amount to deposit (FIL)",
+            "translation": "Amount to deposit (FIL)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Query the state of a client",
+            "message": "Query the state of a client",
+            "translation": "Query the state of a client",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Client actor address",
+            "message": "Client actor address",
+            "translation": "Client actor address",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Query the state of a provider",
+            "message": "Query the state of a provider",
+            "translation": "Query the state of a provider",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Provider actor address",
+            "message": "Provider actor address",
+            "translation": "Provider actor address",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Query the service state",
+            "message": "Query the service state",
+            "translation": "Query the service state",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Create a client voucher",
+            "message": "Create a client voucher",
+            "translation": "Create a client voucher",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Amount to redeem (FIL)",
+            "message": "Amount to redeem (FIL)",
+            "translation": "Amount to redeem (FIL)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Create a provider voucher",
+            "message": "Create a provider voucher",
+            "translation": "Create a provider voucher",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Propose a new service actor",
+            "message": "Propose a new service actor",
+            "translation": "Propose a new service actor",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "New service actor address",
+            "message": "New service actor address",
+            "translation": "New service actor address",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Accept a proposed service actor",
+            "message": "Accept a proposed service actor",
+            "translation": "Accept a proposed service actor",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Validate a client voucher signature",
+            "message": "Validate a client voucher signature",
+            "translation": "Validate a client voucher signature",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Validate a provider voucher signature",
+            "message": "Validate a provider voucher signature",
+            "translation": "Validate a provider voucher signature",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Get Curio node info",
             "message": "Get Curio node info",
             "translation": "Get Curio node info",
