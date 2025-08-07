@@ -25,6 +25,9 @@ import (
 	"github.com/filecoin-project/curio/tasks/seal"
 )
 
+const ProveAdderInterval = 10 * time.Second
+const ProveCleanupInterval = 5 * time.Minute
+
 type TaskProvideSnark struct {
 	db          *harmonydb.DB
 	paramsReady func() (bool, error)
@@ -33,16 +36,38 @@ type TaskProvideSnark struct {
 }
 
 func NewTaskProvideSnark(db *harmonydb.DB, paramck func() (bool, error), max int) *TaskProvideSnark {
-	return &TaskProvideSnark{
+	t := &TaskProvideSnark{
 		db:          db,
 		paramsReady: paramck,
 		max:         max,
 	}
+	t.cleanupWorker()
+	return t
+}
+
+func (t *TaskProvideSnark) cleanupAbandonedTasks() error {
+	_, err := t.db.Exec(context.Background(), `
+		DELETE FROM proofshare_queue
+		WHERE compute_done = FALSE AND compute_task_id IS NOT NULL AND compute_task_id NOT IN (SELECT id FROM harmony_task)
+	`)
+	return err
+}
+
+func (t *TaskProvideSnark) cleanupWorker() {
+	ticker := time.NewTicker(ProveCleanupInterval)
+	go func() {
+		for range ticker.C {
+			err := t.cleanupAbandonedTasks()
+			if err != nil {
+				log.Errorf("failed to cleanup abandoned tasks: %v", err)
+			}
+		}
+	}()
 }
 
 // Adder implements harmonytask.TaskInterface.
 func (t *TaskProvideSnark) Adder(add harmonytask.AddTaskFunc) {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(ProveAdderInterval)
 	go func() {
 		for range ticker.C {
 			add(func(taskID harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
