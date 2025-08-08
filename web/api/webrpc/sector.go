@@ -821,10 +821,11 @@ func (a *WebRPC) SectorRestart(ctx context.Context, spid, id int64) error {
 }
 
 type SectorCCScheduler struct {
-	SpID    int64
-	ToSeal  int64
-	Weight  int64
-	Enabled bool
+	SpID         int64
+	ToSeal       int64
+	Weight       int64
+	DurationDays int64
+	Enabled      bool
 
 	// computed
 	SPAddress  string
@@ -837,10 +838,11 @@ func (a *WebRPC) SectorCCScheduler(ctx context.Context) ([]SectorCCScheduler, er
 		SpID    int64 `db:"sp_id"`
 		ToSeal  int64 `db:"to_seal"`
 		Weight  int64 `db:"weight"`
+		DurationDays int64 `db:"duration_days"`
 		Enabled bool  `db:"enabled"`
 	}
 
-	err := a.deps.DB.Select(ctx, &rows, `SELECT sp_id, to_seal, weight, enabled FROM sectors_cc_scheduler ORDER BY sp_id`)
+	err := a.deps.DB.Select(ctx, &rows, `SELECT sp_id, to_seal, weight, duration_days, enabled FROM sectors_cc_scheduler ORDER BY sp_id`)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to list cc scheduler entries: %w", err)
 	}
@@ -856,6 +858,7 @@ func (a *WebRPC) SectorCCScheduler(ctx context.Context) ([]SectorCCScheduler, er
 			SpID:       r.SpID,
 			ToSeal:     r.ToSeal,
 			Weight:     r.Weight,
+			DurationDays: r.DurationDays,
 			Enabled:    r.Enabled,
 			SPAddress:  addr.String(),
 			SectorSize: int64(mi.SectorSize),
@@ -865,7 +868,7 @@ func (a *WebRPC) SectorCCScheduler(ctx context.Context) ([]SectorCCScheduler, er
 	return out, nil
 }
 
-func (a *WebRPC) SectorCCSchedulerUpsert(ctx context.Context, sp string, toSeal int64, weight int64, enabled bool) error {
+func (a *WebRPC) SectorCCSchedulerUpsert(ctx context.Context, sp string, toSeal int64, weight int64, durationDays int64, enabled bool) error {
 	spaddr, err := address.NewFromString(sp)
 	if err != nil {
 		return xerrors.Errorf("invalid sp address: %w", err)
@@ -882,8 +885,8 @@ func (a *WebRPC) SectorCCSchedulerUpsert(ctx context.Context, sp string, toSeal 
 		return xerrors.Errorf("weight must be positive")
 	}
 
-	_, err = a.deps.DB.Exec(ctx, `INSERT INTO sectors_cc_scheduler (sp_id, to_seal, weight, enabled) VALUES ($1, $2, $3, $4)
-		ON CONFLICT (sp_id) DO UPDATE SET to_seal = EXCLUDED.to_seal, weight = EXCLUDED.weight, enabled = EXCLUDED.enabled`, spid, toSeal, weight, enabled)
+	_, err = a.deps.DB.Exec(ctx, `INSERT INTO sectors_cc_scheduler (sp_id, to_seal, weight, duration_days, enabled) VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (sp_id) DO UPDATE SET to_seal = EXCLUDED.to_seal, weight = EXCLUDED.weight, duration_days = EXCLUDED.duration_days, enabled = EXCLUDED.enabled`, spid, toSeal, weight, durationDays, enabled)
 	if err != nil {
 		return xerrors.Errorf("failed to upsert cc scheduler: %w", err)
 	}

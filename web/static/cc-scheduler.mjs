@@ -15,7 +15,7 @@ class CCScheduler extends LitElement {
     this.rows = [];
     this.loading = false;
     this.error = '';
-    this.form = { sp: '', toSeal: 0, weight: 1000, enabled: true };
+    this.form = { sp: '', toSeal: 0, weight: 1000, durationDays: 182, enabled: true };
     this.showAdd = false;
     this.load();
   }
@@ -37,8 +37,8 @@ class CCScheduler extends LitElement {
     this.error = '';
     try {
       const sp = String(this.form.sp || '').trim();
-      await RPCCall('SectorCCSchedulerUpsert', [sp, Number(this.form.toSeal)||0, Number(this.form.weight)||1000, !!this.form.enabled]);
-      this.form = { sp: '', toSeal: 0, weight: 1000, enabled: true };
+      await RPCCall('SectorCCSchedulerUpsert', [sp, Number(this.form.toSeal)||0, Number(this.form.weight)||1000, Number(this.form.durationDays)||182, !!this.form.enabled]);
+      this.form = { sp: '', toSeal: 0, weight: 1000, durationDays: 182, enabled: true };
       this.showAdd = false;
       this.load();
     } catch (e) {
@@ -58,7 +58,7 @@ class CCScheduler extends LitElement {
   async updateEnabled(row, enabled) {
     this.error = '';
     try {
-      await RPCCall('SectorCCSchedulerUpsert', [String(row.SPAddress), Number(row.ToSeal)||0, Number(row.Weight)||1000, !!enabled]);
+      await RPCCall('SectorCCSchedulerUpsert', [String(row.SPAddress), Number(row.ToSeal)||0, Number(row.Weight)||1000, Number(row.DurationDays)||182, !!enabled]);
       this.load();
     } catch (e) {
       this.error = String(e?.message || e);
@@ -90,6 +90,10 @@ class CCScheduler extends LitElement {
         <td>
           <input type="number" .value=${String(this.form.weight)}
                  @input=${e=>this.form.weight = e.target.value} />
+        </td>
+        <td>
+          <input type="number" .value=${String(this.form.durationDays)}
+                 @input=${e=>this.form.durationDays = e.target.value} />
         </td>
         <td>
           <input type="checkbox" id="cc-enabled" ?checked=${this.form.enabled}
@@ -133,6 +137,7 @@ class CCScheduler extends LitElement {
                 <th>Requested</th>
                 <th>To Seal</th>
                 <th>Weight</th>
+                <th>Expiration Days</th>
                 <th>Enabled</th>
                 <th></th>
               </tr>
@@ -144,6 +149,7 @@ class CCScheduler extends LitElement {
                   <td>${r.RequestedSize}</td>
                   <td>${r.ToSeal}</td>
                   <td>${r.Weight}</td>
+                  <td>${r.DurationDays}</td>
                   <td><input type="checkbox" ?checked=${r.Enabled} @change=${e=>this.updateEnabled(r, e.target.checked)} /></td>
                   <td>
                     <button class="btn btn-sm btn-danger" @click=${()=>this.confirmRemove(r.SPAddress)}>Delete</button>
