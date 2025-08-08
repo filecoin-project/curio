@@ -16,9 +16,11 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
+	"github.com/filecoin-project/go-bitfield"
 	"github.com/filecoin-project/go-commp-utils/zerocomm"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-state-types/builtin"
 	"github.com/filecoin-project/go-state-types/crypto"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -33,6 +35,7 @@ import (
 	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/supraffi"
 	"github.com/filecoin-project/curio/tasks/seal"
+	miner12 "github.com/filecoin-project/go-state-types/builtin/v12/miner"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -44,6 +47,7 @@ var log = logging.Logger("batchseal")
 type SupraSealNodeAPI interface {
 	ChainHead(context.Context) (*types.TipSet, error)
 	StateGetRandomnessFromTickets(context.Context, crypto.DomainSeparationTag, abi.ChainEpoch, []byte, types.TipSetKey) (abi.Randomness, error)
+	StateMinerAllocated(context.Context, address.Address, types.TipSetKey) (*bitfield.BitField, error)
 }
 
 type SupraSeal struct {
@@ -530,6 +534,12 @@ func (s *SupraSeal) TypeDetails() harmonytask.TaskTypeDetails {
 func (s *SupraSeal) Adder(taskFunc harmonytask.AddTaskFunc) {
 }
 
+type sectorClaim struct {
+	SpID         int64  `db:"sp_id"`
+	SectorNumber int64  `db:"sector_number"`
+	TaskIDSDR    *int64 `db:"task_id_sdr"`
+}
+
 func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 	if s.slots.Available() == 0 {
 		return nil
@@ -542,12 +552,8 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 
 	taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 		// claim [sectors] pipeline entries
-		var sectors []struct {
-			SpID         int64  `db:"sp_id"`
-			SectorNumber int64  `db:"sector_number"`
-			TaskIDSDR    *int64 `db:"task_id_sdr"`
-		}
 
+		var sectors []sectorClaim
 		err := tx.Select(&sectors, `SELECT sp_id, sector_number, task_id_sdr FROM sectors_sdr_pipeline
                                          LEFT JOIN harmony_task ht on sectors_sdr_pipeline.task_id_sdr = ht.id
                                          WHERE after_sdr = FALSE AND (task_id_sdr IS NULL OR (ht.owner_id IS NULL AND ht.name = 'SDR')) LIMIT $1`, s.sectors)
@@ -558,9 +564,14 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 		log.Infow("got sectors, maybe schedule", "sectors", len(sectors), "s.sectors", s.sectors)
 
 		if len(sectors) != s.sectors {
-			// not enough sectors to fill a batch
-			log.Infow("not enough sectors to fill a batch", "sectors", len(sectors))
-			return false, nil
+			// not enough sectors to fill a batch, use CC scheduler
+			log.Infow("not enough sectors to fill a batch, using CC scheduler", "sectors", len(sectors))
+			addSectors, err := s.claimsFromCCScheduler(tx, int64(s.sectors-len(sectors)))
+			if err != nil {
+				return false, xerrors.Errorf("getting CC scheduler claims: %w", err)
+			}
+			sectors = append(sectors, addSectors...)
+			log.Infow("got CC scheduler claims", "sectors", len(sectors))
 		}
 
 		// assign to pipeline entries, set task_id_sdr, task_id_tree_r, task_id_tree_c
@@ -583,6 +594,117 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 	})
 
 	return nil
+}
+
+func (s *SupraSeal) claimsFromCCScheduler(tx *harmonydb.Tx, toSeal int64) ([]sectorClaim, error) {
+	var enabledSchedules []struct {
+		SpID   int64 `db:"sp_id"`
+		ToSeal int64 `db:"to_seal"`
+		Weight int64 `db:"weight"`
+		DurationDays int64 `db:"duration_days"`
+	}
+
+	err := tx.Select(&enabledSchedules, `SELECT sp_id, to_seal, weight, duration_days FROM sectors_cc_scheduler WHERE enabled = TRUE AND weight > 0 ORDER BY weight DESC`)
+	if err != nil {
+		return nil, xerrors.Errorf("getting enabled schedules: %w", err)
+	}
+
+	if len(enabledSchedules) == 0 {
+		return nil, nil
+	}
+
+	var totalWeight, totalToSeal int64
+	for _, schedule := range enabledSchedules {
+		totalWeight += schedule.Weight
+		totalToSeal += schedule.ToSeal
+	}
+
+	if totalToSeal < toSeal {
+		log.Debugw("not enough sectors to fill a batch from CC scheduler", "totalToSeal", totalToSeal, "toSeal", toSeal)
+		return nil, nil
+	}
+
+	// Calculate proportional allocation based on weights
+	var outClaims []sectorClaim
+	remainingToSeal := toSeal
+
+	for i, schedule := range enabledSchedules {
+		if remainingToSeal <= 0 {
+			break
+		}
+
+		// Calculate how many sectors this SP should get based on weight
+		var sectorsForSP int64
+		if i == len(enabledSchedules)-1 {
+			// Last SP gets the remaining sectors
+			sectorsForSP = remainingToSeal
+		} else {
+			// Proportional allocation based on weight
+			sectorsForSP = (toSeal * schedule.Weight) / totalWeight
+			if sectorsForSP > schedule.ToSeal {
+				sectorsForSP = schedule.ToSeal
+			}
+			if sectorsForSP > remainingToSeal {
+				sectorsForSP = remainingToSeal
+			}
+		}
+
+		if sectorsForSP == 0 {
+			continue
+		}
+
+		// Allocate sector numbers for this SP
+		maddr, err := address.NewIDAddress(uint64(schedule.SpID))
+		if err != nil {
+			return nil, xerrors.Errorf("getting miner address for %d: %w", schedule.SpID, err)
+		}
+
+		sectorNumbers, err := seal.AllocateSectorNumbers(context.Background(), s.api, tx, maddr, int(sectorsForSP))
+		if err != nil {
+			return nil, xerrors.Errorf("allocating sector numbers for %d: %w", schedule.SpID, err)
+		}
+
+		// Create sector claims for allocated sectors
+		for _, sectorNum := range sectorNumbers {
+			outClaims = append(outClaims, sectorClaim{
+				SpID:         schedule.SpID,
+				SectorNumber: int64(sectorNum),
+				TaskIDSDR:    nil, // New sector, no existing task
+			})
+
+			userDuration := int64(schedule.DurationDays) * builtin.EpochsInDay
+
+			if miner12.MaxSectorExpirationExtension < userDuration {
+				return nil, xerrors.Errorf("duration exceeds max allowed: %d > %d", userDuration, miner12.MaxSectorExpirationExtension)
+			}
+			if miner12.MinSectorExpiration > userDuration {
+				return nil, xerrors.Errorf("duration is too short: %d < %d", userDuration, miner12.MinSectorExpiration)
+			}
+
+			// Insert new sector into sectors_sdr_pipeline
+			_, err := tx.Exec(`INSERT INTO sectors_sdr_pipeline (sp_id, sector_number, reg_seal_proof, user_sector_duration_epochs) 
+				VALUES ($1, $2, $3, $4)`,
+				schedule.SpID, sectorNum, s.spt, userDuration)
+			if err != nil {
+				return nil, xerrors.Errorf("inserting new sector %d for SP %d: %w", sectorNum, schedule.SpID, err)
+			}
+		}
+
+		// Update the to_seal count for this SP
+		_, err = tx.Exec(`UPDATE sectors_cc_scheduler SET to_seal = to_seal - $1 WHERE sp_id = $2`, sectorsForSP, schedule.SpID)
+		if err != nil {
+			return nil, xerrors.Errorf("updating to_seal for SP %d: %w", schedule.SpID, err)
+		}
+
+		remainingToSeal -= sectorsForSP
+		log.Debugw("allocated sectors from CC scheduler", "sp_id", schedule.SpID, "count", sectorsForSP, "remaining", remainingToSeal, "totalWeight", totalWeight, "totalToSeal", totalToSeal)
+	}
+
+	if len(outClaims) != int(toSeal) {
+		return nil, xerrors.Errorf("failed to allocate expected number of sectors: got %d, wanted %d", len(outClaims), toSeal)
+	}
+
+	return outClaims, nil
 }
 
 func (s *SupraSeal) taskToSectors(id harmonytask.TaskID) ([]ffi.SectorRef, error) {
