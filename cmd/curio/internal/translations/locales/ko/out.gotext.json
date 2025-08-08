@@ -1,4 +1,2096 @@
 {
     "language": "ko",
-    "messages": []
-  }
+    "messages": [
+        {
+            "id": "Math Utils",
+            "message": "Math Utils",
+            "translation": "수학 유틸리티"
+        },
+        {
+            "id": "Analyze and display the layout of batch sealer threads",
+            "message": "Analyze and display the layout of batch sealer threads",
+            "translation": "배치 실러 스레드의 레이아웃 분석 및 표시"
+        },
+        {
+            "id": "Analyze and display the layout of batch sealer threads on your CPU.\n\nIt provides detailed information about CPU utilization for batch sealing operations, including core allocation, thread\ndistribution for different batch sizes.",
+            "message": "Analyze and display the layout of batch sealer threads on your CPU.\n\nIt provides detailed information about CPU utilization for batch sealing operations, including core allocation, thread\ndistribution for different batch sizes.",
+            "translation": "CPU에서 배치 실러 스레드의 레이아웃을 분석하고 표시합니다.\n\n이 작업은 배치 실링 작업의 CPU 사용량에 대한 자세한 정보를 제공하며, 여기에는 코어 할당 및 다양한 배치 크기에 대한 스레드 분포가 포함됩니다."
+        },
+        {
+            "id": "Generate a supra_seal configuration",
+            "message": "Generate a supra_seal configuration",
+            "translation": "supra_seal 구성 생성"
+        },
+        {
+            "id": "Generate a supra_seal configuration for a given batch size.\n\nThis command outputs a configuration expected by SupraSeal. Main purpose of this command is for debugging and testing.\nThe config can be used directly with SupraSeal binaries to test it without involving Curio.",
+            "message": "Generate a supra_seal configuration for a given batch size.\n\nThis command outputs a configuration expected by SupraSeal. Main purpose of this command is for debugging and testing.\nThe config can be used directly with SupraSeal binaries to test it without involving Curio.",
+            "translation": "주어진 배치 크기에 대한 supra_seal 구성을 생성합니다.\n\n이 명령은 SupraSeal에서 기대하는 구성을 출력하며, 주로 디버깅 및 테스트를 목적으로 합니다.\n구성은 Curio를 사용하지 않고도 SupraSeal 바이너리에서 직접 사용할 수 있습니다."
+        },
+        {
+            "id": "Zen3 and later supports two sectors per thread, set to false for older CPUs",
+            "message": "Zen3 and later supports two sectors per thread, set to false for older CPUs",
+            "translation": "Zen3 및 이후 버전은 스레드당 두 개의 섹터를 지원하며, 이전 CPU에서는 false로 설정합니다"
+        },
+        {
+            "id": "Execute cli commands",
+            "message": "Execute cli commands",
+            "translation": "CLI 명령 실행"
+        },
+        {
+            "id": "machine host:port (curio run --listen address)",
+            "message": "machine host:port (curio run --listen address)",
+            "translation": "기계 호스트:포트 (curio run --listen 주소)"
+        },
+        {
+            "id": "Wait for Curio api to come online",
+            "message": "Wait for Curio api to come online",
+            "translation": "Curio API가 온라인 상태가 될 때까지 기다리기"
+        },
+        {
+            "id": "duration to wait till fail",
+            "message": "duration to wait till fail",
+            "translation": "실패할 때까지 대기할 시간"
+        },
+        {
+            "id": "Provides a sample of CIDs from an indexed piece",
+            "message": "Provides a sample of CIDs from an indexed piece",
+            "translation": "색인된 조각에서 CID 샘플을 제공합니다."
+        },
+        {
+            "id": "piece-cid",
+            "message": "piece-cid",
+            "translation": "조각 CID"
+        },
+        {
+            "id": "output in json format",
+            "message": "output in json format",
+            "translation": "JSON 형식으로 출력"
+        },
+        {
+            "id": "Manage node config by layers. The layer 'base' will always be applied at Curio start-up.",
+            "message": "Manage node config by layers. The layer 'base' will always be applied at Curio start-up.",
+            "translation": "노드 구성을 레이어별로 관리합니다. 'base' 레이어는 항상 Curio 시작 시 적용됩니다."
+        },
+        {
+            "id": "Print default node config",
+            "message": "Print default node config",
+            "translation": "기본 노드 구성 출력"
+        },
+        {
+            "id": "don't comment default values",
+            "message": "don't comment default values",
+            "translation": "기본값에 주석을 달지 않음"
+        },
+        {
+            "id": "Set a config layer or the base by providing a filename or stdin.",
+            "message": "Set a config layer or the base by providing a filename or stdin.",
+            "translation": "파일 이름 또는 stdin을 제공하여 구성 레이어 또는 기본값 설정."
+        },
+        {
+            "id": "a layer's file name",
+            "message": "a layer's file name",
+            "translation": "레이어의 파일 이름"
+        },
+        {
+            "id": "title of the config layer (req'd for stdin)",
+            "message": "title of the config layer (req'd for stdin)",
+            "translation": "구성 레이어의 제목 (stdin에 필요)"
+        },
+        {
+            "id": "Get a config layer by name. You may want to pipe the output to a file, or use 'less'",
+            "message": "Get a config layer by name. You may want to pipe the output to a file, or use 'less'",
+            "translation": "이름으로 구성 레이어를 가져옵니다. 출력을 파일로 파이핑하거나 'less'를 사용할 수 있습니다."
+        },
+        {
+            "id": "layer name",
+            "message": "layer name",
+            "translation": "레이어 이름"
+        },
+        {
+            "id": "List config layers present in the DB.",
+            "message": "List config layers present in the DB.",
+            "translation": "DB에 있는 구성 레이어 목록."
+        },
+        {
+            "id": "Remove a named config layer.",
+            "message": "Remove a named config layer.",
+            "translation": "이름이 지정된 구성 레이어 제거."
+        },
+        {
+            "id": "Interpret stacked config layers by this version of curio, with system-generated comments.",
+            "message": "Interpret stacked config layers by this version of curio, with system-generated comments.",
+            "translation": "시스템 생성 주석과 함께 이 버전의 Curio에서 스택된 구성 레이어 해석."
+        },
+        {
+            "id": "a list of layers to be interpreted as the final config",
+            "message": "a list of layers to be interpreted as the final config",
+            "translation": "최종 구성으로 해석될 레이어 목록"
+        },
+        {
+            "id": "comma or space separated list of layers to be interpreted (base is always applied)",
+            "message": "comma or space separated list of layers to be interpreted (base is always applied)",
+            "translation": "쉼표 또는 공백으로 구분된 해석될 레이어 목록 (base는 항상 적용됨)"
+        },
+        {
+            "id": "edit a config layer",
+            "message": "edit a config layer",
+            "translation": "구성 레이어 편집"
+        },
+        {
+            "id": "[layer name]",
+            "message": "[layer name]",
+            "translation": "[레이어 이름]"
+        },
+        {
+            "id": "editor to use",
+            "message": "editor to use",
+            "translation": "사용할 편집기"
+        },
+        {
+            "id": "source config layer",
+            "message": "source config layer",
+            "translation": "원본 구성 레이어"
+        },
+        {
+            "id": "allow overwrite of existing layer if source is a different layer",
+            "message": "allow overwrite of existing layer if source is a different layer",
+            "translation": "원본이 다른 레이어일 경우 기존 레이어 덮어쓰기 허용"
+        },
+        {
+            "id": "save the whole config into the layer, not just the diff",
+            "message": "save the whole config into the layer, not just the diff",
+            "translation": "차이점만이 아니라 전체 구성을 레이어에 저장"
+        },
+        {
+            "id": "do not interpret source layer",
+            "message": "do not interpret source layer",
+            "translation": "원본 레이어 해석하지 않음"
+        },
+        {
+            "id": "true if --source is set",
+            "message": "true if --source is set",
+            "translation": "--source가 설정된 경우 true"
+        },
+        {
+            "id": "Create new configuration for a new cluster",
+            "message": "Create new configuration for a new cluster",
+            "translation": "새 클러스터에 대한 새 구성 생성"
+        },
+        {
+            "id": "[SP actor address...]",
+            "message": "[SP actor address...]",
+            "translation": "[SP 액터 주소...]"
+        },
+        {
+            "id": "Cordon a machine, set it to maintenance mode",
+            "message": "Cordon a machine, set it to maintenance mode",
+            "translation": "노드를 격리하고 유지 보수 모드로 설정"
+        },
+        {
+            "id": "Uncordon a machine, resume scheduling",
+            "message": "Uncordon a machine, resume scheduling",
+            "translation": "노드 격리를 해제하고 스케줄링 재개"
+        },
+        {
+            "id": "generate ipni chunks from a file",
+            "message": "generate ipni chunks from a file",
+            "translation": "파일에서 IPNI 청크 생성"
+        },
+        {
+            "id": "Deposit FIL into the Router contract (client)",
+            "message": "Deposit FIL into the Router contract (client)",
+            "translation": "Router 컨트랙트(클라이언트)에 FIL 입금"
+        },
+        {
+            "id": "Sender address",
+            "message": "Sender address",
+            "translation": "보낸 사람 주소"
+        },
+        {
+            "id": "Amount in FIL",
+            "message": "Amount in FIL",
+            "translation": "금액(FIL)"
+        },
+        {
+            "id": "Initiate a withdrawal request from the client's deposit",
+            "message": "Initiate a withdrawal request from the client's deposit",
+            "translation": "클라이언트 예치금에서 출금 요청 시작"
+        },
+        {
+            "id": "Client sender address",
+            "message": "Client sender address",
+            "translation": "클라이언트 송신자 주소"
+        },
+        {
+            "id": "Withdrawal amount (in FIL)",
+            "message": "Withdrawal amount (in FIL)",
+            "translation": "출금 금액(FIL)"
+        },
+        {
+            "id": "Complete a pending client withdrawal after the withdrawal window elapses",
+            "message": "Complete a pending client withdrawal after the withdrawal window elapses",
+            "translation": "출금 창이 경과한 후 대기 중인 클라이언트 출금을 완료"
+        },
+        {
+            "id": "Cancel a pending client withdrawal request",
+            "message": "Cancel a pending client withdrawal request",
+            "translation": "대기 중인 클라이언트 출금 요청 취소"
+        },
+        {
+            "id": "Redeem a client voucher (service role)",
+            "message": "Redeem a client voucher (service role)",
+            "translation": "클라이언트 바우처 상환(서비스 역할)"
+        },
+        {
+            "id": "Service sender address",
+            "message": "Service sender address",
+            "translation": "서비스 송신자 주소"
+        },
+        {
+            "id": "Client actor",
+            "message": "Client actor",
+            "translation": "클라이언트 액터"
+        },
+        {
+            "id": "Cumulative amount (FIL)",
+            "message": "Cumulative amount (FIL)",
+            "translation": "누적 금액(FIL)"
+        },
+        {
+            "id": "Voucher nonce",
+            "message": "Voucher nonce",
+            "translation": "바우처 논스"
+        },
+        {
+            "id": "Voucher signature (hex)",
+            "message": "Voucher signature (hex)",
+            "translation": "바우처 서명(16진수)"
+        },
+        {
+            "id": "Redeem a provider voucher (provider role)",
+            "message": "Redeem a provider voucher (provider role)",
+            "translation": "프로바이더 바우처 상환(프로바이더 역할)"
+        },
+        {
+            "id": "Provider sender address",
+            "message": "Provider sender address",
+            "translation": "프로바이더 송신자 주소"
+        },
+        {
+            "id": "Provider actor",
+            "message": "Provider actor",
+            "translation": "프로바이더 액터"
+        },
+        {
+            "id": "Initiate a withdrawal request from the service pool",
+            "message": "Initiate a withdrawal request from the service pool",
+            "translation": "서비스 풀에서 출금 요청 시작"
+        },
+        {
+            "id": "Complete a pending service withdrawal after the withdrawal window elapses",
+            "message": "Complete a pending service withdrawal after the withdrawal window elapses",
+            "translation": "출금 창이 경과한 후 대기 중인 서비스 출금을 완료"
+        },
+        {
+            "id": "Cancel a pending service withdrawal request",
+            "message": "Cancel a pending service withdrawal request",
+            "translation": "대기 중인 서비스 출금 요청 취소"
+        },
+        {
+            "id": "Deposit funds into the service pool (service role)",
+            "message": "Deposit funds into the service pool (service role)",
+            "translation": "서비스 풀에 자금 입금(서비스 역할)"
+        },
+        {
+            "id": "Amount to deposit (FIL)",
+            "message": "Amount to deposit (FIL)",
+            "translation": "입금 금액(FIL)"
+        },
+        {
+            "id": "Query the state of a client",
+            "message": "Query the state of a client",
+            "translation": "클라이언트 상태 조회"
+        },
+        {
+            "id": "Client actor address",
+            "message": "Client actor address",
+            "translation": "클라이언트 액터 주소"
+        },
+        {
+            "id": "Query the state of a provider",
+            "message": "Query the state of a provider",
+            "translation": "프로바이더 상태 조회"
+        },
+        {
+            "id": "Provider actor address",
+            "message": "Provider actor address",
+            "translation": "프로바이더 액터 주소"
+        },
+        {
+            "id": "Query the service state",
+            "message": "Query the service state",
+            "translation": "서비스 상태 조회"
+        },
+        {
+            "id": "Create a client voucher",
+            "message": "Create a client voucher",
+            "translation": "클라이언트 바우처 생성"
+        },
+        {
+            "id": "Amount to redeem (FIL)",
+            "message": "Amount to redeem (FIL)",
+            "translation": "상환할 금액(FIL)"
+        },
+        {
+            "id": "Create a provider voucher",
+            "message": "Create a provider voucher",
+            "translation": "프로바이더 바우처 생성"
+        },
+        {
+            "id": "Propose a new service actor",
+            "message": "Propose a new service actor",
+            "translation": "새 서비스 액터 제안"
+        },
+        {
+            "id": "New service actor address",
+            "message": "New service actor address",
+            "translation": "새 서비스 액터 주소"
+        },
+        {
+            "id": "Accept a proposed service actor",
+            "message": "Accept a proposed service actor",
+            "translation": "제안된 서비스 액터 수락"
+        },
+        {
+            "id": "Validate a client voucher signature",
+            "message": "Validate a client voucher signature",
+            "translation": "클라이언트 바우처 서명 검증"
+        },
+        {
+            "id": "Validate a provider voucher signature",
+            "message": "Validate a provider voucher signature",
+            "translation": "프로바이더 바우처 서명 검증"
+        },
+        {
+            "id": "Get Curio node info",
+            "message": "Get Curio node info",
+            "translation": "Curio 노드 정보 가져오기"
+        },
+        {
+            "id": "Manage logging",
+            "message": "Manage logging",
+            "translation": "로깅 관리"
+        },
+        {
+            "id": "List log systems",
+            "message": "List log systems",
+            "translation": "로그 시스템 목록"
+        },
+        {
+            "id": "Set log level",
+            "message": "Set log level",
+            "translation": "로그 레벨 설정"
+        },
+        {
+            "id": "[level]",
+            "message": "[level]",
+            "translation": "[레벨]"
+        },
+        {
+            "id": "Set the log level for logging systems:\n\n   The system flag can be specified multiple times.\n\n   eg) log set-level --system chain --system chainxchg debug\n\n   Available Levels:\n   debug\n   info\n   warn\n   error\n\n   Environment Variables:\n   GOLOG_LOG_LEVEL - Default log level for all log systems\n   GOLOG_LOG_FMT   - Change output log format (json, nocolor)\n   GOLOG_FILE      - Write logs to file\n   GOLOG_OUTPUT    - Specify whether to output to file, stderr, stdout or a combination, i.e. file+stderr",
+            "message": "Set the log level for logging systems:\n\n   The system flag can be specified multiple times.\n\n   eg) log set-level --system chain --system chainxchg debug\n\n   Available Levels:\n   debug\n   info\n   warn\n   error\n\n   Environment Variables:\n   GOLOG_LOG_LEVEL - Default log level for all log systems\n   GOLOG_LOG_FMT   - Change output log format (json, nocolor)\n   GOLOG_FILE      - Write logs to file\n   GOLOG_OUTPUT    - Specify whether to output to file, stderr, stdout or a combination, i.e. file+stderr",
+            "translation": "로깅 시스템의 로그 레벨을 설정합니다:\n\n   시스템 플래그는 여러 번 지정할 수 있습니다.\n\n   예) log set-level --system chain --system chainxchg debug\n\n   사용 가능한 레벨:\n   debug\n   info\n   warn\n   error\n\n   환경 변수:\n   GOLOG_LOG_LEVEL - 모든 로그 시스템의 기본 로그 레벨\n   GOLOG_LOG_FMT   - 출력 로그 형식 변경 (json, nocolor)\n   GOLOG_FILE      - 로그를 파일에 기록\n   GOLOG_OUTPUT    - 출력 위치 지정 (파일, stderr, stdout 또는 조합, 예: file+stderr)"
+        },
+        {
+            "id": "limit to log system",
+            "message": "limit to log system",
+            "translation": "로그 시스템으로 제한"
+        },
+        {
+            "id": "Filecoin decentralized storage network provider",
+            "message": "Filecoin decentralized storage network provider",
+            "translation": "Filecoin 분산 스토리지 네트워크 제공자"
+        },
+        {
+            "id": "use color in display output",
+            "message": "use color in display output",
+            "translation": "디스플레이 출력에 색상 사용"
+        },
+        {
+            "id": "depends on output being a TTY",
+            "message": "depends on output being a TTY",
+            "translation": "출력이 TTY에 의존"
+        },
+        {
+            "id": "Command separated list of hostnames for yugabyte cluster",
+            "message": "Command separated list of hostnames for yugabyte cluster",
+            "translation": "유가바이트 클러스터의 호스트 이름을 쉼표로 구분한 목록"
+        },
+        {
+            "id": "Name of the Postgres database in Yugabyte cluster",
+            "message": "Name of the Postgres database in Yugabyte cluster",
+            "translation": "Yugabyte 클러스터의 Postgres 데이터베이스 이름"
+        },
+        {
+            "id": "Username for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Username for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Yugabyte 클러스터의 Postgres 데이터베이스에 연결하기 위한 사용자 이름"
+        },
+        {
+            "id": "Password for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Password for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Yugabyte 클러스터의 Postgres 데이터베이스에 연결하기 위한 비밀번호"
+        },
+        {
+            "id": "Port for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Port for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Yugabyte 클러스터의 Postgres 데이터베이스에 연결하기 위한 포트"
+        },
+        {
+            "id": "Port for connecting to the Cassandra database in Yugabyte cluster",
+            "message": "Port for connecting to the Cassandra database in Yugabyte cluster",
+            "translation": "Yugabyte 클러스터의 Cassandra 데이터베이스에 연결하기 위한 포트"
+        },
+        {
+            "id": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
+            "message": "Enable load balancing for connecting to the Postgres database in Yugabyte cluster",
+            "translation": "Yugabyte 클러스터의 Postgres 데이터베이스에 연결할 때 로드 밸런싱을 활성화하세요"
+        },
+        {
+            "id": "enables very verbose mode, useful for debugging the CLI",
+            "message": "enables very verbose mode, useful for debugging the CLI",
+            "translation": "매우 상세한 모드를 활성화하여 CLI 디버깅에 유용"
+        },
+        {
+            "id": "Fetch proving parameters",
+            "message": "Fetch proving parameters",
+            "translation": "증명 매개변수 가져오기"
+        },
+        {
+            "id": "[sectorSize]",
+            "message": "[sectorSize]",
+            "translation": "[섹터 크기]"
+        },
+        {
+            "id": "start sealing a deal sector early",
+            "message": "start sealing a deal sector early",
+            "translation": "거래 섹터를 조기에 실링 시작"
+        },
+        {
+            "id": "Specify actor address to start sealing sectors for",
+            "message": "Specify actor address to start sealing sectors for",
+            "translation": "실링할 섹터의 액터 주소 지정"
+        },
+        {
+            "id": "Use synthetic PoRep",
+            "message": "Use synthetic PoRep",
+            "translation": "합성 PoRep 사용"
+        },
+        {
+            "id": "\u003csector\u003e",
+            "message": "\u003csector\u003e",
+            "translation": "\u003c섹터\u003e"
+        },
+        {
+            "id": "Add URL to fetch data for offline deals",
+            "message": "Add URL to fetch data for offline deals",
+            "translation": "오프라인 거래 데이터를 가져올 URL 추가"
+        },
+        {
+            "id": "CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'",
+            "message": "CSV file location to use for multiple deal input. Each line in the file should be in the format 'uuid,raw size,url,header1,header2...'",
+            "translation": "여러 거래 입력에 사용할 CSV 파일 위치. 파일의 각 행은 'uuid, 원시 크기, url, header1, header2...' 형식이어야 합니다."
+        },
+        {
+            "id": "Custom `HEADER` to include in the HTTP request",
+            "message": "Custom `HEADER` to include in the HTTP request",
+            "translation": "HTTP 요청에 포함할 사용자 정의 `HEADER`"
+        },
+        {
+            "id": "`URL` to send the request to",
+            "message": "`URL` to send the request to",
+            "translation": "요청을 보낼 `URL`"
+        },
+        {
+            "id": "Moves funds from the deal collateral wallet into escrow with the storage market actor",
+            "message": "Moves funds from the deal collateral wallet into escrow with the storage market actor",
+            "translation": "거래 담보 지갑에서 자금을 스토리지 시장 액터의 에스크로로 이동"
+        },
+        {
+            "id": "maximum fee in FIL user is willing to pay for this message",
+            "message": "maximum fee in FIL user is willing to pay for this message",
+            "translation": "사용자가 이 메시지에 대해 지불하려는 FIL의 최대 수수료"
+        },
+        {
+            "id": "Specify wallet address to send the funds from",
+            "message": "Specify wallet address to send the funds from",
+            "translation": "자금을 보낼 지갑 주소 지정"
+        },
+        {
+            "id": "Create a new offline verified DDO deal for Curio",
+            "message": "Create a new offline verified DDO deal for Curio",
+            "translation": "Curio에 대한 새로운 오프라인 검증된 DDO 거래를 생성합니다."
+        },
+        {
+            "id": "Specify actor address for the deal",
+            "message": "Specify actor address for the deal",
+            "translation": "거래에 사용할 액터 주소를 지정하세요."
+        },
+        {
+            "id": "Remove unsealed copies of sector containing this deal",
+            "message": "Remove unsealed copies of sector containing this deal",
+            "translation": "이 거래를 포함하는 섹터의 봉인되지 않은 복사본을 제거합니다."
+        },
+        {
+            "id": "indicates that deal index should not be announced to the IPNI",
+            "message": "indicates that deal index should not be announced to the IPNI",
+            "translation": "거래 인덱스가 IPNI에 발표되지 않아야 함을 나타냅니다."
+        },
+        {
+            "id": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
+            "message": "start epoch by when the deal should be proved by provider on-chain (default: 2 days from now)",
+            "translation": "거래가 제공업체에 의해 온체인에서 입증되어야 하는 시작 에포크입니다. (기본값: 현재로부터 2일 후)"
+        },
+        {
+            "id": "Start a Curio process",
+            "message": "Start a Curio process",
+            "translation": "Curio 프로세스 시작"
+        },
+        {
+            "id": "host address and port the worker api will listen on",
+            "message": "host address and port the worker api will listen on",
+            "translation": "작업자 API가 수신 대기할 호스트 주소와 포트"
+        },
+        {
+            "id": "host address and port the gui will listen on",
+            "message": "host address and port the gui will listen on",
+            "translation": "GUI가 수신 대기할 호스트 주소와 포트"
+        },
+        {
+            "id": "don't check full-node sync status",
+            "message": "don't check full-node sync status",
+            "translation": "풀 노드 동기화 상태 확인 안 함"
+        },
+        {
+            "id": "only run init, then return",
+            "message": "only run init, then return",
+            "translation": "init만 실행하고 돌아옴"
+        },
+        {
+            "id": "manage open file limit",
+            "message": "manage open file limit",
+            "translation": "열린 파일 제한 관리"
+        },
+        {
+            "id": "list of layers to be interpreted (atop defaults). Default: base",
+            "message": "list of layers to be interpreted (atop defaults). Default: base",
+            "translation": "해석될 레이어 목록 (기본값 위에). 기본값: base"
+        },
+        {
+            "id": "custom node name",
+            "message": "custom node name",
+            "translation": "사용자 지정 노드 이름"
+        },
+        {
+            "id": "Start Curio web interface",
+            "message": "Start Curio web interface",
+            "translation": "Curio 웹 인터페이스 시작"
+        },
+        {
+            "id": "Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.",
+            "message": "Start an instance of Curio web interface. \n\tThis creates the 'web' layer if it does not exist, then calls run with that layer.",
+            "translation": "Curio 웹 인터페이스 인스턴스를 시작합니다.\n\t존재하지 않으면 'web' 레이어를 생성하고 해당 레이어로 실행을 호출합니다."
+        },
+        {
+            "id": "Address to listen for the GUI on",
+            "message": "Address to listen for the GUI on",
+            "translation": "GUI가 수신 대기할 주소"
+        },
+        {
+            "id": "Manage the sealing pipeline",
+            "message": "Manage the sealing pipeline",
+            "translation": "실링 파이프라인 관리"
+        },
+        {
+            "id": "Start new sealing operations manually",
+            "message": "Start new sealing operations manually",
+            "translation": "새로운 실링 작업 수동 시작"
+        },
+        {
+            "id": "Start sealing sectors for all actors now (not on schedule)",
+            "message": "Start sealing sectors for all actors now (not on schedule)",
+            "translation": "모든 액터에 대한 섹터 실링 즉시 시작 (일정에 없음)"
+        },
+        {
+            "id": "Start sealing new CC sectors",
+            "message": "Start sealing new CC sectors",
+            "translation": "새 CC 섹터 실링 시작"
+        },
+        {
+            "id": "Number of sectors to start",
+            "message": "Number of sectors to start",
+            "translation": "시작할 섹터 수"
+        },
+        {
+            "id": "How long to commit sectors for",
+            "message": "How long to commit sectors for",
+            "translation": "섹터를 커밋할 기간"
+        },
+        {
+            "id": "1278 (3.5 years)",
+            "message": "1278 (3.5 years)",
+            "translation": "1278 (3.5년)"
+        },
+        {
+            "id": "(debug tool) Copy LM sector metadata into Curio DB",
+            "message": "(debug tool) Copy LM sector metadata into Curio DB",
+            "translation": "(디버그 도구) LM 섹터 메타데이터를 Curio DB로 복사"
+        },
+        {
+            "id": "Path to miner repo",
+            "message": "Path to miner repo",
+            "translation": "마이너 저장소 경로"
+        },
+        {
+            "id": "Ignore sectors that cannot be migrated",
+            "message": "Ignore sectors that cannot be migrated",
+            "translation": "이동할 수 없는 섹터 무시"
+        },
+        {
+            "id": "List pipeline events",
+            "message": "List pipeline events",
+            "translation": "파이프라인 이벤트 목록"
+        },
+        {
+            "id": "Filter events by actor address; lists all if not specified",
+            "message": "Filter events by actor address; lists all if not specified",
+            "translation": "액터 주소로 이벤트 필터링; 지정하지 않으면 모든 이벤트를 나열합니다"
+        },
+        {
+            "id": "Filter events by sector number; requires --actor to be specified",
+            "message": "Filter events by sector number; requires --actor to be specified",
+            "translation": "섹터 번호로 이벤트 필터링; --actor 지정 필요"
+        },
+        {
+            "id": "Limit output to the last N events",
+            "message": "Limit output to the last N events",
+            "translation": "출력을 마지막 N개의 이벤트로 제한"
+        },
+        {
+            "id": "Stop a running Curio process",
+            "message": "Stop a running Curio process",
+            "translation": "실행 중인 Curio 프로세스 중지"
+        },
+        {
+            "id": "manage sector storage",
+            "message": "manage sector storage",
+            "translation": "섹터 스토리지 관리"
+        },
+        {
+            "id": "Sectors can be stored across many filesystem paths. These\ncommands provide ways to manage the storage a Curio node will use to store sectors\nlong term for proving (references as 'store') as well as how sectors will be\nstored while moving through the sealing pipeline (references as 'seal').",
+            "message": "Sectors can be stored across many filesystem paths. These\ncommands provide ways to manage the storage a Curio node will use to store sectors\nlong term for proving (references as 'store') as well as how sectors will be\nstored while moving through the sealing pipeline (references as 'seal').",
+            "translation": "섹터는 여러 파일 시스템 경로에 걸쳐 저장될 수 있습니다.\n이 명령은 Curio 노드가 섹터를 장기 저장(증명용, 'store'로 참조)하는 스토리지를 관리하는 방법과\n실링 파이프라인을 통해 이동하는 동안 섹터가 어떻게 저장될지를 관리합니다('seal'로 참조)."
+        },
+        {
+            "id": "attach local storage path",
+            "message": "attach local storage path",
+            "translation": "로컬 스토리지 경로 연결"
+        },
+        {
+            "id": "[path]",
+            "message": "[path]",
+            "translation": "[경로]"
+        },
+        {
+            "id": "Storage can be attached to a Curio node using this command. The storage volume\nlist is stored local to the Curio node in storage.json set in curio run. We do not\nrecommend manually modifying this value without further understanding of the\nstorage system.\n\nEach storage volume contains a configuration file which describes the\ncapabilities of the volume. When the '--init' flag is provided, this file will\nbe created using the additional flags.\n\nWeight\nA high weight value means data will be more likely to be stored in this path\n\nSeal\nData for the sealing process will be stored here\n\nStore\nFinalized sectors that will be moved here for long term storage and be proven\nover time",
+            "message": "Storage can be attached to a Curio node using this command. The storage volume\nlist is stored local to the Curio node in storage.json set in curio run. We do not\nrecommend manually modifying this value without further understanding of the\nstorage system.\n\nEach storage volume contains a configuration file which describes the\ncapabilities of the volume. When the '--init' flag is provided, this file will\nbe created using the additional flags.\n\nWeight\nA high weight value means data will be more likely to be stored in this path\n\nSeal\nData for the sealing process will be stored here\n\nStore\nFinalized sectors that will be moved here for long term storage and be proven\nover time",
+            "translation": "이 명령을 사용하여 Curio 노드에 스토리지를 연결할 수 있습니다. 스토리지 볼륨 목록은 curio run에 설정된 storage.json에 로컬로 저장됩니다.\n스토리지 시스템에 대한 추가 이해 없이 수동으로 이 값을 수정하는 것은 권장하지 않습니다.\n\n각 스토리지 볼륨에는 볼륨의 기능을 설명하는 구성 파일이 포함되어 있습니다. '--init' 플래그가 제공되면 이 파일은 추가 플래그를 사용하여 생성됩니다.\n\nWeight\n높은 가중치 값은 데이터가 이 경로에 저장될 가능성이 더 높다는 것을 의미합니다\n\nSeal\n실링 프로세스 데이터를 여기에 저장합니다\n\nStore\n완료된 섹터는 장기 저장을 위해 여기로 이동되며 시간이 지남에 따라 증명됩니다"
+        },
+        {
+            "id": "initialize the path first",
+            "message": "initialize the path first",
+            "translation": "경로를 먼저 초기화"
+        },
+        {
+            "id": "(for init) path weight",
+            "message": "(for init) path weight",
+            "translation": "(초기화용) 경로 가중치"
+        },
+        {
+            "id": "(for init) use path for sealing",
+            "message": "(for init) use path for sealing",
+            "translation": "(초기화용) 실링에 경로 사용"
+        },
+        {
+            "id": "(for init) use path for long-term storage",
+            "message": "(for init) use path for long-term storage",
+            "translation": "(초기화용) 장기 저장에 경로 사용"
+        },
+        {
+            "id": "(for init) limit storage space for sectors (expensive for very large paths!)",
+            "message": "(for init) limit storage space for sectors (expensive for very large paths!)",
+            "translation": "(초기화용) 섹터에 대한 저장 공간 제한 (매우 큰 경로에서는 비용이 많이 듦!)"
+        },
+        {
+            "id": "path group names",
+            "message": "path group names",
+            "translation": "경로 그룹 이름"
+        },
+        {
+            "id": "path groups allowed to pull data from this path (allow all if not specified)",
+            "message": "path groups allowed to pull data from this path (allow all if not specified)",
+            "translation": "이 경로에서 데이터를 가져올 수 있는 경로 그룹 (지정하지 않으면 모두 허용)"
+        },
+        {
+            "id": "detach local storage path",
+            "message": "detach local storage path",
+            "translation": "로컬 스토리지 경로 분리"
+        },
+        {
+            "id": "list local storage paths",
+            "message": "list local storage paths",
+            "translation": "로컬 스토리지 경로 목록"
+        },
+        {
+            "id": "only list local storage paths",
+            "message": "only list local storage paths",
+            "translation": "로컬 스토리지 경로만 나열"
+        },
+        {
+            "id": "find sector in the storage system",
+            "message": "find sector in the storage system",
+            "translation": "스토리지 시스템에서 섹터 찾기"
+        },
+        {
+            "id": "[miner address] [sector number]",
+            "message": "[miner address] [sector number]",
+            "translation": "[마이너 주소] [섹터 번호]"
+        },
+        {
+            "id": "generate vanilla proof for a sector",
+            "message": "generate vanilla proof for a sector",
+            "translation": "섹터에 대한 바닐라 증명 생성"
+        },
+        {
+            "id": "redeclare sectors in a local storage path",
+            "message": "redeclare sectors in a local storage path",
+            "translation": "로컬 스토리지 경로에서 섹터를 다시 선언"
+        },
+        {
+            "id": "--machine flag in cli command should point to the node where storage to redeclare is attached",
+            "message": "--machine flag in cli command should point to the node where storage to redeclare is attached",
+            "translation": "CLI 명령의 --machine 플래그는 다시 선언할 스토리지가 연결된 노드를 가리켜야 합니다"
+        },
+        {
+            "id": "Utility functions for testing",
+            "message": "Utility functions for testing",
+            "translation": "테스트용 유틸리티 기능"
+        },
+        {
+            "id": "Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.",
+            "message": "Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.",
+            "translation": "섹터에 대한 증명 계산 (섹터가 사전 실링되어야 함). 이는 체인으로 전송되지 않습니다."
+        },
+        {
+            "id": "Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.",
+            "message": "Test the windowpost scheduler by running it on the next available curio. If tasks fail all retries, you will need to ctrl+c to exit.",
+            "translation": "다음 사용 가능한 Curio에서 windowpost 스케줄러를 실행하여 테스트합니다. 모든 재시도가 실패하면 ctrl+c를 눌러 종료해야 합니다."
+        },
+        {
+            "id": "deadline to compute WindowPoSt for",
+            "message": "deadline to compute WindowPoSt for",
+            "translation": "WindowPoSt를 계산할 기한"
+        },
+        {
+            "id": "SP ID to compute WindowPoSt for",
+            "message": "SP ID to compute WindowPoSt for",
+            "translation": "WindowPoSt 계산을 위한 SP ID"
+        },
+        {
+            "id": "Compute WindowPoSt for performance and configuration testing.",
+            "message": "Compute WindowPoSt for performance and configuration testing.",
+            "translation": "성능 및 구성 테스트를 위한 WindowPoSt 계산."
+        },
+        {
+            "id": "Note: This command is intended to be used to verify PoSt compute performance.\nIt will not send any messages to the chain. Since it can compute any deadline, output may be incorrectly timed for the chain.",
+            "message": "Note: This command is intended to be used to verify PoSt compute performance.\nIt will not send any messages to the chain. Since it can compute any deadline, output may be incorrectly timed for the chain.",
+            "translation": "참고: 이 명령은 PoSt 계산 성능을 검증하기 위해 사용됩니다.\n체인으로 메시지를 전송하지 않습니다. 모든 기한을 계산할 수 있으므로 출력이 체인과 부정확하게 일치할 수 있습니다."
+        },
+        {
+            "id": "[deadline index]",
+            "message": "[deadline index]",
+            "translation": "[기한 인덱스]"
+        },
+        {
+            "id": "path to json file containing storage config",
+            "message": "path to json file containing storage config",
+            "translation": "스토리지 구성 파일이 포함된 JSON 파일의 경로"
+        },
+        {
+            "id": "partition to compute WindowPoSt for",
+            "message": "partition to compute WindowPoSt for",
+            "translation": "WindowPoSt를 계산할 파티션"
+        },
+        {
+            "id": "Collection of debugging utilities",
+            "message": "Collection of debugging utilities",
+            "translation": "디버깅 유틸리티 모음"
+        },
+        {
+            "id": "Tool Box for Curio",
+            "message": "Tool Box for Curio",
+            "translation": "Curio 도구 상자"
+        },
+        {
+            "id": "Updated DB with message data missing from chain node",
+            "message": "Updated DB with message data missing from chain node",
+            "translation": "체인 노드에서 누락된 메시지 데이터를 사용하여 데이터베이스를 업데이트함"
+        },
+        {
+            "id": "Update data for messages in wait queue",
+            "message": "Update data for messages in wait queue",
+            "translation": "대기 큐에 있는 메시지의 데이터를 업데이트"
+        },
+        {
+            "id": "Manage unsealed data",
+            "message": "Manage unsealed data",
+            "translation": "미봉인 데이터를 관리"
+        },
+        {
+            "id": "Get information about unsealed data",
+            "message": "Get information about unsealed data",
+            "translation": "미봉인 데이터에 대한 정보 가져오기"
+        },
+        {
+            "id": "List data from the sectors_unseal_pipeline and sectors_meta tables",
+            "message": "List data from the sectors_unseal_pipeline and sectors_meta tables",
+            "translation": "sectors_unseal_pipeline 및 sectors_meta 테이블의 데이터 나열"
+        },
+        {
+            "id": "Filter by storage provider ID",
+            "message": "Filter by storage provider ID",
+            "translation": "스토리지 제공자 ID로 필터링"
+        },
+        {
+            "id": "Output file path (default: stdout)",
+            "message": "Output file path (default: stdout)",
+            "translation": "출력 파일 경로 (기본값: 표준 출력)"
+        },
+        {
+            "id": "Set the target unseal state for a sector",
+            "message": "Set the target unseal state for a sector",
+            "translation": "섹터의 목표 미봉인 상태 설정"
+        },
+        {
+            "id": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+            "message": "Set the target unseal state for a specific sector.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number\n   \u003ctarget-state\u003e: The target state (true, false, or none)\n\n   The unseal target state indicates to curio how an unsealed copy of the sector should be maintained.\n\t   If the target state is true, curio will ensure that the sector is unsealed.\n\t   If the target state is false, curio will ensure that there is no unsealed copy of the sector.\n\t   If the target state is none, curio will not change the current state of the sector.\n\n   Currently when the curio will only start new unseal processes when the target state changes from another state to true.\n\n   When the target state is false, and an unsealed sector file exists, the GC mark step will create a removal mark\n   for the unsealed sector file. The file will only be removed after the removal mark is accepted.",
+            "translation": "특정 섹터의 목표 미봉인 상태를 설정합니다.\n   \u003cminer-id\u003e: 스토리지 제공자 ID\n   \u003csector-number\u003e: 섹터 번호\n   \u003ctarget-state\u003e: 목표 상태 (true, false, none 중 하나)\n\n   미봉인 목표 상태는 Curio가 섹터의 미봉인 복사본을 어떻게 유지할지를 나타냅니다.\n\t   목표 상태가 true이면 Curio는 섹터가 미봉인 상태로 유지되도록 보장합니다.\n\t   목표 상태가 false이면 Curio는 섹터에 미봉인 복사본이 없도록 보장합니다.\n\t   목표 상태가 none이면 Curio는 섹터의 현재 상태를 변경하지 않습니다.\n\n   현재, 목표 상태가 다른 상태에서 true로 변경될 때만 Curio는 새로운 미봉인 프로세스를 시작합니다.\n\n   목표 상태가 false이고 미봉인 섹터 파일이 존재하는 경우, GC 마크 단계는 미봉인 섹터 파일에 대한 제거 마크를 생성합니다. 파일은 제거 마크가 승인된 후에만 제거됩니다."
+        },
+        {
+            "id": "Check data integrity in unsealed sector files",
+            "message": "Check data integrity in unsealed sector files",
+            "translation": "미봉인 섹터 파일의 데이터 무결성 확인"
+        },
+        {
+            "id": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
+            "message": "Create a check task for a specific sector, wait for its completion, and output the result.\n   \u003cminer-id\u003e: The storage provider ID\n   \u003csector-number\u003e: The sector number",
+            "translation": "특정 섹터에 대한 검사 작업을 생성하고 완료를 기다린 후 결과를 출력합니다.\n   \u003cminer-id\u003e: 스토리지 제공자 ID\n   \u003csector-number\u003e: 섹터 번호"
+        },
+        {
+            "id": "Use the arrow keys to navigate: ↓ ↑ → ←",
+            "message": "Use the arrow keys to navigate: ↓ ↑ → ←",
+            "translation": "화살표 키를 사용하여 이동하세요: ↓ ↑ → ←"
+        },
+        {
+            "id": "This interactive tool creates a new miner actor and creates the basic configuration layer for it.",
+            "message": "This interactive tool creates a new miner actor and creates the basic configuration layer for it.",
+            "translation": "이 대화형 도구는 새로운 채굴자 액터를 생성하고 그에 대한 기본 구성 레이어를 생성합니다."
+        },
+        {
+            "id": "This process is partially idempotent. Once a new miner actor has been created and subsequent steps fail, the user need to run 'curio config new-cluster \u003c miner ID \u003e' to finish the configuration.",
+            "message": "This process is partially idempotent. Once a new miner actor has been created and subsequent steps fail, the user need to run 'curio config new-cluster \u003c miner ID \u003e' to finish the configuration.",
+            "translation": "이 프로세스는 부분적으로 항등원적입니다. 새로운 채굴자 액터가 생성되었고 후속 단계가 실패하는 경우 사용자는 구성을 완료하기 위해 'curio config new-cluster \u003c 채굴자 ID \u003e'를 실행해야 합니다."
+        },
+        {
+            "id": "This interactive tool sets up a non-Storage Provider cluster for protocols like PDP, Snark market, and others.",
+            "message": "This interactive tool sets up a non-Storage Provider cluster for protocols like PDP, Snark market, and others.",
+            "translation": "이 대화형 도구는 PDP, Snark 시장 등과 같은 프로토콜을 위한 비 SP 클러스터를 설정합니다."
+        },
+        {
+            "id": "This setup does not create or migrate a Filecoin SP actor.",
+            "message": "This setup does not create or migrate a Filecoin SP actor.",
+            "translation": "이 설정은 Filecoin SP 액터를 생성하거나 마이그레이션하지 않습니다."
+        },
+        {
+            "id": "This interactive tool migrates lotus-miner to Curio in 5 minutes.",
+            "message": "This interactive tool migrates lotus-miner to Curio in 5 minutes.",
+            "translation": "이 대화형 도구는 5분 안에 lotus-miner를 Curio로 이주합니다."
+        },
+        {
+            "id": "Each step needs your confirmation and can be reversed. Press Ctrl+C to exit at any time.",
+            "message": "Each step needs your confirmation and can be reversed. Press Ctrl+C to exit at any time.",
+            "translation": "각 단계는 확인이 필요하며 되돌릴 수 있습니다. 언제든지 Ctrl+C를 눌러 종료할 수 있습니다."
+        },
+        {
+            "id": "Ctrl+C pressed in Terminal",
+            "message": "Ctrl+C pressed in Terminal",
+            "translation": "터미널에서 Ctrl+C가 눌림"
+        },
+        {
+            "id": "I want to:",
+            "message": "I want to:",
+            "translation": "나는 원한다:"
+        },
+        {
+            "id": "Migrate from existing Lotus-Miner",
+            "message": "Migrate from existing Lotus-Miner",
+            "translation": "기존의 Lotus-Miner에서 이전하기"
+        },
+        {
+            "id": "Create a new miner",
+            "message": "Create a new miner",
+            "translation": "새로운 채굴자 생성"
+        },
+        {
+            "id": "Setup non-Storage Provider cluster",
+            "message": "Setup non-Storage Provider cluster",
+            "translation": "비 SP 클러스터 설정"
+        },
+        {
+            "id": "Aborting remaining steps.",
+            "message": "Aborting remaining steps.",
+            "translation": "나머지 단계를 중단합니다.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]v",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Lotus-Miner to Curio Migration.",
+            "message": "Lotus-Miner to Curio Migration.",
+            "translation": "Lotus-Miner에서 Curio로 이주."
+        },
+        {
+            "id": "Where should we save your database config file?",
+            "message": "Where should we save your database config file?",
+            "translation": "데이터베이스 구성 파일을 어디에 저장해야 하나요?"
+        },
+        {
+            "id": "Aborting migration.",
+            "message": "Aborting migration.",
+            "translation": "마이그레이션 중단.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]v",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Error writing file: {Error}",
+            "message": "Error writing file: {Error}",
+            "translation": "파일 쓰기 오류: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Try the web interface with {Rendercurio_run___layersgui}",
+            "message": "Try the web interface with {Rendercurio_run___layersgui}",
+            "translation": "{Rendercurio_run___layersgui}와 함께 웹 인터페이스를 시도해보세요",
+            "placeholders": [
+                {
+                    "id": "Rendercurio_run___layersgui",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "code.Render(\"curio run --layers=gui\")"
+                }
+            ]
+        },
+        {
+            "id": "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.",
+            "message": "For more servers, make /etc/curio.env with the curio.env database env and add the CURIO_LAYERS env to assign purposes.",
+            "translation": "더 많은 서버를 위해 /etc/curio.env 파일을 curio.env 데이터베이스 환경으로 만들고 목적을 할당하기 위해 CURIO_LAYERS 환경 변수를 추가하세요."
+        },
+        {
+            "id": "You can now migrate your market node ({Boost}), if applicable.",
+            "message": "You can now migrate your market node ({Boost}), if applicable.",
+            "translation": "해당하는 경우 이제 시장 노드를 이주할 수 있습니다 ({Boost}).",
+            "placeholders": [
+                {
+                    "id": "Boost",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "\"Boost\""
+                }
+            ]
+        },
+        {
+            "id": "Additional info is at http://docs.curiostorage.org",
+            "message": "Additional info is at http://docs.curiostorage.org",
+            "translation": "추가 정보는 http://docs.curiostorage.org 에 있습니다."
+        },
+        {
+            "id": "New Miner initialization complete.",
+            "message": "New Miner initialization complete.",
+            "translation": "새로운 채굴자 초기화 완료."
+        },
+        {
+            "id": "Migrating lotus-miner config.toml to Curio in-database configuration.",
+            "message": "Migrating lotus-miner config.toml to Curio in-database configuration.",
+            "translation": "lotus-miner config.toml을 Curio의 데이터베이스 구성으로 이전 중입니다."
+        },
+        {
+            "id": "Error getting API: {Error}",
+            "message": "Error getting API: {Error}",
+            "translation": "API 가져오기 오류: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "could not get API info for FullNode: {Err}",
+            "message": "could not get API info for FullNode: {Err}",
+            "translation": "FullNode의 API 정보를 가져올 수 없습니다: {Err}",
+            "placeholders": [
+                {
+                    "id": "Err",
+                    "string": "%[1]w",
+                    "type": "error",
+                    "underlyingType": "interface{Error() string}",
+                    "argNum": 1,
+                    "expr": "err"
+                }
+            ]
+        },
+        {
+            "id": "Error getting token: {Error}",
+            "message": "Error getting token: {Error}",
+            "translation": "토큰을 가져오는 중 오류 발생: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Unmigratable sectors found. Do you want to continue?",
+            "message": "Unmigratable sectors found. Do you want to continue?",
+            "translation": "이동할 수 없는 섹터가 발견되었습니다. 계속하시겠습니까?"
+        },
+        {
+            "id": "Yes, continue",
+            "message": "Yes, continue",
+            "translation": "예, 계속"
+        },
+        {
+            "id": "No, abort",
+            "message": "No, abort",
+            "translation": "아니오, 중단"
+        },
+        {
+            "id": "Error saving config to layer: {Error}. Aborting Migration",
+            "message": "Error saving config to layer: {Error}. Aborting Migration",
+            "translation": "레이어에 구성을 저장하는 중 오류 발생: {Error}. 마이그레이션 중단",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "The Curio team wants to improve the software you use. Tell the team you're using `{Curio}`.",
+            "message": "The Curio team wants to improve the software you use. Tell the team you're using `{Curio}`.",
+            "translation": "Curio 팀은 당신이 사용하는 소프트웨어를 개선하고자 합니다. 팀에게 `{Curio}`를 사용 중이라고 알려주세요.",
+            "placeholders": [
+                {
+                    "id": "Curio",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "\"curio\""
+                }
+            ]
+        },
+        {
+            "id": "Select what you want to share with the Curio team.",
+            "message": "Select what you want to share with the Curio team.",
+            "translation": "Curio 팀과 공유하고 싶은 것을 선택하세요."
+        },
+        {
+            "id": "Individual Data: Miner ID, Curio version, chain ({Mainnet} or {Calibration}). Signed.",
+            "message": "Individual Data: Miner ID, Curio version, chain ({Mainnet} or {Calibration}). Signed.",
+            "translation": "개별 데이터: 채굴자 ID, Curio 버전, 체인 ({Mainnet} 또는 {Calibration}). 서명됨.",
+            "placeholders": [
+                {
+                    "id": "Mainnet",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "\"mainnet\""
+                },
+                {
+                    "id": "Calibration",
+                    "string": "%[2]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 2,
+                    "expr": "\"calibration\""
+                }
+            ]
+        },
+        {
+            "id": "Aggregate-Anonymous: version, chain, and Miner power (bucketed).",
+            "message": "Aggregate-Anonymous: version, chain, and Miner power (bucketed).",
+            "translation": "집계-익명: 버전, 체인, 및 채굴자 파워 (버킷)."
+        },
+        {
+            "id": "Hint: I am someone running Curio on whichever chain.",
+            "message": "Hint: I am someone running Curio on whichever chain.",
+            "translation": "힌트: 나는 어떤 체인에서든 Curio를 실행 중인 사람입니다."
+        },
+        {
+            "id": "Nothing.",
+            "message": "Nothing.",
+            "translation": "아무것도 없습니다."
+        },
+        {
+            "id": "Error getting miner power: {Error}",
+            "message": "Error getting miner power: {Error}",
+            "translation": "마이너 파워를 가져오는 중 오류 발생: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Error marshalling message: {Error}",
+            "message": "Error marshalling message: {Error}",
+            "translation": "메시지를 마샬하는 중 오류 발생: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Error getting miner info: {Error}",
+            "message": "Error getting miner info: {Error}",
+            "translation": "마이너 정보를 가져오는 중 오류 발생: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Error signing message: {Error}",
+            "message": "Error signing message: {Error}",
+            "translation": "메시지 서명 중 오류 발생: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Error sending message: {Error}",
+            "message": "Error sending message: {Error}",
+            "translation": "메시지 전송 중 오류 발생: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Error sending message: Status {Status}, Message:",
+            "message": "Error sending message: Status {Status}, Message:",
+            "translation": "메시지 전송 중 오류 발생: 상태 {Status}, 메시지:",
+            "placeholders": [
+                {
+                    "id": "Status",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "resp.Status"
+                },
+                {
+                    "id": "Stringb",
+                    "string": "%[2]v",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 2,
+                    "expr": "string(b)"
+                }
+            ]
+        },
+        {
+            "id": "Message sent.",
+            "message": "Message sent.",
+            "translation": "메시지가 전송되었습니다."
+        },
+        {
+            "id": "Documentation:",
+            "message": "Documentation:",
+            "translation": "문서:"
+        },
+        {
+            "id": "The '{Base}' layer stores common configuration. All curio instances can include it in their {__layers} argument.",
+            "message": "The '{Base}' layer stores common configuration. All curio instances can include it in their {__layers} argument.",
+            "translation": "'{Base}' 레이어에는 공통 구성이 저장됩니다. 모든 Curio 인스턴스는 {__layers} 인수에 포함시킬 수 있습니다.",
+            "placeholders": [
+                {
+                    "id": "Base",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "\"base\""
+                },
+                {
+                    "id": "__layers",
+                    "string": "%[2]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 2,
+                    "expr": "\"--layers\""
+                }
+            ]
+        },
+        {
+            "id": "You can add other layers for per-machine configuration changes.",
+            "message": "You can add other layers for per-machine configuration changes.",
+            "translation": "기계별 구성 변경을 위해 다른 레이어를 추가할 수 있습니다."
+        },
+        {
+            "id": "Filecoin {Slack} channels: {Fil_curio_help} and {Fil_curio_dev}",
+            "message": "Filecoin {Slack} channels: {Fil_curio_help} and {Fil_curio_dev}",
+            "translation": "Filecoin {Slack} 채널: {Fil_curio_help} 및 {Fil_curio_dev}",
+            "placeholders": [
+                {
+                    "id": "Slack",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "\"Slack\""
+                },
+                {
+                    "id": "Fil_curio_help",
+                    "string": "%[2]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 2,
+                    "expr": "\"#fil-curio-help\""
+                },
+                {
+                    "id": "Fil_curio_dev",
+                    "string": "%[3]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 3,
+                    "expr": "\"#fil-curio-dev\""
+                }
+            ]
+        },
+        {
+            "id": "Increase reliability using redundancy: start multiple machines with at-least the post layer: 'curio run --layers=post'",
+            "message": "Increase reliability using redundancy: start multiple machines with at-least the post layer: 'curio run --layers=post'",
+            "translation": "신뢰성 향상을 위한 중복성 사용: 적어도 post 레이어를 사용하여 여러 대의 기계를 시작하십시오: 'curio run --layers=post'"
+        },
+        {
+            "id": "One database can serve multiple miner IDs: Run a migration for each lotus-miner.",
+            "message": "One database can serve multiple miner IDs: Run a migration for each lotus-miner.",
+            "translation": "한 개의 데이터베이스는 여러 광부 ID를 제공할 수 있습니다: 각 lotus-miner에 대해 마이그레이션을 실행하세요."
+        },
+        {
+            "id": "Connected to Yugabyte. Schema is current.",
+            "message": "Connected to Yugabyte. Schema is current.",
+            "translation": "Yugabyte에 연결되었습니다. 스키마가 현재입니다."
+        },
+        {
+            "id": "Connected to Yugabyte",
+            "message": "Connected to Yugabyte",
+            "translation": "Yugabyte에 연결됨"
+        },
+        {
+            "id": "To start, ensure your sealing pipeline is drained and shut-down lotus-miner.",
+            "message": "To start, ensure your sealing pipeline is drained and shut-down lotus-miner.",
+            "translation": "시작하려면 밀봉 파이프라인이 비어 있고 lotus-miner가 종료되었는지 확인하세요."
+        },
+        {
+            "id": "Select the location of your lotus-miner config directory?",
+            "message": "Select the location of your lotus-miner config directory?",
+            "translation": "로터스 마이너 구성 디렉토리의 위치를 선택하시겠습니까?"
+        },
+        {
+            "id": "Other",
+            "message": "Other",
+            "translation": "기타"
+        },
+        {
+            "id": "Enter the path to the configuration directory used by {Lotus_miner}",
+            "message": "Enter the path to the configuration directory used by {Lotus_miner}",
+            "translation": "{Lotus_miner}에서 사용하는 구성 디렉터리 경로를 입력하세요.",
+            "placeholders": [
+                {
+                    "id": "Lotus_miner",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "\"lotus-miner\""
+                }
+            ]
+        },
+        {
+            "id": "No path provided, abandoning migration",
+            "message": "No path provided, abandoning migration",
+            "translation": "경로가 제공되지 않았으므로 마이그레이션을 포기합니다"
+        },
+        {
+            "id": "Cannot read the config.toml file in the provided directory, Error: {Error}",
+            "message": "Cannot read the config.toml file in the provided directory, Error: {Error}",
+            "translation": "제공된 디렉토리에서 config.toml 파일을 읽을 수 없습니다. 오류: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Could not create repo from directory: {Error}. Aborting migration",
+            "message": "Could not create repo from directory: {Error}. Aborting migration",
+            "translation": "디렉토리에서 저장소를 생성할 수 없습니다: {Error}. 마이그레이션을 중단합니다.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Could not lock miner repo. Your miner must be stopped: {Error}\n Aborting migration",
+            "message": "Could not lock miner repo. Your miner must be stopped: {Error}\n Aborting migration",
+            "translation": "광부 저장소를 잠금 해제할 수 없습니다. 귀하의 광부를 중지해야 합니다: {Error}\n 마이그레이션을 중단합니다.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Read Miner Config",
+            "message": "Read Miner Config",
+            "translation": "마이너 구성 읽기"
+        },
+        {
+            "id": "Step Complete: {Step}",
+            "message": "Step Complete: {Step}",
+            "translation": "단계 완료: {Step}",
+            "placeholders": [
+                {
+                    "id": "Step",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "step"
+                }
+            ]
+        },
+        {
+            "id": "Initializing a new miner actor.",
+            "message": "Initializing a new miner actor.",
+            "translation": "새 채굴자 액터 초기화 중."
+        },
+        {
+            "id": "Enter the info to create a new miner",
+            "message": "Enter the info to create a new miner",
+            "translation": "새 채굴자를 생성하기 위한 정보 입력"
+        },
+        {
+            "id": "Owner Wallet: {String}",
+            "message": "Owner Wallet: {String}",
+            "translation": "소유자 지갑: {String}",
+            "placeholders": [
+                {
+                    "id": "String",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "d.owner.String()"
+                }
+            ]
+        },
+        {
+            "id": "Worker Wallet: {String}",
+            "message": "Worker Wallet: {String}",
+            "translation": "작업자 지갑: {String}",
+            "placeholders": [
+                {
+                    "id": "String",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "d.worker.String()"
+                }
+            ]
+        },
+        {
+            "id": "Sender Wallet: {String}",
+            "message": "Sender Wallet: {String}",
+            "translation": "발송자 지갑: {String}",
+            "placeholders": [
+                {
+                    "id": "String",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "d.sender.String()"
+                }
+            ]
+        },
+        {
+            "id": "Sector Size: {Ssize}",
+            "message": "Sector Size: {Ssize}",
+            "translation": "섹터 크기: {Ssize}",
+            "placeholders": [
+                {
+                    "id": "Ssize",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "d.ssize"
+                }
+            ]
+        },
+        {
+            "id": "Continue to verify the addresses and create a new miner actor.",
+            "message": "Continue to verify the addresses and create a new miner actor.",
+            "translation": "주소를 확인하고 새 채굴자 액터를 생성하려면 계속 진행하세요."
+        },
+        {
+            "id": "Miner creation error occurred: {Error}",
+            "message": "Miner creation error occurred: {Error}",
+            "translation": "채굴자 생성 오류 발생: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Enter the owner address",
+            "message": "Enter the owner address",
+            "translation": "소유자 주소 입력"
+        },
+        {
+            "id": "No address provided",
+            "message": "No address provided",
+            "translation": "주소가 제공되지 않았습니다"
+        },
+        {
+            "id": "Failed to parse the address: {Error}",
+            "message": "Failed to parse the address: {Error}",
+            "translation": "주소 구문 분석 실패: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Enter {Stringworker_senderi_1} address",
+            "message": "Enter {Stringworker_senderi_1} address",
+            "translation": "{Stringworker_senderi_1} 주소 입력",
+            "placeholders": [
+                {
+                    "id": "Stringworker_senderi_1",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "[]string{\"worker\", \"sender\"}[i-1]"
+                }
+            ]
+        },
+        {
+            "id": "Select the Sector Size",
+            "message": "Select the Sector Size",
+            "translation": "섹터 크기 선택"
+        },
+        {
+            "id": "64 GiB",
+            "message": "64 GiB",
+            "translation": "64 GiB"
+        },
+        {
+            "id": "32 GiB",
+            "message": "32 GiB",
+            "translation": "32 GiB"
+        },
+        {
+            "id": "8 MiB",
+            "message": "8 MiB",
+            "translation": "8 MiB"
+        },
+        {
+            "id": "2 KiB",
+            "message": "2 KiB",
+            "translation": "2 KiB"
+        },
+        {
+            "id": "Sector selection failed: {Error}",
+            "message": "Sector selection failed: {Error}",
+            "translation": "섹터 선택 실패: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Failed to parse sector size: {Error}",
+            "message": "Failed to parse sector size: {Error}",
+            "translation": "섹터 크기 구문 분석 실패: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Failed to create the miner actor: {Error}",
+            "message": "Failed to create the miner actor: {Error}",
+            "translation": "채굴자 액터 생성 실패: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Miner {String} created successfully",
+            "message": "Miner {String} created successfully",
+            "translation": "{String} 채굴자가 성공적으로 생성되었습니다",
+            "placeholders": [
+                {
+                    "id": "String",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "miner.String()"
+                }
+            ]
+        },
+        {
+            "id": "Cannot reach the DB: {Error}",
+            "message": "Cannot reach the DB: {Error}",
+            "translation": "데이터베이스에 연결할 수 없습니다: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Error connecting to full node API: {Error}",
+            "message": "Error connecting to full node API: {Error}",
+            "translation": "풀 노드 API에 연결하는 중 오류 발생: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Pre-initialization steps complete",
+            "message": "Pre-initialization steps complete",
+            "translation": "사전 초기화 단계 완료"
+        },
+        {
+            "id": [
+                "errMsg",
+                "Failed to generate random bytes for secret: {Error}"
+            ],
+            "message": "Failed to generate random bytes for secret: {Error}",
+            "translation": "비밀번호를 위한 랜덤 바이트 생성에 실패했습니다: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster {String}' to finish the configuration",
+            "message": "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster {String}' to finish the configuration",
+            "translation": "마이너 생성은 idempotent하지 않으므로 가이드 설정을 다시 실행하지 마십시오. 구성을 완료하려면 'curio config new-cluster {String}'를 실행해야 합니다.",
+            "placeholders": [
+                {
+                    "id": "String",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "d.MinerID.String()"
+                }
+            ]
+        },
+        {
+            "id": "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration",
+            "message": "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration",
+            "translation": "가이드 설정을 다시 실행하지 마십시오. 구성을 완료하려면 'curio config new-cluster'를 수동으로 실행해야 합니다."
+        },
+        {
+            "id": "Non-SP cluster configuration created successfully",
+            "message": "Non-SP cluster configuration created successfully",
+            "translation": "비 SP 클러스터 구성이 성공적으로 생성되었습니다"
+        },
+        {
+            "id": "Non-SP cluster configuration complete",
+            "message": "Non-SP cluster configuration complete",
+            "translation": "비 SP 클러스터 구성 완료"
+        },
+        {
+            "id": "Configuration 'base' was updated to include this miner's address",
+            "message": "Configuration 'base' was updated to include this miner's address",
+            "translation": "이 마이너 주소를 포함한 구성 'base'가 업데이트되었습니다."
+        },
+        {
+            "id": "Failed to load base config from database: {Error}",
+            "message": "Failed to load base config from database: {Error}",
+            "translation": "데이터베이스에서 기본 구성을 로드하는 데 실패했습니다: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Failed to parse base config: {Error}",
+            "message": "Failed to parse base config: {Error}",
+            "translation": "기본 구성을 구문 분석하는 데 실패했습니다: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Failed to regenerate base config: {Error}",
+            "message": "Failed to regenerate base config: {Error}",
+            "translation": "기본 구성을 재생성하는 데 실패했습니다: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Failed to insert 'base' config layer in database: {Error}",
+            "message": "Failed to insert 'base' config layer in database: {Error}",
+            "translation": "데이터베이스에 'base' 구성 레이어를 삽입하는 데 실패했습니다: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Non-SP cluster setup complete!",
+            "message": "Non-SP cluster setup complete!",
+            "translation": "비 SP 클러스터 설정 완료!"
+        },
+        {
+            "id": "Your non-SP cluster has been configured successfully.",
+            "message": "Your non-SP cluster has been configured successfully.",
+            "translation": "비 SP 클러스터가 성공적으로 구성되었습니다."
+        },
+        {
+            "id": "You can now start using Curio for protocols like PDP, Snark markets, and others.",
+            "message": "You can now start using Curio for protocols like PDP, Snark markets, and others.",
+            "translation": "이제 PDP, Snark 시장 등과 같은 프로토콜에서 Curio를 사용할 수 있습니다."
+        },
+        {
+            "id": "To start the cluster, run: curio run --layers basic-cluster",
+            "message": "To start the cluster, run: curio run --layers basic-cluster",
+            "translation": "클러스터를 시작하려면 실행하세요: curio run --layers basic-cluster"
+        },
+        {
+            "id": "Enter the info to connect to your Yugabyte database installation (https://download.yugabyte.com/)",
+            "message": "Enter the info to connect to your Yugabyte database installation (https://download.yugabyte.com/)",
+            "translation": "Yugabyte 데이터베이스 설치에 연결할 정보를 입력하십시오 (https://download.yugabyte.com/)"
+        },
+        {
+            "id": "Host: {Hosts_}",
+            "message": "Host: {Hosts_}",
+            "translation": "호스트: {Hosts_}",
+            "placeholders": [
+                {
+                    "id": "Hosts_",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "strings.Join(harmonyCfg.Hosts, \",\")"
+                }
+            ]
+        },
+        {
+            "id": "Port: {Port}",
+            "message": "Port: {Port}",
+            "translation": "포트: {Port}",
+            "placeholders": [
+                {
+                    "id": "Port",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "harmonyCfg.Port"
+                }
+            ]
+        },
+        {
+            "id": "Username: {Username}",
+            "message": "Username: {Username}",
+            "translation": "사용자 이름: {Username}",
+            "placeholders": [
+                {
+                    "id": "Username",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "harmonyCfg.Username"
+                }
+            ]
+        },
+        {
+            "id": "Password: {Password}",
+            "message": "Password: {Password}",
+            "translation": "비밀번호: {Password}",
+            "placeholders": [
+                {
+                    "id": "Password",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "harmonyCfg.Password"
+                }
+            ]
+        },
+        {
+            "id": "Database: {Database}",
+            "message": "Database: {Database}",
+            "translation": "데이터베이스: {Database}",
+            "placeholders": [
+                {
+                    "id": "Database",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "harmonyCfg.Database"
+                }
+            ]
+        },
+        {
+            "id": "Continue to connect and update schema.",
+            "message": "Continue to connect and update schema.",
+            "translation": "계속 연결 및 스키마 업데이트."
+        },
+        {
+            "id": "Database config error occurred, abandoning migration: {Error}",
+            "message": "Database config error occurred, abandoning migration: {Error}",
+            "translation": "데이터베이스 구성 오류가 발생하여 마이그레이션을 포기합니다: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Enter the Yugabyte database host(s)",
+            "message": "Enter the Yugabyte database host(s)",
+            "translation": "Yugabyte 데이터베이스 호스트를 입력하십시오"
+        },
+        {
+            "id": "No host provided",
+            "message": "No host provided",
+            "translation": "호스트가 제공되지 않았습니다"
+        },
+        {
+            "id": "Enter the Yugabyte database {Stringport_username_password_databasei_1}",
+            "message": "Enter the Yugabyte database {Stringport_username_password_databasei_1}",
+            "translation": "Yugabyte 데이터베이스 {Stringport_username_password_databasei_1}을 입력하십시오",
+            "placeholders": [
+                {
+                    "id": "Stringport_username_password_databasei_1",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "[]string{\"port\", \"username\", \"password\", \"database\"}[i-1]"
+                }
+            ]
+        },
+        {
+            "id": "No value provided",
+            "message": "No value provided",
+            "translation": "값이 제공되지 않았습니다"
+        },
+        {
+            "id": "Error connecting to Yugabyte database: {Error}",
+            "message": "Error connecting to Yugabyte database: {Error}",
+            "translation": "Yugabyte 데이터베이스에 연결하는 중 오류가 발생했습니다: {Error}",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ]
+        },
+        {
+            "id": "Migrating metadata for {NSectors} sectors.",
+            "message": "Migrating metadata for {NSectors} sectors.",
+            "translation": "{NSectors} 섹터의 메타데이터를 이동 중입니다.",
+            "placeholders": [
+                {
+                    "id": "NSectors",
+                    "string": "%[1]d",
+                    "type": "int",
+                    "underlyingType": "int",
+                    "argNum": 1,
+                    "expr": "nSectors"
+                }
+            ]
+        },
+        {
+            "id": "Configuration 'base' was updated to include this miner's address ({MinerAddress}) and its wallet setup.",
+            "message": "Configuration 'base' was updated to include this miner's address ({MinerAddress}) and its wallet setup.",
+            "translation": "기본 설정 'base'가 이 마이너의 주소({MinerAddress}) 및 지갑 설정을 포함하도록 업데이트되었습니다.",
+            "placeholders": [
+                {
+                    "id": "MinerAddress",
+                    "string": "%[1]s",
+                    "type": "github.com/filecoin-project/go-address.Address",
+                    "underlyingType": "struct{str string}",
+                    "argNum": 1,
+                    "expr": "minerAddress"
+                }
+            ]
+        },
+        {
+            "id": "Compare the configurations {Base} to {MinerAddresses0}. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.",
+            "message": "Compare the configurations {Base} to {MinerAddresses0}. Changes between the miner IDs other than wallet addreses should be a new, minimal layer for runners that need it.",
+            "translation": "구성 {Base}를 {MinerAddresses0}과 비교하세요. 지갑 주소 이외의 마이너 ID 사이의 변경 사항은 필요한 실행자를 위한 새로운 최소한의 레이어여야 합니다.",
+            "placeholders": [
+                {
+                    "id": "Base",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "\"base\""
+                },
+                {
+                    "id": "MinerAddresses0",
+                    "string": "%[2]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 2,
+                    "expr": "\"mig-\" + curioCfg.Addresses[0].MinerAddresses[0]"
+                }
+            ]
+        },
+        {
+            "id": "Configuration 'base' was created to resemble this lotus-miner's config.toml .",
+            "message": "Configuration 'base' was created to resemble this lotus-miner's config.toml .",
+            "translation": "'base' 설정이 이 lotus-miner의 config.toml과 유사하게 만들어졌습니다."
+        },
+        {
+            "id": "Layer {LayerName} created.",
+            "message": "Layer {LayerName} created.",
+            "translation": "레이어 {LayerName}가 생성되었습니다.",
+            "placeholders": [
+                {
+                    "id": "LayerName",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "layerName"
+                }
+            ]
+        },
+        {
+            "id": "To work with the config:",
+            "message": "To work with the config:",
+            "translation": "구성 파일을 사용하려면:"
+        },
+        {
+            "id": "To run Curio: With machine or cgroup isolation, use the command (with example layer selection):",
+            "message": "To run Curio: With machine or cgroup isolation, use the command (with example layer selection):",
+            "translation": "Curio를 실행하려면: 기계 또는 cgroup 격리를 사용하여 다음 명령을 사용하세요 (예제 레이어 선택과 함께):"
+        }
+    ]
+}

@@ -487,27 +487,27 @@ func ExtractAdditionalSystemInfo() (AdditionalSystemInfo, error) {
 	return info, nil
 }
 
-func GenerateSupraSealConfigString(dualHashers bool, batchSize int, nvmeDevices []string) (string, error) {
+func GenerateSupraSealConfigString(dualHashers bool, batchSize int, nvmeDevices []string) (string, []string, error) {
 	// Get system information
 	sysInfo, err := GetSystemInfo()
 	if err != nil {
-		return "", fmt.Errorf("failed to get system info: %v", err)
+		return "", nil, fmt.Errorf("failed to get system info: %v", err)
 	}
 
 	// Generate SupraSealConfig
 	config, err := GenerateSupraSealConfig(*sysInfo, dualHashers, batchSize, nvmeDevices)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate SupraSeal config: %v", err)
+		return "", nil, fmt.Errorf("failed to generate SupraSeal config: %v", err)
 	}
 
 	// Get additional system information
 	additionalInfo, err := ExtractAdditionalSystemInfo()
 	if err != nil {
-		return "", fmt.Errorf("failed to extract additional system info: %v", err)
+		return "", nil, fmt.Errorf("failed to extract additional system info: %v", err)
 	}
 
 	// Format the config
 	configString := FormatSupraSealConfig(config, *sysInfo, additionalInfo)
 
-	return configString, nil
+	return configString, config.NVMeDevices, nil
 }

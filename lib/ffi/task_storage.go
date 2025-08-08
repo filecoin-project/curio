@@ -159,6 +159,10 @@ func (t *TaskStorage) Claim(taskID int) (func() error, error) {
 		lockAcquireTimer.Reset(0)
 	}()
 
+	// guard other concurrent reservation attempts on the same storage
+	ctx = storagePaths.ReservationCtxLock.Lock(ctx)
+	defer storagePaths.ReservationCtxLock.Unlock(ctx)
+
 	// First see what we have locally. We are putting allocate and existing together because local acquire will look
 	// for existing files for allocate requests, separately existing files which aren't found locally will be need to
 	// be fetched, so we will need to create reservations for that too.

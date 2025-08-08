@@ -1,0 +1,44 @@
+Curio Compliance License (CCL) Version 1.0
+Copyright (c) 2025 Curio Storage Inc. and contributors
+
+Permission is hereby granted, free of charge, to any person
+obtaining a copy of the Software and associated documentation
+files (the “Software”), to deal in the Software without
+restriction, including without limitation the rights to use, copy,
+modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+1. **Integrity of Compliance Logic.**  
+   You must not remove, disable, bypass, or materially alter any
+   portion of the Software that (a) displays, stores, or requires
+   affirmative acceptance of the “Curio Client Terms of
+   Service” or “Curio Provider Terms of Service”, or  
+   (b) performs sanctions, AML, or similar compliance checks that
+   the Terms require (collectively, the “Compliance Logic”).  
+   *A modified version whose purpose or effect is to circumvent the
+   Compliance Logic is outside the scope of this license.*  
+   Nothing in this section prohibits you from (i) stubbing out all
+   network calls so the code **cannot** interact with the Curio
+   main-net service, or (ii) adding additional compliance
+   protections of your own.
+
+2. The above copyright notice, this permission notice, and
+   the Curio Storage Client/Provider Terms of Service referenced
+   herein shall be included in all copies or substantial portions
+   of the Software.
+
+3. **Disclaimer of Warranty.** The Software is provided “AS IS”,
+   without warranty of any kind, express or implied, including but
+   not limited to the warranties of merchantability, fitness for a
+   particular purpose and non-infringement. In no event shall the
+   authors or copyright holders be liable for any claim, damages or
+   other liability, whether in an action of contract, tort or
+   otherwise, arising from, out of or in connection with the
+   Software or the use or other dealings in the Software.
+
+4. **Limitation of Liability.** To the maximum extent permitted by
+   law, our total liability under this license is limited to the
+   greater of (i) USD 100 or (ii) the fees we actually received from
+   you for use of the Software in the twelve (12) months preceding
+   the claim.
