@@ -55,6 +55,23 @@ class CCScheduler extends LitElement {
     }
   }
 
+  async updateEnabled(row, enabled) {
+    this.error = '';
+    try {
+      await RPCCall('SectorCCSchedulerUpsert', [String(row.SPAddress), Number(row.ToSeal)||0, Number(row.Weight)||1000, !!enabled]);
+      this.load();
+    } catch (e) {
+      this.error = String(e?.message || e);
+      this.requestUpdate();
+    }
+  }
+
+  confirmRemove(sp) {
+    if (window.confirm(`Delete CC scheduler entry for ${sp}?`)) {
+      this.remove(sp);
+    }
+  }
+
   renderAddRow() {
     if (!this.showAdd) return '';
     return html`
@@ -127,9 +144,9 @@ class CCScheduler extends LitElement {
                   <td>${r.RequestedSize}</td>
                   <td>${r.ToSeal}</td>
                   <td>${r.Weight}</td>
-                  <td>${r.Enabled ? 'Yes' : 'No'}</td>
+                  <td><input type="checkbox" ?checked=${r.Enabled} @change=${e=>this.updateEnabled(r, e.target.checked)} /></td>
                   <td>
-                    <button class="btn btn-sm btn-danger" @click=${()=>this.remove(r.SPAddress)}>Delete</button>
+                    <button class="btn btn-sm btn-danger" @click=${()=>this.confirmRemove(r.SPAddress)}>Delete</button>
                   </td>
                 </tr>
               `)}
