@@ -106,7 +106,7 @@ class CCScheduler extends LitElement {
       </tr>
       ${this.error ? html`
         <tr>
-          <td colspan="6">
+          <td colspan="7">
             <div class="alert alert-danger" style="margin-top:6px;">${this.error}</div>
           </td>
         </tr>
@@ -158,8 +158,8 @@ class CCScheduler extends LitElement {
               `)}
               ${this.renderAddRow()}
               <tr>
-                <td colspan="6">
-                  <a href="#" @click=${(e)=>{e.preventDefault(); this.showAdd = true;}}>add</a>
+                <td colspan="7">
+                  <a href="#" @click=${(e)=>{e.preventDefault(); this.showAdd = true;}}>Add</a>
                 </td>
               </tr>
             </tbody>
@@ -170,4 +170,4 @@ class CCScheduler extends LitElement {
   }
 }
 
-customElements.define('cc-scheduler', CCScheduler); 
+customElements.define('cc-scheduler', CCScheduler);
