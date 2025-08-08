@@ -114,6 +114,17 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
 	}
 
+	// Check if the data set has any leaves (pieces) before attempting to initialize proving period
+	leafCount, err := pdpVerifier.GetDataSetLeafCount(nil, big.NewInt(dataSetId))
+	if err != nil {
+		return false, xerrors.Errorf("failed to get leaf count for data set %d: %w", dataSetId, err)
+	}
+	if leafCount.Cmp(big.NewInt(0)) == 0 {
+		// No leaves in the data set yet, skip initialization
+		// Return done=false to retry later (the task will be retried by the scheduler)
+		return false, nil
+	}
+
 	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get listener address for data set %d: %w", dataSetId, err)
