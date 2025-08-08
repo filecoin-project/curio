@@ -287,26 +287,33 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			sdeps.EthSender = es
 
 			pdp.NewWatcherCreate(db, must.One(dependencies.EthClient.Val()), chainSched)
-			pdp.NewWatcherRootAdd(db, must.One(dependencies.EthClient.Val()), chainSched)
-			pdp.NewWatcherDelete(db, must.One(dependencies.EthClient.Val()), chainSched)
-			pdp.NewPDPTaskDeleteRoot(db, es, must.One(dependencies.EthClient.Val()))
-			pdp.NewWatcherRootDelete(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdp.NewWatcherRootAdd(db, chainSched)
+			pdp.NewWatcherDelete(db, chainSched)
+			pdp.NewWatcherRootDelete(db, chainSched)
 
-			pdpAggregateTask := pdp.NewAggregatePDPDealTask(db, sc)
-			pdpCache := pdp.NewTaskSavePDPCache(db, dependencies.CachedPieceReader, iStore)
-			pdpAddRoot := pdp.NewPDPTaskAddRoot(db, es, must.One(dependencies.EthClient.Val()))
 			pdpProveTask := pdp.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), dependencies.Chain, es, dependencies.CachedPieceReader, iStore)
 			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
 			pdpInitProvingPeriodTask := pdp.NewInitProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
 			pdpNotifTask := pdp.NewPDPNotifyTask(db)
-			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, pdpAddRoot, pdpAggregateTask, pdpCache)
+
+			addProofSetTask := pdp.NewPDPTaskAddProofSet(db, es, must.One(dependencies.EthClient.Val()), full)
+			pdpAddRoot := pdp.NewPDPTaskAddRoot(db, es, must.One(dependencies.EthClient.Val()))
+			pdpDelRoot := pdp.NewPDPTaskDeleteRoot(db, es, must.One(dependencies.EthClient.Val()))
+			pdpDelProofSetTask := pdp.NewPDPTaskDeleteProofSet(db, es, must.One(dependencies.EthClient.Val()), full)
+
+			pdpAggregateTask := pdp.NewAggregatePDPDealTask(db, sc)
+			pdpCache := pdp.NewTaskSavePDPCache(db, dependencies.CachedPieceReader, iStore)
+
+			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, pdpAddRoot, addProofSetTask, pdpAggregateTask, pdpCache, pdpDelRoot, pdpDelProofSetTask)
 		}
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
 
 		indexingTask := indexing.NewIndexingTask(db, sc, iStore, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
-		ipniTask := indexing.NewIPNITask(db, sc, iStore, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
-		activeTasks = append(activeTasks, ipniTask, indexingTask)
+		ipniTask := indexing.NewIPNITask(db, sc, dependencies.SectorReader, dependencies.CachedPieceReader, cfg, idxMax)
+		pdpIdxTask := indexing.NewPDPIndexingTask(db, sc, iStore, dependencies.CachedPieceReader, cfg, idxMax)
+		pdpIPNITask := indexing.NewPDPIPNITask(db, sc, dependencies.CachedPieceReader, cfg, idxMax)
+		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask)
 
 		if cfg.HTTP.Enable {
 			err = cuhttp.StartHTTPServer(ctx, dependencies, &sdeps)

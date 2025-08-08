@@ -21,9 +21,9 @@ const docTemplate = `{
                 "summary": "List of supported DDO contracts",
                 "responses": {
                     "200": {
-                        "description": "OK - Success",
+                        "description": "Array of contract addresses supported by a system or application.",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/mk20.SupportedContracts"
                         }
                     },
                     "500": {
@@ -41,9 +41,9 @@ const docTemplate = `{
                 "summary": "List of supported products",
                 "responses": {
                     "200": {
-                        "description": "OK - Success",
+                        "description": "Array of products supported by the SP",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/mk20.SupportedProducts"
                         }
                     },
                     "500": {
@@ -61,9 +61,9 @@ const docTemplate = `{
                 "summary": "List of supported dats sources",
                 "responses": {
                     "200": {
-                        "description": "OK - Success",
+                        "description": "Array of dats sources supported by the SP",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/mk20.SupportedDataSources"
                         }
                     },
                     "500": {
@@ -90,9 +90,9 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK - Success",
+                        "description": "the status response for deal products with their respective deal statuses",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/mk20.DealProductStatusResponse"
                         }
                     },
                     "400": {
@@ -619,9 +619,9 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "UploadStatusCodeOk represents a successful upload operation with status code 200",
+                        "description": "The status of a file upload process, including progress and missing chunks",
                         "schema": {
-                            "$ref": "#/definitions/mk20.UploadStatusCode"
+                            "$ref": "#/definitions/mk20.UploadStatus"
                         }
                     },
                     "400": {
@@ -652,6 +652,9 @@ const docTemplate = `{
             },
             "post": {
                 "description": "Initializes the upload for a deal. Each upload must be initialized before chunks can be uploaded for a deal.",
+                "consumes": [
+                    "application/json"
+                ],
                 "summary": "Starts the upload process",
                 "parameters": [
                     {
@@ -660,6 +663,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "Metadata for initiating an upload operation",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/mk20.StartUpload"
+                        }
                     }
                 ],
                 "responses": {
@@ -717,7 +729,7 @@ const docTemplate = `{
                     },
                     {
                         "description": "raw binary",
-                        "name": "body",
+                        "name": "data",
                         "in": "body",
                         "required": true,
                         "schema": {
@@ -1013,6 +1025,65 @@ const docTemplate = `{
                 "ErrDurationTooShort"
             ]
         },
+        "mk20.DealProductStatusResponse": {
+            "type": "object",
+            "properties": {
+                "ddo_v1": {
+                    "description": "DDOV1 holds the DealStatusResponse for product \"ddo_v1\".",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DealStatusResponse"
+                        }
+                    ]
+                },
+                "pdp_v1": {
+                    "description": "PDPV1 represents the DealStatusResponse for the product pdp_v1.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DealStatusResponse"
+                        }
+                    ]
+                }
+            }
+        },
+        "mk20.DealState": {
+            "type": "string",
+            "enum": [
+                "accepted",
+                "uploading",
+                "processing",
+                "sealing",
+                "indexing",
+                "failed",
+                "complete"
+            ],
+            "x-enum-varnames": [
+                "DealStateAccepted",
+                "DealStateAwaitingUpload",
+                "DealStateProcessing",
+                "DealStateSealing",
+                "DealStateIndexing",
+                "DealStateFailed",
+                "DealStateComplete"
+            ]
+        },
+        "mk20.DealStatusResponse": {
+            "type": "object",
+            "properties": {
+                "error_msg": {
+                    "description": "ErrorMsg is an optional field containing error details associated with the deal's current state if an error occurred.",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "State indicates the current processing state of the deal as a DealState value.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/mk20.DealState"
+                        }
+                    ]
+                }
+            }
+        },
         "mk20.FormatAggregate": {
             "type": "object",
             "properties": {
@@ -1182,6 +1253,55 @@ const docTemplate = `{
                 }
             }
         },
+        "mk20.StartUpload": {
+            "type": "object",
+            "properties": {
+                "chunk_size": {
+                    "description": "ChunkSize defines the size of each data chunk to be used during the upload process.",
+                    "type": "integer"
+                },
+                "raw_size": {
+                    "description": "RawSize indicates the total size of the data to be uploaded in bytes.",
+                    "type": "integer"
+                }
+            }
+        },
+        "mk20.SupportedContracts": {
+            "type": "object",
+            "properties": {
+                "contracts": {
+                    "description": "Contracts represents a list of supported contract addresses in string format.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "mk20.SupportedDataSources": {
+            "type": "object",
+            "properties": {
+                "sources": {
+                    "description": "Contracts represents a list of supported contract addresses in string format.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "mk20.SupportedProducts": {
+            "type": "object",
+            "properties": {
+                "products": {
+                    "description": "Contracts represents a list of supported contract addresses in string format.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "mk20.UploadCode": {
             "type": "integer",
             "enum": [
@@ -1216,6 +1336,37 @@ const docTemplate = `{
                 "UploadStartCodeServerError"
             ]
         },
+        "mk20.UploadStatus": {
+            "type": "object",
+            "properties": {
+                "missing": {
+                    "description": "Missing represents the number of chunks that are not yet uploaded.",
+                    "type": "integer"
+                },
+                "missing_chunks": {
+                    "description": "MissingChunks is a slice containing the indices of missing chunks.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "total_chunks": {
+                    "description": "TotalChunks represents the total number of chunks required for the upload.",
+                    "type": "integer"
+                },
+                "uploaded": {
+                    "description": "Uploaded represents the number of chunks successfully uploaded.",
+                    "type": "integer"
+                },
+                "uploaded_chunks": {
+                    "description": "UploadedChunks is a slice containing the indices of successfully uploaded chunks.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
         "mk20.UploadStatusCode": {
             "type": "integer",
             "enum": [
@@ -1234,7 +1385,7 @@ const docTemplate = `{
     },
     "securityDefinitions": {
         "CurioAuth": {
-            "description": "Use the format: ` + "`" + `CurioAuth PublicKeyType:PublicKey:Signature` + "`" + `\n\n- ` + "`" + `PublicKeyType` + "`" + `: String representation of type of wallet (e.g., \"ed25519\", \"bls\", \"secp256k1\")\n- ` + "`" + `PublicKey` + "`" + `: Base64 string of public key bytes\n- ` + "`" + `Signature` + "`" + `: Signature is Base64 string of signature bytes.\n- The client is expected to sign the SHA-256 hash of a message constructed by concatenating the following three components, in order.\n- The raw public key bytes (not a human-readable address)\n- The HTTP request path, such as /user/info\n- The timestamp, truncated to the nearest minute, formatted in RFC3339 (e.g., 2025-07-15T17:42:00Z)\n- These three byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.",
+            "description": "Use the format: ` + "`" + `CurioAuth PublicKeyType:PublicKey:Signature` + "`" + `\n\n- ` + "`" + `PublicKeyType` + "`" + `: String representation of type of wallet (e.g., \"ed25519\", \"bls\", \"secp256k1\")\n- ` + "`" + `PublicKey` + "`" + `: Base64 string of public key bytes\n- ` + "`" + `Signature` + "`" + `: Signature is Base64 string of signature bytes.\n- The client is expected to sign the SHA-256 hash of a message constructed by concatenating the following components, in order.\n- The raw public key bytes (not a human-readable address)\n- The timestamp, truncated to the nearest hour, formatted in RFC3339 (e.g., 2025-07-15T17:00:00Z)\n- These two byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.",
             "type": "apiKey",
             "name": "Authorization",
             "in": "header"

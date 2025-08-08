@@ -2,13 +2,16 @@ package pdp
 
 import (
 	"context"
+	"errors"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ipfs/go-cid"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -47,12 +50,13 @@ func (p *PDPTaskAddRoot) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	var addRoots []struct {
 		ID         string `db:"id"`
 		PieceCid   string `db:"piece_cid"`
+		PieceCid2  string `db:"piece_cid_v2"`
 		ProofSetID int64  `db:"proof_set_id"`
 		ExtraData  []byte `db:"extra_data"`
 		PieceRef   string `db:"piece_ref"`
 	}
 
-	err = p.db.Select(ctx, &addRoots, `SELECT id, piece_cid, proof_set_id, extra_data, piece_ref FROM pdp_pipeline WHERE add_root_task_id = $1 AND after_add_root = FALSE`, taskID)
+	err = p.db.Select(ctx, &addRoots, `SELECT id, piece_cid, piece_cid_v2, proof_set_id, extra_data, piece_ref FROM pdp_pipeline WHERE add_root_task_id = $1 AND after_add_root = FALSE`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to select addRoot: %w", err)
 	}
@@ -61,7 +65,7 @@ func (p *PDPTaskAddRoot) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		return false, xerrors.Errorf("no addRoot found for taskID %d", taskID)
 	}
 
-	if len(addRoots) > 0 {
+	if len(addRoots) > 1 {
 		return false, xerrors.Errorf("multiple addRoot found for taskID %d", taskID)
 	}
 
@@ -72,7 +76,12 @@ func (p *PDPTaskAddRoot) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		return false, xerrors.Errorf("failed to parse piece cid: %w", err)
 	}
 
-	pi, err := mk20.GetPieceInfo(pcid)
+	pcid2, err := cid.Parse(addRoot.PieceCid2)
+	if err != nil {
+		return false, xerrors.Errorf("failed to parse piece cid: %w", err)
+	}
+
+	pi, err := mk20.GetPieceInfo(pcid2)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get piece info: %w", err)
 	}
@@ -87,7 +96,7 @@ func (p *PDPTaskAddRoot) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	rootDataArray := []contract.RootData{
 		{
 			Root:    struct{ Data []byte }{Data: pcid.Bytes()},
-			RawSize: new(big.Int).SetUint64(pi.RawSize),
+			RawSize: new(big.Int).SetUint64(uint64(pi.Size.Unpadded())),
 		},
 	}
 
@@ -105,8 +114,7 @@ func (p *PDPTaskAddRoot) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		Context: ctx,
 	}
 
-	pdpContracts := contract.ContractAddresses()
-	pdpVerifierAddress := pdpContracts.PDPVerifier
+	pdpVerifierAddress := contract.ContractAddresses().PDPVerifier
 
 	pdpVerifier, err := contract.NewPDPVerifier(pdpVerifierAddress, p.ethClient)
 	if err != nil {
@@ -136,61 +144,24 @@ func (p *PDPTaskAddRoot) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		return false, xerrors.Errorf("sending transaction: %w", err)
 	}
 
+	txHashLower := strings.ToLower(txHash.Hex())
+
 	// Insert into message_waits_eth and pdp_proofset_roots
 	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// Insert into message_waits_eth
 		_, err = tx.Exec(`
           INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
           VALUES ($1, $2)
-      `, txHash.Hex(), "pending")
+      `, txHashLower, "pending")
 		if err != nil {
 			return false, xerrors.Errorf("failed to insert into message_waits_eth: %w", err)
 		}
 
-		// Update proof set for initialization upon first add
-		_, err = tx.Exec(`
-			UPDATE pdp_proof_sets SET init_ready = true
-			WHERE id = $1 AND prev_challenge_request_epoch IS NULL AND challenge_request_msg_hash IS NULL AND prove_at_epoch IS NULL
-			`, proofSetID.Uint64())
-		if err != nil {
-			return false, xerrors.Errorf("failed to update pdp_proof_sets: %w", err)
-		}
-
-		// Insert into pdp_proofset_roots
-		n, err := tx.Exec(`
-                  INSERT INTO pdp_proofset_root (
-                      proofset,
-                      piece_cid_v2,
-					  piece_cid,
-					  piece_size,
-					  raw_size,
-                      piece_ref,
-                      add_deal_id,
-                      add_message_hash
-                  )
-                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-              `,
-			proofSetID.Uint64(),
-			pcid.String(),
-			pi.PieceCIDV1.String(),
-			pi.Size,
-			pi.RawSize,
-			addRoot.PieceRef,
-			addRoot.ID,
-			txHash.Hex(),
-		)
-		if err != nil {
-			return false, xerrors.Errorf("failed to insert into pdp_proofset_root: %w", err)
-		}
-		if n != 1 {
-			return false, xerrors.Errorf("incorrect number of rows inserted for pdp_proofset_root: %d", n)
-		}
-
-		n, err = tx.Exec(`UPDATE pdp_pipeline SET 
+		n, err := tx.Exec(`UPDATE pdp_pipeline SET 
 								after_add_root = TRUE, 
 								add_root_task_id = NULL,
-								add_message_hash = $2,
-							WHERE add_root_task_id = $1`, taskID, txHash.Hex())
+								add_message_hash = $2
+							WHERE add_root_task_id = $1`, taskID, txHashLower)
 		if err != nil {
 			return false, xerrors.Errorf("failed to update pdp_pipeline: %w", err)
 		}
@@ -237,15 +208,19 @@ func (p *PDPTaskAddRoot) schedule(ctx context.Context, taskFunc harmonytask.AddT
 								  WHERE add_root_task_id IS NULL 
 									AND after_add_root = FALSE 
 									AND after_add_root_msg = FALSE
-									AND aggregated = TRUE`).Scan(&did)
+									AND aggregated = TRUE
+									LIMIT 1`).Scan(&did)
 			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return false, nil
+				}
 				return false, xerrors.Errorf("failed to query pdp_pipeline: %w", err)
 			}
 			if did == "" {
 				return false, xerrors.Errorf("no valid deal ID found for scheduling")
 			}
 
-			_, err = tx.Exec(`UPDATE pdp_pipeline SET add_root_task_id = $1, WHERE piece_cid = $2 AND after_add_root = FALSE AND after_add_root_msg = FALSE AND aggregated = TRUE`, id, did)
+			_, err = tx.Exec(`UPDATE pdp_pipeline SET add_root_task_id = $1 WHERE id = $2 AND after_add_root = FALSE AND after_add_root_msg = FALSE AND aggregated = TRUE`, id, did)
 			if err != nil {
 				return false, xerrors.Errorf("failed to update pdp_pipeline: %w", err)
 			}
@@ -262,3 +237,4 @@ func (p *PDPTaskAddRoot) schedule(ctx context.Context, taskFunc harmonytask.AddT
 func (p *PDPTaskAddRoot) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
 var _ harmonytask.TaskInterface = &PDPTaskAddRoot{}
+var _ = harmonytask.Reg(&PDPTaskAddRoot{})

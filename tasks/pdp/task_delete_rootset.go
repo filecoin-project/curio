@@ -2,6 +2,7 @@ package pdp
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -43,12 +45,12 @@ func (p *PDPTaskDeleteProofSet) Do(taskID harmonytask.TaskID, stillOwned func() 
 		ExtraData []byte `db:"extra_data"`
 	}
 
-	err = p.db.Select(ctx, &pdeletes, `SELECT set_id, extra_data FROM pdp_proof_set_create WHERE task_id = $1 AND tx_hash IS NULL`, taskID)
+	err = p.db.Select(ctx, &pdeletes, `SELECT set_id, extra_data FROM pdp_proof_set_delete WHERE task_id = $1 AND tx_hash IS NULL`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get task details from DB: %w", err)
 	}
 
-	if len(pdeletes) != 0 {
+	if len(pdeletes) != 1 {
 		return false, xerrors.Errorf("incorrect rows for proofset delete found for taskID %d", taskID)
 	}
 
@@ -97,7 +99,7 @@ func (p *PDPTaskDeleteProofSet) Do(taskID harmonytask.TaskID, stillOwned func() 
 	tx := types.NewTransaction(
 		0,
 		contract.ContractAddresses().PDPVerifier,
-		contract.SybilFee(),
+		big.NewInt(0),
 		0,
 		nil,
 		data,
@@ -112,13 +114,31 @@ func (p *PDPTaskDeleteProofSet) Do(taskID harmonytask.TaskID, stillOwned func() 
 
 	// Insert into message_waits_eth and pdp_proof_set_delete
 	txHashLower := strings.ToLower(txHash.Hex())
-	n, err := p.db.Exec(ctx, `UPDATE pdp_proof_set_delete SET tx_hash = $1, task_id = NULL WHERE task_id = $2`, txHashLower, taskID)
+
+	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		n, err := tx.Exec(`UPDATE pdp_proof_set_delete SET tx_hash = $1, task_id = NULL WHERE task_id = $2`, txHashLower, taskID)
+		if err != nil {
+			return false, xerrors.Errorf("failed to update pdp_proof_set_delete: %w", err)
+		}
+		if n != 1 {
+			return false, xerrors.Errorf("incorrect number of rows updated for pdp_proof_set_delete: %d", n)
+		}
+
+		_, err = tx.Exec(`INSERT INTO message_waits_eth (signed_tx_hash, tx_status) VALUES ($1, $2)`, txHashLower, "pending")
+		if err != nil {
+			return false, xerrors.Errorf("failed to insert into message_waits_eth: %w", err)
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+
 	if err != nil {
-		return false, xerrors.Errorf("failed to update pdp_proof_set_delete: %w", err)
+		return false, xerrors.Errorf("failed to commit transaction: %w", err)
 	}
-	if n != 1 {
-		return false, xerrors.Errorf("incorrect number of rows updated for pdp_proof_set_delete: %d", n)
+
+	if !comm {
+		return false, xerrors.Errorf("failed to commit transaction")
 	}
+
 	return true, nil
 }
 
@@ -129,7 +149,7 @@ func (p *PDPTaskDeleteProofSet) CanAccept(ids []harmonytask.TaskID, engine *harm
 func (p *PDPTaskDeleteProofSet) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(50),
-		Name: "PDPAddProofSet",
+		Name: "PDPDelProofSet",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,
@@ -148,8 +168,11 @@ func (p *PDPTaskDeleteProofSet) schedule(ctx context.Context, taskFunc harmonyta
 			stop = true // assume we're done until we find a task to schedule
 
 			var did string
-			err := tx.QueryRow(`SELECT id FROM pdp_proof_set_delete WHERE task_id IS NULL AND tx_hash IS NULL`).Scan(&id)
+			err := tx.QueryRow(`SELECT id FROM pdp_proof_set_delete WHERE task_id IS NULL AND tx_hash IS NULL LIMIT 1`).Scan(&did)
 			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return false, nil
+				}
 				return false, xerrors.Errorf("failed to query pdp_proof_set_delete: %w", err)
 			}
 			if did == "" {
@@ -173,3 +196,4 @@ func (p *PDPTaskDeleteProofSet) schedule(ctx context.Context, taskFunc harmonyta
 func (p *PDPTaskDeleteProofSet) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
 var _ harmonytask.TaskInterface = &PDPTaskDeleteProofSet{}
+var _ = harmonytask.Reg(&PDPTaskDeleteProofSet{})

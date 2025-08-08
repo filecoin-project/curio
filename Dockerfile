@@ -61,10 +61,23 @@ RUN go install github.com/LexLuthr/piece-server@latest \
 RUN go install github.com/ipni/storetheindex@v0.8.38 \
  && cp $GOPATH/bin/storetheindex /usr/local/bin/
 
+RUN go install github.com/ethereum/go-ethereum/cmd/geth@latest \
+ && cp $GOPATH/bin/geth /usr/local/bin/
+
 #####################################
 FROM ubuntu:22.04 AS curio-all-in-one
 
-RUN apt-get update && apt-get install -y dnsutils vim curl aria2 jq
+RUN apt-get update && apt-get install -y dnsutils vim curl aria2 jq git wget nodejs npm
+
+# Install Foundry
+RUN curl -L https://foundry.paradigm.xyz | bash \
+    && bash -c ". ~/.foundry/bin/foundryup"
+
+# Make sure foundry binaries are available in PATH
+ENV PATH="/root/.foundry/bin:${PATH}"
+
+# Verify installation
+RUN forge --version && cast --version && anvil --version
 
 # Copy libraries and binaries from curio-builder
 COPY --from=curio-builder /etc/ssl/certs /etc/ssl/certs
@@ -100,6 +113,7 @@ COPY --from=curio-builder /opt/curio/sptool /usr/local/bin/
 COPY --from=piece-server-builder /usr/local/bin/piece-server /usr/local/bin/
 COPY --from=piece-server-builder /usr/local/bin/car /usr/local/bin/
 COPY --from=piece-server-builder /usr/local/bin/storetheindex /usr/local/bin/
+COPY --from=piece-server-builder /usr/local/bin/geth /usr/local/bin/
 
 # Set up directories and permissions
 RUN mkdir /var/tmp/filecoin-proof-parameters \

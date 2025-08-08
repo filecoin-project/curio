@@ -391,7 +391,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 
 	var pieceCid string
 
-	err := p.db.QueryRow(context.Background(), `SELECT piece_cid_v2 FROM pdp_proofset_root WHERE proofset = $1 AND root_id = $2`, proofSetID, rootId).Scan(&pieceCid)
+	err := p.db.QueryRow(context.Background(), `SELECT piece_cid_v2 FROM pdp_proofset_root WHERE proof_set_id = $1 AND root_id = $2`, proofSetID, rootId).Scan(&pieceCid)
 	if err != nil {
 		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get root and subroot: %w", err)
 	}

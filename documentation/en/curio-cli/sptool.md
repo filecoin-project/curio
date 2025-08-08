@@ -899,12 +899,14 @@ USAGE:
    sptool toolbox mk20-client command [command options]
 
 COMMANDS:
-   init       Initialise curio mk12 client repo
-   commp      
-   deal       Make a mk20 deal with Curio
-   aggregate  Create a new aggregate from a list of CAR files
-   upload     Upload a file to the storage provider
-   help, h    Shows a list of commands or help for one command
+   init          Initialise curio mk12 client repo
+   commp         
+   deal          Make a mk20 deal with Curio
+   pdp-deal      Make a mk20 PDP deal with Curio
+   aggregate     Create a new aggregate from a list of CAR files
+   upload        Upload a file to the storage provider
+   chunk-upload  Upload a file in chunks to the storage provider
+   help, h       Shows a list of commands or help for one command
 
 OPTIONS:
    --mk12-client-repo value  repo directory for mk12 client (default: "~/.curio-client") [$CURIO_MK12_CLIENT_REPO]
@@ -960,6 +962,32 @@ OPTIONS:
    --help, -h                                     show help
 ```
 
+#### sptool toolbox mk20-client pdp-deal
+```
+NAME:
+   sptool toolbox mk20-client pdp-deal - Make a mk20 PDP deal with Curio
+
+USAGE:
+   sptool toolbox mk20-client pdp-deal [command options]
+
+OPTIONS:
+   --http-url value                               http url to CAR file
+   --http-headers value [ --http-headers value ]  http headers to be passed with the request (e.g key=value)
+   --provider value                               storage provider on-chain address
+   --pcidv2 value                                 pcidv2 of the CAR file
+   --wallet value                                 wallet address to be used to initiate the deal
+   --aggregate value                              aggregate file path for the deal
+   --put                                          used HTTP put as data source (default: false)
+   --add-root                                     add root (default: false)
+   --add-proofset                                 add proofset (default: false)
+   --remove-root                                  remove root (default: false)
+   --remove-proofset                              remove proofset (default: false)
+   --record-keeper value                          record keeper address
+   --root-id value [ --root-id value ]            root IDs
+   --proofset-id value                            proofset IDs (default: 0)
+   --help, -h                                     show help
+```
+
 #### sptool toolbox mk20-client aggregate
 ```
 NAME:
@@ -982,6 +1010,20 @@ NAME:
 
 USAGE:
    sptool toolbox mk20-client upload [command options]
+
+OPTIONS:
+   --provider value  storage provider on-chain address
+   --deal value      deal id to upload to
+   --help, -h        show help
+```
+
+#### sptool toolbox mk20-client chunk-upload
+```
+NAME:
+   sptool toolbox mk20-client chunk-upload - Upload a file in chunks to the storage provider
+
+USAGE:
+   sptool toolbox mk20-client chunk-upload [command options]
 
 OPTIONS:
    --provider value    storage provider on-chain address

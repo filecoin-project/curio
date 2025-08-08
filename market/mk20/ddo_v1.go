@@ -41,7 +41,7 @@ type DDOV1 struct {
 	Duration abi.ChainEpoch `json:"duration"`
 
 	// AllocationId represents an aggregated allocation identifier for the deal.
-	AllocationId *verifreg.AllocationId `json:"allocation_id"`
+	AllocationId *verifreg.AllocationId `json:"allocation_id,omitempty"`
 
 	// ContractAddress specifies the address of the contract governing the deal
 	ContractAddress string `json:"contract_address"`
@@ -50,13 +50,13 @@ type DDOV1 struct {
 	ContractVerifyMethod string `json:"contract_verify_method"`
 
 	// ContractDealIDMethodParams represents encoded parameters for the contract verify method if required by the contract
-	ContractVerifyMethodParams []byte `json:"contract_verify_method_params"`
+	ContractVerifyMethodParams []byte `json:"contract_verify_method_params,omitempty"`
 
 	// NotificationAddress specifies the address to which notifications will be relayed to when sector is activated
 	NotificationAddress string `json:"notification_address"`
 
 	// NotificationPayload holds the notification data typically in a serialized byte array format.
-	NotificationPayload []byte `json:"notification_payload"`
+	NotificationPayload []byte `json:"notification_payload,omitempty"`
 }
 
 func (d *DDOV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
@@ -117,27 +117,27 @@ func (d *DDOV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 	return Ok, nil
 }
 
-func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.Client) (string, DealCode, error) {
+func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.Client) (int64, DealCode, error) {
 	if d.ContractAddress == "0xtest" {
 		v, err := rand.Int(rand.Reader, big.NewInt(10000000))
 		if err != nil {
-			return "", ErrServerInternalError, xerrors.Errorf("failed to generate random number: %w", err)
+			return -1, ErrServerInternalError, xerrors.Errorf("failed to generate random number: %w", err)
 		}
-		return v.String(), Ok, nil
+		return v.Int64(), Ok, nil
 	}
 
 	var abiStr string
 	err := db.QueryRow(ctx, `SELECT abi FROM ddo_contracts WHERE address = $1`, d.ContractAddress).Scan(&abiStr)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", ErrMarketNotEnabled, UnknowContract
+			return -1, ErrMarketNotEnabled, UnknowContract
 		}
-		return "", ErrServerInternalError, xerrors.Errorf("getting abi: %w", err)
+		return -1, ErrServerInternalError, xerrors.Errorf("getting abi: %w", err)
 	}
 
 	parsedABI, err := eabi.JSON(strings.NewReader(abiStr))
 	if err != nil {
-		return "", ErrServerInternalError, xerrors.Errorf("parsing abi: %w", err)
+		return -1, ErrServerInternalError, xerrors.Errorf("parsing abi: %w", err)
 	}
 
 	to := common.HexToAddress(d.ContractAddress)
@@ -145,18 +145,18 @@ func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.
 	// Get the method
 	method, exists := parsedABI.Methods[d.ContractVerifyMethod]
 	if !exists {
-		return "", ErrServerInternalError, fmt.Errorf("method %s not found in ABI", d.ContractVerifyMethod)
+		return -1, ErrServerInternalError, fmt.Errorf("method %s not found in ABI", d.ContractVerifyMethod)
 	}
 
 	// Enforce method must take exactly one `bytes` parameter
 	if len(method.Inputs) != 1 || method.Inputs[0].Type.String() != "bytes" {
-		return "", ErrServerInternalError, fmt.Errorf("method %q must take exactly one argument of type bytes", method.Name)
+		return -1, ErrServerInternalError, fmt.Errorf("method %q must take exactly one argument of type bytes", method.Name)
 	}
 
 	// ABI-encode method call with input
 	callData, err := parsedABI.Pack(method.Name, d.ContractVerifyMethod)
 	if err != nil {
-		return "", ErrServerInternalError, fmt.Errorf("failed to encode call data: %w", err)
+		return -1, ErrServerInternalError, fmt.Errorf("failed to encode call data: %w", err)
 	}
 
 	// Build call message
@@ -168,17 +168,17 @@ func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.
 	// Call contract
 	output, err := eth.CallContract(ctx, msg, nil)
 	if err != nil {
-		return "", ErrServerInternalError, fmt.Errorf("eth_call failed: %w", err)
+		return -1, ErrServerInternalError, fmt.Errorf("eth_call failed: %w", err)
 	}
 
 	// Decode return value (assume string)
-	var result string
+	var result int64
 	if err := parsedABI.UnpackIntoInterface(&result, method.Name, output); err != nil {
-		return "", ErrServerInternalError, fmt.Errorf("decode result: %w", err)
+		return -1, ErrServerInternalError, fmt.Errorf("decode result: %w", err)
 	}
 
-	if result == "" {
-		return "", ErrDealRejectedByMarket, fmt.Errorf("empty result from contract")
+	if result == 0 {
+		return -1, ErrDealRejectedByMarket, fmt.Errorf("empty result from contract")
 	}
 
 	return result, Ok, nil

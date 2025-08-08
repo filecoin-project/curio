@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"runtime"
 	"runtime/debug"
 	"sync/atomic"
@@ -143,7 +142,14 @@ func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal) *ProviderDealRejecti
 		}
 	}
 
-	return m.processPDPDeal(ctx, deal)
+	if deal.Products.PDPV1 != nil {
+		return m.processPDPDeal(ctx, deal)
+	}
+
+	return &ProviderDealRejectionInfo{
+		HTTPCode: ErrUnsupportedProduct,
+		Reason:   "Unsupported product",
+	}
 }
 
 func (m *MK20) processDDODeal(ctx context.Context, deal *Deal, tx *harmonydb.Tx) *ProviderDealRejectionInfo {
@@ -257,10 +263,24 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}, nil
 	}
 
-	if deal.Data != nil {
+	if deal.Data == nil {
 		return &ProviderDealRejectionInfo{
 			HTTPCode: ErrBadProposal,
 			Reason:   "Data Source must be defined for a DDO deal",
+		}, nil
+	}
+
+	if deal.Products.RetrievalV1 == nil {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrBadProposal,
+			Reason:   "Retrieval product must be defined for a DDO deal",
+		}, nil
+	}
+
+	if deal.Products.RetrievalV1.AnnouncePiece {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrBadProposal,
+			Reason:   "Piece cannot be announced for a DDO deal",
 		}, nil
 	}
 
@@ -368,6 +388,15 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 }
 
 func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealRejectionInfo {
+	defer func() {
+		if r := recover(); r != nil {
+			trace := make([]byte, 1<<16)
+			n := runtime.Stack(trace, false)
+			log.Errorf("panic occurred in PDP: %v\n%s", r, trace[:n])
+			debug.PrintStack()
+		}
+	}()
+
 	rejection, err := m.sanitizePDPDeal(ctx, deal)
 	if err != nil {
 		log.Errorw("PDP deal rejected", "deal", deal, "error", err)
@@ -434,8 +463,8 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 		}
 
 		if pdp.DeleteRoot {
-			n, err := m.DB.Exec(ctx, `INSERT INTO pdp_delete_root (id, client, set_id, roots, extra_data) VALUES ($1, $2, $3, $4, $5)`,
-				deal.Identifier.String(), deal.Client.String(), *pdp.ProofSetID, pdp.ExtraData)
+			n, err := m.DB.Exec(ctx, `INSERT INTO pdp_root_delete (id, client, set_id, roots, extra_data) VALUES ($1, $2, $3, $4, $5)`,
+				deal.Identifier.String(), deal.Client.String(), *pdp.ProofSetID, pdp.RootIDs, pdp.ExtraData)
 			if err != nil {
 				return false, xerrors.Errorf("inserting PDP delete root: %w", err)
 			}
@@ -459,23 +488,93 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 		}
 	}
 	log.Debugw("PDP deal inserted in DB", "deal", deal.Identifier.String())
-	return nil
+	return &ProviderDealRejectionInfo{
+		HTTPCode: Ok,
+	}
 }
 
 func (m *MK20) sanitizePDPDeal(ctx context.Context, deal *Deal) (*ProviderDealRejectionInfo, error) {
+	if deal.Products.PDPV1.AddRoot && deal.Products.RetrievalV1 == nil {
+		return &ProviderDealRejectionInfo{
+			HTTPCode: ErrBadProposal,
+			Reason:   "Retrieval deal is required for pdp_v1",
+		}, nil
+	}
+
 	if deal.Data != nil {
 		if deal.Data.SourceOffline != nil {
 			return &ProviderDealRejectionInfo{
-				HTTPCode: http.StatusBadRequest,
+				HTTPCode: ErrBadProposal,
 				Reason:   "Offline data source is not supported for pdp_v1",
 			}, nil
 		}
+
+		if deal.Data.Format.Raw != nil && deal.Products.RetrievalV1.AnnouncePayload {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Raw bytes deal cannot be announced to IPNI",
+			}, nil
+		}
 	}
+
+	p := deal.Products.PDPV1
+
+	// This serves as Auth for now. We are checking if client is authorized to make changes to the proof set or roots
+	// In future this will be replaced by an ACL check
+
+	if p.DeleteProofSet || p.AddRoot {
+		pid := *p.ProofSetID
+		var exists bool
+		err := m.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_proof_set WHERE id = $1 AND removed = FALSE AND client = $2)`, pid, deal.Client.String()).Scan(&exists)
+		if err != nil {
+			log.Errorw("error checking if proofset exists", "error", err)
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+				Reason:   "",
+			}, nil
+		}
+		if !exists {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "proofset does not exist for the client",
+			}, nil
+		}
+	}
+
+	if p.DeleteRoot {
+		pid := *p.ProofSetID
+		var exists bool
+		err := m.DB.QueryRow(ctx, `SELECT COUNT(*) = cardinality($2::BIGINT[]) AS all_exist_and_active
+										FROM pdp_proofset_root r
+										JOIN pdp_proof_set s ON r.proof_set_id = s.id
+										WHERE r.proof_set_id = $1
+										  AND r.root = ANY($2)
+										  AND r.removed = FALSE
+										  AND s.removed = FALSE 
+										  AND r.client = $3 
+										  AND s.client = $3;`, pid, p.RootIDs, deal.Client.String()).Scan(&exists)
+		if err != nil {
+			log.Errorw("error checking if proofset and roots exist for the client", "error", err)
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrServerInternalError,
+				Reason:   "",
+			}, nil
+
+		}
+		if !exists {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "proofset or one of the roots does not exist for the client",
+			}, nil
+		}
+	}
+
 	return nil, nil
 }
 
 func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error {
 	pdp := deal.Products.PDPV1
+	retv := deal.Products.RetrievalV1
 	data := deal.Data
 	dealID := deal.Identifier.String()
 	pi, err := deal.PieceInfo()
@@ -541,10 +640,10 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 
 		n, err = tx.Exec(`INSERT INTO pdp_pipeline (
             id, client, piece_cid_v2, piece_cid, piece_size, raw_size, proof_set_id,
-            extra_data, deal_aggregation) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            extra_data, deal_aggregation, indexing, announce) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 			dealID, deal.Client.String(), data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.ProofSetID,
-			pdp.ExtraData, aggregation)
+			pdp.ExtraData, aggregation, retv.Indexing, retv.AnnouncePayload)
 		if err != nil {
 			return xerrors.Errorf("inserting PDP pipeline: %w", err)
 		}
@@ -644,10 +743,10 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 			}
 			pBatch.Queue(`INSERT INTO pdp_pipeline (
                           id, client, piece_cid_v2, piece_cid, piece_size, raw_size, 
-                          proof_set_id, extra_data, piece_ref, deal_aggregation, aggr_index) 
-        	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                          proof_set_id, extra_data, piece_ref, deal_aggregation, aggr_index, indexing, announce) 
+        	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 				dealID, deal.Client.String(), piece.PieceCID.String(), spi.PieceCIDV1.String(), spi.Size, spi.RawSize,
-				pdp.ExtraData, *pdp.ProofSetID, aggregation, i)
+				pdp.ExtraData, *pdp.ProofSetID, aggregation, i, retv.Indexing, retv.AnnouncePayload)
 			if pBatch.Len() > pBatchSize {
 				res := tx.SendBatch(ctx, pBatch)
 				if err := res.Close(); err != nil {

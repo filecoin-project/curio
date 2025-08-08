@@ -917,14 +917,15 @@ func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.Respo
 		}
 
 		pdp := uDeal.Products.PDPV1
+		retv := uDeal.Products.RetrievalV1
 
 		// Insert the PDP pipeline
 		n, err := tx.Exec(`INSERT INTO pdp_pipeline (
             id, client, piece_cid_v2, piece_cid, piece_size, raw_size, proof_set_id, 
-            extra_data, piece_ref, downloaded, deal_aggregation, aggr_index) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0)`,
+            extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, indexing, announce) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, $11, $12)`,
 			id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.ProofSetID,
-			pdp.ExtraData, refID, deal.Data.Format.Aggregate.Type)
+			pdp.ExtraData, refID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePayload)
 		if err != nil {
 			return false, xerrors.Errorf("inserting in PDP pipeline: %w", err)
 		}

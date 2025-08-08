@@ -177,6 +177,47 @@ definitions:
     - ErrServiceOverloaded
     - ErrMarketNotEnabled
     - ErrDurationTooShort
+  mk20.DealProductStatusResponse:
+    properties:
+      ddo_v1:
+        allOf:
+        - $ref: '#/definitions/mk20.DealStatusResponse'
+        description: DDOV1 holds the DealStatusResponse for product "ddo_v1".
+      pdp_v1:
+        allOf:
+        - $ref: '#/definitions/mk20.DealStatusResponse'
+        description: PDPV1 represents the DealStatusResponse for the product pdp_v1.
+    type: object
+  mk20.DealState:
+    enum:
+    - accepted
+    - uploading
+    - processing
+    - sealing
+    - indexing
+    - failed
+    - complete
+    type: string
+    x-enum-varnames:
+    - DealStateAccepted
+    - DealStateAwaitingUpload
+    - DealStateProcessing
+    - DealStateSealing
+    - DealStateIndexing
+    - DealStateFailed
+    - DealStateComplete
+  mk20.DealStatusResponse:
+    properties:
+      error_msg:
+        description: ErrorMsg is an optional field containing error details associated
+          with the deal's current state if an error occurred.
+        type: string
+      status:
+        allOf:
+        - $ref: '#/definitions/mk20.DealState'
+        description: State indicates the current processing state of the deal as a
+          DealState value.
+    type: object
   mk20.FormatAggregate:
     properties:
       sub:
@@ -304,6 +345,44 @@ definitions:
           system to support CIDs based retrieval
         type: boolean
     type: object
+  mk20.StartUpload:
+    properties:
+      chunk_size:
+        description: ChunkSize defines the size of each data chunk to be used during
+          the upload process.
+        type: integer
+      raw_size:
+        description: RawSize indicates the total size of the data to be uploaded in
+          bytes.
+        type: integer
+    type: object
+  mk20.SupportedContracts:
+    properties:
+      contracts:
+        description: Contracts represents a list of supported contract addresses in
+          string format.
+        items:
+          type: string
+        type: array
+    type: object
+  mk20.SupportedDataSources:
+    properties:
+      sources:
+        description: Contracts represents a list of supported contract addresses in
+          string format.
+        items:
+          type: string
+        type: array
+    type: object
+  mk20.SupportedProducts:
+    properties:
+      products:
+        description: Contracts represents a list of supported contract addresses in
+          string format.
+        items:
+          type: string
+        type: array
+    type: object
   mk20.UploadCode:
     enum:
     - 200
@@ -332,6 +411,30 @@ definitions:
     - UploadStartCodeDealNotFound
     - UploadStartCodeAlreadyStarted
     - UploadStartCodeServerError
+  mk20.UploadStatus:
+    properties:
+      missing:
+        description: Missing represents the number of chunks that are not yet uploaded.
+        type: integer
+      missing_chunks:
+        description: MissingChunks is a slice containing the indices of missing chunks.
+        items:
+          type: integer
+        type: array
+      total_chunks:
+        description: TotalChunks represents the total number of chunks required for
+          the upload.
+        type: integer
+      uploaded:
+        description: Uploaded represents the number of chunks successfully uploaded.
+        type: integer
+      uploaded_chunks:
+        description: UploadedChunks is a slice containing the indices of successfully
+          uploaded chunks.
+        items:
+          type: integer
+        type: array
+    type: object
   mk20.UploadStatusCode:
     enum:
     - 200
@@ -354,9 +457,9 @@ paths:
       description: List of supported DDO contracts
       responses:
         "200":
-          description: OK - Success
+          description: Array of contract addresses supported by a system or application.
           schema:
-            type: string
+            $ref: '#/definitions/mk20.SupportedContracts'
         "500":
           description: Internal Server Error
           schema:
@@ -367,9 +470,9 @@ paths:
       description: List of supported products
       responses:
         "200":
-          description: OK - Success
+          description: Array of products supported by the SP
           schema:
-            type: string
+            $ref: '#/definitions/mk20.SupportedProducts'
         "500":
           description: Internal Server Error
           schema:
@@ -380,9 +483,9 @@ paths:
       description: List of supported data sources
       responses:
         "200":
-          description: OK - Success
+          description: Array of dats sources supported by the SP
           schema:
-            type: string
+            $ref: '#/definitions/mk20.SupportedDataSources'
         "500":
           description: Internal Server Error
           schema:
@@ -399,9 +502,10 @@ paths:
         type: string
       responses:
         "200":
-          description: OK - Success
+          description: the status response for deal products with their respective
+            deal statuses
           schema:
-            type: string
+            $ref: '#/definitions/mk20.DealProductStatusResponse'
         "400":
           description: Bad Request - Invalid input or validation error
           schema:
@@ -719,10 +823,10 @@ paths:
         type: string
       responses:
         "200":
-          description: UploadStatusCodeOk represents a successful upload operation
-            with status code 200
+          description: The status of a file upload process, including progress and
+            missing chunks
           schema:
-            $ref: '#/definitions/mk20.UploadStatusCode'
+            $ref: '#/definitions/mk20.UploadStatus'
         "400":
           description: Bad Request - Invalid input or validation error
           schema:
@@ -744,6 +848,8 @@ paths:
             $ref: '#/definitions/mk20.UploadStatusCode'
       summary: Status of deal upload
     post:
+      consumes:
+      - application/json
       description: Initializes the upload for a deal. Each upload must be initialized
         before chunks can be uploaded for a deal.
       parameters:
@@ -752,6 +858,12 @@ paths:
         name: id
         required: true
         type: string
+      - description: Metadata for initiating an upload operation
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/mk20.StartUpload'
       responses:
         "200":
           description: UploadStartCodeOk indicates a successful upload start request
@@ -795,7 +907,7 @@ paths:
         type: string
       - description: raw binary
         in: body
-        name: body
+        name: data
         required: true
         schema:
           items:
@@ -922,11 +1034,10 @@ securityDefinitions:
       - `PublicKeyType`: String representation of type of wallet (e.g., "ed25519", "bls", "secp256k1")
       - `PublicKey`: Base64 string of public key bytes
       - `Signature`: Signature is Base64 string of signature bytes.
-      - The client is expected to sign the SHA-256 hash of a message constructed by concatenating the following three components, in order.
+      - The client is expected to sign the SHA-256 hash of a message constructed by concatenating the following components, in order.
       - The raw public key bytes (not a human-readable address)
-      - The HTTP request path, such as /user/info
-      - The timestamp, truncated to the nearest minute, formatted in RFC3339 (e.g., 2025-07-15T17:42:00Z)
-      - These three byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.
+      - The timestamp, truncated to the nearest hour, formatted in RFC3339 (e.g., 2025-07-15T17:00:00Z)
+      - These two byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.
     in: header
     name: Authorization
     type: apiKey

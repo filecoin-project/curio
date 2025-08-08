@@ -1580,8 +1580,10 @@ var mk20Clientcmd = &cli.Command{
 		initCmd,
 		comm2Cmd,
 		mk20DealCmd,
+		mk20PDPDealCmd,
 		mk20ClientMakeAggregateCmd,
 		mk20ClientUploadCmd,
+		mk20ClientChunkUploadCmd,
 	},
 }
 
@@ -2008,9 +2010,9 @@ var mk20ClientMakeAggregateCmd = &cli.Command{
 	},
 }
 
-var mk20ClientUploadCmd = &cli.Command{
-	Name:  "upload",
-	Usage: "Upload a file to the storage provider",
+var mk20ClientChunkUploadCmd = &cli.Command{
+	Name:  "chunk-upload",
+	Usage: "Upload a file in chunks to the storage provider",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:     "provider",
@@ -2147,7 +2149,7 @@ var mk20ClientUploadCmd = &cli.Command{
 			return err
 		}
 		log.Debugw("request body", "body", string(b))
-		client, err := http.NewRequest("POST", purl.String()+"/market/mk20/upload/"+dealid.String(), bytes.NewBuffer(b))
+		client, err := http.NewRequest("POST", purl.String()+"/market/mk20/uploads/"+dealid.String(), bytes.NewBuffer(b))
 		if err != nil {
 			return xerrors.Errorf("failed to upload start create request: %w", err)
 		}
@@ -2172,7 +2174,7 @@ var mk20ClientUploadCmd = &cli.Command{
 		defer x.Close()
 
 		for {
-			resp, err = http.Get(purl.String() + "/market/mk20/upload/" + dealid.String())
+			resp, err = http.Get(purl.String() + "/market/mk20/uploads/" + dealid.String())
 			if err != nil {
 				return xerrors.Errorf("failed to send request: %w", err)
 			}
@@ -2216,7 +2218,7 @@ var mk20ClientUploadCmd = &cli.Command{
 				if err != nil {
 					return xerrors.Errorf("failed to read chunk: %w", err)
 				}
-				req, err := http.NewRequest(http.MethodPut, purl.String()+"/market/mk20/upload/"+dealid.String()+"/"+fmt.Sprintf("%d", c), bytes.NewBuffer(buf))
+				req, err := http.NewRequest(http.MethodPut, purl.String()+"/market/mk20/uploads/"+dealid.String()+"/"+fmt.Sprintf("%d", c), bytes.NewBuffer(buf))
 				if err != nil {
 					return xerrors.Errorf("failed to create put request: %w", err)
 				}
@@ -2239,7 +2241,537 @@ var mk20ClientUploadCmd = &cli.Command{
 		log.Infow("upload complete")
 
 		//Finalize the upload
-		resp, err = http.Post(purl.String()+"/market/mk20/upload/finalize/"+dealid.String(), "application/json", bytes.NewReader([]byte{}))
+		resp, err = http.Post(purl.String()+"/market/mk20/uploads/finalize/"+dealid.String(), "application/json", bytes.NewReader([]byte{}))
+		if err != nil {
+			return xerrors.Errorf("failed to send request: %w", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			respBody, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return xerrors.Errorf("failed to read response body: %w", err)
+			}
+			return xerrors.Errorf("failed to send request: %d, %s", resp.StatusCode, string(respBody))
+		}
+
+		return nil
+	},
+}
+
+var mk20PDPDealCmd = &cli.Command{
+	Name:  "pdp-deal",
+	Usage: "Make a mk20 PDP deal with Curio",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:  "http-url",
+			Usage: "http url to CAR file",
+		},
+		&cli.StringSliceFlag{
+			Name:  "http-headers",
+			Usage: "http headers to be passed with the request (e.g key=value)",
+		},
+		&cli.StringFlag{
+			Name:     "provider",
+			Usage:    "storage provider on-chain address",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:  "pcidv2",
+			Usage: "pcidv2 of the CAR file",
+		},
+		&cli.StringFlag{
+			Name:  "wallet",
+			Usage: "wallet address to be used to initiate the deal",
+		},
+		&cli.StringFlag{
+			Name:  "aggregate",
+			Usage: "aggregate file path for the deal",
+		},
+		&cli.BoolFlag{
+			Name:  "put",
+			Usage: "used HTTP put as data source",
+		},
+		&cli.BoolFlag{
+			Name:  "add-root",
+			Usage: "add root",
+		},
+		&cli.BoolFlag{
+			Name:  "add-proofset",
+			Usage: "add proofset",
+		},
+		&cli.BoolFlag{
+			Name:  "remove-root",
+			Usage: "remove root",
+		},
+		&cli.BoolFlag{
+			Name:  "remove-proofset",
+			Usage: "remove proofset",
+		},
+		&cli.StringFlag{
+			Name:  "record-keeper",
+			Usage: "record keeper address",
+		},
+		&cli.Uint64SliceFlag{
+			Name:  "root-id",
+			Usage: "root IDs",
+		},
+		&cli.Uint64Flag{
+			Name:  "proofset-id",
+			Usage: "proofset IDs",
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		ctx := cctx.Context
+		n, err := Setup(cctx.String(mk12_client_repo.Name))
+		if err != nil {
+			return err
+		}
+
+		api, closer, err := lcli.GetGatewayAPIV1(cctx)
+		if err != nil {
+			return fmt.Errorf("cant setup gateway connection: %w", err)
+		}
+		defer closer()
+
+		walletAddr, err := n.GetProvidedOrDefaultWallet(ctx, cctx.String("wallet"))
+		if err != nil {
+			return err
+		}
+
+		log.Debugw("selected wallet", "wallet", walletAddr)
+
+		maddr, err := address.NewFromString(cctx.String("provider"))
+		if err != nil {
+			return err
+		}
+
+		minfo, err := api.StateMinerInfo(ctx, maddr, chain_types.EmptyTSK)
+		if err != nil {
+			return err
+		}
+		if minfo.PeerId == nil {
+			return xerrors.Errorf("storage provider %s has no peer ID set on-chain", maddr)
+		}
+
+		var maddrs []multiaddr.Multiaddr
+		for _, mma := range minfo.Multiaddrs {
+			ma, err := multiaddr.NewMultiaddrBytes(mma)
+			if err != nil {
+				return xerrors.Errorf("storage provider %s had invalid multiaddrs in their info: %w", maddr, err)
+			}
+			maddrs = append(maddrs, ma)
+		}
+		if len(maddrs) == 0 {
+			return xerrors.Errorf("storage provider %s has no multiaddrs set on-chain", maddr)
+		}
+
+		addrInfo := &peer.AddrInfo{
+			ID:    *minfo.PeerId,
+			Addrs: maddrs,
+		}
+
+		log.Debugw("found storage provider", "id", addrInfo.ID, "multiaddrs", addrInfo.Addrs, "addr", maddr)
+
+		var hurls []*url.URL
+
+		for _, ma := range addrInfo.Addrs {
+			hurl, err := maurl.ToURL(ma)
+			if err != nil {
+				return xerrors.Errorf("failed to convert multiaddr %s to URL: %w", ma, err)
+			}
+			if hurl.Scheme == "ws" {
+				hurl.Scheme = "http"
+			}
+			if hurl.Scheme == "wss" {
+				hurl.Scheme = "https"
+			}
+			log.Debugw("converted multiaddr to URL", "url", hurl, "multiaddr", ma.String())
+			hurls = append(hurls, hurl)
+		}
+
+		addRoot := cctx.Bool("add-root")
+		addProofset := cctx.Bool("add-proofset")
+		removeRoot := cctx.Bool("remove-root")
+		removeProofset := cctx.Bool("remove-proofset")
+		recordKeeper := cctx.String("record-keeper")
+		rootIDs := cctx.Uint64Slice("root-id")
+		proofSetSet := cctx.IsSet("proofset-id")
+		proofsetID := cctx.Uint64("proofset-id")
+		if !(addRoot || removeRoot || addProofset || removeProofset) {
+			return xerrors.Errorf("at least one of --add-root, --remove-root, --add-proofset, --remove-proofset must be set")
+		}
+
+		if btoi(addRoot)+btoi(addProofset)+btoi(removeRoot)+btoi(removeProofset) > 1 {
+			return xerrors.Errorf("only one of --add-root, --remove-root, --add-proofset, --remove-proofset can be set")
+		}
+
+		extraBytes := []byte{}
+
+		pdp := &mk20.PDPV1{}
+		var d *mk20.DataSource
+		var ret *mk20.RetrievalV1
+
+		if addRoot {
+			commp := cctx.String("pcidv2")
+			pieceCid, err := cid.Parse(commp)
+			if err != nil {
+				return xerrors.Errorf("parsing pcidv2 '%s': %w", commp, err)
+			}
+
+			var headers http.Header
+
+			for _, header := range cctx.StringSlice("http-headers") {
+				sp := strings.Split(header, "=")
+				if len(sp) != 2 {
+					return xerrors.Errorf("malformed http header: %s", header)
+				}
+				headers.Add(sp[0], sp[1])
+			}
+
+			if cctx.IsSet("aggregate") {
+				d = &mk20.DataSource{
+					PieceCID: pieceCid,
+					Format: mk20.PieceDataFormat{
+						Aggregate: &mk20.FormatAggregate{
+							Type: mk20.AggregateTypeV1,
+						},
+					},
+				}
+
+				var pieces []mk20.DataSource
+
+				log.Debugw("using aggregate data source", "aggregate", cctx.String("aggregate"))
+				// Read file line by line
+				loc, err := homedir.Expand(cctx.String("aggregate"))
+				if err != nil {
+					return err
+				}
+				file, err := os.Open(loc)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+				scanner := bufio.NewScanner(file)
+				for scanner.Scan() {
+					line := scanner.Text()
+					parts := strings.Split(line, "\t")
+					if len(parts) != 2 {
+						return fmt.Errorf("invalid line format. Expected pieceCidV2, url at %s", line)
+					}
+					if parts[0] == "" || parts[1] == "" {
+						return fmt.Errorf("empty column value in the input file at %s", line)
+					}
+
+					pieceCid, err := cid.Parse(parts[0])
+					if err != nil {
+						return fmt.Errorf("failed to parse CID: %w", err)
+					}
+
+					url, err := url.Parse(parts[1])
+					if err != nil {
+						return fmt.Errorf("failed to parse url: %w", err)
+					}
+
+					pieces = append(pieces, mk20.DataSource{
+						PieceCID: pieceCid,
+						Format: mk20.PieceDataFormat{
+							Car: &mk20.FormatCar{},
+						},
+						SourceHTTP: &mk20.DataSourceHTTP{
+							URLs: []mk20.HttpUrl{
+								{
+									URL:      url.String(),
+									Priority: 0,
+									Fallback: true,
+								},
+							},
+						},
+					})
+
+					if err := scanner.Err(); err != nil {
+						return err
+					}
+				}
+				d.SourceAggregate = &mk20.DataSourceAggregate{
+					Pieces: pieces,
+				}
+			} else {
+				if !cctx.IsSet("http-url") {
+					if cctx.Bool("put") {
+						d = &mk20.DataSource{
+							PieceCID: pieceCid,
+							Format: mk20.PieceDataFormat{
+								Car: &mk20.FormatCar{},
+							},
+							SourceHttpPut: &mk20.DataSourceHttpPut{},
+						}
+					} else {
+						d = &mk20.DataSource{
+							PieceCID: pieceCid,
+							Format: mk20.PieceDataFormat{
+								Car: &mk20.FormatCar{},
+							},
+							SourceOffline: &mk20.DataSourceOffline{},
+						}
+					}
+				} else {
+					url, err := url.Parse(cctx.String("http-url"))
+					if err != nil {
+						return xerrors.Errorf("parsing http url: %w", err)
+					}
+					d = &mk20.DataSource{
+						PieceCID: pieceCid,
+						Format: mk20.PieceDataFormat{
+							Car: &mk20.FormatCar{},
+						},
+						SourceHTTP: &mk20.DataSourceHTTP{
+							URLs: []mk20.HttpUrl{
+								{
+									URL:      url.String(),
+									Headers:  headers,
+									Priority: 0,
+									Fallback: true,
+								},
+							},
+						},
+					}
+				}
+			}
+
+			if !proofSetSet {
+				return xerrors.Errorf("proofset-id must be set when adding a root")
+			}
+			pdp.AddRoot = true
+			pdp.RecordKeeper = recordKeeper
+			pdp.ProofSetID = &proofsetID
+			pdp.ExtraData = extraBytes
+			ret = &mk20.RetrievalV1{
+				Indexing:        true,
+				AnnouncePayload: true,
+			}
+		}
+
+		if removeRoot {
+			if !proofSetSet {
+				return xerrors.Errorf("proofset-id must be set when removing a root")
+			}
+			pdp.DeleteRoot = true
+			pdp.RecordKeeper = recordKeeper
+			pdp.ProofSetID = &proofsetID
+			pdp.RootIDs = rootIDs
+			pdp.ExtraData = extraBytes
+			d = nil
+		}
+
+		if addProofset {
+			pdp.RecordKeeper = recordKeeper
+			pdp.CreateProofSet = true
+			pdp.ExtraData = extraBytes
+			d = nil
+		}
+
+		if removeProofset {
+			if !proofSetSet {
+				return xerrors.Errorf("proofset-id must be set when deleting proof-set")
+			}
+			pdp.RecordKeeper = recordKeeper
+			pdp.DeleteProofSet = true
+			pdp.ProofSetID = &proofsetID
+			pdp.ExtraData = extraBytes
+			d = nil
+		}
+
+		p := mk20.Products{
+			PDPV1: pdp,
+		}
+
+		if ret != nil {
+			p.RetrievalV1 = ret
+		}
+
+		id, err := mk20.NewULID()
+		if err != nil {
+			return err
+		}
+		log.Debugw("generated deal id", "id", id)
+
+		deal := mk20.Deal{
+			Identifier: id,
+			Client:     walletAddr,
+			Products:   p,
+		}
+
+		if d != nil {
+			deal.Data = d
+		}
+
+		log.Debugw("deal", "deal", deal)
+
+		body, err := json.Marshal(deal)
+		if err != nil {
+			return err
+		}
+
+		// Try to request all URLs one by one and exit after first success
+		for _, u := range hurls {
+			s := u.String() + "/market/mk20/store"
+			log.Debugw("trying to send request to", "url", u.String())
+			req, err := http.NewRequest("POST", s, bytes.NewReader(body))
+			if err != nil {
+				return xerrors.Errorf("failed to create request: %w", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			log.Debugw("Headers", "headers", req.Header)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				log.Warnw("failed to send request", "url", s, "error", err)
+				continue
+			}
+			if resp.StatusCode != http.StatusOK {
+				respBody, err := io.ReadAll(resp.Body)
+				if err != nil {
+					return xerrors.Errorf("failed to read response body: %w", err)
+				}
+				log.Warnw("failed to send request", "url", s, "status", resp.StatusCode, "body", string(respBody))
+				continue
+			}
+			return nil
+		}
+		return xerrors.Errorf("failed to send request to any of the URLs")
+	},
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+var mk20ClientUploadCmd = &cli.Command{
+	Name:  "upload",
+	Usage: "Upload a file to the storage provider",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "provider",
+			Usage:    "storage provider on-chain address",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "deal",
+			Usage:    "deal id to upload to",
+			Required: true,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		if cctx.NArg() != 1 {
+			return xerrors.Errorf("must provide a single file to upload")
+		}
+		file := cctx.Args().First()
+		log.Debugw("uploading file", "file", file)
+		ctx := cctx.Context
+
+		dealid, err := ulid.Parse(cctx.String("deal"))
+		if err != nil {
+			return xerrors.Errorf("parsing deal id: %w", err)
+		}
+
+		maddr, err := address.NewFromString(cctx.String("provider"))
+		if err != nil {
+			return err
+		}
+
+		f, err := os.OpenFile(file, os.O_RDONLY, 0644)
+		if err != nil {
+			return xerrors.Errorf("opening file: %w", err)
+		}
+
+		stat, err := f.Stat()
+		if err != nil {
+			return xerrors.Errorf("stat file: %w", err)
+		}
+
+		size := stat.Size()
+		if size == 0 {
+			return xerrors.Errorf("file size is 0")
+		}
+
+		f.Close()
+
+		api, closer, err := lcli.GetGatewayAPIV1(cctx)
+		if err != nil {
+			return fmt.Errorf("cant setup gateway connection: %w", err)
+		}
+		defer closer()
+
+		minfo, err := api.StateMinerInfo(ctx, maddr, chain_types.EmptyTSK)
+		if err != nil {
+			return err
+		}
+		if minfo.PeerId == nil {
+			return xerrors.Errorf("storage provider %s has no peer ID set on-chain", maddr)
+		}
+
+		var maddrs []multiaddr.Multiaddr
+		for _, mma := range minfo.Multiaddrs {
+			ma, err := multiaddr.NewMultiaddrBytes(mma)
+			if err != nil {
+				return xerrors.Errorf("storage provider %s had invalid multiaddrs in their info: %w", maddr, err)
+			}
+			maddrs = append(maddrs, ma)
+		}
+		if len(maddrs) == 0 {
+			return xerrors.Errorf("storage provider %s has no multiaddrs set on-chain", maddr)
+		}
+
+		addrInfo := &peer.AddrInfo{
+			ID:    *minfo.PeerId,
+			Addrs: maddrs,
+		}
+
+		log.Debugw("found storage provider", "id", addrInfo.ID, "multiaddrs", addrInfo.Addrs, "addr", maddr)
+
+		var hurls []*url.URL
+
+		for _, ma := range addrInfo.Addrs {
+			hurl, err := maurl.ToURL(ma)
+			if err != nil {
+				return xerrors.Errorf("failed to convert multiaddr %s to URL: %w", ma, err)
+			}
+			if hurl.Scheme == "ws" {
+				hurl.Scheme = "http"
+			}
+			if hurl.Scheme == "wss" {
+				hurl.Scheme = "https"
+			}
+			log.Debugw("converted multiaddr to URL", "url", hurl, "multiaddr", ma.String())
+			hurls = append(hurls, hurl)
+		}
+
+		purl := hurls[0]
+		log.Debugw("using first URL", "url", purl)
+
+		req, err := http.NewRequest(http.MethodPut, purl.String()+"/market/mk20/upload/"+dealid.String(), f)
+		if err != nil {
+			return xerrors.Errorf("failed to create put request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/octet-stream")
+		req.Header.Set("Content-Length", fmt.Sprintf("%d", size))
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return xerrors.Errorf("failed to send put request: %w", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			respBody, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return xerrors.Errorf("failed to read response body: %w", err)
+			}
+			return xerrors.Errorf("failed to send request: %d, %s", resp.StatusCode, string(respBody))
+		}
+
+		log.Infow("upload complete")
+
+		//Finalize the upload
+		resp, err = http.Post(purl.String()+"/market/mk20/upload/"+dealid.String(), "application/json", bytes.NewReader([]byte{}))
 		if err != nil {
 			return xerrors.Errorf("failed to send request: %w", err)
 		}

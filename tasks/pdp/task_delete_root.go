@@ -2,6 +2,7 @@ package pdp
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -36,7 +38,7 @@ func (p *PDPTaskDeleteRoot) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		ExtraData []byte  `db:"extra_data"`
 	}
 
-	err = p.db.Select(ctx, &rdeletes, `SELECT id, set_id, roots, extra_data FROM pdp_delete_root WHERE task_id = $1 AND tx_hash IS NULL`, taskID)
+	err = p.db.Select(ctx, &rdeletes, `SELECT id, set_id, roots, extra_data FROM pdp_root_delete WHERE task_id = $1 AND tx_hash IS NULL`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get task details from DB: %w", err)
 	}
@@ -83,6 +85,13 @@ func (p *PDPTaskDeleteRoot) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		return false, xerrors.Errorf("getting PDPVerifier ABI: %w", err)
 	}
 
+	for i := range roots {
+		log.Errorf("root: %d", roots[i].Uint64())
+	}
+	log.Errorf("roots: %v", roots)
+	log.Errorf("proofSetID: %d", proofSetID.Uint64())
+	log.Errorf("extraDataBytes: %s", extraDataBytes)
+
 	// Pack the method call data
 	data, err := abiData.Pack("scheduleRemovals", proofSetID, roots, extraDataBytes)
 	if err != nil {
@@ -93,7 +102,7 @@ func (p *PDPTaskDeleteRoot) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	tx := types.NewTransaction(
 		0,
 		contract.ContractAddresses().PDPVerifier,
-		contract.SybilFee(),
+		big.NewInt(0),
 		0,
 		nil,
 		data,
@@ -108,12 +117,29 @@ func (p *PDPTaskDeleteRoot) Do(taskID harmonytask.TaskID, stillOwned func() bool
 
 	// Insert into message_waits_eth and pdp_proof_set_delete
 	txHashLower := strings.ToLower(txHash.Hex())
-	n, err := p.db.Exec(ctx, `UPDATE pdp_delete_root SET tx_hash = $1, task_id = NULL WHERE task_id = $2`, txHashLower, taskID)
+
+	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		n, err := tx.Exec(`UPDATE pdp_root_delete SET tx_hash = $1, task_id = NULL WHERE task_id = $2`, txHashLower, taskID)
+		if err != nil {
+			return false, xerrors.Errorf("failed to update pdp_root_delete: %w", err)
+		}
+		if n != 1 {
+			return false, xerrors.Errorf("incorrect number of rows updated for pdp_root_delete: %d", n)
+		}
+
+		_, err = tx.Exec(`INSERT INTO message_waits_eth (signed_tx_hash, tx_status) VALUES ($1, $2)`, txHashLower, "pending")
+		if err != nil {
+			return false, xerrors.Errorf("failed to insert into message_waits_eth: %w", err)
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+
 	if err != nil {
-		return false, xerrors.Errorf("failed to update pdp_delete_root: %w", err)
+		return false, xerrors.Errorf("failed to commit transaction: %w", err)
 	}
-	if n != 1 {
-		return false, xerrors.Errorf("incorrect number of rows updated for pdp_delete_root: %d", n)
+
+	if !comm {
+		return false, xerrors.Errorf("failed to commit transaction")
 	}
 
 	return true, nil
@@ -145,19 +171,22 @@ func (p *PDPTaskDeleteRoot) schedule(ctx context.Context, taskFunc harmonytask.A
 			stop = true // assume we're done until we find a task to schedule
 
 			var did string
-			err := tx.QueryRow(`SELECT id FROM pdp_delete_root 
+			err := tx.QueryRow(`SELECT id FROM pdp_root_delete 
 								  WHERE task_id IS NULL 
-									AND tx_hash IS NULL`).Scan(&did)
+									AND tx_hash IS NULL LIMIT 1`).Scan(&did)
 			if err != nil {
-				return false, xerrors.Errorf("failed to query pdp_delete_root: %w", err)
+				if errors.Is(err, pgx.ErrNoRows) {
+					return false, nil
+				}
+				return false, xerrors.Errorf("failed to query pdp_root_delete: %w", err)
 			}
 			if did == "" {
 				return false, xerrors.Errorf("no valid deal ID found for scheduling")
 			}
 
-			_, err = tx.Exec(`UPDATE pdp_delete_root SET task_id = $1, WHERE id = $2 AND task_id IS NULL AND tx_hash IS NULL`, id, did)
+			_, err = tx.Exec(`UPDATE pdp_root_delete SET task_id = $1 WHERE id = $2 AND task_id IS NULL AND tx_hash IS NULL`, id, did)
 			if err != nil {
-				return false, xerrors.Errorf("failed to update pdp_delete_root: %w", err)
+				return false, xerrors.Errorf("failed to update pdp_root_delete: %w", err)
 			}
 
 			stop = false // we found a task to schedule, keep going
@@ -180,3 +209,4 @@ func NewPDPTaskDeleteRoot(db *harmonydb.DB, sender *message.SenderETH, ethClient
 }
 
 var _ harmonytask.TaskInterface = &PDPTaskDeleteRoot{}
+var _ = harmonytask.Reg(&PDPTaskDeleteRoot{})

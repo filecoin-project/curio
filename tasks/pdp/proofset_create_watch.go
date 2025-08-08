@@ -3,12 +3,14 @@ package pdp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -28,7 +30,7 @@ func NewWatcherCreate(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chains
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
 		err := processPendingProofSetCreates(ctx, db, ethClient)
 		if err != nil {
-			log.Warnf("Failed to process pending proof set creates: %v", err)
+			log.Errorf("Failed to process pending proof set creates: %s", err)
 		}
 		return nil
 	}); err != nil {
@@ -41,7 +43,7 @@ func processPendingProofSetCreates(ctx context.Context, db *harmonydb.DB, ethCli
 	var proofSetCreates []ProofSetCreate
 
 	err := db.Select(ctx, &proofSetCreates, `
-        SELECT id, client, tx_hash,
+        SELECT id, client, tx_hash 
         FROM pdp_proof_set_create
         WHERE tx_hash IS NOT NULL`)
 	if err != nil {
@@ -57,7 +59,7 @@ func processPendingProofSetCreates(ctx context.Context, db *harmonydb.DB, ethCli
 	for _, psc := range proofSetCreates {
 		err := processProofSetCreate(ctx, db, psc, ethClient)
 		if err != nil {
-			log.Warnf("Failed to process proof set create for tx %s: %v", psc.CreateMessageHash, err)
+			log.Errorf("Failed to process proof set create for tx %s: %s", psc.CreateMessageHash, err)
 			continue
 		}
 	}
@@ -69,12 +71,14 @@ func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCr
 	// Retrieve the tx_receipt from message_waits_eth
 	var txReceiptJSON []byte
 	var txSuccess bool
-	err := db.QueryRow(ctx, `
-        SELECT tx_success, tx_receipt 
-        FROM message_waits_eth
-        WHERE signed_tx_hash = $1
-    `, psc.CreateMessageHash).Scan(&txReceiptJSON, &txSuccess)
+	err := db.QueryRow(ctx, `SELECT tx_receipt, tx_success FROM message_waits_eth 
+                              WHERE signed_tx_hash = $1 
+                                 AND tx_success IS NOT NULL
+                                 AND tx_receipt IS NOT NULL`, psc.CreateMessageHash).Scan(&txReceiptJSON, &txSuccess)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return xerrors.Errorf("tx hash %s is either missing from watch table or is not yet processed by watcher", psc.CreateMessageHash)
+		}
 		return xerrors.Errorf("failed to get tx_receipt for tx %s: %w", psc.CreateMessageHash, err)
 	}
 

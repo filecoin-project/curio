@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"runtime"
+	"runtime/debug"
 	"strconv"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 
 	"github.com/filecoin-project/go-address"
 
+	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/market/mk20"
@@ -63,13 +66,18 @@ func dealRateLimitMiddleware() func(http.Handler) http.Handler {
 func AuthMiddleware(db *harmonydb.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// TODO: Remove this check once Synapse integration is done
+			if build.BuildType != build.BuildMainnet {
+				next.ServeHTTP(w, r)
+				return
+			}
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
 				http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
 				return
 			}
 
-			allowed, client, err := mk20.Auth(authHeader, r.URL.Path, db)
+			allowed, client, err := mk20.Auth(authHeader, db)
 			if err != nil {
 				log.Errorw("failed to authenticate request", "err", err)
 				http.Error(w, err.Error(), http.StatusUnauthorized)
@@ -118,11 +126,10 @@ func Router(mdh *MK20DealHandler, domainName string) http.Handler {
 // @description - `PublicKeyType`: String representation of type of wallet (e.g., "ed25519", "bls", "secp256k1")
 // @description - `PublicKey`: Base64 string of public key bytes
 // @description - `Signature`: Signature is Base64 string of signature bytes.
-// @description - The client is expected to sign the SHA-256 hash of a message constructed by concatenating the following three components, in order.
+// @description - The client is expected to sign the SHA-256 hash of a message constructed by concatenating the following components, in order.
 // @description - The raw public key bytes (not a human-readable address)
-// @description - The HTTP request path, such as /user/info
-// @description - The timestamp, truncated to the nearest minute, formatted in RFC3339 (e.g., 2025-07-15T17:42:00Z)
-// @description - These three byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.
+// @description - The timestamp, truncated to the nearest hour, formatted in RFC3339 (e.g., 2025-07-15T17:00:00Z)
+// @description - These two byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.
 // @security CurioAuth
 func APIRouter(mdh *MK20DealHandler, domainName string) http.Handler {
 	SwaggerInfo.BasePath = "/market/mk20"
@@ -198,6 +205,15 @@ func InfoRouter() http.Handler {
 // @Failure 441 {object} mk20.DealCode "ErrDurationTooShort indicates that the provided duration value does not meet the minimum required threshold"
 // @Failure 400 {string} string "Bad Request - Invalid input or validation error"
 func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if r := recover(); r != nil {
+			trace := make([]byte, 1<<16)
+			n := runtime.Stack(trace, false)
+			log.Errorf("panic occurred: %v\n%s", r, trace[:n])
+			debug.PrintStack()
+		}
+	}()
+
 	ct := r.Header.Get("Content-Type")
 	var deal mk20.Deal
 	if ct != "application/json" {
@@ -223,6 +239,8 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Infof("DATA IS NULL = %t\n", deal.Data == nil)
+
 	log.Infow("received deal proposal", "deal", deal)
 
 	result := mdh.dm.MK20Handler.ExecuteDeal(context.Background(), &deal)
@@ -245,8 +263,8 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 // @Description List of supported DDO contracts
 // @BasePath /market/mk20
 // @Param id path string true "id"
+// @Failure 200 {object} mk20.DealProductStatusResponse "the status response for deal products with their respective deal statuses"
 // @Failure 400 {string} string "Bad Request - Invalid input or validation error"
-// @Failure 200 {string} string "OK - Success"
 // @Failure 500 {string} string "Internal Server Error"
 func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
@@ -288,8 +306,8 @@ func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
 // @Summary List of supported DDO contracts
 // @Description List of supported DDO contracts
 // @BasePath /market/mk20
+// @Failure 200 {object} mk20.SupportedContracts "Array of contract addresses supported by a system or application."
 // @Failure 500 {string} string "Internal Server Error"
-// @Failure 200 {string} string "OK - Success"
 func (mdh *MK20DealHandler) mk20supportedContracts(w http.ResponseWriter, r *http.Request) {
 	var contracts mk20.SupportedContracts
 	err := mdh.db.Select(r.Context(), &contracts, "SELECT address FROM ddo_contracts")
@@ -324,7 +342,7 @@ func (mdh *MK20DealHandler) mk20supportedContracts(w http.ResponseWriter, r *htt
 // @Description List of supported products
 // @BasePath /market/mk20
 // @Failure 500 {string} string "Internal Server Error"
-// @Failure 200 {string} string "OK - Success"
+// @Failure 200 {object} mk20.SupportedProducts "Array of products supported by the SP"
 func (mdh *MK20DealHandler) supportedProducts(w http.ResponseWriter, r *http.Request) {
 	prods, _, err := mdh.dm.MK20Handler.Supported(r.Context())
 	if err != nil {
@@ -358,7 +376,7 @@ func (mdh *MK20DealHandler) supportedProducts(w http.ResponseWriter, r *http.Req
 // @Description List of supported data sources
 // @BasePath /market/mk20
 // @Failure 500 {string} string "Internal Server Error"
-// @Failure 200 {string} string "OK - Success"
+// @Failure 200 {object} mk20.SupportedDataSources "Array of dats sources supported by the SP"
 func (mdh *MK20DealHandler) supportedDataSources(w http.ResponseWriter, r *http.Request) {
 	_, srcs, err := mdh.dm.MK20Handler.Supported(r.Context())
 	if err != nil {
@@ -392,7 +410,7 @@ func (mdh *MK20DealHandler) supportedDataSources(w http.ResponseWriter, r *http.
 // @Summary Status of deal upload
 // @Description Return a json struct detailing the current status of a deal upload.
 // @BasePath /market/mk20
-// @Failure 200 {object} mk20.UploadStatusCode "UploadStatusCodeOk represents a successful upload operation with status code 200"
+// @Failure 200 {object} mk20.UploadStatus "The status of a file upload process, including progress and missing chunks"
 // @Failure 404 {object} mk20.UploadStatusCode "UploadStatusCodeDealNotFound indicates that the requested deal was not found, corresponding to status code 404"
 // @Failure 425 {object} mk20.UploadStatusCode "UploadStatusCodeUploadNotStarted indicates that the upload process has not started yet"
 // @Failure 500 {object} mk20.UploadStatusCode "UploadStatusCodeServerError indicates an internal server error occurred during the upload process, corresponding to status code 500"
@@ -421,7 +439,7 @@ func (mdh *MK20DealHandler) mk20UploadStatus(w http.ResponseWriter, r *http.Requ
 // @Param id path string true "id"
 // @Param chunkNum path string true "chunkNum"
 // @accepts bytes
-// @Param body body []byte true "raw binary"
+// @Param data body []byte true "raw binary"
 // @Failure 200 {object} mk20.UploadCode "UploadOk indicates a successful upload operation, represented by the HTTP status code 200"
 // @Failure 400 {object} mk20.UploadCode "UploadBadRequest represents a bad request error with an HTTP status code of 400"
 // @Failure 404 {object} mk20.UploadCode "UploadNotFound represents an error where the requested upload chunk could not be found, typically corresponding to HTTP status 404"
@@ -471,7 +489,9 @@ func (mdh *MK20DealHandler) mk20UploadDealChunks(w http.ResponseWriter, r *http.
 // @Summary Starts the upload process
 // @Description Initializes the upload for a deal. Each upload must be initialized before chunks can be uploaded for a deal.
 // @BasePath /market/mk20
+// @Accept       json
 // @Param id path string true "id"
+// @Param data body mk20.StartUpload true "Metadata for initiating an upload operation"
 // @Failure 200 {object} mk20.UploadStartCode "UploadStartCodeOk indicates a successful upload start request with status code 200"
 // @Failure 400 {object} mk20.UploadStartCode "UploadStartCodeBadRequest indicates a bad upload start request error with status code 400"
 // @Failure 404 {object} mk20.UploadStartCode "UploadStartCodeDealNotFound represents a 404 status indicating the deal was not found during the upload start process"
@@ -741,7 +761,7 @@ func (mdh *MK20DealHandler) mk20SerialUploadFinalize(w http.ResponseWriter, r *h
 	}
 
 	ct := r.Header.Get("Content-Type")
-	// If Content-Type is not set this is does not require updating the deal
+	// If Content-Type is not set, it is not required to update the deal
 	if len(ct) == 0 {
 		log.Infow("received finalize upload proposal without content type", "id", id)
 		mdh.dm.MK20Handler.HandleSerialUploadFinalize(id, nil, w)

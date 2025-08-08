@@ -2,6 +2,7 @@ package pdp
 
 import (
 	"context"
+	"errors"
 	"hash"
 	"io"
 	"math"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/ipfs/go-cid"
 	sha256simd "github.com/minio/sha256-simd"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-padreader"
@@ -47,7 +49,7 @@ func (t *TaskSavePDPCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	ctx := context.Background()
 	var saveCaches []struct {
 		ID         string `db:"id"`
-		PieceCid   string `db:"piece_cid"`
+		PieceCid   string `db:"piece_cid_v2"`
 		ProofSetID int64  `db:"proof_set_id"`
 		PieceRef   string `db:"piece_ref"`
 	}
@@ -61,7 +63,7 @@ func (t *TaskSavePDPCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		return false, xerrors.Errorf("no saveCaches found for taskID %d", taskID)
 	}
 
-	if len(saveCaches) > 0 {
+	if len(saveCaches) > 1 {
 		return false, xerrors.Errorf("multiple saveCaches found for taskID %d", taskID)
 	}
 
@@ -128,7 +130,7 @@ func (t *TaskSavePDPCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 		}
 	}
 
-	n, err := t.db.Exec(ctx, `UPDATE pdp_pipeline SET after_save_cache = TRUE, save_cache_task_id = NULL WHERE save_cache_task_id = $1`, taskID)
+	n, err := t.db.Exec(ctx, `UPDATE pdp_pipeline SET after_save_cache = TRUE, save_cache_task_id = NULL, indexing_created_at = NOW() WHERE save_cache_task_id = $1`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to update pdp_pipeline: %w", err)
 	}
@@ -168,16 +170,19 @@ func (t *TaskSavePDPCache) schedule(ctx context.Context, taskFunc harmonytask.Ad
 			var did string
 			err := tx.QueryRow(`SELECT id FROM pdp_pipeline 
 								  WHERE save_cache_task_id IS NULL 
-									AND save_cache_task_id = FALSE
-									AND aggregated = TRUE`).Scan(&did)
+									AND after_save_cache = FALSE
+									AND after_add_root_msg = TRUE`).Scan(&did)
 			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return false, nil
+				}
 				return false, xerrors.Errorf("failed to query pdp_pipeline: %w", err)
 			}
 			if did == "" {
 				return false, xerrors.Errorf("no valid deal ID found for scheduling")
 			}
 
-			_, err = tx.Exec(`UPDATE pdp_pipeline SET save_cache_task_id = $1, WHERE id = $2 AND save_cache_task_id = FALSE AND aggregated = TRUE`, id, did)
+			_, err = tx.Exec(`UPDATE pdp_pipeline SET save_cache_task_id = $1 WHERE id = $2 AND after_save_cache = FALSE AND after_add_root_msg = TRUE`, id, did)
 			if err != nil {
 				return false, xerrors.Errorf("failed to update pdp_pipeline: %w", err)
 			}
@@ -194,6 +199,7 @@ func (t *TaskSavePDPCache) schedule(ctx context.Context, taskFunc harmonytask.Ad
 func (t *TaskSavePDPCache) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
 var _ harmonytask.TaskInterface = &TaskSavePDPCache{}
+var _ = harmonytask.Reg(&TaskSavePDPCache{})
 
 // All the code below is a copy+paste of https://github.com/filecoin-project/go-fil-commp-hashhash/blob/master/commp.go
 // with modification to output the nodes at a specific height

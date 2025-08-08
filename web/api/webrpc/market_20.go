@@ -59,8 +59,8 @@ func (a *WebRPC) MK20DDOStorageDeal(ctx context.Context, id string) (*MK20Storag
 		if err := json.Unmarshal(dbDeal.DDOv1, &dddov1); err != nil {
 			return nil, fmt.Errorf("unmarshal ddov1: %w", err)
 		}
-		if dddov1.Error.Valid {
-			ret.Error = dddov1.Error
+		if dddov1.Error != "" {
+			ret.Error = sql.NullString{String: dddov1.Error, Valid: true}
 		}
 	}
 

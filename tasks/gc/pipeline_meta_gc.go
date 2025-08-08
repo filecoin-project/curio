@@ -41,6 +41,9 @@ func (s *PipelineGC) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	if err := s.cleanupMK20DealPipeline(); err != nil {
 		return false, xerrors.Errorf("cleanupMK20DealPipeline: %w", err)
 	}
+	if err := s.cleanupPDPPipeline(); err != nil {
+		return false, xerrors.Errorf("cleanupPDPPipeline: %w", err)
+	}
 
 	return true, nil
 }
@@ -215,6 +218,15 @@ func (s *PipelineGC) cleanupUnseal() error {
 		return xerrors.Errorf("failed to clean up unseal entries: %w", err)
 	}
 
+	return nil
+}
+
+func (s *PipelineGC) cleanupPDPPipeline() error {
+	ctx := context.Background()
+	_, err := s.db.Exec(ctx, `DELETE FROM pdp_pipeline WHERE complete = TRUE;`)
+	if err != nil {
+		return xerrors.Errorf("failed to clean up sealed deals: %w", err)
+	}
 	return nil
 }
 

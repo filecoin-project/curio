@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -35,6 +37,15 @@ import (
 )
 
 func (d *Deal) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
+	defer func() {
+		if r := recover(); r != nil {
+			trace := make([]byte, 1<<16)
+			n := runtime.Stack(trace, false)
+			log.Errorf("panic occurred in validation: %v\n%s", r, trace[:n])
+			debug.PrintStack()
+		}
+	}()
+
 	if d.Client.Empty() {
 		return ErrBadProposal, xerrors.Errorf("no client")
 	}
@@ -335,12 +346,13 @@ func (d Products) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, 
 		if err != nil {
 			return code, err
 		}
-		if d.RetrievalV1 == nil {
-			return ErrProductValidationFailed, xerrors.Errorf("retrieval v1 is required for pdp v1")
-		}
-		if d.RetrievalV1.Indexing || d.RetrievalV1.AnnouncePayload {
-			return ErrProductValidationFailed, xerrors.Errorf("payload indexing and announcement is not supported for pdp v1")
-		}
+		// TODO: Enable this once Indexing is done
+		//if d.RetrievalV1 == nil {
+		//	return ErrProductValidationFailed, xerrors.Errorf("retrieval v1 is required for pdp v1")
+		//}
+		//if d.RetrievalV1.Indexing || d.RetrievalV1.AnnouncePayload {
+		//	return ErrProductValidationFailed, xerrors.Errorf("payload indexing and announcement is not supported for pdp v1")
+		//}
 	}
 
 	if nproducts == 0 {
@@ -355,16 +367,16 @@ func (d Products) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, 
 }
 
 type DBDDOV1 struct {
-	DDO      *DDOV1         `json:"ddo"`
-	DealID   string         `json:"deal_id"`
-	Complete bool           `json:"complete"`
-	Error    sql.NullString `json:"error"`
+	DDO      *DDOV1 `json:"ddo"`
+	DealID   int64  `json:"deal_id"`
+	Complete bool   `json:"complete"`
+	Error    string `json:"error"`
 }
 
 type DBPDPV1 struct {
-	PDP      *PDPV1         `json:"pdp"`
-	Complete bool           `json:"complete"`
-	Error    sql.NullString `json:"error"`
+	PDP      *PDPV1 `json:"pdp"`
+	Complete bool   `json:"complete"`
+	Error    string `json:"error"`
 }
 
 type DBDeal struct {
@@ -637,6 +649,7 @@ type DealStatusResponse struct {
 	ErrorMsg string `json:"error_msg"`
 }
 
+// DealProductStatusResponse represents the status response for deal products with their respective deal statuses.
 type DealProductStatusResponse struct {
 
 	// DDOV1 holds the DealStatusResponse for product "ddo_v1".
@@ -740,13 +753,13 @@ func IsProductEnabled(db *harmonydb.DB, name ProductName) (DealCode, error) {
 	return Ok, nil
 }
 
-// SupportedProducts represents a collection of products supported by the SP.
+// SupportedProducts represents array of products supported by the SP.
 type SupportedProducts struct {
 	// Contracts represents a list of supported contract addresses in string format.
 	Products []string `json:"products"`
 }
 
-// SupportedDataSources represents a collection of dats sources supported by the SP.
+// SupportedDataSources represents array of dats sources supported by the SP.
 type SupportedDataSources struct {
 	// Contracts represents a list of supported contract addresses in string format.
 	Sources []string `json:"sources"`
@@ -846,12 +859,12 @@ func clientAllowed(ctx context.Context, db *harmonydb.DB, client string) (bool, 
 const Authprefix = "CurioAuth "
 
 // Auth verifies the custom authentication header by parsing its contents and validating the signature using the provided database connection.
-func Auth(header, path string, db *harmonydb.DB) (bool, string, error) {
+func Auth(header string, db *harmonydb.DB) (bool, string, error) {
 	keyType, pubKey, sig, err := parseCustomAuth(header)
 	if err != nil {
 		return false, "", xerrors.Errorf("parsing auth header: %w", err)
 	}
-	return verifySignature(db, keyType, path, pubKey, sig)
+	return verifySignature(db, keyType, pubKey, sig)
 }
 
 func parseCustomAuth(header string) (keyType string, pubKey, sig []byte, err error) {
@@ -887,15 +900,15 @@ func parseCustomAuth(header string) (keyType string, pubKey, sig []byte, err err
 	return keyType, pubKey, sig, nil
 }
 
-func verifySignature(db *harmonydb.DB, keyType string, path string, pubKey, signature []byte) (bool, string, error) {
-	now := time.Now().Truncate(time.Minute)
-	minus1 := now.Add(-1 * time.Minute)
-	plus1 := now.Add(1 * time.Minute)
+func verifySignature(db *harmonydb.DB, keyType string, pubKey, signature []byte) (bool, string, error) {
+	now := time.Now().Truncate(time.Hour)
+	minus1 := now.Add(-59 * time.Minute)
+	plus1 := now.Add(59 * time.Minute)
 	timeStamps := []time.Time{now, minus1, plus1}
 	var msgs [][32]byte
 
 	for _, t := range timeStamps {
-		msgs = append(msgs, sha256.Sum256(bytes.Join([][]byte{pubKey, []byte(path), []byte(t.Format(time.RFC3339))}, []byte{})))
+		msgs = append(msgs, sha256.Sum256(bytes.Join([][]byte{pubKey, []byte(t.Format(time.RFC3339))}, []byte{})))
 	}
 
 	switch keyType {

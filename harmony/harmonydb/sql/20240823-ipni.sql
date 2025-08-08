@@ -87,6 +87,8 @@ CREATE TABLE ipni_task (
     task_id BIGINT DEFAULT NULL,
     complete BOOLEAN DEFAULT FALSE,
 
+    -- id TEXT (Added in 20250505-market_mk20.sql)
+
     PRIMARY KEY (provider, context_id, is_rm)
 );
 

@@ -28,11 +28,15 @@ DROP CONSTRAINT IF EXISTS market_piece_deal_identity_key;
 
 -- Add the new composite primary key for market_piece_deal
 ALTER TABLE market_piece_deal
-    ADD PRIMARY KEY (sp_id, id, piece_cid, piece_length);
+    ADD PRIMARY KEY (id, sp_id, piece_cid, piece_length);
 
 -- Add a column to relate a piece park piece to mk20 deal
 ALTER TABLE market_piece_deal
 ADD COLUMN piece_ref BIGINT;
+
+-- Allow piece_offset to be null for PDP deals
+ALTER TABLE market_piece_deal
+    ALTER COLUMN piece_offset DROP NOT NULL;
 
 -- Add column to skip scheduling piece_park. Used for upload pieces
 ALTER TABLE parked_pieces
@@ -72,7 +76,7 @@ BEGIN
     ) VALUES (
          _id, _piece_cid, _boost_deal, _legacy_deal, _chain_deal_id,
          _sp_id, _sector_num, _piece_offset, _piece_length, _raw_size, _piece_ref
-     ) ON CONFLICT (sp_id, id, piece_cid, piece_length) DO NOTHING;
+     ) ON CONFLICT (id, sp_id, piece_cid, piece_length) DO NOTHING;
 
 END;
 $$ LANGUAGE plpgsql;
@@ -105,9 +109,9 @@ BEGIN
 
     -- If a different is_rm exists for the same context_id and provider, insert the new task
     IF FOUND THEN
-            INSERT INTO ipni_task (sp_id, id, sector, reg_seal_proof, sector_offset, provider, context_id, is_rm, created_at, task_id, complete)
-            VALUES (_sp_id, _id, _sector, _reg_seal_proof, _sector_offset, _provider, _context_id, _is_rm, TIMEZONE('UTC', NOW()), _task_id, FALSE);
-            RETURN;
+        INSERT INTO ipni_task (sp_id, id, sector, reg_seal_proof, sector_offset, provider, context_id, is_rm, created_at, task_id, complete)
+        VALUES (_sp_id, _id, _sector, _reg_seal_proof, _sector_offset, _provider, _context_id, _is_rm, TIMEZONE('UTC', NOW()), _task_id, FALSE);
+        RETURN;
     END IF;
 
     -- If no conflicting entry is found in ipni_task, check the latest ad in ipni table
@@ -436,7 +440,7 @@ CREATE TABLE pdp_proof_set_delete (
 );
 
 -- This table governs the delete root tasks
-CREATE TABLE pdp_delete_root (
+CREATE TABLE pdp_root_delete (
     id TEXT PRIMARY KEY, -- This is Market V2 Deal ID for lookup and response
     client TEXT NOT NULL,
 
@@ -450,7 +454,7 @@ CREATE TABLE pdp_delete_root (
 
 -- Main ProofSet Root table. Any and all root ever added by SP must be part of this table
 CREATE TABLE pdp_proofset_root (
-    proofset BIGINT NOT NULL, -- pdp_proof_sets.id
+    proof_set_id BIGINT NOT NULL, -- pdp_proof_sets.id
     client TEXT NOT NULL,
 
     piece_cid_v2 TEXT NOT NULL, -- root cid (piececid v2)
@@ -471,7 +475,7 @@ CREATE TABLE pdp_proofset_root (
     remove_message_hash TEXT DEFAULT NULL,
     remove_message_index BIGINT DEFAULT NULL,
 
-    PRIMARY KEY (proofset, root)
+    PRIMARY KEY (proof_set_id, root)
 );
 
 CREATE TABLE pdp_pipeline (
@@ -487,7 +491,7 @@ CREATE TABLE pdp_pipeline (
 
     proof_set_id BIGINT NOT NULL,
 
-    extra_data BYTEA NOT NULL,
+    extra_data BYTEA,
 
     piece_ref BIGINT DEFAULT NULL,
 
@@ -498,9 +502,6 @@ CREATE TABLE pdp_pipeline (
     agg_task_id BIGINT DEFAULT NULL,
     aggregated BOOLEAN DEFAULT FALSE,
 
-    save_cache_task_id BIGINT DEFAULT NULL,
-    after_save_cache BOOLEAN DEFAULT FALSE,
-
     add_root_task_id BIGINT DEFAULT NULL,
     after_add_root BOOLEAN DEFAULT FALSE,
 
@@ -509,10 +510,15 @@ CREATE TABLE pdp_pipeline (
 
     after_add_root_msg BOOLEAN DEFAULT FALSE,
 
+    save_cache_task_id BIGINT DEFAULT NULL,
+    after_save_cache BOOLEAN DEFAULT FALSE,
+
     indexing BOOLEAN DEFAULT FALSE,
     indexing_created_at TIMESTAMPTZ DEFAULT NULL,
     indexing_task_id BIGINT DEFAULT NULL,
     indexed BOOLEAN DEFAULT FALSE,
+
+    announce BOOLEAN DEFAULT FALSE,
 
     complete BOOLEAN DEFAULT FALSE,
 
@@ -523,5 +529,67 @@ CREATE TABLE market_mk20_clients (
     client TEXT PRIMARY KEY,
     allowed BOOLEAN DEFAULT TRUE
 );
+
+-- IPNI pipeline is kept separate from rest for robustness
+-- and reuse. This allows for removing, recreating ads using CLI.
+CREATE TABLE pdp_ipni_task (
+    context_id BYTEA NOT NULL,
+    is_rm BOOLEAN NOT NULL,
+
+    id TEXT NOT NULL,
+
+    provider TEXT NOT NULL,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
+    task_id BIGINT DEFAULT NULL,
+    complete BOOLEAN DEFAULT FALSE,
+
+    PRIMARY KEY (context_id, is_rm)
+);
+
+
+-- Function to create ipni tasks
+CREATE OR REPLACE FUNCTION insert_pdp_ipni_task(
+    _context_id BYTEA,
+    _is_rm BOOLEAN,
+    _id TEXT,
+    _provider TEXT,
+    _task_id BIGINT DEFAULT NULL
+) RETURNS VOID AS $$
+DECLARE
+_existing_is_rm BOOLEAN;
+_latest_is_rm BOOLEAN;
+BEGIN
+    -- Check if ipni_task has the same context_id and provider with a different is_rm value
+    SELECT is_rm INTO _existing_is_rm
+    FROM ipni_task
+    WHERE provider = _provider AND context_id = _context_id AND is_rm != _is_rm
+    LIMIT 1;
+
+    -- If a different is_rm exists for the same context_id and provider, insert the new task
+    IF FOUND THEN
+        INSERT INTO pdp_ipni_task (context_id, is_rm, id, provider, task_id, created_at, complete)
+        VALUES (_context_id, _is_rm, _id, _provider, _task_id, TIMEZONE('UTC', NOW()), FALSE);
+        RETURN;
+    END IF;
+
+    -- If no conflicting entry is found in ipni_task, check the latest ad in ipni table
+    SELECT is_rm INTO _latest_is_rm
+    FROM ipni
+    WHERE provider = _provider AND context_id = _context_id
+    ORDER BY order_number DESC
+    LIMIT 1;
+
+    -- If the latest ad has the same is_rm value, raise an exception
+    IF FOUND AND _latest_is_rm = _is_rm THEN
+        RAISE EXCEPTION 'already published';
+    END IF;
+
+    -- If all conditions are met, insert the new task into ipni_task
+    INSERT INTO pdp_ipni_task (context_id, is_rm, id, provider, task_id, created_at, complete)
+    VALUES (_context_id, _is_rm, _id, _provider, _task_id, TIMEZONE('UTC', NOW()), FALSE);
+END;
+$$ LANGUAGE plpgsql;
+
 
 

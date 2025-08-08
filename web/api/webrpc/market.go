@@ -1054,7 +1054,10 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 			if err := json.Unmarshal(dbdeal.DDOv1, &dddov1); err != nil {
 				return nil, fmt.Errorf("unmarshal ddov1: %w", err)
 			}
-			Err = dddov1.Error
+			if dddov1.Error != "" {
+				Err.String = dddov1.Error
+				Err.Valid = true
+			}
 		}
 
 		mk20deals[i] = &MK20StorageDeal{

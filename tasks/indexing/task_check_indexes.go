@@ -25,7 +25,7 @@ import (
 	"github.com/filecoin-project/curio/market/mk20"
 )
 
-const CheckIndexInterval = 9 * time.Minute
+const CheckIndexInterval = time.Hour * 6
 
 var MaxOngoingIndexingTasks = 40
 
@@ -91,7 +91,7 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
 			SELECT mm.piece_cid, mpd.piece_length, mpd.piece_offset, mpd.sp_id, mpd.sector_num, mpd.raw_size, mpd.piece_ref, mpd.id
 			FROM market_piece_metadata mm
 			LEFT JOIN market_piece_deal mpd ON mm.piece_cid = mpd.piece_cid AND mm.piece_size = mpd.piece_length
-			WHERE mm.indexed = true
+			WHERE mm.indexed = true AND mpd.sp_id > 0 AND mpd.sector_num > 0
 		`)
 	if err != nil {
 		return err

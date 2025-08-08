@@ -324,6 +324,9 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	lb := policy.GetWinningPoStSectorSetLookback(nv) + builtin.EpochsInDay + 1
 
 	finalityHeight := head.Height() - lb
+	if finalityHeight < 0 {
+		finalityHeight = 1
+	}
 
 	finalityTipset, err := s.api.ChainGetTipSetByHeight(ctx, finalityHeight, head.Key())
 	if err != nil {

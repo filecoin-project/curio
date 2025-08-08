@@ -695,8 +695,6 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		}
 	}
 
-	log.Infow("mk20 tasks", "tasks", mk20tasks)
-
 	if storiface.FTUnsealed != 1 {
 		panic("storiface.FTUnsealed != 1")
 	}
@@ -711,11 +709,7 @@ func (i *IndexingTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.T
 		return nil, xerrors.Errorf("getting mk12 tasks: %w", err)
 	}
 
-	log.Infow("mk12 tasks", "tasks", mk12tasks)
-
 	tasks = append(mk20tasks, mk12tasks...)
-
-	log.Infow("tasks", "tasks", tasks)
 
 	ls, err := i.sc.LocalStorage(ctx)
 	if err != nil {

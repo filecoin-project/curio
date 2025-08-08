@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -49,7 +50,7 @@ func (p *PDPTaskAddProofSet) Do(taskID harmonytask.TaskID, stillOwned func() boo
 		return false, xerrors.Errorf("failed to get task details from DB: %w", err)
 	}
 
-	if len(pcreates) != 0 {
+	if len(pcreates) != 1 {
 		return false, xerrors.Errorf("incorrect rows for proofset create found for taskID %d", taskID)
 	}
 
@@ -104,19 +105,34 @@ func (p *PDPTaskAddProofSet) Do(taskID harmonytask.TaskID, stillOwned func() boo
 
 	// Insert into message_waits_eth and pdp_proofset_creates
 	txHashLower := strings.ToLower(txHash.Hex())
-	n, err := p.db.Exec(ctx, `UPDATE pdp_proof_set_create SET tx_hash = $1, task_id = NULL WHERE task_id = $2`, txHashLower, taskID)
+	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		n, err := tx.Exec(`UPDATE pdp_proof_set_create SET tx_hash = $1, task_id = NULL WHERE task_id = $2`, txHashLower, taskID)
+		if err != nil {
+			return false, xerrors.Errorf("failed to update pdp_proof_set_create: %w", err)
+		}
+		if n != 1 {
+			return false, xerrors.Errorf("incorrect number of rows updated for pdp_proof_set_create: %d", n)
+		}
+		_, err = tx.Exec(`INSERT INTO message_waits_eth (signed_tx_hash, tx_status) VALUES ($1, $2)`, txHashLower, "pending")
+		if err != nil {
+			return false, xerrors.Errorf("failed to insert into message_waits_eth: %w", err)
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+
 	if err != nil {
-		return false, xerrors.Errorf("failed to update pdp_proof_set_create: %w", err)
+		return false, xerrors.Errorf("failed to commit transaction: %w", err)
 	}
-	if n != 1 {
-		return false, xerrors.Errorf("incorrect number of rows updated for pdp_proof_set_create: %d", n)
+
+	if !comm {
+		return false, xerrors.Errorf("failed to commit transaction")
 	}
+
 	return true, nil
 }
 
 func (p *PDPTaskAddProofSet) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	//TODO implement me
-	panic("implement me")
+	return &ids[0], nil
 }
 
 func (p *PDPTaskAddProofSet) TypeDetails() harmonytask.TaskTypeDetails {
@@ -141,8 +157,11 @@ func (p *PDPTaskAddProofSet) schedule(ctx context.Context, taskFunc harmonytask.
 			stop = true // assume we're done until we find a task to schedule
 
 			var did string
-			err := tx.QueryRow(`SELECT id FROM pdp_proof_set_create WHERE task_id IS NULL AND tx_hash IS NULL`).Scan(&id)
+			err := tx.QueryRow(`SELECT id FROM pdp_proof_set_create WHERE task_id IS NULL AND tx_hash IS NULL LIMIT 1`).Scan(&did)
 			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return false, nil
+				}
 				return false, xerrors.Errorf("failed to query pdp_proof_set_create: %w", err)
 			}
 			if did == "" {
@@ -181,3 +200,4 @@ func (p *PDPTaskAddProofSet) getSenderAddress(ctx context.Context) (common.Addre
 func (p *PDPTaskAddProofSet) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
 var _ harmonytask.TaskInterface = &PDPTaskAddProofSet{}
+var _ = harmonytask.Reg(&PDPTaskAddProofSet{})
