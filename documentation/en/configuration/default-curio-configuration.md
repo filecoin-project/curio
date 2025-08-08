@@ -309,8 +309,6 @@ description: The default curio configuration
   # type: bool
   #EnableRemoteProofs = false
 
-  # The maximum number of remote proofs that can be uploaded simultaneously by each node. (Default: 15)
-  #
   # type: int
   #RemoteProofMaxUploads = 15
 

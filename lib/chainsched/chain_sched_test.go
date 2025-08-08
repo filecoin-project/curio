@@ -64,7 +64,6 @@ func makeMockTipSet(height uint64) *types.TipSet {
 func TestAddHandlerConcurrency(t *testing.T) {
 	api := &mockNodeAPI{
 		notifCh: make(chan []*api.HeadChange),
-		head:    makeMockTipSet(100),
 	}
 
 	sched := New(api)
@@ -101,7 +100,6 @@ func TestAddHandlerConcurrency(t *testing.T) {
 func TestAddHandlerAfterStart(t *testing.T) {
 	mockAPI := &mockNodeAPI{
 		notifCh: make(chan []*api.HeadChange),
-		head:    makeMockTipSet(100),
 	}
 
 	sched := New(mockAPI)
@@ -131,7 +129,6 @@ func TestNotificationChannelResubscription(t *testing.T) {
 	notifCh := make(chan []*api.HeadChange)
 	mockAPI := &mockNodeAPI{
 		notifCh: notifCh,
-		head:    makeMockTipSet(100),
 	}
 
 	// Test that closing the notification channel causes resubscription
@@ -185,7 +182,6 @@ func TestCallbackExecution(t *testing.T) {
 	notifCh := make(chan []*api.HeadChange, 10)
 	mockAPI := &mockNodeAPI{
 		notifCh: notifCh,
-		head:    makeMockTipSet(100),
 	}
 
 	sched := New(mockAPI)
@@ -253,7 +249,6 @@ func TestContextCancellation(t *testing.T) {
 	notifCh := make(chan []*api.HeadChange)
 	mockAPI := &mockNodeAPI{
 		notifCh: notifCh,
-		head:    makeMockTipSet(100),
 	}
 
 	sched := New(mockAPI)
@@ -285,11 +280,194 @@ func TestContextCancellation(t *testing.T) {
 	}
 }
 
+func TestSubscriptionContextCancellation(t *testing.T) {
+	// This test verifies that when resubscribing, the old subscription
+	// context is properly cancelled
+
+	testCtx, testCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer testCancel()
+
+	var notifyCalls []context.Context
+	var mu sync.Mutex
+
+	mockAPI := &mockNodeAPI{}
+
+	firstCh := make(chan []*api.HeadChange, 1)
+	firstCallReady := make(chan struct{})
+	secondCallReady := make(chan struct{})
+
+	// Custom ChainNotify that captures contexts
+	wrappedAPI := &mockNodeAPIWithContext{
+		mockNodeAPI: mockAPI,
+		chainNotifyFunc: func(ctx context.Context) (<-chan []*api.HeadChange, error) {
+			mu.Lock()
+			notifyCalls = append(notifyCalls, ctx)
+			callNum := len(notifyCalls)
+			mu.Unlock()
+
+			if callNum == 1 {
+				defer close(firstCallReady)
+				// First call - return channel we control below
+				return firstCh, nil
+			}
+
+			if callNum == 2 {
+				defer close(secondCallReady)
+			}
+
+			// Subsequent calls - return a properly initialized channel
+			ch := make(chan []*api.HeadChange, 1)
+			ch <- []*api.HeadChange{{
+				Type: store.HCCurrent,
+				Val:  makeMockTipSet(100),
+			}}
+			return ch, nil
+		},
+	}
+
+	sched := New(wrappedAPI)
+
+	ctx, cancel := context.WithCancel(testCtx)
+	defer cancel()
+
+	go sched.Run(ctx)
+
+	// Wait for first ChainNotify call
+	select {
+	case <-firstCallReady:
+	case <-testCtx.Done():
+		t.Fatal("Timeout waiting for first ChainNotify call")
+	}
+
+	// Send initial notification
+	firstCh <- []*api.HeadChange{{
+		Type: store.HCCurrent,
+		Val:  makeMockTipSet(100),
+	}}
+
+	// Verify we have the first subscription
+	mu.Lock()
+	require.Len(t, notifyCalls, 1)
+	firstCtx := notifyCalls[0]
+	mu.Unlock()
+
+	// Close the channel to trigger resubscription
+	close(firstCh)
+
+	// Wait for second ChainNotify call
+	select {
+	case <-secondCallReady:
+	case <-testCtx.Done():
+		t.Fatal("Timeout waiting for second ChainNotify call")
+	}
+
+	// Should have multiple calls now
+	mu.Lock()
+	require.GreaterOrEqual(t, len(notifyCalls), 2)
+	mu.Unlock()
+
+	// Verify first context was cancelled
+	select {
+	case <-firstCtx.Done():
+		// Good, context was cancelled
+	default:
+		t.Fatal("First subscription context was not cancelled on resubscription")
+	}
+}
+
+type mockNodeAPIWithContext struct {
+	*mockNodeAPI
+	chainNotifyFunc func(context.Context) (<-chan []*api.HeadChange, error)
+}
+
+func (m *mockNodeAPIWithContext) ChainNotify(ctx context.Context) (<-chan []*api.HeadChange, error) {
+	return m.chainNotifyFunc(ctx)
+}
+
+func TestTimeoutResubscription(t *testing.T) {
+	// This test verifies that the scheduler will resubscribe after
+	// not receiving notifications for the configured timeout period
+
+	testCtx, testCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer testCancel()
+
+	firstCallCh := make(chan struct{})
+	secondCallCh := make(chan struct{})
+	mu := &sync.Mutex{}
+
+	// Create a channel that won't receive new notifications after initial
+	notifyCh := make(chan []*api.HeadChange, 1)
+
+	// Use mockNodeAPIWithContext to have full control over ChainNotify
+	var callCount int
+	wrappedAPI := &mockNodeAPIWithContext{
+		mockNodeAPI: &mockNodeAPI{},
+		chainNotifyFunc: func(ctx context.Context) (<-chan []*api.HeadChange, error) {
+			mu.Lock()
+			callCount++
+			count := callCount
+			mu.Unlock()
+
+			if count == 1 {
+				defer close(firstCallCh)
+			} else if count == 2 {
+				defer close(secondCallCh)
+			}
+
+			// Always return the same channel for this test
+			return notifyCh, nil
+		},
+	}
+
+	// Create scheduler with very short timeout for testing
+	sched := NewWithNotificationTimeout(wrappedAPI, 200*time.Millisecond)
+
+	ctx, cancel := context.WithCancel(testCtx)
+	defer cancel()
+
+	go sched.Run(ctx)
+
+	// Wait for first ChainNotify call
+	select {
+	case <-firstCallCh:
+	case <-testCtx.Done():
+		t.Fatal("Timeout waiting for first ChainNotify call")
+	}
+
+	// Send initial notification
+	notifyCh <- []*api.HeadChange{{
+		Type: store.HCCurrent,
+		Val:  makeMockTipSet(100),
+	}}
+
+	// Verify initial call count
+	mu.Lock()
+	require.Equal(t, 1, callCount)
+	mu.Unlock()
+
+	// Wait for timeout to trigger resubscription
+	// The scheduler has a 200ms timeout, so wait for the second call
+	select {
+	case <-secondCallCh:
+		// Good, resubscription happened
+	case <-testCtx.Done():
+		t.Fatal("Timeout waiting for resubscription after notification timeout")
+	}
+
+	// Verify we got the second call
+	mu.Lock()
+	finalCount := callCount
+	mu.Unlock()
+	require.GreaterOrEqual(t, finalCount, 2, "ChainNotify should have been called again after timeout")
+}
+
 func TestMultipleChanges(t *testing.T) {
+	testCtx, testCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer testCancel()
+
 	notifCh := make(chan []*api.HeadChange, 10)
 	mockAPI := &mockNodeAPI{
 		notifCh: notifCh,
-		head:    makeMockTipSet(100),
 	}
 
 	sched := New(mockAPI)
@@ -297,17 +475,25 @@ func TestMultipleChanges(t *testing.T) {
 	var callbackMu sync.Mutex
 	var callCount int
 	var lastApply *types.TipSet
+	firstCallDone := make(chan struct{})
+	secondCallDone := make(chan struct{})
 
 	err := sched.AddHandler(func(ctx context.Context, revert, apply *types.TipSet) error {
 		callbackMu.Lock()
 		defer callbackMu.Unlock()
 		callCount++
 		lastApply = apply
+
+		if callCount == 1 {
+			close(firstCallDone)
+		} else if callCount == 2 {
+			close(secondCallDone)
+		}
 		return nil
 	})
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(testCtx)
 	defer cancel()
 
 	go sched.Run(ctx)
@@ -319,6 +505,13 @@ func TestMultipleChanges(t *testing.T) {
 		Val:  ts0,
 	}
 	notifCh <- []*api.HeadChange{initialChange}
+
+	// Wait for first callback
+	select {
+	case <-firstCallDone:
+	case <-testCtx.Done():
+		t.Fatal("Timeout waiting for first callback")
+	}
 
 	// Send multiple changes in one notification
 	ts1 := makeMockTipSet(101)
@@ -332,13 +525,17 @@ func TestMultipleChanges(t *testing.T) {
 	}
 	notifCh <- changes
 
-	// Wait for processing
-	time.Sleep(200 * time.Millisecond)
+	// Wait for second callback
+	select {
+	case <-secondCallDone:
+	case <-testCtx.Done():
+		t.Fatal("Timeout waiting for second callback")
+	}
 
 	callbackMu.Lock()
+	defer callbackMu.Unlock()
 	// Should be called with the highest tipset
 	require.Equal(t, ts3, lastApply)
 	// Initial current + one call for the batch
 	require.Equal(t, 2, callCount)
-	callbackMu.Unlock()
 }
