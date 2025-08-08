@@ -411,6 +411,10 @@ type CurioSubsystemsConfig struct {
 	EnableRemoteProofs bool
 
 	RemoteProofMaxUploads int
+
+	// EnableWalletExporter enables the wallet exporter on the node. This will export wallet stats to prometheus.
+	// NOTE: THIS MUST BE ENABLED ONLY ON A SINGLE NODE IN THE CLUSTER TO BE USEFUL (Default: false)
+	EnableWalletExporter bool
 }
 type CurioFees struct {
 	// maxBatchFee = maxBase + maxPerSector * nSectors
