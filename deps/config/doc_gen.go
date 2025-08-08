@@ -807,13 +807,6 @@ for the sector. Please ensure that TreeD and TreeRC task are enabled and relevan
 enabling this option. (Default: false)`,
 		},
 		{
-			Name: "EnableWalletExporter",
-			Type: "bool",
-
-			Comment: `EnableWalletExporter enables the wallet exporter on the node. This will export wallet stats to prometheus.
-NOTE: THIS MUST BE ENABLED ONLY ON A SINGLE NODE IN THE CLUSTER TO BE USEFUL (Default: false)`,
-		},
-		{
 			Name: "EnableProofShare",
 			Type: "bool",
 
@@ -843,6 +836,13 @@ via Client Settings on the Proofshare webui page. Buy delay can also be set in t
 			Type: "int",
 
 			Comment: ``,
+		},
+		{
+			Name: "EnableWalletExporter",
+			Type: "bool",
+
+			Comment: `EnableWalletExporter enables the wallet exporter on the node. This will export wallet stats to prometheus.
+NOTE: THIS MUST BE ENABLED ONLY ON A SINGLE NODE IN THE CLUSTER TO BE USEFUL (Default: false)`,
 		},
 	},
 	"HTTPConfig": {
