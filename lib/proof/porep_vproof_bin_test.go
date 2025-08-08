@@ -57,6 +57,48 @@ func TestDecode(t *testing.T) {
 	}
 }
 
+func TestDecodeEncodeRoundtrip(t *testing.T) {
+	if os.Getenv("EXPENSIVE_TESTS") == "" {
+		t.Skip()
+	}
+
+	//binFile := "../../extern/supraseal/demos/c2-test/resources/test/commit-phase1-output"
+	binFile := "../../commit-phase1-output.gz"
+
+	gzData, err := os.ReadFile(binFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gzReader, err := gzip.NewReader(bytes.NewReader(gzData))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rawData, err := io.ReadAll(gzReader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := gzReader.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	dec, err := DecodeCommit1OutRaw(bytes.NewReader(rawData))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var enc bytes.Buffer
+	if err := EncodeCommit1OutRaw(&enc, dec); err != nil {
+		t.Fatal(err)
+	}
+
+	if !bytes.Equal(rawData, enc.Bytes()) {
+		t.Fatal("decoded and encoded data do not match")
+	}
+}
+
 /*
 // bin/main.rs
 use storage_proofs_core::settings::SETTINGS;

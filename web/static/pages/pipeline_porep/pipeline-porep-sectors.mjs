@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/all/lit-all.min.js';
 import RPCCall from '/lib/jsonrpc.mjs';
 import { formatDateTwo } from '/lib/dateutil.mjs';
+import '/ux/compact-epoch.mjs';
 
 export const pipelineStyles = css`
     .porep-pipeline-table,
@@ -257,7 +258,11 @@ export function renderSectorPipeline(sector) {
         : ''} ${sector.AfterSeed ? 'pipeline-success' : ''}"
             >
               <div>Wait Seed</div>
-              <div>${sector.AfterSeed ? 'done' : sector.SeedEpoch}</div>
+              <div>
+                ${sector.AfterSeed
+                  ? 'done'
+                  : html`<compact-pretty-epoch .epoch=${sector.SeedEpoch}></compact-pretty-epoch>`}
+              </div>
             </td>
             ${renderSectorState(
         'PoRep',
