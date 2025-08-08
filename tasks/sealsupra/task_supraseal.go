@@ -574,6 +574,10 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 			log.Infow("got CC scheduler claims", "sectors", len(sectors))
 		}
 
+		if len(sectors) != s.sectors {
+			return false, xerrors.Errorf("not enough sectors to fill a batch %d != %d", len(sectors), s.sectors)
+		}
+
 		// assign to pipeline entries, set task_id_sdr, task_id_tree_r, task_id_tree_c
 		for _, t := range sectors {
 			_, err := tx.Exec(`UPDATE sectors_sdr_pipeline SET task_id_sdr = $1, task_id_tree_r = $1, task_id_tree_c = $1, task_id_tree_d = $1 WHERE sp_id = $2 AND sector_number = $3`, id, t.SpID, t.SectorNumber)
