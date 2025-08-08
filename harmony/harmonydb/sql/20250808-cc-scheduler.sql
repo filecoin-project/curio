@@ -1,0 +1,8 @@
+CREATE TABLE sectors_cc_scheduler (
+    sp_id BIGINT NOT NULL,
+    to_seal BIGINT NOT NULL,
+    weight BIGINT NOT NULL DEFAULT 1000,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (sp_id)
+);

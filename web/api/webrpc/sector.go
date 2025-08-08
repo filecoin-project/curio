@@ -820,6 +820,92 @@ func (a *WebRPC) SectorRestart(ctx context.Context, spid, id int64) error {
 	return nil
 }
 
+type SectorCCScheduler struct {
+	SpID    int64
+	ToSeal  int64
+	Weight  int64
+	Enabled bool
+
+	// computed
+	SPAddress  string
+	SectorSize int64
+	RequestedSize string
+}
+
+func (a *WebRPC) SectorCCScheduler(ctx context.Context) ([]SectorCCScheduler, error) {
+	var rows []struct {
+		SpID    int64 `db:"sp_id"`
+		ToSeal  int64 `db:"to_seal"`
+		Weight  int64 `db:"weight"`
+		Enabled bool  `db:"enabled"`
+	}
+
+	err := a.deps.DB.Select(ctx, &rows, `SELECT sp_id, to_seal, weight, enabled FROM sectors_cc_scheduler ORDER BY sp_id`)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to list cc scheduler entries: %w", err)
+	}
+
+	out := make([]SectorCCScheduler, 0, len(rows))
+	for _, r := range rows {
+		addr := must.One(address.NewIDAddress(uint64(r.SpID)))
+		mi, err := a.deps.Chain.StateMinerInfo(ctx, addr, types.EmptyTSK)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to get miner info for %s: %w", addr, err)
+		}
+		out = append(out, SectorCCScheduler{
+			SpID:       r.SpID,
+			ToSeal:     r.ToSeal,
+			Weight:     r.Weight,
+			Enabled:    r.Enabled,
+			SPAddress:  addr.String(),
+			SectorSize: int64(mi.SectorSize),
+			RequestedSize: types.SizeStr(big.Mul(big.NewInt(r.ToSeal), big.NewInt(int64(mi.SectorSize)))),
+		})
+	}
+	return out, nil
+}
+
+func (a *WebRPC) SectorCCSchedulerUpsert(ctx context.Context, sp string, toSeal int64, weight int64, enabled bool) error {
+	spaddr, err := address.NewFromString(sp)
+	if err != nil {
+		return xerrors.Errorf("invalid sp address: %w", err)
+	}
+	spid, err := address.IDFromAddress(spaddr)
+	if err != nil {
+		return xerrors.Errorf("id from sp address: %w", err)
+	}
+
+	if toSeal < 0 {
+		return xerrors.Errorf("toSeal cannot be negative")
+	}
+	if weight <= 0 {
+		return xerrors.Errorf("weight must be positive")
+	}
+
+	_, err = a.deps.DB.Exec(ctx, `INSERT INTO sectors_cc_scheduler (sp_id, to_seal, weight, enabled) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (sp_id) DO UPDATE SET to_seal = EXCLUDED.to_seal, weight = EXCLUDED.weight, enabled = EXCLUDED.enabled`, spid, toSeal, weight, enabled)
+	if err != nil {
+		return xerrors.Errorf("failed to upsert cc scheduler: %w", err)
+	}
+	return nil
+}
+
+func (a *WebRPC) SectorCCSchedulerDelete(ctx context.Context, sp string) error {
+	spaddr, err := address.NewFromString(sp)
+	if err != nil {
+		return xerrors.Errorf("invalid sp address: %w", err)
+	}
+	spid, err := address.IDFromAddress(spaddr)
+	if err != nil {
+		return xerrors.Errorf("id from sp address: %w", err)
+	}
+	_, err = a.deps.DB.Exec(ctx, `DELETE FROM sectors_cc_scheduler WHERE sp_id = $1`, spid)
+	if err != nil {
+		return xerrors.Errorf("failed to delete cc scheduler entry: %w", err)
+	}
+	return nil
+}
+
 func derefOrZero[T any](a *T) T {
 	if a == nil {
 		return *new(T)
