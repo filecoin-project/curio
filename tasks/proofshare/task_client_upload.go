@@ -129,7 +129,7 @@ func (t *TaskClientUpload) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 func (t *TaskClientUpload) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(t.max),
-		Name: taskhelp.BackgroundTask("PSPutVanilla"),
+		Name: "PSPutVanilla",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 128 << 20,
