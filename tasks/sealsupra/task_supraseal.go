@@ -21,6 +21,7 @@ import (
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin"
+	miner12 "github.com/filecoin-project/go-state-types/builtin/v12/miner"
 	"github.com/filecoin-project/go-state-types/crypto"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -35,7 +36,6 @@ import (
 	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/supraffi"
 	"github.com/filecoin-project/curio/tasks/seal"
-	miner12 "github.com/filecoin-project/go-state-types/builtin/v12/miner"
 
 	"github.com/filecoin-project/lotus/chain/types"
 )
@@ -598,9 +598,9 @@ func (s *SupraSeal) schedule(taskFunc harmonytask.AddTaskFunc) error {
 
 func (s *SupraSeal) claimsFromCCScheduler(tx *harmonydb.Tx, toSeal int64) ([]sectorClaim, error) {
 	var enabledSchedules []struct {
-		SpID   int64 `db:"sp_id"`
-		ToSeal int64 `db:"to_seal"`
-		Weight int64 `db:"weight"`
+		SpID         int64 `db:"sp_id"`
+		ToSeal       int64 `db:"to_seal"`
+		Weight       int64 `db:"weight"`
 		DurationDays int64 `db:"duration_days"`
 	}
 

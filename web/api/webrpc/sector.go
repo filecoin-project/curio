@@ -828,18 +828,18 @@ type SectorCCScheduler struct {
 	Enabled      bool
 
 	// computed
-	SPAddress  string
-	SectorSize int64
+	SPAddress     string
+	SectorSize    int64
 	RequestedSize string
 }
 
 func (a *WebRPC) SectorCCScheduler(ctx context.Context) ([]SectorCCScheduler, error) {
 	var rows []struct {
-		SpID    int64 `db:"sp_id"`
-		ToSeal  int64 `db:"to_seal"`
-		Weight  int64 `db:"weight"`
+		SpID         int64 `db:"sp_id"`
+		ToSeal       int64 `db:"to_seal"`
+		Weight       int64 `db:"weight"`
 		DurationDays int64 `db:"duration_days"`
-		Enabled bool  `db:"enabled"`
+		Enabled      bool  `db:"enabled"`
 	}
 
 	err := a.deps.DB.Select(ctx, &rows, `SELECT sp_id, to_seal, weight, duration_days, enabled FROM sectors_cc_scheduler ORDER BY sp_id`)
@@ -855,13 +855,13 @@ func (a *WebRPC) SectorCCScheduler(ctx context.Context) ([]SectorCCScheduler, er
 			return nil, xerrors.Errorf("failed to get miner info for %s: %w", addr, err)
 		}
 		out = append(out, SectorCCScheduler{
-			SpID:       r.SpID,
-			ToSeal:     r.ToSeal,
-			Weight:     r.Weight,
-			DurationDays: r.DurationDays,
-			Enabled:    r.Enabled,
-			SPAddress:  addr.String(),
-			SectorSize: int64(mi.SectorSize),
+			SpID:          r.SpID,
+			ToSeal:        r.ToSeal,
+			Weight:        r.Weight,
+			DurationDays:  r.DurationDays,
+			Enabled:       r.Enabled,
+			SPAddress:     addr.String(),
+			SectorSize:    int64(mi.SectorSize),
 			RequestedSize: types.SizeStr(big.Mul(big.NewInt(r.ToSeal), big.NewInt(int64(mi.SectorSize)))),
 		})
 	}
