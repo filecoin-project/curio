@@ -148,6 +148,16 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 
 	regProof := sectorParamsArr[0].RegSealProof
 
+	balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)
+	if err != nil {
+		return false, xerrors.Errorf("getting miner balance: %w", err)
+	}
+
+	mi, err := s.api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
+	if err != nil {
+		return false, xerrors.Errorf("getting miner info: %w", err)
+	}
+
 	params := miner.ProveCommitSectors3Params{
 		RequireActivationSuccess:   s.cfg.RequireActivationSuccess,
 		RequireNotificationSuccess: s.cfg.RequireNotificationSuccess,
@@ -306,6 +316,26 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 			collateralPerSector = big.Zero()
 		}
 
+		simulateSendParam := miner.ProveCommitSectors3Params{
+			SectorActivations: []miner.SectorActivationManifest{
+				{
+					SectorNumber: abi.SectorNumber(sectorParams.SectorNumber),
+					Pieces:       pams,
+				},
+			},
+			SectorProofs: [][]byte{
+				sectorParams.Proof,
+			},
+			RequireActivationSuccess:   s.cfg.RequireActivationSuccess,
+			RequireNotificationSuccess: s.cfg.RequireNotificationSuccess,
+		}
+
+		err = s.simuateCommitPerSector(ctx, maddr, mi, balance, collateral, ts, simulateSendParam)
+		if err != nil {
+			log.Errorw("failed to simulate commit for sector", "Miner", maddr.String(), "Sector", sectorParams.SectorNumber, "err", err)
+			continue
+		}
+
 		collateral = big.Add(collateral, collateralPerSector)
 
 		params.SectorActivations = append(params.SectorActivations, miner.SectorActivationManifest{
@@ -337,7 +367,7 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 
 	maxFee := s.cfg.feeCfg.MaxCommitBatchGasFee.FeeForSectors(len(infos))
 
-	msg, err := s.createCommitMessage(ctx, maddr, sectorParamsArr[0].RegSealProof, sectorParamsArr[0].SpID, collateral, params, infos, ts)
+	msg, err := s.createCommitMessage(ctx, maddr, mi, balance, sectorParamsArr[0].RegSealProof, sectorParamsArr[0].SpID, collateral, params, infos, ts)
 	if err != nil {
 		return false, xerrors.Errorf("failed to create the commit message: %w", err)
 	}
@@ -365,7 +395,23 @@ func (s *SubmitCommitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	return true, nil
 }
 
-func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr address.Address, sealProof abi.RegisteredSealProof, SpID int64, collateral abi.TokenAmount, params miner.ProveCommitSectors3Params, infos []proof.AggregateSealVerifyInfo, ts *types.TipSet) (*types.Message, error) {
+func (s *SubmitCommitTask) simuateCommitPerSector(ctx context.Context, maddr address.Address, mi api.MinerInfo, balance big.Int, collateral abi.TokenAmount, ts *types.TipSet, param miner.ProveCommitSectors3Params) error {
+	maxFee := s.cfg.feeCfg.MaxCommitBatchGasFee.FeeForSectors(1)
+
+	collateral = s.calculateCollateral(balance, collateral)
+	goodFunds := big.Add(maxFee, collateral)
+	enc := new(bytes.Buffer)
+	if err := param.MarshalCBOR(enc); err != nil {
+		return xerrors.Errorf("could not serialize commit params: %w", err)
+	}
+	_, err := s.gasEstimateCommit(ctx, maddr, enc.Bytes(), mi, goodFunds, collateral, maxFee, ts.Key())
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr address.Address, mi api.MinerInfo, balance big.Int, sealProof abi.RegisteredSealProof, SpID int64, collateral abi.TokenAmount, params miner.ProveCommitSectors3Params, infos []proof.AggregateSealVerifyInfo, ts *types.TipSet) (*types.Message, error) {
 	aggParams := params
 	var aggCost, cost big.Int
 	var msg, aggMsg *types.Message
@@ -374,16 +420,6 @@ func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr addres
 	nv, err := s.api.StateNetworkVersion(ctx, ts.Key())
 	if err != nil {
 		return nil, xerrors.Errorf("getting network version: %s", err)
-	}
-
-	balance, err := s.api.StateMinerAvailableBalance(ctx, maddr, types.EmptyTSK)
-	if err != nil {
-		return nil, xerrors.Errorf("getting miner balance: %w", err)
-	}
-
-	mi, err := s.api.StateMinerInfo(ctx, maddr, types.EmptyTSK)
-	if err != nil {
-		return nil, xerrors.Errorf("getting miner info: %w", err)
 	}
 
 	if len(infos) >= miner.MinAggregatedSectors {
