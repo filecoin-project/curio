@@ -44,7 +44,7 @@ Before enabling the Snark Market on your node:
 * 70GB base system RAM + ~220 GB Per GPU
   * Lower amount is acceptable, but you won't be able to use the much faster SupraSeal C2 feature\
     Meaning ~10mins/proof instead of 2.
-* Curio from `origin/feat/snkss` branch (Snark Market support)
+* Curio from `main` branch (Snark Market support is not yet part of a release)
 * FIL balance on Mainnet
 
 ***
@@ -70,11 +70,10 @@ sudo apt update
 sudo apt install -y build-essential pkg-config libssl-dev curl git clang cmake golang
 ```
 
-Then, build Curio from the Snark Market branch:
+Then, build Curio from the Main branch:
 
 ```bash
 git pull
-git checkout origin/feat/snkss
 git submodule update
 make clean
 RUSTFLAGS="-C target-cpu=native -g" FFI_BUILD_FROM_SOURCE=1 FFI_USE_CUDA_SUPRASEAL=1 make clean build all
