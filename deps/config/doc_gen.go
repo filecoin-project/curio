@@ -835,7 +835,7 @@ via Client Settings on the Proofshare webui page. Buy delay can also be set in t
 			Name: "RemoteProofMaxUploads",
 			Type: "int",
 
-			Comment: ``,
+			Comment: `The maximum number of remote proofs that can be uploaded simultaneously by each node. (Default: 15)`,
 		},
 		{
 			Name: "EnableWalletExporter",
