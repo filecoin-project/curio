@@ -410,6 +410,7 @@ type CurioSubsystemsConfig struct {
 	// via Client Settings on the Proofshare webui page. Buy delay can also be set in the Client Settings page. (Default: false)
 	EnableRemoteProofs bool
 
+	// The maximum number of remote proofs that can be uploaded simultaneously by each node. (Default: 15)
 	RemoteProofMaxUploads int
 
 	// EnableWalletExporter enables the wallet exporter on the node. This will export wallet stats to prometheus.
