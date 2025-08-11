@@ -657,8 +657,7 @@ func stepNewMinerConfig(d *MigrationData) {
 
 	sk, err := io.ReadAll(io.LimitReader(rand.Reader, 32))
 	if err != nil {
-		errMsg := "Failed to generate random bytes for secret: %s"
-		d.say(notice, errMsg, err.Error())
+		d.say(notice, "Failed to generate random bytes for secret: %s", err.Error())
 		if !d.nonSP {
 			d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
 		} else {
@@ -671,8 +670,7 @@ func stepNewMinerConfig(d *MigrationData) {
 
 	ainfo, err := cliutil.GetAPIInfo(d.cctx, repo.FullNode)
 	if err != nil {
-		errMsg := "Failed to get API info for FullNode: %s"
-		d.say(notice, errMsg, err)
+		d.say(notice, "Failed to get API info for FullNode: %s", err.Error())
 		if !d.nonSP {
 			d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
 		} else {
@@ -683,8 +681,7 @@ func stepNewMinerConfig(d *MigrationData) {
 
 	token, err := d.full.AuthNew(d.ctx, lapi.AllPermissions)
 	if err != nil {
-		errMsg := "Failed to create auth token: %s"
-		d.say(notice, errMsg, err.Error())
+		d.say(notice, "Failed to create auth token: %s", err.Error())
 		if !d.nonSP {
 			d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
 		} else {
@@ -699,8 +696,7 @@ func stepNewMinerConfig(d *MigrationData) {
 	var titles []string
 	err = d.DB.Select(d.ctx, &titles, `SELECT title FROM harmony_config WHERE LENGTH(config) > 0`)
 	if err != nil {
-		errMsg := "Cannot reach the DB: %s"
-		d.say(notice, errMsg, err.Error())
+		d.say(notice, "Cannot reach the DB: %s", err.Error())
 		if !d.nonSP {
 			d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
 		} else {
@@ -718,8 +714,7 @@ func stepNewMinerConfig(d *MigrationData) {
 		}
 		cb, err := config.ConfigUpdate(curioCfg, config.DefaultCurioConfig(), config.Commented(true), config.DefaultKeepUncommented(), config.NoEnv())
 		if err != nil {
-			errMsg := "Failed to generate default config: %s"
-			d.say(notice, errMsg, err.Error())
+			d.say(notice, "Failed to generate default config: %s", err.Error())
 			if !d.nonSP {
 				d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
 			} else {
@@ -729,8 +724,7 @@ func stepNewMinerConfig(d *MigrationData) {
 		}
 		_, err = d.DB.Exec(d.ctx, "INSERT INTO harmony_config (title, config) VALUES ('base', $1)", string(cb))
 		if err != nil {
-			errMsg := "Failed to insert config into database: %s"
-			d.say(notice, errMsg, err.Error())
+			d.say(notice, "Failed to insert config into database: %s", err.Error())
 			if !d.nonSP {
 				d.say(notice, "Please do not run guided-setup again as miner creation is not idempotent. You need to run 'curio config new-cluster %s' to finish the configuration", d.MinerID.String())
 			} else {
