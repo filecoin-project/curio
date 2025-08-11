@@ -1150,13 +1150,6 @@
             "fuzzy": true
         },
         {
-            "id": "path to json file containing storage config",
-            "message": "path to json file containing storage config",
-            "translation": "path to json file containing storage config",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
             "id": "partition to compute WindowPoSt for",
             "message": "partition to compute WindowPoSt for",
             "translation": "partition to compute WindowPoSt for",
@@ -2260,10 +2253,7 @@
             "fuzzy": true
         },
         {
-            "id": [
-                "errMsg",
-                "Failed to generate random bytes for secret: {Error}"
-            ],
+            "id": "Failed to generate random bytes for secret: {Error}",
             "message": "Failed to generate random bytes for secret: {Error}",
             "translation": "Failed to generate random bytes for secret: {Error}",
             "translatorComment": "Copied from source.",
@@ -2301,6 +2291,74 @@
             "message": "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration",
             "translation": "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration",
             "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Failed to get API info for FullNode: {Error}",
+            "message": "Failed to get API info for FullNode: {Error}",
+            "translation": "Failed to get API info for FullNode: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Failed to create auth token: {Error}",
+            "message": "Failed to create auth token: {Error}",
+            "translation": "Failed to create auth token: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Failed to generate default config: {Error}",
+            "message": "Failed to generate default config: {Error}",
+            "translation": "Failed to generate default config: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Failed to insert config into database: {Error}",
+            "message": "Failed to insert config into database: {Error}",
+            "translation": "Failed to insert config into database: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
             "fuzzy": true
         },
         {

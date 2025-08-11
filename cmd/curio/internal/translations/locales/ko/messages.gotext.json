@@ -2385,6 +2385,24 @@
             "translation": "클러스터를 시작하려면 실행하세요: curio run --layers basic-cluster",
             "message": "To start the cluster, run: curio run --layers basic-cluster",
             "placeholder": null
+        },
+        {
+            "id": "Failed to get API info for FullNode: {Error}",
+            "translation": "FullNode의 API 정보를 가져오지 못했습니다: {Error}",
+            "message": "Failed to get API info for FullNode: {Error}",
+            "placeholder": null
+        },
+        {
+            "id": "Failed to create auth token: {Error}",
+            "translation": "인증 토큰을 생성하지 못했습니다: {Error}",
+            "message": "Failed to create auth token: {Error}",
+            "placeholder": null
+        },
+        {
+            "id": "Failed to insert config into database: {Error}",
+            "translation": "데이터베이스에 구성 정보를 삽입하지 못했습니다: {Error}",
+            "message": "Failed to insert config into database: {Error}",
+            "placeholder": null
         }
     ]
 }
