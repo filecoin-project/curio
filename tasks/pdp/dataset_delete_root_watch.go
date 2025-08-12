@@ -15,18 +15,18 @@ import (
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
-type ProofSetRootDelete struct {
-	ID       string  `db:"id"`
-	ProofSet uint64  `db:"set_id"`
-	Roots    []int64 `db:"roots"`
-	Hash     string  `db:"tx_hash"`
+type DataSetPieceDelete struct {
+	ID      string  `db:"id"`
+	DataSet uint64  `db:"set_id"`
+	Pieces  []int64 `db:"pieces"`
+	Hash    string  `db:"tx_hash"`
 }
 
-func NewWatcherRootDelete(db *harmonydb.DB, pcs *chainsched.CurioChainSched) {
+func NewWatcherPieceDelete(db *harmonydb.DB, pcs *chainsched.CurioChainSched) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
-		err := processPendingProofSetRootDeletes(ctx, db)
+		err := processPendingDataSetPieceDeletes(ctx, db)
 		if err != nil {
-			log.Errorf("Failed to process pending proof set creates: %s", err)
+			log.Errorf("Failed to process pending data set creates: %s", err)
 		}
 		return nil
 	}); err != nil {
@@ -34,22 +34,22 @@ func NewWatcherRootDelete(db *harmonydb.DB, pcs *chainsched.CurioChainSched) {
 	}
 }
 
-func processPendingProofSetRootDeletes(ctx context.Context, db *harmonydb.DB) error {
-	var proofSetRootDeletes []ProofSetRootDelete
-	err := db.Select(ctx, &proofSetRootDeletes, `
-        SELECT id, tx_hash, roots, set_id FROM pdp_root_delete WHERE tx_hash IS NOT NULL`)
+func processPendingDataSetPieceDeletes(ctx context.Context, db *harmonydb.DB) error {
+	var dataSetPieceDeletes []DataSetPieceDelete
+	err := db.Select(ctx, &dataSetPieceDeletes, `
+        SELECT id, tx_hash, pieces, set_id FROM pdp_piece_delete WHERE tx_hash IS NOT NULL`)
 	if err != nil {
-		return xerrors.Errorf("failed to select proof set root deletes: %w", err)
+		return xerrors.Errorf("failed to select data set piece deletes: %w", err)
 	}
 
-	if len(proofSetRootDeletes) == 0 {
+	if len(dataSetPieceDeletes) == 0 {
 		return nil
 	}
 
-	for _, psd := range proofSetRootDeletes {
-		err := processProofSetRootDelete(ctx, db, psd)
+	for _, psd := range dataSetPieceDeletes {
+		err := processDataSetPieceDelete(ctx, db, psd)
 		if err != nil {
-			log.Errorf("Failed to process proof set root delete for tx %s: %s", psd.Hash, err)
+			log.Errorf("Failed to process data set piece delete for tx %s: %s", psd.Hash, err)
 			continue
 		}
 	}
@@ -57,7 +57,7 @@ func processPendingProofSetRootDeletes(ctx context.Context, db *harmonydb.DB) er
 	return nil
 }
 
-func processProofSetRootDelete(ctx context.Context, db *harmonydb.DB, psd ProofSetRootDelete) error {
+func processDataSetPieceDelete(ctx context.Context, db *harmonydb.DB, psd DataSetPieceDelete) error {
 	var txReceiptJSON []byte
 	var txSuccess bool
 	err := db.QueryRow(ctx, `SELECT tx_receipt, tx_success FROM message_waits_eth WHERE signed_tx_hash = $1 
@@ -90,9 +90,9 @@ func processProofSetRootDelete(ctx context.Context, db *harmonydb.DB, psd ProofS
 			if n != 1 {
 				return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
 			}
-			_, err = tx.Exec(`DELETE FROM pdp_root_delete WHERE id = $1`, psd.ID)
+			_, err = tx.Exec(`DELETE FROM pdp_piece_delete WHERE id = $1`, psd.ID)
 			if err != nil {
-				return false, xerrors.Errorf("failed to delete row from pdp_root_delete: %w", err)
+				return false, xerrors.Errorf("failed to delete row from pdp_piece_delete: %w", err)
 			}
 			return true, nil
 		})
@@ -106,12 +106,12 @@ func processProofSetRootDelete(ctx context.Context, db *harmonydb.DB, psd ProofS
 	}
 
 	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		n, err := tx.Exec(`UPDATE pdp_proofset_root SET removed = TRUE, 
+		n, err := tx.Exec(`UPDATE pdp_dataset_piece SET removed = TRUE, 
                          remove_deal_id = $1, 
                          remove_message_hash = $2 
-                         WHERE proof_set_id = $3 AND root = ANY($4)`, psd.ID, psd.Hash, psd.ProofSet, psd.Roots)
+                         WHERE data_set_id = $3 AND piece = ANY($4)`, psd.ID, psd.Hash, psd.DataSet, psd.Pieces)
 		if err != nil {
-			return false, xerrors.Errorf("failed to update pdp_proofset_root: %w", err)
+			return false, xerrors.Errorf("failed to update pdp_dataset_piece: %w", err)
 		}
 		if n != 1 {
 			return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
@@ -125,9 +125,9 @@ func processProofSetRootDelete(ctx context.Context, db *harmonydb.DB, psd ProofS
 		if n != 1 {
 			return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
 		}
-		_, err = tx.Exec(`DELETE FROM pdp_root_delete WHERE id = $1`, psd.ID)
+		_, err = tx.Exec(`DELETE FROM pdp_piece_delete WHERE id = $1`, psd.ID)
 		if err != nil {
-			return false, xerrors.Errorf("failed to delete row from pdp_root_delete: %w", err)
+			return false, xerrors.Errorf("failed to delete row from pdp_piece_delete: %w", err)
 		}
 		return true, nil
 	})

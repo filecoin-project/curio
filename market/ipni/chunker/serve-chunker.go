@@ -298,9 +298,16 @@ func (p *ServeChunker) reconstructChunkFromDB(ctx context.Context, chunk, piecev
 
 	pi := commp.PieceInfo()
 
-	mhs, err := p.indexStore.GetPieceHashRange(ctx, piecev2, firstHash, numBlocks)
-	if err != nil {
-		return nil, xerrors.Errorf("getting piece hash range: %w", err)
+	var mhs []multihash.Multihash
+
+	// Handle exception for PDP piece announcement with FilecoinPieceHttp{} metadata
+	if numBlocks == 1 {
+		mhs = []multihash.Multihash{firstHash}
+	} else {
+		mhs, err = p.indexStore.GetPieceHashRange(ctx, piecev2, firstHash, numBlocks)
+		if err != nil {
+			return nil, xerrors.Errorf("getting piece hash range: %w", err)
+		}
 	}
 
 	// Create the chunk node

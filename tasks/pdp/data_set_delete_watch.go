@@ -15,7 +15,7 @@ import (
 	chainTypes "github.com/filecoin-project/lotus/chain/types"
 )
 
-type ProofSetDelete struct {
+type DataSetDelete struct {
 	DeleteMessageHash string `db:"tx_hash"`
 	ID                string `db:"id"`
 	PID               int64  `db:"set_id"`
@@ -23,9 +23,9 @@ type ProofSetDelete struct {
 
 func NewWatcherDelete(db *harmonydb.DB, pcs *chainsched.CurioChainSched) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
-		err := processPendingProofSetDeletes(ctx, db)
+		err := processPendingDataSetDeletes(ctx, db)
 		if err != nil {
-			log.Errorf("Failed to process pending proof set creates: %s", err)
+			log.Errorf("Failed to process pending data set creates: %s", err)
 		}
 		return nil
 	}); err != nil {
@@ -33,28 +33,28 @@ func NewWatcherDelete(db *harmonydb.DB, pcs *chainsched.CurioChainSched) {
 	}
 }
 
-func processPendingProofSetDeletes(ctx context.Context, db *harmonydb.DB) error {
-	// Query for pdp_proof_set_delete where txHash is not NULL
-	var proofSetDeletes []ProofSetDelete
+func processPendingDataSetDeletes(ctx context.Context, db *harmonydb.DB) error {
+	// Query for pdp_data_set_delete where txHash is not NULL
+	var dataSetDeletes []DataSetDelete
 
-	err := db.Select(ctx, &proofSetDeletes, `
+	err := db.Select(ctx, &dataSetDeletes, `
         SELECT id, set_id, tx_hash
-        FROM pdp_proof_set_delete
+        FROM pdp_data_set_delete
         WHERE tx_hash IS NOT NULL`)
 	if err != nil {
-		return xerrors.Errorf("failed to select proof set deletes: %w", err)
+		return xerrors.Errorf("failed to select data set deletes: %w", err)
 	}
 
-	if len(proofSetDeletes) == 0 {
-		// No pending proof set creates
+	if len(dataSetDeletes) == 0 {
+		// No pending data set creates
 		return nil
 	}
 
-	// Process each proof set delete
-	for _, psd := range proofSetDeletes {
-		err := processProofSetDelete(ctx, db, psd)
+	// Process each data set delete
+	for _, psd := range dataSetDeletes {
+		err := processDataSetDelete(ctx, db, psd)
 		if err != nil {
-			log.Errorf("Failed to process proof set delete for tx %s: %s", psd.DeleteMessageHash, err)
+			log.Errorf("Failed to process data set delete for tx %s: %s", psd.DeleteMessageHash, err)
 			continue
 		}
 	}
@@ -62,7 +62,7 @@ func processPendingProofSetDeletes(ctx context.Context, db *harmonydb.DB) error 
 	return nil
 }
 
-func processProofSetDelete(ctx context.Context, db *harmonydb.DB, psd ProofSetDelete) error {
+func processDataSetDelete(ctx context.Context, db *harmonydb.DB, psd DataSetDelete) error {
 	// Retrieve the tx_receipt from message_waits_eth
 	var txReceiptJSON []byte
 	var txSuccess bool
@@ -100,9 +100,9 @@ func processProofSetDelete(ctx context.Context, db *harmonydb.DB, psd ProofSetDe
 			if n != 1 {
 				return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
 			}
-			_, err = tx.Exec(`DELETE FROM pdp_proof_set_delete WHERE id = $1`, psd.ID)
+			_, err = tx.Exec(`DELETE FROM pdp_data_set_delete WHERE id = $1`, psd.ID)
 			if err != nil {
-				return false, xerrors.Errorf("failed to delete row from pdp_proof_set_delete: %w", err)
+				return false, xerrors.Errorf("failed to delete row from pdp_data_set_delete: %w", err)
 			}
 			return true, nil
 		})
@@ -117,28 +117,28 @@ func processProofSetDelete(ctx context.Context, db *harmonydb.DB, psd ProofSetDe
 
 	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 
-		n, err := tx.Exec(`UPDATE pdp_proof_set SET removed = TRUE, 
+		n, err := tx.Exec(`UPDATE pdp_data_set SET removed = TRUE, 
                          remove_deal_id = $1, 
                          remove_message_hash = $2 
                          WHERE id = $3`, psd.ID, psd.DeleteMessageHash, psd.PID)
 		if err != nil {
-			return false, xerrors.Errorf("failed to update pdp_proof_set: %w", err)
+			return false, xerrors.Errorf("failed to update pdp_data_set: %w", err)
 		}
 		if n != 1 {
 			return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
 		}
 
-		_, err = tx.Exec(`UPDATE pdp_proofset_root SET removed = TRUE, 
+		_, err = tx.Exec(`UPDATE pdp_dataset_piece SET removed = TRUE, 
                          remove_deal_id = $1, 
                          remove_message_hash = $2 
-                         WHERE proof_set_id = $3`, psd.ID, psd.DeleteMessageHash, psd.PID)
+                         WHERE data_set_id = $3`, psd.ID, psd.DeleteMessageHash, psd.PID)
 		if err != nil {
-			return false, xerrors.Errorf("failed to update pdp_proofset_root: %w", err)
+			return false, xerrors.Errorf("failed to update pdp_dataset_piece: %w", err)
 		}
 
-		_, err = tx.Exec(`DELETE FROM pdp_proof_set_delete WHERE id = $1`, psd.ID)
+		_, err = tx.Exec(`DELETE FROM pdp_data_set_delete WHERE id = $1`, psd.ID)
 		if err != nil {
-			return false, xerrors.Errorf("failed to delete row from pdp_proof_set_delete: %w", err)
+			return false, xerrors.Errorf("failed to delete row from pdp_data_set_delete: %w", err)
 		}
 
 		n, err = tx.Exec(`UPDATE market_mk20_deal

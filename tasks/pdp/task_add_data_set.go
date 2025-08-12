@@ -2,7 +2,6 @@ package pdp
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"strings"
 	"time"
@@ -22,15 +21,15 @@ import (
 	"github.com/filecoin-project/curio/tasks/message"
 )
 
-type PDPTaskAddProofSet struct {
+type PDPTaskAddDataSet struct {
 	db        *harmonydb.DB
 	sender    *message.SenderETH
 	ethClient *ethclient.Client
 	filClient PDPServiceNodeApi
 }
 
-func NewPDPTaskAddProofSet(db *harmonydb.DB, sender *message.SenderETH, ethClient *ethclient.Client, filClient PDPServiceNodeApi) *PDPTaskAddProofSet {
-	return &PDPTaskAddProofSet{
+func NewPDPTaskAddDataSet(db *harmonydb.DB, sender *message.SenderETH, ethClient *ethclient.Client, filClient PDPServiceNodeApi) *PDPTaskAddDataSet {
+	return &PDPTaskAddDataSet{
 		db:        db,
 		sender:    sender,
 		ethClient: ethClient,
@@ -38,20 +37,20 @@ func NewPDPTaskAddProofSet(db *harmonydb.DB, sender *message.SenderETH, ethClien
 	}
 }
 
-func (p *PDPTaskAddProofSet) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (p *PDPTaskAddDataSet) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 	var pcreates []struct {
 		RecordKeeper string `db:"record_keeper"`
 		ExtraData    []byte `db:"extra_data"`
 	}
 
-	err = p.db.Select(ctx, &pcreates, `SELECT record_keeper, extra_data FROM pdp_proof_set_create WHERE task_id = $1 AND tx_hash IS NULL`, taskID)
+	err = p.db.Select(ctx, &pcreates, `SELECT record_keeper, extra_data FROM pdp_data_set_create WHERE task_id = $1 AND tx_hash IS NULL`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get task details from DB: %w", err)
 	}
 
 	if len(pcreates) != 1 {
-		return false, xerrors.Errorf("incorrect rows for proofset create found for taskID %d", taskID)
+		return false, xerrors.Errorf("incorrect rows for dataset create found for taskID %d", taskID)
 	}
 
 	pcreate := pcreates[0]
@@ -81,7 +80,7 @@ func (p *PDPTaskAddProofSet) Do(taskID harmonytask.TaskID, stillOwned func() boo
 	}
 
 	// Pack the method call data
-	data, err := abiData.Pack("createProofSet", recordKeeperAddr, extraDataBytes)
+	data, err := abiData.Pack("createDataSet", recordKeeperAddr, extraDataBytes)
 	if err != nil {
 		return false, xerrors.Errorf("packing data: %w", err)
 	}
@@ -97,21 +96,21 @@ func (p *PDPTaskAddProofSet) Do(taskID harmonytask.TaskID, stillOwned func() boo
 	)
 
 	// Send the transaction using SenderETH
-	reason := "pdp-mkproofset"
+	reason := "pdp-create-data-set"
 	txHash, err := p.sender.Send(ctx, fromAddress, tx, reason)
 	if err != nil {
 		return false, xerrors.Errorf("sending transaction: %w", err)
 	}
 
-	// Insert into message_waits_eth and pdp_proofset_creates
+	// Insert into message_waits_eth and pdp_data_set_create
 	txHashLower := strings.ToLower(txHash.Hex())
 	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		n, err := tx.Exec(`UPDATE pdp_proof_set_create SET tx_hash = $1, task_id = NULL WHERE task_id = $2`, txHashLower, taskID)
+		n, err := tx.Exec(`UPDATE pdp_data_set_create SET tx_hash = $1, task_id = NULL WHERE task_id = $2`, txHashLower, taskID)
 		if err != nil {
-			return false, xerrors.Errorf("failed to update pdp_proof_set_create: %w", err)
+			return false, xerrors.Errorf("failed to update pdp_data_set_create: %w", err)
 		}
 		if n != 1 {
-			return false, xerrors.Errorf("incorrect number of rows updated for pdp_proof_set_create: %d", n)
+			return false, xerrors.Errorf("incorrect number of rows updated for pdp_data_set_create: %d", n)
 		}
 		_, err = tx.Exec(`INSERT INTO message_waits_eth (signed_tx_hash, tx_status) VALUES ($1, $2)`, txHashLower, "pending")
 		if err != nil {
@@ -131,14 +130,14 @@ func (p *PDPTaskAddProofSet) Do(taskID harmonytask.TaskID, stillOwned func() boo
 	return true, nil
 }
 
-func (p *PDPTaskAddProofSet) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (p *PDPTaskAddDataSet) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
 	return &ids[0], nil
 }
 
-func (p *PDPTaskAddProofSet) TypeDetails() harmonytask.TaskTypeDetails {
+func (p *PDPTaskAddDataSet) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(50),
-		Name: "PDPAddProofSet",
+		Name: "PDPAddDataSet",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,
@@ -150,27 +149,27 @@ func (p *PDPTaskAddProofSet) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func (p *PDPTaskAddProofSet) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
+func (p *PDPTaskAddDataSet) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
 	var stop bool
 	for !stop {
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
 
 			var did string
-			err := tx.QueryRow(`SELECT id FROM pdp_proof_set_create WHERE task_id IS NULL AND tx_hash IS NULL LIMIT 1`).Scan(&did)
+			err := tx.QueryRow(`SELECT id FROM pdp_data_set_create WHERE task_id IS NULL AND tx_hash IS NULL LIMIT 1`).Scan(&did)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
 					return false, nil
 				}
-				return false, xerrors.Errorf("failed to query pdp_proof_set_create: %w", err)
+				return false, xerrors.Errorf("failed to query pdp_data_set_create: %w", err)
 			}
 			if did == "" {
 				return false, xerrors.Errorf("no valid id found for taskID")
 			}
 
-			_, err = tx.Exec(`UPDATE pdp_proof_set_create SET task_id = $1 WHERE id = $2 AND tx_hash IS NULL`, id, did)
+			_, err = tx.Exec(`UPDATE pdp_data_set_create SET task_id = $1 WHERE id = $2 AND tx_hash IS NULL`, id, did)
 			if err != nil {
-				return false, xerrors.Errorf("failed to update pdp_proof_set_create: %w", err)
+				return false, xerrors.Errorf("failed to update pdp_data_set_create: %w", err)
 			}
 
 			stop = false // we found a task to schedule, keep going
@@ -183,12 +182,11 @@ func (p *PDPTaskAddProofSet) schedule(ctx context.Context, taskFunc harmonytask.
 }
 
 // getSenderAddress retrieves the sender address from the database where role = 'pdp' limit 1
-func (p *PDPTaskAddProofSet) getSenderAddress(ctx context.Context) (common.Address, error) {
-	// TODO: Update this function
+func (p *PDPTaskAddDataSet) getSenderAddress(ctx context.Context) (common.Address, error) {
 	var addressStr string
 	err := p.db.QueryRow(ctx, `SELECT address FROM eth_keys WHERE role = 'pdp' LIMIT 1`).Scan(&addressStr)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return common.Address{}, errors.New("no sender address with role 'pdp' found")
 		}
 		return common.Address{}, err
@@ -197,7 +195,7 @@ func (p *PDPTaskAddProofSet) getSenderAddress(ctx context.Context) (common.Addre
 	return address, nil
 }
 
-func (p *PDPTaskAddProofSet) Adder(taskFunc harmonytask.AddTaskFunc) {}
+func (p *PDPTaskAddDataSet) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
-var _ harmonytask.TaskInterface = &PDPTaskAddProofSet{}
-var _ = harmonytask.Reg(&PDPTaskAddProofSet{})
+var _ harmonytask.TaskInterface = &PDPTaskAddDataSet{}
+var _ = harmonytask.Reg(&PDPTaskAddDataSet{})

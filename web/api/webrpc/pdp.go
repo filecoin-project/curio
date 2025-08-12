@@ -164,12 +164,14 @@ func (a *WebRPC) ImportPDPKey(ctx context.Context, hexPrivateKey string) (string
 	// Insert into the database within a transaction
 	_, err = a.deps.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// Check if the owner_address already exists
-		var existingAddress string
-		err := tx.QueryRow(`SELECT address FROM eth_keys WHERE address = $1 AND role = 'pdp'`, address).Scan(&existingAddress)
-		if err == nil {
+		var existingAddress bool
+
+		err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM eth_keys WHERE role = 'pdp')`).Scan(&existingAddress)
+		if err != nil {
+			return false, xerrors.Errorf("failed to check existing owner address: %v", err)
+		}
+		if existingAddress {
 			return false, fmt.Errorf("owner address %s already exists", address)
-		} else if err != pgx.ErrNoRows {
-			return false, fmt.Errorf("failed to check existing owner address: %v", err)
 		}
 
 		// Insert the new owner address and private key

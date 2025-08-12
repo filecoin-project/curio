@@ -260,7 +260,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
         SELECT piece_cid, notify_url, piece_ref, check_hash_codec, check_hash, check_size FROM pdp_piece_uploads WHERE id = $1
     `, uploadUUID.String()).Scan(&pieceCIDStr, &notifyURL, &pieceRef, &checkHashName, &checkHash, &checkSize)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "Upload UUID not found", http.StatusNotFound)
 		} else {
 			http.Error(w, "Database error", http.StatusInternalServerError)

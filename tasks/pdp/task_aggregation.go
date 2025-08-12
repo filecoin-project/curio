@@ -279,11 +279,11 @@ func (a *AggregatePDPDealTask) Do(taskID harmonytask.TaskID, stillOwned func() b
 		retv := deal.Products.RetrievalV1
 
 		n, err := tx.Exec(`INSERT INTO pdp_pipeline (
-            id, client, piece_cid_v2, piece_cid, piece_size, raw_size, proof_set_id, 
-            extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, aggregated, indexing, announce) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, TRUE, $11, $12)`,
-			id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.ProofSetID,
-			pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePayload)
+            id, client, piece_cid_v2, piece_cid, piece_size, raw_size, data_set_id, 
+            extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, aggregated, indexing, announce, announce_payload) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, TRUE, $11, $12, $13)`,
+			id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.DataSetID,
+			pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 		if err != nil {
 			return false, xerrors.Errorf("inserting aggregated piece in PDP pipeline: %w", err)
 		}

@@ -168,9 +168,9 @@ func (c *Client) Deal(ctx context.Context, maddr, wallet address.Address, pieceC
 	if pdp {
 		ps := uint64(proofSet)
 		p.PDPV1 = &mk20.PDPV1{
-			AddRoot:    true,
-			ProofSetID: &ps,
-			ExtraData:  []byte("test bytes"), // TODO: Fix this
+			AddPiece:  true,
+			DataSetID: &ps,
+			ExtraData: []byte("test bytes"), // TODO: Fix this
 		}
 	}
 

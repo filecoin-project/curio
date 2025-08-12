@@ -42,6 +42,14 @@ ALTER TABLE market_piece_deal
 ALTER TABLE parked_pieces
     ADD COLUMN skip BOOLEAN NOT NULL DEFAULT FALSE;
 
+-- Add column piece_cid_v2 to IPNI table
+ALTER TABLE ipni
+    ADD COLUMN piece_cid_v2 TEXT;
+
+-- Add metadata column to IPNI table which defaults to binary of IpfsGatewayHttp
+ALTER TABLE ipni
+    ADD COLUMN metadata BYTEA NOT NULL DEFAULT '\xa01200';
+
 -- This function is used to insert piece metadata and piece deal (piece indexing)
 -- This makes it easy to keep the logic of how table is updated and fast (in DB).
 CREATE OR REPLACE FUNCTION process_piece_deal(
@@ -242,7 +250,8 @@ CREATE TABLE market_mk20_pipeline_waiting (
 CREATE TABLE market_mk20_upload_waiting (
     id TEXT PRIMARY KEY,
     chunked BOOLEAN DEFAULT NULL,
-    ref_id BIGINT DEFAULT NULL
+    ref_id BIGINT DEFAULT NULL,
+    ready_at TIMESTAMPTZ DEFAULT NULL
 );
 
 -- This table help disconnected downloads from main PoRep/PDP pipelines
@@ -277,6 +286,7 @@ CREATE TABLE market_mk20_deal_chunk (
     chunk_size BIGINT not null,
     ref_id BIGINT DEFAULT NULL,
     complete BOOLEAN DEFAULT FALSE,
+    completed_at TIMESTAMPTZ,
     finalize BOOLEAN DEFAULT FALSE,
     finalize_task_id BIGINT DEFAULT NULL,
     PRIMARY KEY (id, chunk)
@@ -302,6 +312,58 @@ INSERT INTO market_mk20_data_source (name, enabled) VALUES ('http', TRUE);
 INSERT INTO market_mk20_data_source (name, enabled) VALUES ('aggregate', TRUE);
 INSERT INTO market_mk20_data_source (name, enabled) VALUES ('offline', TRUE);
 INSERT INTO market_mk20_data_source (name, enabled) VALUES ('put', TRUE);
+
+-- This function sets an upload completion time. It is used to removed
+-- upload for deal which are not finalized in 1 hour so we don't waste space.
+CREATE OR REPLACE FUNCTION set_ready_at_for_serial_upload()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Transition into "serial ready" state: chunked=false AND ref_id IS NOT NULL
+    IF NEW.chunked IS FALSE
+    AND NEW.ref_id IS NOT NULL
+    AND OLD.ready_at IS NULL
+    AND NOT (OLD.chunked IS FALSE AND OLD.ref_id IS NOT NULL) THEN
+        NEW.ready_at := NOW() AT TIME ZONE 'UTC';
+END IF;
+
+RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_ready_at_serial
+    BEFORE UPDATE OF ref_id, chunked ON market_mk20_upload_waiting
+    FOR EACH ROW
+    EXECUTE FUNCTION set_ready_at_for_serial_upload();
+
+-- This function sets an upload completion time. It is used to removed
+-- upload for deal which are not finalized in 1 hour so we don't waste space.
+CREATE OR REPLACE FUNCTION set_ready_at_when_all_chunks_complete()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Only react when a chunk transitions to complete = true
+    IF (TG_OP = 'UPDATE' OR TG_OP = 'INSERT') AND NEW.complete IS TRUE THEN
+        -- If no incomplete chunks remain, set ready_at once
+        IF NOT EXISTS (
+          SELECT 1 FROM market_mk20_deal_chunk
+          WHERE id = NEW.id AND (complete IS NOT TRUE)
+        ) THEN
+UPDATE market_mk20_upload_waiting
+SET ready_at = NOW() AT TIME ZONE 'UTC'
+WHERE id = NEW.id
+  AND chunked = true
+  AND ready_at IS NULL;
+END IF;
+END IF;
+
+RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+
+CREATE TRIGGER trg_ready_at_chunks_update
+    AFTER INSERT OR UPDATE OF complete ON market_mk20_deal_chunk
+    FOR EACH ROW
+    EXECUTE FUNCTION set_ready_at_when_all_chunks_complete();
 
 -- This function triggers a download for an offline piece.
 -- It is different from MK1.2 PoRep pipeline as it download the offline pieces
@@ -375,13 +437,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Main ProofSet table for PDP
-CREATE TABLE pdp_proof_set (
-    id BIGINT PRIMARY KEY, -- on-chain proofset id
-    client TEXT NOT NULL, -- client wallet which requested this proofset
+-- Main DataSet table for PDP
+CREATE TABLE pdp_data_set (
+    id BIGINT PRIMARY KEY, -- on-chain dataset id
+    client TEXT NOT NULL, -- client wallet which requested this dataset
 
-    -- updated when a challenge is requested (either by first proofset add or by invokes of nextProvingPeriod)
-    -- initially NULL on fresh proofsets.
+    -- updated when a challenge is requested (either by first dataset add or by invokes of nextProvingPeriod)
+    -- initially NULL on fresh dataset
     prev_challenge_request_epoch BIGINT,
 
     -- task invoking nextProvingPeriod, the task should be spawned any time prove_at_epoch+challenge_window is in the past
@@ -415,8 +477,8 @@ CREATE TABLE pdp_proof_set (
     unique (remove_deal_id)
 );
 
--- ProofSet create table governs the PoofSet create task
-CREATE TABLE pdp_proof_set_create (
+-- DataSet create table governs the DataSet create task
+CREATE TABLE pdp_data_set_create (
     id TEXT PRIMARY KEY, -- This is Market V2 Deal ID for lookup and response
     client TEXT NOT NULL,
 
@@ -427,8 +489,8 @@ CREATE TABLE pdp_proof_set_create (
     tx_hash TEXT DEFAULT NULL
 );
 
--- ProofSet delete table governs the PoofSet delete task
-CREATE TABLE pdp_proof_set_delete (
+-- DataSet delete table governs the DataSet delete task
+CREATE TABLE pdp_data_set_delete (
     id TEXT PRIMARY KEY, -- This is Market V2 Deal ID for lookup and response
     client TEXT NOT NULL,
 
@@ -439,22 +501,22 @@ CREATE TABLE pdp_proof_set_delete (
     tx_hash TEXT DEFAULT NULL
 );
 
--- This table governs the delete root tasks
-CREATE TABLE pdp_root_delete (
+-- This table governs the delete piece tasks
+CREATE TABLE pdp_piece_delete (
     id TEXT PRIMARY KEY, -- This is Market V2 Deal ID for lookup and response
     client TEXT NOT NULL,
 
     set_id BIGINT NOT NULL,
-    roots BIGINT[] NOT NULL,
+    pieces BIGINT[] NOT NULL,
     extra_data BYTEA,
 
     task_id BIGINT DEFAULT NULL,
     tx_hash TEXT DEFAULT NULL
 );
 
--- Main ProofSet Root table. Any and all root ever added by SP must be part of this table
-CREATE TABLE pdp_proofset_root (
-    proof_set_id BIGINT NOT NULL, -- pdp_proof_sets.id
+-- Main DataSet Piece table. Any and all pieces ever added by SP must be part of this table
+CREATE TABLE pdp_dataset_piece (
+    data_set_id BIGINT NOT NULL, -- pdp_data_sets.id
     client TEXT NOT NULL,
 
     piece_cid_v2 TEXT NOT NULL, -- root cid (piececid v2)
@@ -462,20 +524,20 @@ CREATE TABLE pdp_proofset_root (
     piece_size BIGINT NOT NULL,
     raw_size BIGINT NOT NULL,
 
-    root BIGINT DEFAULT NULL, -- on-chain index of the root in the rootCids sub-array
+    piece BIGINT DEFAULT NULL, -- on-chain index of the piece in the pieceCids sub-array
 
     piece_ref BIGINT NOT NULL, -- piece_ref_id
 
-    add_deal_id TEXT NOT NULL, -- mk20 deal ID for adding this root to proofset
+    add_deal_id TEXT NOT NULL, -- mk20 deal ID for adding this root to dataset
     add_message_hash TEXT NOT NULL,
     add_message_index BIGINT NOT NULL, -- index of root in the add message
 
     removed BOOLEAN DEFAULT FALSE,
-    remove_deal_id TEXT DEFAULT NULL, -- mk20 deal ID for removing this root from proofset
+    remove_deal_id TEXT DEFAULT NULL, -- mk20 deal ID for removing this root from dataset
     remove_message_hash TEXT DEFAULT NULL,
     remove_message_index BIGINT DEFAULT NULL,
 
-    PRIMARY KEY (proof_set_id, root)
+    PRIMARY KEY (data_set_id, piece)
 );
 
 CREATE TABLE pdp_pipeline (
@@ -489,7 +551,7 @@ CREATE TABLE pdp_pipeline (
     piece_size BIGINT NOT NULL,
     raw_size BIGINT NOT NULL,
 
-    proof_set_id BIGINT NOT NULL,
+    data_set_id BIGINT NOT NULL,
 
     extra_data BYTEA,
 
@@ -502,13 +564,13 @@ CREATE TABLE pdp_pipeline (
     agg_task_id BIGINT DEFAULT NULL,
     aggregated BOOLEAN DEFAULT FALSE,
 
-    add_root_task_id BIGINT DEFAULT NULL,
-    after_add_root BOOLEAN DEFAULT FALSE,
+    add_piece_task_id BIGINT DEFAULT NULL,
+    after_add_piece BOOLEAN DEFAULT FALSE,
 
     add_message_hash TEXT,
     add_message_index BIGINT NOT NULL DEFAULT 0, -- index of root in the add message
 
-    after_add_root_msg BOOLEAN DEFAULT FALSE,
+    after_add_piece_msg BOOLEAN DEFAULT FALSE,
 
     save_cache_task_id BIGINT DEFAULT NULL,
     after_save_cache BOOLEAN DEFAULT FALSE,
@@ -519,6 +581,10 @@ CREATE TABLE pdp_pipeline (
     indexed BOOLEAN DEFAULT FALSE,
 
     announce BOOLEAN DEFAULT FALSE,
+    announce_payload BOOLEAN DEFAULT FALSE,
+
+    announced BOOLEAN DEFAULT FALSE,
+    announced_payload BOOLEAN DEFAULT FALSE,
 
     complete BOOLEAN DEFAULT FALSE,
 
@@ -528,6 +594,15 @@ CREATE TABLE pdp_pipeline (
 CREATE TABLE market_mk20_clients (
     client TEXT PRIMARY KEY,
     allowed BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE pdp_proving_tasks (
+    data_set_id BIGINT NOT NULL, -- pdp_data_set.id
+    task_id BIGINT NOT NULL, -- harmony_task task ID
+
+    PRIMARY KEY (data_set_id, task_id),
+    FOREIGN KEY (data_set_id) REFERENCES pdp_data_set(id) ON DELETE CASCADE,
+    FOREIGN KEY (task_id) REFERENCES harmony_task(id) ON DELETE CASCADE
 );
 
 -- IPNI pipeline is kept separate from rest for robustness
@@ -547,7 +622,6 @@ CREATE TABLE pdp_ipni_task (
     PRIMARY KEY (context_id, is_rm)
 );
 
-
 -- Function to create ipni tasks
 CREATE OR REPLACE FUNCTION insert_pdp_ipni_task(
     _context_id BYTEA,
@@ -562,7 +636,7 @@ _latest_is_rm BOOLEAN;
 BEGIN
     -- Check if ipni_task has the same context_id and provider with a different is_rm value
     SELECT is_rm INTO _existing_is_rm
-    FROM ipni_task
+    FROM pdp_ipni_task
     WHERE provider = _provider AND context_id = _context_id AND is_rm != _is_rm
     LIMIT 1;
 
@@ -591,5 +665,36 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION insert_ad_and_update_head(
+    _ad_cid TEXT,
+    _context_id BYTEA,
+    _metadata BYTEA,
+    _piece_cid_v2 TEXT,
+    _piece_cid TEXT,
+    _piece_size BIGINT,
+    _is_rm BOOLEAN,
+    _provider TEXT,
+    _addresses TEXT,
+    _signature BYTEA,
+    _entries TEXT
+) RETURNS VOID AS $$
+DECLARE
+_previous TEXT;
+BEGIN
+    -- Determine the previous ad_cid in the chain for this provider
+    SELECT head INTO _previous
+    FROM ipni_head
+    WHERE provider = _provider;
 
+    -- Insert the new ad into the ipni table with an automatically assigned order_number
+    INSERT INTO ipni (ad_cid, context_id, metadata, is_rm, previous, provider, addresses, signature, entries, piece_cid_v2, piece_cid, piece_size)
+    VALUES (_ad_cid, _context_id, metadata, _is_rm, _previous, _provider, _addresses, _signature, _entries, _piece_cid_v2, _piece_cid, _piece_size);
+
+    -- Update the ipni_head table to set the new ad as the head of the chain
+    INSERT INTO ipni_head (provider, head)
+    VALUES (_provider, _ad_cid)
+        ON CONFLICT (provider) DO UPDATE SET head = EXCLUDED.head;
+
+END;
+$$ LANGUAGE plpgsql;
 

@@ -29,9 +29,6 @@ func (r *RetrievalV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCo
 		return ErrProductValidationFailed, xerrors.Errorf("deal cannot be announced to IPNI without indexing")
 	}
 
-	if r.AnnouncePiece && r.AnnouncePayload {
-		return ErrProductValidationFailed, xerrors.Errorf("cannot announce both payload and piece to IPNI at the same time")
-	}
 	return Ok, nil
 }
 

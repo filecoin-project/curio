@@ -12,7 +12,7 @@ import (
 )
 
 const PDPMainnet = "0x9C65E8E57C98cCc040A3d825556832EA1e9f4Df6"
-const PDPCalibnet = "0x5A23b7df87f59A291C26A2A1d684AD03Ce9B68DC"
+const PDPCalibnet = "0x4E1e9AB9bf23E9Fe96041E0a2d2f0B99dE27FBb2"
 const PDPTestNet = "Change Me"
 
 type PDPContracts struct {

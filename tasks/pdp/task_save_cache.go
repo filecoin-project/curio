@@ -31,32 +31,32 @@ import (
 const MinSizeForCache = uint64(100 * 1024 * 1024)
 const CacheReadSize = int64(4 * 1024 * 1024)
 
-type TaskSavePDPCache struct {
+type TaskPDPSaveCache struct {
 	db  *harmonydb.DB
 	cpr *cachedreader.CachedPieceReader
 	idx *indexstore.IndexStore
 }
 
-func NewTaskSavePDPCache(db *harmonydb.DB, cpr *cachedreader.CachedPieceReader, idx *indexstore.IndexStore) *TaskSavePDPCache {
-	return &TaskSavePDPCache{
+func NewTaskPDPSaveCache(db *harmonydb.DB, cpr *cachedreader.CachedPieceReader, idx *indexstore.IndexStore) *TaskPDPSaveCache {
+	return &TaskPDPSaveCache{
 		db:  db,
 		cpr: cpr,
 		idx: idx,
 	}
 }
 
-func (t *TaskSavePDPCache) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
 	var saveCaches []struct {
-		ID         string `db:"id"`
-		PieceCid   string `db:"piece_cid_v2"`
-		ProofSetID int64  `db:"proof_set_id"`
-		PieceRef   string `db:"piece_ref"`
+		ID        string `db:"id"`
+		PieceCid  string `db:"piece_cid_v2"`
+		DataSetID int64  `db:"data_set_id"`
+		PieceRef  string `db:"piece_ref"`
 	}
 
-	err = t.db.Select(ctx, &saveCaches, `SELECT id, piece_cid_v2, proof_set_id, piece_ref FROM pdp_pipeline WHERE save_cache_task_id = $1 AND after_save_cache = FALSE`, taskID)
+	err = t.db.Select(ctx, &saveCaches, `SELECT id, piece_cid_v2, data_set_id, piece_ref FROM pdp_pipeline WHERE save_cache_task_id = $1 AND after_save_cache = FALSE`, taskID)
 	if err != nil {
-		return false, xerrors.Errorf("failed to select addRoot: %w", err)
+		return false, xerrors.Errorf("failed to select rows from pipeline: %w", err)
 	}
 
 	if len(saveCaches) == 0 {
@@ -142,14 +142,14 @@ func (t *TaskSavePDPCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	return true, nil
 }
 
-func (t *TaskSavePDPCache) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (t *TaskPDPSaveCache) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
 	return &ids[0], nil
 }
 
-func (t *TaskSavePDPCache) TypeDetails() harmonytask.TaskTypeDetails {
+func (t *TaskPDPSaveCache) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(50),
-		Name: "SavePDPCache",
+		Name: "PDPSaveCache",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,
@@ -161,7 +161,7 @@ func (t *TaskSavePDPCache) TypeDetails() harmonytask.TaskTypeDetails {
 	}
 }
 
-func (t *TaskSavePDPCache) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
+func (t *TaskPDPSaveCache) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
 	var stop bool
 	for !stop {
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
@@ -171,7 +171,7 @@ func (t *TaskSavePDPCache) schedule(ctx context.Context, taskFunc harmonytask.Ad
 			err := tx.QueryRow(`SELECT id FROM pdp_pipeline 
 								  WHERE save_cache_task_id IS NULL 
 									AND after_save_cache = FALSE
-									AND after_add_root_msg = TRUE`).Scan(&did)
+									AND after_add_piece_msg = TRUE`).Scan(&did)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
 					return false, nil
@@ -182,7 +182,7 @@ func (t *TaskSavePDPCache) schedule(ctx context.Context, taskFunc harmonytask.Ad
 				return false, xerrors.Errorf("no valid deal ID found for scheduling")
 			}
 
-			_, err = tx.Exec(`UPDATE pdp_pipeline SET save_cache_task_id = $1 WHERE id = $2 AND after_save_cache = FALSE AND after_add_root_msg = TRUE`, id, did)
+			_, err = tx.Exec(`UPDATE pdp_pipeline SET save_cache_task_id = $1 WHERE id = $2 AND after_save_cache = FALSE AND after_add_piece_msg = TRUE`, id, did)
 			if err != nil {
 				return false, xerrors.Errorf("failed to update pdp_pipeline: %w", err)
 			}
@@ -196,10 +196,10 @@ func (t *TaskSavePDPCache) schedule(ctx context.Context, taskFunc harmonytask.Ad
 	return nil
 }
 
-func (t *TaskSavePDPCache) Adder(taskFunc harmonytask.AddTaskFunc) {}
+func (t *TaskPDPSaveCache) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
-var _ harmonytask.TaskInterface = &TaskSavePDPCache{}
-var _ = harmonytask.Reg(&TaskSavePDPCache{})
+var _ harmonytask.TaskInterface = &TaskPDPSaveCache{}
+var _ = harmonytask.Reg(&TaskPDPSaveCache{})
 
 // All the code below is a copy+paste of https://github.com/filecoin-project/go-fil-commp-hashhash/blob/master/commp.go
 // with modification to output the nodes at a specific height

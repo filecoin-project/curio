@@ -9,7 +9,7 @@ CREATE TABLE ipni (
     order_number BIGSERIAL PRIMARY KEY, -- Unique increasing order number
     ad_cid TEXT NOT NULL,
     context_id BYTEA NOT NULL, -- abi.PieceInfo in Curio
-    -- metadata column in not required as Curio only supports one type of metadata(HTTP)
+    -- metadata BYTEA NOT NULL DEFAULT '\xa01200' (Added in 20250505-market_mk20.sql)
     is_rm BOOLEAN NOT NULL,
 
     -- skip added in 20241106-market-fixes.sql
@@ -25,6 +25,8 @@ CREATE TABLE ipni (
 
     piece_cid TEXT NOT NULL, -- For easy look up
     piece_size BIGINT NOT NULL, -- For easy look up
+
+    -- piece_cid_v2 TEXT (Added in 20250505-market_mk20.sql) -- For easy lookup
 
     unique (ad_cid)
 );
@@ -56,7 +58,7 @@ CREATE TABLE ipni_head (
 -- on-disk .car block headers or from data in the piece index database.
 CREATE TABLE ipni_chunks (
     cid TEXT PRIMARY KEY, -- CID of the chunk
-    piece_cid TEXT NOT NULL, -- Related Piece CID
+    piece_cid TEXT NOT NULL, -- Related Piece CID V2
     chunk_num INTEGER NOT NULL, -- Chunk number within the piece. Chunk 0 has no "next" link.
     first_cid TEXT, -- In case of db-based chunks, the CID of the first cid in the chunk
     start_offset BIGINT, -- In case of .car-based chunks, the offset in the .car file where the chunk starts
@@ -177,24 +179,24 @@ BEGIN
 
     -- If a different is_rm exists for the same context_id and provider, insert the new task
     IF FOUND THEN
-            INSERT INTO ipni_task (sp_id, sector, reg_seal_proof, sector_offset, provider, context_id, is_rm, created_at, task_id, complete)
-            VALUES (_sp_id, _sector, _reg_seal_proof, _sector_offset, _provider, _context_id, _is_rm, TIMEZONE('UTC', NOW()), _task_id, FALSE);
-            RETURN;
+        INSERT INTO ipni_task (sp_id, sector, reg_seal_proof, sector_offset, provider, context_id, is_rm, created_at, task_id, complete)
+        VALUES (_sp_id, _sector, _reg_seal_proof, _sector_offset, _provider, _context_id, _is_rm, TIMEZONE('UTC', NOW()), _task_id, FALSE);
+        RETURN;
     END IF;
 
-        -- If no conflicting entry is found in ipni_task, check the latest ad in ipni table
+    -- If no conflicting entry is found in ipni_task, check the latest ad in ipni table
     SELECT is_rm INTO _latest_is_rm
     FROM ipni
     WHERE provider = _provider AND context_id = _context_id
     ORDER BY order_number DESC
-        LIMIT 1;
+    LIMIT 1;
 
     -- If the latest ad has the same is_rm value, raise an exception
     IF FOUND AND _latest_is_rm = _is_rm THEN
             RAISE EXCEPTION 'already published';
     END IF;
 
-        -- If all conditions are met, insert the new task into ipni_task
+    -- If all conditions are met, insert the new task into ipni_task
     INSERT INTO ipni_task (sp_id, sector, reg_seal_proof, sector_offset, provider, context_id, is_rm, created_at, task_id, complete)
     VALUES (_sp_id, _sector, _reg_seal_proof, _sector_offset, _provider, _context_id, _is_rm, TIMEZONE('UTC', NOW()), _task_id, FALSE);
 END;

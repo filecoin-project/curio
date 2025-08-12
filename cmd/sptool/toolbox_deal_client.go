@@ -2540,9 +2540,9 @@ var mk20PDPDealCmd = &cli.Command{
 			if !proofSetSet {
 				return xerrors.Errorf("proofset-id must be set when adding a root")
 			}
-			pdp.AddRoot = true
+			pdp.AddPiece = true
 			pdp.RecordKeeper = recordKeeper
-			pdp.ProofSetID = &proofsetID
+			pdp.DataSetID = &proofsetID
 			pdp.ExtraData = extraBytes
 			ret = &mk20.RetrievalV1{
 				Indexing:        true,
@@ -2554,17 +2554,17 @@ var mk20PDPDealCmd = &cli.Command{
 			if !proofSetSet {
 				return xerrors.Errorf("proofset-id must be set when removing a root")
 			}
-			pdp.DeleteRoot = true
+			pdp.DeletePiece = true
 			pdp.RecordKeeper = recordKeeper
-			pdp.ProofSetID = &proofsetID
-			pdp.RootIDs = rootIDs
+			pdp.DataSetID = &proofsetID
+			pdp.PieceIDs = rootIDs
 			pdp.ExtraData = extraBytes
 			d = nil
 		}
 
 		if addProofset {
 			pdp.RecordKeeper = recordKeeper
-			pdp.CreateProofSet = true
+			pdp.CreateDataSet = true
 			pdp.ExtraData = extraBytes
 			d = nil
 		}
@@ -2574,8 +2574,8 @@ var mk20PDPDealCmd = &cli.Command{
 				return xerrors.Errorf("proofset-id must be set when deleting proof-set")
 			}
 			pdp.RecordKeeper = recordKeeper
-			pdp.DeleteProofSet = true
-			pdp.ProofSetID = &proofsetID
+			pdp.DeleteDataSet = true
+			pdp.DataSetID = &proofsetID
 			pdp.ExtraData = extraBytes
 			d = nil
 		}

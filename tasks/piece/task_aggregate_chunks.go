@@ -288,21 +288,6 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 					return false, xerrors.Errorf("inserting mk20 pipeline: %d rows affected", n)
 				}
 
-				_, err = tx.Exec(`DELETE FROM market_mk20_pipeline_waiting WHERE id = $1`, id.String())
-				if err != nil {
-					return false, xerrors.Errorf("deleting deal from mk20 pipeline waiting: %w", err)
-				}
-
-				_, err = tx.Exec(`DELETE FROM market_mk20_deal_chunk WHERE id = $1`, id.String())
-				if err != nil {
-					return false, xerrors.Errorf("deleting deal chunks from mk20 deal: %w", err)
-				}
-
-				_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = ANY($1)`, refIds)
-				if err != nil {
-					return false, xerrors.Errorf("deleting parked piece refs: %w", err)
-				}
-
 				refIDUsed = true
 			}
 		}
@@ -328,11 +313,11 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 					}
 
 					n, err := tx.Exec(`INSERT INTO pdp_pipeline (
-							id, client, piece_cid_v2, piece_cid, piece_size, raw_size, proof_set_id, 
-							extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, indexing, announce) 
-						VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, $11, $12)`,
-						id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.ProofSetID,
-						pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePayload)
+							id, client, piece_cid_v2, piece_cid, piece_size, raw_size, data_set_id, 
+							extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
+						VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, $11, $12, $13)`,
+						id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.DataSetID,
+						pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 					if err != nil {
 						return false, xerrors.Errorf("inserting in PDP pipeline: %w", err)
 					}
@@ -341,11 +326,11 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 					}
 				} else {
 					n, err := tx.Exec(`INSERT INTO pdp_pipeline (
-            id, client, piece_cid_v2, piece_cid, piece_size, raw_size, proof_set_id, 
-            extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, indexing, announce) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, $11, $12)`,
-						id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.ProofSetID,
-						pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePayload)
+							id, client, piece_cid_v2, piece_cid, piece_size, raw_size, data_set_id, 
+							extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
+						VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, $11, $12, $13)`,
+						id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.DataSetID,
+						pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 					if err != nil {
 						return false, xerrors.Errorf("inserting in PDP pipeline: %w", err)
 					}
@@ -355,6 +340,21 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 				}
 
 			}
+		}
+
+		_, err = tx.Exec(`DELETE FROM market_mk20_pipeline_waiting WHERE id = $1`, id.String())
+		if err != nil {
+			return false, xerrors.Errorf("deleting deal from mk20 pipeline waiting: %w", err)
+		}
+
+		_, err = tx.Exec(`DELETE FROM market_mk20_deal_chunk WHERE id = $1`, id.String())
+		if err != nil {
+			return false, xerrors.Errorf("deleting deal chunks from mk20 deal: %w", err)
+		}
+
+		_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = ANY($1)`, refIds)
+		if err != nil {
+			return false, xerrors.Errorf("deleting parked piece refs: %w", err)
 		}
 
 		return true, nil

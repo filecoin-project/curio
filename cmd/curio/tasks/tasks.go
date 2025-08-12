@@ -286,23 +286,23 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			es := getSenderEth()
 			sdeps.EthSender = es
 
-			pdp.NewWatcherCreate(db, must.One(dependencies.EthClient.Val()), chainSched)
-			pdp.NewWatcherRootAdd(db, chainSched)
+			pdp.NewWatcherDataSetCreate(db, must.One(dependencies.EthClient.Val()), chainSched)
+			pdp.NewWatcherPieceAdd(db, chainSched)
 			pdp.NewWatcherDelete(db, chainSched)
-			pdp.NewWatcherRootDelete(db, chainSched)
+			pdp.NewWatcherPieceDelete(db, chainSched)
 
 			pdpProveTask := pdp.NewProveTask(chainSched, db, must.One(dependencies.EthClient.Val()), dependencies.Chain, es, dependencies.CachedPieceReader, iStore)
 			pdpNextProvingPeriodTask := pdp.NewNextProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
 			pdpInitProvingPeriodTask := pdp.NewInitProvingPeriodTask(db, must.One(dependencies.EthClient.Val()), dependencies.Chain, chainSched, es)
 			pdpNotifTask := pdp.NewPDPNotifyTask(db)
 
-			addProofSetTask := pdp.NewPDPTaskAddProofSet(db, es, must.One(dependencies.EthClient.Val()), full)
-			pdpAddRoot := pdp.NewPDPTaskAddRoot(db, es, must.One(dependencies.EthClient.Val()))
-			pdpDelRoot := pdp.NewPDPTaskDeleteRoot(db, es, must.One(dependencies.EthClient.Val()))
-			pdpDelProofSetTask := pdp.NewPDPTaskDeleteProofSet(db, es, must.One(dependencies.EthClient.Val()), full)
+			addProofSetTask := pdp.NewPDPTaskAddDataSet(db, es, must.One(dependencies.EthClient.Val()), full)
+			pdpAddRoot := pdp.NewPDPTaskAddPiece(db, es, must.One(dependencies.EthClient.Val()))
+			pdpDelRoot := pdp.NewPDPTaskDeletePiece(db, es, must.One(dependencies.EthClient.Val()))
+			pdpDelProofSetTask := pdp.NewPDPTaskDeleteDataSet(db, es, must.One(dependencies.EthClient.Val()), full)
 
 			pdpAggregateTask := pdp.NewAggregatePDPDealTask(db, sc)
-			pdpCache := pdp.NewTaskSavePDPCache(db, dependencies.CachedPieceReader, iStore)
+			pdpCache := pdp.NewTaskPDPSaveCache(db, dependencies.CachedPieceReader, iStore)
 
 			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, pdpAddRoot, addProofSetTask, pdpAggregateTask, pdpCache, pdpDelRoot, pdpDelProofSetTask)
 		}

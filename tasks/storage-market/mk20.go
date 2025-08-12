@@ -25,6 +25,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/lib/commcidv2"
 	"github.com/filecoin-project/curio/market/mk20"
 
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
@@ -87,7 +88,7 @@ func (d *CurioStorageDealMarket) processMK20Deals(ctx context.Context) {
 }
 
 func (d *CurioStorageDealMarket) pipelineInsertLoop(ctx context.Context) {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
@@ -95,6 +96,7 @@ func (d *CurioStorageDealMarket) pipelineInsertLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			d.insertDDODealInPipeline(ctx)
+			d.insertDealInPipelineForUpload(ctx)
 		}
 	}
 }
@@ -154,6 +156,158 @@ func (d *CurioStorageDealMarket) insertDDODealInPipeline(ctx context.Context) {
 		}
 		if !comm {
 			log.Errorf("inserting deal in pipeline: commit failed")
+			continue
+		}
+	}
+}
+
+// insertDealInPipelineForUpload start processing deals which are
+// 1. Waiting for data
+// 2. DataSource defined
+// 3. We already have the piece
+// We process both DDO and PDP deal in same function
+func (d *CurioStorageDealMarket) insertDealInPipelineForUpload(ctx context.Context) {
+	var deals []struct {
+		DealID string `db:"id"`
+	}
+	err := d.db.Select(ctx, &deals, `SELECT id from market_mk20_upload_waiting WHERE chunked IS NULL AND ref_id IS NULL`)
+	if err != nil {
+		log.Errorf("querying mk20 pipeline waiting upload: %s", err)
+		return
+	}
+
+	var dealIDs []ulid.ULID
+	for _, deal := range deals {
+		id, err := ulid.Parse(deal.DealID)
+		if err != nil {
+			log.Errorf("parsing deal id: %s", err)
+			return
+		}
+		dealIDs = append(dealIDs, id)
+	}
+	if len(dealIDs) == 0 {
+		return
+	}
+
+	for _, id := range dealIDs {
+		_, err = d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			deal, err := mk20.DealFromTX(tx, id)
+			if err != nil {
+				return false, xerrors.Errorf("getting deal from db: %w", err)
+			}
+
+			if deal.Data == nil {
+				return false, nil
+			}
+
+			pi, err := deal.PieceInfo()
+			if err != nil {
+				return false, xerrors.Errorf("getting piece info: %w", err)
+			}
+
+			var pieceID int64
+			// Check if already have the piece and save the user trouble to upload
+			err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2`, pi.PieceCIDV1.String(), pi.Size).Scan(&pieceID)
+
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					// We don't have the piece, let user upload
+					return false, nil
+				} else {
+					// Some other error occurred during select
+					return false, xerrors.Errorf("checking existing parked piece: %w", err)
+				}
+			}
+
+			retv := deal.Products.RetrievalV1
+			data := deal.Data
+
+			aggregation := 0
+			if data.Format.Aggregate != nil {
+				aggregation = int(data.Format.Aggregate.Type)
+			}
+
+			spid, err := address.IDFromAddress(deal.Products.DDOV1.Provider)
+			if err != nil {
+				return false, fmt.Errorf("getting provider ID: %w", err)
+			}
+
+			var comm bool
+
+			// Insert DDO deal if present
+			if deal.Products.DDOV1 != nil {
+				ddo := deal.Products.DDOV1
+
+				var allocationID interface{}
+				if ddo.AllocationId != nil {
+					allocationID = *ddo.AllocationId
+				} else {
+					allocationID = nil
+				}
+
+				// If we have the piece then create reference and insert in pipeline
+				var pieceRefID int64
+				err = tx.QueryRow(`
+				INSERT INTO parked_piece_refs (piece_id, data_url, long_term)
+				VALUES ($1, $2, TRUE) RETURNING ref_id`, pieceID, "/PUT").Scan(&pieceRefID)
+				if err != nil {
+					return false, fmt.Errorf("failed to create parked_piece_refs entry: %w", err)
+				}
+
+				pieceIDUrl := url.URL{
+					Scheme: "pieceref",
+					Opaque: fmt.Sprintf("%d", pieceRefID),
+				}
+
+				n, err := tx.Exec(`INSERT INTO market_mk20_pipeline (
+					id, sp_id, contract, client, piece_cid_v2, piece_cid, piece_size, raw_size, url, 
+					offline, indexing, announce, allocation_id, duration, 
+					piece_aggregation, deal_aggregation, started, downloaded, after_commp, aggregated) 
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, TRUE, TRUE, TRUE, TRUE)`,
+					id, spid, ddo.ContractAddress, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, pieceIDUrl.String(),
+					false, retv.Indexing, retv.AnnouncePayload, allocationID, ddo.Duration,
+					0, aggregation)
+				if err != nil {
+					return false, xerrors.Errorf("inserting piece in mk20 pipeline: %w", err)
+				}
+				if n != 1 {
+					return false, xerrors.Errorf("inserting piece in mk20 pipeline: %d rows affected", n)
+				}
+
+				comm = true
+			}
+
+			if deal.Products.PDPV1 != nil {
+				pdp := deal.Products.PDPV1
+
+				// If we have the piece then create reference and insert in pipeline
+				var pieceRefID int64
+				err = tx.QueryRow(`
+				INSERT INTO parked_piece_refs (piece_id, data_url, long_term)
+				VALUES ($1, $2, TRUE) RETURNING ref_id`, pieceID, "/PUT").Scan(&pieceRefID)
+				if err != nil {
+					return false, fmt.Errorf("failed to create parked_piece_refs entry: %w", err)
+				}
+
+				n, err := tx.Exec(`INSERT INTO pdp_pipeline (
+						id, client, piece_cid_v2, piece_cid, piece_size, raw_size, data_set_id, 
+						extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, aggregated, indexing, announce, announce_payload) 
+					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, TRUE, $11, $12, $13)`,
+					id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.DataSetID,
+					pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
+				if err != nil {
+					return false, xerrors.Errorf("inserting piece in PDP pipeline: %w", err)
+				}
+				if n != 1 {
+					return false, xerrors.Errorf("inserting piece in PDP pipeline: %d rows affected", n)
+				}
+				comm = true
+			}
+
+			return comm, nil
+		})
+		if err != nil {
+			log.Errorf("inserting upload deal in pipeline: %s", err)
 			continue
 		}
 	}
@@ -970,6 +1124,122 @@ func (d *CurioStorageDealMarket) processMK20DealIngestion(ctx context.Context) {
 			log.Infow("deal ingested successfully", "deal", deal)
 		} else {
 			log.Infow("deal not ingested", "deal", deal)
+		}
+	}
+}
+
+func (d *CurioStorageDealMarket) migratePieceCIDV2(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			d.migratePcid(ctx)
+		}
+	}
+}
+
+func (d *CurioStorageDealMarket) migratePcid(ctx context.Context) {
+	// Migrate ipni_chunks table
+	var pieceCIDs []struct {
+		PieceCID string `db:"piece_cid"`
+	}
+	err := d.db.Select(ctx, &pieceCIDs, `SELECT piece_cid FROM ipni_chunks`)
+	if err != nil {
+		log.Errorf("failed to get piece CIDs: %w", err)
+		return
+	}
+
+	for _, pieceCID := range pieceCIDs {
+		pcid, err := cid.Parse(pieceCID.PieceCID)
+		if err != nil {
+			log.Errorf("failed to parse piece CID: %w", err)
+			continue
+		}
+		isPcid2 := commcidv2.IsPieceCidV2(pcid)
+		if isPcid2 {
+			continue
+		}
+
+		comm, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			// Check that table market_piece_metadata has a single entry for this piece cid
+			var count int
+			err = tx.QueryRow(`SELECT COUNT(*) AS count FROM market_piece_metadata WHERE piece_cid = $1`, pieceCID.PieceCID).Scan(&count)
+			if err != nil {
+				return false, xerrors.Errorf("failed to get piece metadata: %w", err)
+			}
+			if count != 1 {
+				return false, xerrors.Errorf("expected to find a single piece metadata entry for piece cid %s", pieceCID.PieceCID)
+			}
+			// Get raw size from market_piece_deal table for this piece CID
+			var rawSize uint64
+			err = tx.QueryRow(`SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1`, pieceCID.PieceCID).Scan(&rawSize)
+			if err != nil {
+				log.Errorf("failed to get piece deal: %w", err)
+			}
+
+			pcid2, err := commcidv2.PieceCidV2FromV1(pcid, rawSize)
+			if err != nil {
+				return false, xerrors.Errorf("failed to convert to piece cid v2: %w", err)
+			}
+
+			// Update ipni_chunks table with correct entry
+			_, err = tx.Exec(`UPDATE ipni_chunks SET piece_cid = $1 WHERE piece_cid = $2`, pcid2.String(), pieceCID.PieceCID)
+			if err != nil {
+				return false, xerrors.Errorf("failed to update ipni_chunks table: %w", err)
+			}
+			return true, nil
+		}, harmonydb.OptionRetry())
+		if err != nil {
+			log.Errorf("failed to commit transaction: %s", err)
+			continue
+		}
+		if comm {
+			log.Debugw("piece CID migrated successfully", "piece CID", pieceCID.PieceCID)
+		} else {
+			log.Debugw("piece CID not migrated", "piece CID", pieceCID.PieceCID)
+		}
+	}
+
+	// Add PieceCIDv2 to ipni table
+	var pieceInfos []struct {
+		PieceCID string `db:"piece_cid"`
+		Size     int64  `db:"size"`
+		RawSize  int64  `db:"raw_size"`
+	}
+	err = d.db.Select(ctx, &pieceInfos, `SELECT
+											  i.piece_cid,
+											  i.piece_size,
+											  mpd.raw_size
+											FROM ipni AS i
+											JOIN LATERAL (
+											  SELECT d.raw_size
+											  FROM market_piece_deal AS d
+											  WHERE d.piece_cid   = i.piece_cid
+												AND d.piece_length = i.piece_size
+											  LIMIT 1
+											) AS mpd ON true
+											WHERE i.piece_cid_v2 IS NULL;`)
+	if err != nil {
+		log.Errorf("failed to get piece infos: %w", err)
+		return
+	}
+	for _, pieceInfo := range pieceInfos {
+		pcid, err := cid.Parse(pieceInfo.PieceCID)
+		if err != nil {
+			log.Errorf("failed to parse piece CID: %w", err)
+		}
+
+		pcid2, err := commcidv2.PieceCidV2FromV1(pcid, uint64(pieceInfo.RawSize))
+		if err != nil {
+			log.Errorf("failed to convert to piece cid v2: %w", err)
+		}
+
+		_, err = d.db.Exec(ctx, `UPDATE ipni SET piece_cid_v2 = $1 WHERE piece_cid = $2 AND piece_size = $3`, pcid2.String(), pieceInfo.PieceCID, pieceInfo.Size)
+		if err != nil {
+			log.Errorf("failed to update ipni table: %w", err)
 		}
 	}
 }

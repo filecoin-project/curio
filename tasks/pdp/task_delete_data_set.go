@@ -22,40 +22,47 @@ import (
 	"github.com/filecoin-project/curio/tasks/message"
 )
 
-type PDPTaskDeleteRoot struct {
+type PDPTaskDeleteDataSet struct {
 	db        *harmonydb.DB
 	sender    *message.SenderETH
 	ethClient *ethclient.Client
+	filClient PDPServiceNodeApi
 }
 
-func (p *PDPTaskDeleteRoot) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func NewPDPTaskDeleteDataSet(db *harmonydb.DB, sender *message.SenderETH, ethClient *ethclient.Client, filClient PDPServiceNodeApi) *PDPTaskDeleteDataSet {
+	return &PDPTaskDeleteDataSet{
+		db:        db,
+		sender:    sender,
+		ethClient: ethClient,
+		filClient: filClient,
+	}
+}
 
-	var rdeletes []struct {
-		ID        string  `db:"id"`
-		SetID     int64   `db:"set_id"`
-		Roots     []int64 `db:"roots"`
-		ExtraData []byte  `db:"extra_data"`
+func (p *PDPTaskDeleteDataSet) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+	ctx := context.Background()
+	var pdeletes []struct {
+		SetID     int64  `db:"set_id"`
+		ExtraData []byte `db:"extra_data"`
 	}
 
-	err = p.db.Select(ctx, &rdeletes, `SELECT id, set_id, roots, extra_data FROM pdp_root_delete WHERE task_id = $1 AND tx_hash IS NULL`, taskID)
+	err = p.db.Select(ctx, &pdeletes, `SELECT set_id, extra_data FROM pdp_data_set_delete WHERE task_id = $1 AND tx_hash IS NULL`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get task details from DB: %w", err)
 	}
 
-	if len(rdeletes) != 1 {
-		return false, xerrors.Errorf("incorrect rows for delete root found for taskID %d", taskID)
+	if len(pdeletes) != 1 {
+		return false, xerrors.Errorf("incorrect rows for dataset delete found for taskID %d", taskID)
 	}
 
-	rdelete := rdeletes[0]
+	pdelete := pdeletes[0]
 
 	extraDataBytes := []byte{}
 
-	if rdelete.ExtraData != nil {
-		extraDataBytes = rdelete.ExtraData
-	}
+	dataSetID := new(big.Int).SetUint64(uint64(pdelete.SetID))
 
-	proofSetID := new(big.Int).SetUint64(uint64(rdelete.SetID))
+	if pdelete.ExtraData != nil {
+		extraDataBytes = pdelete.ExtraData
+	}
 
 	pdpContracts := contract.ContractAddresses()
 	pdpVerifierAddress := pdpContracts.PDPVerifier
@@ -69,31 +76,21 @@ func (p *PDPTaskDeleteRoot) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		Context: ctx,
 	}
 
-	// Get the sender address for this proofset
-	owner, _, err := pdpVerifier.GetProofSetOwner(callOpts, proofSetID)
+	// Get the sender address for this dataset
+	owner, _, err := pdpVerifier.GetDataSetStorageProvider(callOpts, dataSetID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get owner: %w", err)
 	}
 
-	var roots []*big.Int
-	for _, root := range rdelete.Roots {
-		roots = append(roots, new(big.Int).SetUint64(uint64(root)))
-	}
-
+	// Manually create the transaction without requiring a Signer
+	// Obtain the ABI of the PDPVerifier contract
 	abiData, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
 		return false, xerrors.Errorf("getting PDPVerifier ABI: %w", err)
 	}
 
-	for i := range roots {
-		log.Errorf("root: %d", roots[i].Uint64())
-	}
-	log.Errorf("roots: %v", roots)
-	log.Errorf("proofSetID: %d", proofSetID.Uint64())
-	log.Errorf("extraDataBytes: %s", extraDataBytes)
-
 	// Pack the method call data
-	data, err := abiData.Pack("scheduleRemovals", proofSetID, roots, extraDataBytes)
+	data, err := abiData.Pack("deleteDataSet", dataSetID, extraDataBytes)
 	if err != nil {
 		return false, xerrors.Errorf("packing data: %w", err)
 	}
@@ -109,22 +106,22 @@ func (p *PDPTaskDeleteRoot) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	)
 
 	// Send the transaction using SenderETH
-	reason := "pdp-rmroot"
+	reason := "pdp-delete-data-set"
 	txHash, err := p.sender.Send(ctx, owner, tx, reason)
 	if err != nil {
 		return false, xerrors.Errorf("sending transaction: %w", err)
 	}
 
-	// Insert into message_waits_eth and pdp_proof_set_delete
+	// Insert into message_waits_eth and pdp_data_set_delete
 	txHashLower := strings.ToLower(txHash.Hex())
 
 	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-		n, err := tx.Exec(`UPDATE pdp_root_delete SET tx_hash = $1, task_id = NULL WHERE task_id = $2`, txHashLower, taskID)
+		n, err := tx.Exec(`UPDATE pdp_data_set_delete SET tx_hash = $1, task_id = NULL WHERE task_id = $2`, txHashLower, taskID)
 		if err != nil {
-			return false, xerrors.Errorf("failed to update pdp_root_delete: %w", err)
+			return false, xerrors.Errorf("failed to update pdp_data_set_delete: %w", err)
 		}
 		if n != 1 {
-			return false, xerrors.Errorf("incorrect number of rows updated for pdp_root_delete: %d", n)
+			return false, xerrors.Errorf("incorrect number of rows updated for pdp_data_set_delete: %d", n)
 		}
 
 		_, err = tx.Exec(`INSERT INTO message_waits_eth (signed_tx_hash, tx_status) VALUES ($1, $2)`, txHashLower, "pending")
@@ -145,48 +142,46 @@ func (p *PDPTaskDeleteRoot) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	return true, nil
 }
 
-func (p *PDPTaskDeleteRoot) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+func (p *PDPTaskDeleteDataSet) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
 	return &ids[0], nil
 }
 
-func (p *PDPTaskDeleteRoot) TypeDetails() harmonytask.TaskTypeDetails {
+func (p *PDPTaskDeleteDataSet) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
 		Max:  taskhelp.Max(50),
-		Name: "PDPDeleteRoot",
+		Name: "PDPDelDataSet",
 		Cost: resources.Resources{
 			Cpu: 1,
 			Ram: 64 << 20,
 		},
 		MaxFailures: 3,
-		IAmBored: passcall.Every(5*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
+		IAmBored: passcall.Every(3*time.Second, func(taskFunc harmonytask.AddTaskFunc) error {
 			return p.schedule(context.Background(), taskFunc)
 		}),
 	}
 }
 
-func (p *PDPTaskDeleteRoot) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
+func (p *PDPTaskDeleteDataSet) schedule(ctx context.Context, taskFunc harmonytask.AddTaskFunc) error {
 	var stop bool
 	for !stop {
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
 
 			var did string
-			err := tx.QueryRow(`SELECT id FROM pdp_root_delete 
-								  WHERE task_id IS NULL 
-									AND tx_hash IS NULL LIMIT 1`).Scan(&did)
+			err := tx.QueryRow(`SELECT id FROM pdp_data_set_delete WHERE task_id IS NULL AND tx_hash IS NULL LIMIT 1`).Scan(&did)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
 					return false, nil
 				}
-				return false, xerrors.Errorf("failed to query pdp_root_delete: %w", err)
+				return false, xerrors.Errorf("failed to query pdp_data_set_delete: %w", err)
 			}
 			if did == "" {
-				return false, xerrors.Errorf("no valid deal ID found for scheduling")
+				return false, xerrors.Errorf("no valid id found for taskID")
 			}
 
-			_, err = tx.Exec(`UPDATE pdp_root_delete SET task_id = $1 WHERE id = $2 AND task_id IS NULL AND tx_hash IS NULL`, id, did)
+			_, err = tx.Exec(`UPDATE pdp_data_set_delete SET task_id = $1 WHERE id = $2 AND tx_hash IS NULL`, id, did)
 			if err != nil {
-				return false, xerrors.Errorf("failed to update pdp_root_delete: %w", err)
+				return false, xerrors.Errorf("failed to update pdp_data_set_delete: %w", err)
 			}
 
 			stop = false // we found a task to schedule, keep going
@@ -198,15 +193,7 @@ func (p *PDPTaskDeleteRoot) schedule(ctx context.Context, taskFunc harmonytask.A
 	return nil
 }
 
-func (p *PDPTaskDeleteRoot) Adder(taskFunc harmonytask.AddTaskFunc) {}
+func (p *PDPTaskDeleteDataSet) Adder(taskFunc harmonytask.AddTaskFunc) {}
 
-func NewPDPTaskDeleteRoot(db *harmonydb.DB, sender *message.SenderETH, ethClient *ethclient.Client) *PDPTaskDeleteRoot {
-	return &PDPTaskDeleteRoot{
-		db:        db,
-		sender:    sender,
-		ethClient: ethClient,
-	}
-}
-
-var _ harmonytask.TaskInterface = &PDPTaskDeleteRoot{}
-var _ = harmonytask.Reg(&PDPTaskDeleteRoot{})
+var _ harmonytask.TaskInterface = &PDPTaskDeleteDataSet{}
+var _ = harmonytask.Reg(&PDPTaskDeleteDataSet{})

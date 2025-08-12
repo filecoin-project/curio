@@ -3,7 +3,6 @@ package indexing
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"net/url"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
+	"github.com/ipld/go-ipld-prime"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipni/go-libipni/ingest/schema"
 	"github.com/ipni/go-libipni/maurl"
@@ -37,6 +37,7 @@ import (
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/market/ipni/chunker"
 	"github.com/filecoin-project/curio/market/ipni/ipniculib"
+	"github.com/filecoin-project/curio/market/ipni/types"
 	"github.com/filecoin-project/curio/market/mk20"
 )
 
@@ -94,99 +95,109 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		return true, nil
 	}
 
-	var pi abi.PieceInfo
-	err = pi.UnmarshalCBOR(bytes.NewReader(task.CtxID))
+	var pinfo types.PieceInfo
+	err = pinfo.UnmarshalCBOR(bytes.NewReader(task.CtxID))
 	if err != nil {
 		return false, xerrors.Errorf("unmarshaling piece info: %w", err)
 	}
 
-	var rawSize abi.UnpaddedPieceSize
-	err = P.db.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 LIMIT 1`, pi.PieceCID.String(), pi.Size).Scan(&rawSize)
+	pcid2 := pinfo.PieceCID
+
+	pi, err := commcidv2.CommPFromPCidV2(pcid2)
 	if err != nil {
-		return false, xerrors.Errorf("querying raw size: %w", err)
+		return false, xerrors.Errorf("getting piece info from piece cid: %w", err)
 	}
 
-	pcid2, err := commcidv2.PieceCidV2FromV1(pi.PieceCID, uint64(rawSize))
-	if err != nil {
-		return false, xerrors.Errorf("getting piece CID v2: %w", err)
-	}
+	var lnk ipld.Link
 
-	reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid2)
-	if err != nil {
-		return false, xerrors.Errorf("getting piece reader from piece park: %w", err)
-	}
+	if pinfo.Payload {
+		reader, _, err := P.cpr.GetSharedPieceReader(ctx, pcid2)
+		if err != nil {
+			return false, xerrors.Errorf("getting piece reader from piece park: %w", err)
+		}
 
-	defer reader.Close()
+		defer reader.Close()
 
-	recs := make(chan indexstore.Record, 1)
+		recs := make(chan indexstore.Record, 1)
 
-	var eg errgroup.Group
-	addFail := make(chan struct{})
-	var interrupted bool
-	var subPieces []mk20.DataSource
-	chk := chunker.NewInitialChunker()
+		var eg errgroup.Group
+		addFail := make(chan struct{})
+		var interrupted bool
+		var subPieces []mk20.DataSource
+		chk := chunker.NewInitialChunker()
 
-	eg.Go(func() error {
-		defer close(addFail)
-		for rec := range recs {
-			serr := chk.Accept(rec.Cid.Hash(), int64(rec.Offset), rec.Size)
-			if serr != nil {
-				addFail <- struct{}{}
-				return serr
+		eg.Go(func() error {
+			defer close(addFail)
+			for rec := range recs {
+				serr := chk.Accept(rec.Cid.Hash(), int64(rec.Offset), rec.Size)
+				if serr != nil {
+					addFail <- struct{}{}
+					return serr
+				}
+			}
+			return nil
+		})
+
+		id, serr := ulid.Parse(task.ID)
+		if serr != nil {
+			return false, xerrors.Errorf("parsing task id: %w", serr)
+		}
+		deal, serr := mk20.DealFromDB(ctx, P.db, id)
+		if serr != nil {
+			return false, xerrors.Errorf("getting deal from db: %w", serr)
+		}
+
+		if deal.Data.Format.Raw != nil {
+			return false, xerrors.Errorf("raw data not supported")
+		}
+
+		if deal.Data.Format.Car != nil {
+			_, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
+		}
+
+		if deal.Data.Format.Aggregate != nil {
+			if deal.Data.Format.Aggregate.Type > 0 {
+				subPieces = deal.Data.Format.Aggregate.Sub
+				_, _, interrupted, err = IndexAggregate(pcid2, reader, pi.PieceInfo().Size, subPieces, recs, addFail)
 			}
 		}
-		return nil
-	})
 
-	id, serr := ulid.Parse(task.ID)
-	if serr != nil {
-		return false, xerrors.Errorf("parsing task id: %w", serr)
-	}
-	deal, serr := mk20.DealFromDB(ctx, P.db, id)
-	if serr != nil {
-		return false, xerrors.Errorf("getting deal from db: %w", serr)
-	}
-
-	if deal.Data.Format.Raw != nil {
-		return false, xerrors.Errorf("raw data not supported")
-	}
-
-	if deal.Data.Format.Car != nil {
-		_, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
-	}
-
-	if deal.Data.Format.Aggregate != nil {
-		if deal.Data.Format.Aggregate.Type > 0 {
-			subPieces = deal.Data.Format.Aggregate.Sub
-			_, _, interrupted, err = IndexAggregate(pcid2, reader, pi.Size, subPieces, recs, addFail)
+		if err != nil {
+			// Chunking itself failed, stop early
+			close(recs) // still safe to close, chk.Accept() will exit on channel close
+			// wait for chk.Accept() goroutine to finish cleanly
+			_ = eg.Wait()
+			return false, xerrors.Errorf("chunking failed: %w", err)
 		}
-	}
 
-	if err != nil {
-		// Chunking itself failed, stop early
-		close(recs) // still safe to close, chk.Accept() will exit on channel close
-		// wait for chk.Accept() goroutine to finish cleanly
-		_ = eg.Wait()
-		return false, xerrors.Errorf("chunking failed: %w", err)
-	}
+		// Close the channel
+		close(recs)
 
-	// Close the channel
-	close(recs)
+		// Wait till  is finished
+		err = eg.Wait()
+		if err != nil {
+			return false, xerrors.Errorf("adding index to chunk (interrupted %t): %w", interrupted, err)
+		}
 
-	// Wait till  is finished
-	err = eg.Wait()
-	if err != nil {
-		return false, xerrors.Errorf("adding index to chunk (interrupted %t): %w", interrupted, err)
-	}
+		// make sure we still own the task before writing to the database
+		if !stillOwned() {
+			return false, nil
+		}
 
-	// make sure we still own the task before writing to the database
-	if !stillOwned() {
-		return false, nil
-	}
-
-	lnk, err := chk.Finish(ctx, P.db, pcid2)
-	if err != nil {
-		return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
+		lnk, err = chk.Finish(ctx, P.db, pcid2)
+		if err != nil {
+			return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
+		}
+	} else {
+		chk := chunker.NewInitialChunker()
+		err = chk.Accept(pcid2.Hash(), 0, pi.PayloadSize())
+		if err != nil {
+			return false, xerrors.Errorf("adding index to chunk: %w", err)
+		}
+		lnk, err = chk.Finish(ctx, P.db, pcid2)
+		if err != nil {
+			return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
+		}
 	}
 
 	// make sure we still own the task before writing ad chains
@@ -201,10 +212,21 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			return false, xerrors.Errorf("querying previous head: %w", err)
 		}
 
-		mds := metadata.IpfsGatewayHttp{}
-		md, err := mds.MarshalBinary()
-		if err != nil {
-			return false, xerrors.Errorf("marshaling metadata: %w", err)
+		var md []byte
+		if pinfo.Payload {
+			mds := metadata.IpfsGatewayHttp{}
+			mdb, err := mds.MarshalBinary()
+			if err != nil {
+				return false, xerrors.Errorf("marshaling metadata: %w", err)
+			}
+			md = mdb
+		} else {
+			mds := metadata.FilecoinPieceHttp{}
+			mdb, err := mds.MarshalBinary()
+			if err != nil {
+				return false, xerrors.Errorf("marshaling metadata: %w", err)
+			}
+			md = mdb
 		}
 
 		var privKey []byte
@@ -276,8 +298,8 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			return false, xerrors.Errorf("converting advertisement to link: %w", err)
 		}
 
-		_, err = tx.Exec(`SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-			ad.(cidlink.Link).Cid.String(), adv.ContextID, pi.PieceCID.String(), pi.Size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
+		_, err = tx.Exec(`SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+			ad.(cidlink.Link).Cid.String(), adv.ContextID, md, pcid2.String(), pi.PieceInfo().PieceCID.String(), pi.PieceInfo().Size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
 			adv.Signature, adv.Entries.String())
 
 		if err != nil {
@@ -332,6 +354,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 	var stop bool
 	for !stop {
 		var markComplete *string
+		var markCompletePayload *string
 
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
@@ -340,19 +363,25 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 				ID                string                `db:"id"`
 				PieceCid          string                `db:"piece_cid"`
 				Size              abi.UnpaddedPieceSize `db:"piece_size"`
-				RawSize           abi.UnpaddedPieceSize `db:"raw_size"`
-				Index             bool                  `db:"indexing"`
+				PieceCidV2        string                `db:"piece_cid_v2"`
 				Announce          bool                  `db:"announce"`
+				AnnouncePayload   bool                  `db:"announce_payload"`
 				IndexingCreatedAt time.Time             `db:"indexing_created_at"`
+				Announced         bool                  `db:"announced"`
+				AnnouncedPayload  bool                  `db:"announced_payload"`
 			}
 
 			err := tx.Select(&pendings, `SELECT
 											  id,
-											  piece_cid, 
+											  piece_cid_v2,
+											  piece_cid,
 											  piece_size, 
 											  raw_size,
 											  indexing,
 											  announce,
+											  announce_payload,
+											  announced,
+											  announced_payload,
 											  indexing_created_at
 											FROM pdp_pipeline
 											WHERE indexed = TRUE 
@@ -368,9 +397,10 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 
 			p := pendings[0]
 
-			// Skip IPNI if deal says not to announce or not to index (fast retrievals). If we announce without
-			// indexing, it will cause issue with retrievals.
-			if !p.Announce || !p.Index {
+			// Mark deal is complete if:
+			// 1. We don't need to announce anything
+			// 2. Both type of announcements are done
+			if !(p.Announce && p.AnnouncePayload) || (p.AnnouncePayload && p.AnnouncedPayload) {
 				var n int
 				n, err = tx.Exec(`UPDATE pdp_pipeline SET complete = TRUE WHERE id = $1`, p.ID)
 
@@ -396,21 +426,23 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			}
 
 			var privKey []byte
-			err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, -1).Scan(&privKey)
+			var peerIDStr string
+			err = tx.QueryRow(`SELECT priv_key, peer_id FROM ipni_peerid WHERE sp_id = $1`, -1).Scan(&privKey, &peerIDStr)
 			if err != nil {
 				if !errors.Is(err, pgx.ErrNoRows) {
 					return false, xerrors.Errorf("failed to get private libp2p key for PDP: %w", err)
 				}
 
-				// generate the ipni provider key
-				pk, _, err := crypto.GenerateEd25519Key(rand.Reader)
+				var pkey []byte
+
+				err = tx.QueryRow(`SELECT priv_key FROM eth_keys WHERE role = 'pdp'`).Scan(&pkey)
 				if err != nil {
-					return false, xerrors.Errorf("failed to generate a new key: %w", err)
+					return false, xerrors.Errorf("failed to get private eth key for PDP: %w", err)
 				}
 
-				privKey, err = crypto.MarshalPrivateKey(pk)
+				pk, err := crypto.UnmarshalPrivateKey(pkey)
 				if err != nil {
-					return false, xerrors.Errorf("failed to marshal the private key: %w", err)
+					return false, xerrors.Errorf("unmarshaling private key: %w", err)
 				}
 
 				pid, err := peer.IDFromPublicKey(pk.GetPublic())
@@ -426,16 +458,13 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 				if n == 0 {
 					return false, xerrors.Errorf("failed to insert the key into db")
 				}
+
+				peerIDStr = pid.String()
 			}
 
-			pkey, err := crypto.UnmarshalPrivateKey(privKey)
+			pid, err := peer.Decode(peerIDStr)
 			if err != nil {
-				return false, xerrors.Errorf("unmarshaling private key: %w", err)
-			}
-
-			pid, err := peer.IDFromPublicKey(pkey.GetPublic())
-			if err != nil {
-				return false, fmt.Errorf("getting peer ID: %w", err)
+				return false, fmt.Errorf("decoding peer ID: %w", err)
 			}
 
 			pcid, err := cid.Parse(p.PieceCid)
@@ -443,58 +472,115 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 				return false, xerrors.Errorf("parsing piece CID: %w", err)
 			}
 
-			pi := abi.PieceInfo{
-				PieceCID: pcid,
-				Size:     abi.PaddedPieceSize(p.Size),
-			}
-
-			b := new(bytes.Buffer)
-			err = pi.MarshalCBOR(b)
-			if err != nil {
-				return false, xerrors.Errorf("marshaling piece info: %w", err)
-			}
-
-			_, err = tx.Exec(`SELECT insert_pdp_ipni_task($1, $2, $3, $4, $5)`, b.Bytes(), false, p.ID, pid.String(), id)
-			if err != nil {
-				if harmonydb.IsErrUniqueContraint(err) {
-					ilog.Infof("Another IPNI announce task already present for piece %s in deal %s", p.PieceCid, p.ID)
-					// SET "complete" status to true for this deal, so it is not considered next time
-					markComplete = &p.ID
-					stop = false // we found a sector to work on, keep going
-					return true, nil
+			// If we need to announce payload and haven't done so, then do it first
+			if p.AnnouncePayload && !p.AnnouncedPayload {
+				pi := types.PieceInfo{
+					PieceCID: pcid,
+					Payload:  true,
 				}
-				if strings.Contains(err.Error(), "already published") {
-					ilog.Infof("Piece %s in deal %s is already published", p.PieceCid, p.ID)
-					// SET "complete" status to true for this deal, so it is not considered next time
-					markComplete = &p.ID
-					stop = false // we found a sector to work on, keep going
-					return false, nil
-				}
-				return false, xerrors.Errorf("updating IPNI announcing task id: %w", err)
-			}
-			markComplete = &p.ID
 
-			stop = false // we found a task to schedule, keep going
-			return true, nil
+				b := new(bytes.Buffer)
+				err = pi.MarshalCBOR(b)
+				if err != nil {
+					return false, xerrors.Errorf("marshaling piece info: %w", err)
+				}
+
+				_, err = tx.Exec(`SELECT insert_pdp_ipni_task($1, $2, $3, $4, $5)`, b.Bytes(), false, p.ID, pid.String(), id)
+				if err != nil {
+					if harmonydb.IsErrUniqueContraint(err) {
+						ilog.Infof("Another IPNI announce task already present for piece %s and payload %d in deal %s", p.PieceCid, p.AnnouncePayload, p.ID)
+						stop = false // we found a sector to work on, keep going
+						markCompletePayload = &p.ID
+						return false, nil
+					}
+					if strings.Contains(err.Error(), "already published") {
+						ilog.Infof("Piece %s in deal %s is already published", p.PieceCid, p.ID)
+						stop = false // we found a sector to work on, keep going
+						markCompletePayload = &p.ID
+						return false, nil
+					}
+					return false, xerrors.Errorf("updating IPNI announcing task id: %w", err)
+				}
+				stop = false
+				markCompletePayload = &p.ID
+
+				// Return early while commiting so we mark complete for payload announcement
+				return true, nil
+			}
+
+			// If we don't need to announce payload, mark it as complete so pipeline does not try that
+			if !p.AnnouncePayload && !p.AnnouncedPayload {
+				stop = false
+				markCompletePayload = &p.ID
+				// Rerun early without commiting so we mark complete for payload announcement
+				return false, nil
+			}
+
+			// If we need to announce piece and haven't done so then do it
+			if p.Announce && !p.Announced {
+				pi := types.PieceInfo{
+					PieceCID: pcid,
+					Payload:  false,
+				}
+				b := new(bytes.Buffer)
+				err = pi.MarshalCBOR(b)
+				if err != nil {
+					return false, xerrors.Errorf("marshaling piece info: %w", err)
+				}
+
+				_, err = tx.Exec(`SELECT insert_pdp_ipni_task($1, $2, $3, $4, $5)`, b.Bytes(), false, p.ID, pid.String(), id)
+				if err != nil {
+					if harmonydb.IsErrUniqueContraint(err) {
+						ilog.Infof("Another IPNI announce task already present for piece %s and payload %d in deal %s", p.PieceCid, p.AnnouncePayload, p.ID)
+						stop = false // we found a sector to work on, keep going
+						markComplete = &p.ID
+						return false, nil
+
+					}
+					if strings.Contains(err.Error(), "already published") {
+						ilog.Infof("Piece %s in deal %s is already published", p.PieceCid, p.ID)
+						stop = false // we found a sector to work on, keep going
+						markComplete = &p.ID
+						return false, nil
+
+					}
+					return false, xerrors.Errorf("updating IPNI announcing task id: %w", err)
+				}
+				stop = false
+				markComplete = &p.ID
+
+				// Return early while commiting so we mark complete for piece announcement
+				return true, nil
+			}
+
+			// If we don't need to announce piece, mark it as complete so pipeline does not try that
+			if !p.Announce && !p.Announced {
+				stop = false
+				markComplete = &p.ID
+				// Rerun early without commiting so we mark complete for payload announcement
+				return false, nil
+			}
+
+			return false, xerrors.Errorf("no task to schedule")
 		})
 
 		if markComplete != nil {
-			n, err := P.db.Exec(ctx, `UPDATE pdp_pipeline SET complete = TRUE WHERE id = $1 AND complete = FALSE`, *markComplete)
+			n, err := P.db.Exec(ctx, `UPDATE pdp_pipeline SET announced = TRUE WHERE id = $1`, *markComplete)
 			if err != nil {
-				log.Errorf("store IPNI success: updating pipeline: %s", err)
+				log.Errorf("store IPNI success: updating pipeline: %w", err)
 			}
 			if n != 1 {
 				log.Errorf("store IPNI success: updated %d rows", n)
 			}
+		}
 
-			n, err = P.db.Exec(ctx, `UPDATE market_mk20_deal
-							SET pdp_v1 = jsonb_set(pdp_v1, '{complete}', 'true'::jsonb, true)
-							WHERE id = $1;`, *markComplete)
+		if markCompletePayload != nil {
+			n, err := P.db.Exec(ctx, `UPDATE pdp_pipeline SET announced_payload = TRUE WHERE id = $1`, *markCompletePayload)
 			if err != nil {
-				log.Errorf("failed to update market_mk20_deal: %w", err)
+				log.Errorf("store IPNI success: updating pipeline: %w", err)
 			}
 			if n != 1 {
-				log.Errorf("expected 1 row to be updated, got %d", n)
+				log.Errorf("store IPNI success: updated %d rows", n)
 			}
 		}
 	}

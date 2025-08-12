@@ -82,6 +82,7 @@ func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorI
 	}
 
 	go markDownloaded(ctx, db)
+	go removeNotFinalizedUploads(ctx, db)
 
 	return &MK20{
 		miners:             miners,
@@ -417,31 +418,34 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 			return false, xerrors.Errorf("saving deal to DB: %w", err)
 		}
 
-		// If we have data source other that PUT then start the pipeline
-		if deal.Data != nil {
-			if deal.Data.SourceHTTP != nil || deal.Data.SourceAggregate != nil {
-				err = insertPDPPipeline(ctx, tx, deal)
-				if err != nil {
-					return false, xerrors.Errorf("inserting pipeline: %w", err)
+		pdp := deal.Products.PDPV1
+
+		if pdp.AddPiece {
+			// If we have data source other that PUT then start the pipeline
+			if deal.Data != nil {
+				if deal.Data.SourceHTTP != nil || deal.Data.SourceAggregate != nil {
+					err = insertPDPPipeline(ctx, tx, deal)
+					if err != nil {
+						return false, xerrors.Errorf("inserting pipeline: %w", err)
+					}
 				}
-			}
-			if deal.Data.SourceHttpPut != nil {
+				if deal.Data.SourceHttpPut != nil {
+					_, err = tx.Exec(`INSERT INTO market_mk20_upload_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
+					if err != nil {
+						return false, xerrors.Errorf("inserting upload waiting: %w", err)
+					}
+				}
+			} else {
+				// Assume upload
 				_, err = tx.Exec(`INSERT INTO market_mk20_upload_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
 				if err != nil {
 					return false, xerrors.Errorf("inserting upload waiting: %w", err)
 				}
 			}
-		} else {
-			// Assume upload
-			_, err = tx.Exec(`INSERT INTO market_mk20_upload_waiting (id) VALUES ($1) ON CONFLICT (id) DO NOTHING`, deal.Identifier.String())
-			if err != nil {
-				return false, xerrors.Errorf("inserting upload waiting: %w", err)
-			}
 		}
 
-		pdp := deal.Products.PDPV1
-		if pdp.CreateProofSet {
-			n, err := m.DB.Exec(ctx, `INSERT INTO pdp_proof_set_create (id, client, record_keeper, extra_data) VALUES ($1, $2, $3, $4)`,
+		if pdp.CreateDataSet {
+			n, err := m.DB.Exec(ctx, `INSERT INTO pdp_data_set_create (id, client, record_keeper, extra_data) VALUES ($1, $2, $3, $4)`,
 				deal.Identifier.String(), deal.Client.String(), pdp.RecordKeeper, pdp.ExtraData)
 			if err != nil {
 				return false, xerrors.Errorf("inserting PDP proof set create: %w", err)
@@ -451,9 +455,9 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 			}
 		}
 
-		if pdp.DeleteProofSet {
-			n, err := m.DB.Exec(ctx, `INSERT INTO pdp_proof_set_delete (id, client, set_id, extra_data) VALUES ($1, $2, $3, $4)`,
-				deal.Identifier.String(), deal.Client.String(), *pdp.ProofSetID, pdp.ExtraData)
+		if pdp.DeleteDataSet {
+			n, err := m.DB.Exec(ctx, `INSERT INTO pdp_data_set_delete (id, client, set_id, extra_data) VALUES ($1, $2, $3, $4)`,
+				deal.Identifier.String(), deal.Client.String(), *pdp.DataSetID, pdp.ExtraData)
 			if err != nil {
 				return false, xerrors.Errorf("inserting PDP proof set delete: %w", err)
 			}
@@ -462,9 +466,9 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 			}
 		}
 
-		if pdp.DeleteRoot {
-			n, err := m.DB.Exec(ctx, `INSERT INTO pdp_root_delete (id, client, set_id, roots, extra_data) VALUES ($1, $2, $3, $4, $5)`,
-				deal.Identifier.String(), deal.Client.String(), *pdp.ProofSetID, pdp.RootIDs, pdp.ExtraData)
+		if pdp.DeletePiece {
+			n, err := m.DB.Exec(ctx, `INSERT INTO pdp_piece_delete (id, client, set_id, pieces, extra_data) VALUES ($1, $2, $3, $4, $5)`,
+				deal.Identifier.String(), deal.Client.String(), *pdp.DataSetID, pdp.PieceIDs, pdp.ExtraData)
 			if err != nil {
 				return false, xerrors.Errorf("inserting PDP delete root: %w", err)
 			}
@@ -494,7 +498,7 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 }
 
 func (m *MK20) sanitizePDPDeal(ctx context.Context, deal *Deal) (*ProviderDealRejectionInfo, error) {
-	if deal.Products.PDPV1.AddRoot && deal.Products.RetrievalV1 == nil {
+	if deal.Products.PDPV1.AddPiece && deal.Products.RetrievalV1 == nil {
 		return &ProviderDealRejectionInfo{
 			HTTPCode: ErrBadProposal,
 			Reason:   "Retrieval deal is required for pdp_v1",
@@ -519,13 +523,13 @@ func (m *MK20) sanitizePDPDeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 
 	p := deal.Products.PDPV1
 
-	// This serves as Auth for now. We are checking if client is authorized to make changes to the proof set or roots
+	// This serves as Auth for now. We are checking if client is authorized to make changes to the proof set or pieces
 	// In future this will be replaced by an ACL check
 
-	if p.DeleteProofSet || p.AddRoot {
-		pid := *p.ProofSetID
+	if p.DeleteDataSet || p.AddPiece {
+		pid := *p.DataSetID
 		var exists bool
-		err := m.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_proof_set WHERE id = $1 AND removed = FALSE AND client = $2)`, pid, deal.Client.String()).Scan(&exists)
+		err := m.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_data_set WHERE id = $1 AND removed = FALSE AND client = $2)`, pid, deal.Client.String()).Scan(&exists)
 		if err != nil {
 			log.Errorw("error checking if proofset exists", "error", err)
 			return &ProviderDealRejectionInfo{
@@ -541,20 +545,20 @@ func (m *MK20) sanitizePDPDeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		}
 	}
 
-	if p.DeleteRoot {
-		pid := *p.ProofSetID
+	if p.DeletePiece {
+		pid := *p.DataSetID
 		var exists bool
 		err := m.DB.QueryRow(ctx, `SELECT COUNT(*) = cardinality($2::BIGINT[]) AS all_exist_and_active
-										FROM pdp_proofset_root r
-										JOIN pdp_proof_set s ON r.proof_set_id = s.id
-										WHERE r.proof_set_id = $1
-										  AND r.root = ANY($2)
+										FROM pdp_dataset_piece r
+										JOIN pdp_data_set s ON r.data_set_id = s.id
+										WHERE r.data_set_id = $1
+										  AND r.piece = ANY($2)
 										  AND r.removed = FALSE
 										  AND s.removed = FALSE 
 										  AND r.client = $3 
-										  AND s.client = $3;`, pid, p.RootIDs, deal.Client.String()).Scan(&exists)
+										  AND s.client = $3;`, pid, p.PieceIDs, deal.Client.String()).Scan(&exists)
 		if err != nil {
-			log.Errorw("error checking if proofset and roots exist for the client", "error", err)
+			log.Errorw("error checking if dataset and pieces exist for the client", "error", err)
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrServerInternalError,
 				Reason:   "",
@@ -564,7 +568,7 @@ func (m *MK20) sanitizePDPDeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 		if !exists {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
-				Reason:   "proofset or one of the roots does not exist for the client",
+				Reason:   "dataset or one of the pieces does not exist for the client",
 			}, nil
 		}
 	}
@@ -639,11 +643,11 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 		}
 
 		n, err = tx.Exec(`INSERT INTO pdp_pipeline (
-            id, client, piece_cid_v2, piece_cid, piece_size, raw_size, proof_set_id,
-            extra_data, deal_aggregation, indexing, announce) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-			dealID, deal.Client.String(), data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.ProofSetID,
-			pdp.ExtraData, aggregation, retv.Indexing, retv.AnnouncePayload)
+            id, client, piece_cid_v2, piece_cid, piece_size, raw_size, data_set_id,
+            extra_data, deal_aggregation, indexing, announce, announce_payload) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+			dealID, deal.Client.String(), data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.DataSetID,
+			pdp.ExtraData, aggregation, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 		if err != nil {
 			return xerrors.Errorf("inserting PDP pipeline: %w", err)
 		}
@@ -743,10 +747,10 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 			}
 			pBatch.Queue(`INSERT INTO pdp_pipeline (
                           id, client, piece_cid_v2, piece_cid, piece_size, raw_size, 
-                          proof_set_id, extra_data, piece_ref, deal_aggregation, aggr_index, indexing, announce) 
-        	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+                          data_set_id, extra_data, piece_ref, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
+        	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 				dealID, deal.Client.String(), piece.PieceCID.String(), spi.PieceCIDV1.String(), spi.Size, spi.RawSize,
-				pdp.ExtraData, *pdp.ProofSetID, aggregation, i, retv.Indexing, retv.AnnouncePayload)
+				pdp.ExtraData, *pdp.DataSetID, aggregation, i, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 			if pBatch.Len() > pBatchSize {
 				res := tx.SendBatch(ctx, pBatch)
 				if err := res.Close(); err != nil {

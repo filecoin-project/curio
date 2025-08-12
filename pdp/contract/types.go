@@ -2,8 +2,8 @@ package contract
 
 import "math/big"
 
-// RootData matches the Solidity RootData struct
-type RootData struct {
-	Root    struct{ Data []byte }
+// PieceData matches the Solidity PieceData struct
+type PieceData struct {
+	Piece   struct{ Data []byte }
 	RawSize *big.Int
 }

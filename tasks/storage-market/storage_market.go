@@ -209,6 +209,7 @@ func (d *CurioStorageDealMarket) runPoller(ctx context.Context) {
 		if module == mk20Str {
 			if len(miners) > 0 {
 				go d.pipelineInsertLoop(ctx)
+				go d.migratePieceCIDV2(ctx)
 			}
 		}
 	}

@@ -1129,20 +1129,24 @@
         "mk20.PDPV1": {
             "type": "object",
             "properties": {
-                "add_root": {
-                    "description": "AddRoot indicated that this deal is meant to add root to a given ProofSet. ProofSetID must be defined.",
+                "add_piece": {
+                    "description": "AddPiece indicated that this deal is meant to add Piece to a given DataSet. DataSetID must be defined.",
                     "type": "boolean"
                 },
-                "create_proof_set": {
-                    "description": "CreateProofSet indicated that this deal is meant to create a new ProofSet for the client by storage provider.",
+                "create_data_set": {
+                    "description": "CreateDataSet indicated that this deal is meant to create a new DataSet for the client by storage provider.",
                     "type": "boolean"
                 },
-                "delete_proof_set": {
-                    "description": "DeleteProofSet indicated that this deal is meant to delete an existing ProofSet created by SP for the client.\nProofSetID must be defined.",
+                "data_set_id": {
+                    "description": "DataSetID is PDP verified contract dataset ID. It must be defined for all deals except when CreateDataSet is true.",
+                    "type": "integer"
+                },
+                "delete_data_set": {
+                    "description": "DeleteDataSet indicated that this deal is meant to delete an existing DataSet created by SP for the client.\nDataSetID must be defined.",
                     "type": "boolean"
                 },
-                "delete_root": {
-                    "description": "DeleteRoot indicates whether the root of the data should be deleted. ProofSetID must be defined.",
+                "delete_piece": {
+                    "description": "DeletePiece indicates whether the Piece of the data should be deleted. DataSetID must be defined.",
                     "type": "boolean"
                 },
                 "extra_data": {
@@ -1152,20 +1156,16 @@
                         "type": "integer"
                     }
                 },
-                "proof_set_id": {
-                    "description": "ProofSetID is PDP verified contract proofset ID. It must be defined for all deals except when CreateProofSet is true.",
-                    "type": "integer"
-                },
-                "record_keeper": {
-                    "description": "RecordKeeper specifies the record keeper contract address for the new PDP proofset.",
-                    "type": "string"
-                },
-                "root_ids": {
-                    "description": "RootIDs is a list of root ids in a proof set.",
+                "piece_ids": {
+                    "description": "PieceIDs is a list of Piece ids in a proof set.",
                     "type": "array",
                     "items": {
                         "type": "integer"
                     }
+                },
+                "record_keeper": {
+                    "description": "RecordKeeper specifies the record keeper contract address for the new PDP dataset.",
+                    "type": "string"
                 }
             }
         },

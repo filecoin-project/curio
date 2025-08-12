@@ -12,27 +12,27 @@ import (
 
 // PDPV1 represents configuration for product-specific PDP version 1 deals.
 type PDPV1 struct {
-	// CreateProofSet indicated that this deal is meant to create a new ProofSet for the client by storage provider.
-	CreateProofSet bool `json:"create_proof_set"`
+	// CreateDataSet indicated that this deal is meant to create a new DataSet for the client by storage provider.
+	CreateDataSet bool `json:"create_data_set"`
 
-	// DeleteProofSet indicated that this deal is meant to delete an existing ProofSet created by SP for the client.
-	// ProofSetID must be defined.
-	DeleteProofSet bool `json:"delete_proof_set"`
+	// DeleteDataSet indicated that this deal is meant to delete an existing DataSet created by SP for the client.
+	// DataSetID must be defined.
+	DeleteDataSet bool `json:"delete_data_set"`
 
-	// AddRoot indicated that this deal is meant to add root to a given ProofSet. ProofSetID must be defined.
-	AddRoot bool `json:"add_root"`
+	// AddPiece indicated that this deal is meant to add Piece to a given DataSet. DataSetID must be defined.
+	AddPiece bool `json:"add_piece"`
 
-	// DeleteRoot indicates whether the root of the data should be deleted. ProofSetID must be defined.
-	DeleteRoot bool `json:"delete_root"`
+	// DeletePiece indicates whether the Piece of the data should be deleted. DataSetID must be defined.
+	DeletePiece bool `json:"delete_piece"`
 
-	// ProofSetID is PDP verified contract proofset ID. It must be defined for all deals except when CreateProofSet is true.
-	ProofSetID *uint64 `json:"proof_set_id,omitempty"`
+	// DataSetID is PDP verified contract dataset ID. It must be defined for all deals except when CreateDataSet is true.
+	DataSetID *uint64 `json:"data_set_id,omitempty"`
 
-	// RecordKeeper specifies the record keeper contract address for the new PDP proofset.
+	// RecordKeeper specifies the record keeper contract address for the new PDP dataset.
 	RecordKeeper string `json:"record_keeper"`
 
-	// RootIDs is a list of root ids in a proof set.
-	RootIDs []uint64 `json:"root_ids,omitempty"`
+	// PieceIDs is a list of Piece ids in a proof set.
+	PieceIDs []uint64 `json:"piece_ids,omitempty"`
 
 	// ExtraData can be used to send additional information to service contract when Verifier action like AddRoot, DeleteRoot etc. are performed.
 	ExtraData []byte `json:"extra_data,omitempty"`
@@ -44,13 +44,24 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 		return code, err
 	}
 
-	if ok := p.CreateProofSet || p.DeleteProofSet || p.AddRoot || p.DeleteRoot; !ok {
+	if ok := p.CreateDataSet || p.DeleteDataSet || p.AddPiece || p.DeletePiece; !ok {
 		return ErrBadProposal, xerrors.Errorf("deal must have one of the following flags set: create_proof_set, delete_proof_set, add_root, delete_root")
 	}
 
-	if p.CreateProofSet {
-		if p.ProofSetID != nil {
-			return ErrBadProposal, xerrors.Errorf("create_proof_set cannot be set with proof_set_id")
+	var existingAddress bool
+
+	err = db.QueryRow(context.Background(), `SELECT EXISTS(SELECT 1 FROM eth_keys WHERE role = 'pdp')`).Scan(&existingAddress)
+	if err != nil {
+		return ErrServerInternalError, xerrors.Errorf("checking if pdp address exists: %w", err)
+	}
+
+	if !existingAddress {
+		return ErrServiceMaintenance, xerrors.Errorf("pdp key not configured by storage provider")
+	}
+
+	if p.CreateDataSet {
+		if p.DataSetID != nil {
+			return ErrBadProposal, xerrors.Errorf("create_proof_set cannot be set with data_set_id")
 		}
 		if p.RecordKeeper == "" {
 			return ErrBadProposal, xerrors.Errorf("record_keeper must be defined for create_proof_set")
@@ -61,63 +72,63 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 	}
 
 	// Only 1 action is allowed per deal
-	if btoi(p.CreateProofSet)+btoi(p.DeleteProofSet)+btoi(p.AddRoot)+btoi(p.DeleteRoot) > 1 {
+	if btoi(p.CreateDataSet)+btoi(p.DeleteDataSet)+btoi(p.AddPiece)+btoi(p.DeletePiece) > 1 {
 		return ErrBadProposal, xerrors.Errorf("only one action is allowed per deal")
 	}
 
 	ctx := context.Background()
 
-	if p.DeleteProofSet {
-		if p.ProofSetID == nil {
-			return ErrBadProposal, xerrors.Errorf("delete_proof_set must have proof_set_id defined")
+	if p.DeleteDataSet {
+		if p.DataSetID == nil {
+			return ErrBadProposal, xerrors.Errorf("delete_proof_set must have data_set_id defined")
 		}
-		pid := *p.ProofSetID
+		pid := *p.DataSetID
 		var exists bool
-		err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_proof_set WHERE id = $1 AND removed = FALSE)`, pid).Scan(&exists)
+		err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_data_set WHERE id = $1 AND removed = FALSE)`, pid).Scan(&exists)
 		if err != nil {
-			return ErrServerInternalError, xerrors.Errorf("checking if proofset exists: %w", err)
+			return ErrServerInternalError, xerrors.Errorf("checking if dataset exists: %w", err)
 		}
 		if !exists {
-			return ErrBadProposal, xerrors.Errorf("proofset does not exist for the client")
+			return ErrBadProposal, xerrors.Errorf("dataset does not exist for the client")
 		}
 	}
 
-	if p.AddRoot {
-		if p.ProofSetID == nil {
-			return ErrBadProposal, xerrors.Errorf("add_root must have proof_set_id defined")
+	if p.AddPiece {
+		if p.DataSetID == nil {
+			return ErrBadProposal, xerrors.Errorf("add_root must have data_set_id defined")
 		}
-		pid := *p.ProofSetID
+		pid := *p.DataSetID
 		var exists bool
-		err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_proof_set WHERE id = $1 AND removed = FALSE)`, pid).Scan(&exists)
+		err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_data_set WHERE id = $1 AND removed = FALSE)`, pid).Scan(&exists)
 		if err != nil {
-			return ErrServerInternalError, xerrors.Errorf("checking if proofset exists: %w", err)
+			return ErrServerInternalError, xerrors.Errorf("checking if dataset exists: %w", err)
 		}
 		if !exists {
-			return ErrBadProposal, xerrors.Errorf("proofset does not exist for the client")
+			return ErrBadProposal, xerrors.Errorf("dataset does not exist for the client")
 		}
 	}
 
-	if p.DeleteRoot {
-		if p.ProofSetID == nil {
-			return ErrBadProposal, xerrors.Errorf("delete_root must have proof_set_id defined")
+	if p.DeletePiece {
+		if p.DataSetID == nil {
+			return ErrBadProposal, xerrors.Errorf("delete_root must have data_set_id defined")
 		}
-		pid := *p.ProofSetID
-		if len(p.RootIDs) == 0 {
+		pid := *p.DataSetID
+		if len(p.PieceIDs) == 0 {
 			return ErrBadProposal, xerrors.Errorf("root_ids must be defined for delete_proof_set")
 		}
 		var exists bool
 		err := db.QueryRow(ctx, `SELECT COUNT(*) = cardinality($2::BIGINT[]) AS all_exist_and_active
-										FROM pdp_proofset_root r
-										JOIN pdp_proof_set s ON r.proof_set_id = s.id
-										WHERE r.proof_set_id = $1
+										FROM pdp_dataset_piece r
+										JOIN pdp_data_set s ON r.data_set_id = s.id
+										WHERE r.data_set_id = $1
 										  AND r.root = ANY($2)
 										  AND r.removed = FALSE
-										  AND s.removed = FALSE;`, pid, p.RootIDs).Scan(&exists)
+										  AND s.removed = FALSE;`, pid, p.PieceIDs).Scan(&exists)
 		if err != nil {
-			return ErrServerInternalError, xerrors.Errorf("checking if proofset and roots exists: %w", err)
+			return ErrServerInternalError, xerrors.Errorf("checking if dataset and pieces exists: %w", err)
 		}
 		if !exists {
-			return ErrBadProposal, xerrors.Errorf("proofset or one of the roots does not exist for the client")
+			return ErrBadProposal, xerrors.Errorf("dataset or one of the pieces does not exist for the client")
 		}
 	}
 

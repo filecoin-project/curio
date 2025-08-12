@@ -395,7 +395,8 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 		}
 
 		n, err = tx.Exec(`UPDATE market_mk20_deal_chunk SET 
-                                  complete = TRUE, 
+                                  complete = TRUE,
+                                  completed_at = NOW() AT TIME ZONE 'UTC',
                                   ref_id = $1 
                               WHERE id = $2 
                                 AND chunk = $3
@@ -659,6 +660,15 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 			return false, xerrors.Errorf("inserting parked piece ref: %w", err)
 		}
 
+		// Mark upload as started to prevent someone else from using chunk upload
+		n, err := tx.Exec(`UPDATE market_mk20_upload_waiting SET chunked = FALSE WHERE id = $1`, id.String())
+		if err != nil {
+			return false, xerrors.Errorf("updating upload waiting: %w", err)
+		}
+		if n != 1 {
+			return false, xerrors.Errorf("updating upload waiting: expected 1 row updated, got %d", n)
+		}
+
 		return true, nil
 	})
 
@@ -682,6 +692,11 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 			_, err = m.DB.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = $1`, refID)
 			if err != nil {
 				log.Errorw("failed to delete parked piece ref", "deal", id, "error", err)
+			}
+
+			_, err = m.DB.Exec(ctx, `UPDATE market_mk20_upload_waiting SET chunked = NULL WHERE id = $1`, id.String())
+			if err != nil {
+				log.Errorw("failed to update upload waiting", "deal", id, "error", err)
 			}
 		}
 	}()
@@ -713,7 +728,7 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 
 				// If piece does not exist then we update piece park table to work with new tmpID
 				// Update ref table's reference to tmp id
-				_, err = tx.Exec(`UPDATE parked_piece_refs SET piece_id = $1 WHERE piece_id = $2`, pid, pnum)
+				_, err = tx.Exec(`UPDATE parked_piece_refs SET piece_id = $1 WHERE piece_id = $2`, pnum, pid)
 				if err != nil {
 					return false, xerrors.Errorf("updating parked piece ref: %w", err)
 				}
@@ -921,11 +936,11 @@ func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.Respo
 
 		// Insert the PDP pipeline
 		n, err := tx.Exec(`INSERT INTO pdp_pipeline (
-            id, client, piece_cid_v2, piece_cid, piece_size, raw_size, proof_set_id, 
-            extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, indexing, announce) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, $11, $12)`,
-			id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.ProofSetID,
-			pdp.ExtraData, refID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePayload)
+            id, client, piece_cid_v2, piece_cid, piece_size, raw_size, data_set_id, 
+            extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, $11, $12, $13)`,
+			id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.DataSetID,
+			pdp.ExtraData, refID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 		if err != nil {
 			return false, xerrors.Errorf("inserting in PDP pipeline: %w", err)
 		}
@@ -948,4 +963,109 @@ func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.Respo
 	}
 
 	w.WriteHeader(int(Ok))
+}
+
+func removeNotFinalizedUploads(ctx context.Context, db *harmonydb.DB) {
+	rm := func(ctx context.Context, db *harmonydb.DB) {
+		var deals []struct {
+			ID      string        `db:"id"`
+			Chunked bool          `db:"chunked"`
+			RefID   sql.NullInt64 `db:"ref_id"`
+			ReadyAt time.Time     `db:"ready_at"`
+		}
+
+		err := db.Select(ctx, &deals, `SELECT id, chunked, ref_id, ready_at
+											FROM market_mk20_upload_waiting
+											WHERE chunked IS NOT NULL
+											  AND ready_at <= (NOW() AT TIME ZONE 'UTC') - INTERVAL '60 minutes';`)
+		if err != nil {
+			log.Errorw("failed to get not finalized uploads", "error", err)
+		}
+
+		for _, deal := range deals {
+			if deal.Chunked {
+				comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+					_, err = tx.Exec(`DELETE FROM parked_piece_refs p
+											USING (
+											  SELECT DISTINCT ref_id
+											  FROM market_mk20_deal_chunk
+											  WHERE id = $1 AND ref_id IS NOT NULL
+											) c
+											WHERE p.ref_id = c.ref_id;
+											`, deal.ID)
+					if err != nil {
+						return false, xerrors.Errorf("deleting piece refs: %w", err)
+					}
+
+					_, err = tx.Exec(`DELETE FROM market_mk20_deal_chunk WHERE id = $1`, deal.ID)
+					if err != nil {
+						return false, xerrors.Errorf("deleting deal chunks: %w", err)
+					}
+
+					n, err := tx.Exec(`UPDATE market_mk20_upload_waiting
+											SET chunked = NULL,
+												ref_id  = NULL,
+												ready_at = NULL
+											WHERE id = $1;`, deal.ID)
+
+					if err != nil {
+						return false, xerrors.Errorf("updating upload waiting: %w", err)
+					}
+					if n != 1 {
+						return false, xerrors.Errorf("updating upload waiting: expected 1 row updated, got %d", n)
+					}
+
+					return true, nil
+				}, harmonydb.OptionRetry())
+				if err != nil {
+					log.Errorw("failed to delete not finalized uploads", "deal", deal.ID, "error", err)
+				}
+				if !comm {
+					log.Errorw("failed to delete not finalized uploads", "deal", deal.ID, "error", "failed to commit transaction")
+				}
+			} else {
+				if deal.RefID.Valid {
+					comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+						_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = $1`, deal.RefID.Int64)
+						if err != nil {
+							return false, xerrors.Errorf("deleting piece refs: %w", err)
+						}
+
+						n, err := tx.Exec(`UPDATE market_mk20_upload_waiting
+											SET chunked = NULL,
+												ref_id  = NULL,
+												ready_at = NULL
+											WHERE id = $1;`, deal.ID)
+
+						if err != nil {
+							return false, xerrors.Errorf("updating upload waiting: %w", err)
+						}
+						if n != 1 {
+							return false, xerrors.Errorf("updating upload waiting: expected 1 row updated, got %d", n)
+						}
+
+						return true, nil
+					})
+					if err != nil {
+						log.Errorw("failed to delete not finalized uploads", "deal", deal.ID, "error", err)
+					}
+					if !comm {
+						log.Errorw("failed to delete not finalized uploads", "deal", deal.ID, "error", "failed to commit transaction")
+					}
+				}
+				log.Errorw("removing not finalized upload", "deal", deal.ID, "error", "ref_id not found")
+			}
+		}
+	}
+
+	ticker := time.NewTicker(time.Minute * 5)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			rm(ctx, db)
+		case <-ctx.Done():
+			return
+		}
+	}
 }
