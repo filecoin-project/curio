@@ -2355,6 +2355,24 @@
       "translation": "要启动集群，请运行：curio run --layers basic-cluster",
       "message": "To start the cluster, run: curio run --layers basic-cluster",
       "placeholder": null
+    },
+    {
+      "id": "Failed to get API info for FullNode: {Error}",
+      "translation": "无法获取 FullNode 的 API 信息: {Error}",
+      "message": "Failed to get API info for FullNode: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "Failed to create auth token: {Error}",
+      "translation": "无法创建认证令牌: {Error}",
+      "message": "Failed to create auth token: {Error}",
+      "placeholder": null
+    },
+    {
+      "id": "Failed to insert config into database: {Error}",
+      "translation": "无法将配置插入数据库: {Error}",
+      "message": "Failed to insert config into database: {Error}",
+      "placeholder": null
     }
   ]
 }

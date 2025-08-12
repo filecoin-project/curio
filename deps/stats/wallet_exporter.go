@@ -68,7 +68,7 @@ func init() {
 		&view.View{
 			Measure:     WalletExporterMeasures.BalanceNFil,
 			Aggregation: view.LastValue(),
-			TagKeys:     []tag.Key{tagAddressKey, tagTypeKey},
+			TagKeys:     []tag.Key{tagAddressKey, tagTypeKey, tagName},
 		},
 		&view.View{
 			Measure:     WalletExporterMeasures.Power,
@@ -87,22 +87,22 @@ func init() {
 		},
 		&view.View{
 			Measure:     WalletExporterMeasures.GasUnitsRequested,
-			Aggregation: view.Count(),
+			Aggregation: view.Sum(),
 			TagKeys:     []tag.Key{tagFromKey, tagFromName, tagToKey, tagToName, tagMethodKey, tagSendReasonKey},
 		},
 		&view.View{
 			Measure:     WalletExporterMeasures.GasUnitsUsed,
-			Aggregation: view.Count(),
+			Aggregation: view.Sum(),
 			TagKeys:     []tag.Key{tagFromKey, tagFromName, tagToKey, tagToName, tagMethodKey, tagSendReasonKey, tagExitCodeKey},
 		},
 		&view.View{
 			Measure:     WalletExporterMeasures.SentNFil,
-			Aggregation: view.Count(),
+			Aggregation: view.Sum(),
 			TagKeys:     []tag.Key{tagFromKey, tagFromName, tagToKey, tagToName, tagMethodKey, tagSendReasonKey, tagExitCodeKey},
 		},
 		&view.View{
 			Measure:     WalletExporterMeasures.GasPaidNFil,
-			Aggregation: view.Count(),
+			Aggregation: view.Sum(),
 			TagKeys:     []tag.Key{tagFromKey, tagFromName, tagToKey, tagToName, tagMethodKey, tagSendReasonKey, tagExitCodeKey},
 		},
 	)
@@ -121,6 +121,7 @@ func init() {
 var (
 	tagAddressKey, _ = tag.NewKey("address")
 	tagTypeKey, _    = tag.NewKey("type")
+	tagName, _       = tag.NewKey("name")
 
 	tagFromKey, _       = tag.NewKey("from")
 	tagFromName, _      = tag.NewKey("from_name")
@@ -186,10 +187,10 @@ func walletExporterBalances(ctx context.Context, db *harmonydb.DB, api api.FullN
 	}
 
 	resolved := make(map[address.Address]walletAddrStr)
-	for _, wallet := range names {
+	for wallet := range names {
 		addr, err := address.NewFromString(wallet)
 		if err != nil {
-			log.Errorf("failed to resolve wallet: %v", err)
+			log.Errorf("failed to resolve wallet '%s': %v", wallet, err)
 			continue
 		}
 		kaddr, err := api.StateAccountKey(ctx, addr, types.EmptyTSK)
@@ -207,9 +208,11 @@ func walletExporterBalances(ctx context.Context, db *harmonydb.DB, api api.FullN
 			log.Errorf("failed to get balance for wallet: %v", err)
 			continue
 		}
+
 		_ = stats.RecordWithTags(ctx, []tag.Mutator{
 			tag.Upsert(tagAddressKey, addr.String()),
 			tag.Upsert(tagTypeKey, "wallet"),
+			tag.Upsert(tagName, names[resolved[addr]]),
 		}, WalletExporterMeasures.BalanceNFil.M(attoToNano(act.Balance)))
 	}
 
@@ -257,7 +260,7 @@ func walletExporterNewWatchedMsgs(ctx context.Context, db *harmonydb.DB, api api
 	_, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		unobservedMsgs = nil
 
-		rows, err := tx.Query(`SELECT created_at FROM wallet_exporter_processing`)
+		rows, err := tx.Query(`SELECT processed_until FROM wallet_exporter_processing`)
 		if err != nil {
 			return false, err
 		}
