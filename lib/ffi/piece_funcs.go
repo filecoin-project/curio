@@ -18,7 +18,7 @@ import (
 
 func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID, pieceID storiface.PieceNumber, size int64, data io.Reader, storageType storiface.PathType) error {
 	// Use storageType in AcquireSector
-	paths, _, done, err := sb.sectors.AcquireSector(ctx, taskID, pieceID.Ref(), storiface.FTNone, storiface.FTPiece, storageType)
+	paths, _, done, err := sb.Sectors.AcquireSector(ctx, taskID, pieceID.Ref(), storiface.FTNone, storiface.FTPiece, storageType)
 	if err != nil {
 		return err
 	}
@@ -71,16 +71,16 @@ func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID,
 }
 
 func (sb *SealCalls) PieceReader(ctx context.Context, id storiface.PieceNumber) (io.ReadCloser, error) {
-	return sb.sectors.storage.ReaderSeq(ctx, id.Ref(), storiface.FTPiece)
+	return sb.Sectors.storage.ReaderSeq(ctx, id.Ref(), storiface.FTPiece)
 }
 
 func (sb *SealCalls) RemovePiece(ctx context.Context, id storiface.PieceNumber) error {
-	return sb.sectors.storage.Remove(ctx, id.Ref().ID, storiface.FTPiece, true, nil)
+	return sb.Sectors.storage.Remove(ctx, id.Ref().ID, storiface.FTPiece, true, nil)
 }
 
 func (sb *SealCalls) WriteUploadPiece(ctx context.Context, pieceID storiface.PieceNumber, size int64, data io.Reader, storageType storiface.PathType, verifySize bool) (abi.PieceInfo, uint64, error) {
 	// Use storageType in AcquireSector
-	paths, _, done, err := sb.sectors.AcquireSector(ctx, nil, pieceID.Ref(), storiface.FTNone, storiface.FTPiece, storageType)
+	paths, _, done, err := sb.Sectors.AcquireSector(ctx, nil, pieceID.Ref(), storiface.FTNone, storiface.FTPiece, storageType)
 	if err != nil {
 		return abi.PieceInfo{}, 0, err
 	}

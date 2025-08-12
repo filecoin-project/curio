@@ -393,3 +393,19 @@ func (a *WebRPC) ClusterNodeInfo(ctx context.Context, id int64) (*MachineInfo, e
 
 	return &summaries[0], nil
 }
+
+func (a *WebRPC) Cordon(ctx context.Context, id int64) error {
+	_, err := a.deps.DB.Exec(ctx, `UPDATE harmony_machines SET unschedulable = $1 WHERE id = $2`, true, id)
+	if err != nil {
+		return xerrors.Errorf("cordon failed: %w", err)
+	}
+	return nil
+}
+
+func (a *WebRPC) Uncordon(ctx context.Context, id int64) error {
+	_, err := a.deps.DB.Exec(ctx, `UPDATE harmony_machines SET unschedulable = $1 WHERE id = $2`, false, id)
+	if err != nil {
+		return xerrors.Errorf("uncordon failed: %w", err)
+	}
+	return nil
+}

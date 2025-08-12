@@ -3,12 +3,15 @@ package sealsupra
 import (
 	"bufio"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/samber/lo"
+	"golang.org/x/xerrors"
 )
 
 const SectorsPerHasher = 2
@@ -134,7 +137,81 @@ func GetSystemInfo() (*SystemInfo, error) {
 	return info, nil
 }
 
+// InferNVMeDevices walks through the PCI functions that are currently bound to the
+// vfio‑pci driver (i.e. <sysfs>/bus/pci/drivers/vfio-pci/) and returns the list of
+// Bus‑Device‑Function (BDF) identifiers whose class‑code equals the NVMe I/O function
+// class (0x010802).
+//
+// In sysfs each bound device appears as a symlink named <domain>:<bus>:<slot>.<func>,
+// e.g. "0000:84:00.0".  A sibling file "class" exposes the 24‑bit PCI class‑code in
+// hexadecimal.  For NVMe I/O functions this value must be 0x010802 (Base‑Class 01h –
+// Mass Storage, Sub‑class 08h – NVM Subsystem, PI 02h – NVMe I/O).
+//
+// The function ignores entries that are not valid BDFs or whose class cannot be
+// parsed.  If no NVMe I/O devices are found it returns a non‑nil error so callers can
+// react appropriately (e.g. fall back, log, or surface to the user).
+func InferNVMeDevices() ([]string, error) {
+	const (
+		vfioDir         = "/sys/bus/pci/drivers/vfio-pci"
+		nvmeIOClassCode = 0x010802 // Base 0x01, Sub 0x08, PI 0x02
+	)
+
+	// Collect directory entries under the vfio-pci driver directory.
+	entries, err := os.ReadDir(vfioDir)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", vfioDir, err)
+	}
+
+	// BDF has the canonical form dddd:bb:ss.f where:
+	// dddd = domain, bb = bus, ss = slot, f = function.
+	bdfRe := regexp.MustCompile(`^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$`)
+
+	var nvmeBDFs []string
+
+	for _, entry := range entries {
+		name := entry.Name()
+		if !bdfRe.MatchString(name) {
+			// Skip helper files like "bind", "unbind", "new_id" etc.
+			continue
+		}
+
+		classPath := filepath.Join(vfioDir, name, "class")
+		data, err := os.ReadFile(classPath)
+		if err != nil {
+			// Device may have disappeared; ignore and continue.
+			continue
+		}
+
+		raw := strings.TrimSpace(string(data)) // e.g. "0x010802"
+		raw = strings.TrimPrefix(raw, "0x")
+
+		val, err := strconv.ParseUint(raw, 16, 32)
+		if err != nil {
+			// Malformed class contents – ignore.
+			continue
+		}
+
+		if val == nvmeIOClassCode {
+			nvmeBDFs = append(nvmeBDFs, name)
+		}
+	}
+
+	if len(nvmeBDFs) == 0 {
+		return nil, fmt.Errorf("no NVMe I/O devices bound to vfio-pci")
+	}
+
+	return nvmeBDFs, nil
+}
+
 func GenerateSupraSealConfig(info SystemInfo, dualHashers bool, batchSize int, nvmeDevices []string) (SupraSealConfig, error) {
+	if len(nvmeDevices) == 0 {
+		var err error
+		nvmeDevices, err = InferNVMeDevices()
+		if err != nil {
+			return SupraSealConfig{}, xerrors.Errorf("infer NVMe devices: %w", err)
+		}
+	}
+
 	config := SupraSealConfig{
 		NVMeDevices: nvmeDevices,
 		Topology: TopologyConfig{
@@ -410,27 +487,27 @@ func ExtractAdditionalSystemInfo() (AdditionalSystemInfo, error) {
 	return info, nil
 }
 
-func GenerateSupraSealConfigString(dualHashers bool, batchSize int, nvmeDevices []string) (string, error) {
+func GenerateSupraSealConfigString(dualHashers bool, batchSize int, nvmeDevices []string) (string, []string, error) {
 	// Get system information
 	sysInfo, err := GetSystemInfo()
 	if err != nil {
-		return "", fmt.Errorf("failed to get system info: %v", err)
+		return "", nil, fmt.Errorf("failed to get system info: %v", err)
 	}
 
 	// Generate SupraSealConfig
 	config, err := GenerateSupraSealConfig(*sysInfo, dualHashers, batchSize, nvmeDevices)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate SupraSeal config: %v", err)
+		return "", nil, fmt.Errorf("failed to generate SupraSeal config: %v", err)
 	}
 
 	// Get additional system information
 	additionalInfo, err := ExtractAdditionalSystemInfo()
 	if err != nil {
-		return "", fmt.Errorf("failed to extract additional system info: %v", err)
+		return "", nil, fmt.Errorf("failed to extract additional system info: %v", err)
 	}
 
 	// Format the config
 	configString := FormatSupraSealConfig(config, *sysInfo, additionalInfo)
 
-	return configString, nil
+	return configString, config.NVMeDevices, nil
 }

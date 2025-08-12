@@ -477,12 +477,15 @@ Set to false for older CPUs (Zen 2 and before). (Default: false)`,
 			Name: "LayerNVMEDevices",
 			Type: "[]string",
 
-			Comment: `LayerNVMEDevices is a list of pcie device addresses that should be used for SDR layer storage.
+			Comment: `LayerNVMEDevices OPTIONAL! A list of pcie device addresses that should be used for SDR layer storage.
 The required storage is 11 * BatchSealBatchSize * BatchSealSectorSize * BatchSealPipelines
 Total Read IOPS for optimal performance should be 10M+.
 The devices MUST be NVMe devices, not used for anything else. Any data on the devices will be lost!
 
 It's recommend to define these settings in a per-machine layer, as the devices are machine-specific.
+
+If left empty a list will be inferred automatically from /sys/bus/pci/drivers/vfio-pci/... using all
+devices with the NVMe I/O PCI class - 0x010802
 
 Example: ["0000:01:00.0", "0000:01:00.1"]`,
 		},
@@ -685,7 +688,8 @@ will not be stored on this node (Default: false)`,
 
 			Comment: `The maximum amount of MoveStorage tasks that can run simultaneously. Note that the maximum number of tasks will
 also be bounded by resources available on the machine. It is recommended that this value is set to a number which
-uses all available network (or disk) bandwidth on the machine without causing bottlenecks. (Default: 0 - unlimited)`,
+uses all available network (or disk) bandwidth on the machine without causing bottlenecks. NOTE: unlike most other
+tasks, when this value is set the maximum number of concurrent tasks will not be bounded by CPU core count (Default: 0 - unlimited)`,
 		},
 		{
 			Name: "EnableUpdateEncode",
@@ -801,6 +805,44 @@ also be bounded by resources available on the machine. (Default: 8)`,
 			Comment: `BindSDRTreeToNode forces the TreeD and TreeRC tasks to be executed on the same node where SDR task was executed
 for the sector. Please ensure that TreeD and TreeRC task are enabled and relevant resources are available before
 enabling this option. (Default: false)`,
+		},
+		{
+			Name: "EnableProofShare",
+			Type: "bool",
+
+			Comment: `EnableProofShare enables the ProofShare tasks on the node. This subsystem will request proof work from a marketplace
+whenever local machine can take on more Snark work. ProofShare tasks have priority over local snark tasks, but new
+ProofShare work will only be requested if there is no local work to do.
+
+This feature is currently experimental and may change in the future. (Default: false)`,
+		},
+		{
+			Name: "ProofShareMaxTasks",
+			Type: "int",
+
+			Comment: `The maximum amount of ProofShare tasks that can run simultaneously. Note that the maximum number of tasks will
+also be bounded by resources available on the machine. (Default: 0 - unlimited)`,
+		},
+		{
+			Name: "EnableRemoteProofs",
+			Type: "bool",
+
+			Comment: `EnableRemoteProofs enables the remote proof tasks on the node. Local snark tasks will be transformed into remote
+proving tasks when this option is enabled. Details on which SP IDs are allowed to request remote proofs are managed
+via Client Settings on the Proofshare webui page. Buy delay can also be set in the Client Settings page. (Default: false)`,
+		},
+		{
+			Name: "RemoteProofMaxUploads",
+			Type: "int",
+
+			Comment: `The maximum number of remote proofs that can be uploaded simultaneously by each node. (Default: 15)`,
+		},
+		{
+			Name: "EnableWalletExporter",
+			Type: "bool",
+
+			Comment: `EnableWalletExporter enables the wallet exporter on the node. This will export wallet stats to prometheus.
+NOTE: THIS MUST BE ENABLED ONLY ON A SINGLE NODE IN THE CLUSTER TO BE USEFUL (Default: false)`,
 		},
 	},
 	"HTTPConfig": {

@@ -114,7 +114,7 @@ func (ph *PieceHash) maybeStaticCommp() (cid.Cid, bool) {
 
 func (p *PDPService) handlePiecePost(w http.ResponseWriter, r *http.Request) {
 	// Verify that the request is authorized using ECDSA JWT
-	serviceID, err := p.verifyJWTToken(r)
+	serviceID, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
@@ -449,7 +449,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 // query parameters
 func (p *PDPService) handleFindPiece(w http.ResponseWriter, r *http.Request) {
 	// Verify that the request is authorized using ECDSA JWT
-	_, err := p.verifyJWTToken(r)
+	_, err := p.AuthService(r)
 	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return

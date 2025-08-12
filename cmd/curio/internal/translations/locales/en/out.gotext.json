@@ -275,6 +275,251 @@
             "fuzzy": true
         },
         {
+            "id": "Deposit FIL into the Router contract (client)",
+            "message": "Deposit FIL into the Router contract (client)",
+            "translation": "Deposit FIL into the Router contract (client)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Sender address",
+            "message": "Sender address",
+            "translation": "Sender address",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Amount in FIL",
+            "message": "Amount in FIL",
+            "translation": "Amount in FIL",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Initiate a withdrawal request from the client's deposit",
+            "message": "Initiate a withdrawal request from the client's deposit",
+            "translation": "Initiate a withdrawal request from the client's deposit",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Client sender address",
+            "message": "Client sender address",
+            "translation": "Client sender address",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Withdrawal amount (in FIL)",
+            "message": "Withdrawal amount (in FIL)",
+            "translation": "Withdrawal amount (in FIL)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Complete a pending client withdrawal after the withdrawal window elapses",
+            "message": "Complete a pending client withdrawal after the withdrawal window elapses",
+            "translation": "Complete a pending client withdrawal after the withdrawal window elapses",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Cancel a pending client withdrawal request",
+            "message": "Cancel a pending client withdrawal request",
+            "translation": "Cancel a pending client withdrawal request",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Redeem a client voucher (service role)",
+            "message": "Redeem a client voucher (service role)",
+            "translation": "Redeem a client voucher (service role)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Service sender address",
+            "message": "Service sender address",
+            "translation": "Service sender address",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Client actor",
+            "message": "Client actor",
+            "translation": "Client actor",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Cumulative amount (FIL)",
+            "message": "Cumulative amount (FIL)",
+            "translation": "Cumulative amount (FIL)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Voucher nonce",
+            "message": "Voucher nonce",
+            "translation": "Voucher nonce",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Voucher signature (hex)",
+            "message": "Voucher signature (hex)",
+            "translation": "Voucher signature (hex)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Redeem a provider voucher (provider role)",
+            "message": "Redeem a provider voucher (provider role)",
+            "translation": "Redeem a provider voucher (provider role)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Provider sender address",
+            "message": "Provider sender address",
+            "translation": "Provider sender address",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Provider actor",
+            "message": "Provider actor",
+            "translation": "Provider actor",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Initiate a withdrawal request from the service pool",
+            "message": "Initiate a withdrawal request from the service pool",
+            "translation": "Initiate a withdrawal request from the service pool",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Complete a pending service withdrawal after the withdrawal window elapses",
+            "message": "Complete a pending service withdrawal after the withdrawal window elapses",
+            "translation": "Complete a pending service withdrawal after the withdrawal window elapses",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Cancel a pending service withdrawal request",
+            "message": "Cancel a pending service withdrawal request",
+            "translation": "Cancel a pending service withdrawal request",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Deposit funds into the service pool (service role)",
+            "message": "Deposit funds into the service pool (service role)",
+            "translation": "Deposit funds into the service pool (service role)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Amount to deposit (FIL)",
+            "message": "Amount to deposit (FIL)",
+            "translation": "Amount to deposit (FIL)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Query the state of a client",
+            "message": "Query the state of a client",
+            "translation": "Query the state of a client",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Client actor address",
+            "message": "Client actor address",
+            "translation": "Client actor address",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Query the state of a provider",
+            "message": "Query the state of a provider",
+            "translation": "Query the state of a provider",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Provider actor address",
+            "message": "Provider actor address",
+            "translation": "Provider actor address",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Query the service state",
+            "message": "Query the service state",
+            "translation": "Query the service state",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Create a client voucher",
+            "message": "Create a client voucher",
+            "translation": "Create a client voucher",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Amount to redeem (FIL)",
+            "message": "Amount to redeem (FIL)",
+            "translation": "Amount to redeem (FIL)",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Create a provider voucher",
+            "message": "Create a provider voucher",
+            "translation": "Create a provider voucher",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Propose a new service actor",
+            "message": "Propose a new service actor",
+            "translation": "Propose a new service actor",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "New service actor address",
+            "message": "New service actor address",
+            "translation": "New service actor address",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Accept a proposed service actor",
+            "message": "Accept a proposed service actor",
+            "translation": "Accept a proposed service actor",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Validate a client voucher signature",
+            "message": "Validate a client voucher signature",
+            "translation": "Validate a client voucher signature",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Validate a provider voucher signature",
+            "message": "Validate a provider voucher signature",
+            "translation": "Validate a provider voucher signature",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Get Curio node info",
             "message": "Get Curio node info",
             "translation": "Get Curio node info",
@@ -905,13 +1150,6 @@
             "fuzzy": true
         },
         {
-            "id": "path to json file containing storage config",
-            "message": "path to json file containing storage config",
-            "translation": "path to json file containing storage config",
-            "translatorComment": "Copied from source.",
-            "fuzzy": true
-        },
-        {
             "id": "partition to compute WindowPoSt for",
             "message": "partition to compute WindowPoSt for",
             "translation": "partition to compute WindowPoSt for",
@@ -1031,6 +1269,20 @@
             "fuzzy": true
         },
         {
+            "id": "This interactive tool sets up a non-Storage Provider cluster for protocols like PDP, Snark market, and others.",
+            "message": "This interactive tool sets up a non-Storage Provider cluster for protocols like PDP, Snark market, and others.",
+            "translation": "This interactive tool sets up a non-Storage Provider cluster for protocols like PDP, Snark market, and others.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "This setup does not create or migrate a Filecoin SP actor.",
+            "message": "This setup does not create or migrate a Filecoin SP actor.",
+            "translation": "This setup does not create or migrate a Filecoin SP actor.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "This interactive tool migrates lotus-miner to Curio in 5 minutes.",
             "message": "This interactive tool migrates lotus-miner to Curio in 5 minutes.",
             "translation": "This interactive tool migrates lotus-miner to Curio in 5 minutes.",
@@ -1069,6 +1321,13 @@
             "id": "Create a new miner",
             "message": "Create a new miner",
             "translation": "Create a new miner",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Setup non-Storage Provider cluster",
+            "message": "Setup non-Storage Provider cluster",
+            "translation": "Setup non-Storage Provider cluster",
             "translatorComment": "Copied from source.",
             "fuzzy": true
         },
@@ -2028,26 +2287,33 @@
             "fuzzy": true
         },
         {
-            "id": "Failed to get API info for FullNode: {Err}",
-            "message": "Failed to get API info for FullNode: {Err}",
-            "translation": "Failed to get API info for FullNode: {Err}",
+            "id": "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration",
+            "message": "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration",
+            "translation": "Please do not run guided-setup again. You need to run 'curio config new-cluster' manually to finish the configuration",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Failed to get API info for FullNode: {Error}",
+            "message": "Failed to get API info for FullNode: {Error}",
+            "translation": "Failed to get API info for FullNode: {Error}",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
-                    "id": "Err",
-                    "string": "%[1]w",
-                    "type": "error",
-                    "underlyingType": "interface{Error() string}",
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
                     "argNum": 1,
-                    "expr": "err"
+                    "expr": "err.Error()"
                 }
             ],
             "fuzzy": true
         },
         {
-            "id": "Failed to verify the auth token from daemon node: {Error}",
-            "message": "Failed to verify the auth token from daemon node: {Error}",
-            "translation": "Failed to verify the auth token from daemon node: {Error}",
+            "id": "Failed to create auth token: {Error}",
+            "message": "Failed to create auth token: {Error}",
+            "translation": "Failed to create auth token: {Error}",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
@@ -2079,9 +2345,9 @@
             "fuzzy": true
         },
         {
-            "id": "Failed to insert 'base' config layer in database: {Error}",
-            "message": "Failed to insert 'base' config layer in database: {Error}",
-            "translation": "Failed to insert 'base' config layer in database: {Error}",
+            "id": "Failed to insert config into database: {Error}",
+            "message": "Failed to insert config into database: {Error}",
+            "translation": "Failed to insert config into database: {Error}",
             "translatorComment": "Copied from source.",
             "placeholders": [
                 {
@@ -2093,6 +2359,20 @@
                     "expr": "err.Error()"
                 }
             ],
+            "fuzzy": true
+        },
+        {
+            "id": "Non-SP cluster configuration created successfully",
+            "message": "Non-SP cluster configuration created successfully",
+            "translation": "Non-SP cluster configuration created successfully",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Non-SP cluster configuration complete",
+            "message": "Non-SP cluster configuration complete",
+            "translation": "Non-SP cluster configuration complete",
+            "translatorComment": "Copied from source.",
             "fuzzy": true
         },
         {
@@ -2151,6 +2431,51 @@
                     "expr": "err.Error()"
                 }
             ],
+            "fuzzy": true
+        },
+        {
+            "id": "Failed to insert 'base' config layer in database: {Error}",
+            "message": "Failed to insert 'base' config layer in database: {Error}",
+            "translation": "Failed to insert 'base' config layer in database: {Error}",
+            "translatorComment": "Copied from source.",
+            "placeholders": [
+                {
+                    "id": "Error",
+                    "string": "%[1]s",
+                    "type": "string",
+                    "underlyingType": "string",
+                    "argNum": 1,
+                    "expr": "err.Error()"
+                }
+            ],
+            "fuzzy": true
+        },
+        {
+            "id": "Non-SP cluster setup complete!",
+            "message": "Non-SP cluster setup complete!",
+            "translation": "Non-SP cluster setup complete!",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "Your non-SP cluster has been configured successfully.",
+            "message": "Your non-SP cluster has been configured successfully.",
+            "translation": "Your non-SP cluster has been configured successfully.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "You can now start using Curio for protocols like PDP, Snark markets, and others.",
+            "message": "You can now start using Curio for protocols like PDP, Snark markets, and others.",
+            "translation": "You can now start using Curio for protocols like PDP, Snark markets, and others.",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
+            "id": "To start the cluster, run: curio run --layers basic-cluster",
+            "message": "To start the cluster, run: curio run --layers basic-cluster",
+            "translation": "To start the cluster, run: curio run --layers basic-cluster",
+            "translatorComment": "Copied from source.",
             "fuzzy": true
         },
         {

@@ -185,14 +185,9 @@ var pingCmd = &cli.Command{
 		if serviceName == "" {
 			return fmt.Errorf("either --jwt-token or --service-name must be provided")
 		}
-		privKey, err := loadPrivateKey()
+		jwtToken, err := getJWTTokenForService(serviceName)
 		if err != nil {
 			return err
-		}
-		var errCreateToken error
-		jwtToken, errCreateToken := createJWTToken(serviceName, privKey)
-		if errCreateToken != nil {
-			return errCreateToken
 		}
 
 		serviceURL = serviceURL + "/market"
@@ -205,7 +200,9 @@ var pingCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to create request: %v", err)
 		}
-		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		if jwtToken != "" {
+			req.Header.Set("Authorization", "Bearer "+jwtToken)
+		}
 
 		// Send the request
 		client := &http.Client{}
@@ -244,6 +241,19 @@ func createJWTToken(serviceName string, privateKey *ecdsa.PrivateKey) (string, e
 	}
 
 	return tokenString, nil
+}
+
+func getJWTTokenForService(serviceName string) (string, error) {
+	if serviceName == "public" {
+		return "", nil // No JWT needed for public service
+	}
+
+	privKey, err := loadPrivateKey()
+	if err != nil {
+		return "", err
+	}
+
+	return createJWTToken(serviceName, privKey)
 }
 
 func loadPrivateKey() (*ecdsa.PrivateKey, error) {
@@ -403,7 +413,9 @@ func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtT
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+jwtToken)
+	if jwtToken != "" {
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
@@ -525,14 +537,10 @@ var pieceUploadCmd = &cli.Command{
 			if serviceName == "" {
 				return fmt.Errorf("either --jwt-token or --service-name must be provided")
 			}
-			privKey, err := loadPrivateKey()
+			var err error
+			jwtToken, err = getJWTTokenForService(serviceName)
 			if err != nil {
 				return err
-			}
-			var errCreateToken error
-			jwtToken, errCreateToken = createJWTToken(serviceName, privKey)
-			if errCreateToken != nil {
-				return errCreateToken
 			}
 		}
 
@@ -694,14 +702,10 @@ var uploadFileCmd = &cli.Command{
 			if serviceName == "" {
 				return fmt.Errorf("either --jwt-token or --service-name must be provided")
 			}
-			privKey, err := loadPrivateKey()
+			var err error
+			jwtToken, err = getJWTTokenForService(serviceName)
 			if err != nil {
 				return err
-			}
-			var errCreateToken error
-			jwtToken, errCreateToken = createJWTToken(serviceName, privKey)
-			if errCreateToken != nil {
-				return errCreateToken
 			}
 		}
 
@@ -853,8 +857,8 @@ var createProofSetCmd = &cli.Command{
 			Required: true,
 		},
 		&cli.StringFlag{
-			Name:     "recordkeeper",
-			Usage:    "Address of the record keeper contract",
+			Name:     "pdp-service-contract",
+			Usage:    "Address of the pdp service contract",
 			Required: true,
 		},
 		&cli.StringFlag{
@@ -872,7 +876,7 @@ var createProofSetCmd = &cli.Command{
 		serviceURL := cctx.String("service-url")
 		serviceURL = serviceURL + "/market"
 		serviceName := cctx.String("service-name")
-		recordKeeper := cctx.String("recordkeeper")
+		recordKeeper := cctx.String("pdp-service-contract")
 		extraDataHexStr := cctx.String("extra-data")
 
 		// Validate extraData hex string and its decoded length
@@ -880,14 +884,8 @@ var createProofSetCmd = &cli.Command{
 			return err
 		}
 
-		// Load the private key
-		privKey, err := loadPrivateKey()
-		if err != nil {
-			return fmt.Errorf("failed to load private key: %v", err)
-		}
-
 		// Create the JWT token
-		jwtToken, err := createJWTToken(serviceName, privKey)
+		jwtToken, err := getJWTTokenForService(serviceName)
 		if err != nil {
 			return fmt.Errorf("failed to create JWT token: %v", err)
 		}
@@ -913,7 +911,9 @@ var createProofSetCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to create request: %v", err)
 		}
-		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		if jwtToken != "" {
+			req.Header.Set("Authorization", "Bearer "+jwtToken)
+		}
 		req.Header.Set("Content-Type", "application/json")
 
 		// Send the request
@@ -970,14 +970,8 @@ var getProofSetStatusCmd = &cli.Command{
 		serviceName := cctx.String("service-name")
 		txHash := cctx.String("tx-hash")
 
-		// Load the private key
-		privKey, err := loadPrivateKey()
-		if err != nil {
-			return fmt.Errorf("failed to load private key: %v", err)
-		}
-
 		// Create the JWT token
-		jwtToken, err := createJWTToken(serviceName, privKey)
+		jwtToken, err := getJWTTokenForService(serviceName)
 		if err != nil {
 			return fmt.Errorf("failed to create JWT token: %v", err)
 		}
@@ -996,7 +990,9 @@ var getProofSetStatusCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to create request: %v", err)
 		}
-		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		if jwtToken != "" {
+			req.Header.Set("Authorization", "Bearer "+jwtToken)
+		}
 
 		// Send the request
 		client := &http.Client{}
@@ -1081,14 +1077,8 @@ var getProofSetCmd = &cli.Command{
 		serviceURL = serviceURL + "/market"
 		serviceName := cctx.String("service-name")
 
-		// Load the private key
-		privKey, err := loadPrivateKey()
-		if err != nil {
-			return fmt.Errorf("failed to load private key: %v", err)
-		}
-
 		// Create the JWT token
-		jwtToken, err := createJWTToken(serviceName, privKey)
+		jwtToken, err := getJWTTokenForService(serviceName)
 		if err != nil {
 			return fmt.Errorf("failed to create JWT token: %v", err)
 		}
@@ -1101,7 +1091,9 @@ var getProofSetCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to create request: %v", err)
 		}
-		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		if jwtToken != "" {
+			req.Header.Set("Authorization", "Bearer "+jwtToken)
+		}
 
 		// Send the request
 		client := &http.Client{}
@@ -1196,14 +1188,8 @@ var addRootsCmd = &cli.Command{
 			return err
 		}
 
-		// Load the private key
-		privKey, err := loadPrivateKey()
-		if err != nil {
-			return fmt.Errorf("failed to load private key: %v", err)
-		}
-
 		// Create the JWT token
-		jwtToken, err := createJWTToken(serviceName, privKey)
+		jwtToken, err := getJWTTokenForService(serviceName)
 		if err != nil {
 			return fmt.Errorf("failed to create JWT token: %v", err)
 		}
@@ -1272,7 +1258,9 @@ var addRootsCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to create request: %v", err)
 		}
-		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		if jwtToken != "" {
+			req.Header.Set("Authorization", "Bearer "+jwtToken)
+		}
 		req.Header.Set("Content-Type", "application/json")
 
 		// Send the request
@@ -1435,14 +1423,8 @@ var removeRootsCmd = &cli.Command{
 		proofSetID := cctx.Uint64("proof-set-id")
 		rootID := cctx.Uint64("root-id")
 
-		// Load the private key (implement `loadPrivateKey` according to your setup)
-		privKey, err := loadPrivateKey()
-		if err != nil {
-			return fmt.Errorf("failed to load private key: %v", err)
-		}
-
-		// Create the JWT token (implement `createJWTToken` according to your setup)
-		jwtToken, err := createJWTToken(serviceName, privKey)
+		// Create the JWT token
+		jwtToken, err := getJWTTokenForService(serviceName)
 		if err != nil {
 			return fmt.Errorf("failed to create JWT token: %v", err)
 		}
@@ -1456,7 +1438,9 @@ var removeRootsCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to create request: %v", err)
 		}
-		req.Header.Set("Authorization", "Bearer "+jwtToken)
+		if jwtToken != "" {
+			req.Header.Set("Authorization", "Bearer "+jwtToken)
+		}
 		req.Header.Set("Content-Type", "application/json")
 
 		// Send the request

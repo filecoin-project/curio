@@ -261,10 +261,28 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		data,
 	)
 
+	// Prepare a temp struct for logging proofs as hex
+	type proofLog struct {
+		Leaf  string   `json:"leaf"`
+		Proof []string `json:"proof"`
+	}
+	proofLogs := make([]proofLog, len(proofs))
+	for i, pf := range proofs {
+		leafHex := hex.EncodeToString(pf.Leaf[:])
+		proofHex := make([]string, len(pf.Proof))
+		for j, p := range pf.Proof {
+			proofHex[j] = hex.EncodeToString(p[:])
+		}
+		proofLogs[i] = proofLog{
+			Leaf:  leafHex,
+			Proof: proofHex,
+		}
+	}
+
 	log.Infow("PDP Prove Task",
 		"dataSetID", dataSetID,
 		"taskID", taskID,
-		"proofs", proofs,
+		"proofs", proofLogs,
 		"data", hex.EncodeToString(data),
 		"gasFeeEstimate", gasFee,
 		"proofFee initial", proofFee.Div(proofFee, big.NewInt(3)),
