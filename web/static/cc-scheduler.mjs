@@ -33,11 +33,11 @@ class CCScheduler extends LitElement {
     }
   }
 
-  async upsert() {
+  async edit() {
     this.error = '';
     try {
       const sp = String(this.form.sp || '').trim();
-      await RPCCall('SectorCCSchedulerUpsert', [sp, Number(this.form.toSeal)||0, Number(this.form.weight)||1000, Number(this.form.durationDays)||182, !!this.form.enabled]);
+      await RPCCall('SectorCCSchedulerEdit', [sp, Number(this.form.toSeal)||0, Number(this.form.weight)||1000, Number(this.form.durationDays)||182, !!this.form.enabled]);
       this.form = { sp: '', toSeal: 0, weight: 1000, durationDays: 182, enabled: true };
       this.showAdd = false;
       this.load();
@@ -58,7 +58,7 @@ class CCScheduler extends LitElement {
   async updateEnabled(row, enabled) {
     this.error = '';
     try {
-      await RPCCall('SectorCCSchedulerUpsert', [String(row.SPAddress), Number(row.ToSeal)||0, Number(row.Weight)||1000, Number(row.DurationDays)||182, !!enabled]);
+      await RPCCall('SectorCCSchedulerEdit', [String(row.SPAddress), Number(row.ToSeal)||0, Number(row.Weight)||1000, Number(row.DurationDays)||182, !!enabled]);
       this.load();
     } catch (e) {
       this.error = String(e?.message || e);
@@ -77,7 +77,7 @@ class CCScheduler extends LitElement {
     return html`
       <tr>
         <td>
-          <form @submit=${e=>{e.preventDefault(); this.upsert();}}>
+          <form @submit=${e=>{e.preventDefault(); this.edit();}}>
             <input type="text" placeholder="f0xxx" .value=${this.form.sp}
                    @input=${e=>this.form.sp = e.target.value} />
           </form>
@@ -100,7 +100,7 @@ class CCScheduler extends LitElement {
                  @change=${e=>this.form.enabled = e.target.checked}>
         </td>
         <td>
-          <button class="btn btn-sm btn-primary" @click=${()=>this.upsert()} title="Add / Update">Add</button>
+          <button class="btn btn-sm btn-primary" @click=${()=>this.edit()} title="Add / Update">Add</button>
           <button class="btn btn-sm btn-secondary" @click=${()=>{this.showAdd=false;}} title="Cancel">Cancel</button>
         </td>
       </tr>

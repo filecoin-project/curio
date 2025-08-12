@@ -868,7 +868,7 @@ func (a *WebRPC) SectorCCScheduler(ctx context.Context) ([]SectorCCScheduler, er
 	return out, nil
 }
 
-func (a *WebRPC) SectorCCSchedulerUpsert(ctx context.Context, sp string, toSeal int64, weight int64, durationDays int64, enabled bool) error {
+func (a *WebRPC) SectorCCSchedulerEdit(ctx context.Context, sp string, toSeal int64, weight int64, durationDays int64, enabled bool) error {
 	spaddr, err := address.NewFromString(sp)
 	if err != nil {
 		return xerrors.Errorf("invalid sp address: %w", err)
