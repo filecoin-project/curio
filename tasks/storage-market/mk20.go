@@ -88,7 +88,7 @@ func (d *CurioStorageDealMarket) processMK20Deals(ctx context.Context) {
 }
 
 func (d *CurioStorageDealMarket) pipelineInsertLoop(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {

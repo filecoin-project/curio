@@ -57,10 +57,8 @@ type DataSource struct {
 	// SourceOffline defines the data source for offline pieces, including raw size information.
 	SourceOffline *DataSourceOffline `json:"source_offline,omitempty"`
 
-	// SourceHTTPPut // allow clients to push piece data after deal accepted, sort of like offline import
+	// SourceHttpPut allow clients to push piece data after deal is accepted
 	SourceHttpPut *DataSourceHttpPut `json:"source_httpput,omitempty"`
-
-	// SourceStorageProvider -> sp IDs/ipni, pieceCids
 }
 
 // PieceDataFormat represents various formats in which piece data can be defined, including CAR files, aggregate formats, or raw byte data.
