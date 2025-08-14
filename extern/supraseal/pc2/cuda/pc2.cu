@@ -6,6 +6,10 @@
 
 #ifndef __CUDA_ARCH__
 
+#ifdef RENAME_PC2_HASH_FILES
+#define pc2_hash pc2_hash_files
+#endif
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
