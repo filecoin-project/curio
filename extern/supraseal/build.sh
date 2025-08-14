@@ -219,6 +219,16 @@ for obj in obj/pc1.o obj/pc2.o obj/pc2_files.o obj/ring_t.o obj/streaming_node_r
   objcopy --redefine-syms=symbol_rename.txt $obj
 done
 
+# Weaken duplicate symbols between pc2.o and pc2_files.o to avoid multiple-definition at link time
+nm -g --defined-only obj/pc2.o | awk '{print $3}' | sort -u > obj/syms_pc2.txt
+nm -g --defined-only obj/pc2_files.o | awk '{print $3}' | sort -u > obj/syms_pc2_files.txt
+comm -12 obj/syms_pc2.txt obj/syms_pc2_files.txt | grep -v '^pc2_hash_files' > obj/syms_dups.txt
+if [ -s obj/syms_dups.txt ]; then
+  while read -r sym; do
+    objcopy --weaken-symbol="$sym" obj/pc2_files.o
+  done < obj/syms_dups.txt
+fi
+
 rm symbol_rename.txt
 
 ar rvs obj/libsupraseal.a \
