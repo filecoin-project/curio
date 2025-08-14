@@ -290,7 +290,7 @@ func preparePiece(r io.ReadSeeker) (cid.Cid, uint64, []byte, []byte, error) {
 	cp := &commp.Calc{}
 
 	// Copy data into commp calculator
-	_, err := io.Copy(cp, r)
+	rawSize, err := io.Copy(cp, r)
 	if err != nil {
 		return cid.Undef, 0, nil, nil, fmt.Errorf("failed to read input file: %v", err)
 	}
@@ -302,7 +302,7 @@ func preparePiece(r io.ReadSeeker) (cid.Cid, uint64, []byte, []byte, error) {
 	}
 
 	// Convert digest to CID
-	pieceCIDComputed, err := commcid.DataCommitmentV1ToCID(digest)
+	pieceCIDComputed, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(rawSize))
 	if err != nil {
 		return cid.Undef, 0, nil, nil, fmt.Errorf("failed to compute piece CID: %v", err)
 	}
@@ -354,7 +354,7 @@ var piecePrepareCmd = &cli.Command{
 		}
 
 		// Output the piece CID and size
-		fmt.Printf("Piece CID: %s\n", pieceCIDComputed)
+		fmt.Printf("CommPv2 CID: %s\n", pieceCIDComputed)
 		fmt.Printf("SHA256: %x\n", shadigest)
 		fmt.Printf("Padded Piece Size: %d bytes\n", paddedPieceSize)
 		fmt.Printf("Raw Piece Size: %d bytes\n", pieceSize)

@@ -92,7 +92,7 @@ func NewProveTask(chainSched *chainsched.CurioChainSched, db *harmonydb.DB, ethC
                     SELECT p.id
                     FROM pdp_data_sets p
                     INNER JOIN message_waits_eth mw on mw.signed_tx_hash = p.challenge_request_msg_hash
-                    WHERE p.challenge_request_msg_hash IS NOT NULL AND mw.tx_success = TRUE AND p.prove_at_epoch < $1 
+                    WHERE p.challenge_request_msg_hash IS NOT NULL AND mw.tx_success = TRUE AND p.prove_at_epoch < $1
                     LIMIT 2
                 `, apply.Height())
 				if err != nil {
@@ -230,10 +230,24 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	// If gas used is 0 fee is maximized
 	gasFee := big.NewInt(0)
-	proofFee, err := pdpVerifier.CalculateProofFee(callOpts, big.NewInt(dataSetId), gasFee)
+	pdpVerifierRaw := contract.PDPVerifierRaw{Contract: pdpVerifier}
+
+	calcProofFeeResult := make([]any, 1)
+	err = pdpVerifierRaw.Call(callOpts, &calcProofFeeResult, "calculateProofFee", big.NewInt(dataSetId), gasFee)
 	if err != nil {
 		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
 	}
+
+	if len(calcProofFeeResult) == 0 {
+		return false, xerrors.Errorf("failed to calculate proof fee: wrong number of return values")
+	}
+	if calcProofFeeResult[0] == nil {
+		return false, xerrors.Errorf("failed to calculate proof fee: nil return value")
+	}
+	if calcProofFeeResult[0].(*big.Int) == nil {
+		return false, xerrors.Errorf("failed to calculate proof fee: nil *big.Int return value")
+	}
+	proofFee := calcProofFeeResult[0].(*big.Int)
 
 	// Add 2x buffer for certainty
 	proofFee = new(big.Int).Mul(proofFee, big.NewInt(3))
@@ -311,8 +325,8 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	return true, nil
 }
 
-func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDPVerifier, dataSetId int64, seed abi.Randomness, numChallenges int) ([]contract.PDPVerifierProof, error) {
-	proofs := make([]contract.PDPVerifierProof, numChallenges)
+func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDPVerifier, dataSetId int64, seed abi.Randomness, numChallenges int) ([]contract.IPDPTypesProof, error) {
+	proofs := make([]contract.IPDPTypesProof, numChallenges)
 
 	callOpts := &bind.CallOpts{
 		Context: ctx,
@@ -429,7 +443,7 @@ func (p *ProveTask) genSubPieceMemtree(ctx context.Context, subPieceCid string, 
 	return proof.BuildSha254Memtree(r, subPieceSize.Unpadded())
 }
 
-func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int64, challengedLeaf int64) (contract.PDPVerifierProof, error) {
+func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int64, challengedLeaf int64) (contract.IPDPTypesProof, error) {
 	const arity = 2
 
 	pieceChallengeOffset := challengedLeaf * LeafSize
@@ -451,7 +465,7 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 			ORDER BY sub_piece_offset ASC
 		`, dataSetId, pieceId)
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get piece and subPiece: %w", err)
+		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get piece and subPiece: %w", err)
 	}
 
 	// find first subpiece with subpiece_offset >= pieceChallengeOffset
@@ -459,13 +473,13 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 		return subPiece.SubPieceOffset < pieceChallengeOffset
 	})
 	if !ok {
-		return contract.PDPVerifierProof{}, xerrors.New("no subpiece found")
+		return contract.IPDPTypesProof{}, xerrors.New("no subpiece found")
 	}
 
 	// build subpiece memtree
 	memtree, err := p.genSubPieceMemtree(ctx, challSubPiece.SubPiece, abi.PaddedPieceSize(challSubPiece.SubPieceSize))
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to generate subPiece memtree: %w", err)
+		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate subPiece memtree: %w", err)
 	}
 
 	subPieceChallengedLeaf := challengedLeaf - (challSubPiece.SubPieceOffset / LeafSize)
@@ -481,7 +495,7 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 	subPieceProof, err := proof.MemtreeProof(memtree, subPieceChallengedLeaf)
 	pool.Put(memtree)
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to generate subPiece proof: %w", err)
+		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate subPiece proof: %w", err)
 	}
 	log.Debugw("subPieceProof", "subPieceProof", subPieceProof)
 
@@ -504,12 +518,12 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 
 		unsCid, err := cid.Parse(subPiece.SubPiece)
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to parse subPiece CID: %w", err)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to parse subPiece CID: %w", err)
 		}
 
 		commp, err := commcid.CIDToPieceCommitmentV1(unsCid)
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to convert CID to piece commitment: %w", err)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to convert CID to piece commitment: %w", err)
 		}
 
 		var comm [LeafSize]byte
@@ -600,10 +614,10 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 
 	challSubtreeLeaf := partialTree[elemIndex{Level: challLevel, ElemOffset: challOffset}]
 	if challSubtreeLeaf.Hash != subPieceProof.Root {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("subtree root doesn't match partial tree leaf, %x != %x", challSubtreeLeaf.Hash, subPieceProof.Root)
+		return contract.IPDPTypesProof{}, xerrors.Errorf("subtree root doesn't match partial tree leaf, %x != %x", challSubtreeLeaf.Hash, subPieceProof.Root)
 	}
 
-	var out contract.PDPVerifierProof
+	var out contract.IPDPTypesProof
 	copy(out.Leaf[:], subPieceProof.Leaf[:])
 	out.Proof = append(out.Proof, subPieceProof.Proof...)
 
@@ -618,11 +632,11 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 		index := elemIndex{Level: currentLevel, ElemOffset: currentOffset}
 		siblingElem, ok := partialTree[siblingIndex]
 		if !ok {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("missing sibling at level %d, offset %d", currentLevel, siblingOffset)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("missing sibling at level %d, offset %d", currentLevel, siblingOffset)
 		}
 		elem, ok := partialTree[index]
 		if !ok {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("missing element at level %d, offset %d", currentLevel, currentOffset)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("missing element at level %d, offset %d", currentLevel, currentOffset)
 		}
 		if currentOffset < siblingOffset { // left
 			log.Debugw("Proof", "position", index, "left-c", hex.EncodeToString(elem.Hash[:]), "right-s", hex.EncodeToString(siblingElem.Hash[:]), "out", hex.EncodeToString(shabytes(append(elem.Hash[:], siblingElem.Hash[:]...))[:]))
@@ -642,17 +656,17 @@ func (p *ProveTask) provePiece(ctx context.Context, dataSetId int64, pieceId int
 
 	pieceCid, err := cid.Parse(subPieces[0].Piece)
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to parse piece CID: %w", err)
+		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to parse piece CID: %w", err)
 	}
 	commPiece, err := commcid.CIDToPieceCommitmentV1(pieceCid)
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to convert CID to piece commitment: %w", err)
+		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to convert CID to piece commitment: %w", err)
 	}
 	var cr [LeafSize]byte
 	copy(cr[:], commPiece)
 
 	if !Verify(out, cr, uint64(challengedLeaf)) {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("proof verification failed")
+		return contract.IPDPTypesProof{}, xerrors.Errorf("proof verification failed")
 	}
 
 	// Return the completed proof
@@ -685,8 +699,8 @@ func (p *ProveTask) cleanupDeletedPieces(ctx context.Context, dataSetId int64, p
 			// Get the pdp_pieceref ID for the piece before deleting
 			var pdpPieceRefID int64
 			err := tx.QueryRow(`
-                SELECT pdp_pieceref 
-                FROM pdp_data_set_pieces 
+                SELECT pdp_pieceref
+                FROM pdp_data_set_pieces
                 WHERE data_set = $1 AND piece_id = $2
             `, dataSetId, removeID.Int64()).Scan(&pdpPieceRefID)
 			if err != nil {
@@ -708,7 +722,7 @@ func (p *ProveTask) cleanupDeletedPieces(ctx context.Context, dataSetId int64, p
 
 			// Delete the piece entry
 			_, err = tx.Exec(`
-                DELETE FROM pdp_data_set_pieces 
+                DELETE FROM pdp_data_set_pieces
                 WHERE data_set = $1 AND piece_id = $2
             `, dataSetId, removeID)
 			if err != nil {
@@ -757,7 +771,7 @@ func nextPowerOfTwo(n abi.PaddedPieceSize) abi.PaddedPieceSize {
 	return 1 << (64 - lz)
 }
 
-func Verify(proof contract.PDPVerifierProof, root [32]byte, position uint64) bool {
+func Verify(proof contract.IPDPTypesProof, root [32]byte, position uint64) bool {
 	computedHash := proof.Leaf
 
 	for i := 0; i < len(proof.Proof); i++ {

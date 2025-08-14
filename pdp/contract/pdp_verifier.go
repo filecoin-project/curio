@@ -34,27 +34,21 @@ type CidsCid struct {
 	Data []byte
 }
 
-// PDPVerifierPieceData is an auto generated low-level Go binding around an user-defined struct.
-type PDPVerifierPieceData struct {
-	Piece   CidsCid
-	RawSize *big.Int
-}
-
-// PDPVerifierPieceIdAndOffset is an auto generated low-level Go binding around an user-defined struct.
-type PDPVerifierPieceIdAndOffset struct {
+// IPDPTypesPieceIdAndOffset is an auto generated low-level Go binding around an user-defined struct.
+type IPDPTypesPieceIdAndOffset struct {
 	PieceId *big.Int
 	Offset  *big.Int
 }
 
-// PDPVerifierProof is an auto generated low-level Go binding around an user-defined struct.
-type PDPVerifierProof struct {
+// IPDPTypesProof is an auto generated low-level Go binding around an user-defined struct.
+type IPDPTypesProof struct {
 	Leaf  [32]byte
 	Proof [][32]byte
 }
 
 // PDPVerifierMetaData contains all meta data concerning the PDPVerifier contract.
 var PDPVerifierMetaData = &bind.MetaData{
-	ABI: "[{\"type\":\"constructor\",\"inputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"BURN_ACTOR\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"EXTRA_DATA_MAX_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"FIL_USD_PRICE_FEED_ID\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"LEAF_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_ENQUEUED_REMOVALS\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_PIECE_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"NO_CHALLENGE_SCHEDULED\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"NO_PROVEN_EPOCH\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"PYTH\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"contractIPyth\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"RANDOMNESS_PRECOMPILE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"SECONDS_IN_DAY\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"UPGRADE_INTERFACE_VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"addPieces\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceData\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.PieceData[]\",\"components\":[{\"name\":\"piece\",\"type\":\"tuple\",\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]},{\"name\":\"rawSize\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"calculateProofFee\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"estimatedGasFee\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"claimDataSetStorageProvider\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"createDataSet\",\"inputs\":[{\"name\":\"listenerAddr\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"deleteDataSet\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"findPieceIds\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"leafIndexs\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.PieceIdAndOffset[]\",\"components\":[{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengeFinality\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengeRange\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getFILUSDPrice\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"},{\"name\":\"\",\"type\":\"int32\",\"internalType\":\"int32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextChallengeEpoch\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextDataSetId\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextPieceId\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSetLastProvenEpoch\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSetLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSetListener\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSetStorageProvider\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRandomness\",\"inputs\":[{\"name\":\"epoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getPieceCid\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple\",\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getPieceLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getScheduledRemovals\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"initialize\",\"inputs\":[{\"name\":\"_challengeFinality\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"nextProvingPeriod\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengeEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"owner\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"dataSetLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"proposeDataSetStorageProvider\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"newStorageProvider\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"provePossession\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"proofs\",\"type\":\"tuple[]\",\"internalType\":\"structPDPVerifier.Proof[]\",\"components\":[{\"name\":\"leaf\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"proof\",\"type\":\"bytes32[]\",\"internalType\":\"bytes32[]\"}]}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"proxiableUUID\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"renounceOwnership\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"pieceChallengable\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"pieceLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"schedulePieceDeletions\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"transferOwnership\",\"inputs\":[{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"upgradeToAndCall\",\"inputs\":[{\"name\":\"newImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"getActivePieceCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getActivePieces\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"limit\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"pieces\",\"type\":\"tuple[]\",\"internalType\":\"structCids.Cid[]\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]},{\"name\":\"pieceIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"},{\"name\":\"rawSizes\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"},{\"name\":\"hasMore\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"event\",\"name\":\"Debug\",\"inputs\":[{\"name\":\"message\",\"type\":\"string\",\"indexed\":false,\"internalType\":\"string\"},{\"name\":\"value\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Initialized\",\"inputs\":[{\"name\":\"version\",\"type\":\"uint64\",\"indexed\":false,\"internalType\":\"uint64\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"NextProvingPeriod\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"challengeEpoch\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"leafCount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OwnershipTransferred\",\"inputs\":[{\"name\":\"previousOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"PossessionProven\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"challenges\",\"type\":\"tuple[]\",\"indexed\":false,\"internalType\":\"structPDPVerifier.PieceIdAndOffset[]\",\"components\":[{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofFeePaid\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"fee\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"price\",\"type\":\"uint64\",\"indexed\":false,\"internalType\":\"uint64\"},{\"name\":\"expo\",\"type\":\"int32\",\"indexed\":false,\"internalType\":\"int32\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"DataSetCreated\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"storageProvider\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"DataSetDeleted\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"deletedLeafCount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"DataSetEmpty\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"StorageProviderChanged\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"oldStorageProvider\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newStorageProvider\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"PiecesAdded\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"pieceIds\",\"type\":\"uint256[]\",\"indexed\":false,\"internalType\":\"uint256[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"PiecesRemoved\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"pieceIds\",\"type\":\"uint256[]\",\"indexed\":false,\"internalType\":\"uint256[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Upgraded\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"error\",\"name\":\"AddressEmptyCode\",\"inputs\":[{\"name\":\"target\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967InvalidImplementation\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967NonPayable\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"FailedCall\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"IndexedError\",\"inputs\":[{\"name\":\"idx\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"msg\",\"type\":\"string\",\"internalType\":\"string\"}]},{\"type\":\"error\",\"name\":\"InvalidInitialization\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"NotInitializing\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"OwnableInvalidOwner\",\"inputs\":[{\"name\":\"owner\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OwnableUnauthorizedAccount\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"UUPSUnauthorizedCallContext\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"UUPSUnsupportedProxiableUUID\",\"inputs\":[{\"name\":\"slot\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}]}]",
+	ABI: "[{\"type\":\"constructor\",\"inputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"BURN_ACTOR\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"EXTRA_DATA_MAX_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"FIL_USD_PRICE_FEED_ID\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"LEAF_SIZE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_ENQUEUED_REMOVALS\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"MAX_PIECE_SIZE_LOG2\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"NO_CHALLENGE_SCHEDULED\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"NO_PROVEN_EPOCH\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"PYTH\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"contractIPyth\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"RANDOMNESS_PRECOMPILE\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"SECONDS_IN_DAY\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"UPGRADE_INTERFACE_VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"VERSION\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"string\",\"internalType\":\"string\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"addPieces\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceData\",\"type\":\"tuple[]\",\"internalType\":\"structCids.Cid[]\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"calculateProofFee\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"estimatedGasFee\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"claimDataSetStorageProvider\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"createDataSet\",\"inputs\":[{\"name\":\"listenerAddr\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"dataSetLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"deleteDataSet\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"findPieceIds\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"leafIndexs\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple[]\",\"internalType\":\"structIPDPTypes.PieceIdAndOffset[]\",\"components\":[{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getActivePieceCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"activeCount\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getActivePieces\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"limit\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"pieces\",\"type\":\"tuple[]\",\"internalType\":\"structCids.Cid[]\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]},{\"name\":\"pieceIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"},{\"name\":\"rawSizes\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"},{\"name\":\"hasMore\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengeFinality\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getChallengeRange\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSetLastProvenEpoch\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSetLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSetListener\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getDataSetStorageProvider\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getFILUSDPrice\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"},{\"name\":\"\",\"type\":\"int32\",\"internalType\":\"int32\"}],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"getNextChallengeEpoch\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextDataSetId\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getNextPieceId\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getPieceCid\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"tuple\",\"internalType\":\"structCids.Cid\",\"components\":[{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}]}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getPieceLeafCount\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getRandomness\",\"inputs\":[{\"name\":\"epoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"getScheduledRemovals\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"initialize\",\"inputs\":[{\"name\":\"_challengeFinality\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"migrate\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"nextProvingPeriod\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengeEpoch\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"owner\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"address\",\"internalType\":\"address\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"pieceChallengable\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"pieceLive\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\",\"internalType\":\"bool\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"proposeDataSetStorageProvider\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"newStorageProvider\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"provePossession\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"proofs\",\"type\":\"tuple[]\",\"internalType\":\"structIPDPTypes.Proof[]\",\"components\":[{\"name\":\"leaf\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"},{\"name\":\"proof\",\"type\":\"bytes32[]\",\"internalType\":\"bytes32[]\"}]}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"function\",\"name\":\"proxiableUUID\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"renounceOwnership\",\"inputs\":[],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"schedulePieceDeletions\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"pieceIds\",\"type\":\"uint256[]\",\"internalType\":\"uint256[]\"},{\"name\":\"extraData\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"transferOwnership\",\"inputs\":[{\"name\":\"newOwner\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[],\"stateMutability\":\"nonpayable\"},{\"type\":\"function\",\"name\":\"upgradeToAndCall\",\"inputs\":[{\"name\":\"newImplementation\",\"type\":\"address\",\"internalType\":\"address\"},{\"name\":\"data\",\"type\":\"bytes\",\"internalType\":\"bytes\"}],\"outputs\":[],\"stateMutability\":\"payable\"},{\"type\":\"event\",\"name\":\"ContractUpgraded\",\"inputs\":[{\"name\":\"version\",\"type\":\"string\",\"indexed\":false,\"internalType\":\"string\"},{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":false,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"DataSetCreated\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"storageProvider\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"DataSetDeleted\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"deletedLeafCount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"DataSetEmpty\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Initialized\",\"inputs\":[{\"name\":\"version\",\"type\":\"uint64\",\"indexed\":false,\"internalType\":\"uint64\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"NextProvingPeriod\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"challengeEpoch\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"leafCount\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"OwnershipTransferred\",\"inputs\":[{\"name\":\"previousOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newOwner\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"PiecesAdded\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"pieceIds\",\"type\":\"uint256[]\",\"indexed\":false,\"internalType\":\"uint256[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"PiecesRemoved\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"pieceIds\",\"type\":\"uint256[]\",\"indexed\":false,\"internalType\":\"uint256[]\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"PossessionProven\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"challenges\",\"type\":\"tuple[]\",\"indexed\":false,\"internalType\":\"structIPDPTypes.PieceIdAndOffset[]\",\"components\":[{\"name\":\"pieceId\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"offset\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"PriceOracleFailure\",\"inputs\":[{\"name\":\"reason\",\"type\":\"bytes\",\"indexed\":false,\"internalType\":\"bytes\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"ProofFeePaid\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"fee\",\"type\":\"uint256\",\"indexed\":false,\"internalType\":\"uint256\"},{\"name\":\"price\",\"type\":\"uint64\",\"indexed\":false,\"internalType\":\"uint64\"},{\"name\":\"expo\",\"type\":\"int32\",\"indexed\":false,\"internalType\":\"int32\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"StorageProviderChanged\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"indexed\":true,\"internalType\":\"uint256\"},{\"name\":\"oldStorageProvider\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"},{\"name\":\"newStorageProvider\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"event\",\"name\":\"Upgraded\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"indexed\":true,\"internalType\":\"address\"}],\"anonymous\":false},{\"type\":\"error\",\"name\":\"AddressEmptyCode\",\"inputs\":[{\"name\":\"target\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967InvalidImplementation\",\"inputs\":[{\"name\":\"implementation\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"ERC1967NonPayable\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"FailedCall\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"IndexedError\",\"inputs\":[{\"name\":\"idx\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"msg\",\"type\":\"string\",\"internalType\":\"string\"}]},{\"type\":\"error\",\"name\":\"InvalidInitialization\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"NotInitializing\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"OwnableInvalidOwner\",\"inputs\":[{\"name\":\"owner\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"OwnableUnauthorizedAccount\",\"inputs\":[{\"name\":\"account\",\"type\":\"address\",\"internalType\":\"address\"}]},{\"type\":\"error\",\"name\":\"UUPSUnauthorizedCallContext\",\"inputs\":[]},{\"type\":\"error\",\"name\":\"UUPSUnsupportedProxiableUUID\",\"inputs\":[{\"name\":\"slot\",\"type\":\"bytes32\",\"internalType\":\"bytes32\"}]}]",
 }
 
 // PDPVerifierABI is the input ABI used to generate the binding from.
@@ -358,12 +352,12 @@ func (_PDPVerifier *PDPVerifierCallerSession) MAXENQUEUEDREMOVALS() (*big.Int, e
 	return _PDPVerifier.Contract.MAXENQUEUEDREMOVALS(&_PDPVerifier.CallOpts)
 }
 
-// MAXPIECESIZE is a free data retrieval call binding the contract method 0x8a405abc.
+// MAXPIECESIZELOG2 is a free data retrieval call binding the contract method 0xf8eb8276.
 //
-// Solidity: function MAX_PIECE_SIZE() view returns(uint256)
-func (_PDPVerifier *PDPVerifierCaller) MAXPIECESIZE(opts *bind.CallOpts) (*big.Int, error) {
+// Solidity: function MAX_PIECE_SIZE_LOG2() view returns(uint256)
+func (_PDPVerifier *PDPVerifierCaller) MAXPIECESIZELOG2(opts *bind.CallOpts) (*big.Int, error) {
 	var out []interface{}
-	err := _PDPVerifier.contract.Call(opts, &out, "MAX_PIECE_SIZE")
+	err := _PDPVerifier.contract.Call(opts, &out, "MAX_PIECE_SIZE_LOG2")
 
 	if err != nil {
 		return *new(*big.Int), err
@@ -375,18 +369,18 @@ func (_PDPVerifier *PDPVerifierCaller) MAXPIECESIZE(opts *bind.CallOpts) (*big.I
 
 }
 
-// MAXPIECESIZE is a free data retrieval call binding the contract method 0x8a405abc.
+// MAXPIECESIZELOG2 is a free data retrieval call binding the contract method 0xf8eb8276.
 //
-// Solidity: function MAX_PIECE_SIZE() view returns(uint256)
-func (_PDPVerifier *PDPVerifierSession) MAXPIECESIZE() (*big.Int, error) {
-	return _PDPVerifier.Contract.MAXPIECESIZE(&_PDPVerifier.CallOpts)
+// Solidity: function MAX_PIECE_SIZE_LOG2() view returns(uint256)
+func (_PDPVerifier *PDPVerifierSession) MAXPIECESIZELOG2() (*big.Int, error) {
+	return _PDPVerifier.Contract.MAXPIECESIZELOG2(&_PDPVerifier.CallOpts)
 }
 
-// MAXPIECESIZE is a free data retrieval call binding the contract method 0x8a405abc.
+// MAXPIECESIZELOG2 is a free data retrieval call binding the contract method 0xf8eb8276.
 //
-// Solidity: function MAX_PIECE_SIZE() view returns(uint256)
-func (_PDPVerifier *PDPVerifierCallerSession) MAXPIECESIZE() (*big.Int, error) {
-	return _PDPVerifier.Contract.MAXPIECESIZE(&_PDPVerifier.CallOpts)
+// Solidity: function MAX_PIECE_SIZE_LOG2() view returns(uint256)
+func (_PDPVerifier *PDPVerifierCallerSession) MAXPIECESIZELOG2() (*big.Int, error) {
+	return _PDPVerifier.Contract.MAXPIECESIZELOG2(&_PDPVerifier.CallOpts)
 }
 
 // NOCHALLENGESCHEDULED is a free data retrieval call binding the contract method 0x462dd449.
@@ -575,35 +569,35 @@ func (_PDPVerifier *PDPVerifierCallerSession) UPGRADEINTERFACEVERSION() (string,
 	return _PDPVerifier.Contract.UPGRADEINTERFACEVERSION(&_PDPVerifier.CallOpts)
 }
 
-// CalculateProofFee is a free data retrieval call binding the contract method 0x4903704a.
+// VERSION is a free data retrieval call binding the contract method 0xffa1ad74.
 //
-// Solidity: function calculateProofFee(uint256 setId, uint256 estimatedGasFee) view returns(uint256)
-func (_PDPVerifier *PDPVerifierCaller) CalculateProofFee(opts *bind.CallOpts, setId *big.Int, estimatedGasFee *big.Int) (*big.Int, error) {
+// Solidity: function VERSION() view returns(string)
+func (_PDPVerifier *PDPVerifierCaller) VERSION(opts *bind.CallOpts) (string, error) {
 	var out []interface{}
-	err := _PDPVerifier.contract.Call(opts, &out, "calculateProofFee", setId, estimatedGasFee)
+	err := _PDPVerifier.contract.Call(opts, &out, "VERSION")
 
 	if err != nil {
-		return *new(*big.Int), err
+		return *new(string), err
 	}
 
-	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
+	out0 := *abi.ConvertType(out[0], new(string)).(*string)
 
 	return out0, err
 
 }
 
-// CalculateProofFee is a free data retrieval call binding the contract method 0x4903704a.
+// VERSION is a free data retrieval call binding the contract method 0xffa1ad74.
 //
-// Solidity: function calculateProofFee(uint256 setId, uint256 estimatedGasFee) view returns(uint256)
-func (_PDPVerifier *PDPVerifierSession) CalculateProofFee(setId *big.Int, estimatedGasFee *big.Int) (*big.Int, error) {
-	return _PDPVerifier.Contract.CalculateProofFee(&_PDPVerifier.CallOpts, setId, estimatedGasFee)
+// Solidity: function VERSION() view returns(string)
+func (_PDPVerifier *PDPVerifierSession) VERSION() (string, error) {
+	return _PDPVerifier.Contract.VERSION(&_PDPVerifier.CallOpts)
 }
 
-// CalculateProofFee is a free data retrieval call binding the contract method 0x4903704a.
+// VERSION is a free data retrieval call binding the contract method 0xffa1ad74.
 //
-// Solidity: function calculateProofFee(uint256 setId, uint256 estimatedGasFee) view returns(uint256)
-func (_PDPVerifier *PDPVerifierCallerSession) CalculateProofFee(setId *big.Int, estimatedGasFee *big.Int) (*big.Int, error) {
-	return _PDPVerifier.Contract.CalculateProofFee(&_PDPVerifier.CallOpts, setId, estimatedGasFee)
+// Solidity: function VERSION() view returns(string)
+func (_PDPVerifier *PDPVerifierCallerSession) VERSION() (string, error) {
+	return _PDPVerifier.Contract.VERSION(&_PDPVerifier.CallOpts)
 }
 
 // DataSetLive is a free data retrieval call binding the contract method 0xca759f27.
@@ -640,15 +634,15 @@ func (_PDPVerifier *PDPVerifierCallerSession) DataSetLive(setId *big.Int) (bool,
 // FindPieceIds is a free data retrieval call binding the contract method 0x349c9179.
 //
 // Solidity: function findPieceIds(uint256 setId, uint256[] leafIndexs) view returns((uint256,uint256)[])
-func (_PDPVerifier *PDPVerifierCaller) FindPieceIds(opts *bind.CallOpts, setId *big.Int, leafIndexs []*big.Int) ([]PDPVerifierPieceIdAndOffset, error) {
+func (_PDPVerifier *PDPVerifierCaller) FindPieceIds(opts *bind.CallOpts, setId *big.Int, leafIndexs []*big.Int) ([]IPDPTypesPieceIdAndOffset, error) {
 	var out []interface{}
 	err := _PDPVerifier.contract.Call(opts, &out, "findPieceIds", setId, leafIndexs)
 
 	if err != nil {
-		return *new([]PDPVerifierPieceIdAndOffset), err
+		return *new([]IPDPTypesPieceIdAndOffset), err
 	}
 
-	out0 := *abi.ConvertType(out[0], new([]PDPVerifierPieceIdAndOffset)).(*[]PDPVerifierPieceIdAndOffset)
+	out0 := *abi.ConvertType(out[0], new([]IPDPTypesPieceIdAndOffset)).(*[]IPDPTypesPieceIdAndOffset)
 
 	return out0, err
 
@@ -657,20 +651,20 @@ func (_PDPVerifier *PDPVerifierCaller) FindPieceIds(opts *bind.CallOpts, setId *
 // FindPieceIds is a free data retrieval call binding the contract method 0x349c9179.
 //
 // Solidity: function findPieceIds(uint256 setId, uint256[] leafIndexs) view returns((uint256,uint256)[])
-func (_PDPVerifier *PDPVerifierSession) FindPieceIds(setId *big.Int, leafIndexs []*big.Int) ([]PDPVerifierPieceIdAndOffset, error) {
+func (_PDPVerifier *PDPVerifierSession) FindPieceIds(setId *big.Int, leafIndexs []*big.Int) ([]IPDPTypesPieceIdAndOffset, error) {
 	return _PDPVerifier.Contract.FindPieceIds(&_PDPVerifier.CallOpts, setId, leafIndexs)
 }
 
 // FindPieceIds is a free data retrieval call binding the contract method 0x349c9179.
 //
 // Solidity: function findPieceIds(uint256 setId, uint256[] leafIndexs) view returns((uint256,uint256)[])
-func (_PDPVerifier *PDPVerifierCallerSession) FindPieceIds(setId *big.Int, leafIndexs []*big.Int) ([]PDPVerifierPieceIdAndOffset, error) {
+func (_PDPVerifier *PDPVerifierCallerSession) FindPieceIds(setId *big.Int, leafIndexs []*big.Int) ([]IPDPTypesPieceIdAndOffset, error) {
 	return _PDPVerifier.Contract.FindPieceIds(&_PDPVerifier.CallOpts, setId, leafIndexs)
 }
 
 // GetActivePieceCount is a free data retrieval call binding the contract method 0x5353bdfd.
 //
-// Solidity: function getActivePieceCount(uint256 setId) view returns(uint256)
+// Solidity: function getActivePieceCount(uint256 setId) view returns(uint256 activeCount)
 func (_PDPVerifier *PDPVerifierCaller) GetActivePieceCount(opts *bind.CallOpts, setId *big.Int) (*big.Int, error) {
 	var out []interface{}
 	err := _PDPVerifier.contract.Call(opts, &out, "getActivePieceCount", setId)
@@ -687,14 +681,14 @@ func (_PDPVerifier *PDPVerifierCaller) GetActivePieceCount(opts *bind.CallOpts, 
 
 // GetActivePieceCount is a free data retrieval call binding the contract method 0x5353bdfd.
 //
-// Solidity: function getActivePieceCount(uint256 setId) view returns(uint256)
+// Solidity: function getActivePieceCount(uint256 setId) view returns(uint256 activeCount)
 func (_PDPVerifier *PDPVerifierSession) GetActivePieceCount(setId *big.Int) (*big.Int, error) {
 	return _PDPVerifier.Contract.GetActivePieceCount(&_PDPVerifier.CallOpts, setId)
 }
 
 // GetActivePieceCount is a free data retrieval call binding the contract method 0x5353bdfd.
 //
-// Solidity: function getActivePieceCount(uint256 setId) view returns(uint256)
+// Solidity: function getActivePieceCount(uint256 setId) view returns(uint256 activeCount)
 func (_PDPVerifier *PDPVerifierCallerSession) GetActivePieceCount(setId *big.Int) (*big.Int, error) {
 	return _PDPVerifier.Contract.GetActivePieceCount(&_PDPVerifier.CallOpts, setId)
 }
@@ -939,38 +933,6 @@ func (_PDPVerifier *PDPVerifierSession) GetDataSetStorageProvider(setId *big.Int
 // Solidity: function getDataSetStorageProvider(uint256 setId) view returns(address, address)
 func (_PDPVerifier *PDPVerifierCallerSession) GetDataSetStorageProvider(setId *big.Int) (common.Address, common.Address, error) {
 	return _PDPVerifier.Contract.GetDataSetStorageProvider(&_PDPVerifier.CallOpts, setId)
-}
-
-// GetFILUSDPrice is a free data retrieval call binding the contract method 0x4fa27920.
-//
-// Solidity: function getFILUSDPrice() view returns(uint64, int32)
-func (_PDPVerifier *PDPVerifierCaller) GetFILUSDPrice(opts *bind.CallOpts) (uint64, int32, error) {
-	var out []interface{}
-	err := _PDPVerifier.contract.Call(opts, &out, "getFILUSDPrice")
-
-	if err != nil {
-		return *new(uint64), *new(int32), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(uint64)).(*uint64)
-	out1 := *abi.ConvertType(out[1], new(int32)).(*int32)
-
-	return out0, out1, err
-
-}
-
-// GetFILUSDPrice is a free data retrieval call binding the contract method 0x4fa27920.
-//
-// Solidity: function getFILUSDPrice() view returns(uint64, int32)
-func (_PDPVerifier *PDPVerifierSession) GetFILUSDPrice() (uint64, int32, error) {
-	return _PDPVerifier.Contract.GetFILUSDPrice(&_PDPVerifier.CallOpts)
-}
-
-// GetFILUSDPrice is a free data retrieval call binding the contract method 0x4fa27920.
-//
-// Solidity: function getFILUSDPrice() view returns(uint64, int32)
-func (_PDPVerifier *PDPVerifierCallerSession) GetFILUSDPrice() (uint64, int32, error) {
-	return _PDPVerifier.Contract.GetFILUSDPrice(&_PDPVerifier.CallOpts)
 }
 
 // GetNextChallengeEpoch is a free data retrieval call binding the contract method 0x6ba4608f.
@@ -1314,25 +1276,46 @@ func (_PDPVerifier *PDPVerifierCallerSession) ProxiableUUID() ([32]byte, error) 
 	return _PDPVerifier.Contract.ProxiableUUID(&_PDPVerifier.CallOpts)
 }
 
-// AddPieces is a paid mutator transaction binding the contract method 0xddea76cc.
+// AddPieces is a paid mutator transaction binding the contract method 0x306fc8be.
 //
-// Solidity: function addPieces(uint256 setId, ((bytes),uint256)[] pieceData, bytes extraData) returns(uint256)
-func (_PDPVerifier *PDPVerifierTransactor) AddPieces(opts *bind.TransactOpts, setId *big.Int, pieceData []PDPVerifierPieceData, extraData []byte) (*types.Transaction, error) {
+// Solidity: function addPieces(uint256 setId, (bytes)[] pieceData, bytes extraData) returns(uint256)
+func (_PDPVerifier *PDPVerifierTransactor) AddPieces(opts *bind.TransactOpts, setId *big.Int, pieceData []CidsCid, extraData []byte) (*types.Transaction, error) {
 	return _PDPVerifier.contract.Transact(opts, "addPieces", setId, pieceData, extraData)
 }
 
-// AddPieces is a paid mutator transaction binding the contract method 0xddea76cc.
+// AddPieces is a paid mutator transaction binding the contract method 0x306fc8be.
 //
-// Solidity: function addPieces(uint256 setId, ((bytes),uint256)[] pieceData, bytes extraData) returns(uint256)
-func (_PDPVerifier *PDPVerifierSession) AddPieces(setId *big.Int, pieceData []PDPVerifierPieceData, extraData []byte) (*types.Transaction, error) {
+// Solidity: function addPieces(uint256 setId, (bytes)[] pieceData, bytes extraData) returns(uint256)
+func (_PDPVerifier *PDPVerifierSession) AddPieces(setId *big.Int, pieceData []CidsCid, extraData []byte) (*types.Transaction, error) {
 	return _PDPVerifier.Contract.AddPieces(&_PDPVerifier.TransactOpts, setId, pieceData, extraData)
 }
 
-// AddPieces is a paid mutator transaction binding the contract method 0xddea76cc.
+// AddPieces is a paid mutator transaction binding the contract method 0x306fc8be.
 //
-// Solidity: function addPieces(uint256 setId, ((bytes),uint256)[] pieceData, bytes extraData) returns(uint256)
-func (_PDPVerifier *PDPVerifierTransactorSession) AddPieces(setId *big.Int, pieceData []PDPVerifierPieceData, extraData []byte) (*types.Transaction, error) {
+// Solidity: function addPieces(uint256 setId, (bytes)[] pieceData, bytes extraData) returns(uint256)
+func (_PDPVerifier *PDPVerifierTransactorSession) AddPieces(setId *big.Int, pieceData []CidsCid, extraData []byte) (*types.Transaction, error) {
 	return _PDPVerifier.Contract.AddPieces(&_PDPVerifier.TransactOpts, setId, pieceData, extraData)
+}
+
+// CalculateProofFee is a paid mutator transaction binding the contract method 0x4903704a.
+//
+// Solidity: function calculateProofFee(uint256 setId, uint256 estimatedGasFee) returns(uint256)
+func (_PDPVerifier *PDPVerifierTransactor) CalculateProofFee(opts *bind.TransactOpts, setId *big.Int, estimatedGasFee *big.Int) (*types.Transaction, error) {
+	return _PDPVerifier.contract.Transact(opts, "calculateProofFee", setId, estimatedGasFee)
+}
+
+// CalculateProofFee is a paid mutator transaction binding the contract method 0x4903704a.
+//
+// Solidity: function calculateProofFee(uint256 setId, uint256 estimatedGasFee) returns(uint256)
+func (_PDPVerifier *PDPVerifierSession) CalculateProofFee(setId *big.Int, estimatedGasFee *big.Int) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.CalculateProofFee(&_PDPVerifier.TransactOpts, setId, estimatedGasFee)
+}
+
+// CalculateProofFee is a paid mutator transaction binding the contract method 0x4903704a.
+//
+// Solidity: function calculateProofFee(uint256 setId, uint256 estimatedGasFee) returns(uint256)
+func (_PDPVerifier *PDPVerifierTransactorSession) CalculateProofFee(setId *big.Int, estimatedGasFee *big.Int) (*types.Transaction, error) {
+	return _PDPVerifier.Contract.CalculateProofFee(&_PDPVerifier.TransactOpts, setId, estimatedGasFee)
 }
 
 // ClaimDataSetStorageProvider is a paid mutator transaction binding the contract method 0xdf0f3248.
@@ -1398,6 +1381,27 @@ func (_PDPVerifier *PDPVerifierTransactorSession) DeleteDataSet(setId *big.Int, 
 	return _PDPVerifier.Contract.DeleteDataSet(&_PDPVerifier.TransactOpts, setId, extraData)
 }
 
+// GetFILUSDPrice is a paid mutator transaction binding the contract method 0x4fa27920.
+//
+// Solidity: function getFILUSDPrice() returns(uint64, int32)
+func (_PDPVerifier *PDPVerifierTransactor) GetFILUSDPrice(opts *bind.TransactOpts) (*types.Transaction, error) {
+	return _PDPVerifier.contract.Transact(opts, "getFILUSDPrice")
+}
+
+// GetFILUSDPrice is a paid mutator transaction binding the contract method 0x4fa27920.
+//
+// Solidity: function getFILUSDPrice() returns(uint64, int32)
+func (_PDPVerifier *PDPVerifierSession) GetFILUSDPrice() (*types.Transaction, error) {
+	return _PDPVerifier.Contract.GetFILUSDPrice(&_PDPVerifier.TransactOpts)
+}
+
+// GetFILUSDPrice is a paid mutator transaction binding the contract method 0x4fa27920.
+//
+// Solidity: function getFILUSDPrice() returns(uint64, int32)
+func (_PDPVerifier *PDPVerifierTransactorSession) GetFILUSDPrice() (*types.Transaction, error) {
+	return _PDPVerifier.Contract.GetFILUSDPrice(&_PDPVerifier.TransactOpts)
+}
+
 // Initialize is a paid mutator transaction binding the contract method 0xfe4b84df.
 //
 // Solidity: function initialize(uint256 _challengeFinality) returns()
@@ -1417,6 +1421,27 @@ func (_PDPVerifier *PDPVerifierSession) Initialize(_challengeFinality *big.Int) 
 // Solidity: function initialize(uint256 _challengeFinality) returns()
 func (_PDPVerifier *PDPVerifierTransactorSession) Initialize(_challengeFinality *big.Int) (*types.Transaction, error) {
 	return _PDPVerifier.Contract.Initialize(&_PDPVerifier.TransactOpts, _challengeFinality)
+}
+
+// Migrate is a paid mutator transaction binding the contract method 0x8fd3ab80.
+//
+// Solidity: function migrate() returns()
+func (_PDPVerifier *PDPVerifierTransactor) Migrate(opts *bind.TransactOpts) (*types.Transaction, error) {
+	return _PDPVerifier.contract.Transact(opts, "migrate")
+}
+
+// Migrate is a paid mutator transaction binding the contract method 0x8fd3ab80.
+//
+// Solidity: function migrate() returns()
+func (_PDPVerifier *PDPVerifierSession) Migrate() (*types.Transaction, error) {
+	return _PDPVerifier.Contract.Migrate(&_PDPVerifier.TransactOpts)
+}
+
+// Migrate is a paid mutator transaction binding the contract method 0x8fd3ab80.
+//
+// Solidity: function migrate() returns()
+func (_PDPVerifier *PDPVerifierTransactorSession) Migrate() (*types.Transaction, error) {
+	return _PDPVerifier.Contract.Migrate(&_PDPVerifier.TransactOpts)
 }
 
 // NextProvingPeriod is a paid mutator transaction binding the contract method 0x45c0b92d.
@@ -1464,21 +1489,21 @@ func (_PDPVerifier *PDPVerifierTransactorSession) ProposeDataSetStorageProvider(
 // ProvePossession is a paid mutator transaction binding the contract method 0xf58f952b.
 //
 // Solidity: function provePossession(uint256 setId, (bytes32,bytes32[])[] proofs) payable returns()
-func (_PDPVerifier *PDPVerifierTransactor) ProvePossession(opts *bind.TransactOpts, setId *big.Int, proofs []PDPVerifierProof) (*types.Transaction, error) {
+func (_PDPVerifier *PDPVerifierTransactor) ProvePossession(opts *bind.TransactOpts, setId *big.Int, proofs []IPDPTypesProof) (*types.Transaction, error) {
 	return _PDPVerifier.contract.Transact(opts, "provePossession", setId, proofs)
 }
 
 // ProvePossession is a paid mutator transaction binding the contract method 0xf58f952b.
 //
 // Solidity: function provePossession(uint256 setId, (bytes32,bytes32[])[] proofs) payable returns()
-func (_PDPVerifier *PDPVerifierSession) ProvePossession(setId *big.Int, proofs []PDPVerifierProof) (*types.Transaction, error) {
+func (_PDPVerifier *PDPVerifierSession) ProvePossession(setId *big.Int, proofs []IPDPTypesProof) (*types.Transaction, error) {
 	return _PDPVerifier.Contract.ProvePossession(&_PDPVerifier.TransactOpts, setId, proofs)
 }
 
 // ProvePossession is a paid mutator transaction binding the contract method 0xf58f952b.
 //
 // Solidity: function provePossession(uint256 setId, (bytes32,bytes32[])[] proofs) payable returns()
-func (_PDPVerifier *PDPVerifierTransactorSession) ProvePossession(setId *big.Int, proofs []PDPVerifierProof) (*types.Transaction, error) {
+func (_PDPVerifier *PDPVerifierTransactorSession) ProvePossession(setId *big.Int, proofs []IPDPTypesProof) (*types.Transaction, error) {
 	return _PDPVerifier.Contract.ProvePossession(&_PDPVerifier.TransactOpts, setId, proofs)
 }
 
@@ -1564,6 +1589,141 @@ func (_PDPVerifier *PDPVerifierSession) UpgradeToAndCall(newImplementation commo
 // Solidity: function upgradeToAndCall(address newImplementation, bytes data) payable returns()
 func (_PDPVerifier *PDPVerifierTransactorSession) UpgradeToAndCall(newImplementation common.Address, data []byte) (*types.Transaction, error) {
 	return _PDPVerifier.Contract.UpgradeToAndCall(&_PDPVerifier.TransactOpts, newImplementation, data)
+}
+
+// PDPVerifierContractUpgradedIterator is returned from FilterContractUpgraded and is used to iterate over the raw logs and unpacked data for ContractUpgraded events raised by the PDPVerifier contract.
+type PDPVerifierContractUpgradedIterator struct {
+	Event *PDPVerifierContractUpgraded // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *PDPVerifierContractUpgradedIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(PDPVerifierContractUpgraded)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(PDPVerifierContractUpgraded)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *PDPVerifierContractUpgradedIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *PDPVerifierContractUpgradedIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// PDPVerifierContractUpgraded represents a ContractUpgraded event raised by the PDPVerifier contract.
+type PDPVerifierContractUpgraded struct {
+	Version        string
+	Implementation common.Address
+	Raw            types.Log // Blockchain specific contextual infos
+}
+
+// FilterContractUpgraded is a free log retrieval operation binding the contract event 0x2b51ff7c4cc8e6fe1c72e9d9685b7d2a88a5d82ad3a644afbdceb0272c89c1c3.
+//
+// Solidity: event ContractUpgraded(string version, address implementation)
+func (_PDPVerifier *PDPVerifierFilterer) FilterContractUpgraded(opts *bind.FilterOpts) (*PDPVerifierContractUpgradedIterator, error) {
+
+	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "ContractUpgraded")
+	if err != nil {
+		return nil, err
+	}
+	return &PDPVerifierContractUpgradedIterator{contract: _PDPVerifier.contract, event: "ContractUpgraded", logs: logs, sub: sub}, nil
+}
+
+// WatchContractUpgraded is a free log subscription operation binding the contract event 0x2b51ff7c4cc8e6fe1c72e9d9685b7d2a88a5d82ad3a644afbdceb0272c89c1c3.
+//
+// Solidity: event ContractUpgraded(string version, address implementation)
+func (_PDPVerifier *PDPVerifierFilterer) WatchContractUpgraded(opts *bind.WatchOpts, sink chan<- *PDPVerifierContractUpgraded) (event.Subscription, error) {
+
+	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "ContractUpgraded")
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(PDPVerifierContractUpgraded)
+				if err := _PDPVerifier.contract.UnpackLog(event, "ContractUpgraded", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParseContractUpgraded is a log parse operation binding the contract event 0x2b51ff7c4cc8e6fe1c72e9d9685b7d2a88a5d82ad3a644afbdceb0272c89c1c3.
+//
+// Solidity: event ContractUpgraded(string version, address implementation)
+func (_PDPVerifier *PDPVerifierFilterer) ParseContractUpgraded(log types.Log) (*PDPVerifierContractUpgraded, error) {
+	event := new(PDPVerifierContractUpgraded)
+	if err := _PDPVerifier.contract.UnpackLog(event, "ContractUpgraded", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
 }
 
 // PDPVerifierDataSetCreatedIterator is returned from FilterDataSetCreated and is used to iterate over the raw logs and unpacked data for DataSetCreated events raised by the PDPVerifier contract.
@@ -2002,141 +2162,6 @@ func (_PDPVerifier *PDPVerifierFilterer) WatchDataSetEmpty(opts *bind.WatchOpts,
 func (_PDPVerifier *PDPVerifierFilterer) ParseDataSetEmpty(log types.Log) (*PDPVerifierDataSetEmpty, error) {
 	event := new(PDPVerifierDataSetEmpty)
 	if err := _PDPVerifier.contract.UnpackLog(event, "DataSetEmpty", log); err != nil {
-		return nil, err
-	}
-	event.Raw = log
-	return event, nil
-}
-
-// PDPVerifierDebugIterator is returned from FilterDebug and is used to iterate over the raw logs and unpacked data for Debug events raised by the PDPVerifier contract.
-type PDPVerifierDebugIterator struct {
-	Event *PDPVerifierDebug // Event containing the contract specifics and raw log
-
-	contract *bind.BoundContract // Generic contract to use for unpacking event data
-	event    string              // Event name to use for unpacking event data
-
-	logs chan types.Log        // Log channel receiving the found contract events
-	sub  ethereum.Subscription // Subscription for errors, completion and termination
-	done bool                  // Whether the subscription completed delivering logs
-	fail error                 // Occurred error to stop iteration
-}
-
-// Next advances the iterator to the subsequent event, returning whether there
-// are any more events found. In case of a retrieval or parsing error, false is
-// returned and Error() can be queried for the exact failure.
-func (it *PDPVerifierDebugIterator) Next() bool {
-	// If the iterator failed, stop iterating
-	if it.fail != nil {
-		return false
-	}
-	// If the iterator completed, deliver directly whatever's available
-	if it.done {
-		select {
-		case log := <-it.logs:
-			it.Event = new(PDPVerifierDebug)
-			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-				it.fail = err
-				return false
-			}
-			it.Event.Raw = log
-			return true
-
-		default:
-			return false
-		}
-	}
-	// Iterator still in progress, wait for either a data or an error event
-	select {
-	case log := <-it.logs:
-		it.Event = new(PDPVerifierDebug)
-		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
-			it.fail = err
-			return false
-		}
-		it.Event.Raw = log
-		return true
-
-	case err := <-it.sub.Err():
-		it.done = true
-		it.fail = err
-		return it.Next()
-	}
-}
-
-// Error returns any retrieval or parsing error occurred during filtering.
-func (it *PDPVerifierDebugIterator) Error() error {
-	return it.fail
-}
-
-// Close terminates the iteration process, releasing any pending underlying
-// resources.
-func (it *PDPVerifierDebugIterator) Close() error {
-	it.sub.Unsubscribe()
-	return nil
-}
-
-// PDPVerifierDebug represents a Debug event raised by the PDPVerifier contract.
-type PDPVerifierDebug struct {
-	Message string
-	Value   *big.Int
-	Raw     types.Log // Blockchain specific contextual infos
-}
-
-// FilterDebug is a free log retrieval operation binding the contract event 0x3c5ad147104e56be34a9176a6692f7df8d2f4b29a5af06bc6b98970d329d6577.
-//
-// Solidity: event Debug(string message, uint256 value)
-func (_PDPVerifier *PDPVerifierFilterer) FilterDebug(opts *bind.FilterOpts) (*PDPVerifierDebugIterator, error) {
-
-	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "Debug")
-	if err != nil {
-		return nil, err
-	}
-	return &PDPVerifierDebugIterator{contract: _PDPVerifier.contract, event: "Debug", logs: logs, sub: sub}, nil
-}
-
-// WatchDebug is a free log subscription operation binding the contract event 0x3c5ad147104e56be34a9176a6692f7df8d2f4b29a5af06bc6b98970d329d6577.
-//
-// Solidity: event Debug(string message, uint256 value)
-func (_PDPVerifier *PDPVerifierFilterer) WatchDebug(opts *bind.WatchOpts, sink chan<- *PDPVerifierDebug) (event.Subscription, error) {
-
-	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "Debug")
-	if err != nil {
-		return nil, err
-	}
-	return event.NewSubscription(func(quit <-chan struct{}) error {
-		defer sub.Unsubscribe()
-		for {
-			select {
-			case log := <-logs:
-				// New log arrived, parse the event and forward to the user
-				event := new(PDPVerifierDebug)
-				if err := _PDPVerifier.contract.UnpackLog(event, "Debug", log); err != nil {
-					return err
-				}
-				event.Raw = log
-
-				select {
-				case sink <- event:
-				case err := <-sub.Err():
-					return err
-				case <-quit:
-					return nil
-				}
-			case err := <-sub.Err():
-				return err
-			case <-quit:
-				return nil
-			}
-		}
-	}), nil
-}
-
-// ParseDebug is a log parse operation binding the contract event 0x3c5ad147104e56be34a9176a6692f7df8d2f4b29a5af06bc6b98970d329d6577.
-//
-// Solidity: event Debug(string message, uint256 value)
-func (_PDPVerifier *PDPVerifierFilterer) ParseDebug(log types.Log) (*PDPVerifierDebug, error) {
-	event := new(PDPVerifierDebug)
-	if err := _PDPVerifier.contract.UnpackLog(event, "Debug", log); err != nil {
 		return nil, err
 	}
 	event.Raw = log
@@ -2936,7 +2961,7 @@ func (it *PDPVerifierPossessionProvenIterator) Close() error {
 // PDPVerifierPossessionProven represents a PossessionProven event raised by the PDPVerifier contract.
 type PDPVerifierPossessionProven struct {
 	SetId      *big.Int
-	Challenges []PDPVerifierPieceIdAndOffset
+	Challenges []IPDPTypesPieceIdAndOffset
 	Raw        types.Log // Blockchain specific contextual infos
 }
 
@@ -3005,6 +3030,140 @@ func (_PDPVerifier *PDPVerifierFilterer) WatchPossessionProven(opts *bind.WatchO
 func (_PDPVerifier *PDPVerifierFilterer) ParsePossessionProven(log types.Log) (*PDPVerifierPossessionProven, error) {
 	event := new(PDPVerifierPossessionProven)
 	if err := _PDPVerifier.contract.UnpackLog(event, "PossessionProven", log); err != nil {
+		return nil, err
+	}
+	event.Raw = log
+	return event, nil
+}
+
+// PDPVerifierPriceOracleFailureIterator is returned from FilterPriceOracleFailure and is used to iterate over the raw logs and unpacked data for PriceOracleFailure events raised by the PDPVerifier contract.
+type PDPVerifierPriceOracleFailureIterator struct {
+	Event *PDPVerifierPriceOracleFailure // Event containing the contract specifics and raw log
+
+	contract *bind.BoundContract // Generic contract to use for unpacking event data
+	event    string              // Event name to use for unpacking event data
+
+	logs chan types.Log        // Log channel receiving the found contract events
+	sub  ethereum.Subscription // Subscription for errors, completion and termination
+	done bool                  // Whether the subscription completed delivering logs
+	fail error                 // Occurred error to stop iteration
+}
+
+// Next advances the iterator to the subsequent event, returning whether there
+// are any more events found. In case of a retrieval or parsing error, false is
+// returned and Error() can be queried for the exact failure.
+func (it *PDPVerifierPriceOracleFailureIterator) Next() bool {
+	// If the iterator failed, stop iterating
+	if it.fail != nil {
+		return false
+	}
+	// If the iterator completed, deliver directly whatever's available
+	if it.done {
+		select {
+		case log := <-it.logs:
+			it.Event = new(PDPVerifierPriceOracleFailure)
+			if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+				it.fail = err
+				return false
+			}
+			it.Event.Raw = log
+			return true
+
+		default:
+			return false
+		}
+	}
+	// Iterator still in progress, wait for either a data or an error event
+	select {
+	case log := <-it.logs:
+		it.Event = new(PDPVerifierPriceOracleFailure)
+		if err := it.contract.UnpackLog(it.Event, it.event, log); err != nil {
+			it.fail = err
+			return false
+		}
+		it.Event.Raw = log
+		return true
+
+	case err := <-it.sub.Err():
+		it.done = true
+		it.fail = err
+		return it.Next()
+	}
+}
+
+// Error returns any retrieval or parsing error occurred during filtering.
+func (it *PDPVerifierPriceOracleFailureIterator) Error() error {
+	return it.fail
+}
+
+// Close terminates the iteration process, releasing any pending underlying
+// resources.
+func (it *PDPVerifierPriceOracleFailureIterator) Close() error {
+	it.sub.Unsubscribe()
+	return nil
+}
+
+// PDPVerifierPriceOracleFailure represents a PriceOracleFailure event raised by the PDPVerifier contract.
+type PDPVerifierPriceOracleFailure struct {
+	Reason []byte
+	Raw    types.Log // Blockchain specific contextual infos
+}
+
+// FilterPriceOracleFailure is a free log retrieval operation binding the contract event 0x32e677043f93cd9edc909002276c5e55eb11c275a7b368ae7fe86687516eb120.
+//
+// Solidity: event PriceOracleFailure(bytes reason)
+func (_PDPVerifier *PDPVerifierFilterer) FilterPriceOracleFailure(opts *bind.FilterOpts) (*PDPVerifierPriceOracleFailureIterator, error) {
+
+	logs, sub, err := _PDPVerifier.contract.FilterLogs(opts, "PriceOracleFailure")
+	if err != nil {
+		return nil, err
+	}
+	return &PDPVerifierPriceOracleFailureIterator{contract: _PDPVerifier.contract, event: "PriceOracleFailure", logs: logs, sub: sub}, nil
+}
+
+// WatchPriceOracleFailure is a free log subscription operation binding the contract event 0x32e677043f93cd9edc909002276c5e55eb11c275a7b368ae7fe86687516eb120.
+//
+// Solidity: event PriceOracleFailure(bytes reason)
+func (_PDPVerifier *PDPVerifierFilterer) WatchPriceOracleFailure(opts *bind.WatchOpts, sink chan<- *PDPVerifierPriceOracleFailure) (event.Subscription, error) {
+
+	logs, sub, err := _PDPVerifier.contract.WatchLogs(opts, "PriceOracleFailure")
+	if err != nil {
+		return nil, err
+	}
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer sub.Unsubscribe()
+		for {
+			select {
+			case log := <-logs:
+				// New log arrived, parse the event and forward to the user
+				event := new(PDPVerifierPriceOracleFailure)
+				if err := _PDPVerifier.contract.UnpackLog(event, "PriceOracleFailure", log); err != nil {
+					return err
+				}
+				event.Raw = log
+
+				select {
+				case sink <- event:
+				case err := <-sub.Err():
+					return err
+				case <-quit:
+					return nil
+				}
+			case err := <-sub.Err():
+				return err
+			case <-quit:
+				return nil
+			}
+		}
+	}), nil
+}
+
+// ParsePriceOracleFailure is a log parse operation binding the contract event 0x32e677043f93cd9edc909002276c5e55eb11c275a7b368ae7fe86687516eb120.
+//
+// Solidity: event PriceOracleFailure(bytes reason)
+func (_PDPVerifier *PDPVerifierFilterer) ParsePriceOracleFailure(log types.Log) (*PDPVerifierPriceOracleFailure, error) {
+	event := new(PDPVerifierPriceOracleFailure)
+	if err := _PDPVerifier.contract.UnpackLog(event, "PriceOracleFailure", log); err != nil {
 		return nil, err
 	}
 	event.Raw = log
