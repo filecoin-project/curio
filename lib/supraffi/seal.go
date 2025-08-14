@@ -238,6 +238,13 @@ func GetHealthInfo() ([]HealthInfo, error) {
 	return healthInfos, nil
 }
 
+func TreeRFile(lastLayerFilename, dataFilename, outputDir string, sectorSize uint64) int {
+	cLastLayerFilename := C.CString(lastLayerFilename)
+	cDataFilename := C.CString(dataFilename)
+	cOutputDir := C.CString(outputDir)
+	return int(C.tree_r_file(cLastLayerFilename, cDataFilename, cOutputDir, C.size_t(sectorSize)))
+}
+
 // Pc1 performs the pc1 operation.
 func Pc1(blockOffset uint64, replicaIDs [][32]byte, parentsFilename string, sectorSize uint64) int {
 	flatReplicaIDs := make([]byte, len(replicaIDs)*32)

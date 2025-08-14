@@ -17,6 +17,10 @@ func Pc1(blockOffset uint64, replicaIDs [][32]byte, parentsFilename string, sect
 	panic("Pc1: supraseal build tag not enabled")
 }
 
+func TreeRFile(lastLayerFilename, dataFilename, outputDir string, sectorSize uint64) int {
+	panic("TreeRFile: supraseal build tag not enabled")
+}
+
 type Path struct {
 	Replica string
 	Cache   string
