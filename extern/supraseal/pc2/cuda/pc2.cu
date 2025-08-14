@@ -8,6 +8,12 @@
 
 #ifdef RENAME_PC2_HASH_FILES
 #define pc2_hash pc2_hash_files
+#define pc2_t pc2_files_t
+#define gpu_resource_t gpu_resource_files_t
+#define buf_to_disk_t buf_to_disk_files_t
+#define pc2_batcher_t pc2_batcher_files_t
+#define tree_address_t tree_address_files_t
+#define do_pc2_cleanup do_pc2_files_cleanup
 #endif
 
 #include <sys/types.h>
