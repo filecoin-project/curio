@@ -200,12 +200,15 @@ $NVCC $CFLAGS $CUDA_ARCH -std=c++17 -DNO_SPDK -Xcompiler -march=native \
 $CXX $CXXFLAGS $INCLUDE -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src \
     -c sealing/supra_seal.cpp -o obj/supra_seal.o -Wno-subobject-linkage &
 
+$CXX $CXXFLAGS $INCLUDE -DSTREAMING_NODE_READER_FILES -Iposeidon -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src \
+    -c sealing/supra_tree_r_file.cpp -o obj/supra_tree_r_file.o -Wno-subobject-linkage &
+
 wait
 
 # Sppark object dedupe
 nm obj/pc2.o | grep -E 'select_gpu|all_gpus|cuda_available|gpu_props|ngpus|drop_gpu_ptr_t|clone_gpu_ptr_t' | awk '{print $3 " supra_" $3}' > symbol_rename.txt
 
-for obj in obj/pc1.o obj/pc2.o obj/ring_t.o obj/streaming_node_reader_nvme.o obj/supra_seal.o obj/sha_ext_mbx2.o; do
+for obj in obj/pc1.o obj/pc2.o obj/ring_t.o obj/streaming_node_reader_nvme.o obj/supra_seal.o obj/supra_tree_r_file.o obj/sha_ext_mbx2.o; do
   objcopy --redefine-syms=symbol_rename.txt $obj
 done
 
@@ -217,6 +220,7 @@ ar rvs obj/libsupraseal.a \
    obj/ring_t.o \
    obj/streaming_node_reader_nvme.o \
    obj/supra_seal.o \
+   obj/supra_tree_r_file.o \
    obj/sha_ext_mbx2.o
 
 $CXX $CXXFLAGS -Ideps/sppark -Ideps/sppark/util -Ideps/blst/src \

@@ -1515,4 +1515,15 @@ template void do_pc2_cleanup<sealing_config_2_32GB_t>(const char* output_dir);
 template void do_pc2_cleanup<sealing_config_1_512MB_t>(const char* output_dir);
 template void do_pc2_cleanup<sealing_config_1_32GB_t>(const char* output_dir);
 
+#ifndef SUPRA_PC2_NO_EXPLICIT_INSTANTIATIONS
+#ifdef RUNTIME_SECTOR_SIZE
+ template void pc2_hash<sealing_config_128_2KB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_2KB_t>&, size_t, size_t, size_t, const char**, const char*);
+ template void pc2_hash<sealing_config_128_4KB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_4KB_t>&, size_t, size_t, size_t, const char**, const char*);
+ template void pc2_hash<sealing_config_128_16KB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_16KB_t>&, size_t, size_t, size_t, const char**, const char*);
+ template void pc2_hash<sealing_config_128_32KB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_32KB_t>&, size_t, size_t, size_t, const char**, const char*);
+ template void pc2_hash<sealing_config_128_8MB_t>(topology_t&, bool, streaming_node_reader_t<sealing_config_128_8MB_t>&, size_t, size_t, size_t, const char**, const char*);
+
 #endif
+#endif
+
+#endif // __CUDA_ARCH__
