@@ -77,8 +77,6 @@ func NewRange(phi [32]byte, h uint64, nodesCount, offset, num uint64) (*Rhos, er
 // EncodeSnap encodes deal data into an existing sector replica key according to FIP-0019
 // out[i] = key[i] + data[i] * rho(i)
 func EncodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, data io.Reader, out io.Writer) error {
-	fmt.Printf("EncodeSnap enter\n")
-
 	ssize, err := spt.SectorSize()
 	if err != nil {
 		return xerrors.Errorf("failed to get sector size: %w", err)

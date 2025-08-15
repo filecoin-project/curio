@@ -10,21 +10,24 @@ import (
 
 	"github.com/detailyang/go-fallocate"
 	"github.com/ipfs/go-cid"
-	pool "github.com/libp2p/go-buffer-pool"
 	"golang.org/x/xerrors"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonytask"
-	"github.com/filecoin-project/curio/lib/asyncwrite"
+	"github.com/filecoin-project/curio/lib/ffi/cunative"
 	"github.com/filecoin-project/curio/lib/ffiselect"
 	paths2 "github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/proof"
+	"github.com/filecoin-project/curio/lib/proofpaths"
 	"github.com/filecoin-project/curio/lib/storiface"
+	"github.com/filecoin-project/curio/lib/supraffi"
 	"github.com/filecoin-project/curio/lib/tarutil"
+	commutil "github.com/filecoin-project/go-commp-utils/nonffi"
 
-	"github.com/filecoin-project/lotus/storage/sealer/fr32"
+	"github.com/filecoin-project/lotus/storage/sealer/commitment"
 )
 
 func (sb *SealCalls) EncodeUpdate(
@@ -36,16 +39,16 @@ func (sb *SealCalls) EncodeUpdate(
 	data io.Reader,
 	pieces []abi.PieceInfo,
 	keepUnsealed bool) (sealedCID cid.Cid, unsealedCID cid.Cid, err error) {
-	noDecl := storiface.FTNone
-	if !keepUnsealed {
-		noDecl = storiface.FTUnsealed
+	ssize, err := sector.ProofType.SectorSize()
+	if err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("getting sector size: %w", err)
 	}
 
-	paths, pathIDs, releaseSector, err := sb.Sectors.AcquireSector(ctx, &taskID, sector, storiface.FTNone, storiface.FTUpdate|storiface.FTUpdateCache|storiface.FTUnsealed, storiface.PathSealing)
+	paths, pathIDs, releaseSector, err := sb.Sectors.AcquireSector(ctx, &taskID, sector, storiface.FTNone, storiface.FTUpdate|storiface.FTUpdateCache, storiface.PathSealing)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("acquiring sector paths: %w", err)
 	}
-	defer releaseSector(noDecl)
+	defer releaseSector()
 
 	if paths.Update == "" || paths.UpdateCache == "" {
 		return cid.Undef, cid.Undef, xerrors.Errorf("update paths not set")
@@ -70,11 +73,11 @@ func (sb *SealCalls) EncodeUpdate(
 
 	keyPath := filepath.Join(paths.UpdateCache, "cu-sector-key.dat")           // can this be a named pipe - no, mmap in proofs
 	keyCachePath := filepath.Join(paths.UpdateCache, "cu-sector-key-fincache") // some temp copy (finalized cache directory)
-	stagedDataPath := paths.Unsealed
+	var keyFile *os.File
 
 	var cleanupStagedFiles func() error
 	{
-		keyFile, err := os.Create(keyPath)
+		keyFile, err = os.Create(keyPath)
 		if err != nil {
 			return cid.Undef, cid.Undef, xerrors.Errorf("creating key file: %w", err)
 		}
@@ -84,13 +87,7 @@ func (sb *SealCalls) EncodeUpdate(
 			return cid.Undef, cid.Undef, xerrors.Errorf("creating key cache dir: %w", err)
 		}
 
-		stagedFile, err := os.Create(stagedDataPath)
-		if err != nil {
-			return cid.Undef, cid.Undef, xerrors.Errorf("creating temp file: %w", err)
-		}
-
 		keyPath = keyFile.Name()
-		stagedDataPath = stagedFile.Name()
 
 		var cleanupDone bool
 		cleanupStagedFiles = func() error {
@@ -104,22 +101,12 @@ func (sb *SealCalls) EncodeUpdate(
 					return xerrors.Errorf("closing key file: %w", err)
 				}
 			}
-			if stagedFile != nil {
-				if err := stagedFile.Close(); err != nil {
-					return xerrors.Errorf("closing staged file: %w", err)
-				}
-			}
 
 			if err := os.Remove(keyPath); err != nil {
 				return xerrors.Errorf("removing key file: %w", err)
 			}
 			if err := os.RemoveAll(keyCachePath); err != nil {
 				return xerrors.Errorf("removing key cache: %w", err)
-			}
-			if !keepUnsealed {
-				if err := os.Remove(stagedDataPath); err != nil {
-					return xerrors.Errorf("removing staged file: %w", err)
-				}
 			}
 
 			return nil
@@ -151,30 +138,10 @@ func (sb *SealCalls) EncodeUpdate(
 		}
 		keyFile = nil
 
-		// wrap stagedFile into a async bg writer
-		stagedOut := asyncwrite.New(stagedFile, 8)
-
-		// copy data into stagedFile and close both
-		upw := fr32.NewPadWriter(stagedOut)
-
-		// also wrap upw into async bg writer, this makes all io on separate goroutines
-		bgUpw := asyncwrite.New(upw, 2)
-
-		copyBuf := pool.Get(32 << 20)
-		_, err = io.CopyBuffer(bgUpw, data, copyBuf)
-		pool.Put(copyBuf)
+		keyFile, err = os.OpenFile(keyPath, os.O_RDONLY, 0644)
 		if err != nil {
-			return cid.Undef, cid.Undef, xerrors.Errorf("copying unsealed data: %w", err)
+			return cid.Undef, cid.Undef, xerrors.Errorf("opening key file: %w", err)
 		}
-		if err := bgUpw.Close(); err != nil {
-			return cid.Cid{}, cid.Cid{}, xerrors.Errorf("closing padWriter: %w", err)
-		}
-
-		if err := stagedOut.Close(); err != nil {
-			return cid.Undef, cid.Undef, xerrors.Errorf("closing staged data file: %w", err)
-		}
-		stagedFile = nil
-		stagedOut = nil
 
 		// fetch cache
 		var buf bytes.Buffer // usually 73.2 MiB
@@ -193,47 +160,112 @@ func (sb *SealCalls) EncodeUpdate(
 		}
 	}
 
+	commD, err := commutil.GenerateUnsealedCID(sector.ProofType, pieces)
+	if err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("generate unsealed cid: %w", err)
+	}
+
+	treeDPath := filepath.Join(paths.UpdateCache, proofpaths.TreeDName)
+
+	// STEP 0: TreeD
+	treeCommD, err := proof.BuildTreeD(data, true, treeDPath, abi.PaddedPieceSize(ssize))
+	if err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("build tree d: %w", err)
+	}
+
+	if commD != treeCommD {
+		return cid.Undef, cid.Undef, xerrors.Errorf("comm d mismatch: piece: %s != tree: %s", commD, treeCommD)
+	}
+
 	////////////////////
 	// Allocate update file
 	////////////////////
 
+	var updateFile *os.File
 	{
-		s, err := os.Stat(keyPath)
+		keyStat, err := os.Stat(keyPath)
 		if err != nil {
 			return cid.Undef, cid.Undef, err
 		}
-		sealedSize := s.Size()
+		sealedSize := keyStat.Size()
 
-		u, err := os.OpenFile(paths.Update, os.O_RDWR|os.O_CREATE, 0644)
+		updateFile, err = os.OpenFile(paths.Update, os.O_RDWR|os.O_CREATE, 0644)
 		if err != nil {
 			return cid.Undef, cid.Undef, xerrors.Errorf("ensuring updated replica file exists: %w", err)
 		}
-		if err := fallocate.Fallocate(u, 0, sealedSize); err != nil {
+		if err := fallocate.Fallocate(updateFile, 0, sealedSize); err != nil {
 			return cid.Undef, cid.Undef, xerrors.Errorf("allocating space for replica update file: %w", err)
 		}
-		if err := u.Close(); err != nil {
-			return cid.Undef, cid.Undef, err
-		}
 	}
 
-	ctx = ffiselect.WithLogCtx(ctx, "sector", sector.ID, "task", taskID, "key", keyPath, "cache", keyCachePath, "staged", stagedDataPath, "update", paths.Update, "updateCache", paths.UpdateCache)
-	out, err := ffiselect.FFISelect.EncodeInto(ctx, proofType, paths.Update, paths.UpdateCache, keyPath, keyCachePath, stagedDataPath, pieces)
-	if err != nil {
-		return cid.Undef, cid.Undef, xerrors.Errorf("ffi update encode: %w", err)
-	}
-	
 	// STEP 1: SupraEncode
 
+	treeDFile, err := os.Open(treeDPath)
+	if err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("open tree d file: %w", err)
+	}
+	defer treeDFile.Close()
 
+	err = cunative.EncodeSnap(sector.ProofType, commD, sectorKeyCid, keyFile, treeDFile, updateFile)
+
+	// (close early)
+	// here we don't care about the error, as treeDFile was read-only
+	_ = treeDFile.Close()
+
+	// (close early)
+	if cerr := updateFile.Close(); cerr != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("close update file: %w", cerr)
+	}
+
+	if err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("encode snap: %w", err)
+	}
 
 	// STEP 2: SupraTreeR
 
-	vps, err := ffi.SectorUpdate.GenerateUpdateVanillaProofs(proofType, sectorKeyCid, out.Sealed, out.Unsealed, paths.Update, paths.UpdateCache, keyPath, keyCachePath)
+	res := supraffi.TreeRFile(paths.Update, treeDPath, paths.UpdateCache, uint64(ssize))
+	if res != 0 {
+		return cid.Undef, cid.Undef, xerrors.Errorf("tree r file %s: %w", paths.Update, err)
+	}
+
+	// STEP 2.5: Read PAux-es, transplant CC CommC, write back, calculate CommR
+
+	_, updateCommRLast, err := proof.ReadPAux(paths.UpdateCache)
+	if err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("read update p aux: %w", err)
+	}
+
+	ccCommC, _, err := proof.ReadPAux(keyCachePath)
+	if err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("read cc p aux: %w", err)
+	}
+
+	if err := proof.WritePAux(paths.UpdateCache, ccCommC, updateCommRLast); err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("write p aux: %w", err)
+	}
+
+	commR, err := commitment.CommR(ccCommC, updateCommRLast)
+	if err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("compute comm r: %w", err)
+	}
+
+	if err := proof.WritePAux(paths.UpdateCache, ccCommC, updateCommRLast); err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("write comm r p aux: %w", err)
+	}
+
+	sealedCid, err := commcid.ReplicaCommitmentV1ToCID(commR[:])
+	if err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("compute sealed cid: %w", err)
+	}
+
+	// STEP 3: Generate update proofs
+
+	vps, err := ffi.SectorUpdate.GenerateUpdateVanillaProofs(proofType, sectorKeyCid, sealedCid, commD, paths.Update, paths.UpdateCache, keyPath, keyCachePath)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("generate vanilla update proofs: %w", err)
 	}
 
-	ok, err := ffi.SectorUpdate.VerifyVanillaProofs(proofType, sectorKeyCid, out.Sealed, out.Unsealed, vps)
+	ok, err := ffi.SectorUpdate.VerifyVanillaProofs(proofType, sectorKeyCid, sealedCid, commD, vps)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("verify vanilla update proofs: %w", err)
 	}
@@ -250,6 +282,21 @@ func (sb *SealCalls) EncodeUpdate(
 	vpPath := filepath.Join(paths.UpdateCache, paths2.SnapVproofFile)
 	if err := os.WriteFile(vpPath, jb, 0644); err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("write vanilla proofs: %w", err)
+	}
+
+	// Create unsealed file from tree-d prefix (same bytes)
+	{
+		var uPaths, uPathIDs storiface.SectorPaths
+
+		uPaths.Cache = paths.UpdateCache
+		uPathIDs.Cache = pathIDs.UpdateCache
+
+		if err := sb.GenerateUnsealedSector(ctx, sector, &uPaths, &uPathIDs, keepUnsealed); err != nil {
+			return cid.Undef, cid.Undef, xerrors.Errorf("generate unsealed sector: %w", err)
+		}
+
+		paths.Unsealed = uPaths.Unsealed
+		pathIDs.Unsealed = uPathIDs.Unsealed
 	}
 
 	// cleanup
@@ -270,7 +317,7 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Undef, cid.Undef, xerrors.Errorf("ensure one copy: %w", err)
 	}
 
-	return out.Sealed, out.Unsealed, nil
+	return sealedCid, commD, nil
 }
 
 func (sb *SealCalls) ProveUpdate(ctx context.Context, proofType abi.RegisteredUpdateProof, sector storiface.SectorRef, key, sealed, unsealed cid.Cid) ([]byte, error) {
