@@ -45,7 +45,7 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 	}
 
 	if ok := p.CreateDataSet || p.DeleteDataSet || p.AddPiece || p.DeletePiece; !ok {
-		return ErrBadProposal, xerrors.Errorf("deal must have one of the following flags set: create_proof_set, delete_proof_set, add_root, delete_root")
+		return ErrBadProposal, xerrors.Errorf("deal must have one of the following flags set: create_data_set, delete_data_set, add_piece, delete_piece")
 	}
 
 	var existingAddress bool
@@ -121,7 +121,7 @@ func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, er
 										FROM pdp_dataset_piece r
 										JOIN pdp_data_set s ON r.data_set_id = s.id
 										WHERE r.data_set_id = $1
-										  AND r.root = ANY($2)
+										  AND r.piece = ANY($2)
 										  AND r.removed = FALSE
 										  AND s.removed = FALSE;`, pid, p.PieceIDs).Scan(&exists)
 		if err != nil {

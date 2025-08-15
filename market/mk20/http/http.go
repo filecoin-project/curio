@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	_ "embed"
@@ -579,30 +580,34 @@ func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	ct := r.Header.Get("Content-Type")
-	// If Content-Type is not set this is does not require updating the deal
-	if len(ct) == 0 {
-		log.Infow("received finalize upload proposal without content type", "id", id)
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, "error reading request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	log.Debugw("received upload finalize proposal", "id", idStr, "body", string(body))
+
+	if len(bytes.TrimSpace(body)) == 0 {
+		log.Debugw("no deal provided, using empty deal to finalize upload", "id", idStr)
 		mdh.dm.MK20Handler.HandleUploadFinalize(id, nil, w)
 		return
 	}
 
-	var deal mk20.Deal
+	ct := r.Header.Get("Content-Type")
+	if len(ct) == 0 {
+		http.Error(w, "missing content type", http.StatusBadRequest)
+		return
+	}
+
 	if ct != "application/json" {
 		log.Errorf("invalid content type: %s", ct)
 		http.Error(w, "invalid content type", http.StatusBadRequest)
 		return
 	}
 
-	defer r.Body.Close()
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		log.Errorf("error reading request body: %s", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	log.Infow("received upload finalize proposal", "body", string(body))
+	var deal mk20.Deal
 
 	err = json.Unmarshal(body, &deal)
 	if err != nil {
@@ -661,6 +666,7 @@ func (mdh *MK20DealHandler) mk20UpdateDeal(w http.ResponseWriter, r *http.Reques
 	}
 
 	defer r.Body.Close()
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Errorf("error reading request body: %s", err)
@@ -760,26 +766,27 @@ func (mdh *MK20DealHandler) mk20SerialUploadFinalize(w http.ResponseWriter, r *h
 		return
 	}
 
-	ct := r.Header.Get("Content-Type")
-	// If Content-Type is not set, it is not required to update the deal
-	if len(ct) == 0 {
-		log.Infow("received finalize upload proposal without content type", "id", id)
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		http.Error(w, "error reading request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	log.Debugw("received serial upload finalize proposal", "id", idStr, "body", string(body))
+
+	if len(bytes.TrimSpace(body)) == 0 {
+		log.Debugw("no deal provided, using empty deal to finalize upload", "id", idStr)
 		mdh.dm.MK20Handler.HandleSerialUploadFinalize(id, nil, w)
 		return
 	}
+
+	ct := r.Header.Get("Content-Type")
 
 	var deal mk20.Deal
 	if ct != "application/json" {
 		log.Errorf("invalid content type: %s", ct)
 		http.Error(w, "invalid content type", http.StatusBadRequest)
-		return
-	}
-
-	defer r.Body.Close()
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		log.Errorf("error reading request body: %s", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -789,8 +796,6 @@ func (mdh *MK20DealHandler) mk20SerialUploadFinalize(w http.ResponseWriter, r *h
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	log.Infow("received serial upload finalize proposal", "body", string(body))
 
 	mdh.dm.MK20Handler.HandleSerialUploadFinalize(id, &deal, w)
 }

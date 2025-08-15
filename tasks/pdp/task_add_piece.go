@@ -19,7 +19,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/passcall"
-	"github.com/filecoin-project/curio/market/mk20"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/message"
 
@@ -71,20 +70,20 @@ func (p *PDPTaskAddPiece) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 
 	addPiece := addPieces[0]
 
-	pcid, err := cid.Parse(addPiece.PieceCid)
-	if err != nil {
-		return false, xerrors.Errorf("failed to parse piece cid: %w", err)
-	}
+	//pcid, err := cid.Parse(addPiece.PieceCid)
+	//if err != nil {
+	//	return false, xerrors.Errorf("failed to parse piece cid: %w", err)
+	//}
 
 	pcid2, err := cid.Parse(addPiece.PieceCid2)
 	if err != nil {
 		return false, xerrors.Errorf("failed to parse piece cid: %w", err)
 	}
 
-	pi, err := mk20.GetPieceInfo(pcid2)
-	if err != nil {
-		return false, xerrors.Errorf("failed to get piece info: %w", err)
-	}
+	//pi, err := mk20.GetPieceInfo(pcid2)
+	//if err != nil {
+	//	return false, xerrors.Errorf("failed to get piece info: %w", err)
+	//}
 
 	// Prepare the Ethereum transaction data outside the DB transaction
 	// Obtain the ABI of the PDPVerifier contract
@@ -93,10 +92,9 @@ func (p *PDPTaskAddPiece) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		return false, xerrors.Errorf("getting PDPVerifier ABI: %w", err)
 	}
 
-	pieceDataArray := []contract.PieceData{
+	pieceDataArray := []contract.CidsCid{
 		{
-			Piece:   struct{ Data []byte }{Data: pcid.Bytes()},
-			RawSize: new(big.Int).SetUint64(uint64(pi.Size.Unpadded())),
+			Data: pcid2.Bytes(),
 		},
 	}
 

@@ -190,7 +190,7 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal, tx *harmonydb.Tx)
 			return err
 		}
 		n, err := tx.Exec(`UPDATE market_mk20_deal
-								SET ddo_v1 = jsonb_set(ddo_v1, '{deal_id}', to_jsonb($1::text))
+								SET ddo_v1 = jsonb_set(ddo_v1, '{deal_id}', to_jsonb($1::bigint))
 								WHERE id = $2;`, id, deal.Identifier.String())
 		if err != nil {
 			return err
@@ -257,6 +257,7 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal, tx *harmonydb.Tx)
 }
 
 func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRejectionInfo, error) {
+	fmt.Println("I HAVE ENTERED DDO SANITY CHECK")
 	if !lo.Contains(m.miners, deal.Products.DDOV1.Provider) {
 		return &ProviderDealRejectionInfo{
 			HTTPCode: ErrBadProposal,
@@ -384,6 +385,8 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			}, nil
 		}
 	}
+
+	fmt.Println("I HAVE EXITED DDO SANITY CHECK")
 
 	return nil, nil
 }

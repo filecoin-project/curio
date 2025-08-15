@@ -26,10 +26,10 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 	var pdp_error, ddo_error sql.NullString
 
 	err := m.DB.QueryRow(ctx, `SELECT
-									  pdp_v1->>'complete' AS pdp_complete,
-									  pdp_v1->>'error' AS pdp_error,
-									  ddo_v1->>'complete' AS ddo_complete,
-									  ddo_v1->>'error' AS ddo_error
+									  (pdp_v1->>'complete')::boolean AS pdp_complete,
+									  (pdp_v1->>'error')::text AS pdp_error,
+									  (ddo_v1->>'complete')::boolean AS ddo_complete,
+									  (ddo_v1->>'error')::text AS ddo_error
 									FROM market_mk20_deal
 									WHERE id = $1;`, id.String()).Scan(&pdp_complete, &pdp_error, &ddo_complete, &ddo_error)
 	if err != nil {
@@ -185,7 +185,7 @@ func NewTimeoutLimitReader(r io.Reader, timeout time.Duration) *TimeoutLimitRead
 	}
 }
 
-const UploadSizeLimit = int64(1 * 1024 * 1024)
+const UploadSizeLimit = int64(1 * 1024 * 1024 * 1024)
 
 func (t *TimeoutLimitReader) Read(p []byte) (int, error) {
 	deadline := time.Now().Add(t.timeout)

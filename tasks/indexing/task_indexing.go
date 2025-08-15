@@ -174,7 +174,18 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		}
 		if deal.Data.Format.Aggregate != nil {
 			if deal.Data.Format.Aggregate.Type > 0 {
-				subPieces = deal.Data.Format.Aggregate.Sub
+				var found bool
+				if len(deal.Data.Format.Aggregate.Sub) > 0 {
+					subPieces = deal.Data.Format.Aggregate.Sub
+					found = true
+				}
+				if len(deal.Data.SourceAggregate.Pieces) > 0 {
+					subPieces = deal.Data.SourceAggregate.Pieces
+					found = true
+				}
+				if !found {
+					return false, xerrors.Errorf("no sub pieces for aggregate mk20 deal")
+				}
 			}
 		}
 
@@ -513,46 +524,41 @@ func IndexAggregate(pieceCid cid.Cid,
 		sectionReader := io.NewSectionReader(reader, int64(strt), int64(leng))
 		sp := subPieces[j]
 
-		//pi := abi.PieceInfo{PieceCID: entry.PieceCID(), Size: abi.PaddedPieceSize(entry.Size)}
-		//commp, err := commcidv2.CommPFromPieceInfo(pi)
-		//if err != nil {
-		//	return 0, nil, false, xerrors.Errorf("getting piece commP: %w", err)
-		//}
+		if sp.Format.Car != nil {
+			b, inter, err := IndexCAR(sectionReader, bufferSize, recs, addFail)
+			if err != nil {
+				//// Allow one more layer of aggregation to be indexed
+				//if strings.Contains(err.Error(), "invalid car version") {
+				//	if haveSubPieces {
+				//		if subPieces[j].Car != nil {
+				//			return 0, aggidx, false, xerrors.Errorf("invalid car version for subPiece %d: %w", j, err)
+				//		}
+				//		if subPieces[j].Raw != nil {
+				//			continue
+				//		}
+				//		if subPieces[j].Aggregate != nil {
+				//			b, idx, inter, err = IndexAggregate(commp.PCidV2(), sectionReader, abi.PaddedPieceSize(entry.Size), nil, recs, addFail)
+				//			if err != nil {
+				//				return totalBlocks, aggidx, inter, xerrors.Errorf("invalid aggregate for subPiece %d: %w", j, err)
+				//			}
+				//			totalBlocks += b
+				//			for k, v := range idx {
+				//				aggidx[k] = append(aggidx[k], v...)
+				//			}
+				//		}
+				//	} else {
+				//		continue
+				//	}
+				//}
+				return totalBlocks, aggidx, false, xerrors.Errorf("indexing subPiece %d: %w", j, err)
+			}
 
-		//var idx map[cid.Cid][]datasegment.SegmentDesc
-
-		b, inter, err := IndexCAR(sectionReader, bufferSize, recs, addFail)
-		if err != nil {
-			//// Allow one more layer of aggregation to be indexed
-			//if strings.Contains(err.Error(), "invalid car version") {
-			//	if haveSubPieces {
-			//		if subPieces[j].Car != nil {
-			//			return 0, aggidx, false, xerrors.Errorf("invalid car version for subPiece %d: %w", j, err)
-			//		}
-			//		if subPieces[j].Raw != nil {
-			//			continue
-			//		}
-			//		if subPieces[j].Aggregate != nil {
-			//			b, idx, inter, err = IndexAggregate(commp.PCidV2(), sectionReader, abi.PaddedPieceSize(entry.Size), nil, recs, addFail)
-			//			if err != nil {
-			//				return totalBlocks, aggidx, inter, xerrors.Errorf("invalid aggregate for subPiece %d: %w", j, err)
-			//			}
-			//			totalBlocks += b
-			//			for k, v := range idx {
-			//				aggidx[k] = append(aggidx[k], v...)
-			//			}
-			//		}
-			//	} else {
-			//		continue
-			//	}
-			//}
-			return totalBlocks, aggidx, false, xerrors.Errorf("indexing subPiece %d: %w", j, err)
+			if inter {
+				return totalBlocks, aggidx, true, nil
+			}
+			totalBlocks += b
 		}
 
-		if inter {
-			return totalBlocks, aggidx, true, nil
-		}
-		totalBlocks += b
 		aggidx[pieceCid] = append(aggidx[pieceCid], indexstore.Record{
 			Cid:    sp.PieceCID,
 			Offset: strt,

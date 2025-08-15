@@ -324,9 +324,9 @@ BEGIN
     AND OLD.ready_at IS NULL
     AND NOT (OLD.chunked IS FALSE AND OLD.ref_id IS NOT NULL) THEN
         NEW.ready_at := NOW() AT TIME ZONE 'UTC';
-END IF;
+    END IF;
 
-RETURN NEW;
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -347,15 +347,15 @@ BEGIN
           SELECT 1 FROM market_mk20_deal_chunk
           WHERE id = NEW.id AND (complete IS NOT TRUE)
         ) THEN
-UPDATE market_mk20_upload_waiting
-SET ready_at = NOW() AT TIME ZONE 'UTC'
-WHERE id = NEW.id
-  AND chunked = true
-  AND ready_at IS NULL;
-END IF;
-END IF;
+        UPDATE market_mk20_upload_waiting
+        SET ready_at = NOW() AT TIME ZONE 'UTC'
+        WHERE id = NEW.id
+          AND chunked = true
+          AND ready_at IS NULL;
+        END IF;
+    END IF;
 
-RETURN NEW;
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -465,12 +465,12 @@ CREATE TABLE pdp_data_set (
     -- Set to true after first root add
     init_ready BOOLEAN NOT NULL DEFAULT FALSE,
 
-    create_deal_id TEXT NOT NULL, -- mk20 deal ID for creating this proofset
+    create_deal_id TEXT NOT NULL, -- mk20 deal ID for creating this data_set
     create_message_hash TEXT NOT NULL,
 
     removed BOOLEAN DEFAULT FALSE,
 
-    remove_deal_id TEXT DEFAULT NULL, -- mk20 deal ID for removing this proofset
+    remove_deal_id TEXT DEFAULT NULL, -- mk20 deal ID for removing this data_set
     remove_message_hash TEXT DEFAULT NULL,
 
     unique (create_deal_id),
@@ -688,7 +688,7 @@ BEGIN
 
     -- Insert the new ad into the ipni table with an automatically assigned order_number
     INSERT INTO ipni (ad_cid, context_id, metadata, is_rm, previous, provider, addresses, signature, entries, piece_cid_v2, piece_cid, piece_size)
-    VALUES (_ad_cid, _context_id, metadata, _is_rm, _previous, _provider, _addresses, _signature, _entries, _piece_cid_v2, _piece_cid, _piece_size);
+    VALUES (_ad_cid, _context_id, _metadata, _is_rm, _previous, _provider, _addresses, _signature, _entries, _piece_cid_v2, _piece_cid, _piece_size);
 
     -- Update the ipni_head table to set the new ad as the head of the chain
     INSERT INTO ipni_head (provider, head)

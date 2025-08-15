@@ -143,7 +143,6 @@ func (c *CheckIndexesTask) checkIndexing(ctx context.Context, taskID harmonytask
 		}
 
 		if hasEnt {
-			fmt.Println("Piece cid v2 present in index store")
 			have++
 			continue
 		}
@@ -585,7 +584,7 @@ func (c *CheckIndexesTask) checkIPNIMK20(ctx context.Context, taskID harmonytask
 									WHERE m.piece_cid_v2 IS NOT NULL
 									  AND m.ddo_v1 IS NOT NULL
 									  AND m.ddo_v1 != 'null'
-									  AND m.retrieval_v1->>'announce_payload' = 'true'
+									  AND (m.retrieval_v1->>'announce_payload')::boolean = TRUE
 									  AND i.piece_cid IS NULL
 									  AND p.id IS NULL
 									  AND w.id IS NULL;`)

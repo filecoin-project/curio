@@ -2142,6 +2142,7 @@ var mk20ClientChunkUploadCmd = &cli.Command{
 		purl := hurls[0]
 		log.Debugw("using first URL", "url", purl)
 		tu := mk20.StartUpload{
+			RawSize:   uint64(size),
 			ChunkSize: chunkSize,
 		}
 		b, err := json.Marshal(tu)
@@ -2241,7 +2242,7 @@ var mk20ClientChunkUploadCmd = &cli.Command{
 		log.Infow("upload complete")
 
 		//Finalize the upload
-		resp, err = http.Post(purl.String()+"/market/mk20/uploads/finalize/"+dealid.String(), "application/json", bytes.NewReader([]byte{}))
+		resp, err = http.Post(purl.String()+"/market/mk20/uploads/finalize/"+dealid.String(), "application/json", nil)
 		if err != nil {
 			return xerrors.Errorf("failed to send request: %w", err)
 		}
@@ -2685,6 +2686,8 @@ var mk20ClientUploadCmd = &cli.Command{
 			return xerrors.Errorf("opening file: %w", err)
 		}
 
+		defer f.Close()
+
 		stat, err := f.Stat()
 		if err != nil {
 			return xerrors.Errorf("stat file: %w", err)
@@ -2694,8 +2697,6 @@ var mk20ClientUploadCmd = &cli.Command{
 		if size == 0 {
 			return xerrors.Errorf("file size is 0")
 		}
-
-		f.Close()
 
 		api, closer, err := lcli.GetGatewayAPIV1(cctx)
 		if err != nil {
@@ -2750,7 +2751,7 @@ var mk20ClientUploadCmd = &cli.Command{
 		purl := hurls[0]
 		log.Debugw("using first URL", "url", purl)
 
-		req, err := http.NewRequest(http.MethodPut, purl.String()+"/market/mk20/upload/"+dealid.String(), f)
+		req, err := http.NewRequest(http.MethodPut, purl.String()+"/market/mk20/upload/"+dealid.String(), io.NewSectionReader(f, 0, size))
 		if err != nil {
 			return xerrors.Errorf("failed to create put request: %w", err)
 		}
@@ -2771,7 +2772,7 @@ var mk20ClientUploadCmd = &cli.Command{
 		log.Infow("upload complete")
 
 		//Finalize the upload
-		resp, err = http.Post(purl.String()+"/market/mk20/upload/"+dealid.String(), "application/json", bytes.NewReader([]byte{}))
+		resp, err = http.Post(purl.String()+"/market/mk20/upload/"+dealid.String(), "application/json", nil)
 		if err != nil {
 			return xerrors.Errorf("failed to send request: %w", err)
 		}

@@ -125,6 +125,7 @@ func (d DataSource) Validate(db *harmonydb.DB) (DealCode, error) {
 			return ErrMalformedDataSource, xerrors.Errorf("aggregate type not supported")
 		}
 
+		// If client will supply individual pieces
 		if d.SourceAggregate != nil {
 			code, err := IsDataSourceEnabled(db, d.SourceAggregate.Name())
 			if err != nil {
@@ -192,9 +193,40 @@ func (d DataSource) Validate(db *harmonydb.DB) (DealCode, error) {
 					}
 				}
 			}
+			if len(d.Format.Aggregate.Sub) > 0 {
+				return ErrMalformedDataSource, xerrors.Errorf("sub pieces cannot be defined when dataSource is aggregate")
+			}
 		} else {
+			// If client will supply pre-aggregated piece
 			if len(d.Format.Aggregate.Sub) == 0 {
 				return ErrMalformedDataSource, xerrors.Errorf("no sub pieces defined under aggregate")
+			}
+			for _, p := range d.Format.Aggregate.Sub {
+				err := ValidatePieceCID(p.PieceCID)
+				if err != nil {
+					return ErrMalformedDataSource, xerrors.Errorf("invalid piece cid")
+				}
+				var ifcar, ifraw bool
+				if p.Format.Car != nil {
+					ifcar = true
+				}
+
+				if p.Format.Aggregate != nil {
+					return ErrMalformedDataSource, xerrors.Errorf("aggregate of aggregate is not supported")
+				}
+
+				if p.Format.Raw != nil {
+					ifraw = true
+				}
+				if !ifcar && !ifraw {
+					return ErrMalformedDataSource, xerrors.Errorf("no format defined for sub piece in aggregate")
+				}
+				if ifcar && ifraw {
+					return ErrMalformedDataSource, xerrors.Errorf("multiple formats defined for sub piece in aggregate")
+				}
+				if p.SourceAggregate != nil || p.SourceOffline != nil || p.SourceHTTP != nil || p.SourceHttpPut != nil {
+					return ErrMalformedDataSource, xerrors.Errorf("sub piece of pre-aggregated piece cannot have source defined")
+				}
 			}
 		}
 	}

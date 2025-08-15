@@ -101,7 +101,18 @@ func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 
 	if deal.Data.Format.Aggregate != nil {
 		if deal.Data.Format.Aggregate.Type > 0 {
-			subPieces = deal.Data.Format.Aggregate.Sub
+			var found bool
+			if len(deal.Data.Format.Aggregate.Sub) > 0 {
+				subPieces = deal.Data.Format.Aggregate.Sub
+				found = true
+			}
+			if len(deal.Data.SourceAggregate.Pieces) > 0 {
+				subPieces = deal.Data.SourceAggregate.Pieces
+				found = true
+			}
+			if !found {
+				return false, xerrors.Errorf("no sub pieces for aggregate PDP deal")
+			}
 		}
 	}
 

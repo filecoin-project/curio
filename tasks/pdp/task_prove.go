@@ -232,13 +232,24 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 
 	// If gas used is 0 fee is maximized
 	gasFee := big.NewInt(0)
-	proofFee, err := pdpVerifier.CalculateProofFee(callOpts, big.NewInt(dataSetID), gasFee)
+	pdpVerifierRaw := contract.PDPVerifierRaw{Contract: pdpVerifier}
+
+	calcProofFeeResult := make([]any, 1)
+	err = pdpVerifierRaw.Call(callOpts, &calcProofFeeResult, "calculateProofFee", big.NewInt(dataSetID), gasFee)
 	if err != nil {
 		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
 	}
 
-	// Add 2x buffer for certainty
-	proofFee = new(big.Int).Mul(proofFee, big.NewInt(3))
+	if len(calcProofFeeResult) == 0 {
+		return false, xerrors.Errorf("failed to calculate proof fee: wrong number of return values")
+	}
+	if calcProofFeeResult[0] == nil {
+		return false, xerrors.Errorf("failed to calculate proof fee: nil return value")
+	}
+	if calcProofFeeResult[0].(*big.Int) == nil {
+		return false, xerrors.Errorf("failed to calculate proof fee: nil *big.Int return value")
+	}
+	proofFee := calcProofFeeResult[0].(*big.Int)
 
 	// Get the sender address for this dataset
 	owner, _, err := pdpVerifier.GetDataSetStorageProvider(callOpts, big.NewInt(dataSetID))
@@ -307,8 +318,8 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	return true, nil
 }
 
-func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDPVerifier, dataSetID int64, seed abi.Randomness, numChallenges int) ([]contract.PDPVerifierProof, error) {
-	proofs := make([]contract.PDPVerifierProof, numChallenges)
+func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDPVerifier, dataSetID int64, seed abi.Randomness, numChallenges int) ([]contract.IPDPTypesProof, error) {
+	proofs := make([]contract.IPDPTypesProof, numChallenges)
 
 	callOpts := &bind.CallOpts{
 		Context: ctx,
@@ -396,7 +407,7 @@ func padTo32Bytes(b []byte) []byte {
 	return padded
 }
 
-func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64, challengedLeaf int64) (contract.PDPVerifierProof, error) {
+func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64, challengedLeaf int64) (contract.IPDPTypesProof, error) {
 	//const arity = 2
 
 	rootChallengeOffset := challengedLeaf * LeafSize
@@ -405,20 +416,20 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64
 
 	err := p.db.QueryRow(context.Background(), `SELECT piece_cid_v2 FROM pdp_dataset_piece WHERE data_set_id = $1 AND root_id = $2`, dataSetID, rootId).Scan(&pieceCid)
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get root and subroot: %w", err)
+		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get root and subroot: %w", err)
 	}
 
 	pcid, err := cid.Parse(pieceCid)
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to parse piece CID: %w", err)
+		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to parse piece CID: %w", err)
 	}
 
 	pi, err := mk20.GetPieceInfo(pcid)
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get piece info: %w", err)
+		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get piece info: %w", err)
 	}
 
-	var out contract.PDPVerifierProof
+	var out contract.IPDPTypesProof
 	var rootDigest [32]byte
 
 	// If piece is less than 100 MiB, let's generate proof directly without using cache
@@ -426,23 +437,23 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64
 		// Get original file reader
 		reader, _, err := p.cpr.GetSharedPieceReader(ctx, pcid)
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get piece reader: %w", err)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get piece reader: %w", err)
 		}
 		defer reader.Close()
 
 		// Build Merkle tree from padded input
 		memTree, err := proof.BuildSha254Memtree(reader, pi.Size.Unpadded())
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to build memtree: %w", err)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to build memtree: %w", err)
 		}
 		log.Debugw("proveRoot", "rootChallengeOffset", rootChallengeOffset, "challengedLeaf", challengedLeaf)
 
 		mProof, err := proof.MemtreeProof(memTree, challengedLeaf)
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to generate memtree proof: %w", err)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate memtree proof: %w", err)
 		}
 
-		out = contract.PDPVerifierProof{
+		out = contract.IPDPTypesProof{
 			Leaf:  mProof.Leaf,
 			Proof: mProof.Proof,
 		}
@@ -459,7 +470,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64
 
 		has, node, err := p.idx.GetPDPNode(ctx, pcid, snapshotNodeIndex)
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get node: %w", err)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get node: %w", err)
 		}
 
 		if !has {
@@ -471,7 +482,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64
 		log.Debugw("proveRoot", "rootChallengeOffset", rootChallengeOffset, "challengedLeaf", challengedLeaf, "layerIdx", layerIdx, "snapshotNodeIndex", snapshotNodeIndex, "node", node)
 
 		if node.Layer != layerIdx {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("node layer mismatch: %d != %d", node.Layer, layerIdx)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("node layer mismatch: %d != %d", node.Layer, layerIdx)
 		}
 
 		startLeaf := snapshotNodeIndex << layerIdx
@@ -485,7 +496,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64
 		// Get original file reader
 		reader, reportedSize, err := p.cpr.GetSharedPieceReader(ctx, pcid)
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get reader: %w", err)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get reader: %w", err)
 		}
 		defer reader.Close()
 
@@ -500,7 +511,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64
 
 		memtree, err := proof.BuildSha254Memtree(data, subrootSize.Unpadded())
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to build memtree: %w", err)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to build memtree: %w", err)
 		}
 
 		// Get challenge leaf in subTree
@@ -508,19 +519,19 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64
 
 		subTreeProof, err := proof.MemtreeProof(memtree, subTreeChallenge)
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to generate sub tree proof: %w", err)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate sub tree proof: %w", err)
 		}
 		log.Debugw("subTreeProof", "subrootProof", subTreeProof)
 
 		// Verify root of proof
 		if subTreeProof.Root != node.Hash {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("subroot root mismatch: %x != %x", subTreeProof.Root, node.Hash)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("subroot root mismatch: %x != %x", subTreeProof.Root, node.Hash)
 		}
 
 		// Fetch full cached layer from DB
 		layerNodes, err := p.idx.GetPDPLayer(ctx, pcid)
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get layer nodes: %w", err)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get layer nodes: %w", err)
 		}
 
 		// Arrange snapshot layer into a byte array
@@ -532,26 +543,26 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64
 		// Create subTree from snapshot to commP (root)
 		mtree, err := proof.BuildSha254MemtreeFromSnapshot(layerBytes)
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to build memtree from snapshot: %w", err)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to build memtree from snapshot: %w", err)
 		}
 
 		// Generate merkle proof from snapShot node to commP
 		proofs, err := proof.MemtreeProof(mtree, snapshotNodeIndex)
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to generate memtree proof: %w", err)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate memtree proof: %w", err)
 		}
 
 		com, err := commcidv2.CommPFromPCidV2(pcid)
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get piece commitment: %w", err)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get piece commitment: %w", err)
 		}
 
 		// Verify proof with original root
 		if [32]byte(com.Digest()) != proofs.Root {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("root digest mismatch: %x != %x", com.Digest(), proofs.Root)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("root digest mismatch: %x != %x", com.Digest(), proofs.Root)
 		}
 
-		out = contract.PDPVerifierProof{
+		out = contract.IPDPTypesProof{
 			Leaf:  subTreeProof.Leaf,
 			Proof: append(subTreeProof.Proof, proofs.Proof...),
 		}
@@ -560,7 +571,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64
 	}
 
 	if !Verify(out, rootDigest, uint64(challengedLeaf)) {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("proof verification failed")
+		return contract.IPDPTypesProof{}, xerrors.Errorf("proof verification failed")
 	}
 
 	// Return the completed proof
@@ -604,7 +615,7 @@ func (p *ProveTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 	p.addFunc.Set(taskFunc)
 }
 
-func Verify(proof contract.PDPVerifierProof, root [32]byte, position uint64) bool {
+func Verify(proof contract.IPDPTypesProof, root [32]byte, position uint64) bool {
 	computedHash := proof.Leaf
 
 	for i := 0; i < len(proof.Proof); i++ {

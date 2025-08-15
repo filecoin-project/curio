@@ -150,7 +150,7 @@ func TestPDPProving(t *testing.T) {
 	require.Equal(t, proofs.Root, digest32)
 	rd := proofs.Root
 
-	out := contract.PDPVerifierProof{
+	out := contract.IPDPTypesProof{
 		Leaf:  subTreeProof.Leaf,
 		Proof: append(subTreeProof.Proof, proofs.Proof...),
 	}

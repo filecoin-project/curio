@@ -196,7 +196,7 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		}
 		if failed {
 			_, ferr := a.db.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = $1`, pieceRefID)
-			if err != nil {
+			if ferr != nil {
 				log.Errorf("failed to delete parked_piece_refs entry: %w", ferr)
 			}
 		}
@@ -226,9 +226,9 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		// Update PoRep pipeline
 		if deal.Products.DDOV1 != nil {
 			var complete bool
-			err = tx.QueryRow(`SELECT ddo_v1->>'complete' FROM market_mk20_deal WHERE id = $1`, id.String()).Scan(&complete)
+			err = tx.QueryRow(`SELECT (ddo_v1->>'complete')::boolean FROM market_mk20_deal WHERE id = $1`, id.String()).Scan(&complete)
 			if err != nil {
-				return false, fmt.Errorf("getting deal status: %w", err)
+				return false, fmt.Errorf("getting porep status: %w", err)
 			}
 			if !complete {
 				spid, err := address.IDFromAddress(deal.Products.DDOV1.Provider)
@@ -295,50 +295,35 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 		// Update PDP pipeline
 		if deal.Products.PDPV1 != nil {
 			var complete bool
-			err = tx.QueryRow(`SELECT pdp_v1->>'complete' FROM market_mk20_deal WHERE id = $1`, id.String()).Scan(&complete)
+			err = tx.QueryRow(`SELECT (pdp_v1->>'complete')::boolean FROM market_mk20_deal WHERE id = $1`, id.String()).Scan(&complete)
 			if err != nil {
-				return false, fmt.Errorf("getting deal status: %w", err)
+				return false, fmt.Errorf("getting pdp status: %w", err)
 			}
 			if !complete {
 				pdp := deal.Products.PDPV1
 				retv := deal.Products.RetrievalV1
-				var newRefID int64
 				if refIDUsed {
 					err = tx.QueryRow(`
 							INSERT INTO parked_piece_refs (piece_id, data_url, long_term)
 							VALUES ($1, $2, TRUE) RETURNING ref_id
-						`, parkedPieceID, "/PUT").Scan(&newRefID)
+						`, parkedPieceID, "/PUT").Scan(&pieceRefID)
 					if err != nil {
 						return false, fmt.Errorf("failed to create parked_piece_refs entry: %w", err)
 					}
-
-					n, err := tx.Exec(`INSERT INTO pdp_pipeline (
-							id, client, piece_cid_v2, piece_cid, piece_size, raw_size, data_set_id, 
-							extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
-						VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, $11, $12, $13)`,
-						id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.DataSetID,
-						pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
-					if err != nil {
-						return false, xerrors.Errorf("inserting in PDP pipeline: %w", err)
-					}
-					if n != 1 {
-						return false, xerrors.Errorf("inserting in PDP pipeline: %d rows affected", n)
-					}
-				} else {
-					n, err := tx.Exec(`INSERT INTO pdp_pipeline (
-							id, client, piece_cid_v2, piece_cid, piece_size, raw_size, data_set_id, 
-							extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
-						VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, $11, $12, $13)`,
-						id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.DataSetID,
-						pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
-					if err != nil {
-						return false, xerrors.Errorf("inserting in PDP pipeline: %w", err)
-					}
-					if n != 1 {
-						return false, xerrors.Errorf("inserting in PDP pipeline: %d rows affected", n)
-					}
 				}
-
+				
+				n, err := tx.Exec(`INSERT INTO pdp_pipeline (
+							id, client, piece_cid_v2, piece_cid, piece_size, raw_size, data_set_id, 
+							extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
+						VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, $11, $12, $13)`,
+					id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.DataSetID,
+					pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
+				if err != nil {
+					return false, xerrors.Errorf("inserting in PDP pipeline: %w", err)
+				}
+				if n != 1 {
+					return false, xerrors.Errorf("inserting in PDP pipeline: %d rows affected", n)
+				}
 			}
 		}
 

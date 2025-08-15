@@ -83,8 +83,8 @@ func (a *WebRPC) MK20DDOStorageDeals(ctx context.Context, limit int, offset int)
     												  d.created_at,
 													  d.id,
 													  d.piece_cid_v2,
-													  d.ddo_v1->'ddo'->>'provider' AS miner,
-													  d.ddo_v1->>'error' AS error,
+													  (d.ddo_v1->'ddo'->>'provider')::text AS miner,
+													  (d.ddo_v1->>'error')::text AS error,
 													  CASE
 														WHEN EXISTS (
 														  SELECT 1 FROM market_mk20_pipeline_waiting w

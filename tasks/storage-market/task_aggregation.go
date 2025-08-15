@@ -207,6 +207,7 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	var pieceParked bool
 
 	comm, err := a.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		// TODO: Review this logic for pieces which are not complete
 		// Check if we already have the piece, if found then verify access and skip rest of the processing
 		var pid int64
 		err = tx.QueryRow(`SELECT id FROM parked_pieces WHERE piece_cid = $1 AND piece_padded_size = $2 AND long_term = TRUE`, pi.PieceCIDV1.String(), pi.Size).Scan(&pid)
@@ -263,7 +264,7 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 	defer func() {
 		if failed {
 			_, ferr := a.db.Exec(ctx, `DELETE FROM parked_piece_refs WHERE ref_id = $1`, pieceRefID)
-			if err != nil {
+			if ferr != nil {
 				log.Errorf("failed to delete parked_piece_refs entry: %w", ferr)
 			}
 		}
@@ -300,6 +301,11 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 		_, err = tx.Exec(`DELETE FROM parked_piece_refs WHERE ref_id = ANY($1) AND long_term = FALSE`, refIDs)
 		if err != nil {
 			return false, fmt.Errorf("failed to delete parked_piece_refs entries: %w", err)
+		}
+
+		_, err = tx.Exec(`UPDATE parked_pieces SET complete = true WHERE id = $1 AND complete = FALSE`, parkedPieceID)
+		if err != nil {
+			return false, fmt.Errorf("failed to mark piece as complete: %w", err)
 		}
 
 		var rev mk20.RetrievalV1

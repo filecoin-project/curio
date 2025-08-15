@@ -130,7 +130,7 @@ func processDataSetPieceDelete(ctx context.Context, db *harmonydb.DB, psd DataSe
 			return false, xerrors.Errorf("failed to delete row from pdp_piece_delete: %w", err)
 		}
 		return true, nil
-	})
+	}, harmonydb.OptionRetry())
 
 	if err != nil {
 		return xerrors.Errorf("failed to commit transaction: %w", err)

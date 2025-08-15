@@ -272,4 +272,7 @@ const (
 
 	// UploadServerError indicates a server-side error occurred during the upload process, represented by the HTTP status code 500.
 	UploadServerError UploadCode = 500
+
+	// UploadRateLimit indicates that the upload operation is being rate-limited, corresponding to the HTTP status code 429.
+	UploadRateLimit UploadCode = 429
 )
