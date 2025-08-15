@@ -64,15 +64,16 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Cid{}, cid.Cid{}, xerrors.Errorf("mkdir update cache: %w", err)
 	}
 
+	////////////////////
+	// Prepare sector key
+	////////////////////
+
 	keyPath := filepath.Join(paths.UpdateCache, "cu-sector-key.dat")           // can this be a named pipe - no, mmap in proofs
 	keyCachePath := filepath.Join(paths.UpdateCache, "cu-sector-key-fincache") // some temp copy (finalized cache directory)
 	stagedDataPath := paths.Unsealed
 
 	var cleanupStagedFiles func() error
 	{
-		// hack until we do snap encode ourselves and just call into proofs for CommR
-		// https://github.com/filecoin-project/curio/issues/92
-
 		keyFile, err := os.Create(keyPath)
 		if err != nil {
 			return cid.Undef, cid.Undef, xerrors.Errorf("creating key file: %w", err)
@@ -192,7 +193,10 @@ func (sb *SealCalls) EncodeUpdate(
 		}
 	}
 
-	// allocate update file
+	////////////////////
+	// Allocate update file
+	////////////////////
+
 	{
 		s, err := os.Stat(keyPath)
 		if err != nil {
@@ -217,6 +221,12 @@ func (sb *SealCalls) EncodeUpdate(
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("ffi update encode: %w", err)
 	}
+	
+	// STEP 1: SupraEncode
+
+
+
+	// STEP 2: SupraTreeR
 
 	vps, err := ffi.SectorUpdate.GenerateUpdateVanillaProofs(proofType, sectorKeyCid, out.Sealed, out.Unsealed, paths.Update, paths.UpdateCache, keyPath, keyCachePath)
 	if err != nil {

@@ -50,3 +50,30 @@ var testSupraTreeRFileCmd = &cli.Command{
 		return nil
 	},
 }
+
+
+var testSnapEncodeCmd = &cli.Command{
+	Name:  "snap-encode",
+	Usage: "Test snap-encode",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:  "sealed-filename",
+			Usage: "Sealed filename",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:  "unsealed-filename",
+			Usage: "Unsealed filename",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:  "update-filename",
+			Usage: "Update filename",
+			Required: true,
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		
+		return nil
+	},
+}
