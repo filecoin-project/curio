@@ -56,6 +56,7 @@ import (
 
 type B32le = [32]byte
 type BytesLE = []byte
+var ResultBufDepth = 16
 
 func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica io.Reader, out io.Writer) error {
 	ssize, err := spt.SectorSize()
@@ -103,7 +104,7 @@ func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica 
 	var wg sync.WaitGroup
 	errChan := make(chan error, 1)
 	jobChan := make(chan jobSnap, workers)
-	resultChan := make(chan resultSnap, workers)
+	resultChan := make(chan resultSnap, workers*ResultBufDepth)
 
 	// Start worker goroutines
 	for i := 0; i < workers; i++ {
