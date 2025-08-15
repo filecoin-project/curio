@@ -135,7 +135,7 @@ func (e *EncodeTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu:     1,
 			Ram:     1 << 30, // todo correct value
 			Gpu:     gpu,
-			Storage: e.sc.Storage(e.taskToSector, storiface.FTUpdate|storiface.FTUpdateCache|storiface.FTUnsealed, storiface.FTNone, ssize, storiface.PathSealing, 1.0),
+			Storage: e.sc.Storage(e.taskToSector, storiface.FTUpdate|storiface.FTUpdateCache, storiface.FTNone, ssize, storiface.PathSealing, 1.0),
 		},
 		MaxFailures: 3,
 		IAmBored: passcall.Every(MinSnapSchedInterval, func(taskFunc harmonytask.AddTaskFunc) error {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/detailyang/go-fallocate"
 	"github.com/ipfs/go-cid"
@@ -23,8 +24,7 @@ import (
 	paths2 "github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/proofpaths"
-	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/lib/supraffi"
+	storiface "github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/tarutil"
 
 	"github.com/filecoin-project/lotus/storage/sealer/commitment"
@@ -74,6 +74,8 @@ func (sb *SealCalls) EncodeUpdate(
 	keyPath := filepath.Join(paths.UpdateCache, "cu-sector-key.dat")           // can this be a named pipe - no, mmap in proofs
 	keyCachePath := filepath.Join(paths.UpdateCache, "cu-sector-key-fincache") // some temp copy (finalized cache directory)
 	var keyFile *os.File
+
+	prepareKeyStart := time.Now()
 
 	var cleanupStagedFiles func() error
 	{
@@ -160,6 +162,8 @@ func (sb *SealCalls) EncodeUpdate(
 		}
 	}
 
+	log.Infow("prepare sector key", "took", time.Since(prepareKeyStart), "sectorID", sector.ID, "taskID", taskID)
+
 	commD, err := commutil.GenerateUnsealedCID(sector.ProofType, pieces)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("generate unsealed cid: %w", err)
@@ -168,6 +172,7 @@ func (sb *SealCalls) EncodeUpdate(
 	treeDPath := filepath.Join(paths.UpdateCache, proofpaths.TreeDName)
 
 	// STEP 0: TreeD
+	treeDStart := time.Now()
 	treeCommD, err := proof.BuildTreeD(data, true, treeDPath, abi.PaddedPieceSize(ssize))
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("build tree d: %w", err)
@@ -177,12 +182,15 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Undef, cid.Undef, xerrors.Errorf("comm d mismatch: piece: %s != tree: %s", commD, treeCommD)
 	}
 
+	log.Infow("build tree d", "took", time.Since(treeDStart), "sectorID", sector.ID, "taskID", taskID)
+
 	////////////////////
 	// Allocate update file
 	////////////////////
 
 	var updateFile *os.File
 	{
+		allocUpdateStart := time.Now()
 		keyStat, err := os.Stat(keyPath)
 		if err != nil {
 			return cid.Undef, cid.Undef, err
@@ -196,10 +204,12 @@ func (sb *SealCalls) EncodeUpdate(
 		if err := fallocate.Fallocate(updateFile, 0, sealedSize); err != nil {
 			return cid.Undef, cid.Undef, xerrors.Errorf("allocating space for replica update file: %w", err)
 		}
+
+		log.Infow("allocate update file", "took", time.Since(allocUpdateStart), "sectorID", sector.ID, "taskID", taskID)
 	}
 
 	// STEP 1: SupraEncode
-
+	encodeStart := time.Now()
 	treeDFile, err := os.Open(treeDPath)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("open tree d file: %w", err)
@@ -221,15 +231,22 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Undef, cid.Undef, xerrors.Errorf("encode snap: %w", err)
 	}
 
+	log.Infow("encode snap", "took", time.Since(encodeStart), "sectorID", sector.ID, "taskID", taskID)
+
 	// STEP 2: SupraTreeR
 
-	res := supraffi.TreeRFile(paths.Update, treeDPath, paths.UpdateCache, uint64(ssize))
-	if res != 0 {
+	treeRStart := time.Now()
+
+	ctx = ffiselect.WithLogCtx(ctx, "sector", sector.ID, "task", taskID, "update", paths.Update, "treeD", treeDPath, "updateCache", paths.UpdateCache, "sectorSize", ssize)
+	err = ffiselect.FFISelect.TreeRFile(ctx, paths.Update, treeDPath, paths.UpdateCache, uint64(ssize))
+	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("tree r file %s: %w", paths.Update, err)
 	}
 
-	// STEP 2.5: Read PAux-es, transplant CC CommC, write back, calculate CommR
+	log.Infow("tree r file", "took", time.Since(treeRStart), "sectorID", sector.ID, "taskID", taskID)
 
+	// STEP 2.5: Read PAux-es, transplant CC CommC, write back, calculate CommR
+	commRStart := time.Now()
 	_, updateCommRLast, err := proof.ReadPAux(paths.UpdateCache)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("read update p aux: %w", err)
@@ -253,6 +270,8 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Undef, cid.Undef, xerrors.Errorf("write comm r p aux: %w", err)
 	}
 
+	log.Infow("compute commR and write p_aux", "took", time.Since(commRStart), "sectorID", sector.ID, "taskID", taskID)
+
 	sealedCid, err := commcid.ReplicaCommitmentV1ToCID(commR[:])
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("compute sealed cid: %w", err)
@@ -260,11 +279,15 @@ func (sb *SealCalls) EncodeUpdate(
 
 	// STEP 3: Generate update proofs
 
+	genVpsStart := time.Now()
 	vps, err := ffi.SectorUpdate.GenerateUpdateVanillaProofs(proofType, sectorKeyCid, sealedCid, commD, paths.Update, paths.UpdateCache, keyPath, keyCachePath)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("generate vanilla update proofs: %w", err)
 	}
 
+	log.Infow("generate vanilla update proofs", "took", time.Since(genVpsStart), "sectorID", sector.ID, "taskID", taskID)
+
+	verifyVpsStart := time.Now()
 	ok, err := ffi.SectorUpdate.VerifyVanillaProofs(proofType, sectorKeyCid, sealedCid, commD, vps)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("verify vanilla update proofs: %w", err)
@@ -273,7 +296,10 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Undef, cid.Undef, xerrors.Errorf("vanilla update proofs invalid")
 	}
 
+	log.Infow("verify vanilla update proofs", "took", time.Since(verifyVpsStart), "sectorID", sector.ID, "taskID", taskID)
+
 	// persist in UpdateCache/snap-vproof.json
+	writeVpsStart := time.Now()
 	jb, err := json.Marshal(vps)
 	if err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("marshal vanilla proofs: %w", err)
@@ -284,6 +310,8 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Undef, cid.Undef, xerrors.Errorf("write vanilla proofs: %w", err)
 	}
 
+	log.Infow("write vanilla proofs", "took", time.Since(writeVpsStart), "sectorID", sector.ID, "taskID", taskID)
+
 	// Create unsealed file from tree-d prefix (same bytes)
 	{
 		var uPaths, uPathIDs storiface.SectorPaths
@@ -291,31 +319,43 @@ func (sb *SealCalls) EncodeUpdate(
 		uPaths.Cache = paths.UpdateCache
 		uPathIDs.Cache = pathIDs.UpdateCache
 
+		genUnsealedStart := time.Now()
 		if err := sb.GenerateUnsealedSector(ctx, sector, &uPaths, &uPathIDs, keepUnsealed); err != nil {
 			return cid.Undef, cid.Undef, xerrors.Errorf("generate unsealed sector: %w", err)
 		}
 
 		paths.Unsealed = uPaths.Unsealed
 		pathIDs.Unsealed = uPathIDs.Unsealed
+
+		log.Infow("generate unsealed sector", "took", time.Since(genUnsealedStart), "sectorID", sector.ID, "taskID", taskID)
 	}
 
 	// cleanup
+	cleanupStart := time.Now()
 	if err := cleanupStagedFiles(); err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("cleanup staged files: %w", err)
 	}
 
+	log.Infow("cleanup staged files", "took", time.Since(cleanupStart), "sectorID", sector.ID, "taskID", taskID)
+
+	clearCacheStart := time.Now()
 	if err := ffi.ClearCache(paths.UpdateCache); err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("clear cache: %w", err)
 	}
+
+	log.Infow("clear cache", "took", time.Since(clearCacheStart), "sectorID", sector.ID, "taskID", taskID)
 
 	ensureTypes := storiface.FTUpdate | storiface.FTUpdateCache
 	if keepUnsealed {
 		ensureTypes |= storiface.FTUnsealed
 	}
 
+	ensureOneCopyStart := time.Now()
 	if err := sb.ensureOneCopy(ctx, sector.ID, pathIDs, ensureTypes); err != nil {
 		return cid.Undef, cid.Undef, xerrors.Errorf("ensure one copy: %w", err)
 	}
+
+	log.Infow("ensure one copy", "took", time.Since(ensureOneCopyStart), "sectorID", sector.ID, "taskID", taskID)
 
 	return sealedCid, commD, nil
 }

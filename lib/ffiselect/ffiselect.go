@@ -192,6 +192,8 @@ var FFISelect struct {
 		vproofs [][]byte,
 	) ([]byte, error)
 
+	TreeRFile func(ctx context.Context, lastLayerFilename, dataFilename, outputDir string, sectorSize uint64) error
+
 	SelfTest func(ctx context.Context, val1 int, val2 cid.Cid) (cid.Cid, error)
 }
 

@@ -24,7 +24,8 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
 	"github.com/filecoin-project/curio/lib/storiface"
-
+	"github.com/filecoin-project/curio/lib/proof"
+	
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
@@ -158,7 +159,7 @@ func (c *CommpTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 			_ = closer.Close()
 		}()
 
-		w := &writer.Writer{}
+		w := new(proof.DataCidWriter)
 		written, err := io.CopyBuffer(w, pReader, make([]byte, writer.CommPBuf))
 		if err != nil {
 			return false, xerrors.Errorf("copy into commp writer: %w", err)
