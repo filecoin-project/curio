@@ -161,56 +161,56 @@ class MarketAsks extends LitElement {
 
     render() {
         return html`
-      <link
-        href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
-        rel="stylesheet"
-        integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3"
-        crossorigin="anonymous"
-      />
-      <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'" />
+            <link
+                    href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
+                    rel="stylesheet"
+                    integrity="sha384-1BmE4kWBq78iYhFldvKuhfTAU6auU8tT94WrHftjDbrCEXSU1oBoqyl2QvZ6jIW3"
+                    crossorigin="anonymous"
+            />
+            <link rel="stylesheet" href="/ux/main.css" onload="document.body.style.visibility = 'initial'"/>
 
-      <div>
-        <h2>Storage Asks</h2>
-        <table class="table table-dark table-striped">
-          <thead>
-            <tr>
-              <th>SP ID</th>
-              <th>Price (FIL/TiB/Month)</th>
-              <th>Price (attoFIL/GiB/Epoch)</th>
-              <th>Verified Price (FIL/TiB/Month)</th>
-              <th>Verified Price (attoFIL/GiB/Epoch)</th>
-              <th>Min Size</th>
-              <th>Max Size</th>
-              <th>Sequence</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${this.actorList.map((spID) => {
-            const ask = this.spAsks.get(spID);
-            return html`
-                <tr>
-                  <td>${ask ? ask.Miner : ''}</td>
-                  <td>${ask ? this.attoFilToFilPerTiBPerMonth(ask.Price) : '-'}</td>
-                  <td>${ask ? ask.Price : '-'}</td>
-                  <td>${ask ? this.attoFilToFilPerTiBPerMonth(ask.VerifiedPrice) : '-'}</td>
-                  <td>${ask ? ask.VerifiedPrice : '-'}</td>
-                  <td>${ask ? this.formatBytes(ask.MinSize) : '-'}</td>
-                  <td>${ask ? this.formatBytes(ask.MaxSize) : '-'}</td>
-                  <td>${ask ? ask.Sequence : '-'}</td>
-                  <td>
-                    <button class="btn btn-primary" @click="${() => this.updateAsk(spID)}">
-                      ${ask ? 'Update' : 'Set'} Ask
-                    </button>
-                  </td>
-                </tr>
-              `;
-        })}
-          </tbody>
-        </table>
-        ${this.updatingSpID !== null ? this.renderUpdateForm() : ''}
-      </div>
-    `;
+            <div>
+                <h2>Storage Asks</h2>
+                <table class="table table-dark table-striped">
+                    <thead>
+                    <tr>
+                        <th>SP ID</th>
+                        <th>Price (FIL/TiB/Month)</th>
+                        <th>Price (attoFIL/GiB/Epoch)</th>
+                        <th>Verified Price (FIL/TiB/Month)</th>
+                        <th>Verified Price (attoFIL/GiB/Epoch)</th>
+                        <th>Min Size</th>
+                        <th>Max Size</th>
+                        <th>Sequence</th>
+                        <th>Actions</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    ${this.actorList.map((spID) => {
+                        const ask = this.spAsks.get(spID);
+                        return html`
+                            <tr>
+                                <td>${ask ? ask.Miner : ''}</td>
+                                <td>${ask ? this.attoFilToFilPerTiBPerMonth(ask.Price) : '-'}</td>
+                                <td>${ask ? ask.Price : '-'}</td>
+                                <td>${ask ? this.attoFilToFilPerTiBPerMonth(ask.VerifiedPrice) : '-'}</td>
+                                <td>${ask ? ask.VerifiedPrice : '-'}</td>
+                                <td>${ask ? this.formatBytes(ask.MinSize) : '-'}</td>
+                                <td>${ask ? this.formatBytes(ask.MaxSize) : '-'}</td>
+                                <td>${ask ? ask.Sequence : '-'}</td>
+                                <td>
+                                    <button class="btn btn-primary" @click="${() => this.updateAsk(spID)}">
+                                        ${ask ? 'Update' : 'Set'} Ask
+                                    </button>
+                                </td>
+                            </tr>
+                        `;
+                    })}
+                    </tbody>
+                </table>
+                ${this.updatingSpID !== null ? this.renderUpdateForm() : ''}
+            </div>
+        `;
     }
 
     renderUpdateForm() {
