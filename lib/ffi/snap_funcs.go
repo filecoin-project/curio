@@ -13,6 +13,7 @@ import (
 	"golang.org/x/xerrors"
 
 	ffi "github.com/filecoin-project/filecoin-ffi"
+	commutil "github.com/filecoin-project/go-commp-utils/nonffi"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
@@ -25,7 +26,6 @@ import (
 	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/supraffi"
 	"github.com/filecoin-project/curio/lib/tarutil"
-	commutil "github.com/filecoin-project/go-commp-utils/nonffi"
 
 	"github.com/filecoin-project/lotus/storage/sealer/commitment"
 )

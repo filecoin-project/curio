@@ -493,6 +493,7 @@ USAGE:
 COMMANDS:
    window-post, wd, windowpost, wdpost  Compute a proof-of-spacetime for a sector (requires the sector to be pre-sealed). These will not send to the chain.
    debug                                Collection of debugging utilities
+   supra                                Supra consensus testing utilities
    help, h                              Shows a list of commands or help for one command
 
 OPTIONS:
@@ -944,6 +945,58 @@ USAGE:
 OPTIONS:
    --id value  
    --help, -h  show help
+```
+
+### curio test supra
+```
+NAME:
+   curio test supra - Supra consensus testing utilities
+
+USAGE:
+   curio test supra command [command options]
+
+COMMANDS:
+   tree-r-file  Test tree-r-file
+   snap-encode  Test snap-encode
+   help, h      Shows a list of commands or help for one command
+
+OPTIONS:
+   --help, -h  show help
+```
+
+#### curio test supra tree-r-file
+```
+NAME:
+   curio test supra tree-r-file - Test tree-r-file
+
+USAGE:
+   curio test supra tree-r-file [command options]
+
+OPTIONS:
+   --last-layer-filename value  Last layer filename
+   --data-filename value        Data filename
+   --output-dir value           Output directory
+   --sector-size value          Sector size (default: 0)
+   --help, -h                   show help
+```
+
+#### curio test supra snap-encode
+```
+NAME:
+   curio test supra snap-encode - Test snap-encode
+
+USAGE:
+   curio test supra snap-encode [command options]
+
+OPTIONS:
+   --sealed-filename value    Sealed filename
+   --unsealed-filename value  Unsealed filename
+   --update-filename value    Update filename
+   --sector-size value        Sector size (bytes). Supported: 2048, 8388608, 549755813888, 34359738368, 68719476736 (default: 0)
+   --commd value              Unsealed CommD CID (v1)
+   --commk value              SectorKey CommR (commK) CID (v1)
+   --membuffer                Use memory buffer instead of disk (load and store) (default: false)
+   --help, -h                 show help
 ```
 
 ## curio web

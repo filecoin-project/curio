@@ -7,12 +7,11 @@ import (
 	"os"
 	"time"
 
+	"github.com/ipfs/go-cid"
+	"github.com/urfave/cli/v2"
 	"golang.org/x/xerrors"
 
-	"github.com/urfave/cli/v2"
-
 	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/ipfs/go-cid"
 
 	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/lib/ffi/cunative"

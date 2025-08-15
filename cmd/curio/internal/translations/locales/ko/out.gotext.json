@@ -1,4 +1,11 @@
 {
     "language": "ko",
-    "messages": []
+    "messages": [
+      {
+        "id": "Supra consensus testing utilities",
+        "translation": "",
+        "message": "Supra consensus testing utilities",
+        "placeholder": null
+      }
+    ]
   }

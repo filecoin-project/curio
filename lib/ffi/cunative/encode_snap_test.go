@@ -8,8 +8,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"time"
 	"testing"
+	"time"
 
 	"github.com/detailyang/go-fallocate"
 	"github.com/stretchr/testify/require"

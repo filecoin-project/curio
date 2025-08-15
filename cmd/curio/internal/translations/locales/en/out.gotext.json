@@ -1164,6 +1164,13 @@
             "fuzzy": true
         },
         {
+            "id": "Supra consensus testing utilities",
+            "message": "Supra consensus testing utilities",
+            "translation": "Supra consensus testing utilities",
+            "translatorComment": "Copied from source.",
+            "fuzzy": true
+        },
+        {
             "id": "Tool Box for Curio",
             "message": "Tool Box for Curio",
             "translation": "Tool Box for Curio",

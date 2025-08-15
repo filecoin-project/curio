@@ -56,6 +56,7 @@ import (
 
 type B32le = [32]byte
 type BytesLE = []byte
+
 var ResultBufDepth = 16
 
 func DecodeSnap(spt abi.RegisteredSealProof, commD, commK cid.Cid, key, replica io.Reader, out io.Writer) error {

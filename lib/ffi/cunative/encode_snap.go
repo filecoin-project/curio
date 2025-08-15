@@ -35,7 +35,6 @@ import (
 	"io"
 	"runtime"
 	"sync"
-	"fmt"
 	"unsafe"
 
 	"github.com/ipfs/go-cid"
