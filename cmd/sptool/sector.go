@@ -433,6 +433,7 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 		&cli.Int64Flag{
 			Name:  "max-sectors",
 			Usage: "the maximum number of sectors contained in each message",
+			Value: 500,
 		},
 		&cli.BoolFlag{
 			Name:  "really-do-it",
@@ -716,12 +717,12 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 		}
 
 		addrSectors := sectorsMax
-		if cctx.Int("max-sectors") != 0 {
-			addrSectors = cctx.Int("max-sectors")
-			if addrSectors > sectorsMax {
-				return xerrors.Errorf("the specified max-sectors exceeds the maximum limit")
-			}
-		}
+        if cctx.Int("max-sectors") > 0 {
+            addrSectors = cctx.Int("max-sectors")
+        }
+        if addrSectors > sectorsMax {
+            addrSectors = sectorsMax
+        }
 
 		var params []miner.ExtendSectorExpiration2Params
 
