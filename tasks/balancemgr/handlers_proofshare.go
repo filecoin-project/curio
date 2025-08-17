@@ -157,7 +157,7 @@ func (b *BalanceMgrTask) doProofshare(ctx context.Context, taskID harmonytask.Ta
 	_, err = b.db.Exec(ctx, `
 			INSERT INTO proofshare_client_messages (signed_cid, wallet, action)
 			VALUES ($1, $2, $3)
-		`, msgCid, idAddr, "deposit-bmgr")
+		`, msgCid, addrID, "deposit-bmgr")
 	if err != nil {
 		return false, xerrors.Errorf("addMessageTracking: failed to insert proofshare_client_messages: %w", err)
 	}
