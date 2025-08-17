@@ -65,23 +65,12 @@ func (b *BalanceMgrTask) adderProofshare(ctx context.Context, taskFunc harmonyta
 	return nil
 }
 
-// doProofshare is a stub for proofshare subject rules.
 func (b *BalanceMgrTask) doProofshare(ctx context.Context, taskID harmonytask.TaskID, addr *balanceManagerAddress) (bool, error) {
-	log.Infow("balancemgr proofshare Do stub",
+	log.Infow("balancemgr proofshare Do",
 		"id", addr.ID,
 		"subject", addr.SubjectAddress,
 		"low", types.FIL(addr.LowWatermarkFilBalance),
 		"high", types.FIL(addr.HighWatermarkFilBalance))
-
-	// Clear the task and return done.
-	_, err := b.db.Exec(ctx, `
-		UPDATE balance_manager_addresses
-		SET active_task_id = NULL, last_action = NOW()
-		WHERE id = $1
-	`, addr.ID)
-	if err != nil {
-		return false, xerrors.Errorf("proofshare Do: clearing task id: %w", err)
-	}
 
 	svc := common.NewServiceCustomSend(b.chain, func(ctx context.Context, msg *types.Message, mss *api.MessageSendSpec) (cid.Cid, error) {
 		mss.MaximizeFeeCap = true
@@ -112,7 +101,7 @@ func (b *BalanceMgrTask) doProofshare(ctx context.Context, taskID harmonytask.Ta
 
 	// calculate amount to send (based on latest chain balance)
 	var amount types.BigInt
-	var from, to address.Address
+	var to address.Address
 	var shouldSend bool
 
 	if addr.ActionType != "requester" {
@@ -121,7 +110,6 @@ func (b *BalanceMgrTask) doProofshare(ctx context.Context, taskID harmonytask.Ta
 
 	if addr.SubjectBalance.LessThan(addr.LowWatermarkFilBalance) {
 		amount = types.BigSub(addr.HighWatermarkFilBalance, addr.SubjectBalance)
-		from = addr.SecondAddress
 		to = addr.SubjectAddress
 		shouldSend = true
 	}
@@ -158,7 +146,8 @@ func (b *BalanceMgrTask) doProofshare(ctx context.Context, taskID harmonytask.Ta
 		UPDATE balance_manager_addresses 
 		SET last_msg_cid = $2, 
 		    last_msg_sent_at = NOW(), 
-		    last_msg_landed_at = NULL
+		    last_msg_landed_at = NULL,
+			active_task_id = NULL
 		WHERE id = $1
 	`, addr.ID, msgCid.String())
 	if err != nil {
@@ -174,7 +163,7 @@ func (b *BalanceMgrTask) doProofshare(ctx context.Context, taskID harmonytask.Ta
 	}
 
 	log.Infow("sent balance management message",
-		"from", from,
+		"from", addr.SecondAddress,
 		"to", to,
 		"subjectType", "proofshare",
 		"amount", types.FIL(amount),
