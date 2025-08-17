@@ -33,6 +33,20 @@ type BalanceMgrTask struct {
 	adder  promise.Promise[harmonytask.AddTaskFunc]
 }
 
+type balanceManagerAddress struct {
+	ID                      int64
+	SubjectAddress          address.Address
+	SecondAddress           address.Address
+	ActionType              string
+	SubjectType             string
+	LowWatermarkFilBalance  types.BigInt
+	HighWatermarkFilBalance types.BigInt
+
+	// chain data
+	SubjectBalance types.BigInt
+	SecondBalance  types.BigInt
+}
+
 func NewBalanceMgrTask(db *harmonydb.DB, chain api.FullNode, pcs *chainsched.CurioChainSched, sender *message.Sender) *BalanceMgrTask {
 	t := &BalanceMgrTask{
 		db:     db,
@@ -49,7 +63,7 @@ func NewBalanceMgrTask(db *harmonydb.DB, chain api.FullNode, pcs *chainsched.Cur
 
 		// select all addrs, where active_task_id = null, last_msg_cid is null OR last_msg_landed_at is NOT null
 		rows, err := t.db.Query(ctx, `
-			SELECT id, subject_address, second_address, action_type, low_watermark_fil_balance, high_watermark_fil_balance
+			SELECT id, subject_address, second_address, action_type, low_watermark_fil_balance, high_watermark_fil_balance, subject_type
 			FROM balance_manager_addresses
 			WHERE active_task_id IS NULL AND (last_msg_cid IS NULL OR last_msg_landed_at IS NOT NULL)
 		`)
@@ -58,18 +72,6 @@ func NewBalanceMgrTask(db *harmonydb.DB, chain api.FullNode, pcs *chainsched.Cur
 		}
 		defer rows.Close()
 
-		type balanceManagerAddress struct {
-			ID                      int64
-			SubjectAddress          address.Address
-			SecondAddress           address.Address
-			ActionType              string
-			LowWatermarkFilBalance  types.BigInt
-			HighWatermarkFilBalance types.BigInt
-
-			// chain data
-			SubjectBalance types.BigInt
-			SecondBalance  types.BigInt
-		}
 		addresses := make([]*balanceManagerAddress, 0)
 
 		for rows.Next() {
@@ -77,10 +79,11 @@ func NewBalanceMgrTask(db *harmonydb.DB, chain api.FullNode, pcs *chainsched.Cur
 			var subjectAddressStr string
 			var secondAddressStr string
 			var actionType string
+			var subjectType string
 			var lowWatermarkFilBalanceStr string
 			var highWatermarkFilBalanceStr string
 
-			err = rows.Scan(&id, &subjectAddressStr, &secondAddressStr, &actionType, &lowWatermarkFilBalanceStr, &highWatermarkFilBalanceStr)
+			err = rows.Scan(&id, &subjectAddressStr, &secondAddressStr, &actionType, &lowWatermarkFilBalanceStr, &highWatermarkFilBalanceStr, &subjectType)
 			if err != nil {
 				return xerrors.Errorf("scanning balance manager address: %w", err)
 			}
@@ -110,6 +113,7 @@ func NewBalanceMgrTask(db *harmonydb.DB, chain api.FullNode, pcs *chainsched.Cur
 				SubjectAddress:          subjectAddr,
 				SecondAddress:           secondAddr,
 				ActionType:              actionType,
+				SubjectType:             subjectType,
 				LowWatermarkFilBalance:  abi.TokenAmount(lowWatermark),
 				HighWatermarkFilBalance: abi.TokenAmount(highWatermark),
 			}
@@ -118,42 +122,14 @@ func NewBalanceMgrTask(db *harmonydb.DB, chain api.FullNode, pcs *chainsched.Cur
 		}
 
 		for _, addr := range addresses {
-			// get balances
-			subjectBalance, err := t.chain.WalletBalance(ctx, addr.SubjectAddress)
-			if err != nil {
-				return xerrors.Errorf("getting subject balance: %w", err)
-			}
-
-			secondBalance, err := t.chain.WalletBalance(ctx, addr.SecondAddress)
-			if err != nil {
-				return xerrors.Errorf("getting second balance: %w", err)
-			}
-
-			addr.SubjectBalance = subjectBalance
-			addr.SecondBalance = secondBalance
-
-			var shouldCreateTask bool
-			switch addr.ActionType {
-			case "requester":
-				shouldCreateTask = addr.SubjectBalance.LessThan(addr.LowWatermarkFilBalance)
-			case "active-provider":
-				shouldCreateTask = addr.SubjectBalance.GreaterThan(addr.HighWatermarkFilBalance)
-			}
-
-			if shouldCreateTask {
-				taskFunc(func(taskID harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
-					// check that address.ID has active_task_id = null, set the task ID, set last_ to null
-					n, err := tx.Exec(`
-						UPDATE balance_manager_addresses
-						SET active_task_id = $1, last_msg_cid = NULL, last_msg_sent_at = NULL, last_msg_landed_at = NULL
-						WHERE id = $2 AND active_task_id IS NULL AND (last_msg_cid IS NULL OR last_msg_landed_at IS NOT NULL)
-					`, taskID, addr.ID)
-					if err != nil {
-						return false, xerrors.Errorf("updating balance manager address: %w", err)
-					}
-
-					return n > 0, nil
-				})
+			// Only wallet-type rules are handled by on-chain sends here.
+			switch addr.SubjectType {
+			case "wallet":
+				err = t.adderWallet(ctx, taskFunc, addr)
+			case "proofshare":
+				err = t.adderProofshare(ctx, taskFunc, addr)
+			default:
+				return xerrors.Errorf("unknown subject type: %s", addr.SubjectType)
 			}
 		}
 		return nil
@@ -163,6 +139,54 @@ func NewBalanceMgrTask(db *harmonydb.DB, chain api.FullNode, pcs *chainsched.Cur
 	}
 
 	return t
+}
+
+func (b *BalanceMgrTask) adderProofshare(ctx context.Context, taskFunc harmonytask.AddTaskFunc, addr *balanceManagerAddress) error {
+
+	return nil
+}
+
+
+func (b *BalanceMgrTask) adderWallet(ctx context.Context, taskFunc harmonytask.AddTaskFunc, addr *balanceManagerAddress) error {
+	// get balances
+	subjectBalance, err := b.chain.WalletBalance(ctx, addr.SubjectAddress)
+	if err != nil {
+		return xerrors.Errorf("getting subject balance: %w", err)
+	}
+
+	secondBalance, err := b.chain.WalletBalance(ctx, addr.SecondAddress)
+	if err != nil {
+		return xerrors.Errorf("getting second balance: %w", err)
+	}
+
+	addr.SubjectBalance = subjectBalance
+	addr.SecondBalance = secondBalance
+
+	var shouldCreateTask bool
+	switch addr.ActionType {
+	case "requester":
+		shouldCreateTask = addr.SubjectBalance.LessThan(addr.LowWatermarkFilBalance)
+	case "active-provider":
+		shouldCreateTask = addr.SubjectBalance.GreaterThan(addr.HighWatermarkFilBalance)
+	}
+
+	if shouldCreateTask {
+		taskFunc(func(taskID harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
+			// check that address.ID has active_task_id = null, set the task ID, set last_ to null
+			n, err := tx.Exec(`
+				UPDATE balance_manager_addresses
+				SET active_task_id = $1, last_msg_cid = NULL, last_msg_sent_at = NULL, last_msg_landed_at = NULL
+				WHERE id = $2 AND active_task_id IS NULL AND (last_msg_cid IS NULL OR last_msg_landed_at IS NOT NULL)
+			`, taskID, addr.ID)
+			if err != nil {
+				return false, xerrors.Errorf("updating balance manager address: %w", err)
+			}
+
+			return n > 0, nil
+		})
+	}
+
+	return nil
 }
 
 // Adder implements harmonytask.TaskInterface.
@@ -184,16 +208,17 @@ func (b *BalanceMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	var subjectAddressStr string
 	var secondAddressStr string
 	var actionType string
+	var subjectType string
 	var lowWatermarkStr string
 	var highWatermarkStr string
 
 	err = b.db.QueryRow(ctx, `
 		SELECT id, subject_address, second_address, action_type, 
-		       low_watermark_fil_balance, high_watermark_fil_balance
+		       low_watermark_fil_balance, high_watermark_fil_balance, subject_type
 		FROM balance_manager_addresses
 		WHERE active_task_id = $1
 	`, taskID).Scan(&id, &subjectAddressStr, &secondAddressStr, &actionType,
-		&lowWatermarkStr, &highWatermarkStr)
+		&lowWatermarkStr, &highWatermarkStr, &subjectType)
 	if err != nil {
 		return false, xerrors.Errorf("failed to get balance manager address: %w", err)
 	}
