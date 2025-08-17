@@ -164,7 +164,7 @@ func (b *BalanceMgrTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask
 		}
 
 		if subjectType == "wallet" ||
-		   subjectType == "proofshare" {
+			subjectType == "proofshare" {
 			return &id, nil
 		}
 	}

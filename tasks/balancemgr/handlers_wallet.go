@@ -4,14 +4,17 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"golang.org/x/xerrors"
+
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/builtin"
+
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
+
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
-	"golang.org/x/xerrors"
 )
 
 func (b *BalanceMgrTask) adderWallet(ctx context.Context, taskFunc harmonytask.AddTaskFunc, addr *balanceManagerAddress) error {
@@ -55,7 +58,6 @@ func (b *BalanceMgrTask) adderWallet(ctx context.Context, taskFunc harmonytask.A
 
 	return nil
 }
-
 
 // doWallet handles wallet subject rules.
 func (b *BalanceMgrTask) doWallet(ctx context.Context, taskID harmonytask.TaskID, addr *balanceManagerAddress) (bool, error) {

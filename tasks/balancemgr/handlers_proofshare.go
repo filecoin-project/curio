@@ -3,14 +3,17 @@ package balancemgr
 import (
 	"context"
 
+	"github.com/ipfs/go-cid"
+	"golang.org/x/xerrors"
+
+	"github.com/filecoin-project/go-address"
+
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/proofsvc/common"
-	"github.com/filecoin-project/go-address"
+
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
-	"github.com/ipfs/go-cid"
-	"golang.org/x/xerrors"
 )
 
 func (b *BalanceMgrTask) adderProofshare(ctx context.Context, taskFunc harmonytask.AddTaskFunc, addr *balanceManagerAddress) error {
@@ -169,7 +172,6 @@ func (b *BalanceMgrTask) doProofshare(ctx context.Context, taskID harmonytask.Ta
 	if err != nil {
 		return false, xerrors.Errorf("addMessageTracking: failed to insert proofshare_client_messages: %w", err)
 	}
-
 
 	log.Infow("sent balance management message",
 		"from", from,
