@@ -15,6 +15,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/promise"
+	"github.com/filecoin-project/curio/lib/proofsvc/common"
 	"github.com/filecoin-project/curio/tasks/message"
 
 	"github.com/filecoin-project/lotus/api"
@@ -129,7 +130,12 @@ func NewBalanceMgrTask(db *harmonydb.DB, chain api.FullNode, pcs *chainsched.Cur
 			case "proofshare":
 				err = t.adderProofshare(ctx, taskFunc, addr)
 			default:
-				return xerrors.Errorf("unknown subject type: %s", addr.SubjectType)
+				log.Warnw("unknown subject type", "type", addr.SubjectType)
+				continue
+			}
+
+			if err != nil {
+				log.Errorw("error considering task add", "error", err, "addr", addr)
 			}
 		}
 		return nil
@@ -142,10 +148,53 @@ func NewBalanceMgrTask(db *harmonydb.DB, chain api.FullNode, pcs *chainsched.Cur
 }
 
 func (b *BalanceMgrTask) adderProofshare(ctx context.Context, taskFunc harmonytask.AddTaskFunc, addr *balanceManagerAddress) error {
+	svc := common.NewService(b.chain)
+	idAddr, err := b.chain.StateLookupID(ctx, addr.SubjectAddress, types.EmptyTSK)
+	if err != nil {
+		return xerrors.Errorf("getting address ID: %w", err)
+	}
 
+	addrID, err := address.IDFromAddress(idAddr)
+	if err != nil {
+		return xerrors.Errorf("getting address ID: %w", err)
+	}
+
+	clientState, err := svc.GetClientState(ctx, addrID)
+	if err != nil {
+		return xerrors.Errorf("PSClientWallets: failed to get client state: %w", err)
+	}
+
+	sourceBalance, err := b.chain.StateGetActor(ctx, addr.SubjectAddress, types.EmptyTSK)
+	if err != nil {
+		return xerrors.Errorf("getting source balance: %w", err)
+	}
+
+	addr.SubjectBalance = types.BigInt(clientState.Balance)
+	addr.SecondBalance = types.BigInt(sourceBalance.Balance)
+
+	var shouldCreateTask bool
+	switch addr.ActionType {
+	case "requester":
+		shouldCreateTask = addr.SubjectBalance.LessThan(addr.LowWatermarkFilBalance)
+	}
+
+	if shouldCreateTask {
+		taskFunc(func(taskID harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
+			// check that address.ID has active_task_id = null, set the task ID, set last_ to null
+			n, err := tx.Exec(`
+				UPDATE balance_manager_addresses
+				SET active_task_id = $1, last_msg_cid = NULL, last_msg_sent_at = NULL, last_msg_landed_at = NULL
+				WHERE id = $2 AND active_task_id IS NULL AND (last_msg_cid IS NULL OR last_msg_landed_at IS NOT NULL)
+			`, taskID, addr.ID)
+			if err != nil {
+				return false, xerrors.Errorf("updating balance manager address: %w", err)
+			}
+
+			return n > 0, nil
+		})
+	}
 	return nil
 }
-
 
 func (b *BalanceMgrTask) adderWallet(ctx context.Context, taskFunc harmonytask.AddTaskFunc, addr *balanceManagerAddress) error {
 	// get balances
@@ -196,7 +245,24 @@ func (b *BalanceMgrTask) Adder(taskFunc harmonytask.AddTaskFunc) {
 
 // CanAccept implements harmonytask.TaskInterface.
 func (b *BalanceMgrTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	return &ids[0], nil
+	for _, id := range ids {
+		var subjectType string
+
+		err := b.db.QueryRow(context.Background(), `
+			SELECT subject_type
+			FROM balance_manager_addresses
+			WHERE active_task_id = $1
+		`, id).Scan(&subjectType)
+		if err != nil {
+			return nil, xerrors.Errorf("getting subject type: %w", err)
+		}
+
+		if subjectType == "wallet" {
+			return &id, nil
+		}
+	}
+
+	return nil, nil
 }
 
 // Do implements harmonytask.TaskInterface.
@@ -244,39 +310,84 @@ func (b *BalanceMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		return false, xerrors.Errorf("parsing high watermark: %w", err)
 	}
 
+	addr := &balanceManagerAddress{
+		ID:                      id,
+		SubjectAddress:          subjectAddr,
+		SecondAddress:           secondAddr,
+		ActionType:              actionType,
+		SubjectType:             subjectType,
+		LowWatermarkFilBalance:  abi.TokenAmount(lowWatermark),
+		HighWatermarkFilBalance: abi.TokenAmount(highWatermark),
+	}
+
+	switch addr.SubjectType {
+	case "wallet":
+		return b.doWallet(ctx, taskID, addr)
+	case "proofshare":
+		return b.doProofshare(ctx, taskID, addr)
+	default:
+		return false, xerrors.Errorf("unknown subject type: %s", addr.SubjectType)
+	}
+}
+
+// doProofshare is a stub for proofshare subject rules.
+func (b *BalanceMgrTask) doProofshare(ctx context.Context, taskID harmonytask.TaskID, addr *balanceManagerAddress) (bool, error) {
+	log.Infow("balancemgr proofshare Do stub",
+		"id", addr.ID,
+		"subject", addr.SubjectAddress,
+		"low", types.FIL(addr.LowWatermarkFilBalance),
+		"high", types.FIL(addr.HighWatermarkFilBalance))
+
+	// Clear the task and return done.
+	_, err := b.db.Exec(ctx, `
+		UPDATE balance_manager_addresses
+		SET active_task_id = NULL, last_action = NOW()
+		WHERE id = $1
+	`, addr.ID)
+	if err != nil {
+		return false, xerrors.Errorf("proofshare Do: clearing task id: %w", err)
+	}
+	return true, nil
+}
+
+// doWallet handles wallet subject rules.
+func (b *BalanceMgrTask) doWallet(ctx context.Context, taskID harmonytask.TaskID, addr *balanceManagerAddress) (bool, error) {
 	// Get current balances
-	subjectBalance, err := b.chain.WalletBalance(ctx, subjectAddr)
+	subjectBalance, err := b.chain.WalletBalance(ctx, addr.SubjectAddress)
 	if err != nil {
 		return false, xerrors.Errorf("getting subject balance: %w", err)
 	}
 
-	secondBalance, err := b.chain.WalletBalance(ctx, secondAddr)
+	secondBalance, err := b.chain.WalletBalance(ctx, addr.SecondAddress)
 	if err != nil {
 		return false, xerrors.Errorf("getting second balance: %w", err)
 	}
+
+	addr.SubjectBalance = subjectBalance
+	addr.SecondBalance = secondBalance
 
 	// calculate amount to send (based on latest chain balance)
 	var amount types.BigInt
 	var from, to address.Address
 	var shouldSend bool
 
-	switch actionType {
+	switch addr.ActionType {
 	case "requester":
 		// If subject below low watermark, send from second to subject up to high watermark
-		if subjectBalance.LessThan(abi.TokenAmount(lowWatermark)) {
-			targetAmount := types.BigSub(abi.TokenAmount(highWatermark), subjectBalance)
+		if addr.SubjectBalance.LessThan(addr.LowWatermarkFilBalance) {
+			targetAmount := types.BigSub(addr.HighWatermarkFilBalance, addr.SubjectBalance)
 			// Make sure we don't send more than second address has
-			if targetAmount.GreaterThan(secondBalance) {
+			if targetAmount.GreaterThan(addr.SecondBalance) {
 				log.Warnw("second address has insufficient balance",
 					"needed", types.FIL(targetAmount),
-					"available", types.FIL(secondBalance))
+					"available", types.FIL(addr.SecondBalance))
 
 				// clear the task
 				_, err = b.db.Exec(ctx, `
 					UPDATE balance_manager_addresses 
 					SET active_task_id = NULL, last_action = NOW()
 					WHERE id = $1
-				`, id)
+				`, addr.ID)
 				if err != nil {
 					return false, xerrors.Errorf("clearing task id: %w", err)
 				}
@@ -284,37 +395,37 @@ func (b *BalanceMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 				return true, nil
 			}
 			amount = targetAmount
-			from = secondAddr
-			to = subjectAddr
+			from = addr.SecondAddress
+			to = addr.SubjectAddress
 			shouldSend = true
 		}
 
 	case "active-provider":
 		// If subject above high watermark, send from subject to second down to low watermark
-		if subjectBalance.GreaterThan(abi.TokenAmount(highWatermark)) {
-			amount = types.BigSub(subjectBalance, abi.TokenAmount(lowWatermark))
-			from = subjectAddr
-			to = secondAddr
+		if addr.SubjectBalance.GreaterThan(addr.HighWatermarkFilBalance) {
+			amount = types.BigSub(addr.SubjectBalance, addr.LowWatermarkFilBalance)
+			from = addr.SubjectAddress
+			to = addr.SecondAddress
 			shouldSend = true
 		}
 
 	default:
-		return false, xerrors.Errorf("unknown action type: %s", actionType)
+		return false, xerrors.Errorf("unknown action type: %s", addr.ActionType)
 	}
 
 	// If no need to send, clear the task and return
 	if !shouldSend {
 		log.Infow("balance within watermarks, no action needed",
-			"subject", subjectAddr,
-			"balance", types.FIL(subjectBalance),
-			"low", types.FIL(lowWatermark),
-			"high", types.FIL(highWatermark))
+			"subject", addr.SubjectAddress,
+			"balance", types.FIL(addr.SubjectBalance),
+			"low", types.FIL(addr.LowWatermarkFilBalance),
+			"high", types.FIL(addr.HighWatermarkFilBalance))
 
 		_, err = b.db.Exec(ctx, `
 			UPDATE balance_manager_addresses 
 			SET active_task_id = NULL, last_action = NOW()
 			WHERE id = $1
-		`, id)
+		`, addr.ID)
 		if err != nil {
 			return false, xerrors.Errorf("clearing task id: %w", err)
 		}
@@ -335,7 +446,7 @@ func (b *BalanceMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	}
 
 	// Send the message - sender will handle message_wait insertion
-	msgCid, err := b.sender.Send(ctx, msg, mss, fmt.Sprintf("balancemgr-%s", actionType))
+	msgCid, err := b.sender.Send(ctx, msg, mss, fmt.Sprintf("balancemgr-%s", addr.ActionType))
 	if err != nil {
 		return false, xerrors.Errorf("sending message: %w", err)
 	}
@@ -353,7 +464,7 @@ func (b *BalanceMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		    last_msg_landed_at = NULL,
 			active_task_id = NULL
 		WHERE id = $1
-	`, id, msgCid.String())
+	`, addr.ID, msgCid.String())
 	if err != nil {
 		return false, xerrors.Errorf("updating message cid: %w", err)
 	}
@@ -363,7 +474,7 @@ func (b *BalanceMgrTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		"to", to,
 		"amount", types.FIL(amount),
 		"msgCid", msgCid,
-		"actionType", actionType)
+		"actionType", addr.ActionType)
 
 	// Task complete - chain handler will clear active_task_id when message lands
 	return true, nil
