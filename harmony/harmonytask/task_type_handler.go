@@ -216,7 +216,7 @@ canAcceptAgain:
 		}()
 
 		done, doErr = h.Do(*tID, func() bool {
-			if taskhelp.IsBackgroundTask(h.Name) {
+			if taskhelp.IsBackgroundTask(h.Name) || h.CanYield {
 				if h.TaskEngine.yieldBackground.Load() {
 					log.Infow("yielding background task", "name", h.Name, "id", *tID)
 					return false

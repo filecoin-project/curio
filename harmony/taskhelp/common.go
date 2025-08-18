@@ -23,6 +23,7 @@ func SliceIfFound[T any](slice []T, f func(T) bool) ([]T, bool) {
 // BackgroundTask are tasks that:
 // * Always run in the background
 // * Never finish "successfully"
+// When a node is cordoned (not schedulable), background tasks MUST yield.
 func BackgroundTask(name string) string {
 	return "bg:" + name
 }

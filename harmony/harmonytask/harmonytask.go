@@ -57,6 +57,10 @@ type TaskTypeDetails struct {
 	// CanAccept() can read taskEngine's WorkOrigin string to learn about a task.
 	// Ex: make new CC sectors, clean-up, or retrying pipelines that failed in later states.
 	IAmBored func(AddTaskFunc) error
+
+	// CanYield is true if the task should yield when the node is not schedulable.
+	// This is implied for background tasks.
+	CanYield bool
 }
 
 // TaskInterface must be implemented in order to have a task used by harmonytask.
