@@ -3,6 +3,7 @@ package harmonytask
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -22,6 +23,8 @@ var POLL_DURATION = time.Second * 3             // Poll for Work this frequently
 var POLL_NEXT_DURATION = 100 * time.Millisecond // After scheduling a task, wait this long before scheduling another
 var CLEANUP_FREQUENCY = 5 * time.Minute         // Check for dead workers this often * everyone
 var FOLLOW_FREQUENCY = 1 * time.Minute          // Check for work to follow this often
+
+var ExitStatusRestartRequest = 100
 
 type TaskTypeDetails struct {
 	// Max returns how many tasks this machine can run of this type.
@@ -296,7 +299,7 @@ func (e *TaskEngine) poller() {
 		nextWait = POLL_DURATION
 
 		// Check if the machine is schedulable
-		schedulable, err := e.schedulable()
+		schedulable, err := e.checkNodeFlags()
 		if err != nil {
 			log.Error("Unable to check schedulable status: ", err)
 			continue
@@ -512,13 +515,41 @@ func (e *TaskEngine) Host() string {
 	return e.hostAndPort
 }
 
-func (e *TaskEngine) schedulable() (bool, error) {
+func (e *TaskEngine) checkNodeFlags() (bool, error) {
 	var unschedulable bool
-	err := e.db.QueryRow(e.ctx, `SELECT unschedulable FROM harmony_machines WHERE host_and_port=$1`, e.hostAndPort).Scan(&unschedulable)
+	var restartRequest *time.Time
+	err := e.db.QueryRow(e.ctx, `SELECT unschedulable, restart_request FROM harmony_machines WHERE host_and_port=$1`, e.hostAndPort).Scan(&unschedulable, &restartRequest)
 	if err != nil {
 		return false, err
 	}
+
+	if restartRequest != nil {
+		e.restartIfNoTasksPending(*restartRequest)
+	}
+
 	return !unschedulable, nil
+}
+
+func (e *TaskEngine) restartIfNoTasksPending(pendingSince time.Time) {
+	var tasksPending int
+	err := e.db.QueryRow(e.ctx, `SELECT COUNT(*) FROM harmony_task WHERE owner_id=$1`, e.ownerID).Scan(&tasksPending)
+	if err != nil {
+		log.Error("Unable to check for tasks pending: ", err)
+		return
+	}
+	if tasksPending == 0 {
+		log.Infow("no tasks pending, restarting", "ownerID", e.ownerID, "pendingSince", pendingSince, "took", time.Since(pendingSince))
+
+		// unset the flags first
+		_, err = e.db.Exec(e.ctx, `UPDATE harmony_machines SET restart_request=NULL, unschedulable=FALSE WHERE host_and_port=$1`, e.hostAndPort)
+		if err != nil {
+			log.Error("Unable to unset restart request: ", err)
+			return
+		}
+
+		// then exit
+		os.Exit(ExitStatusRestartRequest)
+	}
 }
 
 // About the Registry
