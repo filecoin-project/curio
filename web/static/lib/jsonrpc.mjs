@@ -7,7 +7,11 @@ class JsonRpcClient {
                 const client = new JsonRpcClient('/api/webrpc/v0');
                 await client.connect();
                 return client;
-            })();
+            })().catch((err) => {
+                // Reset cached instance so future calls can retry cleanly
+                JsonRpcClient.instance = null;
+                throw err;
+            });
         }
         return await JsonRpcClient.instance;
     }
@@ -34,17 +38,17 @@ class JsonRpcClient {
 
         this._shouldReconnect = true;
 
-        this._connectPromise = new Promise((resolve) => {
+        this._connectPromise = new Promise((resolve, reject) => {
+            let hasOpened = false;
+
             const attempt = () => {
                 this.ws = new WebSocket(this.url);
 
                 this.ws.onopen = () => {
+                    hasOpened = true;
                     console.log("Connected to the server");
-                    // Reset backoff on successful connect
                     this._clearReconnectTimer();
-                    // Resolve initial connect promise (subsequent reconnects are transparent)
                     if (this._connectPromise) {
-                        // Resolve only once
                         resolve();
                         this._connectPromise = null;
                     }
@@ -52,8 +56,17 @@ class JsonRpcClient {
 
                 this.ws.onclose = () => {
                     console.log("Connection closed, attempting to reconnect...");
-                    // Reject all in-flight RPC calls
                     this._rejectAllPending(new Error('WebSocket disconnected'));
+                    if (!hasOpened) {
+                        // Initial connection attempt failed: propagate error and stop reconnecting here
+                        this._shouldReconnect = false;
+                        this._clearReconnectTimer();
+                        if (this._connectPromise) {
+                            reject(new Error('WebSocket initial connection failed'));
+                            this._connectPromise = null;
+                        }
+                        return;
+                    }
                     if (this._shouldReconnect) {
                         this._scheduleReconnect(attempt);
                     }
@@ -61,7 +74,6 @@ class JsonRpcClient {
 
                 this.ws.onerror = (error) => {
                     console.error("WebSocket error:", error);
-                    // Force close to unify handling in onclose
                     try { this.ws.close(); } catch (_) {}
                 };
 
