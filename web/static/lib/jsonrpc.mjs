@@ -20,31 +20,60 @@ class JsonRpcClient {
         this.url = url;
         this.requestId = 0;
         this.pendingRequests = new Map();
+
+        // Reconnection state
+        this._connectPromise = null;
+        this._reconnectTimer = null;
+        this._shouldReconnect = true;
     }
 
     async connect() {
-        return new Promise((resolve, reject) => {
-            this.ws = new WebSocket(this.url);
+        if (this._connectPromise) {
+            return this._connectPromise;
+        }
 
-            this.ws.onopen = () => {
-                console.log("Connected to the server");
-                resolve();
+        this._shouldReconnect = true;
+
+        this._connectPromise = new Promise((resolve) => {
+            const attempt = () => {
+                this.ws = new WebSocket(this.url);
+
+                this.ws.onopen = () => {
+                    console.log("Connected to the server");
+                    // Reset backoff on successful connect
+                    this._clearReconnectTimer();
+                    // Resolve initial connect promise (subsequent reconnects are transparent)
+                    if (this._connectPromise) {
+                        // Resolve only once
+                        resolve();
+                        this._connectPromise = null;
+                    }
+                };
+
+                this.ws.onclose = () => {
+                    console.log("Connection closed, attempting to reconnect...");
+                    // Reject all in-flight RPC calls
+                    this._rejectAllPending(new Error('WebSocket disconnected'));
+                    if (this._shouldReconnect) {
+                        this._scheduleReconnect(attempt);
+                    }
+                };
+
+                this.ws.onerror = (error) => {
+                    console.error("WebSocket error:", error);
+                    // Force close to unify handling in onclose
+                    try { this.ws.close(); } catch (_) {}
+                };
+
+                this.ws.onmessage = (message) => {
+                    this.handleMessage(message);
+                };
             };
 
-            this.ws.onclose = () => {
-                console.log("Connection closed, attempting to reconnect...");
-                setTimeout(() => this.connect().then(resolve, reject), 1000);  // Reconnect after 1 second
-            };
-
-            this.ws.onerror = (error) => {
-                console.error("WebSocket error:", error);
-                reject(error);
-            };
-
-            this.ws.onmessage = (message) => {
-                this.handleMessage(message);
-            };
+            attempt();
         });
+
+        return this._connectPromise;
     }
 
     handleMessage(message) {
@@ -74,12 +103,45 @@ class JsonRpcClient {
         return new Promise((resolve, reject) => {
             this.pendingRequests.set(id, { resolve, reject });
 
-            if (this.ws.readyState === WebSocket.OPEN) {
-                this.ws.send(JSON.stringify(request));
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                try {
+                    this.ws.send(JSON.stringify(request));
+                } catch (e) {
+                    this.pendingRequests.delete(id);
+                    reject(e);
+                }
             } else {
+                this.pendingRequests.delete(id);
                 reject('WebSocket is not open');
             }
         });
+    }
+
+    _scheduleReconnect(attempt) {
+        if (this._reconnectTimer) {
+            return;
+        }
+        this._reconnectTimer = setTimeout(() => {
+            this._reconnectTimer = null;
+            attempt();
+        }, 1000);
+    }
+
+    _clearReconnectTimer() {
+        if (this._reconnectTimer) {
+            clearTimeout(this._reconnectTimer);
+            this._reconnectTimer = null;
+        }
+    }
+
+    _rejectAllPending(error) {
+        const err = error instanceof Error ? error : new Error(String(error || 'WebSocket disconnected'));
+        for (const [id, resolver] of this.pendingRequests.entries()) {
+            try {
+                resolver.reject(err);
+            } catch (_) {}
+        }
+        this.pendingRequests.clear();
     }
 }
 
