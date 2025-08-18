@@ -10,6 +10,7 @@ class BalanceManager extends LitElement {
     editLow: { type: String },
     editHigh: { type: String },
     adding: { type: Boolean },
+    newSubjectType: { type: String },
     newSubject: { type: String },
     newSecond: { type: String },
     newAction: { type: String },
@@ -25,9 +26,10 @@ class BalanceManager extends LitElement {
     this.editLow = '';
     this.editHigh = '';
     this.adding = false;
+    this.newSubjectType = 'wallet';
     this.newSubject = '';
     this.newSecond = '';
-    this.newAction = 'transfer';
+    this.newAction = 'requester';
     this.newLow = '';
     this.newHigh = '';
     this.loadRules();
@@ -70,11 +72,22 @@ class BalanceManager extends LitElement {
     this.editHigh = '';
   }
 
-  startAdd() {
+  startAddWallet() {
     this.adding = true;
+    this.newSubjectType = 'wallet';
     this.newSubject = '';
     this.newSecond = '';
-    this.newAction = 'transfer';
+    this.newAction = 'requester';
+    this.newLow = '';
+    this.newHigh = '';
+  }
+
+  startAddProofshare() {
+    this.adding = true;
+    this.newSubjectType = 'proofshare';
+    this.newSubject = '';
+    this.newSecond = '';
+    this.newAction = 'requester';
     this.newLow = '';
     this.newHigh = '';
   }
@@ -91,6 +104,7 @@ class BalanceManager extends LitElement {
         this.newAction,
         this.newLow,
         this.newHigh,
+        this.newSubjectType,
       ]);
       this.cancelAdd();
       await this.loadRules();
@@ -133,7 +147,8 @@ class BalanceManager extends LitElement {
 
       <div class="container py-3">
         <h2>Balance-Manager Rules</h2>
-        <button class="btn btn-primary btn-sm mb-2" @click=${this.startAdd}>Add Rule</button>
+        <button class="btn btn-primary btn-sm mb-2" @click=${this.startAddWallet}>Add Wallet Rule</button>
+        <button class="btn btn-primary btn-sm mb-2" @click=${this.startAddProofshare}>Add SnarkMarket Client Rule</button>
         ${this.adding
           ? html`
               <div class="card card-body bg-dark text-light mb-3">
@@ -142,17 +157,23 @@ class BalanceManager extends LitElement {
                     <label class="form-label mb-0">Subject</label>
                     <input class="form-control form-control-sm" .value=${this.newSubject} @input=${(e) => (this.newSubject = e.target.value)} />
                   </div>
+                  ${this.newSubjectType === 'wallet' ? html`
                   <div class="col-md-2">
                     <label class="form-label mb-0">Second</label>
                     <input class="form-control form-control-sm" .value=${this.newSecond} @input=${(e) => (this.newSecond = e.target.value)} />
-                  </div>
+                  </div>` : ''}
+                  ${this.newSubjectType === 'wallet' ? html`
                   <div class="col-md-3">
                     <label class="form-label mb-0">Action</label>
                     <select class="form-select form-select-sm" .value=${this.newAction} @change=${(e) => (this.newAction = e.target.value)}>
                       <option value="requester">Keep Subject Above Low</option>
                       <option value="active-provider">Keep Subject Below High</option>
                     </select>
-                  </div>
+                  </div>` : html`
+                  <div class="col-md-3">
+                    <label class="form-label mb-0">Action</label>
+                    <input class="form-control form-control-sm bg-secondary text-light" value="Keep Subject Above Low" readonly />
+                  </div>`}
                   <div class="col-md-1">
                     <label class="form-label mb-0">Low WM (FIL)</label>
                     <input class="form-control form-control-sm" .value=${this.newLow} @input=${(e) => (this.newLow = e.target.value)} />
@@ -175,6 +196,7 @@ class BalanceManager extends LitElement {
                 <thead>
                   <tr>
                     <th style="white-space: nowrap;">ID</th>
+                    <th style="white-space: nowrap;">Type</th>
                     <th style="white-space: nowrap;">Subject</th>
                     <th style="white-space: nowrap;">Second</th>
                     <th style="white-space: nowrap;">Action</th>
@@ -190,8 +212,9 @@ class BalanceManager extends LitElement {
                     return html`
                       <tr>
                         <td style="white-space: nowrap;">${rule.id}</td>
+                        <td style="white-space: nowrap;">${rule.subject_type}</td>
                         <td style="white-space: nowrap;"><cu-wallet wallet_id="${rule.subject_address}"></cu-wallet></td>
-                        <td style="white-space: nowrap;"><cu-wallet wallet_id="${rule.second_address}"></cu-wallet></td>
+                        <td style="white-space: nowrap;">${rule.subject_type === 'proofshare' ? '-' : html`<cu-wallet wallet_id="${rule.second_address}"></cu-wallet>`}</td>
                         <td style="white-space: nowrap;">${rule.action_type === 'requester' ? 'Keep Subject Above Low' : rule.action_type === 'active-provider' ? 'Keep Subject Below High' : rule.action_type}</td>
                         <td style="white-space: nowrap;">
                           ${this.editingId === rule.id
