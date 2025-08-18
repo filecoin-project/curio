@@ -142,7 +142,6 @@ func (t *TaskClientSend) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 				return false, xerrors.Errorf("failed to create payment: %w", err)
 			}
 			if !match {
-				log.Infow("no applicable requests found", "taskID", taskID, "wallet", walletID)
 				time.Sleep(time.Duration(100+rand.Intn(150)) * time.Second / 100)
 				continue
 			}

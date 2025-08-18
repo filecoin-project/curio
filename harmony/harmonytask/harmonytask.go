@@ -126,6 +126,9 @@ type TaskEngine struct {
 	follows     map[string][]followStruct
 	hostAndPort string
 
+	// runtime flags
+	yieldBackground atomic.Bool
+
 	// synchronous to the single-threaded poller
 	lastFollowTime time.Time
 	lastCleanup    atomic.Value
@@ -288,6 +291,8 @@ func (e *TaskEngine) poller() {
 			log.Error("Unable to check schedulable status: ", err)
 			continue
 		}
+
+		e.yieldBackground.Store(!schedulable)
 		if !schedulable {
 			log.Debugf("Machine %s is not schedulable. Please check the cordon status.", e.hostAndPort)
 			continue
