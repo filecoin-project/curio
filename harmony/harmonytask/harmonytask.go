@@ -3,6 +3,7 @@ package harmonytask
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -22,6 +23,8 @@ var POLL_DURATION = time.Second * 3             // Poll for Work this frequently
 var POLL_NEXT_DURATION = 100 * time.Millisecond // After scheduling a task, wait this long before scheduling another
 var CLEANUP_FREQUENCY = 5 * time.Minute         // Check for dead workers this often * everyone
 var FOLLOW_FREQUENCY = 1 * time.Minute          // Check for work to follow this often
+
+var ExitStatusRestartRequest = 100
 
 type TaskTypeDetails struct {
 	// Max returns how many tasks this machine can run of this type.
@@ -57,6 +60,16 @@ type TaskTypeDetails struct {
 	// CanAccept() can read taskEngine's WorkOrigin string to learn about a task.
 	// Ex: make new CC sectors, clean-up, or retrying pipelines that failed in later states.
 	IAmBored func(AddTaskFunc) error
+
+	// CanYield is true if the task should yield when the node is not schedulable.
+	// This is implied for background tasks.
+	CanYield bool
+
+	// SchedOverrides is a map of task names which, when running while the node is not schedulable,
+	// allow this task to continue being scheduled. This is useful in pipelines where a long-running
+	// task would block a short-running task from being scheduled, blocking other related pipelines on
+	// other machines.
+	SchedulingOverrides map[string]bool
 }
 
 // TaskInterface must be implemented in order to have a task used by harmonytask.
@@ -125,6 +138,9 @@ type TaskEngine struct {
 	ownerID     int
 	follows     map[string][]followStruct
 	hostAndPort string
+
+	// runtime flags
+	yieldBackground atomic.Bool
 
 	// synchronous to the single-threaded poller
 	lastFollowTime time.Time
@@ -283,20 +299,24 @@ func (e *TaskEngine) poller() {
 		nextWait = POLL_DURATION
 
 		// Check if the machine is schedulable
-		schedulable, err := e.schedulable()
+		schedulable, err := e.checkNodeFlags()
 		if err != nil {
 			log.Error("Unable to check schedulable status: ", err)
 			continue
 		}
+
+		e.yieldBackground.Store(!schedulable)
+
+		accepted := e.pollerTryAllWork(schedulable)
+		if accepted {
+			nextWait = POLL_NEXT_DURATION
+		}
+
 		if !schedulable {
 			log.Debugf("Machine %s is not schedulable. Please check the cordon status.", e.hostAndPort)
 			continue
 		}
 
-		accepted := e.pollerTryAllWork()
-		if accepted {
-			nextWait = POLL_NEXT_DURATION
-		}
 		if time.Since(e.lastFollowTime) > FOLLOW_FREQUENCY {
 			e.followWorkInDB()
 		}
@@ -361,12 +381,40 @@ func (e *TaskEngine) followWorkInDB() {
 }
 
 // pollerTryAllWork starts the next 1 task
-func (e *TaskEngine) pollerTryAllWork() bool {
+func (e *TaskEngine) pollerTryAllWork(schedulable bool) bool {
 	if time.Since(e.lastCleanup.Load().(time.Time)) > CLEANUP_FREQUENCY {
 		e.lastCleanup.Store(time.Now())
 		resources.CleanupMachines(e.ctx, e.db)
 	}
 	for _, v := range e.handlers {
+		if !schedulable {
+			if v.TaskTypeDetails.SchedulingOverrides == nil {
+				continue
+			}
+
+			// Override the schedulable flag if the task has any assigned overrides
+			var foundOverride bool
+			for relatedTaskName := range v.TaskTypeDetails.SchedulingOverrides {
+				var assignedOverrideTasks []int
+				err := e.db.Select(e.ctx, &assignedOverrideTasks, `SELECT id
+					FROM harmony_task
+					WHERE owner_id = $1 AND name=$2
+					ORDER BY update_time LIMIT 1`, e.ownerID, relatedTaskName)
+				if err != nil {
+					log.Error("Unable to read assigned overrides ", err)
+					break
+				}
+				if len(assignedOverrideTasks) > 0 {
+					log.Infow("found override, scheduling despite schedulable=false flag", "ownerID", e.ownerID, "relatedTaskName", relatedTaskName, "assignedOverrideTasks", assignedOverrideTasks)
+					foundOverride = true
+					break
+				}
+			}
+			if !foundOverride {
+				continue
+			}
+		}
+
 		if err := v.AssertMachineHasCapacity(); err != nil {
 			log.Debugf("skipped scheduling %s type tasks on due to %s", v.Name, err.Error())
 			continue
@@ -407,6 +455,11 @@ func (e *TaskEngine) pollerTryAllWork() bool {
 			log.Warn("Work not accepted for " + strconv.Itoa(len(unownedTasks)) + " " + v.Name + " task(s)")
 		}
 	}
+
+	if !schedulable {
+		return false
+	}
+
 	// if no work was accepted, are we bored? Then find work in priority order.
 	for _, v := range e.handlers {
 		v := v
@@ -462,13 +515,41 @@ func (e *TaskEngine) Host() string {
 	return e.hostAndPort
 }
 
-func (e *TaskEngine) schedulable() (bool, error) {
+func (e *TaskEngine) checkNodeFlags() (bool, error) {
 	var unschedulable bool
-	err := e.db.QueryRow(e.ctx, `SELECT unschedulable FROM harmony_machines WHERE host_and_port=$1`, e.hostAndPort).Scan(&unschedulable)
+	var restartRequest *time.Time
+	err := e.db.QueryRow(e.ctx, `SELECT unschedulable, restart_request FROM harmony_machines WHERE host_and_port=$1`, e.hostAndPort).Scan(&unschedulable, &restartRequest)
 	if err != nil {
 		return false, err
 	}
+
+	if restartRequest != nil {
+		e.restartIfNoTasksPending(*restartRequest)
+	}
+
 	return !unschedulable, nil
+}
+
+func (e *TaskEngine) restartIfNoTasksPending(pendingSince time.Time) {
+	var tasksPending int
+	err := e.db.QueryRow(e.ctx, `SELECT COUNT(*) FROM harmony_task WHERE owner_id=$1`, e.ownerID).Scan(&tasksPending)
+	if err != nil {
+		log.Error("Unable to check for tasks pending: ", err)
+		return
+	}
+	if tasksPending == 0 {
+		log.Infow("no tasks pending, restarting", "ownerID", e.ownerID, "pendingSince", pendingSince, "took", time.Since(pendingSince))
+
+		// unset the flags first
+		_, err = e.db.Exec(e.ctx, `UPDATE harmony_machines SET restart_request=NULL, unschedulable=FALSE WHERE host_and_port=$1`, e.hostAndPort)
+		if err != nil {
+			log.Error("Unable to unset restart request: ", err)
+			return
+		}
+
+		// then exit
+		os.Exit(ExitStatusRestartRequest)
+	}
 }
 
 // About the Registry
