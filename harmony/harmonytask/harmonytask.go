@@ -304,7 +304,7 @@ func (e *TaskEngine) poller() {
 
 		e.yieldBackground.Store(!schedulable)
 
-		accepted := e.pollerTryAllWork()
+		accepted := e.pollerTryAllWork(schedulable)
 		if accepted {
 			nextWait = POLL_NEXT_DURATION
 		}
