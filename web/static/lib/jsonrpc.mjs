@@ -26,19 +26,19 @@ class JsonRpcClient {
         this.pendingRequests = new Map();
 
         // Reconnection state
-        this._connectPromise = null;
-        this._reconnectTimer = null;
-        this._shouldReconnect = true;
+        this.connectPromise = null;
+        this.reconnectTimer = null;
+        this.shouldReconnect = true;
     }
 
     async connect() {
-        if (this._connectPromise) {
-            return this._connectPromise;
+        if (this.connectPromise) {
+            return this.connectPromise;
         }
 
-        this._shouldReconnect = true;
+        this.shouldReconnect = true;
 
-        this._connectPromise = new Promise((resolve, reject) => {
+        this.connectPromise = new Promise((resolve, reject) => {
             let hasOpened = false;
 
             const attempt = () => {
@@ -47,28 +47,28 @@ class JsonRpcClient {
                 this.ws.onopen = () => {
                     hasOpened = true;
                     console.log("Connected to the server");
-                    this._clearReconnectTimer();
-                    if (this._connectPromise) {
+                    this.clearReconnectTimer();
+                    if (this.connectPromise) {
                         resolve();
-                        this._connectPromise = null;
+                        this.connectPromise = null;
                     }
                 };
 
                 this.ws.onclose = () => {
                     console.log("Connection closed, attempting to reconnect...");
-                    this._rejectAllPending(new Error('WebSocket disconnected'));
+                    this.rejectAllPending(new Error('WebSocket disconnected'));
                     if (!hasOpened) {
                         // Initial connection attempt failed: propagate error and stop reconnecting here
-                        this._shouldReconnect = false;
-                        this._clearReconnectTimer();
-                        if (this._connectPromise) {
+                        this.shouldReconnect = false;
+                        this.clearReconnectTimer();
+                        if (this.connectPromise) {
                             reject(new Error('WebSocket initial connection failed'));
-                            this._connectPromise = null;
+                            this.connectPromise = null;
                         }
                         return;
                     }
-                    if (this._shouldReconnect) {
-                        this._scheduleReconnect(attempt);
+                    if (this.shouldReconnect) {
+                        this.scheduleReconnect(attempt);
                     }
                 };
 
@@ -85,7 +85,7 @@ class JsonRpcClient {
             attempt();
         });
 
-        return this._connectPromise;
+        return this.connectPromise;
     }
 
     handleMessage(message) {
@@ -129,24 +129,24 @@ class JsonRpcClient {
         });
     }
 
-    _scheduleReconnect(attempt) {
-        if (this._reconnectTimer) {
+    scheduleReconnect(attempt) {
+        if (this.reconnectTimer) {
             return;
         }
-        this._reconnectTimer = setTimeout(() => {
-            this._reconnectTimer = null;
+        this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
             attempt();
         }, 1000);
     }
 
-    _clearReconnectTimer() {
-        if (this._reconnectTimer) {
-            clearTimeout(this._reconnectTimer);
-            this._reconnectTimer = null;
+    clearReconnectTimer() {
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
         }
     }
 
-    _rejectAllPending(error) {
+    rejectAllPending(error) {
         const err = error instanceof Error ? error : new Error(String(error || 'WebSocket disconnected'));
         for (const [id, resolver] of this.pendingRequests.entries()) {
             try {
