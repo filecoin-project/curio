@@ -4,11 +4,12 @@ import (
 	"context"
 	"time"
 
-	curiobuild "github.com/filecoin-project/curio/build"
 	promclient "github.com/prometheus/client_golang/prometheus"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/stats/view"
 	"go.opencensus.io/tag"
+
+	curiobuild "github.com/filecoin-project/curio/build"
 )
 
 var (
@@ -23,7 +24,7 @@ var (
 
 // TaskMeasures groups all harmonytask metrics.
 var TaskMeasures = struct {
-	Uptime     			*stats.Int64Measure
+	Uptime           *stats.Int64Measure
 	TasksStarted     *stats.Int64Measure
 	TasksCompleted   *stats.Int64Measure
 	TasksFailed      *stats.Int64Measure

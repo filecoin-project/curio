@@ -197,7 +197,7 @@ func (t *TaskClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 // TypeDetails implements harmonytask.TaskInterface.
 func (t *TaskClientPoll) TypeDetails() harmonytask.TaskTypeDetails {
 	return harmonytask.TaskTypeDetails{
-		Name: "PSClientPoll",
+		Name:     "PSClientPoll",
 		CanYield: true,
 		Cost: resources.Resources{
 			Cpu: 0,

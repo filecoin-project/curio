@@ -17,16 +17,16 @@ type MachineSummary struct {
 	Name         string
 	SinceContact string
 
-	Tasks         string
-	Cpu           int
-	RamHumanized  string
-	Gpu           int
-	Layers        string
-	Uptime        string
-	Unschedulable bool
+	Tasks          string
+	Cpu            int
+	RamHumanized   string
+	Gpu            int
+	Layers         string
+	Uptime         string
+	Unschedulable  bool
 	RestartRequest string
-	Restarting    bool
-	RunningTasks  int
+	Restarting     bool
+	RunningTasks   int
 }
 
 func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) {
