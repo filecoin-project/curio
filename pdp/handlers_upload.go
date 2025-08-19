@@ -3,6 +3,7 @@ package pdp
 import (
 	"bytes"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/ipfs/go-cid"
 	logger "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multicodec"
 	"github.com/multiformats/go-multihash"
@@ -189,12 +191,12 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pieceCid, _, err := asPieceCIDv2(*pieceCIDStr, uint64(checkSize))
+	pieceCidV1, err := cid.Parse(*pieceCIDStr)
 	if err != nil {
-		http.Error(w, "Failed to convert piece CID: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Failed to convert piece CID (v1): "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	dmh, err := multihash.Decode(pieceCid.Hash())
+	dmh, err := multihash.Decode(pieceCidV1.Hash())
 	if err != nil {
 		http.Error(w, "Failed to decode piece CID: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -260,6 +262,7 @@ func (p *PDPService) handlePieceUpload(w http.ResponseWriter, r *http.Request) {
 	if !bytes.Equal(outHash, dmh.Digest) {
 		// Remove the stash file as the data is invalid
 		_ = p.storage.StashRemove(ctx, stashID)
+		log.Warnw("Computed hash does not match expected hash", "computed", hex.EncodeToString(outHash), "expected", hex.EncodeToString(dmh.Digest), "pieceCid", pieceCidV1.String())
 		http.Error(w, "Computed hash does not match expected hash", http.StatusBadRequest)
 		return
 	}
