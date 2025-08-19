@@ -300,6 +300,14 @@ Accepts a decimal string (e.g., "123.45") with optional "fil" or "attofil" suffi
 
 			Comment: `Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)`,
 		},
+		{
+			Name: "MaximizeFeeCap",
+			Type: "bool",
+
+			Comment: `MaximizeFeeCap makes the sender set maximum allowed FeeCap on all sent messages.
+This generally doesn't increase message cost, but in highly congested network messages
+are much less likely to get stuck in mempool. (Default: true)`,
+		},
 	},
 	"CurioIngestConfig": {
 		{
