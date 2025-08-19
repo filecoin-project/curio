@@ -232,7 +232,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	gasFee := big.NewInt(0)
 	pdpVerifierRaw := contract.PDPVerifierRaw{Contract: pdpVerifier}
 
-	calcProofFeeResult := make([]any, 1)
+	calcProofFeeResult := make([]any, 0)
 	err = pdpVerifierRaw.Call(callOpts, &calcProofFeeResult, "calculateProofFee", big.NewInt(dataSetId), gasFee)
 	if err != nil {
 		return false, xerrors.Errorf("failed to calculate proof fee: %w", err)
