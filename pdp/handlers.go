@@ -2,7 +2,6 @@ package pdp
 
 import (
 	"context"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -248,7 +247,7 @@ func (p *PDPService) getSenderAddress(ctx context.Context) (common.Address, erro
 	var addressStr string
 	err := p.db.QueryRow(ctx, `SELECT address FROM eth_keys WHERE role = 'pdp' LIMIT 1`).Scan(&addressStr)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return common.Address{}, errors.New("no sender address with role 'pdp' found")
 		}
 		return common.Address{}, err
@@ -356,7 +355,7 @@ func (p *PDPService) handleGetDataSetCreationStatus(w http.ResponseWriter, r *ht
         WHERE create_message_hash = $1
     `, txHash).Scan(&dataSetCreate.CreateMessageHash, &dataSetCreate.OK, &dataSetCreate.DataSetCreated, &dataSetCreate.Service)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "Data set creation not found for given txHash", http.StatusNotFound)
 			return
 		}
@@ -393,7 +392,7 @@ func (p *PDPService) handleGetDataSetCreationStatus(w http.ResponseWriter, r *ht
         WHERE signed_tx_hash = $1
     `, txHash).Scan(&txStatus)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			// This should not happen as per foreign key constraints
 			http.Error(w, "Message status not found for given txHash", http.StatusInternalServerError)
 			return
@@ -413,7 +412,7 @@ func (p *PDPService) handleGetDataSetCreationStatus(w http.ResponseWriter, r *ht
             WHERE create_message_hash = $1
         `, txHash).Scan(&dataSetId)
 		if err != nil {
-			if err == sql.ErrNoRows {
+			if errors.Is(err, pgx.ErrNoRows) {
 				// Should not happen, but handle gracefully
 				http.Error(w, "Data set not found despite data_set_created = true", http.StatusInternalServerError)
 				return
@@ -477,7 +476,7 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
         WHERE id = $1
     `, dataSetId).Scan(&dataSet.ID, &dataSet.Service)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "Data set not found", http.StatusNotFound)
 			return
 		}
@@ -625,7 +624,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 			WHERE id = $1
 		`, dataSetIdUint64).Scan(&dataSetService)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "Data set not found", http.StatusNotFound)
 			return
 		}
@@ -1086,7 +1085,7 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 		WHERE id = $1
 	`, dataSetId).Scan(&dataSetService)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "Data set not found", http.StatusNotFound)
 			return
 		}
@@ -1135,7 +1134,7 @@ func (p *PDPService) handleGetPieceAdditionStatus(w http.ResponseWriter, r *http
 		SELECT tx_status FROM message_waits_eth WHERE signed_tx_hash = $1
 	`, txHash).Scan(&txStatus)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "Transaction status not found", http.StatusNotFound)
 			return
 		}
@@ -1263,7 +1262,7 @@ func (p *PDPService) handleDeleteDataSetPiece(w http.ResponseWriter, r *http.Req
 			WHERE id = $1
 		`, dataSetId).Scan(&dataSetService)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "Data set not found", http.StatusNotFound)
 			return
 		}
@@ -1388,7 +1387,7 @@ func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Reques
 		WHERE r.data_set = $1 AND r.piece_id = $2 AND ps.service = $3
 	`, dataSetId, pieceID, serviceLabel).Scan(&pieceCid)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "Piece not found", http.StatusNotFound)
 			return
 		}
