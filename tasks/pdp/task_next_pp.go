@@ -2,11 +2,12 @@ package pdp
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -58,7 +59,7 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
                 WHERE challenge_request_task_id IS NULL
                 AND (prove_at_epoch + challenge_window) <= $1
             `, apply.Height())
-		if err != nil && err != sql.ErrNoRows {
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return xerrors.Errorf("failed to select data sets needing nextProvingPeriod: %w", err)
 		}
 
@@ -98,7 +99,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
         FROM pdp_data_sets
         WHERE challenge_request_task_id = $1 AND prove_at_epoch IS NOT NULL
     `, taskID).Scan(&dataSetId)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		// No matching data set, task is done (something weird happened, and e.g another task was spawned in place of this one)
 		return true, nil
 	}

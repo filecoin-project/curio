@@ -2,7 +2,6 @@ package pdp
 
 import (
 	"context"
-	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -20,6 +19,7 @@ import (
 	pool "github.com/libp2p/go-buffer-pool"
 	"github.com/minio/sha256-simd"
 	"github.com/samber/lo"
+	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/crypto/sha3"
 	"golang.org/x/xerrors"
 
@@ -677,7 +677,7 @@ func (p *ProveTask) getSenderAddress(ctx context.Context, match common.Address) 
 	var addressStr string
 	err := p.db.QueryRow(ctx, `SELECT address FROM eth_keys WHERE role = 'pdp' AND address = $1 LIMIT 1`, match.Hex()).Scan(&addressStr)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return common.Address{}, errors.New("no sender address with role 'pdp' found")
 		}
 		return common.Address{}, err
@@ -704,7 +704,7 @@ func (p *ProveTask) cleanupDeletedPieces(ctx context.Context, dataSetId int64, p
                 WHERE data_set = $1 AND piece_id = $2
             `, dataSetId, removeID.Int64()).Scan(&pdpPieceRefID)
 			if err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
+				if errors.Is(err, pgx.ErrNoRows) {
 					// Piece already deleted, skip
 					continue
 				}
