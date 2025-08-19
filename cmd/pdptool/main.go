@@ -290,7 +290,7 @@ func preparePiece(r io.ReadSeeker) (cid.Cid, uint64, []byte, []byte, error) {
 	cp := &commp.Calc{}
 
 	// Copy data into commp calculator
-	_, err := io.Copy(cp, r)
+	rawSize, err := io.Copy(cp, r)
 	if err != nil {
 		return cid.Undef, 0, nil, nil, fmt.Errorf("failed to read input file: %v", err)
 	}
@@ -302,7 +302,7 @@ func preparePiece(r io.ReadSeeker) (cid.Cid, uint64, []byte, []byte, error) {
 	}
 
 	// Convert digest to CID
-	pieceCIDComputed, err := commcid.DataCommitmentV1ToCID(digest)
+	pieceCIDComputed, err := commcid.DataCommitmentToPieceCidv2(digest, uint64(rawSize))
 	if err != nil {
 		return cid.Undef, 0, nil, nil, fmt.Errorf("failed to compute piece CID: %v", err)
 	}
@@ -354,7 +354,7 @@ var piecePrepareCmd = &cli.Command{
 		}
 
 		// Output the piece CID and size
-		fmt.Printf("Piece CID: %s\n", pieceCIDComputed)
+		fmt.Printf("CommPv2 CID: %s\n", pieceCIDComputed)
 		fmt.Printf("SHA256: %x\n", shadigest)
 		fmt.Printf("Padded Piece Size: %d bytes\n", paddedPieceSize)
 		fmt.Printf("Raw Piece Size: %d bytes\n", pieceSize)
@@ -426,15 +426,19 @@ func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtT
 		if verbose {
 			fmt.Println("http.StatusOK")
 		}
-		// Piece already exists, get the pieceCID from the response
+		// Piece already exists, get the pieceCid from the response
 		var respData map[string]string
 		err = json.NewDecoder(resp.Body).Decode(&respData)
 		if err != nil {
 			return fmt.Errorf("failed to parse response: %v", err)
 		}
-		pieceCID := respData["pieceCID"]
+		// Try both pieceCid and pieceCID for compatibility
+		pieceCid := respData["pieceCid"]
+		if pieceCid == "" {
+			pieceCid = respData["pieceCID"]
+		}
 		if verbose {
-			fmt.Printf("Piece already exists on the server. Piece CID: %s\n", pieceCID)
+			fmt.Printf("Piece already exists on the server. Piece CID: %s\n", pieceCid)
 		}
 		return nil
 	} else if resp.StatusCode == http.StatusCreated {
@@ -574,40 +578,39 @@ var pieceUploadCmd = &cli.Command{
 		pieceSize := fi.Size()
 
 		// Compute CommP (PieceCID)
-		_, _, commpDigest, shadigest, err := preparePiece(file)
+		pieceCIDComputed, _, _, shadigest, err := preparePiece(file)
 		if err != nil {
 			return fmt.Errorf("failed to prepare piece: %v", err)
 		}
 
-		// Prepare the check data
-		var checkData map[string]interface{}
+		// Prepare the request data based on hash type
+		var reqData map[string]interface{}
+		var reqBody []byte
 
 		switch hashType {
 		case "sha256":
-			checkData = map[string]interface{}{
+			// For sha256, still use old format for backward compatibility
+			checkData := map[string]interface{}{
 				"name": "sha2-256",
 				"hash": hex.EncodeToString(shadigest),
 				"size": pieceSize,
 			}
+			reqData = map[string]interface{}{
+				"check": checkData,
+			}
 		case "commp":
-			hashHex := hex.EncodeToString(commpDigest)
-			checkData = map[string]interface{}{
-				"name": "sha2-256-trunc254-padded",
-				"hash": hashHex,
-				"size": pieceSize,
+			// For commp, use new format with pieceCid (CommPv2)
+			reqData = map[string]interface{}{
+				"pieceCid": pieceCIDComputed.String(),
 			}
 		default:
 			return fmt.Errorf("unsupported hash type: %s", hashType)
 		}
 
-		// Prepare the request data
-		reqData := map[string]interface{}{
-			"check": checkData,
-		}
 		if notifyURL != "" {
 			reqData["notify"] = notifyURL
 		}
-		reqBody, err := json.Marshal(reqData)
+		reqBody, err = json.Marshal(reqData)
 		if err != nil {
 			return fmt.Errorf("failed to marshal request data: %v", err)
 		}
@@ -739,11 +742,13 @@ var uploadFileCmd = &cli.Command{
 		// group piece aggregations for tracking as onchain pieces into sector size chunks
 		type pieceSetInfo struct {
 			pieces      []abi.PieceInfo
+			rawSizes    []uint64 // Track raw sizes for each piece
 			subPieceStr string
 		}
 		pieceSets := []pieceSetInfo{}
 		pieceSets = append(pieceSets, pieceSetInfo{
 			pieces:      make([]abi.PieceInfo, 0),
+			rawSizes:    make([]uint64, 0),
 			subPieceStr: "",
 		})
 		pieceSize := uint64(0)
@@ -762,37 +767,39 @@ var uploadFileCmd = &cli.Command{
 			}
 			// Prepare the piece
 			chunkReader := bytes.NewReader(buf[:n])
-			commP, paddedPieceSize, commpDigest, shadigest, err := preparePiece(chunkReader)
+			commP, paddedPieceSize, _, shadigest, err := preparePiece(chunkReader)
 			if err != nil {
 				return fmt.Errorf("failed to prepare piece: %v", err)
 			}
 			if !dryRun {
 				// Prepare the request data
-				var checkData map[string]interface{}
+				var reqData map[string]interface{}
+				var reqBody []byte
+
 				switch hashType {
 				case "sha256":
-					checkData = map[string]interface{}{
+					// For sha256, use old format for backward compatibility
+					checkData := map[string]interface{}{
 						"name": "sha2-256",
 						"hash": hex.EncodeToString(shadigest),
 						"size": n,
 					}
+					reqData = map[string]interface{}{
+						"check": checkData,
+					}
 				case "commp":
-					checkData = map[string]interface{}{
-						"name": "sha2-256-trunc254-padded",
-						"hash": hex.EncodeToString(commpDigest),
-						"size": n,
+					// For commp, use new format with pieceCid (CommPv2)
+					reqData = map[string]interface{}{
+						"pieceCid": commP.String(),
 					}
 				default:
 					return fmt.Errorf("unsupported hash type: %s", hashType)
 				}
 
-				reqData := map[string]interface{}{
-					"check": checkData,
-				}
 				if notifyURL != "" {
 					reqData["notify"] = notifyURL
 				}
-				reqBody, err := json.Marshal(reqData)
+				reqBody, err = json.Marshal(reqData)
 				if err != nil {
 					return fmt.Errorf("failed to marshal request data: %v", err)
 				}
@@ -811,12 +818,14 @@ var uploadFileCmd = &cli.Command{
 			if pieceSize+paddedPieceSize > uint64(maxPieceSize) {
 				pieceSets = append(pieceSets, pieceSetInfo{
 					pieces:      make([]abi.PieceInfo, 0),
+					rawSizes:    make([]uint64, 0),
 					subPieceStr: "",
 				})
 				pieceSize = 0
 			}
 			pieceSize += paddedPieceSize
 			pieceSets[len(pieceSets)-1].pieces = append(pieceSets[len(pieceSets)-1].pieces, abi.PieceInfo{Size: abi.PaddedPieceSize(paddedPieceSize), PieceCID: commP})
+			pieceSets[len(pieceSets)-1].rawSizes = append(pieceSets[len(pieceSets)-1].rawSizes, uint64(n)) // n is the raw size
 			pieceSets[len(pieceSets)-1].subPieceStr = fmt.Sprintf("%s+%s", pieceSets[len(pieceSets)-1].subPieceStr, commP)
 			counter++
 			if err := bar.Set(int(counter)); err != nil {
@@ -825,16 +834,31 @@ var uploadFileCmd = &cli.Command{
 		}
 
 		for i, pieceSet := range pieceSets {
-			pieceSize := uint64(0)
-			for _, piece := range pieceSet.pieces {
-				pieceSize += uint64(piece.Size)
+			rawSize := uint64(0)
+			paddedSize := uint64(0)
+			// Need to convert pieces back to v1 for GenerateUnsealedCID
+			piecesV1 := make([]abi.PieceInfo, len(pieceSet.pieces))
+			for j, piece := range pieceSet.pieces {
+				paddedSize += uint64(piece.Size)
+				rawSize += pieceSet.rawSizes[j]
+				// Convert CommPv2 to CommPv1 for compatibility with GenerateUnsealedCID
+				pieceCidV1, _, err := commcid.PieceCidV1FromV2(piece.PieceCID)
+				if err != nil {
+					return fmt.Errorf("failed to convert piece CID to v1: %v", err)
+				}
+				piecesV1[j] = abi.PieceInfo{Size: piece.Size, PieceCID: pieceCidV1}
 			}
-			fmt.Printf("%d: pieceSize: %d\n", i, pieceSize)
-			pieceCid, err := nonffi.GenerateUnsealedCID(abi.RegisteredSealProof_StackedDrg64GiBV1_1, pieceSet.pieces)
+			fmt.Printf("%d: paddedSize: %d, rawSize: %d\n", i, paddedSize, rawSize)
+			pieceCidV1, err := nonffi.GenerateUnsealedCID(abi.RegisteredSealProof_StackedDrg64GiBV1_1, piecesV1)
 			if err != nil {
 				return fmt.Errorf("failed to generate unsealed CID: %v", err)
 			}
-			s := fmt.Sprintf("%s:%s\n", pieceCid, pieceSet.subPieceStr[1:])
+			// Convert the aggregated piece CID to CommPv2
+			pieceCidV2, err := commcid.PieceCidV2FromV1(pieceCidV1, rawSize)
+			if err != nil {
+				return fmt.Errorf("failed to convert aggregated piece CID to v2: %v", err)
+			}
+			s := fmt.Sprintf("%s:%s\n", pieceCidV2, pieceSet.subPieceStr[1:])
 			fmt.Printf("%s\n", s)
 		}
 

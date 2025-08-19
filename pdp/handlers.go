@@ -19,9 +19,11 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/go-chi/chi/v5"
 	"github.com/ipfs/go-cid"
+	"github.com/multiformats/go-multicodec"
 	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/go-commp-utils/nonffi"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -495,10 +497,11 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 		PieceCid       string `db:"piece"`
 		SubPieceCID    string `db:"sub_piece"`
 		SubPieceOffset int64  `db:"sub_piece_offset"`
+		SubPieceSize   int64  `db:"sub_piece_size"`
 	}
 
 	err = p.db.Select(ctx, &pieces, `
-        SELECT piece_id, piece, sub_piece, sub_piece_offset
+        SELECT piece_id, piece, sub_piece, sub_piece_offset, sub_piece_size
         FROM pdp_data_set_pieces
         WHERE data_set = $1
         ORDER BY piece_id, sub_piece_offset
@@ -538,12 +541,29 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 		Pieces:             []PieceEntry{}, // Initialize as empty array, not nil
 	}
 
+	pieceSize := make(map[string]int64)
+	for _, piece := range pieces {
+		pieceSize[piece.PieceCid] += piece.SubPieceSize
+	}
+
 	// Convert pieces to the desired JSON format
 	for _, piece := range pieces {
+		// TODO: this could be cached per piece since we do this for every sub-piece
+		psize := pieceSize[piece.PieceCid]
+		pcv2, _, err := asPieceCIDv2(piece.PieceCid, uint64(psize))
+		if err != nil {
+			http.Error(w, "Invalid PieceCID: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		spcv2, _, err := asPieceCIDv2(piece.SubPieceCID, uint64(piece.SubPieceSize))
+		if err != nil {
+			http.Error(w, "Invalid SubPieceCID: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		response.Pieces = append(response.Pieces, PieceEntry{
 			PieceID:        piece.PieceID,
-			PieceCID:       piece.PieceCid,
-			SubPieceCID:    piece.SubPieceCID,
+			PieceCID:       pcv2.String(),
+			SubPieceCID:    spcv2.String(),
 			SubPieceOffset: piece.SubPieceOffset,
 		})
 	}
@@ -624,12 +644,14 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 
 	// Step 3: Parse the request body
 	type SubPieceEntry struct {
-		SubPieceCID string `json:"subPieceCid"`
+		SubPieceCID   string `json:"subPieceCid"`
+		subPieceCIDv1 string
 	}
 
 	type AddPieceRequest struct {
-		PieceCID  string          `json:"pieceCid"`
-		SubPieces []SubPieceEntry `json:"subPieces"`
+		PieceCID   string `json:"pieceCid"`
+		pieceCIDv1 string
+		SubPieces  []SubPieceEntry `json:"subPieces"`
 	}
 
 	// AddPiecesPayload defines the structure for the entire add pieces request payload
@@ -665,7 +687,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 
 	// Collect all subPieceCids to fetch their info in a batch
 	subPieceCidSet := make(map[string]struct{})
-	for _, addPieceReq := range payload.Pieces {
+	for i, addPieceReq := range payload.Pieces {
 		if addPieceReq.PieceCID == "" {
 			http.Error(w, "PieceCID is required for each piece", http.StatusBadRequest)
 			return
@@ -681,12 +703,21 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 				http.Error(w, "subPieceCid is required for each subPiece", http.StatusBadRequest)
 				return
 			}
-			if _, exists := subPieceCidSet[subPieceEntry.SubPieceCID]; exists {
+			pieceCid, err := asPieceCIDv1(subPieceEntry.SubPieceCID)
+			if err != nil {
+				http.Error(w, "Invalid SubPiece:"+err.Error(), http.StatusBadRequest)
+				return
+			}
+			pieceCidString := pieceCid.String()
+
+			addPieceReq.SubPieces[i].subPieceCIDv1 = pieceCidString // save it for to query subPieceInfoMap later
+
+			if _, exists := subPieceCidSet[pieceCidString]; exists {
 				http.Error(w, "duplicate subPieceCid in request", http.StatusBadRequest)
 				return
 			}
 
-			subPieceCidSet[subPieceEntry.SubPieceCID] = struct{}{}
+			subPieceCidSet[pieceCidString] = struct{}{}
 		}
 	}
 
@@ -698,7 +729,9 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 
 	// Map to store subPieceCID -> [pieceInfo, pdp_pieceref.id, subPieceOffset]
 	type SubPieceInfo struct {
-		PieceInfo      abi.PieceInfo
+		PieceCIDv1     cid.Cid
+		PaddedSize     abi.PaddedPieceSize
+		RawSize        uint64 // RawSize is the size of the piece with no padding applied
 		PDPPieceRefID  int64
 		SubPieceOffset uint64
 	}
@@ -710,7 +743,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		// Step 4: Get pdp_piecerefs matching all subPiece cids + make sure those refs belong to serviceLabel
 		rows, err := tx.Query(`
             SELECT ppr.piece_cid, ppr.id AS pdp_pieceref_id, ppr.piece_ref,
-                   pp.piece_padded_size
+                   pp.piece_padded_size, pp.piece_raw_size
             FROM pdp_piecerefs ppr
             JOIN parked_piece_refs pprf ON pprf.ref_id = ppr.piece_ref
             JOIN parked_pieces pp ON pp.id = pprf.piece_id
@@ -726,8 +759,9 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 			var pieceCIDStr string
 			var pdpPieceRefID, pieceRefID int64
 			var piecePaddedSize uint64
+			var pieceRawSize uint64
 
-			err := rows.Scan(&pieceCIDStr, &pdpPieceRefID, &pieceRefID, &piecePaddedSize)
+			err := rows.Scan(&pieceCIDStr, &pdpPieceRefID, &pieceRefID, &piecePaddedSize, &pieceRawSize)
 			if err != nil {
 				return false, err
 			}
@@ -738,14 +772,10 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 				return false, fmt.Errorf("invalid piece CID in database: %s", pieceCIDStr)
 			}
 
-			// Create PieceInfo
-			pieceInfo := abi.PieceInfo{
-				Size:     abi.PaddedPieceSize(piecePaddedSize),
-				PieceCID: pieceCID,
-			}
-
 			subPieceInfoMap[pieceCIDStr] = &SubPieceInfo{
-				PieceInfo:      pieceInfo,
+				PieceCIDv1:     pieceCID,
+				PaddedSize:     abi.PaddedPieceSize(piecePaddedSize),
+				RawSize:        pieceRawSize,
 				PDPPieceRefID:  pdpPieceRefID,
 				SubPieceOffset: 0, // Will compute offset later
 			}
@@ -761,24 +791,27 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 		}
 
 		// Now, for each AddPieceRequest, validate PieceCid and prepare data for ETH transaction
-		for _, addPieceReq := range payload.Pieces {
+		for i, addPieceReq := range payload.Pieces {
 			// Collect pieceInfos for subPieces
 			pieceInfos := make([]abi.PieceInfo, len(addPieceReq.SubPieces))
 
 			var totalOffset uint64 = 0
 			for i, subPieceEntry := range addPieceReq.SubPieces {
-				subPieceInfo, exists := subPieceInfoMap[subPieceEntry.SubPieceCID]
+				subPieceInfo, exists := subPieceInfoMap[subPieceEntry.subPieceCIDv1]
 				if !exists {
-					return false, fmt.Errorf("subPiece CID %s not found in subPiece info map", subPieceEntry.SubPieceCID)
+					return false, fmt.Errorf("subPiece CID %s not found in subPiece info map", subPieceEntry.subPieceCIDv1)
 				}
 
 				// Update SubPieceOffset
 				subPieceInfo.SubPieceOffset = totalOffset
-				subPieceInfoMap[subPieceEntry.SubPieceCID] = subPieceInfo // Update the map
+				subPieceInfoMap[subPieceEntry.subPieceCIDv1] = subPieceInfo // Update the map
 
-				pieceInfos[i] = subPieceInfo.PieceInfo
+				pieceInfos[i] = abi.PieceInfo{
+					Size:     subPieceInfo.PaddedSize,
+					PieceCID: subPieceInfo.PieceCIDv1,
+				}
 
-				totalOffset += uint64(subPieceInfo.PieceInfo.Size)
+				totalOffset += uint64(subPieceInfo.PaddedSize)
 			}
 
 			// Use GenerateUnsealedCID to generate PieceCid from subPieces
@@ -789,13 +822,14 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 			}
 
 			// Compare generated PieceCid with provided PieceCid
-			providedPieceCid, err := cid.Decode(addPieceReq.PieceCID)
+			providedPieceCidv1, err := asPieceCIDv1(addPieceReq.PieceCID)
 			if err != nil {
 				return false, fmt.Errorf("invalid provided PieceCid: %v", err)
 			}
+			payload.Pieces[i].pieceCIDv1 = providedPieceCidv1.String()
 
-			if !providedPieceCid.Equals(generatedPieceCid) {
-				return false, fmt.Errorf("provided PieceCid does not match generated PieceCid: %s != %s", providedPieceCid, generatedPieceCid)
+			if !providedPieceCidv1.Equals(generatedPieceCid) {
+				return false, fmt.Errorf("provided PieceCid does not match generated PieceCid: %s != %s", providedPieceCidv1, generatedPieceCid)
 			}
 		}
 
@@ -818,39 +852,64 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 	// Prepare PieceData array for Ethereum transaction
 	// Define a Struct that matches the Solidity PieceData struct
 	type PieceData struct {
-		Piece   struct{ Data []byte }
-		RawSize *big.Int
+		Data []byte // CID
 	}
 
 	var pieceDataArray []PieceData
 
 	for _, addPieceReq := range payload.Pieces {
 		// Convert PieceCid to bytes
-		pieceCid, err := cid.Decode(addPieceReq.PieceCID)
+		pieceCidV2, err := cid.Decode(addPieceReq.PieceCID)
 		if err != nil {
 			http.Error(w, "Invalid PieceCid: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		_, rawSize, err := commcid.PieceCidV1FromV2(pieceCidV2)
+		if err != nil {
+			http.Error(w, "Invalid CommPv2:"+err.Error(), http.StatusBadRequest)
+			return
+		}
+		height, _, err := commcid.PayloadSizeToV1TreeHeightAndPadding(rawSize)
+		if err != nil {
+			http.Error(w, "Computing height and padding:"+err.Error(), http.StatusBadRequest)
+			return
+		}
+		if height > 50 {
+			http.Error(w, "Invalid height", http.StatusBadRequest)
+		}
 
 		// Get raw size by summing up the sizes of subPieces
 		var totalSize uint64 = 0
-		prevSubPieceSize := subPieceInfoMap[addPieceReq.SubPieces[0].SubPieceCID].PieceInfo.Size
+		prevSubPieceSize := subPieceInfoMap[addPieceReq.SubPieces[0].subPieceCIDv1].PaddedSize
 		for i, subPieceEntry := range addPieceReq.SubPieces {
-			subPieceInfo := subPieceInfoMap[subPieceEntry.SubPieceCID]
-			if subPieceInfo.PieceInfo.Size > prevSubPieceSize {
-				msg := fmt.Sprintf("SubPieces must be in descending order of size, piece %d %s is larger than prev subPiece %s", i, subPieceEntry.SubPieceCID, addPieceReq.SubPieces[i-1].SubPieceCID)
+			subPieceInfo := subPieceInfoMap[subPieceEntry.subPieceCIDv1]
+			if subPieceInfo.PaddedSize > prevSubPieceSize {
+				msg := fmt.Sprintf("SubPieces must be in descending order of size, piece %d %s is larger than prev subPiece %s",
+					i, subPieceEntry.SubPieceCID, addPieceReq.SubPieces[i-1].SubPieceCID)
 				http.Error(w, msg, http.StatusBadRequest)
 				return
 			}
 
-			prevSubPieceSize = subPieceInfo.PieceInfo.Size
-			totalSize += uint64(subPieceInfo.PieceInfo.Size)
+			prevSubPieceSize = subPieceInfo.PaddedSize
+			totalSize += uint64(subPieceInfo.RawSize)
 		}
+		// sanity check that the rawSize in the CommPv2 matches the totalSize of the subPieces
+		if rawSize != totalSize {
+			http.Error(w, fmt.Sprintf("Raw size miss-match: expected %d, got %d", totalSize, rawSize), http.StatusBadRequest)
+			return
+		}
+
+		/* TODO: this doesn't work, do we need it?
+		// sanity check that height and totalSize match
+		computedHeight := bits.LeadingZeros64(totalSize-1) - 5
+		if computedHeight != int(height) {
+			http.Error(w, fmt.Sprintf("Height miss-match: expected %d, got %d for total size %d", computedHeight, height, totalSize), http.StatusBadRequest)
+		}
+		*/
 
 		// Prepare PieceData for Ethereum transaction
 		pieceData := PieceData{
-			Piece:   struct{ Data []byte }{Data: pieceCid.Bytes()},
-			RawSize: new(big.Int).SetUint64(totalSize),
+			Data: pieceCidV2.Bytes(),
 		}
 
 		pieceDataArray = append(pieceDataArray, pieceData)
@@ -927,7 +986,7 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
 
 		for addMessageIndex, addPieceReq := range payload.Pieces {
 			for _, subPieceEntry := range addPieceReq.SubPieces {
-				subPieceInfo := subPieceInfoMap[subPieceEntry.SubPieceCID]
+				subPieceInfo := subPieceInfoMap[subPieceEntry.subPieceCIDv1]
 
 				// Insert into pdp_data_set_pieces
 				_, err = txdb.Exec(`
@@ -944,12 +1003,12 @@ func (p *PDPService) handleAddPieceToDataSet(w http.ResponseWriter, r *http.Requ
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 `,
 					dataSetIdUint64,
-					addPieceReq.PieceCID,
+					addPieceReq.pieceCIDv1,
 					txHashLower,
 					addMessageIndex,
-					subPieceEntry.SubPieceCID,
+					subPieceEntry.subPieceCIDv1,
 					subPieceInfo.SubPieceOffset,
-					subPieceInfo.PieceInfo.Size,
+					subPieceInfo.PaddedSize,
 					subPieceInfo.PDPPieceRefID,
 				)
 				if err != nil {
@@ -1383,5 +1442,47 @@ func (p *PDPService) handleGetDataSetPiece(w http.ResponseWriter, r *http.Reques
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, "Failed to encode response: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+}
+
+func asPieceCIDv1(cidStr string) (cid.Cid, error) {
+	pieceCid, err := cid.Decode(cidStr)
+	if err != nil {
+		return cid.Undef, fmt.Errorf("failed to decode PieceCID: %w", err)
+	}
+	if pieceCid.Prefix().MhType == uint64(multicodec.Fr32Sha256Trunc254Padbintree) {
+		c1, _, err := commcid.PieceCidV1FromV2(pieceCid)
+		return c1, err
+	}
+	return pieceCid, nil
+}
+
+// asPieceCIDv2 converts a string to a PieceCIDv2. Where the input is expected to be a PieceCIDv1,
+// a size argument is required. Where it's expected to be a v2, the size argument is ignored. The
+// size either derived from the v2 or from the size argument in the case of a v1 is returned.
+func asPieceCIDv2(cidStr string, size uint64) (cid.Cid, uint64, error) {
+	pieceCid, err := cid.Decode(cidStr)
+	if err != nil {
+		return cid.Undef, 0, fmt.Errorf("failed to decode subPieceCid: %w", err)
+	}
+	switch pieceCid.Prefix().MhType {
+	case uint64(multicodec.Sha2_256Trunc254Padded):
+		if size == 0 {
+			return cid.Undef, 0, fmt.Errorf("size must be provided for PieceCIDv1")
+		}
+		c, err := commcid.PieceCidV2FromV1(pieceCid, size)
+		if err != nil {
+			return cid.Undef, 0, err
+		}
+		return c, size, nil
+	case uint64(multicodec.Fr32Sha256Trunc254Padbintree):
+		// get the size from the CID, not the argument
+		_, size, err := commcid.PieceCidV2ToDataCommitment(pieceCid)
+		if err != nil {
+			return cid.Undef, 0, err
+		}
+		return pieceCid, size, nil
+	default:
+		return cid.Undef, 0, fmt.Errorf("unsupported piece CID type: %d", pieceCid.Prefix().MhType)
 	}
 }

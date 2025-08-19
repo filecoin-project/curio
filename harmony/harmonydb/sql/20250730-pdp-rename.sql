@@ -232,12 +232,6 @@ BEGIN
 END
 $$;
 
--- Step 16: Add comments to document the migration
-COMMENT ON TABLE pdp_data_sets IS 'Formerly pdp_proof_sets - renamed in Phase 2 external terminology update';
-COMMENT ON TABLE pdp_data_set_creates IS 'Formerly pdp_proofset_creates - renamed in Phase 2 external terminology update';
-COMMENT ON TABLE pdp_data_set_pieces IS 'Formerly pdp_proofset_roots - renamed in Phase 2 external terminology update';
-COMMENT ON TABLE pdp_data_set_piece_adds IS 'Formerly pdp_proofset_root_adds - renamed in Phase 2 external terminology update';
-
 -- Step 17: Final verification
 DO $$
 DECLARE

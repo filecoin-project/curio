@@ -19,7 +19,7 @@ func ContractAddresses() PDPContracts {
 	switch build.BuildType {
 	case build.BuildCalibnet:
 		return PDPContracts{
-			PDPVerifier: common.HexToAddress("0x4E1e9AB9bf23E9Fe96041E0a2d2f0B99dE27FBb2"),
+			PDPVerifier: common.HexToAddress("0x86E3bBb5c2f9c70F5d4f66dD23864623B1f34f63"),
 		}
 	case build.BuildMainnet:
 		// Compatible contract not yet deployed

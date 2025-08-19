@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
+	"github.com/multiformats/go-multicodec"
 	"go.opencensus.io/stats"
 
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/lib/cachedreader"
@@ -44,6 +46,15 @@ func (rp *Provider) handleByPieceCid(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		stats.Record(ctx, remoteblockstore.HttpPieceByCid400ResponseCount.M(1))
 		return
+	}
+	if multicodec.Code(pieceCid.Type()) != multicodec.FilCommitmentUnsealed {
+		pieceCid, _, err = commcid.PieceCidV1FromV2(pieceCid)
+		if err != nil {
+			log.Errorf("parsing piece CID as CommPv2 '%s': %s", pieceCidStr, err.Error())
+			w.WriteHeader(http.StatusBadRequest)
+			stats.Record(ctx, remoteblockstore.HttpPieceByCid400ResponseCount.M(1))
+			return
+		}
 	}
 
 	// Get a reader over the piece
