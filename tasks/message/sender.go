@@ -47,6 +47,8 @@ type SignerAPI interface {
 type Sender struct {
 	api SenderAPI
 
+	maximizeFeeCap bool
+
 	sendTask *SendTask
 
 	db *harmonydb.DB
@@ -260,7 +262,7 @@ var _ harmonytask.TaskInterface = &SendTask{}
 var _ = harmonytask.Reg(&SendTask{})
 
 // NewSender creates a new Sender.
-func NewSender(api SenderAPI, signer SignerAPI, db *harmonydb.DB) (*Sender, *SendTask) {
+func NewSender(api SenderAPI, signer SignerAPI, db *harmonydb.DB, maximizeFeeCap bool) (*Sender, *SendTask) {
 	st := &SendTask{
 		api:    api,
 		signer: signer,
@@ -268,8 +270,9 @@ func NewSender(api SenderAPI, signer SignerAPI, db *harmonydb.DB) (*Sender, *Sen
 	}
 
 	return &Sender{
-		api: api,
-		db:  db,
+		api:            api,
+		db:             db,
+		maximizeFeeCap: maximizeFeeCap,
 
 		sendTask: st,
 	}, st
@@ -293,6 +296,10 @@ func (s *Sender) Send(ctx context.Context, msg *types.Message, mss *api.MessageS
 	}
 	if (mss.MsgUuid != uuid.UUID{}) {
 		return cid.Undef, xerrors.Errorf("MessageSendSpec.MsgUuid must be zero")
+	}
+
+	if s.maximizeFeeCap {
+		mss.MaximizeFeeCap = true
 	}
 
 	fromA, err := s.api.StateAccountKey(ctx, msg.From, types.EmptyTSK)
