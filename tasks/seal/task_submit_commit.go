@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/ipfs/go-cid"
 	"go.uber.org/multierr"
@@ -460,7 +461,7 @@ func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr addres
 		}
 		aggMsg, err = s.gasEstimateCommit(ctx, maddr, aggEnc.Bytes(), mi, goodFunds, aggCollateral, maxFee, ts.Key())
 		if err != nil {
-			return nil, err
+			return nil, xerrors.Errorf("gas estimate aggregate commit: %w", err)
 		}
 		aggGas := big.Mul(big.Add(ts.MinTicketBlock().ParentBaseFee, aggMsg.GasPremium), big.NewInt(aggMsg.GasLimit))
 		aggCost = big.Add(aggGas, aggFee)
@@ -474,9 +475,15 @@ func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr addres
 			return nil, xerrors.Errorf("could not serialize commit params: %w", err)
 		}
 		msg, err = s.gasEstimateCommit(ctx, maddr, enc.Bytes(), mi, goodFunds, collateral, maxFee, ts.Key())
-		if err != nil {
-			return nil, err
+		if err != nil && !strings.Contains(err.Error(), "call ran out of gas") {
+			return nil, xerrors.Errorf("gas estimate individual commit: %w", err)
+		} else if err != nil && !aggCost.Nil() {
+			log.Errorw("gas estimate individual commit failed", "err", err, "sp", SpID, "sector", infos[0].Number)
+			log.Infow("Sending commit message with aggregate due to no alternative", "Batch Cost", cost, "Aggregate Cost", aggCost)
+			return aggMsg, nil
 		}
+
+		log.Infow("gas estimate individual commit succeeded", "sp", SpID, "sector", infos[0].Number)
 		gas := big.Mul(big.Add(ts.MinTicketBlock().ParentBaseFee, msg.GasPremium), big.NewInt(msg.GasLimit))
 		cost = gas
 	}
