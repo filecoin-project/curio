@@ -296,7 +296,7 @@ func WaitForProof(request common.ProofRequest) ([]byte, error) {
 	start := time.Now()
 	defer recordClientctlDuration("WaitForProof", start)
 	// Wait for the proof
-	proofResp, err := GetProofStatus(request.Data)
+	proofResp, err := GetProofStatus(context.Background(), request.Data)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get proof: %w", err)
 	}
