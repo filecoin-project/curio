@@ -127,7 +127,8 @@ func (t *TaskClientPoll) CanAccept(ids []harmonytask.TaskID, engine *harmonytask
 
 // Do implements harmonytask.TaskInterface.
 func (t *TaskClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	var clientRequest ClientRequest
 	err = t.db.QueryRow(ctx, `
@@ -147,6 +148,25 @@ func (t *TaskClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		log.Infow("client request not found", "taskID", taskID)
 		return false, nil
 	}
+
+	var ownedCancel context.CancelFunc
+	ctx, ownedCancel = context.WithTimeout(ctx, 10*time.Minute)
+	go func() {
+		const pollInterval = 10 * time.Second
+		defer ownedCancel()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				time.Sleep(pollInterval)
+				if !stillOwned() {
+					return
+				}
+			}
+		}
+	}()
 
 	var proof []byte
 	for {
@@ -224,7 +244,7 @@ func pollForProof(ctx context.Context, db *harmonydb.DB, taskID harmonytask.Task
 	}
 
 	// Get proof status by CID
-	proofResp, err := proofsvc.GetProofStatus(requestCid)
+	proofResp, err := proofsvc.GetProofStatus(ctx, requestCid)
 	if err != nil || proofResp.Proof == nil {
 		log.Infow("proof not ready", "taskID", taskID, "spID", clientRequest.SpID, "sectorNumber", clientRequest.SectorNumber)
 		// Not ready yet, continue polling

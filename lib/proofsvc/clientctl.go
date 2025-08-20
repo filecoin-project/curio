@@ -249,10 +249,10 @@ func RequestProof(request common.ProofRequest) (bool, error) {
 }
 
 // GetProofStatus checks the status of a proof request by ID
-func GetProofStatus(requestCid cid.Cid) (common.ProofResponse, error) {
+func GetProofStatus(ctx context.Context, requestCid cid.Cid) (common.ProofResponse, error) {
 	start := time.Now()
 	defer recordClientctlDuration("GetProofStatus", start)
-	ctx, cancel := context.WithTimeout(context.Background(), MaxRetryTime)
+	ctx, cancel := context.WithTimeout(ctx, MaxRetryTime)
 	defer cancel()
 
 	return retryWithBackoff(ctx, func() (common.ProofResponse, error) {
