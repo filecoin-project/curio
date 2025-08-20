@@ -202,7 +202,7 @@ var proofsvcStatusCmd = &cli.Command{
 		if err != nil {
 			return err
 		}
-		resp, err := proofsvc.GetProofStatus(rcid)
+		resp, err := proofsvc.GetProofStatus(context.Background(), rcid)
 		if err != nil {
 			return err
 		}
