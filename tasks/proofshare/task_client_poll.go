@@ -167,6 +167,25 @@ func (t *TaskClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		}
 	}()
 
+	var ownedCancel context.CancelFunc
+	ctx, ownedCancel = context.WithTimeout(ctx, 10*time.Minute)
+	go func() {
+		const pollInterval = 10 * time.Second
+		defer ownedCancel()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				time.Sleep(pollInterval)
+				if !stillOwned() {
+					return
+				}
+			}
+		}
+	}()
+
 	var proof []byte
 	for {
 		var stateChanged bool
