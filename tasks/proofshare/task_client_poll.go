@@ -149,8 +149,7 @@ func (t *TaskClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 		return false, nil
 	}
 
-	var ownedCancel context.CancelFunc
-	ctx, ownedCancel = context.WithTimeout(ctx, 10*time.Minute)
+	pollCtx, ownedCancel := context.WithCancel(ctx)
 	go func() {
 		const pollInterval = 10 * time.Second
 		defer ownedCancel()
@@ -159,9 +158,9 @@ func (t *TaskClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 			select {
 			case <-ctx.Done():
 				return
-			default:
-				time.Sleep(pollInterval)
+			case <-time.After(pollInterval):
 				if !stillOwned() {
+					// close the owned context
 					return
 				}
 			}
@@ -171,7 +170,7 @@ func (t *TaskClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	var proof []byte
 	for {
 		var stateChanged bool
-		stateChanged, proof, err = pollForProof(ctx, t.db, taskID, &clientRequest)
+		stateChanged, proof, err = pollForProof(pollCtx, t.db, taskID, &clientRequest)
 		if err != nil {
 			return false, xerrors.Errorf("failed to poll for proof: %w", err)
 		}
