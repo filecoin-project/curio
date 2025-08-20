@@ -710,11 +710,6 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 			return err
 		}
 
-		declMax, err := policy.GetDeclarationsMax(nv)
-		if err != nil {
-			return err
-		}
-
 		addrSectors := sectorsMax
 		if cctx.Int("max-sectors") != 0 {
 			addrSectors = cctx.Int("max-sectors")
@@ -794,7 +789,7 @@ Extensions will be clamped at either the maximum sector extension of 3.5 years/1
 				sectorsInDecl := int(sectorsWithoutClaimsCount) + len(sectorsWithClaims)
 				scount += sectorsInDecl
 
-				if scount > addrSectors || len(p.Extensions) >= declMax {
+				if scount > addrSectors || len(p.Extensions) >= policy.DeclarationsMax {
 					params = append(params, p)
 					p = miner.ExtendSectorExpiration2Params{}
 					scount = sectorsInDecl

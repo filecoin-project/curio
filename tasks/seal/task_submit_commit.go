@@ -34,7 +34,6 @@ import (
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/market"
 	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
-	"github.com/filecoin-project/lotus/chain/actors/policy"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/ctladdr"
 )
@@ -445,15 +444,7 @@ func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr addres
 		}
 		aggParams.SectorProofs = nil // can't be set when aggregating
 
-		aggFeeRaw, err := policy.AggregateProveCommitNetworkFee(nv, len(infos), ts.MinTicketBlock().ParentBaseFee)
-		if err != nil {
-			return nil, xerrors.Errorf("getting aggregate commit network fee: %s", err)
-		}
-
-		aggFee := big.Div(big.Mul(aggFeeRaw, big.NewInt(110)), big.NewInt(110))
-
-		aggCollateral := big.Add(collateral, aggFee)
-		aggCollateral = s.calculateCollateral(balance, aggCollateral)
+		aggCollateral := s.calculateCollateral(balance, collateral)
 		goodFunds := big.Add(maxFee, aggCollateral)
 		aggEnc := new(bytes.Buffer)
 		if err := aggParams.MarshalCBOR(aggEnc); err != nil {
@@ -464,7 +455,7 @@ func (s *SubmitCommitTask) createCommitMessage(ctx context.Context, maddr addres
 			return nil, xerrors.Errorf("gas estimate aggregate commit: %w", err)
 		}
 		aggGas := big.Mul(big.Add(ts.MinTicketBlock().ParentBaseFee, aggMsg.GasPremium), big.NewInt(aggMsg.GasLimit))
-		aggCost = big.Add(aggGas, aggFee)
+		aggCost = aggGas
 	}
 
 	{
