@@ -94,8 +94,8 @@ definitions:
       source_httpput:
         allOf:
         - $ref: '#/definitions/mk20.DataSourceHttpPut'
-        description: SourceHTTPPut // allow clients to push piece data after deal
-          accepted, sort of like offline import
+        description: SourceHttpPut allow clients to push piece data after deal is
+          accepted
       source_offline:
         allOf:
         - $ref: '#/definitions/mk20.DataSourceOffline'
@@ -124,9 +124,8 @@ definitions:
   mk20.Deal:
     properties:
       client:
-        allOf:
-        - $ref: '#/definitions/address.Address'
-        description: Client wallet for the deal
+        description: Client wallet string for the deal
+        type: string
       data:
         allOf:
         - $ref: '#/definitions/mk20.DataSource'
@@ -390,6 +389,7 @@ definitions:
     - 404
     - 409
     - 500
+    - 429
     type: integer
     x-enum-varnames:
     - UploadOk
@@ -397,6 +397,7 @@ definitions:
     - UploadNotFound
     - UploadChunkAlreadyUploaded
     - UploadServerError
+    - UploadRateLimit
   mk20.UploadStartCode:
     enum:
     - 200

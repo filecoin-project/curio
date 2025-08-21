@@ -1029,5 +1029,6 @@ OPTIONS:
    --provider value    storage provider on-chain address
    --deal value        deal id to upload to
    --chunk-size value  chunk size to be used for the upload (default: "4 MiB")
+   --wallet value      wallet address to be used to initiate the deal
    --help, -h          show help
 ```

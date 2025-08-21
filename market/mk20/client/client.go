@@ -187,7 +187,7 @@ func (c *Client) Deal(ctx context.Context, maddr, wallet address.Address, pieceC
 
 	deal := mk20.Deal{
 		Identifier: id,
-		Client:     wallet,
+		Client:     wallet.String(),
 		Data:       &d,
 		Products:   p,
 	}
@@ -401,4 +401,17 @@ func (c *Client) DealChunkedUpload(ctx context.Context, dealID string, size, chu
 		return rerr.HError()
 	}
 	return nil
+}
+
+func KeyFromClientAddress(clientAddress address.Address) (key string) {
+	switch clientAddress.Protocol() {
+	case address.BLS:
+		return "bls"
+	case address.SECP256K1:
+		return "secp256k1"
+	case address.Delegated:
+		return "delegated"
+	default:
+		return ""
+	}
 }

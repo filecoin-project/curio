@@ -135,7 +135,9 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                         <td>${item.miner}</td>
                         <td>${item.chain_deal_id}</td>
                         <td><a href="/pages/sector/?sp=${item.miner}&id=${item.sector}">${item.sector}</a></td>
-                        <td>${item.offset}</td>
+                        <td>
+                            ${item.offset ? item.offset : html``}
+                        </td>
                         <td>${this.toHumanBytes(item.length)}</td>
                         <td>${this.toHumanBytes(item.raw_size)}</td>
                     </tr>
@@ -216,7 +218,9 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                                                     <td>${item.miner}</td>
                                                     <td>${item.chain_deal_id}</td>
                                                     <td><a href="/pages/sector/?sp=${item.miner}&id=${item.sector}">${item.sector}</a></td>
-                                                    <td>${item.offset}</td>
+                                                    <td>
+                                                        ${item.offset ? item.offset : html``}
+                                                    </td>
                                                     <td>${this.toHumanBytes(item.length)}</td>
                                                     <td>${this.toHumanBytes(item.raw_size)}</td>
                                                 </tr>

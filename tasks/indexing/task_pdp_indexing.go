@@ -11,8 +11,6 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/go-state-types/abi"
-
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -57,14 +55,11 @@ func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	var tasks []struct {
 		ID         string `db:"id"`
 		PieceCIDV2 string `db:"piece_cid_v2"`
-		PieceCID   string `db:"piece_cid"`
-		PieceSize  int64  `db:"piece_size"`
-		RawSize    int64  `db:"raw_size"`
 		PieceRef   int64  `db:"piece_ref"`
 		Indexing   bool   `db:"indexing"`
 	}
 
-	err = P.db.Select(ctx, &tasks, `SELECT id, piece_cid_v2, piece_cid, piece_size, raw_size, piece_ref, indexing FROM pdp_pipeline WHERE indexing_task_id = $1 AND indexed = FALSE`, taskID)
+	err = P.db.Select(ctx, &tasks, `SELECT id, piece_cid_v2, piece_ref, indexing FROM pdp_pipeline WHERE indexing_task_id = $1 AND indexed = FALSE`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("getting PDP pending indexing tasks: %w", err)
 	}
@@ -75,15 +70,20 @@ func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 
 	task := tasks[0]
 
-	var indexed bool
-	err = P.db.QueryRow(ctx, `SELECT indexed FROM market_piece_metadata WHERE piece_cid = $1 and piece_size = $2`, task.PieceCID, task.PieceSize).Scan(&indexed)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return false, xerrors.Errorf("checking if piece %s is already indexed: %w", task.PieceCIDV2, err)
-	}
-
 	pcid2, err := cid.Parse(task.PieceCIDV2)
 	if err != nil {
 		return false, xerrors.Errorf("parsing piece CID: %w", err)
+	}
+
+	pi, err := mk20.GetPieceInfo(pcid2)
+	if err != nil {
+		return false, xerrors.Errorf("getting piece info: %w", err)
+	}
+
+	var indexed bool
+	err = P.db.QueryRow(ctx, `SELECT indexed FROM market_piece_metadata WHERE piece_cid = $1 and piece_size = $2`, pi.PieceCIDV1.String(), pi.Size).Scan(&indexed)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return false, xerrors.Errorf("checking if piece %s is already indexed: %w", task.PieceCIDV2, err)
 	}
 
 	id, err := ulid.Parse(task.ID)
@@ -121,7 +121,7 @@ func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	}
 
 	if indexed || !task.Indexing || byteData {
-		err = P.recordCompletion(ctx, taskID, task.ID, task.PieceCID, task.PieceSize, task.RawSize, task.PieceRef, false)
+		err = P.recordCompletion(ctx, taskID, task.ID, pi.PieceCIDV1.String(), int64(pi.Size), int64(pi.RawSize), task.PieceRef, false)
 		if err != nil {
 			return false, err
 		}
@@ -158,7 +158,7 @@ func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 	var aggidx map[cid.Cid][]indexstore.Record
 
 	if len(subPieces) > 0 {
-		blocks, aggidx, interrupted, err = IndexAggregate(pcid2, reader, abi.PaddedPieceSize(task.PieceSize), subPieces, recs, addFail)
+		blocks, aggidx, interrupted, err = IndexAggregate(pcid2, reader, pi.Size, subPieces, recs, addFail)
 	} else {
 		blocks, interrupted, err = IndexCAR(reader, 4<<20, recs, addFail)
 	}
@@ -192,7 +192,7 @@ func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		}
 	}
 
-	err = P.recordCompletion(ctx, taskID, task.ID, task.PieceCID, task.PieceSize, task.RawSize, task.PieceRef, true)
+	err = P.recordCompletion(ctx, taskID, task.ID, pi.PieceCIDV1.String(), int64(pi.Size), int64(pi.RawSize), task.PieceRef, true)
 	if err != nil {
 		return false, err
 	}

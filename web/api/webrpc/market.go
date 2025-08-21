@@ -576,17 +576,17 @@ func (a *WebRPC) MoveBalanceToEscrow(ctx context.Context, miner string, amount s
 }
 
 type PieceDeal struct {
-	ID          string `db:"id" json:"id"`
-	BoostDeal   bool   `db:"boost_deal" json:"boost_deal"`
-	LegacyDeal  bool   `db:"legacy_deal" json:"legacy_deal"`
-	SpId        int64  `db:"sp_id" json:"sp_id"`
-	ChainDealId int64  `db:"chain_deal_id" json:"chain_deal_id"`
-	Sector      int64  `db:"sector_num" json:"sector"`
-	Offset      int64  `db:"piece_offset" json:"offset"`
-	Length      int64  `db:"piece_length" json:"length"`
-	RawSize     int64  `db:"raw_size" json:"raw_size"`
-	Miner       string `json:"miner"`
-	MK20        bool   `db:"-" json:"mk20"`
+	ID          string        `db:"id" json:"id"`
+	BoostDeal   bool          `db:"boost_deal" json:"boost_deal"`
+	LegacyDeal  bool          `db:"legacy_deal" json:"legacy_deal"`
+	SpId        int64         `db:"sp_id" json:"sp_id"`
+	ChainDealId int64         `db:"chain_deal_id" json:"chain_deal_id"`
+	Sector      int64         `db:"sector_num" json:"sector"`
+	Offset      sql.NullInt64 `db:"piece_offset" json:"offset"`
+	Length      int64         `db:"piece_length" json:"length"`
+	RawSize     int64         `db:"raw_size" json:"raw_size"`
+	Miner       string        `json:"miner"`
+	MK20        bool          `db:"-" json:"mk20"`
 }
 
 type PieceInfo struct {

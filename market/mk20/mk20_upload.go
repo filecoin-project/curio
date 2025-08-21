@@ -14,13 +14,13 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/filecoin-project/go-address"
-	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
+	"github.com/filecoin-project/go-address"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/filecoin-project/go-state-types/abi"
 
@@ -442,7 +442,7 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 // @param deal *Deal [optional]
 // @Return DealCode
 
-func (m *MK20) HandleUploadFinalize(id ulid.ULID, deal *Deal, w http.ResponseWriter) {
+func (m *MK20) HandleUploadFinalize(id ulid.ULID, deal *Deal, w http.ResponseWriter, auth string) {
 	ctx := context.Background()
 	var exists bool
 	err := m.DB.QueryRow(ctx, `SELECT EXISTS (
@@ -480,7 +480,7 @@ func (m *MK20) HandleUploadFinalize(id ulid.ULID, deal *Deal, w http.ResponseWri
 
 	if deal != nil {
 		// This is a deal where DataSource was not set - we should update the deal
-		code, ndeal, _, err := m.updateDealDetails(id, deal)
+		code, ndeal, _, err := m.updateDealDetails(id, deal, auth)
 		if err != nil {
 			log.Errorw("failed to update deal details", "deal", id, "error", err)
 			if code == ErrServerInternalError {
@@ -609,7 +609,7 @@ func (m *MK20) HandleUploadFinalize(id ulid.ULID, deal *Deal, w http.ResponseWri
 	w.WriteHeader(int(Ok))
 }
 
-func (m *MK20) updateDealDetails(id ulid.ULID, deal *Deal) (DealCode, *Deal, []ProductName, error) {
+func (m *MK20) updateDealDetails(id ulid.ULID, deal *Deal, auth string) (DealCode, *Deal, []ProductName, error) {
 	ctx := context.Background() // Let's not use request context to avoid DB inconsistencies
 
 	if deal.Identifier.Compare(id) != 0 {
@@ -621,7 +621,7 @@ func (m *MK20) updateDealDetails(id ulid.ULID, deal *Deal) (DealCode, *Deal, []P
 	}
 
 	// Validate the deal
-	code, err := deal.Validate(m.DB, &m.cfg.Market.StorageMarketConfig.MK20)
+	code, err := deal.Validate(m.DB, &m.cfg.Market.StorageMarketConfig.MK20, auth)
 	if err != nil {
 		return code, nil, nil, err
 	}
@@ -640,7 +640,7 @@ func (m *MK20) updateDealDetails(id ulid.ULID, deal *Deal) (DealCode, *Deal, []P
 	}
 
 	// Get updated deal
-	ndeal, code, np, err := UpdateDealDetails(ctx, m.DB, id, deal, &m.cfg.Market.StorageMarketConfig.MK20)
+	ndeal, code, np, err := UpdateDealDetails(ctx, m.DB, id, deal, &m.cfg.Market.StorageMarketConfig.MK20, auth)
 	if err != nil {
 		return code, nil, nil, err
 	}
@@ -963,7 +963,7 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 	w.WriteHeader(int(UploadOk))
 }
 
-func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.ResponseWriter) {
+func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.ResponseWriter, auth string) {
 	defer func() {
 		if r := recover(); r != nil {
 			trace := make([]byte, 1<<16)
@@ -1029,7 +1029,7 @@ func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.Respo
 
 	if deal != nil {
 		// This is a deal where DataSource was not set - we should update the deal
-		code, ndeal, _, err := m.updateDealDetails(id, deal)
+		code, ndeal, _, err := m.updateDealDetails(id, deal, auth)
 		if err != nil {
 			log.Errorw("failed to update deal details", "deal", id, "error", err)
 			if code == ErrServerInternalError {
@@ -1171,7 +1171,7 @@ func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.Respo
 						   piece_size, raw_size, url, offline, indexing, announce,
 						   allocation_id, duration, piece_aggregation, deal_aggregation, started, downloaded, after_commp)
 		       		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, TRUE, TRUE, TRUE)`,
-				id.String(), spid, ddo.ContractAddress, uDeal.Client.String(), data.PieceCID.String(), pi.PieceCIDV1.String(),
+				id.String(), spid, ddo.ContractAddress, uDeal.Client, data.PieceCID.String(), pi.PieceCIDV1.String(),
 				pi.Size, pi.RawSize, pieceIDUrl.String(), false, retv.Indexing, retv.AnnouncePayload,
 				allocationID, ddo.Duration, aggregation, aggregation)
 
@@ -1202,10 +1202,10 @@ func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.Respo
 			}
 
 			n, err := tx.Exec(`INSERT INTO pdp_pipeline (
-						id, client, piece_cid_v2, piece_cid, piece_size, raw_size, data_set_id, 
+						id, client, piece_cid_v2, data_set_id, 
 						extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
-					 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, $11, $12, $13)`,
-				id.String(), uDeal.Client.String(), uDeal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.DataSetID,
+					 VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, 0, $8, $9, $10)`,
+				id.String(), uDeal.Client, uDeal.Data.PieceCID.String(), *pdp.DataSetID,
 				pdp.ExtraData, refID, aggregation, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 			if err != nil {
 				return false, xerrors.Errorf("inserting in PDP pipeline: %w", err)

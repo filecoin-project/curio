@@ -1,9 +1,8 @@
 CREATE TABLE IF NOT EXISTS PieceToAggregatePiece (
+    AggregatePieceCid BLOB PRIMARY KEY,
     PieceCid BLOB,
-    AggregatePieceCid BLOB,
     UnpaddedOffset BIGINT,
-    UnpaddedLength BIGINT,
-    PRIMARY KEY (PieceCid, AggregatePieceCid)
+    UnpaddedLength BIGINT
 );
 
 CREATE TABLE IF NOT EXISTS PDPCacheLayer (

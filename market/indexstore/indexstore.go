@@ -503,13 +503,18 @@ func (i *IndexStore) FindPieceInAggregate(ctx context.Context, pieceCid cid.Cid)
 	return recs, nil
 }
 
-func (i *IndexStore) UpdatePieceCidV1ToV2(ctx context.Context, pieceCidV1 cid.Cid, pieceCidV2 cid.Cid) error {
-	//updateQry := `UPDATE PayloadToPieces SET PieceCid = ? WHERE PieceCid = ?`
-	//if err := i.session.Query(updateQry, pieceCidV1.Bytes(), pieceCidV2.Bytes()).WithContext(ctx).Exec(); err != nil {
-	//	return xerrors.Errorf("updating piece cid v1 to v2: %w", err)
-	//}
-	//return nil
+func (i *IndexStore) RemoveAggregateIndex(ctx context.Context, aggregatePieceCid cid.Cid) error {
+	aggregatePieceCidBytes := aggregatePieceCid.Bytes()
 
+	err := i.session.Query(`DELETE FROM PieceToAggregatePiece WHERE AggregatePieceCid = ?`, aggregatePieceCidBytes).WithContext(ctx).Exec()
+	if err != nil {
+		return xerrors.Errorf("deleting aggregate piece cid (P:0x%02x): %w", aggregatePieceCid.Bytes(), err)
+	}
+
+	return nil
+}
+
+func (i *IndexStore) UpdatePieceCidV1ToV2(ctx context.Context, pieceCidV1 cid.Cid, pieceCidV2 cid.Cid) error {
 	p1 := pieceCidV1.Bytes()
 	p2 := pieceCidV2.Bytes()
 

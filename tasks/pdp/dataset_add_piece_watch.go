@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ipfs/go-cid"
 	"github.com/yugabyte/pgx/v5"
 	"golang.org/x/xerrors"
 
@@ -23,9 +24,6 @@ type DataSetPieceAdd struct {
 	ID              string `db:"id"`
 	Client          string `db:"client"`
 	PieceCID2       string `db:"piece_cid_v2"` // pieceCIDV2
-	PieceCID        string `db:"piece_cid"`
-	PieceSize       int64  `db:"piece_size"`
-	RawSize         int64  `db:"raw_size"`
 	DataSet         uint64 `db:"data_set_id"`
 	PieceRef        int64  `db:"piece_ref"`
 	AddMessageHash  string `db:"add_message_hash"`
@@ -33,9 +31,9 @@ type DataSetPieceAdd struct {
 }
 
 // NewWatcherPieceAdd sets up the watcher for data set piece additions
-func NewWatcherPieceAdd(db *harmonydb.DB, pcs *chainsched.CurioChainSched) {
+func NewWatcherPieceAdd(db *harmonydb.DB, pcs *chainsched.CurioChainSched, ethClient *ethclient.Client) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
-		err := processPendingDataSetPieceAdds(ctx, db)
+		err := processPendingDataSetPieceAdds(ctx, db, ethClient)
 		if err != nil {
 			log.Errorf("Failed to process pending data set piece adds: %s", err)
 		}
@@ -47,12 +45,12 @@ func NewWatcherPieceAdd(db *harmonydb.DB, pcs *chainsched.CurioChainSched) {
 }
 
 // processPendingDataSetPieceAdds processes piece additions that have been confirmed on-chain
-func processPendingDataSetPieceAdds(ctx context.Context, db *harmonydb.DB) error {
+func processPendingDataSetPieceAdds(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
 	// Query for pdp_dataset_piece_adds entries where add_message_ok = TRUE
 	var pieceAdds []DataSetPieceAdd
 
 	err := db.Select(ctx, &pieceAdds, `
-        SELECT id, client, piece_cid_v2, piece_cid, piece_size, raw_size, data_set_id, piece_ref, add_message_hash, add_message_index 
+        SELECT id, client, piece_cid_v2, data_set_id, piece_ref, add_message_hash, add_message_index 
         FROM pdp_pipeline
         WHERE after_add_piece = TRUE AND after_add_piece_msg = FALSE
     `)
@@ -67,7 +65,7 @@ func processPendingDataSetPieceAdds(ctx context.Context, db *harmonydb.DB) error
 
 	// Process each piece addition
 	for _, pieceAdd := range pieceAdds {
-		err := processDataSetPieceAdd(ctx, db, pieceAdd)
+		err := processDataSetPieceAdd(ctx, db, pieceAdd, ethClient)
 		if err != nil {
 			log.Errorf("Failed to process piece add for tx %s: %s", pieceAdd.AddMessageHash, err)
 			continue
@@ -77,7 +75,7 @@ func processPendingDataSetPieceAdds(ctx context.Context, db *harmonydb.DB) error
 	return nil
 }
 
-func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, pieceAdd DataSetPieceAdd) error {
+func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, pieceAdd DataSetPieceAdd, ethClient *ethclient.Client) error {
 	// Retrieve the tx_receipt from message_waits_eth
 	var txReceiptJSON []byte
 	var txSuccess bool
@@ -142,7 +140,18 @@ func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, pieceAdd Data
 	}
 
 	var pieceIds []uint64
+	var pieceCids [][]byte
 	eventFound := false
+
+	pcid2, err := cid.Parse(pieceAdd.PieceCID2)
+	if err != nil {
+		return fmt.Errorf("failed to parse piece CID: %w", err)
+	}
+
+	parser, err := contract.NewPDPVerifierFilterer(contract.ContractAddresses().PDPVerifier, ethClient)
+	if err != nil {
+		return fmt.Errorf("failed to create PDPVerifierFilterer: %w", err)
+	}
 
 	// Iterate over the logs in the receipt
 	for _, vLog := range txReceipt.Logs {
@@ -151,26 +160,19 @@ func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, pieceAdd Data
 			// The setId is an indexed parameter in Topics[1], but we don't need it here
 			// as we already have the dataset ID from the database
 
-			// Parse the non-indexed parameter (pieceIds array) from the data
-			unpacked, err := event.Inputs.Unpack(vLog.Data)
+			parsed, err := parser.ParsePiecesAdded(*vLog)
 			if err != nil {
-				return fmt.Errorf("failed to unpack log data: %w", err)
+				return fmt.Errorf("failed to parse event log: %w", err)
 			}
 
-			// Extract the pieceIds array
-			if len(unpacked) == 0 {
-				return fmt.Errorf("no unpacked data found in log")
+			pieceIds = make([]uint64, len(parsed.PieceIds))
+			for i := range parsed.PieceIds {
+				pieceIds[i] = parsed.PieceIds[i].Uint64()
 			}
 
-			// Convert the unpacked pieceIds ([]interface{} containing *big.Int) to []uint64
-			bigIntPieceIds, ok := unpacked[0].([]*big.Int)
-			if !ok {
-				return fmt.Errorf("failed to convert unpacked data to array")
-			}
-
-			pieceIds = make([]uint64, len(bigIntPieceIds))
-			for i := range bigIntPieceIds {
-				pieceIds[i] = bigIntPieceIds[i].Uint64()
+			pieceCids = make([][]byte, len(parsed.PieceCids))
+			for i := range parsed.PieceCids {
+				pieceCids[i] = parsed.PieceCids[i].Data
 			}
 
 			eventFound = true
@@ -184,6 +186,16 @@ func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, pieceAdd Data
 	}
 
 	pieceId := pieceIds[pieceAdd.AddMessageIndex]
+	pieceCid := pieceCids[pieceAdd.AddMessageIndex]
+
+	apcid2, err := cid.Cast(pieceCid)
+	if err != nil {
+		return fmt.Errorf("failed to cast piece CID: %w", err)
+	}
+
+	if !apcid2.Equals(pcid2) {
+		return fmt.Errorf("piece CID in event log does not match piece CID in message")
+	}
 
 	// Insert into message_waits_eth and pdp_dataset_pieces
 	comm, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
@@ -202,23 +214,17 @@ func processDataSetPieceAdd(ctx context.Context, db *harmonydb.DB, pieceAdd Data
                       data_set_id,
                       client,
                       piece_cid_v2,
-					  piece_cid,
-					  piece_size,
-					  raw_size,
                       piece,
                       piece_ref,
                       add_deal_id,
                       add_message_hash,
                       add_message_index
                   )
-                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
               `,
 			pieceAdd.DataSet,
 			pieceAdd.Client,
 			pieceAdd.PieceCID2,
-			pieceAdd.PieceCID,
-			pieceAdd.PieceSize,
-			pieceAdd.RawSize,
 			pieceId,
 			pieceAdd.PieceRef,
 			pieceAdd.ID,

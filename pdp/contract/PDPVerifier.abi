@@ -1061,6 +1061,19 @@
         "type": "uint256[]",
         "indexed": false,
         "internalType": "uint256[]"
+      },
+      {
+        "name": "pieceCids",
+        "type": "tuple[]",
+        "indexed": false,
+        "internalType": "struct Cids.Cid[]",
+        "components": [
+          {
+            "name": "data",
+            "type": "bytes",
+            "internalType": "bytes"
+          }
+        ]
       }
     ],
     "anonymous": false

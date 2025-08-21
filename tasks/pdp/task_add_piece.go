@@ -48,14 +48,13 @@ func (p *PDPTaskAddPiece) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 
 	var addPieces []struct {
 		ID        string `db:"id"`
-		PieceCid  string `db:"piece_cid"`
 		PieceCid2 string `db:"piece_cid_v2"`
 		DataSetID int64  `db:"data_set_id"`
 		ExtraData []byte `db:"extra_data"`
 		PieceRef  string `db:"piece_ref"`
 	}
 
-	err = p.db.Select(ctx, &addPieces, `SELECT id, piece_cid, piece_cid_v2, data_set_id, extra_data, piece_ref FROM pdp_pipeline WHERE add_piece_task_id = $1 AND after_add_piece = FALSE`, taskID)
+	err = p.db.Select(ctx, &addPieces, `SELECT id, piece_cid_v2, data_set_id, extra_data, piece_ref FROM pdp_pipeline WHERE add_piece_task_id = $1 AND after_add_piece = FALSE`, taskID)
 	if err != nil {
 		return false, xerrors.Errorf("failed to select add piece: %w", err)
 	}
@@ -70,20 +69,10 @@ func (p *PDPTaskAddPiece) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 
 	addPiece := addPieces[0]
 
-	//pcid, err := cid.Parse(addPiece.PieceCid)
-	//if err != nil {
-	//	return false, xerrors.Errorf("failed to parse piece cid: %w", err)
-	//}
-
 	pcid2, err := cid.Parse(addPiece.PieceCid2)
 	if err != nil {
 		return false, xerrors.Errorf("failed to parse piece cid: %w", err)
 	}
-
-	//pi, err := mk20.GetPieceInfo(pcid2)
-	//if err != nil {
-	//	return false, xerrors.Errorf("failed to get piece info: %w", err)
-	//}
 
 	// Prepare the Ethereum transaction data outside the DB transaction
 	// Obtain the ABI of the PDPVerifier contract

@@ -104,7 +104,7 @@ func NewMK20Handler(miners []address.Address, db *harmonydb.DB, si paths.SectorI
 // @Return DealCode
 // @Return Reason string
 
-func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal) *ProviderDealRejectionInfo {
+func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal, auth string) *ProviderDealRejectionInfo {
 	defer func() {
 		if r := recover(); r != nil {
 			trace := make([]byte, 1<<16)
@@ -115,7 +115,7 @@ func (m *MK20) ExecuteDeal(ctx context.Context, deal *Deal) *ProviderDealRejecti
 	}()
 
 	// Validate the DataSource
-	code, err := deal.Validate(m.DB, &m.cfg.Market.StorageMarketConfig.MK20)
+	code, err := deal.Validate(m.DB, &m.cfg.Market.StorageMarketConfig.MK20, auth)
 	if err != nil {
 		log.Errorw("deal rejected", "deal", deal, "error", err)
 		ret := &ProviderDealRejectionInfo{
@@ -321,7 +321,15 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			}, nil
 		}
 
-		alloc, err := m.api.StateGetAllocation(ctx, deal.Client, verifreg9.AllocationId(*deal.Products.DDOV1.AllocationId), types.EmptyTSK)
+		client, err := address.NewFromString(deal.Client)
+		if err != nil {
+			return &ProviderDealRejectionInfo{
+				HTTPCode: ErrBadProposal,
+				Reason:   "Client address is not valid",
+			}, nil
+		}
+
+		alloc, err := m.api.StateGetAllocation(ctx, client, verifreg9.AllocationId(*deal.Products.DDOV1.AllocationId), types.EmptyTSK)
 		if err != nil {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrServerInternalError,
@@ -335,7 +343,7 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			}, nil
 		}
 
-		clientID, err := address.IDFromAddress(deal.Client)
+		clientID, err := address.IDFromAddress(client)
 		if err != nil {
 			return &ProviderDealRejectionInfo{
 				HTTPCode: ErrBadProposal,
@@ -449,7 +457,7 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 
 		if pdp.CreateDataSet {
 			n, err := m.DB.Exec(ctx, `INSERT INTO pdp_data_set_create (id, client, record_keeper, extra_data) VALUES ($1, $2, $3, $4)`,
-				deal.Identifier.String(), deal.Client.String(), pdp.RecordKeeper, pdp.ExtraData)
+				deal.Identifier.String(), deal.Client, pdp.RecordKeeper, pdp.ExtraData)
 			if err != nil {
 				return false, xerrors.Errorf("inserting PDP proof set create: %w", err)
 			}
@@ -460,7 +468,7 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 
 		if pdp.DeleteDataSet {
 			n, err := m.DB.Exec(ctx, `INSERT INTO pdp_data_set_delete (id, client, set_id, extra_data) VALUES ($1, $2, $3, $4)`,
-				deal.Identifier.String(), deal.Client.String(), *pdp.DataSetID, pdp.ExtraData)
+				deal.Identifier.String(), deal.Client, *pdp.DataSetID, pdp.ExtraData)
 			if err != nil {
 				return false, xerrors.Errorf("inserting PDP proof set delete: %w", err)
 			}
@@ -471,7 +479,7 @@ func (m *MK20) processPDPDeal(ctx context.Context, deal *Deal) *ProviderDealReje
 
 		if pdp.DeletePiece {
 			n, err := m.DB.Exec(ctx, `INSERT INTO pdp_piece_delete (id, client, set_id, pieces, extra_data) VALUES ($1, $2, $3, $4, $5)`,
-				deal.Identifier.String(), deal.Client.String(), *pdp.DataSetID, pdp.PieceIDs, pdp.ExtraData)
+				deal.Identifier.String(), deal.Client, *pdp.DataSetID, pdp.PieceIDs, pdp.ExtraData)
 			if err != nil {
 				return false, xerrors.Errorf("inserting PDP delete root: %w", err)
 			}
@@ -532,7 +540,7 @@ func (m *MK20) sanitizePDPDeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 	if p.DeleteDataSet || p.AddPiece {
 		pid := *p.DataSetID
 		var exists bool
-		err := m.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_data_set WHERE id = $1 AND removed = FALSE AND client = $2)`, pid, deal.Client.String()).Scan(&exists)
+		err := m.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pdp_data_set WHERE id = $1 AND removed = FALSE AND client = $2)`, pid, deal.Client).Scan(&exists)
 		if err != nil {
 			log.Errorw("error checking if proofset exists", "error", err)
 			return &ProviderDealRejectionInfo{
@@ -559,7 +567,7 @@ func (m *MK20) sanitizePDPDeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 										  AND r.removed = FALSE
 										  AND s.removed = FALSE 
 										  AND r.client = $3 
-										  AND s.client = $3;`, pid, p.PieceIDs, deal.Client.String()).Scan(&exists)
+										  AND s.client = $3;`, pid, p.PieceIDs, deal.Client).Scan(&exists)
 		if err != nil {
 			log.Errorw("error checking if dataset and pieces exist for the client", "error", err)
 			return &ProviderDealRejectionInfo{
@@ -646,10 +654,9 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 		}
 
 		n, err = tx.Exec(`INSERT INTO pdp_pipeline (
-            id, client, piece_cid_v2, piece_cid, piece_size, raw_size, data_set_id,
-            extra_data, deal_aggregation, indexing, announce, announce_payload) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-			dealID, deal.Client.String(), data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.DataSetID,
+            id, client, piece_cid_v2, data_set_id, extra_data, deal_aggregation, indexing, announce, announce_payload) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			dealID, deal.Client, data.PieceCID.String(), *pdp.DataSetID,
 			pdp.ExtraData, aggregation, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 		if err != nil {
 			return xerrors.Errorf("inserting PDP pipeline: %w", err)
@@ -744,16 +751,11 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 		pBatch := &pgx.Batch{}
 		pBatchSize := 4000
 		for i, piece := range deal.Data.SourceAggregate.Pieces {
-			spi, err := GetPieceInfo(piece.PieceCID)
-			if err != nil {
-				return xerrors.Errorf("getting piece info: %w", err)
-			}
 			pBatch.Queue(`INSERT INTO pdp_pipeline (
-                          id, client, piece_cid_v2, piece_cid, piece_size, raw_size, 
-                          data_set_id, extra_data, piece_ref, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
-        	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-				dealID, deal.Client.String(), piece.PieceCID.String(), spi.PieceCIDV1.String(), spi.Size, spi.RawSize,
-				pdp.ExtraData, *pdp.DataSetID, aggregation, i, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
+                          id, client, piece_cid_v2, data_set_id, extra_data, piece_ref, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
+        	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+				dealID, deal.Client, piece.PieceCID.String(), pdp.ExtraData, *pdp.DataSetID,
+				aggregation, i, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 			if pBatch.Len() > pBatchSize {
 				res := tx.SendBatch(ctx, pBatch)
 				if err := res.Close(); err != nil {
@@ -777,18 +779,27 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 func markDownloaded(ctx context.Context, db *harmonydb.DB) {
 	md := func(ctx context.Context, db *harmonydb.DB) {
 		var deals []struct {
-			ID        string `db:"id"`
-			PieceCID  string `db:"piece_cid"`
-			PieceSize int64  `db:"piece_size"`
+			ID       string `db:"id"`
+			PieceCID string `db:"piece_cid_v2"`
 		}
 
-		err := db.Select(ctx, &deals, `SELECT id, piece_cid, piece_size FROM pdp_pipeline WHERE piece_ref IS NULL`)
+		err := db.Select(ctx, &deals, `SELECT id, piece_cid_v2 FROM pdp_pipeline WHERE piece_ref IS NULL`)
 		if err != nil {
 			log.Errorw("error getting PDP deals", "error", err)
 		}
 
 		for _, deal := range deals {
 			_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+				pcid2, err := cid.Decode(deal.PieceCID)
+				if err != nil {
+					return false, xerrors.Errorf("decoding piece cid: %w", err)
+				}
+
+				pi, err := GetPieceInfo(pcid2)
+				if err != nil {
+					return false, xerrors.Errorf("getting piece info: %w", err)
+				}
+
 				var refid int64
 				err = tx.QueryRow(`SELECT u.ref_id FROM (
 									  SELECT unnest(dp.ref_ids) AS ref_id
@@ -798,7 +809,7 @@ func markDownloaded(ctx context.Context, db *harmonydb.DB) {
 									JOIN parked_piece_refs pr ON pr.ref_id = u.ref_id
 									JOIN parked_pieces pp ON pp.id = pr.piece_id
 									WHERE pp.complete = TRUE
-									LIMIT 1;`, deal.ID, deal.PieceCID, deal.PieceSize, ProductNamePDPV1).Scan(&refid)
+									LIMIT 1;`, deal.ID, pi.PieceCIDV1.String(), pi.Size, ProductNamePDPV1).Scan(&refid)
 				if err != nil {
 					if errors.Is(err, pgx.ErrNoRows) {
 						return false, nil
@@ -813,22 +824,21 @@ func markDownloaded(ctx context.Context, db *harmonydb.DB) {
 								  FROM market_mk20_download_pipeline dp
 								  WHERE dp.id = $1 AND dp.piece_cid = $2 AND dp.piece_size = $3 AND dp.product = $4
 								)
-								AND ref_id != $5;`, deal.ID, deal.PieceCID, deal.PieceSize, ProductNamePDPV1, refid)
+								AND ref_id != $5;`, deal.ID, pi.PieceCIDV1.String(), pi.Size, ProductNamePDPV1, refid)
 				if err != nil {
 					return false, xerrors.Errorf("failed to remove other ref_ids from piece_park_refs: %w", err)
 				}
 
 				_, err = tx.Exec(`DELETE FROM market_mk20_download_pipeline WHERE id = $1 AND piece_cid = $2 AND piece_size = $3 AND product = $4;`,
-					deal.ID, deal.PieceCID, deal.PieceSize, ProductNamePDPV1)
+					deal.ID, pi.PieceCIDV1.String(), pi.Size, ProductNamePDPV1)
 				if err != nil {
 					return false, xerrors.Errorf("failed to delete piece from download table: %w", err)
 				}
 
 				_, err = tx.Exec(`UPDATE pdp_pipeline SET downloaded = TRUE, piece_ref = $1 
                                    WHERE id = $2
-                                   AND piece_cid = $3
-                                   AND piece_size = $4`,
-					refid, deal.ID, deal.PieceCID, deal.PieceSize)
+                                   AND piece_cid_v2 = $3`,
+					refid, deal.ID, deal.PieceCID)
 				if err != nil {
 					return false, xerrors.Errorf("failed to update download statos for PDP pipeline: %w", err)
 				}
@@ -858,7 +868,7 @@ func markDownloaded(ctx context.Context, db *harmonydb.DB) {
 // @Return DealCode
 // @Return Reason string
 
-func (m *MK20) UpdateDeal(id ulid.ULID, deal *Deal) *ProviderDealRejectionInfo {
+func (m *MK20) UpdateDeal(id ulid.ULID, deal *Deal, auth string) *ProviderDealRejectionInfo {
 	if deal == nil {
 		return &ProviderDealRejectionInfo{
 			HTTPCode: ErrBadProposal,
@@ -888,7 +898,7 @@ func (m *MK20) UpdateDeal(id ulid.ULID, deal *Deal) *ProviderDealRejectionInfo {
 		}
 	}
 
-	code, nd, np, err := m.updateDealDetails(id, deal)
+	code, nd, np, err := m.updateDealDetails(id, deal, auth)
 	if err != nil {
 		log.Errorw("failed to update deal details", "deal", id, "error", err)
 		if code == ErrServerInternalError {

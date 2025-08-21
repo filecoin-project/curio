@@ -199,6 +199,11 @@ func (s *PipelineGC) cleanupMK20DealPipeline() error {
 		return xerrors.Errorf("failed to clean up sealed deals: %w", err)
 	}
 
+	_, err = s.db.Exec(ctx, `DELETE FROM pdp_ipni_task WHERE complete = TRUE;`)
+	if err != nil {
+		return xerrors.Errorf("failed to clean up PDP indexing tasks: %w", err)
+	}
+
 	return nil
 }
 

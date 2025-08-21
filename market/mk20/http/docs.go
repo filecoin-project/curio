@@ -906,7 +906,7 @@ const docTemplate = `{
                     ]
                 },
                 "source_httpput": {
-                    "description": "SourceHTTPPut // allow clients to push piece data after deal accepted, sort of like offline import",
+                    "description": "SourceHttpPut allow clients to push piece data after deal is accepted",
                     "allOf": [
                         {
                             "$ref": "#/definitions/mk20.DataSourceHttpPut"
@@ -956,12 +956,8 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "client": {
-                    "description": "Client wallet for the deal",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/address.Address"
-                        }
-                    ]
+                    "description": "Client wallet string for the deal",
+                    "type": "string"
                 },
                 "data": {
                     "description": "Data represents the source of piece data and associated metadata.",
@@ -1309,14 +1305,16 @@ const docTemplate = `{
                 400,
                 404,
                 409,
-                500
+                500,
+                429
             ],
             "x-enum-varnames": [
                 "UploadOk",
                 "UploadBadRequest",
                 "UploadNotFound",
                 "UploadChunkAlreadyUploaded",
-                "UploadServerError"
+                "UploadServerError",
+                "UploadRateLimit"
             ]
         },
         "mk20.UploadStartCode": {

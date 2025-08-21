@@ -42,9 +42,7 @@ func (a *AggregatePDPDealTask) Do(taskID harmonytask.TaskID, stillOwned func() b
 	ctx := context.Background()
 
 	var pieces []struct {
-		Pcid        string `db:"piece_cid"`
-		Psize       int64  `db:"piece_size"`
-		RawSize     int64  `db:"raw_size"`
+		PieceCidV2  string `db:"piece_cid_v2"`
 		PieceRef    int64  `db:"piece_ref"`
 		ID          string `db:"id"`
 		AggrIndex   int    `db:"aggr_index"`
@@ -54,9 +52,7 @@ func (a *AggregatePDPDealTask) Do(taskID harmonytask.TaskID, stillOwned func() b
 
 	err = a.db.Select(ctx, &pieces, `
 										SELECT
-										    piece_cid, 
-											piece_size,
-											raw_size,
+										    piece_cid_v2,
 											piece_ref, 
 											id, 
 											aggr_index,
@@ -112,10 +108,10 @@ func (a *AggregatePDPDealTask) Do(taskID harmonytask.TaskID, stillOwned func() b
 
 	for _, piece := range pieces {
 		if piece.Aggregated {
-			return false, xerrors.Errorf("piece %s for deal %s already aggregated for task %d", piece.Pcid, piece.ID, taskID)
+			return false, xerrors.Errorf("piece %s for deal %s already aggregated for task %d", piece.PieceCidV2, piece.ID, taskID)
 		}
 		if piece.Aggregation != 1 {
-			return false, xerrors.Errorf("incorrect aggregation value for piece %s for deal %s for task %d", piece.Pcid, piece.ID, taskID)
+			return false, xerrors.Errorf("incorrect aggregation value for piece %s for deal %s for task %d", piece.PieceCidV2, piece.ID, taskID)
 		}
 		if piece.ID != id {
 			return false, xerrors.Errorf("piece details do not match")
@@ -148,17 +144,22 @@ func (a *AggregatePDPDealTask) Do(taskID harmonytask.TaskID, stillOwned func() b
 			_ = closer.Close()
 		}()
 
-		pcid, err := cid.Parse(piece.Pcid)
+		pcid2, err := cid.Parse(piece.PieceCidV2)
 		if err != nil {
 			return false, xerrors.Errorf("parsing piece cid: %w", err)
 		}
 
+		pinfo, err := mk20.GetPieceInfo(pcid2)
+		if err != nil {
+			return false, xerrors.Errorf("getting piece info: %w", err)
+		}
+
 		pinfos = append(pinfos, abi.PieceInfo{
-			Size:     abi.PaddedPieceSize(piece.Psize),
-			PieceCID: pcid,
+			Size:     pinfo.Size,
+			PieceCID: pinfo.PieceCIDV1,
 		})
 
-		readers = append(readers, io.LimitReader(reader, piece.RawSize))
+		readers = append(readers, io.LimitReader(reader, int64(pinfo.RawSize)))
 		refIDs = append(refIDs, piece.PieceRef)
 	}
 
@@ -286,10 +287,10 @@ func (a *AggregatePDPDealTask) Do(taskID harmonytask.TaskID, stillOwned func() b
 		retv := deal.Products.RetrievalV1
 
 		n, err := tx.Exec(`INSERT INTO pdp_pipeline (
-            id, client, piece_cid_v2, piece_cid, piece_size, raw_size, data_set_id, 
-            extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, aggregated, indexing, announce, announce_payload) 
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, TRUE, $11, $12, $13)`,
-			id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.DataSetID,
+									id, client, piece_cid_v2, data_set_id, extra_data, piece_ref, 
+                          			downloaded, deal_aggregation, aggr_index, aggregated, indexing, announce, announce_payload) 
+								VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, 0, TRUE, $8, $9, $10)`,
+			id, deal.Client, deal.Data.PieceCID.String(), *pdp.DataSetID,
 			pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 		if err != nil {
 			return false, xerrors.Errorf("inserting aggregated piece in PDP pipeline: %w", err)

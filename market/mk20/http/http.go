@@ -25,7 +25,6 @@ import (
 
 	"github.com/filecoin-project/go-address"
 
-	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/market/mk20"
@@ -64,24 +63,19 @@ func dealRateLimitMiddleware() func(http.Handler) http.Handler {
 	return httprate.LimitByIP(50, 1*time.Second)
 }
 
-func AuthMiddleware(db *harmonydb.DB) func(http.Handler) http.Handler {
+func AuthMiddleware(db *harmonydb.DB, cfg *config.CurioConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// TODO: Remove this check once Synapse integration is done
-			if build.BuildType != build.BuildMainnet {
-				next.ServeHTTP(w, r)
-				return
-			}
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
 				http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
 				return
 			}
 
-			allowed, client, err := mk20.Auth(authHeader, db)
+			allowed, client, err := mk20.Auth(authHeader, db, cfg)
 			if err != nil {
 				log.Errorw("failed to authenticate request", "err", err)
-				http.Error(w, err.Error(), http.StatusUnauthorized)
+				http.Error(w, "Error during authentication: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
 
@@ -138,7 +132,7 @@ func APIRouter(mdh *MK20DealHandler, domainName string) http.Handler {
 	SwaggerInfo.Version = version
 	mux := chi.NewRouter()
 	mux.Use(dealRateLimitMiddleware())
-	mux.Use(AuthMiddleware(mdh.db))
+	mux.Use(AuthMiddleware(mdh.db, mdh.cfg))
 	mux.Method("POST", "/store", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), requestTimeout, "request timeout"))
 	mux.Method("GET", "/status/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20status), requestTimeout, "request timeout"))
 	mux.Method("GET", "/contracts", http.TimeoutHandler(http.HandlerFunc(mdh.mk20supportedContracts), requestTimeout, "request timeout"))
@@ -244,7 +238,13 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 
 	log.Infow("received deal proposal", "deal", deal)
 
-	result := mdh.dm.MK20Handler.ExecuteDeal(context.Background(), &deal)
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
+		return
+	}
+
+	result := mdh.dm.MK20Handler.ExecuteDeal(context.Background(), &deal, authHeader)
 
 	log.Infow("deal processed",
 		"id", deal.Identifier,
@@ -573,6 +573,12 @@ func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
+		return
+	}
+
 	id, err := ulid.Parse(idStr)
 	if err != nil {
 		log.Errorw("invalid id in url", "id", idStr, "err", err)
@@ -591,7 +597,7 @@ func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Re
 
 	if len(bytes.TrimSpace(body)) == 0 {
 		log.Debugw("no deal provided, using empty deal to finalize upload", "id", idStr)
-		mdh.dm.MK20Handler.HandleUploadFinalize(id, nil, w)
+		mdh.dm.MK20Handler.HandleUploadFinalize(id, nil, w, authHeader)
 		return
 	}
 
@@ -616,7 +622,7 @@ func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	mdh.dm.MK20Handler.HandleUploadFinalize(id, &deal, w)
+	mdh.dm.MK20Handler.HandleUploadFinalize(id, &deal, w, authHeader)
 }
 
 // mk20UpdateDeal handles updating an MK20 deal based on the provided HTTP request.
@@ -681,9 +687,15 @@ func (mdh *MK20DealHandler) mk20UpdateDeal(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
+		return
+	}
+
 	log.Infow("received deal update proposal", "body", string(body))
 
-	result := mdh.dm.MK20Handler.UpdateDeal(id, &deal)
+	result := mdh.dm.MK20Handler.UpdateDeal(id, &deal, authHeader)
 
 	log.Infow("deal updated",
 		"id", deal.Identifier,
@@ -759,6 +771,12 @@ func (mdh *MK20DealHandler) mk20SerialUploadFinalize(w http.ResponseWriter, r *h
 		return
 	}
 
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
+		return
+	}
+
 	id, err := ulid.Parse(idStr)
 	if err != nil {
 		log.Errorw("invalid id in url", "id", idStr, "err", err)
@@ -777,7 +795,7 @@ func (mdh *MK20DealHandler) mk20SerialUploadFinalize(w http.ResponseWriter, r *h
 
 	if len(bytes.TrimSpace(body)) == 0 {
 		log.Debugw("no deal provided, using empty deal to finalize upload", "id", idStr)
-		mdh.dm.MK20Handler.HandleSerialUploadFinalize(id, nil, w)
+		mdh.dm.MK20Handler.HandleSerialUploadFinalize(id, nil, w, authHeader)
 		return
 	}
 
@@ -797,5 +815,5 @@ func (mdh *MK20DealHandler) mk20SerialUploadFinalize(w http.ResponseWriter, r *h
 		return
 	}
 
-	mdh.dm.MK20Handler.HandleSerialUploadFinalize(id, &deal, w)
+	mdh.dm.MK20Handler.HandleSerialUploadFinalize(id, &deal, w, authHeader)
 }

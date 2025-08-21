@@ -129,6 +129,15 @@ func processDataSetPieceDelete(ctx context.Context, db *harmonydb.DB, psd DataSe
 		if err != nil {
 			return false, xerrors.Errorf("failed to delete row from pdp_piece_delete: %w", err)
 		}
+		_, err = tx.Exec(`INSERT INTO piece_cleanup (id, piece_cid_v2, pdp)
+								SELECT p.add_deal_id, p.piece_cid_v2, TRUE
+								FROM pdp_dataset_piece AS p
+								WHERE p.data_set_id = $1
+								  AND p.piece = ANY($2)
+								ON CONFLICT (id, pdp) DO NOTHING;`, psd.DataSet, psd.Pieces)
+		if err != nil {
+			return false, xerrors.Errorf("failed to insert into piece_cleanup: %w", err)
+		}
 		return true, nil
 	}, harmonydb.OptionRetry())
 

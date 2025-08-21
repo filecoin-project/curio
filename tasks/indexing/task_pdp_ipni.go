@@ -93,6 +93,141 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		return true, nil
 	}
 
+	if task.Rm {
+		comm, err := P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+			var ads []struct {
+				ContextID []byte `db:"context_id"`
+				IsRm      bool   `db:"is_rm"`
+				Previous  string `db:"previous"`
+				Provider  string `db:"provider"`
+				Addresses string `db:"addresses"`
+				Entries   string `db:"entries"`
+				Metadata  []byte `db:"metadata"`
+				Pcid2     string `db:"piece_cid_v2"`
+				Pcid1     string `db:"piece_cid"`
+				Size      int64  `db:"piece_size"`
+			}
+
+			// Get the latest Ad
+			err = tx.Select(&ads, `SELECT 
+										context_id,
+										is_rm, 
+										previous, 
+										provider, 
+										addresses, 
+										entries,
+										metadata,
+										piece_cid_v2,
+										piece_cid,
+										piece_size
+										FROM ipni 
+										WHERE context_id = $1 
+										  AND provider = $2
+										  ORDER BY order_number DESC
+										  LIMIT 1`, task.CtxID, task.Prov)
+
+			if err != nil {
+				return false, xerrors.Errorf("getting ad from DB: %w", err)
+			}
+
+			if len(ads) == 0 {
+				return false, xerrors.Errorf("not original ad found for removal ad")
+			}
+
+			if len(ads) > 1 {
+				return false, xerrors.Errorf("expected 1 ad but got %d", len(ads))
+			}
+
+			a := ads[0]
+
+			e, err := cid.Parse(a.Entries)
+			if err != nil {
+				return false, xerrors.Errorf("parsing entry CID: %w", err)
+			}
+
+			var prev string
+
+			err = tx.QueryRow(`SELECT head FROM ipni_head WHERE provider = $1`, task.Prov).Scan(&prev)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return false, xerrors.Errorf("querying previous head: %w", err)
+			}
+
+			prevCID, err := cid.Parse(prev)
+			if err != nil {
+				return false, xerrors.Errorf("parsing previous CID: %w", err)
+			}
+
+			var privKey []byte
+			err = tx.QueryRow(`SELECT priv_key FROM ipni_peerid WHERE sp_id = $1`, -1).Scan(&privKey)
+			if err != nil {
+				return false, xerrors.Errorf("failed to get private ipni-libp2p key for PDP: %w", err)
+			}
+
+			pkey, err := crypto.UnmarshalPrivateKey(privKey)
+			if err != nil {
+				return false, xerrors.Errorf("unmarshaling private key: %w", err)
+			}
+
+			adv := schema.Advertisement{
+				PreviousID: cidlink.Link{Cid: prevCID},
+				Provider:   a.Provider,
+				Addresses:  strings.Split(a.Addresses, "|"),
+				Entries:    cidlink.Link{Cid: e},
+				ContextID:  a.ContextID,
+				IsRm:       true,
+				Metadata:   a.Metadata,
+			}
+
+			err = adv.Sign(pkey)
+			if err != nil {
+				return false, xerrors.Errorf("signing the advertisement: %w", err)
+			}
+
+			err = adv.Validate()
+			if err != nil {
+				return false, xerrors.Errorf("validating the advertisement: %w", err)
+			}
+
+			adNode, err := adv.ToNode()
+			if err != nil {
+				return false, xerrors.Errorf("converting advertisement to node: %w", err)
+			}
+
+			ad, err := ipniculib.NodeToLink(adNode, schema.Linkproto)
+			if err != nil {
+				return false, xerrors.Errorf("converting advertisement to link: %w", err)
+			}
+
+			_, err = tx.Exec(`SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+				ad.(cidlink.Link).Cid.String(), adv.ContextID, a.Metadata, a.Pcid2, a.Pcid1, a.Size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
+				adv.Signature, adv.Entries.String())
+
+			if err != nil {
+				return false, xerrors.Errorf("adding advertisement to the database: %w", err)
+			}
+
+			n, err := tx.Exec(`UPDATE pdp_ipni_task SET complete = true WHERE task_id = $1`, taskID)
+			if err != nil {
+				return false, xerrors.Errorf("failed to mark IPNI task complete: %w", err)
+			}
+			if n != 1 {
+				return false, xerrors.Errorf("updated %d rows", n)
+			}
+
+			return true, nil
+		}, harmonydb.OptionRetry())
+		if err != nil {
+			return false, xerrors.Errorf("store IPNI success: %w", err)
+		}
+
+		if !comm {
+			return false, xerrors.Errorf("store IPNI success: failed to commit the transaction")
+		}
+
+		log.Infow("IPNI task complete", "task_id", taskID)
+		return true, nil
+	}
+
 	pinfo := &types.PdpIpniContext{}
 	err = pinfo.Unmarshal(task.CtxID)
 	if err != nil {
@@ -309,7 +444,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			return false, xerrors.Errorf("converting advertisement to link: %w", err)
 		}
 
-		_, err = tx.Exec(`SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		_, err = tx.Exec(`SELECT insert_ad_and_update_head($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 			ad.(cidlink.Link).Cid.String(), adv.ContextID, md, pcid2.String(), pi.PieceInfo().PieceCID.String(), pi.PieceInfo().Size, adv.IsRm, adv.Provider, strings.Join(adv.Addresses, "|"),
 			adv.Signature, adv.Entries.String())
 
@@ -364,8 +499,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 	// schedule submits
 	var stop bool
 	for !stop {
-		var markComplete *string
-		var markCompletePayload *string
+		var markComplete, markCompletePayload, complete *string
 
 		taskFunc(func(id harmonytask.TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 			stop = true // assume we're done until we find a task to schedule
@@ -404,28 +538,8 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			// 1. We don't need to announce anything
 			// 2. Both type of announcements are done
 			if !(p.Announce && p.AnnouncePayload) || (p.Announced && p.AnnouncedPayload) {
-				var n int
-				n, err = tx.Exec(`UPDATE pdp_pipeline SET complete = TRUE WHERE id = $1`, p.ID)
-
-				if err != nil {
-					return false, xerrors.Errorf("store IPNI success: updating pipeline: %w", err)
-				}
-				if n != 1 {
-					return false, xerrors.Errorf("store IPNI success: updated %d rows", n)
-				}
-
-				n, err = tx.Exec(`UPDATE market_mk20_deal
-							SET pdp_v1 = jsonb_set(pdp_v1, '{complete}', 'true'::jsonb, true)
-							WHERE id = $1;`, p.ID)
-				if err != nil {
-					return false, xerrors.Errorf("failed to update market_mk20_deal: %w", err)
-				}
-				if n != 1 {
-					return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
-				}
-
-				stop = false // we found a task to schedule, keep going
-				return true, nil
+				complete = &p.ID
+				return false, nil
 			}
 
 			var privKey []byte
@@ -517,7 +631,6 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 				}
 				stop = false
 				markCompletePayload = &p.ID
-
 				// Return early while commiting so we mark complete for payload announcement
 				return true, nil
 			}
@@ -562,7 +675,6 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 				}
 				stop = false
 				markComplete = &p.ID
-
 				// Return early while commiting so we mark complete for piece announcement
 				return true, nil
 			}
@@ -595,6 +707,39 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			}
 			if n != 1 {
 				log.Errorf("store IPNI success: updated %d rows", n)
+			}
+		}
+
+		if complete != nil {
+			comm, err := P.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+				n, err := tx.Exec(`UPDATE pdp_pipeline SET complete = TRUE WHERE id = $1`, *complete)
+
+				if err != nil {
+					return false, xerrors.Errorf("updating pipeline: %w", err)
+				}
+				if n != 1 {
+					return false, xerrors.Errorf("expected to update 1 row but updated %d rows", n)
+				}
+
+				n, err = tx.Exec(`UPDATE market_mk20_deal
+							SET pdp_v1 = jsonb_set(pdp_v1, '{complete}', 'true'::jsonb, true)
+							WHERE id = $1;`, *complete)
+				if err != nil {
+					return false, xerrors.Errorf("failed to update market_mk20_deal: %w", err)
+				}
+				if n != 1 {
+					return false, xerrors.Errorf("expected 1 row to be updated, got %d", n)
+				}
+
+				stop = false // we found a task to schedule, keep going
+				ilog.Debugf("Deal %s is marked as complete", *complete)
+				return true, nil
+			}, harmonydb.OptionRetry())
+			if err != nil {
+				return xerrors.Errorf("marking deal as complete: %w", err)
+			}
+			if !comm {
+				return xerrors.Errorf("marking deal as complete: failed to commit transaction")
 			}
 		}
 	}

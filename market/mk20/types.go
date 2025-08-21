@@ -6,8 +6,6 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/oklog/ulid"
 
-	"github.com/filecoin-project/go-address"
-
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
@@ -18,8 +16,8 @@ type Deal struct {
 	// Identifier represents a unique identifier for the deal in UUID format.
 	Identifier ulid.ULID `json:"identifier"`
 
-	// Client wallet for the deal
-	Client address.Address `json:"client"`
+	// Client wallet string for the deal
+	Client string `json:"client"`
 
 	// Data represents the source of piece data and associated metadata.
 	Data *DataSource `json:"data,omitempty"`

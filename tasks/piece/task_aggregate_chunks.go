@@ -277,7 +277,7 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 						   piece_size, raw_size, url, offline, indexing, announce,
 						   allocation_id, duration, piece_aggregation, deal_aggregation, started, downloaded, after_commp)
 		       		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, TRUE, TRUE, TRUE)`,
-					dealID, spid, ddo.ContractAddress, deal.Client.String(), pcid2.String(), pcid.String(),
+					dealID, spid, ddo.ContractAddress, deal.Client, pcid2.String(), pcid.String(),
 					psize, rawSize, pieceIDUrl.String(), false, rev.Indexing, rev.AnnouncePayload,
 					allocationID, ddo.Duration, aggregation, aggregation)
 
@@ -311,12 +311,12 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 						return false, fmt.Errorf("failed to create parked_piece_refs entry: %w", err)
 					}
 				}
-				
+
 				n, err := tx.Exec(`INSERT INTO pdp_pipeline (
-							id, client, piece_cid_v2, piece_cid, piece_size, raw_size, data_set_id, 
-							extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
-						VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, $11, $12, $13)`,
-					id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.DataSetID,
+							id, client, piece_cid_v2, data_set_id, extra_data, piece_ref, 
+                          downloaded, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
+						VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, 0, $8, $9, $10)`,
+					id, deal.Client, deal.Data.PieceCID.String(), *pdp.DataSetID,
 					pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 				if err != nil {
 					return false, xerrors.Errorf("inserting in PDP pipeline: %w", err)

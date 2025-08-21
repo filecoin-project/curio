@@ -6,7 +6,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -36,7 +35,7 @@ import (
 	"github.com/filecoin-project/lotus/lib/sigs"
 )
 
-func (d *Deal) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
+func (d *Deal) Validate(db *harmonydb.DB, cfg *config.MK20Config, Auth string) (DealCode, error) {
 	defer func() {
 		if r := recover(); r != nil {
 			trace := make([]byte, 1<<16)
@@ -46,14 +45,10 @@ func (d *Deal) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, err
 		}
 	}()
 
-	if d.Client.Empty() {
-		return ErrBadProposal, xerrors.Errorf("no client")
+	err := validateClient(d.Client, Auth)
+	if err != nil {
+		return ErrBadProposal, err
 	}
-
-	//code, err := d.ValidateSignature()
-	//if err != nil {
-	//	return code, xerrors.Errorf("signature validation failed: %w", err)
-	//}
 
 	code, err := d.Products.Validate(db, cfg)
 	if err != nil {
@@ -69,33 +64,39 @@ func (d *Deal) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, err
 	return Ok, nil
 }
 
-//func (d *Deal) ValidateSignature() (DealCode, error) {
-//	if len(d.Signature) == 0 {
-//		return ErrBadProposal, xerrors.Errorf("no signature")
-//	}
-//
-//	sig := &crypto.Signature{}
-//	err := sig.UnmarshalBinary(d.Signature)
-//	if err != nil {
-//		return ErrBadProposal, xerrors.Errorf("invalid signature")
-//	}
-//
-//	msg, err := d.Identifier.MarshalBinary()
-//	if err != nil {
-//		return ErrBadProposal, xerrors.Errorf("invalid identifier")
-//	}
-//
-//	if sig.Type == crypto.SigTypeBLS || sig.Type == crypto.SigTypeSecp256k1 || sig.Type == crypto.SigTypeDelegated {
-//		err = sigs.Verify(sig, d.Client, msg)
-//		if err != nil {
-//			return ErrBadProposal, xerrors.Errorf("invalid signature")
-//		}
-//		return Ok, nil
-//	}
-//
-//	// Add more types if required in Future
-//	return ErrBadProposal, xerrors.Errorf("invalid signature type")
-//}
+func validateClient(client string, auth string) error {
+	if client == "" {
+		return xerrors.Errorf("client is empty")
+	}
+
+	keyType, pubKey, _, err := parseCustomAuth(auth)
+	if err != nil {
+		return xerrors.Errorf("parsing auth header: %w", err)
+	}
+
+	switch keyType {
+	case "ed25519":
+		kStr, err := ED25519ToString(pubKey)
+		if err != nil {
+			return xerrors.Errorf("invalid public key for auth header: %w", err)
+		}
+		if client != kStr {
+			return xerrors.Errorf("client in deal does not match client in auth header")
+		}
+		return nil
+	case "secp256k1", "bls", "delegated":
+		addr, err := address.NewFromBytes(pubKey)
+		if err != nil {
+			return xerrors.Errorf("invalid public key for auth header: %w", err)
+		}
+		if client != addr.String() {
+			return xerrors.Errorf("client in deal does not match client in auth header")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported key type: %s", keyType)
+	}
+}
 
 func (d DataSource) Validate(db *harmonydb.DB) (DealCode, error) {
 
@@ -414,10 +415,7 @@ type DBPDPV1 struct {
 type DBDeal struct {
 	Identifier  string          `db:"id"`
 	Client      string          `db:"client"`
-	PieceCIDV2  sql.NullString  `db:"piece_cid_v2"`
-	PieceCID    sql.NullString  `db:"piece_cid"`
-	Size        sql.NullInt64   `db:"piece_size"`
-	RawSize     sql.NullInt64   `db:"raw_size"`
+	PieceCIDV2  string          `db:"piece_cid_v2"`
 	Data        json.RawMessage `db:"data"`
 	DDOv1       json.RawMessage `db:"ddo_v1"`
 	RetrievalV1 json.RawMessage `db:"retrieval_v1"`
@@ -427,7 +425,7 @@ type DBDeal struct {
 func (d *Deal) ToDBDeal() (*DBDeal, error) {
 	ddeal := DBDeal{
 		Identifier: d.Identifier.String(),
-		Client:     d.Client.String(),
+		Client:     d.Client,
 	}
 
 	if d.Data != nil {
@@ -435,18 +433,7 @@ func (d *Deal) ToDBDeal() (*DBDeal, error) {
 		if err != nil {
 			return nil, fmt.Errorf("marshal data: %w", err)
 		}
-		commp, err := commcidv2.CommPFromPCidV2(d.Data.PieceCID)
-		if err != nil {
-			return nil, fmt.Errorf("invalid piece cid: %w", err)
-		}
-		ddeal.PieceCIDV2.String = d.Data.PieceCID.String()
-		ddeal.PieceCIDV2.Valid = true
-		ddeal.PieceCID.String = commp.PCidV1().String()
-		ddeal.PieceCID.Valid = true
-		ddeal.Size.Int64 = int64(commp.PieceInfo().Size)
-		ddeal.Size.Valid = true
-		ddeal.RawSize.Int64 = int64(commp.PayloadSize())
-		ddeal.RawSize.Valid = true
+		ddeal.PieceCIDV2 = d.Data.PieceCID.String()
 		ddeal.Data = dataBytes
 	} else {
 		ddeal.Data = []byte("null")
@@ -497,14 +484,19 @@ func (d *Deal) SaveToDB(tx *harmonydb.Tx) error {
 		return xerrors.Errorf("to db deal: %w", err)
 	}
 
-	n, err := tx.Exec(`INSERT INTO market_mk20_deal (id, client, piece_cid_v2, piece_cid, piece_size, raw_size, data, ddo_v1, retrieval_v1, pdp_v1) 
-                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+	var pieceCid interface{}
+
+	if dbDeal.PieceCIDV2 != "" {
+		pieceCid = dbDeal.PieceCIDV2
+	} else {
+		pieceCid = nil
+	}
+
+	n, err := tx.Exec(`INSERT INTO market_mk20_deal (id, client, piece_cid_v2, data, ddo_v1, retrieval_v1, pdp_v1) 
+                  VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		dbDeal.Identifier,
 		dbDeal.Client,
-		dbDeal.PieceCIDV2,
-		dbDeal.PieceCID,
-		dbDeal.Size,
-		dbDeal.RawSize,
+		pieceCid,
 		dbDeal.Data,
 		dbDeal.DDOv1,
 		dbDeal.RetrievalV1,
@@ -524,16 +516,20 @@ func (d *Deal) UpdateDealWithTx(tx *harmonydb.Tx) error {
 		return xerrors.Errorf("to db deal: %w", err)
 	}
 
+	var pieceCid interface{}
+
+	if dbDeal.PieceCIDV2 != "" {
+		pieceCid = dbDeal.PieceCIDV2
+	} else {
+		pieceCid = nil
+	}
+
 	n, err := tx.Exec(`UPDATE market_mk20_deal SET 
                             piece_cid_v2 = $1, 
-                            piece_cid = $2, 
-                            piece_size = $3, 
-                            raw_size = $4, 
-                            data = $5, 
-                            ddo_v1 = $6,
-                            retrieval_v1 = $7,
-                            pdp_v1 = $8`, dbDeal.PieceCIDV2, dbDeal.PieceCID, dbDeal.Size, dbDeal.RawSize,
-		dbDeal.Data, dbDeal.DDOv1, dbDeal.RetrievalV1, dbDeal.PDPV1)
+                            data = $2, 
+                            ddo_v1 = $3,
+                            retrieval_v1 = $4,
+                            pdp_v1 = $5`, pieceCid, dbDeal.Data, dbDeal.DDOv1, dbDeal.RetrievalV1, dbDeal.PDPV1)
 	if err != nil {
 		return xerrors.Errorf("update deal: %w", err)
 	}
@@ -549,16 +545,20 @@ func (d *Deal) UpdateDeal(tx *harmonydb.Tx) error {
 		return xerrors.Errorf("to db deal: %w", err)
 	}
 
+	var pieceCid interface{}
+
+	if dbDeal.PieceCIDV2 != "" {
+		pieceCid = dbDeal.PieceCIDV2
+	} else {
+		pieceCid = nil
+	}
+
 	n, err := tx.Exec(`UPDATE market_mk20_deal SET 
                             piece_cid_v2 = $1, 
-                            piece_cid = $2, 
-                            piece_size = $3, 
-                            raw_size = $4, 
-                            data = $5, 
-                            ddo_v1 = $6,
-                            retrieval_v1 = $7,
-                            pdp_v1 = $8`, dbDeal.PieceCIDV2, dbDeal.PieceCID, dbDeal.Size, dbDeal.RawSize,
-		dbDeal.Data, dbDeal.DDOv1, dbDeal.RetrievalV1, dbDeal.PDPV1)
+                            data = $2, 
+                            ddo_v1 = $3,
+                            retrieval_v1 = $4,
+                            pdp_v1 = $5`, pieceCid, dbDeal.Data, dbDeal.DDOv1, dbDeal.RetrievalV1, dbDeal.PDPV1)
 	if err != nil {
 		return xerrors.Errorf("update deal: %w", err)
 	}
@@ -645,11 +645,7 @@ func (d *DBDeal) ToDeal() (*Deal, error) {
 	}
 	deal.Identifier = id
 
-	client, err := address.NewFromString(d.Client)
-	if err != nil {
-		return nil, fmt.Errorf("parse client: %w", err)
-	}
-	deal.Client = client
+	deal.Client = d.Client
 
 	return &deal, nil
 }
@@ -826,7 +822,7 @@ type UploadStatus struct {
 	MissingChunks []int `json:"missing_chunks"`
 }
 
-func UpdateDealDetails(ctx context.Context, db *harmonydb.DB, id ulid.ULID, deal *Deal, cfg *config.MK20Config) (*Deal, DealCode, []ProductName, error) {
+func UpdateDealDetails(ctx context.Context, db *harmonydb.DB, id ulid.ULID, deal *Deal, cfg *config.MK20Config, auth string) (*Deal, DealCode, []ProductName, error) {
 	ddeal, err := DealFromDB(ctx, db, id)
 	if err != nil {
 		return nil, ErrServerInternalError, nil, xerrors.Errorf("getting deal from DB: %w", err)
@@ -863,7 +859,7 @@ func UpdateDealDetails(ctx context.Context, db *harmonydb.DB, id ulid.ULID, deal
 		newProducts = append(newProducts, ProductNameRetrievalV1)
 	}
 
-	code, err := ddeal.Validate(db, cfg)
+	code, err := ddeal.Validate(db, cfg, auth)
 	if err != nil {
 		return nil, code, nil, xerrors.Errorf("validate deal: %w", err)
 	}
@@ -879,9 +875,13 @@ func AuthenticateClient(db *harmonydb.DB, id, client string) (bool, error) {
 	return allowed, nil
 }
 
-func clientAllowed(ctx context.Context, db *harmonydb.DB, client string) (bool, error) {
+func clientAllowed(ctx context.Context, db *harmonydb.DB, client string, cfg *config.CurioConfig) (bool, error) {
+	if !cfg.Market.StorageMarketConfig.MK20.DenyUnknownClients {
+		return true, nil
+	}
+
 	var allowed bool
-	err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_clients WHERE client = $1 AND IS allowed)`, client).Scan(&allowed)
+	err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_clients WHERE client = $1 AND allowed = TRUE)`, client).Scan(&allowed)
 	if err != nil {
 		return false, xerrors.Errorf("querying client: %w", err)
 	}
@@ -891,12 +891,12 @@ func clientAllowed(ctx context.Context, db *harmonydb.DB, client string) (bool, 
 const Authprefix = "CurioAuth "
 
 // Auth verifies the custom authentication header by parsing its contents and validating the signature using the provided database connection.
-func Auth(header string, db *harmonydb.DB) (bool, string, error) {
+func Auth(header string, db *harmonydb.DB, cfg *config.CurioConfig) (bool, string, error) {
 	keyType, pubKey, sig, err := parseCustomAuth(header)
 	if err != nil {
 		return false, "", xerrors.Errorf("parsing auth header: %w", err)
 	}
-	return verifySignature(db, keyType, pubKey, sig)
+	return verifySignature(db, keyType, pubKey, sig, cfg)
 }
 
 func parseCustomAuth(header string) (keyType string, pubKey, sig []byte, err error) {
@@ -932,7 +932,7 @@ func parseCustomAuth(header string) (keyType string, pubKey, sig []byte, err err
 	return keyType, pubKey, sig, nil
 }
 
-func verifySignature(db *harmonydb.DB, keyType string, pubKey, signature []byte) (bool, string, error) {
+func verifySignature(db *harmonydb.DB, keyType string, pubKey, signature []byte, cfg *config.CurioConfig) (bool, string, error) {
 	now := time.Now().Truncate(time.Hour)
 	minus1 := now.Add(-59 * time.Minute)
 	plus1 := now.Add(59 * time.Minute)
@@ -952,6 +952,15 @@ func verifySignature(db *harmonydb.DB, keyType string, pubKey, signature []byte)
 		if err != nil {
 			return false, "", xerrors.Errorf("invalid ed25519 pubkey: %w", err)
 		}
+
+		allowed, err := clientAllowed(context.Background(), db, keyStr, cfg)
+		if err != nil {
+			return false, "", xerrors.Errorf("checking client allowed: %w", err)
+		}
+		if !allowed {
+			return false, "", nil
+		}
+
 		for _, m := range msgs {
 			ok := ed25519.Verify(pubKey, m[:], signature)
 			if ok {
@@ -961,13 +970,13 @@ func verifySignature(db *harmonydb.DB, keyType string, pubKey, signature []byte)
 		return false, "", errors.New("invalid ed25519 signature")
 
 	case "secp256k1", "bls", "delegated":
-		return verifyFilSignature(db, pubKey, signature, msgs)
+		return verifyFilSignature(db, pubKey, signature, msgs, cfg)
 	default:
 		return false, "", fmt.Errorf("unsupported key type: %s", keyType)
 	}
 }
 
-func verifyFilSignature(db *harmonydb.DB, pubKey, signature []byte, msgs [][32]byte) (bool, string, error) {
+func verifyFilSignature(db *harmonydb.DB, pubKey, signature []byte, msgs [][32]byte, cfg *config.CurioConfig) (bool, string, error) {
 	signs := &fcrypto.Signature{}
 	err := signs.UnmarshalBinary(signature)
 	if err != nil {
@@ -978,12 +987,12 @@ func verifyFilSignature(db *harmonydb.DB, pubKey, signature []byte, msgs [][32]b
 		return false, "", xerrors.Errorf("invalid filecoin pubkey")
 	}
 
-	allowed, err := clientAllowed(context.Background(), db, addr.String())
+	allowed, err := clientAllowed(context.Background(), db, addr.String(), cfg)
 	if err != nil {
 		return false, "", xerrors.Errorf("checking client allowed: %w", err)
 	}
 	if !allowed {
-		return false, "", xerrors.Errorf("client not allowed")
+		return false, "", nil
 	}
 
 	for _, m := range msgs {

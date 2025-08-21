@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -50,6 +52,7 @@ import (
 	mk12_libp2p "github.com/filecoin-project/curio/market/libp2p"
 	"github.com/filecoin-project/curio/market/mk12"
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/curio/market/mk20/client"
 
 	lapi "github.com/filecoin-project/lotus/api"
 	chain_types "github.com/filecoin-project/lotus/chain/types"
@@ -1721,6 +1724,27 @@ var mk20DealCmd = &cli.Command{
 			return err
 		}
 
+		keyType := client.KeyFromClientAddress(walletAddr)
+		pkey := walletAddr.Bytes()
+		ts := time.Now().UTC().Truncate(time.Hour)
+		msg := sha256.Sum256(bytes.Join([][]byte{pkey, []byte(ts.Format(time.RFC3339))}, []byte{}))
+
+		signature, err := n.Wallet.WalletSign(ctx, walletAddr, msg[:], lapi.MsgMeta{Type: lapi.MTDealProposal})
+		if err != nil {
+			return xerrors.Errorf("signing message: %w", err)
+		}
+
+		sig, err := signature.MarshalBinary()
+		if err != nil {
+			return xerrors.Errorf("marshaling signature: %w", err)
+		}
+
+		authHeader := fmt.Sprintf("CurioAuth %s:%s:%s",
+			keyType,
+			base64.StdEncoding.EncodeToString(pkey),
+			base64.StdEncoding.EncodeToString(sig),
+		)
+
 		minfo, err := api.StateMinerInfo(ctx, maddr, chain_types.EmptyTSK)
 		if err != nil {
 			return err
@@ -1919,24 +1943,9 @@ var mk20DealCmd = &cli.Command{
 		}
 		log.Debugw("generated deal id", "id", id)
 
-		//msg, err := id.MarshalBinary()
-		//if err != nil {
-		//	return xerrors.Errorf("failed to marshal deal id: %w", err)
-		//}
-
-		//sig, err := n.Wallet.WalletSign(ctx, walletAddr, msg, lapi.MsgMeta{Type: lapi.MTDealProposal})
-		//if err != nil {
-		//	return xerrors.Errorf("failed to sign deal proposal: %w", err)
-		//}
-
-		//msgb, err := sig.MarshalBinary()
-		//if err != nil {
-		//	return xerrors.Errorf("failed to marshal deal proposal signature: %w", err)
-		//}
-
 		deal := mk20.Deal{
 			Identifier: id,
-			Client:     walletAddr,
+			Client:     walletAddr.String(),
 			Data:       &d,
 			Products:   p,
 		}
@@ -1957,6 +1966,7 @@ var mk20DealCmd = &cli.Command{
 				return xerrors.Errorf("failed to create request: %w", err)
 			}
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", authHeader)
 			log.Debugw("Headers", "headers", req.Header)
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -2029,14 +2039,52 @@ var mk20ClientChunkUploadCmd = &cli.Command{
 			Usage: "chunk size to be used for the upload",
 			Value: "4 MiB",
 		},
+		&cli.StringFlag{
+			Name:  "wallet",
+			Usage: "wallet address to be used to initiate the deal",
+		},
 	},
 	Action: func(cctx *cli.Context) error {
+		ctx := cctx.Context
+		n, err := Setup(cctx.String(mk12_client_repo.Name))
+		if err != nil {
+			return err
+		}
+
+		walletAddr, err := n.GetProvidedOrDefaultWallet(ctx, cctx.String("wallet"))
+		if err != nil {
+			return err
+		}
+
+		log.Debugw("selected wallet", "wallet", walletAddr)
+
+		keyType := client.KeyFromClientAddress(walletAddr)
+		pkey := walletAddr.Bytes()
+		ts := time.Now().UTC().Truncate(time.Hour)
+		msg := sha256.Sum256(bytes.Join([][]byte{pkey, []byte(ts.Format(time.RFC3339))}, []byte{}))
+
+		signature, err := n.Wallet.WalletSign(ctx, walletAddr, msg[:], lapi.MsgMeta{Type: lapi.MTDealProposal})
+		if err != nil {
+			return xerrors.Errorf("signing message: %w", err)
+		}
+
+		sig, err := signature.MarshalBinary()
+		if err != nil {
+			return xerrors.Errorf("marshaling signature: %w", err)
+		}
+
+		authHeader := fmt.Sprintf("CurioAuth %s:%s:%s",
+			keyType,
+			base64.StdEncoding.EncodeToString(pkey),
+			base64.StdEncoding.EncodeToString(sig),
+		)
+
 		if cctx.NArg() != 1 {
 			return xerrors.Errorf("must provide a single file to upload")
 		}
+
 		file := cctx.Args().First()
 		log.Debugw("uploading file", "file", file)
-		ctx := cctx.Context
 
 		chunkSizeStr := cctx.String("chunk-size")
 		chunkSizem, err := humanize.ParseBytes(chunkSizeStr)
@@ -2155,6 +2203,7 @@ var mk20ClientChunkUploadCmd = &cli.Command{
 			return xerrors.Errorf("failed to upload start create request: %w", err)
 		}
 		client.Header.Set("Content-Type", "application/json")
+		client.Header.Set("Authorization", authHeader)
 		resp, err := http.DefaultClient.Do(client)
 		if err != nil {
 			return xerrors.Errorf("failed to send request: %w", err)
@@ -2175,7 +2224,12 @@ var mk20ClientChunkUploadCmd = &cli.Command{
 		defer x.Close()
 
 		for {
-			resp, err = http.Get(purl.String() + "/market/mk20/uploads/" + dealid.String())
+			gc, err := http.NewRequest("GET", purl.String()+"/market/mk20/uploads/"+dealid.String(), nil)
+			if err != nil {
+				return xerrors.Errorf("failed to create request: %w", err)
+			}
+			gc.Header.Set("Authorization", authHeader)
+			resp, err := http.DefaultClient.Do(gc)
 			if err != nil {
 				return xerrors.Errorf("failed to send request: %w", err)
 			}
@@ -2225,6 +2279,7 @@ var mk20ClientChunkUploadCmd = &cli.Command{
 				}
 				req.Header.Set("Content-Type", "application/octet-stream")
 				req.Header.Set("Content-Length", fmt.Sprintf("%d", end-start))
+				req.Header.Set("Authorization", authHeader)
 				resp, err := http.DefaultClient.Do(req)
 				if err != nil {
 					return xerrors.Errorf("failed to send put request: %w", err)
@@ -2242,7 +2297,14 @@ var mk20ClientChunkUploadCmd = &cli.Command{
 		log.Infow("upload complete")
 
 		//Finalize the upload
-		resp, err = http.Post(purl.String()+"/market/mk20/uploads/finalize/"+dealid.String(), "application/json", nil)
+		pc, err := http.NewRequest("POST", purl.String()+"/market/mk20/uploads/"+dealid.String()+"/finalize", nil)
+		if err != nil {
+			return xerrors.Errorf("failed to create finalize request client: %w", err)
+		}
+
+		pc.Header.Set("Content-Type", "application/json")
+		pc.Header.Set("Authorization", authHeader)
+		resp, err = http.DefaultClient.Do(pc)
 		if err != nil {
 			return xerrors.Errorf("failed to send request: %w", err)
 		}
@@ -2339,6 +2401,27 @@ var mk20PDPDealCmd = &cli.Command{
 		}
 
 		log.Debugw("selected wallet", "wallet", walletAddr)
+
+		keyType := client.KeyFromClientAddress(walletAddr)
+		pkey := walletAddr.Bytes()
+		ts := time.Now().UTC().Truncate(time.Hour)
+		msg := sha256.Sum256(bytes.Join([][]byte{pkey, []byte(ts.Format(time.RFC3339))}, []byte{}))
+
+		signature, err := n.Wallet.WalletSign(ctx, walletAddr, msg[:], lapi.MsgMeta{Type: lapi.MTDealProposal})
+		if err != nil {
+			return xerrors.Errorf("signing message: %w", err)
+		}
+
+		sig, err := signature.MarshalBinary()
+		if err != nil {
+			return xerrors.Errorf("marshaling signature: %w", err)
+		}
+
+		authHeader := fmt.Sprintf("CurioAuth %s:%s:%s",
+			keyType,
+			base64.StdEncoding.EncodeToString(pkey),
+			base64.StdEncoding.EncodeToString(sig),
+		)
 
 		maddr, err := address.NewFromString(cctx.String("provider"))
 		if err != nil {
@@ -2548,6 +2631,7 @@ var mk20PDPDealCmd = &cli.Command{
 			ret = &mk20.RetrievalV1{
 				Indexing:        true,
 				AnnouncePayload: true,
+				AnnouncePiece:   true,
 			}
 		}
 
@@ -2597,7 +2681,7 @@ var mk20PDPDealCmd = &cli.Command{
 
 		deal := mk20.Deal{
 			Identifier: id,
-			Client:     walletAddr,
+			Client:     walletAddr.String(),
 			Products:   p,
 		}
 
@@ -2621,6 +2705,7 @@ var mk20PDPDealCmd = &cli.Command{
 				return xerrors.Errorf("failed to create request: %w", err)
 			}
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", authHeader)
 			log.Debugw("Headers", "headers", req.Header)
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -2664,12 +2749,45 @@ var mk20ClientUploadCmd = &cli.Command{
 		},
 	},
 	Action: func(cctx *cli.Context) error {
+		ctx := cctx.Context
+		n, err := Setup(cctx.String(mk12_client_repo.Name))
+		if err != nil {
+			return err
+		}
+
+		walletAddr, err := n.GetProvidedOrDefaultWallet(ctx, cctx.String("wallet"))
+		if err != nil {
+			return err
+		}
+
+		log.Debugw("selected wallet", "wallet", walletAddr)
+
+		keyType := client.KeyFromClientAddress(walletAddr)
+		pkey := walletAddr.Bytes()
+		ts := time.Now().UTC().Truncate(time.Hour)
+		msg := sha256.Sum256(bytes.Join([][]byte{pkey, []byte(ts.Format(time.RFC3339))}, []byte{}))
+
+		signature, err := n.Wallet.WalletSign(ctx, walletAddr, msg[:], lapi.MsgMeta{Type: lapi.MTDealProposal})
+		if err != nil {
+			return xerrors.Errorf("signing message: %w", err)
+		}
+
+		sig, err := signature.MarshalBinary()
+		if err != nil {
+			return xerrors.Errorf("marshaling signature: %w", err)
+		}
+
+		authHeader := fmt.Sprintf("CurioAuth %s:%s:%s",
+			keyType,
+			base64.StdEncoding.EncodeToString(pkey),
+			base64.StdEncoding.EncodeToString(sig),
+		)
+
 		if cctx.NArg() != 1 {
 			return xerrors.Errorf("must provide a single file to upload")
 		}
 		file := cctx.Args().First()
 		log.Debugw("uploading file", "file", file)
-		ctx := cctx.Context
 
 		dealid, err := ulid.Parse(cctx.String("deal"))
 		if err != nil {
@@ -2757,6 +2875,7 @@ var mk20ClientUploadCmd = &cli.Command{
 		}
 		req.Header.Set("Content-Type", "application/octet-stream")
 		req.Header.Set("Content-Length", fmt.Sprintf("%d", size))
+		req.Header.Set("Authorization", authHeader)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return xerrors.Errorf("failed to send put request: %w", err)
@@ -2772,10 +2891,19 @@ var mk20ClientUploadCmd = &cli.Command{
 		log.Infow("upload complete")
 
 		//Finalize the upload
-		resp, err = http.Post(purl.String()+"/market/mk20/upload/"+dealid.String(), "application/json", nil)
+		req, err = http.NewRequest(http.MethodPost, purl.String()+"/market/mk20/upload/"+dealid.String(), nil)
 		if err != nil {
-			return xerrors.Errorf("failed to send request: %w", err)
+			return xerrors.Errorf("failed to create finalize request: %w", err)
 		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", authHeader)
+
+		resp, err = http.DefaultClient.Do(req)
+		if err != nil {
+			return xerrors.Errorf("failed to send finalize request: %w", err)
+		}
+
 		if resp.StatusCode != http.StatusOK {
 			respBody, err := io.ReadAll(resp.Body)
 			if err != nil {

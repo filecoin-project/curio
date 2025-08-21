@@ -134,6 +134,9 @@ func TestNewIndexStore(t *testing.T) {
 	require.Len(t, x, 1)
 	require.Equal(t, x[0].Cid, commp.PieceCID)
 
+	err = idxStore.RemoveAggregateIndex(ctx, commp.PieceCID)
+	require.NoError(t, err)
+
 	// Drop the tables
 	err = idxStore.session.Query("DROP TABLE PayloadToPieces").Exec()
 	require.NoError(t, err)

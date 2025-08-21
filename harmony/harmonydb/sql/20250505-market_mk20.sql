@@ -50,6 +50,47 @@ ALTER TABLE ipni
 ALTER TABLE ipni
     ADD COLUMN metadata BYTEA NOT NULL DEFAULT '\xa01200';
 
+-- The order_number column must be completely sequential
+ALTER SEQUENCE ipni_order_number_seq CACHE 1;
+
+-- Add a column in ipni_head to reference a specific ipni row
+ALTER TABLE ipni_head
+    ADD COLUMN head_order_number BIGINT;
+
+-- Backfill head_order_number to the row you intend as the head.
+-- If "head" should point to the latest row with that ad_cid/provider:
+WITH latest AS (
+    SELECT h.provider, h.head,
+           MAX(i.order_number) AS order_number
+    FROM ipni_head h
+             JOIN ipni i
+                  ON i.provider = h.provider
+                      AND i.ad_cid   = h.head
+    GROUP BY h.provider, h.head
+)
+UPDATE ipni_head h
+SET head_order_number = l.order_number
+    FROM latest l
+WHERE h.provider = l.provider AND h.head = l.head;
+
+-- Make it NOT NULL once backfilled
+ALTER TABLE ipni_head
+    ALTER COLUMN head_order_number SET NOT NULL;
+
+-- Switch the FK to reference the unique parent key
+ALTER TABLE ipni_head DROP CONSTRAINT ipni_head_head_fkey;
+
+ALTER TABLE ipni_head
+    ADD CONSTRAINT ipni_head_head_order_fkey
+        FOREIGN KEY (head_order_number)
+            REFERENCES ipni(order_number)
+            ON DELETE RESTRICT;
+
+-- Now remove uniqueness on ad_cid (both enforcers). This allows us
+-- to chain add/delete/ad/delete for same piece
+ALTER TABLE ipni DROP CONSTRAINT ipni_ad_cid_key;
+DROP INDEX ipni_ad_cid;
+
 -- This function is used to insert piece metadata and piece deal (piece indexing)
 -- This makes it easy to keep the logic of how table is updated and fast (in DB).
 CREATE OR REPLACE FUNCTION process_piece_deal(
@@ -180,10 +221,8 @@ CREATE TABLE market_mk20_deal (
     created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
     id TEXT PRIMARY KEY,
     client TEXT NOT NULL,
+
     piece_cid_v2 TEXT,
-    piece_cid TEXT, -- This is pieceCid V1 to allow easy table lookups
-    piece_size BIGINT,
-    raw_size BIGINT, -- For ease
 
     data JSONB NOT NULL DEFAULT 'null',
 
@@ -270,12 +309,10 @@ CREATE TABLE market_mk20_download_pipeline (
 -- Offline URLs for PoRep deals.
 CREATE TABLE market_mk20_offline_urls (
     id TEXT NOT NULL,
-    piece_cid TEXT NOT NULL,
-    piece_size BIGINT NOT NULL,
+    piece_cid_v2 TEXT NOT NULL,
     url TEXT NOT NULL,
     headers jsonb NOT NULL DEFAULT '{}',
-    raw_size BIGINT NOT NULL,
-    PRIMARY KEY (id, piece_cid, piece_size)
+    PRIMARY KEY (id, piece_cid_v2)
 );
 
 -- This table tracks the chunk upload progress for a MK20 deal. Common for both
@@ -370,6 +407,7 @@ CREATE TRIGGER trg_ready_at_chunks_update
 -- locally. This is to allow serving retrievals with piece park.
 CREATE OR REPLACE FUNCTION process_offline_download(
   _id TEXT,
+  _piece_cid_v2 TEXT,
   _piece_cid TEXT,
   _piece_size BIGINT,
   _product TEXT
@@ -383,10 +421,10 @@ DECLARE
   _ref_id BIGINT;
 BEGIN
     -- 1. Early exit if no offline match found
-    SELECT url, headers, raw_size
-    INTO _url, _headers, _raw_size
+    SELECT url, headers
+    INTO _url, _headers
     FROM market_mk20_offline_urls
-    WHERE id = _id AND piece_cid = _piece_cid AND piece_size = _piece_size;
+    WHERE id = _id AND piece_cid_v2 = _piece_cid_v2;
 
     IF NOT FOUND THEN
         RETURN FALSE;
@@ -396,8 +434,7 @@ BEGIN
     SELECT deal_aggregation
     INTO _deal_aggregation
     FROM market_mk20_pipeline
-    WHERE id = _id AND piece_cid = _piece_cid AND piece_size = _piece_size
-      LIMIT 1;
+    WHERE id = _id AND piece_cid_v2 = _piece_cid_v2 LIMIT 1;
 
     -- 3. Look for existing piece
     SELECT id
@@ -431,7 +468,7 @@ BEGIN
     -- 7. Mark the deal as started
     UPDATE market_mk20_pipeline
     SET started = TRUE
-    WHERE id = _id AND piece_cid = _piece_cid AND piece_size = _piece_size AND started = FALSE;
+    WHERE id = _id AND piece_cid_v2 = _piece_cid_v2 AND started = FALSE;
 
     RETURN TRUE;
 END;
@@ -520,9 +557,6 @@ CREATE TABLE pdp_dataset_piece (
     client TEXT NOT NULL,
 
     piece_cid_v2 TEXT NOT NULL, -- root cid (piececid v2)
-    piece_cid TEXT NOT NULL,
-    piece_size BIGINT NOT NULL,
-    raw_size BIGINT NOT NULL,
 
     piece BIGINT DEFAULT NULL, -- on-chain index of the piece in the pieceCids sub-array
 
@@ -545,11 +579,8 @@ CREATE TABLE pdp_pipeline (
 
     id TEXT NOT NULL,
     client TEXT NOT NULL,
-    piece_cid_v2 TEXT NOT NULL, -- v2 piece_cid
 
-    piece_cid TEXT NOT NULL,
-    piece_size BIGINT NOT NULL,
-    raw_size BIGINT NOT NULL,
+    piece_cid_v2 TEXT NOT NULL, -- v2 piece_cid
 
     data_set_id BIGINT NOT NULL,
 
@@ -631,8 +662,8 @@ CREATE OR REPLACE FUNCTION insert_pdp_ipni_task(
     _task_id BIGINT DEFAULT NULL
 ) RETURNS VOID AS $$
 DECLARE
-_existing_is_rm BOOLEAN;
-_latest_is_rm BOOLEAN;
+    _existing_is_rm BOOLEAN;
+    _latest_is_rm BOOLEAN;
 BEGIN
     -- Check if ipni_task has the same context_id and provider with a different is_rm value
     SELECT is_rm INTO _existing_is_rm
@@ -642,8 +673,8 @@ BEGIN
 
     -- If a different is_rm exists for the same context_id and provider, insert the new task
     IF FOUND THEN
-        INSERT INTO pdp_ipni_task (context_id, is_rm, id, provider, task_id, created_at, complete)
-        VALUES (_context_id, _is_rm, _id, _provider, _task_id, TIMEZONE('UTC', NOW()), FALSE);
+        INSERT INTO pdp_ipni_task (context_id, is_rm, id, provider, task_id, created_at)
+        VALUES (_context_id, _is_rm, _id, _provider, _task_id);
         RETURN;
     END IF;
 
@@ -660,8 +691,8 @@ BEGIN
     END IF;
 
     -- If all conditions are met, insert the new task into ipni_task
-    INSERT INTO pdp_ipni_task (context_id, is_rm, id, provider, task_id, created_at, complete)
-    VALUES (_context_id, _is_rm, _id, _provider, _task_id, TIMEZONE('UTC', NOW()), FALSE);
+    INSERT INTO pdp_ipni_task (context_id, is_rm, id, provider, task_id)
+    VALUES (_context_id, _is_rm, _id, _provider, _task_id);
 END;
 $$ LANGUAGE plpgsql;
 
@@ -679,7 +710,8 @@ CREATE OR REPLACE FUNCTION insert_ad_and_update_head(
     _entries TEXT
 ) RETURNS VOID AS $$
 DECLARE
-_previous TEXT;
+    _previous TEXT;
+    _new_order BIGINT;
 BEGIN
     -- Determine the previous ad_cid in the chain for this provider
     SELECT head INTO _previous
@@ -688,13 +720,76 @@ BEGIN
 
     -- Insert the new ad into the ipni table with an automatically assigned order_number
     INSERT INTO ipni (ad_cid, context_id, metadata, is_rm, previous, provider, addresses, signature, entries, piece_cid_v2, piece_cid, piece_size)
-    VALUES (_ad_cid, _context_id, _metadata, _is_rm, _previous, _provider, _addresses, _signature, _entries, _piece_cid_v2, _piece_cid, _piece_size);
+    VALUES (_ad_cid, _context_id, _metadata, _is_rm, _previous, _provider, _addresses, _signature, _entries, _piece_cid_v2, _piece_cid, _piece_size) RETURNING order_number INTO _new_order;
 
     -- Update the ipni_head table to set the new ad as the head of the chain
-    INSERT INTO ipni_head (provider, head)
-    VALUES (_provider, _ad_cid)
-        ON CONFLICT (provider) DO UPDATE SET head = EXCLUDED.head;
+    INSERT INTO ipni_head (provider, head, head_order_number)
+    VALUES (_provider, _ad_cid, _new_order)
+        ON CONFLICT (provider) DO UPDATE SET head = EXCLUDED.head,
+                                             head_order_number = EXCLUDED.head_order_number;
 
 END;
 $$ LANGUAGE plpgsql;
+
+
+CREATE TABLE piece_cleanup (
+    id TEXT NOT NULL,
+    piece_cid_v2 TEXT NOT NULL,
+    pdp BOOLEAN NOT NULL,
+
+    task_id BIGINT,
+
+    PRIMARY KEY (id, pdp)
+);
+
+-- This functions remove the row from market_piece_deal and then goes on to
+-- clean up market_piece_metadata and parked_piece_refs as required
+CREATE OR REPLACE FUNCTION remove_piece_deal(
+    _id           TEXT,
+    _sp_id        BIGINT,
+    _piece_cid    TEXT,
+    _piece_length BIGINT
+) RETURNS VOID AS $$
+DECLARE
+    v_piece_ref   BIGINT;
+    v_remaining   BIGINT;
+BEGIN
+    -- 1) Delete the exact deal row and capture piece_ref
+    DELETE FROM market_piece_deal
+    WHERE id = _id
+      AND sp_id = _sp_id
+      AND piece_cid = _piece_cid
+      AND piece_length = _piece_length
+        RETURNING piece_ref
+    INTO v_piece_ref;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION
+          'market_piece_deal not found for id=%, sp_id=%, piece_cid=%, piece_length=%',
+          _id, _sp_id, _piece_cid, _piece_length;
+    END IF;
+
+    -- 2) If no other deals reference the same piece, remove metadata
+    SELECT COUNT(*)
+    INTO v_remaining
+    FROM market_piece_deal
+    WHERE piece_cid = _piece_cid
+      AND piece_length = _piece_length;
+
+    IF v_remaining = 0 THEN
+        DELETE FROM market_piece_metadata
+        WHERE piece_cid  = _piece_cid
+          AND piece_size = _piece_length;
+        -- (DELETE is idempotent even if no row exists)
+    END IF;
+
+    -- 3) If present, remove the parked piece reference
+    IF v_piece_ref IS NOT NULL THEN
+        DELETE FROM parked_piece_refs
+        WHERE ref_id = v_piece_ref;
+        -- (FKs from pdp_* tables will cascade/SET NULL per their definitions)
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
 

@@ -264,7 +264,7 @@ func (d *CurioStorageDealMarket) insertDealInPipelineForUpload(ctx context.Conte
 					offline, indexing, announce, allocation_id, duration, 
 					piece_aggregation, deal_aggregation, started, downloaded, after_commp, aggregated) 
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, TRUE, TRUE, TRUE, TRUE)`,
-					id, spid, ddo.ContractAddress, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, pieceIDUrl.String(),
+					id, spid, ddo.ContractAddress, deal.Client, deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, pieceIDUrl.String(),
 					false, retv.Indexing, retv.AnnouncePayload, allocationID, ddo.Duration,
 					0, aggregation)
 				if err != nil {
@@ -290,10 +290,10 @@ func (d *CurioStorageDealMarket) insertDealInPipelineForUpload(ctx context.Conte
 				}
 
 				n, err := tx.Exec(`INSERT INTO pdp_pipeline (
-						id, client, piece_cid_v2, piece_cid, piece_size, raw_size, data_set_id, 
-						extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, aggregated, indexing, announce, announce_payload) 
-					VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10, 0, TRUE, $11, $12, $13)`,
-					id, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, *pdp.DataSetID,
+						id, client, piece_cid_v2, data_set_id, extra_data, piece_ref, 
+                          downloaded, deal_aggregation, aggr_index, aggregated, indexing, announce, announce_payload) 
+					VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, 0, TRUE, $8, $9, $10)`,
+					id, deal.Client, deal.Data.PieceCID.String(), *pdp.DataSetID,
 					pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 				if err != nil {
 					return false, xerrors.Errorf("inserting piece in PDP pipeline: %w", err)
@@ -399,7 +399,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
             piece_size, raw_size, offline, indexing, announce,
             allocation_id, duration, piece_aggregation, started) 
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, TRUE)`,
-			dealID, spid, ddo.ContractAddress, deal.Client.String(), data.PieceCID.String(), pi.PieceCIDV1.String(),
+			dealID, spid, ddo.ContractAddress, deal.Client, data.PieceCID.String(), pi.PieceCIDV1.String(),
 			pi.Size, pi.RawSize, false, rev.Indexing, rev.AnnouncePayload,
 			allocationID, ddo.Duration, aggregation)
 		if err != nil {
@@ -418,7 +418,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
             piece_size, raw_size, offline, indexing, announce,
             allocation_id, duration, piece_aggregation) 
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-			dealID, spid, ddo.ContractAddress, deal.Client.String(), data.PieceCID.String(), pi.PieceCIDV1.String(),
+			dealID, spid, ddo.ContractAddress, deal.Client, data.PieceCID.String(), pi.PieceCIDV1.String(),
 			pi.Size, pi.RawSize, true, rev.Indexing, rev.AnnouncePayload,
 			allocationID, ddo.Duration, aggregation)
 		if err != nil {
@@ -526,7 +526,7 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
             piece_size, raw_size, offline, indexing, announce, allocation_id, duration, 
             piece_aggregation, deal_aggregation, aggr_index, started) 
         	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
-				dealID, spid, ddo.ContractAddress, deal.Client.String(), piece.PieceCID.String(), spi.PieceCIDV1.String(),
+				dealID, spid, ddo.ContractAddress, deal.Client, piece.PieceCID.String(), spi.PieceCIDV1.String(),
 				spi.Size, spi.RawSize, offline, rev.Indexing, rev.AnnouncePayload, allocationID, ddo.Duration,
 				0, data.Format.Aggregate.Type, i, !offline)
 			if pBatch.Len() > pBatchSize {
@@ -695,7 +695,7 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 	if piece.Offline && !piece.Downloaded && !piece.Started {
 		comm, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 			var updated bool
-			err = tx.QueryRow(`SELECT process_offline_download($1, $2, $3, $4)`, piece.ID, piece.PieceCID, piece.PieceSize, mk20.ProductNameDDOV1).Scan(&updated)
+			err = tx.QueryRow(`SELECT process_offline_download($1, $2, $3, $4, $5)`, piece.ID, piece.PieceCIDV2, piece.PieceCID, piece.PieceSize, mk20.ProductNameDDOV1).Scan(&updated)
 			if err != nil {
 				if !errors.Is(err, pgx.ErrNoRows) {
 					return false, xerrors.Errorf("failed to start download for offline deal %s: %w", piece.ID, err)

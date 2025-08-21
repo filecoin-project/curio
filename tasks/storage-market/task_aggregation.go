@@ -328,7 +328,7 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
             offline, indexing, announce, allocation_id, duration, 
             piece_aggregation, deal_aggregation, started, downloaded, after_commp, aggregated) 
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, TRUE, TRUE, TRUE, TRUE)`,
-			id, spid, ddo.ContractAddress, deal.Client.String(), deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, pieceIDUrl.String(),
+			id, spid, ddo.ContractAddress, deal.Client, deal.Data.PieceCID.String(), pi.PieceCIDV1.String(), pi.Size, pi.RawSize, pieceIDUrl.String(),
 			false, rev.Indexing, rev.AnnouncePayload, allocationID, ddo.Duration,
 			data.Format.Aggregate.Type, data.Format.Aggregate.Type)
 		if err != nil {
