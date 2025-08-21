@@ -31,7 +31,7 @@ var log = logging.Logger("remote-blockstore")
 
 type idxAPI interface {
 	PiecesContainingMultihash(ctx context.Context, m multihash.Multihash) ([]indexstore.PieceInfo, error)
-	GetOffset(ctx context.Context, pieceCid cid.Cid, hash multihash.Multihash) (uint64, error)
+	GetOffset(ctx context.Context, pieceCidv2 cid.Cid, hash multihash.Multihash) (uint64, error)
 }
 
 // RemoteBlockstore is a read-only blockstore over all cids across all pieces on a provider.
@@ -115,8 +115,7 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 	var merr error
 	for _, piece := range pieces {
 		data, err := func() ([]byte, error) {
-			// Get a reader over the piece data
-			reader, _, err := ro.cpr.GetSharedPieceReader(ctx, piece.PieceCid)
+			reader, _, err := ro.cpr.GetSharedPieceReader(ctx, piece.PieceCidV2)
 			if err != nil {
 				return nil, fmt.Errorf("getting piece reader: %w", err)
 			}
@@ -125,19 +124,19 @@ func (ro *RemoteBlockstore) Get(ctx context.Context, c cid.Cid) (b blocks.Block,
 			}(reader)
 
 			// Get the offset of the block within the piece (CAR file)
-			offset, err := ro.idxApi.GetOffset(ctx, piece.PieceCid, c.Hash())
+			offset, err := ro.idxApi.GetOffset(ctx, piece.PieceCidV2, c.Hash())
 			if err != nil {
-				return nil, fmt.Errorf("getting offset/size for cid %s in piece %s: %w", c, piece.PieceCid, err)
+				return nil, fmt.Errorf("getting offset/size for cid %s in piece %s: %w", c, piece.PieceCidV2, err)
 			}
 
 			// Seek to the section offset
 			readerAt := io.NewSectionReader(reader, int64(offset), int64(piece.BlockSize+MaxCarBlockPrefixSize))
 			readCid, data, err := util.ReadNode(bufio.NewReader(readerAt))
 			if err != nil {
-				return nil, fmt.Errorf("reading data for block %s from reader for piece %s: %w", c, piece.PieceCid, err)
+				return nil, fmt.Errorf("reading data for block %s from reader for piece %s: %w", c, piece.PieceCidV2, err)
 			}
 			if !bytes.Equal(readCid.Hash(), c.Hash()) {
-				return nil, fmt.Errorf("read block %s from reader for piece %s, but expected block %s", readCid, piece.PieceCid, c)
+				return nil, fmt.Errorf("read block %s from reader for piece %s, but expected block %s", readCid, piece.PieceCidV2, c)
 			}
 			return data, nil
 		}()
