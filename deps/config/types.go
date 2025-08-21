@@ -36,6 +36,7 @@ func DefaultCurioConfig() *CurioConfig {
 			MaxWindowPoStGasFee:        types.MustParseFIL("5"),
 			CollateralFromMinerBalance: false,
 			DisableCollateralFallback:  false,
+			MaximizeFeeCap:             true,
 		},
 		Addresses: []CurioAddresses{{
 			PreCommitControl:   []string{},
@@ -446,6 +447,11 @@ type CurioFees struct {
 
 	// Don't send collateral with messages even if there is no available balance in the miner actor (Default: false)
 	DisableCollateralFallback bool
+
+	// MaximizeFeeCap makes the sender set maximum allowed FeeCap on all sent messages.
+	// This generally doesn't increase message cost, but in highly congested network messages
+	// are much less likely to get stuck in mempool. (Default: true)
+	MaximizeFeeCap bool
 }
 
 type CurioAddresses struct {

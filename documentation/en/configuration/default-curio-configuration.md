@@ -342,6 +342,13 @@ description: The default curio configuration
   # type: bool
   #DisableCollateralFallback = false
 
+  # MaximizeFeeCap makes the sender set maximum allowed FeeCap on all sent messages.
+  # This generally doesn't increase message cost, but in highly congested network messages
+  # are much less likely to get stuck in mempool. (Default: true)
+  #
+  # type: bool
+  #MaximizeFeeCap = true
+
   # maxBatchFee = maxBase + maxPerSector * nSectors
   # (Default: #Base = "0 FIL" and #PerSector = "0.02 FIL")
   #

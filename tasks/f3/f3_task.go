@@ -112,7 +112,7 @@ func (f *F3Task) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done boo
 		// When participateLoop returns, we go back to get a new ticket
 	}
 
-	return false, xerrors.Errorf("f3 task is background task")
+	return false, xerrors.Errorf("yield")
 }
 
 func (f *F3Task) tryGetF3ParticipationTicket(ctx context.Context, stillOwned func() bool, participant address.Address, previousTicket []byte) (api.F3ParticipationTicket, error) {

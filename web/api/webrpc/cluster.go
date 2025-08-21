@@ -17,14 +17,16 @@ type MachineSummary struct {
 	Name         string
 	SinceContact string
 
-	Tasks         string
-	Cpu           int
-	RamHumanized  string
-	Gpu           int
-	Layers        string
-	Uptime        string
-	Unschedulable bool
-	RunningTasks  int
+	Tasks          string
+	Cpu            int
+	RamHumanized   string
+	Gpu            int
+	Layers         string
+	Uptime         string
+	Unschedulable  bool
+	RestartRequest string
+	Restarting     bool
+	RunningTasks   int
 }
 
 func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) {
@@ -38,6 +40,7 @@ func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) 
 							hm.ram,
 							hm.gpu,
 							hm.unschedulable,
+							hm.restart_request,
 							hmd.machine_name,
 							hmd.tasks,
 							hmd.layers,
@@ -59,8 +62,9 @@ func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) 
 		var lastContact time.Duration
 		var ram int64
 		var uptime time.Time
+		var restartRequest *time.Time
 
-		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu, &m.Unschedulable, &m.Name, &m.Tasks, &m.Layers, &uptime); err != nil {
+		if err := rows.Scan(&m.ID, &m.Address, &lastContact, &m.Cpu, &ram, &m.Gpu, &m.Unschedulable, &restartRequest, &m.Name, &m.Tasks, &m.Layers, &uptime); err != nil {
 			return nil, err // Handle error
 		}
 		m.SinceContact = lastContact.Round(time.Second).String()
@@ -76,6 +80,12 @@ func (a *WebRPC) ClusterMachines(ctx context.Context) ([]MachineSummary, error) 
 			}
 			m.RunningTasks = runningTasks
 		}
+
+		if restartRequest != nil {
+			m.RestartRequest = humanize.Time(*restartRequest)
+			m.Restarting = true
+		}
+
 		summaries = append(summaries, m)
 	}
 	return summaries, nil
@@ -406,6 +416,22 @@ func (a *WebRPC) Uncordon(ctx context.Context, id int64) error {
 	_, err := a.deps.DB.Exec(ctx, `UPDATE harmony_machines SET unschedulable = $1 WHERE id = $2`, false, id)
 	if err != nil {
 		return xerrors.Errorf("uncordon failed: %w", err)
+	}
+	return nil
+}
+
+func (a *WebRPC) Restart(ctx context.Context, id int64) error {
+	_, err := a.deps.DB.Exec(ctx, `UPDATE harmony_machines SET restart_request = NOW() WHERE id = $1`, id)
+	if err != nil {
+		return xerrors.Errorf("restart failed: %w", err)
+	}
+	return nil
+}
+
+func (a *WebRPC) AbortRestart(ctx context.Context, id int64) error {
+	_, err := a.deps.DB.Exec(ctx, `UPDATE harmony_machines SET restart_request = NULL WHERE id = $1`, id)
+	if err != nil {
+		return xerrors.Errorf("abort restart failed: %w", err)
 	}
 	return nil
 }

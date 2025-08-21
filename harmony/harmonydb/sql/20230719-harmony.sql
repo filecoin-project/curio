@@ -19,6 +19,8 @@ CREATE TABLE harmony_task (
     previous_task INTEGER,
     name varchar(16) NOT NULL
     -- retries INTEGER NOT NULL DEFAULT 0 -- added later
+    -- unschedulable BOOLEAN DEFAULT FALSE -- added in 20250111-machine-maintenance.sql
+    -- restart_request TIMESTAMP WITH TIME ZONE -- added in 20250818-restart-request.sql
 );
 COMMENT ON COLUMN harmony_task.initiated_by IS 'The task ID whose completion occasioned this task.';
 COMMENT ON COLUMN harmony_task.owner_id IS 'The foreign key to harmony_machines.';

@@ -107,7 +107,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 	var activeTasks []harmonytask.TaskInterface
 
-	sender, sendTask := message.NewSender(full, full, db)
+	sender, sendTask := message.NewSender(full, full, db, cfg.Fees.MaximizeFeeCap)
 	balanceMgrTask := balancemgr.NewBalanceMgrTask(db, full, chainSched, sender)
 	activeTasks = append(activeTasks, sendTask, balanceMgrTask)
 	dependencies.Sender = sender
