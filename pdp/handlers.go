@@ -491,19 +491,32 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 5: Retrieve the pieces associated with the data set
+	// Join with parked_pieces to get the raw size for sub-pieces
+	// Note: aggregate pieces are not stored, only sub-pieces
 	var pieces []struct {
-		PieceID        uint64 `db:"piece_id"`
-		PieceCid       string `db:"piece"`
-		SubPieceCID    string `db:"sub_piece"`
-		SubPieceOffset int64  `db:"sub_piece_offset"`
-		SubPieceSize   int64  `db:"sub_piece_size"`
+		PieceID         uint64 `db:"piece_id"`
+		PieceCid        string `db:"piece"`
+		SubPieceCID     string `db:"sub_piece"`
+		SubPieceOffset  int64  `db:"sub_piece_offset"`
+		SubPieceSize    int64  `db:"sub_piece_size"`
+		SubPieceRawSize uint64 `db:"sub_piece_raw_size"`
 	}
 
 	err = p.db.Select(ctx, &pieces, `
-        SELECT piece_id, piece, sub_piece, sub_piece_offset, sub_piece_size
-        FROM pdp_data_set_pieces
-        WHERE data_set = $1
-        ORDER BY piece_id, sub_piece_offset
+        SELECT
+            dsp.piece_id,
+            dsp.piece,
+            dsp.sub_piece,
+            dsp.sub_piece_offset,
+            dsp.sub_piece_size,
+            pp.piece_raw_size AS sub_piece_raw_size
+        FROM pdp_data_set_pieces dsp
+        -- Use pdp_pieceref to get to the sub-piece's raw size
+        JOIN pdp_piecerefs ppr ON ppr.id = dsp.pdp_pieceref
+        JOIN parked_piece_refs pprf ON pprf.ref_id = ppr.piece_ref
+        JOIN parked_pieces pp ON pp.id = pprf.piece_id
+        WHERE dsp.data_set = $1
+        ORDER BY dsp.piece_id, dsp.sub_piece_offset
     `, dataSetId)
 	if err != nil {
 		http.Error(w, "Failed to retrieve data set pieces: "+err.Error(), http.StatusInternalServerError)
@@ -540,21 +553,23 @@ func (p *PDPService) handleGetDataSet(w http.ResponseWriter, r *http.Request) {
 		Pieces:             []PieceEntry{}, // Initialize as empty array, not nil
 	}
 
-	pieceSize := make(map[string]int64)
+	// Calculate aggregate piece raw sizes by summing sub-piece raw sizes
+	pieceRawSizes := make(map[string]uint64)
 	for _, piece := range pieces {
-		pieceSize[piece.PieceCid] += piece.SubPieceSize
+		pieceRawSizes[piece.PieceCid] += piece.SubPieceRawSize
 	}
 
 	// Convert pieces to the desired JSON format
 	for _, piece := range pieces {
-		// TODO: this could be cached per piece since we do this for every sub-piece
-		psize := pieceSize[piece.PieceCid]
-		pcv2, _, err := asPieceCIDv2(piece.PieceCid, uint64(psize))
+		// Use the summed raw size for the aggregate piece
+		aggregateRawSize := pieceRawSizes[piece.PieceCid]
+		pcv2, _, err := asPieceCIDv2(piece.PieceCid, aggregateRawSize)
 		if err != nil {
 			http.Error(w, "Invalid PieceCID: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		spcv2, _, err := asPieceCIDv2(piece.SubPieceCID, uint64(piece.SubPieceSize))
+		// Use the raw size for the sub piece
+		spcv2, _, err := asPieceCIDv2(piece.SubPieceCID, piece.SubPieceRawSize)
 		if err != nil {
 			http.Error(w, "Invalid SubPieceCID: "+err.Error(), http.StatusBadRequest)
 			return
