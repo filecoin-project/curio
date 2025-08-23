@@ -170,7 +170,7 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			if err != nil {
 				return false, xerrors.Errorf("unmarshaling reference data headers: %w", err)
 			}
-			upr := dealdata.NewUrlReader(p.remote, refData[i].DataURL, hdrs, pieceData.PieceRawSize)
+			upr := dealdata.NewUrlReader(p.remote, refData[i].DataURL, hdrs, pieceData.PieceRawSize, "parkpiece")
 
 			defer func() {
 				_ = upr.Close()
@@ -184,7 +184,7 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			}
 
 			if err := p.sc.WritePiece(ctx, &taskID, pnum, pieceData.PieceRawSize, upr, storageType); err != nil {
-				merr = multierror.Append(merr, xerrors.Errorf("write piece: %w", err))
+				merr = multierror.Append(merr, xerrors.Errorf("write piece (read so far: %d): %w", upr.ReadSoFar(), err))
 				continue
 			}
 

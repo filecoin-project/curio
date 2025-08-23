@@ -2,16 +2,21 @@ package dealdata
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"go.opencensus.io/stats"
+	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/lib/paths"
+	"github.com/filecoin-project/curio/lib/robusthttp"
+	"github.com/google/uuid"
 )
+
+var rcs = robusthttp.NewRateCounters[uuid.UUID](robusthttp.MinAvgGlobalLogPeerRate(10, 1000))
 
 // CustoreScheme is a special url scheme indicating that a data URL is an http url withing the curio storage system
 const CustoreScheme = "custore"
@@ -20,6 +25,8 @@ type UrlPieceReader struct {
 	Url     string
 	Headers http.Header
 	RawSize int64 // the exact number of bytes read, if we read more or less that's an error
+	
+	kind    string
 
 	RemoteEndpointReader *paths.Remote // Only used for .ReadRemote which issues http requests for internal /remote endpoints
 
@@ -28,11 +35,12 @@ type UrlPieceReader struct {
 	active    io.ReadCloser // auto-closed on EOF
 }
 
-func NewUrlReader(rmt *paths.Remote, p string, h http.Header, rs int64) *UrlPieceReader {
+func NewUrlReader(rmt *paths.Remote, p string, h http.Header, rs int64, kind string) *UrlPieceReader {
 	return &UrlPieceReader{
 		Url:     p,
 		RawSize: rs,
 		Headers: h,
+		kind:    kind,
 
 		RemoteEndpointReader: rmt,
 	}
@@ -61,22 +69,11 @@ func (u *UrlPieceReader) initiateRequest() error {
 		return xerrors.Errorf("URL scheme %s not supported", goUrl.Scheme)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, goUrl.String(), nil)
-	if err != nil {
-		return xerrors.Errorf("error creating request: %w", err)
-	}
+	rd := robusthttp.RobustGet(goUrl.String(), u.Headers, u.RawSize, func() *robusthttp.RateCounter {
+		return rcs.Get(uuid.New())
+	})
 
-	// Add custom headers for security and authentication
-	req.Header = u.Headers
-
-	// Create a client and make the request
-	client := &http.Client{}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return xerrors.Errorf("error making GET request: %w", err)
-	}
-	if resp.StatusCode != 200 {
+	/* if resp.StatusCode != 200 {
 		limitedReader := io.LimitReader(resp.Body, 1024)
 		respBodyBytes, readErr := io.ReadAll(limitedReader)
 		closeErr := resp.Body.Close()
@@ -90,9 +87,9 @@ func (u *UrlPieceReader) initiateRequest() error {
 		}
 		return xerrors.New(errMsg)
 	}
-
+ */
 	// Set 'active' to the response body
-	u.active = resp.Body
+	u.active = rd
 	return nil
 }
 
@@ -154,12 +151,23 @@ func (u *UrlPieceReader) Read(p []byte) (n int, err error) {
 	return n, err
 }
 
+func (u *UrlPieceReader) ReadSoFar() int64 {
+	return u.readSoFar
+}
+
 func (u *UrlPieceReader) Close() error {
 	if !u.closed {
 		u.closed = true
+
+		_ = stats.RecordWithTags(context.Background(),
+			[]tag.Mutator{tag.Upsert(kindKey, u.kind)},
+			Measures.DataRead.M(u.readSoFar),
+		)
+
 		if u.active == nil {
 			return nil
 		}
+
 		return u.active.Close()
 	}
 
