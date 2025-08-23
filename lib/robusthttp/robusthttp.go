@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -17,12 +18,17 @@ var log = logging.Logger("robusthttp")
 type robustHttpResponse struct {
 	getRC func() *RateCounter
 
-	url string
+	url     string
 	headers http.Header
 
 	cur             io.Reader
 	curCloser       io.Closer
 	atOff, dataSize int64
+
+	// metrics counters
+	retries   int64
+	errs      int64
+	finalized int32
 }
 
 var maxRetryCount = 15
@@ -42,6 +48,8 @@ func (r *robustHttpResponse) Read(p []byte) (n int, err error) {
 				log.Errorw("Error in startReq", "error", err, "i", i)
 				time.Sleep(1 * time.Second)
 				lastErr = err
+				r.errs++
+				r.retries++
 				continue
 			}
 		}
@@ -51,6 +59,7 @@ func (r *robustHttpResponse) Read(p []byte) (n int, err error) {
 			r.curCloser.Close()
 			r.cur = nil
 			log.Errorw("EOF reached in Read", "bytesRead", n)
+			r.finalize(false)
 			return n, err
 		}
 		if err != nil {
@@ -64,6 +73,8 @@ func (r *robustHttpResponse) Read(p []byte) (n int, err error) {
 
 			lastErr = err
 			log.Errorw("robust http read error, will retry", "err", err, "i", i)
+			r.errs++
+			r.retries++
 			continue
 		}
 		if n == 0 {
@@ -76,16 +87,28 @@ func (r *robustHttpResponse) Read(p []byte) (n int, err error) {
 		return n, nil
 	}
 
+	r.finalize(true)
 	return 0, xerrors.Errorf("http read failed after %d retries: lastErr: %w", maxRetryCount, lastErr)
 }
 
 func (r *robustHttpResponse) Close() error {
 	log.Debug("Entering function Close")
+	r.finalize(false)
 	if r.curCloser != nil {
 		return r.curCloser.Close()
 	}
 	log.Warnw("Exiting Close with no current closer")
 	return nil
+}
+
+func (r *robustHttpResponse) finalize(failed bool) {
+	if atomic.CompareAndSwapInt32(&r.finalized, 0, 1) {
+		recordRequestClosed(r.atOff, r.retries, r.errs)
+		if failed {
+			recordReadFailure()
+		}
+		decActiveTransfers()
+	}
 }
 
 func (r *robustHttpResponse) startReq() error {
@@ -175,6 +198,9 @@ func (fc funcCloser) Close() error {
 }
 
 func RobustGet(url string, headers http.Header, dataSize int64, rcf func() *RateCounter) io.ReadCloser {
+	recordRequestStarted()
+	incActiveTransfers()
+
 	return &robustHttpResponse{
 		getRC:    rcf,
 		url:      url,
