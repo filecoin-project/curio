@@ -145,7 +145,7 @@ func (t *TaskClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 	}
 	if err != nil && errors.Is(err, pgx.ErrNoRows) {
 		log.Infow("client request not found", "taskID", taskID)
-		return false, nil
+		return true, nil
 	}
 
 	var proof []byte
