@@ -14,7 +14,7 @@ import (
 
 func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID, pieceID storiface.PieceNumber, size int64, data io.Reader, storageType storiface.PathType) error {
 	// Use storageType in AcquireSector
-	paths, _, done, err := sb.Sectors.AcquireSector(ctx, taskID, pieceID.Ref(), storiface.FTNone, storiface.FTPiece, storageType)
+	paths, pathIDs, done, err := sb.Sectors.AcquireSector(ctx, taskID, pieceID.Ref(), storiface.FTNone, storiface.FTPiece, storageType)
 	if err != nil {
 		return err
 	}
@@ -68,6 +68,11 @@ func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID,
 
 	skipDeclare = storiface.FTNone
 	removeTemp = false
+
+	if err := sb.ensureOneCopy(ctx, pieceID.Ref().ID, pathIDs, storiface.FTPiece); err != nil {
+		return xerrors.Errorf("ensure one copy: %w", err)
+	}
+
 	return nil
 }
 
