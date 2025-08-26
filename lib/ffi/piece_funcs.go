@@ -18,7 +18,11 @@ func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID,
 	if err != nil {
 		return err
 	}
-	defer done()
+
+	skipDeclare := storiface.FTPiece
+	defer func() {
+		done(skipDeclare)
+	}()
 
 	dest := paths.Piece
 	tempDest := dest + storiface.TempSuffix
@@ -62,6 +66,7 @@ func (sb *SealCalls) WritePiece(ctx context.Context, taskID *harmonytask.TaskID,
 		return xerrors.Errorf("rename temp piece to dest %s -> %s: %w", tempDest, dest, err)
 	}
 
+	skipDeclare = storiface.FTNone
 	removeTemp = false
 	return nil
 }
