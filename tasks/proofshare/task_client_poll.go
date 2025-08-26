@@ -166,7 +166,7 @@ func (t *TaskClientPoll) Do(taskID harmonytask.TaskID, stillOwned func() bool) (
 
 		// check if the task is still owned
 		if !stillOwned() {
-			return false, nil
+			return false, xerrors.Errorf("yield")
 		}
 	}
 
@@ -216,7 +216,6 @@ func NewTaskClientPoll(db *harmonydb.DB, api ClientServiceAPI) *TaskClientPoll {
 
 // pollForProof polls for the proof status
 func pollForProof(ctx context.Context, db *harmonydb.DB, taskID harmonytask.TaskID, clientRequest *ClientRequest) (bool, []byte, error) {
-	log.Infow("pollForProof", "taskID", taskID, "requestCID", clientRequest.RequestCID)
 	// Parse the request CID
 	requestCid, err := cid.Parse(*clientRequest.RequestCID)
 	if err != nil {
@@ -226,7 +225,6 @@ func pollForProof(ctx context.Context, db *harmonydb.DB, taskID harmonytask.Task
 	// Get proof status by CID
 	proofResp, err := proofsvc.GetProofStatus(requestCid)
 	if err != nil || proofResp.Proof == nil {
-		log.Infow("proof not ready", "taskID", taskID, "spID", clientRequest.SpID, "sectorNumber", clientRequest.SectorNumber)
 		// Not ready yet, continue polling
 		return false, nil, nil
 	}
