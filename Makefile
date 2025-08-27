@@ -352,3 +352,8 @@ devnet/up:
 
 devnet/down:
 	docker compose -f ./docker/docker-compose.yaml down --rmi=local && sleep 2 && rm -rf ./docker/data
+
+
+
+%.abi: %.json
+	jq -r .abi $*.json > $@
