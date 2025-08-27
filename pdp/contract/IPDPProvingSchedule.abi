@@ -1,59 +1,35 @@
 [
   {
     "type": "function",
-    "name": "challengeWindow",
+    "name": "getPDPConfig",
     "inputs": [],
     "outputs": [
       {
-        "name": "",
+        "name": "maxProvingPeriod",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "challengeWindow",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "challengesPerProof",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "initChallengeWindowStart",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
-    "stateMutability": "pure"
+    "stateMutability": "view"
   },
   {
     "type": "function",
-    "name": "getChallengesPerProof",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "pure"
-  },
-  {
-    "type": "function",
-    "name": "getMaxProvingPeriod",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint64",
-        "internalType": "uint64"
-      }
-    ],
-    "stateMutability": "pure"
-  },
-  {
-    "type": "function",
-    "name": "initChallengeWindowStart",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "pure"
-  },
-  {
-    "type": "function",
-    "name": "nextChallengeWindowStart",
+    "name": "nextPDPChallengeWindowStart",
     "inputs": [
       {
         "name": "setId",
