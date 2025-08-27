@@ -19,13 +19,13 @@ import (
 
 // Structures to represent database records
 type DataSetRootAdd struct {
-	DataSet       uint64 `db:"proofset"`
+	DataSet        uint64 `db:"proofset"`
 	AddMessageHash string `db:"add_message_hash"`
 }
 
 // RootAddEntry represents entries from pdp_proofset_root_adds
 type RootAddEntry struct {
-	DataSet        uint64 `db:"proofset"`
+	DataSet         uint64 `db:"proofset"`
 	Root            string `db:"root"`
 	AddMessageHash  string `db:"add_message_hash"`
 	AddMessageIndex uint64 `db:"add_message_index"`
@@ -34,7 +34,7 @@ type RootAddEntry struct {
 	SubrootSize     int64  `db:"subroot_size"`
 	PDPPieceRefID   int64  `db:"pdp_pieceref"`
 	AddMessageOK    *bool  `db:"add_message_ok"`
-	PDPDataSetID   uint64 `db:"proofset"`
+	PDPDataSetID    uint64 `db:"proofset"`
 }
 
 // NewWatcherRootAdd sets up the watcher for proof set root additions
