@@ -311,8 +311,8 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	return true, nil
 }
 
-func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDPVerifier, proofSetID int64, seed abi.Randomness, numChallenges int) ([]contract.PDPVerifierProof, error) {
-	proofs := make([]contract.PDPVerifierProof, numChallenges)
+func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDPVerifier, proofSetID int64, seed abi.Randomness, numChallenges int) ([]contract.IPDPTypesProof, error) {
+	proofs := make([]contract.IPDPTypesProof, numChallenges)
 
 	callOpts := &bind.CallOpts{
 		Context: ctx,
@@ -429,7 +429,7 @@ func (p *ProveTask) genSubrootMemtree(ctx context.Context, subrootCid string, su
 	return proof.BuildSha254Memtree(r, subrootSize.Unpadded())
 }
 
-func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int64, challengedLeaf int64) (contract.PDPVerifierProof, error) {
+func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int64, challengedLeaf int64) (contract.IPDPTypesProof, error) {
 	const arity = 2
 
 	rootChallengeOffset := challengedLeaf * LeafSize
@@ -451,7 +451,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 			ORDER BY subroot_offset ASC
 		`, proofSetID, rootId)
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to get root and subroot: %w", err)
+		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get root and subroot: %w", err)
 	}
 
 	// find first subroot with subroot_offset >= rootChallengeOffset
@@ -459,13 +459,13 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 		return subroot.SubrootOffset < rootChallengeOffset
 	})
 	if !ok {
-		return contract.PDPVerifierProof{}, xerrors.New("no subroot found")
+		return contract.IPDPTypesProof{}, xerrors.New("no subroot found")
 	}
 
 	// build subroot memtree
 	memtree, err := p.genSubrootMemtree(ctx, challSubRoot.Subroot, abi.PaddedPieceSize(challSubRoot.SubrootSize))
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to generate subroot memtree: %w", err)
+		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate subroot memtree: %w", err)
 	}
 
 	subrootChallengedLeaf := challengedLeaf - (challSubRoot.SubrootOffset / LeafSize)
@@ -481,7 +481,7 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 	subrootProof, err := proof.MemtreeProof(memtree, subrootChallengedLeaf)
 	pool.Put(memtree)
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to generate subroot proof: %w", err)
+		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to generate subroot proof: %w", err)
 	}
 	log.Debugw("subrootProof", "subrootProof", subrootProof)
 
@@ -504,12 +504,12 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 
 		unsCid, err := cid.Parse(subroot.Subroot)
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to parse subroot CID: %w", err)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to parse subroot CID: %w", err)
 		}
 
 		commp, err := commcid.CIDToPieceCommitmentV1(unsCid)
 		if err != nil {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("failed to convert CID to piece commitment: %w", err)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to convert CID to piece commitment: %w", err)
 		}
 
 		var comm [LeafSize]byte
@@ -600,10 +600,10 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 
 	challSubtreeLeaf := partialTree[elemIndex{Level: challLevel, ElemOffset: challOffset}]
 	if challSubtreeLeaf.Hash != subrootProof.Root {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("subtree root doesn't match partial tree leaf, %x != %x", challSubtreeLeaf.Hash, subrootProof.Root)
+		return contract.IPDPTypesProof{}, xerrors.Errorf("subtree root doesn't match partial tree leaf, %x != %x", challSubtreeLeaf.Hash, subrootProof.Root)
 	}
 
-	var out contract.PDPVerifierProof
+	var out contract.IPDPTypesProof
 	copy(out.Leaf[:], subrootProof.Leaf[:])
 	out.Proof = append(out.Proof, subrootProof.Proof...)
 
@@ -618,11 +618,11 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 		index := elemIndex{Level: currentLevel, ElemOffset: currentOffset}
 		siblingElem, ok := partialTree[siblingIndex]
 		if !ok {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("missing sibling at level %d, offset %d", currentLevel, siblingOffset)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("missing sibling at level %d, offset %d", currentLevel, siblingOffset)
 		}
 		elem, ok := partialTree[index]
 		if !ok {
-			return contract.PDPVerifierProof{}, xerrors.Errorf("missing element at level %d, offset %d", currentLevel, currentOffset)
+			return contract.IPDPTypesProof{}, xerrors.Errorf("missing element at level %d, offset %d", currentLevel, currentOffset)
 		}
 		if currentOffset < siblingOffset { // left
 			log.Debugw("Proof", "position", index, "left-c", hex.EncodeToString(elem.Hash[:]), "right-s", hex.EncodeToString(siblingElem.Hash[:]), "out", hex.EncodeToString(shabytes(append(elem.Hash[:], siblingElem.Hash[:]...))[:]))
@@ -642,17 +642,17 @@ func (p *ProveTask) proveRoot(ctx context.Context, proofSetID int64, rootId int6
 
 	rootCid, err := cid.Parse(subroots[0].Root)
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to parse root CID: %w", err)
+		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to parse root CID: %w", err)
 	}
 	commRoot, err := commcid.CIDToPieceCommitmentV1(rootCid)
 	if err != nil {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("failed to convert CID to piece commitment: %w", err)
+		return contract.IPDPTypesProof{}, xerrors.Errorf("failed to convert CID to piece commitment: %w", err)
 	}
 	var cr [LeafSize]byte
 	copy(cr[:], commRoot)
 
 	if !Verify(out, cr, uint64(challengedLeaf)) {
-		return contract.PDPVerifierProof{}, xerrors.Errorf("proof verification failed")
+		return contract.IPDPTypesProof{}, xerrors.Errorf("proof verification failed")
 	}
 
 	// Return the completed proof
@@ -757,7 +757,7 @@ func nextPowerOfTwo(n abi.PaddedPieceSize) abi.PaddedPieceSize {
 	return 1 << (64 - lz)
 }
 
-func Verify(proof contract.PDPVerifierProof, root [32]byte, position uint64) bool {
+func Verify(proof contract.IPDPTypesProof, root [32]byte, position uint64) bool {
 	computedHash := proof.Leaf
 
 	for i := 0; i < len(proof.Proof); i++ {
