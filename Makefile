@@ -357,3 +357,7 @@ devnet/down:
 
 %.abi: %.json
 	jq -r .abi $*.json > $@
+
+
+%.go: %.abi
+	abigen --abi $^ --type $(notdir $*) --pkg contract --out $@
