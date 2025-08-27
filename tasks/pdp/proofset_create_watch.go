@@ -181,7 +181,7 @@ func getProvingPeriodChallengeWindow(ctx context.Context, ethClient *ethclient.C
 
 	config, err := schedule.GetPDPConfig(&bind.CallOpts{Context: ctx})
 	if err != nil {
-		return 0, 0, xerrors.Errorf("failed to getPDPConfig: %w", err)
+		return 0, 0, xerrors.Errorf("failed to GetPDPConfig: %w", err)
 	}
 
 	return config.MaxProvingPeriod, config.ChallengeWindow.Uint64(), nil
