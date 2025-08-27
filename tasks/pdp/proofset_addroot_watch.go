@@ -18,14 +18,14 @@ import (
 )
 
 // Structures to represent database records
-type ProofSetRootAdd struct {
-	ProofSet       uint64 `db:"proofset"`
+type DataSetRootAdd struct {
+	DataSet       uint64 `db:"proofset"`
 	AddMessageHash string `db:"add_message_hash"`
 }
 
 // RootAddEntry represents entries from pdp_proofset_root_adds
 type RootAddEntry struct {
-	ProofSet        uint64 `db:"proofset"`
+	DataSet        uint64 `db:"proofset"`
 	Root            string `db:"root"`
 	AddMessageHash  string `db:"add_message_hash"`
 	AddMessageIndex uint64 `db:"add_message_index"`
@@ -34,13 +34,13 @@ type RootAddEntry struct {
 	SubrootSize     int64  `db:"subroot_size"`
 	PDPPieceRefID   int64  `db:"pdp_pieceref"`
 	AddMessageOK    *bool  `db:"add_message_ok"`
-	PDPProofSetID   uint64 `db:"proofset"`
+	PDPDataSetID   uint64 `db:"proofset"`
 }
 
 // NewWatcherRootAdd sets up the watcher for proof set root additions
 func NewWatcherRootAdd(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chainsched.CurioChainSched) {
 	if err := pcs.AddHandler(func(ctx context.Context, revert, apply *chainTypes.TipSet) error {
-		err := processPendingProofSetRootAdds(ctx, db, ethClient)
+		err := processPendingDataSetRootAdds(ctx, db, ethClient)
 		if err != nil {
 			log.Warnf("Failed to process pending proof set root adds: %v", err)
 		}
@@ -51,10 +51,10 @@ func NewWatcherRootAdd(db *harmonydb.DB, ethClient *ethclient.Client, pcs *chain
 	}
 }
 
-// processPendingProofSetRootAdds processes root additions that have been confirmed on-chain
-func processPendingProofSetRootAdds(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
+// processPendingDataSetRootAdds processes root additions that have been confirmed on-chain
+func processPendingDataSetRootAdds(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client) error {
 	// Query for pdp_proofset_root_adds entries where add_message_ok = TRUE
-	var rootAdds []ProofSetRootAdd
+	var rootAdds []DataSetRootAdd
 
 	err := db.Select(ctx, &rootAdds, `
         SELECT DISTINCT proofset, add_message_hash
@@ -72,7 +72,7 @@ func processPendingProofSetRootAdds(ctx context.Context, db *harmonydb.DB, ethCl
 
 	// Process each root addition
 	for _, rootAdd := range rootAdds {
-		err := processProofSetRootAdd(ctx, db, ethClient, rootAdd)
+		err := processDataSetRootAdd(ctx, db, ethClient, rootAdd)
 		if err != nil {
 			log.Warnf("Failed to process root add for tx %s: %v", rootAdd.AddMessageHash, err)
 			continue
@@ -82,7 +82,7 @@ func processPendingProofSetRootAdds(ctx context.Context, db *harmonydb.DB, ethCl
 	return nil
 }
 
-func processProofSetRootAdd(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, rootAdd ProofSetRootAdd) error {
+func processDataSetRootAdd(ctx context.Context, db *harmonydb.DB, ethClient *ethclient.Client, rootAdd DataSetRootAdd) error {
 	// Retrieve the tx_receipt from message_waits_eth
 	var txReceiptJSON []byte
 	err := db.QueryRow(ctx, `
@@ -110,7 +110,7 @@ func processProofSetRootAdd(ctx context.Context, db *harmonydb.DB, ethClient *et
 	return nil
 }
 
-func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, receipt *types.Receipt, rootAdd ProofSetRootAdd) error {
+func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, receipt *types.Receipt, rootAdd DataSetRootAdd) error {
 	// Get the ABI from the contract metadata
 	pdpABI, err := contract.PDPVerifierMetaData.GetAbi()
 	if err != nil {
@@ -145,14 +145,14 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
 			}
 
 			// Convert the unpacked rootIds ([]interface{} containing *big.Int) to []uint64
-			bigIntRootIds, ok := unpacked[0].([]*big.Int)
+			bigIntPieceIds, ok := unpacked[0].([]*big.Int)
 			if !ok {
 				return fmt.Errorf("failed to convert unpacked data to array")
 			}
 
-			rootIds = make([]uint64, len(bigIntRootIds))
-			for i := range bigIntRootIds {
-				rootIds[i] = bigIntRootIds[i].Uint64()
+			rootIds = make([]uint64, len(bigIntPieceIds))
+			for i := range bigIntPieceIds {
+				rootIds[i] = bigIntPieceIds[i].Uint64()
 			}
 
 			eventFound = true
@@ -176,7 +176,7 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
             FROM pdp_proofset_root_adds
             WHERE proofset = $1 AND add_message_hash = $2
             ORDER BY add_message_index ASC, subroot_offset ASC
-        `, rootAdd.ProofSet, rootAdd.AddMessageHash)
+        `, rootAdd.DataSet, rootAdd.AddMessageHash)
 		if err != nil {
 			return false, fmt.Errorf("failed to select from pdp_proofset_root_adds: %w", err)
 		}
@@ -204,7 +204,7 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
                 ) VALUES (
                     $1, $2, $3, $4, $5, $6, $7, $8, $9
                 )
-            `, entry.ProofSet, entry.Root, rootId, entry.Subroot, entry.SubrootOffset, entry.SubrootSize, entry.PDPPieceRefID, entry.AddMessageHash, entry.AddMessageIndex)
+            `, entry.DataSet, entry.Root, rootId, entry.Subroot, entry.SubrootOffset, entry.SubrootSize, entry.PDPPieceRefID, entry.AddMessageHash, entry.AddMessageIndex)
 			if err != nil {
 				return false, fmt.Errorf("failed to insert into pdp_proofset_roots: %w", err)
 			}
@@ -215,7 +215,7 @@ func extractAndInsertRootsFromReceipt(ctx context.Context, db *harmonydb.DB, rec
                       UPDATE pdp_proofset_root_adds
                       SET roots_added = TRUE
                       WHERE proofset = $1 AND add_message_hash = $2 AND roots_added = FALSE
-              `, rootAdd.ProofSet, rootAdd.AddMessageHash)
+              `, rootAdd.DataSet, rootAdd.AddMessageHash)
 		if err != nil {
 			return false, fmt.Errorf("failed to update pdp_proofset_root_adds: %w", err)
 		}

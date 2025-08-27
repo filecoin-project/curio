@@ -49,7 +49,7 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
 
 		// Now query the db for proof sets needing nextProvingPeriod
 		var toCallNext []struct {
-			ProofSetID int64 `db:"id"`
+			DataSetID int64 `db:"id"`
 		}
 
 		err := db.Select(ctx, &toCallNext, `
@@ -69,7 +69,7 @@ func NewNextProvingPeriodTask(db *harmonydb.DB, ethClient *ethclient.Client, fil
                         UPDATE pdp_proof_sets
                         SET challenge_request_task_id = $1
                         WHERE id = $2 AND challenge_request_task_id IS NULL
-                    `, id, ps.ProofSetID)
+                    `, id, ps.DataSetID)
 				if err != nil {
 					return false, xerrors.Errorf("failed to update pdp_proof_sets: %w", err)
 				}

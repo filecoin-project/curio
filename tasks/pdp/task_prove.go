@@ -336,9 +336,9 @@ func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDP
 	for i := 0; i < numChallenges; i++ {
 		root := rootId[i]
 
-		proof, err := p.proveRoot(ctx, proofSetID, root.RootId.Int64(), root.Offset.Int64())
+		proof, err := p.proveRoot(ctx, proofSetID, root.PieceId.Int64(), root.Offset.Int64())
 		if err != nil {
-			return nil, xerrors.Errorf("failed to prove root %d (%d, %d, %d): %w", i, proofSetID, root.RootId.Int64(), root.Offset.Int64(), err)
+			return nil, xerrors.Errorf("failed to prove root %d (%d, %d, %d): %w", i, proofSetID, root.PieceId.Int64(), root.Offset.Int64(), err)
 		}
 
 		proofs[i] = proof
