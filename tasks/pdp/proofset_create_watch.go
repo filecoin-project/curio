@@ -106,7 +106,7 @@ func processProofSetCreate(ctx context.Context, db *harmonydb.DB, psc ProofSetCr
 		return xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
 	}
 
-	listenerAddr, err := pdpVerifier.GetProofSetListener(nil, big.NewInt(int64(proofSetId)))
+	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, big.NewInt(int64(proofSetId)))
 	if err != nil {
 		return xerrors.Errorf("failed to get listener address for proof set %d: %w", proofSetId, err)
 	}

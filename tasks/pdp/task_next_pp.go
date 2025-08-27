@@ -112,7 +112,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, xerrors.Errorf("failed to instantiate PDPVerifier contract: %w", err)
 	}
 
-	listenerAddr, err := pdpVerifier.GetProofSetListener(nil, big.NewInt(proofSetID))
+	listenerAddr, err := pdpVerifier.GetDataSetListener(nil, big.NewInt(proofSetID))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get listener address for proof set %d: %w", proofSetID, err)
 	}
@@ -157,7 +157,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, nil
 	}
 
-	fromAddress, _, err := pdpVerifier.GetProofSetOwner(nil, big.NewInt(proofSetID))
+	fromAddress, _, err := pdpVerifier.GetDataSetStorageProvider(nil, big.NewInt(proofSetID))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get default sender address: %w", err)
 	}

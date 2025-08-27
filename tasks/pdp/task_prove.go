@@ -239,7 +239,7 @@ func (p *ProveTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	proofFee = new(big.Int).Mul(proofFee, big.NewInt(3))
 
 	// Get the sender address for this proofset
-	owner, _, err := pdpVerifier.GetProofSetOwner(callOpts, big.NewInt(proofSetID))
+	owner, _, err := pdpVerifier.GetDataSetStorageProvider(callOpts, big.NewInt(proofSetID))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get owner: %w", err)
 	}
@@ -328,7 +328,7 @@ func (p *ProveTask) GenerateProofs(ctx context.Context, pdpService *contract.PDP
 		return generateChallengeIndex(seed, proofSetID, i, totalLeaves)
 	})
 
-	rootId, err := pdpService.FindRootIds(callOpts, big.NewInt(proofSetID), lo.Map(challenges, func(i int64, _ int) *big.Int { return big.NewInt(i) }))
+	rootId, err := pdpService.FindPieceIds(callOpts, big.NewInt(proofSetID), lo.Map(challenges, func(i int64, _ int) *big.Int { return big.NewInt(i) }))
 	if err != nil {
 		return nil, xerrors.Errorf("failed to find root IDs: %w", err)
 	}
