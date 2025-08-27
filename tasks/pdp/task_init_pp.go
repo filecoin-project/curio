@@ -125,17 +125,12 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 		return false, xerrors.Errorf("failed to create proving schedule binding, check that listener has proving schedule methods: %w", err)
 	}
 
-	// ChallengeWindow
-	challengeWindow, err := provingSchedule.ChallengeWindow(&bind.CallOpts{Context: ctx})
+	config, err := provingSchedule.GetPDPConfig(&bind.CallOpts{Context: ctx})
 	if err != nil {
-		return false, xerrors.Errorf("failed to get challenge window: %w", err)
+		return false, xerrors.Errorf("failed to GetPDPConfig: %w", err)
 	}
 
-	init_prove_at, err := provingSchedule.InitChallengeWindowStart(&bind.CallOpts{Context: ctx})
-	if err != nil {
-		return false, xerrors.Errorf("failed to get next challenge window start: %w", err)
-	}
-	init_prove_at = init_prove_at.Add(init_prove_at, challengeWindow.Div(challengeWindow, big.NewInt(2))) // Give a buffer of 1/2 challenge window epochs so that we are still within challenge window
+	init_prove_at := config.InitChallengeWindowStart.Add(config.InitChallengeWindowStart, config.ChallengeWindow.Div(config.ChallengeWindow, big.NewInt(2))) // Give a buffer of 1/2 challenge window epochs so that we are still within challenge window
 	// Instantiate the PDPVerifier contract
 	pdpContracts := contract.ContractAddresses()
 	pdpVeriferAddress := pdpContracts.PDPVerifier
