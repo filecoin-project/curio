@@ -7,7 +7,6 @@ import (
 	"golang.org/x/xerrors"
 )
 
-
 type RateEnforcingReader struct {
 	r io.Reader
 

@@ -727,6 +727,14 @@ This step submits the generated proofs to the chain. (Default: false)`,
 			Comment: `UpdateEncodeMaxTasks sets the maximum number of concurrent SnapDeal encoding tasks that can run on this instance. (Default: 0 - unlimited)`,
 		},
 		{
+			Name: "BindEncodeToData",
+			Type: "bool",
+
+			Comment: `BindEncodeToData forces the Encode task to be executed on the same node where the data was parked.
+Please ensure that ParkPiece task is enabled and relevant resources are available before enabling this option.
+(Default: false)`,
+		},
+		{
 			Name: "UpdateProveMaxTasks",
 			Type: "int",
 
@@ -792,6 +800,14 @@ Must have EnableDealMarket = True (Default: false)`,
 
 			Comment: `The maximum amount of CommP tasks that can run simultaneously. Note that the maximum number of tasks will
 also be bounded by resources available on the machine. (Default: 0 - unlimited)`,
+		},
+		{
+			Name: "BindCommPToData",
+			Type: "bool",
+
+			Comment: `BindCommPToData forces the CommP task to be executed on the same node where the data was parked.
+Please ensure that ParkPiece task is enabled and relevant resources are available before enabling this option.
+(Default: false)`,
 		},
 		{
 			Name: "IndexingMaxTasks",

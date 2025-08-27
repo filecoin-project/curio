@@ -23,28 +23,28 @@ import (
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/filecoin-project/curio/lib/ffi"
-	"github.com/filecoin-project/curio/lib/storiface"
 	"github.com/filecoin-project/curio/lib/proof"
-	
+	"github.com/filecoin-project/curio/lib/storiface"
+
 	"github.com/filecoin-project/lotus/chain/types"
 )
 
 type CommpTask struct {
-	sm  *CurioStorageDealMarket
-	db  *harmonydb.DB
-	sc  *ffi.SealCalls
-	api headAPI
-	max int
+	sm         *CurioStorageDealMarket
+	db         *harmonydb.DB
+	sc         *ffi.SealCalls
+	api        headAPI
+	max        int
 	bindToData bool
 }
 
 func NewCommpTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sc *ffi.SealCalls, api headAPI, max int, bindToData bool) *CommpTask {
 	return &CommpTask{
-		sm:  sm,
-		db:  db,
-		sc:  sc,
-		api: api,
-		max: max,
+		sm:         sm,
+		db:         db,
+		sc:         sc,
+		api:        api,
+		max:        max,
 		bindToData: bindToData,
 	}
 }

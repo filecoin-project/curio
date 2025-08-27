@@ -7,13 +7,13 @@ import (
 )
 
 var (
-	kindKey, _      = tag.NewKey("kind")
+	kindKey, _ = tag.NewKey("kind")
 )
 
 var Measures = struct {
-	DataRead    *stats.Int64Measure
+	DataRead *stats.Int64Measure
 }{
-	DataRead:    stats.Int64("dealdata_data_read", "Number of bytes read from data URLs", stats.UnitBytes),
+	DataRead: stats.Int64("dealdata_data_read", "Number of bytes read from data URLs", stats.UnitBytes),
 }
 
 func init() {

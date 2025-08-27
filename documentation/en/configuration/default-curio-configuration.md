@@ -212,6 +212,13 @@ description: The default curio configuration
   # type: int
   #UpdateEncodeMaxTasks = 0
 
+  # BindEncodeToData forces the Encode task to be executed on the same node where the data was parked.
+  # Please ensure that ParkPiece task is enabled and relevant resources are available before enabling this option.
+  # (Default: false)
+  #
+  # type: bool
+  #BindEncodeToData = false
+
   # UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance. (Default: 0 - unlimited)
   #
   # type: int
@@ -268,6 +275,13 @@ description: The default curio configuration
   #
   # type: int
   #CommPMaxTasks = 0
+
+  # BindCommPToData forces the CommP task to be executed on the same node where the data was parked.
+  # Please ensure that ParkPiece task is enabled and relevant resources are available before enabling this option.
+  # (Default: false)
+  #
+  # type: bool
+  #BindCommPToData = false
 
   # The maximum amount of indexing and IPNI tasks that can run simultaneously. Note that the maximum number of tasks will
   # also be bounded by resources available on the machine. (Default: 8)

@@ -7,13 +7,13 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/google/uuid"
 	"go.opencensus.io/stats"
 	"go.opencensus.io/tag"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/curio/lib/paths"
 	"github.com/filecoin-project/curio/lib/robusthttp"
-	"github.com/google/uuid"
 )
 
 var rcs = robusthttp.NewRateCounters[uuid.UUID](robusthttp.MinAvgGlobalLogPeerRate(10, 1000))
@@ -25,8 +25,8 @@ type UrlPieceReader struct {
 	Url     string
 	Headers http.Header
 	RawSize int64 // the exact number of bytes read, if we read more or less that's an error
-	
-	kind    string
+
+	kind string
 
 	RemoteEndpointReader *paths.Remote // Only used for .ReadRemote which issues http requests for internal /remote endpoints
 
@@ -87,7 +87,7 @@ func (u *UrlPieceReader) initiateRequest() error {
 		}
 		return xerrors.New(errMsg)
 	}
- */
+	*/
 	// Set 'active' to the response body
 	u.active = rd
 	return nil
