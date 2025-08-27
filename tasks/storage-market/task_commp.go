@@ -35,15 +35,17 @@ type CommpTask struct {
 	sc  *ffi.SealCalls
 	api headAPI
 	max int
+	bindToData bool
 }
 
-func NewCommpTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sc *ffi.SealCalls, api headAPI, max int) *CommpTask {
+func NewCommpTask(sm *CurioStorageDealMarket, db *harmonydb.DB, sc *ffi.SealCalls, api headAPI, max int, bindToData bool) *CommpTask {
 	return &CommpTask{
 		sm:  sm,
 		db:  db,
 		sc:  sc,
 		api: api,
 		max: max,
+		bindToData: bindToData,
 	}
 }
 
@@ -219,8 +221,7 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 	// ParkPiece should be scheduled on same node which has the piece
 	// Remote HTTP ones can be scheduled on any node
 
-	if true {
-		// TODO make this a setting
+	if !c.bindToData {
 		id := ids[0]
 		return &id, nil
 	}
@@ -309,6 +310,9 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 		acceptables[t] = true
 	}
 
+	// debug log
+	log.Infow("commp task can accept", "tasks", tasks, "acceptables", acceptables, "ls", ls, "bindToData", c.bindToData, "ids", ids, "ls", ls)
+
 	for _, t := range tasks {
 		if _, ok := acceptables[t.TaskID]; !ok {
 			continue
@@ -316,13 +320,14 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 		for _, l := range ls {
 			if string(l.ID) == t.StorageID {
+				log.Infow("commp task can accept did accept", "t", t, "l", l)
 				return &t.TaskID, nil
 			}
 		}
 	}
 
 	// If no local pieceRef was found then just return first TaskID
-	return &ids[0], nil
+	return nil, nil
 }
 
 func (c *CommpTask) TypeDetails() harmonytask.TaskTypeDetails {

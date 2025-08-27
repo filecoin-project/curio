@@ -346,6 +346,11 @@ type CurioSubsystemsConfig struct {
 	// UpdateEncodeMaxTasks sets the maximum number of concurrent SnapDeal encoding tasks that can run on this instance. (Default: 0 - unlimited)
 	UpdateEncodeMaxTasks int
 
+	// BindEncodeToData forces the Encode task to be executed on the same node where the data was parked.
+	// Please ensure that ParkPiece task is enabled and relevant resources are available before enabling this option.
+	// (Default: false)
+	BindEncodeToData bool
+
 	// UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance. (Default: 0 - unlimited)
 	UpdateProveMaxTasks int
 
@@ -382,6 +387,11 @@ type CurioSubsystemsConfig struct {
 	// The maximum amount of CommP tasks that can run simultaneously. Note that the maximum number of tasks will
 	// also be bounded by resources available on the machine. (Default: 0 - unlimited)
 	CommPMaxTasks int
+
+	// BindCommPToData forces the CommP task to be executed on the same node where the data was parked.
+	// Please ensure that ParkPiece task is enabled and relevant resources are available before enabling this option.
+	// (Default: false)
+	BindCommPToData bool
 
 	// The maximum amount of indexing and IPNI tasks that can run simultaneously. Note that the maximum number of tasks will
 	// also be bounded by resources available on the machine. (Default: 8)

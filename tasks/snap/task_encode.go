@@ -3,6 +3,8 @@ package snap
 import (
 	"context"
 	"math/rand/v2"
+	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/ipfs/go-cid"
@@ -24,17 +26,19 @@ import (
 const MinSnapSchedInterval = 10 * time.Second
 
 type EncodeTask struct {
-	max int
+	max        int
+	bindToData bool
 
 	sc *ffi.SealCalls
 	db *harmonydb.DB
 }
 
-func NewEncodeTask(sc *ffi.SealCalls, db *harmonydb.DB, max int) *EncodeTask {
+func NewEncodeTask(sc *ffi.SealCalls, db *harmonydb.DB, max int, bindToData bool) *EncodeTask {
 	return &EncodeTask{
-		max: max,
-		sc:  sc,
-		db:  db,
+		max:        max,
+		sc:         sc,
+		db:         db,
+		bindToData: bindToData,
 	}
 }
 
@@ -114,8 +118,136 @@ func (e *EncodeTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 }
 
 func (e *EncodeTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
-	id := ids[0]
-	return &id, nil
+	if !e.bindToData {
+		id := ids[0]
+		return &id, nil
+	}
+
+	// debug log
+	log.Infow("encode task can accept", "ids", ids, "bindToData", e.bindToData)
+
+	ctx := context.Background()
+
+	// Build a list of candidate tasks for the provided ids
+	indIDs := make([]int64, len(ids))
+	for i, id := range ids {
+		indIDs[i] = int64(id)
+	}
+
+	var tasks []struct {
+		TaskID       harmonytask.TaskID `db:"task_id_encode"`
+		SpID         int64              `db:"sp_id"`
+		SectorNumber int64              `db:"sector_number"`
+
+		StorageID   string
+		NoPieceRefs bool
+	}
+
+	_, err := e.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		if err := tx.Select(&tasks, `
+			SELECT task_id_encode, sp_id, sector_number
+			FROM sectors_snap_pipeline
+			WHERE task_id_encode = ANY ($1)`, indIDs); err != nil {
+			return false, xerrors.Errorf("selecting snap encode tasks: %w", err)
+		}
+
+		for i := range tasks {
+			var pieceURLs []struct {
+				Url *string `db:"data_url"`
+			}
+			if err := tx.Select(&pieceURLs, `
+				SELECT data_url FROM sectors_snap_initial_pieces
+				WHERE sp_id = $1 AND sector_number = $2`, tasks[i].SpID, tasks[i].SectorNumber); err != nil {
+				return false, xerrors.Errorf("selecting snap piece urls: %w", err)
+			}
+
+			hasPieceRef := false
+			for _, pu := range pieceURLs {
+				if pu.Url == nil || *pu.Url == "" {
+					continue
+				}
+				u, err := url.Parse(*pu.Url)
+				if err != nil {
+					continue
+				}
+				if u.Scheme != "pieceref" {
+					continue
+				}
+				hasPieceRef = true
+
+				refNum, err := strconv.ParseInt(u.Opaque, 10, 64)
+				if err != nil {
+					continue
+				}
+
+				var pieceID []struct {
+					PieceID storiface.PieceNumber `db:"piece_id"`
+				}
+				if err := tx.Select(&pieceID, `SELECT piece_id FROM parked_piece_refs WHERE ref_id = $1`, refNum); err != nil || len(pieceID) != 1 {
+					continue
+				}
+
+				var sLocation string
+				if err := tx.QueryRow(`
+					SELECT storage_id FROM sector_location
+					WHERE miner_id = $1 AND sector_num = $2 AND sector_filetype = $3
+					LIMIT 1`, 0, pieceID[0].PieceID, storiface.FTPiece).Scan(&sLocation); err != nil {
+					continue
+				}
+
+				if sLocation != "" {
+					tasks[i].StorageID = sLocation
+					break
+				}
+			}
+
+			if !hasPieceRef {
+				tasks[i].NoPieceRefs = true
+			}
+		}
+
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		return nil, err
+	}
+
+	// Load local storage IDs
+	ls, err := e.sc.LocalStorage(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("getting local storage: %w", err)
+	}
+	local := map[string]struct{}{}
+	for _, l := range ls {
+		local[string(l.ID)] = struct{}{}
+	}
+
+	// debug log
+	log.Infow("encode task can accept", "tasks", tasks, "bindToData", e.bindToData, "local", local)
+
+	// Prefer tasks where at least one pieceref is present on local storage
+	for _, t := range tasks {
+		if t.StorageID == "" {
+			continue
+		}
+		if _, ok := local[t.StorageID]; ok {
+			id := t.TaskID
+			log.Infow("encode task can accept did accept", "task", t)
+			return &id, nil
+		}
+	}
+
+	// Fallback: if task has no pieceref pieces, it can run anywhere
+	for _, t := range tasks {
+		if t.NoPieceRefs {
+			id := t.TaskID
+			log.Infow("encode task can accept accepting non-pieceref task (anywhere)", "task", t)
+			return &id, nil
+		}
+	}
+
+	// No acceptable tasks for this node
+	return nil, nil
 }
 
 func (e *EncodeTask) TypeDetails() harmonytask.TaskTypeDetails {

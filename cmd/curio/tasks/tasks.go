@@ -268,7 +268,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 			}
 
 			if cfg.Subsystems.EnableCommP {
-				commpTask := storage_market.NewCommpTask(dm, db, must.One(slrLazy.Val()), full, cfg.Subsystems.CommPMaxTasks)
+				commpTask := storage_market.NewCommpTask(dm, db, must.One(slrLazy.Val()), full, cfg.Subsystems.CommPMaxTasks, cfg.Subsystems.BindCommPToData)
 				activeTasks = append(activeTasks, commpTask)
 			}
 
@@ -454,7 +454,7 @@ func addSealingTasks(
 	}
 
 	if cfg.Subsystems.EnableUpdateEncode {
-		encodeTask := snap.NewEncodeTask(slr, db, cfg.Subsystems.UpdateEncodeMaxTasks)
+		encodeTask := snap.NewEncodeTask(slr, db, cfg.Subsystems.UpdateEncodeMaxTasks, cfg.Subsystems.BindEncodeToData)
 		activeTasks = append(activeTasks, encodeTask)
 	}
 	if cfg.Subsystems.EnableUpdateProve || cfg.Subsystems.EnableRemoteProofs {
