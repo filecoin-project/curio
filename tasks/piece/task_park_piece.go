@@ -42,17 +42,20 @@ type ParkPieceTask struct {
 	maxInPark int
 
 	longTerm bool // Indicates if the task is for long-term pieces
+
+	// supraseal special interaction - during phase 2, we don't want to park pieces - gpu not available for hours
+	p2Active func() bool
 }
 
-func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, max int, maxInPark int) (*ParkPieceTask, error) {
-	return newPieceTask(db, sc, nil, max, maxInPark, false)
+func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, max int, maxInPark int, p2Active func() bool) (*ParkPieceTask, error) {
+	return newPieceTask(db, sc, nil, max, maxInPark, false, p2Active)
 }
 
 func NewStorePieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int) (*ParkPieceTask, error) {
-	return newPieceTask(db, sc, remote, max, 0, true)
+	return newPieceTask(db, sc, remote, max, 0, true, nil)
 }
 
-func newPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int, maxInPark int, longTerm bool) (*ParkPieceTask, error) {
+func newPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int, maxInPark int, longTerm bool, p2Active func() bool) (*ParkPieceTask, error) {
 	pt := &ParkPieceTask{
 		db:        db,
 		sc:        sc,
@@ -60,6 +63,7 @@ func newPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, ma
 		max:       max,
 		maxInPark: maxInPark,
 		longTerm:  longTerm,
+		p2Active:  p2Active,
 	}
 
 	ctx := context.Background()
@@ -207,6 +211,10 @@ func (p *ParkPieceTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 }
 
 func (p *ParkPieceTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) (*harmonytask.TaskID, error) {
+	if p.p2Active != nil && p.p2Active() {
+		return nil, nil
+	}
+
 	if p.maxInPark <= 0 {
 		id := ids[0]
 		return &id, nil

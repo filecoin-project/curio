@@ -61,3 +61,9 @@ func (p *pipelinePhase) Unlock() {
 
 	p.phaseLock.Unlock()
 }
+
+func (p *pipelinePhase) IsInPhase() func() bool {
+	return func() bool {
+		return atomic.LoadInt64(&p.active) > 0
+	}
+}

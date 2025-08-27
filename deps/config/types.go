@@ -354,6 +354,10 @@ type CurioSubsystemsConfig struct {
 	// (Default: false)
 	BindEncodeToData bool
 
+	// AllowEncodeGPUOverprovision allows the Encode task to run on regardress of declared GPU usage. (Default: false)
+	// NOTE: This definitely is not safe on PoSt nodes.
+	AllowEncodeGPUOverprovision bool
+
 	// UpdateProveMaxTasks sets the maximum number of concurrent SnapDeal proving tasks that can run on this instance. (Default: 0 - unlimited)
 	UpdateProveMaxTasks int
 

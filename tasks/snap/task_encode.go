@@ -28,17 +28,19 @@ const MinSnapSchedInterval = 10 * time.Second
 type EncodeTask struct {
 	max        int
 	bindToData bool
+	allowEncodeGPUOverprovision bool
 
 	sc *ffi.SealCalls
 	db *harmonydb.DB
 }
 
-func NewEncodeTask(sc *ffi.SealCalls, db *harmonydb.DB, max int, bindToData bool) *EncodeTask {
+func NewEncodeTask(sc *ffi.SealCalls, db *harmonydb.DB, max int, bindToData bool, allowEncodeGPUOverprovision bool) *EncodeTask {
 	return &EncodeTask{
 		max:        max,
 		sc:         sc,
 		db:         db,
 		bindToData: bindToData,
+		allowEncodeGPUOverprovision: allowEncodeGPUOverprovision,
 	}
 }
 
@@ -256,7 +258,7 @@ func (e *EncodeTask) TypeDetails() harmonytask.TaskTypeDetails {
 		ssize = abi.SectorSize(2 << 20)
 	}
 	gpu := 1.0
-	if seal.IsDevnet {
+	if seal.IsDevnet || e.allowEncodeGPUOverprovision {
 		gpu = 0
 	}
 
