@@ -360,4 +360,4 @@ devnet/down:
 
 
 %.go: %.abi
-	abigen --abi $^ --type $(notdir $*) --pkg contract --out $@
+	abigen --abi $^ --type $(notdir $*) --pkg $(notdir $(patsubst %/,%,$(dir $@))) --out $@
