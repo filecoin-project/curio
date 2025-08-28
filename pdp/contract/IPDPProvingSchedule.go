@@ -31,7 +31,7 @@ var (
 
 // IPDPProvingScheduleMetaData contains all meta data concerning the IPDPProvingSchedule contract.
 var IPDPProvingScheduleMetaData = &bind.MetaData{
-	ABI: "[{\"type\":\"function\",\"name\":\"challengeWindow\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"pure\"},{\"type\":\"function\",\"name\":\"getChallengesPerProof\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"pure\"},{\"type\":\"function\",\"name\":\"getMaxProvingPeriod\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\",\"internalType\":\"uint64\"}],\"stateMutability\":\"pure\"},{\"type\":\"function\",\"name\":\"initChallengeWindowStart\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"pure\"},{\"type\":\"function\",\"name\":\"nextChallengeWindowStart\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"}]",
+	ABI: "[{\"type\":\"function\",\"name\":\"getPDPConfig\",\"inputs\":[],\"outputs\":[{\"name\":\"maxProvingPeriod\",\"type\":\"uint64\",\"internalType\":\"uint64\"},{\"name\":\"challengeWindow\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"challengesPerProof\",\"type\":\"uint256\",\"internalType\":\"uint256\"},{\"name\":\"initChallengeWindowStart\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"},{\"type\":\"function\",\"name\":\"nextPDPChallengeWindowStart\",\"inputs\":[{\"name\":\"setId\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}],\"stateMutability\":\"view\"}]",
 }
 
 // IPDPProvingScheduleABI is the input ABI used to generate the binding from.
@@ -180,12 +180,67 @@ func (_IPDPProvingSchedule *IPDPProvingScheduleTransactorRaw) Transact(opts *bin
 	return _IPDPProvingSchedule.Contract.contract.Transact(opts, method, params...)
 }
 
-// ChallengeWindow is a free data retrieval call binding the contract method 0x861a1412.
+// GetPDPConfig is a free data retrieval call binding the contract method 0xea0f9354.
 //
-// Solidity: function challengeWindow() pure returns(uint256)
-func (_IPDPProvingSchedule *IPDPProvingScheduleCaller) ChallengeWindow(opts *bind.CallOpts) (*big.Int, error) {
+// Solidity: function getPDPConfig() view returns(uint64 maxProvingPeriod, uint256 challengeWindow, uint256 challengesPerProof, uint256 initChallengeWindowStart)
+func (_IPDPProvingSchedule *IPDPProvingScheduleCaller) GetPDPConfig(opts *bind.CallOpts) (struct {
+	MaxProvingPeriod         uint64
+	ChallengeWindow          *big.Int
+	ChallengesPerProof       *big.Int
+	InitChallengeWindowStart *big.Int
+}, error) {
 	var out []interface{}
-	err := _IPDPProvingSchedule.contract.Call(opts, &out, "challengeWindow")
+	err := _IPDPProvingSchedule.contract.Call(opts, &out, "getPDPConfig")
+
+	outstruct := new(struct {
+		MaxProvingPeriod         uint64
+		ChallengeWindow          *big.Int
+		ChallengesPerProof       *big.Int
+		InitChallengeWindowStart *big.Int
+	})
+	if err != nil {
+		return *outstruct, err
+	}
+
+	outstruct.MaxProvingPeriod = *abi.ConvertType(out[0], new(uint64)).(*uint64)
+	outstruct.ChallengeWindow = *abi.ConvertType(out[1], new(*big.Int)).(**big.Int)
+	outstruct.ChallengesPerProof = *abi.ConvertType(out[2], new(*big.Int)).(**big.Int)
+	outstruct.InitChallengeWindowStart = *abi.ConvertType(out[3], new(*big.Int)).(**big.Int)
+
+	return *outstruct, err
+
+}
+
+// GetPDPConfig is a free data retrieval call binding the contract method 0xea0f9354.
+//
+// Solidity: function getPDPConfig() view returns(uint64 maxProvingPeriod, uint256 challengeWindow, uint256 challengesPerProof, uint256 initChallengeWindowStart)
+func (_IPDPProvingSchedule *IPDPProvingScheduleSession) GetPDPConfig() (struct {
+	MaxProvingPeriod         uint64
+	ChallengeWindow          *big.Int
+	ChallengesPerProof       *big.Int
+	InitChallengeWindowStart *big.Int
+}, error) {
+	return _IPDPProvingSchedule.Contract.GetPDPConfig(&_IPDPProvingSchedule.CallOpts)
+}
+
+// GetPDPConfig is a free data retrieval call binding the contract method 0xea0f9354.
+//
+// Solidity: function getPDPConfig() view returns(uint64 maxProvingPeriod, uint256 challengeWindow, uint256 challengesPerProof, uint256 initChallengeWindowStart)
+func (_IPDPProvingSchedule *IPDPProvingScheduleCallerSession) GetPDPConfig() (struct {
+	MaxProvingPeriod         uint64
+	ChallengeWindow          *big.Int
+	ChallengesPerProof       *big.Int
+	InitChallengeWindowStart *big.Int
+}, error) {
+	return _IPDPProvingSchedule.Contract.GetPDPConfig(&_IPDPProvingSchedule.CallOpts)
+}
+
+// NextPDPChallengeWindowStart is a free data retrieval call binding the contract method 0x11d41294.
+//
+// Solidity: function nextPDPChallengeWindowStart(uint256 setId) view returns(uint256)
+func (_IPDPProvingSchedule *IPDPProvingScheduleCaller) NextPDPChallengeWindowStart(opts *bind.CallOpts, setId *big.Int) (*big.Int, error) {
+	var out []interface{}
+	err := _IPDPProvingSchedule.contract.Call(opts, &out, "nextPDPChallengeWindowStart", setId)
 
 	if err != nil {
 		return *new(*big.Int), err
@@ -197,140 +252,16 @@ func (_IPDPProvingSchedule *IPDPProvingScheduleCaller) ChallengeWindow(opts *bin
 
 }
 
-// ChallengeWindow is a free data retrieval call binding the contract method 0x861a1412.
+// NextPDPChallengeWindowStart is a free data retrieval call binding the contract method 0x11d41294.
 //
-// Solidity: function challengeWindow() pure returns(uint256)
-func (_IPDPProvingSchedule *IPDPProvingScheduleSession) ChallengeWindow() (*big.Int, error) {
-	return _IPDPProvingSchedule.Contract.ChallengeWindow(&_IPDPProvingSchedule.CallOpts)
+// Solidity: function nextPDPChallengeWindowStart(uint256 setId) view returns(uint256)
+func (_IPDPProvingSchedule *IPDPProvingScheduleSession) NextPDPChallengeWindowStart(setId *big.Int) (*big.Int, error) {
+	return _IPDPProvingSchedule.Contract.NextPDPChallengeWindowStart(&_IPDPProvingSchedule.CallOpts, setId)
 }
 
-// ChallengeWindow is a free data retrieval call binding the contract method 0x861a1412.
+// NextPDPChallengeWindowStart is a free data retrieval call binding the contract method 0x11d41294.
 //
-// Solidity: function challengeWindow() pure returns(uint256)
-func (_IPDPProvingSchedule *IPDPProvingScheduleCallerSession) ChallengeWindow() (*big.Int, error) {
-	return _IPDPProvingSchedule.Contract.ChallengeWindow(&_IPDPProvingSchedule.CallOpts)
-}
-
-// GetChallengesPerProof is a free data retrieval call binding the contract method 0x47d3dfe7.
-//
-// Solidity: function getChallengesPerProof() pure returns(uint64)
-func (_IPDPProvingSchedule *IPDPProvingScheduleCaller) GetChallengesPerProof(opts *bind.CallOpts) (uint64, error) {
-	var out []interface{}
-	err := _IPDPProvingSchedule.contract.Call(opts, &out, "getChallengesPerProof")
-
-	if err != nil {
-		return *new(uint64), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(uint64)).(*uint64)
-
-	return out0, err
-
-}
-
-// GetChallengesPerProof is a free data retrieval call binding the contract method 0x47d3dfe7.
-//
-// Solidity: function getChallengesPerProof() pure returns(uint64)
-func (_IPDPProvingSchedule *IPDPProvingScheduleSession) GetChallengesPerProof() (uint64, error) {
-	return _IPDPProvingSchedule.Contract.GetChallengesPerProof(&_IPDPProvingSchedule.CallOpts)
-}
-
-// GetChallengesPerProof is a free data retrieval call binding the contract method 0x47d3dfe7.
-//
-// Solidity: function getChallengesPerProof() pure returns(uint64)
-func (_IPDPProvingSchedule *IPDPProvingScheduleCallerSession) GetChallengesPerProof() (uint64, error) {
-	return _IPDPProvingSchedule.Contract.GetChallengesPerProof(&_IPDPProvingSchedule.CallOpts)
-}
-
-// GetMaxProvingPeriod is a free data retrieval call binding the contract method 0xf2f12333.
-//
-// Solidity: function getMaxProvingPeriod() pure returns(uint64)
-func (_IPDPProvingSchedule *IPDPProvingScheduleCaller) GetMaxProvingPeriod(opts *bind.CallOpts) (uint64, error) {
-	var out []interface{}
-	err := _IPDPProvingSchedule.contract.Call(opts, &out, "getMaxProvingPeriod")
-
-	if err != nil {
-		return *new(uint64), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(uint64)).(*uint64)
-
-	return out0, err
-
-}
-
-// GetMaxProvingPeriod is a free data retrieval call binding the contract method 0xf2f12333.
-//
-// Solidity: function getMaxProvingPeriod() pure returns(uint64)
-func (_IPDPProvingSchedule *IPDPProvingScheduleSession) GetMaxProvingPeriod() (uint64, error) {
-	return _IPDPProvingSchedule.Contract.GetMaxProvingPeriod(&_IPDPProvingSchedule.CallOpts)
-}
-
-// GetMaxProvingPeriod is a free data retrieval call binding the contract method 0xf2f12333.
-//
-// Solidity: function getMaxProvingPeriod() pure returns(uint64)
-func (_IPDPProvingSchedule *IPDPProvingScheduleCallerSession) GetMaxProvingPeriod() (uint64, error) {
-	return _IPDPProvingSchedule.Contract.GetMaxProvingPeriod(&_IPDPProvingSchedule.CallOpts)
-}
-
-// InitChallengeWindowStart is a free data retrieval call binding the contract method 0x21918cea.
-//
-// Solidity: function initChallengeWindowStart() pure returns(uint256)
-func (_IPDPProvingSchedule *IPDPProvingScheduleCaller) InitChallengeWindowStart(opts *bind.CallOpts) (*big.Int, error) {
-	var out []interface{}
-	err := _IPDPProvingSchedule.contract.Call(opts, &out, "initChallengeWindowStart")
-
-	if err != nil {
-		return *new(*big.Int), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
-
-	return out0, err
-
-}
-
-// InitChallengeWindowStart is a free data retrieval call binding the contract method 0x21918cea.
-//
-// Solidity: function initChallengeWindowStart() pure returns(uint256)
-func (_IPDPProvingSchedule *IPDPProvingScheduleSession) InitChallengeWindowStart() (*big.Int, error) {
-	return _IPDPProvingSchedule.Contract.InitChallengeWindowStart(&_IPDPProvingSchedule.CallOpts)
-}
-
-// InitChallengeWindowStart is a free data retrieval call binding the contract method 0x21918cea.
-//
-// Solidity: function initChallengeWindowStart() pure returns(uint256)
-func (_IPDPProvingSchedule *IPDPProvingScheduleCallerSession) InitChallengeWindowStart() (*big.Int, error) {
-	return _IPDPProvingSchedule.Contract.InitChallengeWindowStart(&_IPDPProvingSchedule.CallOpts)
-}
-
-// NextChallengeWindowStart is a free data retrieval call binding the contract method 0x8bf96d28.
-//
-// Solidity: function nextChallengeWindowStart(uint256 setId) view returns(uint256)
-func (_IPDPProvingSchedule *IPDPProvingScheduleCaller) NextChallengeWindowStart(opts *bind.CallOpts, setId *big.Int) (*big.Int, error) {
-	var out []interface{}
-	err := _IPDPProvingSchedule.contract.Call(opts, &out, "nextChallengeWindowStart", setId)
-
-	if err != nil {
-		return *new(*big.Int), err
-	}
-
-	out0 := *abi.ConvertType(out[0], new(*big.Int)).(**big.Int)
-
-	return out0, err
-
-}
-
-// NextChallengeWindowStart is a free data retrieval call binding the contract method 0x8bf96d28.
-//
-// Solidity: function nextChallengeWindowStart(uint256 setId) view returns(uint256)
-func (_IPDPProvingSchedule *IPDPProvingScheduleSession) NextChallengeWindowStart(setId *big.Int) (*big.Int, error) {
-	return _IPDPProvingSchedule.Contract.NextChallengeWindowStart(&_IPDPProvingSchedule.CallOpts, setId)
-}
-
-// NextChallengeWindowStart is a free data retrieval call binding the contract method 0x8bf96d28.
-//
-// Solidity: function nextChallengeWindowStart(uint256 setId) view returns(uint256)
-func (_IPDPProvingSchedule *IPDPProvingScheduleCallerSession) NextChallengeWindowStart(setId *big.Int) (*big.Int, error) {
-	return _IPDPProvingSchedule.Contract.NextChallengeWindowStart(&_IPDPProvingSchedule.CallOpts, setId)
+// Solidity: function nextPDPChallengeWindowStart(uint256 setId) view returns(uint256)
+func (_IPDPProvingSchedule *IPDPProvingScheduleCallerSession) NextPDPChallengeWindowStart(setId *big.Int) (*big.Int, error) {
+	return _IPDPProvingSchedule.Contract.NextPDPChallengeWindowStart(&_IPDPProvingSchedule.CallOpts, setId)
 }

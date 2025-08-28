@@ -179,16 +179,10 @@ func getProvingPeriodChallengeWindow(ctx context.Context, ethClient *ethclient.C
 		return 0, 0, xerrors.Errorf("failed to create proving schedule binding, check that listener has proving schedule methods: %w", err)
 	}
 
-	period, err := schedule.GetMaxProvingPeriod(&bind.CallOpts{Context: ctx})
+	config, err := schedule.GetPDPConfig(&bind.CallOpts{Context: ctx})
 	if err != nil {
-		return 0, 0, xerrors.Errorf("failed to get proving period: %w", err)
+		return 0, 0, xerrors.Errorf("failed to GetPDPConfig: %w", err)
 	}
 
-	// ChallengeWindow
-	challengeWindow, err := schedule.ChallengeWindow(&bind.CallOpts{Context: ctx})
-	if err != nil {
-		return 0, 0, xerrors.Errorf("failed to get challenge window: %w", err)
-	}
-
-	return period, challengeWindow.Uint64(), nil
+	return config.MaxProvingPeriod, config.ChallengeWindow.Uint64(), nil
 }

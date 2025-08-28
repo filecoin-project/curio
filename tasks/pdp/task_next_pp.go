@@ -123,7 +123,7 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 	if err != nil {
 		return false, xerrors.Errorf("failed to create proving schedule binding, check that listener has proving schedule methods: %w", err)
 	}
-	next_prove_at, err := provingSchedule.NextChallengeWindowStart(nil, big.NewInt(dataSetId))
+	next_prove_at, err := provingSchedule.NextPDPChallengeWindowStart(nil, big.NewInt(dataSetId))
 	if err != nil {
 		return false, xerrors.Errorf("failed to get next challenge window start: %w", err)
 	}
