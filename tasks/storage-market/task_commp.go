@@ -230,8 +230,6 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 	var tasks []struct {
 		TaskID       harmonytask.TaskID `db:"commp_task_id"`
-		SpID         int64              `db:"sp_id"`
-		SectorNumber int64              `db:"sector_number"`
 		StorageID    string             `db:"storage_id"`
 		Url          *string            `db:"url"`
 	}
@@ -243,7 +241,7 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 	comm, err := c.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		err = tx.Select(&tasks, `
-		SELECT commp_task_id, sp_id, sector_number, url FROM market_mk12_deal_pipeline
+		SELECT commp_task_id, url FROM market_mk12_deal_pipeline
 			WHERE commp_task_id = ANY ($1)`, indIDs)
 		if err != nil {
 			return false, xerrors.Errorf("failed to get deal details from DB: %w", err)
@@ -273,12 +271,15 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 					if err != nil {
 						return false, xerrors.Errorf("getting pieceID: %w", err)
 					}
+					if len(pieceID) == 0 {
+						return false, xerrors.Errorf("no pieceID found for ref %d", refNum)
+					}
 
 					var sLocation string
 
 					err = tx.QueryRow(`
 					SELECT storage_id FROM sector_location 
-						WHERE miner_id = $1 AND sector_num = $2 AND l.sector_filetype = 32`, task.SpID, pieceID[0].PieceID).Scan(&sLocation)
+						WHERE miner_id = 0 AND sector_num = $1 AND l.sector_filetype = $2`, pieceID[0].PieceID, storiface.FTPiece).Scan(&sLocation)
 
 					if err != nil {
 						return false, xerrors.Errorf("failed to get storage location from DB: %w", err)
