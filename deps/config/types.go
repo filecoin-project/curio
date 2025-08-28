@@ -18,6 +18,7 @@ func DefaultCurioConfig() *CurioConfig {
 			RequireNotificationSuccess: true,
 			IndexingMaxTasks:           8,
 			RemoteProofMaxUploads:      15,
+			ParkPieceMinFreeStoragePercent: 20,
 		},
 		Fees: CurioFees{
 			MaxPreCommitBatchGasFee: BatchFeeConfig{
@@ -234,6 +235,9 @@ type CurioSubsystemsConfig struct {
 
 	// The maximum number of pieces that should be in storage + active tasks writing to storage on this node (Default: 0 - unlimited)
 	ParkPieceMaxInPark int
+
+	// The minimum free storage percentage required for the ParkPiece task to run. (Default: 20)
+	ParkPieceMinFreeStoragePercent float64
 
 	// EnableSealSDR enables SDR tasks to run. SDR is the long sequential computation
 	// creating 11 layer files in sector cache directory.

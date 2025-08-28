@@ -25,8 +25,6 @@ import (
 var log = logging.Logger("cu-piece")
 var PieceParkPollInterval = time.Second * 5
 
-const ParkMinFreeStoragePercent = 20
-
 // ParkPieceTask gets a piece from some origin, and parks it in storage
 // Pieces are always f00, piece ID is mapped to pieceCID in the DB
 type ParkPieceTask struct {
@@ -37,6 +35,7 @@ type ParkPieceTask struct {
 	TF promise.Promise[harmonytask.AddTaskFunc]
 
 	max int
+	minFreeStoragePercent float64
 
 	// maxInPark is the maximum number of pieces that should be in storage + active tasks writing to storage on this node
 	maxInPark int
@@ -47,15 +46,15 @@ type ParkPieceTask struct {
 	p2Active func() bool
 }
 
-func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, max int, maxInPark int, p2Active func() bool) (*ParkPieceTask, error) {
-	return newPieceTask(db, sc, nil, max, maxInPark, false, p2Active)
+func NewParkPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, max int, maxInPark int, p2Active func() bool, minFreeStoragePercent float64) (*ParkPieceTask, error) {
+	return newPieceTask(db, sc, nil, max, maxInPark, false, p2Active, minFreeStoragePercent)
 }
 
 func NewStorePieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int) (*ParkPieceTask, error) {
-	return newPieceTask(db, sc, remote, max, 0, true, nil)
+	return newPieceTask(db, sc, remote, max, 0, true, nil, 10)
 }
 
-func newPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int, maxInPark int, longTerm bool, p2Active func() bool) (*ParkPieceTask, error) {
+func newPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, max int, maxInPark int, longTerm bool, p2Active func() bool, minFreeStoragePercent float64) (*ParkPieceTask, error) {
 	pt := &ParkPieceTask{
 		db:        db,
 		sc:        sc,
@@ -64,6 +63,7 @@ func newPieceTask(db *harmonydb.DB, sc *ffi2.SealCalls, remote *paths.Remote, ma
 		maxInPark: maxInPark,
 		longTerm:  longTerm,
 		p2Active:  p2Active,
+		minFreeStoragePercent: minFreeStoragePercent,
 	}
 
 	ctx := context.Background()
@@ -296,7 +296,7 @@ func (p *ParkPieceTask) TypeDetails() harmonytask.TaskTypeDetails {
 			Cpu:     1,
 			Gpu:     0,
 			Ram:     64 << 20,
-			Storage: p.sc.Storage(p.taskToRef, storiface.FTPiece, storiface.FTNone, maxSizePiece, storageType, ParkMinFreeStoragePercent),
+			Storage: p.sc.Storage(p.taskToRef, storiface.FTPiece, storiface.FTNone, maxSizePiece, storageType, p.minFreeStoragePercent),
 		},
 		MaxFailures: 10,
 		RetryWait: func(retries int) time.Duration {
