@@ -251,7 +251,7 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 			panic("storiface.FTPiece != 32")
 		}
 
-		for _, task := range tasks {
+		for i, task := range tasks {
 			if task.Url != nil {
 				goUrl, err := url.Parse(*task.Url)
 				if err != nil {
@@ -285,7 +285,7 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 						return false, xerrors.Errorf("failed to get storage location from DB: %w", err)
 					}
 
-					task.StorageID = sLocation
+					tasks[i].StorageID = sLocation
 				}
 			}
 		}
@@ -312,7 +312,7 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 	}
 
 	// debug log
-	log.Infow("commp task can accept", "tasks", tasks, "acceptables", acceptables, "ls", ls, "bindToData", c.bindToData, "ids", ids, "ls", ls)
+	log.Infow("commp task can accept", "tasks", tasks, "acceptables", acceptables, "ls", ls, "bindToData", c.bindToData, "ids", ids)
 
 	for _, t := range tasks {
 		if _, ok := acceptables[t.TaskID]; !ok {
