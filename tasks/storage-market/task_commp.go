@@ -279,7 +279,7 @@ func (c *CommpTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.Task
 
 					err = tx.QueryRow(`
 					SELECT storage_id FROM sector_location 
-						WHERE miner_id = 0 AND sector_num = $1 AND l.sector_filetype = $2`, pieceID[0].PieceID, storiface.FTPiece).Scan(&sLocation)
+						WHERE miner_id = 0 AND sector_num = $1 AND sector_filetype = $2`, pieceID[0].PieceID, storiface.FTPiece).Scan(&sLocation)
 
 					if err != nil {
 						return false, xerrors.Errorf("failed to get storage location from DB: %w", err)
