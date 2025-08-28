@@ -236,7 +236,7 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 	{
 		// Piece handling
 		if cfg.Subsystems.EnableParkPiece {
-			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.ParkPieceMaxTasks, cfg.Subsystems.ParkPieceMaxInPark)
+			parkPieceTask, err := piece2.NewParkPieceTask(db, must.One(slrLazy.Val()), cfg.Subsystems.ParkPieceMaxTasks, cfg.Subsystems.ParkPieceMaxInPark, p2Active)
 			if err != nil {
 				return nil, err
 			}
