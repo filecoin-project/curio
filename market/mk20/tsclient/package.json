@@ -1,0 +1,41 @@
+{
+  "name": "@curio/market-client",
+  "version": "1.0.0",
+  "description": "TypeScript API client for Curio storage market",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "npm run generate && npm run compile",
+    "generate": "openapi-generator-cli generate -i ../http/swagger.json -g typescript-fetch -o ./generated --additional-properties=supportsES6=true,typescriptThreePlus=true",
+    "compile": "tsc",
+    "clean": "rm -rf dist generated",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "curio",
+    "filecoin",
+    "storage",
+    "market",
+    "api",
+    "typescript"
+  ],
+  "author": "Curio Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@openapitools/openapi-generator-cli": "^2.7.0",
+    "@types/node": "^20.0.0",
+    "@types/jest": "^29.0.0",
+    "jest": "^29.0.0",
+    "ts-jest": "^29.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "isomorphic-fetch": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

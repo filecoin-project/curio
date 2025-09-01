@@ -3,6 +3,7 @@
     "info": {
         "description": "Curio market APIs",
         "title": "Curio Market 2.0 API",
+        "version": "2.0.0",
         "contact": {}
     },
     "paths": {
