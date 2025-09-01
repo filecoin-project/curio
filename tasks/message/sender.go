@@ -81,10 +81,10 @@ func (s *SendTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 	}
 
 	err = s.db.QueryRow(ctx, `
-		SELECT from_key, nonce, to_addr, unsigned_data, unsigned_cid 
+		SELECT from_key, nonce, to_addr, unsigned_data, unsigned_cid, signed_data
 		FROM message_sends 
 		WHERE send_task_id = $1`, taskID).Scan(
-		&dbMsg.FromKey, &dbMsg.Nonce, &dbMsg.ToAddr, &dbMsg.UnsignedData, &dbMsg.UnsignedCid)
+		&dbMsg.FromKey, &dbMsg.Nonce, &dbMsg.ToAddr, &dbMsg.UnsignedData, &dbMsg.UnsignedCid, &dbMsg.SignedData)
 	if err != nil {
 		return false, xerrors.Errorf("getting message from db: %w", err)
 	}
