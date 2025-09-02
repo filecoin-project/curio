@@ -28,7 +28,7 @@ import (
 
 var FetchTempSubdir = "fetching"
 
-var CopyBuf = 1 << 20
+var CopyBuf = 2 << 20
 
 // LocalReaderTimeout is the timeout for keeping local reader files open without
 // any read activity.

@@ -112,7 +112,7 @@ func (m *MoveStorageTask) TypeDetails() harmonytask.TaskTypeDetails {
 		Name: "UpdateStore",
 		Cost: resources.Resources{
 			Cpu:     cpu,
-			Ram:     512 << 20,
+			Ram:     128 << 20,
 			Storage: m.sc.Storage(m.taskToSector, storiface.FTNone, storiface.FTUpdate|storiface.FTUpdateCache|storiface.FTUnsealed, ssize, storiface.PathStorage, paths.MinFreeStoragePercentage),
 		},
 		MaxFailures: 3,
