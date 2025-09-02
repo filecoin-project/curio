@@ -38,7 +38,7 @@ const MaxEndEpochBufferUnverified = 180 * builtin.EpochsInDay
 // assuming that snap takes up to 20min to get to submitting the message we want to avoid sectors from deadlines which will
 // become immutable in the next 20min (40 epochs)
 // NOTE: Don't set this value to more than one deadline (60 epochs)
-var SnapImmutableDeadlineEpochsBuffer = abi.ChainEpoch(40)
+var SnapImmutableDeadlineEpochsBuffer = abi.ChainEpoch(59)
 
 type PieceIngesterSnap struct {
 	ctx                  context.Context

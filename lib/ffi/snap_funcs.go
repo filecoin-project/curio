@@ -128,6 +128,11 @@ func (sb *SealCalls) EncodeUpdate(
 			return cid.Undef, cid.Undef, xerrors.Errorf("getting sealed sector reader: %w", err)
 		}
 
+		// Preallocate keyFile to ssize
+		if err := fallocate.Fallocate(keyFile, 0, int64(ssize)); err != nil {
+			return cid.Undef, cid.Undef, xerrors.Errorf("allocating space for sector key file: %w", err)
+		}
+
 		// copy r into keyFile and close both
 		_, err = keyFile.ReadFrom(r)
 		if err != nil {
