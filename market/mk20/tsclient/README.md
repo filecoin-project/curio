@@ -33,7 +33,7 @@ npm run build
 ## Usage
 
 ```typescript
-import { MarketClient } from '@curio/market-client';
+import { MarketClient, PieceCidUtils } from '@curio/market-client';
 
 const client = new MarketClient({
   basePath: 'http://localhost:8080/market/mk20'
@@ -68,6 +68,14 @@ await client.finalizeChunkedUpload('deal-id');
 
 // Check upload status
 const uploadStatus = await client.getUploadStatus('deal-id');
+
+// Compute piece CID v2 from blobs
+const blobs = [new Blob(['file content'])];
+const pieceCid = await PieceCidUtils.computePieceCidV2(blobs);
+
+// Convert CID v1 to piece CID v2
+const cidV1 = CID.create(1, 0x55, hash);
+const pieceCidV2 = await PieceCidUtils.pieceCidV2FromV1(cidV1, dataSize);
 ```
 
 ## API Endpoints
@@ -82,6 +90,23 @@ const uploadStatus = await client.getUploadStatus('deal-id');
 - `PUT /uploads/{id}/{chunkNum}` - Upload a chunk
 - `POST /uploads/finalize/{id}` - Finalize chunked upload
 - `GET /uploads/{id}` - Get upload status
+
+## Piece CID Computation
+
+The client includes utilities for computing Filecoin piece CIDs using the [js-multiformats library](https://github.com/multiformats/js-multiformats):
+
+### `PieceCidUtils.computePieceCidV2(blobs: Blob[])`
+Computes a piece CID v2 from an array of blobs by:
+1. Concatenating all blob data
+2. Computing SHA2-256 hash
+3. Creating a CID v1 with raw codec
+4. Converting to piece CID v2 format
+
+### `PieceCidUtils.pieceCidV2FromV1(cid: CID, payloadSize: number)`
+Converts an existing CID v1 to piece CID v2 format, supporting:
+- Filecoin unsealed commitments (SHA2-256)
+- Filecoin sealed commitments (Poseidon)
+- Raw data codecs
 
 ## Development
 

@@ -14,4 +14,7 @@ module.exports = {
   coverageReporters: ['text', 'lcov', 'html'],
   moduleFileExtensions: ['ts', 'js', 'json'],
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
+  moduleNameMapper: {
+    '^multiformats/(.*)$': '<rootDir>/tests/__mocks__/multiformats/$1',
+  },
 };

@@ -23,6 +23,9 @@ export { DefaultApi as MarketClient } from '../generated';
 export { MarketClient as Client } from './client';
 export type { MarketClientConfig } from './client';
 
+// Export piece CID utilities
+export { PieceCidUtils } from './client';
+
 // Re-export configuration types
 export type { Configuration } from '../generated';
 
