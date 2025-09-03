@@ -121,33 +121,11 @@ func (sb *SealCalls) EncodeUpdate(
 			}
 		}()
 
-		log.Debugw("get key data", "keyPath", keyPath, "keyCachePath", keyCachePath, "sectorID", sector.ID, "taskID", taskID)
-
-		r, err := sb.Sectors.storage.ReaderSeq(ctx, sector, storiface.FTSealed)
-		if err != nil {
-			return cid.Undef, cid.Undef, xerrors.Errorf("getting sealed sector reader: %w", err)
-		}
+		log.Debugw("get key cache", "keyPath", keyPath, "keyCachePath", keyCachePath, "sectorID", sector.ID, "taskID", taskID)
 
 		// Preallocate keyFile to ssize
 		if err := fallocate.Fallocate(keyFile, 0, int64(ssize)); err != nil {
 			return cid.Undef, cid.Undef, xerrors.Errorf("allocating space for sector key file: %w", err)
-		}
-
-		// copy r into keyFile and close both
-		_, err = keyFile.ReadFrom(r)
-		if err != nil {
-			return cid.Undef, cid.Undef, xerrors.Errorf("copying sealed data: %w", err)
-		}
-
-		_ = r.Close()
-		if err := keyFile.Close(); err != nil {
-			return cid.Undef, cid.Undef, xerrors.Errorf("closing sealed data file: %w", err)
-		}
-		keyFile = nil
-
-		keyFile, err = os.OpenFile(keyPath, os.O_RDONLY, 0644)
-		if err != nil {
-			return cid.Undef, cid.Undef, xerrors.Errorf("opening key file: %w", err)
 		}
 
 		// fetch cache
@@ -214,6 +192,16 @@ func (sb *SealCalls) EncodeUpdate(
 	}
 
 	// STEP 1: SupraEncode
+
+	sectorKeyReader, err := sb.Sectors.storage.ReaderSeq(ctx, sector, storiface.FTSealed)
+	if err != nil {
+		return cid.Undef, cid.Undef, xerrors.Errorf("getting sealed sector reader: %w", err)
+	}
+
+	// copy r into keyFile
+	// note: teeReader means that we avoid re-reading the sector key, saving I/O bandwidth
+	var keyRederForEncode io.Reader = io.TeeReader(sectorKeyReader, keyFile)
+
 	encodeStart := time.Now()
 	treeDFile, err := os.Open(treeDPath)
 	if err != nil {
@@ -221,11 +209,20 @@ func (sb *SealCalls) EncodeUpdate(
 	}
 	defer treeDFile.Close()
 
-	err = cunative.EncodeSnap(sector.ProofType, commD, sectorKeyCid, keyFile, treeDFile, updateFile)
+	err = cunative.EncodeSnap(sector.ProofType, commD, sectorKeyCid, keyRederForEncode, treeDFile, updateFile)
 
 	// (close early)
 	// here we don't care about the error, as treeDFile was read-only
 	_ = treeDFile.Close()
+
+	{
+		_ = sectorKeyReader.Close()
+		if err := keyFile.Close(); err != nil {
+			_ = updateFile.Close();
+			return cid.Undef, cid.Undef, xerrors.Errorf("closing sealed data file: %w", err)
+		}
+		keyFile = nil
+	}
 
 	// (close early)
 	if cerr := updateFile.Close(); cerr != nil {
