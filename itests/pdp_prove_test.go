@@ -5,7 +5,6 @@ import (
 	"math/rand"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -68,7 +67,6 @@ func TestPDPProving(t *testing.T) {
 	t.Logf("Total Number of Leafs: %d", numberOfLeafs)
 
 	// Generate challenge leaf
-	rand.Seed(time.Now().UnixNano())
 	challenge := int64(rand.Intn(int(numberOfLeafs)))
 
 	t.Logf("Challenge: %d", challenge)

@@ -199,12 +199,10 @@ const (
 type DataSourceName string
 
 const (
-	DataSourceNameHTTP            DataSourceName = "http"
-	DataSourceNameAggregate       DataSourceName = "aggregate"
-	DataSourceNameOffline         DataSourceName = "offline"
-	DataSourceNameStorageProvider DataSourceName = "storage_provider"
-	DataSourceNamePDP             DataSourceName = "pdp"
-	DataSourceNamePut             DataSourceName = "put"
+	DataSourceNameHTTP      DataSourceName = "http"
+	DataSourceNameAggregate DataSourceName = "aggregate"
+	DataSourceNameOffline   DataSourceName = "offline"
+	DataSourceNamePut       DataSourceName = "put"
 )
 
 type product interface {
