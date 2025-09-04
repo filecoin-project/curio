@@ -55,14 +55,22 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 	}
 
 	if pdp_complete.Valid {
-		if pdp_complete.Bool {
-			ret.Response.DDOV1.State = DealStateComplete
+		if pdp_complete.Bool && !pdp_error.Valid {
+			ret.Response.PDPV1.State = DealStateComplete
+		}
+		if pdp_complete.Bool && pdp_error.Valid {
+			ret.Response.PDPV1.State = DealStateFailed
+			ret.Response.PDPV1.ErrorMsg = pdp_error.String
 		}
 	}
 
 	if ddo_complete.Valid {
-		if ddo_complete.Bool {
+		if ddo_complete.Bool && !ddo_error.Valid {
 			ret.Response.DDOV1.State = DealStateComplete
+		}
+		if ddo_complete.Bool && ddo_error.Valid {
+			ret.Response.DDOV1.State = DealStateFailed
+			ret.Response.DDOV1.ErrorMsg = ddo_error.String
 		}
 	}
 

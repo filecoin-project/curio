@@ -13,8 +13,8 @@ import (
 // Deal represents a structure defining the details and components of a specific deal in the system.
 type Deal struct {
 
-	// Identifier represents a unique identifier for the deal in UUID format.
-	Identifier ulid.ULID `json:"identifier"`
+	// Identifier represents a unique identifier for the deal in ULID format.
+	Identifier ulid.ULID `json:"identifier" swaggertype:"string" format:"ulid" example:"01ARZ3NDEKTSV4RRFFQ69G5FAV"`
 
 	// Client wallet string for the deal
 	Client string `json:"client"`
@@ -41,7 +41,7 @@ type Products struct {
 type DataSource struct {
 
 	// PieceCID represents the unique identifier (pieceCID V2) for a piece of data, stored as a CID object.
-	PieceCID cid.Cid `json:"piece_cid"`
+	PieceCID cid.Cid `json:"piece_cid" swaggertype:"string" format:"cid" example:"bafkzcibfxx3meais3xzh6qn56y6hiasmrufhegoweu3o5ccofs74nfdfr4yn76pqz4pq"`
 
 	// Format defines the format of the piece data, which can include CAR, Aggregate, or Raw formats.
 	Format PieceDataFormat `json:"format"`
@@ -62,7 +62,7 @@ type DataSource struct {
 // PieceDataFormat represents various formats in which piece data can be defined, including CAR files, aggregate formats, or raw byte data.
 type PieceDataFormat struct {
 
-	// Car represents the optional CAR file format, including its metadata and versioning details.
+	// Car represents the optional CAR file format.
 	Car *FormatCar `json:"car,omitempty"`
 
 	// Aggregate holds a reference to the aggregated format of piece data.
@@ -107,7 +107,7 @@ type DataSourceHTTP struct {
 type HttpUrl struct {
 
 	// URL specifies the HTTP endpoint where the piece data can be fetched.
-	URL string `json:"url"`
+	URL string `json:"url" swaggertype:"string" format:"url" example:"http://127.0.0.1:8080/piece/xyz"`
 
 	// HTTPHeaders represents the HTTP headers associated with the URL.
 	Headers http.Header `json:"headers"`

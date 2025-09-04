@@ -1,14 +1,6 @@
 definitions:
   address.Address:
     type: object
-  cid.Cid:
-    type: object
-  github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId:
-    enum:
-    - 0
-    type: integer
-    x-enum-varnames:
-    - NoAllocationID
   http.Header:
     additionalProperties:
       items:
@@ -26,10 +18,10 @@ definitions:
   mk20.DDOV1:
     properties:
       allocation_id:
-        allOf:
-        - $ref: '#/definitions/github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId'
-        description: AllocationId represents an aggregated allocation identifier for
-          the deal.
+        description: AllocationId represents an allocation identifier for the deal.
+        example: 1
+        format: uint64
+        type: integer
       contract_address:
         description: ContractAddress specifies the address of the contract governing
           the deal
@@ -41,9 +33,8 @@ definitions:
       contract_verify_method_params:
         description: ContractDealIDMethodParams represents encoded parameters for
           the contract verify method if required by the contract
-        items:
-          type: integer
-        type: array
+        format: byte
+        type: string
       duration:
         description: |-
           Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.
@@ -56,9 +47,8 @@ definitions:
       notification_payload:
         description: NotificationPayload holds the notification data typically in
           a serialized byte array format.
-        items:
-          type: integer
-        type: array
+        format: byte
+        type: string
       piece_manager:
         allOf:
         - $ref: '#/definitions/address.Address'
@@ -77,10 +67,11 @@ definitions:
         description: Format defines the format of the piece data, which can include
           CAR, Aggregate, or Raw formats.
       piece_cid:
-        allOf:
-        - $ref: '#/definitions/cid.Cid'
         description: PieceCID represents the unique identifier (pieceCID V2) for a
           piece of data, stored as a CID object.
+        example: bafkzcibfxx3meais3xzh6qn56y6hiasmrufhegoweu3o5ccofs74nfdfr4yn76pqz4pq
+        format: cid
+        type: string
       source_aggregate:
         allOf:
         - $ref: '#/definitions/mk20.DataSourceAggregate'
@@ -131,11 +122,11 @@ definitions:
         - $ref: '#/definitions/mk20.DataSource'
         description: Data represents the source of piece data and associated metadata.
       identifier:
-        description: Identifier represents a unique identifier for the deal in UUID
+        description: Identifier represents a unique identifier for the deal in ULID
           format.
-        items:
-          type: integer
-        type: array
+        example: 01ARZ3NDEKTSV4RRFFQ69G5FAV
+        format: ulid
+        type: string
       products:
         allOf:
         - $ref: '#/definitions/mk20.Products'
@@ -252,6 +243,8 @@ definitions:
         type: integer
       url:
         description: URL specifies the HTTP endpoint where the piece data can be fetched.
+        example: http://127.0.0.1:8080/piece/xyz
+        format: url
         type: string
     type: object
   mk20.PDPV1:
@@ -267,6 +260,8 @@ definitions:
       data_set_id:
         description: DataSetID is PDP verified contract dataset ID. It must be defined
           for all deals except when CreateDataSet is true.
+        example: 0
+        format: uint64
         type: integer
       delete_data_set:
         description: |-
@@ -280,12 +275,16 @@ definitions:
       extra_data:
         description: ExtraData can be used to send additional information to service
           contract when Verifier action like AddRoot, DeleteRoot etc. are performed.
-        items:
-          type: integer
-        type: array
+        format: byte
+        type: string
       piece_ids:
         description: PieceIDs is a list of Piece ids in a proof set.
+        example:
+        - 0
+        - 1
+        - 2
         items:
+          format: uint64
           type: integer
         type: array
       record_keeper:
@@ -303,8 +302,7 @@ definitions:
       car:
         allOf:
         - $ref: '#/definitions/mk20.FormatCar'
-        description: Car represents the optional CAR file format, including its metadata
-          and versioning details.
+        description: Car represents the optional CAR file format.
       raw:
         allOf:
         - $ref: '#/definitions/mk20.FormatBytes'
@@ -466,6 +464,21 @@ paths:
           schema:
             type: string
       summary: List of supported DDO contracts
+  /info/:
+    get:
+      description: '- OpenAPI spec UI for the Market 2.0 APIs'
+      responses: {}
+      summary: OpenAPI Spec UI
+  /info/swagger.json:
+    get:
+      description: '- OpenAPI spec for the Market 2.0 APIs in JSON format'
+      responses: {}
+      summary: OpenAPI Spec JSON
+  /info/swagger.yaml:
+    get:
+      description: '- OpenAPI spec for the Market 2.0 APIs in YAML format'
+      responses: {}
+      summary: OpenAPI Spec YAML
   /products:
     get:
       description: List of supported products
@@ -491,10 +504,10 @@ paths:
           description: Internal Server Error
           schema:
             type: string
-      summary: List of supported dats sources
+      summary: List of supported data sources
   /status/{id}:
     get:
-      description: List of supported DDO contracts
+      description: Current status of MK20 deal per product
       parameters:
       - description: id
         in: path
@@ -515,7 +528,9 @@ paths:
           description: Internal Server Error
           schema:
             type: string
-      summary: List of supported DDO contracts
+      security:
+      - CurioAuth: []
+      summary: Status of the MK20 deal
   /store:
     post:
       consumes:
@@ -598,6 +613,8 @@ paths:
             unavailable due to maintenance, corresponding to HTTP status code 503
           schema:
             $ref: '#/definitions/mk20.DealCode'
+      security:
+      - CurioAuth: []
       summary: Make a mk20 deal
   /update/{id}:
     get:
@@ -687,6 +704,8 @@ paths:
             unavailable due to maintenance, corresponding to HTTP status code 503
           schema:
             $ref: '#/definitions/mk20.DealCode'
+      security:
+      - CurioAuth: []
       summary: Update the deal details of existing deals.
   /upload/{id}:
     post:
@@ -774,6 +793,8 @@ paths:
             unavailable due to maintenance, corresponding to HTTP status code 503
           schema:
             $ref: '#/definitions/mk20.DealCode'
+      security:
+      - CurioAuth: []
       summary: Finalizes the serial upload process
     put:
       description: Allows uploading data for deals in a single stream. Suitable for
@@ -812,6 +833,8 @@ paths:
             the upload process, represented by the HTTP status code 500
           schema:
             $ref: '#/definitions/mk20.UploadCode'
+      security:
+      - CurioAuth: []
       summary: Upload the deal data
   /uploads/{id}:
     get:
@@ -847,6 +870,8 @@ paths:
             occurred during the upload process, corresponding to status code 500
           schema:
             $ref: '#/definitions/mk20.UploadStatusCode'
+      security:
+      - CurioAuth: []
       summary: Status of deal upload
     post:
       consumes:
@@ -890,6 +915,8 @@ paths:
             server while processing an upload start request
           schema:
             $ref: '#/definitions/mk20.UploadStartCode'
+      security:
+      - CurioAuth: []
       summary: Starts the upload process
   /uploads/{id}/{chunkNum}:
     put:
@@ -939,6 +966,8 @@ paths:
             the upload process, represented by the HTTP status code 500
           schema:
             $ref: '#/definitions/mk20.UploadCode'
+      security:
+      - CurioAuth: []
       summary: Upload a file chunk
   /uploads/finalize/{id}:
     post:
@@ -1026,6 +1055,8 @@ paths:
             unavailable due to maintenance, corresponding to HTTP status code 503
           schema:
             $ref: '#/definitions/mk20.DealCode'
+      security:
+      - CurioAuth: []
       summary: Finalizes the upload process
 securityDefinitions:
   CurioAuth:

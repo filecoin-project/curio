@@ -35,6 +35,27 @@ const docTemplate = `{
                 }
             }
         },
+        "/info/": {
+            "get": {
+                "description": "- OpenAPI spec UI for the Market 2.0 APIs",
+                "summary": "OpenAPI Spec UI",
+                "responses": {}
+            }
+        },
+        "/info/swagger.json": {
+            "get": {
+                "description": "- OpenAPI spec for the Market 2.0 APIs in JSON format",
+                "summary": "OpenAPI Spec JSON",
+                "responses": {}
+            }
+        },
+        "/info/swagger.yaml": {
+            "get": {
+                "description": "- OpenAPI spec for the Market 2.0 APIs in YAML format",
+                "summary": "OpenAPI Spec YAML",
+                "responses": {}
+            }
+        },
         "/products": {
             "get": {
                 "description": "List of supported products",
@@ -58,7 +79,7 @@ const docTemplate = `{
         "/sources": {
             "get": {
                 "description": "List of supported data sources",
-                "summary": "List of supported dats sources",
+                "summary": "List of supported data sources",
                 "responses": {
                     "200": {
                         "description": "Array of dats sources supported by the SP",
@@ -77,8 +98,13 @@ const docTemplate = `{
         },
         "/status/{id}": {
             "get": {
-                "description": "List of supported DDO contracts",
-                "summary": "List of supported DDO contracts",
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
+                "description": "Current status of MK20 deal per product",
+                "summary": "Status of the MK20 deal",
                 "parameters": [
                     {
                         "type": "string",
@@ -112,6 +138,11 @@ const docTemplate = `{
         },
         "/store": {
             "post": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
                 "description": "Make a mk20 deal",
                 "consumes": [
                     "application/json"
@@ -218,6 +249,11 @@ const docTemplate = `{
         },
         "/update/{id}": {
             "get": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
                 "description": "Useful for adding adding additional products and updating PoRep duration",
                 "consumes": [
                     "application/json"
@@ -331,6 +367,11 @@ const docTemplate = `{
         },
         "/upload/{id}": {
             "put": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
                 "description": "Allows uploading data for deals in a single stream. Suitable for small deals.",
                 "summary": "Upload the deal data",
                 "parameters": [
@@ -382,6 +423,11 @@ const docTemplate = `{
                 }
             },
             "post": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
                 "description": "Finalizes the serial upload process once data has been uploaded",
                 "consumes": [
                     "application/json"
@@ -494,6 +540,11 @@ const docTemplate = `{
         },
         "/uploads/finalize/{id}": {
             "post": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
                 "description": "Finalizes the upload process once all the chunks are uploaded.",
                 "consumes": [
                     "application/json"
@@ -606,6 +657,11 @@ const docTemplate = `{
         },
         "/uploads/{id}": {
             "get": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
                 "description": "Return a json struct detailing the current status of a deal upload.",
                 "summary": "Status of deal upload",
                 "parameters": [
@@ -651,6 +707,11 @@ const docTemplate = `{
                 }
             },
             "post": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
                 "description": "Initializes the upload for a deal. Each upload must be initialized before chunks can be uploaded for a deal.",
                 "consumes": [
                     "application/json"
@@ -710,6 +771,11 @@ const docTemplate = `{
         },
         "/uploads/{id}/{chunkNum}": {
             "put": {
+                "security": [
+                    {
+                        "CurioAuth": []
+                    }
+                ],
                 "description": "Allows uploading chunks for a deal file. Method can be called in parallel to speed up uploads.",
                 "summary": "Upload a file chunk",
                 "parameters": [
@@ -779,18 +845,6 @@ const docTemplate = `{
         "address.Address": {
             "type": "object"
         },
-        "cid.Cid": {
-            "type": "object"
-        },
-        "github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId": {
-            "type": "integer",
-            "enum": [
-                0
-            ],
-            "x-enum-varnames": [
-                "NoAllocationID"
-            ]
-        },
         "http.Header": {
             "type": "object",
             "additionalProperties": {
@@ -815,12 +869,10 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "allocation_id": {
-                    "description": "AllocationId represents an aggregated allocation identifier for the deal.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId"
-                        }
-                    ]
+                    "description": "AllocationId represents an allocation identifier for the deal.",
+                    "type": "integer",
+                    "format": "uint64",
+                    "example": 1
                 },
                 "contract_address": {
                     "description": "ContractAddress specifies the address of the contract governing the deal",
@@ -832,10 +884,8 @@ const docTemplate = `{
                 },
                 "contract_verify_method_params": {
                     "description": "ContractDealIDMethodParams represents encoded parameters for the contract verify method if required by the contract",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "type": "string",
+                    "format": "byte"
                 },
                 "duration": {
                     "description": "Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.\nIt must be at least 518400",
@@ -847,10 +897,8 @@ const docTemplate = `{
                 },
                 "notification_payload": {
                     "description": "NotificationPayload holds the notification data typically in a serialized byte array format.",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "type": "string",
+                    "format": "byte"
                 },
                 "piece_manager": {
                     "description": "Actor providing AuthorizeMessage (like f1/f3 wallet) able to authorize actions such as managing ACLs",
@@ -883,11 +931,9 @@ const docTemplate = `{
                 },
                 "piece_cid": {
                     "description": "PieceCID represents the unique identifier (pieceCID V2) for a piece of data, stored as a CID object.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/cid.Cid"
-                        }
-                    ]
+                    "type": "string",
+                    "format": "cid",
+                    "example": "bafkzcibfxx3meais3xzh6qn56y6hiasmrufhegoweu3o5ccofs74nfdfr4yn76pqz4pq"
                 },
                 "source_aggregate": {
                     "description": "SourceAggregate represents an aggregated source, comprising multiple data sources as pieces.",
@@ -968,11 +1014,10 @@ const docTemplate = `{
                     ]
                 },
                 "identifier": {
-                    "description": "Identifier represents a unique identifier for the deal in UUID format.",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "description": "Identifier represents a unique identifier for the deal in ULID format.",
+                    "type": "string",
+                    "format": "ulid",
+                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
                 },
                 "products": {
                     "description": "Products represents a collection of product-specific information associated with a deal",
@@ -1127,7 +1172,9 @@ const docTemplate = `{
                 },
                 "url": {
                     "description": "URL specifies the HTTP endpoint where the piece data can be fetched.",
-                    "type": "string"
+                    "type": "string",
+                    "format": "url",
+                    "example": "http://127.0.0.1:8080/piece/xyz"
                 }
             }
         },
@@ -1144,7 +1191,9 @@ const docTemplate = `{
                 },
                 "data_set_id": {
                     "description": "DataSetID is PDP verified contract dataset ID. It must be defined for all deals except when CreateDataSet is true.",
-                    "type": "integer"
+                    "type": "integer",
+                    "format": "uint64",
+                    "example": 0
                 },
                 "delete_data_set": {
                     "description": "DeleteDataSet indicated that this deal is meant to delete an existing DataSet created by SP for the client.\nDataSetID must be defined.",
@@ -1156,17 +1205,21 @@ const docTemplate = `{
                 },
                 "extra_data": {
                     "description": "ExtraData can be used to send additional information to service contract when Verifier action like AddRoot, DeleteRoot etc. are performed.",
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
+                    "type": "string",
+                    "format": "byte"
                 },
                 "piece_ids": {
                     "description": "PieceIDs is a list of Piece ids in a proof set.",
                     "type": "array",
                     "items": {
-                        "type": "integer"
-                    }
+                        "type": "integer",
+                        "format": "uint64"
+                    },
+                    "example": [
+                        0,
+                        1,
+                        2
+                    ]
                 },
                 "record_keeper": {
                     "description": "RecordKeeper specifies the record keeper contract address for the new PDP dataset.",
@@ -1186,7 +1239,7 @@ const docTemplate = `{
                     ]
                 },
                 "car": {
-                    "description": "Car represents the optional CAR file format, including its metadata and versioning details.",
+                    "description": "Car represents the optional CAR file format.",
                     "allOf": [
                         {
                             "$ref": "#/definitions/mk20.FormatCar"

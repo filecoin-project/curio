@@ -40,8 +40,8 @@ type DDOV1 struct {
 	// It must be at least 518400
 	Duration abi.ChainEpoch `json:"duration"`
 
-	// AllocationId represents an aggregated allocation identifier for the deal.
-	AllocationId *verifreg.AllocationId `json:"allocation_id,omitempty"`
+	// AllocationId represents an allocation identifier for the deal.
+	AllocationId *verifreg.AllocationId `json:"allocation_id,omitempty" swaggertype:"integer" format:"uint64" example:"1"`
 
 	// ContractAddress specifies the address of the contract governing the deal
 	ContractAddress string `json:"contract_address"`
@@ -50,13 +50,13 @@ type DDOV1 struct {
 	ContractVerifyMethod string `json:"contract_verify_method"`
 
 	// ContractDealIDMethodParams represents encoded parameters for the contract verify method if required by the contract
-	ContractVerifyMethodParams []byte `json:"contract_verify_method_params,omitempty"`
+	ContractVerifyMethodParams []byte `json:"contract_verify_method_params,omitempty" swaggertype:"string" format:"byte"`
 
 	// NotificationAddress specifies the address to which notifications will be relayed to when sector is activated
 	NotificationAddress string `json:"notification_address"`
 
 	// NotificationPayload holds the notification data typically in a serialized byte array format.
-	NotificationPayload []byte `json:"notification_payload,omitempty"`
+	NotificationPayload []byte `json:"notification_payload,omitempty" swaggertype:"string" format:"byte"`
 }
 
 func (d *DDOV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
