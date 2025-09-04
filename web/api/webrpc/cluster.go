@@ -104,12 +104,6 @@ type TaskHistorySummary struct {
 }
 
 func (a *WebRPC) ClusterTaskHistory(ctx context.Context, limit, offset int) ([]TaskHistorySummary, error) {
-	if limit <= 0 || limit > 1000 {
-		limit = len(a.taskSPIDs)
-	}
-	if offset < 0 {
-		offset = 0
-	}
 	rows, err := a.deps.DB.Query(ctx, "SELECT id, name, task_id, posted, work_start, work_end, result, err, completed_by_host_and_port FROM harmony_task_history ORDER BY work_end DESC LIMIT $1 OFFSET $2", limit, offset)
 	if err != nil {
 		return nil, err // Handle error
