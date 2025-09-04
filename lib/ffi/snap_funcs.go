@@ -67,6 +67,57 @@ func (sb *SealCalls) EncodeUpdate(
 		return cid.Cid{}, cid.Cid{}, xerrors.Errorf("mkdir update cache: %w", err)
 	}
 
+	// metrics: track active encode phases
+	currentPhase := ""
+	enterPhase := func(next string) {
+		// decrement previous phase counter
+		switch currentPhase {
+		case "start":
+			encActiveStart.Add(-1)
+		case "tree_d":
+			encActiveTreeD.Add(-1)
+		case "encode":
+			encActiveEncode.Add(-1)
+		case "tree_r":
+			encActiveTreeR.Add(-1)
+		case "tail":
+			encActiveTail.Add(-1)
+		}
+
+		// increment next phase counter
+		switch next {
+		case "start":
+			encActiveStart.Add(1)
+		case "tree_d":
+			encActiveTreeD.Add(1)
+		case "encode":
+			encActiveEncode.Add(1)
+		case "tree_r":
+			encActiveTreeR.Add(1)
+		case "tail":
+			encActiveTail.Add(1)
+		}
+		currentPhase = next
+	}
+	defer func() {
+		// ensure final decrement on return
+		switch currentPhase {
+		case "start":
+			encActiveStart.Add(-1)
+		case "tree_d":
+			encActiveTreeD.Add(-1)
+		case "encode":
+			encActiveEncode.Add(-1)
+		case "tree_r":
+			encActiveTreeR.Add(-1)
+		case "tail":
+			encActiveTail.Add(-1)
+		}
+	}()
+
+	// begin in start phase
+	enterPhase("start")
+
 	////////////////////
 	// Prepare sector key
 	////////////////////
@@ -155,6 +206,7 @@ func (sb *SealCalls) EncodeUpdate(
 	treeDPath := filepath.Join(paths.UpdateCache, proofpaths.TreeDName)
 
 	// STEP 0: TreeD
+	enterPhase("tree_d")
 	treeDStart := time.Now()
 	treeCommD, err := proof.BuildTreeD(data, true, treeDPath, abi.PaddedPieceSize(ssize))
 	if err != nil {
@@ -170,6 +222,8 @@ func (sb *SealCalls) EncodeUpdate(
 	////////////////////
 	// Allocate update file
 	////////////////////
+
+	enterPhase("encode")
 
 	var updateFile *os.File
 	{
@@ -218,7 +272,7 @@ func (sb *SealCalls) EncodeUpdate(
 	{
 		_ = sectorKeyReader.Close()
 		if err := keyFile.Close(); err != nil {
-			_ = updateFile.Close();
+			_ = updateFile.Close()
 			return cid.Undef, cid.Undef, xerrors.Errorf("closing sealed data file: %w", err)
 		}
 		keyFile = nil
@@ -236,6 +290,7 @@ func (sb *SealCalls) EncodeUpdate(
 	log.Infow("encode snap", "took", time.Since(encodeStart), "sectorID", sector.ID, "taskID", taskID)
 
 	// STEP 2: SupraTreeR
+	enterPhase("tree_r")
 
 	treeRStart := time.Now()
 
@@ -248,6 +303,7 @@ func (sb *SealCalls) EncodeUpdate(
 	log.Infow("tree r file", "took", time.Since(treeRStart), "sectorID", sector.ID, "taskID", taskID)
 
 	// STEP 2.5: Read PAux-es, transplant CC CommC, write back, calculate CommR
+	enterPhase("tail")
 	commRStart := time.Now()
 	_, updateCommRLast, err := proof.ReadPAux(paths.UpdateCache)
 	if err != nil {
