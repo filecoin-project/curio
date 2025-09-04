@@ -176,6 +176,26 @@ func (cp *CommP) PCidV2() cid.Cid {
 
 func (cp *CommP) Digest() []byte { return cp.digest }
 
+func IsPieceCidV2(c cid.Cid) bool {
+	if c.Type() != uint64(multicodec.Raw) {
+		return false
+	}
+
+	decoded, err := multihash.Decode(c.Hash())
+	if err != nil {
+		return false
+	}
+
+	if decoded.Code != uint64(multicodec.Fr32Sha256Trunc254Padbintree) {
+		return false
+	}
+
+	if len(decoded.Digest) < 34 {
+		return false
+	}
+
+	return true
+}
 func PieceCidV2FromV1(v1PieceCid cid.Cid, payloadsize uint64) (cid.Cid, error) {
 	decoded, err := multihash.Decode(v1PieceCid.Hash())
 	if err != nil {
@@ -211,25 +231,4 @@ func PieceCidV2FromV1(v1PieceCid cid.Cid, payloadsize uint64) (cid.Cid, error) {
 	}
 
 	return c.PCidV2(), nil
-}
-
-func IsPieceCidV2(c cid.Cid) bool {
-	if c.Type() != uint64(multicodec.Raw) {
-		return false
-	}
-
-	decoded, err := multihash.Decode(c.Hash())
-	if err != nil {
-		return false
-	}
-
-	if decoded.Code != uint64(multicodec.Fr32Sha256Trunc254Padbintree) {
-		return false
-	}
-
-	if len(decoded.Digest) < 34 {
-		return false
-	}
-
-	return true
 }

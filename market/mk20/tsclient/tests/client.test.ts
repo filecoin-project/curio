@@ -19,7 +19,7 @@ describe('MarketClient', () => {
 
   beforeEach(() => {
     const config: MarketClientConfig = {
-      basePath: 'http://localhost:8080/market/mk20',
+      serverUrl: 'http://localhost:8080',
     } as MarketClientConfig;
     
     client = new MarketClient(config);

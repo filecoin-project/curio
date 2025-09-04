@@ -1,8 +1,8 @@
-import { Client, MarketClientConfig, Deal, DataSource, Products, DDOV1 } from '../src';
+import { Client, MarketClientConfig, Deal, DataSource, Products, DDOV1, RetrievalV1 } from '../src';
 
 // Example configuration
 const config: MarketClientConfig = {
-  basePath: 'http://localhost:8080/market/mk20',
+  serverUrl: 'http://localhost:8080',
   // Optional: Add custom headers
   headers: {
     'Authorization': 'Bearer your-token-here'
@@ -44,8 +44,8 @@ async function exampleUsage() {
         }
       } as DataSource,
       products: {
-        ddo_v1: {
-          duration: 518400, // Minimum duration in epochs
+        ddoV1: {
+          duration: 518400, // Typical lifespan value (epochs)
           provider: { address: 'f1abcdefghijklmnopqrstuvwxyz123456789' },
           contractAddress: '0x1234567890123456789012345678901234567890',
           contractVerifyMethod: 'verifyDeal',
@@ -53,7 +53,12 @@ async function exampleUsage() {
           pieceManager: { address: 'f1abcdefghijklmnopqrstuvwxyz123456789' },
           notificationAddress: 'f1abcdefghijklmnopqrstuvwxyz123456789',
           notificationPayload: []
-        } as DDOV1
+        } as DDOV1,
+        retrievalV1: {
+          announcePayload: true, // Announce payload to IPNI
+          announcePiece: true, // Announce piece information to IPNI
+          indexing: true // Index for CID-based retrieval
+        } as RetrievalV1
       } as Products
     };
 
@@ -83,4 +88,41 @@ async function uploadDataExample(dealId: string, data: number[]) {
   }
 }
 
-export { exampleUsage, uploadDataExample };
+// Example: Demonstrate piece ID calculation for individual blobs
+async function pieceIdCalculationExample() {
+  try {
+    console.log('🔍 Piece ID Calculation Example');
+    console.log('Calculating piece IDs for individual blobs...\n');
+
+    // Create mock blobs with different content
+    const mockBlobs = [
+      new Blob(['file1 content'], { type: 'text/plain' }),
+      new Blob(['file2 content'], { type: 'text/plain' }),
+      new Blob(['file3 content'], { type: 'text/plain' })
+    ];
+
+    // Use the convenience wrapper to see piece IDs
+    const result = await client.submitPDPv1DealWithUpload({
+      blobs: mockBlobs,
+      client: 'f1client123456789abcdefghijklmnopqrstuvwxyz',
+      provider: 'f1provider123456789abcdefghijklmnopqrstuvwxyz',
+      contractAddress: '0x1234567890123456789012345678901234567890'
+    });
+
+    console.log('📋 Deal and Upload Results:');
+    console.log('UUID:', result.uuid);
+    console.log('Total Size:', result.totalSize, 'bytes');
+    console.log('Deal ID:', result.dealId);
+    console.log('Piece CID:', result.pieceCid);
+    console.log('Uploaded Chunks:', result.uploadedChunks);
+    console.log('Uploaded Bytes:', result.uploadedBytes);
+
+    return result;
+
+  } catch (error) {
+    console.error('❌ Piece ID calculation example failed:', error);
+    throw error;
+  }
+}
+
+export { exampleUsage, uploadDataExample, pieceIdCalculationExample };

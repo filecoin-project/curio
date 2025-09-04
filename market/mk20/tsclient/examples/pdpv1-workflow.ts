@@ -32,7 +32,8 @@ async function pdpv1CompleteWorkflowExample() {
       uuid: result.uuid,
       totalSize: result.totalSize,
       dealId: result.dealId,
-      pieceCid: result.pieceCid
+      pieceCid: result.pieceCid,
+      pieceIds: result.pieceIds
     });
 
     // Upload data in chunks using the actual blobs

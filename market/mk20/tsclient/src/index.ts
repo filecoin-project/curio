@@ -25,6 +25,7 @@ export type { MarketClientConfig } from './client';
 
 // Export piece CID utilities
 export { PieceCidUtils } from './client';
+export { StreamingPDP } from './streaming';
 
 // Re-export configuration types
 export type { Configuration } from '../generated';
