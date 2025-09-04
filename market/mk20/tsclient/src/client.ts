@@ -43,9 +43,8 @@ export class PieceCidUtils {
         offset += uint8Array.length;
       }
 
-      // Compute SHA256 hash
-      const hash = await crypto.subtle.digest('SHA-256', concatenatedData);
-      const hashArray = new Uint8Array(hash);
+      // Compute SHA256 hash (works in browser and Node)
+      const hashArray = await this.computeSha256(concatenatedData);
 
       // Create CommP using the exact Go algorithm
       const commP = this.newSha2CommP(totalSize, hashArray);
@@ -56,6 +55,24 @@ export class PieceCidUtils {
       return pieceCidV2;
     } catch (error) {
       throw new Error(`Failed to compute piece CID v2: ${error}`);
+    }
+  }
+
+  /**
+   * Compute SHA-256 digest cross-environment (browser WebCrypto or Node crypto)
+   */
+  private static async computeSha256(data: Uint8Array): Promise<Uint8Array> {
+    if (typeof globalThis !== 'undefined' && (globalThis as any).crypto && (globalThis as any).crypto.subtle) {
+      const h = await (globalThis as any).crypto.subtle.digest('SHA-256', data);
+      return new Uint8Array(h);
+    }
+    try {
+      const nodeCrypto = await import('crypto');
+      const hasher = nodeCrypto.createHash('sha256');
+      hasher.update(Buffer.from(data));
+      return new Uint8Array(hasher.digest());
+    } catch {
+      throw new Error('No available crypto implementation to compute SHA-256 digest in this environment');
     }
   }
 
@@ -301,7 +318,7 @@ export class MarketClient {
   }
 
   /**
-   * Get supported DDO contracts
+   * Get supported contracts
    */
   async getContracts(): Promise<string[]> {
     try {
@@ -431,7 +448,7 @@ export class MarketClient {
       const uuid = ulid(); 
       // TODO make a streaming example with no data block until finalize, use uploadSerial
       
-      // Compute piece_cid from blobs using our utility (uses WebCrypto in browser, Node crypto fallback)
+      // Compute piece_cid from blobs using our utility (WebCrypto SubtleCrypto)
       const pieceCid = await PieceCidUtils.computePieceCidV2(blobs);
 
       
@@ -565,7 +582,7 @@ export class MarketClient {
       // Generate a ULID for the deal identifier returned to the caller
       const uuid = ulid();
       
-      // Compute piece_cid from blobs using our utility (uses WebCrypto in browser, Node crypto fallback)
+      // Compute piece_cid from blobs using our utility (WebCrypto SubtleCrypto)
       const pieceCid = await PieceCidUtils.computePieceCidV2(blobs);
       
       // Calculate piece IDs for each individual blob

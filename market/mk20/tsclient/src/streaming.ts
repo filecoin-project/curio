@@ -166,8 +166,8 @@ export class StreamingPDP {
   }
 
   /**
-   * Write a chunk of data into the stream. This will upload full chunks immediately
-   * and buffer the remainder until the next write or commit.
+   * Write a chunk of data into the stream. This uploads full chunks immediately
+   * and buffers any remainder until the next write or commit.
    * @param chunk - Data bytes to write
    */
   write(chunk: Uint8Array | Buffer): void {
