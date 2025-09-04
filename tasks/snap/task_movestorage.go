@@ -3,7 +3,6 @@ package snap
 import (
 	"context"
 	"fmt"
-	"math/rand/v2"
 
 	"golang.org/x/xerrors"
 
@@ -133,7 +132,7 @@ func (m *MoveStorageTask) schedule(ctx context.Context, taskFunc harmonytask.Add
 				SectorNumber int64 `db:"sector_number"`
 			}
 
-			err := tx.Select(&tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_prove = TRUE AND after_move_storage = FALSE AND task_id_move_storage IS NULL`)
+			err := tx.Select(&tasks, `SELECT sp_id, sector_number FROM sectors_snap_pipeline WHERE after_encode = TRUE AND after_move_storage = FALSE AND task_id_move_storage IS NULL ORDER BY start_time ASC LIMIT 1`)
 			if err != nil {
 				return false, xerrors.Errorf("getting tasks: %w", err)
 			}
@@ -142,10 +141,9 @@ func (m *MoveStorageTask) schedule(ctx context.Context, taskFunc harmonytask.Add
 				return false, nil
 			}
 
-			// pick at random in case there are a bunch of schedules across the cluster
-			t := tasks[rand.N(len(tasks))]
+			t := tasks[0]
 
-			_, err = tx.Exec(`UPDATE sectors_snap_pipeline SET task_id_move_storage = $1 WHERE sp_id = $2 AND sector_number = $3`, id, t.SpID, t.SectorNumber)
+			_, err = tx.Exec(`UPDATE sectors_snap_pipeline SET task_id_move_storage = $1 WHERE sp_id = $2 AND sector_number = $3 AND after_encode = TRUE AND after_move_storage = FALSE AND task_id_move_storage IS NULL`, id, t.SpID, t.SectorNumber)
 			if err != nil {
 				return false, xerrors.Errorf("updating task id: %w", err)
 			}
