@@ -1,27 +1,20 @@
 package client
 
 import (
-	"bufio"
 	"bytes"
 	"context"
-	"fmt"
+	"crypto/rand"
 	"io"
-	"net/http"
-	"net/url"
-	"os"
-	"strings"
 
+	lapi "github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/wallet"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/mitchellh/go-homedir"
 	"github.com/oklog/ulid"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/go-address"
-	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/go-state-types/builtin/v16/verifreg"
-
 	"github.com/filecoin-project/curio/market/mk20"
+	"github.com/filecoin-project/go-address"
 )
 
 var log = logging.Logger("mk20-client")
@@ -30,178 +23,270 @@ type Client struct {
 	http *HTTPClient
 }
 
-func NewClient(baseURL, auth string) *Client {
-	hclient := New(baseURL, Option(WithAuthString(auth)))
+func NewClient(baseURL string, client address.Address, wallet *wallet.LocalWallet) *Client {
+	s := NewAuth(client, wallet)
+	hclient := NewHTTPClient(baseURL, HourlyCurioAuthHeader(s))
 	return &Client{
 		http: hclient,
 	}
 }
 
-func (c *Client) Deal(ctx context.Context, maddr, wallet address.Address, pieceCid cid.Cid, http_url, aggregateFile, contract_address, contract_method string, headers http.Header, put, index, announce, pdp bool, duration, allocation, proofSet int64) error {
-	var d mk20.DataSource
-
-	if aggregateFile != "" {
-		d = mk20.DataSource{
-			PieceCID: pieceCid,
-			Format: mk20.PieceDataFormat{
-				Aggregate: &mk20.FormatAggregate{
-					Type: mk20.AggregateTypeV1,
-				},
-			},
-		}
-
-		var pieces []mk20.DataSource
-
-		log.Debugw("using aggregate data source", "aggregate", aggregateFile)
-		// Read file line by line
-		loc, err := homedir.Expand(aggregateFile)
-		if err != nil {
-			return err
-		}
-		file, err := os.Open(loc)
-		if err != nil {
-			return err
-		}
-		defer file.Close()
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			line := scanner.Text()
-			parts := strings.Split(line, "\t")
-			if len(parts) != 2 {
-				return fmt.Errorf("invalid line format. Expected pieceCidV2, url at %s", line)
-			}
-			if parts[0] == "" || parts[1] == "" {
-				return fmt.Errorf("empty column value in the input file at %s", line)
-			}
-
-			pieceCid, err := cid.Parse(parts[0])
-			if err != nil {
-				return fmt.Errorf("failed to parse CID: %w", err)
-			}
-
-			url, err := url.Parse(parts[1])
-			if err != nil {
-				return fmt.Errorf("failed to parse url: %w", err)
-			}
-
-			pieces = append(pieces, mk20.DataSource{
-				PieceCID: pieceCid,
-				Format: mk20.PieceDataFormat{
-					Car: &mk20.FormatCar{},
-				},
-				SourceHTTP: &mk20.DataSourceHTTP{
-					URLs: []mk20.HttpUrl{
-						{
-							URL:      url.String(),
-							Priority: 0,
-							Fallback: true,
-						},
-					},
-				},
-			})
-
-			if err := scanner.Err(); err != nil {
-				return err
-			}
-		}
-		d.SourceAggregate = &mk20.DataSourceAggregate{
-			Pieces: pieces,
-		}
-	} else {
-		if http_url == "" {
-			if put {
-				d = mk20.DataSource{
-					PieceCID: pieceCid,
-					Format: mk20.PieceDataFormat{
-						Car: &mk20.FormatCar{},
-					},
-					SourceHttpPut: &mk20.DataSourceHttpPut{},
-				}
-			} else {
-				d = mk20.DataSource{
-					PieceCID: pieceCid,
-					Format: mk20.PieceDataFormat{
-						Car: &mk20.FormatCar{},
-					},
-					SourceOffline: &mk20.DataSourceOffline{},
-				}
-			}
-		} else {
-			url, err := url.Parse(http_url)
-			if err != nil {
-				return xerrors.Errorf("parsing http url: %w", err)
-			}
-			d = mk20.DataSource{
-				PieceCID: pieceCid,
-				Format: mk20.PieceDataFormat{
-					Car: &mk20.FormatCar{},
-				},
-				SourceHTTP: &mk20.DataSourceHTTP{
-					URLs: []mk20.HttpUrl{
-						{
-							URL:      url.String(),
-							Headers:  headers,
-							Priority: 0,
-							Fallback: true,
-						},
-					},
-				},
-			}
-		}
-	}
-
-	p := mk20.Products{
-		DDOV1: &mk20.DDOV1{
-			Provider:                   maddr,
-			PieceManager:               wallet,
-			Duration:                   abi.ChainEpoch(duration),
-			ContractAddress:            contract_address,
-			ContractVerifyMethod:       contract_method,
-			ContractVerifyMethodParams: []byte("test bytes"),
-		},
-		RetrievalV1: &mk20.RetrievalV1{
-			Indexing:        index,
-			AnnouncePayload: announce,
-		},
-	}
-
-	if pdp {
-		ps := uint64(proofSet)
-		p.PDPV1 = &mk20.PDPV1{
-			AddPiece:  true,
-			DataSetID: &ps,
-			ExtraData: []byte("test bytes"), // TODO: Fix this
-		}
-	}
-
-	if allocation != 0 {
-		alloc := verifreg.AllocationId(allocation)
-		p.DDOV1.AllocationId = &alloc
-	}
-
-	id, err := mk20.NewULID()
+func (c *Client) CreateDataSet(ctx context.Context, client, recordKeeper string, extraData []byte) (ulid.ULID, error) {
+	id, err := ulid.New(ulid.Now(), rand.Reader)
 	if err != nil {
-		return err
+		return ulid.ULID{}, xerrors.Errorf("failed to create ULID: %w", err)
 	}
-	log.Debugw("generated deal id", "id", id)
 
-	deal := mk20.Deal{
+	deal := &mk20.Deal{
 		Identifier: id,
-		Client:     wallet.String(),
-		Data:       &d,
-		Products:   p,
+		Client:     client,
+		Products: mk20.Products{
+			PDPV1: &mk20.PDPV1{
+				CreateDataSet: true,
+				RecordKeeper:  recordKeeper,
+				ExtraData:     extraData,
+			},
+		},
 	}
 
-	log.Debugw("deal", "deal", deal)
-
-	rerr := c.http.Store(ctx, &deal)
+	rerr := c.http.Store(ctx, deal)
 	if rerr.Error != nil {
-		return rerr.Error
+		return ulid.ULID{}, rerr.Error
 	}
 	if rerr.Status != 200 {
-		return rerr.HError()
+		return ulid.ULID{}, rerr.HError()
 	}
-	return nil
+	return id, nil
+}
+
+func (c *Client) RemoveDataSet(ctx context.Context, client, recordKeeper string, extraData []byte, dataSetID *uint64) (ulid.ULID, error) {
+	if dataSetID == nil {
+		return ulid.ULID{}, nil
+	}
+
+	id, err := ulid.New(ulid.Now(), rand.Reader)
+	if err != nil {
+		return ulid.ULID{}, xerrors.Errorf("failed to create ULID: %w", err)
+	}
+
+	deal := &mk20.Deal{
+		Identifier: id,
+		Client:     client,
+		Products: mk20.Products{
+			PDPV1: &mk20.PDPV1{
+				DeleteDataSet: true,
+				DataSetID:     dataSetID,
+				RecordKeeper:  recordKeeper,
+				ExtraData:     extraData,
+			},
+		},
+	}
+
+	rerr := c.http.Store(ctx, deal)
+	if rerr.Error != nil {
+		return ulid.ULID{}, rerr.Error
+	}
+	if rerr.Status != 200 {
+		return ulid.ULID{}, rerr.HError()
+	}
+	return id, nil
+}
+
+func (c *Client) addPiece(ctx context.Context, client, recordKeeper string, extraData []byte, dataSetID *uint64, dataSource *mk20.DataSource, ret *mk20.RetrievalV1) (ulid.ULID, error) {
+	if dataSetID == nil {
+		return ulid.ULID{}, nil
+	}
+
+	id, err := ulid.New(ulid.Now(), rand.Reader)
+	if err != nil {
+		return ulid.ULID{}, xerrors.Errorf("failed to create ULID: %w", err)
+	}
+
+	deal := &mk20.Deal{
+		Identifier: id,
+		Client:     client,
+		Data:       dataSource,
+		Products: mk20.Products{
+			PDPV1: &mk20.PDPV1{
+				AddPiece:     true,
+				DataSetID:    dataSetID,
+				RecordKeeper: recordKeeper,
+				ExtraData:    extraData,
+			},
+			RetrievalV1: ret,
+		},
+	}
+
+	rerr := c.http.Store(ctx, deal)
+	if rerr.Error != nil {
+		return ulid.ULID{}, rerr.Error
+	}
+	if rerr.Status != 200 {
+		return ulid.ULID{}, rerr.HError()
+	}
+	return id, nil
+}
+
+func (c *Client) RemovePiece(ctx context.Context, client, recordKeeper string, extraData []byte, dataSetID *uint64, pieceIDs []uint64) (ulid.ULID, error) {
+	if dataSetID == nil {
+		return ulid.ULID{}, xerrors.Errorf("dataSetID is required")
+	}
+
+	if len(pieceIDs) == 0 {
+		return ulid.ULID{}, xerrors.Errorf("at least one pieceID is required")
+	}
+
+	id, err := ulid.New(ulid.Now(), rand.Reader)
+	if err != nil {
+		return ulid.ULID{}, xerrors.Errorf("failed to create ULID: %w", err)
+	}
+
+	deal := &mk20.Deal{
+		Identifier: id,
+		Client:     client,
+		Products: mk20.Products{
+			PDPV1: &mk20.PDPV1{
+				DeletePiece:  true,
+				DataSetID:    dataSetID,
+				RecordKeeper: recordKeeper,
+				ExtraData:    extraData,
+				PieceIDs:     pieceIDs,
+			},
+		},
+	}
+
+	rerr := c.http.Store(ctx, deal)
+	if rerr.Error != nil {
+		return ulid.ULID{}, rerr.Error
+	}
+	if rerr.Status != 200 {
+		return ulid.ULID{}, rerr.HError()
+	}
+	return id, nil
+}
+
+func (c *Client) CreateDataSource(pieceCID cid.Cid, car, raw, aggregate, index, withCDN bool, aggregateType mk20.AggregateType, sub []mk20.DataSource) (*mk20.Deal, error) {
+	if car && raw && aggregate || car && raw || car && aggregate || raw && aggregate {
+		return nil, xerrors.Errorf("only one data format is supported")
+	}
+
+	if !car && (index || withCDN) {
+		return nil, xerrors.Errorf("only car data format supports IPFS style CDN retrievals")
+	}
+
+	err := mk20.ValidatePieceCID(pieceCID)
+	if err != nil {
+		return nil, err
+	}
+
+	dataSource := &mk20.DataSource{
+		PieceCID: pieceCID,
+	}
+
+	if car {
+		dataSource.Format.Car = &mk20.FormatCar{}
+	}
+
+	if raw {
+		dataSource.Format.Raw = &mk20.FormatBytes{}
+	}
+
+	if aggregate {
+		if len(sub) <= 1 {
+			return nil, xerrors.Errorf("must provide at least two sub data source")
+		}
+
+		if aggregateType == mk20.AggregateTypeNone {
+			return nil, xerrors.Errorf("must provide valid aggregateType")
+		}
+
+		dataSource.Format.Aggregate = &mk20.FormatAggregate{
+			Type: aggregateType,
+			Sub:  sub,
+		}
+	}
+
+	ret := &mk20.Deal{
+		Data: dataSource,
+		Products: mk20.Products{
+			RetrievalV1: &mk20.RetrievalV1{
+				Indexing:        index,
+				AnnouncePiece:   true,
+				AnnouncePayload: withCDN,
+			},
+		},
+	}
+
+	return ret, nil
+}
+
+func (c *Client) AddPieceWithHTTP(ctx context.Context, client, recordKeeper string, extraData []byte, dataSetID *uint64, pieceCID cid.Cid, car, raw, index, withCDN bool, aggregateType mk20.AggregateType, sub []mk20.DataSource, urls []mk20.HttpUrl) (ulid.ULID, error) {
+	var aggregate bool
+
+	if aggregateType == mk20.AggregateTypeV1 {
+		aggregate = true
+	}
+
+	d, err := c.CreateDataSource(pieceCID, car, raw, aggregate, index, withCDN, aggregateType, sub)
+	if err != nil {
+		return ulid.ULID{}, xerrors.Errorf("failed to create data source: %w", err)
+	}
+
+	d.Data.SourceHTTP = &mk20.DataSourceHTTP{
+		URLs: urls,
+	}
+
+	return c.addPiece(ctx, client, recordKeeper, extraData, dataSetID, d.Data, d.Products.RetrievalV1)
+}
+
+func (c *Client) AddPieceWithAggregate(ctx context.Context, client, recordKeeper string, extraData []byte, dataSetID *uint64, pieceCID cid.Cid, index, withCDN bool, aggregateType mk20.AggregateType, sub []mk20.DataSource) (ulid.ULID, error) {
+	d, err := c.CreateDataSource(pieceCID, false, false, true, index, withCDN, aggregateType, sub)
+	if err != nil {
+		return ulid.ULID{}, xerrors.Errorf("failed to create data source: %w", err)
+	}
+
+	d.Data.SourceAggregate = &mk20.DataSourceAggregate{
+		Pieces: sub,
+	}
+
+	d.Data.Format.Aggregate.Sub = nil
+
+	return c.addPiece(ctx, client, recordKeeper, extraData, dataSetID, d.Data, d.Products.RetrievalV1)
+}
+
+func (c *Client) AddPieceWithPut(ctx context.Context, client, recordKeeper string, extraData []byte, dataSetID *uint64, pieceCID cid.Cid, car, raw, index, withCDN bool, aggregateType mk20.AggregateType, sub []mk20.DataSource) (ulid.ULID, error) {
+	var aggregate bool
+
+	if aggregateType == mk20.AggregateTypeV1 {
+		aggregate = true
+	}
+
+	d, err := c.CreateDataSource(pieceCID, car, raw, aggregate, index, withCDN, aggregateType, sub)
+	if err != nil {
+		return ulid.ULID{}, xerrors.Errorf("failed to create data source: %w", err)
+	}
+
+	d.Data.SourceHttpPut = &mk20.DataSourceHttpPut{}
+
+	return c.addPiece(ctx, client, recordKeeper, extraData, dataSetID, d.Data, d.Products.RetrievalV1)
+}
+
+func (c *Client) AddPieceWithPutStreaming(ctx context.Context, client, recordKeeper string, extraData []byte, dataSetID *uint64, car, raw, aggregate, index, withCDN bool) (ulid.ULID, error) {
+	if car && raw && aggregate || car && raw || car && aggregate || raw && aggregate {
+		return ulid.ULID{}, xerrors.Errorf("only one data format is supported")
+	}
+
+	if !car && (index || withCDN) {
+		return ulid.ULID{}, xerrors.Errorf("only car data format supports IPFS style CDN retrievals")
+	}
+
+	ret := &mk20.RetrievalV1{
+		Indexing:        index,
+		AnnouncePiece:   true,
+		AnnouncePayload: withCDN,
+	}
+
+	return c.addPiece(ctx, client, recordKeeper, extraData, dataSetID, nil, ret)
 }
 
 func (c *Client) DealStatus(ctx context.Context, dealID string) (*mk20.DealProductStatusResponse, error) {
@@ -413,5 +498,36 @@ func KeyFromClientAddress(clientAddress address.Address) (key string) {
 		return "delegated"
 	default:
 		return ""
+	}
+}
+
+type ClientAuth struct {
+	client address.Address
+	wallet *wallet.LocalWallet
+}
+
+func (c *ClientAuth) Sign(digest []byte) ([]byte, error) {
+	sign, err := c.wallet.WalletSign(context.Background(), c.client, digest, lapi.MsgMeta{Type: lapi.MTDealProposal})
+	if err != nil {
+		return nil, err
+	}
+
+	return sign.MarshalBinary()
+}
+
+func (c *ClientAuth) PublicKeyBytes() []byte {
+	return c.client.Bytes()
+}
+
+func (c *ClientAuth) Type() string {
+	return KeyFromClientAddress(c.client)
+}
+
+var _ Signer = &ClientAuth{}
+
+func NewAuth(client address.Address, wallet *wallet.LocalWallet) Signer {
+	return &ClientAuth{
+		client: client,
+		wallet: wallet,
 	}
 }

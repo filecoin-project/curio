@@ -27,8 +27,8 @@ type HTTPClient struct {
 	AuthHeaderString string
 }
 
-// New returns a HTTPClient with sane defaults.
-func New(baseURL string, opts ...Option) *HTTPClient {
+// NewHTTPClient returns a HTTPClient with sane defaults.
+func NewHTTPClient(baseURL string, opts ...Option) *HTTPClient {
 	c := &HTTPClient{
 		BaseURL: baseURL + MarketPath,
 		HTTP:    &http.Client{Timeout: 60 * time.Second},
@@ -104,7 +104,7 @@ func (c *HTTPClient) do(ctx context.Context, method, p string, body io.Reader, v
 			return &Error{Status: resp.StatusCode, Error: err}
 		}
 	}
-	return nil
+	return &Error{Status: resp.StatusCode}
 }
 
 // Error wraps non‑2xx responses.

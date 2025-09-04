@@ -9,7 +9,7 @@ CREATE TABLE ipni (
     order_number BIGSERIAL PRIMARY KEY, -- Unique increasing order number
     ad_cid TEXT NOT NULL,
     context_id BYTEA NOT NULL, -- abi.PieceInfo in Curio
-    -- metadata BYTEA NOT NULL DEFAULT '\xa01200' (Added in 20250505-market_mk20.sql)
+    -- metadata BYTEA NOT NULL DEFAULT '\xa01200' (Added in 20250505-market-mk20.sql)
     is_rm BOOLEAN NOT NULL,
 
     -- skip added in 20241106-market-fixes.sql
@@ -26,7 +26,7 @@ CREATE TABLE ipni (
     piece_cid TEXT NOT NULL, -- For easy look up
     piece_size BIGINT NOT NULL, -- For easy look up
 
-    -- piece_cid_v2 TEXT (Added in 20250505-market_mk20.sql) -- For easy lookup
+    -- piece_cid_v2 TEXT (Added in 20250505-market-mk20.sql) -- For easy lookup
 
     unique (ad_cid)
 );
@@ -89,7 +89,7 @@ CREATE TABLE ipni_task (
     task_id BIGINT DEFAULT NULL,
     complete BOOLEAN DEFAULT FALSE,
 
-    -- id TEXT (Added in 20250505-market_mk20.sql)
+    -- id TEXT (Added in 20250505-market-mk20.sql)
 
     PRIMARY KEY (provider, context_id, is_rm)
 );

@@ -53,44 +53,6 @@ ALTER TABLE ipni
 -- The order_number column must be completely sequential
 ALTER SEQUENCE ipni_order_number_seq CACHE 1;
 
--- Add a column in ipni_head to reference a specific ipni row
-ALTER TABLE ipni_head
-    ADD COLUMN head_order_number BIGINT;
-
--- Backfill head_order_number to the row you intend as the head.
--- If "head" should point to the latest row with that ad_cid/provider:
-WITH latest AS (
-    SELECT h.provider, h.head,
-           MAX(i.order_number) AS order_number
-    FROM ipni_head h
-             JOIN ipni i
-                  ON i.provider = h.provider
-                      AND i.ad_cid   = h.head
-    GROUP BY h.provider, h.head
-)
-UPDATE ipni_head h
-SET head_order_number = l.order_number
-    FROM latest l
-WHERE h.provider = l.provider AND h.head = l.head;
-
--- Make it NOT NULL once backfilled
-ALTER TABLE ipni_head
-    ALTER COLUMN head_order_number SET NOT NULL;
-
--- Switch the FK to reference the unique parent key
-ALTER TABLE ipni_head DROP CONSTRAINT ipni_head_head_fkey;
-
-ALTER TABLE ipni_head
-    ADD CONSTRAINT ipni_head_head_order_fkey
-        FOREIGN KEY (head_order_number)
-            REFERENCES ipni(order_number)
-            ON DELETE RESTRICT;
-
--- Now remove uniqueness on ad_cid (both enforcers). This allows us
--- to chain add/delete/ad/delete for same piece
-ALTER TABLE ipni DROP CONSTRAINT ipni_ad_cid_key;
-DROP INDEX ipni_ad_cid;
-
 -- This function is used to insert piece metadata and piece deal (piece indexing)
 -- This makes it easy to keep the logic of how table is updated and fast (in DB).
 CREATE OR REPLACE FUNCTION process_piece_deal(
@@ -209,12 +171,6 @@ BEGIN;
       AND p.raw_size IS NOT NULL;
 COMMIT;
 
-
-CREATE TABLE ddo_contracts (
-    address TEXT NOT NULL PRIMARY KEY,
-    abi TEXT NOT NULL
-);
-
 -- This is main MK20 Deal table. Rows are added per deal and some
 -- modification is allowed later
 CREATE TABLE market_mk20_deal (
@@ -230,6 +186,8 @@ CREATE TABLE market_mk20_deal (
     retrieval_v1 JSONB NOT NULL DEFAULT 'null',
     pdp_v1 JSONB NOT NULL DEFAULT 'null'
 );
+COMMENT ON COLUMN market_mk20_deal.id IS 'This is ULID TEXT';
+COMMENT ON COLUMN market_mk20_deal.client IS 'Client must always be text as this can be a non Filecoin address like ed25519';
 
 -- This is main pipeline table for PoRep processing of MK20 deals
 CREATE TABLE market_mk20_pipeline (
@@ -248,7 +206,7 @@ CREATE TABLE market_mk20_pipeline (
     announce BOOLEAN NOT NULL,
     allocation_id BIGINT DEFAULT NULL,
     duration BIGINT NOT NULL,
-    piece_aggregation INT NOT NULL DEFAULT 0,
+    piece_aggregation INT NOT NULL DEFAULT 0, -- This is set when user sends a aggregated piece. It is also set as `deal_aggregation` when deal is aggregated on SP side.
 
     started BOOLEAN DEFAULT FALSE,
 
@@ -276,6 +234,8 @@ CREATE TABLE market_mk20_pipeline (
 
     PRIMARY KEY (id, aggr_index)
 );
+COMMENT ON COLUMN market_mk20_pipeline.piece_aggregation IS 'This is set when user sends a aggregated piece. It is also set as `deal_aggregation` when deal is aggregated on SP side.';
+COMMENT ON COLUMN market_mk20_pipeline.deal_aggregation IS 'This is set when user sends a deal with aggregated source. This value is passed to piece_aggregation when aggregation is finished and a single piece remains';
 
 -- This table is used to hold MK20 deals waiting for PoRep pipeline
 -- to process. This allows disconnecting the need to immediately process
@@ -720,13 +680,12 @@ BEGIN
 
     -- Insert the new ad into the ipni table with an automatically assigned order_number
     INSERT INTO ipni (ad_cid, context_id, metadata, is_rm, previous, provider, addresses, signature, entries, piece_cid_v2, piece_cid, piece_size)
-    VALUES (_ad_cid, _context_id, _metadata, _is_rm, _previous, _provider, _addresses, _signature, _entries, _piece_cid_v2, _piece_cid, _piece_size) RETURNING order_number INTO _new_order;
+    VALUES (_ad_cid, _context_id, _metadata, _is_rm, _previous, _provider, _addresses, _signature, _entries, _piece_cid_v2, _piece_cid, _piece_size);
 
     -- Update the ipni_head table to set the new ad as the head of the chain
-    INSERT INTO ipni_head (provider, head, head_order_number)
-    VALUES (_provider, _ad_cid, _new_order)
-        ON CONFLICT (provider) DO UPDATE SET head = EXCLUDED.head,
-                                             head_order_number = EXCLUDED.head_order_number;
+    INSERT INTO ipni_head (provider, head)
+    VALUES (_provider, _ad_cid)
+        ON CONFLICT (provider) DO UPDATE SET head = EXCLUDED.head;
 
 END;
 $$ LANGUAGE plpgsql;

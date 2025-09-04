@@ -106,9 +106,13 @@ func AuthMiddleware(db *harmonydb.DB, cfg *config.CurioConfig) func(http.Handler
 // @title Curio Market 2.0 API
 // @description Curio market APIs
 func Router(mdh *MK20DealHandler, domainName string) http.Handler {
+	SwaggerInfo.BasePath = "/market/mk20"
+	SwaggerInfo.Host = domainName
+	SwaggerInfo.Version = version
+	SwaggerInfo.Schemes = []string{"https"}
 	mux := chi.NewRouter()
 	mux.Use(dealRateLimitMiddleware())
-	mux.Mount("/", APIRouter(mdh, domainName))
+	mux.Mount("/", APIRouter(mdh))
 	mux.Mount("/info", InfoRouter())
 	return mux
 }
@@ -125,56 +129,67 @@ func Router(mdh *MK20DealHandler, domainName string) http.Handler {
 // @description - The raw public key bytes (not a human-readable address)
 // @description - The timestamp, truncated to the nearest hour, formatted in RFC3339 (e.g., 2025-07-15T17:00:00Z)
 // @description - These two byte slices are joined without any delimiter between them, and the resulting byte array is then hashed using SHA-256. The signature is performed on that hash.
-// @security CurioAuth
-func APIRouter(mdh *MK20DealHandler, domainName string) http.Handler {
-	SwaggerInfo.BasePath = "/market/mk20"
-	SwaggerInfo.Host = fmt.Sprintf("https://%s", domainName)
-	SwaggerInfo.Version = version
+func APIRouter(mdh *MK20DealHandler) http.Handler {
 	mux := chi.NewRouter()
 	mux.Use(dealRateLimitMiddleware())
 	mux.Use(AuthMiddleware(mdh.db, mdh.cfg))
 	mux.Method("POST", "/store", http.TimeoutHandler(http.HandlerFunc(mdh.mk20deal), requestTimeout, "request timeout"))
 	mux.Method("GET", "/status/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20status), requestTimeout, "request timeout"))
-	mux.Method("GET", "/contracts", http.TimeoutHandler(http.HandlerFunc(mdh.mk20supportedContracts), requestTimeout, "request timeout"))
 	mux.Method("POST", "/uploads/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStart), requestTimeout, "request timeout"))
 	mux.Method("GET", "/uploads/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UploadStatus), requestTimeout, "request timeout"))
 	mux.Put("/uploads/{id}/{chunkNum}", mdh.mk20UploadDealChunks)
 	mux.Method("POST", "/uploads/finalize/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20FinalizeUpload), requestTimeout, "request timeout"))
-	mux.Method("GET", "/products", http.TimeoutHandler(http.HandlerFunc(mdh.supportedProducts), requestTimeout, "request timeout"))
-	mux.Method("GET", "/sources", http.TimeoutHandler(http.HandlerFunc(mdh.supportedDataSources), requestTimeout, "request timeout"))
 	mux.Method("POST", "/update/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20UpdateDeal), requestTimeout, "request timeout"))
 	mux.Method("POST", "/upload/{id}", http.TimeoutHandler(http.HandlerFunc(mdh.mk20SerialUploadFinalize), requestTimeout, "request timeout"))
+	mux.Method("GET", "/products", http.TimeoutHandler(http.HandlerFunc(mdh.supportedProducts), requestTimeout, "request timeout"))
+	mux.Method("GET", "/sources", http.TimeoutHandler(http.HandlerFunc(mdh.supportedDataSources), requestTimeout, "request timeout"))
+	mux.Method("GET", "/contracts", http.TimeoutHandler(http.HandlerFunc(mdh.mk20supportedContracts), requestTimeout, "request timeout"))
 	mux.Put("/upload/{id}", mdh.mk20SerialUpload)
 	return mux
 }
 
-// InfoRouter serves OpenAPI specs and OpenAPI info
+// InfoRouter serves OpenAPI specs UI
+// @name info
+// @Summary OpenAPI Spec UI
+// @description - OpenAPI spec UI for the Market 2.0 APIs
+// @Router /info/ [get]
+// @BasePath /market/mk20
 func InfoRouter() http.Handler {
 	mux := chi.NewRouter()
 	mux.Get("/*", httpSwagger.Handler())
-
-	mux.Get("/swagger.yaml", func(w http.ResponseWriter, r *http.Request) {
-		swaggerYAML, err := swaggerAssets.ReadFile("swagger.yaml")
-		if err != nil {
-			log.Errorw("failed to read swagger.yaml", "err", err)
-			http.Error(w, "failed to read swagger.yaml", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/x-yaml")
-		_, _ = w.Write(swaggerYAML)
-	})
-
-	mux.Get("/swagger.json", func(w http.ResponseWriter, r *http.Request) {
-		swaggerJSON, err := swaggerAssets.ReadFile("swagger.json")
-		if err != nil {
-			log.Errorw("failed to read swagger.json", "err", err)
-			http.Error(w, "", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(swaggerJSON)
-	})
+	mux.Get("/swagger.yaml", swaggerYaml)
+	mux.Get("/swagger.json", swaggerJson)
 	return mux
+}
+
+// @name OpenAPI Spec
+// @Summary OpenAPI Spec YAML
+// @description - OpenAPI spec for the Market 2.0 APIs in YAML format
+// @Router /info/swagger.yaml [get]
+func swaggerYaml(w http.ResponseWriter, r *http.Request) {
+	swaggerYAML, err := swaggerAssets.ReadFile("swagger.yaml")
+	if err != nil {
+		log.Errorw("failed to read swagger.yaml", "err", err)
+		http.Error(w, "failed to read swagger.yaml", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-yaml")
+	_, _ = w.Write(swaggerYAML)
+}
+
+// @name OpenAPI Spec
+// @Summary OpenAPI Spec JSON
+// @description - OpenAPI spec for the Market 2.0 APIs in JSON format
+// @Router /info/swagger.json [get]
+func swaggerJson(w http.ResponseWriter, r *http.Request) {
+	swaggerJSON, err := swaggerAssets.ReadFile("swagger.json")
+	if err != nil {
+		log.Errorw("failed to read swagger.json", "err", err)
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(swaggerJSON)
 }
 
 // mk20deal handles HTTP requests to process MK20 deals, parses the request body, validates it, and executes the deal logic.
@@ -199,6 +214,7 @@ func InfoRouter() http.Handler {
 // @Failure 440 {object} mk20.DealCode "ErrMarketNotEnabled indicates that the market is not enabled for the requested operation"
 // @Failure 441 {object} mk20.DealCode "ErrDurationTooShort indicates that the provided duration value does not meet the minimum required threshold"
 // @Failure 400 {string} string "Bad Request - Invalid input or validation error"
+// @security CurioAuth
 func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -260,13 +276,14 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 
 // mk20status handles HTTP requests to fetch the status of a deal by its ID and responding with JSON-encoded results.
 // @Router /status/{id} [get]
-// @Summary List of supported DDO contracts
-// @Description List of supported DDO contracts
+// @Summary Status of the MK20 deal
+// @Description Current status of MK20 deal per product
 // @BasePath /market/mk20
 // @Param id path string true "id"
 // @Failure 200 {object} mk20.DealProductStatusResponse "the status response for deal products with their respective deal statuses"
 // @Failure 400 {string} string "Bad Request - Invalid input or validation error"
 // @Failure 500 {string} string "Internal Server Error"
+// @security CurioAuth
 func (mdh *MK20DealHandler) mk20status(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	if idStr == "" {
@@ -373,7 +390,7 @@ func (mdh *MK20DealHandler) supportedProducts(w http.ResponseWriter, r *http.Req
 
 // supportedDataSources handles HTTP requests to retrieve the supported data sources in JSON format.
 // @Router /sources [get]
-// @Summary List of supported dats sources
+// @Summary List of supported data sources
 // @Description List of supported data sources
 // @BasePath /market/mk20
 // @Failure 500 {string} string "Internal Server Error"
@@ -416,6 +433,7 @@ func (mdh *MK20DealHandler) supportedDataSources(w http.ResponseWriter, r *http.
 // @Failure 425 {object} mk20.UploadStatusCode "UploadStatusCodeUploadNotStarted indicates that the upload process has not started yet"
 // @Failure 500 {object} mk20.UploadStatusCode "UploadStatusCodeServerError indicates an internal server error occurred during the upload process, corresponding to status code 500"
 // @Failure 400 {string} string "Bad Request - Invalid input or validation error"
+// @security CurioAuth
 func (mdh *MK20DealHandler) mk20UploadStatus(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	if idStr == "" {
@@ -447,6 +465,7 @@ func (mdh *MK20DealHandler) mk20UploadStatus(w http.ResponseWriter, r *http.Requ
 // @Failure 409 {object} mk20.UploadCode "UploadChunkAlreadyUploaded indicates that the chunk has already been uploaded and cannot be re-uploaded"
 // @Failure 500 {object} mk20.UploadCode "UploadServerError indicates a server-side error occurred during the upload process, represented by the HTTP status code 500"
 // @Failure 400 {string} string "Bad Request - Invalid input or validation error"
+// @security CurioAuth
 func (mdh *MK20DealHandler) mk20UploadDealChunks(w http.ResponseWriter, r *http.Request) {
 	ct := r.Header.Get("Content-Type")
 	if ct != "application/octet-stream" {
@@ -499,6 +518,7 @@ func (mdh *MK20DealHandler) mk20UploadDealChunks(w http.ResponseWriter, r *http.
 // @Failure 409 {object} mk20.UploadStartCode "UploadStartCodeAlreadyStarted indicates that the upload process has already been initiated and cannot be started again"
 // @Failure 500 {object} mk20.UploadStartCode "UploadStartCodeServerError indicates an error occurred on the server while processing an upload start request"
 // @Failure 400 {string} string "Bad Request - Invalid input or validation error"
+// @security CurioAuth
 func (mdh *MK20DealHandler) mk20UploadStart(w http.ResponseWriter, r *http.Request) {
 	ct := r.Header.Get("Content-Type")
 	if ct != "application/json" {
@@ -565,6 +585,7 @@ func (mdh *MK20DealHandler) mk20UploadStart(w http.ResponseWriter, r *http.Reque
 // @Failure 440 {object} mk20.DealCode "ErrMarketNotEnabled indicates that the market is not enabled for the requested operation"
 // @Failure 441 {object} mk20.DealCode "ErrDurationTooShort indicates that the provided duration value does not meet the minimum required threshold"
 // @Failure 400 {string} string "Bad Request - Invalid input or validation error"
+// @security CurioAuth
 func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	if idStr == "" {
@@ -649,6 +670,7 @@ func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Re
 // @Failure 440 {object} mk20.DealCode "ErrMarketNotEnabled indicates that the market is not enabled for the requested operation"
 // @Failure 441 {object} mk20.DealCode "ErrDurationTooShort indicates that the provided duration value does not meet the minimum required threshold"
 // @Failure 400 {string} string "Bad Request - Invalid input or validation error"
+// @security CurioAuth
 func (mdh *MK20DealHandler) mk20UpdateDeal(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	if idStr == "" {
@@ -721,6 +743,7 @@ func (mdh *MK20DealHandler) mk20UpdateDeal(w http.ResponseWriter, r *http.Reques
 // @Failure 500 {object} mk20.UploadCode "UploadServerError indicates a server-side error occurred during the upload process, represented by the HTTP status code 500"
 // @Failure 404 {object} mk20.UploadStartCode "UploadStartCodeDealNotFound represents a 404 status indicating the deal was not found during the upload start process"
 // @Failure 400 {string} string "Bad Request - Invalid input or validation error"
+// @security CurioAuth
 func (mdh *MK20DealHandler) mk20SerialUpload(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	if idStr == "" {
@@ -763,6 +786,7 @@ func (mdh *MK20DealHandler) mk20SerialUpload(w http.ResponseWriter, r *http.Requ
 // @Failure 440 {object} mk20.DealCode "ErrMarketNotEnabled indicates that the market is not enabled for the requested operation"
 // @Failure 441 {object} mk20.DealCode "ErrDurationTooShort indicates that the provided duration value does not meet the minimum required threshold"
 // @Failure 400 {string} string "Bad Request - Invalid input or validation error"
+// @security CurioAuth
 func (mdh *MK20DealHandler) mk20SerialUploadFinalize(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	if idStr == "" {
