@@ -25,6 +25,7 @@ CREATE TABLE market_mk12_deals (
 
     piece_cid TEXT NOT NULL,
     piece_size BIGINT NOT NULL,
+    -- raw_size BIGINT (Added in 20250505-market-mk20.sql)
 
     fast_retrieval BOOLEAN NOT NULL,
     announce_to_ipni BOOLEAN NOT NULL,
@@ -54,6 +55,8 @@ CREATE TABLE market_piece_metadata (
     indexed BOOLEAN NOT NULL DEFAULT FALSE,
     indexed_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('UTC', NOW()),
 
+    -- dropped in 20250505-market-mk20.sql
+    -- PRIMARY KEY (piece_cid, piece_size) (Added in 20250505-market-mk20.sql)
     constraint market_piece_meta_identity_key
         unique (piece_cid, piece_size)
 );
@@ -64,7 +67,6 @@ CREATE TABLE market_piece_metadata (
 -- Cleanup for this table will be created in a later stage.
 CREATE TABLE market_piece_deal (
     id TEXT NOT NULL, -- (UUID for new deals, PropCID for old)
-    piece_cid TEXT NOT NULL,
 
     boost_deal BOOLEAN NOT NULL,
     legacy_deal BOOLEAN NOT NULL DEFAULT FALSE,
@@ -73,11 +75,16 @@ CREATE TABLE market_piece_deal (
 
     sp_id BIGINT NOT NULL,
     sector_num BIGINT NOT NULL,
+    piece_offset BIGINT NOT NULL, -- NOT NULL dropped in 20250505-market-mk20.sql
 
-    piece_offset BIGINT NOT NULL,
+    -- piece_ref BIGINT (Added in 20250505-market-mk20.sql)
+
+    piece_cid TEXT NOT NULL,
     piece_length BIGINT NOT NULL,
     raw_size BIGINT NOT NULL,
 
+    -- Dropped both constraint and primary key in 20250505-market-mk20.sql
+    -- ADD PRIMARY KEY (id, sp_id, piece_cid, piece_length) (Added in 20250505-market-mk20.sql)
     primary key (sp_id, piece_cid, id),
     constraint market_piece_deal_identity_key
         unique (sp_id, id)
@@ -227,6 +234,7 @@ CREATE TABLE market_direct_deals (
 
     piece_cid TEXT NOT NULL,
     piece_size BIGINT NOT NULL,
+    -- raw_size BIGINT (Added in 20250505-market-mk20.sql)
 
     fast_retrieval BOOLEAN NOT NULL,
     announce_to_ipni BOOLEAN NOT NULL,
