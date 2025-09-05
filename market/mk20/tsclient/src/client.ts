@@ -455,14 +455,14 @@ export class MarketClient {
       // Create deal with required addresses
       var deal: Mk20Deal = {
         // Use the generated UUID as the deal identifier
-        identifier: this.ulidToBytes(uuid),
+        identifier: uuid,
         client,
         data: {
-          piece_cid: pieceCid, 
+          pieceCid: pieceCid,
           format: { raw: {} },
-          source_httpput: {
+          sourceHttpput: {
             raw_size: totalSize
-          }
+          } as unknown as object,
         } as Mk20DataSource,
         products: {
           pdpV1: {
@@ -470,7 +470,7 @@ export class MarketClient {
             addPiece: true, // Add the piece to the dataset
             dataSetId: undefined, // Not needed when creating dataset
             recordKeeper: provider, // Use provider as record keeper
-            extraData: [], // No extra data needed
+            extraData: '', // No extra data
             pieceIds: undefined, // Piece IDs (on chain) not available for new content.
             deleteDataSet: false,
             deletePiece: false
@@ -595,14 +595,14 @@ export class MarketClient {
       // Create deal with required addresses
       const deal: Mk20Deal = {
         // Use the generated UUID as the deal identifier
-        identifier: this.ulidToBytes(uuid),
+        identifier: uuid,
         client,
         data: {
-          piece_cid: pieceCid,
+          pieceCid: pieceCid,
           format: { raw: {} },
-          source_httpput: {
+          sourceHttpput: {
             raw_size: totalSize
-          }
+          } as unknown as object,
         } as any,
         products: {
           ddoV1: {
@@ -610,10 +610,10 @@ export class MarketClient {
             provider: { address: provider },
             contractAddress,
             contractVerifyMethod: 'verifyDeal',
-            contractVerifyMethodParams: [],
+            contractVerifyMethodParams: '',
             pieceManager: { address: provider },
             notificationAddress: client,
-            notificationPayload: []
+            notificationPayload: ''
           } as Mk20DDOV1,
           retrievalV1: {
             announcePayload: true, // Announce payload to IPNI
@@ -759,6 +759,20 @@ export class MarketClient {
   }
 
   /**
+   * Finalize a serial (single PUT) upload.
+   * @param id - Deal identifier (ULID string)
+   * @param deal - Optional deal payload to finalize with
+   */
+  async finalizeSerialUpload(id: string, deal?: Mk20Deal): Promise<number> {
+    try {
+      const result = await this.api.uploadIdPost({ id, body: deal });
+      return result;
+    } catch (error) {
+      throw new Error(`Failed to finalize serial upload for deal ${id}: ${error}`);
+    }
+  }
+
+  /**
    * Get upload status for a deal
    * @param id - Deal identifier
    */
@@ -771,6 +785,20 @@ export class MarketClient {
       return await this.api.uploadsIdGet({ id });
     } catch (error) {
       throw new Error(`Failed to get upload status for deal ${id}: ${error}`);
+    }
+  }
+
+  /**
+   * Update an existing deal (e.g., request deletion via PDPv1 flags).
+   * @param id - Deal identifier (ULID string)
+   * @param deal - Deal payload with updated products
+   */
+  async updateDeal(id: string, deal: Mk20Deal): Promise<number> {
+    try {
+      const result = await this.api.updateIdGet({ id, body: deal });
+      return result;
+    } catch (error) {
+      throw new Error(`Failed to update deal ${id}: ${error}`);
     }
   }
 

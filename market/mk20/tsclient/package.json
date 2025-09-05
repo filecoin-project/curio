@@ -6,7 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "npm run generate && npm run compile",
-    "generate": "openapi-generator-cli generate -i ../http/swagger.json -g typescript-fetch -o ./generated --additional-properties=supportsES6=true,typescriptThreePlus=true",
+    "generate": "openapi-generator-cli generate -i ../http/swagger.json -g typescript-fetch -o ./generated --additional-properties=supportsES6=true,typescriptThreePlus=true --skip-validate-spec",
     "compile": "tsc",
     "clean": "rm -rf dist generated",
     "test": "jest",

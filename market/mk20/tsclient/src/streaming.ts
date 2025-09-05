@@ -141,7 +141,7 @@ export class StreamingPDP {
         createDataSet: true,
         addPiece: true,
         recordKeeper: this.providerAddr,
-        extraData: [],
+        extraData: '',
         pieceIds: undefined,
         deleteDataSet: false,
         deletePiece: false,
@@ -154,7 +154,7 @@ export class StreamingPDP {
     } as Products;
 
     const deal: Deal = {
-      identifier: this.identifierBytes,
+      identifier: this.id,
       client: this.clientAddr,
       products,
     } as Deal;
@@ -216,7 +216,7 @@ export class StreamingPDP {
     const pieceCid = StreamingCommP.pieceCidV2FromDigest(this.totalSize, digest);
 
     const dataSource: Mk20DataSource = {
-      pieceCid: pieceCid as unknown as object,
+      pieceCid: pieceCid,
       format: { raw: {} } as Mk20PieceDataFormat,
       sourceHttpput: { raw_size: this.totalSize } as unknown as object,
     };

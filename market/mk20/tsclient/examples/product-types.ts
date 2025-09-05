@@ -13,12 +13,12 @@ async function pdpv1ProductExample() {
   console.log('Used for: Creating datasets, adding pieces, and proving data possession\n');
 
   const pdpv1Deal: Deal = {
-    identifier: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+    identifier: '01H0EXAMPLEULIDIDENTIFIER00000000',
     client: 'f1client123456789abcdefghijklmnopqrstuvwxyz',
     data: {
-      piece_cid: 'bafybeihq6mbsd757cdm4sn6z5r7w6tdvkrb3q9iu3pjr7q3ip24c65qh2i',
+      pieceCid: 'bafybeihq6mbsd757cdm4sn6z5r7w6tdvkrb3q9iu3pjr7q3ip24c65qh2i',
       format: { raw: {} },
-      source_httpput: { raw_size: 1024 * 1024 }
+      sourceHttpput: { raw_size: 1024 * 1024 } as unknown as object
     } as any,
     products: {
       pdpV1: {
@@ -26,7 +26,7 @@ async function pdpv1ProductExample() {
         addPiece: true,            // Add piece to the dataset
         dataSetId: undefined,      // Not needed when creating dataset
         recordKeeper: 'f1provider123456789abcdefghijklmnopqrstuvwxyz',
-        extraData: [],             // Additional data for verification
+        extraData: '',             // Additional data for verification
         pieceIds: [0],             // Initial piece ID
         deleteDataSet: false,      // Don't delete dataset
         deletePiece: false         // Don't delete piece
@@ -49,12 +49,12 @@ async function ddov1ProductExample() {
   console.log('Used for: Direct data onboarding with contract verification\n');
 
   const ddov1Deal: Deal = {
-    identifier: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+    identifier: '01H0EXAMPLEULIDIDENTIFIER00000000',
     client: 'f1client123456789abcdefghijklmnopqrstuvwxyz',
     data: {
-      piece_cid: 'bafybeihq6mbsd757cdm4sn6z5r7w6tdvkrb3q9iu3pjr7q3ip24c65qh2i',
+      pieceCid: 'bafybeihq6mbsd757cdm4sn6z5r7w6tdvkrb3q9iu3pjr7q3ip24c65qh2i',
       format: { raw: {} },
-      source_httpput: { raw_size: 1024 * 1024 }
+      sourceHttpput: { raw_size: 1024 * 1024 } as unknown as object
     } as any,
     products: {
       ddoV1: {
@@ -62,10 +62,10 @@ async function ddov1ProductExample() {
         provider: { address: 'f1provider123456789abcdefghijklmnopqrstuvwxyz' },
         contractAddress: '0x1234567890123456789012345678901234567890',
         contractVerifyMethod: 'verifyDeal',
-        contractVerifyMethodParams: [],
+        contractVerifyMethodParams: '',
         pieceManager: { address: 'f1provider123456789abcdefghijklmnopqrstuvwxyz' },
         notificationAddress: 'f1client123456789abcdefghijklmnopqrstuvwxyz',
-        notificationPayload: []
+        notificationPayload: ''
       } as DDOV1,
       retrievalV1: {
         announcePayload: true,     // Announce to IPNI

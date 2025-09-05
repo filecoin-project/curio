@@ -1,7 +1,7 @@
 import { Client, MarketClientConfig } from '../src';
 
 const config: MarketClientConfig = {
-  basePath: 'http://localhost:8080/market/mk20',
+  serverUrl: 'http://localhost:8080',
   headers: { 'Authorization': 'Bearer your-token-here' }
 };
 
@@ -33,7 +33,8 @@ async function pdpv1CompleteWorkflowExample() {
       totalSize: result.totalSize,
       dealId: result.dealId,
       pieceCid: result.pieceCid,
-      pieceIds: result.pieceIds
+      uploadedChunks: result.uploadedChunks,
+      uploadedBytes: result.uploadedBytes
     });
 
     // Upload data in chunks using the actual blobs

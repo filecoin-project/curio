@@ -32,16 +32,16 @@ async function exampleUsage() {
     // Example: Submit a deal
     console.log('\nSubmitting a deal...');
     const deal: Deal = {
-      identifier: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], // Example identifier
+      identifier: '01H0EXAMPLEULIDIDENTIFIER00000000', // Example ULID string
       client: 'f1abcdefghijklmnopqrstuvwxyz123456789',
       data: {
-        piece_cid: 'bafybeihq6mbsd757cdm4sn6z5r7w6tdvkrb3q9iu3pjr7q3ip24c65qh2i',
+        pieceCid: 'bafybeihq6mbsd757cdm4sn6z5r7w6tdvkrb3q9iu3pjr7q3ip24c65qh2i',
         format: {
           raw: {}
         },
-        source_httpput: {
+        sourceHttpput: {
           raw_size: 1024 * 1024 // 1MB
-        }
+        } as unknown as object
       } as DataSource,
       products: {
         ddoV1: {
@@ -49,10 +49,10 @@ async function exampleUsage() {
           provider: { address: 'f1abcdefghijklmnopqrstuvwxyz123456789' },
           contractAddress: '0x1234567890123456789012345678901234567890',
           contractVerifyMethod: 'verifyDeal',
-          contractVerifyMethodParams: [],
+          contractVerifyMethodParams: '',
           pieceManager: { address: 'f1abcdefghijklmnopqrstuvwxyz123456789' },
           notificationAddress: 'f1abcdefghijklmnopqrstuvwxyz123456789',
-          notificationPayload: []
+          notificationPayload: ''
         } as DDOV1,
         retrievalV1: {
           announcePayload: true, // Announce payload to IPNI
