@@ -2,6 +2,9 @@ package webrpc
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -434,4 +437,40 @@ func (a *WebRPC) AbortRestart(ctx context.Context, id int64) error {
 		return xerrors.Errorf("abort restart failed: %w", err)
 	}
 	return nil
+}
+
+func (a *WebRPC) ClusterNodeMetrics(ctx context.Context, id int64) (string, error) {
+	var hostPort string
+	err := a.deps.DB.QueryRow(ctx, `SELECT host_and_port FROM harmony_machines WHERE id = $1`, id).Scan(&hostPort)
+	if err != nil {
+		return "", xerrors.Errorf("failed to get host_and_port for machine %d: %w", id, err)
+	}
+
+	url := fmt.Sprintf("http://%s/debug/metrics", hostPort)
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(timeoutCtx, "GET", url, nil)
+	if err != nil {
+		return "", xerrors.Errorf("failed to create request: %w", err)
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", xerrors.Errorf("failed to fetch metrics from %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", xerrors.Errorf("metrics endpoint returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", xerrors.Errorf("failed to read metrics response: %w", err)
+	}
+
+	return string(body), nil
 }
