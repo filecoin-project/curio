@@ -153,7 +153,8 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	}
 
 	if len(tasks) == 0 {
-		return false, xerrors.Errorf("expected at least 1 sector params, got 0")
+		log.Errorw("expected at least 1 sector params, got 0 in submit task")
+		return true, nil
 	}
 
 	maddr, err := address.NewIDAddress(uint64(tasks[0].SpID))
@@ -357,6 +358,10 @@ func (s *SubmitTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 			Pieces:       pams,
 		})
 		params.SectorProofs = append(params.SectorProofs, update.Proof)
+	}
+
+	if len(params.SectorUpdates) == 0 {
+		return false, xerrors.Errorf("no sector updates")
 	}
 
 	enc := new(bytes.Buffer)
@@ -662,8 +667,9 @@ func (s *SubmitTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTa
 					//----------------------------------
 					// 6) Actually schedule: set task_id_submit=taskID for chosen rows
 					//----------------------------------
+					var scheduled int
 					for _, row := range toSchedule {
-						_, err = tx.Exec(`
+						n, err := tx.Exec(`
 							UPDATE sectors_snap_pipeline
 							SET task_id_submit = $1,
 							    submit_after = NULL
@@ -674,10 +680,11 @@ func (s *SubmitTask) schedule(ctx context.Context, addTaskFunc harmonytask.AddTa
 						if err != nil {
 							return false, xerrors.Errorf("failed to set task_id_submit: %w", err)
 						}
+						scheduled += n
 					}
 
 					// We scheduled this group => commit & exit the transaction callback
-					return true, nil
+					return scheduled > 0, nil
 				}
 			}
 
