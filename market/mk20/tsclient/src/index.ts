@@ -26,6 +26,8 @@ export type { MarketClientConfig } from './client';
 // Export piece CID utilities
 export { PieceCidUtils } from './client';
 export { StreamingPDP } from './streaming';
+export { AuthUtils, Ed25519KeypairSigner, Secp256k1AddressSigner } from './auth';
+export type { AuthSigner } from './auth';
 
 // Re-export configuration types
 export type { Configuration } from '../generated';

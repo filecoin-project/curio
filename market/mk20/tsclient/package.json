@@ -33,8 +33,11 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "@glif/filecoin-address": "^4.0.0",
+    "@noble/secp256k1": "^2.1.0",
     "isomorphic-fetch": "^3.0.0",
     "multiformats": "^13.4.0",
+    "tweetnacl": "^1.0.3",
     "ulid": "^2.3.0"
   },
   "engines": {
