@@ -762,8 +762,7 @@ func (s *SubmitTask) updateLanded(ctx context.Context, tx *harmonydb.Tx, spId, s
 			// err message like 'message failed with backtrace: 00: f0123 (method 35) -- invalid update 0 while requiring activation success: cannot upgrade sectors in immutable deadline 27, skipping sector 6123 (16) (RetCode=16)'
 			n, err := tx.Exec(`UPDATE sectors_snap_pipeline SET
 						after_prove_msg_success = FALSE, after_submit = FALSE
-						WHERE sp_id = $2 AND sector_number = $3 AND after_prove_msg_success = FALSE AND after_submit = TRUE`,
-				execResult[0].ExecutedTskCID, spId, sectorNum)
+						WHERE sp_id = $1 AND sector_number = $2 AND after_prove_msg_success = FALSE AND after_submit = TRUE`, spId, sectorNum)
 			if err != nil {
 				return xerrors.Errorf("update sectors_snap_pipeline to retry prove send: %w", err)
 			}
