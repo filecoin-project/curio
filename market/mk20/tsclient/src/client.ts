@@ -1,4 +1,4 @@
-import { DefaultApi, ConfigurationParameters, Mk20Deal, Mk20DealProductStatusResponse, Mk20SupportedContracts, Mk20SupportedProducts, Mk20SupportedDataSources, Mk20Products, Mk20PDPV1, Mk20RetrievalV1, Mk20DDOV1, Mk20DataSource } from '../generated';
+import { DefaultApi, ConfigurationParameters, Mk20Deal, Mk20DealProductStatusResponse, Mk20SupportedContracts, Mk20SupportedProducts, Mk20SupportedDataSources, Mk20Products, Mk20PDPV1, Mk20RetrievalV1, Mk20DDOV1, Mk20DataSource, Mk20DealState } from '../generated';
 import { ulid } from 'ulid';
 import { Configuration } from '../generated/runtime';
 import { Mk20StartUpload } from '../generated/models/Mk20StartUpload';
@@ -386,7 +386,6 @@ export class MarketClient {
   }
 
 
-
   /**
    * Calculate piece ID for an individual blob based on its content
    * @param blob - The blob to calculate piece ID for
@@ -411,6 +410,22 @@ export class MarketClient {
     return Math.abs(hash) % 1000000; // Keep within 6 digits
   }
 
+  async waitDealComplete(id: string): Promise<void> {
+    var duration = 0;
+    const step = 10000;
+    while (true) {
+      const resp = await this.getStatus(id);
+      if (resp?.pdpV1?.status === Mk20DealState.DealStateComplete) {
+        break
+      }
+
+      await new Promise(resolve => setTimeout(resolve, step));
+      duration += step;
+      if (duration > 90000) {
+        throw new Error(`Deal ${id} timed out after ${duration} seconds`);
+      }
+    }
+  }
   /**
    * Simple convenience wrapper for PDPv1 deals with chunked upload
    * Takes blobs and required addresses, computes piece_cid, and returns a UUID identifier
@@ -450,28 +465,20 @@ export class MarketClient {
       
       // Compute piece_cid from blobs using our utility (WebCrypto SubtleCrypto)
       const pieceCid = await PieceCidUtils.computePieceCidV2(blobs);
-
       
       // Create deal with required addresses
       var deal: Mk20Deal = {
         // Use the generated UUID as the deal identifier
         identifier: uuid,
         client,
-        data: {
-          pieceCid: pieceCid,
-          format: { raw: {} },
-          sourceHttpput: {
-            raw_size: totalSize
-          } as unknown as object,
-        } as Mk20DataSource,
         products: {
           pdpV1: {
             createDataSet: true, // Create a new dataset for this deal
-            addPiece: true, // Add the piece to the dataset
-            dataSetId: undefined, // Not needed when creating dataset
+            //addPiece: true, // Add the piece to the dataset
+            //dataSetId: undefined, // Not needed when creating dataset
             recordKeeper: provider, // Use provider as record keeper
             extraData: '', // No extra data
-            pieceIds: undefined, // Piece IDs (on chain) not available for new content.
+            //pieceIds: undefined, // Piece IDs (on chain) not available for new content.
             deleteDataSet: false,
             deletePiece: false
           } as Mk20PDPV1,
@@ -484,7 +491,41 @@ export class MarketClient {
       };
 
       // Submit the deal
-      const dealId = await this.submitDeal(deal);
+      var dealId = await this.submitDeal(deal);
+
+      this.waitDealComplete(uuid);
+
+      // Create deal with required addresses
+      var deal: Mk20Deal = {
+        // Use the generated UUID as the deal identifier
+        identifier: uuid,
+        client,
+        data: {
+          pieceCid: pieceCid,
+          format: { raw: {} },
+          sourceHttpput: {},
+        } as Mk20DataSource,
+        products: {
+          pdpV1: {
+            addPiece: true, // Add the piece to the dataset
+            //dataSetId: undefined, // Not needed when creating dataset
+            recordKeeper: provider, // Use provider as record keeper
+            extraData: '', // No extra data
+            //pieceIds: undefined, // Piece IDs (on chain) not available for new content.
+            deleteDataSet: false,
+            deletePiece: false
+          } as Mk20PDPV1,
+          retrievalV1: {
+            announcePayload: true, // Announce payload to IPNI
+            announcePiece: true, // Announce piece information to IPNI
+            indexing: true // Index for CID-based retrieval
+          } as Mk20RetrievalV1
+        } as Mk20Products
+      };
+
+      var dealId = await this.submitDeal(deal);
+
+      this.waitDealComplete(uuid);
 
       // Initialize chunked upload
       const startUpload: Mk20StartUpload = {
@@ -524,7 +565,7 @@ export class MarketClient {
 
       // Finalize the upload
       console.log('🔒 Finalizing chunked upload...');
-      const finalizeResult = await this.finalizeChunkedUpload(uuid, deal);
+      const finalizeResult = await this.finalizeChunkedUpload(uuid, deal); // TODO check deal (2nd ID) status in loop.
       console.log(`✅ Upload finalized: ${finalizeResult}`);
 
       return {
@@ -541,148 +582,6 @@ export class MarketClient {
       throw new Error(`Failed to submit PDPv1 deal with upload: ${error}`);
     }
   }
-
-  /**
-   * Simple convenience wrapper for DDO deals with chunked upload
-   * Takes blobs and required addresses, computes piece_cid, and returns a UUID identifier
-   */
-  /**
-   * Convenience wrapper for DDOv1 deals with chunked upload.
-   * @param params - Input parameters
-   * @param params.blobs - Data to upload as an array of blobs
-   * @param params.client - Client wallet address
-   * @param params.provider - Provider wallet address
-   * @param params.contractAddress - Verification contract address
-   * @param params.lifespan - Optional deal lifespan in epochs (defaults to 518400)
-   * @returns Upload metadata including uuid, pieceCid, and stats
-   */
-  async submitDDOV1DealWithUpload(params: {
-    blobs: Blob[];
-    client: string;
-    provider: string;
-    contractAddress: string;
-    lifespan?: number;
-  }): Promise<{
-    uuid: string;
-    totalSize: number;
-    dealId: number;
-    uploadId: string;
-    pieceCid: string;
-    pieceIds: number[];
-    uploadedChunks: number;
-    uploadedBytes: number;
-  }> {
-    try {
-      const { blobs, client, provider, contractAddress } = params;
-      const duration = params.lifespan ?? 518400;
-      
-      // Calculate total size from blobs
-      const totalSize = blobs.reduce((sum, blob) => sum + blob.size, 0);
-      
-      // Generate a ULID for the deal identifier returned to the caller
-      const uuid = ulid();
-      
-      // Compute piece_cid from blobs using our utility (WebCrypto SubtleCrypto)
-      const pieceCid = await PieceCidUtils.computePieceCidV2(blobs);
-      
-      // Calculate piece IDs for each individual blob
-      const pieceIds: number[] = [];
-      for (const blob of blobs) {
-        const pieceId = await this.calculateBlobPieceId(blob);
-        pieceIds.push(pieceId);
-      }
-      
-      // Create deal with required addresses
-      const deal: Mk20Deal = {
-        // Use the generated UUID as the deal identifier
-        identifier: uuid,
-        client,
-        data: {
-          pieceCid: pieceCid,
-          format: { raw: {} },
-          sourceHttpput: {
-            raw_size: totalSize
-          } as unknown as object,
-        } as any,
-        products: {
-          ddoV1: {
-            duration, // Deal duration in epochs
-            provider: { address: provider },
-            contractAddress,
-            contractVerifyMethod: 'verifyDeal',
-            contractVerifyMethodParams: '',
-            pieceManager: { address: provider },
-            notificationAddress: client,
-            notificationPayload: ''
-          } as Mk20DDOV1,
-          retrievalV1: {
-            announcePayload: true, // Announce payload to IPNI
-            announcePiece: true, // Announce piece information to IPNI
-            indexing: true // Index for CID-based retrieval
-          } as Mk20RetrievalV1
-        } as Mk20Products
-      };
-
-      // Submit the deal
-      const dealId = await this.submitDeal(deal);
-
-      // Initialize chunked upload
-      const startUpload: Mk20StartUpload = {
-        rawSize: totalSize,
-        chunkSize: 1024 * 1024 // 1MB chunks
-      };
-
-      const uploadInitResult = await this.initializeChunkedUpload(uuid, startUpload);
-
-      // Automatically upload all blobs in chunks
-      console.log(`📤 Starting automatic chunked upload of ${blobs.length} blobs...`);
-      const chunkSize = 1024 * 1024; // 1MB chunks
-      let totalChunks = 0;
-      let uploadedBytes = 0;
-
-      for (const [blobIndex, blob] of blobs.entries()) {
-        const blobSize = blob.size;
-        const blobChunks = Math.ceil(blobSize / chunkSize);
-        
-        console.log(`  Uploading blob ${blobIndex + 1}/${blobs.length} (${blobSize} bytes, ${blobChunks} chunks)...`);
-        
-        for (let i = 0; i < blobSize; i += chunkSize) {
-          const chunk = blob.slice(i, i + chunkSize);
-          const chunkNum = totalChunks.toString();
-          
-          // Convert blob chunk to array of numbers for upload
-          const chunkArray = new Uint8Array(await chunk.arrayBuffer());
-          const chunkNumbers = Array.from(chunkArray);
-          
-          console.log(`    Uploading chunk ${chunkNum + 1} (${chunkNumbers.length} bytes)...`);
-          await this.uploadChunk(uuid, chunkNum, chunkNumbers);
-          
-          totalChunks++;
-          uploadedBytes += chunkNumbers.length;
-        }
-      }
-
-      // Finalize the upload
-      console.log('🔒 Finalizing chunked upload...');
-      const finalizeResult = await this.finalizeChunkedUpload(uuid);
-      console.log(`✅ Upload finalized: ${finalizeResult}`);
-
-      return {
-        uuid,
-        totalSize,
-        dealId,
-        uploadId: uuid,
-        pieceCid,
-        pieceIds,
-        uploadedChunks: totalChunks,
-        uploadedBytes
-      };
-
-    } catch (error) {
-      throw new Error(`Failed to submit DDOv1 deal with upload: ${error}`);
-    }
-  }
-
   /**
    * Upload deal data
    */
