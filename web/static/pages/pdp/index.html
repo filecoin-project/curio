@@ -1,24 +1,42 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Node Info</title>
+    <title>PDP Overview</title>
     <script type="module" src="/ux/curio-ux.mjs"></script>
     <script type="module" src="pdp.mjs"></script>
+    <script type="module" src="/ux/components/Drawer.mjs"></script>
+    <script type="module" src="pipelines.mjs"></script>
+    <script type="module" src="pdp_deals.mjs"></script>
 </head>
 <body style="visibility:hidden; background:rgb(11, 22, 34)" data-bs-theme="dark">
-<curio-ux>
-<div class="page">
-    <section class="section">
-        <div class="row">
-            <h1>Proof of Data Possession</h1>
+    <curio-ux>
+        <div class="page">
+            <section class="section">
+                <div class="row">
+                    <h1>Proof of Data Possession</h1>
+                </div>
+            </section>
+            <section class="section">
+                <div class="row">
+                    <pdp-info></pdp-info>
+                </div>
+            </section>
+            <section class="section">
+                <div class="row">
+                    <div class="col-md-auto" style="max-width: 95%">
+                        <mk20-pdp-pipelines></mk20-pdp-pipelines>
+                    </div>
+                </div>
+            </section>
+            </section>
+            <section class="section">
+                <div class="row">
+                    <div class="col-md-auto" style="max-width: 95%">
+                        <mk20-pdp-deal-list></mk20-pdp-deal-list>
+                    </div>
+                </div>
+            </section>
         </div>
-    </section>
-    <section class="section">
-        <div class="row">
-            <pdp-info></pdp-info>
-        </div>
-    </section>
-</div>
-</curio-ux>
+    </curio-ux>
 </body>
 </html>

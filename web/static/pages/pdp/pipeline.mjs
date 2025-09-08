@@ -44,7 +44,7 @@ class MK20PDPPipelines extends LitElement {
             this.deals = deals || [];
 
             // Load failed tasks data
-            const failed = await RPCCall('MK20PipelineFailedTasks', []);
+            const failed = await RPCCall('MK20PDPPipelineFailedTasks', []);
             this.failedTasks = failed || {};
 
             this.requestUpdate();
@@ -68,7 +68,7 @@ class MK20PDPPipelines extends LitElement {
     }
 
     renderFailedTasks() {
-        const { DownloadingFailed, CommPFailed, AggFailed, IndexFailed } = this.failedTasks;
+        const { DownloadingFailed, CommPFailed, AggFailed, AddPieceFailed, SaveCacheFailed,  IndexFailed } = this.failedTasks;
         const entries = [];
 
         const renderLine = (label, count, type) => {
@@ -110,6 +110,12 @@ class MK20PDPPipelines extends LitElement {
         if (AggFailed > 0) {
             entries.push(renderLine('Aggregate', AggFailed, 'aggregate'));
         }
+        if (AddPieceFailed > 0) {
+            entries.push(renderLine('AddPiece', AggFailed, 'add_piece'));
+        }
+        if (SaveCacheFailed > 0) {
+            entries.push(renderLine('SaveCache', AggFailed, 'save_cache'));
+        }
         if (IndexFailed > 0) {
             entries.push(renderLine('Index', IndexFailed, 'index'));
         }
@@ -132,7 +138,7 @@ class MK20PDPPipelines extends LitElement {
         this.requestUpdate();
 
         try {
-            await RPCCall('MK20BulkRestartFailedMarketTasks', [type]);
+            await RPCCall('MK20BulkRestartFailedPDPTasks', [type]);
             await this.loadData();
         } catch (err) {
             console.error('Failed to restart tasks:', err);
@@ -149,7 +155,7 @@ class MK20PDPPipelines extends LitElement {
         this.requestUpdate();
 
         try {
-            await RPCCall('MK20BulkRemoveFailedMarketPipelines', [type]);
+            await RPCCall('MK20BulkRemoveFailedPDPPipelines', [type]);
             await this.loadData();
         } catch (err) {
             console.error('Failed to remove pipelines:', err);
@@ -172,7 +178,7 @@ class MK20PDPPipelines extends LitElement {
             <div>
                 ${this.renderFailedTasks()}
                 <h2>
-                    Deal Pipelines
+                    PDP Pipelines
                     <button class="info-btn">
                         <!-- Inline SVG icon for the info button -->
                         <svg
@@ -279,12 +285,12 @@ class MK20PDPPipelines extends LitElement {
             return '(#########) Complete';
         } else if (!deal.complete && deal.announce && deal.indexed) {
             return '(########.) Announcing';
-        } else if (deal.sealed && !deal.indexed) {
+        } else if (deal.after_save_cache && !deal.indexed) {
             return '(#######..) Indexing';
-        } else if (deal.sector?.Valid && !deal.sealed) {
-            return '(######...) Sealing';
-        } else if (deal.aggregated && !deal.sector?.Valid) {
-            return '(#####....) Assigning Sector';
+        } else if (deal.after_add_piece && !deal.after_save_cache) {
+            return '(######...) Saving Proving Cache';
+        } else if (deal.aggregated && !deal.after_add_piece) {
+            return '(#####....) Adding Piece';
         } else if (deal.after_commp && !deal.aggregated) {
             return '(####.....) Aggregating Deal';
         } else if (deal.downloaded && !deal.after_commp) {

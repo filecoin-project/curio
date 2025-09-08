@@ -949,8 +949,8 @@ type MK20PDPPipelineFailedStats struct {
 	DownloadingFailed int64
 	CommPFailed       int64
 	AggFailed         int64
-	AddPiece          int64
-	SaveCache         int64
+	AddPieceFailed    int64
+	SaveCacheFailed   int64
 	IndexFailed       int64
 }
 
@@ -1080,8 +1080,8 @@ func (a *WebRPC) MK20PDPPipelineFailedTasks(ctx context.Context) (*MK20PDPPipeli
 		DownloadingFailed: counts.DownloadingFailed,
 		CommPFailed:       counts.CommPFailed,
 		AggFailed:         counts.AggFailed,
-		AddPiece:          counts.AddPieceFailed,
-		SaveCache:         counts.SaveCacheFailed,
+		AddPieceFailed:    counts.AddPieceFailed,
+		SaveCacheFailed:   counts.SaveCacheFailed,
 		IndexFailed:       counts.IndexFailed,
 	}, nil
 }
