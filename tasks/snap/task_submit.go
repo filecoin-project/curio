@@ -755,8 +755,11 @@ func (s *SubmitTask) updateLanded(ctx context.Context, tx *harmonydb.Tx, spId, s
 			// good, noop
 		case exitcode.SysErrInsufficientFunds, exitcode.ErrInsufficientFunds:
 			fallthrough
-		case exitcode.SysErrOutOfGas:
+		case exitcode.SysErrOutOfGas, exitcode.ErrIllegalArgument:
 			// just retry
+
+			// illegal argument typically stems from immutable deadline
+			// err message like 'message failed with backtrace: 00: f0123 (method 35) -- invalid update 0 while requiring activation success: cannot upgrade sectors in immutable deadline 27, skipping sector 6123 (16) (RetCode=16)'
 			n, err := tx.Exec(`UPDATE sectors_snap_pipeline SET
 						after_prove_msg_success = FALSE, after_submit = FALSE
 						WHERE sp_id = $2 AND sector_number = $3 AND after_prove_msg_success = FALSE AND after_submit = TRUE`,
