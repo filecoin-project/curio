@@ -12,7 +12,6 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/lib/proof"
-	_ "github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/lib/testutils"
 	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/pdp"
@@ -32,7 +31,9 @@ func TestPDPProving(t *testing.T) {
 	fileStr, err := testutils.CreateRandomTmpFile(dir, rawSize)
 	require.NoError(t, err)
 
-	defer os.Remove(fileStr)
+	defer func() {
+		_ = os.Remove(fileStr)
+	}()
 
 	f, err := os.Open(fileStr)
 	require.NoError(t, err)

@@ -522,7 +522,9 @@ func (dbi *DBIndex) batchStorageDeclareSectors(ctx context.Context, declarations
 		}
 
 		br := tx.SendBatch(ctx, batch)
-		defer br.Close()
+		defer func() {
+			_ = br.Close()
+		}()
 
 		for i := 0; i < batch.Len(); i++ {
 			_, err := br.Exec()

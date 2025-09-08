@@ -118,10 +118,10 @@ func (n *NextProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func() 
 		return false, xerrors.Errorf("failed to get listener address for data set %d: %w", dataSetID, err)
 	}
 
-	// Determine the next challenge window start by consulting the listener
-	provingSchedule, err := contract.NewIPDPProvingSchedule(listenerAddr, n.ethClient)
+	// Get the proving schedule from the listener (handles view contract indirection)
+	provingSchedule, err := contract.GetProvingScheduleFromListener(listenerAddr, n.ethClient)
 	if err != nil {
-		return false, xerrors.Errorf("failed to create proving schedule binding, check that listener has proving schedule methods: %w", err)
+		return false, xerrors.Errorf("failed to get proving schedule from listener: %w", err)
 	}
 
 	next_prove_at, err := provingSchedule.NextPDPChallengeWindowStart(nil, big.NewInt(dataSetID))

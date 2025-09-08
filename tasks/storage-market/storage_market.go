@@ -139,10 +139,6 @@ func NewCurioStorageDealMarket(miners []address.Address, db *harmonydb.DB, cfg *
 func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 	var err error
 
-	if len(d.miners) == 0 {
-		// Do not start the poller if no minerID present
-		return nil
-	}
 	d.MK12Handler, err = mk12.NewMK12Handler(d.miners, d.db, d.si, d.api, d.cfg, d.as)
 	if err != nil {
 		return err
@@ -176,15 +172,17 @@ func (d *CurioStorageDealMarket) StartMarket(ctx context.Context) error {
 		return err
 	}
 
-	if d.cfg.Ingest.DoSnap {
-		d.pin, err = storageingest.NewPieceIngesterSnap(ctx, d.db, d.api, d.miners, d.cfg)
-	} else {
-		d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, d.miners, d.cfg)
+	if len(d.miners) > 0 {
+		if d.cfg.Ingest.DoSnap {
+			d.pin, err = storageingest.NewPieceIngesterSnap(ctx, d.db, d.api, d.miners, d.cfg)
+		} else {
+			d.pin, err = storageingest.NewPieceIngester(ctx, d.db, d.api, d.miners, d.cfg)
+		}
+		if err != nil {
+			return err
+		}
 	}
 
-	if err != nil {
-		return err
-	}
 	go d.runPoller(ctx)
 
 	return nil

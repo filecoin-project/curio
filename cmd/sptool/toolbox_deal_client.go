@@ -539,7 +539,9 @@ func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 		if err != nil {
 			return xerrors.Errorf("failed to open stream to peer %s: %w", addrInfo.ID, err)
 		}
-		defer s.Close()
+		defer func() {
+			_ = s.Close()
+		}()
 
 		if err := doRpc(ctx, s, &dealParams, &resp); err != nil {
 			return xerrors.Errorf("send proposal rpc: %w", err)
@@ -673,7 +675,9 @@ func doHttp(urls []*url.URL, deal interface{}, response interface{}) error {
 			log.Warnw("failed to send request", "url", s, "error", err)
 			continue
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 		if resp.StatusCode != http.StatusOK {
 			log.Warnw("failed to send request", "url", s, "status", resp.StatusCode)
 			continue
@@ -701,7 +705,7 @@ var initCmd = &cli.Command{
 			return err
 		}
 
-		os.Mkdir(sdir, 0755) //nolint:errcheck
+		_ = os.Mkdir(sdir, 0755) //nolint:errcheck
 
 		n, err := Setup(cctx.String(mk12_client_repo.Name))
 		if err != nil {
@@ -786,7 +790,7 @@ var walletNew = &cli.Command{
 			out := map[string]interface{}{
 				"address": nk.String(),
 			}
-			PrintJson(out) //nolint:errcheck
+			_ = PrintJson(out) //nolint:errcheck
 		} else {
 			fmt.Println(nk.String())
 		}
@@ -927,7 +931,7 @@ var walletList = &cli.Command{
 					if !cctx.Bool("json") && dcap == nil {
 						wallet[dataCapKey] = "X"
 					} else if dcap != nil {
-						wallet[dataCapKey] = humanize.IBytes(dcap.Int.Uint64())
+						wallet[dataCapKey] = humanize.IBytes(dcap.Uint64())
 					}
 				} else {
 					wallet[dataCapKey] = "n/a"
@@ -1456,7 +1460,9 @@ var dealStatusCmd = &cli.Command{
 				if err != nil {
 					return xerrors.Errorf("failed to make HTTP request: %w", err)
 				}
-				defer hresp.Body.Close()
+				defer func() {
+					_ = hresp.Body.Close()
+				}()
 				if hresp.StatusCode != http.StatusOK {
 					return xerrors.Errorf("HTTP request failed with status %d", hresp.StatusCode)
 				}
@@ -1829,7 +1835,9 @@ var mk20DealCmd = &cli.Command{
 			if err != nil {
 				return err
 			}
-			defer file.Close()
+			defer func() {
+				_ = file.Close()
+			}()
 			scanner := bufio.NewScanner(file)
 			for scanner.Scan() {
 				line := scanner.Text()
@@ -2135,7 +2143,7 @@ var mk20ClientChunkUploadCmd = &cli.Command{
 		// Calculate the number of chunks
 		numChunks := int((size + chunkSize - 1) / chunkSize)
 
-		f.Close()
+		_ = f.Close()
 
 		api, closer, err := lcli.GetGatewayAPIV1(cctx)
 		if err != nil {
@@ -2221,7 +2229,9 @@ var mk20ClientChunkUploadCmd = &cli.Command{
 		if err != nil {
 			return xerrors.Errorf("failed to open file: %w", err)
 		}
-		defer x.Close()
+		defer func() {
+			_ = x.Close()
+		}()
 
 		for {
 			gc, err := http.NewRequest("GET", purl.String()+"/market/mk20/uploads/"+dealid.String(), nil)
@@ -2480,7 +2490,7 @@ var mk20PDPDealCmd = &cli.Command{
 		rootIDs := cctx.Uint64Slice("root-id")
 		proofSetSet := cctx.IsSet("proofset-id")
 		proofsetID := cctx.Uint64("proofset-id")
-		if !(addRoot || removeRoot || addProofset || removeProofset) {
+		if !addRoot && !removeRoot && !addProofset && !removeProofset {
 			return xerrors.Errorf("at least one of --add-root, --remove-root, --add-proofset, --remove-proofset must be set")
 		}
 
@@ -2533,7 +2543,9 @@ var mk20PDPDealCmd = &cli.Command{
 				if err != nil {
 					return err
 				}
-				defer file.Close()
+				defer func() {
+					_ = file.Close()
+				}()
 				scanner := bufio.NewScanner(file)
 				for scanner.Scan() {
 					line := scanner.Text()
@@ -2804,7 +2816,9 @@ var mk20ClientUploadCmd = &cli.Command{
 			return xerrors.Errorf("opening file: %w", err)
 		}
 
-		defer f.Close()
+		defer func() {
+			_ = f.Close()
+		}()
 
 		stat, err := f.Stat()
 		if err != nil {

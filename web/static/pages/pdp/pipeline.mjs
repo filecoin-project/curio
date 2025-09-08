@@ -2,7 +2,7 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/gh/lit/dist@3/al
 import RPCCall from '/lib/jsonrpc.mjs';
 import { formatDate } from '/lib/dateutil.mjs';
 
-class MK20DealPipelines extends LitElement {
+class MK20PDPPipelines extends LitElement {
     static properties = {
         deals: { type: Array },
         limit: { type: Number },
@@ -40,7 +40,7 @@ class MK20DealPipelines extends LitElement {
     async loadData() {
         try {
             const params = [this.limit, this.offset];
-            const deals = await RPCCall('MK20DDOPipelines', params);
+            const deals = await RPCCall('MK20PDPPipelines', params);
             this.deals = deals || [];
 
             // Load failed tasks data
@@ -371,4 +371,4 @@ class MK20DealPipelines extends LitElement {
     `;
 }
 
-customElements.define('mk20-deal-pipelines', MK20DealPipelines);
+customElements.define('mk20-pdp-pipelines', MK20PDPPipelines);

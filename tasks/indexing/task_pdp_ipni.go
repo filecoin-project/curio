@@ -249,7 +249,9 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			return false, xerrors.Errorf("getting piece reader from piece park: %w", err)
 		}
 
-		defer reader.Close()
+		defer func() {
+			_ = reader.Close()
+		}()
 
 		recs := make(chan indexstore.Record, 1)
 
@@ -537,7 +539,7 @@ func (P *PDPIPNITask) schedule(ctx context.Context, taskFunc harmonytask.AddTask
 			// Mark deal is complete if:
 			// 1. We don't need to announce anything
 			// 2. Both type of announcements are done
-			if !(p.Announce && p.AnnouncePayload) || (p.Announced && p.AnnouncedPayload) {
+			if !(p.Announce && p.AnnouncePayload) || (p.Announced && p.AnnouncedPayload) { //nolint:staticcheck
 				complete = &p.ID
 				return false, nil
 			}

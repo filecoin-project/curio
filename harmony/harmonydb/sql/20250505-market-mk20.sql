@@ -260,10 +260,9 @@ CREATE TABLE market_mk20_upload_waiting (
 CREATE TABLE market_mk20_download_pipeline (
     id TEXT NOT NULL,
     product TEXT NOT NULL, -- This allows us to run multiple refs per product for easier lifecycle management
-    piece_cid TEXT NOT NULL, -- This is pieceCid V1 to allow easy table lookups
-    piece_size BIGINT NOT NULL,
+    piece_cid_v2 TEXT NOT NULL,
     ref_ids BIGINT[] NOT NULL,
-    PRIMARY KEY (id, product, piece_cid, piece_size)
+    PRIMARY KEY (id, product, piece_cid_v2)
 );
 
 -- Offline URLs for PoRep deals.
@@ -363,7 +362,7 @@ CREATE TRIGGER trg_ready_at_chunks_update
     EXECUTE FUNCTION set_ready_at_when_all_chunks_complete();
 
 -- This function triggers a download for an offline piece.
--- It is different from MK1.2 PoRep pipeline as it download the offline pieces
+-- It is different from MK1.2 PoRep pipeline as it downloads the offline pieces
 -- locally. This is to allow serving retrievals with piece park.
 CREATE OR REPLACE FUNCTION process_offline_download(
   _id TEXT,
@@ -396,13 +395,13 @@ BEGIN
     FROM market_mk20_pipeline
     WHERE id = _id AND piece_cid_v2 = _piece_cid_v2 LIMIT 1;
 
-    -- 3. Look for existing piece
+    -- 3. Look for an existing piece
     SELECT id
     INTO _piece_id
     FROM parked_pieces
     WHERE piece_cid = _piece_cid AND piece_padded_size = _piece_size;
 
-    -- 4. Insert piece if not found
+    -- 4. Insert piece if it is not found
     IF NOT FOUND THEN
         INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term)
         VALUES (_piece_cid, _piece_size, _raw_size, NOT (_deal_aggregation > 0))
@@ -415,9 +414,9 @@ BEGIN
         RETURNING ref_id INTO _ref_id;
 
     -- 6. Insert or update download pipeline with ref_id
-    INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, product, ref_ids)
-    VALUES (_id, _piece_cid, _piece_size, _product, ARRAY[_ref_id])
-    ON CONFLICT (id, piece_cid, piece_size, product) DO UPDATE
+    INSERT INTO market_mk20_download_pipeline (id, piece_cid_v2, product, ref_ids)
+    VALUES (_id, _piece_cid_v2, _product, ARRAY[_ref_id])
+    ON CONFLICT (id, piece_cid_v2, product) DO UPDATE
     SET ref_ids = (
         SELECT ARRAY(
             SELECT DISTINCT r
@@ -550,6 +549,9 @@ CREATE TABLE pdp_pipeline (
 
     downloaded BOOLEAN DEFAULT FALSE,
 
+    commp_task_id BIGINT DEFAULT NULL,
+    after_commp BOOLEAN DEFAULT FALSE,
+
     deal_aggregation INT NOT NULL DEFAULT 0,
     aggr_index BIGINT DEFAULT 0,
     agg_task_id BIGINT DEFAULT NULL,
@@ -581,6 +583,69 @@ CREATE TABLE pdp_pipeline (
 
     PRIMARY KEY (id, aggr_index)
 );
+
+-- This function is used to mark a piece as downloaded in pdp_pipeline
+-- A deal with multiple HTTP sources will have multiple ref_ids,
+-- and download is handled by market_mk20_download_pipeline table
+-- We add ref_id to pdp_pipeline once download is successful.
+create or replace function mk20_pdp_mark_downloaded(_product text)
+returns integer
+language plpgsql
+as $$
+declare
+    updated_count int := 0;
+begin
+    with candidates as (
+        select p.id, p.piece_cid_v2, dp.ref_ids
+        from pdp_pipeline p
+        join market_mk20_download_pipeline dp
+          on dp.id = p.id
+          and dp.piece_cid_v2 = p.piece_cid_v2
+          and dp.product = _product
+        where p.piece_ref is null
+    ),
+    picked as (
+        -- choose ONE completed ref_id from the array for each (id,piece_cid_v2)
+        select c.id, c.piece_cid_v2, c.ref_ids, ch.ref_id as chosen_ref
+        from candidates c
+        cross join lateral (
+            select pr.ref_id
+            from unnest(c.ref_ids) as r(ref_id)
+            join parked_piece_refs pr on pr.ref_id = r.ref_id
+            join parked_pieces pp on pp.id = pr.piece_id
+            where pp.complete = true
+            limit 1
+        ) ch
+    ),
+    del_other_refs as (
+        delete from parked_piece_refs pr
+        using picked
+        where pr.ref_id = any(picked.ref_ids)
+            and pr.ref_id != picked.chosen_ref
+        returning 1
+    ),
+    del_download_rows as (
+        delete from market_mk20_download_pipeline dp
+        using picked
+        where dp.id = picked.id
+            and dp.piece_cid_v2 = picked.piece_cid_v2
+            and dp.product = _product
+        returning 1
+    ),
+    upd as (
+        update pdp_pipeline p
+        set downloaded = true,
+            piece_ref  = picked.chosen_ref
+        from picked
+        where p.id = picked.id
+            and p.piece_cid_v2 = picked.piece_cid_v2
+        returning 1
+    )
+    select count(*) into updated_count from upd;
+
+    return updated_count;
+end;
+$$;
 
 CREATE TABLE market_mk20_clients (
     client TEXT PRIMARY KEY,
@@ -750,5 +815,65 @@ BEGIN
     END IF;
 END;
 $$ LANGUAGE plpgsql;
+
+
+create or replace function mk20_ddo_mark_downloaded(_product text)
+returns integer
+language plpgsql
+as $$
+declare
+updated_count int := 0;
+begin
+    with candidates as (
+        select p.id, p.piece_cid_v2, dp.ref_ids
+        from market_mk20_pipeline p
+        join market_mk20_download_pipeline dp
+          on dp.id = p.id
+              and dp.piece_cid_v2 = p.piece_cid_v2
+              and dp.product = _product
+        where p.piece_ref is null
+    ),
+    picked as (
+        -- choose ONE completed ref_id from the array for each (id,piece_cid_v2)
+        select c.id, c.piece_cid_v2, c.ref_ids, ch.ref_id as chosen_ref
+        from candidates c
+        cross join lateral (
+            select pr.ref_id
+            from unnest(c.ref_ids) as r(ref_id)
+            join parked_piece_refs pr on pr.ref_id = r.ref_id
+            join parked_pieces pp on pp.id = pr.piece_id
+            where pp.complete = true
+            limit 1
+        ) ch
+    ),
+    del_other_refs as (
+        delete from parked_piece_refs pr
+        using picked
+        where pr.ref_id = any(picked.ref_ids)
+        and pr.ref_id != picked.chosen_ref
+        returning 1
+    ),
+    del_download_rows as (
+        delete from market_mk20_download_pipeline dp
+        using picked
+        where dp.id = picked.id
+        and dp.piece_cid_v2 = picked.piece_cid_v2
+        and dp.product = _product
+        returning 1
+    ),
+    upd as (
+        update market_mk20_pipeline p
+        set downloaded = true,
+            url        = 'pieceref:' || picked.chosen_ref::text
+        from picked
+        where p.id = picked.id
+        and p.piece_cid_v2 = picked.piece_cid_v2
+        returning 1
+    )
+    select count(*) into updated_count from upd;
+
+    return updated_count;
+end;
+$$;
 
 

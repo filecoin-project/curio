@@ -3,7 +3,6 @@ package indexstore
 import (
 	"context"
 	"embed"
-	_ "embed"
 	"errors"
 	"fmt"
 	"math/rand"

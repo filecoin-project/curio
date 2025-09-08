@@ -24,7 +24,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
-var UnknowContract = errors.New("provider does not work with this market")
+var ErrUnknowContract = errors.New("provider does not work with this market")
 
 // DDOV1 defines a structure for handling provider, client, and piece manager information with associated contract and notification details
 // for a DDO deal handling.
@@ -34,29 +34,29 @@ type DDOV1 struct {
 	Provider address.Address `json:"provider"`
 
 	// Actor providing AuthorizeMessage (like f1/f3 wallet) able to authorize actions such as managing ACLs
-	PieceManager address.Address `json:"piece_manager"`
+	PieceManager address.Address `json:"pieceManager"`
 
 	// Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.
 	// It must be at least 518400
 	Duration abi.ChainEpoch `json:"duration"`
 
 	// AllocationId represents an allocation identifier for the deal.
-	AllocationId *verifreg.AllocationId `json:"allocation_id,omitempty" swaggertype:"integer" format:"uint64" example:"1"`
+	AllocationId *verifreg.AllocationId `json:"allocationId,omitempty" swaggertype:"integer" format:"uint64" example:"1"`
 
 	// ContractAddress specifies the address of the contract governing the deal
-	ContractAddress string `json:"contract_address"`
+	ContractAddress string `json:"contractAddress"`
 
 	// ContractDealIDMethod specifies the method name to verify the deal and retrieve the deal ID for a contract
-	ContractVerifyMethod string `json:"contract_verify_method"`
+	ContractVerifyMethod string `json:"contractVerifyMethod"`
 
 	// ContractDealIDMethodParams represents encoded parameters for the contract verify method if required by the contract
-	ContractVerifyMethodParams []byte `json:"contract_verify_method_params,omitempty" swaggertype:"string" format:"byte"`
+	ContractVerifyMethodParams []byte `json:"contractVerifyMethodParams,omitempty" swaggertype:"string" format:"byte"`
 
 	// NotificationAddress specifies the address to which notifications will be relayed to when sector is activated
-	NotificationAddress string `json:"notification_address"`
+	NotificationAddress string `json:"notificationAddress"`
 
 	// NotificationPayload holds the notification data typically in a serialized byte array format.
-	NotificationPayload []byte `json:"notification_payload,omitempty" swaggertype:"string" format:"byte"`
+	NotificationPayload []byte `json:"notificationPayload,omitempty" swaggertype:"string" format:"byte"`
 }
 
 func (d *DDOV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {
@@ -130,7 +130,7 @@ func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.
 	err := db.QueryRow(ctx, `SELECT abi FROM ddo_contracts WHERE address = $1`, d.ContractAddress).Scan(&abiStr)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return -1, ErrMarketNotEnabled, UnknowContract
+			return -1, ErrMarketNotEnabled, ErrUnknowContract
 		}
 		return -1, ErrServerInternalError, xerrors.Errorf("getting abi: %w", err)
 	}

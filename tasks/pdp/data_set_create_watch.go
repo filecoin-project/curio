@@ -207,10 +207,10 @@ func extractDataSetIdFromReceipt(receipt *types.Receipt) (uint64, error) {
 }
 
 func getProvingPeriodChallengeWindow(ctx context.Context, ethClient *ethclient.Client, listenerAddr common.Address) (uint64, uint64, error) {
-	// ProvingPeriod
-	schedule, err := contract.NewIPDPProvingSchedule(listenerAddr, ethClient)
+	// Get the proving schedule from the listener (handles view contract indirection)
+	schedule, err := contract.GetProvingScheduleFromListener(listenerAddr, ethClient)
 	if err != nil {
-		return 0, 0, xerrors.Errorf("failed to create proving schedule binding, check that listener has proving schedule methods: %w", err)
+		return 0, 0, xerrors.Errorf("failed to get proving schedule from listener: %w", err)
 	}
 
 	config, err := schedule.GetPDPConfig(&bind.CallOpts{Context: ctx})

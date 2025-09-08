@@ -70,6 +70,7 @@ class DealDetails extends LitElement {
               </table>
     
             ${products?.ddo_v1 ? this.renderDDOV1(products.ddo_v1) : ''}
+            ${products?.pdp_v1 ? this.renderPDPV1(products.pdp_v1) : ''}
             ${products?.retrieval_v1 ? this.renderRetV1(products.retrieval_v1) : ''}
         `;
     }
@@ -229,13 +230,30 @@ class DealDetails extends LitElement {
     `;
     }
 
+    renderPDPV1(pdp) {
+        if (!pdp) return '';
+        return html`
+            <h6>PDP V1</h6>
+            <table class="table table-dark table-striped table-sm">
+                <tr><th>Create DataSet</th><td><yes-no .value="${pdp.create_data_set}"></td></tr>
+                <tr><th>Create Piece</th><td><yes-no .value="${pdp.add_piece}"></td></tr>
+                <tr><th>Remove Piece</th><td><yes-no .value="${pdp.delete_piece}"></td><</tr>
+                <tr><th>Remove DataSet</th><td><yes-no .value="${pdp.delete_data_set}"></td></tr>
+                <tr><th>Record Keeper</th><td>${pdp.record_keeper}></td></tr>
+                ${pdp.data_set_id ? html`<tr><th>DataSet ID</th><td>${pdp.data_set_id}</td></tr>` : ``}
+                ${pdp.piece_ids ? html`<tr><th>Piece IDs</th><td>${pdp.piece_ids}</td></tr>` : ``}
+            </table>
+        `;
+    }
+
     renderRetV1(ret) {
         if (!ret) return '';
         return html`
       <h6>Retrieval v1</h6>
       <table class="table table-dark table-striped table-sm">
-        <tr><th>Indexing</th><td>${ret.indexing ? 'Yes' : 'No'}</td></tr>
-        <tr><th>Announce to IPNI</th><td>${ret.announce_payload ? 'Yes' : 'No'}</td></tr>
+          <tr><th>Indexing</th><td>${ret.indexing ? 'Yes' : 'No'}</td></tr>
+          <tr><th>Announce Piece to IPNI</th><td>${ret.announce_payload ? 'Yes' : 'No'}</td></tr>
+          <tr><th>Announce Payload to IPNI</th><td>${ret.announce_payload ? 'Yes' : 'No'}</td></tr>
       </table>
     `;
     }

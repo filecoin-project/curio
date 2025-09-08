@@ -88,7 +88,9 @@ func (c *HTTPClient) do(ctx context.Context, method, p string, body io.Reader, v
 			Error:  err,
 		}
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != 200 {
 		msg, err := io.ReadAll(resp.Body)

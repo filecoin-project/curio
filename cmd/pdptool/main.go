@@ -121,7 +121,9 @@ var authCreateServiceSecretCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to open pdpservice.json for writing: %v", err)
 		}
-		defer file.Close()
+		defer func() {
+			_ = file.Close()
+		}()
 		encoder := json.NewEncoder(file)
 		if err := encoder.Encode(&serviceSecret); err != nil {
 			return fmt.Errorf("failed to write to pdpservice.json: %v", err)
@@ -210,7 +212,9 @@ var pingCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to send request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		// Check the response
 		if resp.StatusCode == http.StatusOK {
@@ -261,7 +265,9 @@ func loadPrivateKey() (*ecdsa.PrivateKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open pdpservice.json: %v", err)
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 	var serviceSecret map[string]string
 	decoder := json.NewDecoder(file)
 	if err := decoder.Decode(&serviceSecret); err != nil {
@@ -341,7 +347,9 @@ var piecePrepareCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to open input file: %v", err)
 		}
-		defer file.Close()
+		defer func() {
+			_ = file.Close()
+		}()
 
 		// Get the piece size from flag or use file size
 		fi, err := file.Stat()
@@ -402,8 +410,8 @@ func startLocalNotifyServer() (string, chan struct{}, error) {
 	}()
 
 	defer func() {
-		server.Close()
-		ln.Close()
+		_ = server.Close()
+		_ = ln.Close()
 	}()
 	return serverAddr, notifyReceived, nil
 }
@@ -422,9 +430,12 @@ func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtT
 	if err != nil {
 		return fmt.Errorf("failed to send request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
-	if resp.StatusCode == http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusOK:
 		if verbose {
 			fmt.Println("http.StatusOK")
 		}
@@ -439,7 +450,7 @@ func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtT
 			fmt.Printf("Piece already exists on the server. Piece CID: %s\n", pieceCID)
 		}
 		return nil
-	} else if resp.StatusCode == http.StatusCreated {
+	case http.StatusCreated:
 		if verbose {
 			fmt.Println("http.StatusCreated")
 		}
@@ -466,7 +477,9 @@ func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtT
 		if err != nil {
 			return fmt.Errorf("failed to upload piece data: %v", err)
 		}
-		defer uploadResp.Body.Close()
+		defer func() {
+			_ = uploadResp.Body.Close()
+		}()
 
 		if uploadResp.StatusCode != http.StatusNoContent {
 			body, _ := io.ReadAll(uploadResp.Body)
@@ -480,7 +493,7 @@ func uploadOnePiece(client *http.Client, serviceURL string, reqBody []byte, jwtT
 		}
 
 		return nil
-	} else {
+	default:
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("server returned status code %d: %s", resp.StatusCode, string(body))
 	}
@@ -567,7 +580,9 @@ var pieceUploadCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to open input file: %v", err)
 		}
-		defer file.Close()
+		defer func() {
+			_ = file.Close()
+		}()
 
 		// Get the piece size
 		fi, err := file.Stat()
@@ -696,7 +711,9 @@ var uploadFileCmd = &cli.Command{
 			if err != nil {
 				return fmt.Errorf("failed to create chunk file: %v", err)
 			}
-			defer chunkFile.Close()
+			defer func() {
+				_ = chunkFile.Close()
+			}()
 		}
 		if jwtToken == "" {
 			if serviceName == "" {
@@ -714,7 +731,9 @@ var uploadFileCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to open input file: %v", err)
 		}
-		defer file.Close()
+		defer func() {
+			_ = file.Close()
+		}()
 
 		// Get the file size
 		fi, err := file.Stat()
@@ -809,7 +828,7 @@ var uploadFileCmd = &cli.Command{
 				}
 			}
 			if chunkFile != nil {
-				if _, err := chunkFile.Write([]byte(fmt.Sprintf("%s\n", commP))); err != nil {
+				if _, err := fmt.Fprintf(chunkFile, "%s\n", commP); err != nil {
 					return fmt.Errorf("failed to write chunk to file: %v", err)
 				}
 			}
@@ -922,7 +941,9 @@ var createProofSetCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to send request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		// Read and display the response
 		bodyBytes, err := io.ReadAll(resp.Body)
@@ -1000,7 +1021,9 @@ var getProofSetStatusCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to send request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		// Read and process the response
 		bodyBytes, err := io.ReadAll(resp.Body)
@@ -1101,7 +1124,9 @@ var getProofSetCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to send request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		// Read and process the response
 		bodyBytes, err := io.ReadAll(resp.Body)
@@ -1269,7 +1294,9 @@ var addRootsCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to send request: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 
 		// Read and display the response
 		bodyBytes, err := io.ReadAll(resp.Body)
@@ -1319,14 +1346,18 @@ var downloadFileCmd = &cli.Command{
 		if err != nil {
 			return fmt.Errorf("failed to open chunk file: %v", err)
 		}
-		defer chunkFile.Close()
+		defer func() {
+			_ = chunkFile.Close()
+		}()
 
 		// Open the output file for writing
 		outputFile, err := os.Create(outputFileName)
 		if err != nil {
 			return fmt.Errorf("failed to create output file: %v", err)
 		}
-		defer outputFile.Close()
+		defer func() {
+			_ = outputFile.Close()
+		}()
 
 		// Read all CIDs from the chunk file
 		var cids []string
@@ -1369,13 +1400,13 @@ var downloadFileCmd = &cli.Command{
 
 			// Check response status
 			if resp.StatusCode != http.StatusOK {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 				return fmt.Errorf("failed to download piece %s: status code %d", cidString, resp.StatusCode)
 			}
 
 			// Stream the response body to the output file
 			_, err = io.Copy(outputFile, resp.Body)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if err != nil {
 				return fmt.Errorf("failed to write piece %s to output file: %v", cidString, err)
 			}

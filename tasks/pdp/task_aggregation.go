@@ -202,7 +202,9 @@ func (a *AggregatePDPDealTask) Do(taskID harmonytask.TaskID, stillOwned func() b
 					return false, fmt.Errorf("failed to get piece reader: %w", err)
 				}
 			}
-			defer pr.Close()
+			defer func() {
+				_ = pr.Close()
+			}()
 			pieceParked = true
 			parkedPieceID = pid
 		} else {
@@ -288,8 +290,8 @@ func (a *AggregatePDPDealTask) Do(taskID harmonytask.TaskID, stillOwned func() b
 
 		n, err := tx.Exec(`INSERT INTO pdp_pipeline (
 									id, client, piece_cid_v2, data_set_id, extra_data, piece_ref, 
-                          			downloaded, deal_aggregation, aggr_index, aggregated, indexing, announce, announce_payload) 
-								VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, 0, TRUE, $8, $9, $10)`,
+                          			downloaded, deal_aggregation, aggr_index, aggregated, indexing, announce, announce_payload, after_commp) 
+								VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, 0, TRUE, $8, $9, $10, TRUE)`,
 			id, deal.Client, deal.Data.PieceCID.String(), *pdp.DataSetID,
 			pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 		if err != nil {
@@ -348,6 +350,7 @@ func (a *AggregatePDPDealTask) schedule(ctx context.Context, taskFunc harmonytas
 										FROM pdp_pipeline
 										GROUP BY id
 										HAVING bool_and(downloaded)
+										   AND bool_and(after_commp)
 										   AND bool_and(NOT aggregated)
 										   AND bool_and(agg_task_id IS NULL);`)
 			if err != nil {
@@ -365,6 +368,7 @@ func (a *AggregatePDPDealTask) schedule(ctx context.Context, taskFunc harmonytas
 			n, err := tx.Exec(`UPDATE pdp_pipeline SET agg_task_id = $1 
                             		WHERE id = $2 
                             		  AND downloaded = TRUE
+                            		  AND after_commp = TRUE
                             		  AND aggregated = FALSE 
                             		  AND agg_task_id IS NULL`, id, deal.ID)
 			if err != nil {

@@ -93,7 +93,9 @@ func (t *TaskPDPSaveCache) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 			if err != nil {
 				return false, xerrors.Errorf("failed to get shared piece reader: %w", err)
 			}
-			defer reader.Close()
+			defer func() {
+				_ = reader.Close()
+			}()
 
 			n, err := io.CopyBuffer(cp, reader, make([]byte, 4<<20))
 			if err != nil {
@@ -182,7 +184,7 @@ func (t *TaskPDPSaveCache) schedule(ctx context.Context, taskFunc harmonytask.Ad
 				return false, xerrors.Errorf("no valid deal ID found for scheduling")
 			}
 
-			_, err = tx.Exec(`UPDATE pdp_pipeline SET save_cache_task_id = $1 WHERE id = $2 AND after_save_cache = FALSE AND after_add_piece_msg = TRUE`, id, did)
+			_, err = tx.Exec(`UPDATE pdp_pipeline SET save_cache_task_id = $1 WHERE id = $2 AND after_save_cache = FALSE AND after_add_piece_msg = TRUE AND save_cache_task_id IS NULL`, id, did)
 			if err != nil {
 				return false, xerrors.Errorf("failed to update pdp_pipeline: %w", err)
 			}
@@ -568,7 +570,7 @@ func (cp *Calc) hashSlab254(layerIdx uint, collectSnapshot bool, slab []byte) {
 
 func NewCommPWithSize(size uint64) *Calc {
 	c := new(Calc)
-	c.state.size = size
+	c.size = size
 
 	c.snapshotLayerIndex(size, false)
 
@@ -645,7 +647,7 @@ func (cp *Calc) DigestWithSnapShot() ([]byte, uint64, int, []NodeDigest, error) 
 
 func NewCommPWithSizeForTest(size uint64) *Calc {
 	c := new(Calc)
-	c.state.size = size
+	c.size = size
 
 	c.snapshotLayerIndex(size, true)
 

@@ -257,7 +257,6 @@ func (m *MK20) processDDODeal(ctx context.Context, deal *Deal, tx *harmonydb.Tx)
 }
 
 func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRejectionInfo, error) {
-	fmt.Println("I HAVE ENTERED DDO SANITY CHECK")
 	if !lo.Contains(m.miners, deal.Products.DDOV1.Provider) {
 		return &ProviderDealRejectionInfo{
 			HTTPCode: ErrBadProposal,
@@ -393,8 +392,6 @@ func (m *MK20) sanitizeDDODeal(ctx context.Context, deal *Deal) (*ProviderDealRe
 			}, nil
 		}
 	}
-
-	fmt.Println("I HAVE EXITED DDO SANITY CHECK")
 
 	return nil, nil
 }
@@ -644,8 +641,8 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 			refIds = append(refIds, refID)
 		}
 
-		n, err := tx.Exec(`INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, product, ref_ids) VALUES ($1, $2, $3, $4, $5)`,
-			dealID, pi.PieceCIDV1.String(), pi.Size, ProductNamePDPV1, refIds)
+		n, err := tx.Exec(`INSERT INTO market_mk20_download_pipeline (id, piece_cid_v2, product, ref_ids) VALUES ($1, $2, $3, $4)`,
+			dealID, deal.Data.PieceCID.String(), ProductNamePDPV1, refIds)
 		if err != nil {
 			return xerrors.Errorf("inserting PDP download pipeline: %w", err)
 		}
@@ -672,10 +669,11 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 
 		// Find all unique pieces where data source is HTTP
 		type downloadkey struct {
-			ID       string
-			PieceCID cid.Cid
-			Size     abi.PaddedPieceSize
-			RawSize  uint64
+			ID         string
+			PieceCIDV2 cid.Cid
+			PieceCID   cid.Cid
+			Size       abi.PaddedPieceSize
+			RawSize    uint64
 		}
 		toDownload := make(map[downloadkey][]HttpUrl)
 
@@ -685,11 +683,11 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 				return xerrors.Errorf("getting piece info: %w", err)
 			}
 			if piece.SourceHTTP != nil {
-				urls, ok := toDownload[downloadkey{ID: dealID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}]
+				urls, ok := toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}]
 				if ok {
-					toDownload[downloadkey{ID: dealID, PieceCID: spi.PieceCIDV1, Size: spi.Size}] = append(urls, piece.SourceHTTP.URLs...)
+					toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size}] = append(urls, piece.SourceHTTP.URLs...)
 				} else {
-					toDownload[downloadkey{ID: dealID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}] = piece.SourceHTTP.URLs
+					toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}] = piece.SourceHTTP.URLs
 				}
 			}
 		}
@@ -721,15 +719,15 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 									  SELECT id, $4, $5, FALSE FROM selected_piece
 									  RETURNING ref_id
 									)
-									INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, product, ref_ids)
-									VALUES ($6, $1, $2, $7, ARRAY[(SELECT ref_id FROM inserted_ref)])
-									ON CONFLICT (id, piece_cid, piece_size, product) DO UPDATE
+									INSERT INTO market_mk20_download_pipeline (id, piece_cid_v2, product, ref_ids)
+									VALUES ($6, $8, $7, ARRAY[(SELECT ref_id FROM inserted_ref)])
+									ON CONFLICT (id, piece_cid_v2, product) DO UPDATE
 									SET ref_ids = array_append(
 									  market_mk20_download_pipeline.ref_ids,
 									  (SELECT ref_id FROM inserted_ref)
 									)
 									WHERE NOT market_mk20_download_pipeline.ref_ids @> ARRAY[(SELECT ref_id FROM inserted_ref)];`,
-					k.PieceCID.String(), k.Size, k.RawSize, src.URL, headers, k.ID, ProductNamePDPV1)
+					k.PieceCID.String(), k.Size, k.RawSize, src.URL, headers, k.ID, ProductNamePDPV1, k.PieceCIDV2.String())
 			}
 
 			if batch.Len() > batchSize {
@@ -778,76 +776,82 @@ func insertPDPPipeline(ctx context.Context, tx *harmonydb.Tx, deal *Deal) error 
 
 func markDownloaded(ctx context.Context, db *harmonydb.DB) {
 	md := func(ctx context.Context, db *harmonydb.DB) {
-		var deals []struct {
-			ID       string `db:"id"`
-			PieceCID string `db:"piece_cid_v2"`
-		}
-
-		err := db.Select(ctx, &deals, `SELECT id, piece_cid_v2 FROM pdp_pipeline WHERE piece_ref IS NULL`)
+		//var deals []struct {
+		//	ID       string `db:"id"`
+		//	PieceCID string `db:"piece_cid_v2"`
+		//}
+		//
+		//err := db.Select(ctx, &deals, `SELECT id, piece_cid_v2 FROM pdp_pipeline WHERE piece_ref IS NULL`)
+		//if err != nil {
+		//	log.Errorw("error getting PDP deals", "error", err)
+		//}
+		//
+		//for _, deal := range deals {
+		//	_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+		//		pcid2, err := cid.Decode(deal.PieceCID)
+		//		if err != nil {
+		//			return false, xerrors.Errorf("decoding piece cid: %w", err)
+		//		}
+		//
+		//		pi, err := GetPieceInfo(pcid2)
+		//		if err != nil {
+		//			return false, xerrors.Errorf("getting piece info: %w", err)
+		//		}
+		//
+		//		var refid int64
+		//		err = tx.QueryRow(`SELECT u.ref_id FROM (
+		//							  SELECT unnest(dp.ref_ids) AS ref_id
+		//							  FROM market_mk20_download_pipeline dp
+		//							  WHERE dp.id = $1 AND dp.piece_cid = $2 AND dp.piece_size = $3 AND dp.product = $4
+		//							) u
+		//							JOIN parked_piece_refs pr ON pr.ref_id = u.ref_id
+		//							JOIN parked_pieces pp ON pp.id = pr.piece_id
+		//							WHERE pp.complete = TRUE
+		//							LIMIT 1;`, deal.ID, pi.PieceCIDV1.String(), pi.Size, ProductNamePDPV1).Scan(&refid)
+		//		if err != nil {
+		//			if errors.Is(err, pgx.ErrNoRows) {
+		//				return false, nil
+		//			}
+		//			return false, xerrors.Errorf("failed to check if the piece is downloaded: %w", err)
+		//		}
+		//
+		//		// Remove other ref_ids from piece_park_refs
+		//		_, err = tx.Exec(`DELETE FROM parked_piece_refs
+		//						WHERE ref_id IN (
+		//						  SELECT unnest(dp.ref_ids)
+		//						  FROM market_mk20_download_pipeline dp
+		//						  WHERE dp.id = $1 AND dp.piece_cid = $2 AND dp.piece_size = $3 AND dp.product = $4
+		//						)
+		//						AND ref_id != $5;`, deal.ID, pi.PieceCIDV1.String(), pi.Size, ProductNamePDPV1, refid)
+		//		if err != nil {
+		//			return false, xerrors.Errorf("failed to remove other ref_ids from piece_park_refs: %w", err)
+		//		}
+		//
+		//		_, err = tx.Exec(`DELETE FROM market_mk20_download_pipeline WHERE id = $1 AND piece_cid = $2 AND piece_size = $3 AND product = $4;`,
+		//			deal.ID, pi.PieceCIDV1.String(), pi.Size, ProductNamePDPV1)
+		//		if err != nil {
+		//			return false, xerrors.Errorf("failed to delete piece from download table: %w", err)
+		//		}
+		//
+		//		_, err = tx.Exec(`UPDATE pdp_pipeline SET downloaded = TRUE, piece_ref = $1
+		//                           WHERE id = $2
+		//                           AND piece_cid_v2 = $3`,
+		//			refid, deal.ID, deal.PieceCID)
+		//		if err != nil {
+		//			return false, xerrors.Errorf("failed to update download statos for PDP pipeline: %w", err)
+		//		}
+		//		return true, nil
+		//	}, harmonydb.OptionRetry())
+		//	if err != nil {
+		//		log.Errorw("error updating PDP deal", "deal", deal, "error", err)
+		//	}
+		//}
+		n, err := db.Exec(ctx, `SELECT mk20_pdp_mark_downloaded($1)`, ProductNamePDPV1)
 		if err != nil {
-			log.Errorw("error getting PDP deals", "error", err)
+			log.Errorf("failed to mark PDP downloaded piece: %v", err)
+			return
 		}
-
-		for _, deal := range deals {
-			_, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-				pcid2, err := cid.Decode(deal.PieceCID)
-				if err != nil {
-					return false, xerrors.Errorf("decoding piece cid: %w", err)
-				}
-
-				pi, err := GetPieceInfo(pcid2)
-				if err != nil {
-					return false, xerrors.Errorf("getting piece info: %w", err)
-				}
-
-				var refid int64
-				err = tx.QueryRow(`SELECT u.ref_id FROM (
-									  SELECT unnest(dp.ref_ids) AS ref_id
-									  FROM market_mk20_download_pipeline dp
-									  WHERE dp.id = $1 AND dp.piece_cid = $2 AND dp.piece_size = $3 AND dp.product = $4
-									) u
-									JOIN parked_piece_refs pr ON pr.ref_id = u.ref_id
-									JOIN parked_pieces pp ON pp.id = pr.piece_id
-									WHERE pp.complete = TRUE
-									LIMIT 1;`, deal.ID, pi.PieceCIDV1.String(), pi.Size, ProductNamePDPV1).Scan(&refid)
-				if err != nil {
-					if errors.Is(err, pgx.ErrNoRows) {
-						return false, nil
-					}
-					return false, xerrors.Errorf("failed to check if the piece is downloaded: %w", err)
-				}
-
-				// Remove other ref_ids from piece_park_refs
-				_, err = tx.Exec(`DELETE FROM parked_piece_refs
-								WHERE ref_id IN (
-								  SELECT unnest(dp.ref_ids)
-								  FROM market_mk20_download_pipeline dp
-								  WHERE dp.id = $1 AND dp.piece_cid = $2 AND dp.piece_size = $3 AND dp.product = $4
-								)
-								AND ref_id != $5;`, deal.ID, pi.PieceCIDV1.String(), pi.Size, ProductNamePDPV1, refid)
-				if err != nil {
-					return false, xerrors.Errorf("failed to remove other ref_ids from piece_park_refs: %w", err)
-				}
-
-				_, err = tx.Exec(`DELETE FROM market_mk20_download_pipeline WHERE id = $1 AND piece_cid = $2 AND piece_size = $3 AND product = $4;`,
-					deal.ID, pi.PieceCIDV1.String(), pi.Size, ProductNamePDPV1)
-				if err != nil {
-					return false, xerrors.Errorf("failed to delete piece from download table: %w", err)
-				}
-
-				_, err = tx.Exec(`UPDATE pdp_pipeline SET downloaded = TRUE, piece_ref = $1 
-                                   WHERE id = $2
-                                   AND piece_cid_v2 = $3`,
-					refid, deal.ID, deal.PieceCID)
-				if err != nil {
-					return false, xerrors.Errorf("failed to update download statos for PDP pipeline: %w", err)
-				}
-				return true, nil
-			}, harmonydb.OptionRetry())
-			if err != nil {
-				log.Errorw("error updating PDP deal", "deal", deal, "error", err)
-			}
-		}
+		log.Debugf("Succesfully marked %d PDP pieces as downloaded", n)
 	}
 
 	ticker := time.NewTicker(time.Second * 2)

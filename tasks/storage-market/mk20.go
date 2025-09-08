@@ -83,6 +83,7 @@ func (d *CurioStorageDealMarket) processMK20Deals(ctx context.Context) {
 		}
 	}()
 	d.processMK20DealPieces(ctx)
+	d.downloadMk20Deal(ctx)
 	d.processMK20DealAggregation(ctx)
 	d.processMK20DealIngestion(ctx)
 }
@@ -291,8 +292,8 @@ func (d *CurioStorageDealMarket) insertDealInPipelineForUpload(ctx context.Conte
 
 				n, err := tx.Exec(`INSERT INTO pdp_pipeline (
 						id, client, piece_cid_v2, data_set_id, extra_data, piece_ref, 
-                          downloaded, deal_aggregation, aggr_index, aggregated, indexing, announce, announce_payload) 
-					VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, 0, TRUE, $8, $9, $10)`,
+                          downloaded, deal_aggregation, aggr_index, aggregated, indexing, announce, announce_payload, after_commp) 
+					VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, 0, TRUE, $8, $9, $10, TRUE)`,
 					id, deal.Client, deal.Data.PieceCID.String(), *pdp.DataSetID,
 					pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 				if err != nil {
@@ -385,8 +386,8 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 			refIds = append(refIds, refID)
 		}
 
-		n, err := tx.Exec(`INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, product, ref_ids) VALUES ($1, $2, $3, $4, $5)`,
-			dealID, pi.PieceCIDV1.String(), pi.Size, mk20.ProductNameDDOV1, refIds)
+		n, err := tx.Exec(`INSERT INTO market_mk20_download_pipeline (id, piece_cid_v2, product, ref_ids) VALUES ($1, $2, $3, $4)`,
+			dealID, deal.Data.PieceCID.String(), mk20.ProductNameDDOV1, refIds)
 		if err != nil {
 			return xerrors.Errorf("inserting mk20 download pipeline: %w", err)
 		}
@@ -435,10 +436,11 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 
 		// Find all unique pieces where data source is HTTP
 		type downloadkey struct {
-			ID       string
-			PieceCID cid.Cid
-			Size     abi.PaddedPieceSize
-			RawSize  uint64
+			ID         string
+			PieceCIDV2 cid.Cid
+			PieceCID   cid.Cid
+			Size       abi.PaddedPieceSize
+			RawSize    uint64
 		}
 		toDownload := make(map[downloadkey][]mk20.HttpUrl)
 
@@ -448,11 +450,11 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 				return xerrors.Errorf("getting piece info: %w", err)
 			}
 			if piece.SourceHTTP != nil {
-				urls, ok := toDownload[downloadkey{ID: dealID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}]
+				urls, ok := toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}]
 				if ok {
-					toDownload[downloadkey{ID: dealID, PieceCID: spi.PieceCIDV1, Size: spi.Size}] = append(urls, piece.SourceHTTP.URLs...)
+					toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size}] = append(urls, piece.SourceHTTP.URLs...)
 				} else {
-					toDownload[downloadkey{ID: dealID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}] = piece.SourceHTTP.URLs
+					toDownload[downloadkey{ID: dealID, PieceCIDV2: piece.PieceCID, PieceCID: spi.PieceCIDV1, Size: spi.Size, RawSize: spi.RawSize}] = piece.SourceHTTP.URLs
 				}
 			}
 		}
@@ -484,15 +486,15 @@ func insertPiecesInTransaction(ctx context.Context, tx *harmonydb.Tx, deal *mk20
 									  SELECT id, $4, $5, FALSE FROM selected_piece
 									  RETURNING ref_id
 									)
-									INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, product, ref_ids)
-									VALUES ($6, $1, $2, $7, ARRAY[(SELECT ref_id FROM inserted_ref)])
-									ON CONFLICT (id, piece_cid, piece_size, product) DO UPDATE
+									INSERT INTO market_mk20_download_pipeline (id, piece_cid_v2, product, ref_ids)
+									VALUES ($6, $8, $7, ARRAY[(SELECT ref_id FROM inserted_ref)])
+									ON CONFLICT (id, piece_cid_v2, product) DO UPDATE
 									SET ref_ids = array_append(
 									  market_mk20_download_pipeline.ref_ids,
 									  (SELECT ref_id FROM inserted_ref)
 									)
 									WHERE NOT market_mk20_download_pipeline.ref_ids @> ARRAY[(SELECT ref_id FROM inserted_ref)];`,
-					k.PieceCID.String(), k.Size, k.RawSize, src.URL, headers, k.ID, mk20.ProductNameDDOV1)
+					k.PieceCID.String(), k.Size, k.RawSize, src.URL, headers, k.ID, mk20.ProductNameDDOV1, k.PieceCIDV2.String())
 			}
 
 			if batch.Len() > batchSize {
@@ -601,12 +603,12 @@ func (d *CurioStorageDealMarket) processMK20DealPieces(ctx context.Context) {
 }
 
 func (d *CurioStorageDealMarket) processMk20Pieces(ctx context.Context, piece MK20PipelinePiece) error {
-	err := d.downloadMk20Deal(ctx, piece)
-	if err != nil {
-		return err
-	}
+	//err := d.downloadMk20Deal(ctx, piece)
+	//if err != nil {
+	//	return err
+	//}
 
-	err = d.findOfflineURLMk20Deal(ctx, piece)
+	err := d.findOfflineURLMk20Deal(ctx, piece)
 	if err != nil {
 		return err
 	}
@@ -625,68 +627,74 @@ func (d *CurioStorageDealMarket) processMk20Pieces(ctx context.Context, piece MK
 }
 
 // downloadMk20Deal handles the downloading process of an MK20 pipeline piece by scheduling it in the database and updating its status.
-// If the pieces are part of an aggregation deal then we download for short term otherwise we check if piece needs to be indexed.
-// If indexing is true then we download for long term to avoid the need to have unsealed copy
-func (d *CurioStorageDealMarket) downloadMk20Deal(ctx context.Context, piece MK20PipelinePiece) error {
-	if !piece.Downloaded && piece.Started {
-		_, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
-			var refid int64
-			err = tx.QueryRow(`SELECT u.ref_id FROM (
-									  SELECT unnest(dp.ref_ids) AS ref_id
-									  FROM market_mk20_download_pipeline dp
-									  WHERE dp.id = $1 AND dp.piece_cid = $2 AND dp.piece_size = $3 AND dp.product = $4
-									) u
-									JOIN parked_piece_refs pr ON pr.ref_id = u.ref_id
-									JOIN parked_pieces pp ON pp.id = pr.piece_id
-									WHERE pp.complete = TRUE
-									LIMIT 1;`, piece.ID, piece.PieceCID, piece.PieceSize, mk20.ProductNameDDOV1).Scan(&refid)
-			if err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					return false, nil
-				}
-				return false, xerrors.Errorf("failed to check if the piece is downloaded: %w", err)
-			}
+// If the pieces are part of an aggregation deal then we download for short term otherwise,
+// we download for long term to avoid the need to have unsealed copy
+func (d *CurioStorageDealMarket) downloadMk20Deal(ctx context.Context) {
+	n, err := d.db.Exec(ctx, `SELECT mk20_ddo_mark_downloaded($1)`, mk20.ProductNameDDOV1)
+	if err != nil {
+		log.Errorf("failed to mark PDP downloaded piece: %v", err)
 
-			// Remove other ref_ids from piece_park_refs
-			_, err = tx.Exec(`DELETE FROM parked_piece_refs
-								WHERE ref_id IN (
-								  SELECT unnest(dp.ref_ids)
-								  FROM market_mk20_download_pipeline dp
-								  WHERE dp.id = $1 AND dp.piece_cid = $2 AND dp.piece_size = $3 AND dp.product = $4
-								)
-								AND ref_id != $5;`, piece.ID, piece.PieceCID, piece.PieceSize, mk20.ProductNameDDOV1, refid)
-			if err != nil {
-				return false, xerrors.Errorf("failed to remove other ref_ids from piece_park_refs: %w", err)
-			}
-
-			_, err = tx.Exec(`DELETE FROM market_mk20_download_pipeline WHERE id = $1 AND piece_cid = $2 AND piece_size = $3 AND product = $4;`,
-				piece.ID, piece.PieceCID, piece.PieceSize, mk20.ProductNameDDOV1)
-			if err != nil {
-				return false, xerrors.Errorf("failed to delete piece from download table: %w", err)
-			}
-
-			pieceIDUrl := url.URL{
-				Scheme: "pieceref",
-				Opaque: fmt.Sprintf("%d", refid),
-			}
-
-			_, err = tx.Exec(`UPDATE market_mk20_pipeline SET downloaded = TRUE, url = $1 
-                                   WHERE id = $2
-                                   AND piece_cid = $3
-                                   AND piece_size = $4`,
-				pieceIDUrl.String(), piece.ID, piece.PieceCID, piece.PieceSize)
-			if err != nil {
-				return false, xerrors.Errorf("failed to update pipeline piece table: %w", err)
-			}
-			piece.Downloaded = true
-			return true, nil
-		}, harmonydb.OptionRetry())
-
-		if err != nil {
-			return xerrors.Errorf("failed to schedule the deal for download: %w", err)
-		}
 	}
-	return nil
+	log.Debugf("Succesfully marked %d PDP pieces as downloaded", n)
+
+	//if !piece.Downloaded && piece.Started {
+	//_, err := d.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
+	//	var refid int64
+	//	err = tx.QueryRow(`SELECT u.ref_id FROM (
+	//							  SELECT unnest(dp.ref_ids) AS ref_id
+	//							  FROM market_mk20_download_pipeline dp
+	//							  WHERE dp.id = $1 AND dp.piece_cid = $2 AND dp.piece_size = $3 AND dp.product = $4
+	//							) u
+	//							JOIN parked_piece_refs pr ON pr.ref_id = u.ref_id
+	//							JOIN parked_pieces pp ON pp.id = pr.piece_id
+	//							WHERE pp.complete = TRUE
+	//							LIMIT 1;`, piece.ID, piece.PieceCID, piece.PieceSize, mk20.ProductNameDDOV1).Scan(&refid)
+	//	if err != nil {
+	//		if errors.Is(err, pgx.ErrNoRows) {
+	//			return false, nil
+	//		}
+	//		return false, xerrors.Errorf("failed to check if the piece is downloaded: %w", err)
+	//	}
+	//
+	//	// Remove other ref_ids from piece_park_refs
+	//	_, err = tx.Exec(`DELETE FROM parked_piece_refs
+	//						WHERE ref_id IN (
+	//						  SELECT unnest(dp.ref_ids)
+	//						  FROM market_mk20_download_pipeline dp
+	//						  WHERE dp.id = $1 AND dp.piece_cid = $2 AND dp.piece_size = $3 AND dp.product = $4
+	//						)
+	//						AND ref_id != $5;`, piece.ID, piece.PieceCID, piece.PieceSize, mk20.ProductNameDDOV1, refid)
+	//	if err != nil {
+	//		return false, xerrors.Errorf("failed to remove other ref_ids from piece_park_refs: %w", err)
+	//	}
+	//
+	//	_, err = tx.Exec(`DELETE FROM market_mk20_download_pipeline WHERE id = $1 AND piece_cid = $2 AND piece_size = $3 AND product = $4;`,
+	//		piece.ID, piece.PieceCID, piece.PieceSize, mk20.ProductNameDDOV1)
+	//	if err != nil {
+	//		return false, xerrors.Errorf("failed to delete piece from download table: %w", err)
+	//	}
+	//
+	//	pieceIDUrl := url.URL{
+	//		Scheme: "pieceref",
+	//		Opaque: fmt.Sprintf("%d", refid),
+	//	}
+	//
+	//	_, err = tx.Exec(`UPDATE market_mk20_pipeline SET downloaded = TRUE, url = $1
+	//                           WHERE id = $2
+	//                           AND piece_cid = $3
+	//                           AND piece_size = $4`,
+	//		pieceIDUrl.String(), piece.ID, piece.PieceCID, piece.PieceSize)
+	//	if err != nil {
+	//		return false, xerrors.Errorf("failed to update pipeline piece table: %w", err)
+	//	}
+	//	piece.Downloaded = true
+	//	return true, nil
+	//}, harmonydb.OptionRetry())
+	//
+	//if err != nil {
+	//	return xerrors.Errorf("failed to schedule the deal for download: %w", err)
+	//}
+	//}
 }
 
 // findOfflineURLMk20Deal find the URL for offline piece. In MK20, we don't work directly with remote pieces, we download them
@@ -790,10 +798,10 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 										  RETURNING ref_id
 										),
 										upsert_pipeline AS (
-										  INSERT INTO market_mk20_download_pipeline (id, piece_cid, piece_size, product, ref_ids)
-										  SELECT $1, $2, $3, $7, array_agg(ref_id)
+										  INSERT INTO market_mk20_download_pipeline (id, piece_cid_v2, product, ref_ids)
+										  SELECT $1, $8, $7, array_agg(ref_id)
 										  FROM inserted_ref
-										  ON CONFLICT (id, piece_cid, piece_size, product) DO UPDATE
+										  ON CONFLICT (id, piece_cid_v2, product) DO UPDATE
 										  SET ref_ids = (
 											SELECT array(
 											  SELECT DISTINCT r
@@ -804,7 +812,7 @@ func (d *CurioStorageDealMarket) findOfflineURLMk20Deal(ctx context.Context, pie
 										UPDATE market_mk20_pipeline
 										SET started = TRUE
 										WHERE id = $1 AND piece_cid = $2 AND piece_size = $3 AND started = FALSE;`,
-					piece.ID, piece.PieceCID, piece.PieceSize, rawSize, urlString, hdrs, mk20.ProductNameDDOV1)
+					piece.ID, piece.PieceCID, piece.PieceSize, rawSize, urlString, hdrs, mk20.ProductNameDDOV1, piece.PieceCIDV2)
 				if err != nil {
 					return false, xerrors.Errorf("failed to start download for offline deal using PieceLocator: %w", err)
 				}

@@ -13,10 +13,10 @@ type RetrievalV1 struct {
 	Indexing bool `json:"indexing"`
 
 	// AnnouncePayload indicates whether the payload should be announced to IPNI.
-	AnnouncePayload bool `json:"announce_payload"`
+	AnnouncePayload bool `json:"announcePayload"`
 
 	// AnnouncePiece indicates whether the piece information should be announced to IPNI.
-	AnnouncePiece bool `json:"announce_piece"`
+	AnnouncePiece bool `json:"announcePiece"`
 }
 
 func (r *RetrievalV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {

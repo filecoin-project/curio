@@ -131,10 +131,10 @@ func (ipp *InitProvingPeriodTask) Do(taskID harmonytask.TaskID, stillOwned func(
 		return false, xerrors.Errorf("failed to get listener address for data set %d: %w", dataSetID, err)
 	}
 
-	// Determine the next challenge window start by consulting the listener
-	provingSchedule, err := contract.NewIPDPProvingSchedule(listenerAddr, ipp.ethClient)
+	// Get the proving schedule from the listener (handles view contract indirection)
+	provingSchedule, err := contract.GetProvingScheduleFromListener(listenerAddr, ipp.ethClient)
 	if err != nil {
-		return false, xerrors.Errorf("failed to create proving schedule binding, check that listener has proving schedule methods: %w", err)
+		return false, xerrors.Errorf("failed to get proving schedule from listener: %w", err)
 	}
 
 	config, err := provingSchedule.GetPDPConfig(&bind.CallOpts{Context: ctx})

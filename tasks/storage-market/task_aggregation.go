@@ -222,7 +222,9 @@ func (a *AggregateDealTask) Do(taskID harmonytask.TaskID, stillOwned func() bool
 					return false, fmt.Errorf("failed to get piece reader: %w", err)
 				}
 			}
-			defer pr.Close()
+			defer func() {
+				_ = pr.Close()
+			}()
 			pieceParked = true
 			parkedPieceID = pid
 		} else {
