@@ -6,15 +6,17 @@ import (
 	"crypto/rand"
 	"io"
 
-	lapi "github.com/filecoin-project/lotus/api"
-	"github.com/filecoin-project/lotus/chain/wallet"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/oklog/ulid"
 	"golang.org/x/xerrors"
 
-	"github.com/filecoin-project/curio/market/mk20"
 	"github.com/filecoin-project/go-address"
+
+	"github.com/filecoin-project/curio/market/mk20"
+
+	lapi "github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/wallet"
 )
 
 var log = logging.Logger("mk20-client")

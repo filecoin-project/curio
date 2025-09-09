@@ -4,7 +4,7 @@ go 1.23.10
 
 require (
 	contrib.go.opencensus.io/exporter/prometheus v0.4.2
-	github.com/BurntSushi/toml v1.4.0
+	github.com/BurntSushi/toml v1.5.0
 	github.com/CAFxX/httpcompression v0.0.9
 	github.com/KarpelesLab/reflink v1.0.1
 	github.com/alecthomas/jsonschema v0.0.0-20200530073317-71f438968921
@@ -14,8 +14,8 @@ require (
 	github.com/detailyang/go-fallocate v0.0.0-20180908115635-432fa640bd2e
 	github.com/docker/go-units v0.5.0
 	github.com/dustin/go-humanize v1.0.1
-	github.com/elastic/go-sysinfo v1.7.0
-	github.com/etclabscore/go-openrpc-reflect v0.0.36
+	github.com/elastic/go-sysinfo v1.15.4
+	github.com/etclabscore/go-openrpc-reflect v0.0.37
 	github.com/ethereum/go-ethereum v1.15.0
 	github.com/fatih/color v1.18.0
 	github.com/filecoin-project/filecoin-ffi v1.33.1-dev
@@ -26,20 +26,20 @@ require (
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20240802040721-2a04ffc8ffe8
 	github.com/filecoin-project/go-commp-utils/v2 v2.1.0
 	github.com/filecoin-project/go-data-segment v0.0.1
-	github.com/filecoin-project/go-f3 v0.8.9
+	github.com/filecoin-project/go-f3 v0.8.10
 	github.com/filecoin-project/go-fil-commcid v0.3.1
 	github.com/filecoin-project/go-fil-commp-hashhash v0.2.0
-	github.com/filecoin-project/go-jsonrpc v0.7.1
+	github.com/filecoin-project/go-jsonrpc v0.8.0
 	github.com/filecoin-project/go-padreader v0.0.1
 	github.com/filecoin-project/go-state-types v0.17.0-dev2
 	github.com/filecoin-project/go-statestore v0.2.0
-	github.com/filecoin-project/lotus v1.33.1
+	github.com/filecoin-project/lotus v1.34.0-rc2
 	github.com/filecoin-project/specs-actors/v2 v2.3.6
 	github.com/filecoin-project/specs-actors/v5 v5.0.6
 	github.com/filecoin-project/specs-actors/v6 v6.0.2
 	github.com/filecoin-project/specs-actors/v7 v7.0.1
 	github.com/gbrlsnchs/jwt/v3 v3.0.1
-	github.com/georgysavva/scany/v2 v2.1.3
+	github.com/georgysavva/scany/v2 v2.1.4
 	github.com/go-chi/chi/v5 v5.2.2
 	github.com/go-chi/httprate v0.15.0
 	github.com/golang-jwt/jwt/v4 v4.5.2
@@ -67,7 +67,7 @@ require (
 	github.com/ipfs/go-log/v2 v2.6.0
 	github.com/ipld/frisbii v0.6.1
 	github.com/ipld/go-car v0.6.2
-	github.com/ipld/go-car/v2 v2.14.3
+	github.com/ipld/go-car/v2 v2.15.0
 	github.com/ipld/go-ipld-prime v0.21.0
 	github.com/ipni/go-libipni v0.6.19
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
@@ -81,7 +81,7 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/mr-tron/base58 v1.2.0
 	github.com/multiformats/go-base32 v0.1.0
-	github.com/multiformats/go-multiaddr v0.16.0
+	github.com/multiformats/go-multiaddr v0.16.1
 	github.com/multiformats/go-multibase v0.2.0
 	github.com/multiformats/go-multicodec v0.9.2
 	github.com/multiformats/go-multihash v0.2.3
@@ -90,7 +90,7 @@ require (
 	github.com/open-rpc/meta-schema v0.0.0-20201029221707-1b72ef2ea333
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.22.0
-	github.com/puzpuzpuz/xsync/v2 v2.4.0
+	github.com/puzpuzpuz/xsync/v2 v2.5.1
 	github.com/raulk/clock v1.1.0
 	github.com/samber/lo v1.47.0
 	github.com/schollz/progressbar/v3 v3.18.0
@@ -107,14 +107,14 @@ require (
 	go.opencensus.io v0.24.0
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/crypto v0.39.0
+	golang.org/x/crypto v0.41.0
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b
-	golang.org/x/net v0.41.0
-	golang.org/x/sync v0.15.0
-	golang.org/x/sys v0.33.0
-	golang.org/x/term v0.32.0
-	golang.org/x/text v0.26.0
-	golang.org/x/tools v0.34.0
+	golang.org/x/net v0.42.0
+	golang.org/x/sync v0.16.0
+	golang.org/x/sys v0.35.0
+	golang.org/x/term v0.34.0
+	golang.org/x/text v0.28.0
+	golang.org/x/tools v0.35.0
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da
 )
 
@@ -162,7 +162,7 @@ require (
 	github.com/drand/kyber v1.3.1 // indirect
 	github.com/drand/kyber-bls12381 v0.3.3 // indirect
 	github.com/elastic/go-elasticsearch/v7 v7.14.0 // indirect
-	github.com/elastic/go-windows v1.0.0 // indirect
+	github.com/elastic/go-windows v1.0.2 // indirect
 	github.com/elastic/gosigar v0.14.3 // indirect
 	github.com/etclabscore/go-jsonschema-walk v0.0.6 // indirect
 	github.com/ethereum/c-kzg-4844 v1.0.0 // indirect
@@ -247,7 +247,6 @@ require (
 	github.com/jackpal/go-nat-pmp v1.0.2 // indirect
 	github.com/jbenet/go-temp-err-catcher v0.1.0 // indirect
 	github.com/jessevdk/go-flags v1.5.0 // indirect
-	github.com/joeshaw/multierror v0.0.0-20140124173710-69b34d4ec901 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/jpillora/backoff v1.0.0 // indirect
 	github.com/kilic/bls12-381 v0.1.1-0.20220929213557-ca162e8a70f4 // indirect
@@ -274,7 +273,7 @@ require (
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
-	github.com/mattn/go-sqlite3 v1.14.16 // indirect
+	github.com/mattn/go-sqlite3 v1.14.32 // indirect
 	github.com/miekg/dns v1.1.66 // indirect
 	github.com/mikioh/tcpinfo v0.0.0-20190314235526-30a79bb1804b // indirect
 	github.com/mikioh/tcpopt v0.0.0-20190314235656-172688c1accc // indirect
@@ -346,7 +345,7 @@ require (
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	github.com/zondax/hid v0.9.2 // indirect
-	github.com/zondax/ledger-filecoin-go v1.0.1 // indirect
+	github.com/zondax/ledger-filecoin-go v1.1.0 // indirect
 	github.com/zondax/ledger-go v1.0.0 // indirect
 	github.com/zyedidia/generic v1.2.1 // indirect
 	gitlab.com/yawning/secp256k1-voi v0.0.0-20230925100816-f2616030848b // indirect
@@ -359,8 +358,8 @@ require (
 	go.opentelemetry.io/otel/exporters/jaeger v1.14.0 // indirect
 	go.opentelemetry.io/otel/exporters/prometheus v0.50.0 // indirect
 	go.opentelemetry.io/otel/metric v1.35.0 // indirect
-	go.opentelemetry.io/otel/sdk v1.34.0 // indirect
-	go.opentelemetry.io/otel/sdk/metric v1.32.0 // indirect
+	go.opentelemetry.io/otel/sdk v1.35.0 // indirect
+	go.opentelemetry.io/otel/sdk/metric v1.35.0 // indirect
 	go.opentelemetry.io/otel/trace v1.35.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/automaxprocs v1.6.0 // indirect
@@ -368,12 +367,12 @@ require (
 	go.uber.org/fx v1.24.0 // indirect
 	go.uber.org/mock v0.5.2 // indirect
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
-	golang.org/x/mod v0.25.0 // indirect
+	golang.org/x/mod v0.26.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	gonum.org/v1/gonum v0.16.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20250212204824-5a70512c5d8b // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250212204824-5a70512c5d8b // indirect
-	google.golang.org/grpc v1.70.0 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20250324211829-b45e905df463 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250707201910-8d1bb00bc6a7 // indirect
+	google.golang.org/grpc v1.73.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 	gopkg.in/cheggaaa/pb.v1 v1.0.28 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
