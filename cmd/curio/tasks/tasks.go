@@ -318,8 +318,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 
 			pdpAggregateTask := pdp.NewAggregatePDPDealTask(db, sc)
 			pdpCache := pdp.NewTaskPDPSaveCache(db, dependencies.CachedPieceReader, iStore)
+			commPTask := pdp.NewPDPCommpTask(db, sc, cfg.Subsystems.CommPMaxTasks)
 
-			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, pdpAddRoot, addProofSetTask, pdpAggregateTask, pdpCache, pdpDelRoot, pdpDelProofSetTask)
+			activeTasks = append(activeTasks, pdpNotifTask, pdpProveTask, pdpNextProvingPeriodTask, pdpInitProvingPeriodTask, commPTask, pdpAddRoot, addProofSetTask, pdpAggregateTask, pdpCache, pdpDelRoot, pdpDelProofSetTask)
 		}
 
 		idxMax := taskhelp.Max(cfg.Subsystems.IndexingMaxTasks)
@@ -331,6 +332,9 @@ func StartTasks(ctx context.Context, dependencies *deps.Deps, shutdownChan chan 
 		activeTasks = append(activeTasks, ipniTask, indexingTask, pdpIdxTask, pdpIPNITask)
 
 		if cfg.HTTP.Enable {
+			if !cfg.Subsystems.EnableDealMarket {
+				return nil, xerrors.New("deal market must be enabled on HTTP server")
+			}
 			err = cuhttp.StartHTTPServer(ctx, dependencies, &sdeps)
 			if err != nil {
 				return nil, xerrors.Errorf("failed to start the HTTP server: %w", err)

@@ -80,11 +80,15 @@ func (sb *SealCalls) RemovePiece(ctx context.Context, id storiface.PieceNumber) 
 
 func (sb *SealCalls) WriteUploadPiece(ctx context.Context, pieceID storiface.PieceNumber, size int64, data io.Reader, storageType storiface.PathType, verifySize bool) (abi.PieceInfo, uint64, error) {
 	// Use storageType in AcquireSector
-	paths, _, done, err := sb.Sectors.AcquireSector(ctx, nil, pieceID.Ref(), storiface.FTNone, storiface.FTPiece, storageType)
+	paths, pathIDs, done, err := sb.Sectors.AcquireSector(ctx, nil, pieceID.Ref(), storiface.FTNone, storiface.FTPiece, storageType)
 	if err != nil {
 		return abi.PieceInfo{}, 0, err
 	}
-	defer done()
+	skipDeclare := storiface.FTPiece
+
+	defer func() {
+		done(skipDeclare)
+	}()
 
 	dest := paths.Piece
 	tempDest := dest + storiface.TempSuffix
@@ -142,6 +146,13 @@ func (sb *SealCalls) WriteUploadPiece(ctx context.Context, pieceID storiface.Pie
 		return abi.PieceInfo{}, 0, xerrors.Errorf("rename temp piece to dest %s -> %s: %w", tempDest, dest, err)
 	}
 
+	skipDeclare = storiface.FTNone
+
 	removeTemp = false
+
+	if err := sb.ensureOneCopy(ctx, pieceID.Ref().ID, pathIDs, storiface.FTPiece); err != nil {
+		return abi.PieceInfo{}, 0, xerrors.Errorf("ensure one copy: %w", err)
+	}
+
 	return abi.PieceInfo{PieceCID: pcid, Size: psize}, uint64(n), nil
 }

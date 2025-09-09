@@ -75,7 +75,7 @@ func GetFullNodeAPIV1Curio(ctx *cli.Context, ainfoCfg []string) (api.Chain, json
 		}
 
 		// Compare with binary's network using BuildTypeString()
-		if !(strings.HasPrefix(string(networkName), "test") || strings.HasPrefix(string(networkName), "local")) {
+		if !strings.HasPrefix(string(networkName), "test") && !strings.HasPrefix(string(networkName), "local") {
 			if networkName == "calibrationnet" {
 				networkName = "calibnet"
 			}

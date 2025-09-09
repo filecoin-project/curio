@@ -56,7 +56,7 @@ type DataSource struct {
 	SourceOffline *DataSourceOffline `json:"source_offline,omitempty"`
 
 	// SourceHttpPut allow clients to push piece data after deal is accepted
-	SourceHttpPut *DataSourceHttpPut `json:"source_httpput,omitempty"`
+	SourceHttpPut *DataSourceHttpPut `json:"source_http_put,omitempty"`
 }
 
 // PieceDataFormat represents various formats in which piece data can be defined, including CAR files, aggregate formats, or raw byte data.

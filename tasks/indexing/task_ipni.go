@@ -280,7 +280,9 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		}
 	}
 
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	var isMK20 bool
 

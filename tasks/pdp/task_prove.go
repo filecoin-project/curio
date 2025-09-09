@@ -439,7 +439,9 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get piece reader: %w", err)
 		}
-		defer reader.Close()
+		defer func() {
+			_ = reader.Close()
+		}()
 
 		// Build Merkle tree from padded input
 		memTree, err := proof.BuildSha254Memtree(reader, pi.Size.Unpadded())
@@ -498,7 +500,9 @@ func (p *ProveTask) proveRoot(ctx context.Context, dataSetID int64, rootId int64
 		if err != nil {
 			return contract.IPDPTypesProof{}, xerrors.Errorf("failed to get reader: %w", err)
 		}
-		defer reader.Close()
+		defer func() {
+			_ = reader.Close()
+		}()
 
 		fileRemaining := int64(reportedSize) - offset
 

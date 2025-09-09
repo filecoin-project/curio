@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"embed"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -220,7 +219,7 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 		if r := recover(); r != nil {
 			trace := make([]byte, 1<<16)
 			n := runtime.Stack(trace, false)
-			log.Errorf("panic occurred: %v\n%s", r, trace[:n])
+			log.Errorf("panic occurred in mk20deal: %v\n%s", r, trace[:n])
 			debug.PrintStack()
 		}
 	}()
@@ -233,7 +232,10 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer r.Body.Close()
+	defer func() {
+		_ = r.Body.Close()
+	}()
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Errorf("error reading request body: %s", err)
@@ -250,10 +252,6 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Infof("DATA IS NULL = %t\n", deal.Data == nil)
-
-	log.Infow("received deal proposal", "deal", deal)
-
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
@@ -268,7 +266,7 @@ func (mdh *MK20DealHandler) mk20deal(w http.ResponseWriter, r *http.Request) {
 		"Reason", result.Reason)
 
 	w.WriteHeader(int(result.HTTPCode))
-	_, err = w.Write([]byte(fmt.Sprint("Reason: ", result.Reason)))
+	_, err = fmt.Fprint(w, "Reason: ", result.Reason)
 	if err != nil {
 		log.Errorw("writing deal response:", "id", deal.Identifier, "error", err)
 	}
@@ -612,7 +610,9 @@ func (mdh *MK20DealHandler) mk20FinalizeUpload(w http.ResponseWriter, r *http.Re
 		http.Error(w, "error reading request body", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
+	defer func() {
+		_ = r.Body.Close()
+	}()
 
 	log.Debugw("received upload finalize proposal", "id", idStr, "body", string(body))
 
@@ -693,7 +693,9 @@ func (mdh *MK20DealHandler) mk20UpdateDeal(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	defer r.Body.Close()
+	defer func() {
+		_ = r.Body.Close()
+	}()
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -725,7 +727,7 @@ func (mdh *MK20DealHandler) mk20UpdateDeal(w http.ResponseWriter, r *http.Reques
 		"Reason", result.Reason)
 
 	w.WriteHeader(int(result.HTTPCode))
-	_, err = w.Write([]byte(fmt.Sprint("Reason: ", result.Reason)))
+	_, err = fmt.Fprint(w, "Reason: ", result.Reason)
 	if err != nil {
 		log.Errorw("writing deal update response:", "id", deal.Identifier, "error", err)
 	}
@@ -813,7 +815,9 @@ func (mdh *MK20DealHandler) mk20SerialUploadFinalize(w http.ResponseWriter, r *h
 		http.Error(w, "error reading request body", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
+	defer func() {
+		_ = r.Body.Close()
+	}()
 
 	log.Debugw("received serial upload finalize proposal", "id", idStr, "body", string(body))
 

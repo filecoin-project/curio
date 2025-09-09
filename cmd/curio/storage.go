@@ -188,7 +188,7 @@ over time
 				DenyMiners:  cctx.StringSlice("deny-miners"),
 			}
 
-			if !(cfg.CanStore || cfg.CanSeal) {
+			if !cfg.CanStore && !cfg.CanSeal {
 				return xerrors.Errorf("must specify at least one of --store or --seal")
 			}
 
@@ -579,7 +579,7 @@ var storageGenerateVanillaProofCmd = &cli.Command{
 		if err != nil {
 			return xerrors.Errorf("generating proof: %w", err)
 		}
-		fmt.Println(proof)
+		fmt.Println(string(proof))
 		return nil
 	},
 }

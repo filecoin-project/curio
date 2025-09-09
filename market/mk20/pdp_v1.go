@@ -35,7 +35,7 @@ type PDPV1 struct {
 	PieceIDs []uint64 `json:"piece_ids,omitempty" swaggertype:"array,integer" format:"uint64" example:"0,1,2"`
 
 	// ExtraData can be used to send additional information to service contract when Verifier action like AddRoot, DeleteRoot etc. are performed.
-	ExtraData []byte `json:"extra_data,omitempty" swaggertype:"string" format:"byte"`
+	ExtraData []byte `json:"extra_data,omitempty"`
 }
 
 func (p *PDPV1) Validate(db *harmonydb.DB, cfg *config.MK20Config) (DealCode, error) {

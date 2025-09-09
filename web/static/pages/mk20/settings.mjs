@@ -34,12 +34,12 @@ class MarketManager extends LitElement {
                 ? dataSourcesResult
                 : Object.entries(dataSourcesResult).map(([name, enabled]) => ({ name, enabled }));
 
-            const contractsResult = await RPCCall('ListMarketContracts', []);
-            this.contracts = Array.isArray(contractsResult)
-                ? contractsResult
-                : Object.entries(contractsResult).map(([address, abi]) => ({ address, abi }));
-
-            this.requestUpdate();
+            // const contractsResult = await RPCCall('ListMarketContracts', []);
+            // this.contracts = Array.isArray(contractsResult)
+            //     ? contractsResult
+            //     : Object.entries(contractsResult).map(([address, abi]) => ({ address, abi }));
+            //
+            // this.requestUpdate();
         } catch (err) {
             console.error('Failed to load data:', err);
             this.products = [];
@@ -211,6 +211,7 @@ class MarketManager extends LitElement {
                                 </tbody>
                             </table>
                         </td>
+                        <!---
                         <td class="pe-2">
                             <h2>Contracts
                                 <button class="btn btn-primary mb-3" @click=${() => this.openContractModal({ address: '', abi: '' })}>
@@ -227,6 +228,7 @@ class MarketManager extends LitElement {
                                     <tbody>
                                     ${this.contracts?.map(
                                             (contract) => html`
+                                                <!---
                                         <tr>
                                             <td>${contract.address}</td>
                                             <td>
@@ -239,12 +241,13 @@ class MarketManager extends LitElement {
                                                     </button>
                                                 </div>
                                             </td>
-                                        </tr>
+                                        </tr>--->
                                           `
                                     )}
                                 </tbody>
                             </table>
                         </td>
+                        --->
                     </tr>
                 </table>
                 ${this.renderContractModal()}

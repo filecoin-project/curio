@@ -647,15 +647,19 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 	}
 
 	for i := range pieceDeals {
-		addr, err := address.NewIDAddress(uint64(pieceDeals[i].SpId))
-		if err != nil {
-			return nil, err
+		if pieceDeals[i].SpId == -1 {
+			pieceDeals[i].Miner = "PDP"
+		} else {
+			addr, err := address.NewIDAddress(uint64(pieceDeals[i].SpId))
+			if err != nil {
+				return nil, err
+			}
+			_, err = uuid.Parse(pieceDeals[i].ID)
+			if err != nil {
+				pieceDeals[i].MK20 = true
+			}
+			pieceDeals[i].Miner = addr.String()
 		}
-		_, err = uuid.Parse(pieceDeals[i].ID)
-		if err != nil {
-			pieceDeals[i].MK20 = true
-		}
-		pieceDeals[i].Miner = addr.String()
 	}
 	ret.Deals = pieceDeals
 
@@ -833,8 +837,8 @@ type MK12DealPipeline struct {
 	CreatedAt         time.Time       `db:"created_at" json:"created_at"`
 }
 
-// MK20DealPipeline represents a record from market_mk12_deal_pipeline table
-type MK20DealPipeline struct {
+// MK20DealPipeline represents a record from market_mk20_ddo_pipeline table
+type MK20DDOPipeline struct {
 	ID               string         `db:"id" json:"id"`
 	SpId             int64          `db:"sp_id" json:"sp_id"`
 	Contract         string         `db:"contract" json:"contract"`
@@ -883,8 +887,9 @@ type PieceInfoMK12Deals struct {
 }
 
 type PieceInfoMK20Deals struct {
-	Deal     *MK20StorageDeal  `json:"deal"`
-	Pipeline *MK20DealPipeline `json:"mk20_pipeline,omitempty"`
+	Deal        *MK20StorageDeal `json:"deal"`
+	DDOPipeline *MK20DDOPipeline `json:"mk20_ddo_pipeline,omitempty"`
+	PDPPipeline *MK20PDPPipeline `json:"mk20_pdp_pipeline,omitempty"`
 }
 
 // PieceDealDetailEntry combines a deal and its pipeline
@@ -1061,12 +1066,12 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 		}
 
 		mk20deals[i] = &MK20StorageDeal{
-			Deal:  deal,
-			Error: Err,
+			Deal:   deal,
+			DDOErr: Err,
 		}
 	}
 
-	var mk20Pipelines []MK20DealPipeline
+	var mk20Pipelines []MK20DDOPipeline
 	err = a.deps.DB.Select(ctx, &mk20Pipelines, `
 										SELECT
 										    created_at,
@@ -1103,13 +1108,51 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 										FROM market_mk20_pipeline
 										WHERE id = ANY($1)`, ids)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to query mk20 pipelines: %w", err)
+		return nil, xerrors.Errorf("failed to query mk20 DDO pipelines: %w", err)
 	}
 
-	mk20pipelineMap := make(map[string]MK20DealPipeline)
+	var mk20PDPPipelines []MK20PDPPipeline
+	err = a.deps.DB.Select(ctx, &mk20PDPPipelines, `
+										SELECT
+											created_at,
+											id,
+											client,
+											piece_cid_v2,
+											indexing,
+											announce,
+											announce_payload,
+											downloaded,
+											commp_task_id,
+											after_commp,
+											deal_aggregation,
+											aggr_index,
+											agg_task_id,
+											aggregated,
+											add_piece_task_id,
+											after_add_piece,
+											after_add_piece_msg,
+											save_cache_task_id,
+											after_save_cache,
+											indexing_created_at,
+											indexing_task_id,
+											indexed,
+											complete
+										FROM pdp_pipeline
+										WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, xerrors.Errorf("failed to query mk20 PDP pipelines: %w", err)
+	}
+
+	mk20pipelineMap := make(map[string]MK20DDOPipeline)
 	for _, pipeline := range mk20Pipelines {
 		pipeline := pipeline
 		mk20pipelineMap[pipeline.ID] = pipeline
+	}
+
+	mk20PDPpipelineMap := make(map[string]MK20PDPPipeline)
+	for _, pipeline := range mk20PDPPipelines {
+		pipeline := pipeline
+		mk20PDPpipelineMap[pipeline.ID] = pipeline
 	}
 
 	ret := &PieceDealDetailEntry{}
@@ -1131,9 +1174,14 @@ func (a *WebRPC) PieceDealDetail(ctx context.Context, pieceCid string) (*PieceDe
 			Deal: deal,
 		}
 		if pipeline, exists := mk20pipelineMap[deal.Deal.Identifier.String()]; exists {
-			entry.Pipeline = &pipeline
+			entry.DDOPipeline = &pipeline
 		} else {
-			entry.Pipeline = nil // Pipeline may not exist for processed and active deals
+			entry.DDOPipeline = nil // Pipeline may not exist for processed and active deals
+		}
+		if pipeline, exists := mk20PDPpipelineMap[deal.Deal.Identifier.String()]; exists {
+			entry.PDPPipeline = &pipeline
+		} else {
+			entry.PDPPipeline = nil
 		}
 		if ret.MK20 == nil {
 			ret.MK20 = make([]PieceInfoMK20Deals, 0)

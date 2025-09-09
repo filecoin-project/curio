@@ -23,7 +23,7 @@ import (
 	"github.com/filecoin-project/curio/market/indexstore"
 )
 
-var NoDealErr = errors.New("no deals found")
+var ErrNoDeal = errors.New("no deals found")
 
 var log = logging.Logger("cached-reader")
 
@@ -172,7 +172,7 @@ func (cpr *CachedPieceReader) getPieceReaderFromSector(ctx context.Context, piec
 	}
 
 	if len(deals) == 0 {
-		return nil, 0, fmt.Errorf("piece cid %s: %w", pieceCid, NoDealErr)
+		return nil, 0, fmt.Errorf("piece cid %s: %w", pieceCid, ErrNoDeal)
 	}
 
 	// For each deal, try to read an unsealed copy of the data from the sector

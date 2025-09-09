@@ -173,7 +173,7 @@ func New(
 		grace:       grace,
 		db:          db,
 		reg:         reg,
-		ownerID:     reg.Resources.MachineID, // The current number representing "hostAndPort"
+		ownerID:     reg.MachineID, // The current number representing "hostAndPort"
 		taskMap:     make(map[string]*taskTypeHandler, len(impls)),
 		follows:     make(map[string][]followStruct),
 		hostAndPort: hostnameAndPort,
@@ -190,8 +190,8 @@ func New(
 		}
 		h.Max = h.Max.Instance()
 
-		if Registry[h.TaskTypeDetails.Name] == nil {
-			return nil, fmt.Errorf("task %s not registered: var _ = harmonytask.Reg(t TaskInterface)", h.TaskTypeDetails.Name)
+		if Registry[h.Name] == nil {
+			return nil, fmt.Errorf("task %s not registered: var _ = harmonytask.Reg(t TaskInterface)", h.Name)
 		}
 
 		if len(h.Name) > 16 {
@@ -199,7 +199,7 @@ func New(
 		}
 
 		e.handlers = append(e.handlers, &h)
-		e.taskMap[h.TaskTypeDetails.Name] = &h
+		e.taskMap[h.Name] = &h
 	}
 
 	// resurrect old work
@@ -248,31 +248,31 @@ func (e *TaskEngine) GracefullyTerminate() {
 	for {
 		timeout := time.Millisecond
 		for _, h := range e.handlers {
-			if h.TaskTypeDetails.Name == "WinPost" && h.Max.Active() > 0 {
+			if h.Name == "WinPost" && h.Max.Active() > 0 {
 				timeout = time.Second
 				log.Infof("node shutdown deferred for %f seconds", timeout.Seconds())
 				continue
 			}
-			if h.TaskTypeDetails.Name == "WdPost" && h.Max.Active() > 0 {
+			if h.Name == "WdPost" && h.Max.Active() > 0 {
 				timeout = time.Second * 3
 				log.Infof("node shutdown deferred for %f seconds due to running WdPost task", timeout.Seconds())
 				continue
 			}
 
-			if h.TaskTypeDetails.Name == "WdPostSubmit" && h.Max.Active() > 0 {
+			if h.Name == "WdPostSubmit" && h.Max.Active() > 0 {
 				timeout = time.Second
 				log.Infof("node shutdown deferred for %f seconds due to running WdPostSubmit task", timeout.Seconds())
 				continue
 			}
 
-			if h.TaskTypeDetails.Name == "WdPostRecover" && h.Max.Active() > 0 {
+			if h.Name == "WdPostRecover" && h.Max.Active() > 0 {
 				timeout = time.Second
 				log.Infof("node shutdown deferred for %f seconds due to running WdPostRecover task", timeout.Seconds())
 				continue
 			}
 
 			// Test tasks for itest
-			if h.TaskTypeDetails.Name == "ThingOne" && h.Max.Active() > 0 {
+			if h.Name == "ThingOne" && h.Max.Active() > 0 {
 				timeout = time.Second
 				log.Infof("node shutdown deferred for %f seconds due to running itest task", timeout.Seconds())
 				continue
@@ -388,13 +388,13 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool) bool {
 	}
 	for _, v := range e.handlers {
 		if !schedulable {
-			if v.TaskTypeDetails.SchedulingOverrides == nil {
+			if v.SchedulingOverrides == nil {
 				continue
 			}
 
 			// Override the schedulable flag if the task has any assigned overrides
 			var foundOverride bool
-			for relatedTaskName := range v.TaskTypeDetails.SchedulingOverrides {
+			for relatedTaskName := range v.SchedulingOverrides {
 				var assignedOverrideTasks []int
 				err := e.db.Select(e.ctx, &assignedOverrideTasks, `SELECT id
 					FROM harmony_task
@@ -466,9 +466,9 @@ func (e *TaskEngine) pollerTryAllWork(schedulable bool) bool {
 		if v.AssertMachineHasCapacity() != nil {
 			continue
 		}
-		if v.TaskTypeDetails.IAmBored != nil {
+		if v.IAmBored != nil {
 			var added []TaskID
-			err := v.TaskTypeDetails.IAmBored(func(extraInfo func(TaskID, *harmonydb.Tx) (shouldCommit bool, seriousError error)) {
+			err := v.IAmBored(func(extraInfo func(TaskID, *harmonydb.Tx) (shouldCommit bool, seriousError error)) {
 				v.AddTask(func(tID TaskID, tx *harmonydb.Tx) (shouldCommit bool, seriousError error) {
 					b, err := extraInfo(tID, tx)
 					if err == nil && shouldCommit {

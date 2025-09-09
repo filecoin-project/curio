@@ -30,7 +30,7 @@ definitions:
         description: ContractDealIDMethod specifies the method name to verify the
           deal and retrieve the deal ID for a contract
         type: string
-      contract_verify_method_params:
+      contract_verify_method_Params:
         description: ContractDealIDMethodParams represents encoded parameters for
           the contract verify method if required by the contract
         format: byte
@@ -82,7 +82,7 @@ definitions:
         - $ref: '#/definitions/mk20.DataSourceHTTP'
         description: SourceHTTP represents the HTTP-based source of piece data within
           a deal, including raw size and URLs for retrieval.
-      source_httpput:
+      source_http_put:
         allOf:
         - $ref: '#/definitions/mk20.DataSourceHttpPut'
         description: SourceHttpPut allow clients to push piece data after deal is
@@ -198,7 +198,7 @@ definitions:
     - DealStateComplete
   mk20.DealStatusResponse:
     properties:
-      error_msg:
+      errorMsg:
         description: ErrorMsg is an optional field containing error details associated
           with the deal's current state if an error occurred.
         type: string
@@ -275,8 +275,9 @@ definitions:
       extra_data:
         description: ExtraData can be used to send additional information to service
           contract when Verifier action like AddRoot, DeleteRoot etc. are performed.
-        format: byte
-        type: string
+        items:
+          type: integer
+        type: array
       piece_ids:
         description: PieceIDs is a list of Piece ids in a proof set.
         example:

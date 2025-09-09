@@ -40,7 +40,6 @@ import (
 
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/chain/types"
-	ctypes "github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/storage/ctladdr"
 )
 
@@ -223,7 +222,7 @@ func (m *MK12) ExecuteDeal(ctx context.Context, dp *DealParams, clientPeer peer.
 
 		valid := m.applyFilters(ctx, ds)
 		if valid != nil && valid.error != nil {
-			log.Errorf("failed to apply filetrs: %s", valid.error.Error())
+			log.Errorf("failed to apply filetrs: %s", valid.Error())
 			return &ProviderDealRejectionInfo{
 				Reason: "internal server error: failed to apply filters",
 			}, nil
@@ -320,7 +319,7 @@ func (m *MK12) validateDealProposal(ctx context.Context, deal *ProviderDealState
 		return &validationError{error: err}
 	}
 
-	bounds, err := m.api.StateDealProviderCollateralBounds(ctx, proposal.PieceSize, proposal.VerifiedDeal, ctypes.EmptyTSK)
+	bounds, err := m.api.StateDealProviderCollateralBounds(ctx, proposal.PieceSize, proposal.VerifiedDeal, types.EmptyTSK)
 	if err != nil {
 		return &validationError{
 			reason: "server error: getting collateral bounds",
@@ -330,7 +329,7 @@ func (m *MK12) validateDealProposal(ctx context.Context, deal *ProviderDealState
 
 	// The maximum amount of collateral that the provider will put into escrow
 	// for a deal is calculated as a multiple of the minimum bounded amount
-	maxC := ctypes.BigMul(bounds.Min, ctypes.NewInt(maxDealCollateralMultiplier))
+	maxC := types.BigMul(bounds.Min, types.NewInt(maxDealCollateralMultiplier))
 
 	pcMin := bounds.Min
 	pcMax := maxC
@@ -345,7 +344,7 @@ func (m *MK12) validateDealProposal(ctx context.Context, deal *ProviderDealState
 		return &validationError{error: err}
 	}
 
-	tsk, err := ctypes.TipSetKeyFromBytes(tok)
+	tsk, err := types.TipSetKeyFromBytes(tok)
 	if err != nil {
 		return &validationError{
 			reason: "server error: tip set key from bytes",
@@ -490,7 +489,7 @@ func (m *MK12) processDeal(ctx context.Context, deal *ProviderDealState) (*Provi
 
 	if !deal.IsOffline {
 		// Reject incorrect sized online deals except verified deal less than 1 MiB because verified deals can be 1 MiB minimum even if rawSize is much lower
-		if deal.ClientDealProposal.Proposal.PieceSize != padreader.PaddedSize(deal.Transfer.Size).Padded() && !(deal.ClientDealProposal.Proposal.VerifiedDeal && deal.ClientDealProposal.Proposal.PieceSize <= abi.PaddedPieceSize(1<<20)) {
+		if deal.ClientDealProposal.Proposal.PieceSize != padreader.PaddedSize(deal.Transfer.Size).Padded() && (!deal.ClientDealProposal.Proposal.VerifiedDeal || deal.ClientDealProposal.Proposal.PieceSize > abi.PaddedPieceSize(1<<20)) {
 			return &ProviderDealRejectionInfo{
 				Reason: fmt.Sprintf("deal proposal piece size %d doesn't match padded piece size %d", deal.ClientDealProposal.Proposal.PieceSize, padreader.PaddedSize(deal.Transfer.Size).Padded()),
 			}, nil

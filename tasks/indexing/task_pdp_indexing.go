@@ -136,7 +136,9 @@ func (P *PDPIndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) 
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
 
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	startTime := time.Now()
 

@@ -22,7 +22,9 @@ func (sb *SealCalls) CheckUnsealedCID(ctx context.Context, s storiface.SectorRef
 	if err != nil {
 		return cid.Undef, xerrors.Errorf("getting unsealed sector reader: %w", err)
 	}
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	ssize, err := s.ProofType.SectorSize()
 	if err != nil {

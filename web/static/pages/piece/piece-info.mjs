@@ -134,9 +134,10 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                         <td>${item.boost_deal ? 'Boost' : (item.legacy_deal ? 'Legacy' : 'DDO')}</td>
                         <td>${item.miner}</td>
                         <td>${item.chain_deal_id}</td>
-                        <td><a href="/pages/sector/?sp=${item.miner}&id=${item.sector}">${item.sector}</a></td>
                         <td>
-                            ${item.offset ? item.offset : html``}
+                            ${item.sector > 0 ? html`<a href="/pages/sector/?sp=${item.miner}&id=${item.sector}">${item.sector}</a></td>`: "NA" }
+                        <td>
+                            ${item.offset.Valid ? item.offset.int64 : html`NA`}
                         </td>
                         <td>${this.toHumanBytes(item.length)}</td>
                         <td>${this.toHumanBytes(item.raw_size)}</td>
@@ -345,7 +346,8 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                         <tr><td>Piece Size</td><td>${this.toHumanBytes(entry.deal.deal.data.piece_size)}</td></tr>
 
                         <tr><th colspan="2"><h5>Status 🟢️🔴</h5></th></tr>
-                        <tr><td>Error</td><td>${entry.deal.error.Valid ? entry.deal.error.String : 'N/A'}</td></tr>
+                        <tr><td>DDO Error</td><td>${entry.deal.ddoerr.Valid ? entry.deal.ddoerr.String : 'N/A'}</td></tr>
+                        <tr><td>PDP Error</td><td>${entry.deal.pdperr.Valid ? entry.deal.pdperr.String : 'N/A'}</td></tr>
                         ${(() => {
                             const matchingPieceDeals = this.data.deals.filter(deal => deal.id === entry.deal.uuid);
                             if (matchingPieceDeals.length > 0) {
@@ -384,89 +386,164 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                                         `;
                             }
                         })()}
-                        ${entry.mk20_pipeline ? html`
-                            <tr><th colspan="2"><h5 style="color: var(--color-warning-main)">PIPELINE ACTIVE</h5></th></tr>
+                        ${entry.mk20_ddo_pipeline ? html`
+                            <tr><th colspan="2"><h5 style="color: var(--color-warning-main)">DDO PIPELINE ACTIVE</h5></th></tr>
                             <tr>
                                 <td>Controls</td>
                                 <td>
                                     <button class="btn btn-warning btn-sm" @click=${() => this.handleRemove(entry.deal.deal.identifier)}>REMOVE</button>
                                 </td>
                             </tr>
-                            <tr><td>Created At</td><td>${formatDate(entry.mk20_pipeline.created_at)}</td></tr>
-                            <tr><td>Piece CID</td><td>${entry.mk20_pipeline.piece_cid}</td></tr>
-                            <tr><td>Piece Size</td><td>${this.toHumanBytes(entry.mk20_pipeline.piece_size)}</td></tr>
-                            <tr><td>Raw Size</td><td>${entry.mk20_pipeline.raw_size.Valid ? this.toHumanBytes(entry.mk20_pipeline.raw_size.Int64) : 'N/A'}</td></tr>
-                            <tr><td>Offline</td><td><yes-no .value=${entry.mk20_pipeline.offline}></yes-no></td></tr>
-                            <tr><td>URL</td><td>${entry.mk20_pipeline.url.Valid ? entry.mk20_pipeline.url.String : 'N/A'}</td></tr>
-                            <tr><td>Headers</td><td><pre>${JSON.stringify(entry.mk20_pipeline.headers, null, 2)}</pre></td></tr>
-                            <tr><td>Should Index</td><td>${this.renderNullableYesNo(entry.mk20_pipeline.indexing)}</td></tr>
+                            <tr><td>Created At</td><td>${formatDate(entry.mk20_ddo_pipeline.created_at)}</td></tr>
+                            <tr><td>Piece CID</td><td>${entry.mk20_ddo_pipeline.piece_cid_v2}</td></tr>
+                            <tr><td>Should Index</td><td>${this.renderNullableYesNo(entry.mk20_ddo_pipeline.indexing)}</td></tr>
                             <tr>
                                 <td>Announce</td>
-                                <td>${this.renderNullableYesNo(entry.mk20_pipeline.announce)}</td>
+                                <td>${this.renderNullableYesNo(entry.mk20_ddo_pipeline.announce)}</td>
                             </tr>
 
                             <tr><th colspan="2"><h5>Progress 🛠️</h5></th></tr>
                             <tr>
                                 <td>Data Fetched</td>
-                                <td>${this.renderNullableDoneNotDone(entry.mk20_pipeline.downloaded)}</td>
+                                <td>${this.renderNullableDoneNotDone(entry.mk20_ddo_pipeline.downloaded)}</td>
                             </tr>
                             <tr>
                                 <td>After Commp</td>
-                                <td>${this.renderNullableDoneNotDone(entry.mk20_pipeline.after_commp)}</td>
+                                <td>${this.renderNullableDoneNotDone(entry.mk20_ddo_pipeline.after_commp)}</td>
                             </tr>
                             <tr>
                                 <td>Aggregated</td>
-                                <td>${this.renderNullableDoneNotDone(entry.mk20_pipeline.aggregated)}</td>
+                                <td>${this.renderNullableDoneNotDone(entry.mk20_ddo_pipeline.aggregated)}</td>
                             </tr>
                             <tr>
                                 <td>Sealed</td>
-                                <td>${this.renderNullableDoneNotDone(entry.mk20_pipeline.sealed)}</td>
+                                <td>${this.renderNullableDoneNotDone(entry.mk20_ddo_pipeline.sealed)}</td>
                             </tr>
                             <tr>
                                 <td>Indexed</td>
-                                <td>${this.renderNullableDoneNotDone(entry.mk20_pipeline.indexed)}</td>
+                                <td>${this.renderNullableDoneNotDone(entry.mk20_ddo_pipeline.indexed)}</td>
                             </tr>
                             <tr>
                                 <td>Announced</td>
-                                <td><done-not-done .value=${entry.mk20_pipeline.complete}></done-not-done></td>
+                                <td><done-not-done .value=${entry.mk20_ddo_pipeline.complete}></done-not-done></td>
                             </tr>
                             
                             <tr><th colspan="2"><h5>Early States 🌿</h5></th></tr>
                             <tr>
                                 <td>Commp Task ID</td>
                                 <td>
-                                    ${entry.mk20_pipeline.commp_task_id.Valid
-                    ? html`<task-status .taskId=${entry.mk20_pipeline.commp_task_id.Int64}></task-status>`
-                    : 'N/A'}
+                                    ${entry.mk20_ddo_pipeline.commp_task_id.Valid ? html`<task-status .taskId=${entry.mk20_ddo_pipeline.commp_task_id.Int64}></task-status>` : 'N/A'}
                                 </td>
                             </tr>
                             <tr>
                                 <td>Aggregation Task ID</td>
                                 <td>
-                                    ${entry.mk20_pipeline.agg_task_id.Valid
-                    ? html`<task-status .taskId=${entry.mk20_pipeline.agg_task_id.Int64}></task-status>`
-                    : 'N/A'}
+                                    ${entry.mk20_ddo_pipeline.agg_task_id.Valid ? html`<task-status .taskId=${entry.mk20_ddo_pipeline.agg_task_id.Int64}></task-status>` : 'N/A'}
                                 </td>
                             </tr>
 
                             <tr><th colspan="2"><h5>Sealing 📦</h5></th></tr>
-                            <tr><td>Sector</td><td>${entry.mk20_pipeline.sector.Valid ? html`<a href="/pages/sector/?sp=${entry.deal.addr}&id=${entry.mk20_pipeline.sector.Int64}">${entry.mk20_pipeline.sector.Int64}</a>` : 'N/A'}</td></tr>
-                            <tr><td>Reg Seal Proof</td><td>${entry.mk20_pipeline.reg_seal_proof.Valid ? entry.mk20_pipeline.reg_seal_proof.Int64 : 'N/A'}</td></tr>
-                            <tr><td>Sector Offset</td><td>${entry.mk20_pipeline.sector_offset.Valid ? entry.mk20_pipeline.sector_offset.Int64 : 'N/A'}</td></tr>
+                            <tr><td>Sector</td><td>${entry.mk20_ddo_pipeline.sector.Valid ? html`<a href="/pages/sector/?sp=${entry.deal.addr}&id=${entry.mk20_ddo_pipeline.sector.Int64}">${entry.mk20_ddo_pipeline.sector.Int64}</a>` : 'N/A'}</td></tr>
+                            <tr><td>Reg Seal Proof</td><td>${entry.mk20_ddo_pipeline.reg_seal_proof.Valid ? entry.mk20_ddo_pipeline.reg_seal_proof.Int64 : 'N/A'}</td></tr>
+                            <tr><td>Sector Offset</td><td>${entry.mk20_ddo_pipeline.sector_offset.Valid ? entry.mk20_ddo_pipeline.sector_offset.Int64 : 'N/A'}</td></tr>
                             
                             <tr><th colspan="2"><h5>Indexing 🔍</h5></th></tr>
-                            <tr><td>Indexing Created At</td><td>${entry.mk20_pipeline.indexing_created_at.Valid ? formatDate(entry.mk20_pipeline.indexing_created_at.Time) : 'N/A'}</td></tr>
+                            <tr><td>Indexing Created At</td><td>${entry.mk20_ddo_pipeline.indexing_created_at.Valid ? formatDate(entry.mk20_ddo_pipeline.indexing_created_at.Time) : 'N/A'}</td></tr>
                             <tr>
                                 <td>Indexing Task ID</td>
                                 <td>
-                                    ${entry.mk20_pipeline.indexing_task_id.Valid
-                    ? html`<task-status .taskId=${entry.mk20_pipeline.indexing_task_id.Int64}></task-status>`
-                    : 'N/A'}
+                                    ${entry.mk20_ddo_pipeline.indexing_task_id.Valid ? html`<task-status .taskId=${entry.mk20_ddo_pipeline.indexing_task_id.Int64}></task-status>` : 'N/A'}
                                 </td>
                             </tr>
-                        ` : html`
-                            <tr><td>No Pipeline Data</td><td></td></tr>
-                        `}
+                        ` : html`<tr><td>No DDO Pipeline Data</td><td></td></tr>`}
+                        ${entry.mk20_pdp_pipeline ? html`
+                            <tr><th colspan="2"><h5 style="color: var(--color-warning-main)">PDP PIPELINE ACTIVE</h5></th></tr>
+                            <tr>
+                                <td>Controls</td>
+                                <td>
+                                    <button class="btn btn-warning btn-sm" @click=${() => this.handleRemove(entry.deal.deal.identifier)}>REMOVE</button>
+                                </td>
+                            </tr>
+                            <tr><td>Created At</td><td>${formatDate(entry.mk20_pdp_pipeline.created_at)}</td></tr>
+                            <tr><td>Piece CID</td><td>${entry.mk20_pdp_pipeline.piece_cid_v2}</td></tr>
+                            <tr><td>Should Index</td><td>${this.renderNullableYesNo(entry.mk20_pdp_pipeline.indexing)}</td></tr>
+                            <tr>
+                                <td>Announce Piece</td>
+                                <td>${this.renderNullableYesNo(entry.mk20_pdp_pipeline.announce)}</td>
+                            </tr>
+                            <tr>
+                                <td>Announce Payload</td>
+                                <td>${this.renderNullableYesNo(entry.mk20_pdp_pipeline.announce_payload)}</td>
+                            </tr>
+
+                            <tr><th colspan="2"><h5>Progress 🛠️</h5></th></tr>
+                            <tr>
+                                <td>Data Fetched</td>
+                                <td>${this.renderNullableDoneNotDone(entry.mk20_pdp_pipeline.downloaded)}</td>
+                            </tr>
+                            <tr>
+                                <td>After Commp</td>
+                                <td>${this.renderNullableDoneNotDone(entry.mk20_pdp_pipeline.after_commp)}</td>
+                            </tr>
+                            <tr>
+                                <td>Aggregated</td>
+                                <td>${this.renderNullableDoneNotDone(entry.mk20_pdp_pipeline.aggregated)}</td>
+                            </tr>
+                            <tr>
+                                <td>Add Piece</td>
+                                <td>${this.renderNullableDoneNotDone(entry.mk20_pdp_pipeline.after_add_piece)}</td>
+                            </tr>
+                            <tr>
+                                <td>Add Piece Success</td>
+                                <td>${this.renderNullableDoneNotDone(entry.mk20_pdp_pipeline.after_add_piece_msg)}</td>
+                            </tr>
+                            <tr>
+                                <td>Save Cache</td>
+                                <td>${this.renderNullableDoneNotDone(entry.mk20_pdp_pipeline.after_save_cache)}</td>
+                            </tr>
+                            <tr>
+                                <td>Indexed</td>
+                                <td>${this.renderNullableDoneNotDone(entry.mk20_pdp_pipeline.indexed)}</td>
+                            </tr>
+                            <tr>
+                                <td>Announced</td>
+                                <td><done-not-done .value=${entry.mk20_pdp_pipeline.complete}></done-not-done></td>
+                            </tr>
+                            
+                            <tr><th colspan="2"><h5>Early States 🌿</h5></th></tr>
+                            <tr>
+                                <td>Commp Task ID</td>
+                                <td>
+                                    ${entry.mk20_pdp_pipeline.commp_task_id.Valid ? html`<task-status .taskId=${entry.mk20_pdp_pipeline.commp_task_id.Int64}></task-status>` : 'N/A'}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Aggregation Task ID</td>
+                                <td>
+                                    ${entry.mk20_pdp_pipeline.agg_task_id.Valid ? html`<task-status .taskId=${entry.mk20_pdp_pipeline.agg_task_id.Int64}></task-status>` : 'N/A'}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Add Piece Task ID</td>
+                                <td>
+                                    ${entry.mk20_pdp_pipeline.add_piece_task_id.Valid ? html`<task-status .taskId=${entry.mk20_pdp_pipeline.add_piece_task_id.Int64}></task-status>` : 'N/A'}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Save Cache Task ID</td>
+                                <td>
+                                    ${entry.mk20_pdp_pipeline.save_cache_task_id.Valid ? html`<task-status .taskId=${entry.mk20_pdp_pipeline.save_cache_task_id.Int64}></task-status>` : 'N/A'}
+                                </td>
+                            </tr>
+                            <tr><th colspan="2"><h5>Indexing 🔍</h5></th></tr>
+                            <tr><td>Indexing Created At</td><td>${entry.mk20_pdp_pipeline.indexing_created_at.Valid ? formatDate(entry.mk20_pdp_pipeline.indexing_created_at.Time) : 'N/A'}</td></tr>
+                            <tr>
+                                <td>Indexing Task ID</td>
+                                <td>
+                                    ${entry.mk20_pdp_pipeline.indexing_task_id.Valid ? html`<task-status .taskId=${entry.mk20_pdp_pipeline.indexing_task_id.Int64}></task-status>` : 'N/A'}
+                                </td>
+                            </tr>
+                        ` : html`<tr><td>No PDP Pipeline Data</td><td></td></tr>`}
                         </tbody>
                     </table>
                 `)}

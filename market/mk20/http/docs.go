@@ -882,7 +882,7 @@ const docTemplate = `{
                     "description": "ContractDealIDMethod specifies the method name to verify the deal and retrieve the deal ID for a contract",
                     "type": "string"
                 },
-                "contract_verify_method_params": {
+                "contract_verify_method_Params": {
                     "description": "ContractDealIDMethodParams represents encoded parameters for the contract verify method if required by the contract",
                     "type": "string",
                     "format": "byte"
@@ -951,7 +951,7 @@ const docTemplate = `{
                         }
                     ]
                 },
-                "source_httpput": {
+                "source_http_put": {
                     "description": "SourceHttpPut allow clients to push piece data after deal is accepted",
                     "allOf": [
                         {
@@ -1111,7 +1111,7 @@ const docTemplate = `{
         "mk20.DealStatusResponse": {
             "type": "object",
             "properties": {
-                "error_msg": {
+                "errorMsg": {
                     "description": "ErrorMsg is an optional field containing error details associated with the deal's current state if an error occurred.",
                     "type": "string"
                 },
@@ -1205,8 +1205,10 @@ const docTemplate = `{
                 },
                 "extra_data": {
                     "description": "ExtraData can be used to send additional information to service contract when Verifier action like AddRoot, DeleteRoot etc. are performed.",
-                    "type": "string",
-                    "format": "byte"
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 },
                 "piece_ids": {
                     "description": "PieceIDs is a list of Piece ids in a proof set.",

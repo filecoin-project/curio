@@ -143,7 +143,9 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 					return false, fmt.Errorf("failed to get piece reader: %w", err)
 				}
 			}
-			defer pr.Close()
+			defer func() {
+				_ = pr.Close()
+			}()
 			pieceParked = true
 			parkedPieceID = pid
 		} else {
@@ -223,6 +225,23 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 	// Update DB status of piece, deal, PDP
 	comm, err = a.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		var refIDUsed bool
+
+		dealdata := deal.Data
+		aggregation := 0
+		if dealdata.Format.Aggregate != nil {
+			aggregation = int(dealdata.Format.Aggregate.Type)
+		}
+
+		if !pieceParked {
+			_, err = tx.Exec(`UPDATE parked_pieces SET 
+                         complete = TRUE 
+                     WHERE id = $1 
+                       AND complete = false`, pieceRefID)
+			if err != nil {
+				return false, xerrors.Errorf("marking piece park as complete: %w", err)
+			}
+		}
+
 		// Update PoRep pipeline
 		if deal.Products.DDOV1 != nil {
 			var complete bool
@@ -242,7 +261,6 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 				}
 
 				ddo := deal.Products.DDOV1
-				dealdata := deal.Data
 				dealID := deal.Identifier.String()
 
 				var allocationID interface{}
@@ -250,21 +268,6 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 					allocationID = *ddo.AllocationId
 				} else {
 					allocationID = nil
-				}
-
-				aggregation := 0
-				if dealdata.Format.Aggregate != nil {
-					aggregation = int(dealdata.Format.Aggregate.Type)
-				}
-
-				if !pieceParked {
-					_, err = tx.Exec(`UPDATE parked_pieces SET 
-                         complete = TRUE 
-                     WHERE id = $1 
-                       AND complete = false`, pieceRefID)
-					if err != nil {
-						return false, xerrors.Errorf("marking piece park as complete: %w", err)
-					}
 				}
 
 				pieceIDUrl := url.URL{
@@ -314,10 +317,10 @@ func (a *AggregateChunksTask) Do(taskID harmonytask.TaskID, stillOwned func() bo
 
 				n, err := tx.Exec(`INSERT INTO pdp_pipeline (
 							id, client, piece_cid_v2, data_set_id, extra_data, piece_ref, 
-                          downloaded, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
-						VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, 0, $8, $9, $10)`,
-					id, deal.Client, deal.Data.PieceCID.String(), *pdp.DataSetID,
-					pdp.ExtraData, pieceRefID, deal.Data.Format.Aggregate.Type, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
+                          downloaded, deal_aggregation, aggr_index, indexing, announce, announce_payload, after_commp) 
+						VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, 0, $8, $9, $10, TRUE)`,
+					id.String(), deal.Client, deal.Data.PieceCID.String(), *pdp.DataSetID,
+					pdp.ExtraData, pieceRefID, aggregation, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 				if err != nil {
 					return false, xerrors.Errorf("inserting in PDP pipeline: %w", err)
 				}

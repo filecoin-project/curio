@@ -34,7 +34,6 @@ import (
 	"github.com/multiformats/go-multiaddr"
 	"github.com/oklog/ulid"
 	"github.com/urfave/cli/v2"
-	"golang.org/x/exp/mmap"
 	"golang.org/x/term"
 	"golang.org/x/xerrors"
 
@@ -539,7 +538,9 @@ func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 		if err != nil {
 			return xerrors.Errorf("failed to open stream to peer %s: %w", addrInfo.ID, err)
 		}
-		defer s.Close()
+		defer func() {
+			_ = s.Close()
+		}()
 
 		if err := doRpc(ctx, s, &dealParams, &resp); err != nil {
 			return xerrors.Errorf("send proposal rpc: %w", err)
@@ -673,7 +674,9 @@ func doHttp(urls []*url.URL, deal interface{}, response interface{}) error {
 			log.Warnw("failed to send request", "url", s, "error", err)
 			continue
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 		if resp.StatusCode != http.StatusOK {
 			log.Warnw("failed to send request", "url", s, "status", resp.StatusCode)
 			continue
@@ -701,7 +704,7 @@ var initCmd = &cli.Command{
 			return err
 		}
 
-		os.Mkdir(sdir, 0755) //nolint:errcheck
+		_ = os.Mkdir(sdir, 0755) //nolint:errcheck
 
 		n, err := Setup(cctx.String(mk12_client_repo.Name))
 		if err != nil {
@@ -786,7 +789,7 @@ var walletNew = &cli.Command{
 			out := map[string]interface{}{
 				"address": nk.String(),
 			}
-			PrintJson(out) //nolint:errcheck
+			_ = PrintJson(out) //nolint:errcheck
 		} else {
 			fmt.Println(nk.String())
 		}
@@ -927,7 +930,7 @@ var walletList = &cli.Command{
 					if !cctx.Bool("json") && dcap == nil {
 						wallet[dataCapKey] = "X"
 					} else if dcap != nil {
-						wallet[dataCapKey] = humanize.IBytes(dcap.Int.Uint64())
+						wallet[dataCapKey] = humanize.IBytes(dcap.Uint64())
 					}
 				} else {
 					wallet[dataCapKey] = "n/a"
@@ -1456,7 +1459,9 @@ var dealStatusCmd = &cli.Command{
 				if err != nil {
 					return xerrors.Errorf("failed to make HTTP request: %w", err)
 				}
-				defer hresp.Body.Close()
+				defer func() {
+					_ = hresp.Body.Close()
+				}()
 				if hresp.StatusCode != http.StatusOK {
 					return xerrors.Errorf("HTTP request failed with status %d", hresp.StatusCode)
 				}
@@ -1829,7 +1834,9 @@ var mk20DealCmd = &cli.Command{
 			if err != nil {
 				return err
 			}
-			defer file.Close()
+			defer func() {
+				_ = file.Close()
+			}()
 			scanner := bufio.NewScanner(file)
 			for scanner.Scan() {
 				line := scanner.Text()
@@ -2056,28 +2063,14 @@ var mk20ClientChunkUploadCmd = &cli.Command{
 			return err
 		}
 
+		maddr, err := url.Parse(cctx.String("provider"))
+		if err != nil {
+			return err
+		}
+
+		pclient := client.NewClient(maddr.String(), walletAddr, n.Wallet)
+
 		log.Debugw("selected wallet", "wallet", walletAddr)
-
-		keyType := client.KeyFromClientAddress(walletAddr)
-		pkey := walletAddr.Bytes()
-		ts := time.Now().UTC().Truncate(time.Hour)
-		msg := sha256.Sum256(bytes.Join([][]byte{pkey, []byte(ts.Format(time.RFC3339))}, []byte{}))
-
-		signature, err := n.Wallet.WalletSign(ctx, walletAddr, msg[:], lapi.MsgMeta{Type: lapi.MTDealProposal})
-		if err != nil {
-			return xerrors.Errorf("signing message: %w", err)
-		}
-
-		sig, err := signature.MarshalBinary()
-		if err != nil {
-			return xerrors.Errorf("marshaling signature: %w", err)
-		}
-
-		authHeader := fmt.Sprintf("CurioAuth %s:%s:%s",
-			keyType,
-			base64.StdEncoding.EncodeToString(pkey),
-			base64.StdEncoding.EncodeToString(sig),
-		)
 
 		if cctx.NArg() != 1 {
 			return xerrors.Errorf("must provide a single file to upload")
@@ -2108,15 +2101,14 @@ var mk20ClientChunkUploadCmd = &cli.Command{
 			return xerrors.Errorf("parsing deal id: %w", err)
 		}
 
-		maddr, err := address.NewFromString(cctx.String("provider"))
-		if err != nil {
-			return err
-		}
-
 		f, err := os.OpenFile(file, os.O_RDONLY, 0644)
 		if err != nil {
 			return xerrors.Errorf("opening file: %w", err)
 		}
+
+		defer func() {
+			_ = f.Close()
+		}()
 
 		stat, err := f.Stat()
 		if err != nil {
@@ -2132,188 +2124,9 @@ var mk20ClientChunkUploadCmd = &cli.Command{
 			chunkSize = size
 		}
 
-		// Calculate the number of chunks
-		numChunks := int((size + chunkSize - 1) / chunkSize)
-
-		f.Close()
-
-		api, closer, err := lcli.GetGatewayAPIV1(cctx)
+		err = pclient.DealChunkedUpload(ctx, dealid.String(), size, chunkSize, f)
 		if err != nil {
-			return fmt.Errorf("cant setup gateway connection: %w", err)
-		}
-		defer closer()
-
-		minfo, err := api.StateMinerInfo(ctx, maddr, chain_types.EmptyTSK)
-		if err != nil {
-			return err
-		}
-		if minfo.PeerId == nil {
-			return xerrors.Errorf("storage provider %s has no peer ID set on-chain", maddr)
-		}
-
-		var maddrs []multiaddr.Multiaddr
-		for _, mma := range minfo.Multiaddrs {
-			ma, err := multiaddr.NewMultiaddrBytes(mma)
-			if err != nil {
-				return xerrors.Errorf("storage provider %s had invalid multiaddrs in their info: %w", maddr, err)
-			}
-			maddrs = append(maddrs, ma)
-		}
-		if len(maddrs) == 0 {
-			return xerrors.Errorf("storage provider %s has no multiaddrs set on-chain", maddr)
-		}
-
-		addrInfo := &peer.AddrInfo{
-			ID:    *minfo.PeerId,
-			Addrs: maddrs,
-		}
-
-		log.Debugw("found storage provider", "id", addrInfo.ID, "multiaddrs", addrInfo.Addrs, "addr", maddr)
-
-		var hurls []*url.URL
-
-		for _, ma := range addrInfo.Addrs {
-			hurl, err := maurl.ToURL(ma)
-			if err != nil {
-				return xerrors.Errorf("failed to convert multiaddr %s to URL: %w", ma, err)
-			}
-			if hurl.Scheme == "ws" {
-				hurl.Scheme = "http"
-			}
-			if hurl.Scheme == "wss" {
-				hurl.Scheme = "https"
-			}
-			log.Debugw("converted multiaddr to URL", "url", hurl, "multiaddr", ma.String())
-			hurls = append(hurls, hurl)
-		}
-
-		purl := hurls[0]
-		log.Debugw("using first URL", "url", purl)
-		tu := mk20.StartUpload{
-			RawSize:   uint64(size),
-			ChunkSize: chunkSize,
-		}
-		b, err := json.Marshal(tu)
-		if err != nil {
-			return err
-		}
-		log.Debugw("request body", "body", string(b))
-		client, err := http.NewRequest("POST", purl.String()+"/market/mk20/uploads/"+dealid.String(), bytes.NewBuffer(b))
-		if err != nil {
-			return xerrors.Errorf("failed to upload start create request: %w", err)
-		}
-		client.Header.Set("Content-Type", "application/json")
-		client.Header.Set("Authorization", authHeader)
-		resp, err := http.DefaultClient.Do(client)
-		if err != nil {
-			return xerrors.Errorf("failed to send request: %w", err)
-		}
-
-		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusTooManyRequests {
-			respBody, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return xerrors.Errorf("failed to read response body: %w", err)
-			}
-			return xerrors.Errorf("failed to send request: %d, %s", resp.StatusCode, string(respBody))
-		}
-
-		x, err := mmap.Open(f.Name())
-		if err != nil {
-			return xerrors.Errorf("failed to open file: %w", err)
-		}
-		defer x.Close()
-
-		for {
-			gc, err := http.NewRequest("GET", purl.String()+"/market/mk20/uploads/"+dealid.String(), nil)
-			if err != nil {
-				return xerrors.Errorf("failed to create request: %w", err)
-			}
-			gc.Header.Set("Authorization", authHeader)
-			resp, err := http.DefaultClient.Do(gc)
-			if err != nil {
-				return xerrors.Errorf("failed to send request: %w", err)
-			}
-
-			respBody, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return xerrors.Errorf("failed to read response body: %w", err)
-			}
-
-			if resp.StatusCode != http.StatusOK {
-				return xerrors.Errorf("failed to send request: %d, %s", resp.StatusCode, string(respBody))
-			}
-
-			ustatus := mk20.UploadStatus{}
-			err = json.Unmarshal(respBody, &ustatus)
-			if err != nil {
-				return xerrors.Errorf("failed to unmarshal response body: %w", err)
-			}
-
-			log.Debugw("upload status", "status", ustatus)
-
-			if ustatus.TotalChunks != numChunks {
-				return xerrors.Errorf("expected %d chunks, got %d", numChunks, ustatus.TotalChunks)
-			}
-
-			if ustatus.Missing == 0 {
-				break
-			}
-
-			log.Warnw("missing chunks", "missing", ustatus.Missing)
-			// Try to upload missing chunks
-			for _, c := range ustatus.MissingChunks {
-				start := int64(c-1) * chunkSize
-				end := start + chunkSize
-				if end > size {
-					end = size
-				}
-				log.Debugw("uploading chunk", "start", start, "end", end)
-				buf := make([]byte, end-start)
-				_, err := x.ReadAt(buf, start)
-				if err != nil {
-					return xerrors.Errorf("failed to read chunk: %w", err)
-				}
-				req, err := http.NewRequest(http.MethodPut, purl.String()+"/market/mk20/uploads/"+dealid.String()+"/"+fmt.Sprintf("%d", c), bytes.NewBuffer(buf))
-				if err != nil {
-					return xerrors.Errorf("failed to create put request: %w", err)
-				}
-				req.Header.Set("Content-Type", "application/octet-stream")
-				req.Header.Set("Content-Length", fmt.Sprintf("%d", end-start))
-				req.Header.Set("Authorization", authHeader)
-				resp, err := http.DefaultClient.Do(req)
-				if err != nil {
-					return xerrors.Errorf("failed to send put request: %w", err)
-				}
-				if resp.StatusCode != http.StatusOK {
-					respBody, err := io.ReadAll(resp.Body)
-					if err != nil {
-						return xerrors.Errorf("failed to read response body: %w", err)
-					}
-					return xerrors.Errorf("failed to send request: %d, %s", resp.StatusCode, string(respBody))
-				}
-			}
-		}
-
-		log.Infow("upload complete")
-
-		//Finalize the upload
-		pc, err := http.NewRequest("POST", purl.String()+"/market/mk20/uploads/"+dealid.String()+"/finalize", nil)
-		if err != nil {
-			return xerrors.Errorf("failed to create finalize request client: %w", err)
-		}
-
-		pc.Header.Set("Content-Type", "application/json")
-		pc.Header.Set("Authorization", authHeader)
-		resp, err = http.DefaultClient.Do(pc)
-		if err != nil {
-			return xerrors.Errorf("failed to send request: %w", err)
-		}
-		if resp.StatusCode != http.StatusOK {
-			respBody, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return xerrors.Errorf("failed to read response body: %w", err)
-			}
-			return xerrors.Errorf("failed to send request: %d, %s", resp.StatusCode, string(respBody))
+			return xerrors.Errorf("uploading file: %w", err)
 		}
 
 		return nil
@@ -2334,7 +2147,7 @@ var mk20PDPDealCmd = &cli.Command{
 		},
 		&cli.StringFlag{
 			Name:     "provider",
-			Usage:    "storage provider on-chain address",
+			Usage:    "PDP providers's URL",
 			Required: true,
 		},
 		&cli.StringFlag{
@@ -2354,32 +2167,32 @@ var mk20PDPDealCmd = &cli.Command{
 			Usage: "used HTTP put as data source",
 		},
 		&cli.BoolFlag{
-			Name:  "add-root",
-			Usage: "add root",
+			Name:  "add-piece",
+			Usage: "add piece",
 		},
 		&cli.BoolFlag{
-			Name:  "add-proofset",
-			Usage: "add proofset",
+			Name:  "add-dataset",
+			Usage: "add dataset",
 		},
 		&cli.BoolFlag{
-			Name:  "remove-root",
-			Usage: "remove root",
+			Name:  "remove-piece",
+			Usage: "remove piece",
 		},
 		&cli.BoolFlag{
-			Name:  "remove-proofset",
-			Usage: "remove proofset",
+			Name:  "remove-dataset",
+			Usage: "remove dataset",
 		},
 		&cli.StringFlag{
 			Name:  "record-keeper",
 			Usage: "record keeper address",
 		},
 		&cli.Uint64SliceFlag{
-			Name:  "root-id",
+			Name:  "piece-id",
 			Usage: "root IDs",
 		},
 		&cli.Uint64Flag{
-			Name:  "proofset-id",
-			Usage: "proofset IDs",
+			Name:  "dataset-id",
+			Usage: "dataset IDs",
 		},
 	},
 	Action: func(cctx *cli.Context) error {
@@ -2389,110 +2202,35 @@ var mk20PDPDealCmd = &cli.Command{
 			return err
 		}
 
-		api, closer, err := lcli.GetGatewayAPIV1(cctx)
-		if err != nil {
-			return fmt.Errorf("cant setup gateway connection: %w", err)
-		}
-		defer closer()
-
 		walletAddr, err := n.GetProvidedOrDefaultWallet(ctx, cctx.String("wallet"))
 		if err != nil {
 			return err
 		}
 
+		maddr, err := url.Parse(cctx.String("provider"))
+		if err != nil {
+			return err
+		}
+
+		pclient := client.NewClient(maddr.String(), walletAddr, n.Wallet)
+
 		log.Debugw("selected wallet", "wallet", walletAddr)
 
-		keyType := client.KeyFromClientAddress(walletAddr)
-		pkey := walletAddr.Bytes()
-		ts := time.Now().UTC().Truncate(time.Hour)
-		msg := sha256.Sum256(bytes.Join([][]byte{pkey, []byte(ts.Format(time.RFC3339))}, []byte{}))
-
-		signature, err := n.Wallet.WalletSign(ctx, walletAddr, msg[:], lapi.MsgMeta{Type: lapi.MTDealProposal})
-		if err != nil {
-			return xerrors.Errorf("signing message: %w", err)
-		}
-
-		sig, err := signature.MarshalBinary()
-		if err != nil {
-			return xerrors.Errorf("marshaling signature: %w", err)
-		}
-
-		authHeader := fmt.Sprintf("CurioAuth %s:%s:%s",
-			keyType,
-			base64.StdEncoding.EncodeToString(pkey),
-			base64.StdEncoding.EncodeToString(sig),
-		)
-
-		maddr, err := address.NewFromString(cctx.String("provider"))
-		if err != nil {
-			return err
-		}
-
-		minfo, err := api.StateMinerInfo(ctx, maddr, chain_types.EmptyTSK)
-		if err != nil {
-			return err
-		}
-		if minfo.PeerId == nil {
-			return xerrors.Errorf("storage provider %s has no peer ID set on-chain", maddr)
-		}
-
-		var maddrs []multiaddr.Multiaddr
-		for _, mma := range minfo.Multiaddrs {
-			ma, err := multiaddr.NewMultiaddrBytes(mma)
-			if err != nil {
-				return xerrors.Errorf("storage provider %s had invalid multiaddrs in their info: %w", maddr, err)
-			}
-			maddrs = append(maddrs, ma)
-		}
-		if len(maddrs) == 0 {
-			return xerrors.Errorf("storage provider %s has no multiaddrs set on-chain", maddr)
-		}
-
-		addrInfo := &peer.AddrInfo{
-			ID:    *minfo.PeerId,
-			Addrs: maddrs,
-		}
-
-		log.Debugw("found storage provider", "id", addrInfo.ID, "multiaddrs", addrInfo.Addrs, "addr", maddr)
-
-		var hurls []*url.URL
-
-		for _, ma := range addrInfo.Addrs {
-			hurl, err := maurl.ToURL(ma)
-			if err != nil {
-				return xerrors.Errorf("failed to convert multiaddr %s to URL: %w", ma, err)
-			}
-			if hurl.Scheme == "ws" {
-				hurl.Scheme = "http"
-			}
-			if hurl.Scheme == "wss" {
-				hurl.Scheme = "https"
-			}
-			log.Debugw("converted multiaddr to URL", "url", hurl, "multiaddr", ma.String())
-			hurls = append(hurls, hurl)
-		}
-
-		addRoot := cctx.Bool("add-root")
-		addProofset := cctx.Bool("add-proofset")
-		removeRoot := cctx.Bool("remove-root")
-		removeProofset := cctx.Bool("remove-proofset")
+		addRoot := cctx.Bool("add-piece")
+		addProofset := cctx.Bool("add-dataset")
+		removeRoot := cctx.Bool("remove-piece")
+		removeProofset := cctx.Bool("remove-dataset")
 		recordKeeper := cctx.String("record-keeper")
-		rootIDs := cctx.Uint64Slice("root-id")
-		proofSetSet := cctx.IsSet("proofset-id")
-		proofsetID := cctx.Uint64("proofset-id")
-		if !(addRoot || removeRoot || addProofset || removeProofset) {
+		rootIDs := cctx.Uint64Slice("piece-id")
+		proofSetSet := cctx.IsSet("dataset-id")
+		proofsetID := cctx.Uint64("dataset-id")
+		if !addRoot && !removeRoot && !addProofset && !removeProofset {
 			return xerrors.Errorf("at least one of --add-root, --remove-root, --add-proofset, --remove-proofset must be set")
 		}
 
 		if btoi(addRoot)+btoi(addProofset)+btoi(removeRoot)+btoi(removeProofset) > 1 {
 			return xerrors.Errorf("only one of --add-root, --remove-root, --add-proofset, --remove-proofset can be set")
 		}
-
-		extraBytes := []byte{}
-
-		pdp := &mk20.PDPV1{}
-		var d *mk20.DataSource
-		var ret *mk20.RetrievalV1
 
 		if addRoot {
 			commp := cctx.String("pcidv2")
@@ -2512,15 +2250,6 @@ var mk20PDPDealCmd = &cli.Command{
 			}
 
 			if cctx.IsSet("aggregate") {
-				d = &mk20.DataSource{
-					PieceCID: pieceCid,
-					Format: mk20.PieceDataFormat{
-						Aggregate: &mk20.FormatAggregate{
-							Type: mk20.AggregateTypeV1,
-						},
-					},
-				}
-
 				var pieces []mk20.DataSource
 
 				log.Debugw("using aggregate data source", "aggregate", cctx.String("aggregate"))
@@ -2533,7 +2262,9 @@ var mk20PDPDealCmd = &cli.Command{
 				if err != nil {
 					return err
 				}
-				defer file.Close()
+				defer func() {
+					_ = file.Close()
+				}()
 				scanner := bufio.NewScanner(file)
 				for scanner.Scan() {
 					line := scanner.Text()
@@ -2575,63 +2306,40 @@ var mk20PDPDealCmd = &cli.Command{
 						return err
 					}
 				}
-				d.SourceAggregate = &mk20.DataSourceAggregate{
-					Pieces: pieces,
+				id, err := pclient.AddPieceWithAggregate(ctx, walletAddr.String(), recordKeeper, nil, &proofsetID, pieceCid, true, false, mk20.AggregateTypeNone, pieces)
+				if err != nil {
+					return xerrors.Errorf("failed to add piece: %w", err)
 				}
+				fmt.Println("Add piece requested with Deal:", id)
+				return nil
 			} else {
 				if !cctx.IsSet("http-url") {
-					if cctx.Bool("put") {
-						d = &mk20.DataSource{
-							PieceCID: pieceCid,
-							Format: mk20.PieceDataFormat{
-								Car: &mk20.FormatCar{},
-							},
-							SourceHttpPut: &mk20.DataSourceHttpPut{},
-						}
-					} else {
-						d = &mk20.DataSource{
-							PieceCID: pieceCid,
-							Format: mk20.PieceDataFormat{
-								Car: &mk20.FormatCar{},
-							},
-							SourceOffline: &mk20.DataSourceOffline{},
-						}
+					id, err := pclient.AddPieceWithPut(ctx, walletAddr.String(), recordKeeper, nil, &proofsetID, pieceCid, true, false, true, true, mk20.AggregateTypeNone, nil)
+					if err != nil {
+						return xerrors.Errorf("failed to add piece: %w", err)
 					}
+					fmt.Println("Add piece requested with Deal:", id)
+					return nil
 				} else {
 					url, err := url.Parse(cctx.String("http-url"))
 					if err != nil {
 						return xerrors.Errorf("parsing http url: %w", err)
 					}
-					d = &mk20.DataSource{
-						PieceCID: pieceCid,
-						Format: mk20.PieceDataFormat{
-							Car: &mk20.FormatCar{},
-						},
-						SourceHTTP: &mk20.DataSourceHTTP{
-							URLs: []mk20.HttpUrl{
-								{
-									URL:      url.String(),
-									Headers:  headers,
-									Priority: 0,
-									Fallback: true,
-								},
-							},
+					h := []mk20.HttpUrl{
+						{
+							URL:      url.String(),
+							Headers:  headers,
+							Priority: 0,
+							Fallback: true,
 						},
 					}
+					id, err := pclient.AddPieceWithHTTP(ctx, walletAddr.String(), recordKeeper, nil, &proofsetID, pieceCid, true, false, true, true, mk20.AggregateTypeNone, nil, h)
+					if err != nil {
+						return xerrors.Errorf("failed to add piece: %w", err)
+					}
+					fmt.Println("Add piece requested with Deal:", id)
+					return nil
 				}
-			}
-
-			if !proofSetSet {
-				return xerrors.Errorf("proofset-id must be set when adding a root")
-			}
-			pdp.AddPiece = true
-			pdp.RecordKeeper = recordKeeper
-			pdp.DataSetID = &proofsetID
-			pdp.ExtraData = extraBytes
-			ret = &mk20.RetrievalV1{
-				Indexing:        true,
-				AnnouncePayload: true,
-				AnnouncePiece:   true,
 			}
 		}
 
@@ -2639,90 +2347,36 @@ var mk20PDPDealCmd = &cli.Command{
 			if !proofSetSet {
 				return xerrors.Errorf("proofset-id must be set when removing a root")
 			}
-			pdp.DeletePiece = true
-			pdp.RecordKeeper = recordKeeper
-			pdp.DataSetID = &proofsetID
-			pdp.PieceIDs = rootIDs
-			pdp.ExtraData = extraBytes
-			d = nil
+			id, err := pclient.RemovePiece(ctx, walletAddr.String(), recordKeeper, nil, &proofsetID, rootIDs)
+			if err != nil {
+				return xerrors.Errorf("failed to remove piece: %w", err)
+			}
+			fmt.Println("Piece removal requested with deal ID:", id.String())
+			return nil
 		}
 
 		if addProofset {
-			pdp.RecordKeeper = recordKeeper
-			pdp.CreateDataSet = true
-			pdp.ExtraData = extraBytes
-			d = nil
+			id, err := pclient.CreateDataSet(ctx, walletAddr.String(), recordKeeper, nil)
+			if err != nil {
+				return xerrors.Errorf("failed to create dataset: %w", err)
+			}
+			fmt.Println("Dataset creation requested with deal ID:", id.String())
+			return nil
 		}
 
 		if removeProofset {
 			if !proofSetSet {
 				return xerrors.Errorf("proofset-id must be set when deleting proof-set")
 			}
-			pdp.RecordKeeper = recordKeeper
-			pdp.DeleteDataSet = true
-			pdp.DataSetID = &proofsetID
-			pdp.ExtraData = extraBytes
-			d = nil
-		}
-
-		p := mk20.Products{
-			PDPV1: pdp,
-		}
-
-		if ret != nil {
-			p.RetrievalV1 = ret
-		}
-
-		id, err := mk20.NewULID()
-		if err != nil {
-			return err
-		}
-		log.Debugw("generated deal id", "id", id)
-
-		deal := mk20.Deal{
-			Identifier: id,
-			Client:     walletAddr.String(),
-			Products:   p,
-		}
-
-		if d != nil {
-			deal.Data = d
-		}
-
-		log.Debugw("deal", "deal", deal)
-
-		body, err := json.Marshal(deal)
-		if err != nil {
-			return err
-		}
-
-		// Try to request all URLs one by one and exit after first success
-		for _, u := range hurls {
-			s := u.String() + "/market/mk20/store"
-			log.Debugw("trying to send request to", "url", u.String())
-			req, err := http.NewRequest("POST", s, bytes.NewReader(body))
+			id, err := pclient.RemoveDataSet(ctx, walletAddr.String(), recordKeeper, nil, &proofsetID)
 			if err != nil {
-				return xerrors.Errorf("failed to create request: %w", err)
+				return xerrors.Errorf("failed to remove dataset: %w", err)
 			}
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Authorization", authHeader)
-			log.Debugw("Headers", "headers", req.Header)
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				log.Warnw("failed to send request", "url", s, "error", err)
-				continue
-			}
-			if resp.StatusCode != http.StatusOK {
-				respBody, err := io.ReadAll(resp.Body)
-				if err != nil {
-					return xerrors.Errorf("failed to read response body: %w", err)
-				}
-				log.Warnw("failed to send request", "url", s, "status", resp.StatusCode, "body", string(respBody))
-				continue
-			}
+			fmt.Println("Dataset removal requested with deal ID:", id.String())
 			return nil
 		}
-		return xerrors.Errorf("failed to send request to any of the URLs")
+
+		return xerrors.Errorf("failed to send a PDP deal")
 	},
 }
 
@@ -2739,7 +2393,7 @@ var mk20ClientUploadCmd = &cli.Command{
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:     "provider",
-			Usage:    "storage provider on-chain address",
+			Usage:    "PDP providers's URL",
 			Required: true,
 		},
 		&cli.StringFlag{
@@ -2760,28 +2414,14 @@ var mk20ClientUploadCmd = &cli.Command{
 			return err
 		}
 
+		maddr, err := url.Parse(cctx.String("provider"))
+		if err != nil {
+			return err
+		}
+
+		pclient := client.NewClient(maddr.String(), walletAddr, n.Wallet)
+
 		log.Debugw("selected wallet", "wallet", walletAddr)
-
-		keyType := client.KeyFromClientAddress(walletAddr)
-		pkey := walletAddr.Bytes()
-		ts := time.Now().UTC().Truncate(time.Hour)
-		msg := sha256.Sum256(bytes.Join([][]byte{pkey, []byte(ts.Format(time.RFC3339))}, []byte{}))
-
-		signature, err := n.Wallet.WalletSign(ctx, walletAddr, msg[:], lapi.MsgMeta{Type: lapi.MTDealProposal})
-		if err != nil {
-			return xerrors.Errorf("signing message: %w", err)
-		}
-
-		sig, err := signature.MarshalBinary()
-		if err != nil {
-			return xerrors.Errorf("marshaling signature: %w", err)
-		}
-
-		authHeader := fmt.Sprintf("CurioAuth %s:%s:%s",
-			keyType,
-			base64.StdEncoding.EncodeToString(pkey),
-			base64.StdEncoding.EncodeToString(sig),
-		)
 
 		if cctx.NArg() != 1 {
 			return xerrors.Errorf("must provide a single file to upload")
@@ -2794,17 +2434,14 @@ var mk20ClientUploadCmd = &cli.Command{
 			return xerrors.Errorf("parsing deal id: %w", err)
 		}
 
-		maddr, err := address.NewFromString(cctx.String("provider"))
-		if err != nil {
-			return err
-		}
-
 		f, err := os.OpenFile(file, os.O_RDONLY, 0644)
 		if err != nil {
 			return xerrors.Errorf("opening file: %w", err)
 		}
 
-		defer f.Close()
+		defer func() {
+			_ = f.Close()
+		}()
 
 		stat, err := f.Stat()
 		if err != nil {
@@ -2816,100 +2453,14 @@ var mk20ClientUploadCmd = &cli.Command{
 			return xerrors.Errorf("file size is 0")
 		}
 
-		api, closer, err := lcli.GetGatewayAPIV1(cctx)
+		err = pclient.DealUploadSerial(ctx, dealid.String(), f)
 		if err != nil {
-			return fmt.Errorf("cant setup gateway connection: %w", err)
+			return xerrors.Errorf("uploading file: %w", err)
 		}
-		defer closer()
 
-		minfo, err := api.StateMinerInfo(ctx, maddr, chain_types.EmptyTSK)
+		err = pclient.DealUploadSerialFinalize(ctx, dealid.String(), nil)
 		if err != nil {
-			return err
-		}
-		if minfo.PeerId == nil {
-			return xerrors.Errorf("storage provider %s has no peer ID set on-chain", maddr)
-		}
-
-		var maddrs []multiaddr.Multiaddr
-		for _, mma := range minfo.Multiaddrs {
-			ma, err := multiaddr.NewMultiaddrBytes(mma)
-			if err != nil {
-				return xerrors.Errorf("storage provider %s had invalid multiaddrs in their info: %w", maddr, err)
-			}
-			maddrs = append(maddrs, ma)
-		}
-		if len(maddrs) == 0 {
-			return xerrors.Errorf("storage provider %s has no multiaddrs set on-chain", maddr)
-		}
-
-		addrInfo := &peer.AddrInfo{
-			ID:    *minfo.PeerId,
-			Addrs: maddrs,
-		}
-
-		log.Debugw("found storage provider", "id", addrInfo.ID, "multiaddrs", addrInfo.Addrs, "addr", maddr)
-
-		var hurls []*url.URL
-
-		for _, ma := range addrInfo.Addrs {
-			hurl, err := maurl.ToURL(ma)
-			if err != nil {
-				return xerrors.Errorf("failed to convert multiaddr %s to URL: %w", ma, err)
-			}
-			if hurl.Scheme == "ws" {
-				hurl.Scheme = "http"
-			}
-			if hurl.Scheme == "wss" {
-				hurl.Scheme = "https"
-			}
-			log.Debugw("converted multiaddr to URL", "url", hurl, "multiaddr", ma.String())
-			hurls = append(hurls, hurl)
-		}
-
-		purl := hurls[0]
-		log.Debugw("using first URL", "url", purl)
-
-		req, err := http.NewRequest(http.MethodPut, purl.String()+"/market/mk20/upload/"+dealid.String(), io.NewSectionReader(f, 0, size))
-		if err != nil {
-			return xerrors.Errorf("failed to create put request: %w", err)
-		}
-		req.Header.Set("Content-Type", "application/octet-stream")
-		req.Header.Set("Content-Length", fmt.Sprintf("%d", size))
-		req.Header.Set("Authorization", authHeader)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return xerrors.Errorf("failed to send put request: %w", err)
-		}
-		if resp.StatusCode != http.StatusOK {
-			respBody, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return xerrors.Errorf("failed to read response body: %w", err)
-			}
-			return xerrors.Errorf("failed to send request: %d, %s", resp.StatusCode, string(respBody))
-		}
-
-		log.Infow("upload complete")
-
-		//Finalize the upload
-		req, err = http.NewRequest(http.MethodPost, purl.String()+"/market/mk20/upload/"+dealid.String(), nil)
-		if err != nil {
-			return xerrors.Errorf("failed to create finalize request: %w", err)
-		}
-
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", authHeader)
-
-		resp, err = http.DefaultClient.Do(req)
-		if err != nil {
-			return xerrors.Errorf("failed to send finalize request: %w", err)
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			respBody, err := io.ReadAll(resp.Body)
-			if err != nil {
-				return xerrors.Errorf("failed to read response body: %w", err)
-			}
-			return xerrors.Errorf("failed to send request: %d, %s", resp.StatusCode, string(respBody))
+			return xerrors.Errorf("finalizing the upload: %w", err)
 		}
 
 		return nil

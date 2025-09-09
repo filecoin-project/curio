@@ -257,7 +257,9 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		}
 	}
 
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	startTime := time.Now()
 

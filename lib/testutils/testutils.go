@@ -115,7 +115,9 @@ func WriteUnixfsDAGTo(path string, into ipldformat.DAGService, chunksize int64, 
 	if err != nil {
 		return cid.Undef, err
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	stat, err := file.Stat()
 	if err != nil {
@@ -243,18 +245,20 @@ func CreateAggregateFromCars(files []string, dealSize abi.PaddedPieceSize, aggre
 	if err != nil {
 		return cid.Undef, err
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	cp := new(commp.Calc)
 	w := io.MultiWriter(cp, f)
 
 	n, err := io.Copy(w, out)
 	if err != nil {
-		f.Close()
+		_ = f.Close()
 		return cid.Undef, xerrors.Errorf("writing aggregate: %w", err)
 	}
 
-	f.Close()
+	_ = f.Close()
 
 	digest, paddedPieceSize, err := cp.Digest()
 	if err != nil {
@@ -279,9 +283,13 @@ func CreateAggregateFromCars(files []string, dealSize abi.PaddedPieceSize, aggre
 	}
 
 	if !aggregateOut {
-		defer os.Remove(f.Name())
+		defer func() {
+			_ = os.Remove(f.Name())
+		}()
 	} else {
-		defer os.Rename(f.Name(), fmt.Sprintf("aggregate_%s.piece", comm.PCidV2().String())) //nolint:errcheck
+		defer func() {
+			_ = os.Rename(f.Name(), fmt.Sprintf("aggregate_%s.piece", comm.PCidV2().String()))
+		}()
 	}
 
 	return comm.PCidV2(), nil

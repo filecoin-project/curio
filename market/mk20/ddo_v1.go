@@ -24,7 +24,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 )
 
-var UnknowContract = errors.New("provider does not work with this market")
+var ErrUnknowContract = errors.New("provider does not work with this market")
 
 // DDOV1 defines a structure for handling provider, client, and piece manager information with associated contract and notification details
 // for a DDO deal handling.
@@ -50,7 +50,7 @@ type DDOV1 struct {
 	ContractVerifyMethod string `json:"contract_verify_method"`
 
 	// ContractDealIDMethodParams represents encoded parameters for the contract verify method if required by the contract
-	ContractVerifyMethodParams []byte `json:"contract_verify_method_params,omitempty" swaggertype:"string" format:"byte"`
+	ContractVerifyMethodParams []byte `json:"contract_verify_method_Params,omitempty" swaggertype:"string" format:"byte"`
 
 	// NotificationAddress specifies the address to which notifications will be relayed to when sector is activated
 	NotificationAddress string `json:"notification_address"`
@@ -130,7 +130,7 @@ func (d *DDOV1) GetDealID(ctx context.Context, db *harmonydb.DB, eth *ethclient.
 	err := db.QueryRow(ctx, `SELECT abi FROM ddo_contracts WHERE address = $1`, d.ContractAddress).Scan(&abiStr)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return -1, ErrMarketNotEnabled, UnknowContract
+			return -1, ErrMarketNotEnabled, ErrUnknowContract
 		}
 		return -1, ErrServerInternalError, xerrors.Errorf("getting abi: %w", err)
 	}

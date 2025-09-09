@@ -154,7 +154,9 @@ func (p *PDPService) handleCreateProofSet(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Failed to read request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
+	defer func() {
+		_ = r.Body.Close()
+	}()
 
 	var reqBody RequestBody
 	if err := json.Unmarshal(body, &reqBody); err != nil {
@@ -358,7 +360,7 @@ func (p *PDPService) handleGetProofSetCreationStatus(w http.ResponseWriter, r *h
         WHERE create_message_hash = $1
     `, txHash).Scan(&proofSetCreate.CreateMessageHash, &proofSetCreate.OK, &proofSetCreate.ProofSetCreated, &proofSetCreate.Service)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "Proof set creation not found for given txHash", http.StatusNotFound)
 			return
 		}
@@ -395,7 +397,7 @@ func (p *PDPService) handleGetProofSetCreationStatus(w http.ResponseWriter, r *h
         WHERE signed_tx_hash = $1
     `, txHash).Scan(&txStatus)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			// This should not happen as per foreign key constraints
 			http.Error(w, "Message status not found for given txHash", http.StatusInternalServerError)
 			return
@@ -648,7 +650,9 @@ func (p *PDPService) handleAddRootToProofSet(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
+	defer func() {
+		_ = r.Body.Close()
+	}()
 
 	if len(payload.Roots) == 0 {
 		http.Error(w, "At least one root must be provided", http.StatusBadRequest)

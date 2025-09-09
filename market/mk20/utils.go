@@ -674,7 +674,7 @@ type DealStatusResponse struct {
 	State DealState `json:"status"`
 
 	// ErrorMsg is an optional field containing error details associated with the deal's current state if an error occurred.
-	ErrorMsg string `json:"error_msg"`
+	ErrorMsg string `json:"errorMsg"`
 }
 
 // DealProductStatusResponse represents the status response for deal products with their respective deal statuses.

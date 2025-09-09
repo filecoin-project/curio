@@ -21,10 +21,9 @@ const MarketPath = "/market/mk20"
 
 // HTTPClient is a thin wrapper around Curio Market 2.0 REST endpoints.
 type HTTPClient struct {
-	BaseURL          string
-	HTTP             *http.Client
-	AuthHeader       func(context.Context) (key string, value string, err error)
-	AuthHeaderString string
+	BaseURL    string
+	HTTP       *http.Client
+	AuthHeader func(context.Context) (key string, value string, err error)
 }
 
 // NewHTTPClient returns a HTTPClient with sane defaults.
@@ -47,13 +46,9 @@ func WithAuth(h func(context.Context) (string, string, error)) Option {
 	return func(c *HTTPClient) { c.AuthHeader = h }
 }
 
-func WithAuthString(s string) Option {
-	return func(c *HTTPClient) { c.AuthHeaderString = s }
-}
-
 // --- low‑level helper ------------------------------------------------------
 
-func (c *HTTPClient) do(ctx context.Context, method, p string, body io.Reader, v any) *Error {
+func (c *HTTPClient) do(ctx context.Context, method, p string, body io.Reader, data bool, v any) *Error {
 	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+path.Clean("/"+p), body)
 	if err != nil {
 		return &Error{
@@ -62,23 +57,28 @@ func (c *HTTPClient) do(ctx context.Context, method, p string, body io.Reader, v
 		}
 	}
 
-	if c.AuthHeaderString != "" {
-		if c.AuthHeader != nil {
-			k, vHdr, err := c.AuthHeader(ctx)
-			if err != nil {
-				return &Error{
-					Status: 0,
-					Error:  err,
-				}
-			}
-			req.Header.Set(k, vHdr)
+	if c.AuthHeader == nil {
+		return &Error{
+			Status: 0,
+			Error:  xerrors.Errorf("auth header is required"),
 		}
-	} else {
-		req.Header.Set("Authorization", c.AuthHeaderString)
 	}
 
+	k, vHdr, err := c.AuthHeader(ctx)
+	if err != nil {
+		return &Error{
+			Status: 0,
+			Error:  err,
+		}
+	}
+	req.Header.Set(k, vHdr)
+
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		if !data {
+			req.Header.Set("Content-Type", "application/json")
+		} else {
+			req.Header.Set("Content-Type", "application/octet-stream")
+		}
 	}
 
 	resp, err := c.HTTP.Do(req)
@@ -88,7 +88,9 @@ func (c *HTTPClient) do(ctx context.Context, method, p string, body io.Reader, v
 			Error:  err,
 		}
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != 200 {
 		msg, err := io.ReadAll(resp.Body)
@@ -123,28 +125,28 @@ func (e *Error) HError() error {
 // /contracts
 func (c *HTTPClient) Contracts(ctx context.Context) ([]string, *Error) {
 	var out []string
-	err := c.do(ctx, http.MethodGet, "/contracts", nil, &out)
+	err := c.do(ctx, http.MethodGet, "/contracts", nil, false, &out)
 	return out, err
 }
 
 // /products
 func (c *HTTPClient) Products(ctx context.Context) ([]string, *Error) {
 	var out []string
-	err := c.do(ctx, http.MethodGet, "/products", nil, &out)
+	err := c.do(ctx, http.MethodGet, "/products", nil, false, &out)
 	return out, err
 }
 
 // /sources
 func (c *HTTPClient) Sources(ctx context.Context) ([]string, *Error) {
 	var out []string
-	err := c.do(ctx, http.MethodGet, "/sources", nil, &out)
+	err := c.do(ctx, http.MethodGet, "/sources", nil, false, &out)
 	return out, err
 }
 
 // /status/{id}
 func (c *HTTPClient) Status(ctx context.Context, id ulid.ULID) (*mk20.DealProductStatusResponse, *Error) {
 	var out mk20.DealProductStatusResponse
-	err := c.do(ctx, http.MethodGet, "/status/"+id.String(), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/status/"+id.String(), nil, false, &out)
 	return &out, err
 }
 
@@ -154,7 +156,7 @@ func (c *HTTPClient) Store(ctx context.Context, deal *mk20.Deal) *Error {
 	if merr != nil {
 		return &Error{Status: 0, Error: xerrors.Errorf("failed to marshal deal: %w", merr)}
 	}
-	err := c.do(ctx, http.MethodPost, "/store", bytes.NewReader(b), nil)
+	err := c.do(ctx, http.MethodPost, "/store", bytes.NewReader(b), false, nil)
 	return err
 }
 
@@ -164,13 +166,13 @@ func (c *HTTPClient) Update(ctx context.Context, id ulid.ULID, deal *mk20.Deal) 
 	if merr != nil {
 		return &Error{Status: 0, Error: xerrors.Errorf("failed to marshal deal: %w", merr)}
 	}
-	err := c.do(ctx, http.MethodGet, "/update/"+id.String(), bytes.NewReader(b), nil)
+	err := c.do(ctx, http.MethodGet, "/update/"+id.String(), bytes.NewReader(b), false, nil)
 	return err
 }
 
 // Serial upload (small files) – PUT /upload/{id}
 func (c *HTTPClient) UploadSerial(ctx context.Context, id ulid.ULID, r io.Reader) *Error {
-	err := c.do(ctx, http.MethodPut, "/upload/"+id.String(), r, nil)
+	err := c.do(ctx, http.MethodPut, "/upload/"+id.String(), r, true, nil)
 	return err
 }
 
@@ -182,9 +184,9 @@ func (c *HTTPClient) UploadSerialFinalize(ctx context.Context, id ulid.ULID, dea
 		if merr != nil {
 			return &Error{Status: 0, Error: xerrors.Errorf("failed to marshal deal: %w", merr)}
 		}
-		err = c.do(ctx, http.MethodPost, "/upload/"+id.String(), bytes.NewReader(b), nil)
+		err = c.do(ctx, http.MethodPost, "/upload/"+id.String(), bytes.NewReader(b), false, nil)
 	} else {
-		err = c.do(ctx, http.MethodPost, "/upload/"+id.String(), nil, nil)
+		err = c.do(ctx, http.MethodPost, "/upload/"+id.String(), nil, false, nil)
 	}
 
 	return err
@@ -201,21 +203,21 @@ func (c *HTTPClient) UploadInit(ctx context.Context, id ulid.ULID, metadata *mk2
 	if merr != nil {
 		return &Error{Status: 0, Error: xerrors.Errorf("failed to marshal deal: %w", merr)}
 	}
-	err := c.do(ctx, http.MethodPost, "/uploads/"+id.String(), bytes.NewReader(b), nil)
+	err := c.do(ctx, http.MethodPost, "/uploads/"+id.String(), bytes.NewReader(b), false, nil)
 	return err
 }
 
 // PUT /uploads/{id}/{chunk}
 func (c *HTTPClient) UploadChunk(ctx context.Context, id ulid.ULID, chunk int, data io.Reader) *Error {
 	path := "/uploads/" + id.String() + "/" + strconv.Itoa(chunk)
-	err := c.do(ctx, http.MethodPut, path, data, nil)
+	err := c.do(ctx, http.MethodPut, path, data, true, nil)
 	return err
 }
 
 // GET /uploads/{id}
 func (c *HTTPClient) UploadStatus(ctx context.Context, id ulid.ULID) (*mk20.UploadStatus, *Error) {
 	var out mk20.UploadStatus
-	err := c.do(ctx, http.MethodGet, "/uploads/"+id.String(), nil, &out)
+	err := c.do(ctx, http.MethodGet, "/uploads/"+id.String(), nil, false, &out)
 	return &out, err
 }
 
@@ -227,9 +229,9 @@ func (c *HTTPClient) UploadFinalize(ctx context.Context, id ulid.ULID, deal *mk2
 		if merr != nil {
 			return &Error{Status: 0, Error: xerrors.Errorf("failed to marshal deal: %w", merr)}
 		}
-		err = c.do(ctx, http.MethodPost, "/uploads/finalize/"+id.String(), bytes.NewReader(b), nil)
+		err = c.do(ctx, http.MethodPost, "/uploads/finalize/"+id.String(), bytes.NewReader(b), false, nil)
 	} else {
-		err = c.do(ctx, http.MethodPost, "/uploads/finalize/"+id.String(), nil, nil)
+		err = c.do(ctx, http.MethodPost, "/uploads/finalize/"+id.String(), nil, false, nil)
 	}
 	return err
 }

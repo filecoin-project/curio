@@ -255,7 +255,9 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 	}
 
 	ctx := context.Background()
-	defer data.Close()
+	defer func() {
+		_ = data.Close()
+	}()
 
 	if chunk < 1 {
 		http.Error(w, "chunk must be greater than 0", int(UploadBadRequest))
@@ -308,7 +310,7 @@ func (m *MK20) HandleUploadChunk(id ulid.ULID, chunk int, data io.ReadCloser, w 
 
 	// Generate unique tmp pieceCID and Size for parked_pieces tables
 	wr := new(commp.Calc)
-	n, err := wr.Write([]byte(fmt.Sprintf("%s, %d, %d, %s", id.String(), chunk, chunkSize, time.Now().String())))
+	n, err := fmt.Fprintf(wr, "%s, %d, %d, %s", id.String(), chunk, chunkSize, time.Now().String())
 	if err != nil {
 		log.Errorw("failed to generate unique tmp pieceCID and Size for parked_pieces tables", "deal", id, "chunk", chunk, "error", err)
 		http.Error(w, "", int(UploadServerError))
@@ -679,7 +681,7 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 
 	// Generate unique tmp pieceCID and Size for parked_pieces tables
 	wr := new(commp.Calc)
-	trs, err := wr.Write([]byte(fmt.Sprintf("%s, %s", id.String(), time.Now().String())))
+	trs, err := fmt.Fprintf(wr, "%s, %s", id.String(), time.Now().String())
 	if err != nil {
 		log.Errorw("failed to generate unique tmp pieceCID and Size for parked_pieces tables", "deal", id, "error", err)
 		http.Error(w, "", int(UploadServerError))
@@ -888,7 +890,9 @@ func (m *MK20) HandleSerialUpload(id ulid.ULID, body io.Reader, w http.ResponseW
 							return false, xerrors.Errorf("updating parked piece: expected 1 row updated, got %d", n)
 						}
 					} else {
-						defer pr.Close()
+						defer func() {
+							_ = pr.Close()
+						}()
 						// Add parked_piece_ref if no errors
 						var newRefID int64
 						err = tx.QueryRow(`INSERT INTO parked_piece_refs (piece_id, data_url, long_term)
@@ -1070,8 +1074,6 @@ func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.Respo
 		return
 	}
 
-	fmt.Println("I HAVE REACHED SANITY CHECK")
-
 	if uDeal.Products.DDOV1 != nil {
 		rej, err := m.sanitizeDDODeal(ctx, uDeal)
 		if err != nil {
@@ -1092,8 +1094,6 @@ func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.Respo
 			}
 		}
 	}
-
-	fmt.Println("I HAVE FINISHED SANITIZING DDO DEAL")
 
 	if uDeal.Products.PDPV1 != nil {
 		rej, err := m.sanitizePDPDeal(ctx, uDeal)
@@ -1116,8 +1116,6 @@ func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.Respo
 		}
 	}
 
-	fmt.Println("I HAVE FINISHED SANITIZING PDP DEAL")
-
 	comm, err := m.DB.BeginTransaction(ctx, func(tx *harmonydb.Tx) (commit bool, err error) {
 		_, err = tx.Exec(`DELETE FROM market_mk20_upload_waiting WHERE id = $1`, id.String())
 		if err != nil {
@@ -1132,12 +1130,7 @@ func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.Respo
 			}
 		}
 
-		fmt.Println("I HAVE FINISHED UPDATING DEAL")
-
 		retv := uDeal.Products.RetrievalV1
-		if retv != nil {
-			fmt.Println("I HAVE RETRIEVAL V1")
-		}
 		data := uDeal.Data
 
 		aggregation := 0
@@ -1185,7 +1178,6 @@ func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.Respo
 			log.Debugw("mk20 pipeline created", "deal", id)
 
 			refUsed = true
-			fmt.Println("I HAVE FINISHED CREATING MK20 PIPELINE")
 		}
 
 		if uDeal.Products.PDPV1 != nil {
@@ -1203,8 +1195,8 @@ func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.Respo
 
 			n, err := tx.Exec(`INSERT INTO pdp_pipeline (
 						id, client, piece_cid_v2, data_set_id, 
-						extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, indexing, announce, announce_payload) 
-					 VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, 0, $8, $9, $10)`,
+						extra_data, piece_ref, downloaded, deal_aggregation, aggr_index, indexing, announce, announce_payload, after_commp) 
+					 VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, 0, $8, $9, $10, TRUE)`,
 				id.String(), uDeal.Client, uDeal.Data.PieceCID.String(), *pdp.DataSetID,
 				pdp.ExtraData, refID, aggregation, retv.Indexing, retv.AnnouncePiece, retv.AnnouncePayload)
 			if err != nil {
@@ -1214,7 +1206,6 @@ func (m *MK20) HandleSerialUploadFinalize(id ulid.ULID, deal *Deal, w http.Respo
 				return false, xerrors.Errorf("inserting in PDP pipeline: %d rows affected", n)
 			}
 			log.Debugw("PDP pipeline created", "deal", id)
-			fmt.Println("I HAVE FINISHED CREATING PDP PIPELINE")
 		}
 
 		return true, nil
