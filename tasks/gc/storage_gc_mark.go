@@ -218,7 +218,7 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		if len(toRemove) > 0 { // persist new removal candidates
 			for storageId, decls := range storageSectors {
 				for _, decl := range decls {
-					for _, filetype := range decl.SectorFileType.AllSet() {
+					for _, filetype := range decl.AllSet() {
 						if filetype == storiface.FTPiece {
 							continue
 						}
@@ -402,7 +402,7 @@ func (s *StorageGCMark) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 
 		for storageId, decls := range storageSectors {
 			for _, decl := range decls {
-				if !decl.SectorFileType.Has(storiface.FTSealed) {
+				if !decl.Has(storiface.FTSealed) {
 					continue
 				}
 

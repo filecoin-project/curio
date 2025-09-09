@@ -1,6 +1,7 @@
 package libp2p
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -35,7 +36,7 @@ func (rp *Redirector) handleLibp2pWebsocket(w http.ResponseWriter, r *http.Reque
 	var localListen string
 	err := rp.db.QueryRow(r.Context(), "SELECT local_listen FROM libp2p").Scan(&localListen)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			http.Error(w, "Remote LibP2P host undefined", http.StatusBadGateway)
 			return
 		}
@@ -61,7 +62,9 @@ func (rp *Redirector) handleLibp2pWebsocket(w http.ResponseWriter, r *http.Reque
 		log.Infof("Error connecting to target WebSocket server: %v", err)
 		return
 	}
-	defer targetConn.Close()
+	defer func() {
+		_ = targetConn.Close()
+	}()
 
 	// Upgrade the client connection to a WebSocket connection
 	upgrader := websocket.Upgrader{
@@ -75,7 +78,9 @@ func (rp *Redirector) handleLibp2pWebsocket(w http.ResponseWriter, r *http.Reque
 		log.Infof("WebSocket upgrade error: %v", err)
 		return
 	}
-	defer clientConn.Close()
+	defer func() {
+		_ = clientConn.Close()
+	}()
 
 	// Proxy data between clientConn and targetConn
 	errc := make(chan error, 2)

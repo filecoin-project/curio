@@ -590,7 +590,7 @@ func getClientStateAction(cctx *cli.Context) error {
 	fmt.Printf("VoucherRedeemed: %s\n", types.FIL(clientState.VoucherRedeemed).String())
 	fmt.Printf("LastNonce: %d\n", clientState.LastNonce)
 	fmt.Printf("WithdrawAmount: %s\n", types.FIL(clientState.WithdrawAmount).String())
-	ts := clientState.WithdrawTimestamp.Int.Uint64()
+	ts := clientState.WithdrawTimestamp.Uint64()
 	wt := time.Unix(int64(ts), 0)
 	diff := time.Until(wt)
 	var diffStr string

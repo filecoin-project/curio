@@ -424,7 +424,9 @@ func (p *ProveTask) genSubrootMemtree(ctx context.Context, subrootCid string, su
 		r = io.MultiReader(r, nullreader.NewNullReader(abi.UnpaddedPieceSize(subrootSize-unssize.Padded())))
 	}
 
-	defer subrootReader.Close()
+	defer func() {
+		_ = subrootReader.Close()
+	}()
 
 	return proof.BuildSha254Memtree(r, subrootSize.Unpadded())
 }

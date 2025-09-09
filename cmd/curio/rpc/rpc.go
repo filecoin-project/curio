@@ -219,7 +219,7 @@ func (p *CurioAPI) StorageInit(ctx context.Context, path string, opts storiface.
 	if opts.ID == "" {
 		opts.ID = storiface.ID(uuid.New().String())
 	}
-	if !(opts.CanStore || opts.CanSeal) {
+	if !opts.CanStore && !opts.CanSeal {
 		return xerrors.Errorf("must specify at least one of --store or --seal")
 	}
 	b, err := json.MarshalIndent(opts, "", "  ")

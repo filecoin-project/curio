@@ -114,7 +114,7 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 	// Check if piece is already indexed
 	var indexed bool
 	err = i.db.QueryRow(ctx, `SELECT indexed FROM market_piece_metadata WHERE piece_cid = $1`, task.PieceCid).Scan(&indexed)
-	if err != nil && err != pgx.ErrNoRows {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return false, xerrors.Errorf("checking if piece %s is already indexed: %w", task.PieceCid, err)
 	}
 
@@ -146,7 +146,9 @@ func (i *IndexingTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (do
 		return false, xerrors.Errorf("getting piece reader: %w", err)
 	}
 
-	defer reader.Close()
+	defer func() {
+		_ = reader.Close()
+	}()
 
 	startTime := time.Now()
 

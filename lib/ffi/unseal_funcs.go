@@ -40,7 +40,9 @@ func (sb *SealCalls) decodeCommon(ctx context.Context, taskID harmonytask.TaskID
 	if err != nil {
 		return xerrors.Errorf("creating unsealed file: %w", err)
 	}
-	defer outFile.Close()
+	defer func() {
+		_ = outFile.Close()
+	}()
 
 	start := time.Now()
 

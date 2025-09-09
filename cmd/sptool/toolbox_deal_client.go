@@ -528,7 +528,9 @@ func dealCmdAction(cctx *cli.Context, isOnline bool) error {
 		if err != nil {
 			return xerrors.Errorf("failed to open stream to peer %s: %w", addrInfo.ID, err)
 		}
-		defer s.Close()
+		defer func() {
+			_ = s.Close()
+		}()
 
 		if err := doRpc(ctx, s, &dealParams, &resp); err != nil {
 			return xerrors.Errorf("send proposal rpc: %w", err)
@@ -662,7 +664,9 @@ func doHttp(urls []*url.URL, deal interface{}, response interface{}) error {
 			log.Warnw("failed to send request", "url", s, "error", err)
 			continue
 		}
-		defer resp.Body.Close()
+		defer func() {
+			_ = resp.Body.Close()
+		}()
 		if resp.StatusCode != http.StatusOK {
 			log.Warnw("failed to send request", "url", s, "status", resp.StatusCode)
 			continue
@@ -690,7 +694,7 @@ var initCmd = &cli.Command{
 			return err
 		}
 
-		os.Mkdir(sdir, 0755) //nolint:errcheck
+		_ = os.Mkdir(sdir, 0755)
 
 		n, err := Setup(cctx.String(mk12_client_repo.Name))
 		if err != nil {
@@ -775,7 +779,7 @@ var walletNew = &cli.Command{
 			out := map[string]interface{}{
 				"address": nk.String(),
 			}
-			PrintJson(out) //nolint:errcheck
+			_ = PrintJson(out) //nolint:errcheck
 		} else {
 			fmt.Println(nk.String())
 		}
@@ -916,7 +920,7 @@ var walletList = &cli.Command{
 					if !cctx.Bool("json") && dcap == nil {
 						wallet[dataCapKey] = "X"
 					} else if dcap != nil {
-						wallet[dataCapKey] = humanize.IBytes(dcap.Int.Uint64())
+						wallet[dataCapKey] = humanize.IBytes(dcap.Uint64())
 					}
 				} else {
 					wallet[dataCapKey] = "n/a"
@@ -1445,7 +1449,9 @@ var dealStatusCmd = &cli.Command{
 				if err != nil {
 					return xerrors.Errorf("failed to make HTTP request: %w", err)
 				}
-				defer hresp.Body.Close()
+				defer func() {
+					_ = hresp.Body.Close()
+				}()
 				if hresp.StatusCode != http.StatusOK {
 					return xerrors.Errorf("HTTP request failed with status %d", hresp.StatusCode)
 				}
@@ -1473,11 +1479,15 @@ var dealStatusCmd = &cli.Command{
 				return err
 			}
 
-			defer s.Close() // nolint
+			defer func() {
+				_ = s.Close()
+			}()
 
 			// Set a deadline on writing to the stream so it doesn't hang
 			_ = s.SetWriteDeadline(time.Now().Add(time.Second * 10))
-			defer s.SetWriteDeadline(time.Time{}) // nolint
+			defer func() {
+				_ = s.SetWriteDeadline(time.Time{})
+			}()
 
 			// Write the deal status request to the stream
 			if err = cborutil.WriteCborRPC(s, &payload); err != nil {
@@ -1486,7 +1496,9 @@ var dealStatusCmd = &cli.Command{
 
 			// Set a deadline on reading from the stream so it doesn't hang
 			_ = s.SetReadDeadline(time.Now().Add(time.Second * 30))
-			defer s.SetReadDeadline(time.Time{}) // nolint
+			defer func() {
+				_ = s.SetReadDeadline(time.Time{})
+			}()
 
 			// Read the response from the stream
 			if err := resp.UnmarshalCBOR(s); err != nil {

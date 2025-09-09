@@ -37,7 +37,6 @@ import (
 	"github.com/filecoin-project/curio/api"
 	"github.com/filecoin-project/curio/build"
 	"github.com/filecoin-project/curio/cmd/curio/internal/translations"
-	_ "github.com/filecoin-project/curio/cmd/curio/internal/translations"
 	"github.com/filecoin-project/curio/deps"
 	"github.com/filecoin-project/curio/deps/config"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -163,9 +162,10 @@ func newOrMigrate(d *MigrationData) {
 		d.say(notice, "Aborting remaining steps.", err.Error())
 		os.Exit(1)
 	}
-	if i == 1 {
+	switch i {
+	case 1:
 		d.init = true
-	} else if i == 2 {
+	case 2:
 		d.nonSP = true
 	}
 }

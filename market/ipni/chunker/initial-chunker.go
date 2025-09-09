@@ -235,7 +235,9 @@ func (c *InitialChunker) finishDB(ctx context.Context, db *harmonydb.DB, pieceCi
 
 		// Send the batch
 		br := tx.SendBatch(ctx, batch)
-		defer br.Close()
+		defer func() {
+			_ = br.Close()
+		}()
 
 		// Execute the batch and check for errors
 		for i := 0; i < totalChunks; i++ {
@@ -297,7 +299,9 @@ func (c *InitialChunker) finishCAR(ctx context.Context, db *harmonydb.DB, pieceC
 
 		// Send the batch
 		br := tx.SendBatch(ctx, batch)
-		defer br.Close()
+		defer func() {
+			_ = br.Close()
+		}()
 
 		// Execute the batch and check for errors
 		for i := 0; i < totalChunks; i++ {
