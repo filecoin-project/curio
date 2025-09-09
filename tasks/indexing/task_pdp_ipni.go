@@ -332,7 +332,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 			return false, nil
 		}
 
-		lnk, err = chk.Finish(ctx, P.db, pcid2)
+		lnk, err = chk.Finish(ctx, P.db, pcid2, false)
 		if err != nil {
 			return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
 		}
@@ -342,7 +342,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		if err != nil {
 			return false, xerrors.Errorf("adding index to chunk: %w", err)
 		}
-		lnk, err = chk.Finish(ctx, P.db, pcid2)
+		lnk, err = chk.Finish(ctx, P.db, pcid2, true)
 		if err != nil {
 			return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
 		}

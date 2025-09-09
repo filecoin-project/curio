@@ -46,9 +46,22 @@ ALTER TABLE parked_pieces
 ALTER TABLE ipni
     ADD COLUMN piece_cid_v2 TEXT;
 
--- Add metadata column to IPNI table which defaults to binary of IpfsGatewayHttp
+-- Add metadata column to IPNI table which defaults to the binary of IpfsGatewayHttp
 ALTER TABLE ipni
     ADD COLUMN metadata BYTEA NOT NULL DEFAULT '\xa01200';
+
+-- Add is_pdp column to the table to allow generating 2 sets of chunks per
+-- piece cid. One for Payloads and another one for single CID chunks to announce a PDP piece.
+ALTER TABLE ipni_chunks
+    ADD COLUMN is_pdp BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Replace the old uniqueness (piece_cid, chunk_num) with the new one
+ALTER TABLE ipni_chunks
+    DROP CONSTRAINT ipni_chunks_piece_cid_chunk_num_key;
+
+ALTER TABLE ipni_chunks
+    ADD CONSTRAINT ipni_chunks_piece_cid_is_pdp_chunk_num_key
+        UNIQUE (piece_cid, is_pdp, chunk_num);
 
 -- The order_number column must be completely sequential
 ALTER SEQUENCE ipni_order_number_seq CACHE 1;

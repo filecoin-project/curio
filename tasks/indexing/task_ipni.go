@@ -382,7 +382,7 @@ func (I *IPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done b
 		return false, nil
 	}
 
-	lnk, err := chk.Finish(ctx, I.db, pcid2)
+	lnk, err := chk.Finish(ctx, I.db, pcid2, false)
 	if err != nil {
 		return false, xerrors.Errorf("chunking CAR multihash iterator: %w", err)
 	}

@@ -137,6 +137,8 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 		StartOffset *int64  `db:"start_offset"`
 		NumBlocks   int64   `db:"num_blocks"`
 
+		IsPDP bool `db:"is_pdp"`
+
 		PrevCID *string `db:"prev_cid"`
 	}
 
@@ -147,7 +149,8 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 			current.from_car, 
 			current.first_cid, 
 			current.start_offset, 
-			current.num_blocks, 
+			current.num_blocks,
+			current.is_pdp,
 			prev.cid AS prev_cid
 		FROM 
 			ipni_chunks current
@@ -195,6 +198,53 @@ func (p *ServeChunker) getEntry(rctx context.Context, block cid.Cid, speculated 
 		}
 
 		next = cidlink.Link{Cid: prevChunk}
+	}
+
+	if chunk.IsPDP {
+		if chunk.NumBlocks != 1 {
+			return nil, xerrors.Errorf("Expected 1 block for PDP piece announcement, got %d", chunk.NumBlocks)
+		}
+		if chunk.PrevCID != nil {
+			return nil, xerrors.Errorf("Expected no previous chunk for PDP piece announcement, got %s", *chunk.PrevCID)
+		}
+
+		if chunk.FirstCID == nil {
+			return nil, xerrors.Errorf("chunk does not have first CID")
+		}
+
+		cb, err := hex.DecodeString(*chunk.FirstCID)
+		if err != nil {
+			return nil, xerrors.Errorf("decoding first CID: %w", err)
+		}
+
+		mhs := make([]multihash.Multihash, 0, 1)
+		mhs = append(mhs, cb)
+
+		chunkNode, err := NewEntriesChunkNode(mhs, next)
+		if err != nil {
+			return nil, xerrors.Errorf("creating chunk node: %w", err)
+		}
+
+		if validate {
+			link, err := ipniculib.NodeToLink(chunkNode, ipniculib.EntryLinkproto)
+			if err != nil {
+				return nil, err
+			}
+
+			if link.String() != block.String() {
+				return nil, xerrors.Errorf("car chunk node does not match the expected chunk CID, got %s, expected %s", link.String(), block.String())
+			}
+		}
+
+		b := new(bytes.Buffer)
+		err = dagcbor.Encode(chunkNode, b)
+		if err != nil {
+			return nil, xerrors.Errorf("encoding chunk node: %w", err)
+		}
+
+		log.Infow("Served a PDP chunk", "chunk", chunk, "piece", pieceCidv2, "startOffset", 0, "numBlocks", 1, "speculated", speculated)
+
+		return b.Bytes(), nil
 	}
 
 	if !chunk.FromCar {
@@ -347,7 +397,7 @@ func (p *ServeChunker) checkIsEntrySkip(ctx context.Context, entry cid.Cid) (boo
 	var isSkip bool
 	err := p.db.QueryRow(ctx, `SELECT is_skip FROM ipni WHERE entries = $1`, entry).Scan(&isSkip)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
 		return false, err
