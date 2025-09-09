@@ -140,7 +140,7 @@ export class StreamingPDP {
       pdpV1: {
         createDataSet: true,
         recordKeeper: this.providerAddr,
-        extraData: '',
+        extraData: [],
         pieceIds: undefined,
         deleteDataSet: false,
         deletePiece: false,
@@ -167,7 +167,7 @@ export class StreamingPDP {
       pdpV1: {
         addPiece: true,
         recordKeeper: this.providerAddr,
-        extraData: '',
+        extraData: [],
         pieceIds: undefined,
         deleteDataSet: false,
         deletePiece: false,
@@ -242,7 +242,7 @@ export class StreamingPDP {
     const dataSource: Mk20DataSource = {
       pieceCid: pieceCid,
       format: { raw: {} } as Mk20PieceDataFormat,
-      sourceHttpput: { raw_size: this.totalSize } as unknown as object,
+      sourceHttpPut: { raw_size: this.totalSize } as unknown as object,
     };
 
     const finalizedDeal: Deal = {

@@ -278,6 +278,24 @@ export class PieceCidUtils {
 
 export class MarketClient {
   private api: DefaultApi;
+  
+  /**
+   * Try to extract a human-friendly error string from an HTTP Response.
+   */
+  private async formatHttpError(prefix: string, resp: Response): Promise<string> {
+    const status = resp.status;
+    const statusText = resp.statusText || '';
+    const h = resp.headers;
+    const reasonHeader = h.get('Reason') || h.get('reason') || h.get('X-Reason') || h.get('x-reason') || h.get('X-Error') || h.get('x-error') || '';
+    let body = '';
+    try {
+      // clone() to avoid consuming the body in case other handlers need it
+      body = await resp.clone().text();
+    } catch {}
+    const details = [reasonHeader?.trim(), body?.trim()].filter(Boolean).join(' | ');
+    const statusPart = statusText ? `${status} ${statusText}` : String(status);
+    return `${prefix} (HTTP ${statusPart})${details ? `: ${details}` : ''}`;
+  }
 
   /**
    * Create a MarketClient instance.
@@ -378,12 +396,24 @@ export class MarketClient {
    * @param deal - Deal payload matching Mk20Deal schema
    */
   async submitDeal(deal: Mk20Deal): Promise<number> {
-
     try {
-      const response = await this.api.storePost({ body: deal });
-      return response;
-    } catch (error) {
-      throw new Error(`Failed to submit deal: ${error}`);
+      // Use Raw call so we can inspect/handle non-JSON responses gracefully
+      const apiResp = await this.api.storePostRaw({ body: deal });
+      const ct = apiResp.raw.headers.get('content-type') || '';
+      if (ct.toLowerCase().includes('application/json') || ct.toLowerCase().includes('+json')) {
+        return await apiResp.value();
+      }
+      // Treat non-JSON 2xx as success; return HTTP status code
+      return apiResp.raw.status;
+    } catch (error: any) {
+      // If this is a ResponseError, try to extract HTTP status and body text
+      const resp = error?.response as Response | undefined;
+      if (resp) {
+        const msg = await this.formatHttpError('Failed to submit deal', resp);
+        throw new Error(msg);
+      }
+      // Fallback
+      throw new Error(`Failed to submit deal: ${error?.message || String(error)}`);
     }
   }
 
@@ -458,7 +488,7 @@ export class MarketClient {
           createDataSet: true,
           addPiece: false,
           recordKeeper: recordKeeper,
-          extraData: '',
+          extraData: [],
           deleteDataSet: false,
           deletePiece: false,
         } as Mk20PDPV1,
@@ -481,13 +511,13 @@ export class MarketClient {
       data: {
         pieceCid: pieceCid,
         format: { raw: {} },
-        sourceHttpput: {},
+        sourceHttpPut: {},
       } as Mk20DataSource,
       products: {
         pdpV1: {
           addPiece: true,
           recordKeeper: recordKeeper,
-          extraData: '',
+          extraData: [],
           deleteDataSet: false,
           deletePiece: false,
         } as Mk20PDPV1,
@@ -609,10 +639,20 @@ export class MarketClient {
    */
   async initializeChunkedUpload(id: string, startUpload: Mk20StartUpload): Promise<number> {
     try {
-      const result = await this.api.uploadsIdPost({ id, data: startUpload });
-      return result;
-    } catch (error) {
-      throw new Error(`Failed to initialize chunked upload for deal ${id}: ${error}`);
+      const apiResp = await this.api.uploadsIdPostRaw({ id, data: startUpload });
+      const ct = apiResp.raw.headers.get('content-type') || '';
+      if (ct.toLowerCase().includes('application/json') || ct.toLowerCase().includes('+json')) {
+        return await apiResp.value();
+      }
+      // Treat non-JSON 2xx as success; return HTTP status code
+      return apiResp.raw.status;
+    } catch (error: any) {
+      const resp = error?.response as Response | undefined;
+      if (resp) {
+        const msg = await this.formatHttpError(`Failed to initialize chunked upload for deal ${id}`, resp);
+        throw new Error(msg);
+      }
+      throw new Error(`Failed to initialize chunked upload for deal ${id}: ${error?.message || String(error)}`);
     }
   }
 
@@ -630,10 +670,20 @@ export class MarketClient {
    */
   async uploadChunk(id: string, chunkNum: string, data: Array<number>): Promise<number> {
     try {
-      const result = await this.api.uploadsIdChunkNumPut({ id, chunkNum, data });
-      return result;
-    } catch (error) {
-      throw new Error(`Failed to upload chunk ${chunkNum} for deal ${id}: ${error}`);
+      const apiResp = await this.api.uploadsIdChunkNumPutRaw({ id, chunkNum, data });
+      const ct = apiResp.raw.headers.get('content-type') || '';
+      if (ct.toLowerCase().includes('application/json') || ct.toLowerCase().includes('+json')) {
+        return await apiResp.value();
+      }
+      // Treat non-JSON 2xx as success; return HTTP status code
+      return apiResp.raw.status;
+    } catch (error: any) {
+      const resp = error?.response as Response | undefined;
+      if (resp) {
+        const msg = await this.formatHttpError(`Failed to upload chunk ${chunkNum} for deal ${id}`, resp);
+        throw new Error(msg);
+      }
+      throw new Error(`Failed to upload chunk ${chunkNum} for deal ${id}: ${error?.message || String(error)}`);
     }
   }
 
@@ -649,10 +699,20 @@ export class MarketClient {
    */
   async finalizeChunkedUpload(id: string, deal?: any): Promise<number> {
     try {
-      const result = await this.api.uploadsFinalizeIdPost({ id, body: deal });
-      return result;
-    } catch (error) {
-      throw new Error(`Failed to finalize chunked upload for deal ${id}: ${error}`);
+      const apiResp = await this.api.uploadsFinalizeIdPostRaw({ id, body: deal });
+      const ct = apiResp.raw.headers.get('content-type') || '';
+      if (ct.toLowerCase().includes('application/json') || ct.toLowerCase().includes('+json')) {
+        return await apiResp.value();
+      }
+      // Treat non-JSON 2xx as success; return HTTP status code
+      return apiResp.raw.status;
+    } catch (error: any) {
+      const resp = error?.response as Response | undefined;
+      if (resp) {
+        const msg = await this.formatHttpError(`Failed to finalize chunked upload for deal ${id}`, resp);
+        throw new Error(msg);
+      }
+      throw new Error(`Failed to finalize chunked upload for deal ${id}: ${error?.message || String(error)}`);
     }
   }
 
@@ -663,10 +723,20 @@ export class MarketClient {
    */
   async finalizeSerialUpload(id: string, deal?: Mk20Deal): Promise<number> {
     try {
-      const result = await this.api.uploadIdPost({ id, body: deal });
-      return result;
-    } catch (error) {
-      throw new Error(`Failed to finalize serial upload for deal ${id}: ${error}`);
+      const apiResp = await this.api.uploadIdPostRaw({ id, body: deal });
+      const ct = apiResp.raw.headers.get('content-type') || '';
+      if (ct.toLowerCase().includes('application/json') || ct.toLowerCase().includes('+json')) {
+        return await apiResp.value();
+      }
+      // Treat non-JSON 2xx as success; return HTTP status code
+      return apiResp.raw.status;
+    } catch (error: any) {
+      const resp = error?.response as Response | undefined;
+      if (resp) {
+        const msg = await this.formatHttpError(`Failed to finalize serial upload for deal ${id}`, resp);
+        throw new Error(msg);
+      }
+      throw new Error(`Failed to finalize serial upload for deal ${id}: ${error?.message || String(error)}`);
     }
   }
 

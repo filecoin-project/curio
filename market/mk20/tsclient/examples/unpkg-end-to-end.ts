@@ -146,24 +146,7 @@ async function run() {
         console.error('Submit error body:', text);
       }
     } catch (_) {}
-    // Extra debug: try store-only minimal deal to isolate
-    try {
-      const minimal = {
-        client: clientAddr,
-        products: { pdpV1: { createDataSet: true, addPiece: true, recordKeeper: recordKeeper } },
-      } as any;
-      const url = config.serverUrl.replace(/\/$/, '') + '/market/mk20/store';
-      const r = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: authHeader },
-        body: JSON.stringify(minimal),
-      });
-      console.log('Direct /store status:', r.status);
-      const body = await r.text().catch(() => '');
-      console.log('Direct /store body:', body);
-    } catch (ee) {
-      console.error('Direct /store failed:', (ee as Error).message);
-    }
+
     throw e;
   }
   const uploadId = prep.id;
