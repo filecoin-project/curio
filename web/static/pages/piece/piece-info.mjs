@@ -104,7 +104,9 @@ customElements.define('piece-info', class PieceInfoElement extends LitElement {
                 <tr>
                     <td>IPNI AD</td>
                     <td>
-                        ${this.data.ipni_ad ? html`<a href="/pages/ipni/?ad_cid=${this.data.ipni_ad}">${this.data.ipni_ad}</a>` : 'No Ad Found'}
+                        ${this.data.ipni_ads && this.data.ipni_ads.length > 0
+                                ? this.data.ipni_ads.map(ad => html`<a href="/pages/ipni/?ad_cid=${ad}">${ad}</a> `)
+                                : 'No Ad Found'}
                     </td>
                 </tr>
             </table>

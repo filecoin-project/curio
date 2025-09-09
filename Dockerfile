@@ -58,7 +58,7 @@ RUN go install github.com/ipld/go-car/cmd/car@latest \
 RUN go install github.com/LexLuthr/piece-server@latest \
  && cp $GOPATH/bin/piece-server /usr/local/bin/
 
-RUN go install github.com/ipni/storetheindex@v0.8.38 \
+RUN go install github.com/ipni/storetheindex@latest \
  && cp $GOPATH/bin/storetheindex /usr/local/bin/
 
 RUN go install github.com/ethereum/go-ethereum/cmd/geth@latest \

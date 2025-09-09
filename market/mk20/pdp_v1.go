@@ -26,13 +26,13 @@ type PDPV1 struct {
 	DeletePiece bool `json:"delete_piece"`
 
 	// DataSetID is PDP verified contract dataset ID. It must be defined for all deals except when CreateDataSet is true.
-	DataSetID *uint64 `json:"data_set_id,omitempty" swaggertype:"integer" format:"uint64" example:"0"`
+	DataSetID *uint64 `json:"data_set_id,omitempty"`
 
 	// RecordKeeper specifies the record keeper contract address for the new PDP dataset.
 	RecordKeeper string `json:"record_keeper"`
 
 	// PieceIDs is a list of Piece ids in a proof set.
-	PieceIDs []uint64 `json:"piece_ids,omitempty" swaggertype:"array,integer" format:"uint64" example:"0,1,2"`
+	PieceIDs []uint64 `json:"piece_ids,omitempty"`
 
 	// ExtraData can be used to send additional information to service contract when Verifier action like AddRoot, DeleteRoot etc. are performed.
 	ExtraData []byte `json:"extra_data,omitempty"`

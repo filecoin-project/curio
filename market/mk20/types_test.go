@@ -282,7 +282,8 @@ func TestDeal_Products_OmitEmptyInnerFields(t *testing.T) {
 }
 
 func TestPartialUnmarshal(t *testing.T) {
-	iString := "{\"client\":\"t1k7ctd3hvmwwjdpb2ipd3kr7n4vk3xzfvzbbdrai\",\"products\":{\"pdp_v1\":{\"create_data_set\":true,\"add_piece\":true,\"record_keeper\":\"0x158c8f05A616403589b99BE5d82d756860363A92\"}}}"
+	//iString := "{\"client\":\"t1k7ctd3hvmwwjdpb2ipd3kr7n4vk3xzfvzbbdrai\",\"products\":{\"pdp_v1\":{\"create_data_set\":true,\"add_piece\":true,\"record_keeper\":\"0x158c8f05A616403589b99BE5d82d756860363A92\"}}}"
+	iString := "{\"client\":\"t1k7ctd3hvmwwjdpb2ipd3kr7n4vk3xzfvzbbdrai\",\"data\":{\"format\":{\"raw\":{}},\"piece_cid\":\"bafkzcibfxx3meais7dgqlg24253d7s2unmxkczzlrnsoni6zmvjy6vi636nslfyggu3q\",\"source_http_put\":{}},\"identifier\":\"01K4R3EK6QEPASQH8KFPKVBNWR\",\"products\":{\"pdp_v1\":{\"add_piece\":true,\"delete_data_set\":false,\"delete_piece\":false,\"extra_data\":[],\"record_keeper\":\"0x158c8f05A616403589b99BE5d82d756860363A92\"},\"retrieval_v1\":{\"announce_payload\":true,\"announce_piece\":true,\"indexing\":true}}}"
 	var deal Deal
 	if err := json.Unmarshal([]byte(iString), &deal); err != nil {
 		t.Fatal(err)

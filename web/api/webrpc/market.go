@@ -26,6 +26,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/lib/commcidv2"
+	itype "github.com/filecoin-project/curio/market/ipni/types"
 	"github.com/filecoin-project/curio/market/mk20"
 
 	lapi "github.com/filecoin-project/lotus/api"
@@ -414,47 +415,6 @@ func (a *WebRPC) MK12StorageDealList(ctx context.Context, limit int, offset int)
 
 }
 
-// LegacyStorageDealList is deprecated
-//func (a *WebRPC) LegacyStorageDealList(ctx context.Context, limit int, offset int) ([]StorageDealList, error) {
-//	var mk12Summaries []StorageDealList
-//
-//	err := a.deps.DB.Select(ctx, &mk12Summaries, `SELECT
-//									signed_proposal_cid AS uuid,
-//									sp_id,
-//									created_at,
-//									piece_cid,
-//									piece_size,
-//									NULL AS error,
-//									TRUE AS processed
-//									FROM market_legacy_deals
-//									ORDER BY created_at DESC
-//									LIMIT $1 OFFSET $2;`, limit, offset)
-//	if err != nil {
-//		return nil, fmt.Errorf("failed to fetch deal list: %w", err)
-//	}
-//
-//	for i := range mk12Summaries {
-//		addr, err := address.NewIDAddress(uint64(mk12Summaries[i].MinerID))
-//		if err != nil {
-//			return nil, err
-//		}
-//		mk12Summaries[i].Miner = addr.String()
-//		pcid, err := cid.Parse(mk12Summaries[i].PieceCidV1)
-//		if err != nil {
-//			return nil, xerrors.Errorf("failed to parse v1 piece CID: %w", err)
-//		}
-//		commp, err := commcidv2.CommPFromPieceInfo(abi.PieceInfo{
-//			PieceCID: pcid,
-//			Size:     abi.PaddedPieceSize(mk12Summaries[i].PieceSize),
-//		})
-//		if err != nil {
-//			return nil, xerrors.Errorf("failed to get commP from piece info: %w", err)
-//		}
-//		mk12Summaries[i].PieceCidV2 = commp.PCidV2().String()
-//	}
-//	return mk12Summaries, nil
-//}
-
 type WalletBalances struct {
 	Address string `json:"address"`
 	Balance string `json:"balance"`
@@ -596,7 +556,7 @@ type PieceInfo struct {
 	CreatedAt  time.Time    `json:"created_at"`
 	Indexed    bool         `json:"indexed"`
 	IndexedAT  time.Time    `json:"indexed_at"`
-	IPNIAd     string       `json:"ipni_ad"`
+	IPNIAd     []string     `json:"ipni_ads"`
 	Deals      []*PieceDeal `json:"deals"`
 }
 
@@ -670,14 +630,48 @@ func (a *WebRPC) PieceInfo(ctx context.Context, pieceCid string) (*PieceInfo, er
 		return nil, xerrors.Errorf("failed to marshal piece info: %w", err)
 	}
 
+	c1 := itype.PdpIpniContext{
+		PieceCID: piece,
+		Payload:  true,
+	}
+
+	c1b, err := c1.Marshal()
+	if err != nil {
+		return nil, xerrors.Errorf("failed to marshal PDP piece info: %w", err)
+	}
+	fmt.Printf("C1B: %x", c1b)
+
+	c2 := itype.PdpIpniContext{
+		PieceCID: piece,
+		Payload:  false,
+	}
+
+	c2b, err := c2.Marshal()
+	if err != nil {
+		return nil, xerrors.Errorf("failed to marshal PDP piece info: %w", err)
+	}
+	fmt.Printf("C2B: %x", c2b)
+
 	// Get only the latest Ad
 	var ipniAd string
 	err = a.deps.DB.QueryRow(ctx, `SELECT ad_cid FROM ipni WHERE context_id = $1 ORDER BY order_number DESC LIMIT 1`, b.Bytes()).Scan(&ipniAd)
-	if err != nil && err != pgx.ErrNoRows {
-		return nil, xerrors.Errorf("failed to get deal ID by piece CID: %w", err)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, xerrors.Errorf("failed to get ad ID by piece CID: %w", err)
 	}
 
-	ret.IPNIAd = ipniAd
+	var ipniAdPdp string
+	err = a.deps.DB.QueryRow(ctx, `SELECT ad_cid FROM ipni WHERE context_id = $1 ORDER BY order_number DESC LIMIT 1`, c1b).Scan(&ipniAdPdp)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, xerrors.Errorf("failed to get ad ID by piece CID for PDP: %w", err)
+	}
+
+	var ipniAdPdp1 string
+	err = a.deps.DB.QueryRow(ctx, `SELECT ad_cid FROM ipni WHERE context_id = $1 ORDER BY order_number DESC LIMIT 1`, c2b).Scan(&ipniAdPdp1)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, xerrors.Errorf("failed to get ad ID by piece CID for PDP: %w", err)
+	}
+
+	ret.IPNIAd = append(ret.IPNIAd, ipniAd, ipniAdPdp, ipniAdPdp1)
 	return ret, nil
 }
 

@@ -321,7 +321,7 @@ func (P *PDPIPNITask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		// Close the channel
 		close(recs)
 
-		// Wait till  is finished
+		// Wait till is finished
 		err = eg.Wait()
 		if err != nil {
 			return false, xerrors.Errorf("adding index to chunk (interrupted %t): %w", interrupted, err)

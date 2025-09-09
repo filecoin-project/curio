@@ -845,6 +845,18 @@ const docTemplate = `{
         "address.Address": {
             "type": "object"
         },
+        "cid.Cid": {
+            "type": "object"
+        },
+        "github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId": {
+            "type": "integer",
+            "enum": [
+                0
+            ],
+            "x-enum-varnames": [
+                "NoAllocationID"
+            ]
+        },
         "http.Header": {
             "type": "object",
             "additionalProperties": {
@@ -870,9 +882,11 @@ const docTemplate = `{
             "properties": {
                 "allocation_id": {
                     "description": "AllocationId represents an allocation identifier for the deal.",
-                    "type": "integer",
-                    "format": "uint64",
-                    "example": 1
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_filecoin-project_go-state-types_builtin_v16_verifreg.AllocationId"
+                        }
+                    ]
                 },
                 "contract_address": {
                     "description": "ContractAddress specifies the address of the contract governing the deal",
@@ -884,8 +898,10 @@ const docTemplate = `{
                 },
                 "contract_verify_method_Params": {
                     "description": "ContractDealIDMethodParams represents encoded parameters for the contract verify method if required by the contract",
-                    "type": "string",
-                    "format": "byte"
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 },
                 "duration": {
                     "description": "Duration represents the deal duration in epochs. This value is ignored for the deal with allocationID.\nIt must be at least 518400",
@@ -897,8 +913,10 @@ const docTemplate = `{
                 },
                 "notification_payload": {
                     "description": "NotificationPayload holds the notification data typically in a serialized byte array format.",
-                    "type": "string",
-                    "format": "byte"
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 },
                 "piece_manager": {
                     "description": "Actor providing AuthorizeMessage (like f1/f3 wallet) able to authorize actions such as managing ACLs",
@@ -931,9 +949,11 @@ const docTemplate = `{
                 },
                 "piece_cid": {
                     "description": "PieceCID represents the unique identifier (pieceCID V2) for a piece of data, stored as a CID object.",
-                    "type": "string",
-                    "format": "cid",
-                    "example": "bafkzcibfxx3meais3xzh6qn56y6hiasmrufhegoweu3o5ccofs74nfdfr4yn76pqz4pq"
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/cid.Cid"
+                        }
+                    ]
                 },
                 "source_aggregate": {
                     "description": "SourceAggregate represents an aggregated source, comprising multiple data sources as pieces.",
@@ -1015,9 +1035,10 @@ const docTemplate = `{
                 },
                 "identifier": {
                     "description": "Identifier represents a unique identifier for the deal in ULID format.",
-                    "type": "string",
-                    "format": "ulid",
-                    "example": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 },
                 "products": {
                     "description": "Products represents a collection of product-specific information associated with a deal",
@@ -1172,9 +1193,7 @@ const docTemplate = `{
                 },
                 "url": {
                     "description": "URL specifies the HTTP endpoint where the piece data can be fetched.",
-                    "type": "string",
-                    "format": "url",
-                    "example": "http://127.0.0.1:8080/piece/xyz"
+                    "type": "string"
                 }
             }
         },
@@ -1191,9 +1210,7 @@ const docTemplate = `{
                 },
                 "data_set_id": {
                     "description": "DataSetID is PDP verified contract dataset ID. It must be defined for all deals except when CreateDataSet is true.",
-                    "type": "integer",
-                    "format": "uint64",
-                    "example": 0
+                    "type": "integer"
                 },
                 "delete_data_set": {
                     "description": "DeleteDataSet indicated that this deal is meant to delete an existing DataSet created by SP for the client.\nDataSetID must be defined.",
@@ -1214,14 +1231,8 @@ const docTemplate = `{
                     "description": "PieceIDs is a list of Piece ids in a proof set.",
                     "type": "array",
                     "items": {
-                        "type": "integer",
-                        "format": "uint64"
-                    },
-                    "example": [
-                        0,
-                        1,
-                        2
-                    ]
+                        "type": "integer"
+                    }
                 },
                 "record_keeper": {
                     "description": "RecordKeeper specifies the record keeper contract address for the new PDP dataset.",

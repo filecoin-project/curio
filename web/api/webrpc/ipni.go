@@ -19,6 +19,8 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 
 	"github.com/filecoin-project/curio/lib/commcidv2"
+	itype "github.com/filecoin-project/curio/market/ipni/types"
+	"github.com/filecoin-project/curio/market/mk20"
 )
 
 type IpniAd struct {
@@ -94,34 +96,58 @@ func (a *WebRPC) GetAd(ctx context.Context, ad string) (*IpniAd, error) {
 
 	details := ads[0]
 
-	var pi abi.PieceInfo
-	err = pi.UnmarshalCBOR(bytes.NewReader(details.ContextID))
-	if err != nil {
-		return nil, xerrors.Errorf("failed to unmarshal piece info: %w", err)
+	var pcid, pcid2 cid.Cid
+	var psize int64
+
+	if details.SpID == -1 {
+		var pi itype.PdpIpniContext
+		err = pi.Unmarshal(details.ContextID)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to unmarshal PDP piece info: %w", err)
+		}
+		pcid2 = pi.PieceCID
+		pInfo, err := mk20.GetPieceInfo(pcid2)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to get piece info: %w", err)
+		}
+		pcid = pInfo.PieceCIDV1
+		psize = int64(pInfo.Size)
+	} else {
+		var pi abi.PieceInfo
+		err = pi.UnmarshalCBOR(bytes.NewReader(details.ContextID))
+		if err != nil {
+			return nil, xerrors.Errorf("failed to unmarshal piece info: %w", err)
+		}
+
+		pcid = pi.PieceCID
+		psize = int64(pi.Size)
+
+		// Get RawSize from market_piece_deal to calculate PieceCidV2
+		var rawSize uint64
+		err = a.deps.DB.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 LIMIT 1;`, pi.PieceCID, pi.Size).Scan(&rawSize)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to get raw size: %w", err)
+		}
+
+		pcid2, err = commcidv2.PieceCidV2FromV1(pi.PieceCID, rawSize)
+		if err != nil {
+			return nil, xerrors.Errorf("failed to get commp: %w", err)
+		}
 	}
 
-	// Get RawSize from market_piece_deal to calculate PieceCidV2
-	var rawSize uint64
-	err = a.deps.DB.QueryRow(ctx, `SELECT raw_size FROM market_piece_deal WHERE piece_cid = $1 AND piece_length = $2 LIMIT 1;`, pi.PieceCID, pi.Size).Scan(&rawSize)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to get raw size: %w", err)
-	}
+	details.PieceCid = pcid.String()
+	details.PieceSize = psize
+	details.PieceCidV2 = pcid2.String()
 
-	pcidv2, err := commcidv2.PieceCidV2FromV1(pi.PieceCID, rawSize)
-	if err != nil {
-		return nil, xerrors.Errorf("failed to get commp: %w", err)
+	if details.SpID == -1 {
+		details.Miner = "PDP"
+	} else {
+		maddr, err := address.NewIDAddress(uint64(details.SpID))
+		if err != nil {
+			return nil, err
+		}
+		details.Miner = maddr.String()
 	}
-
-	details.PieceCid = pi.PieceCID.String()
-	size := int64(pi.Size)
-	details.PieceSize = size
-	details.PieceCidV2 = pcidv2.String()
-
-	maddr, err := address.NewIDAddress(uint64(details.SpID))
-	if err != nil {
-		return nil, err
-	}
-	details.Miner = maddr.String()
 
 	if !details.PreviousAd.Valid {
 		details.Previous = ""
