@@ -170,6 +170,12 @@ func (p *PDPService) handleCreateDataSet(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Check if the recordkeeper is in the whitelist for public services
+	if contract.IsPublicService(serviceLabel) && !contract.IsRecordKeeperAllowed(recordKeeperAddr) {
+		http.Error(w, "recordKeeper address not allowed for public service", http.StatusForbidden)
+		return
+	}
+
 	// Decode extraData if provided
 	extraDataBytes := []byte{}
 	if reqBody.ExtraData != nil {
