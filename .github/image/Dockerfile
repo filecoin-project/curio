@@ -1,6 +1,6 @@
 ## This image is used to github action runner for this repo
 # Use the official Golang image as the base image
-FROM golang:1.23-bullseye AS builder
+FROM golang:1.24-bullseye AS builder
 
 # Set the working directory inside the container
 WORKDIR /app
