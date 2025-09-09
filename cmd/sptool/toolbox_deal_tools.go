@@ -224,7 +224,9 @@ var commpCmd = &cli.Command{
 		if err != nil {
 			return err
 		}
-		defer rdr.Close() //nolint:errcheck
+		defer func() {
+			_ = rdr.Close()
+		}()
 
 		w := &writer.Writer{}
 		_, err = io.CopyBuffer(w, rdr, make([]byte, writer.CommPBuf))

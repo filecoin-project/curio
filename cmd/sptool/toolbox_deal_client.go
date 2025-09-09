@@ -704,7 +704,7 @@ var initCmd = &cli.Command{
 			return err
 		}
 
-		_ = os.Mkdir(sdir, 0755) //nolint:errcheck
+		_ = os.Mkdir(sdir, 0755)
 
 		n, err := Setup(cctx.String(mk12_client_repo.Name))
 		if err != nil {
@@ -1592,6 +1592,7 @@ var mk20Clientcmd = &cli.Command{
 		mk20ClientMakeAggregateCmd,
 		mk20ClientUploadCmd,
 		mk20ClientChunkUploadCmd,
+		mk20PDPDealStatusCmd,
 	},
 }
 
@@ -2461,6 +2462,65 @@ var mk20ClientUploadCmd = &cli.Command{
 		err = pclient.DealUploadSerialFinalize(ctx, dealid.String(), nil)
 		if err != nil {
 			return xerrors.Errorf("finalizing the upload: %w", err)
+		}
+
+		return nil
+	},
+}
+
+var mk20PDPDealStatusCmd = &cli.Command{
+	Name:  "deal-status",
+	Usage: "Get status of a Mk20 deal",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "provider",
+			Usage:    "PDP providers's URL",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "id",
+			Usage:    "deal id",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:  "wallet",
+			Usage: "wallet address to be used to initiate the deal",
+		},
+	},
+	Action: func(cctx *cli.Context) error {
+		ctx := cctx.Context
+		n, err := Setup(cctx.String(mk12_client_repo.Name))
+		if err != nil {
+			return err
+		}
+
+		walletAddr, err := n.GetProvidedOrDefaultWallet(ctx, cctx.String("wallet"))
+		if err != nil {
+			return err
+		}
+
+		maddr, err := url.Parse(cctx.String("provider"))
+		if err != nil {
+			return err
+		}
+
+		pclient := client.NewClient(maddr.String(), walletAddr, n.Wallet)
+
+		status, err := pclient.DealStatus(ctx, cctx.String("id"))
+		if err != nil {
+			return xerrors.Errorf("getting deal status: %w", err)
+		}
+
+		if status.PDPV1 != nil {
+			fmt.Println("PDP Status:")
+			fmt.Println("State:", status.PDPV1.State)
+			fmt.Println("Error:", status.PDPV1.ErrorMsg)
+		}
+
+		if status.DDOV1 != nil {
+			fmt.Println("PDP Status:")
+			fmt.Println("State:", status.DDOV1.State)
+			fmt.Println("Error:", status.DDOV1.ErrorMsg)
 		}
 
 		return nil
