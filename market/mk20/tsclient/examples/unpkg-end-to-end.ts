@@ -128,7 +128,7 @@ async function run() {
   console.log('📨 Submitting PDPv1 deal and uploading via helper');
   let prep;
   try {
-    prep = await client.submitPDPv1Deal({
+    prep = await client.startPDPv1DealForUpload({
       blobs: [blob],
       client: clientAddr,
       recordKeeper: recordKeeper,

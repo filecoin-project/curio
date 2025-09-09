@@ -430,13 +430,13 @@ export class MarketClient {
   }
   
   /**
-   * Submit a PDPv1 deal in two steps and prepare for upload.
+   * Start a PDPv1 deal in two steps and prepare for upload.
    * - Step 1: createDataSet
    * - Step 2: addPiece with data descriptor (pieceCid, raw format, HTTP PUT source)
    * Returns the upload identifier (ULID), computed pieceCid, total size, and the deal payload
    * that should be used at finalize time.
    */
-  async submitPDPv1Deal(params: {
+  async startPDPv1DealForUpload(params: {
     blobs: Blob[];
     client: string;
     recordKeeper: string;
@@ -566,7 +566,7 @@ export class MarketClient {
     uploadedBytes: number;
   }> {
     try {
-      const prep = await this.submitPDPv1Deal(params);
+      const prep = await this.startPDPv1DealForUpload(params);
       const ures = await this.uploadBlobs({ id: prep.id, blobs: params.blobs, deal: prep.deal });
       return {
         uuid: prep.id,
