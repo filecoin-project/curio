@@ -270,7 +270,7 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 					}
 				}
 
-				result, _ := Retry(ctx, maxRetryAttempts, initialBackoff, errorsToRetry, func(isRetry bool) ([]reflect.Value, error) {
+				result, rerr := Retry(ctx, maxRetryAttempts, initialBackoff, errorsToRetry, func(isRetry bool) ([]reflect.Value, error) {
 					if isRetry {
 						pp := nextHealthyProvider(*preferredProvider + 1)
 						if pp == -1 {
@@ -286,6 +286,18 @@ func FullNodeProxy[T api.Chain](ins []T, outstr *api.ChainStruct) {
 					e := result[len(result)-1].Interface().(error)
 					return result, e
 				})
+				if rerr != nil && field.Type.NumOut() != len(result) {
+					clog.Errorw("retry rpc call error", "error", rerr, "result", result)
+
+					var out []reflect.Value
+					for i := 0; i < field.Type.NumOut(); i++ {
+						out = append(out, reflect.Zero(field.Type.Out(i)))
+					}
+					// last value is always an error.. set it to the error
+					out[len(out)-1] = reflect.ValueOf(xerrors.Errorf("retry rpc call error: %w", rerr))
+					return out
+				}
+
 				return result
 			}))
 		}

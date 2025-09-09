@@ -240,7 +240,7 @@ func runApp(app *cli.App) {
 		if os.Getenv("LOTUS_DEV") != "" {
 			log.Warnf("%+v", err)
 		} else {
-			fmt.Fprintf(os.Stderr, "ERROR: %s\n\n", err) // nolint:errcheck
+			_, _ = fmt.Fprintf(os.Stderr, "ERROR: %s\n\n", err) // nolint:errcheck
 		}
 
 		var phe *PrintHelpErr

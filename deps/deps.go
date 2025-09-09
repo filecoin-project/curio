@@ -347,10 +347,10 @@ Get it with: jq .PrivateKey ~/.lotus-miner/keystore/MF2XI2BNNJ3XILLQOJUXMYLUMU`,
 			deps.ProofTypes[spt] = true
 		}
 
-		if deps.Cfg.Subsystems.EnableProofShare {
-			deps.ProofTypes[abi.RegisteredSealProof_StackedDrg32GiBV1_1] = true
-			// deps.ProofTypes[abi.RegisteredSealProof_StackedDrg64GiBV1_1] = true TODO REVIEW UNCOMMENT
-		}
+	}
+	if deps.Cfg.Subsystems.EnableProofShare {
+		deps.ProofTypes[abi.RegisteredSealProof_StackedDrg32GiBV1_1] = true
+		// deps.ProofTypes[abi.RegisteredSealProof_StackedDrg64GiBV1_1] = true TODO REVIEW UNCOMMENT
 	}
 
 	if deps.Cfg.Subsystems.EnableWalletExporter {
