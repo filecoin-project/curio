@@ -63,6 +63,10 @@ func (t *TaskClientUpload) Do(taskID harmonytask.TaskID, stillOwned func() bool)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return false, xerrors.Errorf("failed to get client request: %w", err)
 	}
+	if err != nil && errors.Is(err, pgx.ErrNoRows) {
+		log.Infow("client upload not found", "taskID", taskID)
+		return true, nil
+	}
 
 	if clientRequest.RequestSent && len(clientRequest.ResponseData) > 0 {
 		// special case: pipeline was done but re-entered due to the retry button on the PrRep page being clicked

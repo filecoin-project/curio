@@ -257,10 +257,10 @@ func RequestProof(request common.ProofRequest) (bool, error) {
 }
 
 // GetProofStatus checks the status of a proof request by ID
-func GetProofStatus(requestCid cid.Cid) (common.ProofResponse, error) {
+func GetProofStatus(ctx context.Context, requestCid cid.Cid) (common.ProofResponse, error) {
 	start := time.Now()
 	defer recordClientctlDuration("GetProofStatus", start)
-	ctx, cancel := context.WithTimeout(context.Background(), MaxRetryTime)
+	ctx, cancel := context.WithTimeout(ctx, MaxRetryTime)
 	defer cancel()
 
 	return retryWithBackoff(ctx, func() (common.ProofResponse, error) {
@@ -287,9 +287,9 @@ func GetProofStatus(requestCid cid.Cid) (common.ProofResponse, error) {
 			return common.ProofResponse{}, xerrors.Errorf("failed to unmarshal response body: %w", err)
 		}
 
-		// If the proof is not ready yet, return an error to trigger retry
+		// not ready yet, return empty response to the poller above
 		if proofResp.Proof == nil && proofResp.Error == "" {
-			return common.ProofResponse{}, xerrors.Errorf("proof not ready yet")
+			return common.ProofResponse{}, nil
 		}
 
 		// If there's an error in the proof generation, return it
@@ -306,7 +306,7 @@ func WaitForProof(request common.ProofRequest) ([]byte, error) {
 	start := time.Now()
 	defer recordClientctlDuration("WaitForProof", start)
 	// Wait for the proof
-	proofResp, err := GetProofStatus(request.Data)
+	proofResp, err := GetProofStatus(context.Background(), request.Data)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to get proof: %w", err)
 	}

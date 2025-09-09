@@ -282,7 +282,7 @@ func TestDeal_Products_OmitEmptyInnerFields(t *testing.T) {
 }
 
 func TestPartialUnmarshal(t *testing.T) {
-	iString := "{\"client\":\"t1k7ctd3hvmwwjdpb2ipd3kr7n4vk3xzfvzbbdrai\",\"products\":{\"pdpV1\":{\"createDataSet\":true,\"addPiece\":true,\"recordKeeper\":\"0x158c8f05A616403589b99BE5d82d756860363A92\"}}}"
+	iString := "{\"client\":\"t1k7ctd3hvmwwjdpb2ipd3kr7n4vk3xzfvzbbdrai\",\"products\":{\"pdp_v1\":{\"create_data_set\":true,\"add_piece\":true,\"record_keeper\":\"0x158c8f05A616403589b99BE5d82d756860363A92\"}}}"
 	var deal Deal
 	if err := json.Unmarshal([]byte(iString), &deal); err != nil {
 		t.Fatal(err)

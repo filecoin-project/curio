@@ -20,8 +20,6 @@ import (
 // @Return *DealProductStatusResponse
 
 func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
-	// Check if we ever accepted this deal
-
 	var pdp_complete, ddo_complete sql.NullBool
 	var pdp_error, ddo_error sql.NullString
 
@@ -43,51 +41,179 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 			HTTPCode: http.StatusInternalServerError,
 		}
 	}
-	// Handle corner case if now product rows
-	if !pdp_complete.Valid && !ddo_complete.Valid {
-		return &DealStatus{
-			HTTPCode: http.StatusNotFound,
-		}
-	}
 
-	ret := &DealStatus{
-		HTTPCode: http.StatusOK,
-	}
-
-	if pdp_complete.Valid {
-		if pdp_complete.Bool && !pdp_error.Valid {
-			ret.Response.PDPV1.State = DealStateComplete
-		}
-		if pdp_complete.Bool && pdp_error.Valid {
-			ret.Response.PDPV1.State = DealStateFailed
-			ret.Response.PDPV1.ErrorMsg = pdp_error.String
-		}
-	}
-
-	if ddo_complete.Valid {
-		if ddo_complete.Bool && !ddo_error.Valid {
-			ret.Response.DDOV1.State = DealStateComplete
-		}
-		if ddo_complete.Bool && ddo_error.Valid {
-			ret.Response.DDOV1.State = DealStateFailed
-			ret.Response.DDOV1.ErrorMsg = ddo_error.String
-		}
-	}
-
-	if ret.Response.DDOV1.State == DealStateComplete && ret.Response.PDPV1.State == DealStateComplete {
-		return ret
-	}
-
-	var waitingForPipeline bool
-	err = m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_pipeline_waiting WHERE id = $1)`, id.String()).Scan(&waitingForPipeline)
+	deal, err := DealFromDB(ctx, m.DB, id)
 	if err != nil {
-		log.Errorw("failed to query the db for deal status", "deal", id.String(), "err", err)
+		log.Errorw("failed to get deal from db", "deal", id, "error", err)
 		return &DealStatus{
 			HTTPCode: http.StatusInternalServerError,
 		}
 	}
+
+	isPDP := deal.Products.PDPV1 != nil
+	isDDO := deal.Products.DDOV1 != nil
+
+	// If only PDP is defined
+	if isPDP && !isDDO {
+		ret := &DealStatus{
+			HTTPCode: http.StatusOK,
+			Response: &DealProductStatusResponse{
+				PDPV1: &DealStatusResponse{
+					State: DealStateAccepted,
+				},
+			},
+		}
+		if pdp_complete.Bool {
+			ret.Response.PDPV1.State = DealStateComplete
+		}
+		if pdp_error.Valid && pdp_error.String != "" {
+			ret.Response.PDPV1.State = DealStateFailed
+			ret.Response.PDPV1.ErrorMsg = pdp_error.String
+		}
+
+		if !pdp_complete.Bool {
+			pdp := deal.Products.PDPV1
+			if pdp.AddPiece {
+				if deal.Data != nil {
+					// Check if deal is uploaded
+					var yes bool
+					err = m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_upload_waiting WHERE id = $1)`, id.String()).Scan(&yes)
+					if err != nil {
+						log.Errorw("failed to query the db for deal status", "deal", id.String(), "err", err)
+						return &DealStatus{
+							HTTPCode: http.StatusInternalServerError,
+						}
+					}
+					if yes {
+						ret.Response.PDPV1.State = DealStateAwaitingUpload
+					} else {
+						ret.Response.PDPV1.State = DealStateProcessing
+					}
+				} else {
+					ret.Response.PDPV1.State = DealStateAccepted
+				}
+			}
+
+			if pdp.CreateDataSet || pdp.DeleteDataSet || pdp.DeletePiece {
+				ret.Response.PDPV1.State = DealStateProcessing
+			}
+		}
+
+		return ret
+	}
+
+	// If only DDO is defined
+	if isDDO && !isPDP {
+		ret := &DealStatus{
+			HTTPCode: http.StatusOK,
+			Response: &DealProductStatusResponse{
+				DDOV1: &DealStatusResponse{
+					State: DealStateAccepted,
+				},
+			},
+		}
+		if ddo_complete.Bool {
+			ret.Response.DDOV1.State = DealStateComplete
+		}
+		if ddo_error.Valid && ddo_error.String != "" {
+			ret.Response.DDOV1.State = DealStateFailed
+			ret.Response.DDOV1.ErrorMsg = ddo_error.String
+		}
+
+		if !ddo_complete.Bool {
+			state, err := m.getDDOStatus(ctx, id)
+			if err != nil {
+				log.Errorw("failed to get DDO status", "deal", id.String(), "error", err)
+				return &DealStatus{
+					HTTPCode: http.StatusInternalServerError,
+				}
+			}
+			ret.Response.DDOV1.State = state
+		}
+
+		return ret
+	}
+
+	// If both PDP and DDO are defined
+	if isPDP && isDDO {
+		ret := &DealStatus{
+			HTTPCode: http.StatusOK,
+		}
+
+		if pdp_complete.Bool {
+			ret.Response.PDPV1.State = DealStateComplete
+		}
+
+		if pdp_error.Valid {
+			ret.Response.PDPV1.State = DealStateFailed
+			ret.Response.PDPV1.ErrorMsg = pdp_error.String
+		}
+
+		if ddo_complete.Bool {
+			ret.Response.DDOV1.State = DealStateComplete
+		}
+
+		if ddo_error.Valid && ddo_error.String != "" {
+			ret.Response.DDOV1.State = DealStateFailed
+			ret.Response.DDOV1.ErrorMsg = ddo_error.String
+		}
+
+		if !pdp_complete.Bool {
+			pdp := deal.Products.PDPV1
+			if pdp.AddPiece {
+				if deal.Data != nil {
+					// Check if deal is uploaded
+					var yes bool
+					err = m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_upload_waiting WHERE id = $1)`, id.String()).Scan(&yes)
+					if err != nil {
+						log.Errorw("failed to query the db for deal status", "deal", id.String(), "err", err)
+						return &DealStatus{
+							HTTPCode: http.StatusInternalServerError,
+						}
+					}
+					if yes {
+						ret.Response.PDPV1.State = DealStateAwaitingUpload
+					} else {
+						ret.Response.PDPV1.State = DealStateProcessing
+					}
+				} else {
+					ret.Response.PDPV1.State = DealStateAccepted
+				}
+			}
+
+			if pdp.CreateDataSet || pdp.DeleteDataSet || pdp.DeletePiece {
+				ret.Response.PDPV1.State = DealStateProcessing
+			}
+		}
+
+		if !ddo_complete.Bool {
+			state, err := m.getDDOStatus(ctx, id)
+			if err != nil {
+				log.Errorw("failed to get DDO status", "deal", id.String(), "error", err)
+				return &DealStatus{
+					HTTPCode: http.StatusInternalServerError,
+				}
+			}
+			ret.Response.DDOV1.State = state
+		}
+
+		return ret
+	}
+
+	return &DealStatus{
+		HTTPCode: http.StatusInternalServerError,
+	}
+
+}
+
+func (m *MK20) getDDOStatus(ctx context.Context, id ulid.ULID) (DealState, error) {
+	var waitingForPipeline bool
+	err := m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM market_mk20_pipeline_waiting WHERE id = $1)`, id.String()).Scan(&waitingForPipeline)
+	if err != nil {
+		return DealStateAccepted, err
+	}
 	if waitingForPipeline {
-		ret.Response.DDOV1.State = DealStateAccepted
+		return DealStateAccepted, nil
 	}
 
 	var pdeals []struct {
@@ -106,45 +232,28 @@ func (m *MK20) DealStatus(ctx context.Context, id ulid.ULID) *DealStatus {
 									id = $1`, id.String())
 
 	if err != nil {
-		log.Errorw("failed to query the db for deal pipeline status", "deal", id.String(), "err", err)
-		return &DealStatus{
-			HTTPCode: http.StatusInternalServerError,
-		}
+		return DealStateAccepted, err
 	}
 
 	if len(pdeals) > 1 {
-		ret.Response.DDOV1.State = DealStateProcessing
+		return DealStateProcessing, nil
 	}
 
 	// If deal is still in pipeline
 	if len(pdeals) == 1 {
 		pdeal := pdeals[0]
 		if pdeal.Sector == nil {
-			ret.Response.DDOV1.State = DealStateProcessing
+			return DealStateProcessing, nil
 		}
 		if !pdeal.Sealed {
-			ret.Response.DDOV1.State = DealStateSealing
+			return DealStateSealing, nil
 		}
 		if !pdeal.Indexed {
-			ret.Response.DDOV1.State = DealStateIndexing
+			return DealStateIndexing, nil
 		}
 	}
 
-	var pdpPipeline bool
-	err = m.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pdp_pipeline WHERE id = $1)`, id.String()).Scan(&pdpPipeline)
-	if err != nil {
-		log.Errorw("failed to query the db for PDP deal status", "deal", id.String(), "err", err)
-		return &DealStatus{
-			HTTPCode: http.StatusInternalServerError,
-		}
-	}
-	if waitingForPipeline {
-		ret.Response.PDPV1.State = DealStateProcessing
-	} else {
-		ret.Response.PDPV1.State = DealStateAccepted
-	}
-
-	return ret
+	return DealStateComplete, nil
 }
 
 // Supported retrieves and returns maps of product names and data source names with their enabled status, or an error if the query fails.

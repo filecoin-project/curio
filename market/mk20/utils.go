@@ -681,10 +681,10 @@ type DealStatusResponse struct {
 type DealProductStatusResponse struct {
 
 	// DDOV1 holds the DealStatusResponse for product "ddo_v1".
-	DDOV1 DealStatusResponse `json:"ddo_v1"`
+	DDOV1 *DealStatusResponse `json:"ddo_v1,omitempty"`
 
 	// PDPV1 represents the DealStatusResponse for the product pdp_v1.
-	PDPV1 DealStatusResponse `json:"pdp_v1"`
+	PDPV1 *DealStatusResponse `json:"pdp_v1,omitempty"`
 }
 
 // DealStatus represents the status of a deal, including the HTTP code and an optional response detailing the deal's state and error message.
